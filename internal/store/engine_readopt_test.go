@@ -185,35 +185,29 @@ func TestEngineReadoptOpsFailOnMissingRow(t *testing.T) {
 	}
 }
 
-func TestEngineReadoptMigrationDownAndUp(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, provider := storeAtVersion(t, 13)
-
-	if _, err := provider.DownTo(ctx, 12); err != nil {
-		t.Fatalf("DownTo 12: %v", err)
-	}
+// engineReadoptDownAndUp is the walk's check of 00013_engine_readopt.sql: its Down removes the readopt columns of
+// sessions and the write_id of events, and its Up restores them.
+func engineReadoptDownAndUp() migrationCheck {
 	sessionReadopt := []string{"consumed", "replay_from", "background", "turn_output", "prompts_from"}
-
-	sessionCols := tableColumns(t, s, "sessions")
-	if hasAny(sessionCols, sessionReadopt...) {
-		t.Fatalf("sessions columns after Down: got %v, want no readopt columns", sessionCols)
-	}
-	eventCols := tableColumns(t, s, "events")
-	if hasAny(eventCols, "write_id") {
-		t.Fatalf("events columns after Down: got %v, want no write_id", eventCols)
-	}
-
-	if _, err := provider.Up(ctx); err != nil {
-		t.Fatalf("Up: %v", err)
-	}
-	sessionCols = tableColumns(t, s, "sessions")
-	if !hasAll(sessionCols, sessionReadopt...) {
-		t.Fatalf("sessions columns after Up: got %v, want the readopt columns", sessionCols)
-	}
-	eventCols = tableColumns(t, s, "events")
-	if !hasAll(eventCols, "write_id") {
-		t.Fatalf("events columns after Up: got %v, want write_id", eventCols)
+	return migrationCheck{
+		down: func(t *testing.T, s *Store) {
+			t.Helper()
+			if sessionCols := tableColumns(t, s, "sessions"); hasAny(sessionCols, sessionReadopt...) {
+				t.Errorf("sessions columns after Down: got %v, want no readopt columns", sessionCols)
+			}
+			if eventCols := tableColumns(t, s, "events"); hasAny(eventCols, "write_id") {
+				t.Errorf("events columns after Down: got %v, want no write_id", eventCols)
+			}
+		},
+		up: func(t *testing.T, s *Store) {
+			t.Helper()
+			if sessionCols := tableColumns(t, s, "sessions"); !hasAll(sessionCols, sessionReadopt...) {
+				t.Errorf("sessions columns after Up: got %v, want the readopt columns", sessionCols)
+			}
+			if eventCols := tableColumns(t, s, "events"); !hasAll(eventCols, "write_id") {
+				t.Errorf("events columns after Up: got %v, want write_id", eventCols)
+			}
+		},
 	}
 }
 

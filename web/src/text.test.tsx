@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { render } from "preact";
 
 import { ReplyText } from "./text";
-import { installTestDom, removeTestDom } from "./testdom";
+import { assertNone, installTestDom, removeTestDom } from "./testdom";
 
 async function withReply(text: string, check: (container: HTMLElement) => void): Promise<void> {
   const window = installTestDom();
@@ -20,13 +20,13 @@ async function withReply(text: string, check: (container: HTMLElement) => void):
 
 test("script markup renders as text, not an element", () =>
   withReply("<script>alert(1)</script>", (container) => {
-    assert.equal(container.querySelector("script"), null);
+    assertNone(container.querySelector("script"));
     assert.equal(container.textContent, "<script>alert(1)</script>");
   }));
 
 test("img markup renders as text, not an element", () =>
   withReply("<img src=x onerror=alert(1)>", (container) => {
-    assert.equal(container.querySelector("img"), null);
+    assertNone(container.querySelector("img"));
     assert.equal(container.textContent, "<img src=x onerror=alert(1)>");
   }));
 

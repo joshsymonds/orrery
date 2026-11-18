@@ -1,5 +1,6 @@
 import type { JSX } from "preact";
 
+import { CommitMark } from "./commitmark";
 import type { EpicContract, EpicRequirement } from "./gen/orrery/v1/epics_pb";
 import { clock } from "./reader";
 
@@ -8,7 +9,6 @@ import { clock } from "./reader";
 // text is a child of its element, so no markup in a field becomes an element, and no field can be edited.
 export function ContractBody(props: { contract: EpicContract; requirements: EpicRequirement[] }): JSX.Element {
   const { contract, requirements } = props;
-  const base = contract.base === "" ? "" : ` · base ${contract.base}`;
   return (
     <article class="contract">
       <h2>{contract.title}</h2>
@@ -120,7 +120,15 @@ export function ContractBody(props: { contract: EpicContract; requirements: Epic
         <p class="checks">{contract.checks}</p>
       </section>
 
-      <p class="accepted">{`accepted ${clock(contract.accepted)}${base}`}</p>
+      <p class="accepted">
+        {`accepted ${clock(contract.accepted)}`}
+        {contract.base !== "" && (
+          <>
+            {" · "}
+            <CommitMark hash={contract.base} />
+          </>
+        )}
+      </p>
     </article>
   );
 }

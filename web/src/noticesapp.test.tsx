@@ -13,6 +13,7 @@ import {
   EpicsListResponseSchema,
 } from "./gen/orrery/v1/epics_pb";
 import { start } from "./main";
+import { mockTimers } from "./testclock";
 import { until } from "./testwait";
 import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
 
@@ -368,7 +369,7 @@ test("a failed Seen is dropped without a page error, and the click still moves t
   }));
 
 test("the notice stack is drawn inside .panes, the reading area it sits over", (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
+  mockTimers(t, ["setTimeout"]);
   return withPage(
     t.signal,
     async (root, server) => {
@@ -386,7 +387,7 @@ test("the notice stack is drawn inside .panes, the reading area it sits over", (
 });
 
 test("a × removes its row at once, sends Seen for its key, and the other notices stay", (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
+  mockTimers(t, ["setTimeout"]);
   return withPage(
     t.signal,
     async (root, server) => {
@@ -407,7 +408,7 @@ test("a × removes its row at once, sends Seen for its key, and the other notice
 });
 
 test("a notice leaves the stack at 8 seconds after it appears, and no Seen is sent for it", (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
+  mockTimers(t, ["setTimeout"]);
   return withPage(
     t.signal,
     async (root, server) => {

@@ -34,6 +34,9 @@ const stepReadoptPrompt = "STEPDONE"
 const stepReadoptSchema = `{"type":"object","properties":{"status":{"type":"string"},"commit":{"type":"string"}},` +
 	`"required":["status","commit"]}`
 
+// stepReadoptOwned is the path a step owns. A writing step needs one, and the fake's empty commit changes no path.
+const stepReadoptOwned = "notes.txt"
+
 // stepReadoptAgent is the agent the step runs as. Its definition is a project agent in the step's worktree.
 const stepReadoptAgent = "implementer"
 
@@ -176,12 +179,13 @@ func gateRunCount(t *testing.T, path string) int {
 func (r *stepReadoptRig) startStep(t *testing.T) string {
 	t.Helper()
 	resp, err := r.steps().StartStep(t.Context(), connect.NewRequest(&v1.StartStepRequest{
-		Agent:     stepReadoptAgent,
-		Prompt:    stepReadoptPrompt,
-		Schema:    stepReadoptSchema,
-		Workspace: r.worktree,
-		GateName:  stepReadoptGate,
-		GatesFile: r.gatesFile,
+		Agent:      stepReadoptAgent,
+		Prompt:     stepReadoptPrompt,
+		Schema:     stepReadoptSchema,
+		Workspace:  r.worktree,
+		OwnedPaths: []string{stepReadoptOwned},
+		GateName:   stepReadoptGate,
+		GatesFile:  r.gatesFile,
 	}))
 	if err != nil {
 		t.Fatalf("start step: %v", err)

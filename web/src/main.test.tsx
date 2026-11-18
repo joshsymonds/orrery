@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { act } from "preact/test-utils";
 
 import { createClients, createTransport } from "./client";
 import { start as startPage } from "./main";
+import { mockTimers } from "./testclock";
 import { turn, until } from "./testwait";
 import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
 
@@ -29,15 +30,14 @@ const retryMs = 5;
 const longPollMs = 600_000;
 
 // Synthetic fixtures: one pane and one headless session, no real hosts or paths.
-function paneBody(label: string) {
+function paneBody(dir: string) {
   return {
     panes: [
       {
         id: "%1",
         host: "box",
         session: "work",
-        label,
-        cwd: "/work/api",
+        cwd: `/work/${dir}`,
         state: "waiting",
         summary: "building",
         question: "",
@@ -63,13 +63,13 @@ const sessionBody = {
   ],
 };
 
-// headlessSession is one headless session as Sessions.ListHeadless answers it, under a synthetic directory, with the
-// label the server derives: the directory's base name and the first 8 characters of the id.
+// headlessSession is one headless session as Sessions.ListHeadless answers it, under a synthetic directory, with no
+// headline yet, so its row reads its directory alone.
 function headlessSession(id: string, base: string) {
   return {
     id,
     dir: `/work/${base}`,
-    label: `${base} · ${id.slice(0, 8)}`,
+    headline: "",
     state: "working",
     changed: "50",
     seen: "0",
@@ -124,8 +124,8 @@ interface Watch {
 
 interface FakeServer {
   fetch: typeof globalThis.fetch;
-  // The pane label the next Panes.List answers with.
-  paneLabel: string;
+  // The directory the next Panes.List answers its pane in, named by its last element.
+  paneDir: string;
   // While set, Panes.List waits for it before answering.
   gate: Promise<void> | null;
   panesCalls: number;
@@ -146,6 +146,8 @@ interface FakeServer {
   // While set, Epics.List waits for it before answering.
   epicsGate: Promise<void> | null;
   epicsListCalls: number;
+  // The Epics.Get calls the page has made, counted as each arrives.
+  epicsGetCalls: number;
   epicsInFlight: number;
   maxEpicsInFlight: number;
   // While set, Host.Status answers with a server error.
@@ -160,7 +162,7 @@ interface FakeServer {
 // fakeServer answers the lists from its fields, so a test can change what the next reload shows. It starts with no
 // epics, so a test that does not ask for one sees the same page as before epics existed. Without streaming,
 // Events.Watch answers 404, so the stream is down and the poll alone reloads.
-function fakeServer(paneLabel: string, streaming = false): FakeServer {
+function fakeServer(paneDir: string, streaming = false): FakeServer {
   const server: FakeServer = {
     fetch: async (input, init) => {
       const request = new Request(input, init);
@@ -219,6 +221,7 @@ function fakeServer(paneLabel: string, streaming = false): FakeServer {
         }
       }
       if (path === epicsGetPath) {
+        server.epicsGetCalls++;
         const body = (await request.json()) as { id?: string };
         const epic = server.epics.find((candidate) => candidate.id === body.id);
         if (epic === undefined) {
@@ -252,12 +255,12 @@ function fakeServer(paneLabel: string, streaming = false): FakeServer {
           // Longer than intervalMs, so a reload that ignored the in-flight one would overlap it.
           await new Promise((resolve) => setTimeout(resolve, intervalMs * 3));
         }
-        return json(paneBody(server.paneLabel));
+        return json(paneBody(server.paneDir));
       } finally {
         server.panesInFlight--;
       }
     },
-    paneLabel,
+    paneDir,
     gate: null,
     panesCalls: 0,
     panesInFlight: 0,
@@ -270,6 +273,7 @@ function fakeServer(paneLabel: string, streaming = false): FakeServer {
     epics: [],
     epicsGate: null,
     epicsListCalls: 0,
+    epicsGetCalls: 0,
     epicsInFlight: 0,
     maxEpicsInFlight: 0,
     hostFails: false,
@@ -306,14 +310,26 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function labels(root: HTMLElement): string[] {
-  return [...root.querySelectorAll(".label")].map((element) => element.textContent ?? "");
+// nameOf names a session or pane row by its directory's last element, or by its line when it has no directory. An epic
+// or step row, which draws no title, is named by its label.
+function nameOf(row: Element): string {
+  return (
+    row.querySelector(".title-dir")?.textContent ??
+    row.querySelector(".title-line")?.textContent ??
+    row.querySelector(".label")?.textContent ??
+    ""
+  );
 }
 
-// ageOf returns the age text of the row labelled name, or "" when no such row is rendered.
+// labels names each row that is drawn, in the order drawn.
+function labels(root: HTMLElement): string[] {
+  return [...root.querySelectorAll("[data-row]")].map(nameOf).filter((name) => name !== "");
+}
+
+// ageOf returns the age text of the row named name, or "" when no such row is rendered.
 function ageOf(root: HTMLElement, name: string): string {
   const rows = [...root.querySelectorAll("[data-row]")];
-  const row = rows.find((element) => element.querySelector(".label")?.textContent === name);
+  const row = rows.find((element) => nameOf(element) === name);
   return row?.querySelector(".age")?.textContent ?? "";
 }
 
@@ -449,7 +465,7 @@ test("a reload shows the changed pane", (t) =>
     const stop = start(root, clientsFor(server), intervalMs);
     try {
       await until(t.signal, () => labels(root).includes("api"), "the first pane label");
-      server.paneLabel = "web";
+      server.paneDir = "web";
       await until(t.signal, () => labels(root).includes("web") && !labels(root).includes("api"), "the renamed pane");
     } finally {
       stop();
@@ -498,7 +514,7 @@ test("a headless session from Sessions.ListHeadless is a row on the first load",
     const stop = start(root, clientsFor(server), longPollMs);
     try {
       await until(t.signal, () => labels(root).includes("api"), "the first load");
-      await until(t.signal, () => labels(root).includes("gatehouse · 170bf619"), "the headless session's row");
+      await until(t.signal, () => labels(root).includes("gatehouse"), "the headless session's row");
       assert.ok(server.paths.has(headlessPath), "the page never called Sessions.ListHeadless");
     } finally {
       stop();
@@ -513,7 +529,7 @@ test("an engine_added on the open stream adds the new headless session's row wit
     try {
       await until(
         t.signal,
-        () => server.watches.length === 1 && labels(root).includes("gatehouse · 170bf619"),
+        () => server.watches.length === 1 && labels(root).includes("gatehouse"),
         "the first load and stream",
       );
       // The poll waits longPollMs, longer than the suite lets a test run, so the row this wait sees can only come from
@@ -521,8 +537,8 @@ test("an engine_added on the open stream adds the new headless session's row wit
       const added = headlessSession("cfe64ee3aa00bb11cc22dd33ee44ff55", "orrery");
       server.headless = [...server.headless, added];
       sendEngineAdded(server.watches[0], 8, added.id, added.dir);
-      await until(t.signal, () => labels(root).includes("orrery · cfe64ee3"), "the added session's row");
-      assert.ok(labels(root).includes("gatehouse · 170bf619"), "the first headless session's row went away");
+      await until(t.signal, () => labels(root).includes("orrery"), "the added session's row");
+      assert.ok(labels(root).includes("gatehouse"), "the first headless session's row went away");
     } finally {
       stop();
     }
@@ -532,9 +548,9 @@ test("an engine_added on the open stream adds the new headless session's row wit
 // tests named with childPrefix, and it runs only those.
 const childEnv = "ORRERY_MAIN_TEST_CHILD";
 const childPrefix = "child run: ";
-// childTimeoutMs is the child run's --test-timeout: its first test can only end by timing out, and its second, a page's
-// first load, ends long before it.
-const childTimeoutMs = 3000;
+// childTimeoutMs is the child run's --test-timeout, short, as testwait's is: its first test can only end by timing out,
+// and its second, a page's first load against a fake server, takes milliseconds.
+const childTimeoutMs = 300;
 
 if (process.env[childEnv] === "1") {
   test(`${childPrefix}a page whose wait never ends`, (t) =>
@@ -606,7 +622,7 @@ test("an event on the open stream reloads without waiting for the poll", (t) =>
     try {
       await until(t.signal, () => server.watches.length === 1 && labels(root).includes("api"), "the first load and stream");
       assert.equal(server.watches[0].header, clientValue, "the stream call lacked the client header");
-      server.paneLabel = "web";
+      server.paneDir = "web";
       // The poll waits longPollMs, longer than the suite lets a test run, so the reload this wait sees can only be the
       // event's.
       sendEvent(server.watches[0], 8);
@@ -859,6 +875,139 @@ test("a second tick during a slow epics load starts no second load", (t) =>
       assert.equal(server.maxEpicsInFlight, 1);
       release();
       await until(t.signal, () => labels(root).includes("alpha"), "the epic after release");
+    } finally {
+      release();
+      stop();
+    }
+  }));
+
+// The ChangedEpicsOnly tests mock the page's timers, so each fires only when its test advances the clock. Advancing
+// pollMs fires the poll once. Advancing eventWaitMs runs the page's event reload wait, which is shorter, and stays short
+// of the poll's next firing. mockedRetryMs is out of reach of every advance these tests make.
+const pollMs = 60_000;
+const eventWaitMs = 1_000;
+const mockedRetryMs = 600_000;
+
+// endedBeta is a folded epic that ended before its last seen, so the page lists it as just ended. No load asks for it.
+const endedBeta = {
+  id: "repo-a/beta",
+  repository: "repo-a",
+  slug: "beta",
+  outcome: "released",
+  changed: "50",
+  live: false,
+  runningSteps: [],
+  endedSteps: 0,
+  phaseAt: "5",
+  seen: "0",
+};
+
+// fireEvent sends an event on the watch, lets the page read it, which starts its event reload wait, and fires that wait.
+async function fireEvent(t: TestContext, watch: Watch, seq: number): Promise<void> {
+  sendEvent(watch, seq);
+  await turn();
+  t.mock.timers.tick(eventWaitMs);
+}
+
+test("ChangedEpicsOnly: with the event stream open, an event reload over an unchanged Epics.List makes no Epics.Get call", (t) =>
+  withPage(t.signal, async (root, start) => {
+    mockTimers(t, ["setInterval", "setTimeout"]);
+    const server = fakeServer("api", true);
+    server.gate = Promise.resolve();
+    server.epics = [liveEpic("draft")];
+    const stop = start(root, clientsFor(server), pollMs, mockedRetryMs);
+    try {
+      await until(
+        t.signal,
+        () => server.watches.length === 1 && labels(root).includes("draft"),
+        "the first load and stream",
+        { step: turn },
+      );
+      const gets = server.epicsGetCalls;
+      // The event's list also holds a folded epic, which no load asks for. Its label draws only once the event's epics
+      // load has drawn, and a load draws only after its Gets have answered, so the count below is final by then.
+      server.epics = [liveEpic("draft"), endedBeta];
+      await fireEvent(t, server.watches[0], 8);
+      await until(t.signal, () => labels(root).includes("beta"), "the event's epics load", { step: turn });
+      assert.equal(server.epicsGetCalls, gets, "an event reload over an unchanged list asked for an epic");
+    } finally {
+      stop();
+    }
+  }));
+
+// tickFetchesEveryLiveEpic fires one poll tick on a page with two live epics, and checks that the tick lists the epics
+// once and asks for each live epic once.
+async function tickFetchesEveryLiveEpic(t: TestContext, streaming: boolean): Promise<void> {
+  await withPage(t.signal, async (root, start) => {
+    mockTimers(t, ["setInterval", "setTimeout"]);
+    const server = fakeServer("api", streaming);
+    server.gate = Promise.resolve();
+    server.epics = [liveEpic("draft"), { ...liveEpic("draft"), id: "repo-a/beta", slug: "beta" }];
+    const stop = start(root, clientsFor(server), pollMs, mockedRetryMs);
+    try {
+      await until(
+        t.signal,
+        () => labels(root).includes("alpha") && labels(root).includes("beta"),
+        "both epics",
+        { step: turn },
+      );
+      const lists = server.epicsListCalls;
+      const gets = server.epicsGetCalls;
+      t.mock.timers.tick(pollMs);
+      await until(t.signal, () => server.epicsGetCalls >= gets + 2, "the tick's Epics.Get calls", { step: turn });
+      assert.equal(server.epicsListCalls, lists + 1, "the tick listed the epics more than once");
+      assert.equal(server.epicsGetCalls, gets + 2, "the tick did not ask for each live epic once");
+    } finally {
+      stop();
+    }
+  });
+}
+
+test("ChangedEpicsOnly: a poll tick with the event stream open makes one Epics.Get per live epic", (t) =>
+  tickFetchesEveryLiveEpic(t, true));
+
+test("ChangedEpicsOnly: a poll tick with the event stream down makes one Epics.Get per live epic", (t) =>
+  tickFetchesEveryLiveEpic(t, false));
+
+test("ChangedEpicsOnly: a tick that lands while an epics load is in flight makes the next load fetch every live epic", (t) =>
+  withPage(t.signal, async (root, start) => {
+    mockTimers(t, ["setInterval", "setTimeout"]);
+    const server = fakeServer("api", true);
+    server.gate = Promise.resolve();
+    server.epics = [liveEpic("draft")];
+    const stop = start(root, clientsFor(server), pollMs, mockedRetryMs);
+    let release: () => void = () => {};
+    try {
+      await until(
+        t.signal,
+        () => server.watches.length === 1 && labels(root).includes("draft"),
+        "the first load and stream",
+        { step: turn },
+      );
+      // The event's epics load is held in flight, and the list it answers with has a changed step, so it will fetch.
+      server.epicsGate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      server.epics = [liveEpic("review")];
+      await fireEvent(t, server.watches[0], 8);
+      await until(
+        t.signal,
+        () => server.epicsListCalls === 2 && server.epicsInFlight === 1,
+        "the held epics load",
+        { step: turn },
+      );
+      // A tick lands while that load is in flight, and starts no load of its own.
+      t.mock.timers.tick(pollMs);
+      await turn();
+      assert.equal(server.epicsListCalls, 2, "a tick started a second epics load while one was in flight");
+      release();
+      await until(t.signal, () => labels(root).includes("review"), "the held load's changed step", { step: turn });
+
+      // The next event lists the same epics. Only the tick that landed mid-load makes it fetch the epic again.
+      const gets = server.epicsGetCalls;
+      await fireEvent(t, server.watches[0], 9);
+      await until(t.signal, () => server.epicsGetCalls >= gets + 1, "the next load's Epics.Get", { step: turn });
+      assert.equal(server.epicsGetCalls, gets + 1, "the next load did not fetch every live epic");
     } finally {
       release();
       stop();

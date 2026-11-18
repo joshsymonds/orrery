@@ -40,7 +40,7 @@ func (r *Runner) startStep(ctx context.Context, epic store.EpicRow, view View, a
 	case StageImplement:
 		start, err = r.implementerStart(ctx, epic, view.Task, action.ID)
 	case StageReview:
-		start, err = r.reviewStart(epic, view.Task, action.ID)
+		start, err = r.reviewStart(ctx, epic, view.Task, action.ID)
 	case StageVerify:
 		start, err = r.verifierStart(epic, view, action.ID)
 	case StageOrchestrate:
@@ -129,8 +129,11 @@ func (r *Runner) redEvidence(ctx context.Context, task store.EpicTask) (store.Ev
 
 // reviewStart returns the start of the review step id for task of epic: the epic's task-stage reviewer named by the
 // review gate at the task's gate position, run read-only at the revision the task's build reached. A model reviewer
-// carries its inline agent, and an agent reviewer's prompt heads the review prompt.
-func (r *Runner) reviewStart(epic store.EpicRow, task store.EpicTask, id string) (enginehost.StepStart, error) {
+// carries its inline agent, and an agent reviewer's prompt heads the review prompt. The test_parsimony reviewer's
+// prompt carries the output of the gate the implementer's commit passed (passedGate).
+func (r *Runner) reviewStart(
+	ctx context.Context, epic store.EpicRow, task store.EpicTask, id string,
+) (enginehost.StepStart, error) {
 	pos := task.Build.GatePos
 	if pos < 0 || pos >= int64(len(epic.ReviewGates)) {
 		return enginehost.StepStart{}, fmt.Errorf("review gate %d of epic %s is not defined", pos, epic.ID)
@@ -149,7 +152,11 @@ func (r *Runner) reviewStart(epic store.EpicRow, task store.EpicTask, id string)
 	}
 	gate := rev.Gate()
 	base, revision := task.Build.Base, task.Build.Revision
-	prompt := ReviewPrompt(epic, task, base, revision)
+	var gateRun store.StepCheck
+	if name == reviewers.TestParsimony {
+		gateRun = r.passedGate(ctx, epic.ID, task)
+	}
+	prompt := ReviewPrompt(epic, task, name, base, revision, gateRun)
 	if rev.Agent != "" && rev.Prompt != "" {
 		prompt = rev.Prompt + "\n\n" + prompt
 	}
@@ -164,6 +171,28 @@ func (r *Runner) reviewStart(epic store.EpicRow, task store.EpicTask, id string)
 		Epic:      epic.ID,
 		Task:      taskLabel(task.Seq),
 	}, nil
+}
+
+// passedGate returns the gate check the task's newest implementer step ran last, the gate run its commit passed, with the
+// kept tails of the gate's stdout and stderr. It returns the zero check when no implementer step of the task ran its
+// gate. A store read that fails is logged and returns the zero check, so the review runs without the gate's output.
+func (r *Runner) passedGate(ctx context.Context, epic string, task store.EpicTask) store.StepCheck {
+	rows, err := r.store.LabelledSteps(ctx, epic, taskLabel(task.Seq))
+	if err != nil {
+		r.logger.WarnContext(ctx, "read task steps", "epic", epic, "task", task.Seq, "err", err)
+		return store.StepCheck{}
+	}
+	for _, row := range slices.Backward(rows) {
+		if row.Schema != ImplementerSchema {
+			continue
+		}
+		for _, check := range slices.Backward(row.Checks) {
+			if check.Name == gateCheck {
+				return check
+			}
+		}
+	}
+	return store.StepCheck{}
 }
 
 // verifierStart returns the start of the verifier step id for the finding at the task's finding position in the

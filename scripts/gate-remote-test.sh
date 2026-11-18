@@ -233,8 +233,11 @@ export ORRERY_GATE_WAKE="$root/bin/wake"
 export ORRERY_GATE_LOCAL="$root/bin/local"
 export ORRERY_GATE_EC2="$root/bin/ec2"
 export ORRERY_GATE_HOST_FILE="$root/gate-host"
-# A run gives up collecting after 2 s of failed reconnects, so the cases that lose the box end soon.
+# A run gives up collecting after 2 s of failed reconnects, so the cases that lose the box end soon. The cases whose
+# connections drop and are meant to reconnect and collect the run get recover_secs instead, so a loaded host cannot
+# turn a slow reconnect into a give-up.
 export ORRERY_GATE_COLLECT_SECS=2
+recover_secs=30
 unset ORRERY_GATE_DEST ORRERY_GATE_PROBE ORRERY_GATE_USER ORRERY_GATE_REMOTE
 
 work="$root/work"
@@ -544,7 +547,7 @@ EOF
 )
 printf 'out line %d\n' $(seq 1 40) >"$root/want-out"
 printf 'err line %d\n' $(seq 1 40) >"$root/want-err"
-dropped_line="gate-remote: the connection to orrery@fake-box dropped; reconnecting for up to 2s to collect the run"
+dropped_line="gate-remote: the connection to orrery@fake-box dropped; reconnecting for up to ${recover_secs}s to collect the run"
 reconnected_line="gate-remote: reconnected to orrery@fake-box; the run's output goes on from where it stopped"
 
 # collected_once <what>: the run's stdout is the command's, byte for byte, and its stderr, without the lines saying the
@@ -595,7 +598,7 @@ box_idle() {
 # The connection carrying stdout drops in the middle of a line while the box stays up: the run goes on, the script
 # reconnects and resumes at the byte after the last one shown, and a passing run passes.
 echo "out 37" >"$root/cut-stream"
-gate "$root/out" "$root/err" bash -c "$talk" _ 0
+ORRERY_GATE_COLLECT_SECS="$recover_secs" gate "$root/out" "$root/err" bash -c "$talk" _ 0
 expect_status 0 "a passing run whose connection dropped returns its status"
 collected_once "a passing run whose connection dropped"
 expect "the drop happened" test ! -s "$root/cut-stream"
@@ -618,7 +621,7 @@ expect "nothing of a collected run is left on the box" box_idle
 
 # The connection carrying stderr drops in the middle of a line: a failing run fails with its own status.
 echo "err 45" >"$root/cut-stream"
-gate "$root/out" "$root/err" bash -c "$talk" _ 3
+ORRERY_GATE_COLLECT_SECS="$recover_secs" gate "$root/out" "$root/err" bash -c "$talk" _ 3
 expect_status 3 "a failing run whose connection dropped returns its status"
 collected_once "a failing run whose connection dropped"
 expect "the stderr drop happened" test ! -s "$root/cut-stream"
@@ -626,7 +629,7 @@ expect_no_line "$root/err" 'environment result' "a failing run collected after a
 
 # The connections drop again and again, each time somewhere else.
 printf 'out 37\nerr 45\nout 100\nerr 1\nout 0\n' >"$root/cut-stream"
-gate "$root/out" "$root/err" bash -c "$talk" _ 5
+ORRERY_GATE_COLLECT_SECS="$recover_secs" gate "$root/out" "$root/err" bash -c "$talk" _ 5
 expect_status 5 "a run whose connections dropped again and again returns its status"
 collected_once "a run whose connections dropped again and again"
 expect "every drop happened" test ! -s "$root/cut-stream"

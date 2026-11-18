@@ -29,7 +29,8 @@ func scopedFixture(t *testing.T) (*engineFixture, string, string) {
 }
 
 // TestEngineHolderScopeSurvivesStop proves the --holder-scope path end to end. A session an orreryd started with the flag
-// runs its holder under the fake systemd-run, with the scope's argv and orreryd's state directory. Stopping that orreryd
+// runs its holder under the fake systemd-run, with the scope's argv, capped at --holder-scope-memory, and orreryd's state
+// directory. Stopping that orreryd
 // detaches the session and records nothing for it, so its fake claude keeps running and its row stays working with its
 // unfinished text. A restarted orreryd re-adopts the session at its reconcile: the fake still runs, the row is working with
 // the same text, and the session stops when it is asked to.
@@ -37,7 +38,7 @@ func TestEngineHolderScopeSurvivesStop(t *testing.T) {
 	t.Parallel()
 	f, scope, argsFile := scopedFixture(t)
 
-	daemon := f.startOrreryd(t, true, "--holder-scope", scope)
+	daemon := f.startOrreryd(t, true, "--holder-scope", scope, "--holder-scope-memory", "2G")
 	stateDir := filepath.Dir(f.dbPath)
 	dir := f.sessionDir(t, "scope")
 	id := f.start(t, dir, stallPrompt)
@@ -50,7 +51,8 @@ func TestEngineHolderScopeSurvivesStop(t *testing.T) {
 	argv := recordedArgv(t, argsFile)
 	unit := scopeUnitOf(t, argv, id)
 	wantPrefix := []string{
-		"--user", "--scope", "--collect", "-p", "OOMPolicy=continue", "--unit", unit,
+		"--user", "--scope", "--collect", "-p", "OOMPolicy=continue",
+		"-p", "MemoryMax=2147483648", "-p", "MemorySwapMax=0", "--unit", unit,
 		orreryBin, "holder", "--session", id, "--state-dir", stateDir, "--",
 	}
 	if len(argv) <= len(wantPrefix) || !slices.Equal(argv[:len(wantPrefix)], wantPrefix) {

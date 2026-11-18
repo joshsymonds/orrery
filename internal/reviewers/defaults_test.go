@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/joshsymonds/orrery/internal/gates"
 )
 
 // mergedDefaults returns the reviewers orrery's defaults merge to, freshly built for each caller.
@@ -100,6 +102,7 @@ func TestDefaultsMerge(t *testing.T) {
 				"The change adds an unjustified golden suite.",
 				"The change adds a test that asserts wall-clock timing.",
 				"The change adds a test that checks model output deterministically.",
+				testCostMustNot,
 			},
 			Model: "sonnet", Tools: readOnly, Limit: 1800, Verify: true, Enabled: true,
 		},
@@ -113,6 +116,56 @@ func TestDefaultsMerge(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Merge(Defaults()) =\n%+v\nwant\n%+v", got, want)
+	}
+}
+
+// testCostMustNot is the test_parsimony must_not that judges what the tests a change adds cost.
+const testCostMustNot = "The change adds or changes tests that push a package over its test CPU budget (a test-budget " +
+	"line in Test cost), or a test whose own run is slow (seconds, not milliseconds), without a stated reason in the task."
+
+// TestTestParsimonyGateAssertsTestCost: the test_parsimony reviewer's compiled gate carries the test cost must_not, so
+// a review can fail a change on what its tests cost.
+func TestTestParsimonyGateAssertsTestCost(t *testing.T) {
+	t.Parallel()
+	rs := mergedDefaults(t)
+	i := slices.Index(names(rs), TestParsimony)
+	if i < 0 {
+		t.Fatalf("no %s reviewer in %v", TestParsimony, names(rs))
+	}
+	want := gates.Assertion{Text: testCostMustNot, Kind: gates.KindMustNot}
+	if got := rs[i].Gate().Assertions; !slices.Contains(got, want) {
+		t.Errorf("%s gate assertions = %+v, want one to be %+v", TestParsimony, got, want)
+	}
+}
+
+// TestTestParsimonyRoleAdmitsTestCost: the test_parsimony role text admits a test cost finding, reads it from the Test
+// cost section, and lets a migration test migrate only what it tests.
+func TestTestParsimonyRoleAdmitsTestCost(t *testing.T) {
+	t.Parallel()
+	var admissible string
+	for line := range strings.Lines(testParsimonyRole) {
+		if strings.HasPrefix(line, "- **Admissible as a Quality Bar defect:**") {
+			admissible = line
+		}
+	}
+	for _, phrase := range []string{
+		"push a package over its test CPU budget (a test-budget line in Test cost)",
+		"a test whose own run is slow (seconds, not milliseconds), without a stated reason in the task (rule 5)",
+	} {
+		if !strings.Contains(admissible, phrase) {
+			t.Errorf("admissible list %q does not name %q", admissible, phrase)
+		}
+	}
+	for _, phrase := range []string{
+		"Read the prompt's Test cost section",
+		"A migration test may migrate what it tests; it may not replay the whole migration chain per test.",
+	} {
+		if !strings.Contains(testParsimonyRole, phrase) {
+			t.Errorf("test_parsimony role text does not say %q", phrase)
+		}
+	}
+	if strings.Contains(testParsimonyRole, "unless the test is about migrations") {
+		t.Error("test_parsimony role text still exempts migration tests from the shared fixture")
 	}
 }
 

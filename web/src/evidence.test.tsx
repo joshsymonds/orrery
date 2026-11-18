@@ -13,7 +13,7 @@ function run(init: MessageInitShape<typeof EvidenceRunSchema>): EvidenceRun {
   return create(EvidenceRunSchema, init);
 }
 
-// revision is a full commit id, of which a run shows the first twelve characters.
+// revision is a full commit id, which a run shows as a commit mark whose hover text is the whole id.
 const revision = "0123456789abcdef0123456789abcdef01234567";
 
 // redPassed is a red run whose capture exited 1 and whose judge found the conclusion fails: red passes.
@@ -114,7 +114,18 @@ test("a red run that passed reads its phase, source, state, verdict, result, exi
     assert.equal(textOf(container, ".run .verdict"), "fails");
     assert.equal(textOf(container, ".run .pass"), "passed");
     assert.equal(textOf(container, ".run .exit"), "exit 1");
-    assert.equal(textOf(container, ".run .revision"), "0123456789ab");
+    assert.equal(textOf(container, ".run .commit-mark"), "⎇");
+  }));
+
+test("CommitMark: a run's revision draws as a ⎇ mark titled with the full id, and the id shows as no text", () =>
+  withRuns([redPassed], answering({}).load, (container) => {
+    const mark = container.querySelector(".run .commit-mark");
+    assert.equal(mark?.textContent, "⎇");
+    assert.equal(mark?.getAttribute("title"), revision);
+    assert.equal(mark?.getAttribute("aria-label"), revision);
+    const visible = container.textContent ?? "";
+    assert.equal(visible.includes(revision), false, "the full id is not visible text");
+    assert.equal(visible.includes(revision.slice(0, 12)), false, "no leading part of the id is visible text");
   }));
 
 test("a green run with no verdict reads no verdict with the judge's reason, and not passed", () => {

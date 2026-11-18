@@ -339,4 +339,24 @@ public interface PaneOrBuilder extends
    * @return The lastTurnEnd.
    */
   long getLastTurnEnd();
+
+  /**
+   * <pre>
+   * The pane's &#64;orrery_id option, which is the id its Session row carries, or empty when unset.
+   * </pre>
+   *
+   * <code>string orrery_id = 21 [json_name = "orreryId"];</code>
+   * @return The orreryId.
+   */
+  java.lang.String getOrreryId();
+  /**
+   * <pre>
+   * The pane's &#64;orrery_id option, which is the id its Session row carries, or empty when unset.
+   * </pre>
+   *
+   * <code>string orrery_id = 21 [json_name = "orreryId"];</code>
+   * @return The bytes for orreryId.
+   */
+  com.google.protobuf.ByteString
+      getOrreryIdBytes();
 }

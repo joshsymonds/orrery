@@ -20,14 +20,16 @@ var ErrNotClaimable = errors.New("epic has no turn to claim")
 var ErrTurnNotRunning = errors.New("turn is not running")
 
 // EpicPlanState is the planning state of one epic with pending triggers. Parked is the park reason of an owner park,
-// empty when the epic is not parked or its park is a planner park, which the planner answers. Running is true when the
-// epic has a turn in state running.
+// empty when the epic is not parked or its park is a planner park, which the planner answers. PlannerPark is the park
+// reason of that planner park, empty otherwise, so a decision records the park it was made under. Running is true when
+// the epic has a turn in state running.
 type EpicPlanState struct {
-	Epic    string
-	Paused  bool
-	Parked  string
-	Running bool
-	Pending int
+	Epic        string
+	Paused      bool
+	Parked      string
+	PlannerPark string
+	Running     bool
+	Pending     int
 }
 
 // EpicTurn is one planner turn on an epic. Times are stored at whole seconds; Ended is zero while the turn runs.
@@ -138,11 +140,12 @@ func (s *Store) PlanStates(ctx context.Context) ([]EpicPlanState, error) {
 	}
 	return mapInOrder(rows, func(state sqlcgen.ListEpicPlanStatesRow) EpicPlanState {
 		return EpicPlanState{
-			Epic:    state.ID,
-			Paused:  state.Paused != 0,
-			Parked:  ownedPark(state.Parked, state.ParkClass),
-			Running: state.Running != 0,
-			Pending: int(state.Pending),
+			Epic:        state.ID,
+			Paused:      state.Paused != 0,
+			Parked:      ownedPark(state.Parked, state.ParkClass),
+			PlannerPark: plannerPark(state.Parked, state.ParkClass),
+			Running:     state.Running != 0,
+			Pending:     int(state.Pending),
 		}
 	}), nil
 }
@@ -668,13 +671,15 @@ const (
 
 // TurnFree is how a running turn ends without a return: its Reason, whether it Pauses the epic, the Park reason
 // it parks the epic with when not empty, whether it is a usage Limit, and the usage-limit Resets time it stores when
-// not zero.
+// not zero. DecidedUnder, when not nil, is the park reason the epic held when Park was decided, before the turn was
+// claimed, empty for an epic that was not parked: Park is then set only while the epic still holds that park.
 type TurnFree struct {
-	Reason string
-	Pause  bool
-	Park   string
-	Limit  bool
-	Resets time.Time
+	Reason       string
+	Pause        bool
+	Park         string
+	Limit        bool
+	Resets       time.Time
+	DecidedUnder *string
 }
 
 // storedResetsOf returns the epic_turns.resets that free stores, and false when it stores none. A non-zero Resets is
@@ -757,8 +762,10 @@ func (s *Store) FailTurn(ctx context.Context, epic string, turn int64, reason st
 // FreeTurn ends the running turn seq of epic as free with free.Reason, cut to TurnReasonMax bytes, and returns its
 // triggers to pending with turn 0 in one write. The turn stores storedResetsOf(free): a non-zero free.Resets as its
 // reset time, and limitWithoutReset for a Limit that names none. Pause pauses the epic as pauseFreed records, and a
-// non-empty Park parks it with that reason. A free turn never counts toward the three failed turns that park an epic.
-// A turn that is not running, or does not exist, is ErrTurnNotRunning and writes nothing.
+// non-empty Park parks it with that reason, unless the park is void (parkVoided): the epic was retried after the turn
+// was claimed, or no longer holds the park free.DecidedUnder names. The retry prevails over a park decided before it, so
+// the turn ends free and the epic stays unparked. A free turn never counts toward the three failed turns that park an
+// epic. A turn that is not running, or does not exist, is ErrTurnNotRunning and writes nothing.
 func (s *Store) FreeTurn(ctx context.Context, epic string, turn int64, free TurnFree, at time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		if err := endTurn(ctx, queries, epic, turn, "free", capTurnText(free.Reason), at); err != nil {
@@ -779,9 +786,29 @@ func (s *Store) FreeTurn(ctx context.Context, epic string, turn int64, free Turn
 		if free.Park == "" {
 			return nil
 		}
-		_, err := setParked(ctx, queries, epic, ParkClassOrchestrator, "", free.Park, at)
+		void, err := parkVoided(ctx, queries, epic, turn, free.DecidedUnder)
+		if err != nil || void {
+			return err
+		}
+		_, err = setParked(ctx, queries, epic, ParkClassOrchestrator, "", free.Park, at)
 		return err
 	})
+}
+
+// parkVoided reports whether the park that frees turn seq turn of epic is void, in the caller's write. It is void when
+// the epic was retried after the turn was claimed: a retry stores the epic's highest turn seq as its retried seq, and a
+// claim numbers its turn after the highest, so a retried seq at or past turn is a retry that landed while the turn ran.
+// When decided is not nil, it is also void once the epic no longer holds the park *decided it held when the park was
+// decided, such as after a retry that landed between that decision and the claim.
+func parkVoided(ctx context.Context, queries *sqlcgen.Queries, epic string, turn int64, decided *string) (bool, error) {
+	head, err := epicHead(ctx, queries, epic)
+	if err != nil {
+		return false, err
+	}
+	if head.Retried >= turn {
+		return true, nil
+	}
+	return decided != nil && head.Parked != *decided, nil
 }
 
 // endTurn ends the running turn seq of epic as state with reason, ended at at, and returns the triggers the turn

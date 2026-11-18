@@ -278,88 +278,89 @@ func TestAmendmentWaitsForAnEvidenceNodeUnderWay(t *testing.T) {
 	}
 }
 
-// TestAmendmentRecomputesGreenAtTheStoredBase checks that an amendment applied after a batch moved the stored base runs
+// amendmentRecomputesGreenAtTheStoredBase checks that an amendment applied after a batch moved the stored base runs
 // the new item's green there and reproduces its test item at the base, and that once both have run, Unbuilt finds R1's
 // proof in the amendment: its red at the base, its green at the stored base and its reproduction.
-func TestAmendmentRecomputesGreenAtTheStoredBase(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	w := newIntegrateWorld(t)
-	candidate := w.toCaptured()
-	w.pass()
-	if stored := epicOf(t, w.s).StoredBase; stored != candidate {
-		t.Fatalf("stored base = %s, want the candidate %s", stored, candidate)
-	}
-	item := amendedTestItem("b.go")
-	amended := amendR1(t, w.s, item)
-	drive := func() {
-		t.Helper()
-		epic, err := w.s.Epic(ctx, runEpic)
+func amendmentRecomputesGreenAtTheStoredBase(images *worldImages) func(t *testing.T) {
+	return func(t *testing.T) {
+		t.Parallel()
+		ctx := context.Background()
+		w, candidate := images.integrateWorld(t, atCaptured)
+		w.pass()
+		if stored := epicOf(t, w.s).StoredBase; stored != candidate {
+			t.Fatalf("stored base = %s, want the candidate %s", stored, candidate)
+		}
+		item := amendedTestItem("b.go")
+		amended := amendR1(t, w.s, item)
+		drive := func() {
+			t.Helper()
+			epic, err := w.s.Epic(ctx, runEpic)
+			if err != nil {
+				t.Fatalf("Epic: %v", err)
+			}
+			w.runner.passAmendments(ctx, []store.EpicRow{epic})
+			if w.logs.Len() > 0 {
+				t.Fatalf("pass logged an error: %s", w.logs.String())
+			}
+		}
+
+		drive()
+		judge(t, w.s, amended.RedRun, 1, evidence.VerdictFails)
+		drive()
+		stored := firstAmendment(t, w.s)
+		if stored.State != store.AmendmentCapturing || stored.StoredBase != candidate {
+			t.Fatalf("amendment after its red = %+v, want capturing at %s", stored, candidate)
+		}
+
+		drive()
+		green := evidenceCall{
+			id: stored.GreenRun, epic: runEpic, item: "R1", revision: candidate, phase: evidence.PhaseGreen, spec: item,
+		}
+		if !slices.ContainsFunc(w.fakes.evidence.calls, func(call evidenceCall) bool {
+			return reflect.DeepEqual(call, green)
+		}) {
+			t.Errorf("evidence calls = %+v, want the green run %+v", w.fakes.evidence.calls, green)
+		}
+		i := slices.IndexFunc(
+			w.fakes.checks.calls,
+			func(check store.NodeCheck) bool { return check.ID == stored.ReproCheck },
+		)
+		if i < 0 {
+			t.Fatalf("checks = %+v, want the reproduction %s", w.fakes.checks.calls, stored.ReproCheck)
+		}
+		repro := w.fakes.checks.calls[i]
+		if repro.Path != "amendment A1" || !slices.Equal(repro.Argv, item.Capture) || repro.Revision == w.base ||
+			repro.Revision == candidate {
+			t.Errorf("reproduction = %+v, want the new capture at an overlay of the base", repro)
+		}
+		if parent := w.git("rev-parse", repro.Revision+"^"); parent != w.base {
+			t.Errorf("reproduction overlay's parent = %s, want the base %s", parent, w.base)
+		}
+		if got, ok := triggerOf(t, w.s, "amend-1"); ok {
+			t.Errorf("trigger amend-1 = %q while green runs, want none yet", got)
+		}
+
+		judge(t, w.s, stored.GreenRun, 0, evidence.VerdictHolds)
+		nodeEndCheck(t, w.s, stored.ReproCheck, 1, "")
+		drive()
+
+		if got := firstAmendment(t, w.s).State; got != store.AmendmentApplied {
+			t.Errorf("amendment once green and its reproduction ran = %s, want applied", got)
+		}
+		cause, _ := triggerOf(t, w.s, "amend-1")
+		wantCause := "evidence of R1 amended by the owner (A1): the green run " + stored.GreenRun + " at the stored base " +
+			candidate + " passed; its reproduction " + stored.ReproCheck + " at the epic's base exited 1"
+		if cause != wantCause {
+			t.Errorf("trigger amend-1 = %q, want %q", cause, wantCause)
+		}
+		flow, err := w.s.EpicFlow(ctx, runEpic)
 		if err != nil {
-			t.Fatalf("Epic: %v", err)
+			t.Fatalf("EpicFlow: %v", err)
 		}
-		w.runner.passAmendments(ctx, []store.EpicRow{epic})
-		if w.logs.Len() > 0 {
-			t.Fatalf("pass logged an error: %s", w.logs.String())
+		rows := kinds.Rows{Epic: flow.Epic, Runs: flow.Runs, Checks: flow.Checks, Evidence: flow.Evidence}
+		if missing := kinds.Unbuilt(rows); len(missing) != 0 {
+			t.Errorf("Unbuilt after the amendment = %q, want R1's proof found", missing)
 		}
-	}
-
-	drive()
-	judge(t, w.s, amended.RedRun, 1, evidence.VerdictFails)
-	drive()
-	stored := firstAmendment(t, w.s)
-	if stored.State != store.AmendmentCapturing || stored.StoredBase != candidate {
-		t.Fatalf("amendment after its red = %+v, want capturing at %s", stored, candidate)
-	}
-
-	drive()
-	green := evidenceCall{
-		id: stored.GreenRun, epic: runEpic, item: "R1", revision: candidate, phase: evidence.PhaseGreen, spec: item,
-	}
-	if !slices.ContainsFunc(w.fakes.evidence.calls, func(call evidenceCall) bool {
-		return reflect.DeepEqual(call, green)
-	}) {
-		t.Errorf("evidence calls = %+v, want the green run %+v", w.fakes.evidence.calls, green)
-	}
-	i := slices.IndexFunc(
-		w.fakes.checks.calls,
-		func(check store.NodeCheck) bool { return check.ID == stored.ReproCheck },
-	)
-	if i < 0 {
-		t.Fatalf("checks = %+v, want the reproduction %s", w.fakes.checks.calls, stored.ReproCheck)
-	}
-	repro := w.fakes.checks.calls[i]
-	if repro.Path != "amendment A1" || !slices.Equal(repro.Argv, item.Capture) || repro.Revision == w.base ||
-		repro.Revision == candidate {
-		t.Errorf("reproduction = %+v, want the new capture at an overlay of the base", repro)
-	}
-	if parent := w.git("rev-parse", repro.Revision+"^"); parent != w.base {
-		t.Errorf("reproduction overlay's parent = %s, want the base %s", parent, w.base)
-	}
-	if got, ok := triggerOf(t, w.s, "amend-1"); ok {
-		t.Errorf("trigger amend-1 = %q while green runs, want none yet", got)
-	}
-
-	judge(t, w.s, stored.GreenRun, 0, evidence.VerdictHolds)
-	nodeEndCheck(t, w.s, stored.ReproCheck, 1, "")
-	drive()
-
-	if got := firstAmendment(t, w.s).State; got != store.AmendmentApplied {
-		t.Errorf("amendment once green and its reproduction ran = %s, want applied", got)
-	}
-	cause, _ := triggerOf(t, w.s, "amend-1")
-	wantCause := "evidence of R1 amended by the owner (A1): the green run " + stored.GreenRun + " at the stored base " +
-		candidate + " passed; its reproduction " + stored.ReproCheck + " at the epic's base exited 1"
-	if cause != wantCause {
-		t.Errorf("trigger amend-1 = %q, want %q", cause, wantCause)
-	}
-	flow, err := w.s.EpicFlow(ctx, runEpic)
-	if err != nil {
-		t.Fatalf("EpicFlow: %v", err)
-	}
-	rows := kinds.Rows{Epic: flow.Epic, Runs: flow.Runs, Checks: flow.Checks, Evidence: flow.Evidence}
-	if missing := kinds.Unbuilt(rows); len(missing) != 0 {
-		t.Errorf("Unbuilt after the amendment = %q, want R1's proof found", missing)
 	}
 }
 

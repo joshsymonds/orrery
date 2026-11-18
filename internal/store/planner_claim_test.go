@@ -234,6 +234,18 @@ func TestPlanStatesReportsPauseParkAndRunningTurn(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("PlanStates of paused and parked epic = %+v, want %+v", got, want)
 	}
+
+	if _, err := s.db.Exec(`UPDATE epics SET park_class = ? WHERE id = ?`, ParkClassNode, id); err != nil {
+		t.Fatalf("set park class: %v", err)
+	}
+	got, err = s.PlanStates(ctx)
+	if err != nil {
+		t.Fatalf("PlanStates: %v", err)
+	}
+	want = []EpicPlanState{{Epic: id, Paused: true, PlannerPark: "needs a human", Running: true, Pending: 1}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("PlanStates of a planner-parked epic = %+v, want %+v: the park is the planner's", got, want)
+	}
 }
 
 func TestSetTurnStepStoresTheStepOnARunningTurn(t *testing.T) {

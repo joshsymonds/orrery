@@ -1,6 +1,7 @@
 package enginehost
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -8,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/joshsymonds/orrery/internal/engine/session"
+	"github.com/joshsymonds/orrery/internal/store"
 )
 
 // The backstop clocks. Periodic, silent and overtime count model time or turn time as their comments say.
@@ -336,6 +338,22 @@ func (w *stepWatch) restore(nudged, running, nudging bool, at time.Time) {
 	w.nudging = nudging
 	if nudging {
 		w.nudgeAt = at
+	}
+}
+
+// seed keeps blocks, the finished blocks a re-adopted step's session stored before the restart, oldest first, as the
+// recent lines the monitor is shown, each at the time it was stored. Notices are not stored, so none is seeded.
+func (w *stepWatch) seed(blocks []store.StepBlock) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for _, stored := range blocks {
+		block := stored.Block
+		label, body, _ := watchRecord(session.Block{
+			Kind: session.BlockKind(block.Kind), Role: block.Role, MessageID: block.MessageID,
+			ParentToolUseID: block.ParentToolUseID, Text: block.Text, ToolUseID: block.ToolUseID, Name: block.Name,
+			Input: json.RawMessage(block.Input), Content: json.RawMessage(block.Content), IsError: block.IsError,
+		})
+		w.remember(stored.At, label, body)
 	}
 }
 

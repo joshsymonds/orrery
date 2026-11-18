@@ -1,12 +1,13 @@
 import { Fragment } from "preact";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 
 import * as actions from "./actions";
 import type { Clients } from "./actions";
+import { epicCallsOf } from "./card";
 import { type ComposerHandle, Composer } from "./composer";
 import { ContractBody } from "./contract";
 import type { Conversation } from "./conversation";
-import { ArchiveButton, type ArchiveControl, EpicLine } from "./epicline";
+import { type ArchiveControl, EpicLine, RowMenu } from "./epicline";
 import { type EpicCommands, EpicPage, type Landing } from "./epicpage";
 import {
   type EpicBlock,
@@ -21,6 +22,7 @@ import {
   type StepItem,
   withEpicsGroup,
 } from "./epics";
+import { FindBar, findMatches } from "./find";
 import { type Followed, follow } from "./follow";
 import type { EpicHistoryEntry, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 import type { InAppNotice, NoticeKey } from "./gen/orrery/v1/notice_pb";
@@ -35,7 +37,7 @@ import type { Phase } from "./phases";
 import { PickerPalette } from "./picker";
 import { type Viewing, viewingOf } from "./presence";
 import { type ParsedQuestion, parseQuestion } from "./question";
-import { ConversationHead, Reader } from "./reader";
+import { ConversationHead, Reader, type ReaderHandle } from "./reader";
 import { byAttention, byProject, type Row, type Section, splitArchived } from "./rows";
 import { type SeenClock, type SeenWindow, watchSeen } from "./seen";
 import { type SendKind, type Sending, type SentText, sendingEntry, unsentEntries, withoutTexts } from "./sending";
@@ -44,6 +46,7 @@ import { PaneStrip, type StripHost } from "./strip";
 import { Talk, type TalkTarget } from "./talk";
 import { TalkDock } from "./talkdock";
 import { ReplyText } from "./text";
+import { lastPathElement, TitleParts } from "./titleparts";
 import { type InboxMark, TitleRow } from "./titlerow";
 import { WorkerSessionPage } from "./workersession";
 import { Pill, rowPill, stepPill } from "./workline";
@@ -69,6 +72,20 @@ interface EscapeTarget {
   row: Row;
   column: "cursor" | "pinned";
   state: string;
+}
+
+// A reply box an opening focuses: the cursor's or the pinned column's box, by the key of the row it holds.
+interface BoxOpen {
+  column: "cursor" | "pinned";
+  key: string;
+}
+
+// A column's find bar, open on the row it was opened on: the query typed in it, and the match it shows, an index into
+// the matches the query finds in that row's conversation. A bar whose row leaves its column is closed.
+interface FindState {
+  key: string;
+  query: string;
+  current: number;
 }
 
 // The cursor is held by entry key, so it survives new entries. index is where it sat, used when its entry leaves.
@@ -186,10 +203,13 @@ const helpEntries: [string[], string][] = [
   [["n"], "next unseen row, wrapping"],
   [["N"], "open the palette to ask for a pane or a directory, outside a text box"],
   [["⌘K"], "open the palette anywhere, a text box included; Ctrl+K does too"],
-  [["x", "Enter"], "mark the cursor's row seen"],
+  [["x", "Enter"], "mark the cursor's row seen; Enter also opens the row into its reply box"],
   [["e"], "mark it seen, then go to the next unseen row"],
   [["/"], "filter: Enter leaves it, Esc clears it"],
   [["i"], "focus the reply box"],
+  [["Shift+Tab"], "from a reply box, back to the list's cursor row, taking nothing back"],
+  [["Page Up", "Page Down"], "in an empty reply box, page the transcript"],
+  [["/"], "in an empty reply box, find in the transcript"],
   [["1", "2", "3"], "answer the cursor's waiting question with that choice, or pick that option on an epic page"],
   [["o"], "open or close a compaction's summary"],
   [["|"], "pin the cursor's row in a second column, or close the pin"],
@@ -271,12 +291,21 @@ export function App({
   // The handles of the cursor's and the pinned row's composers, by row key, which an Escape calls.
   const composerHandles = useRef(new Map<string, ComposerHandle>());
   const pinnedHandles = useRef(new Map<string, ComposerHandle>());
+  // The handles of the cursor's and the pinned column's readers. An empty reply box's Page Up and Page Down page them.
+  const cursorReader = useRef<ReaderHandle | null>(null);
+  const pinnedReader = useRef<ReaderHandle | null>(null);
   // The row | pinned beside the list, with its own stream. The rows that have been pinned each keep a composer, as the
   // visited rows do, so a draft or a failed send survives the pin's close and its reopening on that row.
   const [pinned, setPinned] = useState<Row | null>(null);
   const [pinStream, setPinStream] = useState<Stream | null>(null);
   const [pinnedRows, setPinnedRows] = useState<Row[]>([]);
   const pinnedInputs = useRef(new Map<string, HTMLTextAreaElement>());
+  // The find bars of the cursor's and the pinned column, each open on the row it was opened on. null is a shut bar.
+  const [cursorFind, setCursorFind] = useState<FindState | null>(null);
+  const [pinnedFind, setPinnedFind] = useState<FindState | null>(null);
+  // The reply box an opening asks to focus: a click or Enter on a row, or | on a row. The layout effect takes it once the
+  // render that draws the box has run.
+  const [boxOpened, setBoxOpened] = useState<BoxOpen | null>(null);
   // The older page of each followed stream. Its reader calls it at the reader's top, to load the page before its oldest
   // item; each follow effect sets its own.
   const cursorOlder = useRef<() => void>(() => {});
@@ -293,6 +322,9 @@ export function App({
   // The fixed line an Escape leaves when taking queued messages back or interrupting a row fails.
   const [escapeError, setEscapeError] = useState("");
   const [archiveError, setArchiveError] = useState("");
+  // The key of the entry whose ⋯ menu is open, if any: one menu is open at a time. It counts as open only while the entry
+  // is drawn.
+  const [menuKey, setMenuKey] = useState<string | null>(null);
   // The archive marks the landed Archive and Unarchive calls left, by row key and by epic id. Each shows in place of
   // the list's own archived field until the next list answer, which carries that field.
   const [rowMarks, setRowMarks] = useState<Map<string, boolean>>(() => new Map());
@@ -384,6 +416,9 @@ export function App({
         ? placeEpics(byProject(defaultRows), kept.blocks)
         : [archivedSection(kept.archived, archivedRows)];
   const flat = sections.flatMap((section) => entriesOf(section, waitingOpen, endedOpen));
+  // The open ⋯ menu's entry, when the list draws it: a menu whose entry is not drawn counts as closed.
+  const menuDrawn = menuKey !== null && flat.some((item) => item.key === menuKey);
+  const openMenu = menuDrawn ? menuKey : null;
   const index = resolveIndex(flat, cursor);
   const cursorItem = index >= 0 ? flat[index] : null;
   // The cursor's row, which an epic or step entry never has: the composer and seen watch follow only a row.
@@ -507,6 +542,14 @@ export function App({
     setPinned((previous) => (previous === null ? null : (rows.find((row) => row.key === previous.key) ?? previous)));
   }, [rows]);
 
+  // A find bar closes when its column's row changes: the cursor moves to another entry, or the pin closes or moves.
+  useEffect(() => {
+    setCursorFind((previous) => (previous !== null && previous.key !== cursorRowKey ? null : previous));
+  }, [cursorRowKey]);
+  useEffect(() => {
+    setPinnedFind((previous) => (previous !== null && previous.key !== pinnedKey ? null : previous));
+  }, [pinnedKey]);
+
   // The history is read page by page for the epic entry the cursor rests on. A read that ends after the cursor has
   // moved on is dropped.
   useEffect(() => {
@@ -569,6 +612,20 @@ export function App({
     restorePageScroll.current = null;
   }, [epicPage]);
 
+  // An opening focuses the reply box it names, with the caret at the end of its text. The box is drawn by the same render
+  // that moved the cursor or pinned the row, so it is in its ref here.
+  useLayoutEffect(() => {
+    if (boxOpened === null) {
+      return;
+    }
+    const box = (boxOpened.column === "pinned" ? pinnedInputs : composerInputs).current.get(boxOpened.key);
+    if (box !== undefined) {
+      box.focus();
+      box.setSelectionRange(box.value.length, box.value.length);
+    }
+    setBoxOpened(null);
+  }, [boxOpened]);
+
   // seenWrite runs one seen write. A failure shows the fixed line and runs no landed; a landed write clears the line
   // and runs landed.
   const seenWrite = (write: () => Promise<unknown>, landed: () => void) =>
@@ -591,14 +648,15 @@ export function App({
     );
 
   // setArchive archives a row or epic, or unarchives it in the Archived view, through Epics.Archive or Epics.Unarchive
-  // with the kind and id the entry names. A pane has no archive kind, so it does nothing. A landed call marks the entry
-  // as the call left it, until the next list answer; a failed call leaves the entry where it was.
+  // with the kind the entry names and the id it archives by: a row's archiveId, which for a pane is its orrery_id, and
+  // an epic's id. A pane with no orrery_id has no archive kind, so it does nothing. A landed call marks the entry as the
+  // call left it, keyed by the entry's key, until the next list answer; a failed call leaves the entry where it was.
   const setArchive = (entry: Row | EpicItem, archived: boolean) => {
     const kind = entry.kind === "epic" ? "epic" : entry.archiveKind;
     if (kind === "none") {
       return;
     }
-    const request = { kind, id: entry.id };
+    const request = { kind, id: entry.kind === "epic" ? entry.id : entry.archiveId };
     void lineWrite(
       () => (archived ? clients.epics.archive(request) : clients.epics.unarchive(request)),
       archiveFailedText,
@@ -613,11 +671,30 @@ export function App({
     );
   };
 
-  // archiveControl is the archive button an entry's line draws: Archive in a default view, Unarchive in the Archived
-  // one.
+  // A menu whose entry leaves the list closes, so it does not reopen when the entry returns. While a menu is open, a
+  // pointerdown anywhere closes it: the ⋯ and the menu stop their own pointerdowns, so only a press outside reaches here.
+  useEffect(() => {
+    if (menuKey !== null && !menuDrawn) {
+      setMenuKey(null);
+    }
+  }, [menuKey, menuDrawn]);
+  useEffect(() => {
+    if (menuKey === null) {
+      return;
+    }
+    const close = () => setMenuKey(null);
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, [menuKey]);
+
+  // archiveControl is the ⋯ menu an entry's line draws. Its one item is Archive in a default view, and Unarchive in the
+  // Archived one. toggle opens the entry's menu, or shuts it when it is the open one, so only one menu is open.
   const archiveControl = (entry: Row | EpicItem): ArchiveControl => ({
     archived: view === "archived",
+    open: openMenu === entry.key,
     run: () => setArchive(entry, view !== "archived"),
+    toggle: () => setMenuKey((current) => (current === entry.key ? null : entry.key)),
+    close: () => setMenuKey(null),
   });
 
   // answerCursor sends the choice to the cursor's row's waiting question through actions.answer, with the conversation
@@ -685,6 +762,20 @@ export function App({
   // The conversation a list row's options come from: the stream the page holds for that row, the cursor's or the pin's.
   const heldConversation = (key: string) =>
     key === cursorRowKey ? cursorConversation : key === pinnedKey ? pinnedConversation : null;
+  // A column's find bar shows only while its row is the column's. Its matches are the query's over the column's
+  // conversation, and its current match is clamped to them where it is read.
+  const cursorFinding = cursorFind !== null && cursorFind.key === cursorRowKey ? cursorFind : null;
+  const cursorMatches = useMemo(
+    () => findMatches(cursorConversation?.items ?? [], cursorFinding?.query ?? ""),
+    [cursorConversation, cursorFinding?.query],
+  );
+  const cursorCurrent = cursorFinding === null ? -1 : findCurrent(cursorFinding.current, cursorMatches.length);
+  const pinnedFinding = pinnedFind !== null && pinnedFind.key === pinnedKey ? pinnedFind : null;
+  const pinnedMatches = useMemo(
+    () => findMatches(pinnedConversation?.items ?? [], pinnedFinding?.query ?? ""),
+    [pinnedConversation, pinnedFinding?.query],
+  );
+  const pinnedCurrent = pinnedFinding === null ? -1 : findCurrent(pinnedFinding.current, pinnedMatches.length);
   // The messages each reader shows as sending: its row's entries the conversation it holds has not sent yet.
   const cursorSending =
     cursorRow === null ? [] : unsentEntries(sendingByRow.get(cursorRow.key) ?? [], cursorConversation, cursorRow.kind);
@@ -987,6 +1078,12 @@ export function App({
       }
       return;
     }
+    // While a drawn entry's ⋯ menu is open, Escape closes it and does nothing else: it takes back and interrupts nothing.
+    if (event.key === "Escape" && openMenu !== null) {
+      setMenuKey(null);
+      event.preventDefault();
+      return;
+    }
     const input = inputRef.current;
     if (input !== null && document.activeElement === input) {
       if (event.key === "Enter") {
@@ -1063,7 +1160,7 @@ export function App({
         setView("archived");
         break;
       case "A":
-        // A pane has no archive kind, and a step is never archived, so the key does nothing on either.
+        // A pane with no orrery_id and a step have no archive kind, so the key does nothing on either.
         if (cursorItem !== null && cursorItem.kind !== "step") {
           setArchive(cursorItem, true);
         }
@@ -1091,6 +1188,8 @@ export function App({
           setRowOpened(true);
           setPopout("none");
           void writeSeen(cursorRow);
+          // Enter opens the row into its reply box, as a click on the row does; x only marks it seen.
+          setBoxOpened({ column: "cursor", key: cursorRow.key });
         }
         break;
       case "b":
@@ -1146,6 +1245,7 @@ export function App({
         } else if (cursorRow !== null) {
           setPinned(cursorRow);
           setPinStream(null);
+          setBoxOpened({ column: "pinned", key: cursorRow.key });
         }
         break;
       case "m":
@@ -1181,6 +1281,10 @@ export function App({
     document.addEventListener("keydown", listener);
     return () => document.removeEventListener("keydown", listener);
   }, []);
+
+  // The epic calls the readers of the cursor and the pin make: an epic a call created draws its card, which reads the
+  // epic again on each poll tick and opens the epic through openEpic.
+  const epicCalls = epicCallsOf(clients, openEpic, now);
 
   // pageNode draws the page the section holds over the epic's detail: the epic page, or the contract, the phase output
   // or the worker session the page has moved to.
@@ -1243,6 +1347,7 @@ export function App({
         />
       );
     }
+    const openTalk = (target: TalkTarget) => setTalkDock({ epic: entry.id, target });
     return (
       <EpicPage
         detail={detail}
@@ -1253,19 +1358,22 @@ export function App({
         commands={epicCommands(clients, entry.id, setCommandError)}
         numberKeys={!epicPage.closed}
         onOpenContract={openContract}
+        onOpenSession={openTalk}
         onOpenPhase={openPhase}
         onBack={closeEpicPage}
         handover={Handover({ detail })}
         mark={inboxMark}
         strip={pageStrip(null, null)}
+        rows={rows}
         actions={
           <Talk
             key={entry.id}
             epic={entry.id}
             sessions={detail.sessions}
             repository={detail.repository}
+            rows={rows}
             start={(dir, prompt) => clients.control.start({ dir, prompt }).then((reply) => reply.id)}
-            onOpen={(target) => setTalkDock({ epic: entry.id, target })}
+            onOpen={openTalk}
           />
         }
       />
@@ -1425,6 +1533,7 @@ export function App({
                       if (!isLinkClick(event)) {
                         selectItem(item);
                         setRowOpened(true);
+                        setBoxOpened({ column: "cursor", key: item.key });
                       }
                     }}
                     onDblClick={(event) => {
@@ -1441,19 +1550,13 @@ export function App({
                         {item.state === stateWaiting && (
                           <span class="ty">{item.question !== "" ? "QUESTION" : "WAITING"}</span>
                         )}
-                        <span class="label">{item.label}</span>
-                        <span class="proj">{lastPathElement(item.project)}</span>
+                        <TitleParts dir={item.project} line={item.label} />
                         <span class="age">{ageText(item.changed, now)}</span>
-                        {item.archiveKind !== "none" && <ArchiveButton control={archiveControl(item)} />}
+                        {item.archiveKind !== "none" && <RowMenu control={archiveControl(item)} />}
                       </div>
                       <div class={item.unseen ? "l2" : "l2 one"}>
-                        <ReplyText text={item.state === stateWaiting ? rowNeed(item).text : item.summary} />
+                        <ReplyText text={replyText(item)} />
                       </div>
-                      {item.state === stateWaiting && item.summary !== "" && (
-                        <div class="l2 one why">
-                          <ReplyText text={item.summary} />
-                        </div>
-                      )}
                       <RowOptions
                         row={item}
                         conversation={heldConversation(item.key)}
@@ -1479,7 +1582,8 @@ export function App({
         <section class="read" aria-label="reader" hidden={cursorRow === null && cursorStep === null}>
           {cursorRow !== null && (
             <ConversationHead
-              label={cursorRow.label}
+              dir={cursorRow.project}
+              line={cursorRow.label}
               state={headState(cursorRow, cursorConversation?.state?.pane)}
               onBack={focusCursorRow}
               mark={inboxMark}
@@ -1487,6 +1591,30 @@ export function App({
             >
               <Pill model={rowPill(cursorRow.state, cursorConversation?.state?.pane)} now={now} />
             </ConversationHead>
+          )}
+          {cursorFinding !== null && (
+            <FindBar
+              query={cursorFinding.query}
+              matches={cursorMatches.length}
+              current={cursorCurrent}
+              onQuery={(query) => setCursorFind({ key: cursorFinding.key, query, current: 0 })}
+              onNext={() =>
+                setCursorFind({
+                  ...cursorFinding,
+                  current: stepCurrent(cursorCurrent, cursorMatches.length, 1),
+                })
+              }
+              onPrevious={() =>
+                setCursorFind({
+                  ...cursorFinding,
+                  current: stepCurrent(cursorCurrent, cursorMatches.length, -1),
+                })
+              }
+              onClose={() => {
+                setCursorFind(null);
+                composerInputs.current.get(cursorRowKey)?.focus();
+              }}
+            />
           )}
           {cursorStep !== null && (
             <TitleRow
@@ -1507,7 +1635,16 @@ export function App({
               onAnswer={answerCursor}
               onToggleOpen={toggleOpen}
               onOlder={() => cursorOlder.current()}
+              register={(handle) => {
+                cursorReader.current = handle;
+              }}
               sending={cursorSending}
+              find={
+                cursorFinding === null
+                  ? undefined
+                  : { query: cursorFinding.query, matches: cursorMatches, current: cursorCurrent }
+              }
+              epicCalls={epicCalls}
             />
           )}
           {cursorStep !== null && (
@@ -1518,20 +1655,26 @@ export function App({
               step={cursorStep.step}
               onToggleOpen={toggleOpen}
               onOlder={() => cursorOlder.current()}
+              register={(handle) => {
+                cursorReader.current = handle;
+              }}
             />
           )}
           <div class="send">
             {composerRows(visited, cursorRow).map((row) => (
               <div key={row.key} class="reply" hidden={row.key !== cursorRowKey}>
                 <Composer
-                  label={row.label}
+                  label={rowName(row)}
                   state={row.key === cursorRowKey ? headState(row, cursorConversation?.state?.pane) : row.state}
                   send={(text, promptId) => actions.send(clients, row, text, promptId)}
                   pull={row.kind === "pane" ? () => actions.pullQueued(clients, row) : null}
                   newPromptId={actions.newPromptId}
                   register={(handle) => registerHandle(composerHandles, row.key, handle)}
+                  onPage={(direction) => cursorReader.current?.page(direction) ?? false}
+                  onFind={() => setCursorFind({ key: row.key, query: "", current: 0 })}
                   queued={row.key === cursorRowKey ? cursorConversation?.state?.waiting : undefined}
                   held={row.key === cursorRowKey ? cursorConversation?.held : undefined}
+                  items={row.key === cursorRowKey ? cursorConversation?.items : undefined}
                   onSending={(sent) => addSending(row.key, sent, row.key === cursorRowKey ? cursorConversation : null)}
                   onUnsent={(promptId) => retractSending(row.key, promptId)}
                   inputRef={(element) => {
@@ -1570,7 +1713,8 @@ export function App({
         <section class="read pinned" aria-label="pinned reader" hidden={pinned === null}>
           {pinned !== null && (
             <ConversationHead
-              label={pinned.label}
+              dir={pinned.project}
+              line={pinned.label}
               state={headState(pinned, pinnedConversation?.state?.pane)}
               onBack={closePin}
               mark={inboxMark}
@@ -1579,27 +1723,63 @@ export function App({
               <Pill model={rowPill(pinned.state, pinnedConversation?.state?.pane)} now={now} />
             </ConversationHead>
           )}
+          {pinnedFinding !== null && (
+            <FindBar
+              query={pinnedFinding.query}
+              matches={pinnedMatches.length}
+              current={pinnedCurrent}
+              onQuery={(query) => setPinnedFind({ key: pinnedFinding.key, query, current: 0 })}
+              onNext={() =>
+                setPinnedFind({
+                  ...pinnedFinding,
+                  current: stepCurrent(pinnedCurrent, pinnedMatches.length, 1),
+                })
+              }
+              onPrevious={() =>
+                setPinnedFind({
+                  ...pinnedFinding,
+                  current: stepCurrent(pinnedCurrent, pinnedMatches.length, -1),
+                })
+              }
+              onClose={() => {
+                setPinnedFind(null);
+                pinnedInputs.current.get(pinnedKey)?.focus();
+              }}
+            />
+          )}
           {pinned !== null && (
             <Reader
               conversation={pinnedConversation}
               seenAt={pinned.seen}
               open={false}
               onOlder={() => pinnedOlder.current()}
+              register={(handle) => {
+                pinnedReader.current = handle;
+              }}
               sending={pinnedSending}
+              find={
+                pinnedFinding === null
+                  ? undefined
+                  : { query: pinnedFinding.query, matches: pinnedMatches, current: pinnedCurrent }
+              }
+              epicCalls={epicCalls}
             />
           )}
           <div class="send">
             {composerRows(pinnedRows, pinned).map((row) => (
               <div key={row.key} class="pin-reply" hidden={row.key !== pinnedKey}>
                 <Composer
-                  label={row.label}
+                  label={rowName(row)}
                   state={row.key === pinnedKey ? headState(row, pinnedConversation?.state?.pane) : row.state}
                   send={(text, promptId) => actions.send(clients, row, text, promptId)}
                   pull={row.kind === "pane" ? () => actions.pullQueued(clients, row) : null}
                   newPromptId={actions.newPromptId}
                   register={(handle) => registerHandle(pinnedHandles, row.key, handle)}
+                  onPage={(direction) => pinnedReader.current?.page(direction) ?? false}
+                  onFind={() => setPinnedFind({ key: row.key, query: "", current: 0 })}
                   queued={row.key === pinnedKey ? pinnedConversation?.state?.waiting : undefined}
                   held={row.key === pinnedKey ? pinnedConversation?.held : undefined}
+                  items={row.key === pinnedKey ? pinnedConversation?.items : undefined}
                   onSending={(sent) => addSending(row.key, sent, row.key === pinnedKey ? pinnedConversation : null)}
                   onUnsent={(promptId) => retractSending(row.key, promptId)}
                   inputRef={(element) => {
@@ -1627,13 +1807,21 @@ export function App({
               pageNode(epicEntry, epicDetail)
             ))}
           {docked !== null && (
-            <TalkDock clients={clients} target={docked.target} onClose={() => setTalkDock(null)} />
+            <TalkDock
+              clients={clients}
+              rows={rows}
+              target={docked.target}
+              onClose={() => setTalkDock(null)}
+              openEpic={openEpic}
+              tick={now}
+            />
           )}
         </section>
       </div>
       {pickerOpen && (
         <PickerPalette
           clients={clients}
+          rows={rows}
           onRun={(pane) => {
             setPickerOpen(false);
             setPending({ kind: "pane", id: pane });
@@ -1873,6 +2061,21 @@ function headState(row: Row, pane: Pane | undefined): string {
   return pane?.state ?? row.state;
 }
 
+// replyText is a row's second line: the sentence of a waiting row, else a session's summary. A pane's summary is its
+// title's line, so a pane that is not waiting has no second line.
+function replyText(row: Row): string {
+  if (row.state === stateWaiting) {
+    return rowNeed(row).text;
+  }
+  return row.kind === "session" ? row.summary : "";
+}
+
+// rowName names a row in its composer's placeholder by its directory's last element, or by its line when it has no
+// directory.
+function rowName(row: Row): string {
+  return lastPathElement(row.project) || row.label;
+}
+
 // pruneSent drops the sent entries of each row whose conversation is held, and returns previous itself when none is sent.
 function pruneSent(
   previous: Map<string, Sending[]>,
@@ -2092,6 +2295,16 @@ function clamp(index: number, length: number): number {
   return Math.min(Math.max(index, 0), length - 1);
 }
 
+// findCurrent is the match a find bar shows: the stored one, clamped into the matches, and -1 when none match.
+function findCurrent(stored: number, matches: number): number {
+  return matches === 0 ? -1 : clamp(stored, matches);
+}
+
+// stepCurrent moves the current match by step, wrapping past either end. With no matches there is no match to move to.
+function stepCurrent(current: number, matches: number, step: number): number {
+  return matches === 0 ? -1 : (((current + step) % matches) + matches) % matches;
+}
+
 function sectionTitle(section: EpicSection): string {
   if (section.title !== "") {
     return section.title;
@@ -2127,11 +2340,6 @@ function stepWhere(step: StepItem): string {
 // pageClasses are the classes of the epic page section: its move, and docked while a conversation docks beside it.
 function pageClasses(move: EpicPageState["move"], docked: boolean): string {
   return ["page", move, docked ? "docked" : ""].filter((name) => name !== "").join(" ");
-}
-
-function lastPathElement(path: string): string {
-  const parts = path.split("/").filter((part) => part !== "");
-  return parts[parts.length - 1] ?? "";
 }
 
 function ageText(changed: number, now: number): string {

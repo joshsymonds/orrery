@@ -185,7 +185,8 @@ func TestReadoptAgentGateStepThatCannotBeRebuiltEndsEngineRestarted(t *testing.T
 	}
 }
 
-// readoptTurnStore is a StepStore whose only read is the turn end of a step, which is what readoptRun reads.
+// readoptTurnStore is a StepStore whose only reads are the turn end of a step and its blocks, which is what readoptRun
+// reads.
 type readoptTurnStore struct {
 	StepStore
 	turn  store.StepTurnEnd
@@ -195,6 +196,11 @@ type readoptTurnStore struct {
 // StepTurn returns the turn end the store was given.
 func (s readoptTurnStore) StepTurn(context.Context, string) (store.StepTurnEnd, bool, error) {
 	return s.turn, s.found, nil
+}
+
+// StepBlocks returns no block.
+func (readoptTurnStore) StepBlocks(context.Context, string, int) ([]store.StepBlock, error) {
+	return nil, nil
 }
 
 func TestReadoptRunRefusesAnAgentGateStepWhoseReturnIsStored(t *testing.T) {

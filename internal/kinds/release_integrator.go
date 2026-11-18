@@ -29,7 +29,9 @@ func integratorPosition(generation, round int64) int64 {
 // integratorAction decides a releasing epic whose prepare found the merge of origin's commit into the tip conflicting.
 // The release integrator finishes that merge, in rounds walked in order at the generation of the run's candidate. A
 // round with no release run is recorded once its step ends, waits while its step runs, or starts (integratorStart). A
-// round recorded as failed stops the release with its reason. A round recorded as passed holds its commit at the epic's
+// round recorded as failed stops the release with its reason, unless a replan release run of the attempt was recorded
+// with it: then the release goes back to planning with that run's reason (replanAction). A round recorded as passed
+// holds its commit at the epic's
 // Done gates and then at its captures (mergedChecks), walked under an id of the round's own at that commit. When they
 // all pass, the commit is recorded as the candidate. When one fails, the next round starts with the failure, so the
 // integrator mends its merge, and a failure in the last round stops the release with it.
@@ -47,6 +49,9 @@ func integratorAction(run store.NodeRun, rows Rows) Action {
 			return integratorStart(rows, id, position, head, previous)
 		}
 		if !recorded.Passed {
+			if act := replanAction(run, rows); act.Kind == ActReplan {
+				return act
+			}
 			return Action{Kind: ActStop, Output: recorded.Reason}
 		}
 		checked := gated

@@ -262,22 +262,21 @@ func TestLastTurnEndsAppliesTurnEndIndexToStoreWithEvents(t *testing.T) {
 	}
 }
 
-func TestLastTurnEndsTurnEndIndexMigrationDownAndUp(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, provider := storeAtVersion(t, 24)
-
-	if _, err := provider.DownTo(ctx, 23); err != nil {
-		t.Fatalf("DownTo 23: %v", err)
-	}
-	if indexExists(t, s.db.DB, "events_turn_end") {
-		t.Fatalf("events_turn_end after Down: present, want absent")
-	}
-
-	if _, err := provider.Up(ctx); err != nil {
-		t.Fatalf("Up: %v", err)
-	}
-	if !indexExists(t, s.db.DB, "events_turn_end") {
-		t.Fatalf("events_turn_end after Up: absent, want present")
+// turnEndIndexDownAndUp is the walk's check of 00024_turn_end_index.sql: its Down removes the events_turn_end index,
+// and its Up restores it.
+func turnEndIndexDownAndUp() migrationCheck {
+	return migrationCheck{
+		down: func(t *testing.T, s *Store) {
+			t.Helper()
+			if indexExists(t, s.db.DB, "events_turn_end") {
+				t.Errorf("events_turn_end after Down: present, want absent")
+			}
+		},
+		up: func(t *testing.T, s *Store) {
+			t.Helper()
+			if !indexExists(t, s.db.DB, "events_turn_end") {
+				t.Errorf("events_turn_end after Up: absent, want present")
+			}
+		},
 	}
 }

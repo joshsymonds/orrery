@@ -132,13 +132,17 @@ func shellWord(arg string) string {
 // plainShellChars are the characters a shell word may hold unquoted.
 const plainShellChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_@%+=:,./-"
 
-// ReviewPrompt renders the prompt of a review gate's step for task T<seq> of epic: the task, its files and
-// Requirements, and the range the change under review spans from base to revision.
-func ReviewPrompt(epic store.EpicRow, task store.EpicTask, base, revision string) string {
+// ReviewPrompt renders the prompt of reviewer's review gate step for task T<seq> of epic: the task, its files and
+// Requirements, and the range the change under review spans from base to revision. The test_parsimony reviewer's prompt
+// ends with the Test cost section (reviewers.TestCost) of gate, the gate check the implementer's commit passed, which is
+// the zero check when the task has none.
+func ReviewPrompt(
+	epic store.EpicRow, task store.EpicTask, reviewer, base, revision string, gate store.StepCheck,
+) string {
 	change := fmt.Sprintf(
 		"The change under review is %s..%s; this worktree is checked out at %s. Inspect it with `git diff %s %s`.",
 		base, revision, revision, base, revision)
-	return strings.Join(slices.Concat(
+	lines := slices.Concat(
 		[]string{
 			fmt.Sprintf("Task T%d of epic %s (%s): %s", task.Seq, epic.ID, epic.Title, task.Title),
 			"Deliverable: " + task.Deliverable,
@@ -148,7 +152,11 @@ func ReviewPrompt(epic store.EpicRow, task store.EpicTask, base, revision string
 		[]string{"Requirements:"},
 		requirementLines(epic.Requirements, task.Requirements),
 		[]string{change},
-	), "\n")
+	)
+	if reviewer == reviewers.TestParsimony {
+		lines = append(lines, reviewers.TestCost(gate.Stdout, gate.Stderr)...)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // bullets prefixes each item with "- ", or returns the single line "- none" when there are no items.

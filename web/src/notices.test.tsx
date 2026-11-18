@@ -17,6 +17,7 @@ import {
   NoticesWatchResponseSchema,
 } from "./gen/orrery/v1/notice_pb";
 import { applyNotice, NoticeBanner, noticeLifetimeMillis, watchNotices } from "./notices";
+import { mockTimers } from "./testclock";
 import { installTestDom, removeTestDom } from "./testdom";
 import { settledFlag, until } from "./testwait";
 
@@ -393,7 +394,7 @@ async function advance(t: TestContext, ms: number): Promise<void> {
 }
 
 test("a row holds its title and its body as separate elements, with a separator between them", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
+  mockTimers(t, ["setTimeout"]);
   await withBanner(async (container) => {
     await act(() => {
       drawBanner(container, [notice("%1", "one")]);
@@ -411,7 +412,7 @@ test("a row holds its title and its body as separate elements, with a separator 
 });
 
 test("the banner draws at most three rows, then a +n more line for the rest", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
+  mockTimers(t, ["setTimeout"]);
   await withBanner(async (container) => {
     const five = ["one", "two", "three", "four", "five"].map((title, index) => notice(`%${index + 1}`, title));
     await act(() => {
@@ -428,7 +429,7 @@ test("the banner draws at most three rows, then a +n more line for the rest", as
 });
 
 test("a × drops its row at once and calls onDismiss with its notice, and the other rows stay", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
+  mockTimers(t, ["setTimeout"]);
   const dismissed: InAppNotice[] = [];
   const opened: InAppNotice[] = [];
   await withBanner(async (container) => {
@@ -454,7 +455,7 @@ test("a × drops its row at once and calls onDismiss with its notice, and the ot
 });
 
 test("a row leaves the stack 8 seconds after it first shows, and nothing is told of it", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
+  mockTimers(t, ["setTimeout"]);
   const dismissed: InAppNotice[] = [];
   await withBanner(async (container) => {
     await act(() => {
@@ -469,7 +470,7 @@ test("a row leaves the stack 8 seconds after it first shows, and nothing is told
 });
 
 test("a fourth notice starts its own 8 seconds when it moves into the three rows", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
+  mockTimers(t, ["setTimeout"]);
   await withBanner(async (container) => {
     const four = ["one", "two", "three", "four"].map((title, index) => notice(`%${index + 1}`, title));
     await act(() => {
@@ -486,7 +487,7 @@ test("a fourth notice starts its own 8 seconds when it moves into the three rows
 });
 
 test("a notice that leaves the list and is shown again under its key shows again", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
+  mockTimers(t, ["setTimeout"]);
   await withBanner(async (container) => {
     await act(() => {
       drawBanner(container, [notice("%1", "one")], { onDismiss: () => undefined });
@@ -511,7 +512,7 @@ test("a notice that leaves the list and is shown again under its key shows again
 });
 
 test("unmounting clears the pending lifetime timer of each row", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
+  mockTimers(t, ["setTimeout"]);
   const scheduled = t.mock.method(globalThis, "setTimeout");
   const cleared = t.mock.method(globalThis, "clearTimeout");
   await withBanner(async (container) => {

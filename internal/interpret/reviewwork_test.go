@@ -23,9 +23,11 @@ const (
 	reviewWorkVerifierAgent = "claude-verify"
 )
 
-// reviewWorkCall is one Start a reviewWorkReviewers received: the reviewer's name, the base and the revision.
+// reviewWorkCall is one Start a reviewWorkReviewers received: the reviewer's name, the base, the revision and the Done
+// gate checks.
 type reviewWorkCall struct {
 	name, base, revision string
+	doneGates            []store.NodeCheck
 }
 
 // reviewWorkReviewers stands in for the reviewers service. It records each Start and returns the read-only step a
@@ -41,9 +43,9 @@ func (*reviewWorkReviewers) Epic(store.EpicRow) []kinds.Reviewer {
 
 // Start records the call and returns the reviewer's step, which carries no id or labels.
 func (r *reviewWorkReviewers) Start(
-	_ context.Context, epic store.EpicRow, name, base, revision string,
+	_ context.Context, epic store.EpicRow, name, base, revision string, doneGates []store.NodeCheck,
 ) (enginehost.StepStart, error) {
-	r.calls = append(r.calls, reviewWorkCall{name: name, base: base, revision: revision})
+	r.calls = append(r.calls, reviewWorkCall{name: name, base: base, revision: revision, doneGates: doneGates})
 	return enginehost.StepStart{
 		Agent: "reviewer-" + name, Prompt: "review as " + name, Schema: `{"type":"object"}`,
 		Workspace: epic.Repository, Revision: revision, ReadOnly: true,
@@ -271,6 +273,77 @@ func TestReviewStartStartsReviewerAndVerifierUnits(t *testing.T) {
 	}
 	if got := reviewWorkComparable(steps.calls); !reflect.DeepEqual(got, reviewWorkComparable(want)) {
 		t.Errorf("step starts = %+v, want %+v", got, reviewWorkComparable(want))
+	}
+}
+
+// TestReviewStartGivesTestParsimonyTheDoneGateChecksAtTheFrozenRevision: the test_parsimony reviewer's start carries the
+// checks of the Done gates the integrate run ran at the frozen revision, with their kept output, so its prompt can carry
+// their budget lines: the rerun that decided a gate, not the attempt that exited 75, a lost check or a check at another
+// revision. Another reviewer's start carries none.
+func TestReviewStartGivesTestParsimonyTheDoneGateChecksAtTheFrozenRevision(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openRunStore(t)
+	if err := s.CreateEpic(ctx, store.EpicRow{
+		ID: runEpic, Repository: runRepo, Base: runBase, Title: "Run the workflow", Phase: runPhase,
+		Created: runClock(), Changed: runClock(), DoneGates: []string{"check"},
+	}); err != nil {
+		t.Fatalf("CreateEpic: %v", err)
+	}
+	integrate := reviewWorkStartRun(t, s, "integrate")
+	if err := s.PrepareNode(ctx, runEpic, integrate.Path, integrate.Attempt, reviewWorkFrozen, ""); err != nil {
+		t.Fatalf("PrepareNode: %v", err)
+	}
+	// The gate's first attempt exited 75 and its rerun passed; a check lost at a restart, and the reproduction the run
+	// ran at the epic's base, are not Done gate runs at the frozen revision.
+	stdout := "test-budget: internal/store 212 cpu-s > 160 (+33%)\n"
+	gateID := workID(t, s, integrate.Path, "done 1 rerun")
+	for _, ran := range []struct {
+		part, revision string
+		end            store.NodeCheckEnd
+	}{
+		{"done 1", reviewWorkFrozen, store.NodeCheckEnd{Exit: store.EnvironmentExit, Stdout: "test-budget: environment\n"}},
+		{"done 1 rerun", reviewWorkFrozen, store.NodeCheckEnd{Stdout: stdout}},
+		{"done 2", reviewWorkFrozen, store.NodeCheckEnd{NotRun: store.LostAtRestart, Stdout: "test-budget: lost\n"}},
+		{"repro", runBase, store.NodeCheckEnd{Exit: 1, Stdout: "test-budget: at the base\n"}},
+	} {
+		id := workID(t, s, integrate.Path, ran.part)
+		if err := s.AddNodeCheck(ctx, store.NodeCheck{
+			ID: id, Epic: runEpic, Path: integrate.Path, Revision: ran.revision, Argv: []string{"just", "check"},
+		}, runClock()); err != nil {
+			t.Fatalf("AddNodeCheck %s: %v", ran.part, err)
+		}
+		if err := s.EndNodeCheck(ctx, id, ran.end, runClock()); err != nil {
+			t.Fatalf("EndNodeCheck %s: %v", ran.part, err)
+		}
+	}
+	run := reviewWorkFrozenRun(t, s)
+	reviewers := &reviewWorkReviewers{}
+	steps := &reviewWorkSteps{fakeSteps: fakeSteps{store: s}}
+	runner := reviewWorkRunner(s, steps, reviewers, reviewWorkGetenv(t))
+	parsimonyID := workID(t, s, "review", "reviewer 1")
+	securityID := workID(t, s, "review", "reviewer 2")
+	act := Action{
+		Kind: ActWork, Work: kinds.ActStart, Path: "review", NodeKind: reviewNodeKind, Run: run,
+		IDs: []string{parsimonyID, securityID},
+		Units: []kinds.Unit{
+			{ID: parsimonyID, Part: "reviewer 1", Reviewer: "test_parsimony"},
+			{ID: securityID, Part: "reviewer 2", Reviewer: "security"},
+		},
+	}
+	if err := runner.work(ctx, epicOf(t, s), act, runClock()); err != nil {
+		t.Fatalf("work: %v", err)
+	}
+
+	if len(reviewers.calls) != 2 {
+		t.Fatalf("reviewer starts = %+v, want 2", reviewers.calls)
+	}
+	gates := reviewers.calls[0].doneGates
+	if len(gates) != 1 || gates[0].ID != gateID || gates[0].Stdout != stdout {
+		t.Errorf("test_parsimony Done gate checks = %+v, want the check %s with stdout %q", gates, gateID, stdout)
+	}
+	if gates := reviewers.calls[1].doneGates; gates != nil {
+		t.Errorf("security Done gate checks = %+v, want none", gates)
 	}
 }
 

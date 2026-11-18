@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { mockTimers } from "./testclock";
 import { turn, until } from "./testwait";
 
 // childEnv marks the run of this file that holds a wait open. Without it the file runs the test that starts that run.
@@ -45,7 +46,7 @@ if (process.env[childEnv] === "1") {
 test("a wait stepped by turn ends while setTimeout is mocked, once a promise chain makes its check hold", async (t) => {
   // Every setTimeout is mocked for this test. A wait that stepped by a timer would never end, so the test ends only if
   // turn needs no timer.
-  t.mock.timers.enable({ apis: ["setTimeout"] });
+  mockTimers(t, ["setTimeout"]);
   let landed = false;
   void Promise.resolve()
     .then(() => Promise.resolve())

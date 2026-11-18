@@ -101,6 +101,9 @@ func assertEpicSessions(t *testing.T, got, want []*orreryv1.EpicSession) {
 		if got[i].GetAt() != want[i].GetAt() {
 			t.Errorf("sessions[%d] at = %d, want %d", i, got[i].GetAt(), want[i].GetAt())
 		}
+		if got[i].GetCreator() != want[i].GetCreator() {
+			t.Errorf("sessions[%d] creator = %t, want %t", i, got[i].GetCreator(), want[i].GetCreator())
+		}
 	}
 }
 
@@ -169,4 +172,20 @@ func TestEpicsGetSessionsFailedReadListsNone(t *testing.T) {
 
 	got := epicsGet(t, epicSessionsClient(t, reader), epicSessionsEpic).GetSessions()
 	assertEpicSessions(t, got, nil)
+}
+
+func TestEpicsGetSessionsCreatorConversationMarksCreator(t *testing.T) {
+	t.Parallel()
+	s, path := openSessionsStore(t)
+	addSessionsRows(t, s)
+	first := epicSessionsStart()
+	second := first.Add(time.Minute)
+	recordSessionsCall(t, s, store.EpicCaller{Server: "-L orrery", Pane: "%1"}, "epic_create", first)
+	recordSessionsCall(t, s, store.EpicCaller{Session: "engine-session"}, "epic_get", second)
+
+	got := epicsGet(t, epicSessionsClient(t, store.NewReader(path)), epicSessionsEpic).GetSessions()
+	assertEpicSessions(t, got, []*orreryv1.EpicSession{
+		{Id: "engine-session", Label: "reviews", Call: "epic_get", At: second.Unix()},
+		{Id: "orrery-1", Pane: "%1", Label: "worker one", Call: "epic_create", At: first.Unix(), Creator: true},
+	})
 }

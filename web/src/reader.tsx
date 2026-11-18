@@ -1,14 +1,18 @@
-import type { ComponentChildren, JSX } from "preact";
-import { useLayoutEffect, useRef, useState } from "preact/hooks";
+import { Component, createElement, type ComponentChildren, type JSX } from "preact";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 
+import { type EpicCalls, EpicWidget } from "./card";
 import type { Conversation } from "./conversation";
+import type { Match } from "./find";
+import { EventRing, epicEventOf } from "./eventring";
 import { useFlash } from "./flash";
 import type { EpicStep, EpicStepCheck } from "./gen/orrery/v1/epics_pb";
 import type { ConversationItem, EngineText } from "./gen/orrery/v1/orrery_pb";
 import { Markdown } from "./markdown";
 import type { ParsedQuestion } from "./question";
 import type { Sending } from "./sending";
-import { ReplyText } from "./text";
+import { MarkedText, ReplyText } from "./text";
+import { TitleParts } from "./titleparts";
 import { type InboxMark, TitleRow } from "./titlerow";
 
 const tokensPerThousand = 1000;
@@ -17,15 +21,30 @@ const answerChoices = [1, 2, 3] as const;
 const nearBottomPixels = 4;
 const nearTopPixels = 4;
 const toolRunMinimum = 3;
+// pageOverlapPixels is how much of the last screen a page keeps on screen, so the owner keeps his place across a page.
+const pageOverlapPixels = 40;
+// pagingQuery is the width from which a reader pages by its handle. Under it the reader does not scroll on its own, and
+// the keys that page it are left to the browser.
+const pagingQuery = "(min-width: 760px)";
+
+// ReaderHandle is what the page calls on a reader to page its transcript by a screen. page moves the reader one screen
+// up or down, less pageOverlapPixels, clamped to its top and bottom, and returns true. Where the reader does not scroll
+// on its own, under pagingQuery, page does nothing and returns false.
+export interface ReaderHandle {
+  page: (direction: "up" | "down") => boolean;
+}
 
 // Reader draws one conversation: its items, the "since you looked" rule before the first row newer than seenAt, the
 // pane's question with a button per answer, and the session's unfinished text and thinking. A result is never a row:
 // it folds under the call it answers, and a result whose call is not held is hidden. Three or more tool calls in a row
 // fold into one run line that opens to a line per call. A call still running, with nothing but calls and results after
-// it and no question drawn, carries the running rail and mark, and so does a run that holds one.
+// it and no question drawn, carries the running rail and mark, and so does a run that holds one. A call that creates an
+// epic is never in a run: once its result is not an error, and the reader is given epic calls, the epic's card draws in
+// its place.
 // A reply, a prompt and live text draw through Markdown, which builds only its fixed elements. Every other text is drawn
 // as text: through ReplyText, or as a plain child of an element, so no markup becomes an element and no link sits inside
-// a button. A prompt an event sent draws as an EVENT row, with or without a step, and never as YOU or a step prompt.
+// a button. A prompt whose text is an epic's event block draws as the event's ring when the reader holds epic calls. Any
+// other prompt an event sent draws as an EVENT row, with or without a step, and never as YOU or a step prompt.
 // With a step, any other prompt draws by its sender and round: the brief as a fold, a send-back as a card of its
 // round's checks, any other prompt as an engine fold. An owner's prompt, and every other prompt without a step, is YOU.
 // The reader is its own scroll container: a conversation that replaces a null one opens at its bottom, pinned there. A
@@ -33,7 +52,14 @@ const toolRunMinimum = 3;
 // that draws items or live text, and whenever its own box or a row's box changes size, as the composer area above or
 // below it does. A reader the owner scrolled up keeps its place. When items are drawn above the first row shown before,
 // the reader keeps the rows on screen where they were. Once it sits within nearTopPixels of its top while the
-// conversation has older items, it calls onOlder, which loads the page before its oldest item.
+// conversation has older items, it calls onOlder, which loads the page before its oldest item. The page pages it a
+// screen at a time through the handle register gets.
+// With find, every case-insensitive occurrence of its query is a mark in what the reader draws of a reply, a prompt, a
+// call's input and result, and a notice. Compaction, check cards, epic cards and event rings, live text, thinking, the
+// question card, sending rows and event lines are not searched. The current match, find.current's index in
+// find.matches, is the mark with class current: it is scrolled into view as it arrives, and the fold, call or run that
+// holds it opens. A fold opens when the current match moves into it, and the owner can close it; it opens again only
+// when the current match moves into it once more.
 // The sending entries draw after the items and live text, each as a dimmed prompt row marked sending. They are not items:
 // they keep no key and no place in the scroll place, and a reader at its bottom keeps it as a new row arrives.
 export function Reader({
@@ -45,7 +71,10 @@ export function Reader({
   onAnswer,
   onToggleOpen,
   onOlder,
+  register,
   sending = [],
+  find,
+  epicCalls,
 }: {
   conversation: Conversation | null;
   seenAt: number;
@@ -55,7 +84,10 @@ export function Reader({
   onAnswer?: (choice: 1 | 2 | 3) => void;
   onToggleOpen?: () => void;
   onOlder?: () => void;
+  register?: (handle: ReaderHandle | null) => void; // gets the handle while mounted, and null once unmounted
   sending?: Sending[];
+  find?: { query: string; matches: Match[]; current: number };
+  epicCalls?: EpicCalls;
 }): JSX.Element {
   const root = useRef<HTMLDivElement>(null);
   const drewConversation = useRef(false);
@@ -63,7 +95,47 @@ export function Reader({
   // pinned is whether the owner last left the reader within nearBottomPixels of its bottom. Only the owner's scrolls set
   // it: a render or a size change moves the content under the reader without the owner, so it does not.
   const pinned = useRef(true);
-  const keys = conversation === null ? [] : itemKeys(conversation.items);
+  // The derivations of the items are made once per items array, so a redraw that holds the same array reuses them.
+  const conversationItems = conversation?.items;
+  const keys = useMemo(() => (conversationItems === undefined ? [] : itemKeys(conversationItems)), [conversationItems]);
+  const results = useMemo(
+    () => (conversationItems === undefined ? new Map<number, ConversationItem>() : resultsByCall(conversationItems)),
+    [conversationItems],
+  );
+  const newIndex = useMemo(
+    () =>
+      conversationItems === undefined
+        ? -1
+        : conversationItems.findIndex((item) => item.kind !== "result" && Number(item.time) > seenAt),
+    [conversationItems, seenAt],
+  );
+  const groups = useMemo(
+    () => (conversationItems === undefined ? [] : groupRows(conversationItems, newIndex)),
+    [conversationItems, newIndex],
+  );
+  // The rows reach onToggleOpen through toggle, so the callback a row holds is the same function on every render, and a
+  // caller's new callback does not make a row draw again. A row gets a toggle only when the caller passed one, since a
+  // compaction row draws its rule as a button only then.
+  const toggle = useRef(onToggleOpen);
+  toggle.current = onToggleOpen;
+  const toggleOpen = useCallback(() => toggle.current?.(), []);
+  const rowToggle = onToggleOpen === undefined ? undefined : toggleOpen;
+  // The rows reach the epic calls through rowCalls, which carries the tick of the caller's calls and passes each call to
+  // the calls of the latest render. It is made again only when the tick changes or the calls come or go, so a caller's
+  // new calls object at the same tick does not make a card or ring row draw again, while a new tick does, and the card
+  // reads its epic then.
+  const latestCalls = useRef(epicCalls);
+  latestCalls.current = epicCalls;
+  const rowCalls = useMemo(
+    () => (epicCalls === undefined ? undefined : callsAt(latestCalls, epicCalls)),
+    [epicCalls?.tick],
+  );
+  // query is what the reader marks, and focus is the current match, when there is a query and a current one.
+  const query = find?.query ?? "";
+  const focus = find !== undefined && query !== "" && find.current >= 0 ? find.matches[find.current] : undefined;
+  const focusItem = focus?.item ?? -1;
+  const focusStart = focus?.start ?? -1;
+  const currentAt = (index: number): number => (index === focusItem ? focusStart : -1);
   // The position is read before this render changes the DOM, so it is where the reader sat before the new items. A size
   // change the observer has not reported yet is not in that reading, so the observer follows it.
   const element = root.current;
@@ -83,6 +155,20 @@ export function Reader({
       pinned.current = distanceFromBottom(reader) <= nearBottomPixels;
     }
     askOlder();
+  };
+  // page moves the reader a screen less pageOverlapPixels, clamped to its top and bottom, then reads its place as an
+  // owner's scroll does, so a page up from the bottom unpins the reader.
+  const page = (direction: "up" | "down"): boolean => {
+    const reader = root.current;
+    if (reader === null || !window.matchMedia(pagingQuery).matches) {
+      return false;
+    }
+    const screen = reader.clientHeight - pageOverlapPixels;
+    const furthest = Math.max(0, reader.scrollHeight - reader.clientHeight);
+    const target = direction === "down" ? reader.scrollTop + screen : reader.scrollTop - screen;
+    reader.scrollTop = Math.min(Math.max(target, 0), furthest);
+    followScroll();
+    return true;
   };
   useLayoutEffect(() => {
     const previous = shownKeys.current;
@@ -128,6 +214,12 @@ export function Reader({
       sizes.disconnect();
     };
   });
+  // The page holds the handle while the reader is mounted. It is made again on each render, so page asks with the
+  // older-items flag and callback that render drew, and null is passed before each new handle and once unmounted.
+  useLayoutEffect(() => {
+    register?.({ page });
+    return () => register?.(null);
+  });
   const sendingRows = sending.map((entry) => <SendingRow key={entry.promptId} text={entry.text} />);
   if (conversation === null) {
     return (
@@ -137,14 +229,12 @@ export function Reader({
       </div>
     );
   }
-  const newIndex = conversation.items.findIndex((item) => item.kind !== "result" && Number(item.time) > seenAt);
-  const results = resultsByCall(conversation.items);
   const items = conversation.items;
   const liveBlocks = conversation.unfinished.filter((block) => block.kind === "text" || block.kind === "thinking");
   // A question or live text drawn after the items ends the calls, so none of them is running.
   const running = runningCalls(items, results, question !== null || liveBlocks.length > 0);
   const rows: JSX.Element[] = [];
-  groupRows(items, newIndex).forEach((group) => {
+  groups.forEach((group) => {
     const [first] = group;
     if (first === newIndex) {
       rows.push(<NewRule key="new-rule" />);
@@ -155,19 +245,24 @@ export function Reader({
         item: items[index],
         result: results.get(index),
         running: running.has(index),
+        current: currentAt(index),
       }));
-      rows.push(<ToolRun key={keys[first]} calls={calls} />);
+      rows.push(<MemoToolRun key={keys[first]} calls={calls} query={query} />);
       return;
     }
+    // Only a compaction row draws the open state, so a toggle of it leaves every other row as it was.
     rows.push(
-      <ItemRow
+      <MemoItemRow
         key={keys[first]}
         item={items[first]}
         result={results.get(first)}
         running={running.has(first)}
-        open={open}
+        open={open && items[first].kind === "compaction"}
         step={step}
-        onToggleOpen={onToggleOpen}
+        onToggleOpen={rowToggle}
+        query={query}
+        current={currentAt(first)}
+        epicCalls={rowCalls}
       />,
     );
   });
@@ -183,14 +278,14 @@ export function Reader({
   );
 }
 
-// ReaderHead names the conversation the reader draws and what it is doing: its label as the heading, its where line
-// when there is one, and the children after it, the pill the app passes in.
+// ReaderHead names the conversation the reader draws and what it is doing: its label as the heading, which is text or a
+// title a caller draws, its where line when there is one, and the children after it, the pill the app passes in.
 export function ReaderHead({
   label,
   where,
   children,
 }: {
-  label: string;
+  label: ComponentChildren;
   where: string;
   children?: ComponentChildren;
 }): JSX.Element {
@@ -203,18 +298,20 @@ export function ReaderHead({
   );
 }
 
-// ConversationHead heads a row's conversation with the shared title row: the back button, the mark, the row's label as
-// the page, and the row's state in the state slot. The children, the pill the app passes in, draw after the state. The
-// strip, when given, draws under the row.
+// ConversationHead heads a row's conversation with the shared title row: the back button, the mark, the row's title,
+// which TitleParts draws from its directory and line, as the page, and the row's state in the state slot. The children,
+// the pill the app passes in, draw after the state. The strip, when given, draws under the row.
 export function ConversationHead({
-  label,
+  dir,
+  line,
   state,
   onBack,
   mark,
   strip,
   children,
 }: {
-  label: string;
+  dir: string;
+  line: string;
   state: string;
   onBack: () => void;
   mark?: InboxMark;
@@ -222,7 +319,13 @@ export function ConversationHead({
   children?: ComponentChildren;
 }): JSX.Element {
   return (
-    <TitleRow crumbs={[{ label }]} onBack={onBack} state={state} mark={mark} strip={strip}>
+    <TitleRow
+      crumbs={[{ label: <TitleParts dir={dir} line={line} /> }]}
+      onBack={onBack}
+      state={state}
+      mark={mark}
+      strip={strip}
+    >
       {children}
     </TitleRow>
   );
@@ -316,30 +419,114 @@ function SendingRow({ text }: { text: string }) {
   );
 }
 
-function ItemRow({
-  item,
-  result,
-  running,
-  open,
-  step,
-  onToggleOpen,
-}: {
+// ItemRowProps are an item's row's props. query is the find's query, and current is the offset in the item's searched
+// text where the current match starts, or -1 when the current match is not in this item.
+interface ItemRowProps {
   item: ConversationItem;
   result: ConversationItem | undefined;
   running: boolean;
   open: boolean;
   step?: EpicStep;
   onToggleOpen?: () => void;
-}) {
-  // Its row carries the owner-turn class, which sets the gap above it.
+  query: string;
+  current: number;
+  epicCalls?: EpicCalls;
+}
+
+function ItemRow({ item, result, running, open, step, onToggleOpen, query, current, epicCalls }: ItemRowProps) {
+  // Its row carries the owner-turn class, which sets the gap above it, unless the row is an epic's event ring.
+  const ringed = item.kind === "prompt" && epicCalls !== undefined && epicEventOf(item.text) !== null;
   return (
-    <div class={ownersTurn(item, step) ? "t owner-turn" : "t"}>
+    <div class={ownersTurn(item, step) && !ringed ? "t owner-turn" : "t"}>
       <span class="gut">{clock(item.time)}</span>
       <div class="body">
-        <ItemBody item={item} result={result} running={running} open={open} step={step} onToggleOpen={onToggleOpen} />
+        <ItemBody
+          item={item}
+          result={result}
+          running={running}
+          open={open}
+          step={step}
+          onToggleOpen={onToggleOpen}
+          query={query}
+          current={current}
+          epicCalls={epicCalls}
+        />
       </div>
     </div>
   );
+}
+
+// MemoItemRow draws an ItemRow again only when sameItemRow finds its props changed.
+const MemoItemRow = memo(ItemRow, sameItemRow);
+
+// sameItemRow is whether new props draw the row the old ones drew: the same item, result, running and open state and
+// toggle, a step that reads the same, the same find query and current match, and the same epic calls when the row reads
+// them. An item or result is compared by its object, which the held items keep from one delta to the next.
+function sameItemRow(previous: ItemRowProps, next: ItemRowProps): boolean {
+  return (
+    previous.item === next.item &&
+    previous.result === next.result &&
+    previous.running === next.running &&
+    previous.open === next.open &&
+    previous.onToggleOpen === next.onToggleOpen &&
+    previous.query === next.query &&
+    previous.current === next.current &&
+    sameStep(previous.step, next.step) &&
+    (previous.epicCalls === next.epicCalls || !readsEpicCalls(next.item))
+  );
+}
+
+// readsEpicCalls is whether a row of item draws from the epic calls: a prompt whose text is an epic's event block, which
+// draws as the event's ring, or a call that creates an epic, which draws its epic's card. Every other row reads nothing
+// of them, so the calls it is given do not change it.
+function readsEpicCalls(item: ConversationItem): boolean {
+  if (item.kind === "prompt") {
+    return epicEventOf(item.text) !== null;
+  }
+  return (item.kind === "tool" || item.kind === "question") && item.epic !== "";
+}
+
+// callsAt makes epic calls at the tick of made that pass each call to the calls latest holds when the call is made, or to
+// made once latest holds none. A row holding them reaches the caller's latest calls without drawing again.
+function callsAt(latest: { current: EpicCalls | undefined }, made: EpicCalls): EpicCalls {
+  const current = (): EpicCalls => latest.current ?? made;
+  return {
+    get: (id) => current().get(id),
+    pause: (id) => current().pause(id),
+    resume: (id) => current().resume(id),
+    answer: (id, question, choice, text) => current().answer(id, question, choice, text),
+    openEpic: (id) => current().openEpic(id),
+    tick: made.tick,
+  };
+}
+
+// sameStep is whether two steps read the same to a row: both absent, or both present with checks that match in order by
+// name, round and ok. A row reads nothing else of a step, so a step rebuilt with the same checks is the same step.
+function sameStep(previous: EpicStep | undefined, next: EpicStep | undefined): boolean {
+  if (previous === undefined || next === undefined) {
+    return previous === next;
+  }
+  return (
+    previous.checks.length === next.checks.length &&
+    previous.checks.every((check, index) => {
+      const other = next.checks[index];
+      return other !== undefined && check.name === other.name && check.round === other.round && check.ok === other.ok;
+    })
+  );
+}
+
+// memo draws a component again only when same finds its props changed, as preact/compat's memo does. It is written here
+// because importing preact/compat installs its option hooks on every vnode of the app.
+function memo<P extends object>(component: (props: P) => JSX.Element, same: (previous: P, next: P) => boolean) {
+  return class Memoed extends Component<P> {
+    shouldComponentUpdate(next: Readonly<P>): boolean {
+      return !same(this.props, next);
+    }
+
+    render(): JSX.Element {
+      return createElement(component, this.props);
+    }
+  };
 }
 
 function ItemBody({
@@ -349,6 +536,9 @@ function ItemBody({
   open,
   step,
   onToggleOpen,
+  query,
+  current,
+  epicCalls,
 }: {
   item: ConversationItem;
   result: ConversationItem | undefined;
@@ -356,9 +546,18 @@ function ItemBody({
   open: boolean;
   step?: EpicStep;
   onToggleOpen?: () => void;
+  query: string;
+  current: number;
+  epicCalls?: EpicCalls;
 }) {
   switch (item.kind) {
     case "prompt":
+      if (epicCalls !== undefined) {
+        const event = epicEventOf(item.text);
+        if (event !== null) {
+          return <EventRing event={event} calls={epicCalls} />;
+        }
+      }
       if (item.sender === "event") {
         return (
           <div class="event">
@@ -368,29 +567,50 @@ function ItemBody({
         );
       }
       if (step !== undefined && !ownersTurn(item, step)) {
-        return <StepPrompt item={item} checks={step.checks} />;
+        return <StepPrompt item={item} checks={step.checks} query={query} current={current} />;
       }
       return (
         <div class="you">
           <small>YOU</small>
-          <ReplyMarkdown text={item.text} />
+          <ReplyMarkdown text={item.text} query={query} current={current} />
         </div>
       );
     case "tool":
-    case "question":
-      return <CallRow item={item} result={result} running={running} />;
+    case "question": {
+      // An epic call whose result is not an error draws its epic's card in place of its row, when the reader holds
+      // epic calls.
+      if (item.epic !== "" && epicCalls !== undefined && result !== undefined && !result.error) {
+        return <EpicWidget epic={item.epic} calls={epicCalls} />;
+      }
+      return <CallRow item={item} result={result} running={running} query={query} current={current} />;
+    }
     case "notice":
       return (
         <div class={item.error ? "notice err" : "notice"}>
-          <span class="notice-kind">{item.notice}</span>
-          {item.text !== "" && <ReplyText text={item.text} />}
+          <span class="notice-kind">
+            <MarkedText text={item.notice} query={query} current={partCurrent(current, 0, item.notice.length)} />
+          </span>
+          {item.text !== "" && (
+            <ReplyText
+              text={item.text}
+              query={query}
+              current={partCurrent(current, item.notice.length + 1, item.text.length)}
+            />
+          )}
         </div>
       );
     case "compaction":
       return <Compaction item={item} open={open} onToggleOpen={onToggleOpen} />;
     default:
-      return <ReplyMarkdown text={item.text} />;
+      return <ReplyMarkdown text={item.text} query={query} current={current} />;
   }
+}
+
+// partCurrent is the offset within a part of an item's searched text where the current match starts, when it starts in
+// that part, and -1 when it does not. The part starts at start in the item's searched text, where findMatches joins the
+// item's parts one to a line, so the part after a newline starts one past the part before it.
+function partCurrent(current: number, start: number, length: number): number {
+  return current >= start && current < start + length ? current - start : -1;
 }
 
 // ownersTurn is whether an item is the owner's turn, YOU: a prompt the owner sent, or any prompt without a step that
@@ -400,34 +620,75 @@ function ownersTurn(item: ConversationItem, step?: EpicStep): boolean {
 }
 
 // ReplyMarkdown draws a reply's text as Markdown inside its .reply element, the element the reader's Markdown styles
-// hang from.
-function ReplyMarkdown({ text }: { text: string }) {
+// hang from. Its query and current are the item's, as ItemRow's are, and its text is all of the item's searched text.
+function ReplyMarkdown({ text, query = "", current = -1 }: { text: string; query?: string; current?: number }) {
   return (
     <div class="reply">
-      <Markdown text={text} />
+      <Markdown text={text} query={query} current={current} />
     </div>
   );
 }
 
 // StepPrompt draws a prompt a step's engine sent, by its sender and round: the brief as a fold, a send-back of a check
 // round as a card of that round's checks, and any other prompt, unmarked ones included, as an engine fold.
-function StepPrompt({ item, checks }: { item: ConversationItem; checks: EpicStepCheck[] }) {
+function StepPrompt({
+  item,
+  checks,
+  query,
+  current,
+}: {
+  item: ConversationItem;
+  checks: EpicStepCheck[];
+  query: string;
+  current: number;
+}) {
   if (item.sender === "brief") {
-    return <Fold className="fold brief" title="Brief" names="from the engine" text={item.text} />;
+    return (
+      <Fold
+        className="fold brief"
+        title="Brief"
+        names="from the engine"
+        text={item.text}
+        query={query}
+        current={current}
+      />
+    );
   }
   if (item.sender === "engine" && item.round >= 1) {
     return <CheckCard text={item.text} round={item.round} checks={checks} />;
   }
   const [first] = item.text.split("\n");
-  return <Fold className="fold engine" title="Engine" names={first} text={item.text} />;
+  return (
+    <Fold className="fold engine" title="Engine" names={first} text={item.text} query={query} current={current} />
+  );
 }
 
-// Fold draws a line of a step's prompt: its title and names on the line, and a click shows the whole text under it.
-function Fold({ className, title, names, text }: { className: string; title: string; names: string; text: string }) {
+// Fold draws a line of a step's prompt: its title and names on the line, and a click shows the whole text under it. The
+// line is drawn as written and is not marked. The fold's text is marked, and the fold opens when the current match is in
+// that text.
+function Fold({
+  className,
+  title,
+  names,
+  text,
+  query,
+  current,
+}: {
+  className: string;
+  title: string;
+  names: string;
+  text: string;
+  query: string;
+  current: number;
+}) {
   return (
-    <Disclosure className={className} label={<><b>{title}</b><span class="names">{names}</span></>}>
+    <Disclosure
+      className={className}
+      label={<><b>{title}</b><span class="names">{names}</span></>}
+      revealed={current >= 0}
+    >
       <div class="fold-text">
-        <ReplyMarkdown text={text} />
+        <ReplyMarkdown text={text} query={query} current={current} />
       </div>
     </Disclosure>
   );
@@ -468,19 +729,34 @@ function CheckCard({ text, round, checks }: { text: string; round: number; check
   );
 }
 
+// useReveal opens a fold when revealed turns true, which is when a find's current match moves into it. The owner can
+// close the fold after that, and it opens again only when revealed turns true once more. The fold opens in a layout
+// effect, so the current mark it holds mounts in the render that follows and scrolls itself into view.
+function useReveal(revealed: boolean, setShown: (shown: boolean) => void): void {
+  useLayoutEffect(() => {
+    if (revealed) {
+      setShown(true);
+    }
+  }, [revealed]);
+}
+
 // Disclosure is a button that flashes on each use and shows its children under it: a click shows them, and a second
-// click folds them again. Its label is drawn as text, so a link never sits inside it.
+// click folds them again. Its label is drawn as text, so a link never sits inside it. A revealed disclosure opens, as
+// useReveal says.
 function Disclosure({
   className,
   label,
+  revealed = false,
   children,
 }: {
   className: string;
   label: ComponentChildren;
+  revealed?: boolean;
   children: ComponentChildren;
 }) {
   const [shown, setShown] = useState(false);
   const [flashing, flash] = useFlash();
+  useReveal(revealed, setShown);
   return (
     <>
       <button
@@ -500,23 +776,33 @@ function Disclosure({
 
 // CallRow draws a tool or question item as one line of its tool and its input or question. A call with a result is a
 // button: a click shows the result under the line, and a second click folds it again. A failed result marks the line
-// with ✗. A running call's line carries the running class, which draws its rail, and the running mark.
+// with ✗. A running call's line carries the running class, which draws its rail, and the running mark. The result
+// opens when the current match moves into it, and then its match is marked. query and current are as ItemRow's are.
 function CallRow({
   item,
   result,
   running,
+  query,
+  current,
 }: {
   item: ConversationItem;
   result: ConversationItem | undefined;
   running: boolean;
+  query: string;
+  current: number;
 }) {
   const [shown, setShown] = useState(false);
   const [flashing, flash] = useFlash();
+  const called = item.kind === "question" ? item.text : item.input;
+  const resultCurrent = result === undefined ? -1 : partCurrent(current, called.length + 1, result.text.length);
+  useReveal(resultCurrent >= 0, setShown);
   const className = `call${running ? " running" : ""}${flashing ? " flash" : ""}`;
   const line = (
     <>
       <b>{item.tool}</b>
-      <span class="in">{item.kind === "question" ? item.text : item.input}</span>
+      <span class="in">
+        <MarkedText text={called} query={query} current={partCurrent(current, 0, called.length)} />
+      </span>
       {result?.error && <span class="fail">✗</span>}
       {running && <span class="running-mark">running</span>}
     </>
@@ -536,20 +822,32 @@ function CallRow({
       >
         {line}
       </button>
-      {shown && <div class={result.error ? "result err" : "result"}>{result.text}</div>}
+      {shown && (
+        <div class={result.error ? "result err" : "result"}>
+          <MarkedText text={result.text} query={query} current={resultCurrent} />
+        </div>
+      )}
     </>
   );
 }
 
-type RunCall = { key: string; item: ConversationItem; result: ConversationItem | undefined; running: boolean };
+type RunCall = {
+  key: string;
+  item: ConversationItem;
+  result: ConversationItem | undefined;
+  running: boolean;
+  current: number;
+};
 
 // ToolRun draws a run of three or more tool calls as one line: its count, the tools with their counts, and a trail of
-// one dot per call in call order. A failed call's dot is marked failed, and a running call's dot is marked running; a run
-// holding a running call carries the running class and mark too. A click shows a line per call under it, each folding
-// its own result, and a second click folds them again.
-function ToolRun({ calls }: { calls: RunCall[] }) {
+// one dot per call in call order. Each dot carries its call's status: ok, failed, running, or none for a call with no
+// result that is not running. A run holding a running call carries the running class and mark too. A click shows a
+// line per call under it, each folding its own result, and a second click folds them again. The run opens when the
+// current match moves into one of its calls.
+function ToolRun({ calls, query }: { calls: RunCall[]; query: string }) {
   const [shown, setShown] = useState(false);
   const running = calls.some((call) => call.running);
+  useReveal(calls.some((call) => call.current >= 0), setShown);
   return (
     <div class="t">
       <span class="gut" />
@@ -571,12 +869,45 @@ function ToolRun({ calls }: { calls: RunCall[] }) {
         {shown && (
           <div class="calls">
             {calls.map((call) => (
-              <CallRow key={call.key} item={call.item} result={call.result} running={call.running} />
+              <CallRow
+                key={call.key}
+                item={call.item}
+                result={call.result}
+                running={call.running}
+                query={query}
+                current={call.current}
+              />
             ))}
           </div>
         )}
       </div>
     </div>
+  );
+}
+
+// MemoToolRun draws a ToolRun again only when its find query or its calls change: sameCalls compares them by content.
+const MemoToolRun = memo(
+  ToolRun,
+  (previous, next) => previous.query === next.query && sameCalls(previous.calls, next.calls),
+);
+
+// sameCalls is whether two runs hold the same calls in the same order: each call has the same key, item, result,
+// running state and current match. A run's calls array is rebuilt on each render, so the calls are what is compared,
+// not the array.
+function sameCalls(previous: RunCall[], next: RunCall[]): boolean {
+  return (
+    previous.length === next.length &&
+    previous.every((call, index) => {
+      const other = next[index];
+      return (
+        other !== undefined &&
+        call.key === other.key &&
+        call.item === other.item &&
+        call.result === other.result &&
+        call.running === other.running &&
+        call.current === other.current
+      );
+    })
   );
 }
 
@@ -589,13 +920,16 @@ function toolCounts(calls: RunCall[]): string {
   return [...counts].map(([tool, count]) => (count > 1 ? `${tool} ×${count}` : tool)).join(", ");
 }
 
-// dotClass is the class of a call's dot in a run's trail: running while the call has no result, failed when its result
-// failed, and plain when it succeeded.
+// dotClass is the class of a call's dot in a run's trail: running while the call is running, failed when its result
+// failed, ok when it succeeded, and none when it has no result and is not running.
 function dotClass(call: RunCall): string {
   if (call.running) {
     return "dot running";
   }
-  return call.result?.error === true ? "dot failed" : "dot";
+  if (call.result === undefined) {
+    return "dot none";
+  }
+  return call.result.error === true ? "dot failed" : "dot ok";
 }
 
 // LiveRow draws one unfinished block: a text block as it streams, a thinking block as a folded row.
@@ -708,7 +1042,8 @@ function resultsByCall(items: ConversationItem[]): Map<number, ConversationItem>
 
 // groupRows lists the rows a reader draws as the indices of their items, in order. A run of toolRunMinimum or more tool
 // calls with only results between them is one row; every other item is a row of its own, and a result is in none. A
-// question or any other item ends a run, and so does the since-you-looked rule, which starts the row at newIndex.
+// question or any other item ends a run, and so does the since-you-looked rule, which starts the row at newIndex. A
+// tool call that creates an epic is never in a run: it is a row of its own, and the calls either side of it fold apart.
 function groupRows(items: ConversationItem[], newIndex: number): number[][] {
   const rows: number[][] = [];
   let run: number[] = [];
@@ -720,14 +1055,15 @@ function groupRows(items: ConversationItem[], newIndex: number): number[][] {
     }
     run = [];
   };
+  const foldable = (item: ConversationItem) => item.kind === "tool" && item.epic === "";
   items.forEach((item, index) => {
     if (item.kind === "result") {
       return;
     }
-    if (index === newIndex || item.kind !== "tool") {
+    if (index === newIndex || !foldable(item)) {
       endRun();
     }
-    if (item.kind === "tool") {
+    if (foldable(item)) {
       run.push(index);
     } else {
       rows.push([index]);
@@ -788,13 +1124,13 @@ function itemKeys(items: ConversationItem[]): string[] {
   return keys;
 }
 
+// clockFormat is the formatter of every gutter time: 24-hour hours and minutes in the local zone. One formatter serves
+// all rows, since a formatter built per call costs far more than the format it makes.
+const clockFormat = new Intl.DateTimeFormat([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+
 export function clock(time: bigint): string {
   if (time === 0n) {
     return "";
   }
-  return new Date(Number(time) * secondsToMillis).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  });
+  return clockFormat.format(new Date(Number(time) * secondsToMillis));
 }

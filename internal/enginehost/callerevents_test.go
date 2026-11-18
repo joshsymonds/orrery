@@ -3,6 +3,8 @@ package enginehost
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
@@ -100,13 +102,13 @@ func TestCallerEventStepDeliveredOnceAfterRunningTurn(t *testing.T) {
 	t.Parallel()
 	m, path := newTestManager(t, 1, fakeClaudePath(t))
 	s := storeOf(t, m)
-	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "HANG"})
+	dir := t.TempDir()
+	// WAITOPEN holds the turn open until fakeclaude.open exists, so the turn ends by itself and not by the owner's
+	// Interrupt, which would leave the caller quiet (see TestOwnerInterruptQuietsCallerEventsUntilHisSay).
+	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "WAITOPEN"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitHistory(t, engineOf(m), path, id, "the hanging reply block", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake hanging 1")
-	})
 	// The result carries ASK, so the caller's reply to the event asks a question, which it leaves open.
 	addEndedCallerStep(t, s, store.EpicCaller{Session: id}, "ASK which color is the banner?")
 
@@ -116,25 +118,27 @@ func TestCallerEventStepDeliveredOnceAfterRunningTurn(t *testing.T) {
 		t.Fatalf("Send to a busy caller = %v, %v, want false, nil", sent, err)
 	}
 	stepEndPass(newStepEndSender(t, m, s), s).Pass(t.Context())
-	if got := enginePromptsOf(t, historyOf(t, path, id)); !reflect.DeepEqual(got, []deliveredPrompt{{Text: "HANG"}}) {
+	if got := enginePromptsOf(t, historyOf(t, path, id)); !reflect.DeepEqual(
+		got, []deliveredPrompt{{Text: "WAITOPEN"}},
+	) {
 		t.Fatalf("prompts while the turn runs = %+v, want only the start's prompt", got)
 	}
 	if eventMarked(t, s, id) {
 		t.Fatalf("step end marked while its caller's turn runs")
 	}
 
-	if err := m.Interrupt(t.Context(), id); err != nil {
-		t.Fatalf("Interrupt: %v", err)
+	if err = os.WriteFile(filepath.Join(dir, "fakeclaude.open"), nil, 0o600); err != nil {
+		t.Fatalf("open the turn: %v", err)
 	}
 	waitHistory(t, engineOf(m), path, id, "the turn ended and the session is done", func(h store.EngineHistory) bool {
-		return turnEndsWithError(t, h) && h.State == string(protocol.StateDone)
+		return hasBlock(t, h, "fake reply 1") && turnEndCount(h) == 1 && h.State == string(protocol.StateDone)
 	})
 	stepEndPass(newStepEndSender(t, m, s), s).Pass(t.Context())
 	history := waitHistory(t, engineOf(m), path, id, "the caller's open question", func(h store.EngineHistory) bool {
 		return h.State == string(protocol.StateWaiting)
 	})
 	want := []deliveredPrompt{
-		{Text: "HANG"},
+		{Text: "WAITOPEN"},
 		{
 			Text:     block,
 			PromptID: callerStepEvent,

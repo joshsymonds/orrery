@@ -107,8 +107,12 @@ type Exit struct {
 	StdoutEnd int64 `json:"stdoutEnd"`
 	// Stdout is the tail of the child's stdout, kept apart from Stderr. Only a gate keeps one.
 	Stdout string `json:"stdout"`
-	// Stderr is the tail of the child's stderr.
+	// Stderr is the tail of the child's stderr. When the scope's memory cap killed a process while the child ran, its
+	// last line names the cap and MemoryKills.
 	Stderr string `json:"stderr"`
+	// MemoryKills is the number of processes of the holder's scope the kernel killed at the scope's memory cap while the
+	// child ran, from the scope's memory.events. It is zero for a holder that runs in no scope.
+	MemoryKills int `json:"memoryKills,omitempty"`
 }
 
 // WriteFrame writes frame as one JSON line with a single Write call. It refuses a frame with no Type

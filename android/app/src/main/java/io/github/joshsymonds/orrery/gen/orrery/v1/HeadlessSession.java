@@ -26,6 +26,7 @@ public  final class HeadlessSession extends
     state_ = "";
     summary_ = "";
     question_ = "";
+    headline_ = "";
   }
   public static final int ID_FIELD_NUMBER = 1;
   private java.lang.String id_;
@@ -592,6 +593,78 @@ public  final class HeadlessSession extends
   private void clearArchived() {
 
     archived_ = false;
+  }
+
+  public static final int HEADLINE_FIELD_NUMBER = 11;
+  private java.lang.String headline_;
+  /**
+   * <pre>
+   * The session's headline: the stored headline once one is written, else the title, else the first words of the first
+   * prompt. It never holds the directory, which a client shows beside it.
+   * </pre>
+   *
+   * <code>string headline = 11 [json_name = "headline"];</code>
+   * @return The headline.
+   */
+  @java.lang.Override
+  public java.lang.String getHeadline() {
+    return headline_;
+  }
+  /**
+   * <pre>
+   * The session's headline: the stored headline once one is written, else the title, else the first words of the first
+   * prompt. It never holds the directory, which a client shows beside it.
+   * </pre>
+   *
+   * <code>string headline = 11 [json_name = "headline"];</code>
+   * @return The bytes for headline.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getHeadlineBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(headline_);
+  }
+  /**
+   * <pre>
+   * The session's headline: the stored headline once one is written, else the title, else the first words of the first
+   * prompt. It never holds the directory, which a client shows beside it.
+   * </pre>
+   *
+   * <code>string headline = 11 [json_name = "headline"];</code>
+   * @param value The headline to set.
+   */
+  private void setHeadline(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    headline_ = value;
+  }
+  /**
+   * <pre>
+   * The session's headline: the stored headline once one is written, else the title, else the first words of the first
+   * prompt. It never holds the directory, which a client shows beside it.
+   * </pre>
+   *
+   * <code>string headline = 11 [json_name = "headline"];</code>
+   */
+  private void clearHeadline() {
+
+    headline_ = getDefaultInstance().getHeadline();
+  }
+  /**
+   * <pre>
+   * The session's headline: the stored headline once one is written, else the title, else the first words of the first
+   * prompt. It never holds the directory, which a client shows beside it.
+   * </pre>
+   *
+   * <code>string headline = 11 [json_name = "headline"];</code>
+   * @param value The bytes for headline to set.
+   */
+  private void setHeadlineBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    headline_ = value.toStringUtf8();
+
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession parseFrom(
@@ -1283,6 +1356,80 @@ public  final class HeadlessSession extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The session's headline: the stored headline once one is written, else the title, else the first words of the first
+     * prompt. It never holds the directory, which a client shows beside it.
+     * </pre>
+     *
+     * <code>string headline = 11 [json_name = "headline"];</code>
+     * @return The headline.
+     */
+    @java.lang.Override
+    public java.lang.String getHeadline() {
+      return instance.getHeadline();
+    }
+    /**
+     * <pre>
+     * The session's headline: the stored headline once one is written, else the title, else the first words of the first
+     * prompt. It never holds the directory, which a client shows beside it.
+     * </pre>
+     *
+     * <code>string headline = 11 [json_name = "headline"];</code>
+     * @return The bytes for headline.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getHeadlineBytes() {
+      return instance.getHeadlineBytes();
+    }
+    /**
+     * <pre>
+     * The session's headline: the stored headline once one is written, else the title, else the first words of the first
+     * prompt. It never holds the directory, which a client shows beside it.
+     * </pre>
+     *
+     * <code>string headline = 11 [json_name = "headline"];</code>
+     * @param value The headline to set.
+     * @return This builder for chaining.
+     */
+    public Builder setHeadline(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setHeadline(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The session's headline: the stored headline once one is written, else the title, else the first words of the first
+     * prompt. It never holds the directory, which a client shows beside it.
+     * </pre>
+     *
+     * <code>string headline = 11 [json_name = "headline"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearHeadline() {
+      copyOnWrite();
+      instance.clearHeadline();
+      return this;
+    }
+    /**
+     * <pre>
+     * The session's headline: the stored headline once one is written, else the title, else the first words of the first
+     * prompt. It never holds the directory, which a client shows beside it.
+     * </pre>
+     *
+     * <code>string headline = 11 [json_name = "headline"];</code>
+     * @param value The bytes for headline to set.
+     * @return This builder for chaining.
+     */
+    public Builder setHeadlineBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setHeadlineBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.HeadlessSession)
   }
   @java.lang.Override
@@ -1309,10 +1456,12 @@ public  final class HeadlessSession extends
             "question_",
             "newestReply_",
             "archived_",
+            "headline_",
           };
           java.lang.String info =
-              "\u0000\n\u0000\u0000\u0001\n\n\u0000\u0000\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
-              "\u0004\u0208\u0005\u0002\u0006\u0002\u0007\u0208\b\u0208\t\u0002\n\u0007";
+              "\u0000\u000b\u0000\u0000\u0001\u000b\u000b\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0003\u0208\u0004\u0208\u0005\u0002\u0006\u0002\u0007\u0208\b\u0208\t\u0002\n\u0007" +
+              "\u000b\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

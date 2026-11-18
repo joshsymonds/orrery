@@ -160,7 +160,8 @@ func (r *Runner) WaitTurns() {
 
 // pass carries out every pending action, then decides each epic with pending triggers that open reports true for, or
 // each such epic when open is nil. A park action claims a turn for the epic in its own goroutine and frees it with the
-// park reason, and a claim action claims a turn for the epic in its own goroutine. agent is read once per pass.
+// park reason, decided under the planner park the epic held, and a claim action claims a turn for the epic in its own
+// goroutine. agent is read once per pass.
 func (r *Runner) pass(ctx context.Context, open func(epic string) bool) {
 	r.carryOutActions(ctx)
 	states, err := r.store.PlanStates(ctx)
@@ -179,7 +180,7 @@ func (r *Runner) pass(ctx context.Context, open func(epic string) bool) {
 		switch action.Kind {
 		case ActionPark:
 			r.turns.Add(1)
-			go r.parkTurn(ctx, state.Epic, action.Reason)
+			go r.parkTurn(ctx, state.Epic, action.Reason, state.PlannerPark)
 		case ActionClaim:
 			r.turns.Add(1)
 			go r.runTurn(ctx, state.Epic, agent)
@@ -231,14 +232,16 @@ func (r *Runner) claim(ctx context.Context, epic string) (store.EpicTurn, bool) 
 }
 
 // parkTurn claims a turn for epic and frees it with reason as both its reason and its park, so the park has a turn
-// that records it. The turn starts no step and returns its triggers to pending.
-func (r *Runner) parkTurn(ctx context.Context, epic, reason string) {
+// that records it. The park was decided while the epic held the planner park held, empty when it held none, so it is
+// set only while the epic still holds that park: a retry since the decision voids it. The turn starts no step and
+// returns its triggers to pending.
+func (r *Runner) parkTurn(ctx context.Context, epic, reason, held string) {
 	defer r.turns.Done()
 	turn, ok := r.claim(ctx, epic)
 	if !ok {
 		return
 	}
-	r.release(ctx, epic, turn.Seq, store.TurnFree{Reason: reason, Park: reason})
+	r.release(ctx, epic, turn.Seq, store.TurnFree{Reason: reason, Park: reason, DecidedUnder: &held})
 }
 
 // runTurn claims a turn for epic, runs its planner step to an end and settles the turn. A turn whose context ends is

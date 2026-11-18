@@ -111,7 +111,7 @@ func TestEpicReviewersEpicIsEmptyWhenNoEnabledEpicStageReviewerHoldsTheEpic(t *t
 func TestEpicReviewersStartRunsAModelReviewerReadOnlyAtTheRevisionWithItsGateAgentsAndPrompt(t *testing.T) {
 	t.Parallel()
 	epic := rvEpic(rvModel())
-	got, err := NewEpicReviewers().Start(context.Background(), epic, "correctness", "base111", "frozen222")
+	got, err := NewEpicReviewers().Start(context.Background(), epic, "correctness", "base111", "frozen222", nil)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -156,7 +156,7 @@ func TestEpicReviewersStartHeadsAnAgentReviewerWithItsPrompt(t *testing.T) {
 		Limit:   1800,
 		Verify:  true,
 	}
-	got, err := NewEpicReviewers().Start(context.Background(), rvEpic(agent), "security", "base111", "frozen222")
+	got, err := NewEpicReviewers().Start(context.Background(), rvEpic(agent), "security", "base111", "frozen222", nil)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -181,7 +181,7 @@ func TestEpicReviewersStartRefusesANameThatIsNotAnEnabledEpicStageReviewer(t *te
 	for _, name := range []string{"nope", "retired", "style"} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			if _, err := NewEpicReviewers().Start(context.Background(), epic, name, "base111", "frozen222"); err == nil {
+			if _, err := NewEpicReviewers().Start(context.Background(), epic, name, "base111", "frozen222", nil); err == nil {
 				t.Errorf("Start(%q) error = nil, want an error", name)
 			}
 		})
@@ -193,7 +193,7 @@ func TestEpicReviewersStartPromptPrintsNoneForEmptyRequirementsAndMustNotShip(t 
 	epic := rvEpic(rvModel())
 	epic.Requirements = nil
 	epic.Exclusions = nil
-	got, err := NewEpicReviewers().Start(context.Background(), epic, "correctness", "base111", "frozen222")
+	got, err := NewEpicReviewers().Start(context.Background(), epic, "correctness", "base111", "frozen222", nil)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -240,7 +240,7 @@ func TestEpicReviewersStartPromptListsTheEvidenceAmendments(t *testing.T) {
 			Reason: "a looser capture", Prior: old, Item: moved, Refusal: "its red holds at the base",
 		},
 	}
-	got, err := NewEpicReviewers().Start(context.Background(), epic, "correctness", "base111", "frozen222")
+	got, err := NewEpicReviewers().Start(context.Background(), epic, "correctness", "base111", "frozen222", nil)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -264,5 +264,64 @@ func TestEpicReviewersStartPromptListsTheEvidenceAmendments(t *testing.T) {
 	}, "\n")
 	if !strings.HasSuffix(got.Prompt, want) {
 		t.Errorf("Prompt\n got:\n%s\nwant it to end:\n%s", got.Prompt, want)
+	}
+}
+
+// TestEpicReviewersStartEndsTestParsimonyWithTheDoneGatesTestCost: the test_parsimony reviewer's prompt ends with the
+// Test cost section, holding the budget lines of the Done gate checks' stdout and stderr, or "no budget lines" when
+// they hold none.
+func TestEpicReviewersStartEndsTestParsimonyWithTheDoneGatesTestCost(t *testing.T) {
+	t.Parallel()
+	parsimony := rvReviewer(reviewers.TestParsimony, true, true, reviewers.StageEpic)
+	check := store.NodeCheck{
+		Stdout: "ok  \tgithub.com/x/internal/store\t41.2s\n" +
+			"test-budget: internal/store 212 cpu-s > 160 (+33%)\n" +
+			"test-budget: 2 packages checked, none over twice its baseline\n",
+		Stderr: "tests exceeded 360s budget\n",
+	}
+	cases := []struct {
+		name      string
+		doneGates []store.NodeCheck
+		want      []string
+	}{
+		{
+			name:      "budget lines",
+			doneGates: []store.NodeCheck{check},
+			want: []string{
+				"- test-budget: internal/store 212 cpu-s > 160 (+33%)",
+				"- test-budget: 2 packages checked, none over twice its baseline",
+				"- tests exceeded 360s budget",
+			},
+		},
+		{name: "no Done gate check", want: []string{"- no budget lines"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := NewEpicReviewers().Start(
+				context.Background(), rvEpic(parsimony), reviewers.TestParsimony, "base111", "frozen222", tc.doneGates)
+			if err != nil {
+				t.Fatalf("Start: %v", err)
+			}
+			want := strings.Join(append([]string{rvWantPrompt(), reviewers.TestCostHeading}, tc.want...), "\n")
+			if got.Prompt != want {
+				t.Errorf("Prompt\n got:\n%s\nwant:\n%s", got.Prompt, want)
+			}
+		})
+	}
+}
+
+// TestEpicReviewersStartGivesNoOtherReviewerTheTestCost: a reviewer other than test_parsimony gets no Test cost section,
+// even with Done gate checks that hold budget lines.
+func TestEpicReviewersStartGivesNoOtherReviewerTheTestCost(t *testing.T) {
+	t.Parallel()
+	check := store.NodeCheck{Stdout: "test-budget: internal/store 212 cpu-s > 160 (+33%)\n"}
+	got, err := NewEpicReviewers().Start(
+		context.Background(), rvEpic(rvModel()), "correctness", "base111", "frozen222", []store.NodeCheck{check})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if got.Prompt != rvWantPrompt() {
+		t.Errorf("Prompt\n got:\n%s\nwant:\n%s", got.Prompt, rvWantPrompt())
 	}
 }

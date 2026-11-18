@@ -125,13 +125,14 @@ func readSide(ctx context.Context, repo, rev string, paths []string) (map[string
 	return content, nil
 }
 
-// watchedPaths returns the changed paths a guard names, in change order.
+// watchedPaths returns the changed paths a guard names, and every changed node test file, which the DOM assert rule
+// reads, in change order.
 func watchedPaths(set Set, changed []string) []string {
 	guarded := members(set.Guarded)
 	captures := members(set.Captures)
 	watched := make([]string, 0, len(changed))
 	for _, name := range changed {
-		if guarded[name] || captures[name] {
+		if guarded[name] || captures[name] || nodeTestPath(name) {
 			watched = append(watched, name)
 		}
 	}

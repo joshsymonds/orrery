@@ -28,6 +28,7 @@ public  final class ConversationItem extends
     trigger_ = "";
     sender_ = "";
     promptId_ = "";
+    epic_ = "";
   }
   public static final int KIND_FIELD_NUMBER = 1;
   private java.lang.String kind_;
@@ -786,6 +787,78 @@ public  final class ConversationItem extends
       com.google.protobuf.ByteString value) {
     checkByteStringIsUtf8(value);
     promptId_ = value.toStringUtf8();
+
+  }
+
+  public static final int EPIC_FIELD_NUMBER = 14;
+  private java.lang.String epic_;
+  /**
+   * <pre>
+   * The id of the epic a tool item's call creates: the contract id of an epic_create call, or empty when the item is
+   * not an epic_create call or its contract names no id.
+   * </pre>
+   *
+   * <code>string epic = 14 [json_name = "epic"];</code>
+   * @return The epic.
+   */
+  @java.lang.Override
+  public java.lang.String getEpic() {
+    return epic_;
+  }
+  /**
+   * <pre>
+   * The id of the epic a tool item's call creates: the contract id of an epic_create call, or empty when the item is
+   * not an epic_create call or its contract names no id.
+   * </pre>
+   *
+   * <code>string epic = 14 [json_name = "epic"];</code>
+   * @return The bytes for epic.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getEpicBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(epic_);
+  }
+  /**
+   * <pre>
+   * The id of the epic a tool item's call creates: the contract id of an epic_create call, or empty when the item is
+   * not an epic_create call or its contract names no id.
+   * </pre>
+   *
+   * <code>string epic = 14 [json_name = "epic"];</code>
+   * @param value The epic to set.
+   */
+  private void setEpic(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    epic_ = value;
+  }
+  /**
+   * <pre>
+   * The id of the epic a tool item's call creates: the contract id of an epic_create call, or empty when the item is
+   * not an epic_create call or its contract names no id.
+   * </pre>
+   *
+   * <code>string epic = 14 [json_name = "epic"];</code>
+   */
+  private void clearEpic() {
+
+    epic_ = getDefaultInstance().getEpic();
+  }
+  /**
+   * <pre>
+   * The id of the epic a tool item's call creates: the contract id of an epic_create call, or empty when the item is
+   * not an epic_create call or its contract names no id.
+   * </pre>
+   *
+   * <code>string epic = 14 [json_name = "epic"];</code>
+   * @param value The bytes for epic to set.
+   */
+  private void setEpicBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    epic_ = value.toStringUtf8();
 
   }
 
@@ -1676,6 +1749,80 @@ public  final class ConversationItem extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The id of the epic a tool item's call creates: the contract id of an epic_create call, or empty when the item is
+     * not an epic_create call or its contract names no id.
+     * </pre>
+     *
+     * <code>string epic = 14 [json_name = "epic"];</code>
+     * @return The epic.
+     */
+    @java.lang.Override
+    public java.lang.String getEpic() {
+      return instance.getEpic();
+    }
+    /**
+     * <pre>
+     * The id of the epic a tool item's call creates: the contract id of an epic_create call, or empty when the item is
+     * not an epic_create call or its contract names no id.
+     * </pre>
+     *
+     * <code>string epic = 14 [json_name = "epic"];</code>
+     * @return The bytes for epic.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getEpicBytes() {
+      return instance.getEpicBytes();
+    }
+    /**
+     * <pre>
+     * The id of the epic a tool item's call creates: the contract id of an epic_create call, or empty when the item is
+     * not an epic_create call or its contract names no id.
+     * </pre>
+     *
+     * <code>string epic = 14 [json_name = "epic"];</code>
+     * @param value The epic to set.
+     * @return This builder for chaining.
+     */
+    public Builder setEpic(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setEpic(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The id of the epic a tool item's call creates: the contract id of an epic_create call, or empty when the item is
+     * not an epic_create call or its contract names no id.
+     * </pre>
+     *
+     * <code>string epic = 14 [json_name = "epic"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearEpic() {
+      copyOnWrite();
+      instance.clearEpic();
+      return this;
+    }
+    /**
+     * <pre>
+     * The id of the epic a tool item's call creates: the contract id of an epic_create call, or empty when the item is
+     * not an epic_create call or its contract names no id.
+     * </pre>
+     *
+     * <code>string epic = 14 [json_name = "epic"];</code>
+     * @param value The bytes for epic to set.
+     * @return This builder for chaining.
+     */
+    public Builder setEpicBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setEpicBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.ConversationItem)
   }
   @java.lang.Override
@@ -1705,11 +1852,12 @@ public  final class ConversationItem extends
             "sender_",
             "round_",
             "promptId_",
+            "epic_",
           };
           java.lang.String info =
-              "\u0000\r\u0000\u0000\u0001\r\r\u0000\u0000\u0000\u0001\u0208\u0002\u0002\u0003\u0208" +
-              "\u0004\u0208\u0005\u0208\u0006\u0208\u0007\u0007\b\u0208\t\u0208\n\u0002\u000b\u0208" +
-              "\f\u000b\r\u0208";
+              "\u0000\u000e\u0000\u0000\u0001\u000e\u000e\u0000\u0000\u0000\u0001\u0208\u0002\u0002" +
+              "\u0003\u0208\u0004\u0208\u0005\u0208\u0006\u0208\u0007\u0007\b\u0208\t\u0208\n\u0002" +
+              "\u000b\u0208\f\u000b\r\u0208\u000e\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

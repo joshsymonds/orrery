@@ -267,3 +267,33 @@ func TestEpicSessionsLeaveOutRemovedSessions(t *testing.T) {
 		{Session: "orrery-2", Server: "-L orrery", Pane: "%2", Call: "call two", At: later.Unix()},
 	})
 }
+
+func TestEpicSessionCreatorConversationMarksEpicCreateCaller(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, path := openEpicCallStore(t)
+	start := epicCallStart()
+	later := time.Unix(start.Unix()+60, 0)
+	for _, pane := range []store.Pane{{ID: "orrery-1", Pane: "%1"}, {ID: "orrery-2", Pane: "%2"}} {
+		if err := s.SyncPane(ctx, "-L orrery", pane, start); err != nil {
+			t.Fatalf("SyncPane %s: %v", pane.ID, err)
+		}
+	}
+	creator := store.EpicCaller{Session: "orrery-1"}
+	if _, err := s.RecordEpicCall(ctx, epicCallEpic, creator, "epic_create", start); err != nil {
+		t.Fatalf("RecordEpicCall epic_create: %v", err)
+	}
+	caller := store.EpicCaller{Session: "orrery-2"}
+	if _, err := s.RecordEpicCall(ctx, epicCallEpic, caller, "epic_get", later); err != nil {
+		t.Fatalf("RecordEpicCall epic_get: %v", err)
+	}
+
+	got, err := store.NewReader(path).EpicSessions(ctx, epicCallEpic)
+	if err != nil {
+		t.Fatalf("EpicSessions: %v", err)
+	}
+	assertEpicSessionRows(t, got, []store.EpicSessionRow{
+		{Session: "orrery-2", Server: "-L orrery", Pane: "%2", Call: "epic_get", At: later.Unix()},
+		{Session: "orrery-1", Server: "-L orrery", Pane: "%1", Call: "epic_create", At: start.Unix(), Creator: true},
+	})
+}

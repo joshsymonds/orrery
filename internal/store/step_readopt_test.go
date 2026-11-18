@@ -4,6 +4,7 @@ import (
 	"context"
 	"reflect"
 	"testing"
+	"time"
 )
 
 // addStepSession adds step s1 and the step session its events belong to, the way the engine adds a step.
@@ -265,11 +266,12 @@ func TestStepTurnNoneWithoutTurnEnd(t *testing.T) {
 	}
 }
 
-func TestStepTurnNoneWhileBackground(t *testing.T) {
+func TestStepTurnReportsBackgroundFlag(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	addStepSession(t, s)
+	output := `{"status":"blocked"}`
 	if err := s.ApplyEngine(ctx, []EngineOp{
 		EnginePrompt{ID: "s1", Text: "go"},
 		EngineTurnEnded{ID: "s1", Subtype: "success"},
@@ -277,13 +279,22 @@ func TestStepTurnNoneWhileBackground(t *testing.T) {
 		t.Fatalf("ApplyEngine: %v", err)
 	}
 
+	// A turn that ended while a background task is listed has ended: it is found, and flagged, so a re-adopt does not
+	// take it for a running turn.
 	background := true
-	if err := s.ApplyEngine(ctx, []EngineOp{EngineConsumed{ID: "s1", Consumed: 2, Background: &background}},
-		engineNowAt()); err != nil {
+	if err := s.ApplyEngine(ctx, []EngineOp{
+		EngineConsumed{ID: "s1", Consumed: 2, Output: &output, Background: &background},
+	}, engineNowAt()); err != nil {
 		t.Fatalf("ApplyEngine background on: %v", err)
 	}
-	if turn, ok, err := s.StepTurn(ctx, "s1"); err != nil || ok {
-		t.Fatalf("StepTurn while background: got %+v ok %v err %v, want none", turn, ok, err)
+	turn, ok, err := s.StepTurn(ctx, "s1")
+	if err != nil {
+		t.Fatalf("StepTurn while background: %v", err)
+	}
+	seq := newestSeqOf(t, s, "s1", EventEngineTurnEnded)
+	want := StepTurnEnd{Seq: seq, Output: output, Background: true}
+	if !ok || !reflect.DeepEqual(turn, want) {
+		t.Fatalf("StepTurn while background: got %+v ok %v, want %+v ok true", turn, ok, want)
 	}
 
 	background = false
@@ -291,13 +302,64 @@ func TestStepTurnNoneWhileBackground(t *testing.T) {
 		engineNowAt()); err != nil {
 		t.Fatalf("ApplyEngine background off: %v", err)
 	}
-	turn, ok, err := s.StepTurn(ctx, "s1")
+	turn, ok, err = s.StepTurn(ctx, "s1")
 	if err != nil {
 		t.Fatalf("StepTurn after background off: %v", err)
 	}
-	want := StepTurnEnd{Seq: newestSeqOf(t, s, "s1", EventEngineTurnEnded)}
+	want = StepTurnEnd{Seq: seq, Output: output}
 	if !ok || !reflect.DeepEqual(turn, want) {
 		t.Fatalf("StepTurn after background off: got %+v ok %v, want %+v ok true", turn, ok, want)
+	}
+}
+
+func TestStepBlocksReturnsNewestBlocksOldestFirst(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openSyncStore(t)
+	addStepSession(t, s)
+	first := EngineBlock{ID: "s1", Kind: "text", Role: "assistant", MessageID: "m1", Text: "looking"}
+	call := EngineBlock{
+		ID: "s1", Kind: "tool_call", Role: "assistant", MessageID: "m2", ToolUseID: "t1", Name: "Bash",
+		Input: `{"command":"go test ./..."}`,
+	}
+	result := EngineBlock{
+		ID: "s1", Kind: "tool_result", Role: "user", MessageID: "m3", ParentToolUseID: "p1", ToolUseID: "t1",
+		Content: `"FAIL"`, IsError: true,
+	}
+	if err := s.ApplyEngine(ctx, []EngineOp{EnginePrompt{ID: "s1", Text: "go"}, first}, engineNowAt()); err != nil {
+		t.Fatalf("ApplyEngine first block: %v", err)
+	}
+	later := engineNowAt().Add(time.Minute)
+	if err := s.ApplyEngine(ctx, []EngineOp{
+		call, EngineAdd{ID: "other", Dir: "/other", State: "idle"}, EngineBlock{ID: "other", Kind: "text", Text: "x"},
+		result, EngineTurnEnded{ID: "s1", Subtype: "success"},
+	}, later); err != nil {
+		t.Fatalf("ApplyEngine later blocks: %v", err)
+	}
+
+	got, err := s.StepBlocks(ctx, "s1", 2)
+	if err != nil {
+		t.Fatalf("StepBlocks: %v", err)
+	}
+	want := []StepBlock{{At: later, Block: call}, {At: later, Block: result}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("StepBlocks limit 2: got %+v, want %+v", got, want)
+	}
+
+	got, err = s.StepBlocks(ctx, "s1", 10)
+	if err != nil {
+		t.Fatalf("StepBlocks limit 10: %v", err)
+	}
+	want = append([]StepBlock{{At: engineNowAt(), Block: first}}, want...)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("StepBlocks limit 10: got %+v, want %+v", got, want)
+	}
+
+	if got, err = s.StepBlocks(ctx, "none", 10); err != nil || len(got) != 0 {
+		t.Fatalf("StepBlocks of a session with no block: got %+v err %v, want none", got, err)
+	}
+	if _, err = s.StepBlocks(ctx, "s1", 0); err == nil {
+		t.Fatal("StepBlocks with limit 0: nil error, want a refusal")
 	}
 }
 

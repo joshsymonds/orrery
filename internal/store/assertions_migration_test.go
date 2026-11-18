@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
 )
@@ -252,109 +251,94 @@ func TestEpicTaskContributesReadBackInOrder(t *testing.T) {
 	}
 }
 
-// TestAssertionsMigrationDownAndUpRoundTrips stores kinds, a claim and a contribution to it, and a run spec, then takes
-// the store down to version 36 and back up: the kinds are removed by the Down and derived again by the Up, the
-// contribution moves back to a claim after the task's own claim and returns as a contribution, and the epic reads back
-// as it did before.
-func TestAssertionsMigrationDownAndUpRoundTrips(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openEpicStore(t)
-	const id = claimEpic
-	row := fullEpic(id)
-	row.Requirements = []EpicRequirement{{
-		ID: "R1", Text: "Captured", Evidence: "store test", Kind: "check",
-		Item: evidence.Item{
-			Capture: []string{"scripts/check"}, Limit: 60, Conclusion: "the capture holds", Judge: "a judge",
-			Kind: evidence.KindCapture,
+// assertionsDownAndUp is the walk's check of 00037_assertions.sql. It stores, at version 37, kinds on a requirement's
+// item, two tasks' evidence and a run spec, and a task that claims R2 and contributes to R1, which the other task
+// claims. The Down removes the kinds and the contributions table, and the contribution moves back to a claim after the
+// task's own claim, so no position is taken twice. The Up derives the kinds again and moves the later claim of R1 back
+// to a contribution, at the claim's position after the task's own, and every other stored row is as it was.
+func assertionsDownAndUp() migrationCheck {
+	const (
+		id       = seededEpic
+		captured = `{"capture":["scripts/check"],"limit":60,"artifacts":null,"supplied":null,` +
+			`"conclusion":"the capture holds","judge":"a judge","kind":"capture"}`
+		claimed = `{"capture":["scripts/check"],"limit":60,"artifacts":null,"supplied":null,` +
+			`"conclusion":"the claim holds","judge":"a judge","kind":"capture"}`
+		contributed = `{"capture":null,"limit":0,"artifacts":null,"supplied":["docs/proof.md"],` +
+			`"conclusion":"the files hold","judge":"a judge","kind":"supplied"}`
+	)
+	kept := []string{"epics", "epic_requirements", "epic_tasks", "evidence_runs"}
+	before := map[string][][]any{}
+	return migrationCheck{
+		seed: func(t *testing.T, s *Store) {
+			t.Helper()
+			ctx := context.Background()
+			seedEpic(t, s.db.DB)
+			seeds := []struct {
+				stmt string
+				args []any
+			}{
+				{`INSERT INTO epic_requirements (epic, position, id, text, evidence, kind, item)
+					VALUES (?, 1, 'R1', 'Captured', 'store test', 'check', ?)`, []any{id, captured}},
+				{`INSERT INTO epic_tasks (epic, seq, turn, title, deliverable, status, gate, evidence) VALUES
+					(?, 1, 1, 'Claim it', 'the claim', 'open', 'check', ?),
+					(?, 2, 1, 'Contribute to it', 'the contribution', 'open', 'check', ?)`,
+					[]any{id, claimed, id, contributed}},
+				{`INSERT INTO epic_task_requirements (epic, task, position, requirement) VALUES
+					(?, 1, 1, 'R1'), (?, 2, 1, 'R2')`, []any{id, id}},
+				{`INSERT INTO epic_task_contributes (epic, task, position, requirement) VALUES (?, 2, 1, 'R1')`,
+					[]any{id}},
+				{`INSERT INTO evidence_runs (id, epic, item, revision, phase, source, state, spec, created)
+					VALUES ('run-1', ?, 'R1', 'abc1234', 'red', 'captured', 'capturing', ?, 1700000000)`,
+					[]any{id, captured}},
+			}
+			for _, seed := range seeds {
+				if _, err := s.db.ExecContext(ctx, seed.stmt, seed.args...); err != nil {
+					t.Fatalf("seed version 37: %v", err)
+				}
+			}
+			for _, table := range kept {
+				before[table] = rowsOf(t, s.db.DB, table)
+			}
+			if kinds := storedKinds(t, s.db.DB); kinds != 4 {
+				t.Fatalf("stored kinds before Down = %d, want 4: the requirement, both tasks and the run spec", kinds)
+			}
 		},
-	}}
-	createEpic(t, s, row)
-	if _, err := s.ClaimTurn(ctx, id, claimedAt()); err != nil {
-		t.Fatalf("ClaimTurn: %v", err)
-	}
-	plan := EpicPlan{
-		Tasks: []EpicTaskInput{
-			{
-				Title: "Claim it", Deliverable: "the claim", Requirements: []string{"R1"}, Gate: "check",
-				Evidence: evidence.Item{
-					Capture: []string{"scripts/check"}, Limit: 60, Conclusion: "the claim holds", Judge: "a judge",
-					Kind: evidence.KindCapture,
-				},
-			},
-			{
-				Title: "Contribute to it", Deliverable: "the contribution", Requirements: []string{"R2"},
-				Contributes: []string{"R1"}, Gate: "check",
-				Evidence: evidence.Item{
-					Supplied: []string{"docs/proof.md"}, Conclusion: "the files hold", Judge: "a judge",
-					Kind: evidence.KindSupplied,
-				},
-			},
+		down: func(t *testing.T, s *Store) {
+			t.Helper()
+			if tableNames(t, s)["epic_task_contributes"] {
+				t.Errorf("epic_task_contributes after Down: present, want absent")
+			}
+			if kinds := storedKinds(t, s.db.DB); kinds != 0 {
+				t.Errorf("stored kinds after Down = %d, want 0", kinds)
+			}
+			// The contribution returns as a claim after the task's own claims, so no position is taken twice.
+			wantClaims := [][]any{
+				{id, int64(1), int64(1), "R1"}, {id, int64(2), int64(1), "R2"}, {id, int64(2), int64(2), "R1"},
+			}
+			if got := rowsOf(t, s.db.DB, "epic_task_requirements"); !reflect.DeepEqual(got, wantClaims) {
+				t.Errorf("claims after Down = %v, want %v", got, wantClaims)
+			}
 		},
-		Outline: "Claim, then contribute", Outcome: "work",
-	}
-	if err := s.CompleteTurn(ctx, id, 1, plan, completedAt()); err != nil {
-		t.Fatalf("CompleteTurn: %v", err)
-	}
-	if err := s.AddEvidenceRun(ctx, EvidenceRun{
-		ID: "run-1", Epic: id, Item: "R1", Revision: "abc1234", Phase: "red", Source: "captured",
-		Spec: row.Requirements[0].Item, Created: completedAt(),
-	}); err != nil {
-		t.Fatalf("AddEvidenceRun: %v", err)
-	}
-
-	before, err := s.Epic(ctx, id)
-	if err != nil {
-		t.Fatalf("Epic before Down: %v", err)
-	}
-	beforeRun, err := s.EvidenceRun(ctx, "run-1")
-	if err != nil {
-		t.Fatalf("EvidenceRun before Down: %v", err)
-	}
-	if kinds := storedKinds(t, s.db.DB); kinds != 4 {
-		t.Fatalf("stored kinds before Down = %d, want 4: the requirement, both tasks and the run spec", kinds)
-	}
-
-	provider := migrationProvider(t, s.db.DB)
-	if _, err := provider.DownTo(ctx, 36); err != nil {
-		t.Fatalf("DownTo 36: %v", err)
-	}
-	if tableNames(t, s)["epic_task_contributes"] {
-		t.Errorf("epic_task_contributes after Down: present, want absent")
-	}
-	if kinds := storedKinds(t, s.db.DB); kinds != 0 {
-		t.Errorf("stored kinds after Down = %d, want 0", kinds)
-	}
-	// The contribution returns as a claim after the task's own claims, so no position is taken twice.
-	wantClaims := [][]any{
-		{id, int64(1), int64(1), "R1"}, {id, int64(2), int64(1), "R2"}, {id, int64(2), int64(2), "R1"},
-	}
-	if got := rowsOf(t, s.db.DB, "epic_task_requirements"); !reflect.DeepEqual(got, wantClaims) {
-		t.Errorf("claims after Down = %v, want %v", got, wantClaims)
-	}
-
-	if _, err := provider.Up(ctx); err != nil {
-		t.Fatalf("Up: %v", err)
-	}
-	if !tableNames(t, s)["epic_task_contributes"] {
-		t.Errorf("epic_task_contributes after Up: absent, want present")
-	}
-	after, err := s.Epic(ctx, id)
-	if err != nil {
-		t.Fatalf("Epic after Up: %v", err)
-	}
-	// Migration 00042 drops phase_at and Up adds it back at 0, so the epic's phase time is the unix second 0 after the
-	// round trip and every other field is unchanged.
-	wantAfter := before
-	wantAfter.PhaseAt = time.Unix(0, 0)
-	if !reflect.DeepEqual(after, wantAfter) {
-		t.Errorf("epic after Down and Up = %+v, want %+v", after, wantAfter)
-	}
-	afterRun, err := s.EvidenceRun(ctx, "run-1")
-	if err != nil {
-		t.Fatalf("EvidenceRun after Up: %v", err)
-	}
-	if !reflect.DeepEqual(afterRun, beforeRun) {
-		t.Errorf("run after Down and Up = %+v, want %+v", afterRun, beforeRun)
+		up: func(t *testing.T, s *Store) {
+			t.Helper()
+			if !tableNames(t, s)["epic_task_contributes"] {
+				t.Fatalf("epic_task_contributes after Up: absent, want present")
+			}
+			wantClaims := [][]any{{id, int64(1), int64(1), "R1"}, {id, int64(2), int64(1), "R2"}}
+			if got := rowsOf(t, s.db.DB, "epic_task_requirements"); !reflect.DeepEqual(got, wantClaims) {
+				t.Errorf("claims after Up = %v, want %v", got, wantClaims)
+			}
+			// The contribution keeps the position its claim had, after the task's own claim, so the task's
+			// contributions read back in the order they had.
+			wantContributes := [][]any{{id, int64(2), int64(2), "R1"}}
+			if got := rowsOf(t, s.db.DB, "epic_task_contributes"); !reflect.DeepEqual(got, wantContributes) {
+				t.Errorf("contributions after Up = %v, want %v", got, wantContributes)
+			}
+			for _, table := range kept {
+				if got := rowsOf(t, s.db.DB, table); !reflect.DeepEqual(got, before[table]) {
+					t.Errorf("%s after Down and Up = %v, want %v", table, got, before[table])
+				}
+			}
+		},
 	}
 }

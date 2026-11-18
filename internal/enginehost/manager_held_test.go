@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/joshsymonds/orrery/internal/store"
-	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
 // heldTexts returns the text of each message the session id holds in the store at path, in order.
@@ -125,11 +124,15 @@ func TestHeldQueueTwoHeldMessagesAreWrittenOneTurnEachInOrder(t *testing.T) {
 		engineOf(m),
 		path,
 		id,
-		"the second held message's reply",
+		"the second held message written and the session ended",
 		func(h store.EngineHistory) bool {
-			return h.State == "done" && hasBlock(t, h, "fake reply 3")
+			return slices.Contains(writtenPrompts(t, h), "second") && (h.State == "done" || h.State == "failed")
 		},
 	)
+	if !hasBlock(t, history, "fake reply 3") {
+		t.Fatalf("session %s ended %s without the second held message's reply: prompts written %q",
+			id, history.State, writtenPrompts(t, history))
+	}
 	written := writtenPrompts(t, history)
 	first, second := slices.Index(written, "WAITOPEN first"), slices.Index(written, "second")
 	if first < 0 || second < 0 || first > second {
@@ -365,7 +368,12 @@ func TestHeldQueueHeldMessageWaitsForTheNextSayAfterTheProcessStops(t *testing.T
 	if err = m.Say(t.Context(), SayRequest{ID: id, Text: "held across stop", PromptID: "p-stop"}); err != nil {
 		t.Fatalf("Say during the running turn: %v", err)
 	}
-	waittest.Until(t, nil, "the fake claude's start record", func() bool { return len(fakeStarts(t, dir)) == 1 })
+	// The turn is open once claude has read the prompt and named its session, so the stop lands before the turn ends
+	// and the Say after it resumes that session rather than starting a fresh one.
+	waitUntil(t, engineOf(m), "the JUDGEHOLDS turn's open", func() bool {
+		row, rowErr := m.store.EngineSession(t.Context(), id)
+		return rowErr == nil && row.ClaudeSession != ""
+	})
 	if err = m.Stop(t.Context(), id); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
@@ -390,11 +398,20 @@ func TestHeldQueueHeldMessageWaitsForTheNextSayAfterTheProcessStops(t *testing.T
 		engineOf(m),
 		path,
 		id,
-		"the reply to the Say after the stop",
+		"the Say after the stop written and the session ended",
 		func(h store.EngineHistory) bool {
-			return h.State == "done" && hasBlock(t, h, "fake reply 3")
+			return slices.Contains(writtenPrompts(t, h), "after stop") && (h.State == "done" || h.State == "failed")
 		},
 	)
+	if !hasBlock(t, history, "fake reply 3") {
+		t.Fatalf(
+			"session %s ended %s without the reply to the Say after the stop: prompts written %q, fake claude starts %q",
+			id,
+			history.State,
+			writtenPrompts(t, history),
+			fakeStarts(t, dir),
+		)
+	}
 	written := writtenPrompts(t, history)
 	held, after := slices.Index(written, "held across stop"), slices.Index(written, "after stop")
 	if held < 0 || after < 0 || held > after {

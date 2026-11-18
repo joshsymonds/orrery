@@ -103,20 +103,29 @@ func nodeRunOf(run sqlcgen.EpicNodeRun) NodeRun {
 // not added, so a repeat changes nothing.
 func (s *Store) StartNodes(ctx context.Context, epic string, runs []NodeRun, trigger *NodeTrigger, at time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		for _, run := range runs {
-			if err := queries.InsertEpicNodeRun(ctx, sqlcgen.InsertEpicNodeRunParams{
-				Epic: epic, Path: run.Path, ID: run.ID, Node: run.Node, Kind: run.Kind, Task: run.Task,
-				Round: run.Round, State: NodeRunning, LoopRound: run.LoopRound, Granted: run.Granted,
-				Mark: run.Mark, Started: at.Unix(), Attempt: run.Attempt,
-			}); err != nil {
-				return fmt.Errorf("insert node run %s of epic %s: %w", run.Path, epic, err)
-			}
+		if err := insertNodeRuns(ctx, queries, epic, runs, at); err != nil {
+			return err
 		}
 		if trigger == nil {
 			return nil
 		}
 		return insertNodeTrigger(ctx, queries, epic, *trigger, at)
 	})
+}
+
+// insertNodeRuns stores each of runs as a running node run of epic started at at, in the caller's write, as StartNodes
+// does. A run whose path is stored already is left as it is.
+func insertNodeRuns(ctx context.Context, queries *sqlcgen.Queries, epic string, runs []NodeRun, at time.Time) error {
+	for _, run := range runs {
+		if err := queries.InsertEpicNodeRun(ctx, sqlcgen.InsertEpicNodeRunParams{
+			Epic: epic, Path: run.Path, ID: run.ID, Node: run.Node, Kind: run.Kind, Task: run.Task,
+			Round: run.Round, State: NodeRunning, LoopRound: run.LoopRound, Granted: run.Granted,
+			Mark: run.Mark, Started: at.Unix(), Attempt: run.Attempt,
+		}); err != nil {
+			return fmt.Errorf("insert node run %s of epic %s: %w", run.Path, epic, err)
+		}
+	}
+	return nil
 }
 
 // EndNodes ends each running node run of epic at the path of ends with its outcome and output, at the second at, in one

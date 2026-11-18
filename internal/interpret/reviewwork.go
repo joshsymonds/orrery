@@ -9,6 +9,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/kinds"
+	"github.com/joshsymonds/orrery/internal/reviewers"
 	"github.com/joshsymonds/orrery/internal/roles"
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -87,7 +88,14 @@ func (r *Runner) reviewUnitStart(
 ) (enginehost.StepStart, error) {
 	switch {
 	case strings.HasPrefix(unit.Part, reviewerPart):
-		start, err := r.reviewers.Start(ctx, epic, unit.Reviewer, changeBase(epic), act.Run.Revision)
+		var doneGates []store.NodeCheck
+		if unit.Reviewer == reviewers.TestParsimony {
+			var err error
+			if doneGates, err = r.doneGateChecks(ctx, epic.ID, act.Run.Revision); err != nil {
+				return enginehost.StepStart{}, err
+			}
+		}
+		start, err := r.reviewers.Start(ctx, epic, unit.Reviewer, changeBase(epic), act.Run.Revision, doneGates)
 		if err != nil {
 			return enginehost.StepStart{}, fmt.Errorf("reviewer %s: %w", unit.Reviewer, err)
 		}
@@ -111,6 +119,37 @@ func (r *Runner) reviewUnitStart(
 	default:
 		return enginehost.StepStart{}, fmt.Errorf("unit %q has no step to start", unit.Part)
 	}
+}
+
+// doneGateChecks returns the checks of the Done gates that ran at revision of epic: the checks that the newest started
+// run at that revision with any ran there and that ended with a result, in the order they were created. That run is the
+// integrate or sync run that made revision the epic's stored base. A check lost at a restart, and one that exited
+// store.EnvironmentExit, which its rerun replaces, are left out. It returns none when no run ran a check at revision.
+func (r *Runner) doneGateChecks(ctx context.Context, epic, revision string) ([]store.NodeCheck, error) {
+	read, err := r.store.EpicFlow(ctx, epic)
+	if err != nil {
+		return nil, fmt.Errorf("read epic %s: %w", epic, err)
+	}
+	var (
+		newest  time.Time
+		decided []store.NodeCheck
+	)
+	for _, run := range read.Runs {
+		if run.Revision != revision || run.Started.Before(newest) {
+			continue
+		}
+		var ran []store.NodeCheck
+		for _, check := range read.Checks {
+			if check.Path == run.Path && check.Revision == revision && check.State == store.NodeEnded &&
+				check.NotRun == "" && !store.EnvironmentExited(check.Exit, check.TimedOut) {
+				ran = append(ran, check)
+			}
+		}
+		if len(ran) > 0 {
+			newest, decided = run.Started, ran
+		}
+	}
+	return decided, nil
 }
 
 // verifierAgent returns the agent the verifier role runs under, from the machine's role file.

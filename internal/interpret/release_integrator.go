@@ -39,8 +39,8 @@ const integratorPart = "integrator"
 const integratorStepName = "release integrator"
 
 // IntegratorSchema is the schema the release integrator returns: its status, the merge commit, how each conflicted path
-// was resolved, each change outside the conflicts, the checks it ran, each path it stopped on, and an account of the
-// merge.
+// was resolved, each change outside the conflicts, the checks it ran, each path it stopped on with the side its decision
+// is on, and an account of the merge.
 const IntegratorSchema = `{
   "title": "Release integrator return",
   "type": "object",
@@ -88,12 +88,17 @@ const IntegratorSchema = `{
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["path", "candidate", "origin", "decision"],
+        "required": ["path", "candidate", "origin", "decision", "side"],
         "properties": {
           "path": {"type": "string"},
           "candidate": {"type": "string"},
           "origin": {"type": "string"},
-          "decision": {"type": "string", "description": "The decision that would settle this path."}
+          "decision": {"type": "string", "description": "The decision that would settle this path."},
+          "side": {
+            "type": "string",
+            "enum": ["candidate", "merge"],
+            "description": "candidate when the decision is a change to the epic's own candidate, made before the merge; merge when it is how to resolve the merge itself."
+          }
         }
       }
     },
@@ -144,13 +149,27 @@ type integratorChange struct {
 	Change string `json:"change"`
 }
 
-// integratorUnresolved is one path a release integrator stopped on: what the candidate meant, what origin meant, and the
-// decision that would settle it.
+// integratorUnresolved is one path a release integrator stopped on: what the candidate meant, what origin meant, the
+// decision that would settle it, and its side: candidate when the decision is a change to the epic's own candidate, and
+// merge when it is how to resolve the merge.
 type integratorUnresolved struct {
 	Path      string `json:"path"`
 	Candidate string `json:"candidate"`
 	Origin    string `json:"origin"`
 	Decision  string `json:"decision"`
+	Side      string `json:"side"`
+}
+
+// sideCandidate is the side of an unresolved path whose decision is a change to the epic's own candidate.
+const sideCandidate = "candidate"
+
+// candidateSide reports whether ret, a blocked return, stopped only on decisions that are changes to the epic's own
+// candidate: it names at least one unresolved path, and every one is on the candidate's side. Such a return sends the
+// release back to planning; any other blocked return stops it.
+func candidateSide(ret integratorReturn) bool {
+	return len(ret.Unresolved) > 0 && !slices.ContainsFunc(ret.Unresolved, func(path integratorUnresolved) bool {
+		return path.Side != sideCandidate
+	})
 }
 
 // integratorMerge is the merge a release integrator finishes: the repository, the worktree the merge is in, the release
@@ -324,6 +343,8 @@ func keptMerge(ctx context.Context, merge integratorMerge, head string) error {
 // passes only when the step ended done and its commit passes the engine's checks again (integratorFailures); the commit
 // is then pinned under the run's release ref and recorded as the round's head. A round that does not pass is recorded
 // failed: a blocked return with its report (blockedReason), and any other end with the conflict and how the step ended.
+// A blocked return whose every unresolved path is on the candidate's side (candidateSide) asks for a replan, which the
+// store records with the round (store.Store.RecordIntegratorRound).
 func (r *Runner) recordIntegrator(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	position, err := strconv.ParseInt(act.Items[1], 10, 64)
 	if err != nil {
@@ -350,6 +371,7 @@ func (r *Runner) recordIntegrator(ctx context.Context, epic store.EpicRow, act A
 		Part: store.ReleasePartIntegrator, Position: position, Attempt: act.Run.Attempt, Step: integratorStepName,
 		Start: merge.tip, End: row.End, Evidence: ret.Evidence, At: at,
 	}
+	replan := false
 	switch {
 	case row.End == releaseDone && decodeReason == "":
 		head, failures, checkErr := integratorCommit(ctx, merge, ret)
@@ -367,13 +389,14 @@ func (r *Runner) recordIntegrator(ctx context.Context, epic store.EpicRow, act A
 		run.Head, run.Commits, run.Passed = head, []string{head}, true
 	case row.End == stepReturned && ret.Status == releaseBlocked && decodeReason == "":
 		run.Reason = blockedReason(merge, ret)
+		replan = candidateSide(ret)
 	case row.End == releaseDone:
 		run.Reason = conflictMessage(merge.tip, merge.origin, merge.conflicts) + "; " + decodeReason
 	default:
 		run.Reason = conflictMessage(merge.tip, merge.origin, merge.conflicts) + "; " +
 			releaseEndReason("release integrator", row)
 	}
-	if err = r.store.RecordRelease(ctx, epic.ID, run); err != nil {
+	if err = r.store.RecordIntegratorRound(ctx, epic.ID, run, replan); err != nil {
 		return fmt.Errorf("record release integrator of epic %s: %w", epic.ID, err)
 	}
 	return nil
@@ -633,8 +656,8 @@ func listPaths(paths []string) string {
 }
 
 // blockedReason returns the reason a release integrator that returned blocked stops the release with: the merge it
-// stopped, then each path it stopped on, with the decision that would settle it, what the candidate meant and what
-// origin meant, or its evidence when it named no path. The reason fits store.TurnReasonMax, the most of it an epic's
+// stopped, then each path it stopped on, with the side its decision is on, the decision that would settle it, what the
+// candidate meant and what origin meant, or its evidence when it named no path. The reason fits store.TurnReasonMax, the most of it an epic's
 // park keeps: each path gets an equal share of what the merge's line leaves, at least minShare bytes, cut at its end,
 // and the paths no share is left for are counted in a last line that room is always kept for.
 func blockedReason(merge integratorMerge, ret integratorReturn) string {
@@ -642,8 +665,8 @@ func blockedReason(merge integratorMerge, ret integratorReturn) string {
 		merge.origin, merge.tip)
 	entries := make([]string, 0, len(ret.Unresolved))
 	for _, path := range ret.Unresolved {
-		entries = append(entries, fmt.Sprintf("\n- %s: decision: %s; candidate: %s; origin: %s",
-			path.Path, path.Decision, path.Candidate, path.Origin))
+		entries = append(entries, fmt.Sprintf("\n- %s: side: %s; decision: %s; candidate: %s; origin: %s",
+			path.Path, path.Side, path.Decision, path.Candidate, path.Origin))
 	}
 	if len(entries) == 0 {
 		return cutText(head+": "+ret.Evidence, store.TurnReasonMax)

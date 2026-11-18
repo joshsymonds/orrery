@@ -12,15 +12,24 @@ import (
 // argument is a string or a template literal. Each assert call counts as an assertion, and each
 // skip form as a skip, toward the innermost declaration that encloses it.
 func nodeTests(src []byte) ([]Test, error) {
-	lex := &lexer{src: src}
-	if err := lex.code(false); err != nil {
-		return nil, err
-	}
-	closes, err := lex.matchParens()
+	toks, closes, err := lexNode(src)
 	if err != nil {
 		return nil, err
 	}
-	return declared(lex.toks, closes), nil
+	return declared(toks, closes), nil
+}
+
+// lexNode lexes a node test file and returns its lexemes, with the index of each open paren's closing paren.
+func lexNode(src []byte) ([]lexeme, []int, error) {
+	lex := &lexer{src: src}
+	if err := lex.code(false); err != nil {
+		return nil, nil, err
+	}
+	closes, err := lex.matchParens()
+	if err != nil {
+		return nil, nil, err
+	}
+	return lex.toks, closes, nil
 }
 
 // kind is the kind of a lexeme.
@@ -473,13 +482,19 @@ func declaration(toks []lexeme, closes []int, i int) (string, int, bool) {
 	return name.text, closes[j], true
 }
 
-// isAssert reports whether the lexeme at i starts an assert call: assert( or assert.<name>(, and is not a member of
-// another object.
+// isAssert reports whether the lexeme at i starts an assert call: assert( or assert.<name>(, or a call of one of the
+// DOM assertion helpers, assertNone( or assertSame(, and is not a member of another object.
 func isAssert(toks []lexeme, i int) bool {
-	if !isWord(toks[i], "assert") || isPunct(at(toks, i-1), ".") {
+	if toks[i].kind != kindWord || isPunct(at(toks, i-1), ".") {
 		return false
 	}
-	return isPunct(at(toks, dotted(toks, i+1)), "(")
+	switch toks[i].text {
+	case "assert":
+		return isPunct(at(toks, dotted(toks, i+1)), "(")
+	case domAssertNone, domAssertSame:
+		return isPunct(at(toks, i+1), "(")
+	}
+	return false
 }
 
 // isSkip reports whether the lexeme at i is a skip: the dot of a .skip(, .todo( or .only( call, or the key of

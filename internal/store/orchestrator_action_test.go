@@ -482,7 +482,7 @@ func TestOrchestratorActionRefusalIsRecordedWithItsTrigger(t *testing.T) {
 				Kind: ActionRetryEpic, Reason: "the release can go on",
 			},
 			summary: "retry epic",
-			refusal: "epic " + actionEpic + " is stopped; retry does not end a stopped release",
+			refusal: "epic " + actionEpic + " is stopped; retry ends a stopped release only when its release integrator stopped it",
 		},
 		{
 			name: "resume that names an undo-none step",

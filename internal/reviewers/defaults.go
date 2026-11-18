@@ -76,7 +76,7 @@ func Defaults() []Entry {
 			Prompt: new(securityRole), Model: new("sonnet"), Tools: readOnlyTools(), Verify: new(true),
 		},
 		{
-			Name:  "test_parsimony",
+			Name:  TestParsimony,
 			Stage: []string{StageTask, StageEpic},
 			MustNot: []string{
 				"The change adds a test that uses a real wait or a real clock.",
@@ -86,6 +86,9 @@ func Defaults() []Entry {
 				"The change adds an unjustified golden suite.",
 				"The change adds a test that asserts wall-clock timing.",
 				"The change adds a test that checks model output deterministically.",
+				"The change adds or changes tests that push a package over its test CPU budget (a test-budget line " +
+					"in Test cost), or a test whose own run is slow (seconds, not milliseconds), without a stated " +
+					"reason in the task.",
 			},
 			Prompt: new(testParsimonyRole), Model: new("sonnet"), Tools: readOnlyTools(), Verify: new(true),
 		},

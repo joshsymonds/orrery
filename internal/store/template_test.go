@@ -135,9 +135,9 @@ func migrationProvider(t *testing.T, db *sql.DB) *goose.Provider {
 
 // storeAtVersion returns a store over a copy of the store image at version, and the goose provider of the embedded
 // migrations on its database, for a test of the Down and Up of the migration at version. A walk down from the newest
-// version would run every later migration's Down first, which is most of such a test's time;
-// TestEachMigrationDownRestoresThePreviousSchema runs each of those Downs on its own. The store runs no migration of its
-// own: the test moves it with the provider. Its database is closed at the end of the test.
+// version would run every later migration's Down first, and an Up to the newest every later migration's Up, which is
+// most of such a test's time; TestEachMigrationDownAndUp steps each migration down and up once. The store runs no
+// migration of its own: the test moves it with the provider. Its database is closed at the end of the test.
 func storeAtVersion(t *testing.T, version int64) (*Store, *goose.Provider) {
 	t.Helper()
 	db := openStoreAtVersion(t, filepath.Join(t.TempDir(), "orrery.db"), version)

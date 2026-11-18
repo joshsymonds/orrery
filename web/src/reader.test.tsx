@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
 
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
-import { render } from "preact";
+import { options, render } from "preact";
 import { act } from "preact/test-utils";
 
-import { EpicStepSchema, type EpicStep } from "./gen/orrery/v1/epics_pb";
+import type { EpicCalls } from "./card";
+import { EpicSchema, EpicsGetResponseSchema, EpicStepSchema, type EpicStep } from "./gen/orrery/v1/epics_pb";
 import {
   ConversationItemSchema,
   ConversationStateSchema,
@@ -15,11 +16,14 @@ import {
   type EngineText,
 } from "./gen/orrery/v1/orrery_pb";
 import type { Conversation } from "./conversation";
+import { findMatches, type Match } from "./find";
 import { flashMillis } from "./flash";
 import type { ParsedQuestion } from "./question";
-import { ConversationHead, Reader, ReaderHead } from "./reader";
+import { ConversationHead, Reader, ReaderHead, type ReaderHandle } from "./reader";
 import type { Sending } from "./sending";
-import { installTestDom, removeTestDom } from "./testdom";
+import { mockTimers } from "./testclock";
+import { assertNone, assertSame, installTestDom, removeTestDom } from "./testdom";
+import { turn } from "./testwait";
 
 function item(init: MessageInitShape<typeof ConversationItemSchema>): ConversationItem {
   return create(ConversationItemSchema, init);
@@ -62,7 +66,9 @@ interface Props {
   onAnswer?: (choice: 1 | 2 | 3) => void;
   onToggleOpen?: () => void;
   onOlder?: () => void;
+  register?: (handle: ReaderHandle | null) => void;
   sending?: Sending[];
+  find?: { query: string; matches: Match[]; current: number };
 }
 
 async function withReader(props: Props, check: (container: HTMLElement) => void | Promise<void>): Promise<void> {
@@ -711,6 +717,96 @@ test("a CallerEvent prompt in a step draws as an EVENT row, not as a step prompt
     },
   ));
 
+// ringEpic is the epic the event blocks in the EventRing tests name.
+const ringEpic = "orrery-1a2b3c4/planner-runner";
+
+// eventText is the block an epic's event carries, as the server writes it.
+function eventText(kind: string, tail: string): string {
+  return `<orrery-event kind="${kind}" id="epic:${ringEpic}:${tail}">\nEpic ${ringEpic} (Plan the runner) is done.\n</orrery-event>`;
+}
+
+// ringCalls are the epic calls an event ring reads through. The epic reads as one with no open question, so a question
+// event draws its settled line.
+function ringCalls(): EpicCalls {
+  const reading = create(EpicsGetResponseSchema, {
+    epic: create(EpicSchema, { id: ringEpic, slug: "planner-runner" }),
+  });
+  return {
+    get: async () => reading,
+    pause: () => Promise.resolve(),
+    resume: () => Promise.resolve(),
+    answer: async () => "",
+    openEpic: () => {},
+    tick: 1,
+  };
+}
+
+// withEventReader draws the reader over items with the ring's epic calls, lets the ring's read settle inside act, runs
+// check on the container, then removes the DOM.
+async function withEventReader(items: ConversationItem[], check: (container: HTMLElement) => void): Promise<void> {
+  const window = installTestDom();
+  const container = document.createElement("div");
+  try {
+    await act(() => {
+      render(
+        <Reader conversation={conversation({ items })} seenAt={10_000} open={false} epicCalls={ringCalls()} />,
+        container,
+      );
+    });
+    await act(turn);
+    check(container);
+  } finally {
+    await act(() => {
+      render(null, container);
+    });
+    await removeTestDom(window);
+  }
+}
+
+test("EventRing: an orrery-event prompt of each kind draws one ringed line and no EVENT block", async () => {
+  for (const [kind, tail] of [
+    ["question", "Q1"],
+    ["park", "Q1"],
+    ["release", "released"],
+    ["end", "done"],
+  ]) {
+    await withEventReader(
+      [item({ kind: "prompt", time: 100n, sender: "event", text: eventText(kind, tail) })],
+      (container) => {
+        assert.equal(container.querySelectorAll(".ring-line").length, 1, `a ${kind} event draws one ringed line`);
+        assertNone(container.querySelector(".event"), `a ${kind} event is not an EVENT row`);
+        const labels = [...container.querySelectorAll("small")].map((small) => small.textContent);
+        assert.equal(labels.includes("EVENT"), false, `a ${kind} event shows no EVENT label`);
+      },
+    );
+  }
+});
+
+test("EventRing: a pane prompt with the same text draws the ring too, and its row takes no owner's-turn gap", () =>
+  withEventReader(
+    [item({ kind: "prompt", time: 100n, text: eventText("release", "released") })],
+    (container) => {
+      assert.equal(container.querySelectorAll(".ring-line").length, 1, "the pane prompt draws its ring");
+      assertNone(container.querySelector(".you"), "the pane prompt is not YOU");
+      assertNone(container.querySelector(".t.owner-turn"), "the ring's row is not the owner's turn");
+    },
+  ));
+
+test("EventRing: an orrery-event prompt draws its EVENT row when the reader holds no epic calls", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [item({ kind: "prompt", time: 100n, sender: "event", text: eventText("release", "released") })],
+      }),
+      seenAt: 10_000,
+      open: false,
+    },
+    (container) => {
+      assertNone(container.querySelector(".ring-line"), "without epic calls the event draws no ring");
+      assert.equal(container.querySelector(".t > .body > .event > small")?.textContent, "EVENT");
+    },
+  ));
+
 test("live text draws its markdown as elements inside .reply, before its caret", () =>
   withReader(
     { conversation: conversation({ unfinished: [unfinished("- streamed\n- item")] }), seenAt: 0, open: false },
@@ -947,7 +1043,7 @@ test("the compaction rule is a button that calls onToggleOpen, and a plain rule 
 });
 
 test("an option flashes for 300 ms after a click, restarts on a second click, and still answers", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
+  mockTimers(t, ["setTimeout"]);
   const answers: number[] = [];
   await withReader(
     {
@@ -990,7 +1086,7 @@ test("an option flashes for 300 ms after a click, restarts on a second click, an
 });
 
 test("the compaction rule flashes for 300 ms after a click and still toggles", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
+  mockTimers(t, ["setTimeout"]);
   const compaction = item({ kind: "compaction", time: 100n, text: "Synthetic summary text.", trigger: "auto" });
   let toggles = 0;
   await withReader(
@@ -1223,6 +1319,99 @@ test("a window of 50 that drops its oldest item for a new one keeps a held row's
     assert.ok(rowWith(container, "held-25") === held, "the held row keeps its DOM node");
   }));
 
+// pagedProps is props whose reader keeps its handle in holder while it is mounted, as the page does.
+function pagedProps(props: Props, holder: { handle: ReaderHandle | null }): Props {
+  return {
+    ...props,
+    register: (handle) => {
+      holder.handle = handle;
+    },
+  };
+}
+
+// handleOf returns the handle the reader holds, which the test asserts is held while the reader is mounted.
+function handleOf(holder: { handle: ReaderHandle | null }): ReaderHandle {
+  const { handle } = holder;
+  assert.ok(handle !== null, "the reader holds its handle while mounted");
+  return handle;
+}
+
+// pageOverlap is the overlap reader.tsx's pageOverlapPixels keeps, so a page moves the reader by the box less this.
+const pageOverlap = 40;
+
+test("ReaderPaging: a page moves scrollTop by the box's height less the overlap in each direction, and holds at the top and bottom", () => {
+  const holder: { handle: ReaderHandle | null } = { handle: null };
+  return withScrollingReader(pagedProps(readerProps(heldItems(1, 20)), holder), (container) => {
+    const reader = readerOf(container);
+    const screen = viewportPixels - pageOverlap;
+    reader.scrollTop = 0;
+
+    assert.equal(handleOf(holder).page("down"), true);
+    assert.equal(reader.scrollTop, screen, "a page down moves the reader by the box less the overlap");
+    assert.equal(handleOf(holder).page("down"), true);
+    assert.equal(reader.scrollTop, 2 * screen, "a second page down moves it the same again");
+    assert.equal(handleOf(holder).page("up"), true);
+    assert.equal(reader.scrollTop, screen, "a page up moves the reader back by the same");
+
+    handleOf(holder).page("up");
+    handleOf(holder).page("up");
+    assert.equal(reader.scrollTop, 0, "a page up past the top stops at the top");
+
+    reader.scrollTop = reader.scrollHeight - viewportPixels;
+    handleOf(holder).page("down");
+    assert.equal(distanceFromBottom(container), 0, "a page down past the bottom stops at the bottom");
+  });
+});
+
+test("ReaderPaging: paging up from the bottom unpins the reader, so a later render and a size change keep its place", () => {
+  const holder: { handle: ReaderHandle | null } = { handle: null };
+  return withScrollingReader(pagedProps(readerProps(heldItems(1, 20)), holder), async (container, rerender, layout) => {
+    const reader = readerOf(container);
+    assert.equal(distanceFromBottom(container), 0, "the reader starts at its bottom");
+
+    assert.equal(handleOf(holder).page("up"), true);
+    const placed = reader.scrollTop;
+    const bottom = reader.scrollHeight - viewportPixels;
+    assert.equal(placed, bottom - (viewportPixels - pageOverlap), "the page moved the reader up from the bottom");
+
+    await rerender(pagedProps(readerProps(heldItems(1, 21)), holder));
+    assert.equal(reader.scrollTop, placed, "a render with a new item keeps the reader where the page left it");
+
+    layout.resizeBox(200);
+    layout.report();
+    assert.equal(reader.scrollTop, placed, "a size change keeps it there too, since the page unpinned the reader");
+  });
+});
+
+test("ReaderPaging: paging up to the top calls onOlder when older items exist", () => {
+  const holder: { handle: ReaderHandle | null } = { handle: null };
+  const asked = { count: 0 };
+  return withScrollingReader(pagedProps(withOlder(heldItems(1, 20), asked), holder), (container) => {
+    const reader = readerOf(container);
+    reader.scrollTop = viewportPixels;
+
+    assert.equal(handleOf(holder).page("up"), true);
+    assert.equal(asked.count, 0, "a page that stops short of the top asks for nothing");
+
+    assert.equal(handleOf(holder).page("up"), true);
+    assert.equal(reader.scrollTop, 0, "the second page reaches the top");
+    assert.equal(asked.count, 1, "the reader at its top asks for the page before its oldest item");
+  });
+});
+
+test("ReaderPaging: under 760 px a page does nothing and returns false, leaving scrollTop alone", () => {
+  const holder: { handle: ReaderHandle | null } = { handle: null };
+  return withScrollingReader(pagedProps(readerProps(heldItems(1, 20)), holder), (container) => {
+    const reader = readerOf(container);
+    reader.scrollTop = 900;
+    window.innerWidth = 759;
+
+    assert.equal(handleOf(holder).page("up"), false, "a page up under 760 px is left to the browser");
+    assert.equal(handleOf(holder).page("down"), false, "a page down under 760 px is left to the browser");
+    assert.equal(reader.scrollTop, 900, "neither page moved the reader");
+  });
+});
+
 // foldLine returns the call line that is a button, the line that folds a held result.
 function foldLine(container: HTMLElement): HTMLButtonElement {
   const line = container.querySelector<HTMLButtonElement>("button.call");
@@ -1410,8 +1599,8 @@ function openedCalls(container: HTMLElement): string[] {
   );
 }
 
-// dotClasses returns the class of each dot in a run's fold, in call order: "dot" for a call that succeeded, with
-// "failed" or "running" added when its result failed or it has none yet.
+// dotClasses returns the class of each dot in a run's fold, in call order: "dot ok" for a call that succeeded, "dot
+// failed" when its result failed, "dot running" while it runs, and "dot none" when it has no result and is not running.
 function dotClasses(fold: HTMLElement): string[] {
   return [...fold.querySelectorAll<HTMLElement>(".trail .dot")].map((dot) => dot.className);
 }
@@ -1457,7 +1646,7 @@ test("ToolTrail: three tool calls fold to one line with a dot per call, which op
       assert.equal(rowTexts(container).length, 1, "the run is one row");
       assert.equal(fold.querySelector("b")?.textContent, "3 tool calls");
       assert.equal(fold.querySelector(".names")?.textContent, "Read ×2, Bash");
-      assert.deepEqual(dotClasses(fold), ["dot", "dot", "dot"], "one dot per call, none marked, as all succeeded");
+      assert.deepEqual(dotClasses(fold), ["dot ok", "dot ok", "dot ok"], "one dot per call, each ok, as all succeeded");
       assert.doesNotMatch(fold.textContent ?? "", /[✓✗]/, "the fold draws no ✓ or ✗ of its own");
       assert.equal(container.querySelectorAll(".call").length, 0, "no call line until the fold is clicked");
 
@@ -1494,9 +1683,30 @@ test("ToolTrail: a run of three with one failed result marks that call's dot fai
     },
     (container) => {
       const fold = foldOf(container);
-      assert.deepEqual(dotClasses(fold), ["dot failed", "dot", "dot"], "the failed call's dot is marked failed");
+      assert.deepEqual(dotClasses(fold), ["dot failed", "dot ok", "dot ok"], "the failed call's dot is marked failed");
       assert.doesNotMatch(fold.textContent ?? "", /[✓✗]/, "the fold draws no ✓ or ✗ of its own");
       assert.equal(container.textContent?.includes("permission denied"), false, "the failure stays folded");
+    },
+  ));
+
+test("CallStatus: a run of a succeeded call, a failed call and a call with no result, followed by a reply, draws its dots ok, failed and none in call order", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [
+          toolItem("Read", "r1", "a.txt"),
+          resultItem("r1", "alpha"),
+          toolItem("Bash", "b1", "rm -rf build"),
+          resultItem("b1", "permission denied", true),
+          toolItem("Bash", "b2", "make"),
+          item({ kind: "reply", time: 100n, text: "the build did not run" }),
+        ],
+      }),
+      seenAt: 100,
+      open: false,
+    },
+    (container) => {
+      assert.deepEqual(dotClasses(foldOf(container)), ["dot ok", "dot failed", "dot none"]);
     },
   ));
 
@@ -1542,16 +1752,16 @@ test("ToolTrail: a tool call with no result, after nothing but calls and results
     },
   ));
 
-test("ToolTrail: a run folded around a running call carries the running class and mark, and that call's dot is running", () =>
+test("CallStatus: a run folded around a running call carries the running class and mark, and its dots draw ok, failed and running in call order", () =>
   withReader(
     {
       conversation: conversation({
         items: [
           toolItem("Read", "r1", "a.txt"),
           resultItem("r1", "alpha"),
-          toolItem("Read", "r2", "b.txt"),
-          resultItem("r2", "beta"),
-          toolItem("Bash", "b1", "make"),
+          toolItem("Bash", "b1", "rm -rf build"),
+          resultItem("b1", "permission denied", true),
+          toolItem("Bash", "b2", "make"),
         ],
       }),
       seenAt: 100,
@@ -1561,7 +1771,7 @@ test("ToolTrail: a run folded around a running call carries the running class an
       const fold = foldOf(container);
       assert.equal(fold.classList.contains("running"), true, "the fold carries the running class");
       assert.equal(fold.querySelector(".running-mark")?.textContent, "running", "the fold carries the running mark");
-      assert.deepEqual(dotClasses(fold), ["dot", "dot", "dot running"], "the running call's dot is running");
+      assert.deepEqual(dotClasses(fold), ["dot ok", "dot failed", "dot running"]);
     },
   ));
 
@@ -1584,10 +1794,9 @@ test("ToolTrail: the same items drawn with a question carry no running class or 
     (container) => {
       const fold = foldOf(container);
       assert.equal(fold.classList.contains("running"), false, "the fold carries no running class");
-      assert.equal(fold.querySelector(".running-mark"), null, "the fold carries no running mark");
-      assert.deepEqual(dotClasses(fold), ["dot", "dot", "dot"], "no dot is running");
-      assert.equal(container.querySelector(".running"), null, "no line of the reader is running");
-      assert.equal(container.querySelector(".running-mark"), null);
+      assertNone(fold.querySelector(".running-mark"), "the fold carries no running mark");
+      assertNone(container.querySelector(".running"), "no line of the reader is running");
+      assertNone(container.querySelector(".running-mark"));
     },
   ));
 
@@ -1745,11 +1954,12 @@ test("a child passed to the head draws after the where line as the head's last c
     },
   ));
 
-test("a session's conversation head draws the title row: a back button, the session's label as the page crumb, and its state, and back calls its handler", () => {
+test("a session's conversation head draws the title row: a back button, the session's title as the page crumb, and its state, and back calls its handler", () => {
   let backs = 0;
   return withConversationHead(
     {
-      label: "Synthetic session",
+      dir: "/work/synthetic-app",
+      line: "Synthetic session",
       state: "waiting",
       onBack: () => {
         backs += 1;
@@ -1764,10 +1974,10 @@ test("a session's conversation head draws the title row: a back button, the sess
       const crumbs = [...row.querySelectorAll<HTMLElement>(".crumbs .crumb")];
       assert.deepEqual(
         crumbs.map((crumb) => crumb.textContent),
-        ["Synthetic session"],
-        "the crumb reads the session's label",
+        ["synthetic-app Synthetic session"],
+        "the crumb reads the session's directory and title",
       );
-      assert.equal(crumbs[0]?.getAttribute("aria-current"), "page", "the label is the page itself");
+      assert.equal(crumbs[0]?.getAttribute("aria-current"), "page", "the title is the page itself");
       assert.equal(row.querySelector(".state")?.textContent, "waiting", "the state sits in the state slot");
       assert.equal(row.querySelector(".acts > .pill")?.textContent, "synthetic pill", "the pill is the row's child");
       back?.click();
@@ -1775,6 +1985,38 @@ test("a session's conversation head draws the title row: a back button, the sess
     },
   );
 });
+
+test("TitleParts: the title row's last crumb draws the directory's last element, then the line, and no id or hash", () =>
+  withConversationHead(
+    { dir: "/work/synthetic/app", line: "Synthetic summary", state: "working", onBack: () => {} },
+    (container) => {
+      const crumb = container.querySelector<HTMLElement>(".crumbs .crumb.here");
+      assert.equal(crumb?.querySelector(".title-dir")?.textContent, "app", "the directory's last element");
+      assert.equal(crumb?.querySelector(".title-line")?.textContent, "Synthetic summary", "the line");
+      assert.equal(crumb?.textContent, "app Synthetic summary", "the crumb holds nothing else, no id or hash");
+    },
+  ));
+
+test("TitleParts: a title with an empty line draws its directory alone, with no line element", () =>
+  withConversationHead(
+    { dir: "/work/synthetic-app", line: "", state: "idle", onBack: () => {} },
+    (container) => {
+      const crumb = container.querySelector<HTMLElement>(".crumbs .crumb.here");
+      assert.equal(crumb?.textContent, "synthetic-app");
+      assert.equal(crumb?.querySelector(".title-line") === null, true);
+    },
+  ));
+
+test("TitleParts: markup in a line draws as text, with no element", () =>
+  withConversationHead(
+    { dir: "/work/synthetic-app", line: "<b>bold</b> <img src=x onerror=alert(1)>", state: "idle", onBack: () => {} },
+    (container) => {
+      const crumb = container.querySelector<HTMLElement>(".crumbs .crumb.here");
+      assert.equal(crumb?.querySelector("b") === null, true);
+      assert.equal(crumb?.querySelector("img") === null, true);
+      assert.equal(crumb?.querySelector(".title-line")?.textContent, "<b>bold</b> <img src=x onerror=alert(1)>");
+    },
+  ));
 
 test("a label or where holding markup draws as text with no element", () =>
   withHead(
@@ -1859,7 +2101,7 @@ test("a sending entry draws a dimmed row marked sending after the items, and the
       assert.equal(after.length, 3, "the stored prompt takes the sending row's place");
       assert.equal(after[2].classList.contains("sending-row"), false, "the row is no longer dimmed");
       assert.equal(after[2].querySelector(".you")?.textContent, "YOUfix the build");
-      assert.equal(container.querySelector(".gut.sending"), null, "nothing is marked sending");
+      assertNone(container.querySelector(".gut.sending"), "nothing is marked sending");
     },
   );
 });
@@ -1876,7 +2118,7 @@ test("TurnRhythm: a reply is drawn with no rail or surface class on its row, its
       assert.ok(row !== null, "the reply is a row of the reader");
       assert.equal(row.className, "t", "the row carries no owner-turn or surface class");
       assert.equal(row.querySelector(".body")?.className, "body", "the body carries no rail or surface class");
-      assert.equal(row.querySelector(".you, .card, .question-card, .fold, .summary"), null, "no surface inside");
+      assertNone(row.querySelector(".you, .card, .question-card, .fold, .summary"), "no surface inside");
       assert.ok(row.querySelector(".reply") !== null, "the text draws as a reply");
     },
   ));
@@ -1921,7 +2163,561 @@ test("TurnRhythm: the compaction rule and the since-you-looked rule are rows, di
       const since = container.querySelector(".rule.new")?.closest(".t");
       assert.ok(compaction !== null && compaction !== undefined, "the compaction rule is in a row");
       assert.ok(since !== null && since !== undefined, "the since-you-looked rule is in a row");
-      assert.equal(compaction.parentElement, reader, "the compaction row is a direct child of .reader");
-      assert.equal(since.parentElement, reader, "the since-you-looked row is a direct child of .reader");
+      assertSame(compaction.parentElement, reader, "the compaction row is a direct child of .reader");
+      assertSame(since.parentElement, reader, "the since-you-looked row is a direct child of .reader");
     },
   ));
+
+// findProps is the find prop of a reader searching query over items, with current as the index of the match it marks.
+function findProps(items: ConversationItem[], query: string, current: number): Props["find"] {
+  return { query, matches: findMatches(items, query), current };
+}
+
+// recordScrolls replaces scrollIntoView on the test window's elements with one that records the element it is called
+// on: happy-dom has no layout, so its own does nothing. The record holds the elements in the order they were scrolled.
+function recordScrolls(t: TestContext): Element[] {
+  const scrolled: Element[] = [];
+  t.mock.method(HTMLElement.prototype, "scrollIntoView", function (this: Element) {
+    scrolled.push(this);
+  });
+  return scrolled;
+}
+
+// currentMarkIndex returns the index, among the reader's marks in document order, of the one mark with class current.
+// It fails unless exactly one mark is current.
+function currentMarkIndex(container: HTMLElement): number {
+  const current = [...container.querySelectorAll("mark")].filter((mark) => mark.classList.contains("current"));
+  assert.equal(current.length, 1, "exactly one mark is current");
+  return [...container.querySelectorAll("mark")].indexOf(current[0]);
+}
+
+test("TranscriptSearch: a find marks each case-insensitive occurrence in a reply, a prompt, a call's input and a notice, and no Markdown syntax", () => {
+  const items = [
+    item({
+      kind: "reply",
+      time: 100n,
+      text: "Build the **build**, `BUILD` and [build log](https://example.test/build)",
+    }),
+    item({ kind: "prompt", time: 200n, sender: "owner", text: "run the build" }),
+    callItem("c1", "make build", 300n),
+    item({ kind: "notice", time: 400n, notice: "build", text: "" }),
+  ];
+  return withReader(
+    { conversation: conversation({ items }), seenAt: 1000, open: false, find: findProps(items, "build", -1) },
+    (container) => {
+      const marks = [...container.querySelectorAll("mark")].map((mark) => mark.textContent);
+      assert.deepEqual(marks, ["Build", "build", "BUILD", "build", "build", "build", "build"]);
+      assert.ok(container.querySelector("strong mark") !== null, "a mark inside bold draws within the bold text");
+      assert.ok(container.querySelector(".you mark") !== null, "the owner's prompt is marked as YOU");
+      assert.equal(container.querySelector(".in mark")?.textContent, "build", "the call's input is marked");
+    },
+  );
+});
+
+test("TranscriptSearch: exactly one mark is current, and the current mark moves and is scrolled into view as current changes", async (t) => {
+  const items = [item({ kind: "reply", time: 100n, text: "one build, two build, three build" })];
+  const props: Props = {
+    conversation: conversation({ items }),
+    seenAt: 1000,
+    open: false,
+    find: findProps(items, "build", 0),
+  };
+  await withScrollingReader(props, async (container, rerender) => {
+    const scrolled = recordScrolls(t);
+    assert.equal(container.querySelectorAll("mark").length, 3);
+    assert.equal(currentMarkIndex(container), 0, "the first mark is current");
+
+    await rerender({ ...props, find: findProps(items, "build", 2) });
+    assert.equal(currentMarkIndex(container), 2, "the third mark is current, and the first is no longer");
+    assert.equal(
+      scrolled.at(-1),
+      container.querySelector("mark.current"),
+      "the mark that became current is scrolled to",
+    );
+  });
+});
+
+test("TranscriptSearch: a current match in a call's hidden result opens the call and marks the match, and a match in a closed result has no mark", async () => {
+  const items = [callItem("c1", "make"), resultItem("c1", "built output")];
+  const props: Props = { conversation: conversation({ items }), seenAt: 1000, open: false };
+  await withScrollingReader({ ...props, find: findProps(items, "output", -1) }, async (container, rerender) => {
+    assert.equal(container.querySelector("mark"), null, "the result is hidden, so its match is not marked");
+    assert.equal(container.querySelector(".result"), null, "the result is folded");
+
+    await rerender({ ...props, find: findProps(items, "output", 0) });
+    const shown = container.querySelector(".result mark.current");
+    assert.equal(shown?.textContent, "output", "the call opens and marks the match");
+  });
+});
+
+test("TranscriptSearch: the owner can close a fold a find opened, and the find opens it again once the match moves back in", async () => {
+  const items = [callItem("c1", "make"), resultItem("c1", "built output")];
+  const props: Props = { conversation: conversation({ items }), seenAt: 1000, open: false };
+  await withScrollingReader({ ...props, find: findProps(items, "output", 0) }, async (container, rerender) => {
+    assert.ok(container.querySelector(".result mark.current") !== null, "the find opens the call");
+
+    await clickControl(foldLine(container));
+    assert.equal(container.querySelector(".result"), null, "the owner closes the result");
+
+    await rerender({ ...props, find: findProps(items, "output", 0) });
+    assert.equal(container.querySelector(".result"), null, "the match is still current, and the result stays closed");
+
+    await rerender({ ...props, find: findProps(items, "output", -1) });
+    await rerender({ ...props, find: findProps(items, "output", 0) });
+    assert.ok(container.querySelector(".result mark.current") !== null, "the match moving back in opens the result");
+  });
+});
+
+test("TranscriptSearch: a step's fold line is drawn as written and never marked, and the engine fold's text is marked once it opens", async () => {
+  const items = [
+    item({ kind: "prompt", time: 100n, sender: "brief", text: "Goal: export the rota" }),
+    item({ kind: "prompt", time: 200n, sender: "engine", text: "watchdog: the engine stalled\nsecond line" }),
+  ];
+  const props: Props = {
+    conversation: conversation({ items }),
+    seenAt: 10_000,
+    open: false,
+    step: stepWith([]),
+    find: findProps(items, "engine", -1),
+  };
+  await withScrollingReader(props, async (container, rerender) => {
+    assert.equal(container.querySelector(".fold-text"), null, "both folds are closed");
+    assert.equal(
+      container.querySelector(".fold.engine .names")?.textContent,
+      "watchdog: the engine stalled",
+      "the engine line is drawn as written",
+    );
+    assert.equal(container.querySelector("mark"), null, "a match in a closed fold is not marked, and no line is");
+
+    await rerender({ ...props, find: findProps(items, "engine", 0) });
+    assert.equal(container.querySelector(".fold.engine .names mark"), null, "the engine line is not marked");
+    assert.equal(
+      container.querySelector(".fold-text mark.current")?.textContent,
+      "engine",
+      "the engine fold opens and marks its match",
+    );
+    assert.equal(container.querySelectorAll("mark").length, 1, "the match in the fold's text is the only mark");
+    assert.equal(container.querySelector(".fold.brief mark"), null, "the brief's line is not marked");
+  });
+});
+
+test("TranscriptSearch: a current match in a call inside a folded tool run opens the run and marks the call's match", async () => {
+  const items = [
+    toolItem("Read", "r1", "a.txt"),
+    resultItem("r1", "alpha"),
+    toolItem("Read", "r2", "b.txt"),
+    resultItem("r2", "beta"),
+    toolItem("Bash", "b1", "make"),
+    resultItem("b1", "built"),
+  ];
+  const props: Props = { conversation: conversation({ items }), seenAt: 1000, open: false };
+  await withScrollingReader({ ...props, find: findProps(items, "make", -1) }, async (container, rerender) => {
+    assert.equal(container.querySelector("div.calls"), null, "the run is folded");
+
+    await rerender({ ...props, find: findProps(items, "make", 0) });
+    assert.equal(container.querySelector("div.calls mark.current")?.textContent, "make", "the run opens and marks it");
+    assert.equal(container.querySelector("div.calls .result"), null, "the call of the match stays folded");
+  });
+});
+
+test("TranscriptSearch: a compaction's summary is not marked, though the query occurs in it", () => {
+  const items = [
+    item({ kind: "compaction", time: 100n, text: "Synthetic summary text.", trigger: "auto", tokens: 611000n }),
+    item({ kind: "reply", time: 200n, text: "a summary of the work" }),
+  ];
+  return withReader(
+    { conversation: conversation({ items }), seenAt: 1000, open: true, find: findProps(items, "summary", 0) },
+    (container) => {
+      const summary = container.querySelector(".summary")?.textContent;
+      assert.ok(summary?.includes("Synthetic summary text."), "the summary is drawn");
+      assert.equal(container.querySelector(".summary mark"), null, "the summary has no mark");
+      assert.equal(container.querySelectorAll("mark").length, 1, "only the reply's occurrence is marked");
+      assert.equal(container.querySelector(".reply mark.current")?.textContent, "summary");
+    },
+  );
+});
+
+test("TranscriptSearch: a current match after a list and a table is the mark at its place in the drawn text", async () => {
+  const text = "- first item\n- second item\n\n| a | b |\n| --- | --- |\n| build | x |\n\nlast line build";
+  const items = [item({ kind: "reply", time: 100n, text })];
+  const matches = findMatches(items, "build");
+  assert.equal(matches.length, 2, "the table's cell and the last line each hold a match");
+  for (const [current, parent] of [
+    [0, "TD"],
+    [1, "P"],
+  ] as const) {
+    const find = { query: "build", matches, current };
+    await withReader({ conversation: conversation({ items }), seenAt: 1000, open: false, find }, (container) => {
+      assert.equal(container.querySelectorAll("mark").length, 2);
+      const marked = container.querySelector("mark.current")?.parentElement?.tagName;
+      assert.equal(marked, parent, `match ${current} is the current one`);
+    });
+  }
+});
+
+test("TranscriptSearch: a match that Markdown splits across elements is marked on each part, and only the first part is current", () => {
+  const items = [item({ kind: "reply", time: 100n, text: "a *foo*bar" })];
+  return withReader(
+    { conversation: conversation({ items }), seenAt: 1000, open: false, find: findProps(items, "foobar", 0) },
+    (container) => {
+      const marks = [...container.querySelectorAll("mark")];
+      assert.deepEqual(marks.map((mark) => mark.textContent), ["foo", "bar"]);
+      const emphasized = container.querySelector("em mark.current");
+      assert.equal(emphasized?.textContent, "foo", "the part inside the emphasis is current");
+      assert.equal(marks[1].classList.contains("current"), false, "the part after it is not");
+    },
+  );
+});
+
+test("TranscriptSearch: an EVENT line draws no mark under a find query its text contains, while a reply in the same transcript is marked", () => {
+  const items = [
+    item({ kind: "prompt", time: 100n, sender: "event", text: "**orrery** build passed" }),
+    item({ kind: "reply", time: 200n, text: "the build is green" }),
+  ];
+  return withReader(
+    { conversation: conversation({ items }), seenAt: 1000, open: false, find: findProps(items, "build", 0) },
+    (container) => {
+      const event = container.querySelector<HTMLElement>(".event");
+      assert.ok(event !== null, "the event is an EVENT line");
+      assert.equal(event.textContent?.includes("build passed"), true, "the line draws its text");
+      assert.equal(event.querySelector("mark"), null, "the EVENT line holds no mark");
+      assert.equal(container.querySelectorAll("mark").length, 1, "only the reply's occurrence is marked");
+      assert.equal(container.querySelector("mark.current")?.textContent, "build", "the reply's match is current");
+    },
+  );
+});
+
+test("TranscriptSearch: a reader drawn without a find, or with an empty query, has no mark", async () => {
+  const items = [item({ kind: "reply", time: 100n, text: "build it" }), callItem("c1", "make build")];
+  await withReader({ conversation: conversation({ items }), seenAt: 1000, open: false }, (container) => {
+    assert.equal(container.querySelector("mark"), null, "a reader without find marks nothing");
+  });
+  await withReader(
+    { conversation: conversation({ items }), seenAt: 1000, open: false, find: { query: "", matches: [], current: -1 } },
+    (container) => {
+      assert.equal(container.querySelector("mark"), null, "a reader with an empty query marks nothing");
+    },
+  );
+});
+
+// Render is one component render a RenderCounter saw: the component's name and the props it rendered with.
+interface Render {
+  name: string;
+  props: Record<string, unknown>;
+}
+
+// RenderCounter records each component render made while it is in place, through the diffed option, which runs after
+// each vnode is diffed. A component's own vnode is made by its parent's render, so a row its memo skips never has a
+// vnode diffed and leaves no record. stop restores the option the counter found.
+class RenderCounter {
+  private readonly renders: Render[] = [];
+  private readonly previous = options.diffed;
+
+  constructor() {
+    options.diffed = (vnode) => {
+      this.previous?.(vnode);
+      const { type } = vnode;
+      if (typeof type === "function") {
+        this.renders.push({ name: type.name, props: vnode.props });
+      }
+    };
+  }
+
+  // rendersOf returns the props of each render of the component named name, in render order.
+  rendersOf(name: string): Record<string, unknown>[] {
+    return this.renders.filter((render) => render.name === name).map((render) => render.props);
+  }
+
+  clear(): void {
+    this.renders.length = 0;
+  }
+
+  stop(): void {
+    options.diffed = this.previous;
+  }
+}
+
+// withRowRenders is withRerenderableReader with a RenderCounter the check gets, stopped when the check ends.
+async function withRowRenders(
+  props: Props,
+  check: (
+    container: HTMLElement,
+    rerender: (next: Props) => Promise<void>,
+    counter: RenderCounter,
+  ) => void | Promise<void>,
+): Promise<void> {
+  const counter = new RenderCounter();
+  try {
+    await withRerenderableReader(props, (container, rerender) => check(container, rerender, counter));
+  } finally {
+    counter.stop();
+  }
+}
+
+// itemsRendered returns the item of each ItemRow the counter saw render, in render order.
+function itemsRendered(counter: RenderCounter): unknown[] {
+  return counter.rendersOf("ItemRow").map((props) => props.item);
+}
+
+test("RenderOnce: re-rendering the reader with the same conversation, including a run of three or more tool calls, and with fresh onToggleOpen, onOlder and onAnswer and a new but equal step, renders no ItemRow or ToolRun again", () => {
+  const conv = conversation({
+    items: [
+      item({ kind: "reply", time: 100n, text: "before the run" }),
+      toolItem("Read", "r1", "a.txt"),
+      resultItem("r1", "alpha"),
+      toolItem("Read", "r2", "b.txt"),
+      resultItem("r2", "beta"),
+      toolItem("Bash", "b1", "make"),
+      resultItem("b1", "built"),
+      item({ kind: "compaction", time: 150n, text: "Synthetic summary.", trigger: "auto", tokens: 611000n }),
+      item({ kind: "prompt", time: 200n, sender: "engine", round: 1, text: "gate failed: exit 1" }),
+    ],
+  });
+  const checks = [{ round: 1, name: "gate", ok: false }];
+  return withRowRenders(
+    {
+      conversation: conv,
+      seenAt: 10_000,
+      open: false,
+      step: stepWith(checks),
+      onToggleOpen: () => {},
+      onOlder: () => {},
+      onAnswer: () => {},
+    },
+    async (container, rerender, counter) => {
+      const calls: string[] = [];
+      counter.clear();
+      await rerender({
+        conversation: conv,
+        seenAt: 10_000,
+        open: false,
+        step: stepWith(checks),
+        onToggleOpen: () => calls.push("toggle"),
+        onOlder: () => calls.push("older"),
+        onAnswer: () => calls.push("answer"),
+      });
+      assert.equal(container.querySelectorAll(".fold.calls").length, 1, "the three-call run is drawn");
+      assert.equal(counter.rendersOf("ItemRow").length, 0, "no item row renders again");
+      assert.equal(counter.rendersOf("ToolRun").length, 0, "the three-call run does not render again");
+
+      const rule = container.querySelector<HTMLButtonElement>("button.rule");
+      assert.ok(rule !== null, "the compaction rule is a button, as it has a toggle");
+      await clickControl(rule);
+      assert.deepEqual(calls, ["toggle"], "the rule calls the onToggleOpen of the latest render");
+    },
+  );
+});
+
+test("RenderOnce: changing one item's result re-renders only that row, and its fold shows the new result", () => {
+  const before = item({ kind: "reply", time: 100n, text: "before" });
+  const call = toolItem("Read", "r1", "a.txt");
+  const after = item({ kind: "reply", time: 300n, text: "after" });
+  const alpha = resultItem("r1", "alpha");
+  const beta = resultItem("r1", "beta");
+  const props = (result: ConversationItem): Props => ({
+    conversation: conversation({ items: [before, call, result, after] }),
+    seenAt: 10_000,
+    open: false,
+  });
+  return withRowRenders(props(alpha), async (container, rerender, counter) => {
+    const line = container.querySelector<HTMLButtonElement>("button.call");
+    assert.ok(line !== null, "a call with a result is a button");
+    await clickControl(line);
+    assert.equal(container.querySelector(".result")?.textContent, "alpha", "the fold shows the first result");
+
+    counter.clear();
+    await rerender(props(beta));
+    const rendered = itemsRendered(counter);
+    assert.equal(rendered.length, 1, "one row renders again");
+    assert.equal(rendered[0], call, "the row is the call the changed result answers");
+    assert.equal(container.querySelector(".result")?.textContent, "beta", "the fold shows the new result");
+  });
+});
+
+test("RenderOnce: a running call re-renders its row when it gets its result, or when text follows it", () => {
+  const before = item({ kind: "reply", time: 100n, text: "before" });
+  const call = toolItem("Bash", "b1", "make");
+  const built = resultItem("b1", "built");
+  return withRowRenders(
+    { conversation: conversation({ items: [before, call] }), seenAt: 10_000, open: false },
+    async (container, rerender, counter) => {
+      assert.ok(container.querySelector(".call.running") !== null, "a call with no result is running");
+
+      // live text after the call ends the calls, so the call stops running though it has no result
+      counter.clear();
+      await rerender({
+        conversation: conversation({ items: [before, call], unfinished: [unfinished("typing")] }),
+        seenAt: 10_000,
+        open: false,
+      });
+      assert.deepEqual(itemsRendered(counter), [call], "the call's row renders again as its running state changes");
+      assert.equal(container.querySelector(".call.running"), null, "the call is no longer running");
+
+      counter.clear();
+      await rerender({
+        conversation: conversation({ items: [before, call, built], unfinished: [unfinished("typing")] }),
+        seenAt: 10_000,
+        open: false,
+      });
+      const rendered = itemsRendered(counter);
+      assert.equal(rendered.length, 1, "one row renders again");
+      assert.equal(rendered[0], call, "the row is the call that got its result");
+      assert.equal(container.querySelector(".running-mark"), null);
+    },
+  );
+});
+
+test("RenderOnce: toggling open re-renders the compaction row alone, and that row shows its summary", () => {
+  const compaction = item({
+    kind: "compaction",
+    time: 100n,
+    text: "Synthetic summary.",
+    trigger: "auto",
+    tokens: 611000n,
+  });
+  const reply = item({ kind: "reply", time: 200n, text: "after" });
+  const conv = conversation({ items: [compaction, reply] });
+  return withRowRenders({ conversation: conv, seenAt: 10_000, open: false }, async (container, rerender, counter) => {
+    assert.equal(container.textContent?.includes("Synthetic summary."), false, "the summary is folded while closed");
+
+    counter.clear();
+    await rerender({ conversation: conv, seenAt: 10_000, open: true });
+    const rendered = itemsRendered(counter);
+    assert.equal(rendered.length, 1, "one row renders again");
+    assert.equal(rendered[0], compaction, "the row is the compaction");
+    assert.equal(container.querySelector(".compaction.open .summary")?.textContent, "Synthetic summary.");
+  });
+});
+
+// readerCard returns the send-back card the reader draws.
+function readerCard(container: HTMLElement): HTMLElement {
+  const card = container.querySelector<HTMLElement>("div.card");
+  assert.ok(card !== null, "a send-back card is drawn");
+  return card;
+}
+
+test("RenderOnce: a step whose checks change re-renders its send-back card with the new chips", () => {
+  const sendBack = item({ kind: "prompt", time: 300n, sender: "engine", round: 1, text: "gate failed: exit 1" });
+  const conv = conversation({ items: [sendBack] });
+  return withRowRenders(
+    { conversation: conv, seenAt: 10_000, open: false, step: stepWith([{ round: 1, name: "gate", ok: true }]) },
+    async (container, rerender, counter) => {
+      assert.deepEqual(chipTexts(readerCard(container)), ["gate ✓"]);
+
+      counter.clear();
+      await rerender({
+        conversation: conv,
+        seenAt: 10_000,
+        open: false,
+        step: stepWith([{ round: 1, name: "gate", ok: false }]),
+      });
+      const rendered = itemsRendered(counter);
+      assert.equal(rendered.length, 1, "one row renders again");
+      assert.equal(rendered[0], sendBack, "the row is the send-back");
+      const card = readerCard(container);
+      assert.deepEqual(chipTexts(card), ["gate ✗"], "the chip shows the check as failed");
+      assert.deepEqual(badChipTexts(card), ["gate ✗"]);
+      assert.equal(card.classList.contains("bad"), true, "the card's edge is bad");
+    },
+  );
+});
+
+// ReadCounts counts the reads a render makes of items: each read of an item's id, and each scan of the items array by
+// forEach or findIndex. itemKeys reads every id, resultsByCall and groupRows scan the array, and newIndex scans it.
+interface ReadCounts {
+  ids: number;
+  scans: number;
+}
+
+// countScans wraps an items array so each scan of it by forEach or findIndex is counted in reads.
+function countScans(items: ConversationItem[], reads: ReadCounts): ConversationItem[] {
+  return new Proxy(items, {
+    get(target, key, receiver) {
+      if (key === "forEach" || key === "findIndex") {
+        reads.scans += 1;
+      }
+      return Reflect.get(target, key, receiver);
+    },
+  });
+}
+
+// probeItems returns items for a conversation, with each id read counted in reads and the array's scans too.
+function probeItems(items: ConversationItem[], reads: ReadCounts): ConversationItem[] {
+  const wrapped = items.map(
+    (entry) =>
+      new Proxy(entry, {
+        get(target, key, receiver) {
+          if (key === "id") {
+            reads.ids += 1;
+          }
+          return Reflect.get(target, key, receiver);
+        },
+      }),
+  );
+  return countScans(wrapped, reads);
+}
+
+test("RenderOnce: a redraw with the same items array derives no keys, results or rows again, and a new array does", () => {
+  const reads: ReadCounts = { ids: 0, scans: 0 };
+  const items = probeItems(
+    [
+      item({ kind: "reply", time: 100n, text: "before the run" }),
+      toolItem("Read", "r1", "a.txt"),
+      resultItem("r1", "alpha"),
+      toolItem("Read", "r2", "b.txt"),
+      resultItem("r2", "beta"),
+      toolItem("Bash", "b1", "make"),
+      resultItem("b1", "built"),
+      item({ kind: "reply", time: 300n, text: "after the run" }),
+    ],
+    reads,
+  );
+  const conv = conversation({ items });
+  const props = { conversation: conv, seenAt: 10_000, open: false, onToggleOpen: () => {} };
+  return withRowRenders(props, async (_container, rerender, counter) => {
+    reads.ids = 0;
+    reads.scans = 0;
+    counter.clear();
+    await rerender({ conversation: conv, seenAt: 10_000, open: false, onToggleOpen: () => {} });
+    assert.equal(reads.ids, 0, "a redraw with the same array reads no item's id");
+    assert.equal(reads.scans, 0, "a redraw with the same array scans the array for no rows, results or new rule");
+    assert.equal(counter.rendersOf("ItemRow").length, 0, "and renders no row");
+
+    await rerender({ conversation: conversation({ items: countScans([...items], reads) }), seenAt: 10_000, open: false });
+    assert.ok(reads.ids > 0, "a new array with the same items derives its keys again");
+    assert.ok(reads.scans > 0, "a new array with the same items derives its rows and results again");
+  });
+});
+
+test("RenderOnce: rendering 100 rows calls no Date.prototype.toLocaleTimeString and constructs no Intl.DateTimeFormat", async (t) => {
+  const base = localTime(9, 30);
+  const items = Array.from({ length: 100 }, (_, n) =>
+    item({ kind: "reply", time: base + BigInt(n), text: `row ${n}` }),
+  );
+  const toLocale = t.mock.method(Date.prototype, "toLocaleTimeString");
+  const RealDateTimeFormat = Intl.DateTimeFormat;
+  let constructed = 0;
+  Intl.DateTimeFormat = new Proxy(RealDateTimeFormat, {
+    construct(target, args, newTarget) {
+      constructed += 1;
+      return Reflect.construct(target, args, newTarget);
+    },
+  });
+  try {
+    // every item is read, so no since-you-looked row draws among the 100
+    const readAll = Number(localTime(23, 59));
+    await withReader({ conversation: conversation({ items }), seenAt: readAll, open: false }, (container) => {
+      const gutters = [...container.querySelectorAll(".reader > .t > .gut")].map((gut) => gut.textContent ?? "");
+      assert.equal(gutters.length, 100, "100 rows are drawn");
+      assert.equal(
+        gutters.every((gut) => /^\d\d:\d\d$/.test(gut)),
+        true,
+        "each row's time is drawn as HH:MM",
+      );
+    });
+  } finally {
+    Intl.DateTimeFormat = RealDateTimeFormat;
+  }
+  assert.equal(toLocale.mock.callCount(), 0, "no row formats its time with toLocaleTimeString");
+  assert.equal(constructed, 0, "no row constructs an Intl.DateTimeFormat");
+});
