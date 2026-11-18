@@ -65,6 +65,14 @@ func openCronStore(t *testing.T) *store.Store {
 func serveCronAnswers(t *testing.T, st *store.Store) string {
 	t.Helper()
 	daemon := filepath.Join(t.TempDir(), "orreryd.sock")
+	serveCronAnswersAt(t, st, daemon)
+	return daemon
+}
+
+// serveCronAnswersAt serves the cron answers of st on the session socket beside daemon, the socket that `--socket`
+// names. The server stops at cleanup.
+func serveCronAnswersAt(t *testing.T, st *store.Store, daemon string) {
+	t.Helper()
 	ln, err := enginehost.Listen(protocol.SessionSocketPath(daemon))
 	if err != nil {
 		t.Fatalf("enginehost.Listen: %v", err)
@@ -79,7 +87,6 @@ func serveCronAnswers(t *testing.T, st *store.Store) string {
 			t.Errorf("enginehost.Serve: %v", err)
 		}
 	})
-	return daemon
 }
 
 // cronHookInput returns the stdin of the PreToolUse hook for a call of tool with toolInput. Its session_id is
@@ -243,5 +250,39 @@ func TestCronTakeoverCommandRefusesUnknownID(t *testing.T) {
 		"CronList lists this session's jobs."
 	if reason != want {
 		t.Fatalf("reason = %q, want %q", reason, want)
+	}
+}
+
+// TestCronTakeoverCommandNoDaemonStoresNothing runs CronCreate with no orreryd listening, and checks that the deny says
+// the job was not scheduled and that nothing is stored, not even under its tool_use_id. Once a daemon listens, the same
+// CronCreate with the same tool_use_id is scheduled.
+func TestCronTakeoverCommandNoDaemonStoresNothing(t *testing.T) {
+	t.Parallel()
+	st := openCronStore(t)
+	daemon := filepath.Join(t.TempDir(), "orreryd.sock")
+	reason := runCronHook(t, daemon, cronToolCreate, "toolu_01", cronStoreCreateInput)
+	if !strings.Contains(reason, "the job was not scheduled") {
+		t.Fatalf("reason = %q, want it to say the job was not scheduled", reason)
+	}
+	if jobs := cronStoreJobs(t, st, cronStoreSession); len(jobs) != 0 {
+		t.Fatalf("session has %d jobs after the refused call, want none", len(jobs))
+	}
+	if jobs := cronStoreJobs(t, st, cronStoreClaudeSession); len(jobs) != 0 {
+		t.Fatalf("the hook input's session has %d jobs after the refused call, want none", len(jobs))
+	}
+	all, err := st.AllCronJobs(t.Context())
+	if err != nil {
+		t.Fatalf("AllCronJobs: %v", err)
+	}
+	if len(all) != 0 {
+		t.Fatalf("refused call stored %d jobs, want none", len(all))
+	}
+	serveCronAnswersAt(t, st, daemon)
+	reason = runCronHook(t, daemon, cronToolCreate, "toolu_01", cronStoreCreateInput)
+	if !strings.HasPrefix(reason, "orrery scheduled this job as ") {
+		t.Fatalf("reason = %q, want it to start %q", reason, "orrery scheduled this job as ")
+	}
+	if jobs := cronStoreJobs(t, st, cronStoreSession); len(jobs) != 1 {
+		t.Fatalf("session has %d jobs after the scheduled call, want 1", len(jobs))
 	}
 }
