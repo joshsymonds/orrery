@@ -51,7 +51,7 @@ func (s *Steps) Stop(ctx context.Context, id string) error {
 // rowRun returns a stepRun for an open step row with no loop, so Stop can end it through finish. Its cleanup removes the
 // row's worktree when the row has one.
 func (s *Steps) rowRun(row store.StepRow) *stepRun {
-	cfg := stepRunConfig{id: row.ID, sessions: s.sessions, writer: s.writer, logger: s.logger}
+	cfg := stepRunConfig{id: row.ID, sessions: s.sessions, writer: s.writer, logger: s.logger, publish: s.publish}
 	if row.Worktree != "" {
 		cfg.cleanup = func(ctx context.Context) error {
 			return removeStepWorktree(ctx, row.Workspace, row.Worktree)
@@ -201,6 +201,7 @@ func (s *Steps) readoptRun(ctx context.Context, row store.StepRow) (*stepRun, er
 		scopeMemory: s.gateScopeMemory,
 		restore:     &stepRestore{Row: row, Turn: turn, Found: found},
 		agentGate:   agent,
+		publish:     s.publish,
 	}
 	folder := row.Workspace
 	if row.ReadOnly {
@@ -311,11 +312,11 @@ func (s *Steps) Reconcile(ctx context.Context) error {
 }
 
 // endRestarted ends the open rows of steps with no live loop as a restart leaves them: engine_restarted, all stored in one
-// CommitAll so one ApplyEngine call carries every end. Then each row whose end was stored has its worktree removed, its gate
-// holder stopped and cleared, and its observer unregistered from the adopter when there is one. A row whose end is dropped
-// is not cleaned up, the other rows still are, and the first dropped end is returned. No notice is sent for any row, whether
-// or not it names an epic. A queueing failure returns its error with no cleanup. No session is stopped, since a restart
-// leaves no session to stop.
+// CommitAll so one ApplyEngine call carries every end. Then each row whose end was stored is published, has its worktree
+// removed, its gate holder stopped and cleared, and its observer unregistered from the adopter when there is one. A row
+// whose end is dropped is not cleaned up, the other rows still are, and the first dropped end is returned. No notice is
+// sent for any row, whether or not it names an epic. A queueing failure returns its error with no cleanup. No session is
+// stopped, since a restart leaves no session to stop.
 func (s *Steps) endRestarted(ctx context.Context, rows []store.StepRow) error {
 	groups := make([]SessionOps, 0, len(rows))
 	for _, row := range rows {
@@ -339,6 +340,7 @@ func (s *Steps) endRestarted(ctx context.Context, rows []store.StepRow) error {
 			}
 			continue
 		}
+		s.publish(ctx, row.ID)
 		s.cleanRestartedStep(ctx, row, adopter)
 	}
 	return first

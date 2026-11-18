@@ -105,7 +105,8 @@ const apiErrorRateLimit = "rate_limit"
 // runs, nil for any other step: each schema-valid return is checked against its assertions, and never judged. A tick at
 // or past the limit of wall time from the run's start ends an agent gate step overtime. returnCheck, when set, checks
 // every schema-valid return: its failure lines are stored as the return check and sent back, and a step with one is
-// never judged.
+// never judged. publish is called with the step's id once the run's end or hold is stored, and a nil publish, which
+// newStepRun makes a no-op, reports nothing.
 type stepRunConfig struct {
 	id          string
 	schema      string
@@ -122,6 +123,7 @@ type stepRunConfig struct {
 	ticks       <-chan time.Time
 	agentGate   *gates.Gate
 	returnCheck func(value json.RawMessage) []string
+	publish     func(ctx context.Context, id string)
 
 	writing     bool
 	dir         string
@@ -231,6 +233,9 @@ type stepRun struct {
 func newStepRun(cfg stepRunConfig) *stepRun {
 	if cfg.now == nil {
 		cfg.now = time.Now
+	}
+	if cfg.publish == nil {
+		cfg.publish = func(context.Context, string) {}
 	}
 	start := cfg.now()
 	return &stepRun{
@@ -474,9 +479,9 @@ func (r *stepRun) turnEnded(ctx context.Context, ended session.TurnEnded) bool {
 
 // limitTurn checks whether the turn that has just ended ended on a usage limit: the rate limit the store holds for the
 // step, or the rate limit error the session handed the run since the previous turn end. A limited turn drops the pending
-// nudges and the hold, stores the loop state with its limit, and releases the step's process, so the step stays open
-// and its slot is free. It reports whether the turn was limited and, when it was, whether the run goes on. A failed
-// read, store or release ends the step failed.
+// nudges and the hold, stores the loop state with its limit, publishes the held step, and releases the step's process,
+// so the step stays open and its slot is free. It reports whether the turn was limited and, when it was, whether the run
+// goes on. A failed read, store or release ends the step failed.
 func (r *stepRun) limitTurn(ctx context.Context) (limited, goOn bool) {
 	errored := r.rateLimit.Swap(false)
 	row, found, err := r.store.StepRateLimit(ctx, r.id)
@@ -500,6 +505,7 @@ func (r *stepRun) limitTurn(ctx context.Context) (limited, goOn bool) {
 		r.finish(ctx, stepLoopEndFailed, "", fmt.Sprintf("record limit of step %s: %v", r.id, err))
 		return true, false
 	}
+	r.publish(ctx, r.id)
 	if err = r.sessions.Release(ctx, r.id); err != nil {
 		r.finish(ctx, stepLoopEndFailed, "", fmt.Sprintf("release step %s: %v", r.id, err))
 		return true, false
@@ -1096,9 +1102,10 @@ func stepLoopFailures(checks []store.StepCheck) []string {
 	return failures
 }
 
-// finish ends the step once. It stores StepEnd, stops the session unless limitReleased says a limit released it, runs
-// cleanup and closes ended. A store, stop or cleanup error is logged, since nothing above finish can act on it. A ctx
-// that has ended stores no end, so finish does nothing then. It reports whether this call acted.
+// finish ends the step once. It stores StepEnd and publishes the end once it is stored, stops the session unless
+// limitReleased says a limit released it, runs cleanup and closes ended. A store, stop or cleanup error is logged, since
+// nothing above finish can act on it. A ctx that has ended stores no end, so finish does nothing then. It reports whether
+// this call acted.
 func (r *stepRun) finish(ctx context.Context, end, status, reason string) bool {
 	if ctx.Err() != nil {
 		return false
@@ -1113,6 +1120,8 @@ func (r *stepRun) finish(ctx context.Context, end, status, reason string) bool {
 		stepEnd := store.StepEnd{ID: r.id, End: end, Status: status, Reason: reason}
 		if err := r.writer.Commit(ctx, r.id, stepEnd); err != nil {
 			r.logger.ErrorContext(ctx, "record step end", "step", r.id, "err", err)
+		} else {
+			r.publish(ctx, r.id)
 		}
 		if !r.limitReleased {
 			if err := r.sessions.Stop(ctx, r.id); err != nil {

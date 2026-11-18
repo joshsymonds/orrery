@@ -145,6 +145,8 @@ type StepStore interface {
 // ReadoptGate returns the agent gate an agent gate step row is re-adopted with. A gate definition is not stored with the
 // row, so the caller rebuilds it from the row's stored data. A nil ReadoptGate, or one that returns a nil gate or a gate
 // that names no agent or not the row's gate, leaves the row unregistered, and so does an error.
+// Stored, when set, is called once after each end or hold a subscription is handed, once the row is stored, so a caller
+// can wake to deliver it. A nil Stored does nothing.
 type StepsConfig struct {
 	Sessions        stepSessions
 	Store           StepStore
@@ -161,6 +163,7 @@ type StepsConfig struct {
 	GateScopeMemory int64
 	ReadoptCheck    func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error)
 	ReadoptGate     func(ctx context.Context, row store.StepRow) (*gates.Gate, error)
+	Stored          func()
 }
 
 // StepAdopter is what Readopt registers each open step with, and what Reconcile asks whether the step is live. Manager
@@ -174,7 +177,8 @@ type StepAdopter interface {
 // cancel of every loop that has not returned, causes holds the same cancels with a cause, and runs holds its stepRun, all
 // by step id. idle is broadcast whenever a loop is removed from loops. adopter is what Readopt registered the steps with,
 // and adopted holds the run Readopt rebuilt for each open row until Reconcile starts or settles it. starting holds the
-// caller-given id of each start in flight, so a second start under that id is refused until the first returns.
+// caller-given id of each start in flight, so a second start under that id is refused until the first returns. stored is
+// the StepsConfig Stored callback, and subs holds each subscription Subscribe registered and Close has not removed.
 type Steps struct {
 	sessions        stepSessions
 	store           StepStore
@@ -191,6 +195,7 @@ type Steps struct {
 	gateScopeMemory int64
 	readoptCheck    func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error)
 	readoptGate     func(ctx context.Context, row store.StepRow) (*gates.Gate, error)
+	stored          func()
 
 	mu       sync.Mutex
 	loops    map[string]context.CancelFunc
@@ -200,6 +205,7 @@ type Steps struct {
 	adopter  StepAdopter
 	adopted  map[string]*stepRun
 	starting map[string]bool
+	subs     map[*StepSubscription]bool
 	// calls counts the calls under way that can start or end work (see callsInFlight).
 	calls callsInFlight
 }
@@ -233,11 +239,13 @@ func NewSteps(cfg StepsConfig) (*Steps, error) {
 		gateScopeMemory: cfg.GateScopeMemory,
 		readoptCheck:    cfg.ReadoptCheck,
 		readoptGate:     cfg.ReadoptGate,
+		stored:          cfg.Stored,
 		loops:           map[string]context.CancelFunc{},
 		causes:          map[string]context.CancelCauseFunc{},
 		runs:            map[string]*stepRun{},
 		adopted:         map[string]*stepRun{},
 		starting:        map[string]bool{},
+		subs:            map[*StepSubscription]bool{},
 	}
 	steps.idle = sync.NewCond(&steps.mu)
 	return steps, nil
@@ -306,6 +314,7 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 		gateLimit: gateLimit, gateName: gate.name, gateSource: gate.source, grant: gate.grant, pools: s.pools,
 		environ: s.environ, prompt: start.Prompt, now: s.now, modelLimit: modelLimit, agentGate: gate.agent,
 		stateDir: s.gateStateDir, scope: s.gateScope, scopeMemory: s.gateScopeMemory, returnCheck: start.ReturnCheck,
+		publish: s.publish,
 	}
 	step := StepSession{
 		ID: id, Dir: start.Workspace, Prompt: start.Prompt, Agent: start.Agent, Agents: start.Agents,
