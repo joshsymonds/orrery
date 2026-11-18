@@ -183,6 +183,14 @@ type options struct {
 	// dueNow is a test seam: the clock the due pass reads to decide which limited steps are due. Production leaves it
 	// nil, which is time.Now. A test whose steps carry fixed reset dates sets it, so the real date never makes them due.
 	dueNow func() time.Time
+	// cronNow is a test seam: the clock the cron answers and the cron scheduler read as now. Production leaves it nil,
+	// which is time.Now.
+	cronNow func() time.Time
+	// cronTimers is a test seam: the timers the cron scheduler arms in place of time.NewTimer. Production leaves it nil.
+	cronTimers func(time.Duration) enginehost.CronTimer
+	// cronDeliver is a test seam: the delivery the cron scheduler calls in place of Manager.DeliverCron. Production
+	// leaves it nil.
+	cronDeliver func(context.Context, enginehost.DeliverRequest) error
 	// host is a test seam: the host name the desk stream, the notices and the grants broker use in place of
 	// os.Hostname. Production leaves it "".
 	host string
@@ -802,6 +810,10 @@ type sessionHost struct {
 	limitsDone    chan struct{}
 	stopDue       context.CancelFunc
 	dueDone       chan struct{}
+	// cron fires the cron jobs of the sessions. stopCron cancels its Run, which closes cronDone when it returns.
+	cron          *enginehost.CronScheduler
+	stopCron      context.CancelFunc
+	cronDone      chan struct{}
 	stopSummaries context.CancelFunc
 	summariesDone chan struct{}
 	stopTitles    context.CancelFunc
@@ -844,6 +856,7 @@ func newSessionHost(logger *slog.Logger) *sessionHost {
 		flowDone:      make(chan struct{}),
 		limitsDone:    make(chan struct{}),
 		dueDone:       make(chan struct{}),
+		cronDone:      make(chan struct{}),
 		summariesDone: make(chan struct{}),
 		reportsDone:   make(chan struct{}),
 		serveDone:     make(chan error, 1),
@@ -865,11 +878,12 @@ func newSessionHost(logger *slog.Logger) *sessionHost {
 // limitTick until stop; the session titles write each headless session's missing title through haiku, every limitTick
 // until stop; the session headlines refresh each headless session's headline once its turns have ended, through haiku,
 // every limitTick until stop; the manager stops idle sessions, until stop; and the caller-event passes tell each step's
-// caller when the step ends, and each epic's creator of its events, every five seconds until stop (startCallerEvents).
-// A readopt, reconcile, restore or resume failure is logged and serving goes on; a failed restore serves no Pools,
-// which refuse as unavailable, and the gates fail for want of pools. The Notices service on it answers from notices,
-// and refuses as unavailable when notices is nil. With st open, each call of the Epics service on it that names an epic
-// records its session in st.
+// caller when the step ends, and each epic's creator of its events, every five seconds until stop (startCallerEvents);
+// and the cron scheduler fires each cron job of a headless session when it is due, through the manager's DeliverCron,
+// from one timer for the next due fire until stop (startCron). A readopt, reconcile, restore or resume failure is
+// logged and serving goes on; a failed restore serves no Pools, which refuse as unavailable, and the gates fail for
+// want of pools. The Notices service on it answers from notices, and refuses as unavailable when notices is nil. With
+// st open, each call of the Epics service on it that names an epic records its session in st.
 func startSessions(
 	ctx context.Context,
 	opts options,
@@ -895,6 +909,7 @@ func startSessions(
 			Applier: st, Tick: opts.writeTick, Logger: logger, Metrics: opts.metrics,
 		})
 		notifier := enginehost.NewNotifier(enginehost.NotifierConfig{Route: router})
+		host.newCron(opts, st, logger)
 		host.manager = enginehost.NewManager(enginehost.Config{
 			Shell:             opts.sessionShell,
 			Claude:            opts.claude,
@@ -910,6 +925,7 @@ func startSessions(
 			Store:             st,
 			Logger:            logger,
 			Metrics:           opts.metrics,
+			CronWake:          host.cron.Wake,
 		})
 		host.startBroker(ctx, hostName, st, logger)
 		// host.pools is nil when the broker's restore failed, which leaves the gates no pools to run under.
@@ -938,10 +954,12 @@ func startSessions(
 		st.SetEngineLive(host.manager.Live)
 		commands, stepCommands = host.manager, host.steps
 		epics = st
-		crons = enginehost.NewCronAnswers(enginehost.CronAnswersConfig{Store: st})
+		crons = enginehost.NewCronAnswers(enginehost.CronAnswersConfig{
+			Store: st, Now: opts.cronNow, Changed: host.cron.Changed})
 		host.startWriter(ctx)
 		host.reconcile(ctx, logger, opts.holdReconcile, opts.flight, opts.flightNow)
 		host.startCallerEvents(ctx, st, opts, logger)
+		host.startCron(ctx)
 		host.startEvidence(ctx, st, stateDir, opts, childEnviron, logger)
 		evidence = host.evidence
 		host.startNodeChecks(ctx, st, stateDir, opts, childEnviron, logger)
@@ -1375,6 +1393,31 @@ func (h *sessionHost) startCallerEvents(ctx context.Context, st *store.Store, op
 	}()
 }
 
+// newCron builds the host's cron scheduler over st, and stores it as h.cron. Each due fire goes through the manager's
+// DeliverCron, or through opts.cronDeliver when that is set. The delivery reads h.manager when a fire is due, which is
+// after startSessions has set it.
+func (h *sessionHost) newCron(opts options, st *store.Store, logger *slog.Logger) {
+	deliver := func(ctx context.Context, req enginehost.DeliverRequest) error {
+		if opts.cronDeliver != nil {
+			return opts.cronDeliver(ctx, req)
+		}
+		return h.manager.DeliverCron(ctx, req)
+	}
+	h.cron = enginehost.NewCronScheduler(enginehost.CronSchedulerConfig{
+		Store: st, Deliver: deliver, Now: opts.cronNow, NewTimer: opts.cronTimers, Logger: logger,
+	})
+}
+
+// startCron runs the cron scheduler until stop, on its own cancel, and closes cronDone when its Run returns.
+func (h *sessionHost) startCron(ctx context.Context) {
+	var cronCtx context.Context
+	cronCtx, h.stopCron = context.WithCancel(ctx)
+	go func() {
+		defer close(h.cronDone)
+		h.cron.Run(cronCtx)
+	}()
+}
+
 // startIdle runs the manager's stop of idle sessions until stop.
 func (h *sessionHost) startIdle(ctx context.Context) {
 	var idleCtx context.Context
@@ -1548,6 +1591,10 @@ func (h *sessionHost) shutdown() {
 		h.phase("due pass", func() {
 			h.stopDue()
 			<-h.dueDone
+		})
+		h.phase("cron fires", func() {
+			h.stopCron()
+			<-h.cronDone
 		})
 		h.phase("epic summaries", func() {
 			h.stopSummaries()
