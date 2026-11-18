@@ -1,5 +1,9 @@
 # Audit: what the two clients draw today
 
+This describes the clients as built at `origin/main` 96b916fd. The language that answers it is `SYSTEM.md`, drawn in
+`../wireframe/round6`; the choices and what was rejected are in `../wireframe/round6/DECISIONS.md`. The ids below (`A1`…)
+are this file's own.
+
 Status: **complete as a first pass for the web, partial for Android.** Checked against the web build at
 `origin/main` (96b916fd) through the read-only proxy at 1600, 1000 and 412 wide, and against the Compose source (the
 Android app was read, not run). Sections marked *unverified* at the end were not looked at live.
@@ -7,8 +11,7 @@ Android app was read, not run). Sections marked *unverified* at the end were not
 Citations are `file:line`. `css:` is `web/src/style.css`. Kotlin files are under
 `android/app/src/main/kotlin/io/github/joshsymonds/orrery/ui/`.
 
-Problems are ranked by how much they cost the owner at the desk. Each has an id (`A1`…) that SYSTEM.md and
-DECISIONS.md refer to.
+Problems are ranked by how much they cost the owner at the desk.
 
 ## The short version
 

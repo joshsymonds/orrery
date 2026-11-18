@@ -7,3 +7,12 @@ Frozen reference data for the web client's wireframe parity work. Nothing here i
 - `scenarios.md` specifies, field by field, the synthetic data that makes the live page show each scenario the wireframe shows.
 
 Change these files only on an owner's decision: they are the yardstick the parity epics are judged by.
+
+Proposals, not yardsticks:
+
+- `wireframe/round5/` is the web-only proposal of 2026-11-17. Round 6 supersedes it.
+- `wireframe/round6/` is the proposal of 2026-11-17 for all three clients: the web at the desk, the web under 760 px and
+  the Android app, drawn from one set of components. `index.html` lists every scenario; `DECISIONS.md` says what it
+  changes and what it needs from the server.
+- `system/` holds the language round 6 draws: `SYSTEM.md`, `tokens.json` and its generator `gen-tokens.mjs`, the audit
+  of both clients as built (`AUDIT.md`) and the owner's notes on the live web client (`OWNER-NOTES.md`).
