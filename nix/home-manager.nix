@@ -8,8 +8,10 @@
 let
   cfg = config.programs.orrery;
 
+  # The plugin runs orrery through the profile's bin/orrery, which always points at the installed build, so a running
+  # tmux server's bindings and hooks keep working after an upgrade removes the build they were printed from.
   tmuxConf = pkgs.runCommand "orrery-tmux.conf" { } ''
-    ${cfg.package}/bin/orrery tmux-conf > $out
+    ${cfg.package}/bin/orrery tmux-conf --binary ${config.home.profileDirectory}/bin/orrery > $out
   '';
 
   p = pkgs.writeShellScriptBin "p" (
@@ -108,6 +110,19 @@ in
     ];
 
     programs.tmux.extraConfig = "source-file ${tmuxConf}";
+
+    # A switch sources the plugin into every running tmux server of the user, which a source again leaves as one source
+    # does, so each server takes the new bindings and hooks without a restart. Activation can run without the user's
+    # TMUX_TMPDIR (NixOS runs it as a system service), so the servers are found by their sockets under both places tmux
+    # puts them: $XDG_RUNTIME_DIR (or /run/user/UID) and $TMPDIR (or /tmp).
+    home.activation.orreryTmuxPlugin = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+      orreryUid="$(${pkgs.coreutils}/bin/id -u)"
+      for orrerySocket in "''${XDG_RUNTIME_DIR:-/run/user/$orreryUid}/tmux-$orreryUid"/* "''${TMPDIR:-/tmp}/tmux-$orreryUid"/*; do
+        if [ -S "$orrerySocket" ] && ${pkgs.tmux}/bin/tmux -S "$orrerySocket" info >/dev/null 2>&1; then
+          run ${pkgs.tmux}/bin/tmux -S "$orrerySocket" source-file ${tmuxConf} || true
+        fi
+      done
+    '';
 
     xdg.configFile."orrery/roots" = lib.mkIf (cfg.roots != [ ]) {
       text = lib.concatMapStrings (root: "${toString root.depth} ${root.path}\n") cfg.roots;

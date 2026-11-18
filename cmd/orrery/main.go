@@ -107,7 +107,7 @@ subcommands:
   shell --dir DIR --client TTY                  open DIR's shell popup on the client at TTY
   tree --client TTY                             show the pane tree on the client at TTY; N picks a pane
   open [--remote] [--intent TEXT] [ARGS...]     switch to the plan for ARGS, or to the picker; attach outside tmux
-  tmux-conf                                     print the orrery tmux plugin for this binary
+  tmux-conf [--binary PATH]                     print the orrery tmux plugin for PATH, or for this binary
   help [--html]                                 print the help card for the tmux server, or the HTML page with --html
   mcp                                           serve the step tools over MCP on stdio until stdin closes
   epic create FILE|-                            create an epic from the contract JSON in FILE, or on stdin for -
@@ -1191,17 +1191,27 @@ func targetRef(target open.Target) string {
 	return "=" + target.Session + ":"
 }
 
-// tmuxConf runs `orrery tmux-conf`, which prints the orrery tmux plugin for this binary's own path. It takes no
-// flags and needs no tmux server.
+// tmuxConf runs `orrery tmux-conf [--binary PATH]`, which prints the orrery tmux plugin for the orrery binary at PATH,
+// or for this binary's own path when PATH is not given. A stable PATH, such as a profile's bin/orrery, keeps a running
+// tmux server's bindings and hooks working after the binary they were printed for is replaced. It needs no tmux server.
 func tmuxConf(args []string, stdout io.Writer) error {
-	if len(args) > 0 {
-		return usagef("tmux-conf: unexpected argument %q", args[0])
+	flags := flag.NewFlagSet("tmux-conf", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	binary := flags.String("binary", "", "the orrery binary the plugin runs")
+	if err := flags.Parse(args); err != nil {
+		return usagef("tmux-conf: %v", err)
 	}
-	orrery, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("tmux-conf: locate orrery binary: %w", err)
+	if flags.NArg() > 0 {
+		return usagef("tmux-conf: unexpected argument %q", flags.Arg(0))
 	}
-	if err = tmuxconf.Print(stdout, orrery); err != nil {
+	orrery := *binary
+	if orrery == "" {
+		var err error
+		if orrery, err = os.Executable(); err != nil {
+			return fmt.Errorf("tmux-conf: locate orrery binary: %w", err)
+		}
+	}
+	if err := tmuxconf.Print(stdout, orrery); err != nil {
 		return fmt.Errorf("tmux-conf: %w", err)
 	}
 	return nil

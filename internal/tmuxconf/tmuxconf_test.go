@@ -261,6 +261,28 @@ func TestPluginSourcesCleanly(t *testing.T) {
 	}
 }
 
+// TestPluginSourcedAgainReplacesItsHooksAndStatus sources the plugin for one binary and then for another, as a server
+// that sources it again after an upgrade does: each hook then runs only the second binary, and status-right holds the
+// counts once.
+func TestPluginSourcedAgainReplacesItsHooksAndStatus(t *testing.T) {
+	s := startServer(t)
+	s.sourcePlugin(t, "/old/bin/orrery")
+	s.sourcePlugin(t, "/new/bin/orrery")
+	for _, hook := range []string{"window-pane-changed", "session-window-changed", "client-session-changed"} {
+		hooks := strings.TrimSpace(s.must(t, "show-hooks", "-g", hook))
+		if lines := strings.Split(hooks, "\n"); len(lines) != 1 {
+			t.Fatalf("%s holds %d hooks after a second source, want 1: %s", hook, len(lines), hooks)
+		}
+		if strings.Contains(hooks, "/old/bin/orrery") || !strings.Contains(hooks, "/new/bin/orrery seen --pane") {
+			t.Fatalf("%s after a second source = %s, want only the new binary's seen command", hook, hooks)
+		}
+	}
+	status := s.must(t, "show-options", "-g", "-v", "status-right")
+	if n := strings.Count(status, " orrery "); n != 1 {
+		t.Fatalf("status-right holds the orrery counts %d times after a second source, want once: %q", n, status)
+	}
+}
+
 // TestServerRunShellHasOrreryDaemonSocket checks that run-shell jobs of a test server, the focus hooks' jobs
 // included, see ORRERY_SOCKET under the test's temp dir, so an orrery command a test runs cannot reach the owner's
 // orreryd.
