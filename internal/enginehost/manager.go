@@ -554,9 +554,10 @@ type SayRequest struct {
 
 // Say sends req.Text to the session req.ID as its next prompt. A session that is not live is resumed first, from its
 // engine row (see resumeSession). A message is written at once, as its prompt, when the session is idle and holds no
-// message; otherwise it is held (see deliver). It records the prompt and the working state before it sends, so the stored
-// conversation has the prompt ahead of its reply. A non-empty req.PromptID runs as one attempt per session and prompt
-// id: while an attempt for it runs, a Say with that id waits for the attempt and returns its result, and sends nothing.
+// message; otherwise it is held (see deliver). The prompt it records, written at once or released from the held set,
+// has the owner as its sender. It records the prompt and the working state before it sends, so the stored conversation
+// has the prompt ahead of its reply. A non-empty req.PromptID runs as one attempt per session and prompt id: while an
+// attempt for it runs, a Say with that id waits for the attempt and returns its result, and sends nothing.
 // Once begun, the attempt finishes even if ctx ends, and a Say whose ctx ends returns ctx's error. With no attempt
 // running, a req.PromptID that an engine_prompt event of the session already carries, or that the session holds, makes Say
 // return nil and do nothing else; otherwise the stored prompt carries req.PromptID. An attempt that fails after it stores the
@@ -673,7 +674,7 @@ func (m *Manager) decide(ctx context.Context, live *liveSession, req SayRequest)
 	if !m.isLive(live) {
 		return nil, errSessionEnded
 	}
-	message := store.EnginePrompt{ID: live.id, Text: req.Text, PromptID: req.PromptID}
+	message := store.EnginePrompt{ID: live.id, Text: req.Text, PromptID: req.PromptID, Sender: store.PromptSenderOwner}
 	declined, err := m.declineLocked(ctx, live)
 	if err != nil {
 		return nil, err
@@ -795,7 +796,9 @@ func (m *Manager) interruptFor(ctx context.Context, live *liveSession) {
 // with the failure the session records.
 func (m *Manager) startHeldLocked(ctx context.Context, live *liveSession, held []store.HeldPrompt) func() {
 	head := held[0]
-	headPrompt := store.EnginePrompt{ID: live.id, Text: head.Text, PromptID: head.PromptID}
+	headPrompt := store.EnginePrompt{
+		ID: live.id, Text: head.Text, PromptID: head.PromptID, Sender: store.PromptSenderOwner,
+	}
 	m.markSending(live)
 	writeID, err := m.record(ctx, live, headPrompt, store.EngineHeldRelease{ID: live.id, PromptID: head.PromptID})
 	if err != nil {
@@ -2185,12 +2188,15 @@ func (m *Manager) lineOps(
 
 // heldOps returns the ops that write the held message next as the turn that a turn's end in the line follows: its removal from
 // the held set, and its engine_prompt, which carries the write id it is sent under. The write id is expected before the write,
-// as send expects it.
+// as send expects it. The held set holds only the owner's Says, so the prompt's sender is the owner.
 func heldOps(live *liveSession, next *heldWrite) []store.EngineOp {
 	live.sess.ExpectPrompt(next.writeID)
 	return []store.EngineOp{
 		store.EngineHeldRelease{ID: live.id, PromptID: next.prompt.PromptID},
-		store.EnginePrompt{ID: live.id, Text: next.prompt.Text, PromptID: next.prompt.PromptID, WriteID: next.writeID},
+		store.EnginePrompt{
+			ID: live.id, Text: next.prompt.Text, PromptID: next.prompt.PromptID,
+			Sender: store.PromptSenderOwner, WriteID: next.writeID,
+		},
 	}
 }
 

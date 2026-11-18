@@ -141,7 +141,7 @@ func TestSayStoresNoSenderOrRound(t *testing.T) {
 	if len(prompts) != 2 {
 		t.Fatalf("stored prompts = %+v, want 2", prompts)
 	}
-	if want := (storedPrompt{Text: "again"}); prompts[1] != want {
+	if want := (storedPrompt{Text: "again", Sender: store.PromptSenderOwner}); prompts[1] != want {
 		t.Fatalf("said prompt = %+v, want %+v", prompts[1], want)
 	}
 }

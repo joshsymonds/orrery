@@ -101,7 +101,7 @@ func TestOwnerSayPreemptsAnEventTurn(t *testing.T) {
 	want := []deliveredPrompt{
 		{Text: "start"},
 		{Text: "HANG event", PromptID: "e1", Sender: store.PromptSenderEvent},
-		{Text: "owner words", PromptID: "p-owner"},
+		{Text: "owner words", PromptID: "p-owner", Sender: store.PromptSenderOwner},
 	}
 	if got := enginePromptsOf(t, history); !reflect.DeepEqual(got, want) {
 		t.Fatalf("prompts = %+v, want %+v", got, want)

@@ -58,7 +58,7 @@ func TestOwnerInterruptQuietsCallerEventsUntilHisSay(t *testing.T) {
 	})
 	want := []deliveredPrompt{
 		{Text: "HANG"},
-		{Text: "owner words", PromptID: "p-owner"},
+		{Text: "owner words", PromptID: "p-owner", Sender: store.PromptSenderOwner},
 		{Text: block, PromptID: callerStepEvent, Sender: store.PromptSenderEvent},
 	}
 	if got := enginePromptsOf(t, history); !reflect.DeepEqual(got, want) {
@@ -129,7 +129,7 @@ func TestOwnerInterruptQuietOutlivesIdleStop(t *testing.T) {
 	})
 	want := []deliveredPrompt{
 		{Text: "HANG"},
-		{Text: "owner words", PromptID: "p-owner"},
+		{Text: "owner words", PromptID: "p-owner", Sender: store.PromptSenderOwner},
 		{Text: block, PromptID: callerStepEvent, Sender: store.PromptSenderEvent},
 	}
 	if got := enginePromptsOf(t, history); !reflect.DeepEqual(got, want) {
@@ -175,7 +175,7 @@ func TestOwnerPreemptLeavesCallerEventsOpen(t *testing.T) {
 	want := []deliveredPrompt{
 		{Text: "start"},
 		{Text: "HANG event", PromptID: "e1", Sender: store.PromptSenderEvent},
-		{Text: "owner words", PromptID: "p-owner"},
+		{Text: "owner words", PromptID: "p-owner", Sender: store.PromptSenderOwner},
 		{Text: wantStepEndBlock("the work is in"), PromptID: callerStepEvent, Sender: store.PromptSenderEvent},
 	}
 	if got := enginePromptsOf(t, history); !reflect.DeepEqual(got, want) {
