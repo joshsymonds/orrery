@@ -100,7 +100,7 @@ export function PageStory({ address, after, fixture }: PageStoryProps): VNode {
 
   const refused = transport.unserved;
   return (
-    <div ref={root}>
+    <div ref={root} data-page-story="">
       {loaded !== null && (
         <App
           rows={loaded.rows}
