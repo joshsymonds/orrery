@@ -12,6 +12,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/gates"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/taskspec"
 )
 
 // evidenceJudgeGate is the name of the agent gate that judges an evidence run's kept output.
@@ -113,6 +114,30 @@ func judgeArtifactWhere(artifact store.EvidenceArtifact, blobs evidenceBlobs) (s
 		return "over the 10 MiB cap", nil
 	}
 	return "", fmt.Errorf("state %q is not one the store keeps", artifact.State)
+}
+
+// judgeSpecLines returns the lines a judge prompt of run puts before its own, which name the spec version of task whose
+// conclusion the judge judges. In phase red while task has a checking version that changes its evidence, they name that
+// version's evidence item as the conclusion the red run checks at the task's base, and say that the version governs only
+// once its red does not hold there. Otherwise, for a task at version above 1, they name the task's current version's
+// evidence item, which governs where it differs from earlier versions. Both begin with the lines taskspec.Lines gives for
+// task, so a task at version 1 with a checking version has only the checking line. It returns nil for a task at version 1
+// or lower with no checking version in red, whose prompts stay as they were before any version changed it.
+func judgeSpecLines(run store.EvidenceRun, task store.EpicTask) []string {
+	if version, ok := task.Checking(); ok && run.Phase == evidence.PhaseRed && version.Evidence != nil {
+		return append(taskspec.Lines(task), fmt.Sprintf(
+			"Conclusion: the conclusion you judge is version %d's evidence item, "+
+				"which this red run checks at the task's base. "+
+				"Version %d governs only once its red does not hold there.", version.Version, version.Version,
+		))
+	}
+	if task.Version > 1 {
+		return append(taskspec.Lines(task), fmt.Sprintf(
+			"Conclusion: the conclusion you judge is version %d's evidence item, the task's current spec, "+
+				"which governs where it differs from earlier versions.", task.Version,
+		))
+	}
+	return nil
 }
 
 // judgeStart returns the read-only start of the judge step of run at repo. The step runs at run's revision under the

@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"time"
 
@@ -436,13 +437,22 @@ func (e *Evidence) judgeOnce(
 }
 
 // startJudge starts judge number judge of run at repo under the id evidenceJudgeID derives for it. It returns the step's id, or
-// the reason the step did not start: its prompt could not be built, or Start refused it. Start returns the id of a step whose
-// StartStep failed after its row was written, with that row ended failed, so such a judge returns its id and its end gives the
-// reason; the start's error is that end's reason.
+// the reason the step did not start: its prompt could not be built, its task could not be read, or Start refused it. A run of a
+// task (T<seq>) reads the task from its epic, and its prompt opens with the lines judgeSpecLines gives for the task, then a blank
+// line; a run of a Requirement or an amendment reads nothing and its prompt is judgePrompt's alone. Start returns the id of a
+// step whose StartStep failed after its row was written, with that row ended failed, so such a judge returns its id and its end
+// gives the reason; the start's error is that end's reason.
 func (e *Evidence) startJudge(ctx context.Context, repo string, run store.EvidenceRun, judge int) (string, string) {
 	prompt, err := judgePrompt(run, e.blobs)
 	if err != nil {
 		return "", err.Error()
+	}
+	lines, err := e.judgeTaskLines(ctx, run)
+	if err != nil {
+		return "", err.Error()
+	}
+	if len(lines) > 0 {
+		prompt = strings.Join(lines, "\n") + "\n\n" + prompt
 	}
 	start := judgeStart(run, repo, prompt)
 	start.ID = evidenceJudgeID(run.ID, judge)
@@ -451,6 +461,24 @@ func (e *Evidence) startJudge(ctx context.Context, repo string, run store.Eviden
 		return "", err.Error()
 	}
 	return step, ""
+}
+
+// judgeTaskLines returns the lines judgeSpecLines gives for run when run is a task's run, which its Item names as T<seq>, and
+// nil for any other run, which reads nothing. It returns an error when the epic cannot be read, or the epic has no task run names.
+func (e *Evidence) judgeTaskLines(ctx context.Context, run store.EvidenceRun) ([]string, error) {
+	if !strings.HasPrefix(run.Item, "T") {
+		return nil, nil
+	}
+	row, err := e.store.Epic(ctx, run.Epic)
+	if err != nil {
+		return nil, fmt.Errorf("epic %s of evidence run %s: %w", run.Epic, run.ID, err)
+	}
+	for _, task := range row.Tasks {
+		if fmt.Sprintf("T%d", task.Seq) == run.Item {
+			return judgeSpecLines(run, task), nil
+		}
+	}
+	return nil, fmt.Errorf("task %s of evidence run %s: epic %s has no such task", run.Item, run.ID, run.Epic)
 }
 
 // awaitJudge waits until the judge step with id ends, and returns its row. It returns an error when the wait fails, as a
