@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -57,7 +58,6 @@ func wantStepEndBlock(summary string) string {
 		"Step step-1 ended: end done, status passed, reason gate green.\n" +
 		"Agent: implementer\n" +
 		"Summary: " + summary + "\n" +
-		"step_status gives the full result.\n" +
 		"</orrery-event>"
 }
 
@@ -65,12 +65,18 @@ func wantStepEndBlock(summary string) string {
 // sends that pane, which is idle to take it. The pane takes the text as keys, so the test runs no headless session.
 func stepEndTextToPane(t *testing.T, s *store.Store, add store.StepAdd) string {
 	t.Helper()
+	return stepEndTextOfResultToPane(t, s, add, "all green")
+}
+
+// stepEndTextOfResultToPane is stepEndTextToPane for a step that ends with result.
+func stepEndTextOfResultToPane(t *testing.T, s *store.Store, add store.StepAdd, result string) string {
+	t.Helper()
 	const server, pane = "-S /tmp/tmux-1000/orrery", "%7"
 	if err := s.SyncPane(t.Context(), server, store.Pane{ID: "orrery-1", Pane: pane}, fixedClock()); err != nil {
 		t.Fatalf("SyncPane: %v", err)
 	}
 	add.Caller = store.EpicCaller{Server: server, Pane: pane}
-	endCallerStep(t, s, add, "all green")
+	endCallerStep(t, s, add, result)
 	var woken []string
 	sender := NewCallerSender(CallerSenderConfig{
 		Deliver: func(context.Context, DeliverRequest) error {
@@ -405,7 +411,6 @@ func TestStepEventCardNamesAgentWithoutEpicLine(t *testing.T) {
 		"Step step-1 ended: end done, status passed, reason gate green.\n" +
 		"Agent: reviewer\n" +
 		"Summary: all green\n" +
-		"step_status gives the full result.\n" +
 		"</orrery-event>"
 	if got != want {
 		t.Fatalf("step end text = %q, want %q", got, want)
@@ -423,9 +428,20 @@ func TestStepEventCardNamesEpicOfEpicHeldStep(t *testing.T) {
 		"Agent: implementer\n" +
 		"Epic: epic-1\n" +
 		"Summary: all green\n" +
-		"step_status gives the full result.\n" +
 		"</orrery-event>"
 	if got != want {
 		t.Fatalf("step end text = %q, want %q", got, want)
+	}
+}
+
+func TestStepEndTextCarriesWholeJSONReturn(t *testing.T) {
+	t.Parallel()
+	s, _ := openStore(t)
+	const jsonPrefix, jsonSuffix = `{"notes":"`, `"}`
+	result := jsonPrefix + strings.Repeat("x", 7000-len(jsonPrefix)-len(jsonSuffix)) + jsonSuffix
+	add := store.StepAdd{ID: callerStepID, Agent: "implementer", Prompt: "do it"}
+	got := stepEndTextOfResultToPane(t, s, add, result)
+	if want := wantStepEndBlock(result); got != want {
+		t.Fatalf("step end text = %q, want the whole result with no hint line: %q", got, want)
 	}
 }
