@@ -40,6 +40,7 @@ import {
   type Popout,
   type View,
 } from "./keymap";
+import { listHolds, listsEpic } from "./listholds";
 import { Mark } from "./mark";
 import { NeedEntry } from "./needentry";
 import { epicNeeds } from "./needs";
@@ -1090,7 +1091,7 @@ export function App({
       return;
     }
     if (entry.kind === "epic") {
-      if (!listsEpic(marked, entry.id)) {
+      if (!listHolds({ order: view, entry }, rows, marked)) {
         return;
       }
       openEpic(entry.id);
@@ -1900,17 +1901,6 @@ function addressKey(entry: Exclude<Entry, { kind: "epic" }>): string {
     case "step":
       return `step:${entry.id}`;
   }
-}
-
-// listsEpic reports whether the view holds the epic under id in any of its lines, open or shut.
-function listsEpic(view: EpicsView, id: string): boolean {
-  const held = [
-    ...view.blocks.map((block) => block.epic),
-    ...view.waiting,
-    ...view.justEnded,
-    ...view.endedEarlier,
-  ];
-  return held.some((item) => item.id === id);
 }
 
 // readHistory reads an epic's history from its first entry, page by page, until a page names no next cursor. A failed
