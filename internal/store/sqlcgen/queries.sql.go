@@ -474,6 +474,23 @@ func (q *Queries) CountWorkingEvidenceNodeRuns(ctx context.Context, epic string)
 	return count, err
 }
 
+const deleteCronJob = `-- name: DeleteCronJob :execrows
+DELETE FROM cron_jobs WHERE session = ? AND job_id = ?
+`
+
+type DeleteCronJobParams struct {
+	Session string
+	JobID   string
+}
+
+func (q *Queries) DeleteCronJob(ctx context.Context, arg DeleteCronJobParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteCronJob, arg.Session, arg.JobID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const deleteEngineRateLimit = `-- name: DeleteEngineRateLimit :exec
 DELETE FROM engine_rate_limits WHERE session_id = ?
 `
@@ -589,6 +606,18 @@ DELETE FROM sessions WHERE id = ?
 func (q *Queries) DeleteSession(ctx context.Context, id string) error {
 	_, err := q.db.ExecContext(ctx, deleteSession, id)
 	return err
+}
+
+const deleteSessionCronJobs = `-- name: DeleteSessionCronJobs :execrows
+DELETE FROM cron_jobs WHERE session = ?
+`
+
+func (q *Queries) DeleteSessionCronJobs(ctx context.Context, session string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteSessionCronJobs, session)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const deleteStaleEnginePromptFailures = `-- name: DeleteStaleEnginePromptFailures :exec
@@ -918,6 +947,31 @@ func (q *Queries) GetActionAmendment(ctx context.Context, arg GetActionAmendment
 		&i.Refusal,
 		&i.Created,
 		&i.Settled,
+	)
+	return i, err
+}
+
+const getCronJobByToolUse = `-- name: GetCronJobByToolUse :one
+SELECT job_id, session, tool_use_id, cron, prompt, recurring, created_at, last_fire_at FROM cron_jobs WHERE session = ? AND tool_use_id = ?
+`
+
+type GetCronJobByToolUseParams struct {
+	Session   string
+	ToolUseID string
+}
+
+func (q *Queries) GetCronJobByToolUse(ctx context.Context, arg GetCronJobByToolUseParams) (CronJob, error) {
+	row := q.db.QueryRowContext(ctx, getCronJobByToolUse, arg.Session, arg.ToolUseID)
+	var i CronJob
+	err := row.Scan(
+		&i.JobID,
+		&i.Session,
+		&i.ToolUseID,
+		&i.Cron,
+		&i.Prompt,
+		&i.Recurring,
+		&i.CreatedAt,
+		&i.LastFireAt,
 	)
 	return i, err
 }
@@ -1789,6 +1843,40 @@ type InsertCallerEventParams struct {
 func (q *Queries) InsertCallerEvent(ctx context.Context, arg InsertCallerEventParams) error {
 	_, err := q.db.ExecContext(ctx, insertCallerEvent, arg.Event, arg.Session, arg.At)
 	return err
+}
+
+const insertCronJob = `-- name: InsertCronJob :execrows
+INSERT INTO cron_jobs (job_id, session, tool_use_id, cron, prompt, recurring, created_at, last_fire_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (session, tool_use_id) DO NOTHING
+`
+
+type InsertCronJobParams struct {
+	JobID      string
+	Session    string
+	ToolUseID  string
+	Cron       string
+	Prompt     string
+	Recurring  int64
+	CreatedAt  int64
+	LastFireAt int64
+}
+
+func (q *Queries) InsertCronJob(ctx context.Context, arg InsertCronJobParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, insertCronJob,
+		arg.JobID,
+		arg.Session,
+		arg.ToolUseID,
+		arg.Cron,
+		arg.Prompt,
+		arg.Recurring,
+		arg.CreatedAt,
+		arg.LastFireAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const insertDueResume = `-- name: InsertDueResume :exec
@@ -3577,6 +3665,42 @@ func (q *Queries) ListCreatedEpics(ctx context.Context, session string) ([]Epic,
 			&i.OriginReadCommit,
 			&i.OriginReadState,
 			&i.OriginReadAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCronJobs = `-- name: ListCronJobs :many
+SELECT job_id, session, tool_use_id, cron, prompt, recurring, created_at, last_fire_at FROM cron_jobs ORDER BY created_at, rowid
+`
+
+func (q *Queries) ListCronJobs(ctx context.Context) ([]CronJob, error) {
+	rows, err := q.db.QueryContext(ctx, listCronJobs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CronJob
+	for rows.Next() {
+		var i CronJob
+		if err := rows.Scan(
+			&i.JobID,
+			&i.Session,
+			&i.ToolUseID,
+			&i.Cron,
+			&i.Prompt,
+			&i.Recurring,
+			&i.CreatedAt,
+			&i.LastFireAt,
 		); err != nil {
 			return nil, err
 		}
@@ -6897,6 +7021,42 @@ func (q *Queries) ListServerSessions(ctx context.Context, server string) ([]Sess
 	return items, nil
 }
 
+const listSessionCronJobs = `-- name: ListSessionCronJobs :many
+SELECT job_id, session, tool_use_id, cron, prompt, recurring, created_at, last_fire_at FROM cron_jobs WHERE session = ? ORDER BY created_at, rowid
+`
+
+func (q *Queries) ListSessionCronJobs(ctx context.Context, session string) ([]CronJob, error) {
+	rows, err := q.db.QueryContext(ctx, listSessionCronJobs, session)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CronJob
+	for rows.Next() {
+		var i CronJob
+		if err := rows.Scan(
+			&i.JobID,
+			&i.Session,
+			&i.ToolUseID,
+			&i.Cron,
+			&i.Prompt,
+			&i.Recurring,
+			&i.CreatedAt,
+			&i.LastFireAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSessions = `-- name: ListSessions :many
 SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from, title, headline, headline_at FROM sessions WHERE kind = '' ORDER BY id
 `
@@ -7960,6 +8120,20 @@ func (q *Queries) SessionEventsBefore(ctx context.Context, arg SessionEventsBefo
 		return nil, err
 	}
 	return items, nil
+}
+
+const setCronJobFired = `-- name: SetCronJobFired :exec
+UPDATE cron_jobs SET last_fire_at = ? WHERE job_id = ?
+`
+
+type SetCronJobFiredParams struct {
+	LastFireAt int64
+	JobID      string
+}
+
+func (q *Queries) SetCronJobFired(ctx context.Context, arg SetCronJobFiredParams) error {
+	_, err := q.db.ExecContext(ctx, setCronJobFired, arg.LastFireAt, arg.JobID)
+	return err
 }
 
 const setEpicBranch = `-- name: SetEpicBranch :exec

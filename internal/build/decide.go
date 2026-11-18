@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/planner"
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -30,7 +31,8 @@ type implementerReturn struct {
 
 // Decide returns the next action for an open task from its view. A stopped or parked build waits until the owner
 // releases it, a waiting build until the tasks it waits for are integrated (decideWait), and an asked build until its
-// question is answered (decideAsked). A fresh task starts at red, and every other build is decided by its stage.
+// question is answered (decideAsked). A fresh task starts at red, or at implement when it is closure-kind, since a
+// closure-kind task runs no red and no green. Every other build is decided by its stage.
 func Decide(view View) Action {
 	build := view.Task.Build
 	switch build.Held {
@@ -92,14 +94,18 @@ func releaseHold(build store.TaskBuild) Action {
 }
 
 // decideFresh returns the action for a task with no stage: it starts at red, once the epic is running and the branch
-// exists. Its base is the epic's candidate when the epic has one (a red batch's fixes start from it), and otherwise the
-// branch tip.
+// exists. A closure-kind task runs no red and no green, so it starts at implement, as attempt 1. Its base is the epic's
+// candidate when the epic has one (a red batch's fixes start from it), and otherwise the branch tip.
 func decideFresh(view View) Action {
 	if view.Paused || view.Parked || view.Branch == "" {
 		return Action{Kind: ActNone}
 	}
 	build := view.Task.Build
 	build.Stage = StageRed
+	if view.Task.Evidence.Kind == evidence.KindClosure {
+		build.Stage = StageImplement
+		build.Attempt = 1
+	}
 	build.Base = view.Branch
 	if view.Candidate != "" {
 		build.Base = view.Candidate
@@ -147,7 +153,8 @@ func decideRed(view View) Action {
 
 // decideImplement returns the action for the implement unit. Without a step, the refs are snapshotted and then the
 // implementer starts. An ended step first checks the ref moves it made, and then its end: a finished return guards its
-// commit before the build moves to green there, and any other end spends the attempt, pauses or reruns the unit. A
+// commit before the build moves to green there, or to review for a closure-kind task, which runs no green. Any other
+// end spends the attempt, pauses or reruns the unit. A
 // returned end that grantOrFail cannot grant, and a checks_failed end whose only failed check is owned, are requests:
 // the orchestrator decides them (request), with what the build did before it as the fallback.
 func decideImplement(view View) Action {
@@ -179,15 +186,7 @@ func decideImplement(view View) Action {
 		if !ok {
 			return noVerdict(view, StageImplement, endText(step))
 		}
-		build.Stage = StageGreen
-		build.Revision = view.Head
-		if ret.Commit != "" {
-			build.Revision = ret.Commit
-		}
-		build.Rerun = 0
-		build.NoVerdict = 0
-		build.Step = ""
-		return Action{Kind: ActGuard, Next: build}
+		return Action{Kind: ActGuard, Next: finishedBuild(view, ret)}
 	case endReturned:
 		return decideReturned(view, step)
 	case endChecksFailed:
@@ -200,6 +199,27 @@ func decideImplement(view View) Action {
 		return restartUnit(build)
 	}
 	return spend(view, endText(step))
+}
+
+// finishedBuild returns the build a finished implementer's return moves to, to be guarded at its commit, or at the head
+// when it made none. It moves to green, except for a closure-kind task, which runs no green: its implementer's step has
+// passed the task's command gate, so it moves from its gate to review at the first gate.
+func finishedBuild(view View, ret implementerReturn) store.TaskBuild {
+	build := view.Task.Build
+	build.Stage = StageGreen
+	if view.Task.Evidence.Kind == evidence.KindClosure {
+		build.Stage = StageReview
+		build.GatePos = 0
+		build.FindingPos = 0
+	}
+	build.Revision = view.Head
+	if ret.Commit != "" {
+		build.Revision = ret.Commit
+	}
+	build.Rerun = 0
+	build.NoVerdict = 0
+	build.Step = ""
+	return build
 }
 
 // decideReturned returns the action for an implementer step that ended returned. A return that does not parse gives no

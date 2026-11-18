@@ -340,11 +340,16 @@ func (s *Summarizer) wantLabel(pane string, exchanges int) bool {
 }
 
 // run executes one claude summary call for job and returns its stdout. The context stamp in effect for job.Dir sets
-// the call's URL and env; without a stamp, the job's base URL does.
+// the call's URL and env; without a stamp, the job's base URL does. The user CLAUDE.md is excluded, and a call whose
+// path cannot be resolved runs no claude.
 func (s *Summarizer) run(ctx context.Context, job Job) (string, error) {
 	found, err := stamp.Find(s.home, job.Dir)
 	if err != nil {
 		return "", fmt.Errorf("find context stamp: %w", err)
+	}
+	memory, err := stamp.UserMemory(os.Getenv("HOME"), os.Getenv("CLAUDE_CONFIG_DIR"))
+	if err != nil {
+		return "", fmt.Errorf("find user memory: %w", err)
 	}
 	baseURL, env := job.BaseURL, map[string]string(nil)
 	if found.Folder != "" {
@@ -357,7 +362,8 @@ func (s *Summarizer) run(ctx context.Context, job Job) (string, error) {
 	defer cancel()
 
 	model := protocol.SummaryModel(baseURL, s.models)
-	cmd := exec.CommandContext(runCtx, s.claude, argvFor(model, stamp.Settings(true, env), systemPromptFor(job))...)
+	settings := stamp.Settings(true, env, []string{memory})
+	cmd := exec.CommandContext(runCtx, s.claude, argvFor(model, settings, systemPromptFor(job))...)
 	cmd.Dir = "/"
 	cmd.Env = summaryEnv(os.Environ(), baseURL)
 	cmd.Stdin = strings.NewReader(stdinFor(job))

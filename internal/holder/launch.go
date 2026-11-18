@@ -74,7 +74,7 @@ func Launch(ctx context.Context, cfg LaunchConfig) (*Process, error) {
 	if cfg.Clock == nil {
 		cfg.Clock = SystemClock{}
 	}
-	orrery, err := holderBinary(cfg.Orrery)
+	orrery, err := Binary(cfg.Orrery)
 	if err != nil {
 		return nil, err
 	}
@@ -200,8 +200,8 @@ func gateSeconds(limit time.Duration) int64 {
 	return seconds
 }
 
-// holderBinary returns the absolute path of the orrery binary that runs a holder. An empty orrery takes the default.
-func holderBinary(orrery string) (string, error) {
+// Binary returns the absolute path of the orrery binary that runs a holder. An empty orrery takes the default.
+func Binary(orrery string) (string, error) {
 	if orrery == "" {
 		var err error
 		if orrery, err = defaultOrrery(); err != nil {

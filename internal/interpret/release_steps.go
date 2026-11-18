@@ -124,8 +124,8 @@ func (r *Runner) startReleaseStep(ctx context.Context, epic store.EpicRow, act A
 		return r.failReleaseStep(ctx, epic, act, position, step, at, err)
 	}
 	_, err = r.steps.Start(ctx, enginehost.StepStart{
-		ID: id, Agent: agent, Prompt: releaseStepPrompt(step, start), Schema: releaseStepSchema, Workspace: wt,
-		Revision: start, Unowned: true, DoneValue: releaseDone, Epic: epic.ID,
+		ID: id, Agent: agent, Prompt: releaseStepPrompt(step, start, epic.ReleaseThen), Schema: releaseStepSchema,
+		Workspace: wt, Revision: start, Unowned: true, DoneValue: releaseDone, Epic: epic.ID,
 	})
 	if err == nil {
 		return nil
@@ -154,11 +154,13 @@ func (r *Runner) failReleaseStep(
 	return nil
 }
 
-// releaseStepPrompt returns the prompt of a release step: the one step, its target and undo, the commit it starts at,
-// and what it may not do.
-func releaseStepPrompt(step store.EpicReleaseStep, start string) string {
+// releaseStepPrompt returns the prompt of a release step: the one step, its target and undo, the release's
+// postconditions then, the commit it starts at, what it may not do, and how a judge decides the postconditions from the
+// evidence the step returns.
+func releaseStepPrompt(step store.EpicReleaseStep, start, then string) string {
 	return fmt.Sprintf("Carry out this one release step and no other: %s.\n\n"+
 		"Its target is %s, and its undo is %s.\n\n"+
+		"The release promises: %s\n\n"+
 		"This worktree is checked out detached at %s, the commit the step starts from.\n\n"+
 		"Do only this step. Do not carry out any other release step, and do not merge anything into this "+
 		"worktree. If CI goes red on the commit you made, you may rerun it once on that same commit; do not "+
@@ -166,8 +168,11 @@ func releaseStepPrompt(step store.EpicReleaseStep, start string) string {
 		"When the step is carried out, return status done. Return commits as the full id of every commit you "+
 		"added on top of %s, and an empty list when you added none. Return commit as the full id of HEAD. "+
 		"Return evidence showing the effect of the step: what changed and where it can be seen. If you cannot "+
-		"carry out the step, return status blocked with evidence of why.",
-		step.Step, step.Target, step.Undo, start, start)
+		"carry out the step, return status blocked with evidence of why.\n\n"+
+		"A judge then decides whether the release met its postconditions from the evidence its steps return and "+
+		"nothing else, and it runs no command. So the evidence this step returns must show each postcondition this "+
+		"step affects, with the output that proves it, such as the command this step ran and that command's output.",
+		step.Step, step.Target, step.Undo, then, start, start)
 }
 
 // recordReleaseStep records the release step act names once its end is stored. The step passes only when it ended done,

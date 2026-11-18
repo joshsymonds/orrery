@@ -40,8 +40,10 @@
 # listing only the messages it folds. Every line it reads from stdin, prompts
 # and answers alike, is appended to fakeclaude.stdin as it is read. It exits at stdin EOF.
 # RELEASEDONE waits until fakeclaude.release exists in its directory, makes an empty commit there and ends with a success
-# result whose structured output returns that commit as a release step's one commit, with its evidence. JUDGERELEASED
-# waits as JUDGEHOLDS does and ends with a success result that releases the epic, with no uncovered postcondition.
+# result whose structured output returns that commit as a release step's one commit, with its evidence. That evidence
+# holds JUDGERELEASED, so a release judge's prompt, which carries the step's evidence, is answered as a judge.
+# JUDGERELEASED waits as JUDGEHOLDS does and ends with a success result that releases the epic, with no uncovered
+# postcondition.
 # When fakeclaude.next exists in its directory as a prompt arrives, the contents of that file are matched in place of
 # the prompt's text for that prompt, and the file is removed, so a test can choose what a later prompt, such as a
 # resume, plays.
@@ -533,6 +535,7 @@ judgeholds() {
 
 # releasedone starts a turn, waits until fakeclaude.release exists in its directory, makes an empty commit there, and ends
 # the turn with a success result whose structured output returns that commit as the step's one commit, with its evidence.
+# The evidence holds JUDGERELEASED, so a release judge's prompt, which carries that evidence, is answered as a judge.
 releasedone() {
 	turn_open
 	while [ ! -e fakeclaude.release ]; do
@@ -541,7 +544,7 @@ releasedone() {
 	git -c user.name=fake -c user.email=fake@example.invalid -c commit.gpgsign=false commit -q --allow-empty \
 		-m "fake release $n"
 	head=$(git rev-parse HEAD)
-	structured='{"status":"done","commit":"'"$head"'","commits":["'"$head"'"],"evidence":"fake release evidence"}'
+	structured='{"status":"done","commit":"'"$head"'","commits":["'"$head"'"],"evidence":"fake release evidence JUDGERELEASED"}'
 	turn_close
 }
 

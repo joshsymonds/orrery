@@ -224,6 +224,10 @@ func (f failingStore) HolderPromptsUnanswered(context.Context, string) (int, err
 	return 0, f.err
 }
 
+func (f failingStore) DeleteSessionCronJobs(context.Context, string) (int, error) {
+	return 0, f.err
+}
+
 func TestReconcileReturnsReadError(t *testing.T) {
 	t.Parallel()
 	errRead := errors.New("read failed")

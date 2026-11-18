@@ -8,8 +8,8 @@ import (
 // TestBuildImplementerStartsWithItsBrief proves that orreryd starts a planned task's implementer step from the build
 // the store holds. The step runs the agent the roles file names, in a worktree under the task's directory at the base.
 // The fake claude reads a brief with the task's title, deliverable, files and gate, its Requirement, and the epic's
-// exclusion and decision. The step's owned paths are not in its row, so the brief's list of files is their observable
-// form.
+// exclusion, and no decision the epic holds. The step's owned paths are not in its row, so the brief's list of files is
+// their observable form.
 func TestBuildImplementerStartsWithItsBrief(t *testing.T) {
 	t.Parallel()
 	r := newBuildRig(t)
@@ -41,7 +41,7 @@ func TestBuildImplementerStartsWithItsBrief(t *testing.T) {
 
 	stdin := filepath.Join(dir, "fakeclaude.stdin")
 	waitUntil(t, func() bool {
-		return fileContains(t, stdin, "Change only these files:")
+		return fileContains(t, stdin, "Owned files (change only these):")
 	})
 
 	if !fileContains(t, filepath.Join(dir, "fakeclaude.args"), "--agent "+buildRigAgent) {
@@ -51,16 +51,18 @@ func TestBuildImplementerStartsWithItsBrief(t *testing.T) {
 		"Task: " + buildRigTitle,
 		"Deliverable: " + buildRigDeliverable,
 		// The brief's newlines are JSON escapes in the line the fake reads, so the file list is matched with them escaped.
-		`Change only these files:\n- ` + buildRigFile,
+		`Owned files (change only these):\n- ` + buildRigFile,
 		"Gate: " + buildRigGate + ". After you return done, orreryd runs",
 		"R1: " + buildRigRequirement,
 		"- " + buildRigExclusion,
-		"- " + buildRigDecision,
 	}
 	for _, want := range wantBrief {
 		if !fileContains(t, stdin, want) {
 			t.Errorf("the brief the fake claude read lacks %q", want)
 		}
+	}
+	if fileContains(t, stdin, buildRigDecision) {
+		t.Errorf("the brief the fake claude read carries the epic decision %q", buildRigDecision)
 	}
 	wantExit(t, daemon.stop(t), 0)
 }

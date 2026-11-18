@@ -17,7 +17,7 @@ export interface Match {
 // findMatches returns the case-insensitive occurrences of query in the drawn text of items, in item order. Replies,
 // prompts and step folds are searched as Markdown draws them; a call is searched by its input or question and by the
 // text of the result that answers it, and a notice by its kind and text. Compaction, an event line (a prompt an event
-// sent, drawn as EVENT), a prompt holding an epic's event block (it draws as the event's ring), a send-back of a check
+// sent, drawn as EVENT), a prompt a cron job's fire sent, drawn as CRON, a prompt holding an epic's event block (it draws as the event's ring), a send-back of a check
 // round (it draws as a card), a call that creates an epic and whose result is not an error (it draws as the epic's
 // card), an interrupted item (it draws the line "Interrupted by you"), an agent-finished item (it draws the line
 // "Agent finished: ..."), and a result that answers no call are not searched. An empty query matches nothing.
@@ -37,7 +37,7 @@ export function findMatches(items: ConversationItem[], query: string): Match[] {
 function searchedText(item: ConversationItem, result: ConversationItem | undefined): string {
   switch (item.kind) {
     case "prompt":
-      if (item.sender === "event" || epicEventOf(item.text) !== null) {
+      if (item.sender === "event" || item.sender === "cron" || epicEventOf(item.text) !== null) {
         return "";
       }
       if (item.sender === "engine" && item.round >= 1) {

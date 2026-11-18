@@ -286,7 +286,7 @@ func claudeCommand(dir string) (string, error) {
 	if found.Folder == "" {
 		return "claude", nil
 	}
-	return "claude --settings " + quoteWord(stamp.Settings(false, found.Env)), nil
+	return "claude --settings " + quoteWord(stamp.Settings(false, found.Env, nil)), nil
 }
 
 // quoteWord returns value as one single-quoted word of a shell command, so that the shell reads it

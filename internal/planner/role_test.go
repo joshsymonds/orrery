@@ -120,3 +120,45 @@ func TestRoleNamesTestChangesAndNoTaskSkipsItsEvidence(t *testing.T) {
 		}
 	}
 }
+
+// TestRoleBriefCarriesTaskDecisionsInTheDeliverable asserts that the role text says the implementer reads only its task,
+// so every decision it must follow goes in the Deliverable.
+func TestRoleBriefCarriesTaskDecisionsInTheDeliverable(t *testing.T) {
+	t.Parallel()
+	t.Run(
+		"the planner role says every decision the implementer must follow goes in the Deliverable",
+		func(t *testing.T) {
+			t.Parallel()
+			for _, want := range []string{
+				"implementer reads only its task",
+				"every decision it must follow goes in the Deliverable",
+			} {
+				if !strings.Contains(role, want) {
+					t.Errorf("role text lacks %q", want)
+				}
+			}
+		},
+	)
+}
+
+// TestRoleEvidenceShown: the role text says how the evidence judge reads a capture, so a conclusion is a list of what
+// the output shows.
+func TestRoleEvidenceShown(t *testing.T) {
+	t.Parallel()
+	t.Run("the planner role says the judge reads the capture's exit and output strictly", func(t *testing.T) {
+		t.Parallel()
+		want := "The evidence judge reads the capture's exit and output strictly and fails any clause they do not " +
+			"visibly show"
+		if !strings.Contains(role, want) {
+			t.Errorf("role text lacks %q", want)
+		}
+	})
+	t.Run("the planner role says a conclusion lists what the output shows", func(t *testing.T) {
+		t.Parallel()
+		want := "write a conclusion as a list of things that output shows, such as the exit code and each named " +
+			"test or subtest its -v output shows passing, never a claim only the code could show."
+		if !strings.Contains(role, want) {
+			t.Errorf("role text lacks %q", want)
+		}
+	})
+}

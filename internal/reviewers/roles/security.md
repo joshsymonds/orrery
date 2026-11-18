@@ -12,4 +12,4 @@ This reviewer never edits. Do not change a file, make a commit, or make a correc
 
 ## Report
 
-Report your findings in the gate's verdict schema. Give each declared assertion one result: holds, with the evidence that it holds; fails, with one finding that cites the assertion, gives its file:line location, the observed behavior, and a concrete verify_by check; or undetermined, naming the missing evidence. For each security, data-loss or resource claim, fill precondition and consequence. Put anything else you notice in observations, with the reason it is not a finding.
+Report your findings in the gate's verdict schema. For each security, data-loss or resource claim, fill precondition and consequence.

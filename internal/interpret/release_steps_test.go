@@ -590,3 +590,36 @@ func TestReleaseJudgeDecidesFromItsReturn(t *testing.T) {
 		})
 	}
 }
+
+// TestReleasePostconditionsShown: a release step's prompt carries the release's postconditions as the contract gives
+// them, and says that a judge reads only the step's evidence, so the step's evidence must show each postcondition it
+// affects with the output that proves it.
+func TestReleasePostconditionsShown(t *testing.T) {
+	t.Parallel()
+	t.Run("a release step's prompt holds the contract's postconditions", func(t *testing.T) {
+		t.Parallel()
+		w := newReleaseWorld(t, &recordingEnding{})
+		mergeRemote(t, w.repo)
+		nodeEpicBranch(t, w.repo, "epic.txt")
+		w.createEpic(runEpic, store.PhaseClean, tagStep())
+		w.pass()
+		if len(w.fakes.steps.calls) != 1 {
+			t.Fatalf("step starts = %+v, want the first release step started", w.fakes.steps.calls)
+		}
+		want := "The release promises: " + releaseThen
+		if prompt := w.fakes.steps.calls[0].Prompt; !strings.Contains(prompt, want) {
+			t.Errorf("prompt = %q, want it to hold %q", prompt, want)
+		}
+	})
+	t.Run("a release step's prompt says its judge reads only the step's evidence", func(t *testing.T) {
+		t.Parallel()
+		const judgeParagraph = "A judge then decides whether the release met its postconditions from the evidence " +
+			"its steps return and nothing else, and it runs no command. So the evidence this step returns must show " +
+			"each postcondition this step affects, with the output that proves it, such as the command this step ran " +
+			"and that command's output."
+		prompt := releaseStepPrompt(tagStep(), "0123abcd", releaseThen)
+		if !strings.Contains(prompt, judgeParagraph) {
+			t.Errorf("prompt = %q, want it to hold %q", prompt, judgeParagraph)
+		}
+	})
+}

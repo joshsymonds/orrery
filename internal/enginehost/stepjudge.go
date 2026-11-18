@@ -28,10 +28,13 @@ const stepJudgeSchema = `{
 // stepJudgeSectionBytes is the most a kept head or tail of a section holds.
 const stepJudgeSectionBytes = 8 * 1024
 
-// stepJudgeInstruction opens the judge's input. The mechanical checks have already passed, so the judge judges only
-// whether the return meets the task.
-const stepJudgeInstruction = "The step's mechanical checks already passed. Does the return meet the task's goal? " +
+// stepJudgeInstruction opens the judge's input. The mechanical checks have already passed, so the judge answers unmet
+// only when the return itself shows the task is not finished or reports a failure. It applies to every kind of step.
+const stepJudgeInstruction = "The step's mechanical checks already passed. " +
+	"Answer unmet only when the return says part of the task is not done or reports a failure. " +
 	"Give a one-line reason, naming what is missing when unmet. " +
+	"A return that omits proof, output or counts is not unmet. " +
+	"Never ask for a change the task does not name. " +
 	"A section with a line naming bytes left out lost only its middle, which does not mean the return was cut off."
 
 // errStepJudgeVerdict reports a judge reply whose verdict is neither met nor unmet.

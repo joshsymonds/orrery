@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package orrery.engine.v1;
+
+// Crons answers the cron tools a headless session calls: CronCreate, CronDelete and CronList. The `orrery hook cron`
+// PreToolUse hook forwards each call here, so orreryd keeps the job and the session can sleep until it is due. The
+// calling session travels in the Orrery-Session header, not in the message.
+service Crons {
+  // CronCall answers one cron tool call. The reason is the full text the agent reads.
+  rpc CronCall(CronCallRequest) returns (CronCallResponse);
+}
+
+// CronCallRequest is one cron tool call that the hook forwards.
+message CronCallRequest {
+  // The tool the call names: CronCreate, CronDelete or CronList.
+  string tool_name = 1;
+
+  // The id of the tool call the hook is for.
+  string tool_use_id = 2;
+
+  // The tool's input object, as JSON text.
+  string tool_input = 3;
+}
+
+// CronCallResponse answers one cron tool call.
+message CronCallResponse {
+  // The full text the agent reads.
+  string reason = 1;
+}

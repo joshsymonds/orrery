@@ -718,6 +718,42 @@ test("a CallerEvent prompt in a step draws as an EVENT row, not as a step prompt
     },
   ));
 
+test("CronDeliver: a sender cron prompt draws as a labelled CRON row", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [item({ kind: "prompt", time: 100n, sender: "cron", text: "**orrery** check the build" })],
+      }),
+      seenAt: 10_000,
+      open: false,
+    },
+    (container) => {
+      const cron = container.querySelector<HTMLElement>(".t > .body > .cron");
+      assert.ok(cron !== null, "the cron prompt is a cron row");
+      assert.equal(cron.querySelector("small")?.textContent, "CRON");
+      assert.equal(cron.querySelector(".reply > p > strong")?.textContent, "orrery", "the text draws as Markdown");
+      assert.equal(cron.textContent?.includes("check the build"), true, "the whole text is shown");
+      assertNone(container.querySelector(".you"), "the cron prompt is not YOU");
+    },
+  ));
+
+test("CronDeliver: a sender cron prompt is not drawn as the owner's turn", async () => {
+  const items = [
+    item({ kind: "prompt", time: 100n, sender: "cron", text: "check the build" }),
+    item({ kind: "prompt", time: 200n, sender: "owner", text: "fix it" }),
+  ];
+  for (const step of [undefined, stepWith([{ round: 1, name: "gate", ok: false }])]) {
+    await withReader({ conversation: conversation({ items }), seenAt: 10_000, open: false, step }, (container) => {
+      const [cron, owner] = container.querySelectorAll<HTMLElement>(".reader > .t");
+      assert.ok(cron !== undefined && owner !== undefined, "both prompts are rows of the reader");
+      assert.equal(cron.className, "t", "the cron row carries no owner-turn class");
+      assertNone(cron.querySelector(".you"), "the cron row is not YOU");
+      assert.equal(owner.classList.contains("owner-turn"), true, "the owner's row carries owner-turn");
+      assert.equal(owner.querySelector(".you > small")?.textContent, "YOU", "the owner's prompt still draws as YOU");
+    });
+  }
+});
+
 // ringEpic is the epic the event blocks in the EventRing tests name.
 const ringEpic = "orrery-1a2b3c4/planner-runner";
 

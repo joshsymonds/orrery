@@ -4,10 +4,10 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import * as actions from "./actions";
 import type { Clients } from "./actions";
 import { epicCallsOf } from "./card";
-import { type ComposerHandle, Composer } from "./composer";
+import type { ComposerHandle } from "./composer";
 import { ContractBody } from "./contract";
 import { type Conversation, shownConversation } from "./conversation";
-import { type ArchiveControl, EpicLine, RowMenu } from "./epicline";
+import { type ArchiveControl, EpicLine } from "./epicline";
 import { type EpicCommands, EpicPage, type Landing } from "./epicpage";
 import {
   type EpicBlock,
@@ -22,45 +22,50 @@ import {
   type StepItem,
   withEpicsGroup,
 } from "./epics";
-import { FindBar, findMatches } from "./find";
+import { findMatches } from "./find";
 import { type Followed, follow } from "./follow";
 import type { EpicHistoryEntry, EpicsGetResponse, EpicStep } from "./gen/orrery/v1/epics_pb";
 import type { InAppNotice, NoticeKey } from "./gen/orrery/v1/notice_pb";
-import type { HostStatusResponse, Pane } from "./gen/orrery/v1/orrery_pb";
+import type { HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
 import { Handover } from "./handover";
+import { HelpPanel } from "./helppanel";
+import { type Answer, InboxRow, isLinkClick, optionText, readerQuestion, stateWaiting } from "./inboxrow";
+import {
+  type BoxOpen,
+  type EscapeTarget,
+  handleKey,
+  isRow,
+  type Item,
+  type KeyContext,
+  type Popout,
+  type View,
+} from "./keymap";
+import { listHolds, listsEpic } from "./listholds";
 import { Mark } from "./mark";
 import { NeedEntry } from "./needentry";
-import { epicNeeds, rowNeed } from "./needs";
+import { epicNeeds } from "./needs";
 import { NoticeBanner } from "./notices";
 import { PhaseOutputPage } from "./phaseoutput";
 import { phaseOutputOf } from "./phaserows";
 import type { Phase } from "./phases";
 import { PickerPalette } from "./picker";
 import { type Viewing, viewingOf } from "./presence";
-import { type ParsedQuestion, parseQuestion } from "./question";
-import { ConversationHead, Reader, type ReaderHandle } from "./reader";
+import type { ReaderHandle } from "./reader";
+import { type Address, type Entry, formatAddress, type PageView } from "./router";
 import { byAttention, byProject, type Row, type Section, splitArchived } from "./rows";
 import { type SeenClock, type SeenWindow, watchSeen } from "./seen";
 import { type SendKind, type Sending, type SentText, sendingEntry, unsentEntries, withoutTexts } from "./sending";
-import { StepBox } from "./stepbox";
+import { type FindState, headState, ReaderColumn, stepCalls } from "./readercolumn";
 import { PaneStrip, type StripHost } from "./strip";
 import { Talk, type TalkTarget } from "./talk";
 import { TalkDock } from "./talkdock";
 import { ReplyText } from "./text";
-import { lastPathElement, TitleParts } from "./titleparts";
 import { type InboxMark, TitleRow } from "./titlerow";
 import { WorkerSessionPage } from "./workersession";
-import { Pill, rowPill, stepPill } from "./workline";
-
-type View = "attention" | "project" | "archived";
 
 // The inbox's state: pinned beside the page, docked beside it while no row has been opened, hidden once one has, or
 // popped out over the hidden page while the pointer is on the mark or a key has popped it out.
 type InboxState = "docked" | "pinned" | "hidden" | "flyout";
-
-// How a hidden inbox came out over the page: by the pointer on the mark, or by a key. Only a key pop-out is tucked by
-// Escape.
-type Popout = "none" | "hover" | "key";
 
 // The conversation the reader holds, with the row key it belongs to, so a row never shows another row's transcript.
 interface Stream {
@@ -68,47 +73,11 @@ interface Stream {
   conversation: Conversation;
 }
 
-// The row an Escape acts on: the row, the column whose composer holds the key, and the row's state at the press.
-interface EscapeTarget {
-  row: Row;
-  column: "cursor" | "pinned";
-  state: string;
-}
-
-// A reply box an opening focuses: the cursor's or the pinned column's box, by the key of the row it holds.
-interface BoxOpen {
-  column: "cursor" | "pinned";
-  key: string;
-}
-
-// A column's find bar, open on the row it was opened on: the query typed in it, and the match it shows, an index into
-// the matches the query finds in that row's conversation. A bar whose row leaves its column is closed.
-interface FindState {
-  key: string;
-  query: string;
-  current: number;
-}
-
 // The cursor is held by entry key, so it survives new entries. index is where it sat, used when its entry leaves.
 interface Cursor {
   key: string;
   index: number;
 }
-
-// A landed answer from the list: the choice and its label, kept for the row and the question it answered.
-interface Answer {
-  question: string;
-  choice: number;
-  label: string;
-}
-
-// The page the epic page's section holds: the epic page, the contract its summary opens, a task's phase output, or a
-// step's worker session.
-type PageView =
-  | { kind: "epic" }
-  | { kind: "contract" }
-  | { kind: "phase"; task: string; phase: Phase }
-  | { kind: "session"; task: string; phase: Phase; step: string };
 
 // A page under the open one, with the scroll place it had when the open page opened over it.
 interface PageBelow {
@@ -153,8 +122,18 @@ interface SteppedTo {
   step: string;
 }
 
-// An entry the list shows and the cursor can rest on: a row, or an epic or step of the Epics group.
-type Item = Row | EpicItem | StepItem;
+// An epic entry an opened address names. It is wrapped in a fresh object for each open, so an open of the same entry
+// again still changes the state the layout effect that applies its sub-page reads.
+interface OpenedEpic {
+  entry: Extract<Entry, { kind: "epic" }>;
+}
+
+// A pending open is the entry an opened address names, with the order it names. The entry is decided only in a pass whose
+// view is that order.
+interface PendingOpen {
+  order: View;
+  entry: Entry;
+}
 
 // The row the palette answered: the pane Picker.Run answered, or the session Control.Start started, by its kind and id.
 interface PendingTarget {
@@ -162,7 +141,6 @@ interface PendingTarget {
   id: string;
 }
 
-const stateWaiting = "waiting";
 const stateWorking = "working";
 // The block kind a notice names when it opens the contract page.
 const contractBlock = "contract";
@@ -182,52 +160,9 @@ const archivedTitle = "Archived";
 const historyPageSize = 200;
 const heldMark = "‖";
 
-// The keys 1-3 answer the first three options of a question, and no others.
-const keyedOptions = 3;
-
-const secondsPerMinute = 60;
-const minutesPerHour = 60;
-const hoursPerDay = 24;
-
-// A step keeps no seen mark. Infinity makes no item newer than it, so the step's reader draws no since-you-looked rule.
-const stepSeenAt = Number.POSITIVE_INFINITY;
-
-// The keys that act on the list. While the inbox is hidden, one of them pops it out by key and does nothing else.
-const inboxListKeys = new Set(["j", "k", "ArrowDown", "ArrowUp", "g", "G", "/", "a", "p", "v"]);
-
 // The query of the wide layout, the same one style.css's wide block uses. Only that layout hides, pops out or pins the
 // inbox: a narrower window always shows it docked, as the stacked layout does.
 const wideQuery = "(min-width: 760px)";
-
-const helpEntries: [string[], string][] = [
-  [["j", "k", "↓", "↑"], "move the cursor one row up or down"],
-  [["gg"], "first row"],
-  [["G"], "last row"],
-  [["a"], "by attention"],
-  [["p"], "by project"],
-  [["v"], "archived rows and epics"],
-  [["A"], "archive the cursor's row or epic"],
-  [["w"], "first waiting row"],
-  [["n"], "next unseen row, wrapping"],
-  [["N"], "open the palette to ask for a pane or a directory, outside a text box"],
-  [["⌘K"], "open the palette anywhere, a text box included; Ctrl+K does too"],
-  [["x", "Enter"], "mark the cursor's row seen; Enter also opens the row into its reply box"],
-  [["e"], "mark it seen, then go to the next unseen row"],
-  [["/"], "filter: Enter leaves it, Esc clears it"],
-  [["i"], "focus the reply box"],
-  [["Shift+Tab"], "from a reply box, back to the list's cursor row, taking nothing back"],
-  [["Page Up", "Page Down"], "in an empty reply box, page the transcript"],
-  [["/"], "in an empty reply box, find in the transcript"],
-  [["1", "2", "3"], "answer the cursor's waiting question with that choice, or pick that option on an epic page"],
-  [["o"], "open or close a compaction's summary"],
-  [["|"], "pin the cursor's row in a second column, or close the pin"],
-  [["b"], "pop the inbox out over the page, or tuck it back"],
-  [["B"], "pin or unpin the inbox beside the page"],
-  [["h", "←"], "back one crumb, or the inbox from the first crumb"],
-  [["m"], "hide or show the strips"],
-  [["?"], "toggle this help"],
-  [["Esc"], "close this help"],
-];
 
 export function App({
   rows,
@@ -240,6 +175,8 @@ export function App({
   notices = [],
   host = null,
   onViewing,
+  address,
+  onAddress,
 }: {
   rows: Row[];
   error: string;
@@ -251,6 +188,8 @@ export function App({
   notices?: InAppNotice[];
   host?: HostStatusResponse | null;
   onViewing?: (viewing: Viewing) => void;
+  address?: Address;
+  onAddress?: (address: Address, mode: "push" | "replace") => void;
 }) {
   const [view, setView] = useState<View>("attention");
   const [cursor, setCursor] = useState<Cursor>({ key: "", index: 0 });
@@ -356,6 +295,8 @@ export function App({
   const [landing, setLanding] = useState<Landing | null>(null);
   // The step a card opened, whose page lands once the epic's detail holds it.
   const [steppedTo, setSteppedTo] = useState<SteppedTo | null>(null);
+  // The epic entry the last opened address named, whose sub-page the page lands on in the commit that moves the cursor.
+  const [opened, setOpened] = useState<OpenedEpic | null>(null);
   // The worker session the page shows, held under the step it belongs to.
   const [sessionStream, setSessionStream] = useState<Stream | null>(null);
   // The conversation Talk docked beside the epic page, with the epic it opened on.
@@ -378,6 +319,60 @@ export function App({
   const seenWatch = useRef<ReturnType<typeof watchSeen>>();
   // The row or unseen ended epic the seen watch last rested on, which its write marks seen.
   const restedSeen = useRef<Row | EpicItem | null>(null);
+
+  // The address App reports. lastForm is the form it last reported or applied. cause is the mode the next address change
+  // takes: push for an open, a crumb return or the first cursor key after one, replace for a later cursor key. A cause
+  // is set together with a render of its own, and the report of that render consumes it, so a cause that changes no
+  // address is never carried to a later change. armed is whether the next cursor key pushes, and engaged whether any
+  // cause has come since mount, which a change with no cause waits for. applied is set when an address is applied, and
+  // the report after it takes the form App shows without reporting it. pendingOpen is the entry an address names, with its
+  // order, until it is applied or dropped, and pageCursor is the cursor key the epic page was last reset for.
+  const lastForm = useRef<string | null>(null);
+  const cause = useRef<"push" | "replace" | null>(null);
+  const armed = useRef(false);
+  const engaged = useRef(false);
+  const applied = useRef(false);
+  const [, setAddressTick] = useState(0);
+  const addressMounted = useRef(false);
+  const pendingOpen = useRef<PendingOpen | null>(null);
+  const pageCursor = useRef<string | null>(null);
+
+  // renderAddress guarantees a render after a cause or an applied address, whether or not the action changes any state.
+  // Without it, a cause whose action changes nothing, such as h at the inbox, would reach no render, and the next
+  // unrelated change would consume it.
+  const renderAddress = () => setAddressTick((tick) => tick + 1);
+  // arm arms the next cursor key to push, and engages the reports: a change with no cause is reported from then on.
+  const arm = () => {
+    armed.current = true;
+    engaged.current = true;
+  };
+  // navigated wraps an open or a crumb return: the address change it makes pushes, and it arms the next cursor key.
+  const navigated =
+    <A extends unknown[]>(action: (...args: A) => void) =>
+    (...args: A) => {
+      cause.current = "push";
+      arm();
+      renderAddress();
+      action(...args);
+    };
+  // keyMoved wraps a cursor key's move: the first cursor key after an arm pushes and disarms, and the later ones
+  // replace.
+  const keyMoved =
+    <A extends unknown[]>(action: (...args: A) => void) =>
+    (...args: A) => {
+      cause.current = armed.current ? "push" : "replace";
+      armed.current = false;
+      engaged.current = true;
+      renderAddress();
+      action(...args);
+    };
+  // adopt records an applied address. It reports nothing, and arms the next cursor key. Its render is the one whose
+  // report takes the applied form, so that form is never left waiting for a later change.
+  const adopt = () => {
+    applied.current = true;
+    arm();
+    renderAddress();
+  };
 
   const words = filter
     .toLowerCase()
@@ -469,6 +464,12 @@ export function App({
   // failed answer leaves the page at its unavailable line.
   const askedId = epicEntry?.id ?? "";
   const polledDetail = askedId !== "" && epics.details.has(askedId);
+  // The address the page shows. The epic page's reset to the open page is a layout effect of the render that moves the
+  // cursor. So a render that moves the cursor reads the open page, and the page the cursor left is shown only once that
+  // reset has run.
+  const shownPage = pageCursor.current === cursorKey ? epicPage : openEpicPage;
+  const shownAddress: Address = { order: view, entry: shownEntry(cursorItem, shownPage) };
+  const shownForm = formatAddress(shownAddress);
 
   // The held cursor follows the entry shown, so a first render or a clamp does not leave it on a stale key.
   useEffect(() => {
@@ -613,6 +614,7 @@ export function App({
 
   // A move of the cursor opens the epic page afresh, so a page a back closed or a contract opened does not outlast it.
   useLayoutEffect(() => {
+    pageCursor.current = cursorKey;
     setEpicPage(openEpicPage);
   }, [cursorKey]);
 
@@ -916,8 +918,8 @@ export function App({
     setEpicPage({ page: target.page, below: epicPage.below.slice(0, index), move: "leave", closed: false });
   };
   // back returns from the page on top to the page under it. toEpicPage returns to the epic page from any page over it.
-  const back = () => leaveTo(epicPage.below.length - 1);
-  const toEpicPage = () => leaveTo(0);
+  const back = navigated(() => leaveTo(epicPage.below.length - 1));
+  const toEpicPage = navigated(() => leaveTo(0));
   // backOneCrumb is h and the left arrow. On a contract, phase output or worker session page it does that page's back.
   // On the epic page, a row's page or a step's page, which is at its first crumb, it pops a hidden inbox out by key.
   const backOneCrumb = () => {
@@ -928,15 +930,15 @@ export function App({
     }
   };
   // openPhase opens a task's phase output over the epic page. On the phase output, a head opens its phase in place.
-  const openPhase = (task: string, phase: Phase) => {
+  const openPhase = navigated((task: string, phase: Phase) => {
     if (epicPage.page.kind === "phase") {
       setEpicPage((previous) => ({ ...previous, page: { kind: "phase", task, phase } }));
       return;
     }
     drill({ kind: "phase", task, phase });
-  };
-  const openContract = () => drill({ kind: "contract" });
-  const closeEpicPage = () => setEpicPage(closedEpicPage);
+  });
+  const openContract = navigated(() => drill({ kind: "contract" }));
+  const closeEpicPage = navigated(() => setEpicPage(closedEpicPage));
 
   // A notice's landing opens the epic page on the block it names. Effects run in declaration order, and this one is
   // declared after the cursor's reset above, so in the commit where a notice moves the cursor the landing is the page
@@ -974,6 +976,23 @@ export function App({
     });
   }, [steppedTo, epics, askedDetails]);
 
+  // An opened address's epic sub-page lands the epic page on the page the address names, over the epic page for a
+  // contract, phase output or worker session. It is declared after the cursor's reset above, so in the commit where the
+  // address moves the cursor the sub-page is the page the reset leaves.
+  // Once the page is set, the effect clears opened, so the render after it is the one whose report settles the address.
+  useLayoutEffect(() => {
+    if (opened === null) {
+      return;
+    }
+    const { page } = opened.entry;
+    setEpicPage(
+      page.kind === "epic"
+        ? openEpicPage
+        : { page, below: [{ page: epicPageView, scroll: 0 }], move: "", closed: false },
+    );
+    setOpened(null);
+  }, [opened]);
+
   const moveTo = (target: number) => {
     if (flat.length === 0) {
       return;
@@ -982,13 +1001,38 @@ export function App({
     setCursor({ key: flat[next].key, index: next });
   };
 
-  // selectItem moves the cursor to an entry the list shows, as a click on that entry does.
-  const selectItem = (item: Item) => {
+  // selectItem moves the cursor to an entry the list shows, as a click on that entry does. It is an open.
+  const selectItem = navigated((item: Item) => {
     moveTo(flat.findIndex((candidate) => candidate.key === item.key));
-  };
+  });
+
+  // openView sets the order, as a view tab or the a, p and v keys do. It is an open.
+  const openView = navigated(setView);
+
+  // App reports its address after each render, once, when the form it shows differs from the one it last reported or
+  // applied. An address still pending, or an epic sub-page still landing, reports nothing and leaves its cause to the
+  // render that settles it. This effect comes before the effects that set a cause or apply an address, so a cause they
+  // set reaches the next render's report, and an address they apply does not reach this one.
+  useEffect(() => {
+    if (pendingOpen.current !== null || opened !== null) {
+      return;
+    }
+    const taken = cause.current;
+    cause.current = null;
+    const previous = lastForm.current;
+    lastForm.current = shownForm;
+    if (applied.current) {
+      applied.current = false;
+      return;
+    }
+    if (shownForm === previous || (taken === null && !engaged.current)) {
+      return;
+    }
+    onAddress?.(shownAddress, taken === "push" ? "push" : "replace");
+  });
 
   // The palette's answered row takes the cursor once the loaded rows hold it, so a row that arrives in a later render
-  // is reached too. A filter that hides the row is accepted: the cursor then stays where it is.
+  // is reached too. A filter that hides the row is accepted: the cursor then stays where it is. The answer is an open.
   useEffect(() => {
     if (pending === null) {
       return;
@@ -1000,7 +1044,7 @@ export function App({
     setPending(null);
     const target = flat.findIndex((item) => item.key === found.key);
     if (target >= 0) {
-      moveTo(target);
+      navigated(moveTo)(target);
     }
   }, [pending, rows, flat]);
 
@@ -1022,6 +1066,75 @@ export function App({
     setSteppedTo({ epic, step });
   };
 
+  // App opens the address its prop holds: on mount, and again when the prop's formatted form changes, unless that form
+  // is the address App shows now. An open sets the view at once, and holds its entry in pendingOpen until the view
+  // settles it, since the rows and epics can arrive after the mount. An address with no entry closes the epic page on a
+  // later change only, since on mount the cursor's epic page is today's default.
+  const addressForm = address === undefined ? "" : formatAddress(address);
+  useEffect(() => {
+    const first = !addressMounted.current;
+    addressMounted.current = true;
+    if (address === undefined) {
+      return;
+    }
+    // A prop that already names the shown address applies nothing, so it arms nothing: an address App reported and the
+    // prop holds again leaves the cursor keys' modes as they were.
+    if (addressForm === shownForm) {
+      pendingOpen.current = null;
+      lastForm.current = shownForm;
+      return;
+    }
+    setView(address.order);
+    pendingOpen.current = address.entry === null ? null : { order: address.order, entry: address.entry };
+    if (address.entry === null && !first && epicEntry !== null) {
+      setEpicPage(closedEpicPage);
+    }
+    if (address.entry === null) {
+      adopt();
+    }
+  }, [addressForm]);
+
+  // The pending entry is decided in the first pass whose view is its address's order, so a pass still on the old view
+  // decides nothing. Until the loaded list holds the entry, App keeps waiting: the rows and epics it is given, unfiltered
+  // and unmarked, are the check start() makes. Once they hold it, the view either shows it or hides it. A shown entry
+  // opens: a row or step moves the cursor to its key and opens the row, as a click does, with no seen write and no reply
+  // box, and an epic opens the line that holds it and moves the cursor to it, with its sub-page landing in the layout
+  // effect above. A hidden one, by the filter or a local archive mark, is dropped: the cursor stays where it is, and App
+  // reports its shown address with replace, arming the next cursor key as an applied address does. This effect is
+  // declared after the held cursor's effect, so its cursor move wins over that effect in the commit it applies.
+  useEffect(() => {
+    const pending = pendingOpen.current;
+    if (pending === null || pending.order !== view) {
+      return;
+    }
+    if (!listHolds(pending, rows, epics)) {
+      return;
+    }
+    const { entry } = pending;
+    pendingOpen.current = null;
+    if (entry.kind === "epic") {
+      if (listHolds(pending, rows, marked)) {
+        openEpic(entry.id);
+        setOpened({ entry });
+        adopt();
+        return;
+      }
+    } else {
+      const item = flat.find((candidate) => candidate.key === addressKey(entry));
+      if (item !== undefined) {
+        selectItem(item);
+        setRowOpened(true);
+        adopt();
+        return;
+      }
+    }
+    // lastForm is cleared so the render that follows reports the shown address, even when it equals the last form App
+    // reported.
+    arm();
+    lastForm.current = null;
+    renderAddress();
+  }, [addressForm, flat, marked]);
+
   // markNoticeSeen sends the notice's key as seen. A failed report is dropped; the notice stays until it ends.
   const markNoticeSeen = (notice: InAppNotice) => {
     void clients.notices.seen({ key: notice.key }).catch(() => undefined);
@@ -1030,7 +1143,7 @@ export function App({
   // openNotice counts a notice seen, then lands on what it names. An epic moves the cursor to its entry, wherever the
   // list holds it, and lands its page on the block the notice names. A pane or a session moves the cursor to its row or
   // step, when the list shows it. A failed report is dropped; the notice stays in the banner until it ends.
-  const openNotice = (notice: InAppNotice) => {
+  const openNotice = navigated((notice: InAppNotice) => {
     markNoticeSeen(notice);
     const epic = notice.key?.epic ?? "";
     if (epic !== "") {
@@ -1044,7 +1157,7 @@ export function App({
     if (entry !== undefined) {
       selectItem(entry);
     }
-  };
+  });
 
   const nextUnseen = () => {
     for (let step = 1; step <= flat.length; step++) {
@@ -1125,222 +1238,51 @@ export function App({
     return null;
   };
 
-  const handleKey = (event: KeyboardEvent) => {
-    // ⌘K and Ctrl+K open the palette anywhere, a text box included.
-    if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === "k") {
-      event.preventDefault();
-      setPickerOpen(true);
-      return;
-    }
-    if (event.ctrlKey || event.metaKey || event.altKey) {
-      return;
-    }
-    // While the palette is open it owns the keys: Escape closes it, and every other key is left to the palette's own
-    // controls, so the list keeps its keys and a focused row or button keeps its native Enter.
-    if (pickerOpen) {
-      if (event.key === "Escape") {
-        setPickerOpen(false);
-        event.preventDefault();
-      }
-      return;
-    }
-    // While a drawn entry's ⋯ menu is open, Escape closes it and does nothing else: it takes back and interrupts nothing.
-    if (event.key === "Escape" && openMenu !== null) {
-      setMenuKey(null);
-      event.preventDefault();
-      return;
-    }
-    const input = inputRef.current;
-    if (input !== null && document.activeElement === input) {
-      if (event.key === "Enter") {
-        input.blur();
-      } else if (event.key === "Escape") {
-        setFilter("");
-        input.blur();
-      }
-      return;
-    }
-    // Keys typed in a text box are text: only Escape leaves it, and in the cursor's or the pinned row's reply box Shift+Tab
-    // also leaves it, for the list. That covers the reply boxes and the answer box. Escape in the cursor's or the pinned
-    // row's reply box takes its queued messages back, as Escape outside a box does; any other box is only left.
-    const focused = document.activeElement;
-    if (focused instanceof HTMLElement && (focused.tagName === "TEXTAREA" || focused.tagName === "INPUT")) {
-      if (event.key === "Escape") {
-        const target = replyBoxTarget(focused);
-        if (target === null) {
-          focused.blur();
-        } else {
-          void escapeRow(target, focused);
-        }
-      } else if (event.key === "Tab" && event.shiftKey && replyBoxTarget(focused) !== null) {
-        // Shift+Tab takes the focus to the list's cursor row. It takes nothing back and interrupts nothing.
-        event.preventDefault();
-        focused.blur();
-        focusCursorRow();
-      }
-      return;
-    }
-    // A focused button keeps its own Enter, so + Ask opens the palette and Enter writes no seen.
-    if (event.key === "Enter" && focused instanceof HTMLElement && focused.tagName === "BUTTON") {
-      return;
-    }
-
-    const afterG = pendingG.current;
-    pendingG.current = false;
-    // While the inbox is hidden, a list key pops it out by key and does nothing else, so the cursor never moves unseen.
-    if (inboxHidden && inboxListKeys.has(event.key)) {
-      setPopout("key");
-      event.preventDefault();
-      return;
-    }
-    switch (event.key) {
-      case "g":
-        if (afterG) {
-          moveTo(0);
-        } else {
-          pendingG.current = true;
-        }
-        break;
-      case "j":
-      case "ArrowDown":
-        if (index >= 0) {
-          moveTo(index + 1);
-        }
-        break;
-      case "k":
-      case "ArrowUp":
-        if (index >= 0) {
-          moveTo(index - 1);
-        }
-        break;
-      case "G":
-        moveTo(flat.length - 1);
-        break;
-      case "a":
-        setView("attention");
-        break;
-      case "p":
-        setView("project");
-        break;
-      case "v":
-        setView("archived");
-        break;
-      case "A":
-        // A pane with no orrery_id and a step have no archive kind, so the key does nothing on either.
-        if (cursorItem !== null && cursorItem.kind !== "step") {
-          setArchive(cursorItem, true);
-        }
-        break;
-      case "w": {
-        const waiting = flat.findIndex((item) => isRow(item) && item.state === stateWaiting);
-        if (waiting >= 0) {
-          moveTo(waiting);
-        }
-        break;
-      }
-      case "n":
-        nextUnseen();
-        break;
-      case "N":
-        setPickerOpen(true);
-        break;
-      case "x":
-        if (cursorRow !== null) {
-          void writeSeen(cursorRow);
-        }
-        break;
-      case "Enter":
-        if (cursorRow !== null) {
-          setRowOpened(true);
-          setPopout("none");
-          void writeSeen(cursorRow);
-          // Enter opens the row into its reply box, as a click on the row does; x only marks it seen.
-          setBoxOpened({ column: "cursor", key: cursorRow.key });
-        }
-        break;
-      case "b":
-        // b pops a hidden inbox out by key, and tucks a key-popped one back.
-        if (keyPopped) {
-          setPopout("none");
-        } else if (inboxHidden) {
-          setPopout("key");
-        }
-        break;
-      case "B":
-        togglePin();
-        break;
-      case "h":
-      case "ArrowLeft":
-        backOneCrumb();
-        break;
-      case "e":
-        if (cursorRow !== null) {
-          void writeSeen(cursorRow);
-          nextUnseen();
-        }
-        break;
-      case "/":
-        inputRef.current?.focus();
-        break;
-      case "i":
-        if (cursorStep !== null) {
-          stepInputs.current.get(cursorStepKey)?.focus();
-        } else {
-          composerInputs.current.get(cursorRowKey)?.focus();
-        }
-        break;
-      case "1":
-        answerCursor(1);
-        break;
-      case "2":
-        answerCursor(2);
-        break;
-      case "3":
-        answerCursor(3);
-        break;
-      case "o":
-        toggleOpen();
-        break;
-      case "|":
-        // An epic or step entry pins nothing and closes nothing: the pin is a row's.
-        if (cursorRow === null && cursorItem !== null) {
-          break;
-        }
-        if (pinned !== null) {
-          closePin();
-        } else if (cursorRow !== null) {
-          setPinned(cursorRow);
-          setPinStream(null);
-          setBoxOpened({ column: "pinned", key: cursorRow.key });
-        }
-        break;
-      case "m":
-        toggleStrips();
-        break;
-      case "?":
-        setHelpOpen((open) => !open);
-        break;
-      case "Escape":
-        // A key-popped inbox is tucked back, and nothing is interrupted; an open help panel closes too.
-        if (keyPopped) {
-          setPopout("none");
-          setHelpOpen(false);
-          return;
-        }
-        if (!helpOpen && cursorRow !== null) {
-          void escapeRow(
-            { row: cursorRow, column: "cursor", state: headState(cursorRow, cursorConversation?.state?.pane) },
-            null,
-          );
-        }
-        setHelpOpen(false);
-        return;
-      default:
-        return;
-    }
-    event.preventDefault();
+  // The keys read this render's state and call this render's actions, so the document listener runs the latest context.
+  const keyContext: KeyContext = {
+    pickerOpen,
+    openMenu,
+    helpOpen,
+    inboxHidden,
+    keyPopped,
+    index,
+    flat,
+    cursorItem,
+    cursorRow,
+    cursorRowKey,
+    cursorStep,
+    cursorStepKey,
+    cursorPane: cursorConversation?.state?.pane,
+    pinned,
+    inputRef,
+    composerInputs,
+    stepInputs,
+    pendingG,
+    moveTo: keyMoved(moveTo),
+    nextUnseen: keyMoved(nextUnseen),
+    writeSeen,
+    setArchive,
+    escapeRow,
+    replyBoxTarget,
+    focusCursorRow,
+    backOneCrumb: navigated(backOneCrumb),
+    answerCursor,
+    toggleOpen,
+    closePin,
+    togglePin,
+    toggleStrips,
+    setPickerOpen,
+    setMenuKey,
+    setFilter,
+    setPopout,
+    setRowOpened: navigated(setRowOpened),
+    setBoxOpened,
+    setView: openView,
+    setPinned,
+    setPinStream,
+    setHelpOpen,
   };
-  handler.current = handleKey;
+  handler.current = (event: KeyboardEvent) => handleKey(event, keyContext);
 
   useEffect(() => {
     const listener = (event: KeyboardEvent) => handler.current?.(event);
@@ -1350,7 +1292,7 @@ export function App({
 
   // The epic calls the readers of the cursor and the pin make: an epic a call created draws its card, which reads the
   // epic again on each poll tick and opens the epic through openEpic; a step card opens its step through openEpicStep.
-  const epicCalls = epicCallsOf(clients, openEpic, openEpicStep, now);
+  const epicCalls = epicCallsOf(clients, navigated(openEpic), navigated(openEpicStep), now);
 
   // pageNode draws the page the section holds over the epic's detail: the epic page, or the contract, the phase output
   // or the worker session the page has moved to.
@@ -1381,7 +1323,9 @@ export function App({
           loadArtifact={loadArtifact}
           onBack={back}
           onOpenPhase={openPhase}
-          onOpenSession={(step) => drill({ kind: "session", task: page.task, phase: page.phase, step })}
+          onOpenSession={navigated((step: string) =>
+            drill({ kind: "session", task: page.task, phase: page.phase, step }),
+          )}
           hold={(step) => stepCalls(clients, step).hold()}
           stop={(step) => stepCalls(clients, step).stop()}
           mark={inboxMark}
@@ -1470,13 +1414,13 @@ export function App({
               />
             </div>
             <div class="views">
-              <span class={view === "attention" ? "view on" : "view"} onClick={() => setView("attention")}>
+              <span class={view === "attention" ? "view on" : "view"} onClick={() => openView("attention")}>
                 <kbd>a</kbd>By attention
               </span>
-              <span class={view === "project" ? "view on" : "view"} onClick={() => setView("project")}>
+              <span class={view === "project" ? "view on" : "view"} onClick={() => openView("project")}>
                 <kbd>p</kbd>By project
               </span>
-              <span class={view === "archived" ? "view on" : "view"} onClick={() => setView("archived")}>
+              <span class={view === "archived" ? "view on" : "view"} onClick={() => openView("archived")}>
                 <kbd>v</kbd>Archived
               </span>
             </div>
@@ -1587,49 +1531,24 @@ export function App({
                     />
                   ))}
                 {section.rows.map((item) => (
-                  <div
+                  <InboxRow
                     key={item.key}
-                    class={item.key === cursorRowKey ? "b-row cur" : "b-row"}
-                    tabIndex={-1}
-                    data-row=""
-                    data-key={item.key}
-                    data-unseen={item.unseen ? "" : undefined}
-                    aria-current={item.key === cursorRowKey ? "true" : undefined}
-                    onClick={(event) => {
-                      if (!isLinkClick(event)) {
-                        selectItem(item);
-                        setRowOpened(true);
-                        setBoxOpened({ column: "cursor", key: item.key });
-                      }
+                    row={item}
+                    now={now}
+                    cursor={item.key === cursorRowKey}
+                    archive={archiveControl(item)}
+                    conversation={heldConversation(item.key)}
+                    answer={answered.get(item.key)}
+                    onOpen={() => {
+                      selectItem(item);
+                      setRowOpened(true);
+                      setBoxOpened({ column: "cursor", key: item.key });
                     }}
-                    onDblClick={(event) => {
-                      if (!isLinkClick(event)) {
-                        selectItem(item);
-                        void writeSeen(item);
-                      }
+                    onSeen={() => {
+                      selectItem(item);
+                      void writeSeen(item);
                     }}
-                  >
-                    <span class="dot" />
-                    <span class={`g g-${item.state}`} aria-hidden="true" />
-                    <div class="main">
-                      <div class="l1">
-                        {item.state === stateWaiting && (
-                          <span class="ty">{item.question !== "" ? "QUESTION" : "WAITING"}</span>
-                        )}
-                        <TitleParts dir={item.project} line={item.label} />
-                        <span class="age">{ageText(item.changed, now)}</span>
-                        {item.archiveKind !== "none" && <RowMenu control={archiveControl(item)} />}
-                      </div>
-                      <div class={item.unseen ? "l2" : "l2 one"}>
-                        <ReplyText text={replyText(item)} />
-                      </div>
-                      <RowOptions
-                        row={item}
-                        conversation={heldConversation(item.key)}
-                        answer={answered.get(item.key)}
-                      />
-                    </div>
-                  </div>
+                  />
                 ))}
                 {section.title === needsYouTitle &&
                   needs.map((need) => (
@@ -1638,248 +1557,68 @@ export function App({
                       need={need}
                       slug={epics.details.get(need.epic)?.epic?.slug ?? ""}
                       commands={epicCommands(clients, need.epic, setCommandError)}
-                      onOpen={() => openEpic(need.epic)}
+                      onOpen={navigated(() => openEpic(need.epic))}
                     />
                   ))}
               </div>
             ))}
           </div>
         </div>
-        <section class="read" aria-label="reader" hidden={cursorRow === null && cursorStep === null}>
-          {cursorRow !== null && (
-            <ConversationHead
-              dir={cursorRow.project}
-              line={cursorRow.label}
-              state={headState(cursorRow, cursorConversation?.state?.pane)}
-              onBack={focusCursorRow}
-              mark={inboxMark}
-              strip={pageStrip(cursorRow, cursorConversation)}
-            >
-              <Pill
-                model={rowPill(
-                  cursorRow.state,
-                  cursorConversation?.state?.pane,
-                  interrupts.has(cursorRow.key) || cursorConversation?.state?.interrupting === true,
-                )}
-                now={now}
-              />
-            </ConversationHead>
-          )}
-          {cursorFinding !== null && (
-            <FindBar
-              query={cursorFinding.query}
-              matches={cursorMatches.length}
-              current={cursorCurrent}
-              onQuery={(query) => setCursorFind({ key: cursorFinding.key, query, current: 0 })}
-              onNext={() =>
-                setCursorFind({
-                  ...cursorFinding,
-                  current: stepCurrent(cursorCurrent, cursorMatches.length, 1),
-                })
-              }
-              onPrevious={() =>
-                setCursorFind({
-                  ...cursorFinding,
-                  current: stepCurrent(cursorCurrent, cursorMatches.length, -1),
-                })
-              }
-              onClose={() => {
-                setCursorFind(null);
-                composerInputs.current.get(cursorRowKey)?.focus();
-              }}
-            />
-          )}
-          {cursorStep !== null && (
-            <TitleRow
-              crumbs={[{ label: stepWhere(cursorStep) }, { label: cursorStep.label }]}
-              onBack={focusCursorRow}
-              mark={inboxMark}
-              strip={pageStrip(null, null)}
-            >
-              <Pill model={stepPill(cursorStep.held, cursorStep.started)} now={now} />
-            </TitleRow>
-          )}
-          {cursorRow !== null && (
-            <Reader
-              conversation={cursorShown}
-              seenAt={cursorRow.seen}
-              open={open}
-              question={readerQuestion(cursorRow, cursorConversation)}
-              onAnswer={answerCursor}
-              onToggleOpen={toggleOpen}
-              onOlder={() => cursorOlder.current()}
-              register={(handle) => {
-                cursorReader.current = handle;
-              }}
-              sending={cursorSending}
-              find={
-                cursorFinding === null
-                  ? undefined
-                  : { query: cursorFinding.query, matches: cursorMatches, current: cursorCurrent }
-              }
-              epicCalls={epicCalls}
-            />
-          )}
-          {cursorStep !== null && (
-            <Reader
-              conversation={cursorShown}
-              seenAt={stepSeenAt}
-              open={open}
-              step={cursorStep.step}
-              onToggleOpen={toggleOpen}
-              onOlder={() => cursorOlder.current()}
-              register={(handle) => {
-                cursorReader.current = handle;
-              }}
-            />
-          )}
-          <div class="send">
-            {composerRows(visited, cursorRow).map((row) => (
-              <div key={row.key} class="reply" hidden={row.key !== cursorRowKey}>
-                <Composer
-                  label={rowName(row)}
-                  state={row.key === cursorRowKey ? headState(row, cursorConversation?.state?.pane) : row.state}
-                  send={(text, promptId) => actions.send(clients, row, text, promptId)}
-                  pull={row.kind === "pane" ? () => actions.pullQueued(clients, row) : null}
-                  newPromptId={actions.newPromptId}
-                  register={(handle) => registerHandle(composerHandles, row.key, handle)}
-                  onPage={(direction) => cursorReader.current?.page(direction) ?? false}
-                  onFind={() => setCursorFind({ key: row.key, query: "", current: 0 })}
-                  queued={row.key === cursorRowKey ? cursorConversation?.state?.waiting : undefined}
-                  sessionQueue={row.key === cursorRowKey ? cursorConversation?.queued : undefined}
-                  withdraw={
-                    row.kind === "session" ? (promptId) => actions.withdrawQueued(clients, row, promptId) : undefined
-                  }
-                  items={row.key === cursorRowKey ? cursorShown?.items : undefined}
-                  onSending={(sent) => addSending(row.key, sent, row.key === cursorRowKey ? cursorConversation : null)}
-                  onUnsent={(promptId) => retractSending(row.key, promptId)}
-                  inputRef={(element) => {
-                    if (element === null) {
-                      composerInputs.current.delete(row.key);
-                    } else {
-                      composerInputs.current.set(row.key, element);
-                    }
-                  }}
-                />
-              </div>
-            ))}
-            {composerRows(visitedSteps, cursorStep).map((step) => {
-              const calls = stepCalls(clients, step.id);
-              return (
-                <div key={step.id} class="reply" hidden={step.key !== cursorStepKey}>
-                  <StepBox
-                    label={step.label}
-                    held={step.held}
-                    nudge={calls.nudge}
-                    hold={calls.hold}
-                    stop={calls.stop}
-                    inputRef={(element) => {
-                      if (element === null) {
-                        stepInputs.current.delete(step.key);
-                      } else {
-                        stepInputs.current.set(step.key, element);
-                      }
-                    }}
-                  />
-                </div>
-              );
-            })}
-          </div>
-        </section>
-        <section class="read pinned" aria-label="pinned reader" hidden={pinned === null}>
-          {pinned !== null && (
-            <ConversationHead
-              dir={pinned.project}
-              line={pinned.label}
-              state={headState(pinned, pinnedConversation?.state?.pane)}
-              onBack={closePin}
-              mark={inboxMark}
-              strip={pageStrip(pinned, pinnedConversation)}
-            >
-              <Pill
-                model={rowPill(
-                  pinned.state,
-                  pinnedConversation?.state?.pane,
-                  interrupts.has(pinned.key) || pinnedConversation?.state?.interrupting === true,
-                )}
-                now={now}
-              />
-            </ConversationHead>
-          )}
-          {pinnedFinding !== null && (
-            <FindBar
-              query={pinnedFinding.query}
-              matches={pinnedMatches.length}
-              current={pinnedCurrent}
-              onQuery={(query) => setPinnedFind({ key: pinnedFinding.key, query, current: 0 })}
-              onNext={() =>
-                setPinnedFind({
-                  ...pinnedFinding,
-                  current: stepCurrent(pinnedCurrent, pinnedMatches.length, 1),
-                })
-              }
-              onPrevious={() =>
-                setPinnedFind({
-                  ...pinnedFinding,
-                  current: stepCurrent(pinnedCurrent, pinnedMatches.length, -1),
-                })
-              }
-              onClose={() => {
-                setPinnedFind(null);
-                pinnedInputs.current.get(pinnedKey)?.focus();
-              }}
-            />
-          )}
-          {pinned !== null && (
-            <Reader
-              conversation={pinnedShown}
-              seenAt={pinned.seen}
-              open={false}
-              onOlder={() => pinnedOlder.current()}
-              register={(handle) => {
-                pinnedReader.current = handle;
-              }}
-              sending={pinnedSending}
-              find={
-                pinnedFinding === null
-                  ? undefined
-                  : { query: pinnedFinding.query, matches: pinnedMatches, current: pinnedCurrent }
-              }
-              epicCalls={epicCalls}
-            />
-          )}
-          <div class="send">
-            {composerRows(pinnedRows, pinned).map((row) => (
-              <div key={row.key} class="pin-reply" hidden={row.key !== pinnedKey}>
-                <Composer
-                  label={rowName(row)}
-                  state={row.key === pinnedKey ? headState(row, pinnedConversation?.state?.pane) : row.state}
-                  send={(text, promptId) => actions.send(clients, row, text, promptId)}
-                  pull={row.kind === "pane" ? () => actions.pullQueued(clients, row) : null}
-                  newPromptId={actions.newPromptId}
-                  register={(handle) => registerHandle(pinnedHandles, row.key, handle)}
-                  onPage={(direction) => pinnedReader.current?.page(direction) ?? false}
-                  onFind={() => setPinnedFind({ key: row.key, query: "", current: 0 })}
-                  queued={row.key === pinnedKey ? pinnedConversation?.state?.waiting : undefined}
-                  sessionQueue={row.key === pinnedKey ? pinnedConversation?.queued : undefined}
-                  withdraw={
-                    row.kind === "session" ? (promptId) => actions.withdrawQueued(clients, row, promptId) : undefined
-                  }
-                  items={row.key === pinnedKey ? pinnedShown?.items : undefined}
-                  onSending={(sent) => addSending(row.key, sent, row.key === pinnedKey ? pinnedConversation : null)}
-                  onUnsent={(promptId) => retractSending(row.key, promptId)}
-                  inputRef={(element) => {
-                    if (element === null) {
-                      pinnedInputs.current.delete(row.key);
-                    } else {
-                      pinnedInputs.current.set(row.key, element);
-                    }
-                  }}
-                />
-              </div>
-            ))}
-          </div>
-        </section>
+        <ReaderColumn
+          column="cursor"
+          clients={clients}
+          now={now}
+          row={cursorRow}
+          conversation={cursorConversation}
+          rows={visited}
+          interrupts={interrupts}
+          mark={inboxMark}
+          pageStrip={pageStrip}
+          onBack={navigated(focusCursorRow)}
+          finding={cursorFinding}
+          matches={cursorMatches}
+          current={cursorCurrent}
+          onFind={setCursorFind}
+          inputs={composerInputs}
+          handles={composerHandles}
+          reader={cursorReader}
+          older={cursorOlder}
+          sending={cursorSending}
+          epicCalls={epicCalls}
+          addSending={addSending}
+          retractSending={retractSending}
+          open={open}
+          onToggleOpen={toggleOpen}
+          onAnswer={answerCursor}
+          step={cursorStep}
+          steps={visitedSteps}
+          stepInputs={stepInputs}
+        />
+        <ReaderColumn
+          column="pinned"
+          clients={clients}
+          now={now}
+          row={pinned}
+          conversation={pinnedConversation}
+          rows={pinnedRows}
+          interrupts={interrupts}
+          mark={inboxMark}
+          pageStrip={pageStrip}
+          onBack={closePin}
+          finding={pinnedFinding}
+          matches={pinnedMatches}
+          current={pinnedCurrent}
+          onFind={setPinnedFind}
+          inputs={pinnedInputs}
+          handles={pinnedHandles}
+          reader={pinnedReader}
+          older={pinnedOlder}
+          sending={pinnedSending}
+          epicCalls={epicCalls}
+          addSending={addSending}
+          retractSending={retractSending}
+          open={false}
+        />
         <section
           class={pageClasses(epicPage.move, docked !== null)}
           aria-label="epic"
@@ -1920,64 +1659,8 @@ export function App({
           onClose={() => setPickerOpen(false)}
         />
       )}
-      {helpOpen && (
-        <section class="keys" aria-label="keys">
-          <dl>
-            {helpEntries.map(([keys, text]) => (
-              <div key={text} class="key">
-                <dt>
-                  {keys.map((key) => (
-                    <kbd key={key}>{key}</kbd>
-                  ))}
-                </dt>
-                <dd>{text}</dd>
-              </div>
-            ))}
-          </dl>
-        </section>
-      )}
+      {helpOpen && <HelpPanel />}
     </main>
-  );
-}
-
-// readerQuestion is the question the cursor's reader draws: a waiting pane row's stored question, or a session's open
-// request as its stream holds it. A row with no question draws none.
-function readerQuestion(row: Row, conversation: Conversation | null): ParsedQuestion | null {
-  if (row.kind === "pane") {
-    return row.state === stateWaiting && row.question !== "" ? parseQuestion(row.question) : null;
-  }
-  const request = conversation?.state?.request;
-  if (request === undefined) {
-    return null;
-  }
-  return { title: request.question, options: request.options.map((label) => ({ label, description: "" })) };
-}
-
-// RowOptions draws a waiting row's line under its text: the answer a landed answer left, or else the options its keys
-// answer as chips. Chips are labels, not buttons. A row that is not waiting draws neither.
-function RowOptions({ row, conversation, answer }: { row: Row; conversation: Conversation | null; answer?: Answer }) {
-  if (row.state !== stateWaiting) {
-    return null;
-  }
-  if (answer !== undefined && answer.question === row.question) {
-    return <div class="ans">{`You answered ${answer.choice} · ${answer.label}`}</div>;
-  }
-  const options = readerQuestion(row, conversation)?.options ?? [];
-  if (options.length === 0) {
-    return null;
-  }
-  return (
-    <div class="opts">
-      {options.map((option, index) => {
-        const keyed = index < keyedOptions;
-        return (
-          <span class="opt" key={index}>
-            {keyed && <kbd>{index + 1}</kbd>}
-            {keyed ? optionText(option.label, index + 1) : option.label}
-          </span>
-        );
-      })}
-    </div>
   );
 }
 
@@ -1986,13 +1669,6 @@ function RowOptions({ row, conversation, answer }: { row: Row; conversation: Con
 function keepsAnswer(rows: Row[], key: string, answer: Answer): boolean {
   const row = rows.find((candidate) => candidate.key === key);
   return row === undefined || (row.state === stateWaiting && row.question === answer.question);
-}
-
-// optionText is an option's label without the number of its own key cap, when the label starts with that number. A
-// label without it is named as it is.
-function optionText(label: string, choice: number): string {
-  const numbered = `${choice} `;
-  return label.startsWith(numbered) ? label.slice(numbered.length) : label;
 }
 
 // matchesFilter keeps a row whose label, project, host, state or summary holds every typed word.
@@ -2142,32 +1818,11 @@ function stripHost(row: Row | null, host: HostStatusResponse | null): StripHost 
   return host;
 }
 
-// headState is the state a column's head pill reads: a pane given speaks for the row, and a row with no pane reads its
-// own state.
-function headState(row: Row, pane: Pane | undefined): string {
-  return pane?.state ?? row.state;
-}
-
 // withoutKey is a copy of keys without key.
 function withoutKey(keys: Set<string>, key: string): Set<string> {
   const next = new Set(keys);
   next.delete(key);
   return next;
-}
-
-// replyText is a row's second line: the sentence of a waiting row, else a session's summary. A pane's summary is its
-// title's line, so a pane that is not waiting has no second line.
-function replyText(row: Row): string {
-  if (row.state === stateWaiting) {
-    return rowNeed(row).text;
-  }
-  return row.kind === "session" ? row.summary : "";
-}
-
-// rowName names a row in its composer's placeholder by its directory's last element, or by its line when it has no
-// directory.
-function rowName(row: Row): string {
-  return lastPathElement(row.project) || row.label;
 }
 
 // pruneSent drops the sent entries of each row whose conversation is held, and returns previous itself when none is sent.
@@ -2197,15 +1852,6 @@ function pruneSent(
   return next;
 }
 
-// registerHandle keeps a composer's handle under its row key while the composer is mounted, and drops it on null.
-function registerHandle(handles: { current: Map<string, ComposerHandle> }, key: string, handle: ComposerHandle | null) {
-  if (handle === null) {
-    handles.current.delete(key);
-  } else {
-    handles.current.set(key, handle);
-  }
-}
-
 // withoutSent drops the texts from the sending entries of one row, and returns previous itself when none is dropped.
 function withoutSent(previous: Map<string, Sending[]>, key: string, texts: string[]): Map<string, Sending[]> {
   const entries = previous.get(key);
@@ -2225,36 +1871,11 @@ function withoutSent(previous: Map<string, Sending[]>, key: string, texts: strin
   return next;
 }
 
-// composerRows returns the entries that render a box: the kept entries, and the shown entry before the effect has added
-// it.
-function composerRows<T extends { key: string }>(kept: T[], shown: T | null): T[] {
-  if (shown === null || kept.some((entry) => entry.key === shown.key)) {
-    return kept;
-  }
-  return [...kept, shown];
-}
-
 // phaseOfStep is the phase a step's session page names: the phase whose row opens the step, as the epic page's phase rows
 // open it, or else reviewing for a read-only step and implementing for any other step.
 function phaseOfStep(detail: EpicsGetResponse, step: EpicStep): Phase {
   const row = phaseOutputOf(detail, step.task)?.rows.find((candidate) => candidate.session === step.id);
   return row?.phase ?? (step.readOnly ? "reviewing" : "implementing");
-}
-
-// stepCalls are the owner's calls on one step, each naming the step by its id: Steps.Nudge with the text, Steps.Hold,
-// and Steps.Stop. The page has no other call on a step.
-function stepCalls(clients: Clients, id: string) {
-  return {
-    nudge: async (text: string): Promise<void> => {
-      await clients.steps.nudge({ id, text });
-    },
-    hold: async (): Promise<void> => {
-      await clients.steps.hold({ id });
-    },
-    stop: async (): Promise<void> => {
-      await clients.steps.stop({ id });
-    },
-  };
 }
 
 // resolveIndex finds the cursor's entry, or the index it sat at, clamped into the entries; -1 when there are none.
@@ -2264,11 +1885,6 @@ function resolveIndex(items: Item[], cursor: Cursor): number {
   }
   const found = items.findIndex((item) => item.key === cursor.key);
   return found >= 0 ? found : clamp(cursor.index, items.length);
-}
-
-// isRow tells a row from an epic or step entry by its kind.
-function isRow(item: Item): item is Row {
-  return item.kind === "pane" || item.kind === "session";
 }
 
 // noticeEntry finds the row or step a notice's key names among the entries the list shows: a pane row by pane id, or a
@@ -2284,15 +1900,34 @@ function noticeEntry(items: Item[], key: NoticeKey | undefined): Item | undefine
   });
 }
 
-// listsEpic reports whether the view holds the epic under id in any of its lines, open or shut.
-function listsEpic(view: EpicsView, id: string): boolean {
-  const held = [
-    ...view.blocks.map((block) => block.epic),
-    ...view.waiting,
-    ...view.justEnded,
-    ...view.endedEarlier,
-  ];
-  return held.some((item) => item.id === id);
+// shownEntry is the entry App's address names for the cursor's entry: a row or step by its id, and an epic by its id
+// and its open sub-page. An epic whose page is closed has no entry, and neither has a cursor on nothing.
+function shownEntry(item: Item | null, epicPage: EpicPageState): Entry | null {
+  if (item === null) {
+    return null;
+  }
+  switch (item.kind) {
+    case "session":
+      return { kind: "session", id: item.id };
+    case "pane":
+      return { kind: "pane", host: item.host, pane: item.id };
+    case "step":
+      return { kind: "step", id: item.id };
+    case "epic":
+      return epicPage.closed ? null : { kind: "epic", id: item.id, page: epicPage.page };
+  }
+}
+
+// addressKey is the key the list gives the row or step an address names, which the cursor is moved to.
+function addressKey(entry: Exclude<Entry, { kind: "epic" }>): string {
+  switch (entry.kind) {
+    case "session":
+      return `session:${entry.id}`;
+    case "pane":
+      return `pane:${entry.host}:${entry.pane}`;
+    case "step":
+      return `step:${entry.id}`;
+  }
 }
 
 // readHistory reads an epic's history from its first entry, page by page, until a page names no next cursor. A failed
@@ -2387,11 +2022,6 @@ function StepEntry({
   );
 }
 
-// isLinkClick reports whether a click or double click landed on a link, which opens it and moves nothing else.
-function isLinkClick(event: Event): boolean {
-  return event.target instanceof Element && event.target.closest("a") !== null;
-}
-
 function clamp(index: number, length: number): number {
   return Math.min(Math.max(index, 0), length - 1);
 }
@@ -2399,11 +2029,6 @@ function clamp(index: number, length: number): number {
 // findCurrent is the match a find bar shows: the stored one, clamped into the matches, and -1 when none match.
 function findCurrent(stored: number, matches: number): number {
   return matches === 0 ? -1 : clamp(stored, matches);
-}
-
-// stepCurrent moves the current match by step, wrapping past either end. With no matches there is no match to move to.
-function stepCurrent(current: number, matches: number, step: number): number {
-  return matches === 0 ? -1 : (((current + step) % matches) + matches) % matches;
 }
 
 function sectionTitle(section: EpicSection): string {
@@ -2433,31 +2058,7 @@ function sectionClass(title: string): string {
   return "b-sec";
 }
 
-// stepWhere is a step's where line: its epic, its agent, and its round.
-function stepWhere(step: StepItem): string {
-  return `${step.epicSlug} › ${step.agent} · step · round ${step.round}`;
-}
-
 // pageClasses are the classes of the epic page section: its move, and docked while a conversation docks beside it.
 function pageClasses(move: EpicPageState["move"], docked: boolean): string {
   return ["page", move, docked ? "docked" : ""].filter((name) => name !== "").join(" ");
-}
-
-function ageText(changed: number, now: number): string {
-  if (changed <= 0) {
-    return "";
-  }
-  const seconds = Math.max(0, now - changed);
-  if (seconds < secondsPerMinute) {
-    return `${seconds}s`;
-  }
-  const minutes = Math.floor(seconds / secondsPerMinute);
-  if (minutes < minutesPerHour) {
-    return `${minutes}m`;
-  }
-  const hours = Math.floor(minutes / minutesPerHour);
-  if (hours < hoursPerDay) {
-    return `${hours}h`;
-  }
-  return `${Math.floor(hours / hoursPerDay)}d`;
 }

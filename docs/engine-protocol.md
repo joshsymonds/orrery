@@ -510,3 +510,41 @@ The findings of this section come from live probes on Claude Code 2.1.321 with `
   - A second `unmet` ends the step `goal_unmet`, and the step's return is kept (`enginehost.stepRun.judgeReturn`).
   - A failed diff stat, a failed call or an unparsable reply stores its error with no verdict and action `none`, and ends the step `done` (`enginehost.stepRun.judgeReturn`, `enginehost.stepRun.judgeCall`).
   - A failed `Continue` of the judge's send-back ends the step `failed` (`enginehost.stepRun.judgeReturn`).
+
+## 16. Cron takeover
+
+A headless session's cron tools, `CronCreate`, `CronDelete` and `CronList`, are answered by orreryd, so that orreryd keeps each job and the session can sleep until one is due. The `Crons` service is the RPC that carries these calls, and `orrery hook cron` is the PreToolUse hook that makes them. orreryd serves the service on the session socket and answers each call from its store, and the hook denies each call with orreryd's answer as the reason.
+
+The service is `orrery.engine.v1.Crons`, with one method, `CronCall` (`proto/orrery/engine/v1/cron.proto: Crons`). Its request `CronCallRequest` has `tool_name`, the tool the call names, which is `CronCreate`, `CronDelete` or `CronList`; `tool_use_id`, the id of the tool call the hook is for; and `tool_input`, the tool's input object as JSON text (`proto/orrery/engine/v1/cron.proto: CronCallRequest`). Its response `CronCallResponse` has `reason`, the full text the agent reads (`proto/orrery/engine/v1/cron.proto: CronCallResponse`). The message names no session. The calling session travels in the `Orrery-Session` header, which carries the session's `ORRERY_SESSION` value and is set by `stepmcp.CallerInterceptor`, the interceptor `orrery hook cron` uses (`protocol.HeaderSession`; `stepmcp.stampCaller`; `cmd/orrery.runHook`). The client dials the session socket beside the daemon socket (`protocol.SessionSocketPath`; `cmd/orrery.runHook`).
+
+`orrery hook cron` reads the PreToolUse hook's JSON from stdin, and decodes its `tool_name`, `tool_use_id` and `tool_input` with their wire tags (`hook.cronInput`; `wire.UnmarshalControlJSON`). It calls `CronCall` with a deadline of five seconds (`cmd/orrery.cronWait`; `hook.Cron`). It writes exactly one decision to stdout, and it exits 0 whatever happens (`hook.Cron`, `hook.writeDeny`, `cmd/orrery.hookCron`). The decision is always a deny:
+
+```json
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"…"}}
+```
+
+When orreryd answers, the reason is the response's `reason`, verbatim (`hook.cronReason`). Otherwise the reason says that the job was not scheduled, names the cause, and tells the agent to call the tool again (`hook.notScheduled`):
+
+```text
+orrery could not reach orreryd, so the job was not scheduled (<cause>). Call CronCreate again.
+```
+
+The causes are these. Stdin that cannot be read or parsed gives `could not read the hook input` or `could not parse the hook input`, and the reason ends `Call the tool again.`, since no tool name was read. An RPC error names its code and message. A deadline that passes with no answer names `context deadline exceeded`. A command line that names no daemon socket, or whose global flags fail to parse, is answered by a client whose every call fails with that cause (`cmd/orrery.runHook`, `cmd/orrery.run`, `cmd/orrery.unreachableCrons`). Plain `orrery hook` is unchanged: it forwards the event to the daemon and prints nothing (`cmd/orrery.runHook`; `hook.Run`).
+
+orreryd answers the service in `enginehost.cronService.CronCall`, which passes each call to `enginehost.CronAnswers.CronCall` with the session (`enginehost.Serve`). The session is the one in the `Orrery-Session` header, and no tool input names a session. A call with no header is refused as `InvalidArgument`, a Crons service with no cron answers refuses every call as `Unavailable`, and a store failure is `Internal` (`enginehost.cronService.CronCall`). Jobs are stored in the store, one per `tool_use_id` of a session (`store.Store.CreateCronJob`). The answer is the response's `reason`, and it is one of these:
+
+- **Job id.** A job's id is `cron-` and eight lowercase hex digits, from `crypto/rand` (`enginehost.newCronJobID`).
+- **Scheduled.** `CronCreate` takes the object `{"cron", "prompt", "recurring"}`, and a missing `recurring` means true. Its answer is, with `<due>` the next run and `<end>` the end of a recurring job:
+
+  ```text
+  orrery scheduled this job as <id>. Cron <cron>, prompt "<prompt>", next run <due>. <fires> orreryd fires it into this session, resuming the session if it is asleep. The job is scheduled; this is not an error, so do not call CronCreate again for it. Cancel it with CronDelete and id <id>.
+  ```
+
+  `<fires>` is `It fires at each match until <end>, when it fires a final time and ends.` for a recurring job, and `It fires once and then ends.` for a one-shot. A recurring job ends seven days after it was created (`enginehost.cronLifetime`, `enginehost.cronEnd`). A one-shot fires at its first match after it was created. Times read `Mon 2006-01-02 15:04 MST` in the zone of orreryd's clock (`enginehost.cronTime`, `enginehost.cronNextFire`). A create whose `tool_use_id` the session already has stores nothing, and answers for the job stored (`enginehost.CronAnswers.createJob`).
+- **Canceled.** `CronDelete` takes `{"id"}`, and deletes that job only when the session owns it. Its answer is `orrery canceled job <id>; it will not fire again.` (`enginehost.CronAnswers.cancelJob`).
+- **Listed.** `CronList` answers `This session has no orrery cron jobs.` when the session has none. Otherwise it answers `This session's orrery cron jobs:`, then one line per job, oldest first: `<id>  cron <cron>  <kind>  next run <due>  prompt "<prompt>"`. The kind is `recurring until <end>` or `one-shot` (`enginehost.CronAnswers.listJobs`).
+- **Refused.** A call orreryd refuses answers `orrery refused this call, so nothing was scheduled or canceled: ` followed by its reason, with no error. The refusals are these: the tool input is not a JSON object with the fields its tool takes; the prompt is exactly the empty string, and a whitespace-only prompt is stored as given; the call has no `tool_use_id`; the cron does not parse, and the reason quotes the parse error; the cron never fires; the id is empty; the session has no job with the id, and the reason says so; the tool is not one of the three, and the reason names it (`enginehost.CronAnswers.CronCall`, `enginehost.CronAnswers.createJob`, `enginehost.CronAnswers.cancelJob`).
+
+A job with no fire left lists the zero time as its next run, and the scheduler's next pass deletes it (`enginehost.cronNextFire`, `enginehost.CronScheduler.pass`).
+
+A stored job fires from orreryd's store. orreryd keeps one timer for the earliest due fire across all the sessions' jobs, and when a job is due its prompt goes to its session through `enginehost.Manager.DeliverCron`, stored with sender `cron` (`enginehost.CronScheduler.fire`). A fire waits while its session is busy with a turn, a request or a hand-off, while the owner's interrupt leaves it quiet, while its row is failed or stopped, or while the session cap is full. An idle-stopped session is resumed to take it (`enginehost.Manager.claimCron`). The full rules, including what a delivered fire does to its job, are in [Cron jobs](contract.md#cron-jobs) (`enginehost.CronScheduler.pass`).

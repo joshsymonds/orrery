@@ -21,6 +21,17 @@ type CallerEvent struct {
 	At      int64
 }
 
+type CronJob struct {
+	JobID      string
+	Session    string
+	ToolUseID  string
+	Cron       string
+	Prompt     string
+	Recurring  int64
+	CreatedAt  int64
+	LastFireAt int64
+}
+
 type DueResume struct {
 	ID     string
 	Kind   string

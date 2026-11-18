@@ -72,6 +72,10 @@ var ErrCallerStopped = errors.New("session was stopped")
 // liveSession). Deliver stores and sends nothing for it.
 var ErrCallerQuiet = errors.New("session was interrupted by its owner")
 
+// ErrCallerFailed reports a DeliverCron to a session whose row is failed. The session waits for its owner's next
+// message, so DeliverCron resumes nothing and sends nothing to it.
+var ErrCallerFailed = errors.New("session failed and waits for its owner's next message")
+
 // errManagerClosed reports a Start on a manager that Close has begun closing.
 var errManagerClosed = errors.New("session manager is closed")
 
@@ -125,6 +129,7 @@ type Store interface {
 	EnginePromptFailure(ctx context.Context, sessionID, promptID string) (string, bool, error)
 	PromptWrite(ctx context.Context, id, promptID string) (store.PromptWrite, bool, error)
 	PromptsOfWrites(ctx context.Context, id string, writeIDs []string) ([]store.WritePrompt, error)
+	DeleteSessionCronJobs(ctx context.Context, session string) (int, error)
 }
 
 // Config configures a Manager. Shell is the login shell and Claude the claude name, resolved with exec.LookPath at
@@ -139,6 +144,10 @@ type Store interface {
 // step's agent resolves under, or empty to read none. HolderVersion is the holder wire version this manager's controller
 // speaks when it re-adopts a holder, or zero for holder.WireVersion. Metrics counts each holder lost in re-adoption, or
 // nil to count none.
+//
+// CronWake, when set, is called with a session id after the owner's Say to that session returns nil, and after a turn's
+// end that leaves a session which is not a step with no turn running is stored. It is called with "" whenever a session
+// slot frees. Each call runs on its own goroutine, off the manager's locks (see wakeCron).
 type Config struct {
 	Shell             string
 	Claude            string
@@ -156,6 +165,7 @@ type Config struct {
 	Store             Store
 	Logger            *slog.Logger
 	Metrics           *telemetry.Daemon
+	CronWake          func(session string)
 }
 
 // liveSession is one running session: its directory, its process, the done channel closed when its pump has finished,
@@ -242,6 +252,8 @@ type Manager struct {
 	store            Store
 	logger           *slog.Logger
 	metrics          *telemetry.Daemon
+	// cronWake is Config.CronWake, called on its own goroutine (see wakeCron).
+	cronWake func(session string)
 
 	pumps sync.WaitGroup
 	// calls counts the calls under way that can start or end work (see callsInFlight).
@@ -302,6 +314,7 @@ func NewManager(cfg Config) *Manager {
 		store:             cfg.Store,
 		logger:            cfg.Logger,
 		metrics:           cfg.Metrics,
+		cronWake:          cfg.CronWake,
 		sessions:          map[string]*liveSession{},
 		stopping:          map[string]*liveSession{},
 		stepObservers:     map[string]StepObserver{},
@@ -466,7 +479,10 @@ func (m *Manager) start(ctx context.Context, id string, req StartRequest) (strin
 
 // Stop stops the live session id and records it stopped once its pump has stored its last ops. A drained step with no live
 // session is recorded stopped the same way, and its kept slot is freed (see stopDrained). It returns ErrNoSession when id
-// is neither. resumeMu is held, as Release holds it, so a respawn cannot take the kept slot between the lookup and the stop.
+// is neither. Unless id is a step, which keeps its own cron, Stop first deletes the cron jobs of id, so none fires into
+// the stopped session, whether id is live or idle-stopped. A deletion error is joined into the error Stop returns, and
+// the stop goes on. resumeMu is held, as Release holds it, so a respawn cannot take the kept slot between the lookup
+// and the stop.
 func (m *Manager) Stop(ctx context.Context, id string) error {
 	defer m.calls.enter()()
 	m.resumeMu.Lock()
@@ -475,18 +491,24 @@ func (m *Manager) Stop(ctx context.Context, id string) error {
 	live := m.sessions[id]
 	drained := m.kept[id]
 	m.mu.Unlock()
+	var cronErr error
+	if drained == nil && (live == nil || !live.step) {
+		if _, err := m.store.DeleteSessionCronJobs(ctx, id); err != nil {
+			cronErr = fmt.Errorf("delete cron jobs of session %s: %w", id, err)
+		}
+	}
 	switch {
 	case live != nil:
 		stopErr := live.sess.Stop()
 		recordErr := m.recordStopped(ctx, live)
 		if stopErr == nil && recordErr == nil {
-			return nil
+			return cronErr
 		}
-		return fmt.Errorf("stop session %s: %w", id, errors.Join(stopErr, recordErr))
+		return errors.Join(cronErr, fmt.Errorf("stop session %s: %w", id, errors.Join(stopErr, recordErr)))
 	case drained != nil:
 		return m.stopDrained(ctx, drained)
 	}
-	return fmt.Errorf("stop session %s: %w", id, ErrNoSession)
+	return errors.Join(cronErr, fmt.Errorf("stop session %s: %w", id, ErrNoSession))
 }
 
 // stopDrained records the drained step stopped once its pump has ended, then frees its kept slot. The caller holds
@@ -552,6 +574,15 @@ type SayRequest struct {
 // engine row has the id, and the errors of resumeSession when a live session cannot be started.
 func (m *Manager) Say(ctx context.Context, req SayRequest) error {
 	defer m.calls.enter()()
+	if err := m.sayPrompt(ctx, req); err != nil {
+		return err
+	}
+	m.wakeCron(req.ID)
+	return nil
+}
+
+// sayPrompt sends req as Say does, without the call of the cron hook that Say makes once it returns nil.
+func (m *Manager) sayPrompt(ctx context.Context, req SayRequest) error {
 	if req.Text == "" {
 		return ErrEmptyPrompt
 	}
@@ -752,11 +783,34 @@ type DeliverRequest struct {
 // Say's does (see keyed).
 func (m *Manager) Deliver(ctx context.Context, req DeliverRequest) error {
 	defer m.calls.enter()()
+	return m.deliverKeyed(ctx, req, m.deliverEvent)
+}
+
+// DeliverCron sends req.Text to the headless session req.ID as its next prompt, stored with the sender cron and
+// req.PromptID, for a cron fire the session's jobs owe. It shares Deliver's handling of empty text, its keyed attempt
+// and its prompt-id check, and like Deliver it never answers, denies or declines a request the session has open. A live
+// session is claimed only when no turn runs, no request is open and it has no hand-off, so a running background task
+// does not hold it: a session that is busy returns ErrSessionBusy and stores and sends nothing. A live session that the
+// owner interrupted and has said nothing to since returns ErrCallerQuiet. A session that is not live is resumed from its
+// row, unless its row is stopped, which returns ErrCallerStopped, failed, which returns ErrCallerFailed, or the owner
+// interrupted it and has said nothing to it since, which returns ErrCallerQuiet; each of those starts no process. A full
+// cap returns the ErrCapReached of the resume. A step session returns an error naming it.
+func (m *Manager) DeliverCron(ctx context.Context, req DeliverRequest) error {
+	defer m.calls.enter()()
+	return m.deliverKeyed(ctx, req, m.deliverCron)
+}
+
+// deliverKeyed is the delivery that Deliver and DeliverCron share. It returns ErrEmptyPrompt for empty text. A
+// non-empty req.PromptID that an engine_prompt of the session already carries makes it return nil and do nothing else,
+// and any other non-empty req.PromptID runs as one attempt per session and prompt id (see keyed). deliver sends req.
+func (m *Manager) deliverKeyed(
+	ctx context.Context, req DeliverRequest, deliver func(context.Context, DeliverRequest) error,
+) error {
 	if req.Text == "" {
 		return ErrEmptyPrompt
 	}
 	if req.PromptID == "" {
-		return m.deliverEvent(ctx, req)
+		return deliver(ctx, req)
 	}
 	_, err := m.keyed(
 		ctx,
@@ -769,7 +823,7 @@ func (m *Manager) Deliver(ctx context.Context, req DeliverRequest) error {
 			if sent {
 				return "", nil
 			}
-			return "", m.deliverEvent(ctx, req)
+			return "", deliver(ctx, req)
 		},
 		func(ctx context.Context) bool {
 			sent, err := m.store.EnginePromptSent(ctx, req.ID, req.PromptID)
@@ -779,15 +833,34 @@ func (m *Manager) Deliver(ctx context.Context, req DeliverRequest) error {
 	return err
 }
 
-// deliverEvent sends req as Deliver does, without the check of its prompt id. The event is claimed and written at once (see
-// claimFree), and a session that is not live is resumed from its row first, so a session with a request open or quiet
-// from the owner's interrupt is left as it is.
+// deliverEvent sends req as Deliver does, without the check of its prompt id, as a caller event's prompt. The event is
+// claimed and written at once (see claimFree), so only a session with a request open or quiet from the owner's interrupt
+// is left as it is.
 func (m *Manager) deliverEvent(ctx context.Context, req DeliverRequest) error {
-	message := store.EnginePrompt{ID: req.ID, Text: req.Text, PromptID: req.PromptID, Sender: store.PromptSenderEvent}
-	send, err := m.claimFree(ctx, req.ID, message)
+	return m.deliverTo(ctx, req, store.PromptSenderEvent, m.claimFree, m.admitEvent)
+}
+
+// deliverCron sends req as DeliverCron does, without the check of its prompt id, as a cron fire's prompt. The session
+// is claimed only when no turn runs, no request is open and it has no hand-off (see claimCron).
+func (m *Manager) deliverCron(ctx context.Context, req DeliverRequest) error {
+	return m.deliverTo(ctx, req, store.PromptSenderCron, m.claimCron, m.admitCron)
+}
+
+// deliverTo sends req as a prompt stored with sender, through the send that claim returns for the session. A session
+// that is not live is resumed from its row first, and admit sees that row before the process starts (see
+// resumeSession), so a stopped or quiet session is left as it is, and so is a session that claim refuses.
+func (m *Manager) deliverTo(
+	ctx context.Context,
+	req DeliverRequest,
+	sender string,
+	claim func(ctx context.Context, id string, message store.EnginePrompt) (func() error, error),
+	admit func(store.EngineRow) error,
+) error {
+	message := store.EnginePrompt{ID: req.ID, Text: req.Text, PromptID: req.PromptID, Sender: sender}
+	send, err := claim(ctx, req.ID, message)
 	if errors.Is(err, ErrNoSession) {
-		if _, err = m.resumeSession(ctx, req.ID, m.admitEvent); err == nil {
-			send, err = m.claimFree(ctx, req.ID, message)
+		if _, err = m.resumeSession(ctx, req.ID, admit); err == nil {
+			send, err = claim(ctx, req.ID, message)
 		}
 	}
 	if err != nil {
@@ -796,14 +869,32 @@ func (m *Manager) deliverEvent(ctx context.Context, req DeliverRequest) error {
 	return send()
 }
 
-// admitEvent returns ErrCallerStopped for a row the owner's Stop recorded stopped, and ErrCallerQuiet for a session the
-// owner's Interrupt left quiet (see Manager.quiet), so a delivery resumes nothing for either. Any other row is admitted.
+// admitEvent returns ErrCallerStopped for a row the owner's Stop recorded stopped, and whatever admitQuiet returns
+// otherwise, so a delivery resumes nothing for either.
 func (m *Manager) admitEvent(row store.EngineRow) error {
 	if row.State == stateStopped {
 		return ErrCallerStopped
 	}
+	return m.admitQuiet(row.ID)
+}
+
+// admitCron returns ErrCallerStopped for a row the owner's Stop recorded stopped, ErrCallerFailed for a failed row, and
+// whatever admitQuiet returns otherwise, so a cron fire resumes nothing for any of them.
+func (m *Manager) admitCron(row store.EngineRow) error {
+	switch row.State {
+	case stateStopped:
+		return ErrCallerStopped
+	case stateFailed:
+		return ErrCallerFailed
+	}
+	return m.admitQuiet(row.ID)
+}
+
+// admitQuiet returns ErrCallerQuiet for a session the owner's Interrupt left quiet (see Manager.quiet), and nil for any
+// other session.
+func (m *Manager) admitQuiet(id string) error {
 	m.mu.Lock()
-	_, quiet := m.quiet[row.ID]
+	_, quiet := m.quiet[id]
 	m.mu.Unlock()
 	if quiet {
 		return ErrCallerQuiet
@@ -852,6 +943,35 @@ func (m *Manager) eventRefusal(live *liveSession) error {
 		return ErrCallerQuiet
 	}
 	return nil
+}
+
+// claimCron returns the send that writes message, a cron fire, to the live session id as its next prompt, with its turn
+// marked running and a send begun, as markSending does, but only while it holds no turn, request or hand-off, so a
+// running background task does not hold it (see busyForCron), and the owner's Interrupt has not left it quiet. The check
+// and the claim are one step under the lock, so a delivery that claims the session leaves every other cron fire to find
+// it busy. The send ends in send. It returns ErrNoSession when no session with that id is live, or when it is closing or
+// its exit is recorded, ErrSessionBusy when it holds a turn, request or hand-off, ErrCallerQuiet when the owner's
+// Interrupt left it quiet, and an error naming it when it is a step.
+func (m *Manager) claimCron(ctx context.Context, id string, message store.EnginePrompt) (func() error, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	live, ok := m.sessions[id]
+	if !ok || live.closing || live.exited {
+		return nil, ErrNoSession
+	}
+	if live.step {
+		return nil, fmt.Errorf("session %s is a step session, which takes no cron fire", id)
+	}
+	if live.busyForCron() {
+		return nil, ErrSessionBusy
+	}
+	if _, quiet := m.quiet[id]; quiet {
+		return nil, ErrCallerQuiet
+	}
+	live.turning = true
+	live.sending++
+	m.updateIdleLocked(live)
+	return func() error { return m.send(ctx, live, message) }, nil
 }
 
 // send records prompt as the next prompt of live, with the working state and the ops with it, in one write, and then sends
@@ -1649,6 +1769,13 @@ func (live *liveSession) busy() bool {
 	return live.turning || live.background || live.returned || len(live.requests) > 0
 }
 
+// busyForCron reports whether live has a turn running, an open request or a hand-off the next prompt has not yet
+// answered. Unlike busy, a background task does not count, so a cron fire goes to a session that is only waiting on its
+// tasks. The caller holds the lock.
+func (live *liveSession) busyForCron() bool {
+	return live.turning || live.returned || len(live.requests) > 0
+}
+
 // updateIdleLocked clears the idle stamp of live while it is busy, and stamps the time it became not busy. The caller
 // holds the lock.
 func (m *Manager) updateIdleLocked(live *liveSession) {
@@ -1799,11 +1926,12 @@ func (m *Manager) reserve() error {
 	return nil
 }
 
-// release frees a slot taken by reserve for a session that never started running.
+// release frees a slot taken by reserve for a session that never started running. It then calls the cron hook with "".
 func (m *Manager) release() {
 	m.mu.Lock()
 	m.reserved--
 	m.mu.Unlock()
+	m.wakeCron("")
 }
 
 // newSessionID returns 128 random bits in hex.
@@ -1839,15 +1967,15 @@ type spawnSpec struct {
 }
 
 // spawn resolves claude and starts the session process for id in dir as sp describes, ctx bounding its launch. The
-// prompt is not sent here. The process takes the context stamp in effect for dir as its settings, and a stamp that cannot
-// be read fails the spawn before claude runs. The launch of id is committed before the holder starts, so a commit that
-// fails fails the spawn too.
+// prompt is not sent here. The process takes its settings from spawnSettings, and settings that cannot be read fail the
+// spawn before claude runs. The launch of id is committed before the holder starts, so a commit that fails fails the
+// spawn too.
 func (m *Manager) spawn(ctx context.Context, id, dir string, sp spawnSpec) (*session.Session, error) {
 	claude, err := exec.LookPath(m.claude)
 	if err != nil {
 		return nil, fmt.Errorf("find claude: %w", err)
 	}
-	settings, err := m.stampSettings(dir)
+	settings, err := m.spawnSettings(dir, sp.step)
 	if err != nil {
 		return nil, fmt.Errorf("spawn session %s: %w", id, err)
 	}
@@ -1877,10 +2005,14 @@ func (m *Manager) spawn(ctx context.Context, id, dir string, sp spawnSpec) (*ses
 	return sess, nil
 }
 
-// stampSettings returns the --settings JSON that carries the whole env of the context stamp in effect for dir. The stamp
-// is looked up under the HOME entry of the manager's environment, which must be an absolute path. With no stamp, it
-// returns "".
-func (m *Manager) stampSettings(dir string) (string, error) {
+// spawnSettings returns the --settings JSON of a spawn in dir. The stamp is looked up under the HOME entry of the
+// manager's environment, which must be an absolute path. A session the owner talks to, a resume included, always takes
+// stamp.HeadlessSettings: the stamp's env when one applies, and nothing otherwise, plus the PreToolUse hook that
+// carries its cron tools to orrery. The orrery that runs the hook is holder.Binary(""), and one that cannot be resolved
+// fails here, before claude runs. A step takes settings with no hook: the stamp's env when one applies, and
+// claudeMdExcludes naming the user CLAUDE.md, so a step does not load the owner's own rules. Its path is read from
+// m.environ, and a step whose path cannot be resolved fails here, before claude runs.
+func (m *Manager) spawnSettings(dir string, step bool) (string, error) {
 	home, err := stampHome(m.environ)
 	if err != nil {
 		return "", fmt.Errorf("find stamp for %s: %w", dir, err)
@@ -1889,10 +2021,18 @@ func (m *Manager) stampSettings(dir string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("find stamp for %s: %w", dir, err)
 	}
-	if found.Folder == "" {
-		return "", nil
+	if !step {
+		var orrery string
+		if orrery, err = holder.Binary(""); err != nil {
+			return "", fmt.Errorf("cron hook for %s: %w", dir, err)
+		}
+		return stamp.HeadlessSettings(found.Env, orrery), nil
 	}
-	return stamp.Settings(false, found.Env), nil
+	memory, err := userMemoryOf(m.environ)
+	if err != nil {
+		return "", fmt.Errorf("step in %s: %w", dir, err)
+	}
+	return stamp.Settings(false, found.Env, []string{memory}), nil
 }
 
 // environValue returns the value of name in environ, and whether environ has it. The last entry for name wins, as it
@@ -1921,6 +2061,18 @@ func stampHome(environ []string) (string, error) {
 	return home, nil
 }
 
+// userMemoryOf returns the path of the user's CLAUDE.md that the claude running with environ loads: its HOME and
+// CLAUDE_CONFIG_DIR entries, read as stamp.UserMemory reads them. It fails when that path cannot be resolved.
+func userMemoryOf(environ []string) (string, error) {
+	home, _ := environValue(environ, "HOME")
+	configDir, _ := environValue(environ, "CLAUDE_CONFIG_DIR")
+	memory, err := stamp.UserMemory(home, configDir)
+	if err != nil {
+		return "", fmt.Errorf("user memory: %w", err)
+	}
+	return memory, nil
+}
+
 // pump records the events of one running session, line by line and in order, until its lines close, and tells the owner
 // of each event once it is recorded. reply is the reply text of the turn the session's earlier lines left, so the pump
 // continues that turn. It is the only reader of the session's lines and the only user of its recorder. When it ends it
@@ -1944,6 +2096,9 @@ func (m *Manager) pump(ctx context.Context, live *liveSession, rec *recorder, re
 	m.mu.Unlock()
 	close(live.done)
 	live.cancel()
+	if !live.step {
+		m.wakeCron("")
+	}
 }
 
 // eventOps returns the store ops that record event, as rec gives them. A turn's end that another turn follows leaves
@@ -1961,7 +2116,7 @@ func eventOps(rec *recorder, event session.Event, followed, ownerInterrupted boo
 }
 
 // recordedEvent is an event of a line the pump has recorded, with what its owner notice and observer call need: the
-// reply as of that event, and the interrupted, handed, followed and opened results of noteEvent for it.
+// reply as of that event, and the interrupted, handed, followed, opened and idle results of noteEvent for it.
 type recordedEvent struct {
 	event       session.Event
 	reply       string
@@ -1969,6 +2124,7 @@ type recordedEvent struct {
 	handed      bool
 	followed    bool
 	opened      bool
+	idle        bool
 }
 
 // recordLine records one line of the running session in one write: the ops of all its events, then the line's consumed
@@ -1976,7 +2132,8 @@ type recordedEvent struct {
 // it, and the session's replay-from is then set to the line's end. Once the write succeeds, the owner of each recorded
 // event is told, in order, each with the reply as of that event. A failed write is logged and tells no owner. The
 // observer is given every recorded event either way, as before. The line is recorded under the session's order lock, so
-// the turn's state does not change under it. It returns the reply text of the main conversation so far.
+// the turn's state does not change under it. It returns the reply text of the main conversation so far. Once the write
+// succeeds, a turn's end that leaves a session which is not a step with no turn running calls the cron hook for it.
 func (m *Manager) recordLine(
 	ctx context.Context, live *liveSession, rec *recorder, line session.Line, reply string,
 ) string {
@@ -1985,6 +2142,11 @@ func (m *Manager) recordLine(
 	written := m.storeLine(ctx, live, line, ops)
 	live.order.Unlock()
 	m.tellRecorded(ctx, live, recorded, written)
+	// A turn's end that leaves the session idle wakes the cron hook once the end is stored, so a refused cron
+	// fire is retried after the turn, not before it.
+	if written && slices.ContainsFunc(recorded, func(r recordedEvent) bool { return r.idle }) {
+		m.wakeCron(live.id)
+	}
 	return reply
 }
 
@@ -2013,7 +2175,7 @@ func (m *Manager) lineOps(
 		}
 		recorded = append(recorded, recordedEvent{
 			event: event, reply: reply, interrupted: note.interrupted, handed: note.handed, followed: note.followed,
-			opened: note.opened,
+			opened: note.opened, idle: note.idle,
 		})
 		if _, ended := event.(session.TurnEnded); ended {
 			reply = ""
@@ -2152,9 +2314,11 @@ func (m *Manager) setInterrupting(live *liveSession, interrupting bool) {
 
 // noted is what noteEvent reports of an event: whether the pump records it; for a turn's end, whether that turn was
 // interrupted through Interrupt, whether the owner's OwnerInterrupt caused it, whether it is handed to the step's
-// observer, and whether another turn follows it; and whether the event opens a turn that claude started by itself.
+// observer, and whether another turn follows it; whether the event opens a turn that claude started by itself; and
+// whether a turn's end leaves a session that is not a step with no turn running, for which the cron hook is called once
+// the end is stored (see recordLine).
 type noted struct {
-	record, interrupted, ownerInterrupted, handed, followed, opened bool
+	record, interrupted, ownerInterrupted, handed, followed, opened, idle bool
 }
 
 // opensTurn reports whether event is one only a running turn gives: its init, its streamed or finished content, a tool
@@ -2247,7 +2411,9 @@ func (m *Manager) noteTurnEndedLocked(live *liveSession, ended session.TurnEnded
 		handed = true
 	}
 	m.retireLocked(live)
-	return noted{record: true, interrupted: interrupted, ownerInterrupted: ownerInterrupted, handed: handed}
+	return noted{
+		record: true, interrupted: interrupted, ownerInterrupted: ownerInterrupted, handed: handed, idle: !live.step,
+	}
 }
 
 // retireLocked takes live out of the live set and stops its process, when live is draining and not busy: no turn runs, no
@@ -2328,6 +2494,15 @@ func (m *Manager) changed(ctx context.Context, id string) {
 		return
 	}
 	m.notifier.Changed(ctx, id)
+}
+
+// wakeCron calls the cron hook (see Config.CronWake) with session id, or with "" for a freed slot. It runs the hook on
+// its own goroutine, so the caller holds no lock while the hook runs and never waits on it. It does nothing without a
+// hook.
+func (m *Manager) wakeCron(id string) {
+	if m.cronWake != nil {
+		go m.cronWake(id)
+	}
 }
 
 // endsNotice reports whether a recorded event records a session working or stopped, which ends its pending notice as

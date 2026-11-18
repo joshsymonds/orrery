@@ -105,9 +105,10 @@ func TestStartWithStampPassesStampSettingsAndResumeKeepsThem(t *testing.T) {
 	if len(args) != 2 {
 		t.Fatalf("fake claude starts = %q, want two", args)
 	}
+	want := cronSettingsWant(`{"ANTHROPIC_BASE_URL":"http://127.0.0.1:9","ORRERY_STAMP_TEST":"whole"}`, testOrrery(t))
 	for i, line := range args {
-		if !hasFlagValue(line, "--settings", stampSettings) {
-			t.Fatalf("start %d args = %q, want --settings %s", i, line, stampSettings)
+		if got := cronSettingsArg(t, line); got != want {
+			t.Fatalf("start %d --settings = %s, want %s", i, got, want)
 		}
 	}
 }
@@ -149,12 +150,20 @@ func TestStepInLinkedWorktreeOfStampedCheckoutPassesStampSettings(t *testing.T) 
 	if len(args) != 1 {
 		t.Fatalf("fake claude starts = %q, want one", args)
 	}
-	if !hasFlagValue(args[0], "--settings", stampSettings) {
-		t.Fatalf("step args = %q, want --settings %s", args[0], stampSettings)
+	want := stampStepSettings(home)
+	if !hasFlagValue(args[0], "--settings", want) {
+		t.Fatalf("step args = %q, want --settings %s", args[0], want)
 	}
 }
 
-func TestStartWithoutStampPassesNoSettings(t *testing.T) {
+// stampStepSettings is the --settings JSON of a step under the stamp in stampTestHome, with HOME home: the stamp's whole
+// env, and the user CLAUDE.md under home excluded.
+func stampStepSettings(home string) string {
+	return `{"env":{"ANTHROPIC_BASE_URL":"http://127.0.0.1:9","ORRERY_STAMP_TEST":"whole"},"claudeMdExcludes":["` +
+		filepath.Join(home, ".claude", "CLAUDE.md") + `"]}`
+}
+
+func TestStartWithoutStampPassesCronHookSettings(t *testing.T) {
 	t.Parallel()
 	home := stampTestHome(t)
 	dir := filepath.Join(home, "plain")
@@ -178,8 +187,8 @@ func TestStartWithoutStampPassesNoSettings(t *testing.T) {
 	if len(args) != 1 {
 		t.Fatalf("fake claude starts = %q, want one", args)
 	}
-	if strings.Contains(args[0], "--settings") {
-		t.Fatalf("start args = %q, want no --settings", args[0])
+	if got, want := cronSettingsArg(t, args[0]), cronSettingsWant("", testOrrery(t)); got != want {
+		t.Fatalf("start --settings = %s, want %s", got, want)
 	}
 }
 

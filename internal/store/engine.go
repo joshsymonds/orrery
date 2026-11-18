@@ -73,6 +73,7 @@ type EngineSet struct {
 // Senders of an engine prompt, stored as its sender.
 const (
 	PromptSenderBrief  = "brief"
+	PromptSenderCron   = "cron"
 	PromptSenderEngine = "engine"
 	PromptSenderEvent  = "event"
 	PromptSenderOwner  = "owner"
