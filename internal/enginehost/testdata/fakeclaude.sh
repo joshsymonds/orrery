@@ -11,7 +11,9 @@
 # success result whose structured output is done with no commit, and leaves any task listed, BGSELF starts two tasks and
 # ends its turn with a not-done return, then, once fakeclaude.release exists, ends the first task and starts a turn by
 # itself, reading no stdin, which ends with a done return while the second task still runs, BGSELFHELD plays BGSELF but
-# holds the turn it starts by itself, after that turn's text block, until fakeclaude.open exists, PAIR answers with one
+# holds the turn it starts by itself, after that turn's text block, until fakeclaude.open exists, BGSELFMID plays BGSELF's
+# background task, but the turn claude starts by itself reads the next line from stdin during a Bash tool call and takes it
+# in with the call's result (see bgselfmid), PAIR answers with one
 # assistant line that carries two finished text blocks, "fake pair n.1" and "fake pair n.2", SUBAGENT launches a
 # subagent in the background and ends its turn, then, once fakeclaude.release exists, streams the subagent's content with
 # no turn open and reads stdin again, SUBAGENTSELF plays SUBAGENT and then starts a turn by itself once fakeclaude.open
@@ -34,7 +36,8 @@
 # saying "You've hit your limit"), LIMITNORESET plays that turn without the rate_limit_event, and any other prompt
 # streams "fake reply n". The turns reproduce the stream lines captured from the real CLI, with only text, ids and the
 # session id changed. Each turn lists in user_message_uuids the uuids of the prompts it answers: the uuid of the prompt
-# that opened it, and for FOLD and MIDTURN the uuid of the folded message too. Every line it reads from stdin, prompts
+# that opened it, and for FOLD, MIDTURN and BGSELFMID the uuid of the folded message too, a turn claude starts by itself
+# listing only the messages it folds. Every line it reads from stdin, prompts
 # and answers alike, is appended to fakeclaude.stdin as it is read. It exits at stdin EOF.
 # RELEASEDONE waits until fakeclaude.release exists in its directory, makes an empty commit there and ends with a success
 # result whose structured output returns that commit as a release step's one commit, with its evidence. JUDGERELEASED
@@ -128,13 +131,19 @@ lifecycle() {
 }
 
 # take_in takes in the queued lines, in the order they were read: each is started, and the turn lists it as answered.
-# Only a turn that a prompt opened has a tool result to take them in at, so answered always holds that prompt's uuid.
+# A turn that a prompt opened has that prompt's uuid in answered already. A turn claude started by itself has none, so
+# its answered list holds only the lines taken in.
 take_in() {
 	for u in $queue; do
 		lifecycle "$u" started
 		answers="$answers $u"
-		answered=${answered%\]}
-		answered="$answered,\"$u\"]"
+		case $answered in
+			'[]') answered='["'"$u"'"]' ;;
+			*)
+				answered=${answered%\]}
+				answered="$answered,\"$u\"]"
+				;;
+		esac
 	done
 	queue=
 }
@@ -402,6 +411,29 @@ bgself() {
 	origin='{"kind":"task-notification","producer":"session-task","runId":"run_fake"}'
 	result_index=1
 	turn_close
+}
+
+# bgselfmid starts a background task, streams a text block and ends the turn while the task runs, as background does. Once
+# fakeclaude.release exists in its directory, the task ends and claude starts a turn by itself, as the task's notification
+# does, with no prompt. That turn makes a Bash tool call and reads the next line from stdin while the call runs, then ends
+# the call with its result, which takes that line in (see tool_fold), so the turn lists that line's uuid as answered. It
+# ends with a done return that carries the task's origin.
+bgselfmid() {
+	turn_open
+	printf '%s\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"task_fake_1","task_type":"local_bash","description":"fake sleep"}],"session_id":"session_1","uuid":"uuid_t1"}'
+	text_block 0 "fake bgselfmid $n" "fake bgselfmid $n"
+	turn_close
+	while [ ! -e fakeclaude.release ]; do
+		sleep 0.05
+	done
+	printf '%s\n' '{"type":"system","subtype":"task_notification","task_id":"task_fake_1","status":"completed","output_file":"fake.output","summary":"fake sleep","session_id":"session_1","uuid":"uuid_t5"}'
+	printf '%s\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[],"session_id":"session_1","uuid":"uuid_t6"}'
+	answered='[]'
+	answers=
+	origin='{"kind":"task-notification","producer":"session-task","runId":"run_fake"}'
+	result_index=1
+	turn_open
+	tool_fold selfmid
 }
 
 # subagent launches a subagent in the background, as an Agent tool call with run_in_background does: its turn makes the
@@ -695,6 +727,7 @@ while next; do
 				*BGEND*) mode=bgend ;;
 				*BGDONE*) mode=bgdone ;;
 				*BGSELFHELD*) mode=bgselfheld ;;
+				*BGSELFMID*) mode=bgselfmid ;;
 				*BGSELF*) mode=bgself ;;
 				*SUBAGENTSELF*) mode=subagentself ;;
 				*SUBAGENT*) mode=subagent ;;
@@ -732,6 +765,7 @@ while next; do
 				bgend) bgend ;;
 				bgdone) bgdone ;;
 				bgselfheld) bgself held ;;
+				bgselfmid) bgselfmid ;;
 				bgself) bgself ;;
 				subagentself) subagent self ;;
 				subagent) subagent ;;

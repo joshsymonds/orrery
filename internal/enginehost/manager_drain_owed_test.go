@@ -11,11 +11,11 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// TestDrainOwesSaySentBeforeStoredTurnEndWhileOldHolderHolds holds a Say while a JUDGEHOLDS turn holds, then releases that
-// turn. The turn's end writes the held Say as the turn after it, so the Say is sent and stored before the restart, and the
-// turn end does not list it. The Say's trigger holds before it opens its turn, so the Say is still owed when the holder is
-// re-adopted one version older. The session stays live, the held reply and its turn end are recorded on the old holder, and
-// the holder stops, so the next Say starts claude with --resume.
+// TestDrainOwesSaySentBeforeStoredTurnEndWhileOldHolderHolds sends a Say while a JUDGEHOLDS turn runs, then releases that
+// turn. The Say is written at once, so it is sent and stored before the turn ends, and the turn reads none of it, so the
+// turn's end leaves it unanswered and claude runs it as the turn after. Its trigger holds before it opens its turn, so the
+// Say is still owed when the holder is re-adopted one version older. The session stays live, the reply and its turn end are
+// recorded on the old holder, and the holder stops, so the next Say starts claude with --resume.
 func TestDrainOwesSaySentBeforeStoredTurnEndWhileOldHolderHolds(t *testing.T) {
 	t.Parallel()
 	rig := newCrashRig(t, nil, false)
@@ -29,11 +29,8 @@ func TestDrainOwesSaySentBeforeStoredTurnEndWhileOldHolderHolds(t *testing.T) {
 	if err := rig.manager.Say(t.Context(), SayRequest{ID: id, Text: "WAITOPEN"}); err != nil {
 		t.Fatalf("Say: %v", err)
 	}
-	if got := heldTexts(t, rig.path, id); !slices.Equal(got, []string{"WAITOPEN"}) {
-		t.Fatalf("held messages during the turn = %q, want [WAITOPEN]", got)
-	}
-	if got := writtenPrompts(t, historyOf(t, rig.path, id)); slices.Contains(got, "WAITOPEN") {
-		t.Fatalf("prompts written during the turn = %q, want the Say held", got)
+	if got := writtenPrompts(t, historyOf(t, rig.path, id)); !slices.Contains(got, "WAITOPEN") {
+		t.Fatalf("prompts written when Say returns = %q, want the Say written at once", got)
 	}
 	releaseHeldTurn(t, dir)
 	waitHistory(
@@ -41,7 +38,7 @@ func TestDrainOwesSaySentBeforeStoredTurnEndWhileOldHolderHolds(t *testing.T) {
 		engineOf(rig.manager),
 		rig.path,
 		id,
-		"the first turn's stored end, with the held Say written after it",
+		"the first turn's stored end, with the Say written before it",
 		func(h store.EngineHistory) bool {
 			return turnEndCount(h) == 1 && slices.Contains(writtenPrompts(t, h), "WAITOPEN")
 		},
@@ -62,7 +59,7 @@ func TestDrainOwesSaySentBeforeStoredTurnEndWhileOldHolderHolds(t *testing.T) {
 		engineOf(rig.manager, restarted),
 		rig.path,
 		id,
-		"the held prompt's reply",
+		"the reply to the Say written before the restart",
 		func(h store.EngineHistory) bool {
 			return h.State == "done" && hasBlock(t, h, "fake reply 2")
 		},
@@ -90,9 +87,10 @@ func TestDrainOwesSaySentBeforeStoredTurnEndWhileOldHolderHolds(t *testing.T) {
 	}
 }
 
-// TestDrainFollowsSaySentBeforeRestartWhileOldHolderRuns holds a Say while a JUDGEHOLDS turn holds, before the restart, and
-// re-adopts the holder one version older. The turn ends with no live process after it, so the holder stops and the Say stays
-// held: the old holder never receives it. The next Say starts the session with --resume, and writes the held Say first.
+// TestDrainFollowsSaySentBeforeRestartWhileOldHolderRuns sends a Say while a JUDGEHOLDS turn runs, before the restart, and
+// re-adopts the holder one version older. The Say is written at once, and the turn reads none of it, so its end leaves the
+// Say unanswered: the old holder runs the Say's turn as the turn after, and only then has no live process after it, so the
+// holder stops. The next Say starts the session with --resume, and writes the earlier Say first.
 func TestDrainFollowsSaySentBeforeRestartWhileOldHolderRuns(t *testing.T) {
 	t.Parallel()
 	rig := newCrashRig(t, nil, false)
@@ -104,7 +102,7 @@ func TestDrainFollowsSaySentBeforeRestartWhileOldHolderRuns(t *testing.T) {
 	pid := fakePID(t, dir)
 	pids := holderPids(t, holderDir(t, rig.root, id))
 	if err := rig.manager.Say(t.Context(), SayRequest{ID: id, Text: "again"}); err != nil {
-		t.Fatalf("Say while the turn holds: %v", err)
+		t.Fatalf("Say while the turn runs: %v", err)
 	}
 
 	restarted, _ := restartDrain(t, rig, rig.store, holder.WireVersion+1)
@@ -121,21 +119,18 @@ func TestDrainFollowsSaySentBeforeRestartWhileOldHolderRuns(t *testing.T) {
 		engineOf(rig.manager, restarted),
 		rig.path,
 		id,
-		"the first turn's end",
+		"the turn's end of the Say the old holder answers",
 		func(h store.EngineHistory) bool {
-			return turnEndCount(h) == 1
+			return turnEndCount(h) == 2 && h.State == "done"
 		},
 	)
 	if slices.Contains(restarted.Live(), id) {
-		t.Fatalf("session %s is live after the drained turn ended, want it retired", id)
+		t.Fatalf("session %s is live after the Say was answered, want it retired", id)
 	}
 	waitHolderEnded(t, pids)
 	gateWaitGone(t, pid)
-	if got := heldTexts(t, rig.path, id); !slices.Equal(got, []string{"again"}) {
-		t.Fatalf("held messages after the holder stopped = %q, want [again] still held", got)
-	}
-	if n := stdinLinesWith(t, dir, "again"); n != 0 {
-		t.Fatalf("stdin lines with the held Say on the old holder = %d, want none", n)
+	if n := stdinLinesWith(t, dir, "again"); n != 1 {
+		t.Fatalf("stdin lines with the Say on the old holder = %d, want it read once", n)
 	}
 	if starts := fakeStarts(t, dir); len(starts) != 1 {
 		t.Fatalf("fake claude starts = %q, want the one start: nothing starts the session", starts)
@@ -171,9 +166,9 @@ func TestDrainFollowsSaySentBeforeRestartWhileOldHolderRuns(t *testing.T) {
 	}
 }
 
-// TestDrainFoldsSaySentBeforeRestartIntoRunningTurn holds a Say while a JUDGEHOLDS turn holds, before the restart, and
-// re-adopts the holder one version older. The Say is never folded into the running turn: the turn ends with no following
-// turn, the holder stops at that turn's end, and the old holder never reads the Say.
+// TestDrainFoldsSaySentBeforeRestartIntoRunningTurn sends a Say while a JUDGEHOLDS turn runs, before the restart, and
+// re-adopts the holder one version older. The turn reads none of the Say, so it is not folded into the running turn: the
+// Say is written at once and claude runs it as the turn after. The holder stops only once that turn ends.
 func TestDrainFoldsSaySentBeforeRestartIntoRunningTurn(t *testing.T) {
 	t.Parallel()
 	rig := newCrashRig(t, nil, false)
@@ -185,7 +180,10 @@ func TestDrainFoldsSaySentBeforeRestartIntoRunningTurn(t *testing.T) {
 	pid := fakePID(t, dir)
 	pids := holderPids(t, holderDir(t, rig.root, id))
 	if err := rig.manager.Say(t.Context(), SayRequest{ID: id, Text: "again"}); err != nil {
-		t.Fatalf("Say while the turn holds: %v", err)
+		t.Fatalf("Say while the turn runs: %v", err)
+	}
+	if got := writtenPrompts(t, historyOf(t, rig.path, id)); !slices.Contains(got, "again") {
+		t.Fatalf("prompts written when Say returns = %q, want the Say written at once", got)
 	}
 
 	restarted, _ := restartDrain(t, rig, rig.store, holder.WireVersion+1)
@@ -202,24 +200,21 @@ func TestDrainFoldsSaySentBeforeRestartIntoRunningTurn(t *testing.T) {
 		engineOf(rig.manager, restarted),
 		rig.path,
 		id,
-		"the first turn's end",
+		"the done state after the Say's turn",
 		func(h store.EngineHistory) bool {
-			return turnEndCount(h) == 1 && h.State == "done"
+			return turnEndCount(h) == 2 && h.State == "done"
 		},
 	)
 	if slices.Contains(restarted.Live(), id) {
-		t.Fatalf("session %s is live after the turn ended, want it retired", id)
+		t.Fatalf("session %s is live after its turns ended, want it retired", id)
 	}
 	waitHolderEnded(t, pids)
 	gateWaitGone(t, pid)
-	if turns := turnEndCount(history); turns != 1 {
-		t.Fatalf("turn ends = %d, want 1: no following turn", turns)
+	if turns := turnEndCount(history); turns != 2 {
+		t.Fatalf("turn ends = %d, want 2: the running turn, then the Say's turn", turns)
 	}
-	if got := heldTexts(t, rig.path, id); !slices.Equal(got, []string{"again"}) {
-		t.Fatalf("held messages = %q, want [again] still held", got)
-	}
-	if n := stdinLinesWith(t, dir, "again"); n != 0 {
-		t.Fatalf("stdin lines with the held Say on the old holder = %d, want none", n)
+	if n := stdinLinesWith(t, dir, "again"); n != 1 {
+		t.Fatalf("stdin lines with the Say on the old holder = %d, want it read once", n)
 	}
 	if starts := fakeStarts(t, dir); len(starts) != 1 {
 		t.Fatalf("fake claude starts = %q, want the one start", starts)

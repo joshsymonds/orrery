@@ -10,6 +10,25 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
+// writtenPrompts returns the text of each prompt the session wrote, in order: the engine_prompt events of history.
+func writtenPrompts(t *testing.T, history store.EngineHistory) []string {
+	t.Helper()
+	var texts []string
+	for _, event := range history.Events {
+		if event.Kind != store.EventEnginePrompt {
+			continue
+		}
+		var payload struct {
+			Text string `json:"text"`
+		}
+		if err := json.Unmarshal([]byte(event.Payload), &payload); err != nil {
+			t.Fatalf("decode prompt payload %q: %v", event.Payload, err)
+		}
+		texts = append(texts, payload.Text)
+	}
+	return texts
+}
+
 // turnEndCount returns how many engine_turn_ended events history holds.
 func turnEndCount(history store.EngineHistory) int {
 	n := 0
@@ -46,11 +65,12 @@ func doneBetweenTurnEnds(t *testing.T, history store.EngineHistory) bool {
 	return false
 }
 
-// TestQueuedPromptKeepsTheSessionWorkingUntilItsTurnEnds sends a prompt while a JUDGEHOLDS turn holds. The prompt is held
-// until that turn ends, and then it is written as the turn after, so claude runs it next. That prompt plays WAITOPEN, which
-// holds before it opens its turn, so the first turn's end is stored while the queued turn is held: the session reads
-// working. Once the queued turn opens and ends, the session is done, with no done recorded between the two turn ends, and the
-// owner's first notice is the queued turn's done, carrying its reply, with none for the first turn's end before it.
+// TestQueuedPromptKeepsTheSessionWorkingUntilItsTurnEnds sends a prompt while a JUDGEHOLDS turn runs. The prompt is written
+// at once, and the turn reads none of it, so the turn's end leaves it unanswered and claude runs it as the turn after. That
+// prompt plays WAITOPEN, which holds before it opens its turn, so the first turn's end is stored while the queued turn is
+// still unanswered: the session reads working. Once the queued turn opens and ends, the session is done, with no done
+// recorded between the two turn ends, and the owner's first notice is the queued turn's done, carrying its reply, with none
+// for the first turn's end before it.
 func TestQueuedPromptKeepsTheSessionWorkingUntilItsTurnEnds(t *testing.T) {
 	t.Parallel()
 	sink := &fakeSink{}
@@ -62,13 +82,10 @@ func TestQueuedPromptKeepsTheSessionWorkingUntilItsTurnEnds(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 	if err = m.Say(t.Context(), SayRequest{ID: id, Text: "WAITOPEN"}); err != nil {
-		t.Fatalf("Say during the held turn: %v", err)
+		t.Fatalf("Say during the running turn: %v", err)
 	}
-	if got := heldTexts(t, path, id); !slices.Equal(got, []string{"WAITOPEN"}) {
-		t.Fatalf("held messages during the turn = %q, want [WAITOPEN]", got)
-	}
-	if got := writtenPrompts(t, historyOf(t, path, id)); slices.Contains(got, "WAITOPEN") {
-		t.Fatalf("prompts written during the turn = %q, want the queued prompt held", got)
+	if got := writtenPrompts(t, historyOf(t, path, id)); !slices.Contains(got, "WAITOPEN") {
+		t.Fatalf("prompts written when Say returns = %q, want the Say written at once", got)
 	}
 
 	releaseHeldTurn(t, dir)

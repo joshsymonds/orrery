@@ -440,3 +440,39 @@ func TestFakeClaudeQueueLifecyclePlainInterrupt(t *testing.T) {
 		t.Fatalf("trace = %q, want %q", got, want)
 	}
 }
+
+// TestFakeClaudeSelfTurnTakesInQueuedLine checks that a BGSELFMID prompt plays the turn claude starts by itself once its
+// background task ends: the turn reads the next line from stdin during its Bash call, takes that line in with the call's
+// result, and its result lists that line's uuid alone, since no prompt opened the turn.
+func TestFakeClaudeSelfTurnTakesInQueuedLine(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "fakeclaude.release"), nil, 0o600); err != nil {
+		t.Fatalf("write fakeclaude.release: %v", err)
+	}
+	lines := fakeClaudeRunIn(t, dir, queuedLine("prompt-a", "BGSELFMID")+queuedLine("prompt-b", "owner words"))
+
+	want := []string{
+		"queued prompt-a", "started prompt-a", "completed prompt-a", "result success is_error=false",
+		"queued prompt-b", "tool_result", "started prompt-b", "completed prompt-b", "result success is_error=false",
+	}
+	if got := queueTrace(t, lines); !reflect.DeepEqual(got, want) {
+		t.Fatalf("trace = %q, want %q", got, want)
+	}
+	var answered [][]string
+	for _, line := range lines {
+		var result struct {
+			Type             string   `json:"type"`
+			UserMessageUUIDs []string `json:"user_message_uuids"`
+		}
+		if err := json.Unmarshal([]byte(line), &result); err != nil {
+			t.Fatalf("decode fake claude line %q: %v", line, err)
+		}
+		if result.Type == "result" {
+			answered = append(answered, result.UserMessageUUIDs)
+		}
+	}
+	if wantAnswered := [][]string{{"prompt-a"}, {"prompt-b"}}; !reflect.DeepEqual(answered, wantAnswered) {
+		t.Fatalf("results list answered = %q, want %q", answered, wantAnswered)
+	}
+}
