@@ -3,6 +3,7 @@ package enginehost
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -228,5 +229,214 @@ func TestFakeClaudeStdinLogsAnswers(t *testing.T) {
 				t.Fatalf("fake stdin log = %q, want %q", stdin, input)
 			}
 		})
+	}
+}
+
+// queuedLine is one user prompt line that carries uuid, as the engine host writes a prompt with its write id.
+func queuedLine(uuid, text string) string {
+	return `{"type":"user","message":{"role":"user","content":"` + text + `"},"uuid":"` + uuid + `"}` + "\n"
+}
+
+// cancelRequest is the cancel_async_message control request under request id req for the message under uuid.
+func cancelRequest(req, uuid string) string {
+	return `{"type":"control_request","request_id":"` + req +
+		`","request":{"subtype":"cancel_async_message","message_uuid":"` + uuid + `"}}` + "\n"
+}
+
+// interruptRequest is the interrupt control request under request id req, with cancel_queued set when cancelQueued is.
+func interruptRequest(req string, cancelQueued bool) string {
+	request := `{"subtype":"interrupt"`
+	if cancelQueued {
+		request += `,"cancel_queued":true`
+	}
+	return `{"type":"control_request","request_id":"` + req + `","request":` + request + `}}` + "\n"
+}
+
+// queueTrace returns one token for each line of the fake's output that the queue tests follow: "<state> <uuid>" for a
+// command_lifecycle line, "control <request_id> <response>" for a control_response, "tool_result" for a user line that
+// carries a tool result, and "result <subtype> is_error=<is_error>" for a result line. Other lines have no token.
+func queueTrace(t *testing.T, lines []string) []string {
+	t.Helper()
+	var trace []string
+	for _, line := range lines {
+		var head struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal([]byte(line), &head); err != nil {
+			t.Fatalf("stdout line is not JSON: %v\n%s", err, line)
+		}
+		switch head.Type {
+		case "command_lifecycle":
+			var lifecycle struct {
+				CommandUUID string `json:"command_uuid"`
+				State       string `json:"state"`
+			}
+			if err := json.Unmarshal([]byte(line), &lifecycle); err != nil {
+				t.Fatalf("command_lifecycle line does not parse: %v\n%s", err, line)
+			}
+			trace = append(trace, lifecycle.State+" "+lifecycle.CommandUUID)
+		case "control_response":
+			var control struct {
+				Response struct {
+					RequestID string          `json:"request_id"`
+					Payload   json.RawMessage `json:"response"`
+				} `json:"response"`
+			}
+			if err := json.Unmarshal([]byte(line), &control); err != nil {
+				t.Fatalf("control_response line does not parse: %v\n%s", err, line)
+			}
+			trace = append(trace, "control "+control.Response.RequestID+" "+string(control.Response.Payload))
+		case "user":
+			if strings.Contains(line, `"type":"tool_result"`) {
+				trace = append(trace, "tool_result")
+			}
+		case "result":
+			var result struct {
+				Subtype string `json:"subtype"`
+				IsError bool   `json:"is_error"`
+			}
+			if err := json.Unmarshal([]byte(line), &result); err != nil {
+				t.Fatalf("result line does not parse: %v\n%s", err, line)
+			}
+			trace = append(trace, fmt.Sprintf("result %s is_error=%t", result.Subtype, result.IsError))
+		}
+	}
+	return trace
+}
+
+// resultUUIDs returns the user_message_uuids of the result line in lines.
+func resultUUIDs(t *testing.T, lines []string) []string {
+	t.Helper()
+	for _, line := range lines {
+		var result struct {
+			Type             string   `json:"type"`
+			UserMessageUUIDs []string `json:"user_message_uuids"`
+		}
+		if err := json.Unmarshal([]byte(line), &result); err != nil {
+			t.Fatalf("stdout line is not JSON: %v\n%s", err, line)
+		}
+		if result.Type == "result" {
+			return result.UserMessageUUIDs
+		}
+	}
+	t.Fatal("stdout has no result line")
+	return nil
+}
+
+// TestFakeClaudeQueueLifecycleIdle checks that a prompt read while idle is queued as it is read, started as its turn
+// opens and completed just before the turn's result, and that its queued line decodes as a command_lifecycle message.
+func TestFakeClaudeQueueLifecycleIdle(t *testing.T) {
+	t.Parallel()
+	_, lines := fakeClaudeRun(t, queuedLine("queue-a", "plain one"))
+	want := []string{"queued queue-a", "started queue-a", "completed queue-a", "result success is_error=false"}
+	if got := queueTrace(t, lines); !reflect.DeepEqual(got, want) {
+		t.Fatalf("trace = %q, want %q", got, want)
+	}
+	variants := decodeVariants(t, lines)
+	if _, ok := variants[0].(wire.SDKCommandLifecycleMessage); !ok {
+		t.Fatalf("first line decodes as %T, want a command_lifecycle message", variants[0])
+	}
+}
+
+// TestFakeClaudeQueueLifecycleFolds checks that a prompt read while a turn runs stays queued until the turn's next tool
+// result takes it in: it is started there, and the turn lists it among the uuids it answers. MIDTURN makes its tool call
+// as its turn opens. FOLD waits for fakeclaude.release, which the test creates before the run, and then makes its tool
+// call.
+func TestFakeClaudeQueueLifecycleFolds(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name   string
+		prompt string
+	}{
+		{"midturn", "MIDTURN one"},
+		{"fold", "FOLD one"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, "fakeclaude.release"), nil, 0o600); err != nil {
+				t.Fatalf("write fakeclaude.release: %v", err)
+			}
+			lines := fakeClaudeRunIn(t, dir, queuedLine("queue-a", tc.prompt)+queuedLine("queue-b", "plain two"))
+			want := []string{
+				"queued queue-a", "started queue-a", "queued queue-b", "tool_result", "started queue-b",
+				"completed queue-a", "completed queue-b", "result success is_error=false",
+			}
+			if got := queueTrace(t, lines); !reflect.DeepEqual(got, want) {
+				t.Fatalf("trace = %q, want %q", got, want)
+			}
+			if got := resultUUIDs(t, lines); !reflect.DeepEqual(got, []string{"queue-a", "queue-b"}) {
+				t.Fatalf("result answers %q, want [queue-a queue-b]", got)
+			}
+		})
+	}
+}
+
+// TestFakeClaudeQueueLifecycleWaitOpen checks that a WAITOPEN prompt writes its queued line once fakeclaude.open exists,
+// then opens its turn as any prompt does. The test creates fakeclaude.open before the run, so the fake does not wait.
+func TestFakeClaudeQueueLifecycleWaitOpen(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "fakeclaude.open"), nil, 0o600); err != nil {
+		t.Fatalf("write fakeclaude.open: %v", err)
+	}
+	lines := fakeClaudeRunIn(t, dir, queuedLine("queue-a", "WAITOPEN one"))
+	want := []string{"queued queue-a", "started queue-a", "completed queue-a", "result success is_error=false"}
+	if got := queueTrace(t, lines); !reflect.DeepEqual(got, want) {
+		t.Fatalf("trace = %q, want %q", got, want)
+	}
+}
+
+// TestFakeClaudeQueueLifecycleCancelAsync checks that a cancel_async_message for a queued prompt writes its cancelled
+// lifecycle line and answers true, and that the prompt is never started. A cancel for a started prompt answers false
+// and writes no lifecycle line.
+func TestFakeClaudeQueueLifecycleCancelAsync(t *testing.T) {
+	t.Parallel()
+	input := queuedLine("queue-a", "HANG one") + queuedLine("queue-b", "plain two") +
+		cancelRequest("req-b", "queue-b") + cancelRequest("req-a", "queue-a") + interruptRequest("req-int", false)
+	_, lines := fakeClaudeRun(t, input)
+	want := []string{
+		"queued queue-a", "started queue-a", "queued queue-b",
+		"cancelled queue-b", `control req-b {"cancelled":true}`,
+		`control req-a {"cancelled":false}`,
+		"result error_during_execution is_error=true",
+	}
+	if got := queueTrace(t, lines); !reflect.DeepEqual(got, want) {
+		t.Fatalf("trace = %q, want %q", got, want)
+	}
+}
+
+// TestFakeClaudeQueueLifecycleCancelQueued checks that an interrupt with cancel_queued cancels each queued prompt in
+// the order it was read, answers with that list, ends the turn with its error result, and then cancels the opening
+// prompt.
+func TestFakeClaudeQueueLifecycleCancelQueued(t *testing.T) {
+	t.Parallel()
+	input := queuedLine("queue-a", "HANG one") + queuedLine("queue-b", "plain two") +
+		queuedLine("queue-c", "plain three") + interruptRequest("req-int", true)
+	_, lines := fakeClaudeRun(t, input)
+	want := []string{
+		"queued queue-a", "started queue-a", "queued queue-b", "queued queue-c",
+		"cancelled queue-b", "cancelled queue-c",
+		`control req-int {"still_queued":[],"cancelled":["queue-b","queue-c"]}`,
+		"result error_during_execution is_error=true",
+		"cancelled queue-a",
+	}
+	if got := queueTrace(t, lines); !reflect.DeepEqual(got, want) {
+		t.Fatalf("trace = %q, want %q", got, want)
+	}
+}
+
+// TestFakeClaudeQueueLifecyclePlainInterrupt checks that an interrupt without cancel_queued writes no command_lifecycle
+// line after it: the queued prompt stays queued, and the opening prompt gets no line after the error result.
+func TestFakeClaudeQueueLifecyclePlainInterrupt(t *testing.T) {
+	t.Parallel()
+	input := queuedLine("queue-a", "HANG one") + queuedLine("queue-b", "plain two") + interruptRequest("req-int", false)
+	_, lines := fakeClaudeRun(t, input)
+	want := []string{
+		"queued queue-a", "started queue-a", "queued queue-b", "result error_during_execution is_error=true",
+	}
+	if got := queueTrace(t, lines); !reflect.DeepEqual(got, want) {
+		t.Fatalf("trace = %q, want %q", got, want)
 	}
 }

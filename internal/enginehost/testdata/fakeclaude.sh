@@ -22,8 +22,9 @@
 # structured output is that commit as done, READDONE waits as STEPDONE does and ends with a success result whose
 # structured output is done with no commit, as a read-only step's return is, JUDGEHOLDS waits until fakeclaude.release exists in its directory and ends
 # with a success result whose structured output holds the one assertion JUDGEHOLDS, FOLD waits until fakeclaude.release
-# exists in its directory, then folds the next line it reads from stdin into its turn: the turn streams one text block
-# and ends with a success result that lists the uuids of both prompts as answered, WAITOPEN waits until fakeclaude.open
+# exists in its directory, then folds the next line it reads from stdin into its turn at a Bash tool result (see
+# tool_fold): the turn streams one text block and ends with a success result that lists the uuids of both prompts as
+# answered, WAITOPEN waits until fakeclaude.open
 # exists in its directory before it opens its turn, then answers as any other prompt does, DAEMON starts a daemon with
 # its stdio closed that it leaves running, as ssh leaves a ControlPersist master, which writes its pid to
 # fakeclaude.daemon in its directory, and answers as any other prompt does once that pid is written, GRADLE runs
@@ -33,14 +34,26 @@
 # saying "You've hit your limit"), LIMITNORESET plays that turn without the rate_limit_event, and any other prompt
 # streams "fake reply n". The turns reproduce the stream lines captured from the real CLI, with only text, ids and the
 # session id changed. Each turn lists in user_message_uuids the uuids of the prompts it answers: the uuid of the prompt
-# that opened it, and for FOLD the uuid of the folded message too. Every line it reads from stdin, prompts and answers
-# alike, is appended to fakeclaude.stdin as it is read. It exits at stdin EOF.
+# that opened it, and for FOLD and MIDTURN the uuid of the folded message too. Every line it reads from stdin, prompts
+# and answers alike, is appended to fakeclaude.stdin as it is read. It exits at stdin EOF.
 # RELEASEDONE waits until fakeclaude.release exists in its directory, makes an empty commit there and ends with a success
 # result whose structured output returns that commit as a release step's one commit, with its evidence. JUDGERELEASED
 # waits as JUDGEHOLDS does and ends with a success result that releases the epic, with no uncovered postcondition.
 # When fakeclaude.next exists in its directory as a prompt arrives, the contents of that file are matched in place of
 # the prompt's text for that prompt, and the file is removed, so a test can choose what a later prompt, such as a
 # resume, plays.
+#
+# MIDTURN opens a turn with a Bash tool call, reads the next line from stdin while the turn runs, then ends the tool
+# call with its result, which takes that line in, and streams one text block (see tool_fold).
+#
+# Each user line that carries a uuid gets command_lifecycle lines as Claude Code writes them: queued as it is read, and
+# started as its turn opens. A WAITOPEN prompt is the exception: it is queued once fakeclaude.open exists, since it
+# writes nothing until then. A line read while a turn runs stays queued until that turn's next tool result takes it in:
+# it is started there and listed in the turn's user_message_uuids. A turn that ends normally writes completed for each
+# uuid it answers, just before its result. A cancel_async_message request cancels a queued line, writing cancelled
+# before {"cancelled":true}; for any other line it answers {"cancelled":false} and writes nothing. An interrupt with
+# cancel_queued cancels every queued line, answers with the list, ends the turn with its error result, then cancels the
+# opening line. A plain interrupt writes no lifecycle line.
 #
 # Its init line lists the --agent it was given, or nothing when it was given none. A prompt that contains NOAGENT gets an
 # init line that lists nothing, as a claude that did not load the agent would.
@@ -92,9 +105,88 @@ next() {
 	printf '%s\n' "$line" >> fakeclaude.stdin
 }
 
+# next_turn reads one stdin line while a turn runs, as next does. A user line that carries a uuid is queued: its queued
+# line is written now, and it waits in queue until the turn's next tool result takes it in. A cancel_async_message
+# request is answered by cancel_async.
+next_turn() {
+	next || return 1
+	case $line in
+		*'"type":"user"'*)
+			line_uuid
+			if [ -n "$line_uuid" ]; then
+				lifecycle "$line_uuid" queued
+				queue="$queue $line_uuid"
+			fi
+			;;
+		*'"cancel_async_message"'*) cancel_async ;;
+	esac
+}
+
+# lifecycle UUID STATE: the command_lifecycle line that reports STATE for the prompt under UUID.
+lifecycle() {
+	printf '%s\n' '{"type":"command_lifecycle","command_uuid":"'"$1"'","state":"'"$2"'","session_id":"session_1"}'
+}
+
+# take_in takes in the queued lines, in the order they were read: each is started, and the turn lists it as answered.
+# Only a turn that a prompt opened has a tool result to take them in at, so answered always holds that prompt's uuid.
+take_in() {
+	for u in $queue; do
+		lifecycle "$u" started
+		answers="$answers $u"
+		answered=${answered%\]}
+		answered="$answered,\"$u\"]"
+	done
+	queue=
+}
+
+# cancel_async answers the cancel_async_message request in line. A message still queued is cancelled, its cancelled
+# lifecycle line written first, and never started. Any other message is not cancelled, and writes no lifecycle line.
+cancel_async() {
+	message=${line#*'"message_uuid":"'}
+	message=${message%%'"'*}
+	cancelled=false
+	kept=
+	for u in $queue; do
+		if [ "$u" = "$message" ]; then
+			cancelled=true
+			lifecycle "$u" cancelled
+		else
+			kept="$kept $u"
+		fi
+	done
+	queue=$kept
+	control_success '{"cancelled":'"$cancelled"'}'
+}
+
+# cancel_queued cancels every queued line, in the order it was read, and answers the interrupt in line with the list.
+cancel_queued() {
+	cancelled_list=
+	sep=
+	for u in $queue; do
+		lifecycle "$u" cancelled
+		cancelled_list="$cancelled_list$sep\"$u\""
+		sep=,
+	done
+	queue=
+	control_success '{"still_queued":[],"cancelled":['"$cancelled_list"']}'
+}
+
+# control_success PAYLOAD: the success control_response to the request in line, holding PAYLOAD as its response.
+control_success() {
+	request_id=${line#*'"request_id":"'}
+	request_id=${request_id%%'"'*}
+	printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"'"$request_id"'","response":'"$1"'}}'
+}
+
 # turn_open starts a turn: the system init, the status and the message start. The init lists $agent, or nothing when
-# omit_agent is set for the prompt that opened the turn, and lists the tools in $tools.
+# omit_agent is set for the prompt that opened the turn, and lists the tools in $tools. The prompt that opened the turn
+# is the first of the uuids in answers, and it is started as the turn opens.
 turn_open() {
+	opening=${answers# }
+	opening=${opening%% *}
+	if [ -n "$opening" ]; then
+		lifecycle "$opening" started
+	fi
 	agents='[]'
 	if [ -n "$agent" ] && [ -z "$omit_agent" ]; then
 		agents='["'"$agent"'"]'
@@ -104,14 +196,17 @@ turn_open() {
 	printf '%s\n' '{"type":"stream_event","event":{"type":"message_start","message":{"model":"claude-haiku-5-5","id":"msg_1","type":"message","role":"assistant","content":[],"container":null,"stop_reason":null,"stop_sequence":null,"stop_details":null,"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":0},"output_tokens":0,"service_tier":"redacted","inference_geo":"redacted","speed":"redacted"},"input_transformations":[],"diagnostics":null,"context_management":null}},"session_id":"session_1","parent_tool_use_id":null,"uuid":"uuid_6","ttft_ms":0,"thinking_display":"redacted","api_message_id":"redacted","user_message_uuid":"uuid_1","user_message_uuids":'"$answered"'}'
 }
 
-# turn_close ends a completed turn: the message delta, the message stop and the success result. The result carries
-# structured_output set to the JSON in structured when structured is set and structured_tool is set, which it is only
-# when StructuredOutput is among the listed tools, and origin set to the JSON in origin when origin is set. Its
-# result_index is result_index, 0 by default. Its is_error and result come from the variables is_error and result_text,
-# which each prompt sets to false and redacted by default.
+# turn_close ends a completed turn: the message delta, the message stop, a completed line for each uuid in answers and
+# the success result. The result carries structured_output set to the JSON in structured when structured is set and
+# structured_tool is set, which it is only when StructuredOutput is among the listed tools, and origin set to the JSON
+# in origin when origin is set. Its result_index is result_index, 0 by default. Its is_error and result come from the
+# variables is_error and result_text, which each prompt sets to false and redacted by default.
 turn_close() {
 	printf '%s\n' '{"type":"stream_event","event":{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null,"stop_details":null,"container":null},"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0,"output_tokens_details":{"thinking_tokens":0},"iterations":[{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":0},"type":"redacted"}]},"context_management":{"applied_edits":[]}},"session_id":"session_1","parent_tool_use_id":null,"uuid":"uuid_11","api_message_id":"redacted"}'
 	printf '%s\n' '{"type":"stream_event","event":{"type":"message_stop"},"session_id":"session_1","parent_tool_use_id":null,"uuid":"uuid_12","api_message_id":"redacted"}'
+	for u in $answers; do
+		lifecycle "$u" completed
+	done
 	printf '%s' '{'
 	if [ -n "$structured" ] && [ -n "$structured_tool" ]; then
 		printf '%s' '"structured_output":'"$structured"','
@@ -146,8 +241,9 @@ limit() {
 ask() {
 	turn_open
 	printf '%s\n' '{"type":"control_request","request_id":"ask-'"$n"'","request":{"subtype":"can_use_tool","tool_name":"AskUserQuestion","display_name":"AskUserQuestion","input":{"questions":[{"question":"Which color?","header":"Color","options":[{"label":"red","description":"red"},{"label":"blue","description":"blue"}],"multiSelect":false}]},"tool_use_id":"toolu_ask_'"$n"'","requires_user_interaction":true}}'
-	next
+	next_turn
 	printf '%s\n' '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"Which color? red","tool_use_id":"toolu_ask_'"$n"'"}]},"parent_tool_use_id":null,"session_id":"session_1","uuid":"uuid_26","timestamp":"redacted","tool_use_result":{"questions":[{"question":"Which color?","header":"Color","options":[{"label":"red","description":"red"},{"label":"blue","description":"blue"}],"multiSelect":false}],"answers":{"Which color?":"red"}},"tool_result_meta":[{"id":"redacted","permission_decision":{"decision":"allow","source":"redacted"}}]}'
+	take_in
 	text_block 0 "fake answered $n" "fake answered $n"
 	turn_close
 }
@@ -156,7 +252,7 @@ ask() {
 permit() {
 	turn_open
 	printf '%s\n' '{"type":"control_request","request_id":"permit-'"$n"'","request":{"subtype":"can_use_tool","tool_name":"Write","display_name":"Write","input":{"file_path":"fake.txt","content":"fake"},"description":"write fake.txt","permission_suggestions":[{"type":"setMode","mode":"acceptEdits","destination":"session"}],"tool_use_id":"toolu_permit_'"$n"'"}}'
-	next
+	next_turn
 	case $line in
 		*'"behavior":"allow"'*) text_block 0 "fake allowed $n" "fake allowed $n" ;;
 		*) text_block 0 "fake denied $n" "fake denied $n" ;;
@@ -171,14 +267,27 @@ hang() {
 	await_interrupt
 }
 
-# await_interrupt reads stdin until an interrupt, then ends the open turn with the error result an interrupt gives.
+# await_interrupt reads stdin until an interrupt, then ends the open turn with the error result an interrupt gives. An
+# interrupt with cancel_queued cancels the queued lines before that result, and the opening line after it.
 await_interrupt() {
-	while next; do
+	cancel=
+	while next_turn; do
 		case $line in
-			*'"subtype":"interrupt"'*) break ;;
+			*'"subtype":"interrupt"'*)
+				case $line in
+					*'"cancel_queued":true'*) cancel=1 ;;
+				esac
+				break
+				;;
 		esac
 	done
+	if [ -n "$cancel" ]; then
+		cancel_queued
+	fi
 	printf '%s\n' '{"duration_api_ms":0,"stop_reason":null,"session_id":"session_1","total_cost_usd":0,"usage":{"output_tokens_details":{"thinking_tokens":0},"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0,"server_tool_use":{"web_search_requests":0,"web_fetch_requests":0},"service_tier":"redacted","cache_creation":{"ephemeral_1h_input_tokens":0,"ephemeral_5m_input_tokens":0},"inference_geo":"redacted","iterations":[],"speed":"redacted","fallback_credit":null},"modelUsage":{},"permission_denials":[],"terminal_reason":"aborted_streaming","fast_mode_state":"redacted","fast_mode_disabled_reason":"redacted","subagent_stats":{"spawned":0,"requested":{"background":0,"foreground":0,"unset":0},"started_in_background":0,"max_depth":0,"spawned_by_subagents":0,"completed":0,"failed":0,"killed":{"parent":0,"user":0,"system":0},"refused":{"depth_limit":0,"concurrency_limit":0,"budget":0},"by_type":{}},"safety_stops":0,"is_error":true,"num_turns":2,"subtype":"error_during_execution","errors":["redacted"],"user_message_uuid":"uuid_1","type":"result","duration_ms":0,"uuid":"uuid_14","user_message_uuids":'"$answered"',"queued_turn_count":0,"result_index":0,"model_usage_since_last_result":{}}'
+	if [ -n "$cancel" ] && [ -n "$opening" ]; then
+		lifecycle "$opening" cancelled
+	fi
 }
 
 # flood streams 50 finished text blocks and ends the turn.
@@ -229,7 +338,7 @@ stall() {
 	turn_open
 	printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}},"session_id":"session_1","parent_tool_use_id":null,"uuid":"uuid_7","api_message_id":"redacted"}'
 	printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"fake stalling '"$n"'"}},"session_id":"session_1","parent_tool_use_id":null,"uuid":"uuid_8","api_message_id":"redacted"}'
-	while next; do
+	while next_turn; do
 		:
 	done
 }
@@ -281,6 +390,7 @@ bgself() {
 	printf '%s\n' '{"type":"system","subtype":"task_notification","task_id":"task_fake_1","status":"completed","output_file":"fake.output","summary":"fake sleep","session_id":"session_1","uuid":"uuid_t5"}'
 	printf '%s\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"task_fake_2","task_type":"local_bash","description":"fake sleep"}],"session_id":"session_1","uuid":"uuid_t6"}'
 	answered='[]'
+	answers=
 	turn_open
 	text_block 0 "fake self $n" "fake self $n"
 	if [ -n "$held" ]; then
@@ -321,6 +431,7 @@ subagent() {
 	done
 	printf '%s\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[],"session_id":"session_1","uuid":"uuid_t6"}'
 	answered='[]'
+	answers=
 	turn_open
 	text_block 0 "fake notified $n" "fake notified $n"
 	await_interrupt
@@ -410,25 +521,43 @@ judgereleased() {
 	turn_close
 }
 
-# fold waits until fakeclaude.release exists in its directory, then reads the next line from stdin and folds its prompt
-# into the turn. The turn streams one text block and ends with a success result that lists both uuids as answered.
+# fold waits until fakeclaude.release exists in its directory, then folds the next line it reads from stdin into its
+# turn with tool_fold, so the turn streams one text block and ends with a success result that lists both uuids as
+# answered.
 fold() {
 	turn_open
 	while [ ! -e fakeclaude.release ]; do
 		sleep 0.05
 	done
-	next
-	line_uuid
-	answered='["'"$uuid"'","'"$line_uuid"'"]'
-	text_block 0 "fake fold $n" "fake fold $n"
+	tool_fold fold
+}
+
+# midturn opens a turn and folds the next line it reads from stdin into it with tool_fold.
+midturn() {
+	turn_open
+	tool_fold midturn
+}
+
+# tool_fold WORD makes a Bash tool call, reads the next line from stdin while the call runs, then ends the call with its
+# result, which takes that line in, and streams one text block "fake WORD n" before the turn ends.
+tool_fold() {
+	assistant_line '{"type":"tool_use","id":"toolu_'"$1"'_'"$n"'","name":"Bash","input":{"command":"fake"}}'
+	next_turn
+	printf '%s\n' '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"fake '"$1"' '"$n"'","tool_use_id":"toolu_'"$1"'_'"$n"'"}]},"parent_tool_use_id":null,"session_id":"session_1","uuid":"uuid_27","timestamp":"redacted"}'
+	take_in
+	text_block 0 "fake $1 $n" "fake $1 $n"
 	turn_close
 }
 
-# waitopen waits until fakeclaude.open exists in its directory before it opens its turn, then answers as reply does.
+# waitopen writes nothing, its queued line included, until fakeclaude.open exists in its directory. Then it writes the
+# queued line of the prompt that opens its turn, and answers as reply does.
 waitopen() {
 	while [ ! -e fakeclaude.open ]; do
 		sleep 0.05
 	done
+	if [ -n "$uuid" ]; then
+		lifecycle "$uuid" queued
+	fi
 	reply
 }
 
@@ -519,6 +648,8 @@ case $tools in
 esac
 n=0
 parent=null
+queue=
+answers=
 if [ -n "$resume" ]; then
 	if [ "$resume" != session_1 ]; then
 		echo "fake claude: no conversation with id $resume" >&2
@@ -534,6 +665,7 @@ while next; do
 			line_uuid
 			uuid=$line_uuid
 			answered='["'"$uuid"'"]'
+			answers=$uuid
 			prompt=$line
 			if [ -e fakeclaude.next ]; then
 				prompt=$(cat fakeclaude.next)
@@ -549,37 +681,76 @@ while next; do
 			is_error=false
 			result_text=redacted
 			case $prompt in
-				*TASKS*) tasks ;;
-				*ASK*) ask ;;
-				*PERMIT*) permit ;;
-				*HANG*) hang ;;
-				*FLOOD*) flood ;;
-				*TRICKLEHELD*) trickle held ;;
-				*TRICKLE*) trickle ;;
-				*STALL*) stall ;;
-				*TERMPROOF*) termproof ;;
-				*DIE*) die ;;
-				*BACKGROUND*) background ;;
-				*BGEND*) bgend ;;
-				*BGDONE*) bgdone ;;
-				*BGSELFHELD*) bgself held ;;
-				*BGSELF*) bgself ;;
-				*SUBAGENTSELF*) subagent self ;;
-				*SUBAGENT*) subagent ;;
-				*PAIR*) pair ;;
-				*READDONE*) readdone ;;
-				*STEPDONE*) stepdone ;;
-				*JUDGEHOLDS*) judgeholds ;;
-				*JUDGERELEASED*) judgereleased ;;
-				*RELEASEDONE*) releasedone ;;
-				*FOLD*) fold ;;
-				*WAITOPEN*) waitopen ;;
-				*LIMITNORESET*) limit noreset ;;
-				*LIMIT*) limit ;;
-				*DAEMON*) daemon ;;
-				*GRADLE*) gradle_build ;;
-				*) reply ;;
+				*TASKS*) mode=tasks ;;
+				*ASK*) mode=ask ;;
+				*PERMIT*) mode=permit ;;
+				*HANG*) mode=hang ;;
+				*FLOOD*) mode=flood ;;
+				*TRICKLEHELD*) mode=trickleheld ;;
+				*TRICKLE*) mode=trickle ;;
+				*STALL*) mode=stall ;;
+				*TERMPROOF*) mode=termproof ;;
+				*DIE*) mode=die ;;
+				*BACKGROUND*) mode=background ;;
+				*BGEND*) mode=bgend ;;
+				*BGDONE*) mode=bgdone ;;
+				*BGSELFHELD*) mode=bgselfheld ;;
+				*BGSELF*) mode=bgself ;;
+				*SUBAGENTSELF*) mode=subagentself ;;
+				*SUBAGENT*) mode=subagent ;;
+				*PAIR*) mode=pair ;;
+				*READDONE*) mode=readdone ;;
+				*STEPDONE*) mode=stepdone ;;
+				*JUDGEHOLDS*) mode=judgeholds ;;
+				*JUDGERELEASED*) mode=judgereleased ;;
+				*RELEASEDONE*) mode=releasedone ;;
+				*FOLD*) mode=fold ;;
+				*MIDTURN*) mode=midturn ;;
+				*WAITOPEN*) mode=waitopen ;;
+				*LIMITNORESET*) mode=limitnoreset ;;
+				*LIMIT*) mode=limit ;;
+				*DAEMON*) mode=daemon ;;
+				*GRADLE*) mode=gradle ;;
+				*) mode=reply ;;
+			esac
+			# A prompt that plays WAITOPEN writes its queued line from waitopen, once fakeclaude.open exists.
+			if [ -n "$uuid" ] && [ "$mode" != waitopen ]; then
+				lifecycle "$uuid" queued
+			fi
+			case $mode in
+				tasks) tasks ;;
+				ask) ask ;;
+				permit) permit ;;
+				hang) hang ;;
+				flood) flood ;;
+				trickleheld) trickle held ;;
+				trickle) trickle ;;
+				stall) stall ;;
+				termproof) termproof ;;
+				die) die ;;
+				background) background ;;
+				bgend) bgend ;;
+				bgdone) bgdone ;;
+				bgselfheld) bgself held ;;
+				bgself) bgself ;;
+				subagentself) subagent self ;;
+				subagent) subagent ;;
+				pair) pair ;;
+				readdone) readdone ;;
+				stepdone) stepdone ;;
+				judgeholds) judgeholds ;;
+				judgereleased) judgereleased ;;
+				releasedone) releasedone ;;
+				fold) fold ;;
+				midturn) midturn ;;
+				waitopen) waitopen ;;
+				limitnoreset) limit noreset ;;
+				limit) limit ;;
+				daemon) daemon ;;
+				gradle) gradle_build ;;
+				reply) reply ;;
 			esac
 			;;
+		*'"cancel_async_message"'*) cancel_async ;;
 	esac
 done
