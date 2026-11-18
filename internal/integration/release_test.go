@@ -40,11 +40,13 @@ const (
 	releaseStepFails = "tag the release"
 )
 
-// releaseThen is the promise the judge checks. It holds JUDGERELEASED, which the fake claude answers as a released judge.
-const releaseThen = "JUDGERELEASED the release is tagged on main"
+// releaseThen is the promise the judge checks. It holds no keyword, because the release step's prompt carries it too,
+// so a keyword here would have the fake claude answer the release step as a judge.
+const releaseThen = "the release is tagged on main"
 
-// releaseEvidence is the evidence the fake claude returns for RELEASEDONE.
-const releaseEvidence = "fake release evidence"
+// releaseEvidence is the evidence the fake claude returns for RELEASEDONE. It holds JUDGERELEASED, so the judge is
+// reached through the step's evidence, which only the judge's prompt carries.
+const releaseEvidence = "fake release evidence JUDGERELEASED"
 
 // releaseWorktrees and releaseWorktreeName are the directory under the state directory that holds one directory per
 // release step, and the worktree under it a writing release step runs in.
@@ -179,7 +181,6 @@ func passReleaseUntil(t *testing.T, daemon *orreryProcess, ack, what string, don
 // commit before the judge starts, the judge's end is done, and the epic then ends released with one tell and frees its
 // slot.
 func TestReleaseRunsStepsThroughRealOrreryd(t *testing.T) {
-	t.Parallel()
 	r := newReleaseRig(t)
 	seedReleaseEpic(t, r, store.EpicReleaseStep{Step: releaseStepText, Target: "main", Undo: "none"})
 	daemon, ack := r.startPassDaemon(t, "first")
@@ -229,6 +230,12 @@ func TestReleaseRunsStepsThroughRealOrreryd(t *testing.T) {
 		judge.GetEpic() != buildRigEpic {
 		t.Fatalf("judge step %+v, want a read-only step under agent %s at base %s", judge, judgeAgent, r.base)
 	}
+	t.Run("the judge's prompt carries the step's evidence", func(t *testing.T) {
+		judgeStdin := filepath.Join(judge.GetWorktree(), "fakeclaude.stdin")
+		waittest.Until(t, daemon.done, "the judge's prompt carrying the evidence and postcondition", func() bool {
+			return fileContains(t, judgeStdin, releaseEvidence) && fileContains(t, judgeStdin, releaseThen)
+		})
+	})
 	stepReadoptTouch(t, filepath.Join(judge.GetWorktree(), "fakeclaude.release"))
 	r.awaitEnd(t, daemon, judge.GetId())
 	passReleaseUntil(t, daemon, ack, "the judge's run to be recorded", func() bool {
