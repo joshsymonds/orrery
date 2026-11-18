@@ -50,6 +50,7 @@ import type { Phase } from "./phases";
 import { PickerPalette } from "./picker";
 import { type Viewing, viewingOf } from "./presence";
 import type { ReaderHandle } from "./reader";
+import { type Address, type Entry, formatAddress, type PageView } from "./router";
 import { byAttention, byProject, type Row, type Section, splitArchived } from "./rows";
 import { type SeenClock, type SeenWindow, watchSeen } from "./seen";
 import { type SendKind, type Sending, type SentText, sendingEntry, unsentEntries, withoutTexts } from "./sending";
@@ -76,14 +77,6 @@ interface Cursor {
   key: string;
   index: number;
 }
-
-// The page the epic page's section holds: the epic page, the contract its summary opens, a task's phase output, or a
-// step's worker session.
-type PageView =
-  | { kind: "epic" }
-  | { kind: "contract" }
-  | { kind: "phase"; task: string; phase: Phase }
-  | { kind: "session"; task: string; phase: Phase; step: string };
 
 // A page under the open one, with the scroll place it had when the open page opened over it.
 interface PageBelow {
@@ -128,6 +121,12 @@ interface SteppedTo {
   step: string;
 }
 
+// An epic entry an opened address names. It is wrapped in a fresh object for each open, so an open of the same entry
+// again still changes the state the layout effect that applies its sub-page reads.
+interface OpenedEpic {
+  entry: Extract<Entry, { kind: "epic" }>;
+}
+
 // The row the palette answered: the pane Picker.Run answered, or the session Control.Start started, by its kind and id.
 interface PendingTarget {
   kind: Row["kind"];
@@ -168,6 +167,7 @@ export function App({
   notices = [],
   host = null,
   onViewing,
+  address,
 }: {
   rows: Row[];
   error: string;
@@ -179,6 +179,7 @@ export function App({
   notices?: InAppNotice[];
   host?: HostStatusResponse | null;
   onViewing?: (viewing: Viewing) => void;
+  address?: Address;
 }) {
   const [view, setView] = useState<View>("attention");
   const [cursor, setCursor] = useState<Cursor>({ key: "", index: 0 });
@@ -284,6 +285,8 @@ export function App({
   const [landing, setLanding] = useState<Landing | null>(null);
   // The step a card opened, whose page lands once the epic's detail holds it.
   const [steppedTo, setSteppedTo] = useState<SteppedTo | null>(null);
+  // The epic entry the last opened address named, whose sub-page the page lands on in the commit that moves the cursor.
+  const [opened, setOpened] = useState<OpenedEpic | null>(null);
   // The worker session the page shows, held under the step it belongs to.
   const [sessionStream, setSessionStream] = useState<Stream | null>(null);
   // The conversation Talk docked beside the epic page, with the epic it opened on.
@@ -896,6 +899,21 @@ export function App({
     });
   }, [steppedTo, epics, askedDetails]);
 
+  // An opened address's epic sub-page lands the epic page on the page the address names, over the epic page for a
+  // contract, phase output or worker session. It is declared after the cursor's reset above, so in the commit where the
+  // address moves the cursor the sub-page is the page the reset leaves.
+  useLayoutEffect(() => {
+    if (opened === null) {
+      return;
+    }
+    const { page } = opened.entry;
+    setEpicPage(
+      page.kind === "epic"
+        ? openEpicPage
+        : { page, below: [{ page: epicPageView, scroll: 0 }], move: "", closed: false },
+    );
+  }, [opened]);
+
   const moveTo = (target: number) => {
     if (flat.length === 0) {
       return;
@@ -943,6 +961,57 @@ export function App({
     openEpic(epic);
     setSteppedTo({ epic, step });
   };
+
+  // App opens the address its prop holds: on mount, and again when the prop's formatted form changes, unless that form
+  // is the address App shows now. An open sets the view at once, and holds its entry in pendingOpen until the list holds
+  // it, since the rows and epics can arrive after the mount. An address with no entry closes the epic page on a later
+  // change only, since on mount the cursor's epic page is today's default.
+  const addressForm = address === undefined ? "" : formatAddress(address);
+  const addressMounted = useRef(false);
+  const pendingOpen = useRef<Entry | null>(null);
+  useEffect(() => {
+    const first = !addressMounted.current;
+    addressMounted.current = true;
+    if (address === undefined) {
+      return;
+    }
+    const shown = formatAddress({ order: view, entry: shownEntry(cursorItem, epicPage) });
+    if (addressForm === shown) {
+      pendingOpen.current = null;
+      return;
+    }
+    setView(address.order);
+    pendingOpen.current = address.entry;
+    if (address.entry === null && !first && epicEntry !== null) {
+      setEpicPage(closedEpicPage);
+    }
+  }, [addressForm]);
+
+  // The pending entry is applied in the first pass that holds it. A row or step moves the cursor to its key and opens the
+  // row, as a click does, with no seen write and no reply box. An epic opens the line that holds it and moves the cursor
+  // to it, and its sub-page lands in the layout effect above. This effect is declared after the held cursor's effect, so
+  // its cursor move wins over that effect in the commit it applies.
+  useEffect(() => {
+    const entry = pendingOpen.current;
+    if (entry === null) {
+      return;
+    }
+    if (entry.kind === "epic") {
+      if (!listsEpic(marked, entry.id)) {
+        return;
+      }
+      openEpic(entry.id);
+      setOpened({ entry });
+    } else {
+      const item = flat.find((candidate) => candidate.key === addressKey(entry));
+      if (item === undefined) {
+        return;
+      }
+      selectItem(item);
+      setRowOpened(true);
+    }
+    pendingOpen.current = null;
+  }, [addressForm, flat, marked]);
 
   // markNoticeSeen sends the notice's key as seen. A failed report is dropped; the notice stays until it ends.
   const markNoticeSeen = (notice: InAppNotice) => {
@@ -1705,6 +1774,36 @@ function noticeEntry(items: Item[], key: NoticeKey | undefined): Item | undefine
     }
     return item.kind !== "epic" && session !== "" && item.id === session;
   });
+}
+
+// shownEntry is the entry App's address names for the cursor's entry: a row or step by its id, and an epic by its id
+// and its open sub-page. An epic whose page is closed has no entry, and neither has a cursor on nothing.
+function shownEntry(item: Item | null, epicPage: EpicPageState): Entry | null {
+  if (item === null) {
+    return null;
+  }
+  switch (item.kind) {
+    case "session":
+      return { kind: "session", id: item.id };
+    case "pane":
+      return { kind: "pane", host: item.host, pane: item.id };
+    case "step":
+      return { kind: "step", id: item.id };
+    case "epic":
+      return epicPage.closed ? null : { kind: "epic", id: item.id, page: epicPage.page };
+  }
+}
+
+// addressKey is the key the list gives the row or step an address names, which the cursor is moved to.
+function addressKey(entry: Exclude<Entry, { kind: "epic" }>): string {
+  switch (entry.kind) {
+    case "session":
+      return `session:${entry.id}`;
+    case "pane":
+      return `pane:${entry.host}:${entry.pane}`;
+    case "step":
+      return `step:${entry.id}`;
+  }
 }
 
 // listsEpic reports whether the view holds the epic under id in any of its lines, open or shut.
