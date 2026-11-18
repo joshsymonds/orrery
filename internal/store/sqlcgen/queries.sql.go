@@ -1544,6 +1544,34 @@ func (q *Queries) GetPlannerActionPark(ctx context.Context, arg GetPlannerAction
 	return park, err
 }
 
+const getPromptWrite = `-- name: GetPromptWrite :one
+SELECT events.write_id, CAST(json_extract(events.payload, '$.text') AS TEXT) AS text,
+       CAST(COALESCE(json_extract(events.payload, '$.sender'), '') AS TEXT) AS sender
+FROM events
+WHERE events.session_id = ?1 AND events.kind = 'engine_prompt'
+  AND json_extract(events.payload, '$.promptId') = ?2
+ORDER BY events.seq
+LIMIT 1
+`
+
+type GetPromptWriteParams struct {
+	SessionID string
+	PromptID  string
+}
+
+type GetPromptWriteRow struct {
+	WriteID string
+	Text    string
+	Sender  string
+}
+
+func (q *Queries) GetPromptWrite(ctx context.Context, arg GetPromptWriteParams) (GetPromptWriteRow, error) {
+	row := q.db.QueryRowContext(ctx, getPromptWrite, arg.SessionID, arg.PromptID)
+	var i GetPromptWriteRow
+	err := row.Scan(&i.WriteID, &i.Text, &i.Sender)
+	return i, err
+}
+
 const getRunningEpicTurn = `-- name: GetRunningEpicTurn :one
 SELECT epic, seq, step, state, reason, seen, outline, outcome, started, ended, told, stop, resets FROM epic_turns WHERE epic = ? AND state = 'running'
 `

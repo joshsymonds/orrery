@@ -286,7 +286,7 @@ func commandError(err error) error {
 	case errors.Is(err, ErrBadDir), errors.Is(err, ErrEmptyPrompt), errors.Is(err, ErrBadModel),
 		errors.Is(err, ErrBadID), errors.Is(err, ErrBadAnswer), errors.Is(err, session.ErrUnverifiedAnswer):
 		code = connect.CodeInvalidArgument
-	case errors.Is(err, ErrNotResumable), errors.Is(err, ErrNotHeld):
+	case errors.Is(err, ErrNotResumable), errors.Is(err, ErrUnknownPrompt):
 		code = connect.CodeFailedPrecondition
 	}
 	return errors.Join(connect.NewError(code, err))

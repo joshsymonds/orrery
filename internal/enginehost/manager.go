@@ -53,9 +53,9 @@ var ErrBadID = errors.New("session id must be 32 lowercase hex digits")
 // permission request. The request stays open.
 var ErrBadAnswer = errors.New("answer does not fit the open request")
 
-// ErrNotHeld reports a Withdraw of a prompt id the session holds no message for: the message was written already, or the
-// id is unknown. Withdraw removes nothing.
-var ErrNotHeld = errors.New("no held message has that prompt id")
+// ErrUnknownPrompt reports a Withdraw of a prompt id that no owner prompt of the session carries: the id is unknown, or
+// it names a prompt another sender sent. Withdraw sends nothing.
+var ErrUnknownPrompt = errors.New("no owner prompt of the session has that prompt id")
 
 // errSessionEnded reports a delivery to a session whose process ended after the Say found it live. Say resumes the session
 // and delivers once more.
@@ -112,8 +112,8 @@ type NoticeSink interface {
 
 // Store reads the engine rows Reconcile settles, the ids of the sessions holding unfinished text that Reconcile clears, the
 // rows Say resumes, checks and Seen marks, the prompts a re-adopted holder has not written and how many prompts were written
-// that no later turn end answers, the step rows Continue respawns from, the failure markers Say checks, and the messages a
-// session holds, which Withdraw reads. *store.Store satisfies it.
+// that no later turn end answers, the step rows Continue respawns from, the failure markers Say checks, and the prompt
+// Withdraw names, by its prompt id, for its write id and text. *store.Store satisfies it.
 type Store interface {
 	EngineSessions(ctx context.Context) ([]store.EngineRow, error)
 	EngineTextSessions(ctx context.Context) (map[string]bool, error)
@@ -123,7 +123,7 @@ type Store interface {
 	Step(ctx context.Context, id string) (store.StepRow, error)
 	EnginePromptSent(ctx context.Context, sessionID, promptID string) (bool, error)
 	EnginePromptFailure(ctx context.Context, sessionID, promptID string) (string, bool, error)
-	HeldPrompts(ctx context.Context, id string) ([]store.HeldPrompt, error)
+	PromptWrite(ctx context.Context, id, promptID string) (store.PromptWrite, bool, error)
 }
 
 // Config configures a Manager. Shell is the login shell and Claude the claude name, resolved with exec.LookPath at
@@ -203,8 +203,8 @@ type liveSession struct {
 	idleSince      time.Time
 	idleStopped    bool
 	// order is held by the pump while it records a line, by Answer from its send until it has queued the working state, so
-	// every op an answer causes is queued after that state, and by deliver while it decides and writes a message, and by
-	// Withdraw, so the pump's turn ends and those decisions never interleave.
+	// every op an answer causes is queued after that state, and by deliver while it decides and writes a message, so the
+	// pump's turn ends and those decisions never interleave.
 	order sync.Mutex
 }
 
@@ -1191,45 +1191,45 @@ func (m *Manager) interruptLive(ctx context.Context, live *liveSession) error {
 	return nil
 }
 
-// Withdraw removes the held messages of session id that carry prompt id promptID, or every held message of the session when
-// promptID is empty, in one store write, and returns their text in order. A promptID the session holds no message for returns
-// an error wrapping ErrNotHeld and removes nothing, so a message already written is never withdrawn. It returns an error
-// wrapping ErrNoSession when no engine row has id. It takes the session's delivery locks as Say does, so a message the pump is
-// about to write is either withdrawn or written, never both.
+// Withdraw takes back the owner prompt of session id that carries prompt id promptID from Claude's queue, and returns
+// its text. An empty promptID returns no texts and sends nothing. A promptID that no owner prompt of the session
+// carries returns an error wrapping ErrUnknownPrompt and sends nothing. It returns an error wrapping ErrNoSession when
+// no engine row has id, and no texts when the session is not live. A live session's Claude cancels the prompt only
+// while it is still queued, so the reply says whether it did: a cancelled prompt's text is returned, and a prompt
+// Claude already took in returns no texts and no error. Withdraw stores nothing. The cancelled state Claude reports for
+// the prompt is what makes the prompt answered, live and in a re-adopted session. It holds no lock while it waits for
+// the reply, which reaches it through the session's reader, since the pump takes the session's order lock.
 func (m *Manager) Withdraw(ctx context.Context, id, promptID string) ([]string, error) {
 	defer m.calls.enter()()
 	if _, err := m.engineRow(ctx, id); err != nil {
 		return nil, fmt.Errorf("withdraw from session %s: %w", id, err)
 	}
-	m.resumeMu.Lock()
-	defer m.resumeMu.Unlock()
-	if live, err := m.live(id); err == nil {
-		live.order.Lock()
-		defer live.order.Unlock()
+	if promptID == "" {
+		return nil, nil
 	}
-	held, err := m.store.HeldPrompts(ctx, id)
+	prompt, found, err := m.store.PromptWrite(ctx, id, promptID)
 	if err != nil {
 		return nil, fmt.Errorf("withdraw from session %s: %w", id, err)
 	}
-	var texts []string
-	var ops []store.EngineOp
-	for _, message := range held {
-		if promptID != "" && message.PromptID != promptID {
-			continue
-		}
-		texts = append(texts, message.Text)
-		ops = append(ops, store.EngineHeldRelease{ID: id, PromptID: message.PromptID})
+	if !found || prompt.Sender != store.PromptSenderOwner {
+		return nil, fmt.Errorf("withdraw prompt %s from session %s: %w", promptID, id, ErrUnknownPrompt)
 	}
-	if promptID != "" && len(ops) == 0 {
-		return nil, fmt.Errorf("withdraw prompt %s from session %s: %w", promptID, id, ErrNotHeld)
+	live, err := m.live(id)
+	if errors.Is(err, ErrNoSession) {
+		// A session that is not live has no queue to take the prompt back from.
+		return nil, nil
 	}
-	if len(ops) == 0 {
-		return texts, nil
+	if err != nil {
+		return nil, fmt.Errorf("withdraw prompt %s from session %s: %w", promptID, id, err)
 	}
-	if err = m.writer.Commit(ctx, id, ops...); err != nil {
-		return nil, fmt.Errorf("withdraw from session %s: %w", id, err)
+	cancelled, err := live.sess.CancelQueued(ctx, prompt.WriteID)
+	if err != nil {
+		return nil, fmt.Errorf("withdraw prompt %s from session %s: %w", promptID, id, err)
 	}
-	return texts, nil
+	if !cancelled {
+		return nil, nil
+	}
+	return []string{prompt.Text}, nil
 }
 
 // live returns the live session id, or an error wrapping ErrNoSession when no session with that id is live.

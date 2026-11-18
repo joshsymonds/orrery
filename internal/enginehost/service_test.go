@@ -353,10 +353,10 @@ func TestServeMapsErrorsToConnectCodes(t *testing.T) {
 			text: "resume session x: " + ErrNotResumable.Error() + ": its state is done, not interrupted",
 		},
 		{
-			name: "message not held",
-			err:  wrapf(ErrNotHeld, "withdraw"),
+			name: "no owner prompt has that id",
+			err:  wrapf(ErrUnknownPrompt, "withdraw"),
 			code: connect.CodeFailedPrecondition,
-			text: "withdraw: " + ErrNotHeld.Error(),
+			text: "withdraw: " + ErrUnknownPrompt.Error(),
 		},
 		{
 			name: "bad directory",

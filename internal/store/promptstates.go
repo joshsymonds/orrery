@@ -94,6 +94,28 @@ func (r *Reader) PromptStates(ctx context.Context, id string) ([]PromptState, er
 	return toPromptStates(rows), nil
 }
 
+// PromptWrite is an engine prompt as it was sent: the write id it was sent under, its text and its sender, "" when it
+// carried none.
+type PromptWrite struct {
+	WriteID string
+	Text    string
+	Sender  string
+}
+
+// PromptWrite returns the prompt of the engine session id that carries promptID: the first engine_prompt event of the
+// session with that prompt id. It reports false with no error when the session has no such prompt. It reads the
+// writer's database, as EnginePromptSent does.
+func (s *Store) PromptWrite(ctx context.Context, id, promptID string) (PromptWrite, bool, error) {
+	row, err := sqlcgen.New(s.db).GetPromptWrite(ctx, sqlcgen.GetPromptWriteParams{SessionID: id, PromptID: promptID})
+	if errors.Is(err, sql.ErrNoRows) {
+		return PromptWrite{}, false, nil
+	}
+	if err != nil {
+		return PromptWrite{}, false, fmt.Errorf("read prompt %s of engine session %s: %w", promptID, id, err)
+	}
+	return PromptWrite{WriteID: row.WriteID, Text: row.Text, Sender: row.Sender}, true, nil
+}
+
 // toPromptStates converts the rows a query read, in their order.
 func toPromptStates(rows []sqlcgen.ListPromptStatesRow) []PromptState {
 	states := make([]PromptState, 0, len(rows))

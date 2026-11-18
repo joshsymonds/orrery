@@ -1395,3 +1395,12 @@ WHERE states.session_id = sqlc.arg(id)
   AND states.seq IN (SELECT MAX(newest.seq) FROM prompt_states AS newest
                      WHERE newest.session_id = sqlc.arg(id) GROUP BY newest.write_id)
 ORDER BY prompts.seq;
+
+-- name: GetPromptWrite :one
+SELECT events.write_id, CAST(json_extract(events.payload, '$.text') AS TEXT) AS text,
+       CAST(COALESCE(json_extract(events.payload, '$.sender'), '') AS TEXT) AS sender
+FROM events
+WHERE events.session_id = sqlc.arg(session_id) AND events.kind = 'engine_prompt'
+  AND json_extract(events.payload, '$.promptId') = sqlc.arg(prompt_id)
+ORDER BY events.seq
+LIMIT 1;
