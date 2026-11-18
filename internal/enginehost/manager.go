@@ -128,6 +128,7 @@ type Store interface {
 	EnginePromptSent(ctx context.Context, sessionID, promptID string) (bool, error)
 	EnginePromptFailure(ctx context.Context, sessionID, promptID string) (string, bool, error)
 	HeldPrompts(ctx context.Context, id string) ([]store.HeldPrompt, error)
+	DeleteSessionCronJobs(ctx context.Context, session string) (int, error)
 }
 
 // Config configures a Manager. Shell is the login shell and Claude the claude name, resolved with exec.LookPath at
@@ -493,7 +494,10 @@ func (m *Manager) start(ctx context.Context, id string, req StartRequest) (strin
 
 // Stop stops the live session id and records it stopped once its pump has stored its last ops. A drained step with no live
 // session is recorded stopped the same way, and its kept slot is freed (see stopDrained). It returns ErrNoSession when id
-// is neither. resumeMu is held, as Release holds it, so a respawn cannot take the kept slot between the lookup and the stop.
+// is neither. Unless id is a step, which keeps its own cron, Stop first deletes the cron jobs of id, so none fires into
+// the stopped session, whether id is live or idle-stopped. A deletion error is joined into the error Stop returns, and
+// the stop goes on. resumeMu is held, as Release holds it, so a respawn cannot take the kept slot between the lookup
+// and the stop.
 func (m *Manager) Stop(ctx context.Context, id string) error {
 	defer m.calls.enter()()
 	m.resumeMu.Lock()
@@ -502,18 +506,24 @@ func (m *Manager) Stop(ctx context.Context, id string) error {
 	live := m.sessions[id]
 	drained := m.kept[id]
 	m.mu.Unlock()
+	var cronErr error
+	if drained == nil && (live == nil || !live.step) {
+		if _, err := m.store.DeleteSessionCronJobs(ctx, id); err != nil {
+			cronErr = fmt.Errorf("delete cron jobs of session %s: %w", id, err)
+		}
+	}
 	switch {
 	case live != nil:
 		stopErr := live.sess.Stop()
 		recordErr := m.recordStopped(ctx, live)
 		if stopErr == nil && recordErr == nil {
-			return nil
+			return cronErr
 		}
-		return fmt.Errorf("stop session %s: %w", id, errors.Join(stopErr, recordErr))
+		return errors.Join(cronErr, fmt.Errorf("stop session %s: %w", id, errors.Join(stopErr, recordErr)))
 	case drained != nil:
 		return m.stopDrained(ctx, drained)
 	}
-	return fmt.Errorf("stop session %s: %w", id, ErrNoSession)
+	return errors.Join(cronErr, fmt.Errorf("stop session %s: %w", id, ErrNoSession))
 }
 
 // stopDrained records the drained step stopped once its pump has ended, then frees its kept slot. The caller holds
