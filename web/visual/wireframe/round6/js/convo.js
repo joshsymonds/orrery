@@ -234,7 +234,7 @@
   // ---------- the dock ----------
 
   const PLACEHOLDER = {
-    working: (n, pane) => (O.touch() ? `Queue for ${n}` : pane ? `Queue a message for ${n}. Claude Code takes it when it can` : `Queue a message for ${n}. It is sent when this turn ends`),
+    working: (n, pane) => (O.touch() ? `Queue for ${n}` : pane ? `Queue a message for ${n}. Claude Code takes it when it can` : `Queue a message for ${n}. Claude takes it at its next tool result`),
     interrupting: (n) => `Stopping ${n}…`,
     waiting: (n) => `Answer ${n}`,
     interrupted: (n) => `${n} was cut off. Resume it, or say what to do next`,
@@ -264,7 +264,7 @@
     // A session's queue is the server's: one message is sent at each turn's end, and any one can be taken back. A
     // pane's queue is Claude Code's own: it takes messages when it chooses, and they come back only all together.
     const list = d.queued || [];
-    const queueWhy = d.queueWhy || (d.pane ? 'Claude Code takes them when it chooses' : list.length > 1 ? 'the first goes when this turn ends, then one a turn' : 'goes when this turn ends');
+    const queueWhy = d.queueWhy || (d.pane ? 'Claude Code takes them when it chooses' : 'Claude takes them at its next tool result');
     const queueEnd = d.pane ? O.ctl('Take all back', 'edit') : when(state === 'working', () => O.ctl('Send now', 'send', { tip: 'Interrupts this turn; your first queued message runs next' }));
     const queued = when(list.length, () => `<div class="tray"><div class="tray-head"><span class="lbl">Queued ${list.length}</span><span class="why">${esc(queueWhy)}</span><span class="end">${queueEnd}</span></div>`
       + each(list.slice(0, 3), (q) => `<div class="${cls('tray-row', 'you', q.cancelled && 'cancelled')}">${when(q.cancelled, '<span class="lbl">not delivered</span>')}<span class="text wrap">${esc(q.text)}</span>`

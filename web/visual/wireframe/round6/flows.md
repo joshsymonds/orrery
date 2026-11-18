@@ -61,8 +61,8 @@ Android alone: Settings, Pools, system notifications, quick keys (`android-*`). 
 
 ## 3. Sending while it works, and stopping it
 
-- A message sent while a turn runs joins the queue on the dock. The tray says when it goes: the first when this turn
-  ends, then one a turn.
+- A message sent while a turn runs joins the queue on the dock. The tray says when it goes: Claude takes it at the
+  running turn's next tool result.
 - Any queued message can be taken back into the box. Send now interrupts the turn and the first queued message runs
   next.
 - Interrupt (`esc`) takes the queue back, then stops the turn. The dock reads `interrupting…` with a clock, then

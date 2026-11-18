@@ -330,8 +330,8 @@ Rejected:
 A conversation's state is the first line of its dock, beside Interrupt or Resume. An epic's is in its title row, beside
 Pause and Stop. The dock holds the state, the queue and the input, and nothing else.
 
-- **Queue.** A session's queue says "the first goes when this turn ends, then one a turn", because that is what the
-  server does. Each message can be taken back by itself. Send now interrupts the turn, and the first queued message
+- **Queue.** A session's queue says "Claude takes them at its next tool result", because since Say-now (origin main
+  52d51dee) every owner Say is written to Claude at once and Claude takes it there. Each message can be taken back by itself. Send now interrupts the turn, and the first queued message
   runs next. A terminal pane's queue is Claude Code's own and says so.
 - **A control in a line is the size of the line**, at the desk and on touch.
 
@@ -442,7 +442,7 @@ Drawn, and not available from the server today.
 
 | drawn | what is missing |
 |---|---|
-| "the first is sent when this turn ends" | The stream does not say why a message is held or which turn it waits behind. The words are true of the code; nothing confirms them per message. A turn the engine started is pre-empted instead, and the client is not told who started a turn. |
+| "Claude takes them at its next tool result" | Since Say-now every Say is written at once; the stream says per queued message whether it waits on the turn or the start (orrery-turn-facts). |
 | Events not held by a background task | A fix, not a field: `claimFree` counts a running background task as busy, so a dev server left running holds every event for its session indefinitely. Deliver when no turn runs and no request is open. |
 | "1 event waits until you speak" | `waits = speak` is wrong after the owner has spoken on a headless session, because its prompts carry no sender, so the count of events held by the owner's quiet is not reliable today. |
 | Not now on an Ask | A per-question mark, kept on the server and keyed to the question (a pane's question is already hashed), so every client takes it off your list. Nothing is sent to the session. |
