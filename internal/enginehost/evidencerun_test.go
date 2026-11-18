@@ -195,18 +195,17 @@ func (f *evidenceRunSteps) Start(_ context.Context, _ StepStart) (string, error)
 	return id, nil
 }
 
-// Wait returns the judge with the id given once it has ended. A judge that hangs waits until ctx ends.
-func (f *evidenceRunSteps) Wait(
-	ctx context.Context, ids []string, _ time.Duration,
-) (*store.StepRow, []store.StepRow, error) {
+// Subscribe returns a subscription to the judge with the id given, offered its row when the judge has ended. A judge that
+// hangs is offered nothing, so its subscription waits until ctx ends.
+func (f *evidenceRunSteps) Subscribe(_ context.Context, ids []string) (*StepSubscription, error) {
+	sub := NewStepSubscription(ids)
 	f.mu.Lock()
 	row, ended := f.ended[ids[0]]
 	f.mu.Unlock()
-	if !ended {
-		<-ctx.Done()
-		return nil, nil, fmt.Errorf("wait for judge %s: %w", ids[0], ctx.Err())
+	if ended {
+		sub.Offer(row)
 	}
-	return &row, []store.StepRow{row}, nil
+	return sub, nil
 }
 
 // startCount returns how many judge steps were started.

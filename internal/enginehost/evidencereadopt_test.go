@@ -3,7 +3,6 @@ package enginehost
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -97,8 +96,8 @@ type evidenceIDJudge struct {
 }
 
 // evidenceIDSteps is an EvidenceSteps that starts each judge under the id its StepStart carries, as Steps.Start does, and
-// records each id a start carries. Judges start in the order judges gives. ended holds the rows Wait reads, by id, and may be
-// set before the test runs.
+// records each id a start carries. Judges start in the order judges gives. ended holds the rows Subscribe offers, by id, and may
+// be set before the test runs.
 type evidenceIDSteps struct {
 	mu     sync.Mutex
 	judges []evidenceIDJudge
@@ -124,18 +123,17 @@ func (f *evidenceIDSteps) Start(_ context.Context, start StepStart) (string, err
 	return start.ID, judge.startErr
 }
 
-// Wait returns the row of the judge with id ids[0] once it has ended. A judge with no row waits until ctx ends.
-func (f *evidenceIDSteps) Wait(
-	ctx context.Context, ids []string, _ time.Duration,
-) (*store.StepRow, []store.StepRow, error) {
+// Subscribe returns a subscription to the judge with id ids[0], offered its row when the judge has ended. A judge with no row
+// is offered nothing, so its subscription waits until ctx ends.
+func (f *evidenceIDSteps) Subscribe(_ context.Context, ids []string) (*StepSubscription, error) {
+	sub := NewStepSubscription(ids)
 	f.mu.Lock()
 	row, ended := f.ended[ids[0]]
 	f.mu.Unlock()
-	if !ended {
-		<-ctx.Done()
-		return nil, nil, fmt.Errorf("wait for judge %s: %w", ids[0], ctx.Err())
+	if ended {
+		sub.Offer(row)
 	}
-	return &row, []store.StepRow{row}, nil
+	return sub, nil
 }
 
 // startIDs returns the id each start carried, in start order.
