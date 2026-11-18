@@ -588,6 +588,17 @@ button, input, textarea, select { font-family: var(--mono); }
 .compose .queued > .text { min-width: 0; color: var(--subtext0); font-size: 14px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
 .compose .queued.canceled > .text { color: var(--overlay0); text-decoration: line-through; }
 .compose .queued.canceled > .tag { color: var(--maroon); }
+/* A session's queued message says what Claude does with it, and carries a withdraw that takes it back into the box. A
+   discarded message never reached Claude: its maroon edge and tag mark it, and its control puts it back in the box. */
+.compose .queued > .note { display: block; min-width: 0; font: 400 11px/1.45 var(--mono); color: var(--overlay1); }
+.compose .queued > .withdraw, .compose .undelivered > .put-back {
+  justify-self: start; margin-top: 4px; padding: 0 9px; border: 0; border-radius: 6px; cursor: pointer;
+  background: var(--surface0); font: 400 11px/20px var(--mono); color: var(--subtext0);
+  appearance: none; -webkit-appearance: none;
+}
+.compose .undelivered { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; padding: 6px 12px; border-left: 2px solid var(--maroon); }
+.compose .undelivered > .tag { display: block; font: 700 10px/16px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--maroon); }
+.compose .undelivered > .text { min-width: 0; color: var(--subtext0); font-size: 14px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* The find bar is a mantle field over the transcript, its query in mono and its count in overlay1 at the right. It takes
    the mauve ring while it has focus, as the composer does. */

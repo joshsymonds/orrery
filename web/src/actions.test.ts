@@ -55,7 +55,8 @@ const openConversation: Conversation = {
   oldest: 0n,
   more: false,
   unfinished: [],
-  held: [],
+  queued: [],
+  unsent: [],
   state: create(ConversationStateSchema, {
     request: create(OpenRequestSchema, {
       id: "req-7",

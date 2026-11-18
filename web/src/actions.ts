@@ -73,6 +73,13 @@ export async function withdraw(clients: Clients, row: Row): Promise<string[]> {
   return reply.texts;
 }
 
+// withdrawQueued takes back one of a session's queued messages by its prompt id, through Control.Withdraw, and resolves
+// the text it took back, or none when Claude already took the message in.
+export async function withdrawQueued(clients: Clients, row: Row, promptId: string): Promise<string[]> {
+  const reply = await clients.control.withdraw({ id: row.id, promptId });
+  return reply.texts;
+}
+
 // interrupt interrupts the row's running turn: Control.Interrupt for a session, and the Escape key sent to a pane.
 export async function interrupt(clients: Clients, row: Row): Promise<void> {
   if (row.kind === "pane") {

@@ -257,17 +257,23 @@ function alertTexts(container: HTMLElement): string[] {
   return [...container.querySelectorAll('[role="alert"]')].map((element) => element.textContent ?? "");
 }
 
-// emitHeld waits for the cursor's session stream to open, then sends a delta whose held set is held, and waits until
-// the cursor's queue draws each held message.
-async function emitHeld(
+// emitQueued waits for the cursor's session stream to open, then sends a delta whose queued set holds each message as
+// queued, and waits until the cursor's queue draws each one.
+async function emitQueued(
   signal: AbortSignal,
   container: HTMLElement,
   fake: FakeServer,
-  held: { promptId: string; text: string }[],
+  queued: { promptId: string; text: string }[],
 ): Promise<void> {
   await until(signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
-  fake.emit(fake.callsTo(sessionWatchPath)[0], { transcript: "s1.jsonl", seq: "1", reset: true, items: [], held });
-  await until(signal, () => queueTexts(container).length === held.length, "the held messages' queued rows");
+  fake.emit(fake.callsTo(sessionWatchPath)[0], {
+    transcript: "s1.jsonl",
+    seq: "1",
+    reset: true,
+    items: [],
+    queued: queued.map((message) => ({ ...message, state: "queued" })),
+  });
+  await until(signal, () => queueTexts(container).length === queued.length, "the queued messages' rows");
 }
 
 // sendFromComposer types text into the cursor's composer and sends it with Enter, then waits for its Say and its
@@ -289,7 +295,7 @@ async function sendFromComposer(
 test("EscapeInterrupt: Escape on a working headless session withdraws its held messages into the composer in order, before it calls Control.Interrupt", (t) =>
   withApp(t.signal, { rows: [sessionRow] }, async (container, fake) => {
     fake.replies.set(withdrawPath, [{ texts: ["first", "second"] }]);
-    await emitHeld(t.signal, container, fake, [
+    await emitQueued(t.signal, container, fake, [
       { promptId: "p1", text: "first" },
       { promptId: "p2", text: "second" },
     ]);
@@ -357,7 +363,7 @@ test("EscapeInterrupt: Escape in a step's box calls neither Control.Interrupt no
 test("EscapeInterrupt: composer text already present is kept ahead of the returned messages", (t) =>
   withApp(t.signal, { rows: [sessionRow] }, async (container, fake) => {
     fake.replies.set(withdrawPath, [{ texts: ["first", "second"] }]);
-    await emitHeld(t.signal, container, fake, [
+    await emitQueued(t.signal, container, fake, [
       { promptId: "p1", text: "first" },
       { promptId: "p2", text: "second" },
     ]);
@@ -378,7 +384,7 @@ test("EscapeInterrupt: a held message from the stream draws one queued row and n
         seq: "1",
         reset: true,
         items: [],
-        held: [{ promptId, text: "hello" }],
+        queued: [{ promptId, text: "hello", state: "queued" }],
       });
     });
     await until(t.signal, () => sendingRowCount(container) === 0, "the sending row's end");
@@ -396,12 +402,16 @@ test("EscapeInterrupt: after Escape the returned messages leave no sending or qu
         seq: "1",
         reset: true,
         items: [],
-        held: [{ promptId, text: "hello" }],
+        queued: [{ promptId, text: "hello", state: "queued" }],
       });
     });
     await until(t.signal, () => sendingRowCount(container) === 0, "the sending row's end");
     await pressIn(composer(container), "Escape");
     await until(t.signal, () => fake.callsTo(interruptPath).length === 1, "the interrupt");
+    await act(() => {
+      fake.emit(fake.callsTo(sessionWatchPath)[0], { transcript: "s1.jsonl", seq: "2", items: [], queued: [] });
+    });
+    await until(t.signal, () => queueTexts(container).length === 0, "the queued row's end");
     assert.equal(composer(container).value, "hello", "the message is back in the composer");
     assert.deepEqual(queueTexts(container), [], "no queued row is left");
     assert.equal(sendingRowCount(container), 0, "no sending row is left");
@@ -468,7 +478,7 @@ test("EscapeInterrupt InboxPin: Escape on a working session with the inbox hidde
     fake.replies.set(withdrawPath, [{ texts: ["first", "second"] }]);
     await clickRow(container, "s1");
     assert.equal(paneState(container), "hidden", "the click opened the row and hid the inbox");
-    await emitHeld(t.signal, container, fake, [
+    await emitQueued(t.signal, container, fake, [
       { promptId: "p1", text: "first" },
       { promptId: "p2", text: "second" },
     ]);
@@ -484,7 +494,7 @@ test("EscapeInterrupt InboxPin: Escape after a hover on the mark popped the inbo
     await clickRow(container, "s1");
     await hoverMark(container);
     assert.equal(paneState(container), "flyout", "the hover popped the inbox out");
-    await emitHeld(t.signal, container, fake, [
+    await emitQueued(t.signal, container, fake, [
       { promptId: "p1", text: "first" },
       { promptId: "p2", text: "second" },
     ]);
@@ -520,7 +530,7 @@ test("EscapeInterrupt InboxPin: at 700px, a list key after a row is opened leave
     await leaveComposer(container);
     await press("j");
     assert.equal(paneState(container), "docked", "the list key pops no inbox out");
-    await emitHeld(t.signal, container, fake, [
+    await emitQueued(t.signal, container, fake, [
       { promptId: "p1", text: "first" },
       { promptId: "p2", text: "second" },
     ]);

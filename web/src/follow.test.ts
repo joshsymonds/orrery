@@ -618,13 +618,13 @@ test("a delta with no items reaches onChange when it changes the unfinished set,
       seq: "10",
       unfinished: [typing],
       state: { goal: "ship it" },
-      held: [{ promptId: "p1", text: "queued" }],
+      queued: [{ promptId: "p1", text: "queued", state: "queued" }],
     });
-    await until(t.signal, () => seen.length === 4, "the held change", { step: turn });
+    await until(t.signal, () => seen.length === 4, "the queued change", { step: turn });
     assert.deepEqual(
-      seen[3].held.map((message) => message.text),
+      seen[3].queued.map((message) => message.text),
       ["queued"],
-      "the held change reaches onChange",
+      "the queued change reaches onChange",
     );
     assert.deepEqual(texts(seen[3]), ["notes"], "no change adds items");
   } finally {

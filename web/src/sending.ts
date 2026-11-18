@@ -23,7 +23,7 @@ export function sendingEntry(sent: SentText, held: Conversation | null): Sending
 }
 
 // unsentEntries returns the entries that are still unsent against the conversation a row holds, in their order. A
-// session's entry is sent once a prompt item with its prompt id is held, or its message is in the held set. A pane's
+// session's entry is sent once a prompt item with its prompt id is held, or its message is in the queued set. A pane's
 // entry is sent once a prompt item with its text, compared trimmed, is held after the item the send began after. A
 // prompt before that item, such as one an older page prepended, never matches. When that item is no longer held, a
 // reset dropped it, and any held prompt with the text matches. With no conversation held, every entry is unsent. It
@@ -40,7 +40,7 @@ function sentIn(entry: Sending, held: Conversation, kind: SendKind): boolean {
   if (kind === "session") {
     return (
       held.items.some((item) => item.kind === "prompt" && item.promptId === entry.promptId) ||
-      held.held.some((message) => message.promptId === entry.promptId)
+      held.queued.some((message) => message.promptId === entry.promptId)
     );
   }
   // from is the index a matching prompt must pass: -1 when the send began with nothing held or its item was dropped.

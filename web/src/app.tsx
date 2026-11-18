@@ -6,7 +6,7 @@ import type { Clients } from "./actions";
 import { epicCallsOf } from "./card";
 import { type ComposerHandle, Composer } from "./composer";
 import { ContractBody } from "./contract";
-import type { Conversation } from "./conversation";
+import { type Conversation, shownConversation } from "./conversation";
 import { type ArchiveControl, EpicLine, RowMenu } from "./epicline";
 import { type EpicCommands, EpicPage, type Landing } from "./epicpage";
 import {
@@ -787,18 +787,23 @@ export function App({
   // The conversation a list row's options come from: the stream the page holds for that row, the cursor's or the pin's.
   const heldConversation = (key: string) =>
     key === cursorRowKey ? cursorConversation : key === pinnedKey ? pinnedConversation : null;
+  // The conversations the readers draw, each without the prompts its queue still holds or has discarded, and the worker
+  // session's, shown the same way.
+  const cursorShown = useMemo(() => shownConversation(cursorConversation), [cursorConversation]);
+  const pinnedShown = useMemo(() => shownConversation(pinnedConversation), [pinnedConversation]);
+  const sessionShown = useMemo(() => shownConversation(sessionStream?.conversation ?? null), [sessionStream]);
   // A column's find bar shows only while its row is the column's. Its matches are the query's over the column's
   // conversation, and its current match is clamped to them where it is read.
   const cursorFinding = cursorFind !== null && cursorFind.key === cursorRowKey ? cursorFind : null;
   const cursorMatches = useMemo(
-    () => findMatches(cursorConversation?.items ?? [], cursorFinding?.query ?? ""),
-    [cursorConversation, cursorFinding?.query],
+    () => findMatches(cursorShown?.items ?? [], cursorFinding?.query ?? ""),
+    [cursorShown, cursorFinding?.query],
   );
   const cursorCurrent = cursorFinding === null ? -1 : findCurrent(cursorFinding.current, cursorMatches.length);
   const pinnedFinding = pinnedFind !== null && pinnedFind.key === pinnedKey ? pinnedFind : null;
   const pinnedMatches = useMemo(
-    () => findMatches(pinnedConversation?.items ?? [], pinnedFinding?.query ?? ""),
-    [pinnedConversation, pinnedFinding?.query],
+    () => findMatches(pinnedShown?.items ?? [], pinnedFinding?.query ?? ""),
+    [pinnedShown, pinnedFinding?.query],
   );
   const pinnedCurrent = pinnedFinding === null ? -1 : findCurrent(pinnedFinding.current, pinnedMatches.length);
   // The messages each reader shows as sending: its row's entries the conversation it holds has not sent yet.
@@ -830,25 +835,15 @@ export function App({
       }
       return new Map(previous).set(rowKey, entries.filter((entry) => entry.promptId !== promptId));
     });
-  // dropTaken removes the texts an Escape took back from the row: its sending entries, its held messages on each of its
-  // streams, and the local queued entry each of its composers holds. A stream's next delta then replaces its held set
-  // with the server's own.
+  // dropTaken removes the texts an Escape took back from the row: its sending entries, and the local queued entry each of
+  // its composers holds. The row's session queue is the server's own, and a stream's next delta replaces it.
   const dropTaken = (key: string, texts: string[]) => {
     setSendingByRow((previous) => withoutSent(previous, key, texts));
-    const dropHeld = (current: Stream | null): Stream | null => {
-      if (current === null || current.key !== key) {
-        return current;
-      }
-      const held = withoutTexts(current.conversation.held, texts);
-      return { ...current, conversation: { ...current.conversation, held } };
-    };
-    setStream(dropHeld);
-    setPinStream(dropHeld);
     composerHandles.current.get(key)?.forget(texts);
     pinnedHandles.current.get(key)?.forget(texts);
   };
   // escapeRow takes back a row's queued messages: their texts go to the column's composer after the text it holds, and
-  // the row's sending and held entries for them are dropped. The row is then interrupted when it was working at the
+  // the row's sending and local entries for them are dropped. The row is then interrupted when it was working at the
   // press. A headless session's interrupt is marked on the page at once, before the calls below are made. A failed take
   // back shows its line, and the interrupt still goes out. A failed interrupt shows its line and clears the mark. The
   // composer keeps focus when it interrupted or took messages back, and otherwise leaves it, as Escape does.
@@ -1391,7 +1386,7 @@ export function App({
       const calls = stepCalls(clients, step.id);
       return (
         <WorkerSessionPage
-          conversation={sessionStream !== null && sessionStream.key === page.step ? sessionStream.conversation : null}
+          conversation={sessionStream !== null && sessionStream.key === page.step ? sessionShown : null}
           step={step}
           epic={detail.epic?.slug ?? ""}
           task={page.task}
@@ -1695,7 +1690,7 @@ export function App({
           )}
           {cursorRow !== null && (
             <Reader
-              conversation={cursorConversation}
+              conversation={cursorShown}
               seenAt={cursorRow.seen}
               open={open}
               question={readerQuestion(cursorRow, cursorConversation)}
@@ -1716,7 +1711,7 @@ export function App({
           )}
           {cursorStep !== null && (
             <Reader
-              conversation={cursorConversation}
+              conversation={cursorShown}
               seenAt={stepSeenAt}
               open={open}
               step={cursorStep.step}
@@ -1740,8 +1735,11 @@ export function App({
                   onPage={(direction) => cursorReader.current?.page(direction) ?? false}
                   onFind={() => setCursorFind({ key: row.key, query: "", current: 0 })}
                   queued={row.key === cursorRowKey ? cursorConversation?.state?.waiting : undefined}
-                  held={row.key === cursorRowKey ? cursorConversation?.held : undefined}
-                  items={row.key === cursorRowKey ? cursorConversation?.items : undefined}
+                  sessionQueue={row.key === cursorRowKey ? cursorConversation?.queued : undefined}
+                  withdraw={
+                    row.kind === "session" ? (promptId) => actions.withdrawQueued(clients, row, promptId) : undefined
+                  }
+                  items={row.key === cursorRowKey ? cursorShown?.items : undefined}
                   onSending={(sent) => addSending(row.key, sent, row.key === cursorRowKey ? cursorConversation : null)}
                   onUnsent={(promptId) => retractSending(row.key, promptId)}
                   inputRef={(element) => {
@@ -1823,7 +1821,7 @@ export function App({
           )}
           {pinned !== null && (
             <Reader
-              conversation={pinnedConversation}
+              conversation={pinnedShown}
               seenAt={pinned.seen}
               open={false}
               onOlder={() => pinnedOlder.current()}
@@ -1852,8 +1850,11 @@ export function App({
                   onPage={(direction) => pinnedReader.current?.page(direction) ?? false}
                   onFind={() => setPinnedFind({ key: row.key, query: "", current: 0 })}
                   queued={row.key === pinnedKey ? pinnedConversation?.state?.waiting : undefined}
-                  held={row.key === pinnedKey ? pinnedConversation?.held : undefined}
-                  items={row.key === pinnedKey ? pinnedConversation?.items : undefined}
+                  sessionQueue={row.key === pinnedKey ? pinnedConversation?.queued : undefined}
+                  withdraw={
+                    row.kind === "session" ? (promptId) => actions.withdrawQueued(clients, row, promptId) : undefined
+                  }
+                  items={row.key === pinnedKey ? pinnedShown?.items : undefined}
                   onSending={(sent) => addSending(row.key, sent, row.key === pinnedKey ? pinnedConversation : null)}
                   onUnsent={(promptId) => retractSending(row.key, promptId)}
                   inputRef={(element) => {

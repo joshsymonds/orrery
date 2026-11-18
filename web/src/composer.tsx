@@ -2,12 +2,15 @@ import type { JSX, Ref } from "preact";
 import { useLayoutEffect, useRef, useState } from "preact/hooks";
 
 import { useFlash } from "./flash";
-import type { ConversationItem, HeldMessage, WaitingMessage } from "./gen/orrery/v1/orrery_pb";
+import type { ConversationItem, QueuedMessage, WaitingMessage } from "./gen/orrery/v1/orrery_pb";
 import { type Sending, type SentText, promptHeld, sameText, withoutTexts } from "./sending";
 import { ReplyText } from "./text";
 
 const sendFailedLine = "Not sent. Your draft is kept; press Enter to try again.";
 const pullFailedLine = "Could not pull the message back.";
+const takesNextLine = "Claude takes it at its next tool call.";
+const alreadyTookLine = "Claude already took it in.";
+const withdrawFailedLine = "Could not withdraw the message.";
 
 interface FailedSend {
   text: string;
@@ -15,24 +18,24 @@ interface FailedSend {
 }
 
 // A message this composer sent while its conversation was working, with the newest item the conversation held as it was
-// sent. It stays above the box until the conversation's items hold its prompt, it leaves the held set after it was in it
-// (wasHeld), the turn ends or its send fails.
+// sent. It stays above the box until the conversation's items hold its prompt, it leaves the session queue after it was
+// in it (wasQueued), the turn ends or its send fails.
 interface LocalQueued extends Sending {
-  wasHeld: boolean;
+  wasQueued: boolean;
 }
 
-// settleLocal drops each local entry whose prompt items hold, and each one that has left held after it was in it, and
-// marks the ones held carries as held. It returns entries itself when nothing changes.
-function settleLocal(entries: LocalQueued[], items: ConversationItem[], held: HeldMessage[]): LocalQueued[] {
+// settleLocal drops each local entry whose prompt items hold, and each one that has left the session queue after it was
+// in it, and marks the ones the queue carries as queued. It returns entries itself when nothing changes.
+function settleLocal(entries: LocalQueued[], items: ConversationItem[], queue: QueuedMessage[]): LocalQueued[] {
   let changed = false;
   const kept: LocalQueued[] = [];
   for (const entry of entries) {
-    const inHeld = held.some((message) => message.promptId === entry.promptId);
-    if (promptHeld(entry, items) || (entry.wasHeld && !inHeld)) {
+    const inQueue = queue.some((message) => message.promptId === entry.promptId);
+    if (promptHeld(entry, items) || (entry.wasQueued && !inQueue)) {
       changed = true;
-    } else if (inHeld && !entry.wasHeld) {
+    } else if (inQueue && !entry.wasQueued) {
       changed = true;
-      kept.push({ ...entry, wasHeld: true });
+      kept.push({ ...entry, wasQueued: true });
     } else {
       kept.push(entry);
     }
@@ -40,12 +43,17 @@ function settleLocal(entries: LocalQueued[], items: ConversationItem[], held: He
   return changed ? kept : entries;
 }
 
-// QueueRow is one line of the queue above the box: a message the conversation holds or this composer sent.
+// QueueRow is one line of the queue above the box that carries only its text: a waiting message or a message this
+// composer sent.
 interface QueueRow {
   key: string;
   text: string;
   canceled: boolean;
 }
+
+// WithdrawOutcome is what a withdraw of a session's queued message came to, when it did not take the text back: took when
+// Claude had already taken the message in, failed when the call was refused.
+type WithdrawOutcome = "took" | "failed";
 
 // edgeClass is the edge a composer shows for its conversation's state: working, waiting, or idle for any other state.
 function edgeClass(state: string): string {
@@ -73,7 +81,7 @@ function placeholderFor(state: string, label: string): string {
 
 // ComposerHandle is what the page calls on a composer when its row's Escape takes queued messages back. append puts
 // their texts in the box after its text, joined by blank lines. forget drops the local entry each text matches, since
-// the held set no longer carries those messages.
+// the session queue no longer carries those messages.
 export interface ComposerHandle {
   append: (texts: string[]) => void;
   forget: (texts: string[]) => void;
@@ -83,12 +91,14 @@ export interface ComposerHandle {
 // puts a line break at the cursor instead. A send reports itself to onSending as it starts, and to onUnsent if it
 // rejects. A failed send keeps the draft and its prompt id and is never resent by the composer. Up in an empty box pulls
 // the newest queued text back. In an empty box with no modifier held, Page Up and Page Down go to onPage, and / goes to
-// onFind. The queue draws above the box under one head that counts its rows, oldest first, each message as its text:
-// the conversation's waiting messages, then its held messages, then the messages this composer sent while the
-// conversation was working, except those the held set now carries under their prompt id. Such a message leaves once
-// the conversation's items hold its prompt, or once it leaves the held set it was in, so a message that became a prompt
-// is not drawn as queued while the conversation stays working. A canceled message is tagged. Its edge and placeholder
-// follow the conversation's state.
+// onFind. The queue draws above the box under one head that counts its queued rows, oldest first, each message as its
+// text: the conversation's waiting messages, then the session's queued messages, then the messages this composer sent
+// while the conversation was working, except those the session queue carries under their prompt id. Such a message
+// leaves once the conversation's items hold its prompt, or once it leaves the session queue it was in, so a message that
+// became a prompt is not drawn as queued while the conversation stays working. A canceled message is tagged. A session's
+// queued message carries a withdraw, which takes it back into the box, and a note on what Claude did. A session's
+// discarded message draws after the rows as not delivered, with a control that puts it back in the box. Its edge and
+// placeholder follow the conversation's state.
 export function Composer(props: {
   label: string; // the row's label, named in the placeholder
   state: string; // the conversation's state: working, waiting, or any other
@@ -98,7 +108,8 @@ export function Composer(props: {
   inputRef?: Ref<HTMLTextAreaElement>; // the page focuses it on `i`
   register?: (handle: ComposerHandle | null) => void; // gets the handle while mounted, and null once unmounted
   queued?: WaitingMessage[]; // the row's waiting and canceled messages, oldest first; none drawn when absent
-  held?: HeldMessage[]; // the row's held messages, oldest first, each drawn as a queued row; none drawn when absent
+  sessionQueue?: QueuedMessage[]; // the session's queued messages, oldest first; none drawn when absent
+  withdraw?: (promptId: string) => Promise<string[]>; // takes a session's queued message back, resolving its texts; no withdraw control when absent
   items?: ConversationItem[]; // the conversation's items, whose prompts end the queued messages sent here
   onSending?: (entry: SentText) => void; // called as a send starts, before it is awaited
   onUnsent?: (promptId: string) => void; // called when a send rejects
@@ -114,7 +125,8 @@ export function Composer(props: {
     inputRef,
     register,
     queued = [],
-    held = [],
+    sessionQueue = [],
+    withdraw,
     items = [],
     onSending,
     onUnsent,
@@ -124,19 +136,26 @@ export function Composer(props: {
   const [text, setText] = useState("");
   const [error, setError] = useState("");
   const [local, setLocal] = useState<LocalQueued[]>([]);
+  // The outcome of each session message a withdraw did not take back, by prompt id.
+  const [outcomes, setOutcomes] = useState<Map<string, WithdrawOutcome>>(() => new Map());
+  // The prompt ids of the discarded messages put back in the box, whose rows are hidden for the composer's life.
+  const [putBackIds, setPutBackIds] = useState<string[]>([]);
   const inFlight = useRef(false);
   const failed = useRef<FailedSend | null>(null);
   const [flashing, flash] = useFlash();
   // caret is the cursor a line break left for the render to park: setting the value moves the cursor to the end.
   const caret = useRef<{ box: HTMLTextAreaElement; at: number } | null>(null);
 
+  // append puts texts in the box after its text, joined by blank lines.
+  const append = (texts: string[]) => {
+    const returned = texts.join("\n\n");
+    setText((current) => (current === "" ? returned : `${current}\n\n${returned}`));
+  };
+
   // The page holds the handle while this composer is mounted, and drops it when the composer unmounts.
   useLayoutEffect(() => {
     register?.({
-      append: (texts) => {
-        const returned = texts.join("\n\n");
-        setText((current) => (current === "" ? returned : `${current}\n\n${returned}`));
-      },
+      append,
       forget: (texts) => {
         setLocal((current) => withoutTexts(current, texts));
       },
@@ -159,10 +178,10 @@ export function Composer(props: {
     }
   }, [state]);
 
-  // A message whose prompt the conversation holds, or that left the held set, is no longer queued.
+  // A message whose prompt the conversation holds, or that left the session queue, is no longer queued.
   useLayoutEffect(() => {
-    setLocal((current) => settleLocal(current, items, held));
-  }, [items, held]);
+    setLocal((current) => settleLocal(current, items, sessionQueue));
+  }, [items, sessionQueue]);
 
   async function submit(): Promise<void> {
     if (inFlight.current || text.trim() === "") {
@@ -176,7 +195,7 @@ export function Composer(props: {
     setError("");
     onSending?.({ text: sent, promptId });
     if (state === "working") {
-      setLocal((current) => [...current, { promptId, text: sent, after: items.at(-1), wasHeld: false }]);
+      setLocal((current) => [...current, { promptId, text: sent, after: items.at(-1), wasQueued: false }]);
     }
     try {
       await send(sent, promptId);
@@ -206,6 +225,39 @@ export function Composer(props: {
     } catch {
       setError(pullFailedLine);
     }
+  }
+
+  // withdrawRow takes a session's queued message back through take. Its texts go to the box; none means Claude already
+  // took the message in, and a refused call is shown as its own line on the row. The row stays until the stream drops it.
+  async function withdrawRow(take: (promptId: string) => Promise<string[]>, promptId: string): Promise<void> {
+    try {
+      const texts = await take(promptId);
+      if (texts.length > 0) {
+        append(texts);
+      }
+      setOutcome(promptId, texts.length === 0 ? "took" : null);
+    } catch {
+      setOutcome(promptId, "failed");
+    }
+  }
+
+  // setOutcome records the outcome of a withdraw of one message, or clears it when null.
+  function setOutcome(promptId: string, outcome: WithdrawOutcome | null): void {
+    setOutcomes((current) => {
+      const next = new Map(current);
+      if (outcome === null) {
+        next.delete(promptId);
+      } else {
+        next.set(promptId, outcome);
+      }
+      return next;
+    });
+  }
+
+  // putBackRow puts a discarded message's text in the box and hides its row.
+  function putBackRow(messageText: string, promptId: string): void {
+    append([messageText]);
+    setPutBackIds((current) => [...current, promptId]);
   }
 
   // lineBreakAt replaces the box's selection with a line break and leaves the cursor just after it.
@@ -238,30 +290,76 @@ export function Composer(props: {
     }
   }
 
-  // The local messages show only while the conversation is working. A message the conversation's queue already holds,
-  // not canceled, is drawn once, from the queue, and so is one the held set carries under its prompt id, from the held
-  // set.
+  // The local messages show only while the conversation is working. A message the conversation's session queue carries
+  // under its prompt id is drawn from that queue, in whatever state it is, and not from here.
   const sentHere = state === "working" ? local : [];
-  const rows: QueueRow[] = [
-    ...queued.map((message, index) => ({ key: `queued-${index}`, text: message.text, canceled: message.canceled })),
-    ...held.map((message) => ({ key: `held-${message.promptId}`, text: message.text, canceled: false })),
-    ...sentHere
-      .filter((entry) => !held.some((message) => message.promptId === entry.promptId))
-      .filter((entry) => !queued.some((message) => !message.canceled && sameText(message.text, entry.text)))
-      .map((entry) => ({ key: `local-${entry.promptId}`, text: entry.text, canceled: false })),
-  ];
+  const paneRows: QueueRow[] = queued.map((message, index) => ({
+    key: `queued-${index}`,
+    text: message.text,
+    canceled: message.canceled,
+  }));
+  const localRows: QueueRow[] = sentHere
+    .filter((entry) => !sessionQueue.some((message) => message.promptId === entry.promptId))
+    .filter((entry) => !queued.some((message) => !message.canceled && sameText(message.text, entry.text)))
+    .map((entry) => ({ key: `local-${entry.promptId}`, text: entry.text, canceled: false }));
+  const sessionRows = sessionQueue.filter((message) => message.state === "queued");
+  const undelivered = sessionQueue.filter(
+    (message) => message.state === "discarded" && !putBackIds.includes(message.promptId),
+  );
+  const queuedCount = paneRows.length + sessionRows.length + localRows.length;
+  const plainRow = (row: QueueRow) => (
+    <li key={row.key} class={row.canceled ? "queued canceled" : "queued"}>
+      {row.canceled && <span class="tag">canceled</span>}
+      <span class="text">
+        <ReplyText text={row.text} />
+      </span>
+    </li>
+  );
 
   return (
     <div class="compose">
-      {rows.length > 0 && (
+      {(queuedCount > 0 || undelivered.length > 0) && (
         <ol class="queue">
-          <li class="queue-head">{`${rows.length} queued`}</li>
-          {rows.map((row) => (
-            <li key={row.key} class={row.canceled ? "queued canceled" : "queued"}>
-              {row.canceled && <span class="tag">canceled</span>}
+          {queuedCount > 0 && <li class="queue-head">{`${queuedCount} queued`}</li>}
+          {paneRows.map(plainRow)}
+          {sessionRows.map((message) => {
+            const outcome = outcomes.get(message.promptId);
+            return (
+              <li key={`session-${message.promptId}`} class="queued">
+                <span class="text">
+                  <ReplyText text={message.text} />
+                </span>
+                <span class="note">
+                  {outcome === "took" ? alreadyTookLine : outcome === "failed" ? withdrawFailedLine : takesNextLine}
+                </span>
+                {withdraw !== undefined && outcome !== "took" && (
+                  <button
+                    type="button"
+                    class="withdraw"
+                    aria-label="withdraw"
+                    onClick={() => void withdrawRow(withdraw, message.promptId)}
+                  >
+                    Withdraw
+                  </button>
+                )}
+              </li>
+            );
+          })}
+          {localRows.map(plainRow)}
+          {undelivered.map((message) => (
+            <li key={`undelivered-${message.promptId}`} class="undelivered">
+              <span class="tag">not delivered</span>
               <span class="text">
-                <ReplyText text={row.text} />
+                <ReplyText text={message.text} />
               </span>
+              <button
+                type="button"
+                class="put-back"
+                aria-label="put back"
+                onClick={() => putBackRow(message.text, message.promptId)}
+              >
+                Put back in the box
+              </button>
             </li>
           ))}
         </ol>

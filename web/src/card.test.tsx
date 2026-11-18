@@ -48,7 +48,8 @@ function conversationOf(items: ConversationItem[]): Conversation {
     more: false,
     state: create(ConversationStateSchema, {}),
     unfinished: [],
-    held: [],
+    queued: [],
+    unsent: [],
   };
 }
 

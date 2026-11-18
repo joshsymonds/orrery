@@ -7,8 +7,9 @@ import type { Conversation } from "./conversation";
 import {
   ConversationItemSchema,
   ConversationStateSchema,
-  HeldMessageSchema,
+  QueuedMessageSchema,
   type ConversationItem,
+  type QueuedMessage,
 } from "./gen/orrery/v1/orrery_pb";
 import { sendingEntry, unsentEntries, withoutTexts, type Sending } from "./sending";
 
@@ -20,11 +21,11 @@ function reply(text: string): ConversationItem {
   return create(ConversationItemSchema, { kind: "reply", text, time: 101n });
 }
 
-function heldMessage(promptId: string, text: string) {
-  return create(HeldMessageSchema, { promptId, text });
+function queuedMessage(promptId: string, text: string): QueuedMessage {
+  return create(QueuedMessageSchema, { promptId, text, state: "queued" });
 }
 
-function held(items: ConversationItem[], heldSet: Conversation["held"] = []): Conversation {
+function held(items: ConversationItem[], queued: QueuedMessage[] = []): Conversation {
   return {
     transcript: "t1",
     seq: 1n,
@@ -33,7 +34,8 @@ function held(items: ConversationItem[], heldSet: Conversation["held"] = []): Co
     more: false,
     state: create(ConversationStateSchema, {}),
     unfinished: [],
-    held: heldSet,
+    queued,
+    unsent: [],
   };
 }
 
@@ -56,7 +58,7 @@ test("a session's entry with the same text under another prompt id is unsent", (
 
 test("a session's entry is sent once its prompt id is in the held set, and is still unsent for another id", () => {
   const entries = [entry("fix the build", "p1"), entry("run the tests", "p2")];
-  const conversation = held([], [heldMessage("p1", "fix the build")]);
+  const conversation = held([], [queuedMessage("p1", "fix the build")]);
   assert.deepEqual(unsentEntries(entries, conversation, "session"), [entries[1]]);
 });
 
