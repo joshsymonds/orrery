@@ -7,7 +7,7 @@ import { epicCallsOf } from "./card";
 import { type ComposerHandle, Composer } from "./composer";
 import { ContractBody } from "./contract";
 import type { Conversation } from "./conversation";
-import { type ArchiveControl, EpicLine, RowMenu } from "./epicline";
+import { type ArchiveControl, EpicLine } from "./epicline";
 import { type EpicCommands, EpicPage, type Landing } from "./epicpage";
 import {
   type EpicBlock,
@@ -28,16 +28,17 @@ import type { EpicHistoryEntry, EpicsGetResponse, EpicStep } from "./gen/orrery/
 import type { InAppNotice, NoticeKey } from "./gen/orrery/v1/notice_pb";
 import type { HostStatusResponse, Pane } from "./gen/orrery/v1/orrery_pb";
 import { Handover } from "./handover";
+import { HelpPanel } from "./helppanel";
+import { type Answer, InboxRow, isLinkClick, optionText, readerQuestion, stateWaiting } from "./inboxrow";
 import { Mark } from "./mark";
 import { NeedEntry } from "./needentry";
-import { epicNeeds, rowNeed } from "./needs";
+import { epicNeeds } from "./needs";
 import { NoticeBanner } from "./notices";
 import { PhaseOutputPage } from "./phaseoutput";
 import { phaseOutputOf } from "./phaserows";
 import type { Phase } from "./phases";
 import { PickerPalette } from "./picker";
 import { type Viewing, viewingOf } from "./presence";
-import { type ParsedQuestion, parseQuestion } from "./question";
 import { ConversationHead, Reader, type ReaderHandle } from "./reader";
 import { byAttention, byProject, type Row, type Section, splitArchived } from "./rows";
 import { type SeenClock, type SeenWindow, watchSeen } from "./seen";
@@ -47,7 +48,7 @@ import { PaneStrip, type StripHost } from "./strip";
 import { Talk, type TalkTarget } from "./talk";
 import { TalkDock } from "./talkdock";
 import { ReplyText } from "./text";
-import { lastPathElement, TitleParts } from "./titleparts";
+import { lastPathElement } from "./titleparts";
 import { type InboxMark, TitleRow } from "./titlerow";
 import { WorkerSessionPage } from "./workersession";
 import { Pill, rowPill, stepPill } from "./workline";
@@ -93,13 +94,6 @@ interface FindState {
 interface Cursor {
   key: string;
   index: number;
-}
-
-// A landed answer from the list: the choice and its label, kept for the row and the question it answered.
-interface Answer {
-  question: string;
-  choice: number;
-  label: string;
 }
 
 // The page the epic page's section holds: the epic page, the contract its summary opens, a task's phase output, or a
@@ -162,7 +156,6 @@ interface PendingTarget {
   id: string;
 }
 
-const stateWaiting = "waiting";
 const stateWorking = "working";
 // The block kind a notice names when it opens the contract page.
 const contractBlock = "contract";
@@ -182,13 +175,6 @@ const archivedTitle = "Archived";
 const historyPageSize = 200;
 const heldMark = "‖";
 
-// The keys 1-3 answer the first three options of a question, and no others.
-const keyedOptions = 3;
-
-const secondsPerMinute = 60;
-const minutesPerHour = 60;
-const hoursPerDay = 24;
-
 // A step keeps no seen mark. Infinity makes no item newer than it, so the step's reader draws no since-you-looked rule.
 const stepSeenAt = Number.POSITIVE_INFINITY;
 
@@ -198,36 +184,6 @@ const inboxListKeys = new Set(["j", "k", "ArrowDown", "ArrowUp", "g", "G", "/", 
 // The query of the wide layout, the same one style.css's wide block uses. Only that layout hides, pops out or pins the
 // inbox: a narrower window always shows it docked, as the stacked layout does.
 const wideQuery = "(min-width: 760px)";
-
-const helpEntries: [string[], string][] = [
-  [["j", "k", "↓", "↑"], "move the cursor one row up or down"],
-  [["gg"], "first row"],
-  [["G"], "last row"],
-  [["a"], "by attention"],
-  [["p"], "by project"],
-  [["v"], "archived rows and epics"],
-  [["A"], "archive the cursor's row or epic"],
-  [["w"], "first waiting row"],
-  [["n"], "next unseen row, wrapping"],
-  [["N"], "open the palette to ask for a pane or a directory, outside a text box"],
-  [["⌘K"], "open the palette anywhere, a text box included; Ctrl+K does too"],
-  [["x", "Enter"], "mark the cursor's row seen; Enter also opens the row into its reply box"],
-  [["e"], "mark it seen, then go to the next unseen row"],
-  [["/"], "filter: Enter leaves it, Esc clears it"],
-  [["i"], "focus the reply box"],
-  [["Shift+Tab"], "from a reply box, back to the list's cursor row, taking nothing back"],
-  [["Page Up", "Page Down"], "in an empty reply box, page the transcript"],
-  [["/"], "in an empty reply box, find in the transcript"],
-  [["1", "2", "3"], "answer the cursor's waiting question with that choice, or pick that option on an epic page"],
-  [["o"], "open or close a compaction's summary"],
-  [["|"], "pin the cursor's row in a second column, or close the pin"],
-  [["b"], "pop the inbox out over the page, or tuck it back"],
-  [["B"], "pin or unpin the inbox beside the page"],
-  [["h", "←"], "back one crumb, or the inbox from the first crumb"],
-  [["m"], "hide or show the strips"],
-  [["?"], "toggle this help"],
-  [["Esc"], "close this help"],
-];
 
 export function App({
   rows,
@@ -1581,49 +1537,24 @@ export function App({
                     />
                   ))}
                 {section.rows.map((item) => (
-                  <div
+                  <InboxRow
                     key={item.key}
-                    class={item.key === cursorRowKey ? "b-row cur" : "b-row"}
-                    tabIndex={-1}
-                    data-row=""
-                    data-key={item.key}
-                    data-unseen={item.unseen ? "" : undefined}
-                    aria-current={item.key === cursorRowKey ? "true" : undefined}
-                    onClick={(event) => {
-                      if (!isLinkClick(event)) {
-                        selectItem(item);
-                        setRowOpened(true);
-                        setBoxOpened({ column: "cursor", key: item.key });
-                      }
+                    row={item}
+                    now={now}
+                    cursor={item.key === cursorRowKey}
+                    archive={archiveControl(item)}
+                    conversation={heldConversation(item.key)}
+                    answer={answered.get(item.key)}
+                    onOpen={() => {
+                      selectItem(item);
+                      setRowOpened(true);
+                      setBoxOpened({ column: "cursor", key: item.key });
                     }}
-                    onDblClick={(event) => {
-                      if (!isLinkClick(event)) {
-                        selectItem(item);
-                        void writeSeen(item);
-                      }
+                    onSeen={() => {
+                      selectItem(item);
+                      void writeSeen(item);
                     }}
-                  >
-                    <span class="dot" />
-                    <span class={`g g-${item.state}`} aria-hidden="true" />
-                    <div class="main">
-                      <div class="l1">
-                        {item.state === stateWaiting && (
-                          <span class="ty">{item.question !== "" ? "QUESTION" : "WAITING"}</span>
-                        )}
-                        <TitleParts dir={item.project} line={item.label} />
-                        <span class="age">{ageText(item.changed, now)}</span>
-                        {item.archiveKind !== "none" && <RowMenu control={archiveControl(item)} />}
-                      </div>
-                      <div class={item.unseen ? "l2" : "l2 one"}>
-                        <ReplyText text={replyText(item)} />
-                      </div>
-                      <RowOptions
-                        row={item}
-                        conversation={heldConversation(item.key)}
-                        answer={answered.get(item.key)}
-                      />
-                    </div>
-                  </div>
+                  />
                 ))}
                 {section.title === needsYouTitle &&
                   needs.map((need) => (
@@ -1908,64 +1839,8 @@ export function App({
           onClose={() => setPickerOpen(false)}
         />
       )}
-      {helpOpen && (
-        <section class="keys" aria-label="keys">
-          <dl>
-            {helpEntries.map(([keys, text]) => (
-              <div key={text} class="key">
-                <dt>
-                  {keys.map((key) => (
-                    <kbd key={key}>{key}</kbd>
-                  ))}
-                </dt>
-                <dd>{text}</dd>
-              </div>
-            ))}
-          </dl>
-        </section>
-      )}
+      {helpOpen && <HelpPanel />}
     </main>
-  );
-}
-
-// readerQuestion is the question the cursor's reader draws: a waiting pane row's stored question, or a session's open
-// request as its stream holds it. A row with no question draws none.
-function readerQuestion(row: Row, conversation: Conversation | null): ParsedQuestion | null {
-  if (row.kind === "pane") {
-    return row.state === stateWaiting && row.question !== "" ? parseQuestion(row.question) : null;
-  }
-  const request = conversation?.state?.request;
-  if (request === undefined) {
-    return null;
-  }
-  return { title: request.question, options: request.options.map((label) => ({ label, description: "" })) };
-}
-
-// RowOptions draws a waiting row's line under its text: the answer a landed answer left, or else the options its keys
-// answer as chips. Chips are labels, not buttons. A row that is not waiting draws neither.
-function RowOptions({ row, conversation, answer }: { row: Row; conversation: Conversation | null; answer?: Answer }) {
-  if (row.state !== stateWaiting) {
-    return null;
-  }
-  if (answer !== undefined && answer.question === row.question) {
-    return <div class="ans">{`You answered ${answer.choice} · ${answer.label}`}</div>;
-  }
-  const options = readerQuestion(row, conversation)?.options ?? [];
-  if (options.length === 0) {
-    return null;
-  }
-  return (
-    <div class="opts">
-      {options.map((option, index) => {
-        const keyed = index < keyedOptions;
-        return (
-          <span class="opt" key={index}>
-            {keyed && <kbd>{index + 1}</kbd>}
-            {keyed ? optionText(option.label, index + 1) : option.label}
-          </span>
-        );
-      })}
-    </div>
   );
 }
 
@@ -1974,13 +1849,6 @@ function RowOptions({ row, conversation, answer }: { row: Row; conversation: Con
 function keepsAnswer(rows: Row[], key: string, answer: Answer): boolean {
   const row = rows.find((candidate) => candidate.key === key);
   return row === undefined || (row.state === stateWaiting && row.question === answer.question);
-}
-
-// optionText is an option's label without the number of its own key cap, when the label starts with that number. A
-// label without it is named as it is.
-function optionText(label: string, choice: number): string {
-  const numbered = `${choice} `;
-  return label.startsWith(numbered) ? label.slice(numbered.length) : label;
 }
 
 // matchesFilter keeps a row whose label, project, host, state or summary holds every typed word.
@@ -2141,15 +2009,6 @@ function withoutKey(keys: Set<string>, key: string): Set<string> {
   const next = new Set(keys);
   next.delete(key);
   return next;
-}
-
-// replyText is a row's second line: the sentence of a waiting row, else a session's summary. A pane's summary is its
-// title's line, so a pane that is not waiting has no second line.
-function replyText(row: Row): string {
-  if (row.state === stateWaiting) {
-    return rowNeed(row).text;
-  }
-  return row.kind === "session" ? row.summary : "";
 }
 
 // rowName names a row in its composer's placeholder by its directory's last element, or by its line when it has no
@@ -2375,11 +2234,6 @@ function StepEntry({
   );
 }
 
-// isLinkClick reports whether a click or double click landed on a link, which opens it and moves nothing else.
-function isLinkClick(event: Event): boolean {
-  return event.target instanceof Element && event.target.closest("a") !== null;
-}
-
 function clamp(index: number, length: number): number {
   return Math.min(Math.max(index, 0), length - 1);
 }
@@ -2429,23 +2283,4 @@ function stepWhere(step: StepItem): string {
 // pageClasses are the classes of the epic page section: its move, and docked while a conversation docks beside it.
 function pageClasses(move: EpicPageState["move"], docked: boolean): string {
   return ["page", move, docked ? "docked" : ""].filter((name) => name !== "").join(" ");
-}
-
-function ageText(changed: number, now: number): string {
-  if (changed <= 0) {
-    return "";
-  }
-  const seconds = Math.max(0, now - changed);
-  if (seconds < secondsPerMinute) {
-    return `${seconds}s`;
-  }
-  const minutes = Math.floor(seconds / secondsPerMinute);
-  if (minutes < minutesPerHour) {
-    return `${minutes}m`;
-  }
-  const hours = Math.floor(minutes / minutesPerHour);
-  if (hours < hoursPerDay) {
-    return `${hours}h`;
-  }
-  return `${Math.floor(hours / hoursPerDay)}d`;
 }
