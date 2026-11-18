@@ -129,7 +129,7 @@ func TestBriefEvidenceShown(t *testing.T) {
 			want := "You implement task T4 of epic repo/epic-x (Build the task) in this worktree, whose task base is b4se.\n" +
 				"Task: Render brief\n" +
 				"Deliverable: brief.go\n" +
-				"Change only these files:\n" +
+				"Owned files (change only these):\n" +
 				"- internal/build/brief.go\n" +
 				"- internal/build/brief_test.go\n" +
 				briefRules +
@@ -143,7 +143,7 @@ func TestBriefEvidenceShown(t *testing.T) {
 				"Requirements:\n" +
 				"- R3: three\n" +
 				"- R1: one\n" +
-				"Exclusions:\n" +
+				"Must Not Ship:\n" +
 				"- no network\n" +
 				"After the gate passes, reviewers judge your commit by these rules:\n" +
 				"- floor must: tests use fakes\n" +
@@ -180,7 +180,7 @@ func TestBriefEvidenceShown(t *testing.T) {
 			want := "You implement task T4 of epic repo/epic-x (Build the task) in this worktree, whose task base is b4se.\n" +
 				"Task: Render brief\n" +
 				"Deliverable: brief.go\n" +
-				"Change only these files:\n" +
+				"Owned files (change only these):\n" +
 				"- none\n" +
 				briefRules +
 				"Test changes this task may make to the guarded tests:\n" +
@@ -192,7 +192,7 @@ func TestBriefEvidenceShown(t *testing.T) {
 				"in them.\n" +
 				"Requirements:\n" +
 				"- none\n" +
-				"Exclusions:\n" +
+				"Must Not Ship:\n" +
 				"- none\n" +
 				"After the gate passes, reviewers judge your commit by these rules:\n" +
 				"- none\n" +
@@ -285,7 +285,7 @@ func TestReviewPromptNamesRangeFilesAndRequirements(t *testing.T) {
 	got := ReviewPrompt(briefEpic(), task, "floor", "base1", "rev1", store.StepCheck{})
 	want := "Task T4 of epic repo/epic-x (Build the task): Render brief\n" +
 		"Deliverable: brief.go\n" +
-		"Files:\n" +
+		"Owned files:\n" +
 		"- internal/build/brief.go\n" +
 		"- internal/build/brief_test.go\n" +
 		"Test changes:\n" +
@@ -306,7 +306,7 @@ func TestReviewPromptEmptySectionsPrintNone(t *testing.T) {
 	got := ReviewPrompt(epic, task, "floor", "base1", "rev1", store.StepCheck{})
 	want := "Task T4 of epic repo/epic-x (Build the task): Render brief\n" +
 		"Deliverable: brief.go\n" +
-		"Files:\n" +
+		"Owned files:\n" +
 		"- none\n" +
 		"Test changes:\n" +
 		"- none\n" +
@@ -485,7 +485,7 @@ func TestStepSendBackReviewPromptCarriesTestChanges(t *testing.T) {
 		task := briefTask()
 		task.TestChanges = []string{"internal/build/brief_test.go", "internal/build/floor_test.go"}
 		got := ReviewPrompt(briefEpic(), task, "floor", "base1", "rev1", store.StepCheck{})
-		want := "Files:\n" +
+		want := "Owned files:\n" +
 			"- internal/build/brief.go\n" +
 			"- internal/build/brief_test.go\n" +
 			"Test changes:\n" +
@@ -495,6 +495,62 @@ func TestStepSendBackReviewPromptCarriesTestChanges(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("review prompt lacks the Test changes after Files; review prompt:\n%s", got)
 		}
+	})
+}
+
+// bulletsUnder returns the bullet lines directly under the line heading of got, without their "- " prefix, and whether
+// got holds heading as a line.
+func bulletsUnder(got, heading string) ([]string, bool) {
+	lines := strings.Split(got, "\n")
+	at := slices.Index(lines, heading)
+	if at < 0 {
+		return nil, false
+	}
+	var items []string
+	for _, line := range lines[at+1:] {
+		item, bullet := strings.CutPrefix(line, "- ")
+		if !bullet {
+			break
+		}
+		items = append(items, item)
+	}
+	return items, true
+}
+
+// assertHeadedBy fails the test unless got holds heading as a line directly followed by the bullets want, and holds no
+// line equal to old.
+func assertHeadedBy(t *testing.T, got, heading string, want []string, old string) {
+	t.Helper()
+	items, ok := bulletsUnder(got, heading)
+	if !ok {
+		t.Fatalf("prompt lacks the line %q; prompt:\n%s", heading, got)
+	}
+	if !slices.Equal(items, want) {
+		t.Fatalf("bullets under %q = %q, want %q; prompt:\n%s", heading, items, want, got)
+	}
+	if slices.Contains(strings.Split(got, "\n"), old) {
+		t.Fatalf("prompt still holds the line %q; prompt:\n%s", old, got)
+	}
+}
+
+// TestBriefPromptsTightened: the brief and the ReviewPrompt head a task's files as owned files, and the brief says
+// Must Not Ship where it said Exclusions.
+func TestBriefPromptsTightened(t *testing.T) {
+	t.Parallel()
+	t.Run("the brief heads the task's file list as owned files", func(t *testing.T) {
+		t.Parallel()
+		got := Brief(briefEpic(), briefTask(), briefGate(), store.EvidenceRun{}, nil, nil, "")
+		assertHeadedBy(t, got, "Owned files (change only these):", briefTask().Files, "Change only these files:")
+	})
+	t.Run("the brief says Must Not Ship where it said Exclusions", func(t *testing.T) {
+		t.Parallel()
+		got := Brief(briefEpic(), briefTask(), briefGate(), store.EvidenceRun{}, nil, nil, "")
+		assertHeadedBy(t, got, "Must Not Ship:", briefEpic().Exclusions, "Exclusions:")
+	})
+	t.Run("ReviewPrompt heads its file list as owned files", func(t *testing.T) {
+		t.Parallel()
+		got := ReviewPrompt(briefEpic(), briefTask(), "floor", "base1", "rev1", store.StepCheck{})
+		assertHeadedBy(t, got, "Owned files:", briefTask().Files, "Files:")
 	})
 }
 
