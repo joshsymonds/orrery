@@ -1,5 +1,8 @@
 // Package tmuxconf prints the orrery tmux plugin: the bindings that open the tree and a per-project shell, the
-// status-line counts, the top pane border, and the hooks that mark panes seen while a client is attached.
+// status-line counts, the top pane border, and the hooks that mark panes seen while a client is attached. The plugin
+// can be sourced again into a running server and leaves it as one source does: its hooks sit at a fixed index of each
+// hook array, so a second source replaces them, and its status-line counts are appended only while status-right does
+// not already hold them.
 package tmuxconf
 
 import (
@@ -16,6 +19,14 @@ import (
 
 // shellGlob matches the names of shell sessions in a #{m:...} format.
 const shellGlob = protocol.ShellSessionPrefix + "*"
+
+// hookIndex is the index of each hook array the plugin sets. A fixed index makes a second source replace the hook
+// rather than append another, so a server that sources the plugin again after an upgrade runs the new binary only.
+const hookIndex = "[47]"
+
+// statusMark is the text that starts the plugin's status-line counts; the plugin appends the counts only while
+// status-right does not already hold it.
+const statusMark = " orrery "
 
 // Print writes the orrery tmux plugin for the orrery binary at path orrery to out. It writes nothing and returns an
 // error when orrery is empty or holds a byte outside [A-Za-z0-9/._+-], because the plugin embeds the path unquoted.
@@ -61,8 +72,10 @@ func plugin(orrery string) (string, error) {
 	}
 	seen := seenHook(orrery)
 	lines := slices.Concat(binds, []string{
-		`set -ga status-right " orrery ` + palette.Tmux(palette.Peach, paneCount(waitingPane())) + ` waiting ` +
+		`%if "#{?#{m:*` + statusMark + `*,#{status-right}},0,1}"`,
+		`set -ga status-right "` + statusMark + palette.Tmux(palette.Peach, paneCount(waitingPane())) + ` waiting ` +
 			palette.Tmux(palette.Mauve, paneCount(newPane())) + ` new "`,
+		`%endif`,
 		`set -g pane-border-status top`,
 		`set -g pane-border-format "#{?` + option(protocol.OptionState) + `,` + stateStyles() +
 			option(protocol.OptionState) + `#[default] ` + palette.Tmux(palette.Text, option(protocol.OptionLabel)) +
@@ -70,9 +83,9 @@ func plugin(orrery string) (string, error) {
 		`set -g popup-border-lines rounded`,
 		`set -g popup-border-style "fg=` + string(palette.Lavender) + `"`,
 		`set -g popup-style "bg=` + string(palette.Base) + `"`,
-		`set-hook -ga window-pane-changed "` + seen + `"`,
-		`set-hook -ga session-window-changed "` + seen + `"`,
-		`set-hook -ga client-session-changed "` + seen + `"`,
+		`set-hook -g "window-pane-changed` + hookIndex + `" "` + seen + `"`,
+		`set-hook -g "session-window-changed` + hookIndex + `" "` + seen + `"`,
+		`set-hook -g "client-session-changed` + hookIndex + `" "` + seen + `"`,
 	})
 	return strings.Join(lines, "\n") + "\n", nil
 }

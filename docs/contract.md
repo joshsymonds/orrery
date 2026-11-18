@@ -298,7 +298,7 @@ Subcommands:
   - The shell session is named `_orrery-shell-` followed by the first 12 hex digits of the SHA-256 of the cleaned `DIR`. It is created detached in `DIR`, with `@orrery_dir` set to `DIR`, unless it already exists. The popup attaches it.
   - Shell sessions are left out of the tree and of `open`.
 - `tree --client TTY` shows the pane tree on the client at `TTY`. The keys are in [Tree keys](#tree-keys). `N` runs the picker for the row's directory, and the picker's choice switches the same client. The command exits 0 when the tree closes.
-- `tmux-conf` prints the tmux plugin for this binary's own path (see [tmux plugin](#tmux-plugin)). It takes no flags and needs no tmux server. It exits 1 when the path holds a byte outside `[A-Za-z0-9/._+-]`.
+- `tmux-conf [--binary PATH]` prints the tmux plugin for the orrery binary at `PATH`, or for this binary's own path when `--binary` is not given (see [tmux plugin](#tmux-plugin)). It needs no tmux server. It exits 1 when the path holds a byte outside `[A-Za-z0-9/._+-]`.
 - `help [--html]` prints the help card. It has the same content as the `Daily use` card in the README, built from the keymap table ([Tree keys](#tree-keys) lists its tree rows). When a tmux server can be read, the tmux heading names the prefix key, as `tmux (prefix is C-b)`; otherwise it reads `tmux`. `--html` writes the same content to stdout as one static HTML page instead.
 - `open [--remote] [--intent TEXT] [ARGS...]` attaches a session for a project, or starts one.
   - No argument: attaches the most recently active non-shell session, and the tree opens on that client after it attaches.
@@ -3188,17 +3188,17 @@ The picker is shown by `orrery open` with text, and by the tree's `N` in directo
 
 ### tmux plugin
 
-`orrery tmux-conf` prints the plugin for the binary's own path. The home-manager module sources it (see below). The plugin:
+`orrery tmux-conf` prints the plugin for the binary `--binary` names, or for its own path. The home-manager module prints it for the profile's `bin/orrery`, which always points at the installed build, so a running server's bindings and hooks keep working after an upgrade removes the build they were printed from, and sources it (see below). Sourcing the plugin again into a running server leaves it as one source does: its hooks sit at index 47 of each hook array, so a second source replaces them, and its status counts are appended only while `status-right` does not already hold ` orrery `. The plugin:
 
 - binds prefix `Space` to `orrery tree` in a popup on the invoking client. This replaces tmux's default `Space` binding.
 - binds prefix `s` to `orrery shell` for the current pane's directory, on the invoking client.
-- appends to `status-right` the counts of waiting panes and new panes, as ` orrery N waiting M new `. Shell sessions are left out.
+- appends to `status-right`, unless it already holds them, the counts of waiting panes and new panes, as ` orrery N waiting M new `. Shell sessions are left out.
 - sets the top pane border, showing each pane's state, label, and summary.
-- runs `orrery seen --pane ID --focus` for the focused pane on `window-pane-changed`, `session-window-changed`, and `client-session-changed`, only while a client is attached to the session. A focus change therefore marks the pane seen only under the `--focus` rule of section 11.
+- runs `orrery seen --pane ID --focus` for the focused pane on `window-pane-changed`, `session-window-changed`, and `client-session-changed` (each at index 47), only while a client is attached to the session. A focus change therefore marks the pane seen only under the `--focus` rule of section 11.
 
 ### Home-manager module
 
-The flake exports `homeManagerModules.default`. Setting `programs.orrery.enable = true` installs the package and `p`, and sources the tmux plugin through `programs.tmux.extraConfig`.
+The flake exports `homeManagerModules.default`. Setting `programs.orrery.enable = true` installs the package and `p`, and sources the tmux plugin through `programs.tmux.extraConfig`. Each switch also sources the plugin into a running tmux server (the activation step `orreryTmuxPlugin`), so the server takes the new build without a restart.
 
 | Option | Type | Default | Meaning |
 |---|---|---|---|
