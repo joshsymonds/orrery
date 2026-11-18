@@ -421,6 +421,9 @@ button, input, textarea, select { font-family: var(--mono); }
 /* A prompt an event sent to the caller: teal, not the owner's mauve, so an event never reads as the owner's message. */
 .reader .event { padding: 8px 14px 10px; border-radius: 3px 10px 10px 3px; background: var(--mantle); box-shadow: inset 3px 0 0 var(--teal); }
 .reader .event small { display: block; font: 700 10px/16px var(--mono); letter-spacing: .12em; color: var(--teal); }
+/* A prompt the session's cron sent: drawn as an event is, teal, so an automatic prompt never reads as the owner's. */
+.reader .cron { padding: 8px 14px 10px; border-radius: 3px 10px 10px 3px; background: var(--mantle); box-shadow: inset 3px 0 0 var(--teal); }
+.reader .cron small { display: block; font: 700 10px/16px var(--mono); letter-spacing: .12em; color: var(--teal); }
 .reader .rule { display: flex; align-items: center; gap: 10px; font: 11.5px/23px var(--mono); color: var(--overlay0); white-space: nowrap; }
 .reader .rule::after { content: ""; flex: 1; height: 1px; background: var(--surface0); }
 .reader .compaction button.rule { width: 100%; margin: 0; padding: 0; border: 0; background: none; text-align: left; cursor: pointer; appearance: none; -webkit-appearance: none; }
