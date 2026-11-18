@@ -58,10 +58,11 @@ func holdWithdrawnLine(t *testing.T, m *Manager, path, dir string) string {
 	return id
 }
 
-// TestWithdrawQueuedCancelledTrueReturnsTheTextAndWritesOneCancel withdraws the owner's line while the turn that holds it
-// keeps it queued. The session writes one cancel_async_message control request that names the line's write id, and
-// Withdraw returns the line's text.
-func TestWithdrawQueuedCancelledTrueReturnsTheTextAndWritesOneCancel(t *testing.T) {
+// TestWithdrawQueuedCancelRequestNamesPromptIDByItsWriteID withdraws the owner's line while the turn that holds it
+// keeps it queued. The session writes one cancel_async_message control request whose message_uuid is the write id the
+// store records for prompt p-held, the uuid that prompt was sent under. Withdraw returns the line's text, and the store
+// then lists prompt p-held as cancelled, so the cancel landed on that prompt id.
+func TestWithdrawQueuedCancelRequestNamesPromptIDByItsWriteID(t *testing.T) {
 	t.Parallel()
 	m, path := newTestManager(t, 1, fakeClaudePath(t))
 	dir := t.TempDir()
@@ -74,7 +75,17 @@ func TestWithdrawQueuedCancelledTrueReturnsTheTextAndWritesOneCancel(t *testing.
 	if want := []string{"withdrawn words"}; !slices.Equal(texts, want) {
 		t.Fatalf("Withdraw texts = %q, want %q", texts, want)
 	}
-	writeID := writeIDOf(t, path, id, "withdrawn words")
+	prompt, found, err := storeOf(t, m).PromptWrite(t.Context(), id, "p-held")
+	if err != nil {
+		t.Fatalf("PromptWrite of prompt p-held: %v", err)
+	}
+	if !found {
+		t.Fatal("prompt p-held has no engine_prompt in the session")
+	}
+	if prompt.Sender != store.PromptSenderOwner || prompt.Text != "withdrawn words" {
+		t.Fatalf("prompt p-held = %+v, want owner sender and text %q", prompt, "withdrawn words")
+	}
+	writeID := prompt.WriteID
 	cancels := cancelEnvelopesOf(t, dir)
 	if len(cancels) != 1 {
 		t.Fatalf("cancel requests = %+v, want one", cancels)
@@ -90,8 +101,18 @@ func TestWithdrawQueuedCancelledTrueReturnsTheTextAndWritesOneCancel(t *testing.
 		t.Fatalf("cancel request subtype = %q, want cancel_async_message", cancel.Request.Subtype)
 	}
 	if cancel.Request.MessageUUID != writeID {
-		t.Fatalf("cancel request message_uuid = %q, want the prompt's write id %q", cancel.Request.MessageUUID, writeID)
+		t.Fatalf("cancel request message_uuid = %q, want write id %q of prompt p-held",
+			cancel.Request.MessageUUID, writeID)
 	}
+	waitUntil(t, engineOf(m), "prompt p-held listed as cancelled in the store", func() bool {
+		states, err := store.NewReader(path).PromptStates(t.Context(), id)
+		if err != nil {
+			return false
+		}
+		return slices.ContainsFunc(states, func(s store.PromptState) bool {
+			return s.PromptID == "p-held" && s.State == store.PromptCancelled
+		})
+	})
 }
 
 // TestWithdrawQueuedTurnEndLeavesSessionDoneAndRunsNoWithdrawnLine withdraws the held line, then ends its turn with the
