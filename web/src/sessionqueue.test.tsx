@@ -248,6 +248,38 @@ test("QueueLifecycle: a session delta with a queued entry draws one li.queued ro
     assert.equal(sentPrompts(container).length, 0, "the queued prompt is not drawn as sent in the reader");
   }));
 
+test("QueueLifecycle: a delta with two queued entries draws one li.queued row per not-started message, each with its own text and the next-tool-call note, and no sent prompt item for either prompt", (t) =>
+  withApp(t.signal, async (container, fake) => {
+    await emit(
+      t.signal,
+      fake,
+      0,
+      queuedDelta(
+        "1",
+        [
+          { promptId: "p1", text: "first queued", state: "queued" },
+          { promptId: "p2", text: "second queued", state: "queued" },
+        ],
+        [
+          { kind: "prompt", text: "first queued", promptId: "p1" },
+          { kind: "prompt", text: "second queued", promptId: "p2" },
+        ],
+      ),
+    );
+    await until(t.signal, () => queuedRows(container).length === 2, "the two queued rows");
+    const rows = queuedRows(container);
+    assert.equal(rows.length, 2, "each not-started message draws one queued row");
+    assert.equal(rows[0].querySelector(".text")?.textContent, "first queued", "the first row reads the first message");
+    assert.equal(rows[1].querySelector(".text")?.textContent, "second queued", "the second row reads the second message");
+    assert.equal(noteOf(rows[0]), takesNextNote, "the first row says Claude takes it at its next tool call");
+    assert.equal(noteOf(rows[1]), takesNextNote, "the second row says Claude takes it at its next tool call");
+    assert.ok(withdrawButton(rows[0]), "the first row has a withdraw control");
+    assert.ok(withdrawButton(rows[1]), "the second row has a withdraw control");
+    assert.equal(sentPrompts(container).length, 0, "neither queued prompt is drawn as sent in the reader");
+    assert.equal(readerText(container).includes("first queued"), false, "the first queued text is not drawn in the reader");
+    assert.equal(readerText(container).includes("second queued"), false, "the second queued text is not drawn in the reader");
+  }));
+
 test("QueueLifecycle: a fresh stream (reload) whose reset carries the queued entry draws the row again", (t) =>
   withApp(t.signal, async (container, fake) => {
     await emit(t.signal, fake, 0, queuedDelta("1", [{ promptId: "p1", text: messageText, state: "queued" }]));
@@ -347,7 +379,7 @@ test("WithdrawQueued: the Withdraw control calls Control.Withdraw with the sessi
     assert.equal(queuedRows(container).length, 1, "the row stays until the stream drops it");
   }));
 
-test("WithdrawQueued: a reply with no texts makes the row read Claude already took it in, and takes its withdraw control away", (t) =>
+test("WithdrawQueued: a reply with no texts shows the taken-in wording, the row reading Claude already took it in, and takes its withdraw control away", (t) =>
   withApp(t.signal, async (container, fake) => {
     fake.replies.set(withdrawPath, [{}]);
     await emit(t.signal, fake, 0, queuedDelta("1", [{ promptId: "p1", text: messageText, state: "queued" }]));
