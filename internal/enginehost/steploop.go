@@ -369,8 +369,9 @@ func (r *stepRun) tick(ctx context.Context) bool {
 // when no turn end was found. A limited row is restored as limited, and its stored turn end is not handled again. A turn
 // end its latest return covers goes to resumeReturn. A turn end stored while a background task is listed is a return
 // only when it has the done value, as Manager.noteEvent hands one, so any other such turn end is left unread and the
-// step waits with no turn running, as a live step does. Any other turn end is handled as one the session has just
-// given. It reports whether the run goes on.
+// step waits with no turn running, as a live step does. A stored latest return that is not done is likewise left open
+// while a step the run started runs, as resumeReturn leaves it (see awaitingChildren), so the step waits the same way.
+// Any other turn end is handled as one the session has just given. It reports whether the run goes on.
 func (r *stepRun) resume(ctx context.Context, restore stepRestore) bool {
 	row := restore.Row
 	r.round = row.LoopRound
@@ -403,11 +404,30 @@ func (r *stepRun) resume(ctx context.Context, restore stepRestore) bool {
 	return r.turnEnded(ctx, ended)
 }
 
+// awaitingChildren reports whether the step stays open for the steps it started: value is not its done return and one of
+// those steps is still running. A failed read is logged and reports true, so the step stays open, since an end cannot be
+// undone and the next turn end reads again.
+func (r *stepRun) awaitingChildren(ctx context.Context, value json.RawMessage) bool {
+	if r.Done(session.TurnEnded{StructuredOutput: value}) {
+		return false
+	}
+	running, err := r.store.RunningCallerSteps(ctx, r.id)
+	if err != nil {
+		r.logger.ErrorContext(ctx, "read running steps of step", "step", r.id, "err", err)
+		return true
+	}
+	return len(running) > 0
+}
+
 // resumeReturn takes up a step whose latest return is stored and covered by its turn end, so nothing has been sent
-// since that return. A stored failed checkout check ends it checks_failed, as judge would have, and its other failed
-// checks go back as retry sends them. A done return is judged as judge judges it, and any other return ends the step
-// returned. It reports whether the run goes on.
+// since that return. A return that is not done stays open while a step it started runs (see awaitingChildren). A stored
+// failed checkout check ends it checks_failed, as judge would have, and its other failed checks go back as retry sends
+// them. A done return is judged as judge judges it, and any other return ends the step returned. It reports whether the
+// run goes on.
 func (r *stepRun) resumeReturn(ctx context.Context, row store.StepRow) bool {
+	if r.awaitingChildren(ctx, json.RawMessage(row.Result)) {
+		return true
+	}
 	checks := stepLoopRoundChecks(row.Checks, row.LoopRound)
 	if check, moved := stepLoopCheckoutFailure(checks); moved {
 		r.finish(ctx, stepLoopEndChecksFailed, "", check.Name+": "+check.Detail)
@@ -442,8 +462,9 @@ func (r *stepRun) resumeReturn(ctx context.Context, row store.StepRow) bool {
 // held step's turn end is no round and continues nothing, unless an owner nudge is pending, which resumes the step with
 // it. An owner nudge
 // pending continues the step with it, error or not. A pending watchdog nudge is sent back with an error turn end. A turn end
-// that is no round latches its output's first fails for an agent gate step, as judge would latch a round's. Any other
-// turn end is the next round, which judge checks. It reports whether the run goes on.
+// that is no round latches its output's first fails for an agent gate step, as judge would latch a round's. A return that
+// is not done while a step the run started runs is left open, with no round (see awaitingChildren). Any other turn end is
+// the next round, which judge checks. It reports whether the run goes on.
 func (r *stepRun) turnEnded(ctx context.Context, ended session.TurnEnded) bool {
 	if limited, goOn := r.limitTurn(ctx); limited {
 		return goOn
@@ -473,6 +494,9 @@ func (r *stepRun) turnEnded(ctx context.Context, ended session.TurnEnded) bool {
 	}
 	if nudge != "" {
 		r.saveLoop(ctx)
+	}
+	if r.awaitingChildren(ctx, ended.StructuredOutput) {
+		return true
 	}
 	return r.judge(ctx, r.round+1, ended.StructuredOutput)
 }

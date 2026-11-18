@@ -6,6 +6,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/joshsymonds/orrery/internal/engine/session"
 	"github.com/joshsymonds/orrery/internal/protocol"
@@ -76,13 +77,15 @@ func taskEndStatus(status string) string {
 }
 
 // recorder translates the events of one headless session into the store ops that record them. It keeps the
-// unfinished text of each open block, the claude session it last recorded and the background tasks still running. It
-// is not safe for concurrent use.
+// unfinished text of each open block, the claude session it last recorded and the background tasks still running. Its
+// running tasks are guarded, because a Stop and a Close may both record the session's stopped tasks once its pump has
+// ended; the rest is used by the pump alone.
 type recorder struct {
 	id            string
 	claudeSession string
 	texts         map[textKey]openText
 	tasks         map[string]runningTask
+	mu            sync.Mutex // guards tasks
 }
 
 // newRecorder returns a recorder for the session id.
@@ -151,6 +154,8 @@ func (r *recorder) rateLimit(ev session.RateLimit) []store.EngineOp {
 func (r *recorder) taskStarted(ev session.TaskStarted) []store.EngineOp {
 	task := runningTask{toolUseID: ev.ToolUseID, description: ev.Description, taskType: ev.TaskType,
 		subagentType: ev.SubagentType}
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.tasks[ev.TaskID] = task
 	return []store.EngineOp{task.op(r.id, ev.TaskID, taskRunning, "", "")}
 }
@@ -158,6 +163,8 @@ func (r *recorder) taskStarted(ev session.TaskStarted) []store.EngineOp {
 // taskProgress returns the store op that records the progress of a running task. The fields the progress gives update
 // the task's fields, and those it omits keep the values the task had.
 func (r *recorder) taskProgress(ev session.TaskProgress) []store.EngineOp {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	task := r.tasks[ev.TaskID]
 	if ev.ToolUseID != "" {
 		task.toolUseID = ev.ToolUseID
@@ -175,6 +182,8 @@ func (r *recorder) taskProgress(ev session.TaskProgress) []store.EngineOp {
 // taskEnded returns the store op that records a task that reached a terminal status, and removes the task from the
 // running ones.
 func (r *recorder) taskEnded(ev session.TaskEnded) []store.EngineOp {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	task := r.tasks[ev.TaskID]
 	delete(r.tasks, ev.TaskID)
 	if ev.ToolUseID != "" {
@@ -218,6 +227,8 @@ func promptStateOf(state session.LifecycleState) (string, bool) {
 // stoppedTasks returns the store ops that record each task still running as stopped, in task id order, and forgets
 // those tasks.
 func (r *recorder) stoppedTasks() []store.EngineOp {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	ids := slices.Sorted(maps.Keys(r.tasks))
 	ops := make([]store.EngineOp, 0, len(ids))
 	for _, id := range ids {
