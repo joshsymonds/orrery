@@ -11,9 +11,11 @@ import (
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
-// The sources a task spec version can come from. Only SourceOrchestrator and SourceGrant are written in this epic; the
+// The sources a task spec version can come from. SourcePlanner is the source of version 1, the planner's epic_tasks row,
+// which is never stored as a version row. SourceOrchestrator and SourceGrant are the sources this epic writes; the
 // other three are reserved for a later epic.
 const (
+	SourcePlanner      = "planner"
 	SourceOrchestrator = "orchestrator"
 	SourceGrant        = "grant"
 	SourceRescue       = "rescue"
@@ -67,6 +69,18 @@ func (task EpicTask) Checking() (TaskVersion, bool) {
 		}
 	}
 	return TaskVersion{}, false
+}
+
+// Source returns the source of the task's current spec version: the source of its last applied version in Versions, and
+// SourcePlanner when none is applied. A checking or refused version does not count.
+func (task EpicTask) Source() string {
+	source := SourcePlanner
+	for _, version := range task.Versions {
+		if version.State == VersionApplied {
+			source = version.Source
+		}
+	}
+	return source
 }
 
 // Changed returns the names of the fields the version changes, in the order deliverable, files, test_changes, gate,

@@ -1155,8 +1155,8 @@ func taskMessages(tasks []store.EpicTask) ([]*v1.EpicTask, error) {
 }
 
 // taskMessage returns the EpicTask message of task, its id T<seq>: its status, its build, its reviews in order, the
-// evidence runs its build names as red and green, and its current version and the versions stored after the planner's.
-// It fails when one of those runs fails to convert.
+// evidence runs its build names as red and green, its current version and the source that wrote it, and the versions
+// stored after the planner's. It fails when one of those runs fails to convert.
 func taskMessage(task store.EpicTask) (*v1.EpicTask, error) {
 	message := &v1.EpicTask{
 		Id:           fmt.Sprintf("T%d", task.Seq),
@@ -1182,6 +1182,7 @@ func taskMessage(task store.EpicTask) (*v1.EpicTask, error) {
 		Reviews:      epicMap(task.Reviews, taskReviewMessage),
 		Version:      task.Version,
 		Versions:     epicMap(task.Versions, taskVersionMessage),
+		Source:       task.Source(),
 	}
 	if task.Red != nil {
 		red, err := evidenceServiceRunMessage(*task.Red)

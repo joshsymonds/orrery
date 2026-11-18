@@ -1729,7 +1729,10 @@ type EpicTask struct {
 	// once a stored version is applied.
 	Version int64 `protobuf:"varint,25,opt,name=version,proto3" json:"version,omitempty"`
 	// Every stored version after the planner's, in version order, whatever its state.
-	Versions      []*EpicTaskVersion `protobuf:"bytes,26,rep,name=versions,proto3" json:"versions,omitempty"`
+	Versions []*EpicTaskVersion `protobuf:"bytes,26,rep,name=versions,proto3" json:"versions,omitempty"`
+	// The source of the task's current spec version: planner for version 1, and otherwise the source of its last applied
+	// version.
+	Source        string `protobuf:"bytes,27,opt,name=source,proto3" json:"source,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1944,6 +1947,13 @@ func (x *EpicTask) GetVersions() []*EpicTaskVersion {
 		return x.Versions
 	}
 	return nil
+}
+
+func (x *EpicTask) GetSource() string {
+	if x != nil {
+		return x.Source
+	}
+	return ""
 }
 
 // EpicTaskVersion is one stored version of a task's spec after the planner's: the source and epic decision that wrote
@@ -6617,7 +6627,7 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\aoutcome\x18\x06 \x01(\tR\aoutcome\x12\x1c\n" +
 	"\tdecisions\x18\a \x03(\tR\tdecisions\x12\x18\n" +
 	"\astarted\x18\b \x01(\x03R\astarted\x12\x14\n" +
-	"\x05ended\x18\t \x01(\x03R\x05ended\"\xae\x06\n" +
+	"\x05ended\x18\t \x01(\x03R\x05ended\"\xc6\x06\n" +
 	"\bEpicTask\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04turn\x18\x02 \x01(\x03R\x04turn\x12\x14\n" +
@@ -6645,7 +6655,8 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\ftest_changes\x18\x17 \x03(\tR\vtestChanges\x12\x14\n" +
 	"\x05guard\x18\x18 \x01(\tR\x05guard\x12\x18\n" +
 	"\aversion\x18\x19 \x01(\x03R\aversion\x12=\n" +
-	"\bversions\x18\x1a \x03(\v2!.orrery.engine.v1.EpicTaskVersionR\bversions\"\xcd\x03\n" +
+	"\bversions\x18\x1a \x03(\v2!.orrery.engine.v1.EpicTaskVersionR\bversions\x12\x16\n" +
+	"\x06source\x18\x1b \x01(\tR\x06source\"\xcd\x03\n" +
 	"\x0fEpicTaskVersion\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\x03R\aversion\x12\x16\n" +
 	"\x06source\x18\x02 \x01(\tR\x06source\x12\x1a\n" +

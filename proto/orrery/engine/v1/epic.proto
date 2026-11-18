@@ -563,6 +563,10 @@ message EpicTask {
 
   // Every stored version after the planner's, in version order, whatever its state.
   repeated EpicTaskVersion versions = 26;
+
+  // The source of the task's current spec version: planner for version 1, and otherwise the source of its last applied
+  // version.
+  string source = 27;
 }
 
 // EpicTaskVersion is one stored version of a task's spec after the planner's: the source and epic decision that wrote
