@@ -267,3 +267,62 @@ func TestGenerateLeavesInputAlone(t *testing.T) {
 		t.Errorf("Generate wrote %q past the input's must_not", spare[n])
 	}
 }
+
+// TestReviewerRolesPromptsTightened: the default reviewers' role texts leave the verdict instruction's report paragraph
+// to the shared verdict schema, keep the report sentence each role adds, and quote no owner in test_parsimony.
+func TestReviewerRolesPromptsTightened(t *testing.T) {
+	t.Parallel()
+	const reportSentence = "Report your findings in the gate's verdict schema."
+	roles := []struct {
+		name      string
+		prompt    string
+		sentences []string
+	}{
+		{name: "floor", prompt: floorRole, sentences: []string{reportSentence}},
+		{name: "conformance", prompt: conformanceRole, sentences: []string{reportSentence}},
+		{name: "integration", prompt: integrationRole, sentences: []string{reportSentence}},
+		{name: "security", prompt: securityRole, sentences: []string{
+			reportSentence,
+			"For each security, data-loss or resource claim, fill precondition and consequence.",
+		}},
+		{name: "test_parsimony", prompt: testParsimonyRole, sentences: []string{
+			reportSentence,
+			"Each fails result adds one finding that cites the assertion, with the test, the rule it breaks, " +
+				"its file and symbol, and the concrete fix.",
+		}},
+	}
+	t.Run("no reviewer role file repeats the verdict instruction's report paragraph", func(t *testing.T) {
+		t.Parallel()
+		repeated := []string{
+			"Give each declared assertion one result",
+			"Put anything else you notice in observations",
+			"Put the observations in observations",
+			"For a security or data-loss claim, fill precondition and consequence",
+		}
+		for _, role := range roles {
+			for _, phrase := range repeated {
+				if strings.Contains(role.prompt, phrase) {
+					t.Errorf("%s: role text repeats the verdict instruction: contains %q", role.name, phrase)
+				}
+			}
+		}
+	})
+	t.Run("each reviewer role file keeps its role-specific report sentence", func(t *testing.T) {
+		t.Parallel()
+		for _, role := range roles {
+			for _, sentence := range role.sentences {
+				if !strings.Contains(role.prompt, sentence) {
+					t.Errorf("%s: role text does not say %q", role.name, sentence)
+				}
+			}
+		}
+	})
+	t.Run("test_parsimony carries no owner quotation", func(t *testing.T) {
+		t.Parallel()
+		for _, phrase := range []string{"**Source:**", "the owner ("} {
+			if strings.Contains(testParsimonyRole, phrase) {
+				t.Errorf("test_parsimony role text quotes the owner: contains %q", phrase)
+			}
+		}
+	})
+}

@@ -25,7 +25,7 @@ const redLogTailBytes = 8192
 // Brief renders the prompt of an implementer step for task T<seq> of epic: the task, the standing rules a commit is
 // rejected for, its Deliverable and files, with the rule for a file beyond them, its test changes and the guard's
 // rules, its gate with the command orreryd runs and what happens when it fails, its evidence with the line on how the
-// evidence judge reads it, the Requirements it covers, the epic's exclusions, the rules the epic's task-stage
+// evidence judge reads it, the Requirements it covers, the epic's Must Not Ship entries, the rules the epic's task-stage
 // reviewers judge by, the red run's exit and verdict with the end of its stdout log and, when redStderr is not empty,
 // the end of its stderr log, the note from the previous try when failure is set, and the closing instructions:
 // continue from the worktree's earlier work, finish every command before returning, run the Capture, commit on top of
@@ -68,7 +68,7 @@ func Brief(
 		bullets(rules),
 		[]string{
 			"Deliverable: " + task.Deliverable,
-			"Change only these files:",
+			"Owned files (change only these):",
 		},
 		bullets(task.Files),
 		[]string{
@@ -89,7 +89,7 @@ func Brief(
 		evidenceLines(task.Evidence),
 		[]string{"Requirements:"},
 		requirementLines(epic.Requirements, task.Requirements),
-		[]string{"Exclusions:"},
+		[]string{"Must Not Ship:"},
 		bullets(epic.Exclusions),
 		[]string{"After the gate passes, reviewers judge your commit by these rules:"},
 		bullets(reviewerRules(epic.Reviewers)),
@@ -181,7 +181,7 @@ func ReviewPrompt(
 		[]string{
 			fmt.Sprintf("Task T%d of epic %s (%s): %s", task.Seq, epic.ID, epic.Title, task.Title),
 			"Deliverable: " + task.Deliverable,
-			"Files:",
+			"Owned files:",
 		},
 		bullets(task.Files),
 		[]string{"Test changes:"},

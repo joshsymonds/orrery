@@ -14,6 +14,16 @@ const roleTestFilesSentence = "A task's files also include the existing test fil
 const roleReplacementFilesSentence = "A task that replaces a failed one also puts in its files the files that its " +
 	"predecessor's failure reason or its implementer named."
 
+// roleCallersSentence is the sentence role.md gives the planner about the callers of a changed signature among a task's
+// files.
+const roleCallersSentence = "A task's files also include every caller of a function, method or type whose signature " +
+	"the task changes, found by searching the repository for its name."
+
+// roleRegeneratedSentence is the sentence role.md gives the planner about the files a changed proto, query or schema
+// regenerates among a task's files.
+const roleRegeneratedSentence = "A task's files also include every file that a proto, query or schema the task " +
+	"changes regenerates, such as the generated code `just gen` writes."
+
 // roleStartsNowSentence is the sentence role.md gives the planner about when a task may build on another's work.
 const roleStartsNowSentence = "Plan only tasks that can start now. Work that builds on an open task's change, such as " +
 	"code that uses fields or functions another open task adds, waits for a later turn: once the open tasks are done, " +
@@ -40,6 +50,31 @@ func TestPlannerRoleFilesIncludeTheExistingTestsThatAssertAChangedBehaviour(t *t
 func TestPlannerRoleFilesGiveAReplacementTheFilesItsPredecessorNamed(t *testing.T) {
 	t.Parallel()
 	assertRoleHasSentence(t, roleReplacementFilesSentence)
+}
+
+// TestPlannerPromptsTightened asserts that the role text tells the planner to name the callers of a changed signature
+// and the files a changed proto, query or schema regenerates among a task's files, and that the planner prompt labels
+// the epic's exclusions Must Not Ship.
+func TestPlannerPromptsTightened(t *testing.T) {
+	t.Parallel()
+	t.Run("the planner role names callers of a changed signature among a task's files", func(t *testing.T) {
+		t.Parallel()
+		assertRoleHasSentence(t, roleCallersSentence)
+	})
+	t.Run("the planner role names regenerated files among a task's files", func(t *testing.T) {
+		t.Parallel()
+		assertRoleHasSentence(t, roleRegeneratedSentence)
+	})
+	t.Run("the planner prompt says Must Not Ship", func(t *testing.T) {
+		t.Parallel()
+		prompt := promptOf(t, syntheticEpic(), 2, syntheticTriggers())
+		if !strings.Contains(prompt, "\nMust Not Ship:\n- no routing\n") {
+			t.Errorf("prompt has no Must Not Ship line followed by the entry %q", "- no routing")
+		}
+		if strings.Contains(prompt, "Exclusions:") {
+			t.Errorf("prompt has an Exclusions line")
+		}
+	})
 }
 
 // TestPlannerRolePlansOnlyTasksThatCanStartNow asserts that the role text tells the planner that every task starts at

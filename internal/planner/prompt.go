@@ -97,7 +97,7 @@ func ContractLines(epic store.EpicRow) ([]string, error) {
 	lines = append(lines, ListLines("Gates", gates)...)
 	lines = append(lines, nameLine("Done gates", epic.DoneGates), nameLine("Review gates", epic.ReviewGates))
 	lines = append(lines, ListLines("Premises", premiseItems(epic.Premises))...)
-	lines = append(lines, ListLines("Exclusions", exclusionItems(epic.Exclusions))...)
+	lines = append(lines, ListLines("Must Not Ship", exclusionItems(epic.Exclusions))...)
 	lines = append(lines, "Approach: "+epic.Approach)
 	lines = append(lines, ListLines("Alternatives", alternativeItems(epic.Alternatives))...)
 	lines = append(lines, ListLines("Release steps", releaseStepItems(epic.ReleaseSteps))...)

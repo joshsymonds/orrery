@@ -2,11 +2,13 @@ package interpret
 
 import (
 	"encoding/json"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/joshsymonds/orrery/internal/build"
+	"github.com/joshsymonds/orrery/internal/planner"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -97,7 +99,7 @@ func TestEpicVerifierPromptNamesTheEpicRangeAndEveryFindingField(t *testing.T) {
 	t.Parallel()
 	got := epicVerifierStart(rpEpic(), "base111", "frozen222", rpFinding(), "step-7", "verifier").Prompt
 	want := strings.Join([]string{
-		build.VerifierRole,
+		build.VerifierRole(),
 		"Epic repo/epic-x (Review the epic)",
 		"Requirements:",
 		"- R1: one",
@@ -145,8 +147,10 @@ func TestClosurePromptNamesTheFrozenRangeTheFindingAndItsVerification(t *testing
 	t.Parallel()
 	got := closureStart(rpEpic(), "frozen111", "rev222", rpFinding(), "step-9", "verifier").Prompt
 	want := strings.Join([]string{
-		closureRole,
+		closureRole(),
 		"The change is frozen111..rev222; this worktree is checked out at rev222.",
+		"Owner decisions:",
+		"- none",
 		"Finding correctness-2: the brief drops a Requirement",
 		"Citation: R2",
 		"Location: internal/build/brief.go:42",
@@ -163,7 +167,7 @@ func TestClosurePromptNamesTheFrozenRangeTheFindingAndItsVerification(t *testing
 func TestClosureRoleNamesEveryResultTheClosureSchemaAccepts(t *testing.T) {
 	t.Parallel()
 	for _, result := range []string{"closed", "open", "undetermined"} {
-		if !strings.Contains(closureRole, "`"+result+"`") {
+		if !strings.Contains(closureRole(), "`"+result+"`") {
 			t.Errorf("closure role does not name the result `%s`", result)
 		}
 	}
@@ -204,4 +208,72 @@ func TestClosureCheckNamesAValueThatDoesNotParse(t *testing.T) {
 	if len(got) != 1 || !strings.Contains(got[0], "unexpected end of JSON input") {
 		t.Fatalf("closureCheck(unparsable) = %q, want one line naming the parse error", got)
 	}
+}
+
+// TestVerifierPromptsTightened asserts that the closure prompt carries the epic's owner decisions, and that the finding
+// and closure verifier prompts share one source for their common text.
+func TestVerifierPromptsTightened(t *testing.T) {
+	t.Parallel()
+	t.Run("the closure prompt carries owner decisions", func(t *testing.T) {
+		t.Parallel()
+		epic := rpEpic()
+		epic.Questions = []store.EpicQuestion{{Seq: 1, Text: "Keep the flag?", Choice: "keep"}}
+		epic.Decisions = []store.EpicDecision{
+			{ID: "D1", Seq: 1, Question: 1, Text: "the flag stays"},
+			{ID: "D2", Seq: 2, Text: "one release"},
+		}
+		block := "Owner decisions:\n" + strings.Join(planner.DecisionLines(epic, 0), "\n") + "\nFinding correctness-2: "
+		got := closureStart(epic, "frozen111", "rev222", rpFinding(), "step-9", "verifier").Prompt
+		if !strings.Contains(got, block) {
+			t.Fatalf("closure prompt lacks the owner decisions\n got:\n%s\nwant block:\n%s", got, block)
+		}
+	})
+	t.Run("the finding and closure verifier prompts share one source for their common text", func(t *testing.T) {
+		t.Parallel()
+		common := build.VerifierCommon
+		if !strings.Contains(common, "## Freeze") || !strings.Contains(common, "## Return") {
+			t.Fatal("build.VerifierCommon lacks the Freeze or the Return section")
+		}
+		task := store.EpicTask{Seq: 4, Title: "Render brief", Deliverable: "brief.go", Requirements: []string{"R1"}}
+		finding := store.TaskFinding{
+			ID: "F7", Claim: "c", Citation: "R1", Location: "brief.go:42", Evidence: "e", VerifyBy: "v",
+		}
+		verifierPrompt := build.VerifierPrompt(rpEpic(), task, "base111", "rev222", finding)
+		if !strings.Contains(verifierPrompt, build.VerifierCommon) {
+			t.Error("the finding verifier prompt lacks build.VerifierCommon")
+		}
+		prompt := closureStart(rpEpic(), "frozen111", "rev222", rpFinding(), "step-9", "verifier").Prompt
+		if !strings.Contains(prompt, build.VerifierCommon) {
+			t.Error("the closure verifier prompt lacks build.VerifierCommon")
+		}
+		verifierMD, err := os.ReadFile("../build/verifier.md")
+		if err != nil {
+			t.Fatalf("read verifier.md: %v", err)
+		}
+		closureMD, err := os.ReadFile("closure.md")
+		if err != nil {
+			t.Fatalf("read closure.md: %v", err)
+		}
+		verifierSentences := sentencesOf(string(verifierMD))
+		for sentence := range sentencesOf(string(closureMD)) {
+			if len(sentence) > 40 && verifierSentences[sentence] {
+				t.Errorf("sentence longer than 40 characters is in both verifier.md and closure.md: %q", sentence)
+			}
+		}
+	})
+}
+
+// sentencesOf returns the sentences of the markdown text as a set: each line without its bullet or heading marker, cut
+// after every full stop that ends a sentence, with the full stop removed.
+func sentencesOf(text string) map[string]bool {
+	sentences := make(map[string]bool)
+	for line := range strings.SplitSeq(text, "\n") {
+		line = strings.TrimLeft(strings.TrimPrefix(strings.TrimSpace(line), "- "), "# ")
+		for s := range strings.SplitSeq(line, ". ") {
+			if s = strings.TrimSuffix(strings.TrimSpace(s), "."); s != "" {
+				sentences[s] = true
+			}
+		}
+	}
+	return sentences
 }

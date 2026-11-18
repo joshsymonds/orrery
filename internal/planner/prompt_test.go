@@ -145,7 +145,7 @@ func TestPromptOpensWithRoleThenEverySectionInOrder(t *testing.T) {
 		"Premises:",
 		"- P1: the step runs in process",
 		"  if wrong: use the service",
-		"Exclusions:",
+		"Must Not Ship:",
 		"- no routing",
 		"Approach: one planner turn",
 		"Alternatives:",
