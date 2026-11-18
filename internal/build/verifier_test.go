@@ -93,7 +93,7 @@ func TestVerifierPromptCarriesRoleTaskRequirementsRangeAndFinding(t *testing.T) 
 	t.Parallel()
 	got := VerifierPrompt(verifierEpic(), verifierTask(), "base111", "rev222", verifierFinding())
 	want := strings.Join([]string{
-		VerifierRole,
+		VerifierRole(),
 		"Task T4 of epic repo/epic-x (Build the task): Render brief",
 		"Deliverable: brief.go",
 		"Requirements:",
@@ -156,7 +156,7 @@ func TestVerifierStartEpicSubjectNamesEpicAndEveryRequirement(t *testing.T) {
 		t.Errorf("Epic, Task = %s, %q, want repo/epic-x and no task label", start.Epic, start.Task)
 	}
 	want := strings.Join([]string{
-		VerifierRole,
+		VerifierRole(),
 		"Epic repo/epic-x (Build the task)",
 		"Requirements:",
 		"- R1: one",
@@ -223,7 +223,7 @@ func TestVerifierCheckNamesAValueThatDoesNotParse(t *testing.T) {
 func TestVerifierRoleForbidsTheRecipesThatRewriteTrackedFiles(t *testing.T) {
 	t.Parallel()
 	for _, want := range []string{"`just gen-diff`", "`just check`", "do not run them", "`git diff`"} {
-		if !strings.Contains(VerifierRole, want) {
+		if !strings.Contains(VerifierRole(), want) {
 			t.Errorf("verifier role lacks %q", want)
 		}
 	}
