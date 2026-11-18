@@ -885,6 +885,7 @@ func startSessions(
 	var stepCommands enginehost.StepCommands
 	var epics enginehost.EpicCommands
 	var evidence enginehost.EvidenceCommands
+	var crons enginehost.CronCommands
 	if st != nil {
 		stateDir, childEnviron, err := sessionState(getenv)
 		if err != nil {
@@ -937,6 +938,7 @@ func startSessions(
 		st.SetEngineLive(host.manager.Live)
 		commands, stepCommands = host.manager, host.steps
 		epics = st
+		crons = enginehost.NewCronAnswers(enginehost.CronAnswersConfig{Store: st})
 		host.startWriter(ctx)
 		host.reconcile(ctx, logger, opts.holdReconcile, opts.flight, opts.flightNow)
 		host.startCallerEvents(ctx, st, opts, logger)
@@ -961,7 +963,8 @@ func startSessions(
 	serveCtx, host.stopServe = context.WithCancel(ctx)
 	go func() {
 		host.serveDone <- enginehost.Serve(
-			serveCtx, ln, commands, stepCommands, epics, host.pools, evidence, notices, serveOpts(opts, st, logger)...,
+			serveCtx, ln, commands, stepCommands, epics, host.pools, evidence, notices, crons,
+			serveOpts(opts, st, logger)...,
 		)
 	}()
 	return host, nil
