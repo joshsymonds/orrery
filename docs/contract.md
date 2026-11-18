@@ -3198,7 +3198,7 @@ The picker is shown by `orrery open` with text, and by the tree's `N` in directo
 
 ### Home-manager module
 
-The flake exports `homeManagerModules.default`. Setting `programs.orrery.enable = true` installs the package and `p`, and sources the tmux plugin through `programs.tmux.extraConfig`. Each switch also sources the plugin into a running tmux server (the activation step `orreryTmuxPlugin`), so the server takes the new build without a restart.
+The flake exports `homeManagerModules.default`. Setting `programs.orrery.enable = true` installs the package and `p`, and sources the tmux plugin through `programs.tmux.extraConfig`. Each switch also sources the plugin into every running tmux server of the user, found by its socket under `$XDG_RUNTIME_DIR` (or `/run/user/UID`) and `$TMPDIR` (or `/tmp`), since activation may run without the user's `TMUX_TMPDIR` (the activation step `orreryTmuxPlugin`), so each server takes the new build without a restart.
 
 | Option | Type | Default | Meaning |
 |---|---|---|---|

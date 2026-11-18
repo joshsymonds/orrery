@@ -111,12 +111,17 @@ in
 
     programs.tmux.extraConfig = "source-file ${tmuxConf}";
 
-    # A switch sources the plugin into a running tmux server, which a source again leaves as one source does, so the
-    # server takes the new bindings and hooks without a restart.
+    # A switch sources the plugin into every running tmux server of the user, which a source again leaves as one source
+    # does, so each server takes the new bindings and hooks without a restart. Activation can run without the user's
+    # TMUX_TMPDIR (NixOS runs it as a system service), so the servers are found by their sockets under both places tmux
+    # puts them: $XDG_RUNTIME_DIR (or /run/user/UID) and $TMPDIR (or /tmp).
     home.activation.orreryTmuxPlugin = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-      if ${pkgs.tmux}/bin/tmux info >/dev/null 2>&1; then
-        run ${pkgs.tmux}/bin/tmux source-file ${tmuxConf} || true
-      fi
+      orreryUid="$(${pkgs.coreutils}/bin/id -u)"
+      for orrerySocket in "''${XDG_RUNTIME_DIR:-/run/user/$orreryUid}/tmux-$orreryUid"/* "''${TMPDIR:-/tmp}/tmux-$orreryUid"/*; do
+        if [ -S "$orrerySocket" ] && ${pkgs.tmux}/bin/tmux -S "$orrerySocket" info >/dev/null 2>&1; then
+          run ${pkgs.tmux}/bin/tmux -S "$orrerySocket" source-file ${tmuxConf} || true
+        fi
+      done
     '';
 
     xdg.configFile."orrery/roots" = lib.mkIf (cfg.roots != [ ]) {
