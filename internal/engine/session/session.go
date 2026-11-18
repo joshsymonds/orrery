@@ -455,13 +455,19 @@ func (s *Session) run(offset int64) {
 }
 
 // answerPrompts records the user messages each turn end in events lists as answered, and gives each turn end the count
-// of prompts still unanswered after it (TurnEnded.Unanswered). Only run calls it: a replayed turn answers prompts the
-// previous holder was sent, never one this session sent.
+// of prompts still unanswered after it (TurnEnded.Unanswered). A prompt whose Lifecycle state is canceled or discarded
+// is answered by its line. Only run calls it: a replayed turn answers prompts the previous holder was sent, never one
+// this session sent.
 func (s *Session) answerPrompts(events []Event) {
 	for i, event := range events {
-		if ended, ok := event.(TurnEnded); ok {
-			ended.Unanswered = s.unanswered.answer(ended.Answered)
-			events[i] = ended
+		switch ev := event.(type) {
+		case Lifecycle:
+			if ev.State == LifecycleCancelled || ev.State == LifecycleDiscarded {
+				s.unanswered.answer([]string{ev.CommandUUID})
+			}
+		case TurnEnded:
+			ev.Unanswered = s.unanswered.answer(ev.Answered)
+			events[i] = ev
 		}
 	}
 }
