@@ -252,13 +252,15 @@ func TestTaskVersionOrchestratorRerunStoresAVersionWithItsDecision(t *testing.T)
 	}
 }
 
-// TestTaskVersionOrchestratorGrantStoresAVersionWithItsFiles: a carried grant stores the files it adds as a version
-// under its decision, whose files are the task's whole list.
-func TestTaskVersionOrchestratorGrantStoresAVersionWithItsFiles(t *testing.T) {
+// TestTaskVersionOrchestratorGrantStoresAVersionWithItsFilesStepReasonAndTime: a carried grant stores the files it adds
+// as a version under its decision, whose files are the task's whole list, from the orchestrator's step, with the
+// return's reason and the runner's clock.
+func TestTaskVersionOrchestratorGrantStoresAVersionWithItsFilesStepReasonAndTime(t *testing.T) {
 	t.Parallel()
 	f := newRequestFixture(t)
+	const reason = "the spec names internal/b.go"
 	f.endOrchestrator(orchID(0, 0), orchReturn(t, map[string]any{
-		"decision": "grant", "version": filesVersion("internal/b.go"),
+		"decision": "grant", "reason": reason, "version": filesVersion("internal/b.go"),
 	}))
 	f.pass()
 	task := f.task()
@@ -266,8 +268,9 @@ func TestTaskVersionOrchestratorGrantStoresAVersionWithItsFiles(t *testing.T) {
 		t.Fatalf("Versions = %+v, want the one version the grant stored", task.Versions)
 	}
 	got := task.Versions[0]
-	if got.Version != 2 || got.Source != store.SourceOrchestrator || got.Decision != "T1-request-1" {
-		t.Errorf("version = %+v, want version 2 of the orchestrator's decision T1-request-1", got)
+	if got.Version != 2 || got.Source != store.SourceOrchestrator || got.Decision != "T1-request-1" ||
+		got.Step != orchID(0, 0) || got.Reason != reason {
+		t.Errorf("version = %+v, want version 2 of the orchestrator's decision T1-request-1 at its step", got)
 	}
 	if want := []string{"files"}; !slices.Equal(got.Changed(), want) {
 		t.Errorf("Changed() = %v, want %v", got.Changed(), want)
@@ -275,11 +278,15 @@ func TestTaskVersionOrchestratorGrantStoresAVersionWithItsFiles(t *testing.T) {
 	if want := []string{"thing.go", "internal/b.go"}; got.Files == nil || !slices.Equal(*got.Files, want) {
 		t.Errorf("Files = %v, want the task's whole list %v", got.Files, want)
 	}
+	if !got.Created.Equal(passClock()) {
+		t.Errorf("Created = %v, want the runner's clock %v", got.Created, passClock())
+	}
 }
 
-// TestTaskVersionRuleGrantStoresAVersionWithNoDecision: a needs_context for a free file that orreryd grants by rule
-// stores a grant version with no decision, from the implementer's step, and the epic's decisions are unchanged.
-func TestTaskVersionRuleGrantStoresAVersionWithNoDecision(t *testing.T) {
+// TestTaskVersionRuleGrantStoresAVersionWithItsReasonAndTimeAndNoDecision: a needs_context for a free file that orreryd
+// grants by rule stores a grant version with no decision, from the implementer's step, with orreryd's reason and the
+// runner's clock, and the epic's decisions are unchanged.
+func TestTaskVersionRuleGrantStoresAVersionWithItsReasonAndTimeAndNoDecision(t *testing.T) {
 	t.Parallel()
 	f := newPassFixture(t)
 	guardStartImplementer(f)
@@ -297,6 +304,17 @@ func TestTaskVersionRuleGrantStoresAVersionWithNoDecision(t *testing.T) {
 	got := task.Versions[0]
 	if got.Version != 2 || got.Source != store.SourceGrant || got.Decision != "" || got.Step != step {
 		t.Errorf("version = %+v, want version 2 of a grant with no decision at %s", got, step)
+	}
+	const reason = "you returned needs_context for files outside your list, and these are now yours: " +
+		"internal/other/a.go. Your earlier work is in this worktree; continue from it."
+	if got.Reason != reason {
+		t.Errorf("Reason = %q, want orreryd's %q", got.Reason, reason)
+	}
+	if want := []string{"files"}; !slices.Equal(got.Changed(), want) {
+		t.Errorf("Changed() = %v, want %v", got.Changed(), want)
+	}
+	if !got.Created.Equal(passClock()) {
+		t.Errorf("Created = %v, want the runner's clock %v", got.Created, passClock())
 	}
 	if after := f.epic().Decisions; !reflect.DeepEqual(after, decisions) {
 		t.Errorf("decisions = %+v, want them unchanged from %+v", after, decisions)

@@ -53,7 +53,7 @@ func TestTaskVersionRerunStoresAnOrchestratorVersionWithItsDecision(t *testing.T
 	}
 }
 
-func TestTaskVersionGrantStoresAGrantVersionWithNoDecision(t *testing.T) {
+func TestTaskVersionGrantStoresAGrantVersionWithItsTimeAndNoDecision(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, _ := openBuildStore(ctx, t)
@@ -80,6 +80,9 @@ func TestTaskVersionGrantStoresAGrantVersionWithNoDecision(t *testing.T) {
 	}
 	if want := []string{"files"}; !slices.Equal(got.Changed(), want) {
 		t.Errorf("Changed() = %v, want %v", got.Changed(), want)
+	}
+	if !got.Created.Equal(writtenAt()) {
+		t.Errorf("Created = %v, want %v", got.Created, writtenAt())
 	}
 	if n := len(epicOf(ctx, t, s).Decisions); n != decisions {
 		t.Errorf("epic has %d decisions after the grant, want %d: a grant mints no decision", n, decisions)
