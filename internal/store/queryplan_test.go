@@ -38,6 +38,7 @@ func TestReaderQueryPlans(t *testing.T) {
 		"Dirs":               {"ListKnownDirs"},
 		"EpicSessions":       {"ListEpicSessions"},
 		"HeldPrompts":        {"ListHeldPrompts"},
+		"PromptStates":       {"ListPromptStates"},
 		"ArchivedRows":       {"ListArchivedRows"},
 		"PendingCallerEvents": {
 			"ListPendingCallerSteps", "ListCreatedEpics", "ListOpenEpicQuestions", "CountCallerEvent",

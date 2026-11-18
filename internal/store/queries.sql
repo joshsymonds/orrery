@@ -250,6 +250,13 @@ WHERE prompts.session_id = sqlc.arg(id) AND prompts.kind = 'engine_prompt' AND p
       WHERE turns.session_id = sqlc.arg(id) AND turns.kind = 'engine_turn_ended' AND turns.seq > prompts.seq
         AND (turns.answered IS NULL OR EXISTS (
             SELECT 1 FROM json_each(turns.answered) WHERE json_each.value = prompts.write_id))
+  )
+  AND NOT EXISTS (
+      SELECT 1 FROM prompt_states AS states
+      WHERE states.session_id = sqlc.arg(id) AND states.write_id = prompts.write_id
+        AND states.state IN ('canceled', 'discarded')
+        AND states.seq = (SELECT MAX(newest.seq) FROM prompt_states AS newest
+                          WHERE newest.session_id = states.session_id AND newest.write_id = states.write_id)
   );
 
 -- name: InsertEnginePromptFailed :exec
@@ -1355,3 +1362,30 @@ SELECT park FROM planner_actions WHERE epic = ? AND turn = ? AND position = ?;
 -- name: LinkPlannerActionPark :exec
 UPDATE planner_actions SET park = sqlc.arg(park)
 WHERE epic = sqlc.arg(epic) AND turn = sqlc.arg(turn) AND position = sqlc.arg(position) AND state = 'pending';
+
+-- name: InsertPromptState :exec
+INSERT INTO prompt_states (session_id, write_id, state) VALUES (?, ?, ?);
+
+-- name: DiscardUnstartedPrompts :exec
+INSERT INTO prompt_states (session_id, write_id, state)
+SELECT prompts.session_id, prompts.write_id, 'discarded' FROM events AS prompts
+WHERE prompts.session_id = sqlc.arg(id) AND prompts.kind = 'engine_prompt' AND prompts.write_id <> ''
+  AND prompts.seq > (SELECT sessions.prompts_from FROM sessions WHERE sessions.id = sqlc.arg(id))
+  AND NOT EXISTS (
+      SELECT 1 FROM prompt_states AS states
+      WHERE states.session_id = prompts.session_id AND states.write_id = prompts.write_id
+        AND states.state <> 'queued'
+  );
+
+-- name: ListPromptStates :many
+SELECT CAST(COALESCE(json_extract(prompts.payload, '$.promptId'), '') AS TEXT) AS prompt_id,
+       CAST(json_extract(prompts.payload, '$.text') AS TEXT) AS text,
+       CAST(COALESCE(json_extract(prompts.payload, '$.sender'), '') AS TEXT) AS sender,
+       states.state
+FROM prompt_states AS states
+JOIN events AS prompts ON prompts.session_id = states.session_id AND prompts.kind = 'engine_prompt'
+  AND prompts.write_id = states.write_id
+WHERE states.session_id = sqlc.arg(id)
+  AND states.seq IN (SELECT MAX(newest.seq) FROM prompt_states AS newest
+                     WHERE newest.session_id = sqlc.arg(id) GROUP BY newest.write_id)
+ORDER BY prompts.seq;

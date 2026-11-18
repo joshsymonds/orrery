@@ -349,6 +349,13 @@ WHERE prompts.session_id = ?1 AND prompts.kind = 'engine_prompt' AND prompts.wri
         AND (turns.answered IS NULL OR EXISTS (
             SELECT 1 FROM json_each(turns.answered) WHERE json_each.value = prompts.write_id))
   )
+  AND NOT EXISTS (
+      SELECT 1 FROM prompt_states AS states
+      WHERE states.session_id = ?1 AND states.write_id = prompts.write_id
+        AND states.state IN ('canceled', 'discarded')
+        AND states.seq = (SELECT MAX(newest.seq) FROM prompt_states AS newest
+                          WHERE newest.session_id = states.session_id AND newest.write_id = states.write_id)
+  )
 `
 
 func (q *Queries) CountHolderPromptsUnanswered(ctx context.Context, id string) (int64, error) {
@@ -654,6 +661,23 @@ DELETE FROM told_limit_steps WHERE limit_key = ?
 
 func (q *Queries) DeleteToldLimit(ctx context.Context, limitKey string) error {
 	_, err := q.db.ExecContext(ctx, deleteToldLimit, limitKey)
+	return err
+}
+
+const discardUnstartedPrompts = `-- name: DiscardUnstartedPrompts :exec
+INSERT INTO prompt_states (session_id, write_id, state)
+SELECT prompts.session_id, prompts.write_id, 'discarded' FROM events AS prompts
+WHERE prompts.session_id = ?1 AND prompts.kind = 'engine_prompt' AND prompts.write_id <> ''
+  AND prompts.seq > (SELECT sessions.prompts_from FROM sessions WHERE sessions.id = ?1)
+  AND NOT EXISTS (
+      SELECT 1 FROM prompt_states AS states
+      WHERE states.session_id = prompts.session_id AND states.write_id = prompts.write_id
+        AND states.state <> 'queued'
+  )
+`
+
+func (q *Queries) DiscardUnstartedPrompts(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, discardUnstartedPrompts, id)
 	return err
 }
 
@@ -3125,6 +3149,21 @@ func (q *Queries) InsertPlannerAction(ctx context.Context, arg InsertPlannerActi
 		arg.Requirement,
 		arg.Item,
 	)
+	return err
+}
+
+const insertPromptState = `-- name: InsertPromptState :exec
+INSERT INTO prompt_states (session_id, write_id, state) VALUES (?, ?, ?)
+`
+
+type InsertPromptStateParams struct {
+	SessionID string
+	WriteID   string
+	State     string
+}
+
+func (q *Queries) InsertPromptState(ctx context.Context, arg InsertPromptStateParams) error {
+	_, err := q.db.ExecContext(ctx, insertPromptState, arg.SessionID, arg.WriteID, arg.State)
 	return err
 }
 
@@ -6467,6 +6506,55 @@ func (q *Queries) ListPendingPlannerActions(ctx context.Context) ([]PlannerActio
 			&i.Park,
 			&i.Requirement,
 			&i.Item,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPromptStates = `-- name: ListPromptStates :many
+SELECT CAST(COALESCE(json_extract(prompts.payload, '$.promptId'), '') AS TEXT) AS prompt_id,
+       CAST(json_extract(prompts.payload, '$.text') AS TEXT) AS text,
+       CAST(COALESCE(json_extract(prompts.payload, '$.sender'), '') AS TEXT) AS sender,
+       states.state
+FROM prompt_states AS states
+JOIN events AS prompts ON prompts.session_id = states.session_id AND prompts.kind = 'engine_prompt'
+  AND prompts.write_id = states.write_id
+WHERE states.session_id = ?1
+  AND states.seq IN (SELECT MAX(newest.seq) FROM prompt_states AS newest
+                     WHERE newest.session_id = ?1 GROUP BY newest.write_id)
+ORDER BY prompts.seq
+`
+
+type ListPromptStatesRow struct {
+	PromptID string
+	Text     string
+	Sender   string
+	State    string
+}
+
+func (q *Queries) ListPromptStates(ctx context.Context, id string) ([]ListPromptStatesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listPromptStates, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPromptStatesRow
+	for rows.Next() {
+		var i ListPromptStatesRow
+		if err := rows.Scan(
+			&i.PromptID,
+			&i.Text,
+			&i.Sender,
+			&i.State,
 		); err != nil {
 			return nil, err
 		}

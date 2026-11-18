@@ -638,6 +638,13 @@ type PlannerAction struct {
 	Item        string
 }
 
+type PromptState struct {
+	Seq       int64
+	SessionID string
+	WriteID   string
+	State     string
+}
+
 type PushedAlertNotice struct {
 	Alert string
 	Time  int64
