@@ -634,22 +634,31 @@ func TestFindRefusesDirOutsideHome(t *testing.T) {
 func TestSettingsShapes(t *testing.T) {
 	env := map[string]string{"ANTHROPIC_BASE_URL": urlOuter}
 	envJSON := `{"ANTHROPIC_BASE_URL":"` + urlOuter + `"}`
+	const memory = "/home/example/.claude/CLAUDE.md"
+	memoryJSON := `["` + memory + `"]`
 	cases := []struct {
 		name            string
 		disableAllHooks bool
 		env             map[string]string
+		excludes        []string
 		want            string
 	}{
-		{"nothing set", false, nil, `{}`},
-		{"empty env", false, map[string]string{}, `{}`},
-		{"hooks disabled", true, nil, `{"disableAllHooks":true}`},
-		{"env only", false, env, `{"env":` + envJSON + `}`},
-		{"hooks disabled with env", true, env, `{"disableAllHooks":true,"env":` + envJSON + `}`},
+		{"nothing set", false, nil, nil, `{}`},
+		{"empty env", false, map[string]string{}, nil, `{}`},
+		{"empty excludes", false, nil, []string{}, `{}`},
+		{"hooks disabled", true, nil, nil, `{"disableAllHooks":true}`},
+		{"env only", false, env, nil, `{"env":` + envJSON + `}`},
+		{"hooks disabled with env", true, env, nil, `{"disableAllHooks":true,"env":` + envJSON + `}`},
+		{"memory excluded", false, nil, []string{memory}, `{"claudeMdExcludes":` + memoryJSON + `}`},
+		{
+			"memory excluded with hooks disabled and env", true, env, []string{memory},
+			`{"disableAllHooks":true,"env":` + envJSON + `,"claudeMdExcludes":` + memoryJSON + `}`,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := Settings(tc.disableAllHooks, tc.env); got != tc.want {
-				t.Fatalf("Settings(%v, %v) = %s, want %s", tc.disableAllHooks, tc.env, got, tc.want)
+			if got := Settings(tc.disableAllHooks, tc.env, tc.excludes); got != tc.want {
+				t.Fatalf("Settings(%v, %v, %v) = %s, want %s", tc.disableAllHooks, tc.env, tc.excludes, got, tc.want)
 			}
 		})
 	}

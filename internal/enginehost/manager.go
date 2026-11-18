@@ -1986,15 +1986,15 @@ type spawnSpec struct {
 }
 
 // spawn resolves claude and starts the session process for id in dir as sp describes, ctx bounding its launch. The
-// prompt is not sent here. The process takes the context stamp in effect for dir as its settings, and a stamp that cannot
-// be read fails the spawn before claude runs. The launch of id is committed before the holder starts, so a commit that
-// fails fails the spawn too.
+// prompt is not sent here. The process takes its settings from spawnSettings, and settings that cannot be read fail the
+// spawn before claude runs. The launch of id is committed before the holder starts, so a commit that fails fails the
+// spawn too.
 func (m *Manager) spawn(ctx context.Context, id, dir string, sp spawnSpec) (*session.Session, error) {
 	claude, err := exec.LookPath(m.claude)
 	if err != nil {
 		return nil, fmt.Errorf("find claude: %w", err)
 	}
-	settings, err := m.stampSettings(dir)
+	settings, err := m.spawnSettings(dir, sp.step)
 	if err != nil {
 		return nil, fmt.Errorf("spawn session %s: %w", id, err)
 	}
@@ -2024,10 +2024,12 @@ func (m *Manager) spawn(ctx context.Context, id, dir string, sp spawnSpec) (*ses
 	return sess, nil
 }
 
-// stampSettings returns the --settings JSON that carries the whole env of the context stamp in effect for dir. The stamp
-// is looked up under the HOME entry of the manager's environment, which must be an absolute path. With no stamp, it
-// returns "".
-func (m *Manager) stampSettings(dir string) (string, error) {
+// spawnSettings returns the --settings JSON of a spawn in dir. The stamp is looked up under the HOME entry of the
+// manager's environment, which must be an absolute path. A session the owner talks to takes the stamp's whole env, and
+// "" when no stamp applies. A step always takes settings: the stamp's env when one applies, and claudeMdExcludes naming
+// the user CLAUDE.md, so a step does not load the owner's own rules. Its path is read from m.environ, and a step whose
+// path cannot be resolved fails here, before claude runs.
+func (m *Manager) spawnSettings(dir string, step bool) (string, error) {
 	home, err := stampHome(m.environ)
 	if err != nil {
 		return "", fmt.Errorf("find stamp for %s: %w", dir, err)
@@ -2036,10 +2038,17 @@ func (m *Manager) stampSettings(dir string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("find stamp for %s: %w", dir, err)
 	}
-	if found.Folder == "" {
-		return "", nil
+	if !step {
+		if found.Folder == "" {
+			return "", nil
+		}
+		return stamp.Settings(false, found.Env, nil), nil
 	}
-	return stamp.Settings(false, found.Env), nil
+	memory, err := userMemoryOf(m.environ)
+	if err != nil {
+		return "", fmt.Errorf("step in %s: %w", dir, err)
+	}
+	return stamp.Settings(false, found.Env, []string{memory}), nil
 }
 
 // environValue returns the value of name in environ, and whether environ has it. The last entry for name wins, as it
@@ -2066,6 +2075,18 @@ func stampHome(environ []string) (string, error) {
 		return "", fmt.Errorf("HOME %q is not an absolute path", home)
 	}
 	return home, nil
+}
+
+// userMemoryOf returns the path of the user's CLAUDE.md that the claude running with environ loads: its HOME and
+// CLAUDE_CONFIG_DIR entries, read as stamp.UserMemory reads them. It fails when that path cannot be resolved.
+func userMemoryOf(environ []string) (string, error) {
+	home, _ := environValue(environ, "HOME")
+	configDir, _ := environValue(environ, "CLAUDE_CONFIG_DIR")
+	memory, err := stamp.UserMemory(home, configDir)
+	if err != nil {
+		return "", fmt.Errorf("user memory: %w", err)
+	}
+	return memory, nil
 }
 
 // pump records the events of one running session, line by line and in order, until its lines close, and tells the owner

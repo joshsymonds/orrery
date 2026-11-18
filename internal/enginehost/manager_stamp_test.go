@@ -149,9 +149,17 @@ func TestStepInLinkedWorktreeOfStampedCheckoutPassesStampSettings(t *testing.T) 
 	if len(args) != 1 {
 		t.Fatalf("fake claude starts = %q, want one", args)
 	}
-	if !hasFlagValue(args[0], "--settings", stampSettings) {
-		t.Fatalf("step args = %q, want --settings %s", args[0], stampSettings)
+	want := stampStepSettings(home)
+	if !hasFlagValue(args[0], "--settings", want) {
+		t.Fatalf("step args = %q, want --settings %s", args[0], want)
 	}
+}
+
+// stampStepSettings is the --settings JSON of a step under the stamp in stampTestHome, with HOME home: the stamp's whole
+// env, and the user CLAUDE.md under home excluded.
+func stampStepSettings(home string) string {
+	return `{"env":{"ANTHROPIC_BASE_URL":"http://127.0.0.1:9","ORRERY_STAMP_TEST":"whole"},"claudeMdExcludes":["` +
+		filepath.Join(home, ".claude", "CLAUDE.md") + `"]}`
 }
 
 func TestStartWithoutStampPassesNoSettings(t *testing.T) {

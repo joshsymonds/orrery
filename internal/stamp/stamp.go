@@ -61,13 +61,15 @@ func Find(home, dir string) (Stamp, error) {
 	return stampFrom(root, resolvedPrimary)
 }
 
-// Settings returns the settings document, as JSON, that disables hooks when disableAllHooks is set and sets env. Either
-// part is omitted when it is false or empty, so no settings yields "{}".
-func Settings(disableAllHooks bool, env map[string]string) string {
+// Settings returns the settings document, as JSON, that disables hooks when disableAllHooks is set, sets env, and
+// excludes the memory files in claudeMdExcludes from what the session loads. Each part is omitted when it is false or
+// empty, so no settings yields "{}".
+func Settings(disableAllHooks bool, env map[string]string, claudeMdExcludes []string) string {
 	doc := struct {
-		DisableAllHooks bool              `json:"disableAllHooks,omitempty"`
-		Env             map[string]string `json:"env,omitempty"`
-	}{disableAllHooks, env}
+		DisableAllHooks  bool              `json:"disableAllHooks,omitempty"`
+		Env              map[string]string `json:"env,omitempty"`
+		ClaudeMdExcludes []string          `json:"claudeMdExcludes,omitempty"`
+	}{disableAllHooks, env, claudeMdExcludes}
 	data, err := json.Marshal(doc)
 	if err != nil {
 		// Unreachable: a bool and a map of strings always marshal. An empty result is not a settings document, so a
@@ -75,6 +77,24 @@ func Settings(disableAllHooks bool, env map[string]string) string {
 		return ""
 	}
 	return string(data)
+}
+
+// UserMemory returns the path of the user's CLAUDE.md, the memory file claude loads from its config directory. When
+// configDir is set, the path is configDir made absolute with CLAUDE.md joined to it; otherwise it is .claude/CLAUDE.md
+// under home, which must be an absolute path. Neither form resolves symlinks, so the path names the file as the
+// config directory is named, and a CLAUDE.md that is a symlink is named by the symlink.
+func UserMemory(home, configDir string) (string, error) {
+	if configDir != "" {
+		abs, err := filepath.Abs(configDir)
+		if err != nil {
+			return "", fmt.Errorf("stamp: config dir %s: %w", configDir, err)
+		}
+		return filepath.Join(abs, "CLAUDE.md"), nil
+	}
+	if !filepath.IsAbs(home) {
+		return "", fmt.Errorf("stamp: home %q is not an absolute path", home)
+	}
+	return filepath.Join(home, ".claude", "CLAUDE.md"), nil
 }
 
 // resolveHome returns home with its symlinks resolved. It reports false for an empty or relative home, for the root

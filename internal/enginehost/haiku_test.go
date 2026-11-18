@@ -57,16 +57,26 @@ exit %d
 	return path
 }
 
-// haikuEnviron is the environment a test passes in: PATH for the script's tools, a base URL and a summarizer flag
-// that the call must drop, and a marker variable that must survive.
+// haikuEnviron is the environment a test passes in: PATH for the script's tools, a HOME whose user CLAUDE.md the call
+// excludes, a base URL and a summarizer flag that the call must drop, and a marker variable that must survive.
 func haikuEnviron() []string {
 	return []string{
 		"PATH=" + os.Getenv("PATH"),
+		"HOME=" + haikuHome,
 		"ANTHROPIC_BASE_URL=http://proxy.invalid/ctx/work",
 		"ORRERY_SUMMARIZER=0",
 		"HAIKU_TEST_MARK=kept",
 	}
 }
+
+// haikuHome is the HOME haikuEnviron passes, and haikuMemory the user CLAUDE.md path a call from it excludes.
+const (
+	haikuHome   = "/home/example"
+	haikuMemory = haikuHome + "/.claude/CLAUDE.md"
+)
+
+// haikuPlainSettings is the --settings value of a call with no env: hooks disabled, the user CLAUDE.md excluded.
+const haikuPlainSettings = `{"disableAllHooks":true,"claudeMdExcludes":["` + haikuMemory + `"]}`
 
 // haikuReadFile returns the contents of name in dir, or fails the test.
 func haikuReadFile(t *testing.T, dir, name string) string {
@@ -182,7 +192,7 @@ func TestHaikuCallRunsClaudeWithArgvEnvCwdAndStdin(t *testing.T) {
 		t.Fatalf("structured_output = %s, want %s", got, want)
 	}
 
-	wantArgvText := haikuWantArgv(`{"disableAllHooks":true}`)
+	wantArgvText := haikuWantArgv(haikuPlainSettings)
 	if got := haikuReadFile(t, dir, "argv"); got != wantArgvText {
 		t.Fatalf("argv:\n%s\nwant:\n%s", got, wantArgvText)
 	}
@@ -410,7 +420,7 @@ func TestHaikuWithEnvPutsEnvInSettings(t *testing.T) {
 	}
 
 	wantSettings := `{"disableAllHooks":true,"env":{"ANTHROPIC_BASE_URL":"http://127.0.0.1:9/ctx/example",` +
-		`"CTX_EXAMPLE":"example"}}`
+		`"CTX_EXAMPLE":"example"},"claudeMdExcludes":["` + haikuMemory + `"]}`
 	if got, want := haikuReadFile(t, dir, "argv"), haikuWantArgv(wantSettings); got != want {
 		t.Fatalf("argv:\n%s\nwant:\n%s", got, want)
 	}
@@ -452,7 +462,7 @@ func TestHaikuWithEnvWithoutEnvKeepsTodaysArgv(t *testing.T) {
 		if _, err := h.withEnv(env).Call(context.Background(), haikuSchema, "input"); err != nil {
 			t.Fatalf("bound Call with env %v: %v", env, err)
 		}
-		if got, want := haikuReadFile(t, dir, "argv"), haikuWantArgv(`{"disableAllHooks":true}`); got != want {
+		if got, want := haikuReadFile(t, dir, "argv"), haikuWantArgv(haikuPlainSettings); got != want {
 			t.Fatalf("env %v: argv:\n%s\nwant:\n%s", env, got, want)
 		}
 	}
@@ -518,7 +528,7 @@ func TestHaikuCallViaRunsClaudeWithEnvBaseURLAndModel(t *testing.T) {
 		"-p",
 		"--model", haikuCallViaModel,
 		"--settings", `{"disableAllHooks":true,"env":{"ANTHROPIC_BASE_URL":"http://proxy.invalid/ctx/example",` +
-			`"CTX_EXAMPLE":"example"}}`,
+			`"CTX_EXAMPLE":"example"},"claudeMdExcludes":["` + haikuMemory + `"]}`,
 		"--no-session-persistence",
 		"--tools", "",
 		"--max-turns", "1",

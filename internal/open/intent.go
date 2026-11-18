@@ -16,6 +16,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/childproc"
 	"github.com/joshsymonds/orrery/internal/protocol"
+	"github.com/joshsymonds/orrery/internal/stamp"
 	"github.com/joshsymonds/orrery/internal/summary"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
@@ -294,9 +295,13 @@ func dirRef(ref string, dirs []string) (string, bool) {
 // runClaude runs the claude binary once with stdin, in cwd "/" with the summary argv and env, and returns its
 // stdout. The run is killed with its process group when timeout elapses.
 func runClaude(ctx context.Context, claude, stdin string, timeout time.Duration) (string, error) {
+	argv, err := intentArgv()
+	if err != nil {
+		return "", err
+	}
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(runCtx, claude, intentArgv()...)
+	cmd := exec.CommandContext(runCtx, claude, argv...)
 	cmd.Dir = "/"
 	cmd.Env = intentEnv(os.Environ())
 	cmd.Stdin = strings.NewReader(stdin)
@@ -308,22 +313,27 @@ func runClaude(ctx context.Context, claude, stdin string, timeout time.Duration)
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	// The run dies with its orrery however orrery dies, as a picker does with its popup, so no intent run outlives it.
-	if err := childproc.Run(cmd); err != nil {
+	if err = childproc.Run(cmd); err != nil {
 		return "", fmt.Errorf("intent: claude run: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 	return stdout.String(), nil
 }
 
-// intentArgv is the argv after the claude binary for the default summary model: hooks disabled, no session
-// saved, no tools, one turn.
-func intentArgv() []string {
+// intentArgv is the argv after the claude binary for the default summary model: hooks disabled, the user CLAUDE.md
+// excluded, no session saved, no tools, one turn. The user CLAUDE.md is the one the claude under this process's HOME and
+// CLAUDE_CONFIG_DIR loads, and no argv is returned when its path cannot be resolved.
+func intentArgv() ([]string, error) {
+	memory, err := stamp.UserMemory(os.Getenv("HOME"), os.Getenv("CLAUDE_CONFIG_DIR"))
+	if err != nil {
+		return nil, fmt.Errorf("intent: user memory: %w", err)
+	}
 	return []string{
 		"-p", "--model", protocol.DefaultSummaryModel,
-		"--settings", `{"disableAllHooks":true}`,
+		"--settings", stamp.Settings(true, nil, []string{memory}),
 		"--no-session-persistence",
 		"--tools", "",
 		"--max-turns", "1",
-	}
+	}, nil
 }
 
 // intentEnv returns environ without ANTHROPIC_BASE_URL and ORRERY_SUMMARIZER, plus the summarizer sentinel.

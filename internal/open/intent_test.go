@@ -275,6 +275,9 @@ func TestIntentStdinCarriesTextDirectoriesAndEligiblePanes(t *testing.T) {
 func TestIntentRunArgvEnvAndCwd(t *testing.T) {
 	t.Setenv("ANTHROPIC_BASE_URL", "https://example.invalid/ctx/example-context")
 	t.Setenv(protocol.EnvSummarizer, "0")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	root := t.TempDir()
 	makeDirs(t, root, 1)
 	claude := installClaude(t, "pane d1\n", 0)
@@ -286,9 +289,11 @@ func TestIntentRunArgvEnvAndCwd(t *testing.T) {
 	if len(runs) != 1 {
 		t.Fatalf("claude ran %d times, want 1", len(runs))
 	}
+	memory := filepath.Join(home, ".claude", "CLAUDE.md")
+	wantSettings := `{"disableAllHooks":true,"claudeMdExcludes":["` + memory + `"]}`
 	wantArgs := []string{
 		"-p", "--model", protocol.DefaultSummaryModel,
-		"--settings", `{"disableAllHooks":true}`,
+		"--settings", wantSettings,
 		"--no-session-persistence",
 		"--tools", "",
 		"--max-turns", "1",

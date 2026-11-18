@@ -74,34 +74,53 @@ func (h *Haiku) Call(ctx context.Context, schema, input string) (json.RawMessage
 }
 
 // CallVia runs claude once against schema with input on stdin, using model (the default summary model when
-// empty). The --settings value of the run is stamp.Settings(true, env), so env rides in it, and when baseURL is
-// non-empty, claude's API base URL in its process env is baseURL. It returns the result's structured_output. The
-// timeout covers the wait for a call slot and the run together.
+// empty). The --settings value of the run is stamp.Settings(true, env, [the user CLAUDE.md]), so env rides in it, and
+// when baseURL is non-empty, claude's API base URL in its process env is baseURL. It returns the result's
+// structured_output. The timeout covers the wait for a call slot and the run together. A run whose user CLAUDE.md path
+// cannot be resolved fails before claude starts.
 func (h *Haiku) CallVia(
 	ctx context.Context, baseURL, model string, env map[string]string, schema, input string,
 ) (json.RawMessage, error) {
 	if model == "" {
 		model = protocol.DefaultSummaryModel
 	}
-	return h.call(ctx, stamp.Settings(true, env), baseURL, model, schema, input)
+	settings, err := h.settings(env)
+	if err != nil {
+		return nil, err
+	}
+	return h.call(ctx, settings, baseURL, model, schema, input)
+}
+
+// settings returns the --settings value of a run with env: hooks disabled, env, and the user CLAUDE.md excluded, the
+// one h's environ names. It fails when that path cannot be resolved.
+func (h *Haiku) settings(env map[string]string) (string, error) {
+	memory, err := userMemoryOf(h.environ)
+	if err != nil {
+		return "", fmt.Errorf("haiku: %w", err)
+	}
+	return stamp.Settings(true, env, []string{memory}), nil
 }
 
 // withEnv returns a caller whose calls run as h.Call does, with env in each call's --settings value so the claude
 // it starts runs with env. A nil or empty env leaves the argv as h.Call's. The calls share h's call slots.
 func (h *Haiku) withEnv(env map[string]string) haikuBound {
-	return haikuBound{h: h, settings: stamp.Settings(true, env)}
+	return haikuBound{h: h, env: env}
 }
 
-// haikuBound is a Haiku caller whose calls carry one fixed --settings value.
+// haikuBound is a Haiku caller whose calls carry one fixed env in their --settings value.
 type haikuBound struct {
-	h        *Haiku
-	settings string
+	h   *Haiku
+	env map[string]string
 }
 
-// Call runs claude once through h's call slots with the bound --settings value, the default summary model and no
-// base URL in its process env.
+// Call runs claude once through h's call slots with the bound env in its --settings value, the default summary model
+// and no base URL in its process env.
 func (b haikuBound) Call(ctx context.Context, schema, input string) (json.RawMessage, error) {
-	return b.h.call(ctx, b.settings, "", protocol.DefaultSummaryModel, schema, input)
+	settings, err := b.h.settings(b.env)
+	if err != nil {
+		return nil, err
+	}
+	return b.h.call(ctx, settings, "", protocol.DefaultSummaryModel, schema, input)
 }
 
 // call runs claude once on model with settings as its --settings value and, when baseURL is non-empty, claude's API
