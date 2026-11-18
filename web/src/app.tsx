@@ -842,13 +842,23 @@ export function App({
     composerHandles.current.get(key)?.forget(texts);
     pinnedHandles.current.get(key)?.forget(texts);
   };
-  // escapeRow takes back a row's queued messages: their texts go to the column's composer after the text it holds, and
-  // the row's sending and local entries for them are dropped. The row is then interrupted when it was working at the
-  // press. A headless session's interrupt is marked on the page at once, before the calls below are made. A failed take
-  // back shows its line, and the interrupt still goes out. A failed interrupt shows its line and clears the mark. The
-  // composer keeps focus when it interrupted or took messages back, and otherwise leaves it, as Escape does.
+  // takeBack puts texts an Escape took back into the target's composer after the text it holds, and drops the row's
+  // sending and local entries for them. No texts changes nothing.
+  const takeBack = ({ row, column }: EscapeTarget, texts: string[]) => {
+    if (texts.length > 0) {
+      dropTaken(row.key, texts);
+      (column === "pinned" ? pinnedHandles : composerHandles).current.get(row.key)?.append(texts);
+    }
+  };
+  // escapeRow takes back a row's queued messages and interrupts it when it was working at the press. A pane pulls its
+  // queued input back, then gets the Escape key. A session takes back nothing by itself: its interrupt answers the
+  // texts of the queued messages Claude cancelled, and those are taken back. A session that is not working is not
+  // interrupted and takes nothing back. A headless session's interrupt is marked on the page at once, before the calls
+  // below are made. A failed take back shows its line, and a pane's interrupt still goes out. A failed interrupt shows
+  // its line and clears the mark. The composer keeps focus when it interrupted or took messages back, and otherwise
+  // leaves it, as Escape does.
   const escapeRow = async (target: EscapeTarget, box: HTMLElement | null): Promise<void> => {
-    const { row, column, state } = target;
+    const { row, state } = target;
     const interrupting = state === stateWorking;
     const marked = interrupting && row.kind === "session";
     const failures: string[] = [];
@@ -856,24 +866,25 @@ export function App({
       setInterrupts((previous) => new Set(previous).add(row.key));
     }
     let texts: string[] = [];
-    try {
-      texts = await actions.withdraw(clients, row);
-    } catch {
-      failures.push(takeBackFailedText);
-    }
-    if (texts.length > 0) {
-      dropTaken(row.key, texts);
-      (column === "pinned" ? pinnedHandles : composerHandles).current.get(row.key)?.append(texts);
+    if (row.kind === "pane") {
+      try {
+        texts = await actions.withdraw(clients, row);
+      } catch {
+        failures.push(takeBackFailedText);
+      }
+      takeBack(target, texts);
     }
     if (interrupting) {
+      let cancelled: string[] = [];
       try {
-        await actions.interrupt(clients, row);
+        cancelled = await actions.interrupt(clients, row);
       } catch {
         failures.push(interruptFailedText);
         if (marked) {
           setInterrupts((previous) => withoutKey(previous, row.key));
         }
       }
+      takeBack(target, cancelled);
     }
     setEscapeError(failures.join(" "));
     if (box !== null && !interrupting && texts.length === 0) {

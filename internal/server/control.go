@@ -119,7 +119,8 @@ func (c controlServer) Answer(
 	return connect.NewResponse(&orreryv1.AnswerResponse{}), nil
 }
 
-// Interrupt forwards an interrupt to the engine, unless its id names a step.
+// Interrupt forwards an interrupt to the engine, unless its id names a step. It answers with the texts the engine
+// cancelled from the session's queue at the interrupt, in send order.
 func (c controlServer) Interrupt(
 	ctx context.Context,
 	req *connect.Request[orreryv1.InterruptRequest],
@@ -127,14 +128,19 @@ func (c controlServer) Interrupt(
 	if err := c.refuseStep(ctx, req.Msg.GetId()); err != nil {
 		return nil, err
 	}
+	var texts []string
 	err := c.forward(ctx, func(ctx context.Context, engine enginev1connect.EngineClient) error {
-		_, err := engine.Interrupt(ctx, connect.NewRequest(&enginev1.InterruptRequest{Id: req.Msg.GetId()}))
-		return wrapEngine("interrupt", err)
+		resp, err := engine.Interrupt(ctx, connect.NewRequest(&enginev1.InterruptRequest{Id: req.Msg.GetId()}))
+		if err != nil {
+			return wrapEngine("interrupt", err)
+		}
+		texts = resp.Msg.GetTexts()
+		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&orreryv1.InterruptResponse{}), nil
+	return connect.NewResponse(&orreryv1.InterruptResponse{Texts: texts}), nil
 }
 
 // Stop forwards a stop to the engine, unless its id names a step.
@@ -189,8 +195,9 @@ func (c controlServer) Resume(
 	return connect.NewResponse(&orreryv1.ResumeResponse{}), nil
 }
 
-// Withdraw forwards a withdrawal of held messages to the engine, unless its id names a step. It answers with the texts
-// the engine took back, oldest first.
+// Withdraw forwards a request to cancel one queued owner message to the engine, unless its id names a step. It answers
+// with that message's text when the engine cancelled it, and none when Claude had already taken it in, when the session
+// is not running, or when prompt_id is empty.
 func (c controlServer) Withdraw(
 	ctx context.Context,
 	req *connect.Request[orreryv1.WithdrawRequest],

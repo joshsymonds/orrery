@@ -38,6 +38,11 @@ func fakeWithdrawnTexts() []string {
 	return []string{"synthetic held first", "synthetic held second"}
 }
 
+// fakeInterruptedTexts returns the texts the fake orreryd cancels from the queue on each Interrupt, in send order.
+func fakeInterruptedTexts() []string {
+	return []string{"synthetic queued first", "synthetic queued second"}
+}
+
 // shortControlTimeout bounds the forwards of the deadline test, short enough that the test ends quickly.
 const shortControlTimeout = 50 * time.Millisecond
 
@@ -112,7 +117,7 @@ func (f *fakeEngine) Interrupt(
 	if err := f.answer(ctx, req.Msg); err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&enginev1.InterruptResponse{}), nil
+	return connect.NewResponse(&enginev1.InterruptResponse{Texts: fakeInterruptedTexts()}), nil
 }
 
 func (f *fakeEngine) Resume(
@@ -286,7 +291,7 @@ func controlCalls(dir, resolved string) []controlCall {
 				return replyOf(c.Interrupt(ctx, connect.NewRequest(&orreryv1.InterruptRequest{Id: synthSessionID})))
 			},
 			engine: &enginev1.InterruptRequest{Id: synthSessionID},
-			reply:  &orreryv1.InterruptResponse{},
+			reply:  &orreryv1.InterruptResponse{Texts: fakeInterruptedTexts()},
 		},
 		{
 			name: "Stop",

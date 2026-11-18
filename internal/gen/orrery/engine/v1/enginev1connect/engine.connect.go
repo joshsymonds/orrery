@@ -71,9 +71,9 @@ type EngineClient interface {
 	// Resume resumes an interrupted session's turn by sending its resume prompt. A session that is not interrupted, or
 	// has no Claude session to resume, is refused.
 	Resume(context.Context, *connect.Request[v1.ResumeRequest]) (*connect.Response[v1.ResumeResponse], error)
-	// Withdraw takes back a session's held messages: the one with prompt_id, or every held message when prompt_id is
-	// empty. It returns their texts, oldest first. A prompt_id the session holds no message for is refused, since a
-	// message already written cannot be taken back.
+	// Withdraw asks Claude to cancel one queued owner message of a session by its prompt_id (cancel_async_message). Its
+	// texts hold that message's text when Claude cancelled it, and none when Claude had already taken it in, when the
+	// session is not running, or when prompt_id is empty.
 	Withdraw(context.Context, *connect.Request[v1.WithdrawRequest]) (*connect.Response[v1.WithdrawResponse], error)
 }
 
@@ -211,9 +211,9 @@ type EngineHandler interface {
 	// Resume resumes an interrupted session's turn by sending its resume prompt. A session that is not interrupted, or
 	// has no Claude session to resume, is refused.
 	Resume(context.Context, *connect.Request[v1.ResumeRequest]) (*connect.Response[v1.ResumeResponse], error)
-	// Withdraw takes back a session's held messages: the one with prompt_id, or every held message when prompt_id is
-	// empty. It returns their texts, oldest first. A prompt_id the session holds no message for is refused, since a
-	// message already written cannot be taken back.
+	// Withdraw asks Claude to cancel one queued owner message of a session by its prompt_id (cancel_async_message). Its
+	// texts hold that message's text when Claude cancelled it, and none when Claude had already taken it in, when the
+	// session is not running, or when prompt_id is empty.
 	Withdraw(context.Context, *connect.Request[v1.WithdrawRequest]) (*connect.Response[v1.WithdrawResponse], error)
 }
 

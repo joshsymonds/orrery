@@ -32,7 +32,7 @@ public interface WithdrawRequestOrBuilder extends
 
   /**
    * <pre>
-   * The prompt id of the held message to take back. Empty takes back every held message of the session.
+   * The prompt id of the queued owner message to cancel. Empty cancels nothing.
    * </pre>
    *
    * <code>string prompt_id = 2 [json_name = "promptId"];</code>
@@ -41,7 +41,7 @@ public interface WithdrawRequestOrBuilder extends
   java.lang.String getPromptId();
   /**
    * <pre>
-   * The prompt id of the held message to take back. Empty takes back every held message of the session.
+   * The prompt id of the queued owner message to cancel. Empty cancels nothing.
    * </pre>
    *
    * <code>string prompt_id = 2 [json_name = "promptId"];</code>

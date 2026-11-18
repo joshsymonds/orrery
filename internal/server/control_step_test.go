@@ -125,7 +125,7 @@ func stepSessionCalls(id string) []controlCall {
 				return replyOf(c.Interrupt(ctx, connect.NewRequest(&orreryv1.InterruptRequest{Id: id})))
 			},
 			engine: &enginev1.InterruptRequest{Id: id},
-			reply:  &orreryv1.InterruptResponse{},
+			reply:  &orreryv1.InterruptResponse{Texts: fakeInterruptedTexts()},
 		},
 		{
 			name: "Stop",

@@ -7,7 +7,7 @@ package io.github.joshsymonds.orrery.gen.orrery.v1;
 
 /**
  * <pre>
- * WithdrawRequest takes back the held messages of a headless session.
+ * WithdrawRequest asks Claude to cancel one queued owner message of a headless session.
  * </pre>
  *
  * Protobuf type {@code orrery.v1.WithdrawRequest}
@@ -93,7 +93,7 @@ public  final class WithdrawRequest extends
   private java.lang.String promptId_;
   /**
    * <pre>
-   * The prompt id of the held message to take back. Empty takes back every held message of the session.
+   * The prompt id of the queued owner message to cancel. Empty cancels nothing.
    * </pre>
    *
    * <code>string prompt_id = 2 [json_name = "promptId"];</code>
@@ -105,7 +105,7 @@ public  final class WithdrawRequest extends
   }
   /**
    * <pre>
-   * The prompt id of the held message to take back. Empty takes back every held message of the session.
+   * The prompt id of the queued owner message to cancel. Empty cancels nothing.
    * </pre>
    *
    * <code>string prompt_id = 2 [json_name = "promptId"];</code>
@@ -118,7 +118,7 @@ public  final class WithdrawRequest extends
   }
   /**
    * <pre>
-   * The prompt id of the held message to take back. Empty takes back every held message of the session.
+   * The prompt id of the queued owner message to cancel. Empty cancels nothing.
    * </pre>
    *
    * <code>string prompt_id = 2 [json_name = "promptId"];</code>
@@ -132,7 +132,7 @@ public  final class WithdrawRequest extends
   }
   /**
    * <pre>
-   * The prompt id of the held message to take back. Empty takes back every held message of the session.
+   * The prompt id of the queued owner message to cancel. Empty cancels nothing.
    * </pre>
    *
    * <code>string prompt_id = 2 [json_name = "promptId"];</code>
@@ -143,7 +143,7 @@ public  final class WithdrawRequest extends
   }
   /**
    * <pre>
-   * The prompt id of the held message to take back. Empty takes back every held message of the session.
+   * The prompt id of the queued owner message to cancel. Empty cancels nothing.
    * </pre>
    *
    * <code>string prompt_id = 2 [json_name = "promptId"];</code>
@@ -241,7 +241,7 @@ public  final class WithdrawRequest extends
 
   /**
    * <pre>
-   * WithdrawRequest takes back the held messages of a headless session.
+   * WithdrawRequest asks Claude to cancel one queued owner message of a headless session.
    * </pre>
    *
    * Protobuf type {@code orrery.v1.WithdrawRequest}
@@ -328,7 +328,7 @@ public  final class WithdrawRequest extends
 
     /**
      * <pre>
-     * The prompt id of the held message to take back. Empty takes back every held message of the session.
+     * The prompt id of the queued owner message to cancel. Empty cancels nothing.
      * </pre>
      *
      * <code>string prompt_id = 2 [json_name = "promptId"];</code>
@@ -340,7 +340,7 @@ public  final class WithdrawRequest extends
     }
     /**
      * <pre>
-     * The prompt id of the held message to take back. Empty takes back every held message of the session.
+     * The prompt id of the queued owner message to cancel. Empty cancels nothing.
      * </pre>
      *
      * <code>string prompt_id = 2 [json_name = "promptId"];</code>
@@ -353,7 +353,7 @@ public  final class WithdrawRequest extends
     }
     /**
      * <pre>
-     * The prompt id of the held message to take back. Empty takes back every held message of the session.
+     * The prompt id of the queued owner message to cancel. Empty cancels nothing.
      * </pre>
      *
      * <code>string prompt_id = 2 [json_name = "promptId"];</code>
@@ -368,7 +368,7 @@ public  final class WithdrawRequest extends
     }
     /**
      * <pre>
-     * The prompt id of the held message to take back. Empty takes back every held message of the session.
+     * The prompt id of the queued owner message to cancel. Empty cancels nothing.
      * </pre>
      *
      * <code>string prompt_id = 2 [json_name = "promptId"];</code>
@@ -381,7 +381,7 @@ public  final class WithdrawRequest extends
     }
     /**
      * <pre>
-     * The prompt id of the held message to take back. Empty takes back every held message of the session.
+     * The prompt id of the queued owner message to cancel. Empty cancels nothing.
      * </pre>
      *
      * <code>string prompt_id = 2 [json_name = "promptId"];</code>

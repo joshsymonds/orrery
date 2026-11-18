@@ -48,9 +48,9 @@ service Control {
   // Resume resumes an interrupted headless session's turn by sending its resume prompt.
   rpc Resume(ResumeRequest) returns (ResumeResponse);
 
-  // Withdraw takes back the held messages of a headless session: the one with prompt_id, or every held message when
-  // prompt_id is empty. It returns their texts, oldest first. A message already written to the session cannot be taken
-  // back, so a prompt_id that is not held is refused.
+  // Withdraw asks Claude to cancel one queued owner message of a headless session by its prompt_id
+  // (cancel_async_message). Its texts hold that message's text when Claude cancelled it, and none when Claude had
+  // already taken it in, when the session is not running, or when prompt_id is empty.
   rpc Withdraw(WithdrawRequest) returns (WithdrawResponse);
 }
 
@@ -425,8 +425,12 @@ message InterruptRequest {
   string id = 1;
 }
 
-// InterruptResponse is the reply to an Interrupt. It has no fields.
-message InterruptResponse {}
+// InterruptResponse is the reply to an Interrupt.
+message InterruptResponse {
+  // The texts of the owner's messages that Claude cancelled from its queue at the interrupt, in send order. A caller
+  // event's text is never among them.
+  repeated string texts = 1;
+}
 
 // StopRequest asks for a headless session to be stopped.
 message StopRequest {
@@ -455,18 +459,19 @@ message ResumeRequest {
 // ResumeResponse is the reply to a Resume. It has no fields.
 message ResumeResponse {}
 
-// WithdrawRequest takes back the held messages of a headless session.
+// WithdrawRequest asks Claude to cancel one queued owner message of a headless session.
 message WithdrawRequest {
   // The session's id.
   string id = 1;
 
-  // The prompt id of the held message to take back. Empty takes back every held message of the session.
+  // The prompt id of the queued owner message to cancel. Empty cancels nothing.
   string prompt_id = 2;
 }
 
-// WithdrawResponse carries the texts of the held messages taken back.
+// WithdrawResponse carries the text of the queued owner message that Claude cancelled.
 message WithdrawResponse {
-  // The texts of the messages taken back, oldest first.
+  // That message's text when Claude cancelled it. None when Claude had already taken it in, when the session is not
+  // running, or when prompt_id is empty.
   repeated string texts = 1;
 }
 

@@ -360,9 +360,9 @@ type ControlClient interface {
 	Seen(context.Context, *connect.Request[v1.SeenRequest]) (*connect.Response[v1.SeenResponse], error)
 	// Resume resumes an interrupted headless session's turn by sending its resume prompt.
 	Resume(context.Context, *connect.Request[v1.ResumeRequest]) (*connect.Response[v1.ResumeResponse], error)
-	// Withdraw takes back the held messages of a headless session: the one with prompt_id, or every held message when
-	// prompt_id is empty. It returns their texts, oldest first. A message already written to the session cannot be taken
-	// back, so a prompt_id that is not held is refused.
+	// Withdraw asks Claude to cancel one queued owner message of a headless session by its prompt_id
+	// (cancel_async_message). Its texts hold that message's text when Claude cancelled it, and none when Claude had
+	// already taken it in, when the session is not running, or when prompt_id is empty.
 	Withdraw(context.Context, *connect.Request[v1.WithdrawRequest]) (*connect.Response[v1.WithdrawResponse], error)
 }
 
@@ -496,9 +496,9 @@ type ControlHandler interface {
 	Seen(context.Context, *connect.Request[v1.SeenRequest]) (*connect.Response[v1.SeenResponse], error)
 	// Resume resumes an interrupted headless session's turn by sending its resume prompt.
 	Resume(context.Context, *connect.Request[v1.ResumeRequest]) (*connect.Response[v1.ResumeResponse], error)
-	// Withdraw takes back the held messages of a headless session: the one with prompt_id, or every held message when
-	// prompt_id is empty. It returns their texts, oldest first. A message already written to the session cannot be taken
-	// back, so a prompt_id that is not held is refused.
+	// Withdraw asks Claude to cancel one queued owner message of a headless session by its prompt_id
+	// (cancel_async_message). Its texts hold that message's text when Claude cancelled it, and none when Claude had
+	// already taken it in, when the session is not running, or when prompt_id is empty.
 	Withdraw(context.Context, *connect.Request[v1.WithdrawRequest]) (*connect.Response[v1.WithdrawResponse], error)
 }
 
