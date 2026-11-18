@@ -31,18 +31,25 @@ type stepReport struct {
 	since int64
 }
 
+// NewStepSubscription returns an unregistered subscription to the ends and holds of the steps with ids. No row reaches
+// it except through Offer, and its Close does nothing, since it has no Steps. It lets a fake feed a subscription.
+func NewStepSubscription(ids []string) *StepSubscription {
+	sub := &StepSubscription{
+		ids: make(map[string]bool, len(ids)), ready: make(chan struct{}, 1), reported: map[stepReport]bool{},
+	}
+	for _, id := range ids {
+		sub.ids[id] = true
+	}
+	return sub
+}
+
 // Subscribe returns a subscription to the ends and holds of the steps with ids. It registers the subscription before it
 // reads each id's row, so an end or hold stored at any time is reported: one stored before the read is queued by it, and
 // one stored after the registration is published to the subscription by the write's publish. An id with no row returns an
 // error matching store.ErrNoStep, and nothing is left registered. The caller Closes the subscription.
 func (s *Steps) Subscribe(ctx context.Context, ids []string) (*StepSubscription, error) {
-	sub := &StepSubscription{
-		steps: s, ids: make(map[string]bool, len(ids)), ready: make(chan struct{}, 1),
-		reported: map[stepReport]bool{},
-	}
-	for _, id := range ids {
-		sub.ids[id] = true
-	}
+	sub := NewStepSubscription(ids)
+	sub.steps = s
 	s.mu.Lock()
 	s.subs[sub] = true
 	s.mu.Unlock()
@@ -52,7 +59,7 @@ func (s *Steps) Subscribe(ctx context.Context, ids []string) (*StepSubscription,
 			sub.Close()
 			return nil, fmt.Errorf("subscribe to steps: %w", err)
 		}
-		sub.offer(row)
+		sub.Offer(row)
 	}
 	return sub, nil
 }
@@ -73,16 +80,19 @@ func (sub *StepSubscription) Take() []store.StepRow {
 }
 
 // Close unregisters the subscription, so no row is queued for it once Close returns. Rows already pending stay for Take.
-// Close may be called more than once.
+// Close may be called more than once, and on a subscription NewStepSubscription returned it does nothing.
 func (sub *StepSubscription) Close() {
+	if sub.steps == nil {
+		return
+	}
 	sub.steps.mu.Lock()
 	defer sub.steps.mu.Unlock()
 	delete(sub.steps.subs, sub)
 }
 
-// offer queues row for the subscription when it is an end or a hold of an id the subscription holds, and that report has not
-// been queued yet. It signals Ready when it queues a row. A row that is neither an end nor a hold is not queued.
-func (sub *StepSubscription) offer(row store.StepRow) {
+// Offer queues row for the subscription when it is an end or a hold of an id the subscription holds, and that report has
+// not been queued yet. It signals Ready when it queues a row. A row that is neither an end nor a hold is not queued.
+func (sub *StepSubscription) Offer(row store.StepRow) {
 	if !sub.ids[row.ID] {
 		return
 	}
@@ -127,7 +137,7 @@ func (s *Steps) publish(ctx context.Context, id string) {
 	}
 	s.mu.Lock()
 	for sub := range s.subs {
-		sub.offer(row)
+		sub.Offer(row)
 	}
 	s.mu.Unlock()
 	if s.stored != nil {
