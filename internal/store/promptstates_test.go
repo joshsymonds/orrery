@@ -144,3 +144,62 @@ func TestQueueLifecycleUnansweredCountExcludesCanceledAndDiscarded(t *testing.T)
 		t.Fatalf("after canceling w1, discarding w2 and canceling then starting w5: got %d, want 3 (w3, w4, w5)", got)
 	}
 }
+
+// TestQueueLifecycleCancelOrDiscardAfterStartedLeavesStarted records a canceled state and a discarded state, each after
+// a started state of its own prompt. Neither is recorded, so each prompt's newest state stays started.
+func TestQueueLifecycleCancelOrDiscardAfterStartedLeavesStarted(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openSyncStore(t)
+
+	if err := s.ApplyEngine(ctx, []EngineOp{
+		EngineAdd{ID: "e1", Dir: "/a", State: "idle"},
+		EnginePrompt{ID: "e1", Text: "canceled", PromptID: "p1", WriteID: "w1"},
+		EnginePrompt{ID: "e1", Text: "discarded", PromptID: "p2", WriteID: "w2"},
+		EnginePromptState{ID: "e1", WriteID: "w1", State: PromptQueued},
+		EnginePromptState{ID: "e1", WriteID: "w1", State: PromptStarted},
+		EnginePromptState{ID: "e1", WriteID: "w1", State: PromptCancelled},
+		EnginePromptState{ID: "e1", WriteID: "w2", State: PromptStarted},
+		EnginePromptState{ID: "e1", WriteID: "w2", State: PromptDiscarded},
+	}, engineNowAt()); err != nil {
+		t.Fatalf("ApplyEngine: %v", err)
+	}
+
+	want := []PromptState{
+		{PromptID: "p1", Text: "canceled", State: PromptStarted},
+		{PromptID: "p2", Text: "discarded", State: PromptStarted},
+	}
+	got, err := s.PromptStates(ctx, "e1")
+	if err != nil {
+		t.Fatalf("PromptStates: %v", err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("PromptStates = %+v, want %+v", got, want)
+	}
+}
+
+// TestQueueLifecycleCancelAfterQueuedIsRecorded records a canceled state after a queued state of the same prompt. The
+// prompt was never started, so the canceled state is recorded and is its newest state.
+func TestQueueLifecycleCancelAfterQueuedIsRecorded(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openSyncStore(t)
+
+	if err := s.ApplyEngine(ctx, []EngineOp{
+		EngineAdd{ID: "e1", Dir: "/a", State: "idle"},
+		EnginePrompt{ID: "e1", Text: "withdrawn", PromptID: "p1", WriteID: "w1"},
+		EnginePromptState{ID: "e1", WriteID: "w1", State: PromptQueued},
+		EnginePromptState{ID: "e1", WriteID: "w1", State: PromptCancelled},
+	}, engineNowAt()); err != nil {
+		t.Fatalf("ApplyEngine: %v", err)
+	}
+
+	want := []PromptState{{PromptID: "p1", Text: "withdrawn", State: PromptCancelled}}
+	got, err := s.PromptStates(ctx, "e1")
+	if err != nil {
+		t.Fatalf("PromptStates: %v", err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("PromptStates = %+v, want %+v", got, want)
+	}
+}

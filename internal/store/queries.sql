@@ -1364,7 +1364,13 @@ UPDATE planner_actions SET park = sqlc.arg(park)
 WHERE epic = sqlc.arg(epic) AND turn = sqlc.arg(turn) AND position = sqlc.arg(position) AND state = 'pending';
 
 -- name: InsertPromptState :exec
-INSERT INTO prompt_states (session_id, write_id, state) VALUES (?, ?, ?);
+INSERT INTO prompt_states (session_id, write_id, state)
+SELECT sqlc.arg(session_id), sqlc.arg(write_id), sqlc.arg(state)
+WHERE NOT EXISTS (
+    SELECT 1 FROM prompt_states AS states
+    WHERE states.session_id = sqlc.arg(session_id) AND states.write_id = sqlc.arg(write_id)
+      AND states.state = 'started')
+   OR ('canceled' <> sqlc.arg(state) AND 'discarded' <> sqlc.arg(state));
 
 -- name: DiscardUnstartedPrompts :exec
 INSERT INTO prompt_states (session_id, write_id, state)

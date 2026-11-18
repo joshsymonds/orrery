@@ -29,8 +29,10 @@ type PromptState struct {
 }
 
 // EnginePromptState records State as the newest lifecycle state of the prompt that carries WriteID in the engine
-// session ID. A prompt's states are kept in the order they are recorded, so the newest is the one recorded last. It
-// appends no event.
+// session ID. A prompt's states are kept in the order they are recorded, so the newest is the one recorded last. A
+// canceled or discarded state is not recorded for a prompt that already has a started state: claude reports an
+// interrupted opener that had started as cancelled after its turn's result, and that report must not make a message
+// taken in read as not delivered. It appends no event.
 type EnginePromptState struct {
 	ID      string
 	WriteID string

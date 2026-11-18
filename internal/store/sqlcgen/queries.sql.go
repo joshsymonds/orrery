@@ -3153,7 +3153,13 @@ func (q *Queries) InsertPlannerAction(ctx context.Context, arg InsertPlannerActi
 }
 
 const insertPromptState = `-- name: InsertPromptState :exec
-INSERT INTO prompt_states (session_id, write_id, state) VALUES (?, ?, ?)
+INSERT INTO prompt_states (session_id, write_id, state)
+SELECT ?1, ?2, ?3
+WHERE NOT EXISTS (
+    SELECT 1 FROM prompt_states AS states
+    WHERE states.session_id = ?1 AND states.write_id = ?2
+      AND states.state = 'started')
+   OR ('canceled' <> ?3 AND 'discarded' <> ?3)
 `
 
 type InsertPromptStateParams struct {
