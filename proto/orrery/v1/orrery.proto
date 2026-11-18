@@ -203,6 +203,10 @@ message SessionsWatchConversationResponse {
   // The session's whole held set, oldest first. It is sent with every message, so a client replaces the held set it
   // holds with it.
   repeated HeldMessage held = 8;
+
+  // The owner messages the session has not started, in the order they were sent. It is sent with every message, so a
+  // client replaces the queued set it holds with it.
+  repeated QueuedMessage queued = 9;
 }
 
 // HeldMessage is one message a headless session holds: said to it while its turn ran, and not yet written to it.
@@ -212,6 +216,18 @@ message HeldMessage {
 
   // The message text.
   string text = 2;
+}
+
+// QueuedMessage is one owner message a headless session has not started to Claude.
+message QueuedMessage {
+  // The prompt id the message was sent under.
+  string prompt_id = 1;
+
+  // The message text.
+  string text = 2;
+
+  // The message's lifecycle state: queued, canceled or discarded, as the store names them.
+  string state = 3;
 }
 
 // SessionsOlderRequest asks for the items of one headless session older than a seq. limit follows

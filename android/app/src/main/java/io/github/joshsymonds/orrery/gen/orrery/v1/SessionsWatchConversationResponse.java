@@ -24,6 +24,7 @@ public  final class SessionsWatchConversationResponse extends
     items_ = emptyProtobufList();
     unfinished_ = emptyProtobufList();
     held_ = emptyProtobufList();
+    queued_ = emptyProtobufList();
   }
   private int bitField0_;
   public static final int TRANSCRIPT_FIELD_NUMBER = 1;
@@ -705,6 +706,155 @@ public  final class SessionsWatchConversationResponse extends
   private void removeHeld(int index) {
     ensureHeldIsMutable();
     held_.remove(index);
+  }
+
+  public static final int QUEUED_FIELD_NUMBER = 9;
+  private com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage> queued_;
+  /**
+   * <pre>
+   * The owner messages the session has not started, in the order they were sent. It is sent with every message, so a
+   * client replaces the queued set it holds with it.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.QueuedMessage queued = 9 [json_name = "queued"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage> getQueuedList() {
+    return queued_;
+  }
+  /**
+   * <pre>
+   * The owner messages the session has not started, in the order they were sent. It is sent with every message, so a
+   * client replaces the queued set it holds with it.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.QueuedMessage queued = 9 [json_name = "queued"];</code>
+   */
+  public java.util.List<? extends io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessageOrBuilder> 
+      getQueuedOrBuilderList() {
+    return queued_;
+  }
+  /**
+   * <pre>
+   * The owner messages the session has not started, in the order they were sent. It is sent with every message, so a
+   * client replaces the queued set it holds with it.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.QueuedMessage queued = 9 [json_name = "queued"];</code>
+   */
+  @java.lang.Override
+  public int getQueuedCount() {
+    return queued_.size();
+  }
+  /**
+   * <pre>
+   * The owner messages the session has not started, in the order they were sent. It is sent with every message, so a
+   * client replaces the queued set it holds with it.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.QueuedMessage queued = 9 [json_name = "queued"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage getQueued(int index) {
+    return queued_.get(index);
+  }
+  /**
+   * <pre>
+   * The owner messages the session has not started, in the order they were sent. It is sent with every message, so a
+   * client replaces the queued set it holds with it.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.QueuedMessage queued = 9 [json_name = "queued"];</code>
+   */
+  public io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessageOrBuilder getQueuedOrBuilder(
+      int index) {
+    return queued_.get(index);
+  }
+  private void ensureQueuedIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage> tmp = queued_;
+    if (!tmp.isModifiable()) {
+      queued_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+
+  /**
+   * <pre>
+   * The owner messages the session has not started, in the order they were sent. It is sent with every message, so a
+   * client replaces the queued set it holds with it.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.QueuedMessage queued = 9 [json_name = "queued"];</code>
+   */
+  private void setQueued(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage value) {
+    java.util.Objects.requireNonNull(value);
+    ensureQueuedIsMutable();
+    queued_.set(index, value);
+  }
+  /**
+   * <pre>
+   * The owner messages the session has not started, in the order they were sent. It is sent with every message, so a
+   * client replaces the queued set it holds with it.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.QueuedMessage queued = 9 [json_name = "queued"];</code>
+   */
+  private void addQueued(io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage value) {
+    java.util.Objects.requireNonNull(value);
+    ensureQueuedIsMutable();
+    queued_.add(value);
+  }
+  /**
+   * <pre>
+   * The owner messages the session has not started, in the order they were sent. It is sent with every message, so a
+   * client replaces the queued set it holds with it.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.QueuedMessage queued = 9 [json_name = "queued"];</code>
+   */
+  private void addQueued(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage value) {
+    java.util.Objects.requireNonNull(value);
+    ensureQueuedIsMutable();
+    queued_.add(index, value);
+  }
+  /**
+   * <pre>
+   * The owner messages the session has not started, in the order they were sent. It is sent with every message, so a
+   * client replaces the queued set it holds with it.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.QueuedMessage queued = 9 [json_name = "queued"];</code>
+   */
+  private void addAllQueued(
+      java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage> values) {
+    ensureQueuedIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, queued_);
+  }
+  /**
+   * <pre>
+   * The owner messages the session has not started, in the order they were sent. It is sent with every message, so a
+   * client replaces the queued set it holds with it.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.QueuedMessage queued = 9 [json_name = "queued"];</code>
+   */
+  private void clearQueued() {
+    queued_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * The owner messages the session has not started, in the order they were sent. It is sent with every message, so a
+   * client replaces the queued set it holds with it.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.QueuedMessage queued = 9 [json_name = "queued"];</code>
+   */
+  private void removeQueued(int index) {
+    ensureQueuedIsMutable();
+    queued_.remove(index);
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationResponse parseFrom(
@@ -1540,6 +1690,168 @@ public  final class SessionsWatchConversationResponse extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The owner messages the session has not started, in the order they were sent. It is sent with every message, so a
+     * client replaces the queued set it holds with it.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.QueuedMessage queued = 9 [json_name = "queued"];</code>
+     */
+    @java.lang.Override
+    public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage> getQueuedList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getQueuedList());
+    }
+    /**
+     * <pre>
+     * The owner messages the session has not started, in the order they were sent. It is sent with every message, so a
+     * client replaces the queued set it holds with it.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.QueuedMessage queued = 9 [json_name = "queued"];</code>
+     */
+    @java.lang.Override
+    public int getQueuedCount() {
+      return instance.getQueuedCount();
+    }/**
+     * <pre>
+     * The owner messages the session has not started, in the order they were sent. It is sent with every message, so a
+     * client replaces the queued set it holds with it.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.QueuedMessage queued = 9 [json_name = "queued"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage getQueued(int index) {
+      return instance.getQueued(index);
+    }
+    /**
+     * <pre>
+     * The owner messages the session has not started, in the order they were sent. It is sent with every message, so a
+     * client replaces the queued set it holds with it.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.QueuedMessage queued = 9 [json_name = "queued"];</code>
+     */
+    public Builder setQueued(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage value) {
+      copyOnWrite();
+      instance.setQueued(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The owner messages the session has not started, in the order they were sent. It is sent with every message, so a
+     * client replaces the queued set it holds with it.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.QueuedMessage queued = 9 [json_name = "queued"];</code>
+     */
+    public Builder setQueued(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage.Builder builderForValue) {
+      copyOnWrite();
+      instance.setQueued(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The owner messages the session has not started, in the order they were sent. It is sent with every message, so a
+     * client replaces the queued set it holds with it.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.QueuedMessage queued = 9 [json_name = "queued"];</code>
+     */
+    public Builder addQueued(io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage value) {
+      copyOnWrite();
+      instance.addQueued(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The owner messages the session has not started, in the order they were sent. It is sent with every message, so a
+     * client replaces the queued set it holds with it.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.QueuedMessage queued = 9 [json_name = "queued"];</code>
+     */
+    public Builder addQueued(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage value) {
+      copyOnWrite();
+      instance.addQueued(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The owner messages the session has not started, in the order they were sent. It is sent with every message, so a
+     * client replaces the queued set it holds with it.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.QueuedMessage queued = 9 [json_name = "queued"];</code>
+     */
+    public Builder addQueued(
+        io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage.Builder builderForValue) {
+      copyOnWrite();
+      instance.addQueued(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The owner messages the session has not started, in the order they were sent. It is sent with every message, so a
+     * client replaces the queued set it holds with it.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.QueuedMessage queued = 9 [json_name = "queued"];</code>
+     */
+    public Builder addQueued(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage.Builder builderForValue) {
+      copyOnWrite();
+      instance.addQueued(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The owner messages the session has not started, in the order they were sent. It is sent with every message, so a
+     * client replaces the queued set it holds with it.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.QueuedMessage queued = 9 [json_name = "queued"];</code>
+     */
+    public Builder addAllQueued(
+        java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage> values) {
+      copyOnWrite();
+      instance.addAllQueued(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * The owner messages the session has not started, in the order they were sent. It is sent with every message, so a
+     * client replaces the queued set it holds with it.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.QueuedMessage queued = 9 [json_name = "queued"];</code>
+     */
+    public Builder clearQueued() {
+      copyOnWrite();
+      instance.clearQueued();
+      return this;
+    }
+    /**
+     * <pre>
+     * The owner messages the session has not started, in the order they were sent. It is sent with every message, so a
+     * client replaces the queued set it holds with it.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.QueuedMessage queued = 9 [json_name = "queued"];</code>
+     */
+    public Builder removeQueued(int index) {
+      copyOnWrite();
+      instance.removeQueued(index);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.SessionsWatchConversationResponse)
   }
   @java.lang.Override
@@ -1568,10 +1880,12 @@ public  final class SessionsWatchConversationResponse extends
             "oldest_",
             "held_",
             io.github.joshsymonds.orrery.gen.orrery.v1.HeldMessage.class,
+            "queued_",
+            io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage.class,
           };
           java.lang.String info =
-              "\u0000\b\u0000\u0001\u0001\b\b\u0000\u0003\u0000\u0001\u0208\u0002\u0002\u0003\u0007" +
-              "\u0004\u001b\u0005\u1009\u0000\u0006\u001b\u0007\u0002\b\u001b";
+              "\u0000\t\u0000\u0001\u0001\t\t\u0000\u0004\u0000\u0001\u0208\u0002\u0002\u0003\u0007" +
+              "\u0004\u001b\u0005\u1009\u0000\u0006\u001b\u0007\u0002\b\u001b\t\u001b";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

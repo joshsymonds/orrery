@@ -26,10 +26,11 @@ const originRunes = 300
 
 // WatchConversation answers Sessions.WatchConversation with the stream of one headless session or one labeled step.
 // The limit is checked as Panes.WatchConversation checks it. The stream sends its first delta at once, then a delta for
-// each poll that finds new main-thread items, a changed state, a changed unfinished set or a changed held set, and a
-// keepalive once keepalive has passed without a delta. A step session is admitted once, by StepStatus, before its first
-// delta. The stream ends with the error the session read gives, when serve shuts down, or when a send stays blocked
-// past the send deadline. Its send and end-of-stream writes are bounded as Events.Watch's are (see endWithin).
+// each poll that finds new main-thread items, a changed state, a changed unfinished set, a changed held set or a
+// changed queued set, and a keepalive once keepalive has passed without a delta. A step session is admitted once, by
+// StepStatus, before its first delta. The stream ends with the error the session read gives, when serve shuts down, or
+// when a send stays blocked past the send deadline. Its send and end-of-stream writes are bounded as Events.Watch's are
+// (see endWithin).
 func (s sessionsServer) WatchConversation(
 	ctx context.Context,
 	req *connect.Request[orreryv1.SessionsWatchConversationRequest],
@@ -129,17 +130,22 @@ type sessionWatch struct {
 	now       func() time.Time
 	tasks     map[string]*backgroundTask
 	taskOrder []*backgroundTask
-	// sent is the state the stream last sent, or nil before its first delta. sentUnfinished and sentHeld are the
-	// unfinished and held sets it last sent.
+	// sent is the state the stream last sent, or nil before its first delta. sentUnfinished, sentHeld and sentQueued
+	// are the unfinished, held and queued sets it last sent.
 	sent           *orreryv1.ConversationState
 	sentUnfinished []*orreryv1.EngineText
 	sentHeld       []*orreryv1.HeldMessage
+	sentQueued     []*orreryv1.QueuedMessage
+	// prompts is the prompts of the session with a lifecycle state, in send order, as the step's read found them, and
+	// withheld holds the ids of the owner prompts whose newest state is canceled or discarded (see readPrompts).
+	prompts  []store.PromptState
+	withheld map[string]bool
 }
 
 // step reads the session once. It returns the message for the read, and true when the message is a delta: the first
-// message, a read with new items, a changed state, a changed unfinished set or a changed held set. Otherwise the
-// message carries neither items nor state, and the caller sends it only as a keepalive. A reset carries the seq of its
-// oldest item.
+// message, a read with new items, a changed state, or a changed unfinished, held or queued set. Otherwise the message
+// carries neither items nor state, and the caller sends it only as a keepalive. A reset carries the seq of its oldest
+// item.
 func (w *sessionWatch) step(ctx context.Context) (*orreryv1.SessionsWatchConversationResponse, bool, error) {
 	first := w.sent == nil
 	items, oldest, history, err := w.read(ctx, first)
@@ -163,6 +169,7 @@ func (w *sessionWatch) step(ctx context.Context) (*orreryv1.SessionsWatchConvers
 	if err != nil {
 		return nil, false, err
 	}
+	queued := w.queued(history)
 	stateChanged := first || !proto.Equal(state, w.sent)
 	unfinishedChanged := !slices.EqualFunc(unfinished, w.sentUnfinished, func(a, b *orreryv1.EngineText) bool {
 		return proto.Equal(a, b)
@@ -170,7 +177,10 @@ func (w *sessionWatch) step(ctx context.Context) (*orreryv1.SessionsWatchConvers
 	heldChanged := !slices.EqualFunc(held, w.sentHeld, func(a, b *orreryv1.HeldMessage) bool {
 		return proto.Equal(a, b)
 	})
-	changed := stateChanged || unfinishedChanged || heldChanged || len(items) > 0
+	queuedChanged := !slices.EqualFunc(queued, w.sentQueued, func(a, b *orreryv1.QueuedMessage) bool {
+		return proto.Equal(a, b)
+	})
+	changed := stateChanged || unfinishedChanged || heldChanged || queuedChanged || len(items) > 0
 	msg := &orreryv1.SessionsWatchConversationResponse{
 		Transcript: w.id,
 		Seq:        w.seq,
@@ -178,6 +188,7 @@ func (w *sessionWatch) step(ctx context.Context) (*orreryv1.SessionsWatchConvers
 		Items:      items,
 		Unfinished: unfinished,
 		Held:       held,
+		Queued:     queued,
 	}
 	msg.Oldest = oldest
 	if stateChanged {
@@ -187,8 +198,78 @@ func (w *sessionWatch) step(ctx context.Context) (*orreryv1.SessionsWatchConvers
 		w.sent = state
 		w.sentUnfinished = unfinished
 		w.sentHeld = held
+		w.sentQueued = queued
 	}
 	return msg, changed, nil
+}
+
+// readPrompts reads the prompts of the session with a lifecycle state, as store.Reader.PromptStates reads them. It sets
+// prompts to them and withheld to the ids of the owner prompts whose newest state is canceled or discarded. A prompt
+// with no id is not withheld, since no item can be matched to it by id. A failed read is answered as a failed session
+// read is.
+func (w *sessionWatch) readPrompts(ctx context.Context) error {
+	prompts, err := w.reader.PromptStates(ctx, w.id)
+	if err != nil {
+		return sessionReadError(err)
+	}
+	w.prompts = prompts
+	w.withheld = make(map[string]bool)
+	for _, prompt := range prompts {
+		if prompt.Sender != store.PromptSenderOwner || prompt.PromptID == "" {
+			continue
+		}
+		if prompt.State == store.PromptCancelled || prompt.State == store.PromptDiscarded {
+			w.withheld[prompt.PromptID] = true
+		}
+	}
+	return nil
+}
+
+// withholds reports whether the stream leaves item out: the prompt item of an owner prompt whose newest state is
+// canceled or discarded, matched by prompt id (see readPrompts).
+func (w *sessionWatch) withholds(item *orreryv1.ConversationItem) bool {
+	return item.GetKind() == "prompt" && item.GetSender() == store.PromptSenderOwner && w.withheld[item.GetPromptId()]
+}
+
+// queued returns the owner messages the session has not started, as the stream serves them (see queuedMessages). A step
+// session serves none, as it holds none (see held).
+func (w *sessionWatch) queued(history store.EngineHistory) []*orreryv1.QueuedMessage {
+	if history.Kind == store.KindStep {
+		return nil
+	}
+	return queuedMessages(w.prompts)
+}
+
+// queuedMessages returns the QueuedMessage of each owner prompt the stream serves, in the order of prompts. A prompt
+// whose newest state is queued is always served. A prompt whose newest state is canceled or discarded is served only
+// while no owner prompt after it has a newest state of started or completed. A prompt whose newest state is started or
+// completed is never served, and a caller prompt is never served.
+func queuedMessages(prompts []store.PromptState) []*orreryv1.QueuedMessage {
+	var served []*orreryv1.QueuedMessage
+	// started is whether an owner prompt after the one being read has a newest state of started or completed. The
+	// prompts are read newest first, so it is set before the older prompts are judged.
+	started := false
+	for _, prompt := range slices.Backward(prompts) {
+		if prompt.Sender != store.PromptSenderOwner {
+			continue
+		}
+		keep := false
+		switch prompt.State {
+		case store.PromptStarted, store.PromptCompleted:
+			started = true
+		case store.PromptQueued:
+			keep = true
+		case store.PromptCancelled, store.PromptDiscarded:
+			keep = !started
+		}
+		if keep {
+			served = append(served, &orreryv1.QueuedMessage{
+				PromptId: prompt.PromptID, Text: prompt.Text, State: prompt.State,
+			})
+		}
+	}
+	slices.Reverse(served)
+	return served
 }
 
 // held returns the held set of the session history describes, oldest first, as store.Reader.HeldPrompts reads it. A
@@ -383,13 +464,17 @@ type keptItem struct {
 // seq of the oldest of them when the delta is a reset (0 otherwise), and the row and unfinished text of the last page.
 // The first read scans from seq 0, so it sees the whole history: the origin and the newest request. It keeps the newest
 // limit items when the client asked for a reset, and the items above its seq otherwise. Later reads scan from the seq
-// the stream has reached and keep every item they read.
+// the stream has reached and keep every item they read. Each read also reads the prompt states (see readPrompts), and
+// it keeps no item that withholds reports.
 func (w *sessionWatch) read(
 	ctx context.Context,
 	first bool,
 ) ([]*orreryv1.ConversationItem, int64, store.EngineHistory, error) {
 	if w.reader == nil {
 		return nil, 0, store.EngineHistory{}, listError(connect.CodeUnavailable, "store unavailable")
+	}
+	if err := w.readPrompts(ctx); err != nil {
+		return nil, 0, store.EngineHistory{}, err
 	}
 	reset := first && w.after == 0
 	after := w.seq
@@ -473,6 +558,7 @@ func (w *sessionWatch) checkStep(ctx context.Context) error {
 
 // collect tracks one event and appends its main-thread item to kept when the delta carries it. first and reset are
 // read's flags: a first read skips the items at or below the seq the client holds, and a reset keeps the newest limit.
+// An item that withholds reports is tracked but not kept, so it takes no place in the limit.
 func (w *sessionWatch) collect(
 	kept []keptItem,
 	event store.EngineEvent,
@@ -485,7 +571,7 @@ func (w *sessionWatch) collect(
 	if err != nil {
 		return nil, listError(connect.CodeInternal, "read sessions")
 	}
-	if !ok || (first && event.Seq <= w.after) {
+	if !ok || (first && event.Seq <= w.after) || w.withholds(item) {
 		return kept, nil
 	}
 	kept = append(kept, keptItem{seq: event.Seq, item: item})
