@@ -549,3 +549,75 @@ test("HashRoute: an address whose entry is pending records nothing until the ent
       assert.deepEqual(reports, [["#/attention/session/s3", "push"]]);
     },
   ));
+
+// archivableRows are historyRows with s0 given the archive kind a session row has, so the A key archives it.
+function archivableRows(): Row[] {
+  return [
+    session("s0", { label: "waiting work", state: "waiting", archiveKind: "session", archiveId: "s0" }),
+    ...historyRows().slice(1),
+  ];
+}
+
+test("HashRoute: a filter that hides an opened entry drops the open, and clearing it does not move the cursor", (t) =>
+  withApp(
+    t,
+    { rows: historyRows(), address: { order: "attention", entry: null } },
+    async ({ container, reports, rerender }) => {
+      await typeFilter(container, "waiting");
+      await rerender({ rows: historyRows() });
+      const address: Address = { order: "attention", entry: { kind: "session", id: "s1" } };
+      await rerender({ rows: historyRows(), address });
+      assert.equal(cursorKey(container), "session:s0", "the cursor stays on its row");
+      assert.deepEqual(reports, [["#/attention/session/s0", "replace"]], "the shown address replaces");
+      await typeFilter(container, "");
+      assert.equal(cursorKey(container), "session:s0", "clearing the filter does not move the cursor to s1");
+      await press("j");
+      assert.deepEqual(reports.slice(1), [["#/attention/session/s1", "push"]], "the next cursor key pushes");
+      await press("j");
+      assert.deepEqual(reports.slice(2), [["#/attention/session/s3", "replace"]], "the key after it replaces");
+    },
+  ));
+
+test("HashRoute: an opened row a landed archive marked archived drops the open, and the next key reports", (t) => {
+  const rows = archivableRows();
+  return withApp(t, { rows }, async ({ container, reports, rerender }) => {
+    await press("A");
+    const gone = () => container.querySelector('[data-key="session:s0"]') === null;
+    await until(t.signal, gone, "the row leaving", { step: () => act(turn) });
+    const before = reports.length;
+    const address: Address = { order: "attention", entry: { kind: "session", id: "s0" } };
+    await rerender({ rows, address });
+    assert.equal(cursorKey(container), "session:s1", "the cursor rests on the row that moved into s0's place");
+    assert.deepEqual(reports.slice(before), [["#/attention/session/s1", "replace"]], "the shown address replaces");
+    await press("j");
+    assert.deepEqual(reports.slice(before + 1), [["#/attention/session/s3", "push"]], "the next cursor key pushes");
+  });
+});
+
+test("HashRoute: an epic address a local archive mark moved off the attention line drops, and reports resume", (t) => {
+  // Without the waiting row, the attention list leads with the epic, so the cursor rests on it.
+  const rows = historyRows().slice(1);
+  const epics = firstEpic();
+  return withApp(t, { rows, epics }, async ({ container, reports, rerender }) => {
+    assert.equal(cursorKey(container), widgetsFirstKey, "the cursor rests on the epic");
+    await press("A");
+    const gone = () => container.querySelector(`[data-key="${widgetsFirstKey}"]`) === null;
+    await until(t.signal, gone, "the epic leaving", { step: () => act(turn) });
+    const before = reports.length;
+    const address: Address = { order: "attention", entry: { kind: "epic", id: widgetsFirst, page: { kind: "epic" } } };
+    await rerender({ rows, epics, address });
+    assert.deepEqual(reports.slice(before), [["#/attention/session/s1", "replace"]], "the shown address replaces");
+    await press("j");
+    assert.deepEqual(reports.slice(before + 1), [["#/attention/session/s3", "push"]], "the next cursor key pushes");
+  });
+});
+
+test("HashRoute: an address under archived naming an archived row opens it and records nothing", (t) => {
+  const rows = [...historyRows(), session("s9", { label: "old work", archived: true })];
+  return withApp(t, { rows }, async ({ container, reports, rerender }) => {
+    const address: Address = { order: "archived", entry: { kind: "session", id: "s9" } };
+    await rerender({ rows, address });
+    assert.equal(cursorKey(container), "session:s9", "the archived row is opened");
+    assert.deepEqual(reports, [], "the applied address records nothing");
+  });
+});

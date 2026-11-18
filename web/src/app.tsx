@@ -128,6 +128,13 @@ interface OpenedEpic {
   entry: Extract<Entry, { kind: "epic" }>;
 }
 
+// A pending open is the entry an opened address names, with the order it names. The entry is decided only in a pass whose
+// view is that order.
+interface PendingOpen {
+  order: View;
+  entry: Entry;
+}
+
 // The row the palette answered: the pane Picker.Run answered, or the session Control.Start started, by its kind and id.
 interface PendingTarget {
   kind: Row["kind"];
@@ -318,8 +325,8 @@ export function App({
   // is set together with a render of its own, and the report of that render consumes it, so a cause that changes no
   // address is never carried to a later change. armed is whether the next cursor key pushes, and engaged whether any
   // cause has come since mount, which a change with no cause waits for. applied is set when an address is applied, and
-  // the report after it takes the form App shows without reporting it. pendingOpen is the entry an address names until
-  // it is applied, and pageCursor is the cursor key the epic page was last reset for.
+  // the report after it takes the form App shows without reporting it. pendingOpen is the entry an address names, with its
+  // order, until it is applied or dropped, and pageCursor is the cursor key the epic page was last reset for.
   const lastForm = useRef<string | null>(null);
   const cause = useRef<"push" | "replace" | null>(null);
   const armed = useRef(false);
@@ -327,7 +334,7 @@ export function App({
   const applied = useRef(false);
   const [, setAddressTick] = useState(0);
   const addressMounted = useRef(false);
-  const pendingOpen = useRef<Entry | null>(null);
+  const pendingOpen = useRef<PendingOpen | null>(null);
   const pageCursor = useRef<string | null>(null);
 
   // renderAddress guarantees a render after a cause or an applied address, whether or not the action changes any state.
@@ -1054,9 +1061,9 @@ export function App({
   };
 
   // App opens the address its prop holds: on mount, and again when the prop's formatted form changes, unless that form
-  // is the address App shows now. An open sets the view at once, and holds its entry in pendingOpen until the list holds
-  // it, since the rows and epics can arrive after the mount. An address with no entry closes the epic page on a later
-  // change only, since on mount the cursor's epic page is today's default.
+  // is the address App shows now. An open sets the view at once, and holds its entry in pendingOpen until the view
+  // settles it, since the rows and epics can arrive after the mount. An address with no entry closes the epic page on a
+  // later change only, since on mount the cursor's epic page is today's default.
   const addressForm = address === undefined ? "" : formatAddress(address);
   useEffect(() => {
     const first = !addressMounted.current;
@@ -1072,7 +1079,7 @@ export function App({
       return;
     }
     setView(address.order);
-    pendingOpen.current = address.entry;
+    pendingOpen.current = address.entry === null ? null : { order: address.order, entry: address.entry };
     if (address.entry === null && !first && epicEntry !== null) {
       setEpicPage(closedEpicPage);
     }
@@ -1081,31 +1088,45 @@ export function App({
     }
   }, [addressForm]);
 
-  // The pending entry is applied in the first pass that holds it. A row or step moves the cursor to its key and opens the
-  // row, as a click does, with no seen write and no reply box. An epic opens the line that holds it and moves the cursor
-  // to it, and its sub-page lands in the layout effect above. This effect is declared after the held cursor's effect, so
-  // its cursor move wins over that effect in the commit it applies.
+  // The pending entry is decided in the first pass whose view is its address's order, so a pass still on the old view
+  // decides nothing. Until the loaded list holds the entry, App keeps waiting: the rows and epics it is given, unfiltered
+  // and unmarked, are the check start() makes. Once they hold it, the view either shows it or hides it. A shown entry
+  // opens: a row or step moves the cursor to its key and opens the row, as a click does, with no seen write and no reply
+  // box, and an epic opens the line that holds it and moves the cursor to it, with its sub-page landing in the layout
+  // effect above. A hidden one, by the filter or a local archive mark, is dropped: the cursor stays where it is, and App
+  // reports its shown address with replace, arming the next cursor key as an applied address does. This effect is
+  // declared after the held cursor's effect, so its cursor move wins over that effect in the commit it applies.
   useEffect(() => {
-    const entry = pendingOpen.current;
-    if (entry === null) {
+    const pending = pendingOpen.current;
+    if (pending === null || pending.order !== view) {
       return;
     }
+    if (!listHolds(pending, rows, epics)) {
+      return;
+    }
+    const { entry } = pending;
+    pendingOpen.current = null;
     if (entry.kind === "epic") {
-      if (!listHolds({ order: view, entry }, rows, marked)) {
+      if (listHolds(pending, rows, marked)) {
+        openEpic(entry.id);
+        setOpened({ entry });
+        adopt();
         return;
       }
-      openEpic(entry.id);
-      setOpened({ entry });
     } else {
       const item = flat.find((candidate) => candidate.key === addressKey(entry));
-      if (item === undefined) {
+      if (item !== undefined) {
+        selectItem(item);
+        setRowOpened(true);
+        adopt();
         return;
       }
-      selectItem(item);
-      setRowOpened(true);
     }
-    pendingOpen.current = null;
-    adopt();
+    // lastForm is cleared so the render that follows reports the shown address, even when it equals the last form App
+    // reported.
+    arm();
+    lastForm.current = null;
+    renderAddress();
   }, [addressForm, flat, marked]);
 
   // markNoticeSeen sends the notice's key as seen. A failed report is dropped; the notice stays until it ends.
