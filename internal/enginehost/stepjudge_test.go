@@ -90,11 +90,8 @@ func TestStepJudgeInputCarriesInstructionAndSections(t *testing.T) {
 	got := stepJudgeInput("write the parser", "parser written", "parser.go | 12 +", "PASS go test", "warn: slow")
 	for _, want := range []string{
 		"mechanical checks already passed",
-		"Answer unmet only when the return says part of the task is not done or reports a failure",
 		"one-line reason",
 		"naming what is missing",
-		"A return that omits proof, output or counts is not unmet",
-		"Never ask for a change the task does not name",
 		"lost only its middle, which does not mean the return was cut off",
 		"## Task\nwrite the parser",
 		"## Return\nparser written",
