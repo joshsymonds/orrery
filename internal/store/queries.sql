@@ -515,12 +515,15 @@ SELECT COUNT(*) FROM epics WHERE id = ?;
 SELECT * FROM epics WHERE id = ?;
 
 -- name: ListEpics :many
-SELECT * FROM epics ORDER BY id;
+SELECT sqlc.embed(epics), CAST(COALESCE(epic_revisions.revision, 0) AS INTEGER) AS revision
+FROM epics LEFT JOIN epic_revisions ON epic_revisions.epic = epics.id
+ORDER BY epics.id;
 
 -- name: ListEpicListings :many
 SELECT epics.id, epics.repository, epics.title, epics.phase, epics.phase_at, epics.created, epics.changed,
-    epics.revision, epic_seen.at AS seen_at
+    CAST(COALESCE(epic_revisions.revision, 0) AS INTEGER) AS revision, epic_seen.at AS seen_at
 FROM epics
+LEFT JOIN epic_revisions ON epic_revisions.epic = epics.id
 LEFT JOIN epic_seen ON epic_seen.epic = epics.id
 ORDER BY epics.id;
 
@@ -531,8 +534,15 @@ WHERE epics.base <> '' AND epics.phase NOT IN ('met_at_base', 'clean', 'ended_wi
   AND EXISTS (SELECT 1 FROM epic_tasks WHERE epic_tasks.epic = epics.id AND epic_tasks.status = 'open')
 ORDER BY epics.id;
 
--- name: ResetEpicRevision :exec
-UPDATE epics SET revision = 0 WHERE id = ?;
+-- name: MoveEpicRevision :exec
+INSERT INTO epic_revisions (epic, revision) VALUES (?, 1)
+ON CONFLICT (epic) DO UPDATE SET revision = epic_revisions.revision + 1;
+
+-- name: ListEvidenceRunEpics :many
+SELECT DISTINCT epic FROM evidence_runs WHERE id IN (sqlc.slice(runs));
+
+-- name: GetEpicRevision :one
+SELECT revision FROM epic_revisions WHERE epic = ?;
 
 -- name: UpdateEpicChanged :exec
 UPDATE epics SET changed = ? WHERE id = ?;

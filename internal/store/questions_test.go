@@ -257,7 +257,7 @@ func TestCompleteTurnStoresTheFindingsAChoiceClosesAndReadsThemBack(t *testing.T
 	if want := []EpicQuestion{openStored(question, 1, 1)}; !reflect.DeepEqual(epic.Questions, want) {
 		t.Errorf("Epic questions = %+v, want %+v", epic.Questions, want)
 	}
-	stored, err := sqlcgen.New(s.db).GetEpicQuestion(ctx, sqlcgen.GetEpicQuestionParams{Epic: id, Seq: 1})
+	stored, err := s.fixtureQueries().GetEpicQuestion(ctx, sqlcgen.GetEpicQuestionParams{Epic: id, Seq: 1})
 	if err != nil {
 		t.Fatalf("GetEpicQuestion: %v", err)
 	}
@@ -301,7 +301,7 @@ func TestCompleteTurnReplacingAnsweredQuestionClosesNothingAndOpensTheNewOne(t *
 	s := openEpicStore(t)
 	const id = claimEpic
 	questionedEpic(t, s, shapedQuestion("which-store", "Which store?"))
-	if err := sqlcgen.New(s.db).SetEpicQuestionAnswered(ctx, sqlcgen.SetEpicQuestionAnsweredParams{
+	if err := s.fixtureQueries().SetEpicQuestionAnswered(ctx, sqlcgen.SetEpicQuestionAnsweredParams{
 		Choice: ChoiceOther, Epic: id, Seq: 1,
 	}); err != nil {
 		t.Fatalf("answer question 1: %v", err)
@@ -479,7 +479,7 @@ func TestParkEpicOpensAParkQuestionAndItsTellCarriesItsSeq(t *testing.T) {
 	if got := questionsOf(t, s); !reflect.DeepEqual(got, want) {
 		t.Errorf("questions after ParkEpic = %+v, want %+v", got, want)
 	}
-	tells, err := sqlcgen.New(s.db).ListEpicTells(ctx, claimEpic)
+	tells, err := s.fixtureQueries().ListEpicTells(ctx, claimEpic)
 	if err != nil {
 		t.Fatalf("ListEpicTells: %v", err)
 	}
@@ -545,7 +545,7 @@ func TestParkNodeMetAtBaseOpensThreeChoiceQuestionOnlyWhenItParks(t *testing.T) 
 	if got := questionsOf(t, s); !reflect.DeepEqual(got, want) {
 		t.Errorf("questions after ParkNodeMetAtBase = %+v, want %+v", got, want)
 	}
-	head, err := sqlcgen.New(s.db).GetEpic(ctx, claimEpic)
+	head, err := s.fixtureQueries().GetEpic(ctx, claimEpic)
 	if err != nil {
 		t.Fatalf("GetEpic: %v", err)
 	}

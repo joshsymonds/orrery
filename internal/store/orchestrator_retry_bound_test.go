@@ -80,7 +80,7 @@ func carryOutPending(t *testing.T, s *Store) {
 // one ReplacedEpicTask reads, which the turn that plans the replacing task consumes.
 func retryBoundFailedTrigger(t *testing.T, s *Store, seq int64, reason string) {
 	t.Helper()
-	if err := sqlcgen.New(s.db).InsertEpicTrigger(context.Background(), sqlcgen.InsertEpicTriggerParams{
+	if err := s.fixtureQueries().InsertEpicTrigger(context.Background(), sqlcgen.InsertEpicTriggerParams{
 		Epic: claimEpic, ID: fmt.Sprintf("T%d-failed", seq), Cause: fmt.Sprintf("task T%d failed: %s", seq, reason),
 		State: triggerPending, Turn: 0, Created: closeAt().Unix(),
 	}); err != nil {

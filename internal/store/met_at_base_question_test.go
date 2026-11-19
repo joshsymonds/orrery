@@ -96,14 +96,15 @@ func TestMetAtBaseQuestionParkOpensThreeChoicesAndKeepsPhase(t *testing.T) {
 	if want := []EpicQuestion{metAtBaseQuestionR1()}; !reflect.DeepEqual(row.Questions, want) {
 		t.Errorf("questions after the park = %+v, want %+v", row.Questions, want)
 	}
-	record, err := sqlcgen.New(s.db).GetEpicMetAtBase(ctx, sqlcgen.GetEpicMetAtBaseParams{Epic: claimEpic, Question: 1})
+	record, err := s.fixtureQueries().
+		GetEpicMetAtBase(ctx, sqlcgen.GetEpicMetAtBaseParams{Epic: claimEpic, Question: 1})
 	if err != nil {
 		t.Fatalf("GetEpicMetAtBase: %v", err)
 	}
 	if record.Path != "red" || record.Attempt != 1 || record.Requirements != `["R1"]` {
 		t.Errorf("kept park = %+v, want path red, attempt 1 and requirements [\"R1\"]", record)
 	}
-	tells, err := sqlcgen.New(s.db).ListEpicTells(ctx, claimEpic)
+	tells, err := s.fixtureQueries().ListEpicTells(ctx, claimEpic)
 	if err != nil {
 		t.Fatalf("ListEpicTells: %v", err)
 	}

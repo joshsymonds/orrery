@@ -99,6 +99,7 @@ func TestCreatedEpicReadsBackWorkflowNodesInOrder(t *testing.T) {
 	want := fullEpic(id)
 	want.Decisions = seededDecisions()
 	want.Workflow = row.Workflow
+	want.Revision = createdRevision
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Epic round trip with a workflow differs:\n got %+v\nwant %+v", got, want)
 	}

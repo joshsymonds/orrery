@@ -4,8 +4,6 @@ import (
 	"context"
 	"reflect"
 	"testing"
-
-	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
 // reviewHoldStore returns a store whose integrateEpic has its review frozen at rev-7 by a running review run, so
@@ -37,7 +35,7 @@ func requireReviewHoldPaused(t *testing.T, s *Store, wantPaused bool) {
 	if !wantPaused {
 		return
 	}
-	head, err := sqlcgen.New(s.db).GetEpic(context.Background(), integrateEpic)
+	head, err := s.fixtureQueries().GetEpic(context.Background(), integrateEpic)
 	if err != nil {
 		t.Fatalf("GetEpic %s: %v", integrateEpic, err)
 	}

@@ -65,13 +65,13 @@ func TestEpicFlowReadsEpicRunsAndPendingOfOneState(t *testing.T) {
 	// CreateEpic leaves its own trigger pending, so the epic counts it with the two started above, and never the other
 	// epic's trigger.
 	checkFlow(3)
-	if _, err := s.db.ExecContext(
+	if _, err := s.fixtureExec(
 		ctx, `UPDATE epic_triggers SET state = 'claimed', turn = 3 WHERE epic = ? AND id = ?`, id, first.ID,
 	); err != nil {
 		t.Fatalf("claim first trigger: %v", err)
 	}
 	checkFlow(2)
-	if _, err := s.db.ExecContext(
+	if _, err := s.fixtureExec(
 		ctx, `UPDATE epic_triggers SET state = 'consumed', turn = 3 WHERE epic = ? AND id = ?`, id, second.ID,
 	); err != nil {
 		t.Fatalf("consume second trigger: %v", err)
@@ -138,7 +138,7 @@ func TestEpicFlowKeepsOnlyRunsCurrentWithTheirRequirementItem(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encode changed item: %v", err)
 	}
-	if _, err := s.db.ExecContext(
+	if _, err := s.fixtureExec(
 		ctx, `UPDATE epic_requirements SET item = ? WHERE epic = ? AND id = 'R1'`, raw, id,
 	); err != nil {
 		t.Fatalf("change item of R1: %v", err)
@@ -187,7 +187,7 @@ func TestTaskRunReadsAsRedAndGreenOnlyWhileCurrentWithTheTaskEvidence(t *testing
 	if err != nil {
 		t.Fatalf("encode changed evidence: %v", err)
 	}
-	if _, err := s.db.ExecContext(
+	if _, err := s.fixtureExec(
 		ctx, `UPDATE epic_tasks SET evidence = ? WHERE epic = ? AND seq = 1`, raw, buildEpic,
 	); err != nil {
 		t.Fatalf("change evidence of task 1: %v", err)

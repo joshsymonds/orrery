@@ -124,7 +124,7 @@ func guardsDownAndUp() migrationCheck {
 		seed: func(t *testing.T, s *Store) {
 			t.Helper()
 			seedEpic(t, s.db.DB)
-			if _, err := s.db.ExecContext(context.Background(), `INSERT INTO epic_tasks
+			if _, err := s.fixtureExec(context.Background(), `INSERT INTO epic_tasks
 				(epic, seq, turn, title, deliverable, status) VALUES (?, 1, 1, 'Build it', 'the migration', 'open')`,
 				seededEpic); err != nil {
 				t.Fatalf("seed task: %v", err)

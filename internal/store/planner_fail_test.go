@@ -67,7 +67,7 @@ func epicFlags(t *testing.T, s *Store) (int64, string) {
 func parkEpic(t *testing.T, s *Store, id, reason string) {
 	t.Helper()
 	const park = "UPDATE epics SET parked = ? WHERE id = ?"
-	if _, err := s.db.ExecContext(context.Background(), park, reason, id); err != nil {
+	if _, err := s.fixtureExec(context.Background(), park, reason, id); err != nil {
 		t.Fatalf("park epic %s: %v", id, err)
 	}
 }
@@ -236,7 +236,7 @@ func TestSucceededTurnResetsTheFailureCount(t *testing.T) {
 	if err := s.CompleteTurn(ctx, id, turn.Seq, plannedTurn(), completedAt()); err != nil {
 		t.Fatalf("CompleteTurn: %v", err)
 	}
-	if err := sqlcgen.New(s.db).InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
+	if err := s.fixtureQueries().InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
 		Epic: id, ID: "t3", Cause: "later trigger", State: "pending", Turn: 0, Created: epicCreated().Unix(),
 	}); err != nil {
 		t.Fatalf("insert trigger t3: %v", err)

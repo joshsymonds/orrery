@@ -93,8 +93,13 @@ func headOnly(row EpicRow) EpicRow {
 	row.Failures, row.Additions, row.Requirements, row.Premises = nil, nil, nil, nil
 	row.Exclusions, row.Alternatives, row.ReleaseSteps, row.Decisions = nil, nil, nil, nil
 	row.Reviewers = nil
+	row.Revision = createdRevision
 	return row
 }
+
+// createdRevision is the revision of an epic CreateEpic stored and nothing has written since: its create is one store
+// write of the epic's rows.
+const createdRevision = 1
 
 func openEpicStore(t *testing.T) *Store {
 	t.Helper()
@@ -132,6 +137,7 @@ func TestCreatedEpicReadsBackEveryFieldInOrder(t *testing.T) {
 	}
 	want := fullEpic(id)
 	want.Decisions = seededDecisions()
+	want.Revision = createdRevision
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Epic round trip differs:\n got %+v\nwant %+v", got, want)
 	}
@@ -211,6 +217,7 @@ func TestCreateEpicOfStoredIDIsErrEpicExistsAndChangesNothing(t *testing.T) {
 	}
 	want := fullEpic(id)
 	want.Decisions = seededDecisions()
+	want.Revision = createdRevision
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("refused CreateEpic changed the stored epic:\n got %+v\nwant %+v", got, want)
 	}

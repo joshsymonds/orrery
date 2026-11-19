@@ -101,7 +101,6 @@ type Epic struct {
 	OriginReadCommit string
 	OriginReadState  string
 	OriginReadAt     int64
-	Revision         int64
 }
 
 type EpicAddition struct {
@@ -387,6 +386,11 @@ type EpicReviewer struct {
 	Effort       string
 	LimitSeconds int64
 	Verify       int64
+}
+
+type EpicRevision struct {
+	Epic     string
+	Revision int64
 }
 
 type EpicSeen struct {

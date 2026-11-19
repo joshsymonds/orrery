@@ -32,7 +32,7 @@ func seedClimbTask(t *testing.T, s *Store, from TaskBuild) {
 	t.Helper()
 	ctx := context.Background()
 	createEpic(t, s, fullEpic(climbEpic))
-	if _, err := s.db.ExecContext(ctx, `INSERT INTO epic_tasks (epic, seq, turn, title, deliverable, status)
+	if _, err := s.fixtureExec(ctx, `INSERT INTO epic_tasks (epic, seq, turn, title, deliverable, status)
 		VALUES (?, 1, 1, 'Climbs', 'the first change', 'open')`, climbEpic); err != nil {
 		t.Fatalf("insert task 1: %v", err)
 	}
@@ -311,7 +311,7 @@ func TestTaskLadderAcceptEndsTheRung(t *testing.T) {
 		t.Errorf("climbed task status = %q, want done", got.Status)
 	}
 
-	if _, err := s.db.ExecContext(ctx, `INSERT INTO epic_tasks (epic, seq, turn, title, deliverable, status)
+	if _, err := s.fixtureExec(ctx, `INSERT INTO epic_tasks (epic, seq, turn, title, deliverable, status)
 		VALUES (?, 2, 1, 'Never climbs', 'the second change', 'open')`, climbEpic); err != nil {
 		t.Fatalf("insert task 2: %v", err)
 	}

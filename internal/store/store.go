@@ -40,6 +40,8 @@ type Store struct {
 
 	// callerEvent is the hook OnCallerEvent sets, nil when none is set.
 	callerEvent atomic.Pointer[func()]
+	// epicsChanged is the hook OnEpicsChanged sets, nil when none is set.
+	epicsChanged atomic.Pointer[func(epics []string)]
 }
 
 // SetEngineLive sets the function that SyncServer's prune calls, once per run, for the ids of the engine
@@ -209,25 +211,33 @@ func Open(ctx context.Context, path string, opts ...Option) (*Store, error) {
 	if slow.logger == nil {
 		slow.logger = slog.New(slog.DiscardHandler)
 	}
-	s := &Store{db: &pool{DB: db, slow: slow}, connector: connector}
-	if err = s.migrate(ctx); err != nil {
-		return nil, errors.Join(err, s.Close())
+	opened := &Store{db: &pool{DB: db, slow: slow}, connector: connector}
+	if err = opened.migrate(ctx); err != nil {
+		return nil, errors.Join(err, opened.Close())
 	}
-	return s, nil
+	connector.counting.Store(true)
+	return opened, nil
 }
 
 // Close closes the store and returns once every connection it opened is closed, so the database's files are settled
 // when it returns. database/sql opens a connection on its own goroutine when one is discarded, an interrupted one for
 // instance, while another call waits for it, and DB.Close does not wait for that open. Close refuses new connections
-// first, then closes the pool, then waits for the connections still open, which close as their calls return them.
+// first, then closes the pool, then waits for the connections still open, which close as their calls return them. It
+// returns an error matching ErrEpicWriteOutsideWrite, naming the tables, when a row was written on one of the store's
+// connections outside a store write to a table that names an epic or that no store write had touched (epicMoves), since
+// such a write may have moved no epic's revision.
 func (s *Store) Close() error {
+	outside := s.outsideWrites()
 	s.connector.beginClose()
 	err := s.db.Close()
 	s.connector.wait()
 	if err != nil {
-		return fmt.Errorf("close store: %w", err)
+		err = fmt.Errorf("close store: %w", err)
 	}
-	return nil
+	if outside != "" {
+		err = errors.Join(err, fmt.Errorf("%w: %s", ErrEpicWriteOutsideWrite, outside))
+	}
+	return err
 }
 
 func (s *Store) migrate(ctx context.Context) error {

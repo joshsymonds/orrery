@@ -18,7 +18,7 @@ type callerSeedEvent struct {
 // seedCallerEpic inserts the epic id in phase at version 56.
 func seedCallerEpic(t *testing.T, s *Store, id, phase string) {
 	t.Helper()
-	if _, err := s.db.ExecContext(context.Background(), `INSERT INTO epics
+	if _, err := s.fixtureExec(context.Background(), `INSERT INTO epics
 		(id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed)
 		VALUES (?, '/work/repo', 'Epic', 'approved line', 'intent', 'serious', 'approach', 'then', 'checks', ?,
 		1700000000, 1700000000)`, id, phase); err != nil {
@@ -29,7 +29,7 @@ func seedCallerEpic(t *testing.T, s *Store, id, phase string) {
 // seedCallerSession inserts a session of epic whose newest call of the epic is call, at unix seconds at.
 func seedCallerSession(t *testing.T, s *Store, epic, session, call string, at int64) {
 	t.Helper()
-	if _, err := s.db.ExecContext(context.Background(), `INSERT INTO epic_sessions (epic, session, call, at)
+	if _, err := s.fixtureExec(context.Background(), `INSERT INTO epic_sessions (epic, session, call, at)
 		VALUES (?, ?, ?, ?)`, epic, session, call, at); err != nil {
 		t.Fatalf("insert epic session %s of %s: %v", session, epic, err)
 	}
@@ -38,7 +38,7 @@ func seedCallerSession(t *testing.T, s *Store, epic, session, call string, at in
 // seedCallerQuestion inserts question seq of epic at version 56, in state.
 func seedCallerQuestion(t *testing.T, s *Store, epic string, seq int, state string) {
 	t.Helper()
-	if _, err := s.db.ExecContext(context.Background(), `INSERT INTO epic_questions (epic, seq, turn, text, state)
+	if _, err := s.fixtureExec(context.Background(), `INSERT INTO epic_questions (epic, seq, turn, text, state)
 		VALUES (?, ?, 1, 'question', ?)`, epic, seq, state); err != nil {
 		t.Fatalf("insert question %d of %s: %v", seq, epic, err)
 	}

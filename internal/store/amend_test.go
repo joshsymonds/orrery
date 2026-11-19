@@ -163,7 +163,7 @@ func settle(t *testing.T, s *Store) {
 // moveStoredBase stores stored-2 as the stored base of the amended epic, as a passed batch moves it.
 func moveStoredBase(t *testing.T, s *Store) {
 	t.Helper()
-	if _, err := s.db.ExecContext(context.Background(), `UPDATE epics SET stored_base = 'stored-2' WHERE id = ?`,
+	if _, err := s.fixtureExec(context.Background(), `UPDATE epics SET stored_base = 'stored-2' WHERE id = ?`,
 		amendEpic); err != nil {
 		t.Fatalf("move stored base: %v", err)
 	}
@@ -265,7 +265,7 @@ func TestAmendEvidenceRefusals(t *testing.T) {
 			amend: Amendment{Requirement: "R1", Item: newAmendItem()},
 			prepare: func(t *testing.T, s *Store) {
 				t.Helper()
-				if _, err := s.db.ExecContext(context.Background(),
+				if _, err := s.fixtureExec(context.Background(),
 					`UPDATE epic_requirements SET dropped_by = 2 WHERE epic = ? AND id = 'R1'`, amendEpic); err != nil {
 					t.Fatalf("drop R1: %v", err)
 				}
@@ -277,7 +277,7 @@ func TestAmendEvidenceRefusals(t *testing.T) {
 			amend: Amendment{Requirement: "R1", Item: newAmendItem()},
 			prepare: func(t *testing.T, s *Store) {
 				t.Helper()
-				if _, err := s.db.ExecContext(context.Background(),
+				if _, err := s.fixtureExec(context.Background(),
 					`UPDATE epics SET phase = 'released' WHERE id = ?`, amendEpic); err != nil {
 					t.Fatalf("release epic: %v", err)
 				}

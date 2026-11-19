@@ -90,13 +90,13 @@ func integrateEpicRow(t *testing.T, s *Store) EpicRow {
 func addIntegrateTask(t *testing.T, s *Store, seq int64, status, batch string) {
 	t.Helper()
 	ctx := context.Background()
-	if err := sqlcgen.New(s.db).InsertEpicTask(ctx, sqlcgen.InsertEpicTaskParams{
+	if err := s.fixtureQueries().InsertEpicTask(ctx, sqlcgen.InsertEpicTaskParams{
 		Epic: integrateEpic, Seq: seq, Turn: 1, Title: "Synthetic task", Deliverable: "Synthetic deliverable",
 		Gate: "check", Evidence: "",
 	}); err != nil {
 		t.Fatalf("insert task %d of epic %s: %v", seq, integrateEpic, err)
 	}
-	if _, err := s.db.ExecContext(ctx, `UPDATE epic_tasks SET status = ?, batch = ? WHERE epic = ? AND seq = ?`,
+	if _, err := s.fixtureExec(ctx, `UPDATE epic_tasks SET status = ?, batch = ? WHERE epic = ? AND seq = ?`,
 		status, batch, integrateEpic, seq); err != nil {
 		t.Fatalf("set task %d of epic %s: %v", seq, integrateEpic, err)
 	}
@@ -167,7 +167,7 @@ func integratePending(t *testing.T, s *Store) int {
 // claimIntegrateTrigger stores trigger id of integrateEpic as claimed by turn, as a planner turn claims it.
 func claimIntegrateTrigger(t *testing.T, s *Store, id string, turn int64) {
 	t.Helper()
-	if _, err := s.db.ExecContext(context.Background(),
+	if _, err := s.fixtureExec(context.Background(),
 		`UPDATE epic_triggers SET state = 'claimed', turn = ? WHERE epic = ? AND id = ?`, turn, integrateEpic, id,
 	); err != nil {
 		t.Fatalf("claim trigger %s of epic %s: %v", id, integrateEpic, err)
@@ -565,7 +565,7 @@ func TestEndPlanBuiltInCorrectingKeepsPhase(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openIntegrateStore(t)
-	if err := sqlcgen.New(s.db).SetEpicPhase(ctx, sqlcgen.SetEpicPhaseParams{
+	if err := s.fixtureQueries().SetEpicPhase(ctx, sqlcgen.SetEpicPhaseParams{
 		Phase: "correcting", ID: integrateEpic,
 	}); err != nil {
 		t.Fatalf("set phase of epic %s: %v", integrateEpic, err)

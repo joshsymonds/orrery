@@ -5,7 +5,11 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
+	"sync/atomic"
+
+	"modernc.org/sqlite"
 )
 
 // errStoreClosing is what a connection the store's pool asks for once Close has begun gets. database/sql opens a
@@ -36,9 +40,34 @@ type trackedConnector struct {
 	// waiting, when set, runs once Close has closed the pool and is about to wait for the connections left.
 	waiting func()
 
+	// counting is set once Open has migrated the store: from then on each connection's pre-update hook records the
+	// epics a write's rows name (epicMoves). It is unset while the migrations run, and on a store at an older schema,
+	// which may hold no epic_revisions.
+	counting atomic.Bool
+	// keys is the epic key of each table a write has touched, shared by the connector's connections.
+	keys epicKeys
+
 	mu      sync.Mutex
 	closing bool
 	open    sync.WaitGroup
+	// moves is the epic moves of every connection the connector opened, for Close's report of writes outside a store
+	// write.
+	moves []*epicMoves
+}
+
+// outsideTables returns the tables written outside a store write on any of the connector's connections, each with how
+// many rows.
+func (c *trackedConnector) outsideTables() map[string]int {
+	c.mu.Lock()
+	moves := slices.Clone(c.moves)
+	c.mu.Unlock()
+	counts := map[string]int{}
+	for _, m := range moves {
+		for table, n := range m.outsideTables() {
+			counts[table] += n
+		}
+	}
+	return counts
 }
 
 // Connect opens one connection, unless the store is closing. The connection counts as open until its Close.
@@ -59,12 +88,20 @@ func (c *trackedConnector) Connect(ctx context.Context) (driver.Conn, error) {
 		return nil, fmt.Errorf("open store connection: %w", err)
 	}
 	conn, ok := raw.(sqliteConn)
-	if !ok {
+	hooked, hooks := raw.(interface {
+		RegisterPreUpdateHook(fn sqlite.PreUpdateHookFn)
+	})
+	if !ok || !hooks {
 		closeErr := raw.Close()
 		c.open.Done()
-		return nil, errors.Join(fmt.Errorf("store connection %T lacks a method database/sql uses", raw), closeErr)
+		return nil, errors.Join(fmt.Errorf("store connection %T lacks a method the store uses", raw), closeErr)
 	}
-	return &trackedConn{sqliteConn: conn, done: c.open.Done}, nil
+	moves := &epicMoves{keys: &c.keys, counting: c.counting.Load}
+	hooked.RegisterPreUpdateHook(moves.hook)
+	c.mu.Lock()
+	c.moves = append(c.moves, moves)
+	c.mu.Unlock()
+	return &trackedConn{sqliteConn: conn, done: c.open.Done, moves: moves}, nil
 }
 
 // Driver returns the sqlite driver.
@@ -93,6 +130,8 @@ type trackedConn struct {
 	sqliteConn
 	once sync.Once
 	done func()
+	// moves records the epics the rows written in the connection's store write name (see epicMoves).
+	moves *epicMoves
 
 	// mu guards active.
 	mu sync.Mutex

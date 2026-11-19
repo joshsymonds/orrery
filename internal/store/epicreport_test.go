@@ -49,7 +49,7 @@ func unreportedIDs(t *testing.T, s *Store) []string {
 func moveEpicPhase(t *testing.T, s *Store, id, phase string) {
 	t.Helper()
 	at := time.Unix(1700000500, 0)
-	if err := sqlcgen.New(s.db).SetEpicPhase(context.Background(), sqlcgen.SetEpicPhaseParams{
+	if err := s.fixtureQueries().SetEpicPhase(context.Background(), sqlcgen.SetEpicPhaseParams{
 		Phase: phase, At: at.Unix(), ID: id,
 	}); err != nil {
 		t.Fatalf("SetEpicPhase %s to %s: %v", id, phase, err)

@@ -28,22 +28,22 @@ func TestTaskLadderMigrationStepsDownAndUp(t *testing.T) {
 		}
 		return deliverable
 	}
-	if _, err := s.db.ExecContext(ctx, `INSERT INTO epic_tasks
+	if _, err := s.fixtureExec(ctx, `INSERT INTO epic_tasks
 		(epic, seq, turn, title, deliverable, status, gate, stage, base, attempt, rerun, step, failure)
 		VALUES (?, 1, 1, 'Mid ladder', 'the first change', 'open', 'check', 'implement', 'b68d2a2', 3, 1, 'step-9',
 		'returned blocked: the deliverable is unclear')`, seededEpic); err != nil {
 		t.Fatalf("insert task: %v", err)
 	}
-	if _, err := s.db.ExecContext(ctx, `INSERT INTO epic_task_files (epic, task, position, path)
+	if _, err := s.fixtureExec(ctx, `INSERT INTO epic_task_files (epic, task, position, path)
 		VALUES (?, 1, 0, 'a.go'), (?, 1, 1, 'b.go')`, seededEpic, seededEpic); err != nil {
 		t.Fatalf("insert files: %v", err)
 	}
-	if _, err := s.db.ExecContext(ctx, `INSERT INTO epic_task_versions
+	if _, err := s.fixtureExec(ctx, `INSERT INTO epic_task_versions
 		(epic, task, version, source, reason, deliverable, created)
 		VALUES (?, 1, 2, 'rescue', 'the rescue spec', 'the rescued deliverable', 1700000000)`, seededEpic); err != nil {
 		t.Fatalf("insert version: %v", err)
 	}
-	if _, err := s.db.ExecContext(ctx, `INSERT INTO planner_actions
+	if _, err := s.fixtureExec(ctx, `INSERT INTO planner_actions
 		(epic, turn, position, kind, task, reason, state)
 		VALUES (?, 1, 1, 'fail_task', 1, 'the build cannot reach the store', 'taken')`, seededEpic); err != nil {
 		t.Fatalf("insert planner action: %v", err)

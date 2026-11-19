@@ -242,40 +242,68 @@ func appendEvent(ctx context.Context, queries *sqlcgen.Queries, sessionID, kind,
 // The write is one timed store call (see WithLogger), from the wait for the connection until it is free again.
 //
 // A write that commits after one of its statements ran with a context from withEpicEvent calls the hook OnCallerEvent
-// set, once, after the connection is free again, so the hook may read the store.
+// set, once, after the connection is free again, so the hook may read the store. A write that moved the revision of
+// any epic (see runWrite) then calls the hook OnEpicsChanged set, once, with those epics.
 func (s *Store) write(ctx context.Context, fn func(queries *sqlcgen.Queries) error) error {
+	return s.writeDB(ctx, func(db sqlcgen.DBTX) error { return fn(sqlcgen.New(db)) })
+}
+
+// writeDB is write with fn given the write's statements as they run, rather than their queries.
+func (s *Store) writeDB(ctx context.Context, fn func(db sqlcgen.DBTX) error) error {
 	ctx, timer := s.db.slow.begin(ctx, endByCaller, "")
 	conn, err := s.db.Conn(ctx)
 	if err != nil {
 		timer.finish(ctx)
 		return fmt.Errorf("open store connection: %w", err)
 	}
-	epicEvent, runErr := runWrite(ctx, conn, fn)
+	done, runErr := runWrite(ctx, conn, fn)
 	err = errors.Join(runErr, conn.Close())
 	timer.finish(ctx)
-	if runErr == nil && epicEvent {
+	if runErr == nil && done.epicEvent {
 		s.fireCallerEvent()
+	}
+	if runErr == nil {
+		s.fireEpicsChanged(done.moved)
 	}
 	return err
 }
 
-// runWrite runs fn in the write transaction on conn and commits it. It reports whether a statement of the write ran
-// with a context from withEpicEvent and succeeded, which is set only when runWrite returns nil.
+// writeDone is what a committed write did: whether a statement ran with a context from withEpicEvent and succeeded,
+// and the epics whose revision it moved, sorted.
+type writeDone struct {
+	epicEvent bool
+	moved     []string
+}
+
+// runWrite runs fn in the write transaction on conn and commits it. While fn runs, the connection's pre-update hook
+// records each epic a written row of an epic table names (epicMoves); before the commit, the write moves the revision
+// of each of those epics by one (epicMoves.flush), in the same transaction. It reports what the write did, which is set only
+// when runWrite returns nil.
 func runWrite(
-	ctx context.Context, conn *sql.Conn, fn func(queries *sqlcgen.Queries) error,
-) (epicEvent bool, err error) {
-	if _, err = conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
-		return false, fmt.Errorf("begin store write: %w", err)
+	ctx context.Context, conn *sql.Conn, fn func(db sqlcgen.DBTX) error,
+) (done writeDone, err error) {
+	moves, err := movesOf(conn)
+	if err != nil {
+		return writeDone{}, err
 	}
+	if _, err = conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return writeDone{}, fmt.Errorf("begin store write: %w", err)
+	}
+	moves.arm()
 	statements := &writeConn{conn: conn}
 	defer func() { err = errors.Join(err, statements.close()) }()
-	if err = fn(sqlcgen.New(statements)); err != nil {
-		return false, errors.Join(err, rollback(ctx, conn))
+	if err = fn(statements); err != nil {
+		moves.disarm()
+		return writeDone{}, errors.Join(err, rollback(ctx, conn))
+	}
+	moved, err := moves.flush(ctx, statements)
+	if err != nil {
+		return writeDone{}, errors.Join(err, rollback(ctx, conn))
 	}
 	if _, err = conn.ExecContext(ctx, "COMMIT"); err != nil {
-		return false, errors.Join(fmt.Errorf("commit store write: %w", err), rollback(ctx, conn))
+		return writeDone{}, errors.Join(fmt.Errorf("commit store write: %w", err), rollback(ctx, conn))
 	}
-	return statements.epicEvent, nil
+	return writeDone{epicEvent: statements.epicEvent, moved: moved}, nil
 }
 
 // epicEventKey is the context key withEpicEvent sets.

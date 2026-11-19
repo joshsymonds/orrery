@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
-
-	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
 // titleStore writes a store with the sessions the title tests read: an engine session e-a with two prompts, the first
@@ -67,7 +65,7 @@ func TestSessionTitleSetWritesOnceAndLeavesAStoredTitleAlone(t *testing.T) {
 	if err := s.SetSessionTitle(ctx, "e-a", "Something else"); err != nil {
 		t.Fatalf("SetSessionTitle again: %v", err)
 	}
-	row, err := sqlcgen.New(s.db).GetSession(ctx, "e-a")
+	row, err := s.fixtureQueries().GetSession(ctx, "e-a")
 	if err != nil {
 		t.Fatalf("GetSession: %v", err)
 	}
@@ -94,7 +92,7 @@ func TestSessionTitleSetIgnoresStepPaneAndUnknownSessions(t *testing.T) {
 		}
 	}
 	for _, id := range []string{"step-a", "orrery-1"} {
-		row, err := sqlcgen.New(s.db).GetSession(ctx, id)
+		row, err := s.fixtureQueries().GetSession(ctx, id)
 		if err != nil {
 			t.Fatalf("GetSession %s: %v", id, err)
 		}

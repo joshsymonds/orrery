@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
+	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
 // epicTableColumns returns, keyed by table, the columns in declaration order of every table migrations 00014, 00016,
@@ -33,9 +34,9 @@ func epicTableColumns() map[string][]string {
 			"synced",
 			// The epic's last read of origin's main, which a sync starts from, is 00054_origin_read.sql.
 			"origin_read_base", "origin_read_commit", "origin_read_state", "origin_read_at",
-			// revision, which counts the writes to the epic and its parts, is 00069_epic_revisions.sql.
-			"revision",
 		},
+		// Each epic's revision, which 00072_epic_revisions_table.sql moves out of epics.
+		"epic_revisions": {"epic", "revision"},
 		"epic_failures":  {"epic", "position", "id", "text", "rating", "response"},
 		"epic_additions": {"epic", "position", "location", "what", "why", "cost"},
 		// R4: dropped_by, the decision that dropped a Requirement as met at base, is 00044_met_at_base_question.sql.
@@ -201,7 +202,7 @@ func rowsOf(t *testing.T, db *sql.DB, table string) [][]any {
 const seededEpic = "orrery-0123456/epic-one"
 
 // seedEpic inserts the epic seededEpic with one decision, the rows the append-only triggers guard.
-func seedEpic(t *testing.T, db *sql.DB) {
+func seedEpic(t *testing.T, db sqlcgen.DBTX) {
 	t.Helper()
 	const id = seededEpic
 	ctx := context.Background()
@@ -330,7 +331,7 @@ func TestPushedEpicNoticesKeepOneRowPerEpic(t *testing.T) {
 
 	const epic = "orrery-0123456/epic-one"
 	insert := func(at int64) error {
-		_, err := s.db.ExecContext(ctx, `INSERT INTO pushed_epic_notices (epic, time) VALUES (?, ?)`, epic, at)
+		_, err := s.fixtureExec(ctx, `INSERT INTO pushed_epic_notices (epic, time) VALUES (?, ?)`, epic, at)
 		return err
 	}
 	if err := insert(1700000000); err != nil {
@@ -360,7 +361,7 @@ func TestEpicTriggerStateAcceptsOnlyPendingClaimedConsumed(t *testing.T) {
 
 	const epic = "orrery-0123456/epic-one"
 	insert := func(id, state string) error {
-		_, err := s.db.ExecContext(ctx, `INSERT INTO epic_triggers (epic, id, cause, state, created)
+		_, err := s.fixtureExec(ctx, `INSERT INTO epic_triggers (epic, id, cause, state, created)
 			VALUES (?, ?, 'epic created', ?, 1700000000)`, epic, id, state)
 		return err
 	}
@@ -403,7 +404,7 @@ func TestEpicTurnsRefuseSecondRunningTurnPerEpic(t *testing.T) {
 
 	const first, second = "orrery-0123456/epic-one", "orrery-0123456/epic-two"
 	turn := func(epic string, seq int, state string) error {
-		_, err := s.db.ExecContext(ctx, `INSERT INTO epic_turns (epic, seq, state, seen, started)
+		_, err := s.fixtureExec(ctx, `INSERT INTO epic_turns (epic, seq, state, seen, started)
 			VALUES (?, ?, ?, 0, 1700000000)`, epic, seq, state)
 		return err
 	}
@@ -445,11 +446,11 @@ func TestEpicDecisionsRefuseUpdateAndDelete(t *testing.T) {
 		t.Fatalf("seeded decisions = %v, want %v", got, want)
 	}
 
-	_, err = s.db.ExecContext(ctx, `UPDATE epic_decisions SET text = 'rewritten' WHERE epic = ?`, id)
+	_, err = s.fixtureExec(ctx, `UPDATE epic_decisions SET text = 'rewritten' WHERE epic = ?`, id)
 	if err == nil || !strings.Contains(err.Error(), "append-only") {
 		t.Fatalf("UPDATE on epic_decisions: err = %v, want the append-only refusal", err)
 	}
-	_, err = s.db.ExecContext(ctx, `DELETE FROM epic_decisions WHERE epic = ?`, id)
+	_, err = s.fixtureExec(ctx, `DELETE FROM epic_decisions WHERE epic = ?`, id)
 	if err == nil || !strings.Contains(err.Error(), "append-only") {
 		t.Fatalf("DELETE on epic_decisions: err = %v, want the append-only refusal", err)
 	}
@@ -542,16 +543,17 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00071_park_question_runs.sql is the newest. The
-	// newest was 00070_task_ladder.sql before the park question runs added 00071, 00069_epic_revisions.sql before the
-	// task ladder added 00070, 00068_step_listings.sql before the epic revisions added 00069,
-	// 00067_drop_caller_read.sql before the step listings added 00068, 00066_put_off_questions.sql before
+	// Open applies 00014_epics.sql and every migration after it: 00072_epic_revisions_table.sql is the newest. The
+	// newest was 00071_park_question_runs.sql before the revisions table added 00072, 00070_task_ladder.sql before the
+	// park question runs added 00071, 00069_epic_revisions.sql before the task ladder added 00070,
+	// 00068_step_listings.sql before the epic revisions added 00069, 00067_drop_caller_read.sql before the step listings
+	// added 00068, 00066_put_off_questions.sql before
 	// the drop of caller_read added 00067, 00065_task_gate_changes.sql before the put-off marks added 00066,
 	// 00064_step_indexes.sql before the gate changes added 00065, 00063_task_versions.sql before the step indexes added
 	// 00064, 00062_drop_engine_held.sql before the task versions added 00063, 00061_prompt_states.sql before the drop of
 	// engine_held added 00062, and 00060_cron_jobs.sql before the prompt states added 00061.
-	if version != 71 {
-		t.Fatalf("store version after Open = %d, want 71", version)
+	if version != 72 {
+		t.Fatalf("store version after Open = %d, want 72", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and
@@ -767,7 +769,7 @@ func evidenceDownAndUp() migrationCheck {
 	return migrationCheck{
 		seed: func(t *testing.T, s *Store) {
 			t.Helper()
-			if _, err := s.db.ExecContext(context.Background(), `INSERT INTO epic_tasks
+			if _, err := s.fixtureExec(context.Background(), `INSERT INTO epic_tasks
 				(epic, seq, turn, title, deliverable, status, gate, evidence)
 				VALUES ('orrery-0123456/epic-one', 1, 1, 'Build it', 'the down', 'open', 'check',
 				'{"capture":["scripts/check"],"limit":60,"artifacts":null,"supplied":null,"conclusion":"go test ./restored",
@@ -1192,8 +1194,6 @@ func TestPlannerControlsDefaultOnRowsStoredAtVersion16(t *testing.T) {
 			"",
 			"",
 			"",
-			int64(0),
-			// revision, which 00069_epic_revisions.sql adds at 0; its triggers count no write made before them.
 			int64(0),
 		},
 		"epic_turns":      {int64(0), int64(0), int64(0)},

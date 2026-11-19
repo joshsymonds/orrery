@@ -111,12 +111,12 @@ func TestEpicHistoryReadsTriggersByCreatedThenIDAndTellsBySeq(t *testing.T) {
 	createEpic(t, s, fullEpic(epicSummaryID))
 	later := time.Unix(1700000200, 0)
 	parkedAt := time.Unix(1700000300, 0)
-	if err := sqlcgen.New(s.db).InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
+	if err := s.fixtureQueries().InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
 		Epic: epicSummaryID, ID: "b-trigger", Cause: "second cause", State: "pending", Turn: 0, Created: later.Unix(),
 	}); err != nil {
 		t.Fatalf("InsertEpicTrigger b-trigger: %v", err)
 	}
-	if err := sqlcgen.New(s.db).InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
+	if err := s.fixtureQueries().InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
 		Epic: epicSummaryID, ID: "a-trigger", Cause: "first cause", State: "pending", Turn: 0, Created: later.Unix(),
 	}); err != nil {
 		t.Fatalf("InsertEpicTrigger a-trigger: %v", err)

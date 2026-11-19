@@ -147,7 +147,7 @@ func TestTaskLadderChangeApproachStoresVersion(t *testing.T) {
 			seed: func(t *testing.T, s *Store) {
 				t.Helper()
 				ladderApproachOnRung5(t, s, nil)
-				if _, err := s.db.ExecContext(context.Background(),
+				if _, err := s.fixtureExec(context.Background(),
 					`UPDATE epic_tasks SET status = 'failed' WHERE epic = ? AND seq = 1`, climbEpic); err != nil {
 					t.Fatalf("fail task 1: %v", err)
 				}

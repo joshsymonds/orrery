@@ -196,7 +196,7 @@ func TestLastTurnEndsReadsThroughTurnEndIndex(t *testing.T) {
 		}
 	}
 	// An engine event whose payload carries state done is not a session_changed event, so it must not count.
-	if _, err := s.db.ExecContext(ctx,
+	if _, err := s.fixtureExec(ctx,
 		`INSERT INTO events (session_id, kind, at, payload) VALUES (?, ?, ?, ?)`,
 		"engine-1", EventEngineChanged, turnTime(40).Unix(), `{"fields":{"state":"done"}}`); err != nil {
 		t.Fatalf("insert engine event: %v", err)

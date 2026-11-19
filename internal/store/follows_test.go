@@ -15,7 +15,7 @@ const followsOther = "orrery-1a2b3c4/epic-other"
 // followExec runs query with args on the test store's db and fails the test when it errors.
 func followExec(t *testing.T, s *Store, query string, args ...any) {
 	t.Helper()
-	if _, err := s.db.ExecContext(context.Background(), query, args...); err != nil {
+	if _, err := s.fixtureExec(context.Background(), query, args...); err != nil {
 		t.Fatalf("%s: %v", query, err)
 	}
 }
@@ -71,7 +71,7 @@ func TestFollowsCountsAnsweredRecommendationsPerLabelAcrossEpics(t *testing.T) {
 		{followsOther, 2, "first"},
 		{followsOther, 3, "second"},
 	} {
-		if err := sqlcgen.New(s.db).SetEpicQuestionAnswered(ctx, sqlcgen.SetEpicQuestionAnsweredParams{
+		if err := s.fixtureQueries().SetEpicQuestionAnswered(ctx, sqlcgen.SetEpicQuestionAnsweredParams{
 			Choice: answer.choice, Epic: answer.epic, Seq: answer.seq,
 		}); err != nil {
 			t.Fatalf("answer question %d of %s: %v", answer.seq, answer.epic, err)
