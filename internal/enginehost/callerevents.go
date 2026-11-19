@@ -34,30 +34,35 @@ type CallerEventStore interface {
 }
 
 // CallerSenderConfig configures a CallerSender. Deliver sends a headless caller its text as a prompt (see
-// Manager.Deliver). WakePane sends a pane caller its text as keys, and reports whether the pane was idle to take them.
-// Store records the events finished. A nil Now means time.Now, and a nil Logger discards.
+// Manager.Deliver). DeliverStep sends a step caller the end of a step it started as a prompt (see Steps.DeliverChildEnd),
+// and a nil DeliverStep leaves a step caller with nothing sent. WakePane sends a pane caller its text as keys, and reports
+// whether the pane was idle to take them. Store records the events finished. A nil Now means time.Now, and a nil Logger
+// discards.
 type CallerSenderConfig struct {
-	Deliver  func(context.Context, DeliverRequest) error
-	WakePane func(ctx context.Context, server, pane, text string) (bool, error)
-	Store    CallerEventStore
-	Now      func() time.Time
-	Logger   *slog.Logger
+	Deliver     func(context.Context, DeliverRequest) error
+	DeliverStep func(context.Context, DeliverRequest) error
+	WakePane    func(ctx context.Context, server, pane, text string) (bool, error)
+	Store       CallerEventStore
+	Now         func() time.Time
+	Logger      *slog.Logger
 }
 
 // CallerSender sends an event to the session that called for it, and marks the event finished once it is done. Both
 // the step-end pass and the epic pass send through it.
 type CallerSender struct {
-	deliver  func(context.Context, DeliverRequest) error
-	wakePane func(ctx context.Context, server, pane, text string) (bool, error)
-	store    CallerEventStore
-	now      func() time.Time
-	logger   *slog.Logger
+	deliver     func(context.Context, DeliverRequest) error
+	deliverStep func(context.Context, DeliverRequest) error
+	wakePane    func(ctx context.Context, server, pane, text string) (bool, error)
+	store       CallerEventStore
+	now         func() time.Time
+	logger      *slog.Logger
 }
 
 // NewCallerSender returns a CallerSender for cfg.
 func NewCallerSender(cfg CallerSenderConfig) *CallerSender {
 	sender := &CallerSender{
-		deliver: cfg.Deliver, wakePane: cfg.WakePane, store: cfg.Store, now: cfg.Now, logger: cfg.Logger,
+		deliver: cfg.Deliver, deliverStep: cfg.DeliverStep, wakePane: cfg.WakePane, store: cfg.Store, now: cfg.Now,
+		logger: cfg.Logger,
 	}
 	if sender.now == nil {
 		sender.now = time.Now
@@ -69,10 +74,10 @@ func NewCallerSender(cfg CallerSenderConfig) *CallerSender {
 }
 
 // Send sends text, the block of event, to caller, and reports whether the event is finished: it has been marked. A
-// step caller receives nothing, and its event is marked. A headless caller receives text as a prompt whose PromptID is
-// event. A caller that is busy, stopped, or quiet since the owner interrupted it holds the event, with no error and no
-// mark, until a later send. A pane caller
-// receives text as keys, which WakePane holds while the pane is not idle, and the event is marked after the keys are
+// step caller receives nothing, and its event is marked; the end of a step reaches its step caller through SendStepEnd
+// instead. A headless caller receives text as a prompt whose PromptID is event. A caller that is busy, stopped, or quiet
+// since the owner interrupted it holds the event, with no error and no mark, until a later send. A pane caller receives
+// text as keys, which WakePane holds while the pane is not idle, and the event is marked after the keys are
 // sent. Any other error is returned with no mark.
 func (s *CallerSender) Send(ctx context.Context, caller store.CallerSession, event, text string) (bool, error) {
 	switch caller.Kind {
@@ -92,6 +97,29 @@ func (s *CallerSender) Send(ctx context.Context, caller store.CallerSession, eve
 		return s.wake(ctx, caller, event, text)
 	default:
 		return false, fmt.Errorf("send %s to session %s: unknown kind %q", event, caller.ID, caller.Kind)
+	}
+}
+
+// SendStepEnd sends text, the block of the end of a step with event, to caller, and reports whether the event is
+// finished. A step caller with a DeliverStep receives text as a prompt of the step it started, whose PromptID is event
+// (see DeliverStep): the event is marked once the prompt is sent, and also when the step has ended or is no step, where
+// nothing is sent. A step that is busy, running its gate, held or limited holds the event, with no error and no mark,
+// until a later send. Any other error is returned with no mark. Every other caller, and a step caller when DeliverStep is
+// nil, goes to Send as it does.
+func (s *CallerSender) SendStepEnd(ctx context.Context, caller store.CallerSession, event, text string) (bool, error) {
+	if caller.Kind != store.KindStep || s.deliverStep == nil {
+		return s.Send(ctx, caller, event, text)
+	}
+	err := s.deliverStep(ctx, DeliverRequest{ID: caller.ID, Text: text, PromptID: event})
+	switch {
+	case err == nil:
+		return s.mark(ctx, caller.ID, event)
+	case errors.Is(err, ErrStepNotRunning), errors.Is(err, store.ErrNoStep):
+		return s.mark(ctx, caller.ID, event)
+	case errors.Is(err, ErrSessionBusy), errors.Is(err, ErrStepGating):
+		return false, nil
+	default:
+		return false, fmt.Errorf("deliver step end %s to step %s: %w", event, caller.ID, err)
 	}
 }
 
@@ -133,7 +161,8 @@ type StepCallerEventsConfig struct {
 	Sender *CallerSender
 }
 
-// StepCallerEvents tells the caller of each step that has ended, once, that the step has ended.
+// StepCallerEvents tells the caller of each step that has ended, once, that the step has ended. A step caller is told
+// through the step it started, while that step is open (see CallerSender.SendStepEnd).
 type StepCallerEvents struct {
 	store  StepCallerStore
 	sender *CallerSender
@@ -159,11 +188,11 @@ func (e *StepCallerEvents) Pass(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-// send sends the end of step to its caller as a step_end event, and returns the error of the send.
+// send sends the end of step to its caller as a step_end event through SendStepEnd, and returns the error of the send.
 func (e *StepCallerEvents) send(ctx context.Context, step store.CallerStep) error {
 	event := stepEventPrefix + step.Step.ID
 	text := CallerEventBlock(stepEndKind, event, stepEndBody(step.Step))
-	if _, err := e.sender.Send(ctx, step.Caller, event, text); err != nil {
+	if _, err := e.sender.SendStepEnd(ctx, step.Caller, event, text); err != nil {
 		return fmt.Errorf("send step end of %s to caller %s: %w", step.Step.ID, step.Caller.ID, err)
 	}
 	return nil

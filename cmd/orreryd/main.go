@@ -1373,10 +1373,11 @@ func (h *sessionHost) startLimits(
 // newCallerEvents builds the caller-event delivery over st as h.callerEvents. Its wake is the trigger of every caller
 // event: the manager's EventWake, the steps' Stored, the store's OnCallerEvent, and the pane observer. Both passes send
 // through one CallerSender: a headless caller gets its event as a prompt through the manager, a pane caller gets it
-// through cli.WakePane, and a step caller is only marked. Neither depends on a router, since a caller event goes to its
-// caller alone. The sender's Deliver reads h.manager when it sends, which is after startSessions has set it. When
-// opts.callerEventPassed is not nil, it is called after each pass returns, and opts.callerEventTimer and
-// opts.callerWakePane replace the retry timer and cli.WakePane.
+// through cli.WakePane, and a step caller gets the end of its step as a prompt while that step is open (see
+// Steps.DeliverChildEnd), or is only marked when the step has ended. Neither depends on a router, since a caller event
+// goes to its caller alone. The sender's Deliver and DeliverStep read h.manager and h.steps when they send, which is after
+// startSessions has set them. When opts.callerEventPassed is not nil, it is called after each pass returns, and
+// opts.callerEventTimer and opts.callerWakePane replace the retry timer and cli.WakePane.
 func (h *sessionHost) newCallerEvents(st *store.Store, opts options, logger *slog.Logger) {
 	wakePane := opts.callerWakePane
 	if wakePane == nil {
@@ -1385,6 +1386,9 @@ func (h *sessionHost) newCallerEvents(st *store.Store, opts options, logger *slo
 	sender := enginehost.NewCallerSender(enginehost.CallerSenderConfig{
 		Deliver: func(ctx context.Context, req enginehost.DeliverRequest) error {
 			return h.manager.Deliver(ctx, req)
+		},
+		DeliverStep: func(ctx context.Context, req enginehost.DeliverRequest) error {
+			return h.steps.DeliverChildEnd(ctx, req)
 		},
 		WakePane: wakePane,
 		Store:    st,

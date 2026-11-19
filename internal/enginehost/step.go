@@ -322,6 +322,7 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 		environ: s.environ, prompt: start.Prompt, now: s.now, modelLimit: modelLimit, agentGate: gate.agent,
 		stateDir: s.gateStateDir, scope: s.gateScope, scopeMemory: s.gateScopeMemory, returnCheck: start.ReturnCheck,
 		publish: s.publish,
+		wake:    s.stored,
 	}
 	step := StepSession{
 		ID: id, Dir: start.Workspace, Prompt: start.Prompt, Agent: start.Agent, Agents: start.Agents,

@@ -51,7 +51,9 @@ func (s *Steps) Stop(ctx context.Context, id string) error {
 // rowRun returns a stepRun for an open step row with no loop, so Stop can end it through finish. Its cleanup removes the
 // row's worktree when the row has one.
 func (s *Steps) rowRun(row store.StepRow) *stepRun {
-	cfg := stepRunConfig{id: row.ID, sessions: s.sessions, writer: s.writer, logger: s.logger, publish: s.publish}
+	cfg := stepRunConfig{
+		id: row.ID, sessions: s.sessions, writer: s.writer, logger: s.logger, publish: s.publish, wake: s.stored,
+	}
 	if row.Worktree != "" {
 		cfg.cleanup = func(ctx context.Context) error {
 			return removeStepWorktree(ctx, row.Workspace, row.Worktree)
@@ -202,6 +204,7 @@ func (s *Steps) readoptRun(ctx context.Context, row store.StepRow) (*stepRun, er
 		restore:     &stepRestore{Row: row, Turn: turn, Found: found},
 		agentGate:   agent,
 		publish:     s.publish,
+		wake:        s.stored,
 	}
 	folder := row.Workspace
 	if row.ReadOnly {

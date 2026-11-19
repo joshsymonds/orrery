@@ -106,7 +106,8 @@ const apiErrorRateLimit = "rate_limit"
 // or past the limit of wall time from the run's start ends an agent gate step overtime. returnCheck, when set, checks
 // every schema-valid return: its failure lines are stored as the return check and sent back, and a step with one is
 // never judged. publish is called with the step's id once the run's end or hold is stored, and a nil publish, which
-// newStepRun makes a no-op, reports nothing.
+// newStepRun makes a no-op, reports nothing. wake is called after each prompt the run sends its session and after each
+// resume of a limited run, so a caller event that waited on the step is offered again, and a nil wake does nothing.
 type stepRunConfig struct {
 	id          string
 	schema      string
@@ -124,6 +125,7 @@ type stepRunConfig struct {
 	agentGate   *gates.Gate
 	returnCheck func(value json.RawMessage) []string
 	publish     func(ctx context.Context, id string)
+	wake        func()
 
 	writing     bool
 	dir         string
@@ -547,7 +549,8 @@ func (r *stepRun) continueWith(ctx context.Context, prompt StepPrompt) bool {
 }
 
 // continueStep sends prompt to the session as its next message, with the loop in turn as its Loop, so the loop state is
-// stored in the write that stores the prompt. A failed store or send ends the step failed and returns the error.
+// stored in the write that stores the prompt. A failed store or send ends the step failed and returns the error. A sent
+// prompt wakes the caller events (see wakeCaller).
 func (r *stepRun) continueStep(ctx context.Context, prompt StepPrompt) error {
 	r.setStage(store.StepStageTurn)
 	loop := r.loopState()
@@ -557,7 +560,16 @@ func (r *stepRun) continueStep(ctx context.Context, prompt StepPrompt) error {
 		r.finish(ctx, stepLoopEndFailed, "", err.Error())
 		return err
 	}
+	r.wakeCaller()
 	return nil
+}
+
+// wakeCaller calls the run's wake, when it has one, so a caller event that waited on the step is offered again. A nil
+// wake does nothing.
+func (r *stepRun) wakeCaller() {
+	if r.wake != nil {
+		r.wake()
+	}
 }
 
 // loopState returns the loop state the run stores: its round and continue count, the nudges pending for the next turn
