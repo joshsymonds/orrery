@@ -35,7 +35,8 @@ var ErrQuestionClosed = errors.New("question closed")
 // nor other.
 var ErrNoChoice = errors.New("question offers no such choice")
 
-// ErrOtherNeedsText reports an answer that names other with text that is blank.
+// ErrOtherNeedsText reports an answer that needs text and has none: other with text that is blank, or correct to a
+// gaps question with text that is blank, since the text is the correction the planner is given.
 var ErrOtherNeedsText = errors.New("other answer needs text")
 
 // QuestionReplacedError reports an answer to question Seq, which the question By replaced.
@@ -789,10 +790,11 @@ func (s *Store) AnswerEpic(ctx context.Context, epic, id, text string, at time.T
 // returns the stored decision and writes nothing, even after its question closed; a stored id with other text or
 // another choice is ErrDecisionConflict. A question the epic does not have is ErrNoQuestion, a replaced one is a
 // *QuestionReplacedError and an answered one is ErrQuestionClosed. A choice the question does not offer is ErrNoChoice,
-// and other with blank text is ErrOtherNeedsText. Each refusal writes nothing. Otherwise the question becomes answered
-// with choice, a pending trigger `answer:<id>` is added, the decision is appended with its question, and the epic's
-// changed moves to at. An answer to a park question that is not final also ends the park, as RetryEpic does; a final
-// park offers only other and stays parked.
+// other with blank text is ErrOtherNeedsText, and so is correct with blank text to a gaps question. Each refusal
+// writes nothing. Otherwise the question becomes answered with choice, a pending trigger `answer:<id>` is added, the
+// decision is appended with its question, and the epic's changed moves to at. An answer to a park question that is not
+// final also ends the park, as RetryEpic does; a final park offers only other and stays parked. An answer to a gaps
+// question carries out its choice in the same write, as answerGapsQuestion gives.
 func (s *Store) AnswerQuestion(
 	ctx context.Context,
 	epic, id, text string,
@@ -825,7 +827,8 @@ func (s *Store) AnswerQuestion(
 // recordQuestionAnswer answers the open question with seq question as decision id with text and choice: the question
 // becomes answered with choice, a pending trigger `answer:<id>` is added, and the decision is appended tied to the
 // question. An answer to a park question for a red run judged holding at base carries out its choice, as
-// answerMetAtBase gives. An answered park question that is not final ends the park in the same write.
+// answerMetAtBase gives. An answered park question that is not final ends the park in the same write. An answer to a
+// gaps question carries out its choice in the same write, after the decision is appended, as answerGapsQuestion gives.
 func recordQuestionAnswer(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
@@ -858,6 +861,10 @@ func recordQuestionAnswer(
 		return EpicDecision{}, err
 	}
 	err = endParkByAnswer(ctx, queries, epic, answered, choice)
+	if err != nil {
+		return EpicDecision{}, err
+	}
+	err = answerGapsQuestion(ctx, queries, epic, id, text, answered, choice, at)
 	if err != nil {
 		return EpicDecision{}, err
 	}
@@ -1015,8 +1022,8 @@ func decisionChoice(
 
 // requireAnswerable is the refusal of an answer naming choice and text to question seq of epic: ErrNoQuestion when epic
 // has no question seq, a *QuestionReplacedError when a later question replaced it, ErrQuestionClosed when it is
-// answered, ErrNoChoice when it does not offer choice, and ErrOtherNeedsText when choice is other with blank text. When
-// the answer is allowed it returns the open question as stored.
+// answered, ErrNoChoice when it does not offer choice, and ErrOtherNeedsText when choice needs text it lacks (see
+// choiceNeedsText). When the answer is allowed it returns the open question as stored.
 func requireAnswerable(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
@@ -1044,10 +1051,16 @@ func requireAnswerable(
 	if !offered {
 		return sqlcgen.EpicQuestion{}, fmt.Errorf("question %d on epic %s: %w", question, epic, ErrNoChoice)
 	}
-	if choice == ChoiceOther && strings.TrimSpace(text) == "" {
+	if choiceNeedsText(stored, choice) && strings.TrimSpace(text) == "" {
 		return sqlcgen.EpicQuestion{}, fmt.Errorf("question %d on epic %s: %w", question, epic, ErrOtherNeedsText)
 	}
 	return stored, nil
+}
+
+// choiceNeedsText reports whether an answer naming choice to question must carry text: other always, and correct to a
+// gaps question, whose text is the correction the planner is given.
+func choiceNeedsText(question sqlcgen.EpicQuestion, choice string) bool {
+	return choice == ChoiceOther || (choice == ChoiceCorrect && isGapsQuestion(question))
 }
 
 // offers reports whether question offers choice: other, which every question offers, or one of its declared choices.
