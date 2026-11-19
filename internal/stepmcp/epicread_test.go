@@ -51,12 +51,12 @@ func smallEpic() *v1.StoredEpic {
 }
 
 // largeEpic is an invented epic of 200 tasks, 100 turns, 300 decisions and 50 open questions, with a contract of about
-// 40 KB. Its title is longer than the title cap, and its first question's label is longer than the label cap.
+// 40 KB. Its title is a sentence under the title cap, and each of its open questions has a label under the label cap.
 func largeEpic() *v1.StoredEpic {
 	epic := &v1.StoredEpic{
 		Contract: &v1.EpicContract{
 			Id:     testEpicID,
-			Title:  strings.Repeat("a", 250),
+			Title:  "Members sign in with passkeys",
 			Intent: strings.Repeat("Members sign in with a passkey and keep the device list. ", 700),
 		},
 		Phase:    "accepted",
@@ -86,12 +86,9 @@ func largeEpic() *v1.StoredEpic {
 		})
 	}
 	for i := range 50 {
-		label := fmt.Sprintf("question-%d", i+1)
-		if i == 0 {
-			label = strings.Repeat("l", 60)
-		}
 		epic.Questions = append(epic.Questions, &v1.EpicQuestion{
-			Id: fmt.Sprintf("Q%d", i+1), Turn: 1, Text: "A question?", State: "open", Label: label,
+			Id: fmt.Sprintf("Q%d", i+1), Turn: 1, Text: "A question?", State: "open",
+			Label: fmt.Sprintf("question-%d", i+1),
 		})
 	}
 	return epic
@@ -155,7 +152,7 @@ func TestEpicByPartSummaryNamesEachLineOfASmallEpic(t *testing.T) {
 	}
 }
 
-func TestEpicByPartSummaryOfALargeEpicStaysWithinFourKilobytes(t *testing.T) {
+func TestEpicByPartSummaryOfALargeEpicListsEveryOpenQuestionWithinFourKilobytes(t *testing.T) {
 	p := newPeer(t, nil, &fakeEpics{getReply: &v1.GetEpicResponse{Epic: largeEpic()}})
 
 	outcome := p.tool("epic_get", `{"id":"`+testEpicID+`"}`)
@@ -168,12 +165,16 @@ func TestEpicByPartSummaryOfALargeEpicStaysWithinFourKilobytes(t *testing.T) {
 	}
 	lines := strings.Split(outcome.text, "\n")
 	for _, want := range []string{
-		"epic demo-0a1b2c3/epic-login: " + strings.Repeat("a", 200) + "…",
+		"epic demo-0a1b2c3/epic-login: Members sign in with passkeys",
 		"open questions: 50",
-		"  Q1 " + strings.Repeat("l", 40) + "…",
-		"  and 10 more",
 		"tasks: 200 (done 150, failed 10, open 40)",
 	} {
+		if !slices.Contains(lines, want) {
+			t.Errorf("epic_get text has no line %q", want)
+		}
+	}
+	for n := 1; n <= 50; n++ {
+		want := fmt.Sprintf("  Q%d question-%d", n, n)
 		if !slices.Contains(lines, want) {
 			t.Errorf("epic_get text has no line %q", want)
 		}
@@ -183,9 +184,12 @@ func TestEpicByPartSummaryOfALargeEpicStaysWithinFourKilobytes(t *testing.T) {
 		if strings.HasPrefix(line, "  Q") {
 			questionLines++
 		}
+		if strings.HasPrefix(line, "  and ") {
+			t.Errorf("epic_get text has the line %q, want every open question listed", line)
+		}
 	}
-	if questionLines != 40 {
-		t.Errorf("epic_get text has %d question lines, want 40", questionLines)
+	if questionLines != 50 {
+		t.Errorf("epic_get text has %d question lines, want 50", questionLines)
 	}
 
 	parts := []struct {
@@ -229,5 +233,98 @@ func TestEpicByPartSummaryCutsAHugeIDOnARuneBoundary(t *testing.T) {
 	if !strings.HasPrefix(outcome.text, "epic demo-0a1b2c3/é") || !strings.HasSuffix(outcome.text, "…") {
 		t.Fatalf("epic_get text starts %q and ends %q, want the id's start and an ellipsis",
 			outcome.text[:min(len(outcome.text), 40)], outcome.text[max(0, len(outcome.text)-10):])
+	}
+}
+
+func TestEpicSummaryCutsLongTitlesAndLabels(t *testing.T) {
+	epic := &v1.StoredEpic{
+		Contract: &v1.EpicContract{Id: testEpicID, Title: strings.Repeat("t", 250)},
+		Phase:    "accepted",
+		Questions: []*v1.EpicQuestion{
+			{Id: "Q1", Turn: 1, Text: "Which recovery path?", State: "open", Label: strings.Repeat("l", 60)},
+		},
+	}
+	p := newPeer(t, nil, &fakeEpics{getReply: &v1.GetEpicResponse{Epic: epic}})
+
+	outcome := p.tool("epic_get", `{"id":"`+testEpicID+`"}`)
+
+	if outcome.isError {
+		t.Fatalf("epic_get returned an error: %s", outcome.text)
+	}
+	lines := strings.Split(outcome.text, "\n")
+	for _, want := range []string{
+		"epic " + testEpicID + ": " + strings.Repeat("t", 200) + "…",
+		"  Q1 " + strings.Repeat("l", 40) + "…",
+	} {
+		if !slices.Contains(lines, want) {
+			t.Errorf("epic_get text has no line %q", want)
+		}
+	}
+}
+
+func TestEpicSummaryCountsOpenQuestionsPastItsBudget(t *testing.T) {
+	epic := &v1.StoredEpic{
+		Contract: &v1.EpicContract{Id: testEpicID, Title: "Login with passkeys"},
+		Phase:    "accepted",
+		Tasks: []*v1.EpicTask{
+			{Id: "T1", Turn: 1, Title: "Store the credential", Status: "done"},
+			{Id: "T2", Turn: 1, Title: "Add the login form", Status: "open"},
+		},
+	}
+	for i := range 400 {
+		epic.Questions = append(epic.Questions, &v1.EpicQuestion{
+			Id: fmt.Sprintf("Q%d", i+1), Turn: 1, Text: "A question?", State: "open",
+			Label: strings.Repeat("l", 40),
+		})
+	}
+	p := newPeer(t, nil, &fakeEpics{getReply: &v1.GetEpicResponse{Epic: epic}})
+
+	outcome := p.tool("epic_get", `{"id":"`+testEpicID+`"}`)
+
+	if outcome.isError {
+		t.Fatalf("epic_get returned an error: %s", outcome.text)
+	}
+	if n := len(outcome.text); n > 4000 {
+		t.Fatalf("epic_get text is %d bytes, want at most 4000", n)
+	}
+	lines := strings.Split(outcome.text, "\n")
+	if !slices.Contains(lines, "open questions: 400") {
+		t.Errorf("epic_get text has no line %q", "open questions: 400")
+	}
+	questionLines := 0
+	for _, line := range lines {
+		if strings.HasPrefix(line, "  Q") {
+			questionLines++
+		}
+	}
+	if questionLines <= 40 {
+		t.Fatalf("epic_get text has %d question lines, want the budget to list more than 40", questionLines)
+	}
+	left := 400 - questionLines
+	if left <= 0 {
+		t.Fatalf("epic_get text lists %d of 400 open questions, want some left out", questionLines)
+	}
+	at := slices.Index(lines, "parts:")
+	if at < 2 {
+		t.Fatalf("epic_get text has no parts line after its question lines")
+	}
+	if want := fmt.Sprintf("  and %d more", left); lines[at-2] != want {
+		t.Errorf("epic_get text line before the tasks line is %q, want %q", lines[at-2], want)
+	}
+	if want := "tasks: 2 (done 1, open 1)"; lines[at-1] != want {
+		t.Errorf("epic_get text line before parts is %q, want %q", lines[at-1], want)
+	}
+	wantParts := []string{
+		partLineWant("contract", 1, indentedSize(t, epic.GetContract())),
+		partLineWant("workflow", 0, 0),
+		partLineWant("tasks", 2, compactSize(t, epic.GetTasks())),
+		partLineWant("turns", 0, 0),
+		partLineWant("decisions", 0, 0),
+		partLineWant("questions", 400, compactSize(t, epic.GetQuestions())),
+		partLineWant("history", 0, 0),
+		partLineWant("report", 0, 0),
+	}
+	if !slices.Equal(lines[at+1:], wantParts) {
+		t.Errorf("epic_get text parts =\n%q\nwant\n%q", lines[at+1:], wantParts)
 	}
 }

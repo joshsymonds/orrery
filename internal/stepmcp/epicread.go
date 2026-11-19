@@ -16,60 +16,79 @@ import (
 // The caps of the epic summary. The title, park reason and labels are cut to their rune caps, and the whole summary to
 // summaryBytesCap bytes.
 const (
-	summaryTitleCap    = 200
-	summaryParkCap     = 300
-	summaryLabelCap    = 40
-	summaryQuestionCap = 40
-	summaryBytesCap    = 4000
-	questionOpen       = "open"
+	summaryTitleCap = 200
+	summaryParkCap  = 300
+	summaryLabelCap = 40
+	summaryBytesCap = 4000
+	questionOpen    = "open"
 )
 
 // epicSummary returns the one-screen text summary of epic, which epic_get answers in place of the stored epic. It names
 // the epic, its phase, whether it is paused or why it is parked, its open questions, its task counts by status, and each
-// part with its item count and byte size. The summary is at most summaryBytesCap bytes.
+// part with its item count and byte size. It lists every open question while the summary fits in summaryBytesCap bytes,
+// and counts the rest on one last line; a summary that is still longer is cut to summaryBytesCap bytes.
 func epicSummary(epic *v1.StoredEpic) (string, error) {
 	contract := epic.GetContract()
-	lines := []string{
+	head := []string{
 		fmt.Sprintf("epic %s: %s", contract.GetId(), capRunes(contract.GetTitle(), summaryTitleCap)),
 		"phase: " + epic.GetPhase(),
 		"paused: " + yesNo(epic.GetPaused()),
 	}
 	if parked := epic.GetParked(); parked != "" {
 		first, _, _ := strings.Cut(parked, "\n")
-		lines = append(lines, "parked: "+capRunes(first, summaryParkCap))
+		head = append(head, "parked: "+capRunes(first, summaryParkCap))
 	}
-	lines = append(lines, openQuestionLines(epic.GetQuestions())...)
-	lines = append(lines, taskLine(epic.GetTasks()))
 	parts, err := partLines(epic)
 	if err != nil {
 		return "", err
 	}
-	lines = append(lines, "parts:")
-	lines = append(lines, parts...)
+	tail := append([]string{taskLine(epic.GetTasks()), "parts:"}, parts...)
+	// The question lines sit between the head and the tail, so the head's last line and the tail's first are each joined
+	// to them by a newline: the two newlines of len("\n\n") bytes come out of the room.
+	room := summaryBytesCap - len(strings.Join(head, "\n")) - len(strings.Join(tail, "\n")) - len("\n\n")
+	lines := slices.Concat(head, openQuestionLines(epic.GetQuestions(), room), tail)
 	return capBytes(strings.Join(lines, "\n"), summaryBytesCap), nil
 }
 
-// openQuestionLines returns the open-questions count, then a line per open question of up to summaryQuestionCap questions,
-// and a line counting the open questions past them. A question's line is its id and its label, cut to summaryLabelCap.
-func openQuestionLines(questions []*v1.EpicQuestion) []string {
+// openQuestionLines returns the open-questions count, then a line per open question, in order, for as many questions as
+// fit in room bytes. The count and the lines are joined by newlines, and the bytes of a question's line count with the
+// line counting the questions left out after it, which is written last when any are left out. A question's line is its
+// id and its label, cut to summaryLabelCap. The count is always written, and so is the line counting the questions left
+// out, even when room is too small for them; epicSummary then cuts the summary to summaryBytesCap.
+func openQuestionLines(questions []*v1.EpicQuestion, room int) []string {
 	open := make([]*v1.EpicQuestion, 0, len(questions))
 	for _, question := range questions {
 		if question.GetState() == questionOpen {
 			open = append(open, question)
 		}
 	}
-	lines := []string{fmt.Sprintf("open questions: %d", len(open))}
+	count := fmt.Sprintf("open questions: %d", len(open))
+	lines := []string{count}
+	size := len(count)
 	for i, question := range open {
-		if i == summaryQuestionCap {
-			return append(lines, fmt.Sprintf("  and %d more", len(open)-i))
-		}
 		line := "  " + question.GetId()
 		if label := question.GetLabel(); label != "" {
 			line += " " + capRunes(label, summaryLabelCap)
 		}
+		next := size + 1 + len(line)
+		if left := len(open) - i - 1; left > 0 {
+			next += 1 + len(moreLine(left))
+		}
+		if next > room {
+			break
+		}
 		lines = append(lines, line)
+		size += 1 + len(line)
+	}
+	if left := len(open) - (len(lines) - 1); left > 0 {
+		lines = append(lines, moreLine(left))
 	}
 	return lines
+}
+
+// moreLine returns the line counting the open questions left out of a summary: left of them.
+func moreLine(left int) string {
+	return fmt.Sprintf("  and %d more", left)
 }
 
 // taskLine returns the task count, then the count of each status in status-name order.

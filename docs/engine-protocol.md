@@ -340,7 +340,7 @@ Without `part`, the result is one text block, a one-screen summary of the stored
 - `phase: <phase>`.
 - `paused: yes` or `paused: no`.
 - `parked: <first line of the park reason>`, only when the epic is parked. The line is cut to 300 runes (`proto/orrery/engine/v1/epic.proto: StoredEpic.parked`).
-- `open questions: <n>`, then one line `  Q<n> <label>` for each question whose state is `open`, its label cut to 40 runes. A question with no label has its line without one. At most 40 such lines are written. When more questions are open, the last line is `  and <k> more` (`proto/orrery/engine/v1/epic.proto: EpicQuestion.state`).
+- `open questions: <n>`, then one line `  Q<n> <label>` for each question whose state is `open`, in order, its label cut to 40 runes. A question with no label has its line without one. Every open question is listed while the summary fits in 4000 bytes. The questions past that are counted on one last line `  and <k> more`, where `<k>` is their number (`stepmcp.openQuestionLines`, `stepmcp.summaryBytesCap`; `proto/orrery/engine/v1/epic.proto: EpicQuestion.state`).
 - `tasks: <total>`, then the count of each status in status-name order in parentheses, such as `tasks: 200 (done 150, failed 10, open 40)`. With no tasks the line is `tasks: 0`.
 - `parts:`, then one line per part in the order contract, workflow, tasks, turns, decisions, questions, history and report: `  <part>: <items> items, <bytes> bytes`.
 
