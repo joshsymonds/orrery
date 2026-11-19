@@ -12,6 +12,7 @@ import com.connectrpc.okhttp.ConnectOkHttpClient
 import com.connectrpc.protocols.NetworkProtocol
 import io.github.joshsymonds.orrery.gen.orrery.v1.AnswerRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.AskRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.BackgroundTask as BackgroundTaskProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.ControlClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationContext as ConversationContextProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationItem as ConversationItemProto
@@ -200,7 +201,8 @@ data class Conversation(
 /**
  * One conversation as a WatchConversation stream gives it. [state] is null when the message carried no state, and
  * [context] and [pane] are null when the state did not. [request] is the open request of a headless session, and
- * null when none is open or the stream is a pane's.
+ * null when none is open or the stream is a pane's. [background] is the headless session's background tasks, empty for
+ * a pane's.
  */
 data class ConversationState(
     val origin: String,
@@ -209,6 +211,23 @@ data class ConversationState(
     val context: ConversationContext?,
     val pane: Pane?,
     val request: SessionRequest? = null,
+    val background: List<BackgroundTaskRow> = emptyList(),
+)
+
+/**
+ * One background task a headless session reported. [type] is "agent" or "shell", [status] is "running", "done",
+ * "failed" or "stopped". [started] and [ended] are unix seconds, [ended] is 0 while the task runs.
+ */
+data class BackgroundTaskRow(
+    val id: String,
+    val toolUseId: String,
+    val description: String,
+    val type: String,
+    val subagentType: String,
+    val status: String,
+    val activity: String,
+    val started: Long,
+    val ended: Long,
 )
 
 /** The request a headless session waits on. [options] are the answers the phone may send, and may be empty. */
@@ -342,6 +361,8 @@ data class EpicRow(
     val source: String = "",
     val phaseAt: Long = 0L,
     val seen: Long = 0L,
+    val steering: String = "",
+    val archived: Boolean = false,
 )
 
 /**
@@ -1155,6 +1176,8 @@ class OrreryClient(
             source = source,
             phaseAt = phaseAt,
             seen = seen,
+            steering = steering,
+            archived = archived,
         )
 
     private fun EpicRequirementProto.toEpicRequirementRow(): EpicRequirementRow =
@@ -1479,6 +1502,20 @@ class OrreryClient(
             context = if (hasContext()) context.toConversationContext() else null,
             pane = pane,
             request = request,
+            background = backgroundList.map { it.toBackgroundTaskRow() },
+        )
+
+    private fun BackgroundTaskProto.toBackgroundTaskRow(): BackgroundTaskRow =
+        BackgroundTaskRow(
+            id = id,
+            toolUseId = toolUseId,
+            description = description,
+            type = type,
+            subagentType = subagentType,
+            status = status,
+            activity = activity,
+            started = started,
+            ended = ended,
         )
 
     private fun WatchConversationResponse.toConversationDelta(): ConversationDelta =
