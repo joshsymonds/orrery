@@ -38,7 +38,7 @@ async function mounted(element: JSX.Element, check: (container: HTMLElement) => 
   }
 }
 
-test("Catalog: the index lists every registered story as component/state in kebab case, including app/attention, page/list-home and each inbox-row state", async () => {
+test("Catalog: the index lists every registered story as component/state in kebab case, including app/attention, page/inbox-home and each inbox-row state", async () => {
   const entries = catalogStories(storyModules);
   const registered = registeredNames().sort();
   await mounted(<CatalogIndex entries={entries} hash="" />, (container) => {
@@ -46,7 +46,7 @@ test("Catalog: the index lists every registered story as component/state in keba
     assert.deepEqual(listed, registered, "the index does not list every registered story");
     assert.ok(listed.every((name) => kebabName.test(name)), "a listed name is not component/state in kebab case");
     assert.ok(listed.includes("app/attention"), "app/attention is not listed");
-    assert.ok(listed.includes("page/list-home"), "page/list-home is not listed");
+    assert.ok(listed.includes("page/inbox-home"), "page/inbox-home is not listed");
     for (const state of Object.keys(InboxRow)) {
       assert.ok(listed.includes(storyName("InboxRow", state)), `inbox-row/${state} is not listed`);
     }
@@ -113,7 +113,7 @@ test("Catalog: page stories read the fixtures' instant, liveEpoch, not the wall 
   });
   try {
     await act(() => {
-      render(<StoryView entries={catalogStories(storyModules)} name="page/list-home" />, root);
+      render(<StoryView entries={catalogStories(storyModules)} name="page/inbox-home" />, root);
     });
     // Pane %12 changed at 14:37 and the fixtures' instant is 14:41, so its line reads 4m at that instant alone.
     const age = () => root.querySelector('.b-row[data-key="pane:halyard:%12"] .age')?.textContent ?? "";

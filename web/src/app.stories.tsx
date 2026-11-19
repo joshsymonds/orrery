@@ -54,18 +54,18 @@ export const App: Stories = {
 };
 
 export const Page: Stories = {
-  "list-home": () => <PageStory address={attention} />,
-  "epic-rota-decision": () => <PageStory address={epicAt(rota, { kind: "epic" })} />,
-  "epic-holder-released": () => <PageStory address={epicAt(holder, { kind: "epic" })} />,
-  "contract-tidealerts-open": () => <PageStory address={epicAt(tide, { kind: "contract" })} />,
-  "contract-rota-accepted": () => <PageStory address={epicAt(rota, { kind: "contract" })} />,
-  "phase-rota-export-cli-checking": () => (
+  "inbox-home": () => <PageStory address={attention} />,
+  "epic-question": () => <PageStory address={epicAt(rota, { kind: "epic" })} />,
+  "epic-shipped": () => <PageStory address={epicAt(holder, { kind: "epic" })} />,
+  "contract-to-accept": () => <PageStory address={epicAt(tide, { kind: "contract" })} />,
+  "contract-accepted": () => <PageStory address={epicAt(rota, { kind: "contract" })} />,
+  "phase-implement": () => (
     <PageStory address={epicAt(rota, { kind: "phase", task: "T2", phase: "checking" })} />
   ),
-  "worker-rota-export-cli-implementer": () => (
+  "worker-running": () => (
     <PageStory address={epicAt(rota, { kind: "session", task: "T2", phase: "implementing", step: workerStep })} />
   ),
-  "talk-rota-rotaplan-docked": () => (
+  "epic-talk": () => (
     <PageStory
       address={epicAt(rota, { kind: "epic" })}
       after={async (root) => {
@@ -74,11 +74,11 @@ export const Page: Stories = {
       }}
     />
   ),
-  "talk-rota-menu": () => <PageStory address={epicAt(rota, { kind: "epic" })} after={openTalk} />,
-  "session-lamp-working": () => (
+  "epic-handover": () => <PageStory address={epicAt(rota, { kind: "epic" })} after={openTalk} />,
+  "convo-working": () => (
     <PageStory address={{ order: "attention", entry: { kind: "pane", host: "halyard", pane: "%11" } }} />
   ),
-  "session-beacon-question": () => (
+  "ask-session": () => (
     <PageStory
       address={attention}
       after={(root) => clickWhen(root, '.list .b-row[data-key="pane:halyard:%12"]')}

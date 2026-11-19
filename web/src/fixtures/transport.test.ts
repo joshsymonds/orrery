@@ -59,23 +59,23 @@ const rotaQuestion = "Bump the embedded tz database?";
 const rotaPrompt = "Plan the rota export as an epic.";
 const talkDock = 'aside.dock[aria-label="talk"]';
 
-// listHome is Page/list-home: the attention rows, with the inbox docked beside the cursor's reader on pane %12.
-function listHome(root: HTMLElement): boolean {
+// inboxHome is Page/inbox-home: the attention rows, with the inbox docked beside the cursor's reader on pane %12.
+function inboxHome(root: HTMLElement): boolean {
   return listView(root) === "attention" && inboxState(root) === "docked";
 }
 
-// lampWorking is Page/session-lamp-working: the inbox hidden under the reader of pane %11.
-function lampWorking(root: HTMLElement): boolean {
+// convoWorking is Page/convo-working: the inbox hidden under the reader of pane %11.
+function convoWorking(root: HTMLElement): boolean {
   return inboxState(root) === "hidden" && (root.textContent ?? "").includes(lampFragment);
 }
 
-// beaconQuestion is Page/session-beacon-question: the inbox hidden under the reader of pane %12.
-function beaconQuestion(root: HTMLElement): boolean {
+// askSession is Page/ask-session: the inbox hidden under the reader of pane %12.
+function askSession(root: HTMLElement): boolean {
   return inboxState(root) === "hidden" && (root.textContent ?? "").includes(beaconPrompt);
 }
 
-// rotaDecision is Page/epic-rota-decision: Q1 is drawn in the now block, with no Talk menu and no talk dock drawn.
-function rotaDecision(root: HTMLElement): boolean {
+// epicQuestion is Page/epic-question: Q1 is drawn in the now block, with no Talk menu and no talk dock drawn.
+function epicQuestion(root: HTMLElement): boolean {
   return (
     root.querySelector(".now-block .answer .question")?.textContent.includes(rotaQuestion) === true &&
     root.querySelector("ul.talk") === null &&
@@ -83,13 +83,13 @@ function rotaDecision(root: HTMLElement): boolean {
   );
 }
 
-// talkMenu is Page/talk-rota-menu: the Talk menu is drawn open, with no talk dock beside the epic page.
-function talkMenu(root: HTMLElement): boolean {
+// epicHandover is Page/epic-handover: the Talk menu is drawn open, with no talk dock beside the epic page.
+function epicHandover(root: HTMLElement): boolean {
   return root.querySelector("ul.talk") !== null && root.querySelector(talkDock) === null;
 }
 
-// talkDocked is Page/talk-rota-rotaplan-docked: the talk dock is drawn with the planning conversation in it.
-function talkDocked(root: HTMLElement): boolean {
+// epicTalk is Page/epic-talk: the talk dock is drawn with the planning conversation in it.
+function epicTalk(root: HTMLElement): boolean {
   return root.querySelector(talkDock)?.textContent.includes(rotaPrompt) === true;
 }
 
@@ -336,12 +336,12 @@ test("FixtureTransport: app/worker-session draws the worker session", (t) => {
   );
 });
 
-test("FixtureTransport: page/list-home, page/session-lamp-working and page/session-beacon-question each draw their own state, and fail the other two predicates", async (t) => {
+test("FixtureTransport: page/inbox-home, page/convo-working and page/ask-session each draw their own state, and fail the other two predicates", async (t) => {
   mockTimers(t, ["setTimeout"]);
   const predicates = [
-    ["list-home", listHome],
-    ["session-lamp-working", lampWorking],
-    ["session-beacon-question", beaconQuestion],
+    ["inbox-home", inboxHome],
+    ["convo-working", convoWorking],
+    ["ask-session", askSession],
   ] as const;
   for (const [state, own] of predicates) {
     await withStory(t, Page[state], own, (root) => {
@@ -353,24 +353,24 @@ test("FixtureTransport: page/list-home, page/session-lamp-working and page/sessi
   }
 });
 
-test("FixtureTransport: page/epic-rota-decision draws the open decision on the epic page", (t) => {
+test("FixtureTransport: page/epic-question draws the open decision on the epic page", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(
     t,
-    Page["epic-rota-decision"],
-    rotaDecision,
+    Page["epic-question"],
+    epicQuestion,
     (root) => {
       assertNoFailure(root);
-      assert.ok(rotaDecision(root), "Q1 is drawn, with no Talk menu or talk dock");
+      assert.ok(epicQuestion(root), "Q1 is drawn, with no Talk menu or talk dock");
     },
   );
 });
 
-test("FixtureTransport: page/epic-holder-released draws the released report", (t) => {
+test("FixtureTransport: page/epic-shipped draws the released report", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(
     t,
-    Page["epic-holder-released"],
+    Page["epic-shipped"],
     (root) => root.querySelector(".proof.report .outcome")?.textContent === "released",
     (root) => {
       assertNoFailure(root);
@@ -379,11 +379,11 @@ test("FixtureTransport: page/epic-holder-released draws the released report", (t
   );
 });
 
-test("FixtureTransport: page/contract-tidealerts-open draws the tide-alerts contract", (t) => {
+test("FixtureTransport: page/contract-to-accept draws the tide-alerts contract", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(
     t,
-    Page["contract-tidealerts-open"],
+    Page["contract-to-accept"],
     (root) => root.querySelector("article.contract h2")?.textContent === "tide-alerts",
     (root) => {
       assertNoFailure(root);
@@ -392,11 +392,11 @@ test("FixtureTransport: page/contract-tidealerts-open draws the tide-alerts cont
   );
 });
 
-test("FixtureTransport: page/contract-rota-accepted draws the rota-export contract", (t) => {
+test("FixtureTransport: page/contract-accepted draws the rota-export contract", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(
     t,
-    Page["contract-rota-accepted"],
+    Page["contract-accepted"],
     (root) => root.querySelector("article.contract h2")?.textContent === "rota-export",
     (root) => {
       assertNoFailure(root);
@@ -405,11 +405,11 @@ test("FixtureTransport: page/contract-rota-accepted draws the rota-export contra
   );
 });
 
-test("FixtureTransport: page/phase-rota-export-cli-checking draws the checking phase's output", (t) => {
+test("FixtureTransport: page/phase-implement draws the checking phase's output", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(
     t,
-    Page["phase-rota-export-cli-checking"],
+    Page["phase-implement"],
     (root) => root.querySelector(".phase-output .phase-row.open .phase-name")?.textContent === "checking",
     (root) => {
       assertNoFailure(root);
@@ -418,11 +418,11 @@ test("FixtureTransport: page/phase-rota-export-cli-checking draws the checking p
   );
 });
 
-test("FixtureTransport: page/worker-rota-export-cli-implementer draws the worker session", (t) => {
+test("FixtureTransport: page/worker-running draws the worker session", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(
     t,
-    Page["worker-rota-export-cli-implementer"],
+    Page["worker-running"],
     (root) => root.querySelector(".worker-session") !== null,
     (root) => {
       assertNoFailure(root);
@@ -431,38 +431,38 @@ test("FixtureTransport: page/worker-rota-export-cli-implementer draws the worker
   );
 });
 
-test("FixtureTransport: page/talk-rota-rotaplan-docked draws the planning conversation docked beside the epic page", (t) => {
+test("FixtureTransport: page/epic-talk draws the planning conversation docked beside the epic page", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(
     t,
-    Page["talk-rota-rotaplan-docked"],
-    talkDocked,
+    Page["epic-talk"],
+    epicTalk,
     (root) => {
       assertNoFailure(root);
-      assert.ok(talkDocked(root), "the planning conversation is docked");
+      assert.ok(epicTalk(root), "the planning conversation is docked");
     },
   );
 });
 
-test("FixtureTransport: page/talk-rota-menu draws the Talk menu", (t) => {
+test("FixtureTransport: page/epic-handover draws the Talk menu", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(
     t,
-    Page["talk-rota-menu"],
-    talkMenu,
+    Page["epic-handover"],
+    epicHandover,
     (root) => {
       assertNoFailure(root);
-      assert.ok(talkMenu(root), "the Talk menu is open, with no talk dock");
+      assert.ok(epicHandover(root), "the Talk menu is open, with no talk dock");
     },
   );
 });
 
-test("FixtureTransport: page/epic-rota-decision, page/talk-rota-menu and page/talk-rota-rotaplan-docked each draw their own state, and fail the other two predicates", async (t) => {
+test("FixtureTransport: page/epic-question, page/epic-handover and page/epic-talk each draw their own state, and fail the other two predicates", async (t) => {
   mockTimers(t, ["setTimeout"]);
   const predicates = [
-    ["epic-rota-decision", rotaDecision],
-    ["talk-rota-menu", talkMenu],
-    ["talk-rota-rotaplan-docked", talkDocked],
+    ["epic-question", epicQuestion],
+    ["epic-handover", epicHandover],
+    ["epic-talk", epicTalk],
   ] as const;
   for (const [state, own] of predicates) {
     await withStory(t, Page[state], own, (root) => {
@@ -476,17 +476,17 @@ test("FixtureTransport: page/epic-rota-decision, page/talk-rota-menu and page/ta
 
 test("FixtureTransport: page's keys are exactly the 11 catalog names of its scenario states", () => {
   assert.deepEqual(Object.keys(Page).map((state) => storyName("Page", state)).sort(), [
-    "page/contract-rota-accepted",
-    "page/contract-tidealerts-open",
-    "page/epic-holder-released",
-    "page/epic-rota-decision",
-    "page/list-home",
-    "page/phase-rota-export-cli-checking",
-    "page/session-beacon-question",
-    "page/session-lamp-working",
-    "page/talk-rota-menu",
-    "page/talk-rota-rotaplan-docked",
-    "page/worker-rota-export-cli-implementer",
+    "page/ask-session",
+    "page/contract-accepted",
+    "page/contract-to-accept",
+    "page/convo-working",
+    "page/epic-handover",
+    "page/epic-question",
+    "page/epic-shipped",
+    "page/epic-talk",
+    "page/inbox-home",
+    "page/phase-implement",
+    "page/worker-running",
   ]);
 });
 
