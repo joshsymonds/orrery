@@ -33,7 +33,10 @@ public class SessionsClient(
 
 
   /**
-   *  ListHeadless returns the headless sessions of the last 14 days, each row's text derived when it is read.
+   *  ListHeadless returns the headless sessions of the last 14 days, each row's text derived when it is read. Every
+   *  listed row is a conversation: a session of kind engine, whether the owner, a client or Talk started it. A row is
+   *  never a step's session (the planner's, the evidence judge's, a reviewer's, an implementer's or the release
+   *  integrator's).
    */
   override suspend fun listHeadless(request: ListHeadlessRequest, headers: Headers): ResponseMessage<ListHeadlessResponse> = client.unary(
     request,

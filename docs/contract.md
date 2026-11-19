@@ -3509,7 +3509,7 @@ The guard's rule for Connect paths is in [Guard](#guard). A request the guard re
 
 `Sessions.ListHeadless` answers the headless engine sessions with an event in the last 14 days. `ListHeadlessRequest` has no fields. `ListHeadlessResponse` has `sessions`, one `HeadlessSession` for each row, in `id` order.
 
-The rows are the `sessions` rows of kind `engine` that have an event whose `at` is at or after the time of the call less 14 days. Pane rows and step rows are not listed. The call reads the store in one read transaction, and it never writes it.
+The rows are the `sessions` rows of kind `engine` that have an event whose `at` is at or after the time of the call less 14 days. Every row is a conversation: a session of kind `engine`, whether the owner, a client or Talk started it. A row is never a step's session: not the planner's, the evidence judge's, a reviewer's, an implementer's or the release integrator's. `HeadlessSession` carries no role. The call reads the store in one read transaction, and it never writes it.
 
 Each `HeadlessSession` has these fields:
 
