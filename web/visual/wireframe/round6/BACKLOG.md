@@ -166,3 +166,29 @@ The same language and screens in Compose: a Kotlin token generator from `tokens.
 | now | S5, then S4 | `orrery-web-catalog`, with F0 amended in |
 | after `orrery-no-step-wait` | S1, then S2 | F1 |
 | then | S3, S6 | F2, F3, F4, F5; F6 from F1 on |
+
+## The epics as contracted (2026-11-18)
+
+Every section above is written as one or more accepted contracts under `~/.gambit/orrery-0668c87/<slug>/` (Gambit's
+side of S3 under `~/.gambit/gambit-a6d4d02/`), split where a contract ran past forty lines. They run one at a time per
+track, in this order, each after the epics it names; `~/.gambit/orrery-0668c87/watch/epics.json` is the queue, and the
+`orrery-round6-watch` timer creates each when its turn comes.
+
+| | server | frontend |
+|---|---|---|
+| S5 | `orrery-not-now-2`, `orrery-decline` | |
+| S4 | `orrery-release-public` | |
+| S1 | `orrery-events-arrive`, `orrery-turn-facts` | |
+| S2 | `orrery-one-steerer`, `orrery-steer-move` | |
+| S6 | `orrery-client-facts`, `orrery-step-end-facts` | |
+| S3 | `orrery-contract-record`, `orrery-contract-epic`, then by hand `gambit-contract-record` | |
+| F0 | | `orrery-round6-yardstick` (after `orrery-web-catalog`, and design/system merged into main) |
+| F1 | | `orrery-design-language`, with the Kotlin token generator |
+| F2 | | `orrery-inbox-tree`, `orrery-inbox-rail` (with the web's archive toast) |
+| F5 | | `orrery-new-keys`, `orrery-notices` |
+| F3 | | `orrery-conversation-ask`, `orrery-conversation-dock`, `orrery-conversation-head`, `orrery-conversation` |
+| F4 | | `orrery-right-rail`, `orrery-epic-record`, `orrery-epic-steering`, `orrery-task-record`, `orrery-epic-ending`, `orrery-contract-panel` |
+| F6 | | `orrery-android-only`, `orrery-android-touch` (quick keys, the keyboard fold and the toast on Android) |
+
+Not drawn by any epic: `epic-slot` (public Get does not serve the release-slot holder) and Drop on a park (no public
+call).
