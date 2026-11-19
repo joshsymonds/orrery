@@ -726,7 +726,7 @@ func TestSyncOnTheBuiltInEpicHoldsThePlannerAndEndsBuilt(t *testing.T) {
 	s := w.s
 
 	w.pass()
-	w.endRed("red")
+	w.endRed()
 	w.pass()
 	completeTurn(t, s, store.EpicPlan{
 		Decisions: []string{}, Tasks: []store.EpicTaskInput{runTask("only", "b.go")}, Outline: "one task",
