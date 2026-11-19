@@ -8,20 +8,14 @@ import { act } from "preact/test-utils";
 import type { EpicCalls } from "./card";
 import type { Conversation } from "./conversation";
 import { noEpics } from "./epics";
-import {
-  type ConversationItem,
-  ConversationItemSchema,
-  ConversationStateSchema,
-  type PendingEvent,
-  PendingEventSchema,
-} from "./gen/orrery/v1/orrery_pb";
+import { type ConversationItem, ConversationItemSchema } from "./gen/orrery/v1/orrery_pb";
 import { Reader } from "./reader";
 import { installTestDom, removeTestDom } from "./testdom";
 import { turn, until } from "./testwait";
 
-// The reader draws the new-form event blocks: a step's end as its card, an epic's event as its ring, and a step's end
-// the session holds as a waiting card whose return fold reads through stepResult. Each test's name carries the token
-// StepEventBrief web. The epic and step ids are invented.
+// The reader draws the new-form event blocks: a step's end as its card, an epic's event as its ring, and a delivered
+// step's end whose return fold reads through stepResult. Each test's name carries the token StepEventBrief web. The
+// epic and step ids are invented.
 
 const ringEpic = "orrery-1a2b3c4/planner-runner";
 const seenAt = 10_000;
@@ -47,14 +41,14 @@ function eventItem(text: string): ConversationItem {
   return create(ConversationItemSchema, { kind: "prompt", time: 100n, sender: "event", text });
 }
 
-function conversation(items: ConversationItem[], pending: PendingEvent[] = []): Conversation {
+function conversation(items: ConversationItem[]): Conversation {
   return {
     transcript: "t1",
     seq: 1n,
     items,
     oldest: 0n,
     more: false,
-    state: create(ConversationStateSchema, { pending }),
+    state: undefined,
     unfinished: [],
     queued: [],
     unsent: [],
@@ -136,31 +130,6 @@ test("StepEventBrief web: a delivered step card draws its head from the tag's ag
     assert.deepEqual(lines, ["Added the index.", "Ran the suite."], "the brief draws, and the More line does not");
   }));
 
-test("StepEventBrief web: a waiting card draws the pending brief without its More line", () =>
-  withReader(
-    conversation(
-      [],
-      [
-        create(PendingEventSchema, {
-          id: "step:s9",
-          kind: "step_end",
-          step: "s9",
-          agent: "builder",
-          end: "done",
-          status: "done",
-          brief: "Return: shipped\nNot shown: none\nMore: step_result id s9",
-          waits: "speak",
-        }),
-      ],
-    ),
-    undefined,
-    async (container) => {
-      assert.equal(container.querySelectorAll(".step-card.waiting").length, 1, "one waiting step card is drawn");
-      const lines = [...container.querySelectorAll(".step-summary")].map((line) => line.textContent);
-      assert.deepEqual(lines, ["Return: shipped", "Not shown: none"], "the brief draws, and the More line does not");
-    },
-  ));
-
 // questionBody is the body of an open question's block: its epic line, then the question's own line.
 const questionBody = `Epic ${ringEpic} (Plan the runner) asks a question.\nQ1 which-store: which store?`;
 
@@ -198,37 +167,23 @@ test("StepEventBrief web: an epic ring drawn from a new-form release block draws
     },
   ));
 
-test("StepEventBrief web: a waiting step card's return fold calls stepResult with the step's id once, and draws the full return", async (t) => {
+test("StepEventBrief web: a delivered step card's return fold calls stepResult with the step's id once, and draws the full return", async (t) => {
   const full = "Shipped the index.\n\nRan the suite:\n- 12 passed\n- 0 failed\n";
   const asked: string[] = [];
-  const pending = [
-    create(PendingEventSchema, {
-      id: "step:s3",
-      kind: "step_end",
-      step: "s3",
-      agent: "builder",
-      end: "done",
-      status: "done",
-      brief: "Shipped the index.\nMore: step_result id s3",
-      epic: ringEpic,
-      waits: "speak",
-    }),
-  ];
   const calls = readerCalls(async (id) => {
     asked.push(id);
     return full;
   });
-  await withReader(conversation([], pending), calls, async (container) => {
-    await settle(t, () => container.querySelector(".step-card.waiting") !== null, "the waiting card is drawn");
+  await withReader(conversation([eventItem(deliveredStep)]), calls, async (container) => {
     const summary = summaryOf(container);
     await click(summary);
     await settle(t, () => container.querySelector(".step-return pre") !== null, "the full return is drawn");
-    assert.deepEqual(asked, ["s3"], "opening the fold asks for the step's return by its id");
+    assert.deepEqual(asked, ["s1"], "opening the fold asks for the step's return by its id");
     assert.equal(textOf(container, ".step-return pre"), full, "the fold draws the whole return");
 
     await click(summary);
     await click(summary);
-    assert.deepEqual(asked, ["s3"], "reopening the fold asks for the return no second time");
+    assert.deepEqual(asked, ["s1"], "reopening the fold asks for the return no second time");
   });
 });
 

@@ -573,10 +573,6 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
   margin: var(--o-space-4) 0 0; padding: var(--o-space-8); border-radius: var(--o-radius-2); background: var(--o-surface-well); color: var(--o-ink-2);
   font: var(--o-type-small); white-space: pre-wrap; overflow-wrap: anywhere;
 }
-/* A caller event the session holds and has not taken draws in a lower ink, until its prompt arrives or the session takes it. */
-.reader .step-card.waiting, .reader .event-ring.waiting { --o-ink-1: var(--o-ink-3); --o-ink-2: var(--o-ink-3); }
-.reader .event-ring.waiting .ring-line { cursor: default; }
-.reader .wait-label { display: block; font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; color: var(--o-ink-3); }
 /* A background task's row: its type, its description and latest activity on the line, and its status once it has ended,
    red when it failed. The type is blue only on an agent task's row, which is a button reset to the line and opens its Agent call. */
 .reader .background-row { display: flex; gap: var(--o-space-8); min-width: 0; padding: var(--o-space-2) var(--o-space-8); font: var(--o-type-small); color: var(--o-ink-3); }

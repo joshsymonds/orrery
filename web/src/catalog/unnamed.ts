@@ -18,8 +18,6 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   // EpicPage draws an epic's page in each state the fixtures hold: a rota decision, a released holder, a contract with tide
   // alerts, a stopped epic offline, and paused follow-ups.
   "epic-page": { replacement: "epic-building", epic: "F4" },
-  // WaitingCard draws a pending event that waits for you to speak or for the session to be free.
-  "waiting-card": { replacement: "Dock", epic: "F3" },
   // NowRows and NextRows draw the in-flight and planned wedges of an epic, with or without a phase that opens.
   "now-rows": { replacement: "epic-building", epic: "F4" },
   "next-rows": { replacement: "epic-building", epic: "F4" },
@@ -95,9 +93,8 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   "epic-row/no-detail": { replacement: "EpicRow", epic: "F2" },
   // EpicEventBlock draws an epic's question event whose epic holds no open question, so the event reads it as settled.
   "epic-event-block/question-settled": { replacement: "EpicEventBlock", epic: "F3" },
-  // StepEndBlock draws a step that ended with no agent named and a looping reason, and a step's end that waits to be spoken.
+  // StepEndBlock draws a step that ended with no agent named and a looping reason.
   "step-end-block/without-agent": { replacement: "StepEndBlock", epic: "F3" },
-  "step-end-block/waiting": { replacement: "StepEndBlock", epic: "F3" },
   // EvidenceRun draws a requirement's captured red and green runs as one list, and a run still going, which draws no exit.
   "evidence-run/captured-red-and-green": { replacement: "EvidenceRun", epic: "F4" },
   "evidence-run/running": { replacement: "EvidenceRun", epic: "F4" },
