@@ -263,6 +263,42 @@ func TestEpicFlowReadsReviewAndLabeledStepsOfItsReviewRuns(t *testing.T) {
 	}
 }
 
+// TestEpicFlowReadsLabeledStepsInTheOrderOfItsRuns checks that EpicFlow, which reads every review and closure run's
+// labeled steps in one query, returns them grouped in the order of the runs, each run's in the order they started,
+// even where the steps of a later run sort before those of an earlier one.
+func TestEpicFlowReadsLabeledStepsInTheOrderOfItsRuns(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openEpicStore(t)
+	const id = "orrery-1a2b3c4/epic-flow-run-order"
+	createEpic(t, s, fullEpic(id))
+	runs := []NodeRun{
+		{Path: "review", ID: "id-review", Node: "review", Kind: "review", Attempt: 1},
+		{Path: "correct@1/closure", ID: "id-closure", Node: "closure", Kind: "closure", Attempt: 1},
+	}
+	if err := s.StartNodes(ctx, id, runs, nil, epicCreated()); err != nil {
+		t.Fatalf("StartNodes: %v", err)
+	}
+	ops := []EngineOp{
+		labelledStepOf("step-a-review", id, "review"),
+		labelledStepOf("step-b-closure", id, "correct@1/closure"),
+		labelledStepOf("step-c-review", id, "review"),
+	}
+	if err := s.ApplyEngine(ctx, ops, engineNowAt()); err != nil {
+		t.Fatalf("ApplyEngine: %v", err)
+	}
+
+	flow, err := s.EpicFlow(ctx, id)
+	if err != nil {
+		t.Fatalf("EpicFlow: %v", err)
+	}
+	// The runs read in path order, so the closure's steps come first, then the review's.
+	want := []string{"step-b-closure", "step-a-review", "step-c-review"}
+	if got := stepIDsOf(flow.Steps); !reflect.DeepEqual(got, want) {
+		t.Errorf("EpicFlow steps = %v, want %v", got, want)
+	}
+}
+
 // TestEpicFlowWithoutReviewHasNoLabeledSteps checks that EpicFlow of an epic whose review has not started returns the
 // zero Review, and no labeled step even when it is labeled with the path of a run that is not a review or closure.
 func TestEpicFlowWithoutReviewHasNoLabeledSteps(t *testing.T) {
