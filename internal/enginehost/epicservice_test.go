@@ -322,7 +322,7 @@ func TestEpicCreateStoresMergedReviewers(t *testing.T) {
 	if !proto.Equal(got, stored) {
 		t.Fatalf("GetEpic = %v, want the created epic %v", got, stored)
 	}
-	want := []string{"floor", "conformance", "integration", "security", "test_parsimony", "synthetic_check"}
+	want := []string{"floor", "conformance", "integration", "security", "test_parsimony", "release", "synthetic_check"}
 	if names := epicReviewerNames(got.GetReviewers()); !slices.Equal(names, want) {
 		t.Fatalf("reviewers = %v, want %v", names, want)
 	}

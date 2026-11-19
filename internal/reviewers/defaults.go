@@ -22,15 +22,18 @@ var securityRole string
 //go:embed roles/test_parsimony.md
 var testParsimonyRole string
 
+//go:embed roles/release.md
+var releaseRole string
+
 // defaultsSource names the first layer in the errors a default reviewer's entry would raise.
 const defaultsSource = "orrery defaults"
 
 // ruledOut opens the must_not that Generate adds to conformance for each Must Not Ship entry.
 const ruledOut = "The change does what this entry rules out: "
 
-// Defaults returns orrery's default reviewers, the first layer Merge applies: floor, conformance, integration, security
-// and test_parsimony. Each is read-only, verified, and runs on the model its entry names. Every call returns fresh
-// entries, so a caller may change them.
+// Defaults returns orrery's default reviewers, the first layer Merge applies: floor, conformance, integration, security,
+// test_parsimony and release. Each is read-only and runs on the model its entry names. Each but release is verified;
+// release's refusal is taken as its verdict. Every call returns fresh entries, so a caller may change them.
 func Defaults() []Entry {
 	entries := []Entry{
 		{
@@ -91,6 +94,15 @@ func Defaults() []Entry {
 					"reason in the task.",
 			},
 			Prompt: new(testParsimonyRole), Model: new("sonnet"), Tools: readOnlyTools(), Verify: new(true),
+		},
+		{
+			// Verify is off: a refusal is taken as the reviewer's verdict, since no verifier runs for a release.
+			Name:  "release",
+			Stage: []string{StageRelease},
+			MustNot: []string{
+				"The candidate carries a clear danger to the release's destination that the contract did not anticipate.",
+			},
+			Prompt: new(releaseRole), Model: new("opus"), Tools: readOnlyTools(), Verify: new(false),
 		},
 	}
 	for i := range entries {
