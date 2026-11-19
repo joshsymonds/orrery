@@ -124,6 +124,8 @@ type sessionWatch struct {
 	turnEndSeq       int64
 	ownerPromptSeq   int64
 	leaveSeq         int64
+	// interruptAt is the unix seconds of the newest engine_interrupt the stream has read, the time interruptSeq names.
+	interruptAt int64
 	// now is the clock the background window is read against. tasks holds each background task the stream has folded, by
 	// task id, and taskOrder holds the same tasks in the order the stream first saw them (see foldTask).
 	now       func() time.Time
@@ -564,9 +566,10 @@ func (w *sessionWatch) collect(
 }
 
 // track records what an event sets for the stream: the origin, from the session's first prompt; the request, from each
-// unrefused request; the seqs that interrupting and pending read, from each engine_interrupt, engine_turn_ended, owner
-// prompt and engine_changed that leaves working; and the background task, from each engine_task (see foldTask). item
-// and ok are sessionItem's result for event. It returns the decode error of a request, interrupt, state change or task.
+// unrefused request; the seqs that interrupting and pending read, and the time of the interrupt, from each
+// engine_interrupt, engine_turn_ended, owner prompt and engine_changed that leaves working; and the background task,
+// from each engine_task (see foldTask). item and ok are sessionItem's result for event. It returns the decode error of
+// a request, interrupt, state change or task.
 func (w *sessionWatch) track(event store.EngineEvent, item *orreryv1.ConversationItem, ok bool) error {
 	switch event.Kind {
 	case store.EventEnginePrompt:
@@ -586,7 +589,7 @@ func (w *sessionWatch) track(event store.EngineEvent, item *orreryv1.Conversatio
 		if err != nil {
 			return err
 		}
-		w.interruptSeq, w.interruptTurning = event.Seq, turning
+		w.interruptSeq, w.interruptTurning, w.interruptAt = event.Seq, turning, event.At
 	case store.EventEngineRequest:
 		req, open, err := sessionRequest(event.Payload)
 		if err != nil {
@@ -629,10 +632,11 @@ func (w *sessionWatch) requestPutOff(ctx context.Context, history store.EngineHi
 }
 
 // state returns the state of the session as history reads it: its origin, its headless session without the summary
-// and newest reply, its context figure when its transcript is read, whether the owner's interrupt is running (see
-// interrupting), the caller events it is owed (pending), the background tasks it carries at the clock's time (see
-// backgroundRows), and the open request while the session waits on one. putOff is whether that request is put off, and
-// the headless session and the request carry it. The request is a copy of w.request, so w.request is not changed.
+// and newest reply, its context figure when its transcript is read, whether the owner's interrupt is running and when
+// it was made (see interrupting and interruptingSince), the caller events it is owed (pending), the background tasks
+// it carries at the clock's time (see backgroundRows), and the open request while the session waits on one. putOff is
+// whether that request is put off, and the headless session and the request carry it. The request is a copy of
+// w.request, so w.request is not changed.
 func (w *sessionWatch) state(
 	history store.EngineHistory,
 	pending []*orreryv1.PendingEvent,
@@ -646,6 +650,11 @@ func (w *sessionWatch) state(
 	if err != nil {
 		return nil, listError(connect.CodeInternal, "read sessions")
 	}
+	interrupting := w.interrupting(history.State)
+	var interruptingSince int64
+	if interrupting {
+		interruptingSince = w.interruptAt
+	}
 	state := &orreryv1.ConversationState{
 		Origin: w.origin,
 		Session: &orreryv1.HeadlessSession{
@@ -658,9 +667,10 @@ func (w *sessionWatch) state(
 			Question: history.Question,
 			PutOff:   putOff,
 		},
-		Interrupting: w.interrupting(history.State),
-		Pending:      pending,
-		Background:   w.backgroundRows(w.now().Unix()),
+		Interrupting:      interrupting,
+		InterruptingSince: interruptingSince,
+		Pending:           pending,
+		Background:        w.backgroundRows(w.now().Unix()),
 	}
 	if w.transcript != "" {
 		state.Context = &orreryv1.ConversationContext{Tokens: w.figure.Tokens, Window: w.figure.Window}

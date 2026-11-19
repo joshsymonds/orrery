@@ -1133,6 +1133,10 @@ message ConversationState {
 
   // The background tasks the headless session reported. Pane streams never set it.
   repeated BackgroundTask background = 10;
+
+  // The unix seconds of the engine_interrupt that makes interrupting true, and 0 when interrupting is false. Pane
+  // streams never set it.
+  int64 interrupting_since = 11;
 }
 
 // PendingEvent is a caller event held for a headless session: one that the session has not yet taken, or that waits

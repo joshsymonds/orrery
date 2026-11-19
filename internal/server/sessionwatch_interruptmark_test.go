@@ -9,8 +9,13 @@ import (
 )
 
 // interruptMarkState is the state of eventEngine as addEngine writes it, in state, with its interrupting mark as given.
+// A set mark carries eventAt as its interrupting_since, the time applyEngineOps stamps the interrupt at.
 func interruptMarkState(state string, interrupting bool) *orreryv1.ConversationState {
-	return &orreryv1.ConversationState{Session: engineSession(state), Interrupting: interrupting}
+	marked := &orreryv1.ConversationState{Session: engineSession(state), Interrupting: interrupting}
+	if interrupting {
+		marked.InterruptingSince = eventAt
+	}
+	return marked
 }
 
 // interruptMarkSetState is the write that sets eventEngine's state to state.

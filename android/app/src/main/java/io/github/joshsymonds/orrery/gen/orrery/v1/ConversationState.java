@@ -888,6 +888,47 @@ public  final class ConversationState extends
     background_.remove(index);
   }
 
+  public static final int INTERRUPTING_SINCE_FIELD_NUMBER = 11;
+  private long interruptingSince_;
+  /**
+   * <pre>
+   * The unix seconds of the engine_interrupt that makes interrupting true, and 0 when interrupting is false. Pane
+   * streams never set it.
+   * </pre>
+   *
+   * <code>int64 interrupting_since = 11 [json_name = "interruptingSince"];</code>
+   * @return The interruptingSince.
+   */
+  @java.lang.Override
+  public long getInterruptingSince() {
+    return interruptingSince_;
+  }
+  /**
+   * <pre>
+   * The unix seconds of the engine_interrupt that makes interrupting true, and 0 when interrupting is false. Pane
+   * streams never set it.
+   * </pre>
+   *
+   * <code>int64 interrupting_since = 11 [json_name = "interruptingSince"];</code>
+   * @param value The interruptingSince to set.
+   */
+  private void setInterruptingSince(long value) {
+    
+    interruptingSince_ = value;
+  }
+  /**
+   * <pre>
+   * The unix seconds of the engine_interrupt that makes interrupting true, and 0 when interrupting is false. Pane
+   * streams never set it.
+   * </pre>
+   *
+   * <code>int64 interrupting_since = 11 [json_name = "interruptingSince"];</code>
+   */
+  private void clearInterruptingSince() {
+
+    interruptingSince_ = 0L;
+  }
+
   public static io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -1910,6 +1951,49 @@ public  final class ConversationState extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The unix seconds of the engine_interrupt that makes interrupting true, and 0 when interrupting is false. Pane
+     * streams never set it.
+     * </pre>
+     *
+     * <code>int64 interrupting_since = 11 [json_name = "interruptingSince"];</code>
+     * @return The interruptingSince.
+     */
+    @java.lang.Override
+    public long getInterruptingSince() {
+      return instance.getInterruptingSince();
+    }
+    /**
+     * <pre>
+     * The unix seconds of the engine_interrupt that makes interrupting true, and 0 when interrupting is false. Pane
+     * streams never set it.
+     * </pre>
+     *
+     * <code>int64 interrupting_since = 11 [json_name = "interruptingSince"];</code>
+     * @param value The interruptingSince to set.
+     * @return This builder for chaining.
+     */
+    public Builder setInterruptingSince(long value) {
+      copyOnWrite();
+      instance.setInterruptingSince(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The unix seconds of the engine_interrupt that makes interrupting true, and 0 when interrupting is false. Pane
+     * streams never set it.
+     * </pre>
+     *
+     * <code>int64 interrupting_since = 11 [json_name = "interruptingSince"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearInterruptingSince() {
+      copyOnWrite();
+      instance.clearInterruptingSince();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.ConversationState)
   }
   @java.lang.Override
@@ -1940,11 +2024,12 @@ public  final class ConversationState extends
             io.github.joshsymonds.orrery.gen.orrery.v1.PendingEvent.class,
             "background_",
             io.github.joshsymonds.orrery.gen.orrery.v1.BackgroundTask.class,
+            "interruptingSince_",
           };
           java.lang.String info =
-              "\u0000\n\u0000\u0001\u0001\n\n\u0000\u0003\u0000\u0001\u0208\u0002\u0208\u0003\u001b" +
-              "\u0004\u1009\u0000\u0005\u1009\u0001\u0006\u1009\u0002\u0007\u1009\u0003\b\u0007" +
-              "\t\u001b\n\u001b";
+              "\u0000\u000b\u0000\u0001\u0001\u000b\u000b\u0000\u0003\u0000\u0001\u0208\u0002\u0208" +
+              "\u0003\u001b\u0004\u1009\u0000\u0005\u1009\u0001\u0006\u1009\u0002\u0007\u1009\u0003" +
+              "\b\u0007\t\u001b\n\u001b\u000b\u0002";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

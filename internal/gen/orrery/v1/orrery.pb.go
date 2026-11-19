@@ -4693,9 +4693,12 @@ type ConversationState struct {
 	// The caller events held for the headless session, oldest first. Pane streams never set it.
 	Pending []*PendingEvent `protobuf:"bytes,9,rep,name=pending,proto3" json:"pending,omitempty"`
 	// The background tasks the headless session reported. Pane streams never set it.
-	Background    []*BackgroundTask `protobuf:"bytes,10,rep,name=background,proto3" json:"background,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Background []*BackgroundTask `protobuf:"bytes,10,rep,name=background,proto3" json:"background,omitempty"`
+	// The unix seconds of the engine_interrupt that makes interrupting true, and 0 when interrupting is false. Pane
+	// streams never set it.
+	InterruptingSince int64 `protobuf:"varint,11,opt,name=interrupting_since,json=interruptingSince,proto3" json:"interrupting_since,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *ConversationState) Reset() {
@@ -4796,6 +4799,13 @@ func (x *ConversationState) GetBackground() []*BackgroundTask {
 		return x.Background
 	}
 	return nil
+}
+
+func (x *ConversationState) GetInterruptingSince() int64 {
+	if x != nil {
+		return x.InterruptingSince
+	}
+	return 0
 }
 
 // PendingEvent is a caller event held for a headless session: one that the session has not yet taken, or that waits
@@ -7195,7 +7205,7 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\rOlderResponse\x121\n" +
 	"\x05items\x18\x01 \x03(\v2\x1b.orrery.v1.ConversationItemR\x05items\x12\x16\n" +
 	"\x06oldest\x18\x02 \x01(\x03R\x06oldest\x12\x12\n" +
-	"\x04more\x18\x03 \x01(\bR\x04more\"\xcd\x03\n" +
+	"\x04more\x18\x03 \x01(\bR\x04more\"\xfc\x03\n" +
 	"\x11ConversationState\x12\x16\n" +
 	"\x06origin\x18\x01 \x01(\tR\x06origin\x12\x12\n" +
 	"\x04goal\x18\x02 \x01(\tR\x04goal\x123\n" +
@@ -7209,7 +7219,8 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\n" +
 	"background\x18\n" +
 	" \x03(\v2\x19.orrery.v1.BackgroundTaskR\n" +
-	"background\"\x81\x02\n" +
+	"background\x12-\n" +
+	"\x12interrupting_since\x18\v \x01(\x03R\x11interruptingSince\"\x81\x02\n" +
 	"\fPendingEvent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x12\n" +
