@@ -13,8 +13,9 @@ import (
 
 // The parts a release run records: the candidate the release starts from, a release step, the judge's verdict, a named
 // position the owner set, a verify run, which records that origin's main was not in a candidate and so the candidate
-// was prepared again, a round of the release integrator, which finished a merge of origin's commit that conflicted, and
-// a replan, which sends the release back to planning for a change to its candidate that a blocked round asked for.
+// was prepared again, a round of the release integrator, which finished a merge of origin's commit that conflicted, a
+// replan, which sends the release back to planning for a change to its candidate that a blocked round asked for, and a
+// review, which records whether a release reviewer held the candidate before the first release step started from it.
 const (
 	ReleasePartCandidate  = "candidate"
 	ReleasePartStep       = "release"
@@ -23,6 +24,7 @@ const (
 	ReleasePartVerify     = "verify"
 	ReleasePartIntegrator = "integrator"
 	ReleasePartReplan     = "replan"
+	ReleasePartReview     = "review"
 )
 
 // The phases an epic's release moves through: clean until it takes the release slot, releasing while it holds the
@@ -38,9 +40,10 @@ const (
 const releaseStopOutcome = "failed"
 
 // ReleaseRun is one record of an epic's release. Part is the ReleasePart it belongs to and Position numbers it within
-// its part. Attempt is the attempt of the release node run it was recorded under. Step names the release step, Start,
-// Head and End are the revisions it recorded, and Commits the commits it made. Evidence names the evidence it ran, and
-// Passed and Reason say whether it passed and why not. At is the time it was recorded, stored at whole seconds.
+// its part. Attempt is the attempt of the release node run it was recorded under. Step names the release step, or for a
+// review the release reviewer that ran it, Start, Head and End are the revisions it recorded, and Commits the commits it
+// made. Evidence names the evidence it ran, and Passed and Reason say whether it passed and why not. At is the time it
+// was recorded, stored at whole seconds.
 type ReleaseRun struct {
 	Part     string
 	Position int64
@@ -222,8 +225,8 @@ func (s *Store) StopRelease(ctx context.Context, epic, path string, attempt int6
 }
 
 // releaseStopClass returns the class of the park a release of epic stopped at attempt takes, from the store's rows. It is
-// release_owner_stop when epic holds no release slot, release_undo_none when the release step that failed at attempt has
-// undo none, and release_step otherwise.
+// release_owner_stop when epic holds no release slot or a release reviewer refused its candidate at attempt,
+// release_undo_none when the release step that failed at attempt has undo none, and release_step otherwise.
 func releaseStopClass(ctx context.Context, queries *sqlcgen.Queries, epic string, attempt int64) (ParkClass, error) {
 	head, err := epicHead(ctx, queries, epic)
 	if err != nil {
@@ -239,6 +242,11 @@ func releaseStopClass(ctx context.Context, queries *sqlcgen.Queries, epic string
 	runs, err := readReleaseRuns(ctx, queries, epic)
 	if err != nil {
 		return "", err
+	}
+	if slices.ContainsFunc(runs, func(run ReleaseRun) bool {
+		return run.Part == ReleasePartReview && run.Attempt == attempt && !run.Passed
+	}) {
+		return ParkClassReleaseOwnerStop, nil
 	}
 	failed := slices.IndexFunc(runs, func(run ReleaseRun) bool {
 		return run.Part == ReleasePartStep && run.Attempt == attempt && !run.Passed

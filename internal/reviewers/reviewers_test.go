@@ -344,7 +344,7 @@ func TestEntryRefusals(t *testing.T) {
 					},
 				},
 			},
-			want: `project.toml: reviewers[1] alpha: stage: element "tasks" must be task or epic`,
+			want: `project.toml: reviewers[1] alpha: stage: element "tasks" must be task, epic or release`,
 		},
 		{
 			name: "stage repeats a stage",
@@ -613,5 +613,24 @@ func TestForStage(t *testing.T) {
 				t.Errorf("ForStage(%q) = %v, want %v", tc.stage, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestReleaseReviewerStageIsAccepted: a reviewer whose stage is release is accepted by checkStage, and ForStage holds it
+// at the release stage alone.
+func TestReleaseReviewerStageIsAccepted(t *testing.T) {
+	t.Parallel()
+	rs, err := Merge([]Entry{{
+		Source: project, Index: 0, Name: "alpha", Stage: []string{StageRelease},
+		MustNot: []string{"the candidate holds"}, Agent: str("code-reviewer"),
+	}})
+	if err != nil {
+		t.Fatalf("Merge refused a release-stage reviewer: %v", err)
+	}
+	if got := names(ForStage(rs, StageRelease)); !reflect.DeepEqual(got, []string{"alpha"}) {
+		t.Errorf("ForStage(release) = %v, want [alpha]", got)
+	}
+	if got := ForStage(rs, StageEpic); len(got) != 0 {
+		t.Errorf("ForStage(epic) = %v, want none", names(got))
 	}
 }
