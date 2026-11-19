@@ -463,3 +463,41 @@ test("RefreshLoad: a tick asks Epics.Get for exactly the live epic whose revisio
     await teardown();
   }
 });
+
+// The live shape orreryd's metrics showed: the running steps of live epics change state many times a minute, and each
+// such event lists the epics again. An epic whose listed message is unchanged is never asked for, however many lists
+// its steps' events cause, so the events cost one Epics.List each and no Epics.Get.
+test("RefreshLoad: step-session events list the epics again and ask Epics.Get for no unchanged epic", async (t) => {
+  mockTimers(t, ["setTimeout", "setInterval", "Date"]);
+  const window = installTestDom();
+  const root = document.createElement("div");
+  const serve = fakeServe();
+  const visibility = fakeVisibility();
+  let stop: () => void = () => {};
+  const teardown = teardownOnce(t.signal, async () => {
+    stop();
+    await removeTestDom(window);
+  });
+  try {
+    stop = start(root, serve.clients, pollMs, 600_000, visibility.win);
+    await until(t.signal, () => root.querySelector('[data-key="epic:repo-a/e1"]') !== null, "the epics", {
+      step: () => act(turn),
+    });
+    await calm(t, serve);
+    const before = { ...serve.counts };
+    // Forty step-state events, one every 250 ms across ten seconds, each from the running step of a live epic.
+    let seq = 8n;
+    for (let event = 0; event < 40; event++) {
+      const step = `${liveIds[event % liveIds.length]}-step`;
+      serve.feed.push({ seq, sessionId: step, event: { case: "engineChanged", value: { state: "working" } } });
+      seq++;
+      await calm(t, serve);
+      t.mock.timers.tick(250);
+      await calm(t, serve);
+    }
+    // Each event lists the epics once after its 100 ms wait, and each of the two 5 s ticks lists them once more.
+    assert.deepEqual(minus(serve.counts, before), counts(42, 0, 0, 2), "the ten seconds of step events");
+  } finally {
+    await teardown();
+  }
+});
