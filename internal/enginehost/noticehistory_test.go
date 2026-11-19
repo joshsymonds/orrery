@@ -251,6 +251,44 @@ func TestNoticeHistorySurvivesRouterRestart(t *testing.T) {
 	}
 }
 
+func TestNoticeHistoryReadAllSurvivesRouterRestart(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	path := filepath.Join(t.TempDir(), "orrery.db")
+	first := openHistoryStore(t, path)
+	seedNoticeHistory(t, first)
+	router := historyRouter()
+	router.Attach(ctx, first)
+	client := startNoticesServer(t, NewPageNotices(inapp.NewHub(), router, router, noticeNow))
+	if _, err := client.ReadAll(ctx, connect.NewRequest(&v1.NoticesReadAllRequest{})); err != nil {
+		t.Fatalf("ReadAll: %v", err)
+	}
+	router.Close()
+	if err := first.Close(); err != nil {
+		t.Fatalf("close store before the restart: %v", err)
+	}
+
+	second, err := store.Open(ctx, path, storetest.NoSync())
+	if err != nil {
+		t.Fatalf("reopen store after the restart: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := second.Close(); err != nil {
+			t.Errorf("close reopened store: %v", err)
+		}
+	})
+	restarted := historyRouter()
+	t.Cleanup(restarted.Close)
+	restarted.Attach(ctx, second)
+	restartedClient := startNoticesServer(t, NewPageNotices(inapp.NewHub(), restarted, restarted, noticeNow))
+
+	got := listNotices(t, restartedClient)
+	want := &v1.NoticesListResponse{Notices: wantHistoryWindow(allRowsRead)}
+	if !proto.Equal(got, want) {
+		t.Fatalf("List after ReadAll and the restart = %v, want %v", got, want)
+	}
+}
+
 func TestNoticeHistoryUnavailableWithoutHistory(t *testing.T) {
 	t.Parallel()
 	unattached := historyRouter()
