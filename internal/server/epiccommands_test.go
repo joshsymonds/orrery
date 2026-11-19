@@ -565,11 +565,11 @@ func releaseCall(undoNone []int32) func(context.Context, orreryv1connect.EpicsCl
 	}
 }
 
-// closeCall returns a call that sends a close of syntheticEpicID with the kind and the epic that replaces it, by.
-func closeCall(kind, by string) func(context.Context, orreryv1connect.EpicsClient) error {
+// closeCall returns a call that sends a close of syntheticEpicID with the kind and names no epic that replaces it.
+func closeCall(kind string) func(context.Context, orreryv1connect.EpicsClient) error {
 	return func(ctx context.Context, client orreryv1connect.EpicsClient) error {
 		_, err := client.Close(ctx, connect.NewRequest(&orreryv1.EpicsCloseRequest{
-			Id: syntheticEpicID, Kind: kind, By: by,
+			Id: syntheticEpicID, Kind: kind,
 		}))
 		return err
 	}
@@ -712,7 +712,8 @@ func TestEpicsCloseForwardsOneRequestAndAnswersEmpty(t *testing.T) {
 	}
 }
 
-func TestEpicsCloseForwardsKindsUnchanged(t *testing.T) {
+// Each close kind is forwarded unchanged with no Orrery-Session header, so orreryd records the owner as its closer.
+func TestEpicsCloseForwardsKindsUnchangedWithoutSessionHeader(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		name string
@@ -728,12 +729,17 @@ func TestEpicsCloseForwardsKindsUnchanged(t *testing.T) {
 			t.Parallel()
 			fake := &epicCommandsFake{}
 			client := epicCommandServe(t, fake)
-			if err := closeCall(tc.kind, tc.by)(t.Context(), client); err != nil {
+			req := connect.NewRequest(&orreryv1.EpicsCloseRequest{Id: syntheticEpicID, Kind: tc.kind, By: tc.by})
+			req.Header().Set(protocol.HeaderSession, "synthetic-session")
+			if _, err := client.Close(t.Context(), req); err != nil {
 				t.Fatalf("Close: %v", err)
 			}
 			assertForwarded(t, fake.recorded(), &enginev1.CloseEpicRequest{
 				Id: syntheticEpicID, Kind: tc.kind, By: tc.by,
 			})
+			if sessions := fake.recordedCloseSessions(); len(sessions) != 1 || sessions[0] != "" {
+				t.Fatalf("Orrery-Session headers = %q, want one empty header", sessions)
+			}
 		})
 	}
 }
@@ -748,13 +754,13 @@ func TestEpicsCloseRefusalReachesCallerAfterOneCall(t *testing.T) {
 	}{
 		{
 			name:    "superseded without by",
-			call:    closeCall("superseded", ""),
+			call:    closeCall("superseded"),
 			code:    connect.CodeFailedPrecondition,
 			message: "by: a superseded close names the epic that replaces it",
 		},
 		{
 			name:    "unknown epic",
-			call:    closeCall("abandoned", ""),
+			call:    closeCall("abandoned"),
 			code:    connect.CodeNotFound,
 			message: "id: no epic " + syntheticEpicID,
 		},
@@ -775,27 +781,12 @@ func TestEpicsCloseRefusalReachesCallerAfterOneCall(t *testing.T) {
 func TestEpicsCloseRetryOnlyWhenNeverConnected(t *testing.T) {
 	t.Parallel()
 	want := &enginev1.CloseEpicRequest{Id: syntheticEpicID, Kind: "shipped"}
-	assertRetriedOnlyWhenNeverConnected(t, closeCall("shipped", ""), want)
+	assertRetriedOnlyWhenNeverConnected(t, closeCall("shipped"), want)
 }
 
 func TestEpicsCloseNilClientAnswersUnavailable(t *testing.T) {
 	t.Parallel()
 	client := epicCommandServe(t, nil)
-	err := closeCall("abandoned", "")(t.Context(), client)
+	err := closeCall("abandoned")(t.Context(), client)
 	assertConnectError(t, err, connect.CodeUnavailable, epicCommandsUnavailable)
-}
-
-func TestEpicsCloseDropsOwnerSessionHeader(t *testing.T) {
-	t.Parallel()
-	fake := &epicCommandsFake{}
-	client := epicCommandServe(t, fake)
-	req := connect.NewRequest(&orreryv1.EpicsCloseRequest{Id: syntheticEpicID, Kind: "abandoned"})
-	req.Header().Set(protocol.HeaderSession, "synthetic-session")
-	if _, err := client.Close(t.Context(), req); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-	assertForwarded(t, fake.recorded(), &enginev1.CloseEpicRequest{Id: syntheticEpicID, Kind: "abandoned"})
-	if sessions := fake.recordedCloseSessions(); len(sessions) != 1 || sessions[0] != "" {
-		t.Fatalf("Orrery-Session headers = %q, want one empty header", sessions)
-	}
 }
