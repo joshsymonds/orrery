@@ -84,6 +84,8 @@ type EpicTask struct {
 	Version int64
 	// Versions are every version stored for the task, applied, checking or refused, in version order.
 	Versions []TaskVersion
+	// Rungs are the task's ladder rows in rung order, nil for a task that never climbed.
+	Rungs []TaskRung
 }
 
 // EpicQuestion is one question a planner turn asked, with its state. Turn is the seq of the turn that asked it. Label,
@@ -248,9 +250,16 @@ func loadPlanSections(ctx context.Context, queries *sqlcgen.Queries, row *EpicRo
 	if err != nil {
 		return fmt.Errorf("task versions: %w", err)
 	}
+	rungs, err := queries.ListEpicTaskRungs(ctx, row.ID)
+	if err != nil {
+		return fmt.Errorf("list task rungs: %w", err)
+	}
+	rungsOf := taskRungsOf(rungs)
 	row.Tasks, err = convertInOrder(tasks, func(task sqlcgen.EpicTask) (EpicTask, error) {
-		return taskOf(ctx, queries, task, pathsOf[task.Seq], requirementsOf[task.Seq], contributesOf[task.Seq],
-			testChangesOf[task.Seq], reviewsOf[task.Seq], versionsOf[task.Seq])
+		epicTask, taskErr := taskOf(ctx, queries, task, pathsOf[task.Seq], requirementsOf[task.Seq],
+			contributesOf[task.Seq], testChangesOf[task.Seq], reviewsOf[task.Seq], versionsOf[task.Seq])
+		epicTask.Rungs = rungsOf[task.Seq]
+		return epicTask, taskErr
 	})
 	if err != nil {
 		return fmt.Errorf("tasks: %w", err)

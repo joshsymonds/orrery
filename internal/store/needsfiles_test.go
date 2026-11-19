@@ -9,7 +9,14 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-func TestNeedsFilesFailTaskStoresThePathsWithTheFailure(t *testing.T) {
+// needsFilesClimb climbs task 1 of buildEpic off from one rung with cause, storing paths as the task's needs files.
+func needsFilesClimb(ctx context.Context, s *store.Store, from store.TaskBuild, cause string, paths []string) error {
+	to := store.ClimbedBuild(from, store.RungOf(from)+1, cause)
+	move := store.RungMove{MovedBy: store.MovedByUnit, Cause: cause, NeedsFiles: paths}
+	return s.ClimbTask(ctx, buildEpic, 1, from, to, move, nil, nil, writtenAt())
+}
+
+func TestNeedsFilesClimbStoresThePathsWithTheCause(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, raw := openBuildStore(ctx, t)
@@ -18,14 +25,13 @@ func TestNeedsFilesFailTaskStoresThePathsWithTheFailure(t *testing.T) {
 	}
 
 	paths := []string{"internal/other/second.go", "internal/other/first.go"}
-	if err := s.FailTask(ctx, buildEpic, 1, openBuildOf(), "returned needs_context: stuck", paths,
-		writtenAt()); err != nil {
-		t.Fatalf("FailTask: %v", err)
+	if err := needsFilesClimb(ctx, s, openBuildOf(), "returned needs_context: stuck", paths); err != nil {
+		t.Fatalf("ClimbTask: %v", err)
 	}
 
 	task := buildTaskOf(ctx, t, s)
-	if task.Status != "failed" || task.Build.Failure != "returned needs_context: stuck" {
-		t.Errorf("task status and failure = %q and %q, want failed and the reason", task.Status, task.Build.Failure)
+	if task.Status != "open" || task.Build.Failure != "returned needs_context: stuck" {
+		t.Errorf("task status and failure = %q and %q, want open and the reason", task.Status, task.Build.Failure)
 	}
 	if !reflect.DeepEqual(task.NeedsFiles, paths) {
 		t.Errorf("NeedsFiles = %v, want %v in the order named", task.NeedsFiles, paths)
@@ -37,7 +43,7 @@ func TestNeedsFilesFailTaskStoresThePathsWithTheFailure(t *testing.T) {
 	}
 }
 
-func TestNeedsFilesFailTaskWithNoPathsStoresAnEmptyArray(t *testing.T) {
+func TestNeedsFilesClimbWithNoPathsStoresAnEmptyArray(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, raw := openBuildStore(ctx, t)
@@ -45,8 +51,8 @@ func TestNeedsFilesFailTaskWithNoPathsStoresAnEmptyArray(t *testing.T) {
 		t.Fatalf("SetTaskBuild: %v", err)
 	}
 
-	if err := s.FailTask(ctx, buildEpic, 1, openBuildOf(), "red failed", nil, writtenAt()); err != nil {
-		t.Fatalf("FailTask: %v", err)
+	if err := needsFilesClimb(ctx, s, openBuildOf(), "red failed", nil); err != nil {
+		t.Fatalf("ClimbTask: %v", err)
 	}
 
 	if task := buildTaskOf(ctx, t, s); len(task.NeedsFiles) != 0 {
@@ -59,18 +65,18 @@ func TestNeedsFilesFailTaskWithNoPathsStoresAnEmptyArray(t *testing.T) {
 	}
 }
 
-func TestNeedsFilesRefusedFailTaskStoresNoPaths(t *testing.T) {
+func TestNeedsFilesRefusedClimbStoresNoPaths(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, raw := openBuildStore(ctx, t)
 	before := storedState(t, raw)
 
 	// The stored build is zero, so an open build names a different one and the write is refused.
-	err := s.FailTask(ctx, buildEpic, 1, openBuildOf(), "returned needs_context: stuck", []string{"a.go"}, writtenAt())
+	err := needsFilesClimb(ctx, s, openBuildOf(), "returned needs_context: stuck", []string{"a.go"})
 	if !errors.Is(err, store.ErrTaskMoved) {
-		t.Fatalf("FailTask with a stale build err = %v, want ErrTaskMoved", err)
+		t.Fatalf("ClimbTask with a stale build err = %v, want ErrTaskMoved", err)
 	}
 	if !reflect.DeepEqual(before, storedState(t, raw)) {
-		t.Errorf("FailTask with a stale build changed the store")
+		t.Errorf("ClimbTask with a stale build changed the store")
 	}
 }

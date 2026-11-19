@@ -204,22 +204,23 @@ func TestOrchestratePassFailKeepsTheLongerFailureAndRecordsTheDecision(t *testin
 	f.endOrchestrator(orchID(0, 0), orchReturn(t, map[string]any{
 		"decision": "fail", "failure": failure, "needs_files": []string{"internal/other/a.go"},
 	}))
+	before := ladderClimbBefore(f, 1)
 	f.pass()
 	task := f.task()
-	if task.Status != "failed" || task.Build.Failure != failure[:store.TaskDecisionMax] {
-		t.Fatalf("task %q failure of %d bytes, want failed with the first %d bytes", task.Status,
-			len(task.Build.Failure), store.TaskDecisionMax)
+	if task.Build.Failure != failure[:store.TaskDecisionMax] {
+		t.Fatalf("task failure of %d bytes, want the first %d bytes", len(task.Build.Failure), store.TaskDecisionMax)
 	}
+	ladderClimbCheck(f, store.RungOf(before), store.MovedByFailDecision)
 	if want := []string{"internal/other/a.go"}; !reflect.DeepEqual(task.NeedsFiles, want) {
 		t.Errorf("NeedsFiles = %v, want %v", task.NeedsFiles, want)
 	}
-	if !slices.Contains(f.pendingTriggers(), "T1-failed") {
-		t.Errorf("pending triggers = %v, want T1-failed", f.pendingTriggers())
+	if got := f.pendingTriggers(); len(got) != 0 {
+		t.Errorf("pending triggers = %v, want none: a climb to rung 2 adds no trigger", got)
 	}
 	if d := f.epic().Decisions; len(d) == 0 || d[len(d)-1].Text != "T1 fail: the code says so" {
 		t.Errorf("decisions = %+v, want the fail recorded", d)
 	}
-	f.expectNoWorktrees(worktree)
+	ladderClimbKeepsWorktrees(f, worktree)
 }
 
 func TestOrchestratePassAskHoldsTheTaskUntilTheOwnerAnswersThenOrchestratesAgain(t *testing.T) {
@@ -258,35 +259,43 @@ func TestOrchestratePassAskHoldsTheTaskUntilTheOwnerAnswersThenOrchestratesAgain
 	}
 }
 
-func TestOrchestratePassBlockedReturnFailsAsBefore(t *testing.T) {
+// TestOrchestratePassBlockedReturnClimbsAsBefore: a blocked return the orchestrator does not decide climbs the task
+// with the return as its failure, as it did before the orchestrator.
+func TestOrchestratePassBlockedReturnClimbsAsBefore(t *testing.T) {
 	t.Parallel()
 	f := newRequestFixture(t)
 	f.endOrchestrator(orchID(0, 0), orchReturn(t, map[string]any{"status": "blocked"}))
+	before := ladderClimbBefore(f, 1)
 	f.pass()
-	if task := f.task(); task.Status != "failed" ||
-		task.Build.Failure != "returned blocked: the spec does not say which field" {
-		t.Fatalf("task %q failure %q, want failed as the blocked return did before", task.Status, task.Build.Failure)
+	if task := f.task(); task.Build.Failure != "returned blocked: the spec does not say which field" {
+		t.Fatalf("task failure %q, want the blocked return as before", task.Build.Failure)
 	}
+	ladderClimbCheck(f, store.RungOf(before), store.MovedByUnit)
 }
 
 // TestOrchestratePassBoundsDecisionsAtThree: a task whose implementer keeps returning is decided three times, and its
-// fourth return fails it as it did before the orchestrator.
+// fourth return climbs it as it did before the orchestrator.
 func TestOrchestratePassBoundsDecisionsAtThree(t *testing.T) {
 	t.Parallel()
 	f := newRequestFixture(t)
+	var before store.TaskBuild
 	for decision := range int64(decisionLimit) {
 		f.endOrchestrator(orchID(decision, decision), orchReturn(t, map[string]any{
 			"decision": "rerun",
 		}))
 		f.pass()
 		f.returnRequest(decision+1, "blocked", "still stuck")
+		if decision == decisionLimit-1 {
+			before = ladderClimbBefore(f, 1)
+		}
 		f.pass()
 	}
 	task := f.task()
-	if task.Status != "failed" || task.Build.Failure != "returned blocked: still stuck" || task.Build.Decisions != 3 {
-		t.Fatalf("task %q failure %q decisions %d, want failed as before after three decisions", task.Status,
+	if task.Build.Failure != "returned blocked: still stuck" || task.Build.Decisions != 3 {
+		t.Fatalf("task failure %q decisions %d, want the blocked return kept after three decisions",
 			task.Build.Failure, task.Build.Decisions)
 	}
+	ladderClimbCheck(f, store.RungOf(before), store.MovedByUnit)
 	if n := f.startCount(orchID(3, 3)); n != 0 {
 		t.Errorf("a fourth orchestrator started %d times, want none", n)
 	}
@@ -374,15 +383,16 @@ func TestOrchestratePassGrantRefusedByTheStoreSettlesAsBefore(t *testing.T) {
 		ID: passStep(StageImplement, 1, 0), End: endReturned, Status: "needs_context",
 		Result: `{"status":"needs_context","summary":"needs the other file","needs_files":["` + file + `"]}`,
 	}, Step: orchDone(ret), Peers: peers}
+	before := ladderClimbBefore(f, 1)
 	if !f.runner.execute(f.ctx, f.epic(), view, Decide(view)) {
 		t.Fatal("execute changed nothing, want the fallback carried out")
 	}
-	task := f.task()
 	want := "returned needs_context: needs the other file; orreryd refused the orchestrator's grant: " +
 		file + " is owned by open task T2"
-	if task.Status != "failed" || task.Build.Failure != want {
-		t.Fatalf("task %q failure %q, want failed with %q", task.Status, task.Build.Failure, want)
+	if task := f.task(); task.Build.Failure != want {
+		t.Fatalf("task failure %q, want %q", task.Build.Failure, want)
 	}
+	ladderClimbCheck(f, store.RungOf(before), store.MovedByUnit)
 }
 
 // integrateTask accepts open task seq of the fixture's epic and ends a passed integrate batch that composed it as
@@ -493,7 +503,9 @@ func TestOrchestratePassWaitingTaskMovesOntoTheNewBaseOnceItsTaskIsIntegrated(t 
 	}
 }
 
-func TestOrchestratePassWaitingTaskWhoseMoveFailsFailsWithTheReason(t *testing.T) {
+// TestOrchestratePassWaitingTaskWhoseMoveFailsClimbsWithTheReason: a waiting build whose worktree git cannot move
+// onto its new base climbs the task, with the move's failure naming the base as its failure.
+func TestOrchestratePassWaitingTaskWhoseMoveFailsClimbsWithTheReason(t *testing.T) {
 	t.Parallel()
 	const file = waitFile
 	f := newWaitFixture(t)
@@ -507,10 +519,11 @@ func TestOrchestratePassWaitingTaskWhoseMoveFailsFailsWithTheReason(t *testing.T
 	f.runner.PassTasks(f.ctx, passEpic, []int64{1})
 	newBase := commitOff(t, f.repo, f.base, file, "package other\n")
 	f.integrateTask(2, newBase)
+	before := ladderClimbBefore(f, 1)
 	f.runner.PassTasks(f.ctx, passEpic, []int64{1})
 	task := f.task()
-	if task.Status != "failed" ||
-		!strings.HasPrefix(task.Build.Failure, "T1 could not move onto the new base "+newBase+": ") {
-		t.Fatalf("task %q failure %q, want failed naming the move", task.Status, task.Build.Failure)
+	if !strings.HasPrefix(task.Build.Failure, "T1 could not move onto the new base "+newBase+": ") {
+		t.Fatalf("task failure %q, want the move's failure naming the base", task.Build.Failure)
 	}
+	ladderClimbCheck(f, store.RungOf(before), store.MovedByUnit)
 }

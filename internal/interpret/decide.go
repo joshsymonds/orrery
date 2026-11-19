@@ -523,8 +523,9 @@ func (p pass) quiet(def workflow.Node, run store.NodeRun) bool {
 }
 
 // complete decides a plan run whose kind ends it and whose latest settle walk has ended. A plan body that holds an
-// integrate node ends built when every Requirement is built. Otherwise it parks the epic, and wakes the planner with a
-// trigger whose cause names what is unbuilt. Any other plan ends as it did.
+// integrate node ends built when every Requirement is built or held by a task that ended as a gap, so a plan whose only
+// unbuilt Requirements are gapped ends built and does not park. Otherwise it parks the epic, and wakes the planner with
+// a trigger whose cause names what is unbuilt. Any other plan ends as it did.
 func (p pass) complete(def workflow.Node, run store.NodeRun, act kinds.Action) []Action {
 	ends := p.endsUnder(run.Path, act.Outcome, act.Output)
 	if !slices.ContainsFunc(def.Body, func(node workflow.Node) bool { return node.Kind == kindIntegrate }) {

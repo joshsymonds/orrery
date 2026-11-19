@@ -360,11 +360,16 @@ func amendedGreen(rows Rows, id, revision string) bool {
 // evidence item, it has no passed red run at the epic's base, or it is not green at the stored base. A test item that is
 // green at the stored base also lacks it when its reproduction at the epic's base disagrees with its red, or did not run.
 // A Requirement dropped as already met at the base has no red run or reproduction at the base to name, so it lacks the
-// proof only when it is not green at the stored base. It returns nil when every Requirement has its proof.
+// proof only when it is not green at the stored base. A Requirement that a task whose status is taskGap claims is not
+// named at all: that task ended its ladder as a gap, and TaskGaps names it instead. It returns nil when every Requirement
+// has its proof or is held by a gap.
 func Unbuilt(rows Rows) []string {
 	green := GreenAt(rows, rows.Epic.StoredBase)
 	var lines []string
 	for _, requirement := range rows.Epic.Requirements {
+		if gapHeld(rows.Epic.Tasks, requirement.ID) {
+			continue
+		}
 		dropped := droppedAsMet(requirement)
 		switch {
 		case !hasItem(requirement):
@@ -514,6 +519,13 @@ func hasItem(requirement store.EpicRequirement) bool {
 // seq of that decision.
 func droppedAsMet(requirement store.EpicRequirement) bool {
 	return requirement.DroppedBy != 0
+}
+
+// gapHeld reports whether a task whose status is taskGap claims Requirement id among tasks.
+func gapHeld(tasks []store.EpicTask, id string) bool {
+	return slices.ContainsFunc(tasks, func(task store.EpicTask) bool {
+		return task.Status == taskGap && slices.Contains(task.Requirements, id)
+	})
 }
 
 // isTestItem reports whether a Requirement names a test item.

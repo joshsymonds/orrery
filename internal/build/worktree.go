@@ -263,6 +263,59 @@ func WipRef(epic string, seq int64) string {
 	return refsOrreryPrefix + Slug(epic) + "/wip/" + taskLabel(seq)
 }
 
+// CarryRef returns the ref a task's kept work is kept on when a climb to rung of task seq of epic cannot carry the
+// work onto the epic's branch. The ref is named for the task and the rung the climb lands on, so each carry keeps its
+// own work.
+func CarryRef(epic string, seq int64, rung int64) string {
+	return refsOrreryPrefix + Slug(epic) + "/carry/" + taskLabel(seq) + "-" + decimal(rung)
+}
+
+// KeepWork keeps the whole work of the implement worktree at path on ref, and returns the commit that holds it. A path
+// that does not exist holds no work, and returns "" with no error. The work is the commit wip names when a move of the
+// worktree was cut short, and otherwise a snapshot of the worktree taken as MoveWorktree takes one (snapshotWorktree):
+//
+//  1. snapshot: the commit wip names is the snapshot, or one is taken (snapshotWorktree), which creates wip at it.
+//  2. abort: a rebase a move left in progress is aborted (abortRebase), which returns the worktree to the snapshot.
+//  3. keep: ref is set to the snapshot.
+//  4. unwrap: when HEAD is the snapshot, HEAD moves back off it with reset -q HEAD^, keeping its files as uncommitted
+//     work.
+//  5. finish: wip is deleted while it names the snapshot.
+//
+// Afterwards the worktree is on the commit it was on before the move, with its work in place.
+func KeepWork(ctx context.Context, path, wip, ref string) (string, error) {
+	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	}
+	snapshot, err := refCommit(ctx, path, wip)
+	if err != nil {
+		return "", err
+	}
+	if snapshot == "" {
+		if snapshot, err = snapshotWorktree(ctx, path, wip); err != nil {
+			return "", err
+		}
+	}
+	if abortErr := abortRebase(ctx, path); abortErr != nil {
+		return "", abortErr
+	}
+	if _, err = runGit(ctx, path, "update-ref", ref, snapshot); err != nil {
+		return "", fmt.Errorf("keep work at %s: %w", ref, err)
+	}
+	head, err := runGit(ctx, path, "rev-parse", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("read worktree head: %w", err)
+	}
+	if head == snapshot {
+		if _, err = runGit(ctx, path, "reset", "-q", "HEAD^"); err != nil {
+			return "", fmt.Errorf("unwrap kept work: %w", err)
+		}
+	}
+	if _, err = runGit(ctx, path, "update-ref", "-d", wip, snapshot); err != nil {
+		return "", fmt.Errorf("delete %s: %w", wip, err)
+	}
+	return snapshot, nil
+}
+
 // RemoveWorktrees removes every worktree whose path is an entry of dir, then removes dir. A missing dir is nil. An
 // entry that is not a worktree makes git refuse it, so nothing that is not a worktree is deleted.
 func RemoveWorktrees(ctx context.Context, repo, dir string) error {

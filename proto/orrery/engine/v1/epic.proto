@@ -567,6 +567,9 @@ message EpicTask {
   // The source of the task's current spec version: planner for version 1, and otherwise the source of its last applied
   // version.
   string source = 27;
+
+  // The task's ladder rows in rung order, empty for a task that never climbed.
+  repeated EpicTaskRung rungs = 28;
 }
 
 // EpicTaskVersion is one stored version of a task's spec after the planner's: the source and epic decision that wrote
@@ -575,7 +578,7 @@ message EpicTaskVersion {
   // The version's number on its task, from 2.
   int64 version = 1;
 
-  // The source that wrote the version: orchestrator or grant; rescue, approach and carry are reserved.
+  // The source that wrote the version: orchestrator, grant, rescue, approach or carry.
   string source = 2;
 
   // The id of the epic decision that wrote the version; empty for orreryd's rule grant.
@@ -619,6 +622,43 @@ message EpicTaskVersion {
 
   // When the version left checking, in unix seconds; 0 while it is checking.
   int64 settled = 16;
+}
+
+// EpicTaskRung is one rung of a task's ladder: the task build's attempt it stands for, what moved the task onto it, and
+// how it ended.
+message EpicTaskRung {
+  // The task build's attempt number, from 1; 7 is the gap.
+  int64 rung = 1;
+
+  // The rung's kind: attempt, rescue, orchestrator, approach or gap.
+  string kind = 2;
+
+  // What moved the task onto the rung: unit, finding, fail_decision, cannot_meet or fail_task; empty for rung 1.
+  string moved_by = 3;
+
+  // The failure's text that moved the task onto the rung; empty for rung 1.
+  string cause = 4;
+
+  // The review gate of the confirmed finding that moved the task onto the rung; empty when no finding did.
+  string gate = 5;
+
+  // The claim of the confirmed finding that moved the task onto the rung; empty when no finding did.
+  string assertion = 6;
+
+  // The step the failure came from; empty for rung 1.
+  string step = 7;
+
+  // When the rung was written, in unix seconds.
+  int64 created = 8;
+
+  // How the rung ended: failed, accepted or gap; empty while the rung is open.
+  string outcome = 9;
+
+  // Why the rung ended; empty when no reason was given.
+  string reason = 10;
+
+  // When the rung ended, in unix seconds; 0 while it is open.
+  int64 ended = 11;
 }
 
 // EpicTaskReview is one review of a task's build: its attempt, the gate it ran, its step, its verdict and its findings.

@@ -3,6 +3,7 @@ package planner
 import (
 	"fmt"
 	"path"
+	"reflect"
 	"slices"
 	"strings"
 
@@ -43,6 +44,7 @@ func Check(ret Return, requirements []string, owned []string, gate, judge func(n
 	for i, action := range ret.Actions {
 		refusals = append(refusals, checkAction(i, action)...)
 		refusals = append(refusals, checkAmendAction(i, action, known, judge)...)
+		refusals = append(refusals, checkApproachAction(i, action, judge)...)
 	}
 	if len(refusals) == 0 {
 		return nil
@@ -272,7 +274,7 @@ const (
 func actionKinds() []string {
 	return []string{
 		store.ActionRetryNode, store.ActionRetryEpic, store.ActionFailTask, store.ActionResumeRelease,
-		store.ActionCloseEpic, store.ActionAmendEvidence,
+		store.ActionCloseEpic, store.ActionAmendEvidence, store.ActionChangeApproach,
 	}
 }
 
@@ -293,13 +295,16 @@ func actionFields(kind string) ([]string, bool) {
 		return []string{argClose, argBy}, true
 	case store.ActionAmendEvidence:
 		return []string{argRequirement, argItem}, true
+	case store.ActionChangeApproach:
+		return []string{argTask, argDeliverable, argItem}, true
 	}
 	return nil, false
 }
 
 // checkAction returns the refusals of one action of a return, at position i, in the order of the rules: the kind, args that
 // do not read or hold a key no kind uses, the fields its kind needs, the fields its kind does not use, then the reason. An
-// unknown kind has no other field to check. An amend_evidence action's own fields are checkAmendAction's.
+// unknown kind has no other field to check. An amend_evidence action's own fields are checkAmendAction's, and a
+// change_approach action's item is checkApproachAction's.
 func checkAction(i int, action EngineAction) []string {
 	prefix := fmt.Sprintf(`actions[%d] "%s"`, i, action.Kind)
 	var refusals []string
@@ -326,8 +331,9 @@ func checkAction(i int, action EngineAction) []string {
 }
 
 // checkNeededFields calls refuse for each field action's kind needs that is missing or wrong: a retry_node names a node,
-// a fail_task names a task above 0, and a close_epic names a close of superseded or abandoned and, when superseded, a by.
-// An amend_evidence action's fields are checkAmendAction's.
+// a fail_task names a task above 0, a close_epic names a close of superseded or abandoned and, when superseded, a by,
+// and a change_approach names a task above 0 and a deliverable. An amend_evidence action's fields are checkAmendAction's,
+// and a change_approach action's item is checkApproachAction's.
 func checkNeededFields(action EngineAction, refuse func(field, reason string)) {
 	switch action.Kind {
 	case store.ActionRetryNode:
@@ -344,6 +350,13 @@ func checkNeededFields(action EngineAction, refuse func(field, reason string)) {
 		}
 		if action.Close == closeSuperseded && strings.TrimSpace(action.By) == "" {
 			refuse(argBy, reasonEmpty)
+		}
+	case store.ActionChangeApproach:
+		if action.Task <= 0 {
+			refuse(argTask, reasonAboveZero)
+		}
+		if strings.TrimSpace(action.Deliverable) == "" {
+			refuse(argDeliverable, reasonEmpty)
 		}
 	}
 }
@@ -367,11 +380,30 @@ func checkAmendAction(
 	if !requirements[action.Requirement] {
 		refusals = append(refusals, prefix+" "+argRequirement+": "+reasonRequirement)
 	}
-	for _, line := range evidence.Check(action.Item) {
+	return append(refusals, checkItemLines(prefix, action.Item, judge)...)
+}
+
+// checkApproachAction returns the refusals of the item of a change_approach action at position i, named as checkAction
+// names its lines: each line evidence.Check gives for the item, as item.<line>, and an item judge that judge does not
+// resolve. The zero item is no item, as the store stores it, so it gets none, and so does an action of another kind, and
+// one whose args did not read, which checkAction refuses. Any other item is checked, so the store never keeps an item the
+// planner did not check.
+func checkApproachAction(i int, action EngineAction, judge func(name string) error) []string {
+	if action.Kind != store.ActionChangeApproach || action.ArgsError != "" || reflect.ValueOf(action.Item).IsZero() {
+		return nil
+	}
+	return checkItemLines(fmt.Sprintf(`actions[%d] "%s"`, i, action.Kind), action.Item, judge)
+}
+
+// checkItemLines returns the refusals of item as the item field of the action named by prefix: each line evidence.Check
+// gives, as item.<line>, and an item.judge line when judge does not resolve item's judge.
+func checkItemLines(prefix string, item evidence.Item, judge func(name string) error) []string {
+	var refusals []string
+	for _, line := range evidence.Check(item) {
 		refusals = append(refusals, prefix+" "+argItem+"."+line)
 	}
-	if strings.TrimSpace(action.Item.Judge) != "" {
-		if err := judge(action.Item.Judge); err != nil {
+	if strings.TrimSpace(item.Judge) != "" {
+		if err := judge(item.Judge); err != nil {
 			refusals = append(refusals, prefix+" "+argItem+".judge: "+err.Error())
 		}
 	}
@@ -391,6 +423,7 @@ func checkUnusedFields(action EngineAction, used []string, refuse func(field, re
 		{argRequirement, action.Requirement != ""},
 		{argItem, itemSet(action.Item)},
 		{argUndoNone, len(action.UndoNone) > 0},
+		{argDeliverable, action.Deliverable != ""},
 	}
 	for _, field := range fields {
 		if field.set && !slices.Contains(used, field.name) {

@@ -45,10 +45,6 @@ const (
 	ReviewReviewed   = "reviewed"
 )
 
-// lastAttempt is the attempt a failed unit of the first attempt moves the build to, and the one whose failure fails
-// the task.
-const lastAttempt = 2
-
 // noVerdictLimit is the count of units in a row that gave no verdict at which the task parks.
 const noVerdictLimit = 2
 
@@ -89,8 +85,9 @@ type ActionKind string
 // implementer's commit before Next, the green build, is stored. ActSnapshot takes the refs snapshot the implementer's
 // step is checked against, and ActRefs checks the step's ref moves. ActStartRun starts the evidence run of Phase, and
 // ActStartStep the step of Unit. ActRepro starts the reproduction check of a test item's green unit under ID at
-// Revision. ActFail, ActAccept, ActPause and ActPark end the task's build. ActReview stores a review and ActFinding a
-// finding's verification. ActGrant grants an implementer the files it asked for. ActDecide carries out an
+// Revision. ActFail climbs the task one rung off its failure, and ActAccept, ActPause and ActPark end the task's build
+// or hold it. ActReview stores a review and ActFinding a finding's verification. ActGrant grants an implementer the
+// files it asked for. ActDecide carries out an
 // orchestrator's rerun or grant, and ActAsk its question to the owner. ActResume moves a waiting build's worktree onto
 // Revision, the new base, before Next is stored. ActSettleVersion settles the checking version a red run judged, with
 // Settle, and moves the build to implement as Next.
@@ -117,8 +114,10 @@ const (
 )
 
 // Action is one thing a pass does for a task. Next is the build the task moves to. Reason is what a fail or a park
-// carries, the text of a parking move, or the review an accept stores. NeedsFiles is what a fail carries as the files
-// a later task may need: the paths an implementer that returned needs_context named. Phase and ID name the evidence
+// carries, the text of a parking move, or the review an accept stores. A fail climbs the task one rung, as its Move
+// says: Move is the failure that moves the task off its rung, where an empty MovedBy means a unit failed
+// (store.MovedByUnit), and To 0 means the next rung. NeedsFiles is what a fail carries as the files a later task may
+// need: the paths an implementer that returned needs_context named. Phase and ID name the evidence
 // run or step to start, Revision the revision it runs at, and Unit the step's unit. Review and Finding are what a
 // review or finding action stores, and Tells are the texts the owner is told. Decision is the epic decision that
 // records an orchestrator's decision, written with the action. Behind is the tasks a decided build waits for, whose
@@ -146,26 +145,14 @@ type Action struct {
 	Question    *store.EpicQuestionInput
 	Fallback    *Action
 	Settle      *store.TaskVersionSettle
+	Move        store.RungMove
 	GateChanges []store.GateChange
 }
 
-// spend returns the action for a unit of the build that failed with failure. The first attempt moves the build to the
-// second, at implement, with the failure and no step, revision, refs or green run. The second attempt fails the task.
-func spend(view View, failure string) Action {
-	if view.Task.Build.Attempt < lastAttempt {
-		next := view.Task.Build
-		next.Stage = StageImplement
-		next.Attempt = lastAttempt
-		next.Rerun = 0
-		next.NoVerdict = 0
-		next.Held = ""
-		next.Step = ""
-		next.Revision = ""
-		next.Refs = ""
-		next.GreenRun = ""
-		next.Failure = failure
-		return Action{Kind: ActMove, Next: next}
-	}
+// spend returns the action for a unit of the build that failed with failure. On every rung the failure climbs the task
+// one rung, as fail carries it out: the action is a fail with no Move, so the failure is a unit's, and the task moves
+// to the next rung.
+func spend(_ View, failure string) Action {
 	return Action{Kind: ActFail, Reason: failure}
 }
 
@@ -222,13 +209,9 @@ type Store interface {
 	SetTaskBuildTelling(
 		ctx context.Context, epic string, seq int64, from, to store.TaskBuild, tells []string, at time.Time,
 	) error
-	FailTask(
-		ctx context.Context, epic string, seq int64, from store.TaskBuild, reason string, needsFiles []string,
-		at time.Time,
-	) error
-	FailTaskDecided(
-		ctx context.Context, epic string, seq int64, from store.TaskBuild, reason string, needsFiles []string,
-		decision store.TaskDecision, at time.Time,
+	ClimbTask(
+		ctx context.Context, epic string, seq int64, from, to store.TaskBuild, move store.RungMove,
+		version *store.TaskVersionInput, decision *store.TaskDecision, at time.Time,
 	) error
 	GrantTaskFiles(
 		ctx context.Context, epic string, seq int64, from, to store.TaskBuild, grant store.TaskVersionInput,
@@ -281,12 +264,14 @@ type Checks interface {
 }
 
 // Git makes the writes a Runner makes to a repository: the epic's branch create, a pin of a ref, a task worktree add,
-// the move of a task's worktree onto a new base, and the removal of a task's worktrees.
+// the move of a task's worktree onto a new base, the keep of a task's work on a ref when that move is refused, and the
+// removal of a task's worktrees.
 type Git interface {
 	CreateBranch(ctx context.Context, repo, epic, base string) error
 	Pin(ctx context.Context, repo, ref, commit string) error
 	AddWorktree(ctx context.Context, repo, path, base string) error
 	MoveWorktree(ctx context.Context, path, wip, to string) error
+	KeepWork(ctx context.Context, path, wip, ref string) (string, error)
 	RemoveWorktrees(ctx context.Context, repo, dir string) error
 }
 
@@ -307,6 +292,10 @@ func (packageGit) AddWorktree(ctx context.Context, repo, path, base string) erro
 
 func (packageGit) MoveWorktree(ctx context.Context, path, wip, to string) error {
 	return MoveWorktree(ctx, path, wip, to)
+}
+
+func (packageGit) KeepWork(ctx context.Context, path, wip, ref string) (string, error) {
+	return KeepWork(ctx, path, wip, ref)
 }
 
 func (packageGit) RemoveWorktrees(ctx context.Context, repo, dir string) error {

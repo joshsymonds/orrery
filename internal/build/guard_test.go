@@ -160,9 +160,9 @@ func TestGuardRefusesLoweredAssertionAndMovesFirstAttemptToSecond(t *testing.T) 
 	}
 }
 
-// TestGuardRefusalOnSecondAttemptFailsTask covers R1: a refusal of the second attempt's commit fails the task with the
-// refusal as its failure, and no green run starts.
-func TestGuardRefusalOnSecondAttemptFailsTask(t *testing.T) {
+// TestGuardRefusalOnSecondAttemptClimbsTask covers R1: a refusal of the second attempt's commit climbs the task with
+// the refusal as its failure, and no green run starts.
+func TestGuardRefusalOnSecondAttemptClimbsTask(t *testing.T) {
 	t.Parallel()
 	f := newGuardFixture(t)
 	guardStartImplementer(f)
@@ -170,11 +170,13 @@ func TestGuardRefusalOnSecondAttemptFailsTask(t *testing.T) {
 	lowered := guardCommitIn(t, worktree, guardOneAssert)
 	f.setStep(passStep(StageImplement, 1, 0), "done", guardDone(lowered))
 	f.pass()
+	before := ladderClimbBefore(f, 2)
 	f.setStep(passStep(StageImplement, 2, 0), "done", guardDone(lowered))
 	f.pass()
-	if task := f.task(); task.Status != "failed" || task.Build.Failure != guardRefusal {
-		t.Errorf("task status %q failure %q, want failed with %q", task.Status, task.Build.Failure, guardRefusal)
+	if task := f.task(); task.Build.Failure != guardRefusal {
+		t.Errorf("task failure %q, want %q", task.Build.Failure, guardRefusal)
 	}
+	ladderClimbCheck(f, store.RungOf(before), store.MovedByUnit)
 	if got := guardGreenRuns(f); got != 0 {
 		t.Errorf("green runs started = %d, want none", got)
 	}

@@ -348,15 +348,10 @@ func TestDecideRoutesRequestsToTheOrchestrator(t *testing.T) {
 			{Round: 4, Name: "clean", OK: false}, {Round: 4, Name: checkOwned, OK: false},
 		},
 	}
-	spentOwned := implement
-	spentOwned.Attempt, spentOwned.Rerun, spentOwned.NoVerdict, spentOwned.Step = 2, 0, 0, ""
-	spentOwned.Failure = "checks_failed: owned: b.go is not owned"
-	spentBoth := spentOwned
-	spentBoth.Failure = "checks_failed: owned; clean"
+	const spentOwnedFailure = "checks_failed: owned: b.go is not owned"
+	const spentBothFailure = "checks_failed: owned; clean"
 	exhausted := implement
 	exhausted.Decisions = decisionLimit
-	spentExhausted := spentOwned
-	spentExhausted.Decisions = decisionLimit
 	runDecideCases(t, Decide, []decideCase{
 		{
 			name: "blocked with decisions left moves to orchestrate",
@@ -373,12 +368,12 @@ func TestDecideRoutesRequestsToTheOrchestrator(t *testing.T) {
 		{
 			name: "checks_failed failing owned and another check spends the attempt",
 			view: View{Epic: decideEpic, Task: store.EpicTask{Seq: 3, Build: implement}, Step: ownedAndClean},
-			want: Action{Kind: ActMove, Next: spentBoth},
+			want: Action{Kind: ActFail, Reason: spentBothFailure},
 		},
 		{
 			name: "checks_failed failing only owned with no decisions left spends the attempt",
 			view: View{Epic: decideEpic, Task: store.EpicTask{Seq: 3, Build: exhausted}, Step: ownedOnly},
-			want: Action{Kind: ActMove, Next: spentExhausted},
+			want: Action{Kind: ActFail, Reason: spentOwnedFailure},
 		},
 	})
 }
@@ -478,6 +473,7 @@ func TestDecideOrchestrate(t *testing.T) {
 			want: Action{
 				Kind: ActFail, Reason: "The task's files cannot hold its deliverable.", NeedsFiles: []string{"b.go"},
 				Decision: &store.TaskDecision{ID: "T3-request-2", Text: "T3 fail: the code says so"},
+				Move:     store.RungMove{MovedBy: store.MovedByFailDecision},
 			},
 		},
 		{
@@ -557,11 +553,9 @@ func TestDecideOrchestrateFallbackForAnOwnedCheckSpendsTheAttempt(t *testing.T) 
 	t.Parallel()
 	view := orchView(0, orchDone(orchReturn(t, map[string]any{"status": "blocked"})))
 	view.Returned = &store.StepRow{ID: orchImplStep, End: endChecksFailed, Reason: "owned: b.go"}
-	spent := orchBuild(0)
-	spent.Stage, spent.Attempt, spent.Rerun, spent.Step, spent.Failure = StageImplement, 2, 0, "", "checks_failed: owned: b.go"
 	runDecideCases(t, Decide, []decideCase{{
 		name: "a blocked return on an owned-only request spends the attempt", view: view,
-		want: Action{Kind: ActMove, Next: spent},
+		want: Action{Kind: ActFail, Reason: "checks_failed: owned: b.go"},
 	}})
 }
 

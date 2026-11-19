@@ -44,37 +44,6 @@ func (s *Store) RerunTask(
 	})
 }
 
-// FailTaskDecided fails task seq of epic as FailTask does, with reason cut to TaskDecisionMax bytes in place of
-// TurnReasonMax, and appends decision to the epic's decisions, in one write. A task that is not open, or whose stored
-// build is not from, is ErrTaskMoved and writes nothing.
-func (s *Store) FailTaskDecided(
-	ctx context.Context,
-	epic string,
-	seq int64,
-	from TaskBuild,
-	reason string,
-	needsFiles []string,
-	decision TaskDecision,
-	at time.Time,
-) error {
-	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		if err := failTask(
-			ctx,
-			queries,
-			epic,
-			seq,
-			from,
-			capText(reason, TaskDecisionMax),
-			needsFiles,
-			at,
-		); err != nil {
-			return err
-		}
-		_, err := appendDecision(ctx, queries, epic, decision.ID, decision.Text, 0, at)
-		return err
-	})
-}
-
 // AskTask carries out an orchestrator's question to the owner on task seq of epic in one write, when its stored build
 // is from. question is checked as a planner's question is (QuestionRefusals), and a question that breaks a rule is
 // ErrBadQuestion and writes nothing. Otherwise it opens as the epic's next question, asked by no turn, a tell with

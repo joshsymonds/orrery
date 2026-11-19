@@ -12,58 +12,10 @@ import (
 // triggerPending is the state of a trigger no turn has claimed yet.
 const triggerPending = "pending"
 
-// FailTask fails task seq of epic in one write, when its stored build is from: the task is failed, its failure is
-// reason cut to TurnReasonMax bytes, its needsFiles are stored as the files a later task may need, and a pending
-// trigger `T<seq>-failed` with cause `task T<seq> failed: <reason>` is added. A task that is not open, or whose stored
+// AcceptTask marks task seq of epic done with review in one write, when its stored build is from. The rung the build
+// is on ends accepted too, with its own created time as the ended time, when the task has a row for that rung, as a
+// task that climbed to it has; a task that never climbed has no ladder row. A task that is not open, or whose stored
 // build is not from, is ErrTaskMoved and writes nothing.
-func (s *Store) FailTask(
-	ctx context.Context,
-	epic string,
-	seq int64,
-	from TaskBuild,
-	reason string,
-	needsFiles []string,
-	at time.Time,
-) error {
-	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		return failTask(ctx, queries, epic, seq, from, capTurnText(reason), needsFiles, at)
-	})
-}
-
-// failTask fails task seq of epic with failure, as it is to be stored, in the caller's write, when its stored build is
-// from, as FailTask gives.
-func failTask(
-	ctx context.Context,
-	queries *sqlcgen.Queries,
-	epic string,
-	seq int64,
-	from TaskBuild,
-	failure string,
-	needsFiles []string,
-	at time.Time,
-) error {
-	to := from
-	to.Failure = failure
-	if err := moveTask(ctx, queries, epic, seq, from, to); err != nil {
-		return err
-	}
-	if err := setTaskStatus(ctx, queries, epic, seq, "failed"); err != nil {
-		return err
-	}
-	if err := setTaskNeedsFiles(ctx, queries, epic, seq, needsFiles); err != nil {
-		return err
-	}
-	if err := queries.InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
-		Epic: epic, ID: fmt.Sprintf("T%d-failed", seq), Cause: fmt.Sprintf("task T%d failed: %s", seq, failure),
-		State: triggerPending, Turn: 0, Created: at.Unix(),
-	}); err != nil {
-		return fmt.Errorf("insert failure trigger of task %d of epic %s: %w", seq, epic, err)
-	}
-	return nil
-}
-
-// AcceptTask marks task seq of epic done with review in one write, when its stored build is from. A task that is not
-// open, or whose stored build is not from, is ErrTaskMoved and writes nothing.
 func (s *Store) AcceptTask(ctx context.Context, epic string, seq int64, from TaskBuild, review string) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		to := from
@@ -71,7 +23,10 @@ func (s *Store) AcceptTask(ctx context.Context, epic string, seq int64, from Tas
 		if err := moveTask(ctx, queries, epic, seq, from, to); err != nil {
 			return err
 		}
-		return setTaskStatus(ctx, queries, epic, seq, "done")
+		if err := setTaskStatus(ctx, queries, epic, seq, "done"); err != nil {
+			return err
+		}
+		return acceptRung(ctx, queries, epic, seq, from.Attempt)
 	})
 }
 

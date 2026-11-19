@@ -1,6 +1,7 @@
 package kinds
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
 	"strings"
@@ -8,14 +9,16 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// Conclude is the conclude kind. Its run ends the epic from the review alone, once its correction rounds have run:
-// passed, with the phase clean when no gap is left and ended_with_gaps when one is, and an output that names each gap.
+// Conclude is the conclude kind. Its run ends the epic once its correction rounds have run: passed, with the phase clean
+// when no gap is left and ended_with_gaps when one is, and an output that names each gap. A gap is one the review left
+// (Gaps), or a task that ended as a gap (TaskGaps).
 type Conclude struct{}
 
-// Decide ends the epic passed. Its phase is clean, with the stored base, when Gaps finds no gap, and
-// ended_with_gaps, with the gaps, otherwise. Either output then names each finding an owner's answer closed (Decided).
+// Decide ends the epic passed. Its phase is clean, with the stored base, when neither Gaps of the review nor TaskGaps of
+// the epic's tasks finds a gap. Otherwise its phase is ended_with_gaps, and its output names the review's gaps, then the
+// task gaps. Either output then names each finding an owner's answer closed (Decided).
 func (Conclude) Decide(_ Node, rows Rows) Action {
-	gaps, decided := Gaps(rows.Review), Decided(rows.Review)
+	gaps, decided := slices.Concat(Gaps(rows.Review), TaskGaps(rows.Epic.Tasks)), Decided(rows.Review)
 	if len(gaps) == 0 {
 		lines := append([]string{fmt.Sprintf("epic %s ended clean at %s", rows.Epic.ID, rows.Epic.StoredBase)},
 			decidedLines(decided)...)
@@ -87,6 +90,28 @@ func Gaps(review store.Review) []string {
 		}
 	}
 	return gaps
+}
+
+// TaskGaps returns a line for each task whose status is taskGap, in seq order: the task's seq, the Requirements it holds,
+// and its failure. It returns nil when no task is a gap.
+func TaskGaps(tasks []store.EpicTask) []string {
+	var gapped []store.EpicTask
+	for i := range tasks {
+		if tasks[i].Status == taskGap {
+			gapped = append(gapped, tasks[i])
+		}
+	}
+	if len(gapped) == 0 {
+		return nil
+	}
+	slices.SortFunc(gapped, func(a, b store.EpicTask) int { return cmp.Compare(a.Seq, b.Seq) })
+	lines := make([]string, 0, len(gapped))
+	for _, task := range gapped {
+		lines = append(lines, fmt.Sprintf(
+			"T%d ended as a gap holding %s: %s", task.Seq, strings.Join(task.Requirements, ", "), task.Build.Failure,
+		))
+	}
+	return lines
 }
 
 // LedgerCause returns the cause the ledger trigger of a correction round gives the planner. Its first line names the
