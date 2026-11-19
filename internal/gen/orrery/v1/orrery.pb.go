@@ -698,7 +698,10 @@ type QueuedMessage struct {
 	// The message text.
 	Text string `protobuf:"bytes,2,opt,name=text,proto3" json:"text,omitempty"`
 	// The message's lifecycle state: queued, canceled or discarded, as the store names them.
-	State         string `protobuf:"bytes,3,opt,name=state,proto3" json:"state,omitempty"`
+	State string `protobuf:"bytes,3,opt,name=state,proto3" json:"state,omitempty"`
+	// What the message waits on: turn while the session is working, when Claude takes it at that turn's next tool result,
+	// or as the next turn if the turn ends first, and start in every other state, when no turn runs to take it.
+	Waits         string `protobuf:"bytes,4,opt,name=waits,proto3" json:"waits,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -750,6 +753,13 @@ func (x *QueuedMessage) GetText() string {
 func (x *QueuedMessage) GetState() string {
 	if x != nil {
 		return x.State
+	}
+	return ""
+}
+
+func (x *QueuedMessage) GetWaits() string {
+	if x != nil {
+		return x.Waits
 	}
 	return ""
 }
@@ -4705,7 +4715,12 @@ type ConversationState struct {
 	// The caller events held for the headless session, oldest first. Pane streams never set it.
 	Pending []*PendingEvent `protobuf:"bytes,9,rep,name=pending,proto3" json:"pending,omitempty"`
 	// The background tasks the headless session reported. Pane streams never set it.
-	Background    []*BackgroundTask `protobuf:"bytes,10,rep,name=background,proto3" json:"background,omitempty"`
+	Background []*BackgroundTask `protobuf:"bytes,10,rep,name=background,proto3" json:"background,omitempty"`
+	// The unix seconds of the engine_interrupt that makes interrupting true, and 0 when interrupting is false. Pane
+	// streams never set it.
+	InterruptingSince int64 `protobuf:"varint,11,opt,name=interrupting_since,json=interruptingSince,proto3" json:"interrupting_since,omitempty"`
+	// The unix seconds the running turn started while the session is working, and 0 otherwise. Pane streams never set it.
+	TurnSince     int64 `protobuf:"varint,12,opt,name=turn_since,json=turnSince,proto3" json:"turn_since,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4808,6 +4823,20 @@ func (x *ConversationState) GetBackground() []*BackgroundTask {
 		return x.Background
 	}
 	return nil
+}
+
+func (x *ConversationState) GetInterruptingSince() int64 {
+	if x != nil {
+		return x.InterruptingSince
+	}
+	return 0
+}
+
+func (x *ConversationState) GetTurnSince() int64 {
+	if x != nil {
+		return x.TurnSince
+	}
+	return 0
 }
 
 // PendingEvent is a caller event held for a headless session: one that the session has not yet taken, or that waits
@@ -7003,11 +7032,12 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"unfinished\x18\x06 \x03(\v2\x15.orrery.v1.EngineTextR\n" +
 	"unfinished\x12\x16\n" +
 	"\x06oldest\x18\a \x01(\x03R\x06oldest\x120\n" +
-	"\x06queued\x18\t \x03(\v2\x18.orrery.v1.QueuedMessageR\x06queuedJ\x04\b\b\x10\tR\x04held\"V\n" +
+	"\x06queued\x18\t \x03(\v2\x18.orrery.v1.QueuedMessageR\x06queuedJ\x04\b\b\x10\tR\x04held\"l\n" +
 	"\rQueuedMessage\x12\x1b\n" +
 	"\tprompt_id\x18\x01 \x01(\tR\bpromptId\x12\x12\n" +
 	"\x04text\x18\x02 \x01(\tR\x04text\x12\x14\n" +
-	"\x05state\x18\x03 \x01(\tR\x05state\"T\n" +
+	"\x05state\x18\x03 \x01(\tR\x05state\x12\x14\n" +
+	"\x05waits\x18\x04 \x01(\tR\x05waits\"T\n" +
 	"\x14SessionsOlderRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
 	"\x06before\x18\x02 \x01(\x03R\x06before\x12\x14\n" +
@@ -7310,7 +7340,7 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\rOlderResponse\x121\n" +
 	"\x05items\x18\x01 \x03(\v2\x1b.orrery.v1.ConversationItemR\x05items\x12\x16\n" +
 	"\x06oldest\x18\x02 \x01(\x03R\x06oldest\x12\x12\n" +
-	"\x04more\x18\x03 \x01(\bR\x04more\"\xcd\x03\n" +
+	"\x04more\x18\x03 \x01(\bR\x04more\"\x9b\x04\n" +
 	"\x11ConversationState\x12\x16\n" +
 	"\x06origin\x18\x01 \x01(\tR\x06origin\x12\x12\n" +
 	"\x04goal\x18\x02 \x01(\tR\x04goal\x123\n" +
@@ -7324,7 +7354,10 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\n" +
 	"background\x18\n" +
 	" \x03(\v2\x19.orrery.v1.BackgroundTaskR\n" +
-	"background\"\xb6\x02\n" +
+	"background\x12-\n" +
+	"\x12interrupting_since\x18\v \x01(\x03R\x11interruptingSince\x12\x1d\n" +
+	"\n" +
+	"turn_since\x18\f \x01(\x03R\tturnSince\"\xb6\x02\n" +
 	"\fPendingEvent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x12\n" +

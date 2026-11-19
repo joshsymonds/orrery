@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/joshsymonds/orrery/internal/conversation"
@@ -124,6 +125,16 @@ type sessionWatch struct {
 	turnEndSeq       int64
 	ownerPromptSeq   int64
 	leaveSeq         int64
+	// interruptAt is the unix seconds of the newest engine_interrupt the stream has read, the time interruptSeq names.
+	interruptAt int64
+	// turnState is the state the newest engine_added or engine_changed set, empty before either. turnStart is the unix
+	// seconds the running turn started, kept through waiting and 0 while the session has no turn (see trackState).
+	// turnEndAt is the unix seconds of the newest engine_turn_ended, and turnEnded is whether no state change has
+	// followed it.
+	turnState string
+	turnStart int64
+	turnEndAt int64
+	turnEnded bool
 	// now is the clock the background window is read against. tasks holds each background task the stream has folded, by
 	// task id, and taskOrder holds the same tasks in the order the stream first saw them (see foldTask).
 	now       func() time.Time
@@ -166,7 +177,10 @@ func (w *sessionWatch) step(ctx context.Context) (*orreryv1.SessionsWatchConvers
 	if err != nil {
 		return nil, false, err
 	}
-	queued := w.queued(history)
+	queued, err := w.queued(ctx, history)
+	if err != nil {
+		return nil, false, err
+	}
 	stateChanged := first || !proto.Equal(state, w.sent)
 	unfinishedChanged := !slices.EqualFunc(unfinished, w.sentUnfinished, func(a, b *orreryv1.EngineText) bool {
 		return proto.Equal(a, b)
@@ -223,20 +237,37 @@ func (w *sessionWatch) withholds(item *orreryv1.ConversationItem) bool {
 	return item.GetKind() == "prompt" && item.GetSender() == store.PromptSenderOwner && w.withheld[item.GetPromptId()]
 }
 
-// queued returns the owner messages the session has not started, as the stream serves them (see queuedMessages). A step
-// session serves none.
-func (w *sessionWatch) queued(history store.EngineHistory) []*orreryv1.QueuedMessage {
+// queued returns the owner messages the session has not started, as the stream serves them (see queuedMessages), each
+// waiting on a turn while the session is working and on its start otherwise. It reads the prompt states again, after
+// the step's read of the events (see readPrompts), since a Say stores its queued state in the write that stores its
+// prompt: a prompt whose event the step read is then served with that state in the same delta. A step session serves
+// none. A failed read is answered as a failed session read is.
+func (w *sessionWatch) queued(ctx context.Context, history store.EngineHistory) ([]*orreryv1.QueuedMessage, error) {
 	if history.Kind == store.KindStep {
-		return nil
+		return nil, nil
 	}
-	return queuedMessages(w.prompts)
+	if err := w.readPrompts(ctx); err != nil {
+		return nil, err
+	}
+	waits := queuedWaitsStart
+	if history.State == string(protocol.StateWorking) {
+		waits = queuedWaitsTurn
+	}
+	return queuedMessages(w.prompts, waits), nil
 }
 
-// queuedMessages returns the QueuedMessage of each owner prompt the stream serves, in the order of prompts. A prompt
-// whose newest state is queued is always served. A prompt whose newest state is canceled or discarded is served only
-// while no owner prompt after it has a newest state of started or completed. A prompt whose newest state is started or
-// completed is never served, and a caller prompt is never served.
-func queuedMessages(prompts []store.PromptState) []*orreryv1.QueuedMessage {
+// The waits labels of a QueuedMessage: turn while the session is working, when Claude takes the message at the turn's
+// next tool result, and start in every other state.
+const (
+	queuedWaitsTurn  = "turn"
+	queuedWaitsStart = "start"
+)
+
+// queuedMessages returns the QueuedMessage of each owner prompt the stream serves, in the order of prompts, each with
+// waits. A prompt whose newest state is queued is always served. A prompt whose newest state is canceled or discarded is
+// served only while no owner prompt after it has a newest state of started or completed. A prompt whose newest state is
+// started or completed is never served, and a caller prompt is never served.
+func queuedMessages(prompts []store.PromptState, waits string) []*orreryv1.QueuedMessage {
 	var served []*orreryv1.QueuedMessage
 	// started is whether an owner prompt after the one being read has a newest state of started or completed. The
 	// prompts are read newest first, so it is set before the older prompts are judged.
@@ -256,7 +287,7 @@ func queuedMessages(prompts []store.PromptState) []*orreryv1.QueuedMessage {
 		}
 		if keep {
 			served = append(served, &orreryv1.QueuedMessage{
-				PromptId: prompt.PromptID, Text: prompt.Text, State: prompt.State,
+				PromptId: prompt.PromptID, Text: prompt.Text, State: prompt.State, Waits: waits,
 			})
 		}
 	}
@@ -583,9 +614,11 @@ func (w *sessionWatch) collect(
 }
 
 // track records what an event sets for the stream: the origin, from the session's first prompt; the request, from each
-// unrefused request; the seqs that interrupting and pending read, from each engine_interrupt, engine_turn_ended, owner
-// prompt and engine_changed that leaves working; and the background task, from each engine_task (see foldTask). item
-// and ok are sessionItem's result for event. It returns the decode error of a request, interrupt, state change or task.
+// unrefused request; the seqs that interrupting and pending read, and the time of the interrupt, from each
+// engine_interrupt, engine_turn_ended, owner prompt and engine_changed that leaves working; the turn start, from each
+// engine_added and engine_changed that sets a state (see trackState); and the background task, from each engine_task
+// (see foldTask). item and ok are sessionItem's result for event. It returns the decode error of a request, interrupt,
+// state change or task.
 func (w *sessionWatch) track(event store.EngineEvent, item *orreryv1.ConversationItem, ok bool) error {
 	switch event.Kind {
 	case store.EventEnginePrompt:
@@ -598,6 +631,9 @@ func (w *sessionWatch) track(event store.EngineEvent, item *orreryv1.Conversatio
 		}
 	case store.EventEngineTurnEnded:
 		w.turnEndSeq = event.Seq
+		w.turnEndAt, w.turnEnded = event.At, true
+	case store.EventEngineAdded:
+		return w.trackAdded(event)
 	case store.EventEngineChanged:
 		return w.trackChange(event)
 	case store.EventEngineInterrupt:
@@ -605,7 +641,7 @@ func (w *sessionWatch) track(event store.EngineEvent, item *orreryv1.Conversatio
 		if err != nil {
 			return err
 		}
-		w.interruptSeq, w.interruptTurning = event.Seq, turning
+		w.interruptSeq, w.interruptTurning, w.interruptAt = event.Seq, turning, event.At
 	case store.EventEngineRequest:
 		req, open, err := sessionRequest(event.Payload)
 		if err != nil {
@@ -620,17 +656,60 @@ func (w *sessionWatch) track(event store.EngineEvent, item *orreryv1.Conversatio
 	return nil
 }
 
-// trackChange records the seq of an engine_changed whose fields set state to a value other than working, as leaveSeq.
-// It returns the decode error of the payload.
+// trackChange records the seq of an engine_changed whose fields set state to a value other than working, as leaveSeq,
+// and moves the turn start for a state it sets (see trackState). It returns the decode error of the payload.
 func (w *sessionWatch) trackChange(event store.EngineEvent) error {
 	changed, err := engineChanged(event.Payload)
 	if err != nil {
 		return err
 	}
-	if changed.State != nil && *changed.State != string(protocol.StateWorking) {
+	if changed.State == nil {
+		return nil
+	}
+	if *changed.State != string(protocol.StateWorking) {
 		w.leaveSeq = event.Seq
 	}
+	w.trackState(*changed.State, event.At)
 	return nil
+}
+
+// trackAdded moves the turn start for the state an engine_added sets the session to (see trackState). It returns the
+// decode error of the payload.
+func (w *sessionWatch) trackAdded(event store.EngineEvent) error {
+	state, err := engineAddedState(event.Payload)
+	if err != nil {
+		return err
+	}
+	w.trackState(state, event.At)
+	return nil
+}
+
+// trackState moves the turn start for a state the session is set to at the unix seconds at. A turn starts when the
+// session is set to working from a state other than working or waiting, and when it is set to working from working
+// after a turn end that no state change has followed, at that turn end's time. A state other than working or waiting
+// ends the turn, and waiting keeps it, so an answered request does not move it.
+func (w *sessionWatch) trackState(state string, at int64) {
+	working, waiting := string(protocol.StateWorking), string(protocol.StateWaiting)
+	switch {
+	case state == working && w.turnState != working && w.turnState != waiting:
+		w.turnStart = at
+	case state == working && w.turnState == working && w.turnEnded:
+		w.turnStart = w.turnEndAt
+	case state != working && state != waiting:
+		w.turnStart = 0
+	}
+	w.turnState = state
+	w.turnEnded = false
+}
+
+// engineAddedState returns the state an engine_added payload adds its session in. It returns the decode error of the
+// payload.
+func engineAddedState(payload string) (string, error) {
+	body := &orreryv1.EngineAdded{}
+	if err := protojson.Unmarshal([]byte(payload), body); err != nil {
+		return "", fmt.Errorf("decode engine added: %w", err)
+	}
+	return body.GetState(), nil
 }
 
 // requestPutOff reports whether the open request of the session is put off, as headlessPutOff judges it. The marks are
@@ -648,10 +727,11 @@ func (w *sessionWatch) requestPutOff(ctx context.Context, history store.EngineHi
 }
 
 // state returns the state of the session as history reads it: its origin, its headless session without the summary
-// and newest reply, its context figure when its transcript is read, whether the owner's interrupt is running (see
-// interrupting), the caller events it is owed (pending), the background tasks it carries at the clock's time (see
-// backgroundRows), and the open request while the session waits on one. putOff is whether that request is put off, and
-// the headless session and the request carry it. The request is a copy of w.request, so w.request is not changed.
+// and newest reply, its context figure when its transcript is read, whether the owner's interrupt is running and when
+// it was made (see interrupting and interruptingSince), when the running turn started (see turnSince), the caller
+// events it is owed (pending), the background tasks it carries at the clock's time (see backgroundRows), and the open
+// request while the session waits on one. putOff is whether that request is put off, and the headless session and the
+// request carry it. The request is a copy of w.request, so w.request is not changed.
 func (w *sessionWatch) state(
 	history store.EngineHistory,
 	pending []*orreryv1.PendingEvent,
@@ -665,6 +745,15 @@ func (w *sessionWatch) state(
 	if err != nil {
 		return nil, listError(connect.CodeInternal, "read sessions")
 	}
+	interrupting := w.interrupting(history.State)
+	var interruptingSince int64
+	if interrupting {
+		interruptingSince = w.interruptAt
+	}
+	var turnSince int64
+	if history.State == string(protocol.StateWorking) {
+		turnSince = w.turnStart
+	}
 	state := &orreryv1.ConversationState{
 		Origin: w.origin,
 		Session: &orreryv1.HeadlessSession{
@@ -677,9 +766,11 @@ func (w *sessionWatch) state(
 			Question: history.Question,
 			PutOff:   putOff,
 		},
-		Interrupting: w.interrupting(history.State),
-		Pending:      pending,
-		Background:   w.backgroundRows(w.now().Unix()),
+		Interrupting:      interrupting,
+		InterruptingSince: interruptingSince,
+		TurnSince:         turnSince,
+		Pending:           pending,
+		Background:        w.backgroundRows(w.now().Unix()),
 	}
 	if w.transcript != "" {
 		state.Context = &orreryv1.ConversationContext{Tokens: w.figure.Tokens, Window: w.figure.Window}

@@ -25,9 +25,9 @@ func setPromptState(writeID, state string) store.EnginePromptState {
 	return store.EnginePromptState{ID: eventEngine, WriteID: writeID, State: state}
 }
 
-// queuedMessage is the QueuedMessage of the prompt promptID with text and state.
-func queuedMessage(promptID, text, state string) *orreryv1.QueuedMessage {
-	return &orreryv1.QueuedMessage{PromptId: promptID, Text: text, State: state}
+// queuedMessage is the QueuedMessage of the prompt promptID with text, state and waits.
+func queuedMessage(promptID, text, state, waits string) *orreryv1.QueuedMessage {
+	return &orreryv1.QueuedMessage{PromptId: promptID, Text: text, State: state, Waits: waits}
 }
 
 // ownerItem is the conversation item of the owner message promptID with text, as the stream shows it.
@@ -60,7 +60,7 @@ func TestQueueLifecycleQueuedMessageIsServedOnReload(t *testing.T) {
 
 	msg := openSessionStream(t, client, sessionReq(eventEngine, 0, 0)).next(t)
 	wantQueued(t, msg.GetQueued(), []*orreryv1.QueuedMessage{
-		queuedMessage("p-1", "fix the bug", store.PromptQueued),
+		queuedMessage("p-1", "fix the bug", store.PromptQueued, "start"),
 	})
 }
 
@@ -86,7 +86,7 @@ func TestQueueLifecycleStartedAndCompletedAreNotServed(t *testing.T) {
 
 	msg := openSessionStream(t, client, sessionReq(eventEngine, 0, 0)).next(t)
 	wantQueued(t, msg.GetQueued(), []*orreryv1.QueuedMessage{
-		queuedMessage("p-3", "waiting", store.PromptQueued),
+		queuedMessage("p-3", "waiting", store.PromptQueued, "start"),
 	})
 }
 
@@ -113,8 +113,8 @@ func TestQueueLifecycleCanceledAndDiscardedServedUntilLaterStart(t *testing.T) {
 
 	msg := openSessionStream(t, client, sessionReq(eventEngine, 0, 0)).next(t)
 	wantQueued(t, msg.GetQueued(), []*orreryv1.QueuedMessage{
-		queuedMessage("p-3", "dropped", store.PromptCancelled),
-		queuedMessage("p-4", "discarded", store.PromptDiscarded),
+		queuedMessage("p-3", "dropped", store.PromptCancelled, "start"),
+		queuedMessage("p-4", "discarded", store.PromptDiscarded, "start"),
 	})
 }
 
@@ -180,6 +180,6 @@ func TestQueueLifecycleCallerEventPromptNeverServed(t *testing.T) {
 
 	msg := openSessionStream(t, client, sessionReq(eventEngine, 0, 0)).next(t)
 	wantQueued(t, msg.GetQueued(), []*orreryv1.QueuedMessage{
-		queuedMessage("p-1", "owner", store.PromptCancelled),
+		queuedMessage("p-1", "owner", store.PromptCancelled, "start"),
 	})
 }
