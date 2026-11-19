@@ -267,7 +267,7 @@ func TestEvidenceJudgePromptRefusesBadNames(t *testing.T) {
 }
 
 // TestJudgePromptEvidenceShown: the judge prompt lets the judge read the source of a test the output shows passing, at
-// the judged revision, and still tells it to fail a clause neither the output nor those tests show.
+// the judged revision.
 func TestJudgePromptEvidenceShown(t *testing.T) {
 	t.Parallel()
 	prompt, err := judgePrompt(judgeTestRun(), evidenceBlobs{dir: judgeTestBlobDir})
@@ -286,13 +286,22 @@ func TestJudgePromptEvidenceShown(t *testing.T) {
 			}
 		},
 	)
-	t.Run("the evidence judge's prompt still fails an unshown clause", func(t *testing.T) {
-		t.Parallel()
-		want := "Fail any clause of the conclusion that neither the logs and artifacts nor those passing tests show."
-		if !strings.Contains(prompt, want) {
-			t.Errorf("judge prompt lacks %q:\n%s", want, prompt)
+}
+
+// TestJudgeCarryJudgePromptNoFailAnyClause: the full prompt the judge step sees, the agent gate's instruction and
+// assertion around judgePrompt's, no longer tells the judge to fail each clause the output does not show.
+func TestJudgeCarryJudgePromptNoFailAnyClause(t *testing.T) {
+	run := judgeTestRun()
+	prompt, err := judgePrompt(run, evidenceBlobs{dir: judgeTestBlobDir})
+	if err != nil {
+		t.Fatalf("judgePrompt: %v", err)
+	}
+	got := gates.Prompt(judgeGate(run.Spec), prompt)
+	for _, term := range []string{"Fail any clause", "strictly", "looser reading"} {
+		if strings.Contains(got, term) {
+			t.Errorf("judge step prompt contains %q:\n%s", term, got)
 		}
-	})
+	}
 }
 
 func TestEvidenceJudgeStartFields(t *testing.T) {

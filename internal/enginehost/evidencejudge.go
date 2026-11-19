@@ -57,14 +57,14 @@ func judgeGate(item evidence.Item) gates.Gate {
 // argv, when the run has a capture, its exit and whether it timed out, its stdout and stderr logs by their blob paths
 // for each one it has, and each artifact by its repository path with its kept blob path, or the word missing or the
 // words over the cap. It names nothing else about the run. The prompt lets the judge read the source of a named test
-// that the output shows passing, at the run's revision, and tells it to fail any clause that neither the output and
-// artifacts nor those passing tests show.
+// that the output shows passing, at the run's revision, and asks it to decide whether the logs, artifacts and those
+// passing tests show what the conclusion is meant to prove.
 func judgePrompt(run store.EvidenceRun, blobs evidenceBlobs) (string, error) {
 	lines := []string{
 		"Read only the files listed below. Repository files may be read only as reference for them.",
 		"When a log shows a named test passing, you may read that test's source in this worktree, which is at the " +
 			"judged revision, to see what it asserts.",
-		"Fail any clause of the conclusion that neither the logs and artifacts nor those passing tests show.",
+		"Decide whether the logs, artifacts and those passing tests show what the conclusion is meant to prove.",
 		"",
 	}
 	if len(run.Spec.Capture) > 0 {
