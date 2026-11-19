@@ -1205,10 +1205,14 @@ message CreateEpicRequest {
   string workflow = 3;
 }
 
-// CreateEpicResponse carries the stored epic.
+// CreateEpicResponse carries the stored epic and the warnings its contract drew. The epic is stored with them.
 message CreateEpicResponse {
   // The stored epic.
   StoredEpic epic = 1;
+
+  // One warning for each lint finding that does not refuse the contract: a go test whose -run pattern matches a test at
+  // the base, or a release step that says merge, names a fixed version or waits on CI. Each names its field and reason.
+  repeated string warnings = 2;
 }
 
 // GetEpicRequest names one epic.
