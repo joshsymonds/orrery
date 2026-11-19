@@ -24,17 +24,19 @@ const (
 )
 
 // Check returns one refusal per bad task field of ret, in plan order, then one per broken rule of each question, in
-// question order, then one per broken rule of each action, in action order, or nil when the return passes. Each task
-// refusal names the task by index and title, then the field, then the reason. Each question refusal names the question by
-// index and label, then the field and reason that store.QuestionRefusals gives. Each action refusal names the action by
-// index and kind, then the field and the reason. requirements are the epic's Requirement ids, and owned are the files owned
-// by the epic's unfinished tasks. gate and judge resolve a task's gate name and judge name, and a name they refuse gives
-// the refusal its error text. Check does not test whether an action's target is valid; the engine does that.
+// question order, then one per broken rule of each action, in action order, then one for an unresolvable list that is
+// not a JSON array of objects, or else one per broken rule of each unresolvable entry, in entry order, or nil when the
+// return passes. Each task refusal names the task by index and title, then the field, then the reason. Each question
+// refusal names the question by index and label, then the field and reason that store.QuestionRefusals gives. Each action
+// refusal names the action by index and kind, then the field and the reason. Each unresolvable refusal names the entry by
+// index, then the field and the reason. requirements are the epic's Requirement ids, and owned are the files owned by the
+// epic's unfinished tasks. gate and judge resolve a task's gate name and judge name, and a name they refuse gives the
+// refusal its error text. Check does not test whether an action's target is valid; the engine does that.
 func Check(ret Return, requirements []string, owned []string, gate, judge func(name string) error) []string {
 	known := stringSet(requirements)
 	taken := stringSet(owned)
 	named := make(map[string]bool)
-	refusals := make([]string, 0, len(ret.Tasks)+len(ret.Questions)+len(ret.Actions))
+	refusals := make([]string, 0, len(ret.Tasks)+len(ret.Questions)+len(ret.Actions)+len(ret.Unresolvable))
 	for i, task := range ret.Tasks {
 		refusals = append(refusals, checkTask(i, task, known, taken, named, gate, judge)...)
 	}
@@ -46,6 +48,7 @@ func Check(ret Return, requirements []string, owned []string, gate, judge func(n
 		refusals = append(refusals, checkAmendAction(i, action, known, judge)...)
 		refusals = append(refusals, checkApproachAction(i, action, judge)...)
 	}
+	refusals = append(refusals, checkUnresolvable(ret)...)
 	if len(refusals) == 0 {
 		return nil
 	}
@@ -161,6 +164,61 @@ func checkPark(ret Return, park string) []string {
 	}
 }
 
+// checkUnresolvable returns the refusals of ret's unresolvable list. When the string it was read from was not a JSON array
+// of objects, the list is refused as a whole with one line and no entry is checked. Otherwise an entry with an empty gap or
+// an empty reason gets one line for it, and an entry whose recommendation is not release or correct gets one. An entry
+// whose gap an earlier entry already names gets one line for the repeat. Each line names the entry by index, then the field.
+func checkUnresolvable(ret Return) []string {
+	if ret.UnresolvableError != "" {
+		return []string{"unresolvable: " + reasonNotArray}
+	}
+	var refusals []string
+	named := make(map[string]bool, len(ret.Unresolvable))
+	for i, entry := range ret.Unresolvable {
+		prefix := fmt.Sprintf("unresolvable[%d]", i)
+		switch {
+		case strings.TrimSpace(entry.Gap) == "":
+			refusals = append(refusals, prefix+" gap: "+reasonEmpty)
+		case named[entry.Gap]:
+			refusals = append(refusals, prefix+" gap: "+reasonNamedEarlier)
+		}
+		named[entry.Gap] = true
+		if strings.TrimSpace(entry.Reason) == "" {
+			refusals = append(refusals, prefix+" reason: "+reasonEmpty)
+		}
+		if entry.Recommended != "release" && entry.Recommended != "correct" {
+			refusals = append(refusals, prefix+" recommended: "+reasonNotReleaseOrCorrect)
+		}
+	}
+	return refusals
+}
+
+// checkSpentGaps returns one refusal for each rerun_review action of ret that names a reviewer whose gap, "reviewer:" and
+// the reviewer's name, has had store.GapTurnBound planner turns in turns, the turns each gap of the epic was given. Such a
+// gap goes to the owner, so the planner declares it in unresolvable instead. An action that names no reviewer gets none;
+// checkNeededFields refuses it.
+func checkSpentGaps(ret Return, turns []store.GapTurn) []string {
+	var refusals []string
+	for i, action := range ret.Actions {
+		if action.Kind != store.ActionRerunReview || action.Reviewer == "" {
+			continue
+		}
+		gap := "reviewer:" + action.Reviewer
+		given := 0
+		for _, turn := range turns {
+			if turn.Gap == gap {
+				given++
+			}
+		}
+		if given >= store.GapTurnBound {
+			refusals = append(refusals, fmt.Sprintf(
+				`actions[%d] "%s" %s: gap %s has had its %d planner turns; declare it in unresolvable instead`,
+				i, action.Kind, argReviewer, gap, store.GapTurnBound))
+		}
+	}
+	return refusals
+}
+
 // checkTask returns the refusals of one task's fields, in the order title, deliverable, files, test_changes,
 // requirements, gate, each line of the evidence item's form, then the gate and the judge that do not resolve. named
 // records each well-formed file the plan names, so a later naming of the same file is refused.
@@ -270,11 +328,20 @@ const (
 	reasonUnused    = "not used by this kind; leave it empty or 0"
 )
 
+// The reasons a refusal of an unresolvable list gives: the list is not a JSON array of objects, an entry's recommendation is
+// not release or correct, and an entry's gap is one an earlier entry already names.
+const (
+	reasonNotArray            = "not a JSON array of objects with gap, reason and recommended"
+	reasonNotReleaseOrCorrect = "not release or correct"
+	reasonNamedEarlier        = "names a gap an earlier entry names"
+)
+
 // actionKinds returns the kinds an action may name, in the order the refusal lists them.
 func actionKinds() []string {
 	return []string{
 		store.ActionRetryNode, store.ActionRetryEpic, store.ActionFailTask, store.ActionResumeRelease,
 		store.ActionCloseEpic, store.ActionAmendEvidence, store.ActionChangeApproach,
+		store.ActionRerunReview,
 	}
 }
 
@@ -297,6 +364,8 @@ func actionFields(kind string) ([]string, bool) {
 		return []string{argRequirement, argItem}, true
 	case store.ActionChangeApproach:
 		return []string{argTask, argDeliverable, argItem}, true
+	case store.ActionRerunReview:
+		return []string{argReviewer}, true
 	}
 	return nil, false
 }
@@ -332,13 +401,17 @@ func checkAction(i int, action EngineAction) []string {
 
 // checkNeededFields calls refuse for each field action's kind needs that is missing or wrong: a retry_node names a node,
 // a fail_task names a task above 0, a close_epic names a close of superseded or abandoned and, when superseded, a by,
-// and a change_approach names a task above 0 and a deliverable. An amend_evidence action's fields are checkAmendAction's,
-// and a change_approach action's item is checkApproachAction's.
+// a change_approach names a task above 0 and a deliverable, and a rerun_review names a reviewer. An amend_evidence
+// action's fields are checkAmendAction's, and a change_approach action's item is checkApproachAction's.
 func checkNeededFields(action EngineAction, refuse func(field, reason string)) {
 	switch action.Kind {
 	case store.ActionRetryNode:
 		if strings.TrimSpace(action.Node) == "" {
 			refuse(argNode, reasonEmpty)
+		}
+	case store.ActionRerunReview:
+		if strings.TrimSpace(action.Reviewer) == "" {
+			refuse(argReviewer, reasonEmpty)
 		}
 	case store.ActionFailTask:
 		if action.Task <= 0 {
@@ -424,6 +497,7 @@ func checkUnusedFields(action EngineAction, used []string, refuse func(field, re
 		{argItem, itemSet(action.Item)},
 		{argUndoNone, len(action.UndoNone) > 0},
 		{argDeliverable, action.Deliverable != ""},
+		{argReviewer, action.Reviewer != ""},
 	}
 	for _, field := range fields {
 		if field.set && !slices.Contains(used, field.name) {
