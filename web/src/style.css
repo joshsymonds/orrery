@@ -26,6 +26,7 @@ button, input, textarea, select {
 button, input, select { min-height: var(--o-size-control-desk); }
 button { font: var(--o-type-small); }
 input, textarea, select { font: var(--o-type-body); }
+textarea::-webkit-resizer { background: linear-gradient(135deg, transparent 0 55%, var(--o-line-glyph) 55% 65%, transparent 65% 75%, var(--o-line-glyph) 75% 85%, transparent 85%); }
 h1, h2 { font: var(--o-type-title); margin: 0; }
 h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold); margin: 0; }
 
