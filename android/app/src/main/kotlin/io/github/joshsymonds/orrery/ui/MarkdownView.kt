@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -20,18 +19,18 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.isSpecified
-import androidx.compose.ui.unit.sp
-import io.github.joshsymonds.orrery.ui.theme.Mocha
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 
 /**
- * Draws parsed markdown in the mono font and the Mocha palette. [color], [fontSize] and
- * [fontWeight] style body text; left unspecified they come from the surrounding text style. A
+ * Draws parsed markdown in the mono font and the token palette. [color], [fontSize] and
+ * [fontWeight] style body text; left unspecified they come from the body type token. A
  * tapped link opens in the browser; one that no app can open is ignored.
  */
 @Composable
@@ -42,7 +41,7 @@ fun MarkdownBody(
     fontSize: TextUnit = TextUnit.Unspecified,
     fontWeight: FontWeight? = null,
 ) {
-    val size = if (fontSize.isSpecified) fontSize else LocalTextStyle.current.fontSize
+    val size = if (fontSize.isSpecified) fontSize else OrreryTokens.Type.body.fontSize
     Blocks(blocks, modifier, BodyStyle(color, size, fontWeight))
 }
 
@@ -59,11 +58,11 @@ private fun Blocks(blocks: List<MdBlock>, modifier: Modifier, style: BodyStyle) 
 }
 
 private fun gapBetween(previous: MdBlock, block: MdBlock): Dp = when {
-    block is MdBlock.Item && previous is MdBlock.Item -> 2.dp
-    block.lead > 0 -> 4.dp
-    previous is MdBlock.Heading -> 4.dp
-    block is MdBlock.Heading -> 14.dp
-    else -> 10.dp
+    block is MdBlock.Item && previous is MdBlock.Item -> OrreryTokens.Space.two
+    block.lead > 0 -> OrreryTokens.Space.four
+    previous is MdBlock.Heading -> OrreryTokens.Space.four
+    block is MdBlock.Heading -> OrreryTokens.Space.twelve + OrreryTokens.Space.two
+    else -> OrreryTokens.Space.eight + OrreryTokens.Space.two
 }
 
 /** Puts [lead] monospace cells of space before [content], so it lines up under a list item's text. */
@@ -90,14 +89,13 @@ private fun Block(block: MdBlock, style: BodyStyle) {
         )
         is MdBlock.Heading -> Text(
             text = block.text,
-            color = Mocha.Lavender,
-            fontSize = style.size * headingScale(block.level),
-            fontWeight = FontWeight.Bold,
+            color = OrreryTokens.Prose.heading,
+            style = headingStyle(block.level),
         )
         is MdBlock.Item -> Row(modifier = Modifier.fillMaxWidth()) {
             Text(
                 text = block.marker + " ",
-                color = Mocha.Overlay1,
+                color = OrreryTokens.Prose.marker,
                 fontSize = style.size,
                 fontWeight = style.weight,
                 softWrap = false,
@@ -110,42 +108,40 @@ private fun Block(block: MdBlock, style: BodyStyle) {
                 fontWeight = style.weight,
             )
         }
-        is MdBlock.Code -> CodeBlock(block, style)
+        is MdBlock.Code -> CodeBlock(block)
         is MdBlock.Table -> TableBlock(block, style)
         is MdBlock.Quote -> Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .drawBehind { drawRect(Mocha.Surface1, size = Size(3.dp.toPx(), size.height)) }
-                .padding(start = 13.dp),
+                .drawBehind {
+                    drawRect(OrreryTokens.Prose.marker, size = Size(OrreryTokens.Size.rail.toPx(), size.height))
+                }
+                .padding(start = OrreryTokens.Space.twelve),
         ) {
-            Blocks(block.blocks, Modifier, BodyStyle(Mocha.Subtext0, style.size, style.weight))
+            Blocks(block.blocks, Modifier, BodyStyle(OrreryTokens.Ink.two, style.size, style.weight))
         }
         is MdBlock.Rule -> Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 6.dp)
-                .height(1.dp)
-                .background(Mocha.Surface1),
+                .padding(vertical = OrreryTokens.Space.four + OrreryTokens.Space.two)
+                .height(OrreryTokens.Size.hairline)
+                .background(OrreryTokens.Line.firm),
         )
     }
 }
 
-private fun headingScale(level: Int): Float = when (level) {
-    1 -> 1.18f
-    2 -> 1.1f
-    3 -> 1.04f
-    else -> 1f
-}
+// A level one or two heading is the page's title; a deeper one is body text in bold.
+private fun headingStyle(level: Int): TextStyle =
+    if (level <= 2) OrreryTokens.Type.title else OrreryTokens.Type.body.copy(fontWeight = OrreryTokens.Font.Weight.bold)
 
-/** Unwrapped code in a crust box that pans sideways on its own; the language sits small in the corner. */
+/** Unwrapped code in a surface box that pans sideways on its own; the language sits small in the corner. */
 @Composable
-private fun CodeBlock(block: MdBlock.Code, style: BodyStyle) {
-    val size = style.size * 0.9f
+private fun CodeBlock(block: MdBlock.Code) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(Mocha.Crust),
+            .clip(RoundedCornerShape(OrreryTokens.Radius.two))
+            .background(OrreryTokens.Surface.side),
     ) {
         Text(
             text = block.code,
@@ -153,14 +149,17 @@ private fun CodeBlock(block: MdBlock.Code, style: BodyStyle) {
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
                 .padding(
-                    start = 12.dp,
-                    end = 12.dp,
-                    top = if (block.language.isEmpty()) 10.dp else 20.dp,
-                    bottom = 10.dp,
+                    start = OrreryTokens.Space.twelve,
+                    end = OrreryTokens.Space.twelve,
+                    top = if (block.language.isEmpty()) {
+                        OrreryTokens.Space.eight + OrreryTokens.Space.two
+                    } else {
+                        OrreryTokens.Space.sixteen + OrreryTokens.Space.four
+                    },
+                    bottom = OrreryTokens.Space.eight + OrreryTokens.Space.two,
                 ),
-            color = Mocha.Text,
-            fontSize = size,
-            lineHeight = size * 1.45f,
+            color = OrreryTokens.Ink.one,
+            style = OrreryTokens.Type.small,
             softWrap = false,
         )
         if (block.language.isNotEmpty()) {
@@ -168,9 +167,9 @@ private fun CodeBlock(block: MdBlock.Code, style: BodyStyle) {
                 text = block.language,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(top = 4.dp, end = 10.dp),
-                color = Mocha.Overlay0,
-                fontSize = 10.sp,
+                    .padding(top = OrreryTokens.Space.four, end = OrreryTokens.Space.eight + OrreryTokens.Space.two),
+                color = OrreryTokens.Ink.four,
+                style = OrreryTokens.Type.small,
                 maxLines = 1,
             )
         }
@@ -181,7 +180,7 @@ private fun CodeBlock(block: MdBlock.Code, style: BodyStyle) {
 @Composable
 private fun TableBlock(table: MdBlock.Table, style: BodyStyle) {
     Box(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-        TableGrid(table, style.size * 0.93f)
+        TableGrid(table, style.size)
     }
 }
 
@@ -195,24 +194,24 @@ private fun TableGrid(table: MdBlock.Table, size: TextUnit) {
                 row.forEach { cell ->
                     Text(
                         text = cell,
-                        color = Mocha.Text,
+                        color = OrreryTokens.Ink.one,
                         fontSize = size,
                         lineHeight = size * 1.45f,
-                        fontWeight = if (r == 0) FontWeight.Bold else null,
+                        fontWeight = if (r == 0) OrreryTokens.Font.Weight.bold else null,
                         softWrap = false,
                     )
                 }
             }
             repeat(rowCount - 1) { r ->
-                Box(modifier = Modifier.background(if (r == 0) Mocha.Surface1 else Mocha.Surface0))
+                Box(modifier = Modifier.background(if (r == 0) OrreryTokens.Line.firm else OrreryTokens.Line.soft))
             }
         },
     ) { measurables, _ ->
         val cellCount = rowCount * columns
         val cells = measurables.take(cellCount).map { it.measure(Constraints()) }
-        val gap = 16.dp.roundToPx()
-        val padY = 4.dp.roundToPx()
-        val line = 1.dp.roundToPx().coerceAtLeast(1)
+        val gap = OrreryTokens.Space.sixteen.roundToPx()
+        val padY = OrreryTokens.Space.four.roundToPx()
+        val line = OrreryTokens.Size.hairline.roundToPx().coerceAtLeast(1)
         val widths = IntArray(columns) { c -> (0 until rowCount).maxOf { r -> cells[r * columns + c].width } }
         val heights = IntArray(rowCount) { r -> (0 until columns).maxOf { c -> cells[r * columns + c].height } }
         // Constraints cannot represent a width above 262142 px, so a wider table is clamped to it.
