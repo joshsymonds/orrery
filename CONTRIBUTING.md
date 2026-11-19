@@ -219,6 +219,8 @@ A component's stories go in `<file>.stories.tsx` beside its `.tsx`: the stories 
 
 A story's name is `component/state`. The component part is its export's name in kebab case, so the `waiting` state of `InboxRow` is `inbox-row/waiting`. `kebab` and `storyName` build the name, and `catalogStories` throws when an export is not a record of functions, when a state is not kebab case, or when two stories share a name.
 
+Round 6 is the reference the catalog's names follow, so a story's name takes a round-6 name. It is either the kebab form of a `Component` and `State` in `web/src/catalog/round6.json`, so `InboxRow/WaitingQuestion` is `inbox-row/waiting-question`, or `page/<round-6 scenario id>`. A story whose state round 6 has no name for is listed in `web/src/catalog/unnamed.ts`, with its round-6 replacement and the frontend epic (F1 to F6) that draws it. A component whose stories export takes its round-6 name, so the composer's and the step box's stories export `Dock`; its coverage is kept through the table in `web/src/catalog/coverage.ts`. After editing round 6, run `just round6-names` to rewrite `round6.json`.
+
 `app.stories.tsx` exports two records. `App` holds the routes, named `app/<route>`, and `Page` holds the scenarios, named `page/<scenario>`. Each of its stories is drawn by `PageStory` (`web/src/catalog/pagestory.tsx`) at the address the story gives, over the in-memory fixture transport. `PageStory` reads the rows, epics and host the way `main.tsx` does.
 
 ### How to add one
