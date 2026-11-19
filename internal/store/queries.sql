@@ -1506,10 +1506,35 @@ WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq) AND state = 'checking';
 UPDATE epic_amendments SET state = 'applied', settled = CASE WHEN settled = 0 THEN sqlc.arg(settled) ELSE settled END
 WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq) AND state IN ('checking', 'capturing');
 
+-- CountWorkingEvidenceNodeRuns counts the running node runs of an epic that capture its Requirements under ids of their
+-- own: an evidence, integrate or sync run with a revision, and a release run of a releasing epic whose release
+-- integrator's latest round that passed at the run's attempt made a merge not yet recorded as a candidate of that
+-- attempt, since the release walks that merge's Done gates and captures until it records the merge as its candidate.
+-- A release run that is doing anything else, such as waiting on the plan its replan started, captures nothing.
 -- name: CountWorkingEvidenceNodeRuns :one
-SELECT COUNT(*) FROM epic_node_runs
-WHERE epic = ? AND state = 'running'
-  AND ((kind IN ('evidence', 'integrate', 'sync') AND revision != '') OR kind = 'release');
+SELECT COUNT(*) FROM epic_node_runs AS run
+WHERE run.epic = sqlc.arg(epic) AND run.state = 'running'
+  AND (
+    (run.kind IN ('evidence', 'integrate', 'sync') AND run.revision != '')
+    OR (
+      run.kind = 'release'
+      AND EXISTS (SELECT 1 FROM epics WHERE epics.id = run.epic AND epics.phase = 'releasing')
+      AND EXISTS (
+        SELECT 1 FROM epic_release_runs AS merged
+        WHERE merged.epic = run.epic AND merged.part = 'integrator' AND merged.attempt = run.attempt AND merged.passed
+          AND NOT EXISTS (
+            SELECT 1 FROM epic_release_runs AS later
+            WHERE later.epic = run.epic AND later.part = 'integrator' AND later.attempt = run.attempt AND later.passed
+              AND later.position > merged.position
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM epic_release_runs AS candidate
+            WHERE candidate.epic = run.epic AND candidate.part = 'candidate' AND candidate.attempt = run.attempt
+              AND candidate.passed AND candidate.head = merged.head
+          )
+      )
+    )
+  );
 
 -- name: CountPendingAmendActions :one
 SELECT COUNT(*) FROM planner_actions WHERE epic = ? AND kind = 'amend_evidence' AND state = 'pending';

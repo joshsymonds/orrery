@@ -455,9 +455,8 @@ func TestSettleAmendmentRerunsARedLostAtARestart(t *testing.T) {
 }
 
 // TestSettleAmendmentWaitsForEvidenceWorkUnderWay checks that an amendment whose red passed is not applied while a node
-// run that captures the Requirement under its own ids is under way: an integrate run with its revision, a sync run of
-// origin's main with its merge, whose checks capture as an integrate run's do, or a release run, whose release
-// integrator captures too. It is applied once that run has ended.
+// run that captures the Requirement under its own ids is under way: an integrate run with its revision, or a sync run of
+// origin's main with its merge, whose checks capture as an integrate run's do. It is applied once that run has ended.
 func TestSettleAmendmentWaitsForEvidenceWorkUnderWay(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -469,10 +468,6 @@ func TestSettleAmendmentWaitsForEvidenceWorkUnderWay(t *testing.T) {
 			name:     "an integrate run with its revision",
 			run:      NodeRun{Path: "plan/S1/integrate", ID: "integrate-run", Node: "integrate", Kind: "integrate"},
 			revision: "candidate-1",
-		},
-		{
-			name: "a release run",
-			run:  NodeRun{Path: "release", ID: "release-run", Node: "release", Kind: "release"},
 		},
 		{
 			name:     "a sync run of origin's main with its merge",
@@ -519,6 +514,171 @@ func TestSettleAmendmentWaitsForEvidenceWorkUnderWay(t *testing.T) {
 			settle(t, s)
 			if stored := storedAmendment(t, s, 1); stored.State != AmendmentApplied {
 				t.Errorf("amendment once the run ended = %s, want applied", stored.State)
+			}
+		})
+	}
+}
+
+// amendRelease is the running release node run of the amended epic in the release tests, at its first attempt.
+func amendRelease() NodeRun {
+	return NodeRun{Path: "release", ID: "release-run", Node: "release", Kind: "release"}
+}
+
+// releaseAmendEpic stores the amended epic in phase with its release node run running, the release runs runs recorded
+// at its first attempt, and the runs under the release running, then asks for A1 and stores its red as judged fails at
+// the base, so that only the release can hold the amendment back.
+func releaseAmendEpic(t *testing.T, s *Store, phase string, runs []ReleaseRun, under ...NodeRun) {
+	t.Helper()
+	ctx := context.Background()
+	createAmendEpic(t, s)
+	if _, err := s.db.ExecContext(ctx, `UPDATE epics SET phase = ? WHERE id = ?`, phase, amendEpic); err != nil {
+		t.Fatalf("set phase %s: %v", phase, err)
+	}
+	if err := s.StartNodes(ctx, amendEpic, append([]NodeRun{amendRelease()}, under...), nil, amendAt()); err != nil {
+		t.Fatalf("StartNodes: %v", err)
+	}
+	for _, run := range runs {
+		run.At = amendAt()
+		var err error
+		if run.Part == ReleasePartCandidate {
+			err = s.RecordCandidate(ctx, amendEpic, run)
+		} else {
+			err = s.RecordRelease(ctx, amendEpic, run)
+		}
+		if err != nil {
+			t.Fatalf("record release run %s %d: %v", run.Part, run.Position, err)
+		}
+	}
+	amended := amendOwner(t, s, newAmendItem())
+	judgedRun(t, s, amended.RedRun, evidence.PhaseRed, amendBase, 1, evidence.VerdictFails)
+}
+
+// mergedRound returns round position of the release integrator at the first attempt, which passed with the merge head,
+// and failedRound one that returned blocked.
+func mergedRound(position int64, head string) ReleaseRun {
+	return ReleaseRun{
+		Part: ReleasePartIntegrator, Position: position, Step: "integrator", Start: "tip-1", Head: head, Passed: true,
+	}
+}
+
+func failedRound(position int64) ReleaseRun {
+	return ReleaseRun{
+		Part: ReleasePartIntegrator, Position: position, Step: "integrator", Start: "tip-1", End: "returned",
+		Reason: "blocked on R3's wording",
+	}
+}
+
+// candidateRun returns the candidate of the first attempt, passed at head.
+func candidateRun(head string) ReleaseRun {
+	return ReleaseRun{Part: ReleasePartCandidate, Start: "tip-1", Head: head, Passed: true}
+}
+
+// TestSettleAmendmentWaitsForAReleaseCapturingItsMerge checks that an amendment whose red passed is not applied while
+// the epic's release captures the Requirement under its own ids: the epic is releasing, and the latest round of its
+// release integrator that passed at the run's attempt holds a merge whose Done gates and captures are walked until that
+// merge is recorded as the candidate. It is applied once the merge is the candidate, since the release then reads the
+// captures no more.
+func TestSettleAmendmentWaitsForAReleaseCapturingItsMerge(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name  string
+		runs  []ReleaseRun
+		merge string
+	}{
+		{
+			name:  "the merge of the first round",
+			runs:  []ReleaseRun{mergedRound(1, "merge-1")},
+			merge: "merge-1",
+		},
+		{
+			name:  "the merge of a later round, after the first one's captures failed",
+			runs:  []ReleaseRun{mergedRound(1, "merge-1"), mergedRound(2, "merge-2")},
+			merge: "merge-2",
+		},
+		{
+			name: "the merge of a candidate prepared again",
+			runs: []ReleaseRun{
+				mergedRound(1, "merge-1"), candidateRun("merge-1"),
+				{Part: ReleasePartVerify, Head: "merge-1", Reason: "origin's main moved"}, mergedRound(4, "merge-2"),
+			},
+			merge: "merge-2",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			s := openEpicStore(t)
+			releaseAmendEpic(t, s, PhaseReleasing, tc.runs)
+
+			err := s.SettleAmendment(ctx, amendEpic, 1, amendAt())
+			if !errors.Is(err, ErrAmendmentDeferred) {
+				t.Fatalf("SettleAmendment while the release captures %s = %v, want ErrAmendmentDeferred", tc.merge, err)
+			}
+			if stored := storedAmendment(t, s, 1); stored.State != AmendmentChecking {
+				t.Errorf("deferred amendment = %s, want checking", stored.State)
+			}
+			if item := r1Item(t, s); !reflect.DeepEqual(item, oldAmendItem()) {
+				t.Errorf("R1 item while deferred = %+v, want the old item", item)
+			}
+
+			candidate := candidateRun(tc.merge)
+			candidate.At = amendAt()
+			if err = s.RecordCandidate(ctx, amendEpic, candidate); err != nil {
+				t.Fatalf("RecordCandidate: %v", err)
+			}
+			settle(t, s)
+			if stored := storedAmendment(t, s, 1); stored.State != AmendmentApplied {
+				t.Errorf("amendment once %s is the candidate = %s, want applied", tc.merge, stored.State)
+			}
+		})
+	}
+}
+
+// TestSettleAmendmentDoesNotWaitForAReleaseThatCapturesNothing checks that a running release run captures nothing, and
+// so holds no amendment back, unless its epic is releasing with a merge of its release integrator not yet its
+// candidate. The first case is the release a replan sent back to planning: its fix plan runs under it and waits for
+// the amendment to settle, so a release that held the amendment back would never move again.
+func TestSettleAmendmentDoesNotWaitForAReleaseThatCapturesNothing(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name  string
+		phase string
+		runs  []ReleaseRun
+		under []NodeRun
+	}{
+		{
+			name:  "a release replanned, with its fix plan running under it",
+			phase: "correcting",
+			runs: []ReleaseRun{
+				mergedRound(1, "merge-1"), failedRound(2),
+				{Part: ReleasePartReplan, Step: "replan", Start: "tip-1", Reason: "blocked on R3's wording"},
+			},
+			under: []NodeRun{{Path: "release/A0/fix", ID: "fix-run", Node: "fix", Kind: "plan"}},
+		},
+		{
+			name:  "a releasing release with no merge of its integrator",
+			phase: PhaseReleasing,
+		},
+		{
+			name:  "a releasing release whose merge is its candidate",
+			phase: PhaseReleasing,
+			runs:  []ReleaseRun{mergedRound(1, "merge-1"), candidateRun("merge-1")},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			s := openEpicStore(t)
+			releaseAmendEpic(t, s, tc.phase, tc.runs, tc.under...)
+
+			settle(t, s)
+
+			if stored := storedAmendment(t, s, 1); stored.State != AmendmentApplied {
+				t.Errorf("amendment beside %s = %s, want applied", tc.name, stored.State)
+			}
+			if item := r1Item(t, s); !reflect.DeepEqual(item, newAmendItem()) {
+				t.Errorf("R1 item beside %s = %+v, want the new item", tc.name, item)
 			}
 		})
 	}
