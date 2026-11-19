@@ -453,82 +453,124 @@ func TestNotNowServiceRefusalCodes(t *testing.T) {
 	wantCode(t, "no put-off store: BringBack", err, connect.CodeUnavailable, ErrPutOffUnavailable.Error())
 }
 
-func TestNotNowEndsPendingNoticeBringBackRaisesNone(t *testing.T) {
-	t.Parallel()
-	phone := &fakePhone{}
-	desk := &recordingDesk{input: fixedClock().Unix()}
-	after := &fakeAfter{}
-	log := &fakeRouteLog{}
-	router := route.New(route.Config{
+// notNowRig is what one NotNow subtest runs against: a Router with the phone and desk it sends to, the log it writes
+// lines to and the timers it arms, the panes a pane question is read from, and the manager that puts questions off.
+type notNowRig struct {
+	phone  *fakePhone
+	desk   *recordingDesk
+	after  *fakeAfter
+	log    *fakeRouteLog
+	router *route.Router
+	panes  *fakePanes
+	m      *Manager
+	path   string
+}
+
+// newNotNowRig returns a notNowRig whose desk the owner is at and whose phone is subscribed, with pane %4 waiting on
+// the question h-ask. The Router closes when the test ends.
+func newNotNowRig(t *testing.T) notNowRig {
+	t.Helper()
+	rig := notNowRig{
+		phone: &fakePhone{},
+		desk:  &recordingDesk{input: fixedClock().Unix()},
+		after: &fakeAfter{},
+		log:   &fakeRouteLog{},
+	}
+	rig.router = route.New(route.Config{
 		Host:       sessionTestHost,
 		Now:        fixedClock,
-		After:      after.After,
-		Desk:       desk,
-		Phone:      phone,
+		After:      rig.after.After,
+		Desk:       rig.desk,
+		Phone:      rig.phone,
 		Subscribed: func() (bool, error) { return true, nil },
-		Log:        log,
+		Log:        rig.log,
 	})
-	t.Cleanup(router.Close)
-	panes := &fakePanes{panes: map[string]PaneQuestion{"%4": {Waiting: true, Hash: "h-ask", Changed: 1_700_000_100}}}
-	m, _, path := newPutOffManager(t, fakeClaudePath(t), NewNotifier(NotifierConfig{Route: router}), panes)
-	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "ASK"})
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	waittest.Until(t, nil, "the waiting notice at the desk", func() bool {
-		return len(log.got()) == 1 && after.armed() == 1
+	t.Cleanup(rig.router.Close)
+	rig.panes = &fakePanes{panes: map[string]PaneQuestion{"%4": {Waiting: true, Hash: "h-ask", Changed: 1_700_000_100}}}
+	rig.m, _, rig.path = newPutOffManager(
+		t, fakeClaudePath(t), NewNotifier(NotifierConfig{Route: rig.router}), rig.panes,
+	)
+	return rig
+}
+
+// TestNotNowEndsPendingNoticeBringBackRaisesNone checks that NotNow ends a question's pending notice and that BringBack
+// then raises nothing. For a headless session, the notice ends through the Router's seen path: the desk gets the line
+// that ends it and the phone gets its seen report, and BringBack adds no line, post, push or seen report. For a pane,
+// NotNow reports the pane seen once through PaneSeen, and BringBack reports nothing. Each case is a subtest.
+func TestNotNowEndsPendingNoticeBringBackRaisesNone(t *testing.T) {
+	t.Parallel()
+	t.Run(
+		"headless NotNow ends the pending notice on the desk and the phone through Router.Seen and BringBack raises none",
+		func(t *testing.T) {
+			t.Parallel()
+			rig := newNotNowRig(t)
+			phone, desk, after, log := rig.phone, rig.desk, rig.after, rig.log
+			router, m, path := rig.router, rig.m, rig.path
+			id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "ASK"})
+			if err != nil {
+				t.Fatalf("Start: %v", err)
+			}
+			waittest.Until(t, nil, "the waiting notice at the desk", func() bool {
+				return len(log.got()) == 1 && after.armed() == 1
+			})
+			waiting := waitHistory(t, engineOf(m), path, id, "the waiting state", func(h store.EngineHistory) bool {
+				return h.State == "waiting"
+			})
+			headless := PutOffRequest{Kind: store.PutOffHeadless, ID: id, RequestID: requestIDOf(t, waiting)}
+
+			if err := m.NotNow(t.Context(), headless); err != nil {
+				t.Fatalf("NotNow: %v", err)
+			}
+			atDesk := route.Line{
+				Time: fixedClock().Unix(), Host: sessionTestHost, Session: id,
+				State: string(protocol.StateWaiting), Route: route.Desk, Reason: "at the desk",
+			}
+			ended := atDesk
+			ended.Route, ended.Reason = route.None, "seen"
+			if got := log.got(); len(got) != 2 || got[0] != atDesk || got[1] != ended {
+				t.Fatalf("lines after NotNow = %+v, want [%+v] then [%+v]", got, atDesk, ended)
+			}
+			wantSeen := []phoneSeen{{key: notice.Key{Session: id}, seen: fixedClock().Unix()}}
+			if got := phone.seenCalls(); !slices.Equal(got, wantSeen) {
+				t.Fatalf("phone seen reports after NotNow = %+v, want %+v", got, wantSeen)
+			}
+
+			if err := m.BringBack(t.Context(), headless); err != nil {
+				t.Fatalf("BringBack: %v", err)
+			}
+			router.Wait()
+			if got := log.got(); len(got) != 2 {
+				t.Fatalf("lines after BringBack = %+v, want no new line", got)
+			}
+			if got := desk.postCount(); got != 1 {
+				t.Fatalf("desk posts after BringBack = %d, want the one from the waiting notice", got)
+			}
+			if got := phone.notifyCount(); got != 0 {
+				t.Fatalf("phone pushes after BringBack = %d, want none", got)
+			}
+			if got := phone.seenCalls(); !slices.Equal(got, wantSeen) {
+				t.Fatalf("phone seen reports after BringBack = %+v, want %+v", got, wantSeen)
+			}
+		},
+	)
+	t.Run("pane NotNow reports the pane seen once and BringBack reports nothing", func(t *testing.T) {
+		t.Parallel()
+		rig := newNotNowRig(t)
+		m, panes := rig.m, rig.panes
+
+		pane := PutOffRequest{Kind: store.PutOffPane, ID: "%4", QuestionHash: "h-ask", Changed: 1_700_000_100}
+		if err := m.NotNow(t.Context(), pane); err != nil {
+			t.Fatalf("NotNow pane: %v", err)
+		}
+		got := panes.seenCalls()
+		if len(got) != 1 || got[0].pane != "%4" || !got[0].seen.Equal(fixedClock()) {
+			t.Fatalf("pane seen calls after NotNow = %+v, want one for %%4 at %v", got, fixedClock())
+		}
+		if err := m.BringBack(t.Context(), pane); err != nil {
+			t.Fatalf("BringBack pane: %v", err)
+		}
+		if got := panes.seenCalls(); len(got) != 1 {
+			t.Fatalf("pane seen calls after BringBack = %+v, want none new", got)
+		}
 	})
-	waiting := waitHistory(t, engineOf(m), path, id, "the waiting state", func(h store.EngineHistory) bool {
-		return h.State == "waiting"
-	})
-	headless := PutOffRequest{Kind: store.PutOffHeadless, ID: id, RequestID: requestIDOf(t, waiting)}
-
-	if err := m.NotNow(t.Context(), headless); err != nil {
-		t.Fatalf("NotNow: %v", err)
-	}
-	atDesk := route.Line{
-		Time: fixedClock().Unix(), Host: sessionTestHost, Session: id,
-		State: string(protocol.StateWaiting), Route: route.Desk, Reason: "at the desk",
-	}
-	ended := atDesk
-	ended.Route, ended.Reason = route.None, "seen"
-	if got := log.got(); len(got) != 2 || got[0] != atDesk || got[1] != ended {
-		t.Fatalf("lines after NotNow = %+v, want [%+v] then [%+v]", got, atDesk, ended)
-	}
-	wantSeen := []phoneSeen{{key: notice.Key{Session: id}, seen: fixedClock().Unix()}}
-	if got := phone.seenCalls(); !slices.Equal(got, wantSeen) {
-		t.Fatalf("phone seen reports after NotNow = %+v, want %+v", got, wantSeen)
-	}
-
-	if err := m.BringBack(t.Context(), headless); err != nil {
-		t.Fatalf("BringBack: %v", err)
-	}
-	router.Wait()
-	if got := log.got(); len(got) != 2 {
-		t.Fatalf("lines after BringBack = %+v, want no new line", got)
-	}
-	if got := desk.postCount(); got != 1 {
-		t.Fatalf("desk posts after BringBack = %d, want the one from the waiting notice", got)
-	}
-	if got := phone.notifyCount(); got != 0 {
-		t.Fatalf("phone pushes after BringBack = %d, want none", got)
-	}
-	if got := phone.seenCalls(); !slices.Equal(got, wantSeen) {
-		t.Fatalf("phone seen reports after BringBack = %+v, want %+v", got, wantSeen)
-	}
-
-	pane := PutOffRequest{Kind: store.PutOffPane, ID: "%4", QuestionHash: "h-ask", Changed: 1_700_000_100}
-	if err := m.NotNow(t.Context(), pane); err != nil {
-		t.Fatalf("NotNow pane: %v", err)
-	}
-	got := panes.seenCalls()
-	if len(got) != 1 || got[0].pane != "%4" || !got[0].seen.Equal(fixedClock()) {
-		t.Fatalf("pane seen calls after NotNow = %+v, want one for %%4 at %v", got, fixedClock())
-	}
-	if err := m.BringBack(t.Context(), pane); err != nil {
-		t.Fatalf("BringBack pane: %v", err)
-	}
-	if got := panes.seenCalls(); len(got) != 1 {
-		t.Fatalf("pane seen calls after BringBack = %+v, want none new", got)
-	}
 }
