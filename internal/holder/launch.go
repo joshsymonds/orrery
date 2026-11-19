@@ -59,6 +59,9 @@ type LaunchConfig struct {
 	// GateTail is the number of newest output bytes the gate keeps in its exit record, as ChildConfig.GateTail takes it.
 	// Zero keeps the holder's default, and it is passed only with a positive GateLimit.
 	GateTail int
+	// GateLimitSignal is the FIFO whose opening for writing reaches the gate's limit, as ChildConfig.GateLimitSignal takes
+	// it. It is a test seam, and the holder is passed it only with a positive GateLimit.
+	GateLimitSignal string
 }
 
 // Launch starts the session's child under orrery holder and returns the child as a Process. When cfg.Scope is set, the
@@ -162,15 +165,19 @@ func launchIn(ctx context.Context, cfg LaunchConfig, orrery, stateDir string, pr
 }
 
 // holderCommand returns the program and argument vector that start the holder: orrery holder, with the session, the
-// state directory, a positive gate limit as --gate-limit with a positive gate tail as --gate-tail, and the child's path
-// and arguments after the separator. When cfg.Scope is set, the program is the scope, named unit, and orrery's argv
-// follows the scope's arguments. The scope caps its memory at cfg.ScopeMemory, or DefaultScopeMemory when that is
-// zero, and swaps none, so the kernel kills a process of the scope that would pass the cap. OOMPolicy=continue keeps
-// the scope, and with it the holder, running past that kill, so the holder records it in the exit record.
+// state directory, a positive gate limit as --gate-limit with a non-empty gate limit signal as --gate-limit-signal and
+// a positive gate tail as --gate-tail, and the child's path and arguments after the separator. When cfg.Scope is set,
+// the program is the scope, named unit, and orrery's argv follows the scope's arguments. The scope caps its memory at
+// cfg.ScopeMemory, or DefaultScopeMemory when that is zero, and swaps none, so the kernel kills a process of the scope
+// that would pass the cap. OOMPolicy=continue keeps the scope, and with it the holder, running past that kill, so the
+// holder records it in the exit record.
 func holderCommand(cfg LaunchConfig, orrery, stateDir, unit string) (string, []string) {
 	argv := []string{"holder", "--session", cfg.Session, "--state-dir", stateDir}
 	if cfg.GateLimit > 0 {
 		argv = append(argv, "--gate-limit", strconv.FormatInt(gateSeconds(cfg.GateLimit), 10))
+		if cfg.GateLimitSignal != "" {
+			argv = append(argv, "--gate-limit-signal", cfg.GateLimitSignal)
+		}
 		if cfg.GateTail > 0 {
 			argv = append(argv, "--gate-tail", strconv.Itoa(cfg.GateTail))
 		}

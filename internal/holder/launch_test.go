@@ -14,6 +14,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/engine/proc"
 	"github.com/joshsymonds/orrery/internal/exectest"
@@ -294,6 +295,45 @@ func TestLaunchScopeRunsTheHolderBehindTheScopeArgs(t *testing.T) {
 	want := append(scopeArgs(scopeUnitArg(t, got)), holderArgv(orreryPath(t), root, child)...)
 	if !slices.Equal(got, want) {
 		t.Fatalf("systemd-run argv %q, want %q", got, want)
+	}
+}
+
+// TestHolderCommandPassesGateLimitSignalAfterGateLimit checks the argv of a gate's holder: the limit signal follows
+// --gate-limit, and is passed only with a positive gate limit.
+func TestHolderCommandPassesGateLimitSignalAfterGateLimit(t *testing.T) {
+	child := proc.Config{Path: "/bin/child", Args: []string{"arg"}}
+	const signal = "/tmp/limit"
+	cases := []struct {
+		name string
+		cfg  LaunchConfig
+		want []string
+	}{
+		{
+			"signal with a limit",
+			LaunchConfig{GateLimit: 30 * time.Second, GateLimitSignal: signal, GateTail: 64, Child: child},
+			[]string{"holder", "--session", testSession, "--state-dir", "/state", "--gate-limit", "30",
+				"--gate-limit-signal", signal, "--gate-tail", "64", "--", "/bin/child", "arg"},
+		},
+		{
+			"signal without a limit",
+			LaunchConfig{GateLimitSignal: signal, Child: child},
+			[]string{"holder", "--session", testSession, "--state-dir", "/state", "--", "/bin/child", "arg"},
+		},
+		{
+			"limit without a signal",
+			LaunchConfig{GateLimit: 30 * time.Second, Child: child},
+			[]string{"holder", "--session", testSession, "--state-dir", "/state", "--gate-limit", "30",
+				"--", "/bin/child", "arg"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.cfg.Session = testSession
+			_, got := holderCommand(tc.cfg, "/orrery", "/state", "")
+			if !slices.Equal(got, tc.want) {
+				t.Fatalf("holder argv %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 
