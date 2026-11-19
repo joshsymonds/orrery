@@ -58,9 +58,9 @@ const answered: Answer = {
 };
 
 export const InboxRow: Stories = {
-  waiting: () => line(waitingRow),
+  "waiting-question": () => line(waitingRow),
   answered: () => line(waitingRow, answered),
   working: () => line(rowOf("pane:halyard:%11")),
-  done: () => line(rowOf("pane:halyard:%13")),
-  session: () => line(rowOf("session:4be0c6d2-8f3a-4c71-9e25-ephemeris001")),
+  unseen: () => line(rowOf("pane:halyard:%13")),
+  "cut-off": () => line(rowOf("session:4be0c6d2-8f3a-4c71-9e25-ephemeris001")),
 };

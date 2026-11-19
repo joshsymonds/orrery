@@ -1,5 +1,6 @@
-// The stories of Composer: the send box under a reader, with its queue above it. Each state draws the queue or the state
-// its props name. Its waiting messages are the fixture pane's, and its session messages are built as a stream holds them.
+// The stories of Dock, drawn by Composer: the send box under a reader, with its queue above it. Each state draws the queue
+// or the state its props name. Its waiting messages are the fixture pane's, and its session messages are built as a
+// stream holds them.
 
 import { create } from "@bufbuild/protobuf";
 
@@ -32,13 +33,13 @@ const base = {
   newPromptId: () => "prompt-story",
 };
 
-export const Composer: Stories = {
-  idle: () => <composer.Composer {...base} state="done" />,
+export const Dock: Stories = {
+  done: () => <composer.Composer {...base} state="done" />,
   working: () => <composer.Composer {...base} state="working" />,
-  "working-queued": () => <composer.Composer {...base} state="working" queued={waiting} />,
+  "pane-queue": () => <composer.Composer {...base} state="working" queued={waiting} />,
   "canceled-queued": () => <composer.Composer {...base} state="working" queued={canceledWaiting} />,
   waiting: () => <composer.Composer {...base} state="waiting" />,
-  "session-queued": () => (
+  "with-queued": () => (
     <composer.Composer
       {...base}
       state="working"
@@ -46,7 +47,7 @@ export const Composer: Stories = {
       withdraw={() => Promise.resolve([])}
     />
   ),
-  "session-undelivered": () => (
+  "queued-cancelled": () => (
     <composer.Composer
       {...base}
       state="done"

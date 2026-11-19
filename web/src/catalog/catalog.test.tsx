@@ -74,7 +74,7 @@ test("Catalog: catalogStories throws on an export that is not a record of functi
 });
 
 test("Catalog: each frame of the story the hash names is an iframe at 1600, 1000 and 412 wide, whose src is that story's own address", async () => {
-  const name = "inbox-row/waiting";
+  const name = "inbox-row/waiting-question";
   await mounted(<CatalogIndex entries={catalogStories(storyModules)} hash={`#${name}`} />, (container) => {
     const frames = Array.from(container.querySelectorAll("iframe"));
     assert.deepEqual(frames.map((frame) => frame.getAttribute("width")), ["1600", "1000", "412"]);
@@ -85,7 +85,7 @@ test("Catalog: each frame of the story the hash names is an iframe at 1600, 1000
 
 test("Catalog: StoryView draws one story alone in #story, and a name the catalog does not hold draws data-story-failure naming it", async () => {
   const entries = catalogStories(storyModules);
-  await mounted(<StoryView entries={entries} name="inbox-row/waiting" />, (container) => {
+  await mounted(<StoryView entries={entries} name="inbox-row/waiting-question" />, (container) => {
     assert.equal(container.querySelectorAll("#story .b-row").length, 1, "the story does not draw one line");
     assertNone(container.querySelector("a[data-story]"), "the index is drawn beside the story");
   });

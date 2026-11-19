@@ -1,6 +1,6 @@
-// The stories of NoticeBanner: the stack of notices a banner shows, one notice, three, and more than three with its
-// "+n more" line. The notices come from applyNotice, the function the app folds its notice stream with, so each is shown
-// as the stream would show it. The banner's open and dismiss handlers do nothing.
+// The stories of Notice, drawn by NoticeBanner: the stack of notices a banner shows, one notice, three, and more than three
+// with its "+n more" line. The notices come from applyNotice, the function the app folds its notice stream with, so each
+// is shown as the stream would show it. The banner's open and dismiss handlers do nothing.
 
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 
@@ -40,8 +40,8 @@ const limited = { key: { limit: "weekly@1794700000" }, state: "limited", title: 
 const finished = { key: { epic: "tidepool/tide-alerts" }, state: "done", title: "tide-alerts", body: "epic integrated" };
 const holder = { key: { epic: "orrery/holder-scopes" }, state: "done", title: "holder-scopes", body: "epic integrated" };
 
-export const NoticeBanner: Stories = {
-  "one-notice": () => <Banner notices={stack(waiting)} onOpen={noop} onDismiss={noop} />,
+export const Notice: Stories = {
+  "asks-you": () => <Banner notices={stack(waiting)} onOpen={noop} onDismiss={noop} />,
   "three-notices": () => <Banner notices={stack(waiting, interrupted, question)} onOpen={noop} onDismiss={noop} />,
   "over-the-limit": () => (
     <Banner notices={stack(waiting, interrupted, question, limited, finished, holder)} onOpen={noop} onDismiss={noop} />

@@ -217,7 +217,7 @@ A story draws one state of a web component. The story catalog shows every story,
 
 A component's stories go in `<file>.stories.tsx` beside its `.tsx`: the stories of `inboxrow.tsx` are in `inboxrow.stories.tsx`. The file exports one `Stories` record (the type in `web/src/catalog/story.ts`) per exported component, named exactly as the component's export, so `export const InboxRow: Stories` holds the states of `InboxRow`. Each key of the record is a state in kebab case, and each value is a function that returns the element for that state.
 
-A story's name is `component/state`. The component part is its export's name in kebab case, so the `waiting` state of `InboxRow` is `inbox-row/waiting`. `kebab` and `storyName` build the name, and `catalogStories` throws when an export is not a record of functions, when a state is not kebab case, or when two stories share a name.
+A story's name is `component/state`. The component part is its export's name in kebab case, so the `working` state of `InboxRow` is `inbox-row/working`. `kebab` and `storyName` build the name, and `catalogStories` throws when an export is not a record of functions, when a state is not kebab case, or when two stories share a name.
 
 Round 6 is the reference the catalog's names follow, so a story's name takes a round-6 name. It is either the kebab form of a `Component` and `State` in `web/src/catalog/round6.json`, so `InboxRow/WaitingQuestion` is `inbox-row/waiting-question`, or `page/<round-6 scenario id>`. A story whose state round 6 has no name for is listed in `web/src/catalog/unnamed.ts`, with its round-6 replacement and the frontend epic (F1 to F6) that draws it. A component whose stories export takes its round-6 name, so the composer's and the step box's stories export `Dock`; its coverage is kept through the table in `web/src/catalog/coverage.ts`. After editing round 6, run `just round6-names` to rewrite `round6.json`.
 
@@ -271,10 +271,10 @@ The index lists every story by name, each name a link to its hash. The hash sele
 - A story that draws its failure element, raises a page error, or has not settled within 10 seconds fails the run with exit 1.
 - An unknown name, or a bad width, exits 1 with a message, and writes no screenshot.
 
-For example, this writes four screenshots: the `waiting` and `answered` states at 1600 and at 412 wide.
+For example, this writes four screenshots: the `waiting-question` and `answered` states at 1600 and at 412 wide.
 
 ```bash
-just shoot inbox-row/waiting inbox-row/answered --width 1600 --width 412
+just shoot inbox-row/waiting-question inbox-row/answered --width 1600 --width 412
 ```
 
 ## Fixtures
