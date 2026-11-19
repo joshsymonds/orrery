@@ -13,7 +13,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -28,7 +27,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import io.github.joshsymonds.orrery.api.EpicDetail
@@ -37,6 +35,8 @@ import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.StepCallResult
 import io.github.joshsymonds.orrery.api.StepRow
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
+import io.github.joshsymonds.orrery.ui.theme.inLabelCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -192,14 +192,14 @@ fun EpicScreen(
             },
         )
         when (current) {
-            EpicLoad.Loading -> Text("Loading...", modifier = Modifier.padding(16.dp))
-            EpicLoad.Failed -> Column(modifier = Modifier.padding(16.dp)) {
-                Text("could not load epic", color = MaterialTheme.colorScheme.error)
+            EpicLoad.Loading -> Text("Loading...", modifier = Modifier.padding(OrreryTokens.Space.sixteen))
+            EpicLoad.Failed -> Column(modifier = Modifier.padding(OrreryTokens.Space.sixteen)) {
+                Text("could not load epic", color = OrreryTokens.Role.bad)
                 TextButton(onClick = { generation++ }) {
                     Text("Retry")
                 }
             }
-            EpicLoad.NotFound -> Text("epic not found", modifier = Modifier.padding(16.dp))
+            EpicLoad.NotFound -> Text("epic not found", modifier = Modifier.padding(OrreryTokens.Space.sixteen))
             is EpicLoad.Loaded -> EpicBody(
                 loaded = current,
                 now = nowAt,
@@ -306,12 +306,12 @@ private fun EpicBody(
             section("summary") {
                 Text(
                     detail.summary.ifEmpty { contract.title },
-                    style = MaterialTheme.typography.titleSmall,
+                    style = OrreryTokens.Type.body,
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("epic-summary")
                         .clickable(onClick = onOpenContract)
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                        .padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.eight),
                 )
             }
         }
@@ -319,8 +319,8 @@ private fun EpicBody(
             if (detail.epic.problem.isNotEmpty()) {
                 Text(
                     detail.epic.problem,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    color = OrreryTokens.Role.bad,
+                    modifier = Modifier.padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.four),
                 )
             }
             NowBlock(
@@ -334,8 +334,8 @@ private fun EpicBody(
             if (notice.isNotEmpty()) {
                 Text(
                     notice,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(horizontal = 16.dp).testTag("epic-notice"),
+                    color = OrreryTokens.Role.bad,
+                    modifier = Modifier.padding(horizontal = OrreryTokens.Space.sixteen).testTag("epic-notice"),
                 )
             }
         }
@@ -351,7 +351,7 @@ private fun EpicBody(
             Orrery(
                 wedges = wedges,
                 arcs = arcs,
-                modifier = Modifier.fillMaxWidth().aspectRatio(1f).padding(horizontal = 16.dp),
+                modifier = Modifier.fillMaxWidth().aspectRatio(1f).padding(horizontal = OrreryTokens.Space.sixteen),
                 onOpenPhase = onOpenPhase,
             )
             NowRows(wedges = wedges, now = now, onOpenPhase = onOpenPhase)
@@ -405,8 +405,13 @@ private fun LazyListScope.section(name: String, content: @Composable ColumnScope
 @Composable
 private fun SectionHeading(title: String) {
     Text(
-        title,
-        style = MaterialTheme.typography.titleSmall,
-        modifier = Modifier.padding(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 4.dp),
+        title.inLabelCase(),
+        style = OrreryTokens.Type.label,
+        modifier = Modifier.padding(
+            start = OrreryTokens.Space.sixteen,
+            top = OrreryTokens.Space.twelve,
+            end = OrreryTokens.Space.sixteen,
+            bottom = OrreryTokens.Space.four,
+        ),
     )
 }

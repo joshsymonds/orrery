@@ -24,7 +24,7 @@ import io.github.joshsymonds.orrery.api.EvidenceRunRow
 import io.github.joshsymonds.orrery.api.StepCheckRow
 import io.github.joshsymonds.orrery.api.StepRow
 import io.github.joshsymonds.orrery.mainThreadComposeRule
-import io.github.joshsymonds.orrery.ui.theme.Mocha
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -146,7 +146,7 @@ class EpicHappeningsTest {
             MaterialTheme { NowRows(wedges = wedges, now = NOW) }
         }
 
-        composeRule.onNodeWithText("Now").assertIsDisplayed()
+        composeRule.onNodeWithText("NOW").assertIsDisplayed()
         composeRule.onNodeWithTag("now-row:0").assertTextEquals("b1 · implementing · 1 min")
         composeRule.onNodeWithTag("now-row:1").assertTextEquals("b2 · checking · 2 h 5 min")
         composeRule.onNodeWithTag("now-row:2").assertTextEquals("b7 · reviewing")
@@ -163,8 +163,8 @@ class EpicHappeningsTest {
             MaterialTheme { NowRows(wedges = wedges, now = NOW) }
         }
 
-        assertEquals(listOf(Mocha.Yellow), colourSpansOf("now-row:0"))
-        assertEquals(listOf(Mocha.Peach), colourSpansOf("now-row:1"))
+        assertEquals(listOf(OrreryTokens.Role.live), colourSpansOf("now-row:0"))
+        assertEquals(listOf(OrreryTokens.Role.attention), colourSpansOf("now-row:1"))
     }
 
     @Test
@@ -198,7 +198,7 @@ class EpicHappeningsTest {
             MaterialTheme { NextRows(wedges = wedges) }
         }
 
-        composeRule.onNodeWithText("Next").assertIsDisplayed()
+        composeRule.onNodeWithText("NEXT").assertIsDisplayed()
         composeRule.onNodeWithTag("next-row:0").assertTextEquals("n1 · first")
         composeRule.onNodeWithTag("next-row:1").assertTextEquals("n2 · second")
         assertTrue(composeRule.onAllNodesWithTag("next-row:2").fetchSemanticsNodes().isEmpty())
@@ -269,7 +269,7 @@ class EpicHappeningsTest {
             MaterialTheme { JustHappened(entries = entries, steps = emptyList(), onOpenStep = {}) }
         }
 
-        composeRule.onNodeWithText("Just happened").assertIsDisplayed()
+        composeRule.onNodeWithText("JUST HAPPENED").assertIsDisplayed()
         composeRule.onNodeWithTag("happened:0").assertTextEquals("22:17", "build one is in")
         composeRule.onNodeWithTag("happened:1").assertTextEquals("22:16", "decision · use the table")
         composeRule.onNodeWithTag("happened:2").assertTextEquals("22:15", "b1 · done")

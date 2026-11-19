@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.Button
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -16,8 +15,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.unit.dp
 import io.github.joshsymonds.orrery.api.EpicQuestionRow
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 
 /**
  * The one live sentence of an epic: the task and phase of its first running wedge, and the summary of that phase's
@@ -44,7 +43,7 @@ fun NowBlock(
     onRetry: () -> Unit,
     onStop: () -> Unit,
 ) {
-    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight)) {
         if (sentence.isNotEmpty()) {
             Text(sentence, modifier = Modifier.testTag("now-sentence"))
         }
@@ -53,7 +52,7 @@ fun NowBlock(
                 AnswerForm(blocker.question, onAnswer = onAnswer)
             }
             is EpicBlocker.Parked -> {
-                Text(blocker.text, color = MaterialTheme.colorScheme.error)
+                Text(blocker.text, color = OrreryTokens.Role.bad)
                 TextButton(onClick = onRetry, modifier = Modifier.testTag("blocker-retry")) {
                     Text("Retry")
                 }
@@ -105,6 +104,6 @@ internal fun AnswerForm(
         Text("Answer")
     }
     if (error.isNotEmpty()) {
-        Text(error, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("blocker-error"))
+        Text(error, color = OrreryTokens.Role.bad, modifier = Modifier.testTag("blocker-error"))
     }
 }

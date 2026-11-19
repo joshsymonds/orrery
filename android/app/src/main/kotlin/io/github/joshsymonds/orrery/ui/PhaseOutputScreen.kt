@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -28,15 +27,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.unit.dp
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.StepCallResult
 import io.github.joshsymonds.orrery.api.StepRow
 import io.github.joshsymonds.orrery.api.TaskReviewRow
 import io.github.joshsymonds.orrery.ui.theme.Move
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import io.github.joshsymonds.orrery.ui.theme.animationsOn
+import io.github.joshsymonds.orrery.ui.theme.inLabelCase
 import io.github.joshsymonds.orrery.ui.theme.spec
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
@@ -106,14 +105,14 @@ fun PhaseOutputScreen(
         Column(modifier = modifier.fillMaxSize()) {
             TitleRow(crumbs = crumbsOf(epic, task, phase, onGoHome, onBack), onBack = onBack)
             when {
-                current == null -> Text("Loading...", modifier = Modifier.padding(16.dp))
-                current.isFailure -> Column(modifier = Modifier.padding(16.dp)) {
-                    Text("could not load epic", color = MaterialTheme.colorScheme.error)
+                current == null -> Text("Loading...", modifier = Modifier.padding(OrreryTokens.Space.sixteen))
+                current.isFailure -> Column(modifier = Modifier.padding(OrreryTokens.Space.sixteen)) {
+                    Text("could not load epic", color = OrreryTokens.Role.bad)
                     TextButton(onClick = { generation++ }) {
                         Text("Retry")
                     }
                 }
-                else -> Text("epic not found", modifier = Modifier.padding(16.dp))
+                else -> Text("epic not found", modifier = Modifier.padding(OrreryTokens.Space.sixteen))
             }
         }
     }
@@ -185,12 +184,12 @@ internal fun PhaseOutputBody(
                 }
             },
         )
-        outcome?.let { Text(it, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) }
+        outcome?.let { Text(it, modifier = Modifier.padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.four)) }
         if (output == null) {
-            Text("task not found", modifier = Modifier.padding(16.dp))
+            Text("task not found", modifier = Modifier.padding(OrreryTokens.Space.sixteen))
         } else {
             Column(modifier = Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState())) {
-                Text(output.title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(16.dp))
+                Text(output.title, style = OrreryTokens.Type.title, modifier = Modifier.padding(OrreryTokens.Space.sixteen))
                 output.rows.forEach { row ->
                     PhaseRowView(
                         row = row,
@@ -234,12 +233,12 @@ private fun PhaseRowView(
                 .testTag("phase-row:${row.phase.word}")
                 .fillMaxWidth()
                 .then(if (canOpen) Modifier.clickable(onClick = onOpen) else Modifier)
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                .padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.eight),
+            horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(row.phase.word, style = MaterialTheme.typography.titleSmall)
-            Text(row.summary, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+            Text(row.phase.word, style = OrreryTokens.Type.body)
+            Text(row.summary, modifier = Modifier.weight(1f), style = OrreryTokens.Type.small)
             if (session != null) {
                 TextButton(onClick = { onOpenSession(session) }, modifier = Modifier.testTag("open-session")) {
                     Text("Open the session ›")
@@ -247,7 +246,13 @@ private fun PhaseRowView(
             }
         }
         val content: @Composable () -> Unit = {
-            Column(modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 8.dp)) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(
+                    start = OrreryTokens.Space.sixteen,
+                    end = OrreryTokens.Space.sixteen,
+                    bottom = OrreryTokens.Space.eight,
+                ),
+            ) {
                 body()
             }
         }
@@ -272,7 +277,7 @@ private fun PhaseRowView(
 private fun PhaseBody(output: PhaseOutput, phase: Phase, loadArtifact: ArtifactLoader) {
     Column(
         modifier = Modifier.fillMaxWidth().testTag("phase-body:${phase.word}"),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(OrreryTokens.Space.four),
     ) {
         when (phase) {
             Phase.IMPLEMENTING -> {
@@ -283,7 +288,7 @@ private fun PhaseBody(output: PhaseOutput, phase: Phase, loadArtifact: ArtifactL
             Phase.REVIEWING -> {
                 output.reviews.forEach { review -> ReviewView(review) }
                 output.reviewers.forEach { reviewer ->
-                    if (reviewer.summary.isNotEmpty()) Text(reviewer.summary, style = MaterialTheme.typography.bodySmall)
+                    if (reviewer.summary.isNotEmpty()) Text(reviewer.summary, style = OrreryTokens.Type.body)
                 }
             }
             Phase.INTEGRATING -> Text(if (output.integrated) "integrated" else "waits to integrate")
@@ -295,51 +300,51 @@ private fun PhaseBody(output: PhaseOutput, phase: Phase, loadArtifact: ArtifactL
 @Composable
 private fun AttemptView(attempt: Attempt) {
     if (attempt.end.isEmpty()) {
-        if (attempt.doing.isNotEmpty()) Text(attempt.doing, style = MaterialTheme.typography.bodySmall)
+        if (attempt.doing.isNotEmpty()) Text(attempt.doing, style = OrreryTokens.Type.small)
         return
     }
-    Text(attempt.end, style = MaterialTheme.typography.labelSmall)
+    Text(attempt.end.inLabelCase(), style = OrreryTokens.Type.label)
     val note = attempt.reason.ifEmpty { attempt.summary }
-    if (note.isNotEmpty()) Text(note, style = MaterialTheme.typography.bodySmall)
+    if (note.isNotEmpty()) Text(note, style = OrreryTokens.Type.body)
 }
 
 // A check round: the stages that ran, each check with its mark and a failed check's detail, the gate with its result,
 // detail and tails, and the judge's verdict with its reason.
 @Composable
 private fun RoundView(round: CheckRound) {
-    Text("round ${round.round}", style = MaterialTheme.typography.labelLarge)
-    Text("ran ${round.ran.joinToString(", ")}", style = MaterialTheme.typography.labelSmall)
+    Text("round ${round.round}".inLabelCase(), style = OrreryTokens.Type.label)
+    Text("ran ${round.ran.joinToString(", ")}", style = OrreryTokens.Type.small)
     round.checks.forEach { check ->
-        Text("${mark(check.ok)} ${check.name}", style = MaterialTheme.typography.bodySmall)
-        if (!check.ok && check.detail.isNotEmpty()) Text(check.detail, style = MaterialTheme.typography.bodySmall)
+        Text("${mark(check.ok)} ${check.name}", style = OrreryTokens.Type.small)
+        if (!check.ok && check.detail.isNotEmpty()) Text(check.detail, style = OrreryTokens.Type.small)
     }
     round.gate?.let { gate ->
-        Text("${mark(gate.ok)} gate ${gate.name}", style = MaterialTheme.typography.bodySmall)
-        if (gate.detail.isNotEmpty()) Text(gate.detail, style = MaterialTheme.typography.bodySmall)
+        Text("${mark(gate.ok)} gate ${gate.name}", style = OrreryTokens.Type.small)
+        if (gate.detail.isNotEmpty()) Text(gate.detail, style = OrreryTokens.Type.small)
         if (gate.stdout.isNotEmpty()) {
-            Text(gate.stdout, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+            Text(gate.stdout, style = OrreryTokens.Type.small)
         }
         if (gate.stderr.isNotEmpty()) {
-            Text(gate.stderr, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+            Text(gate.stderr, style = OrreryTokens.Type.small)
         }
     }
     round.judge?.let { judge ->
-        Text("judge ${judge.verdict}", style = MaterialTheme.typography.bodySmall)
-        if (judge.reason.isNotEmpty()) Text(judge.reason, style = MaterialTheme.typography.bodySmall)
+        Text("judge ${judge.verdict}", style = OrreryTokens.Type.small)
+        if (judge.reason.isNotEmpty()) Text(judge.reason, style = OrreryTokens.Type.body)
     }
 }
 
 // A review: its attempt, gate and verdict, then each finding's claim, location, result and reason.
 @Composable
 private fun ReviewView(review: TaskReviewRow) {
-    Text("attempt ${review.attempt}", style = MaterialTheme.typography.labelLarge)
-    Text("gate ${review.gate}", style = MaterialTheme.typography.labelSmall)
-    Text("verdict ${review.verdict}", style = MaterialTheme.typography.bodySmall)
+    Text("attempt ${review.attempt}".inLabelCase(), style = OrreryTokens.Type.label)
+    Text("gate ${review.gate}", style = OrreryTokens.Type.small)
+    Text("verdict ${review.verdict}", style = OrreryTokens.Type.small)
     review.findings.forEach { finding ->
-        Text(finding.claim, style = MaterialTheme.typography.bodySmall)
-        Text(finding.location, style = MaterialTheme.typography.labelSmall)
-        Text(finding.result, style = MaterialTheme.typography.labelSmall)
-        if (finding.reason.isNotEmpty()) Text(finding.reason, style = MaterialTheme.typography.bodySmall)
+        Text(finding.claim, style = OrreryTokens.Type.body)
+        Text(finding.location, style = OrreryTokens.Type.small)
+        Text(finding.result, style = OrreryTokens.Type.small)
+        if (finding.reason.isNotEmpty()) Text(finding.reason, style = OrreryTokens.Type.body)
     }
 }
 
