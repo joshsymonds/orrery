@@ -56,7 +56,7 @@ func TestEpicReadsItsTurnsTasksAndQuestions(t *testing.T) {
 				Capture: []string{"scripts/check"}, Limit: 1800, Artifacts: []string{"out/report.txt"},
 				Conclusion: "the store keeps the plan", Judge: "the store judge",
 			},
-			Status: "open",
+			Status: "open", Version: 1,
 		},
 		{
 			Seq: 2, Turn: 1, Title: "Read the store", Deliverable: "Reads see the plan",
@@ -64,7 +64,7 @@ func TestEpicReadsItsTurnsTasksAndQuestions(t *testing.T) {
 			Evidence: evidence.Item{
 				Supplied: []string{"docs/read.md"}, Conclusion: "reads see the plan", Judge: "the read judge",
 			},
-			Status: "open",
+			Status: "open", Version: 1,
 		},
 	}
 	want.Questions = []EpicQuestion{openStored(plannedTurn().Questions[0], 1, 1)}

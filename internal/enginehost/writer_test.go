@@ -63,12 +63,12 @@ func (a *recordingApplier) waitCalls(t *testing.T, n int) {
 	}
 }
 
-// openStore opens a store in a temp dir and closes it when the test ends.
-func openStore(t *testing.T) (*store.Store, string) {
+// openStore opens a store in a temp dir, with opts after storetest.NoSync, and closes it when the test ends.
+func openStore(t *testing.T, opts ...store.Option) (*store.Store, string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	storetest.Seed(t, path)
-	s, err := store.Open(t.Context(), path, storetest.NoSync())
+	s, err := store.Open(t.Context(), path, append([]store.Option{storetest.NoSync()}, opts...)...)
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}
@@ -271,7 +271,8 @@ func TestEngineTextAfterItsDoneIsNotCoalescedIntoIt(t *testing.T) {
 
 func TestPutBlocksAtLimitWhileStoreIsLockedAndStoresEveryOpOnce(t *testing.T) {
 	t.Parallel()
-	s, path := openStore(t)
+	// A busy timeout of 0 fails each locked flush at once, so the test waits out no timeout.
+	s, path := openStore(t, store.WithBusyTimeout(0))
 	addSessions(t, s, "a", "b")
 	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
 	w := NewWriter(WriterConfig{Applier: applier, Tick: 5 * time.Millisecond, Limit: 3})
@@ -373,7 +374,8 @@ func TestPutAndCommitAfterRunStopsReturnErrWriterStopped(t *testing.T) {
 
 func TestPutBlockedAtLimitReturnsErrWriterStoppedWhenRunStops(t *testing.T) {
 	t.Parallel()
-	s, path := openStore(t)
+	// A busy timeout of 0 fails each locked flush at once, so the test waits out no timeout.
+	s, path := openStore(t, store.WithBusyTimeout(0))
 	addSessions(t, s, "a")
 	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
 	w := NewWriter(WriterConfig{Applier: applier, Tick: 5 * time.Millisecond, Limit: 1})

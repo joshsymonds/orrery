@@ -16,6 +16,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/agents"
 	"github.com/joshsymonds/orrery/internal/enginehost"
+	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -26,6 +27,7 @@ type Store interface {
 	SetTurnStep(ctx context.Context, epic string, turn int64, step string) error
 	TurnStopped(ctx context.Context, epic string, seq int64) (bool, error)
 	Epic(ctx context.Context, id string) (store.EpicRow, error)
+	EpicReview(ctx context.Context, epic string) (store.Review, error)
 	TurnTriggers(ctx context.Context, epic string, turn int64) ([]store.EpicTrigger, error)
 	CompleteTurn(ctx context.Context, epic string, turn int64, plan store.EpicPlan, at time.Time) error
 	PendingActions(ctx context.Context) ([]store.PlannerAction, error)
@@ -48,7 +50,8 @@ type Steps interface {
 // Config configures a Runner. A Tick that is not positive means five seconds, and a nil Now means time.Now. A nil
 // Logger discards. Resolve answers whether the gates and judges of a planned task resolve for its epic. NewTimer arms a
 // timer that sends on its channel once, after a duration, and returns the timer's stop; a nil NewTimer wraps
-// time.NewTimer.
+// time.NewTimer. After returns the channel a record of a turn's step that the store refused as busy waits on before it
+// is tried again, and nil is time.After.
 type Config struct {
 	Store    Store
 	Steps    Steps
@@ -58,7 +61,11 @@ type Config struct {
 	Logger   *slog.Logger
 	Resolve  Resolver
 	NewTimer func(time.Duration) (<-chan time.Time, func() bool)
+	After    func(time.Duration) <-chan time.Time
 }
+
+// stepRecordRetry is how long after the store refuses the record of a turn's step as busy the record is tried again.
+const stepRecordRetry = time.Second
 
 // defaultTick is how often a Runner passes when its Config names no positive tick.
 const defaultTick = 5 * time.Second
@@ -99,6 +106,7 @@ type Runner struct {
 	agent    func() (string, error)
 	tick     time.Duration
 	now      func() time.Time
+	after    func(time.Duration) <-chan time.Time
 	logger   *slog.Logger
 	resolve  Resolver
 	newTimer func(time.Duration) (<-chan time.Time, func() bool)
@@ -108,8 +116,8 @@ type Runner struct {
 // New returns a Runner for cfg.
 func New(cfg Config) *Runner {
 	runner := &Runner{
-		store: cfg.Store, steps: cfg.Steps, agent: cfg.Agent, tick: cfg.Tick, now: cfg.Now, logger: cfg.Logger,
-		resolve: cfg.Resolve, newTimer: cfg.NewTimer,
+		store: cfg.Store, steps: cfg.Steps, agent: cfg.Agent, tick: cfg.Tick, now: cfg.Now, after: cfg.After,
+		logger: cfg.Logger, resolve: cfg.Resolve, newTimer: cfg.NewTimer,
 	}
 	if runner.tick <= 0 {
 		runner.tick = defaultTick
@@ -122,6 +130,9 @@ func New(cfg Config) *Runner {
 			timer := time.NewTimer(d)
 			return timer.C, timer.Stop
 		}
+	}
+	if runner.after == nil {
+		runner.after = time.After
 	}
 	if runner.logger == nil {
 		runner.logger = slog.New(slog.DiscardHandler)
@@ -277,12 +288,16 @@ func turnStepID(epic string, seq int64) string {
 }
 
 // startStep reads the claimed turn's epic and triggers and starts its read-only planner step under turnStepID. It
-// returns the step's id. A start that returns an id with an error still has its id recorded on the turn, and a step
-// whose turn was flagged to stop before it had one is stopped as soon as its id is recorded.
+// returns the step's id. A start that returns an id with an error still has its id recorded on the turn (see
+// recordStep), and a step whose turn was flagged to stop before it had one is stopped as soon as its id is recorded.
 func (r *Runner) startStep(ctx context.Context, epic string, turn store.EpicTurn, agent string) (string, error) {
 	row, err := r.store.Epic(ctx, epic)
 	if err != nil {
 		return "", fmt.Errorf("read epic %s: %w", epic, err)
+	}
+	review, err := r.store.EpicReview(ctx, epic)
+	if err != nil {
+		return "", fmt.Errorf("read review of epic %s: %w", epic, err)
 	}
 	triggers, err := r.store.TurnTriggers(ctx, epic, turn.Seq)
 	if err != nil {
@@ -292,7 +307,11 @@ func (r *Runner) startStep(ctx context.Context, epic string, turn store.EpicTurn
 	if err != nil {
 		return "", fmt.Errorf("read advice follows: %w", err)
 	}
-	prompt, err := Prompt(row, turn.Seq, triggers, follows)
+	spent, err := spentLines(ctx, r.store, row, triggers)
+	if err != nil {
+		return "", fmt.Errorf("read the spent lines of turn %d of epic %s: %w", turn.Seq, epic, err)
+	}
+	prompt, err := Prompt(row, turn.Seq, triggers, follows, spent)
 	if err != nil {
 		return "", fmt.Errorf("render prompt of turn %d of epic %s: %w", turn.Seq, epic, err)
 	}
@@ -304,10 +323,10 @@ func (r *Runner) startStep(ctx context.Context, epic string, turn store.EpicTurn
 		Workspace:   row.Repository,
 		ReadOnly:    true,
 		Epic:        row.ID,
-		ReturnCheck: returnCheck(ctx, row, r.resolve),
+		ReturnCheck: returnCheck(ctx, row, review, r.resolve, spent),
 	})
 	if id != "" {
-		if setErr := r.store.SetTurnStep(ctx, epic, turn.Seq, id); setErr != nil {
+		if setErr := r.recordStep(ctx, epic, turn.Seq, id); setErr != nil {
 			r.logger.ErrorContext(ctx, "record step of planner turn",
 				"epic", epic, "turn", turn.Seq, "step", id, "err", setErr)
 		} else {
@@ -318,6 +337,26 @@ func (r *Runner) startStep(ctx context.Context, epic string, turn store.EpicTurn
 		return id, fmt.Errorf("start planner step: %w", err)
 	}
 	return id, nil
+}
+
+// recordStep records step id on turn seq of epic. A record the store refuses as busy is tried again stepRecordRetry
+// later, until it lands or ctx ends: a turn whose step is unrecorded keeps its epic's planner waiting until a restart,
+// and a stop of the turn finds no step to stop. It returns the error of the last try.
+func (r *Runner) recordStep(ctx context.Context, epic string, seq int64, id string) error {
+	for {
+		err := r.store.SetTurnStep(ctx, epic, seq, id)
+		if err == nil {
+			return nil
+		}
+		if !store.Busy(err) || ctx.Err() != nil {
+			return fmt.Errorf("record step %s: %w", id, err)
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("record step %s: %w", id, err)
+		case <-r.after(stepRecordRetry):
+		}
+	}
 }
 
 // stopIfFlagged stops step id when turn seq of epic was flagged to stop while it had no step. A read or stop error is
@@ -407,11 +446,11 @@ func (r *Runner) restart(ctx context.Context, turn store.EpicTurn) {
 	go r.resume(ctx, turn.Epic, turn.Seq, id)
 }
 
-// recordFound records step id on turn seq of epic, a turn with no recorded step whose step was found under its derived
-// id. An open step is stopped when the turn was flagged to stop, as a step started before its id was recorded is. It
+// recordFound records step id on turn seq of epic (see recordStep), a turn with no recorded step whose step was found
+// under its derived id. An open step is stopped when the turn was flagged to stop, as a step started before its id was recorded is. It
 // reports false, after logging, when the step is not recorded; the turn then stays running for the next start.
 func (r *Runner) recordFound(ctx context.Context, epic string, seq int64, id string, row store.StepRow) bool {
-	if err := r.store.SetTurnStep(ctx, epic, seq, id); err != nil {
+	if err := r.recordStep(ctx, epic, seq, id); err != nil {
 		r.logger.ErrorContext(ctx, "record step of running planner turn",
 			"epic", epic, "turn", seq, "step", id, "err", err)
 		return false
@@ -720,7 +759,7 @@ func planOf(ret Return) store.EpicPlan {
 func questionInputOf(question Question) store.EpicQuestionInput {
 	choices := make([]store.EpicChoice, 0, len(question.Choices))
 	for _, choice := range question.Choices {
-		choices = append(choices, store.EpicChoice{ID: choice.ID, Does: choice.Does})
+		choices = append(choices, store.EpicChoice{ID: choice.ID, Does: choice.Does, Closes: closesOf(choice.Closes)})
 	}
 	why := question.Why
 	if why != "" {
@@ -735,14 +774,23 @@ func questionInputOf(question Question) store.EpicQuestionInput {
 // returnCheck returns the check a planner step's return runs for epic. A return that does not parse is one line.
 // Any other return gets the refusals of Check, against the epic's Requirement ids, the files of its open tasks, and the
 // gates and judges that resolve answers for epic, then the refusals of Coverage against the epic's tasks, then those of
-// checkAmendKeeps against the epic's Requirements, then those of checkClosureTasks against the epic's phase. When epic
-// holds a planner-class park, a return with no action and no question gets one more line from checkPark, which names
-// the park reason. An owner park is not checked, since the owner answers it. The gate resolves under ctx without its
-// cancellation, so the turn that started the step ending does not refuse its return.
-func returnCheck(ctx context.Context, epic store.EpicRow, resolve Resolver) func(value json.RawMessage) []string {
+// checkAmendKeeps against the epic's Requirements, then those of checkClosureTasks against the epic's phase, then those
+// of checkCloses against the epic's phase and the findings of review that the next closure round checks, then those of
+// checkSpentLines against spent, the lines of failed tasks the turn may not try again. When epic holds a planner-class
+// park, a return with no action and no question gets one more line from checkPark, which names the park reason. An
+// owner park is not checked, since the owner answers it. The gate resolves under ctx without its cancellation, so the
+// turn that started the step ending does not refuse its return.
+func returnCheck(
+	ctx context.Context, epic store.EpicRow, review store.Review, resolve Resolver, spent []SpentLine,
+) func(value json.RawMessage) []string {
 	requirements := make([]string, 0, len(epic.Requirements))
 	for _, requirement := range epic.Requirements {
 		requirements = append(requirements, requirement.ID)
+	}
+	findings := kinds.OpenFindings(review, int64(len(review.Rounds))+1)
+	open := make([]string, 0, len(findings))
+	for _, finding := range findings {
+		open = append(open, finding.ID)
 	}
 	owned := openFiles(epic.Tasks)
 	park := ""
@@ -760,6 +808,8 @@ func returnCheck(ctx context.Context, epic store.EpicRow, resolve Resolver) func
 		refusals := append(Check(ret, requirements, owned, gate, judge), Coverage(ret, requirements, epic.Tasks)...)
 		refusals = append(refusals, checkAmendKeeps(ret, epic.Requirements)...)
 		refusals = append(refusals, checkClosureTasks(ret, epic.Phase)...)
+		refusals = append(refusals, checkCloses(ret, epic.Phase, open)...)
+		refusals = append(refusals, checkSpentLines(ret, spent, epic.Tasks)...)
 		return append(refusals, checkPark(ret, park)...)
 	}
 }

@@ -425,6 +425,7 @@ type EpicTask struct {
 	Decisions   int64
 	AfterTasks  string
 	Question    int64
+	GateChanges string
 }
 
 type EpicTaskContribute struct {
@@ -481,6 +482,26 @@ type EpicTaskTestChange struct {
 	Task     int64
 	Position int64
 	Path     string
+}
+
+type EpicTaskVersion struct {
+	Epic        string
+	Task        int64
+	Version     int64
+	Source      string
+	Decision    string
+	Step        string
+	Reason      string
+	Deliverable sql.NullString
+	Files       sql.NullString
+	TestChanges sql.NullString
+	Gate        sql.NullString
+	Evidence    sql.NullString
+	State       string
+	RedRun      string
+	Refusal     string
+	Created     int64
+	Settled     int64
 }
 
 type EpicTell struct {
@@ -668,6 +689,13 @@ type PushedNotice struct {
 	Pane    string
 	Session string
 	Time    int64
+}
+
+type PutOffQuestion struct {
+	Kind      string
+	SessionID string
+	Question  string
+	PutOffAt  int64
 }
 
 type Session struct {

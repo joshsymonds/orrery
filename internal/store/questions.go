@@ -58,10 +58,13 @@ const (
 	metAtBaseConfidence = "medium"
 )
 
-// EpicChoice is one declared choice of a question: its id and what choosing it does.
+// EpicChoice is one declared choice of a question: its id, what choosing it does, and the ids of the confirmed ledger
+// findings that choosing it settles with no code change. The closure round closes each finding the answered choice of
+// a question closes, citing the answer, and starts no verifier for it.
 type EpicChoice struct {
-	ID   string `json:"id"`
-	Does string `json:"does"`
+	ID     string   `json:"id"`
+	Does   string   `json:"does"`
+	Closes []string `json:"closes,omitempty"`
 }
 
 // EpicQuestionInput is one question of a planner return: its label, its text, its declared choices, the choice it
@@ -84,9 +87,9 @@ var kebabLabel = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
 // QuestionRefusals returns the rules question breaks, one `field: reason` line per broken rule, in the order the rules
 // are stated here, and none when question passes. A question passes when its label is kebab-case and not park, its text
-// is not empty, it declares at least two choices, each with an id that is not empty, other or named twice and a does
-// that is not empty, it recommends one of its choices with a why that is not empty, its confidence is low, medium or
-// high, and its replaces is "" or Q<n> with n >= 1.
+// is not empty, it declares at least two choices, each with an id that is not empty, other or named twice, a does that
+// is not empty, and closes that names no id empty or twice and each id in its does, it recommends one of its choices
+// with a why that is not empty, its confidence is low, medium or high, and its replaces is "" or Q<n> with n >= 1.
 func QuestionRefusals(question EpicQuestionInput) []string {
 	var refusals []string
 	switch {
@@ -123,7 +126,7 @@ func QuestionRefusals(question EpicQuestionInput) []string {
 }
 
 // choiceRefusals returns the refusals of the declared choices, each named by its position: an id that is empty, other
-// or named twice, and an empty does.
+// or named twice, an empty does, then the refusals of its closes (closesRefusals).
 func choiceRefusals(choices []EpicChoice) []string {
 	var refusals []string
 	ids := make(map[string]bool, len(choices))
@@ -140,6 +143,27 @@ func choiceRefusals(choices []EpicChoice) []string {
 		if choice.Does == "" {
 			refusals = append(refusals, fmt.Sprintf("choices[%d].does: empty", i))
 		}
+		refusals = append(refusals, closesRefusals(i, choice)...)
+	}
+	return refusals
+}
+
+// closesRefusals returns the refusals of the closes of choice, the choice at position i, each named by its position in
+// closes: an id that is empty, one named twice, and one its does does not name. A choice that closes a finding says so
+// in its does, so an owner who reads only does sees every finding that choosing it closes.
+func closesRefusals(i int, choice EpicChoice) []string {
+	var refusals []string
+	named := make(map[string]bool, len(choice.Closes))
+	for j, finding := range choice.Closes {
+		switch {
+		case finding == "":
+			refusals = append(refusals, fmt.Sprintf("choices[%d].closes[%d]: empty", i, j))
+		case named[finding]:
+			refusals = append(refusals, fmt.Sprintf("choices[%d].closes[%d]: named twice", i, j))
+		case !strings.Contains(choice.Does, finding):
+			refusals = append(refusals, fmt.Sprintf("choices[%d].closes[%d]: %s is not named in does", i, j, finding))
+		}
+		named[finding] = true
 	}
 	return refusals
 }

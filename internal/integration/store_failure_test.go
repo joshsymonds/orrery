@@ -10,6 +10,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 	"github.com/joshsymonds/orrery/internal/storetest"
 )
 
@@ -21,6 +22,9 @@ const storeOpenLog = `msg="store open"`
 
 // mirrorDroppedLog is the message orreryd logs when a store write is dropped.
 const mirrorDroppedLog = "mirror sync dropped"
+
+// mirrorBusyLog is the reason orreryd logs when it defers a mirror sync or tidy whose store write failed busy.
+const mirrorBusyLog = `reason="store busy"`
 
 // corruptStoreBytes is not a SQLite database. A store file holding it must stay byte-identical.
 const corruptStoreBytes = "this is not a sqlite database, it is plain text kept for the test\n"
@@ -40,6 +44,18 @@ func (f *storeFixture) assertHooksStillReach(t *testing.T) {
 
 	f.hook(t, f.stopHook())
 	requireOption(t, f.client, f.pane, protocol.OptionState, string(protocol.StateDone))
+}
+
+// lockedDrop returns the first line of stderr that logs a mirror sync dropped because the store was locked, or "" when
+// none does. A sync whose tmux read the shutdown ends is dropped for another reason, which this does not count: the
+// next start's tidy repairs that pane, and the locked store is what the write-locked tests are about.
+func lockedDrop(stderr string) string {
+	for line := range strings.SplitSeq(stderr, "\n") {
+		if strings.Contains(line, mirrorDroppedLog) && strings.Contains(line, "SQLITE_BUSY") {
+			return line
+		}
+	}
+	return ""
 }
 
 // prepareStore creates a migrated store at path and closes it.
@@ -166,23 +182,34 @@ func TestOrrerydServesHooksWithWriteLockedStore(t *testing.T) {
 	t.Parallel()
 	f := newStoreFixture(t)
 	prepareStore(t, f.dbPath)
-	daemon := f.startOrreryd(t)
+	// A busy timeout of 0 fails each locked write at once, so the test waits out no timeout.
+	daemon := f.startOrreryd(t, "--store-busy-timeout", "0s")
 	// The lock is taken once orreryd has opened the store. Taken during the open, it would make the open fail.
 	daemon.waitForStoreOpen(t)
 	release := holdWriteLock(t, f.dbPath)
 
 	f.assertHooksStillReach(t)
 
-	// The lock is released once a sync it failed has been logged, and orreryd stops after that, so its stop writes
-	// the notice rows to an unlocked store instead of waiting out each write's bound against the lock.
-	waitUntil(t, func() bool { return strings.Contains(daemon.stderr.String(), mirrorDroppedLog) })
+	// The lock is released once a sync it refused has been logged as deferred, and orreryd stops after that, so its stop
+	// reruns the deferred sync, and writes the notice rows, to an unlocked store.
+	waitUntil(t, func() bool { return strings.Contains(daemon.stderr.String(), mirrorBusyLog) })
 	release()
 	out := daemon.stop(t)
 	wantExit(t, out, 0)
-	if !strings.Contains(out.stderr, mirrorDroppedLog) {
-		t.Fatalf("stderr %q, want the locked write logged as dropped", out.stderr)
+	if !strings.Contains(out.stderr, mirrorBusyLog) {
+		t.Fatalf("stderr %q, want the locked write logged as deferred", out.stderr)
+	}
+	if line := lockedDrop(out.stderr); line != "" {
+		t.Fatalf("stderr logs a locked write dropped: %q, want it deferred", line)
 	}
 	if strings.Contains(out.stderr, storeUnavailableLog) {
 		t.Fatalf("stderr %q: the migrated store should open", out.stderr)
+	}
+	rows, err := sqlcgen.New(openStoreForInspection(t, f.dbPath)).ListSessions(t.Context())
+	if err != nil {
+		t.Fatalf("ListSessions: %v", err)
+	}
+	if len(rows) != 1 || rows[0].Pane != f.pane || rows[0].State != string(protocol.StateDone) {
+		t.Fatalf("session rows after the lock freed = %+v, want pane %s stored done", rows, f.pane)
 	}
 }

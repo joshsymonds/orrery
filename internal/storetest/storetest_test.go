@@ -2,6 +2,7 @@ package storetest_test
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
@@ -10,6 +11,16 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/storetest"
 )
+
+// TestBusyErrorIsTheStoresBusyRefusal checks that BusyError returns an error store.Busy reports, wrapped as callers wrap
+// it or not.
+func TestBusyErrorIsTheStoresBusyRefusal(t *testing.T) {
+	t.Parallel()
+	busy := storetest.BusyError(t)
+	if !store.Busy(busy) || !store.Busy(fmt.Errorf("wrapped: %w", busy)) {
+		t.Fatalf("store.Busy(%v) = false, want true", busy)
+	}
+}
 
 // TestSeedFilledFillsOnceAndSeedsEveryPath seeds two paths under one key. The fill runs once, and each path opens as
 // a store that holds what it wrote.

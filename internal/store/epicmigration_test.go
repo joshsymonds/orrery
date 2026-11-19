@@ -17,7 +17,7 @@ import (
 // epicTableColumns returns, keyed by table, the columns in declaration order of every table migrations 00014, 00016,
 // 00019, 00028, 00030, 00035, 00036, 00037, 00038, 00040, 00041, 00043, 00044, 00049, 00051 and 00052 create, and of the
 // columns those migrations and 00020, 00021, 00022, 00025, 00029, 00033, 00034, 00035, 00039, 00040, 00042, 00044, 00045,
-// 00048, 00050, 00051, 00052, 00053, 00054 and 00057 add to epic tables.
+// 00048, 00050, 00051, 00052, 00053, 00054, 00057 and 00065 add to epic tables.
 func epicTableColumns() map[string][]string {
 	return map[string][]string{
 		"epics": {
@@ -57,12 +57,19 @@ func epicTableColumns() map[string][]string {
 			"epic", "seq", "turn", "title", "deliverable", "status", "gate", "evidence", "stage", "base", "attempt",
 			"rerun", "no_verdict", "held", "step", "red_run", "green_run", "revision", "failure", "review", "refs",
 			"gate_pos", "finding_pos", "batch", "guard", "needs_files", "decisions", "after_tasks", "question",
+			// The declared gate-needed changes, from 00065_task_gate_changes.sql.
+			"gate_changes",
 		},
 		"epic_task_files":        {"epic", "task", "position", "path"},
 		"epic_task_requirements": {"epic", "task", "position", "requirement"},
 		"epic_task_contributes":  {"epic", "task", "position", "requirement"},
 		"epic_task_test_changes": {"epic", "task", "position", "path"},
-		"epic_task_reviews":      {"epic", "task", "attempt", "position", "gate", "step", "verdict"},
+		// The task spec versions, from 00063_task_versions.sql.
+		"epic_task_versions": {
+			"epic", "task", "version", "source", "decision", "step", "reason", "deliverable", "files", "test_changes",
+			"gate", "evidence", "state", "red_run", "refusal", "created", "settled",
+		},
+		"epic_task_reviews": {"epic", "task", "attempt", "position", "gate", "step", "verdict"},
 		"epic_task_findings": {
 			"epic", "task", "attempt", "review", "position", "id", "claim", "citation", "location", "evidence",
 			"verify_by", "step", "result", "reason", "unverified",
@@ -526,11 +533,14 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00063_drop_caller_read.sql is the newest. The newest was
-	// 00062_drop_engine_held.sql before the drop of caller_read added 00063, and 00061_prompt_states.sql before the drop
-	// of engine_held added 00062.
-	if version != 63 {
-		t.Fatalf("store version after Open = %d, want 63", version)
+	// Open applies 00014_epics.sql and every migration after it: 00067_drop_caller_read.sql is the newest. The newest
+	// was 00066_put_off_questions.sql before the drop of caller_read added 00067, 00065_task_gate_changes.sql before the
+	// put-off marks added 00066, 00064_step_indexes.sql before the gate changes added 00065, 00063_task_versions.sql
+	// before the step indexes added 00064, 00062_drop_engine_held.sql before the task versions added 00063,
+	// 00061_prompt_states.sql before the drop of engine_held added 00062, and 00060_cron_jobs.sql before the prompt
+	// states added 00061.
+	if version != 67 {
+		t.Fatalf("store version after Open = %d, want 67", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and
@@ -732,7 +742,7 @@ func TestEpicTaskStoredAtVersion16MigratesCheckToEvidence(t *testing.T) {
 	}
 	want := []EpicTask{{
 		Seq: 1, Turn: 1, Title: "Build it", Deliverable: "the migration", Status: "open",
-		Evidence: evidence.Item{Conclusion: "go test ./x"},
+		Evidence: evidence.Item{Conclusion: "go test ./x"}, Version: 1,
 	}}
 	if !reflect.DeepEqual(got.Tasks, want) {
 		t.Errorf("tasks stored at version 16 = %+v, want %+v", got.Tasks, want)

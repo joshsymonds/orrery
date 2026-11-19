@@ -1239,6 +1239,47 @@ public  final class Pane extends
 
   }
 
+  public static final int PUT_OFF_FIELD_NUMBER = 22;
+  private boolean putOff_;
+  /**
+   * <pre>
+   * true while the owner has put this question off with Control.NotNow and not brought it back; a mark covers one
+   * question, so a new request or a pane that starts waiting again reads false.
+   * </pre>
+   *
+   * <code>bool put_off = 22 [json_name = "putOff"];</code>
+   * @return The putOff.
+   */
+  @java.lang.Override
+  public boolean getPutOff() {
+    return putOff_;
+  }
+  /**
+   * <pre>
+   * true while the owner has put this question off with Control.NotNow and not brought it back; a mark covers one
+   * question, so a new request or a pane that starts waiting again reads false.
+   * </pre>
+   *
+   * <code>bool put_off = 22 [json_name = "putOff"];</code>
+   * @param value The putOff to set.
+   */
+  private void setPutOff(boolean value) {
+    
+    putOff_ = value;
+  }
+  /**
+   * <pre>
+   * true while the owner has put this question off with Control.NotNow and not brought it back; a mark covers one
+   * question, so a new request or a pane that starts waiting again reads false.
+   * </pre>
+   *
+   * <code>bool put_off = 22 [json_name = "putOff"];</code>
+   */
+  private void clearPutOff() {
+
+    putOff_ = false;
+  }
+
   public static io.github.joshsymonds.orrery.gen.orrery.v1.Pane parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -2587,6 +2628,49 @@ public  final class Pane extends
       return this;
     }
 
+    /**
+     * <pre>
+     * true while the owner has put this question off with Control.NotNow and not brought it back; a mark covers one
+     * question, so a new request or a pane that starts waiting again reads false.
+     * </pre>
+     *
+     * <code>bool put_off = 22 [json_name = "putOff"];</code>
+     * @return The putOff.
+     */
+    @java.lang.Override
+    public boolean getPutOff() {
+      return instance.getPutOff();
+    }
+    /**
+     * <pre>
+     * true while the owner has put this question off with Control.NotNow and not brought it back; a mark covers one
+     * question, so a new request or a pane that starts waiting again reads false.
+     * </pre>
+     *
+     * <code>bool put_off = 22 [json_name = "putOff"];</code>
+     * @param value The putOff to set.
+     * @return This builder for chaining.
+     */
+    public Builder setPutOff(boolean value) {
+      copyOnWrite();
+      instance.setPutOff(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * true while the owner has put this question off with Control.NotNow and not brought it back; a mark covers one
+     * question, so a new request or a pane that starts waiting again reads false.
+     * </pre>
+     *
+     * <code>bool put_off = 22 [json_name = "putOff"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearPutOff() {
+      copyOnWrite();
+      instance.clearPutOff();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.Pane)
   }
   @java.lang.Override
@@ -2624,12 +2708,13 @@ public  final class Pane extends
             "newestReply_",
             "lastTurnEnd_",
             "orreryId_",
+            "putOff_",
           };
           java.lang.String info =
-              "\u0000\u0015\u0000\u0000\u0001\u0015\u0015\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0000\u0016\u0000\u0000\u0001\u0016\u0016\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
               "\u0003\u0208\u0004\u0004\u0005\u0004\u0006\u0208\u0007\u0208\b\u0208\t\u0208\n\u0208" +
               "\u000b\u0002\f\u0002\r\u0208\u000e\u0208\u000f\u0002\u0010\u0208\u0011\u0208\u0012" +
-              "\u0208\u0013\u0002\u0014\u0002\u0015\u0208";
+              "\u0208\u0013\u0002\u0014\u0002\u0015\u0208\u0016\u0007";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

@@ -10,6 +10,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/planner"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/taskspec"
 )
 
 // The limits of what an orchestrator's prompt carries: the bytes of the implementer's diff, whose middle is cut past
@@ -62,9 +63,11 @@ func (r *Runner) orchestratorPrompt(ctx context.Context, epic store.EpicRow, vie
 	return out.String(), nil
 }
 
-// requestTaskLines returns the Task section: the task's label and title, deliverable, files, test_changes, the
-// Requirements it claims and contributes to, its gate with its argv when it resolves, its evidence item as compact
-// JSON, its base, attempt, rerun and decisions, and the turn that planned it with that turn's outline.
+// requestTaskLines returns the Task section: the task's label and title, the lines naming its spec version when it is
+// past version 1 (taskspec.Lines), its deliverable, files, test_changes, the gate-needed changes its implementers
+// declared, each as `<path>: <reason>`, the Requirements it claims and contributes to,
+// its gate with its argv when it resolves, its evidence item as compact JSON, its base, attempt, rerun and decisions,
+// and the turn that planned it with that turn's outline.
 func (r *Runner) requestTaskLines(ctx context.Context, epic store.EpicRow, task store.EpicTask) ([]string, error) {
 	item, err := json.Marshal(task.Evidence)
 	if err != nil {
@@ -77,19 +80,21 @@ func (r *Runner) requestTaskLines(ctx context.Context, epic store.EpicRow, task 
 			gate += " " + string(argv)
 		}
 	}
-	lines := []string{
-		fmt.Sprintf("%s: %s", taskLabel(task.Seq), task.Title),
-		"Deliverable: " + task.Deliverable,
-		"Files: " + listText(task.Files),
-		"Test changes: " + listText(task.TestChanges),
-		"Requirements: " + listText(task.Requirements),
-		"Contributes: " + listText(task.Contributes),
+	lines := []string{fmt.Sprintf("%s: %s", taskLabel(task.Seq), task.Title)}
+	lines = append(lines, taskspec.Lines(task)...)
+	lines = append(lines,
+		"Deliverable: "+task.Deliverable,
+		"Files: "+listText(task.Files),
+		"Test changes: "+listText(task.TestChanges),
+		"Gate-needed changes declared: "+listText(GateChangeItems(task.GateChanges)),
+		"Requirements: "+listText(task.Requirements),
+		"Contributes: "+listText(task.Contributes),
 		gate,
-		"Evidence item: " + string(item),
-		"Base: " + task.Build.Base,
+		"Evidence item: "+string(item),
+		"Base: "+task.Build.Base,
 		fmt.Sprintf("Attempt %d, rerun %d, decisions %d of %d", task.Build.Attempt, task.Build.Rerun,
 			task.Build.Decisions, decisionLimit),
-	}
+	)
 	for _, turn := range epic.Turns {
 		if turn.Seq == task.Turn {
 			lines = append(lines, fmt.Sprintf("Planned by turn %d: %s", turn.Seq, turn.Outline))
@@ -210,8 +215,9 @@ func requestedLines(
 }
 
 // peerLines returns the Tasks section: each other open task and each accepted task not yet integrated, with its unit,
-// title, deliverable, files or changed paths, and the tasks it waits for; then the tasks integrated since this task's
-// base; then the failed tasks with their failures.
+// title, the lines naming its spec version when it is past version 1 (taskspec.Lines), its deliverable, files or
+// changed paths, and the tasks it waits for; then the tasks integrated since this task's base; then the failed tasks
+// with their failures.
 func peerLines(ctx context.Context, repo string, task store.EpicTask, peers []Peer) []string {
 	var lines, integrated, failed []string
 	for _, peer := range peers {
@@ -222,14 +228,16 @@ func peerLines(ctx context.Context, repo string, task store.EpicTask, peers []Pe
 		label := taskLabel(other.Seq)
 		switch {
 		case other.Status == taskOpen:
-			lines = append(lines, fmt.Sprintf("- %s [open, %s] %s", label, unitOf(other), other.Title),
-				"  deliverable: "+other.Deliverable, "  files: "+listText(other.Files))
+			lines = append(lines, fmt.Sprintf("- %s [open, %s] %s", label, unitOf(other), other.Title))
+			lines = append(lines, specInBlock(other)...)
+			lines = append(lines, "  deliverable: "+other.Deliverable, "  files: "+listText(other.Files))
 			if after := AfterSeqs(other.Build.After); Waiting(other) && len(after) > 0 {
 				lines = append(lines, "  waits for: "+labelsOf(after))
 			}
 		case peer.State == Pending:
-			lines = append(lines, fmt.Sprintf("- %s [accepted, not yet integrated] %s", label, other.Title),
-				"  deliverable: "+other.Deliverable, "  changed: "+listText(peer.Changed))
+			lines = append(lines, fmt.Sprintf("- %s [accepted, not yet integrated] %s", label, other.Title))
+			lines = append(lines, specInBlock(other)...)
+			lines = append(lines, "  deliverable: "+other.Deliverable, "  changed: "+listText(peer.Changed))
 		case peer.State == Integrated && !reaches(ctx, repo, peer.Composed, task.Build.Base):
 			integrated = append(integrated, fmt.Sprintf("- %s %s, composed as %s", label, other.Title, peer.Composed))
 		case other.Status == taskFailed:
@@ -238,6 +246,17 @@ func peerLines(ctx context.Context, repo string, task store.EpicTask, peers []Pe
 	}
 	lines = append(lines, planner.ListLines("Integrated since this task's base", integrated)...)
 	return append(lines, planner.ListLines("Failed", failed)...)
+}
+
+// specInBlock returns the spec version lines of task (taskspec.Lines), each indented two spaces to sit inside the
+// task's block in the Tasks section. It returns nothing for a task at version 1 or lower.
+func specInBlock(task store.EpicTask) []string {
+	spec := taskspec.Lines(task)
+	block := make([]string, 0, len(spec))
+	for _, line := range spec {
+		block = append(block, "  "+line)
+	}
+	return block
 }
 
 // reaches reports whether descendant reaches ancestor in repo. A comparison git cannot make reaches nothing.
@@ -361,9 +380,9 @@ func (r *Runner) historyLines(ctx context.Context, epic string, task store.EpicT
 }
 
 // historyOf returns the History section of task from rows, its steps in the order they started: each earlier
-// orchestrator step that ended, with its decision, its note or question and reason, and how the implementer's next run
-// ended, or that it reached no decision; then how many decisions are left before orreryd settles the request without
-// one.
+// orchestrator step that ended, with its decision, the fields its version changes or its question, and its reason, and
+// how the implementer's next run ended, or that it reached no decision; then how many decisions are left before orreryd
+// settles the request without one.
 func historyOf(rows []store.StepRow, task store.EpicTask) []string {
 	var lines []string
 	for i, row := range rows {
@@ -378,7 +397,7 @@ func historyOf(rows []store.StepRow, task store.EpicTask) []string {
 		lines = append(lines, "- "+decisionText(task.Seq, ret))
 		switch ret.Decision {
 		case decisionRerun, decisionGrant:
-			lines = append(lines, "  note: "+ret.Note)
+			lines = append(lines, "  version: "+changesText(ret.Version.Changed))
 		case decisionAsk:
 			lines = append(lines, "  question: "+ret.Question.Text)
 		}
@@ -386,6 +405,14 @@ func historyOf(rows []store.StepRow, task store.EpicTask) []string {
 	}
 	return append(lines, fmt.Sprintf("Decisions left before orreryd settles the request without one: %d",
 		max(decisionLimit-task.Build.Decisions, 0)))
+}
+
+// changesText returns the fields a version changes, comma-separated, or `changes nothing` when it changes none.
+func changesText(changed []string) string {
+	if len(changed) == 0 {
+		return "changes nothing"
+	}
+	return "changes " + strings.Join(changed, ", ")
 }
 
 // nextRun returns how the first implementer step among rows ended, or that none has run.

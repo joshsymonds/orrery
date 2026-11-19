@@ -200,6 +200,7 @@ bump-nix $ref="nixpkgs-unstable":
 # dependencies come from the web/node_modules the devenv shell links from nix.
 [script]
 web-check:
+    scripts/gen-stories.sh
     tsc --noEmit -p web
     rm -rf web/build
     tests=$(find web/src \( -name '*.test.ts' -o -name '*.test.tsx' \) | sort)
@@ -224,39 +225,31 @@ web-check:
 web-page:
     scripts/build-web.sh web/build/page
 
-# Capture the web client against its accepted wireframe: every scenario of web/visual/map.json at widths 1600 and 1000,
-# each side's screenshot and web/build/visual/report.json. The check compares nothing and exits 0 whatever it finds; a
-# run that cannot start exits 1. It runs under the visual devenv profile, which carries Chromium and the prose font, so
-# the default shell and the gates stay free of them. The driver is web/src/visual/report-main.ts.
-[script("devenv", "--profile", "visual", "shell", "--", "bash", "-euo", "pipefail")]
-visual-report: _visual-build
-    rm -rf web/build/visual
-    node web/build/visual-tool/visual/report-main.mjs
+# Build the story catalog into web/build/catalog: the registry of every *.stories.tsx, the index page, and the bundle of
+# the catalog's main.tsx with the stylesheet. scripts/gen-stories.sh writes the registry first. The catalog recipes run
+# this one first.
+[script]
+_catalog-build:
+    scripts/gen-stories.sh
+    rm -rf web/build/catalog
+    mkdir -p web/build/catalog
+    cp web/src/catalog/index.html web/build/catalog/index.html
+    esbuild web/src/catalog/main.tsx web/src/style.css --bundle --format=esm --outdir=web/build/catalog "--entry-names=[name]" "--loader:.ttf=file" "--asset-names=[name]" --log-level=warning
 
-# Check the web client against its accepted wireframe: each named page of web/visual/map.json, or every page when none is
-# named. It writes the screenshots and web/build/visual/report.json, prints each failure and exits 0 when the pass/fail
-# decision passes and 1 when it fails; a run that cannot start exits 1. It runs under the visual devenv profile, as
-# visual-report does. The entry point is web/src/visual/check-main.ts.
+# Serve the story catalog at HOST:PORT and rebuild it on each edit. The index lists every story and frames the one the hash
+# names at 1600, 1000 and 412 wide. A story's own address, ?story=<name>, draws it alone. Open the address it serves.
+catalog HOST="127.0.0.1" PORT="8123": _catalog-build
+    esbuild web/src/catalog/main.tsx web/src/style.css --bundle --format=esm --outdir=web/build/catalog "--entry-names=[name]" "--loader:.ttf=file" "--asset-names=[name]" --log-level=warning --watch --serve={{HOST}}:{{PORT}} --servedir=web/build/catalog
+
+# Write a screenshot of each named story of the catalog at each --width, into web/build/shots/<component>/<state>-<width>.png,
+# with motion frozen. A NAME is component/state, or a bare component for all its states; without --width the width is
+# 1600. An unknown name, or no name, fails with exit 1. It runs under the visual devenv profile, which carries the Chromium
+# that playwright-core drives. The driver is web/src/shoot/shoot.ts.
 [positional-arguments]
 [script("devenv", "--profile", "visual", "shell", "--", "bash", "-euo", "pipefail")]
-visual-check *PAGES: _visual-build
-    node web/build/visual-tool/visual/check-main.mjs "$@"
-
-# Self-test of the visual check: serves synthetic page pairs from memory, one that matches and one per planted defect, and
-# runs each through the same measurement and pass/fail decision visual-check uses. It prints one line per case and exits 0
-# only when every case came out as expected. It writes no report and no screenshot, and it is not part of check. It runs
-# under the visual devenv profile, as visual-check does. The entry point is web/src/visual/selftest-main.ts.
-[script("devenv", "--profile", "visual", "shell", "--", "bash", "-euo", "pipefail")]
-visual-selftest: _visual-build
-    node web/build/visual-tool/visual/selftest-main.mjs
-
-# The build the visual recipes share: the page under test in web/build/page, and the node tools compiled from
-# web/src/visual into web/build/visual-tool with playwright-core left external. It runs under the visual devenv profile.
-[script("devenv", "--profile", "visual", "shell", "--", "bash", "-euo", "pipefail")]
-_visual-build:
-    scripts/build-web.sh web/build/page
-    rm -rf web/build/visual-tool
-    esbuild $(find web/src/visual -name '*.ts' ! -name '*.test.ts' | sort) --bundle --platform=node --format=esm --outbase=web/src --outdir=web/build/visual-tool --out-extension:.js=.mjs --external:playwright-core --log-level=warning
+shoot *ARGS: _catalog-build
+    esbuild web/src/shoot/shoot.ts --bundle --platform=node --format=esm --external:playwright-core --outfile=web/build/shoot-tool/shoot.mjs --log-level=warning
+    node web/build/shoot-tool/shoot.mjs web/build/catalog "$@"
 
 # Lint, coverage, typed-client, and generated-code gates. The pin check runs first. cover's test-budget lines are
 # printed again last: a gate keeps only the tail of its output, and the checks after cover print far more than it keeps.

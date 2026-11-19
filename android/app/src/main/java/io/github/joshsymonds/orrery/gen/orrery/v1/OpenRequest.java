@@ -363,6 +363,47 @@ public  final class OpenRequest extends
     options_.add(value.toStringUtf8());
   }
 
+  public static final int PUT_OFF_FIELD_NUMBER = 5;
+  private boolean putOff_;
+  /**
+   * <pre>
+   * true while the owner has put this question off with Control.NotNow and not brought it back; a mark covers one
+   * question, so a new request or a pane that starts waiting again reads false.
+   * </pre>
+   *
+   * <code>bool put_off = 5 [json_name = "putOff"];</code>
+   * @return The putOff.
+   */
+  @java.lang.Override
+  public boolean getPutOff() {
+    return putOff_;
+  }
+  /**
+   * <pre>
+   * true while the owner has put this question off with Control.NotNow and not brought it back; a mark covers one
+   * question, so a new request or a pane that starts waiting again reads false.
+   * </pre>
+   *
+   * <code>bool put_off = 5 [json_name = "putOff"];</code>
+   * @param value The putOff to set.
+   */
+  private void setPutOff(boolean value) {
+    
+    putOff_ = value;
+  }
+  /**
+   * <pre>
+   * true while the owner has put this question off with Control.NotNow and not brought it back; a mark covers one
+   * question, so a new request or a pane that starts waiting again reads false.
+   * </pre>
+   *
+   * <code>bool put_off = 5 [json_name = "putOff"];</code>
+   */
+  private void clearPutOff() {
+
+    putOff_ = false;
+  }
+
   public static io.github.joshsymonds.orrery.gen.orrery.v1.OpenRequest parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -808,6 +849,49 @@ public  final class OpenRequest extends
       return this;
     }
 
+    /**
+     * <pre>
+     * true while the owner has put this question off with Control.NotNow and not brought it back; a mark covers one
+     * question, so a new request or a pane that starts waiting again reads false.
+     * </pre>
+     *
+     * <code>bool put_off = 5 [json_name = "putOff"];</code>
+     * @return The putOff.
+     */
+    @java.lang.Override
+    public boolean getPutOff() {
+      return instance.getPutOff();
+    }
+    /**
+     * <pre>
+     * true while the owner has put this question off with Control.NotNow and not brought it back; a mark covers one
+     * question, so a new request or a pane that starts waiting again reads false.
+     * </pre>
+     *
+     * <code>bool put_off = 5 [json_name = "putOff"];</code>
+     * @param value The putOff to set.
+     * @return This builder for chaining.
+     */
+    public Builder setPutOff(boolean value) {
+      copyOnWrite();
+      instance.setPutOff(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * true while the owner has put this question off with Control.NotNow and not brought it back; a mark covers one
+     * question, so a new request or a pane that starts waiting again reads false.
+     * </pre>
+     *
+     * <code>bool put_off = 5 [json_name = "putOff"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearPutOff() {
+      copyOnWrite();
+      instance.clearPutOff();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.OpenRequest)
   }
   @java.lang.Override
@@ -828,10 +912,11 @@ public  final class OpenRequest extends
             "kind_",
             "question_",
             "options_",
+            "putOff_",
           };
           java.lang.String info =
-              "\u0000\u0004\u0000\u0000\u0001\u0004\u0004\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
-              "\u0003\u0208\u0004\u021a";
+              "\u0000\u0005\u0000\u0000\u0001\u0005\u0005\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
+              "\u0003\u0208\u0004\u021a\u0005\u0007";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

@@ -164,6 +164,7 @@ type options struct {
 	stepCap         int
 	judgeDelay      time.Duration           // the --judge-delay test seam's wait, route.JudgeDelay by default
 	writeTick       time.Duration           // the --write-tick test seam's engine writer tick, 0 for the writer's own
+	storeBusy       time.Duration           // the --store-busy-timeout test seam's wait, store.BusyTimeout by default
 	metricsListen   string                  // the --metrics-listen address, "" when unset
 	metrics         *telemetry.Daemon       // set by startMetrics when metricsListen is set, nil otherwise
 	metricsHandlers []connect.HandlerOption // set by startMetrics when metricsListen is set, nil otherwise
@@ -361,7 +362,7 @@ func routeJudgeDelay(d time.Duration) time.Duration {
 
 // checkLimits refuses a --session-cap or --step-cap below 1 and a negative --judge-delay or --write-tick, each as a
 // usage error.
-func checkLimits(sessionCap, stepCap int, judgeDelay, writeTick time.Duration) error {
+func checkLimits(sessionCap, stepCap int, judgeDelay, writeTick, storeBusy time.Duration) error {
 	if sessionCap < 1 {
 		return usagef("--session-cap must be at least 1, got %d", sessionCap)
 	}
@@ -373,6 +374,9 @@ func checkLimits(sessionCap, stepCap int, judgeDelay, writeTick time.Duration) e
 	}
 	if writeTick < 0 {
 		return usagef("--write-tick must not be negative, got %v", writeTick)
+	}
+	if storeBusy < 0 {
+		return usagef("--store-busy-timeout must not be negative, got %v", storeBusy)
 	}
 	return nil
 }
@@ -401,6 +405,8 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	hostName := flags.String("host", "", "test seam: host name in place of the machine's")
 	judgeDelay := flags.Duration("judge-delay", route.JudgeDelay, "test seam: wait of a done before its judge")
 	writeTick := flags.Duration("write-tick", 0, "test seam: how often the engine writer stores queued ops")
+	storeBusy := flags.Duration("store-busy-timeout", store.BusyTimeout,
+		"test seam: how long a store write waits for the write lock")
 	if err := flags.Parse(args); err != nil {
 		return options{}, usagef("%v", err)
 	}
@@ -413,7 +419,7 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	if *claude == "" {
 		return options{}, usagef("--claude is empty")
 	}
-	if err := checkLimits(*sessionCap, *stepCap, *judgeDelay, *writeTick); err != nil {
+	if err := checkLimits(*sessionCap, *stepCap, *judgeDelay, *writeTick, *storeBusy); err != nil {
 		return options{}, err
 	}
 	if *dueAt < 0 {
@@ -452,6 +458,7 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 		stepCap:       *stepCap,
 		judgeDelay:    *judgeDelay,
 		writeTick:     *writeTick,
+		storeBusy:     *storeBusy,
 		metricsListen: *metricsListen,
 		flowTicks:     *flowTicks,
 		dueNow:        dueClock(*dueAt),
@@ -610,7 +617,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		AfterTidy: notices.Retry,
 	})
 
-	st := openStore(ctx, getenv, logger, opts.metrics)
+	st := openStore(ctx, getenv, logger, opts.metrics, opts.storeBusy)
 	attachStore(ctx, st, mirror, notices, router)
 	var sessions *sessionHost
 	var startErr error
@@ -933,8 +940,8 @@ func startSessions(
 			Store:             st,
 			Logger:            logger,
 			Metrics:           opts.metrics,
-			CronWake:          host.cron.Wake,
-			EventWake:         host.callerEvents.Wake,
+			CronWake:          host.cron.Wake, PutOffs: st, Panes: newPaneQuestions(questionServer(opts), router),
+			EventWake: host.callerEvents.Wake,
 		})
 		host.startBroker(ctx, hostName, st, logger)
 		// host.pools is nil when the broker's restore failed, which leaves the gates no pools to run under.
@@ -1004,7 +1011,7 @@ func serveOpts(opts options, st *store.Store, logger *slog.Logger) []connect.Han
 	if st == nil {
 		return opts.metricsHandlers
 	}
-	interceptor := enginehost.EpicCallInterceptor(st, time.Now, logger)
+	interceptor := enginehost.EpicCallInterceptor(st, time.Now, nil, logger)
 	return append(slices.Clip(opts.metricsHandlers), connect.WithInterceptors(interceptor))
 }
 
@@ -1716,19 +1723,22 @@ func (h *sessionHost) phase(name string, phase func()) {
 
 // openStore opens the store at its resolved path and logs "store open" once the store is open and migrated. When the
 // path does not resolve or the store cannot be opened, it logs the error and returns nil, so orreryd serves hooks and
-// notifications without the store. The store warns on logger of each call over 100 ms and counts it on metrics.
+// notifications without the store. The store warns on logger of each call over 100 ms and counts it on metrics, and
+// each of its writes waits at most busy for the write lock.
 func openStore(
 	ctx context.Context,
 	getenv func(string) string,
 	logger *slog.Logger,
 	metrics *telemetry.Daemon,
+	busy time.Duration,
 ) *store.Store {
 	path, err := store.Path(getenv)
 	if err != nil {
 		logger.ErrorContext(ctx, "store unavailable, serving without it", "error", err)
 		return nil
 	}
-	st, err := store.Open(ctx, path, store.WithLogger(logger), store.WithSlowCallCounter(metrics.StoreSlowCall))
+	st, err := store.Open(ctx, path, store.WithLogger(logger), store.WithSlowCallCounter(metrics.StoreSlowCall),
+		store.WithBusyTimeout(busy))
 	if err != nil {
 		logger.ErrorContext(ctx, "store unavailable, serving without it", "path", path, "error", err)
 		return nil

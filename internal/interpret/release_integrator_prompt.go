@@ -14,6 +14,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/build"
 	"github.com/joshsymonds/orrery/internal/planner"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/taskspec"
 )
 
 // integratorTaskDone is the status of an accepted task, whose change integration composed onto the epic's branch, and
@@ -215,8 +216,9 @@ func pathCommits(ctx context.Context, repo, base, tip, path string) ([]string, e
 	return commits, nil
 }
 
-// integratorTaskLines returns each accepted task as `- T<seq> <title>`, then its deliverable, its files and the commit
-// its integration composed onto the epic's branch, from the integrate run that claimed it.
+// integratorTaskLines returns each accepted task as `- T<seq> <title>`, then the lines taskspec.Lines gives for its
+// spec version, each indented two spaces, when the task's current version is past version 1, then its deliverable, its
+// files and the commit its integration composed onto the epic's branch, from the integrate run that claimed it.
 func integratorTaskLines(tasks []store.EpicTask, runs []store.NodeRun) []string {
 	composed := composedCommits(runs)
 	var lines []string
@@ -228,8 +230,11 @@ func integratorTaskLines(tasks []store.EpicTask, runs []store.NodeRun) []string 
 		if !ok {
 			commit = integratorNone
 		}
+		lines = append(lines, fmt.Sprintf("- T%d %s", task.Seq, task.Title))
+		for _, line := range taskspec.Lines(task) {
+			lines = append(lines, "  "+line)
+		}
 		lines = append(lines,
-			fmt.Sprintf("- T%d %s", task.Seq, task.Title),
 			"  deliverable: "+task.Deliverable,
 			"  files: "+strings.Join(task.Files, ", "),
 			"  commit: "+commit,

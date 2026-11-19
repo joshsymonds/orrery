@@ -5,6 +5,7 @@ package storetest
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -155,6 +157,54 @@ func SeedFilled(t *testing.T, path, key string, fill func(context.Context, *stor
 		t.Fatalf("make filled store image %q: %v", key, err)
 	}
 	writeImage(t, path, raw)
+}
+
+// BusyError returns the error a store write gets while another connection holds the store's write lock, as Litestream
+// holds it during a checkpoint, so store.Busy reports it. A test's fake returns it to refuse a write as a busy store
+// does. The write is made on a store of its own with a busy timeout of 0, which refuses it at once, so the test waits
+// out no timeout.
+func BusyError(t *testing.T) error {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "orrery.db")
+	Seed(t, path)
+	st, err := store.Open(t.Context(), path, NoSync(), store.WithBusyTimeout(0))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() {
+		if closeErr := st.Close(); closeErr != nil {
+			t.Errorf("close store: %v", closeErr)
+		}
+	})
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("open lock connection: %v", err)
+	}
+	t.Cleanup(func() {
+		if closeErr := db.Close(); closeErr != nil {
+			t.Errorf("close lock database: %v", closeErr)
+		}
+	})
+	conn, err := db.Conn(t.Context())
+	if err != nil {
+		t.Fatalf("lock connection: %v", err)
+	}
+	t.Cleanup(func() {
+		if closeErr := conn.Close(); closeErr != nil {
+			t.Errorf("close lock connection: %v", closeErr)
+		}
+	})
+	if _, err = conn.ExecContext(t.Context(), "BEGIN IMMEDIATE"); err != nil {
+		t.Fatalf("take write lock: %v", err)
+	}
+	busy := st.AddHold(t.Context(), store.HoldRow{Member: "busy-probe", Since: time.Unix(1, 0)})
+	if _, err = conn.ExecContext(t.Context(), "ROLLBACK"); err != nil {
+		t.Fatalf("release write lock: %v", err)
+	}
+	if !store.Busy(busy) {
+		t.Fatalf("write under the held lock = %v, want a busy refusal", busy)
+	}
+	return fmt.Errorf("add hold under the held lock: %w", busy)
 }
 
 // writeImage writes raw, a store image, at path, mode 0600, in a directory it creates 0700.

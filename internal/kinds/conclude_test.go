@@ -46,7 +46,7 @@ func TestConcludeDecide(t *testing.T) {
 			"no review ran ends with gaps",
 			node,
 			concludeRows(store.Review{}),
-			concludeEnd(phaseEndedWithGaps, EndingBody(phaseEndedWithGaps, []string{"no review ran"})),
+			concludeEnd(phaseEndedWithGaps, EndingBody(phaseEndedWithGaps, []string{"no review ran"}, nil)),
 		},
 		{
 			"all holds end clean at the stored base",
@@ -105,8 +105,14 @@ func TestConcludeDecide(t *testing.T) {
 					Reason: "security gave no verdict twice: done: boom",
 				}},
 			}),
-			concludeEnd(phaseEndedWithGaps, EndingBody(phaseEndedWithGaps,
-				[]string{"reviewer security: security gave no verdict twice: done: boom"})),
+			concludeEnd(
+				phaseEndedWithGaps,
+				EndingBody(
+					phaseEndedWithGaps,
+					[]string{"reviewer security: security gave no verdict twice: done: boom"},
+					nil,
+				),
+			),
 		},
 		{
 			"an undetermined verifier ends with gaps naming the finding",
@@ -116,8 +122,10 @@ func TestConcludeDecide(t *testing.T) {
 				Verdicts: []store.ReviewVerdict{fails},
 				Ledger:   []store.LedgerFinding{undetermined},
 			}),
-			concludeEnd(phaseEndedWithGaps, EndingBody(phaseEndedWithGaps,
-				[]string{"security-1: verifier undetermined: cannot tell"})),
+			concludeEnd(
+				phaseEndedWithGaps,
+				EndingBody(phaseEndedWithGaps, []string{"security-1: verifier undetermined: cannot tell"}, nil),
+			),
 		},
 		{
 			"an undetermined closure ends with gaps naming its round, and is not also open",
@@ -128,8 +136,14 @@ func TestConcludeDecide(t *testing.T) {
 				Ledger:   []store.LedgerFinding{undeterminedClosure},
 				Rounds:   []store.ReviewRound{{Round: 1, Revision: testRev, Outcome: outcomePassed}},
 			}),
-			concludeEnd(phaseEndedWithGaps, EndingBody(phaseEndedWithGaps,
-				[]string{"security-1: closure undetermined in round 1: cannot tell"})),
+			concludeEnd(
+				phaseEndedWithGaps,
+				EndingBody(
+					phaseEndedWithGaps,
+					[]string{"security-1: closure undetermined in round 1: cannot tell"},
+					nil,
+				),
+			),
 		},
 		{
 			"a finding open after every round ends with gaps naming the rounds",
@@ -144,7 +158,7 @@ func TestConcludeDecide(t *testing.T) {
 				},
 			}),
 			concludeEnd(phaseEndedWithGaps,
-				EndingBody(phaseEndedWithGaps, []string{"security-2: open after 2 rounds"})),
+				EndingBody(phaseEndedWithGaps, []string{"security-2: open after 2 rounds"}, nil)),
 		},
 		{
 			"gaps join in reviewer order, then ledger order",
@@ -162,7 +176,7 @@ func TestConcludeDecide(t *testing.T) {
 				"reviewer perf: perf reason",
 				"security-1: verifier undetermined: cannot tell",
 				"security-2: open after 1 rounds",
-			})),
+			}, nil)),
 		},
 	})
 }

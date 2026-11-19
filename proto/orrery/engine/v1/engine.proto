@@ -34,6 +34,12 @@ service Engine {
   // texts hold that message's text when Claude cancelled it, and none when Claude had already taken it in, when the
   // session is not running, or when prompt_id is empty.
   rpc Withdraw(WithdrawRequest) returns (WithdrawResponse);
+
+  // NotNow has orreryd store the not-now mark on an open question, which keeps it off the owner's list until BringBack.
+  rpc NotNow(NotNowRequest) returns (NotNowResponse);
+
+  // BringBack has orreryd clear the not-now mark on an open question.
+  rpc BringBack(BringBackRequest) returns (BringBackResponse);
 }
 
 // StartRequest asks for a new headless session.
@@ -144,3 +150,45 @@ message WithdrawResponse {
   // running, or when prompt_id is empty.
   repeated string texts = 1;
 }
+
+// NotNowRequest names one open question to take off the owner's list.
+message NotNowRequest {
+  // The question's kind: "headless" or "pane".
+  string kind = 1;
+
+  // The headless session id, or the pane's Pane.id.
+  string id = 2;
+
+  // The headless open request's OpenRequest.id. Empty for a pane.
+  string request_id = 3;
+
+  // The pane's Pane.question_hash. Empty for headless.
+  string question_hash = 4;
+
+  // The pane's Pane.changed, the unix seconds it started waiting. 0 for headless.
+  int64 changed = 5;
+}
+
+// NotNowResponse acknowledges a not-now mark. It has no fields.
+message NotNowResponse {}
+
+// BringBackRequest names one open question to put back on the owner's list.
+message BringBackRequest {
+  // The question's kind: "headless" or "pane".
+  string kind = 1;
+
+  // The headless session id, or the pane's Pane.id.
+  string id = 2;
+
+  // The headless open request's OpenRequest.id. Empty for a pane.
+  string request_id = 3;
+
+  // The pane's Pane.question_hash. Empty for headless.
+  string question_hash = 4;
+
+  // The pane's Pane.changed, the unix seconds it started waiting. 0 for headless.
+  int64 changed = 5;
+}
+
+// BringBackResponse acknowledges a bring-back. It has no fields.
+message BringBackResponse {}

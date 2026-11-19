@@ -26,14 +26,34 @@ func TestOrchestratorParkTurnOfAPlannerParkNeedsAnActionOrQuestion(t *testing.T)
 	want := []string{
 		"actions: the epic is parked (" + reason + "); return an action for the park or a catastrophe question",
 	}
-	bareCheck := returnCheck(context.Background(), nodePark, testResolver{})
+	bareCheck := returnCheck(context.Background(), nodePark, store.Review{}, testResolver{}, nil)
 	if got := bareCheck(json.RawMessage(bare)); !reflect.DeepEqual(got, want) {
 		t.Errorf("ReturnCheck of a return with no action or question on a planner park = %q, want %q", got, want)
 	}
-	if got := returnCheck(context.Background(), nodePark, testResolver{})(json.RawMessage(withRetry)); len(got) != 0 {
+	if got := returnCheck(
+		context.Background(),
+		nodePark,
+		store.Review{},
+		testResolver{},
+		nil,
+	)(
+		json.RawMessage(withRetry),
+	); len(
+		got,
+	) != 0 {
 		t.Errorf("ReturnCheck of a return with a retry_epic action on a planner park = %q, want none", got)
 	}
-	if got := returnCheck(context.Background(), ownerPark, testResolver{})(json.RawMessage(bare)); len(got) != 0 {
+	if got := returnCheck(
+		context.Background(),
+		ownerPark,
+		store.Review{},
+		testResolver{},
+		nil,
+	)(
+		json.RawMessage(bare),
+	); len(
+		got,
+	) != 0 {
 		t.Errorf("ReturnCheck of a return with no action or question on an owner park = %q, want none", got)
 	}
 }

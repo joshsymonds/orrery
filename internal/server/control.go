@@ -223,6 +223,48 @@ func (c controlServer) Withdraw(
 	return connect.NewResponse(&orreryv1.WithdrawResponse{Texts: texts}), nil
 }
 
+// NotNow forwards a not-now mark to the engine with every field unchanged, with no step check.
+func (c controlServer) NotNow(
+	ctx context.Context,
+	req *connect.Request[orreryv1.NotNowRequest],
+) (*connect.Response[orreryv1.NotNowResponse], error) {
+	err := c.forward(ctx, func(ctx context.Context, engine enginev1connect.EngineClient) error {
+		_, err := engine.NotNow(ctx, connect.NewRequest(&enginev1.NotNowRequest{
+			Kind:         req.Msg.GetKind(),
+			Id:           req.Msg.GetId(),
+			RequestId:    req.Msg.GetRequestId(),
+			QuestionHash: req.Msg.GetQuestionHash(),
+			Changed:      req.Msg.GetChanged(),
+		}))
+		return wrapEngine("not now", err)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&orreryv1.NotNowResponse{}), nil
+}
+
+// BringBack forwards a bring-back to the engine with every field unchanged, with no step check.
+func (c controlServer) BringBack(
+	ctx context.Context,
+	req *connect.Request[orreryv1.BringBackRequest],
+) (*connect.Response[orreryv1.BringBackResponse], error) {
+	err := c.forward(ctx, func(ctx context.Context, engine enginev1connect.EngineClient) error {
+		_, err := engine.BringBack(ctx, connect.NewRequest(&enginev1.BringBackRequest{
+			Kind:         req.Msg.GetKind(),
+			Id:           req.Msg.GetId(),
+			RequestId:    req.Msg.GetRequestId(),
+			QuestionHash: req.Msg.GetQuestionHash(),
+			Changed:      req.Msg.GetChanged(),
+		}))
+		return wrapEngine("bring back", err)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&orreryv1.BringBackResponse{}), nil
+}
+
 // forward runs call against the engine under the control timeout. A nil engine answers unavailable. Any engine
 // error answers as translateError does.
 func (c controlServer) forward(

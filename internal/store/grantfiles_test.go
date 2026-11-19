@@ -46,7 +46,8 @@ func TestGrantTaskFilesAddsTheFilesAfterTheTasksOwnAndMovesTheBuild(t *testing.T
 	if err := s.SetTaskBuild(ctx, buildEpic, 1, store.TaskBuild{}, openBuildOf()); err != nil {
 		t.Fatalf("SetTaskBuild: %v", err)
 	}
-	if err := s.GrantTaskFiles(ctx, buildEpic, 1, openBuildOf(), grantedBuild(), []string{"c.go", "b.go"}); err != nil {
+	grant := store.TaskVersionInput{Source: store.SourceGrant, Files: []string{"c.go", "b.go"}}
+	if err := s.GrantTaskFiles(ctx, buildEpic, 1, openBuildOf(), grantedBuild(), grant, writtenAt()); err != nil {
 		t.Fatalf("GrantTaskFiles: %v", err)
 	}
 	task := buildTaskOf(ctx, t, s)
@@ -67,7 +68,8 @@ func TestGrantTaskFilesRefusesAFileAnotherOpenTaskOwnsAndWritesNothing(t *testin
 		t.Fatalf("SetTaskBuild: %v", err)
 	}
 	before := storedState(t, raw)
-	err := s.GrantTaskFiles(ctx, buildEpic, 1, openBuildOf(), grantedBuild(), []string{"c.go", "b.go"})
+	grant := store.TaskVersionInput{Source: store.SourceGrant, Files: []string{"c.go", "b.go"}}
+	err := s.GrantTaskFiles(ctx, buildEpic, 1, openBuildOf(), grantedBuild(), grant, writtenAt())
 	var owned store.FileOwnedError
 	if !errors.As(err, &owned) || owned != (store.FileOwnedError{File: "b.go", Task: 2}) {
 		t.Fatalf("GrantTaskFiles err = %v, want b.go owned by T2", err)
@@ -85,7 +87,8 @@ func TestGrantTaskFilesRefusesAStaleBuildAndWritesNothing(t *testing.T) {
 	ctx := context.Background()
 	s, raw := openBuildStore(ctx, t)
 	before := storedState(t, raw)
-	err := s.GrantTaskFiles(ctx, buildEpic, 1, openBuildOf(), grantedBuild(), []string{"c.go"})
+	grant := store.TaskVersionInput{Source: store.SourceGrant, Files: []string{"c.go"}}
+	err := s.GrantTaskFiles(ctx, buildEpic, 1, openBuildOf(), grantedBuild(), grant, writtenAt())
 	if !errors.Is(err, store.ErrTaskMoved) {
 		t.Fatalf("GrantTaskFiles with a stale build err = %v, want ErrTaskMoved", err)
 	}

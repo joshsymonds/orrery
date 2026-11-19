@@ -1,0 +1,1028 @@
+/* Round 6: the components. One definition each, drawn by the desk page, the phone page and the catalogue.
+   Every colour and length is a token variable; lint-css.mjs fails the sheet otherwise.
+   .touch is set on a phone screen: controls take the touch height and key caps are not drawn. */
+
+/* ============================================================ 1. Primitives */
+
+/* Kbd: a key cap. Never drawn on touch. */
+.kbd { display: inline-flex; align-items: center; justify-content: center; min-width: var(--o-space-24); padding: var(--o-space-2) var(--o-space-4); border-radius: var(--o-radius-1); background: var(--o-surface-raised); color: var(--o-ink-2); font: var(--o-type-label); }
+.kbd.active { background: var(--o-role-primary); color: var(--o-ink-on-accent); }
+.kbd.attn { background: var(--o-role-attention); color: var(--o-ink-on-accent); }
+.touch .kbd { display: none; }
+
+/* Button. Quiet has no fill; Default is raised; Primary is the one action a form exists for; Danger asks first. */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--o-space-8); flex: none; height: var(--o-size-control-desk); padding: 0 var(--o-space-12); border-radius: var(--o-radius-2); background: var(--o-surface-raised); color: var(--o-ink-1); font: var(--o-type-small); white-space: nowrap; transition: background var(--o-move-press), transform var(--o-move-press); }
+.btn { max-width: 100%; min-width: 0; }
+.btn > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.btn:hover, .btn.hover { background: var(--o-surface-pressed); }
+.btn:active, .btn.pressed { background: var(--o-surface-pressed); transform: scale(.97); }
+.btn.focused { outline: var(--o-size-hairline) solid var(--o-role-focus); outline-offset: var(--o-space-2); }
+.btn.quiet { background: none; color: var(--o-ink-2); }
+.btn.quiet:hover, .btn.quiet.hover { background: var(--o-surface-raised); color: var(--o-ink-1); }
+.btn.primary { background: var(--o-role-primary); color: var(--o-ink-on-accent); font-weight: var(--o-font-weight-bold); }
+.btn.primary:hover, .btn.primary.hover { background: var(--o-role-primary); }
+.btn.danger { background: var(--o-role-bad-fill); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-role-bad-line); color: var(--o-role-bad); }
+.btn:disabled, .btn.disabled { background: none; color: var(--o-ink-4); cursor: default; transform: none; }
+.btn.stopper .icon { color: var(--o-role-bad); }
+.btn.icon-only { width: var(--o-size-control-desk); padding: 0; }
+.btn .kbd { margin-right: calc(-1 * var(--o-space-4)); }
+.touch .btn { height: var(--o-size-control-touch); padding: 0 var(--o-space-16); }
+.touch .btn.icon-only { width: var(--o-size-control-touch); padding: 0; }
+
+/* ConfirmButton: a command that asks first. Asking replaces the button with the question and two answers. */
+.confirm { display: inline-flex; align-items: center; gap: var(--o-space-8); font: var(--o-type-small); color: var(--o-ink-2); }
+
+/* Tip: what a control does, on hover or focus at the desk and on a long press on touch. */
+.tip { display: inline-flex; align-items: center; gap: var(--o-space-8); padding: var(--o-space-4) var(--o-space-8); border-radius: var(--o-radius-1); background: var(--o-surface-pressed); color: var(--o-ink-1); font: var(--o-type-small); box-shadow: var(--o-elevation-overlay); white-space: nowrap; }
+.tip .kbd { background: var(--o-surface-raised); }
+[data-tip] { position: relative; }
+[data-tip]:hover::after, [data-tip].show-tip::after { content: attr(data-tip); position: absolute; top: calc(100% + var(--o-space-4)); left: 50%; z-index: var(--o-z-menu); transform: translateX(-50%); padding: var(--o-space-4) var(--o-space-8); border-radius: var(--o-radius-1); background: var(--o-surface-pressed); color: var(--o-ink-1); font: var(--o-type-small); box-shadow: var(--o-elevation-overlay); white-space: nowrap; pointer-events: none; }
+[data-tip][data-tip-side="right"]:hover::after, [data-tip][data-tip-side="right"].show-tip::after { left: 0; transform: none; }
+[data-tip][data-tip-side="left"]:hover::after, [data-tip][data-tip-side="left"].show-tip::after { left: auto; right: 0; transform: none; }
+.touch [data-tip]::after { display: none; }
+
+/* Field: a one-line input. */
+.field { display: flex; align-items: center; gap: var(--o-space-8); height: var(--o-size-control-desk); padding: 0 var(--o-space-8); border-radius: var(--o-radius-2); background: var(--o-surface-well); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-soft); color: var(--o-ink-3); font: var(--o-type-body); }
+.field { min-width: 0; }
+.field input { flex: 1 1 auto; width: 0; min-width: 0; color: var(--o-ink-1); }
+.field input::placeholder, .field .placeholder { color: var(--o-ink-4); }
+.field.focused, .field:focus-within { box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-role-focus); }
+.field.error { box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-role-bad); }
+.field .count { font: var(--o-type-small); color: var(--o-ink-3); white-space: nowrap; }
+.touch .field { height: var(--o-size-control-touch); padding: 0 var(--o-space-12); }
+/* TextArea: the same box for several lines. */
+.field.area { display: block; height: auto; padding: var(--o-space-8) var(--o-space-12); color: var(--o-ink-1); white-space: pre-wrap; }
+
+/* Chip: a short verdict or tag on its role's tint. */
+.chip { display: inline-flex; align-items: center; gap: var(--o-space-4); flex: none; padding: 0 var(--o-space-8); border-radius: var(--o-radius-1); background: var(--o-surface-raised); color: var(--o-ink-2); font: var(--o-type-small); white-space: nowrap; }
+.chip.ok { background: var(--o-role-ok-fill); color: var(--o-role-ok); }
+.chip.bad { background: var(--o-role-bad-fill); color: var(--o-role-bad); }
+.chip.attention { background: var(--o-role-attention-fill); color: var(--o-role-attention); }
+.chip.live { background: var(--o-role-live-fill); color: var(--o-role-live); }
+.chip.engine { background: var(--o-role-engine-fill); color: var(--o-role-engine); }
+.chip.halt { background: var(--o-role-halt-fill); color: var(--o-role-halt); }
+.chip.new { background: var(--o-role-new-fill); color: var(--o-role-new); }
+
+/* FilterChip: a chip that narrows a list. On, it is outlined in its role. */
+.fchip { display: inline-flex; align-items: center; gap: var(--o-space-8); flex: none; height: var(--o-size-control-desk); padding: 0 var(--o-space-12); border-radius: var(--o-radius-round); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm); color: var(--o-ink-2); font: var(--o-type-small); white-space: nowrap; }
+.fchip b { color: var(--o-ink-1); }
+.fchip.attention { color: var(--o-role-attention); }
+.fchip.new { color: var(--o-role-new); }
+.fchip.on { background: var(--o-surface-raised); box-shadow: inset 0 0 0 var(--o-size-hairline) currentColor; }
+
+/* Pill: a state as a word, on the state's tint. */
+.pill { display: inline-flex; align-items: center; gap: var(--o-space-8); flex: none; padding: var(--o-space-2) var(--o-space-12); border-radius: var(--o-radius-round); background: var(--o-surface-raised); color: var(--o-ink-2); font: var(--o-type-small); white-space: nowrap; }
+.pill[data-tone="live"] { background: var(--o-role-live-fill); color: var(--o-role-live); }
+.pill[data-tone="attention"] { background: var(--o-role-attention-fill); color: var(--o-role-attention); }
+.pill[data-tone="ok"] { background: var(--o-role-ok-fill); color: var(--o-role-ok); }
+.pill[data-tone="bad"] { background: var(--o-role-bad-fill); color: var(--o-role-bad); }
+.pill[data-tone="halt"] { background: var(--o-role-halt-fill); color: var(--o-role-halt); }
+.pill[data-tone="engine"] { background: var(--o-role-engine-fill); color: var(--o-role-engine); }
+.pill .glyph { color: inherit; }
+
+/* Meter: one host stat. The value and the bar take a colour only at warn or crit. */
+.meter { --hue: var(--o-series-1); display: inline-flex; align-items: center; gap: var(--o-space-8); flex: none; font: var(--o-type-small); color: var(--o-ink-1); white-space: nowrap; }
+.meter[data-series="2"] { --hue: var(--o-series-2); }
+.meter[data-series="3"] { --hue: var(--o-series-3); }
+.meter[data-series="4"] { --hue: var(--o-series-4); }
+.meter[data-series="5"] { --hue: var(--o-series-5); }
+.meter[data-level="warn"] { --hue: var(--o-level-warn); }
+.meter[data-level="crit"] { --hue: var(--o-level-crit); }
+.meter .name { font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; color: var(--hue); }
+.meter .bar { width: var(--o-size-meter-bar-width); height: var(--o-size-meter-bar-height); border-radius: var(--o-radius-round); background: var(--o-line-soft); overflow: hidden; }
+.meter .bar i { display: block; height: 100%; border-radius: var(--o-radius-round); background: var(--hue); }
+.meter[data-level="warn"] .value { color: var(--o-level-warn); }
+.meter[data-level="crit"] .value { color: var(--o-level-crit); font-weight: var(--o-font-weight-bold); }
+.meter.stacked { display: inline-grid; gap: var(--o-space-2); }
+.meter.stacked .bar { width: 100%; }
+
+/* ContextMeter: five blocks of twenty, the percent, and tokens of window where there is room. */
+.ctx { display: inline-flex; align-items: center; gap: var(--o-space-8); flex: none; font: var(--o-type-small); color: var(--o-ink-3); white-space: nowrap; }
+.ctx .name { font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+.ctx .blocks { display: inline-flex; gap: var(--o-space-2); color: var(--o-level-ok); }
+.ctx .blocks i { width: var(--o-size-context-block); height: var(--o-size-context-block); background: var(--o-line-soft); }
+.ctx .blocks i.on { background: currentColor; }
+.ctx .pct { color: var(--o-level-ok); font-weight: var(--o-font-weight-bold); }
+.ctx[data-level="warn"] .blocks, .ctx[data-level="warn"] .pct { color: var(--o-level-warn); }
+.ctx[data-level="crit"] .blocks, .ctx[data-level="crit"] .pct { color: var(--o-level-crit); }
+
+
+/* CommitMark: a commit is a mark, and its short hash is the mark's name, not text on the page. */
+.commit { display: inline-flex; color: var(--o-ink-3); }
+
+/* SectionHead: a label, and a count beside it. */
+.sec { display: flex; align-items: baseline; gap: var(--o-space-8); color: var(--o-ink-3); }
+.sec { --hue: var(--o-ink-3); }
+.sec > .icon { align-self: center; color: var(--hue); }
+.sec .name { color: var(--hue); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+.sec[data-hue="1"] { --hue: var(--o-series-1); }
+.sec[data-hue="2"] { --hue: var(--o-series-2); }
+.sec[data-hue="3"] { --hue: var(--o-series-3); }
+.sec[data-hue="4"] { --hue: var(--o-series-4); }
+.sec[data-hue="5"] { --hue: var(--o-series-5); }
+.sec[data-hue="live"] { --hue: var(--o-role-live); }
+.sec[data-hue="ok"] { --hue: var(--o-role-ok); }
+.sec[data-hue="engine"] { --hue: var(--o-role-engine); }
+.sec[data-hue="halt"] { --hue: var(--o-role-halt); }
+.sec[data-hue="ref"] { --hue: var(--o-role-ref); }
+.sec .n { font: var(--o-type-small); }
+.sec.attention { --hue: var(--o-role-attention); }
+.sec.new { --hue: var(--o-role-new); }
+.sec .rest { margin-left: auto; font: var(--o-type-small); }
+
+/* InlineNote: one line under a control saying what happened. */
+.inote { display: flex; align-items: center; gap: var(--o-space-8); font: var(--o-type-small); color: var(--o-ink-3); }
+.inote.error { color: var(--o-role-bad); }
+.inote.ok { color: var(--o-role-ok); }
+
+/* Menu: an overlay list of commands. On touch it is a sheet (see Sheet). */
+.menu { display: grid; min-width: calc(var(--o-space-48) * 4); padding: var(--o-space-4); border-radius: var(--o-radius-3); background: var(--o-surface-overlay); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm), var(--o-elevation-overlay); }
+.menu-item { display: flex; align-items: center; gap: var(--o-space-12); height: var(--o-size-control-desk); padding: 0 var(--o-space-12); border-radius: var(--o-radius-2); color: var(--o-ink-1); font: var(--o-type-small); white-space: nowrap; }
+.menu-item .icon { color: var(--o-ink-3); }
+.menu-item:hover, .menu-item.hover { background: var(--o-surface-raised); }
+.menu-item.danger, .menu-item.danger .icon { color: var(--o-role-bad); }
+.menu-item .kbd { margin-left: auto; }
+.menu-item .sub { margin-left: auto; color: var(--o-ink-3); }
+.menu.inline { min-width: 0; margin: 0 var(--o-space-8); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm); }
+.menu-sep { height: var(--o-size-hairline); margin: var(--o-space-4) 0; background: var(--o-line-soft); }
+.menu-head { padding: var(--o-space-4) var(--o-space-12); color: var(--o-ink-3); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+.touch .menu-item { height: var(--o-size-control-touch); font: var(--o-type-body); }
+
+/* Gauge: an epic at a glance. One ring in three zones: done, started, planned. Its colour is the epic's state. */
+.gauge { width: var(--o-size-gauge); height: var(--o-size-gauge); flex: none; fill: none; stroke-width: 3; color: var(--o-ink-3); }
+.gauge .planned { stroke: var(--o-line-firm); }
+.gauge .started { stroke: currentColor; stroke-opacity: var(--o-pulse-low); }
+.gauge .done { stroke: currentColor; }
+.gauge .core { fill: currentColor; stroke: none; }
+.gauge[data-tone="live"] { color: var(--o-role-live); }
+.gauge[data-tone="attention"] { color: var(--o-role-attention); }
+.gauge[data-tone="ok"] { color: var(--o-role-ok); }
+.gauge[data-tone="bad"] { color: var(--o-role-bad); }
+.gauge[data-tone="engine"] { color: var(--o-role-engine); }
+
+/* Pips: a task's phases, one cell each, in the cell's tone. */
+.pips { display: inline-flex; gap: var(--o-space-2); flex: none; }
+.pips i { width: var(--o-space-12); height: var(--o-space-4); border-radius: var(--o-radius-round); background: var(--o-line-soft); }
+.pips i[data-tone="plan"] { background: var(--o-tone-plan); }
+.pips i[data-tone="run"] { background: var(--o-tone-run); animation: pulse var(--o-loop-pulse) ease-in-out infinite; }
+.pips i[data-tone="mine"] { background: var(--o-tone-mine); }
+.pips i[data-tone="bad"] { background: var(--o-tone-bad); }
+.pips i[data-tone="acc"] { background: var(--o-tone-acc); }
+.pips i[data-tone="ok"] { background: var(--o-tone-ok); }
+
+/* Switch, for a setting that is on or off. */
+.switch { display: inline-flex; align-items: center; flex: none; width: var(--o-space-48); height: var(--o-space-24); padding: var(--o-space-2); border-radius: var(--o-radius-round); background: var(--o-surface-pressed); }
+.switch i { width: calc(var(--o-space-24) - var(--o-space-4)); height: calc(var(--o-space-24) - var(--o-space-4)); border-radius: var(--o-radius-round); background: var(--o-ink-3); transition: transform var(--o-move-state); }
+.switch.on { background: var(--o-role-primary); }
+.switch.on i { background: var(--o-ink-on-accent); transform: translateX(var(--o-space-24)); }
+
+/* ============================================================ 2. Conversation: Block, Line, Rule, Ask */
+
+/* Reader: one column at reading measure. At the desk a gutter on its left holds the time each turn began. */
+.reader { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: var(--o-space-24) var(--o-layout-page-pad-desk) var(--o-space-32); }
+.col { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--o-layout-item-gap); width: 100%; max-width: calc(var(--o-layout-gutter-ch) + var(--o-space-16) + var(--o-layout-read-measure-ch)); margin: 0 auto; font: var(--o-type-body); }
+.it { display: grid; grid-template-columns: var(--o-layout-gutter-ch) minmax(0, 1fr); column-gap: var(--o-space-16); align-items: start; }
+.it > .at { padding-top: var(--o-space-2); color: var(--o-ink-4); font: var(--o-type-small); text-align: right; white-space: nowrap; }
+.it > .at.live { color: var(--o-role-live); }
+.it > .main { grid-column: 2; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--o-space-4); }
+.it.turn { margin-top: calc(var(--o-layout-turn-gap) - var(--o-layout-item-gap)); }
+.it.turn:first-child { margin-top: 0; }
+.touch .reader { padding: var(--o-space-16) var(--o-layout-page-pad-phone) var(--o-space-24); }
+.touch .it, .flat .it { grid-template-columns: minmax(0, 1fr); }
+.touch .it > .at, .flat .it > .at { display: none; }
+.touch .it > .main, .flat .it > .main { grid-column: 1; }
+.dock.flat, .findbar.flat { padding: 0; border: 0; }
+.dock.flat > .col, .findbar.flat > .col { padding-left: 0; }
+.flat { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--o-space-8); }
+
+/* Block: someone said something. The rail and the label share one tone: the verdict when there is one, else
+   attention when it asks, else the speaker. A block with a dashed rail has not happened yet. */
+.block { --rail: var(--o-line-firm); --tint: transparent; --ground: var(--o-surface-well); display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--o-space-4); min-width: 0; padding: var(--o-space-8) var(--o-space-12); border-left: var(--o-size-rail) solid var(--rail); border-radius: 0 var(--o-radius-2) var(--o-radius-2) 0; background: linear-gradient(var(--tint), var(--tint)), var(--ground); }
+.block > .head { display: flex; align-items: center; gap: var(--o-space-8); min-width: 0; font: var(--o-type-small); color: var(--o-ink-3); }
+.block > .head > .icon, .block > .head > .gauge { flex: none; color: var(--rail); }
+.block > .meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-4) var(--o-space-16); color: var(--o-ink-3); font: var(--o-type-small); }
+.block > .meta > span { display: inline-flex; align-items: center; gap: var(--o-space-4); }
+.block > .meta .icon { color: var(--o-ink-4); }
+.plus { color: var(--o-role-ok); }
+.minus { color: var(--o-role-bad); }
+.block > .head .lbl { flex: none; color: var(--rail); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+.block > .head .who { color: var(--o-ink-1); font-weight: var(--o-font-weight-bold); }
+.block > .head .end { display: inline-flex; align-items: center; gap: var(--o-space-8); margin-left: auto; flex: none; }
+.block > .head .at { display: none; }
+.touch .block > .head .at { display: inline; }
+.block > .body { min-width: 0; color: var(--o-ink-1); overflow-wrap: anywhere; }
+.block > .body.small { color: var(--o-ink-2); font: var(--o-type-small); }
+.block > .chips { display: flex; flex-wrap: wrap; gap: var(--o-space-4); }
+.block.you { --rail: var(--o-role-you); --tint: var(--o-role-you-fill); --ground: var(--o-surface-raised); }
+.block.engine { --rail: var(--o-role-engine); --tint: var(--o-role-engine-fill); }
+.block.ok { --rail: var(--o-role-ok); --tint: var(--o-role-ok-fill); }
+.block.bad { --rail: var(--o-role-bad); --tint: var(--o-role-bad-fill); }
+.block.attention { --rail: var(--o-role-attention); --tint: var(--o-role-attention-fill); }
+.block.halt { --rail: var(--o-role-halt); --tint: var(--o-role-halt-fill); }
+.block.quiet { --rail: var(--o-ink-3); }
+.block.pending { border-left-style: dashed; }
+.block.oneline { display: flex; align-items: center; gap: var(--o-space-8); }
+.block.oneline > .head { flex: none; }
+.block.oneline > .body { flex: 1 1 auto; font: var(--o-type-small); }
+.block.oneline > .end { display: inline-flex; align-items: center; gap: var(--o-space-4); flex: none; font: var(--o-type-small); color: var(--o-ink-3); }
+.block .foot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-8); margin-top: var(--o-space-4); }
+a.block:hover, .block.hover { --ground: var(--o-surface-raised); }
+.link { color: var(--o-role-ref); }
+.link:hover { text-decoration: underline; }
+
+/* Prose: Markdown, in a reply and in your own block. The reply is the only plain full-width text on the page. */
+.prose { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--o-space-12); min-width: 0; color: var(--o-ink-1); font: var(--o-type-body); overflow-wrap: anywhere; }
+.prose h1, .prose h2 { color: var(--o-prose-heading); font: var(--o-type-title); }
+.prose h3, .prose h4 { color: var(--o-prose-heading); font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
+.prose strong { font-weight: var(--o-font-weight-bold); }
+.prose em { font-style: italic; }
+.prose ul, .prose ol { display: grid; gap: var(--o-space-4); padding-left: var(--o-space-24); }
+.prose ul { list-style: "· "; }
+.prose ol { list-style: decimal; }
+.prose li::marker { color: var(--o-prose-marker); }
+.prose code, .block code, .opt code { padding: 0 var(--o-space-4); border-radius: var(--o-radius-1); background: var(--o-surface-well); color: var(--o-prose-code); }
+.block.you code, .opt code { background: var(--o-surface-page); }
+.prose pre { padding: var(--o-space-12) var(--o-space-16); border-radius: var(--o-radius-2); background: var(--o-surface-well); color: var(--o-ink-1); font: var(--o-type-small); overflow-x: auto; }
+.prose pre code { padding: 0; background: none; color: var(--o-ink-1); }
+.tok-k { color: var(--o-syntax-keyword); }
+.tok-s { color: var(--o-syntax-string); }
+.tok-n { color: var(--o-syntax-number); }
+.tok-f { color: var(--o-syntax-function); }
+.tok-t { color: var(--o-syntax-type); }
+.tok-c { color: var(--o-syntax-comment); font-style: italic; }
+.tok-o { color: var(--o-syntax-operator); }
+.prose pre .lang { display: block; margin-bottom: var(--o-space-8); color: var(--o-ink-3); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+.prose blockquote { padding-left: var(--o-space-12); border-left: var(--o-size-rail) solid var(--o-prose-marker); color: var(--o-ink-2); font-style: italic; }
+.prose a { color: var(--o-role-ref); text-decoration: underline; text-underline-offset: var(--o-space-2); }
+.prose hr { width: 100%; height: var(--o-size-hairline); border: 0; background: var(--o-line-soft); }
+.prose table { border-collapse: collapse; font: var(--o-type-small); }
+.prose th { padding: var(--o-space-4) var(--o-space-12) var(--o-space-4) 0; border-bottom: var(--o-size-hairline) solid var(--o-line-firm); color: var(--o-prose-heading); font-weight: var(--o-font-weight-bold); text-align: left; }
+.prose td { padding: var(--o-space-4) var(--o-space-12) var(--o-space-4) 0; border-bottom: var(--o-size-hairline) solid var(--o-line-soft); color: var(--o-ink-2); }
+.prose .caret { display: inline-block; width: var(--o-space-8); height: var(--o-space-16); margin-left: var(--o-space-2); background: var(--o-role-live); vertical-align: text-bottom; animation: blink var(--o-loop-blink) steps(1) infinite; }
+mark { background: var(--o-role-mark-line); color: var(--o-ink-1); }
+mark.cur { background: var(--o-role-mark); color: var(--o-ink-on-accent); }
+
+/* Line: machinery. A hairline thread on the spine, one line of small text, a name you can open, and a status at the
+   far right only when it is not plain success. Lines in a run touch. */
+.lines { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; }
+.line { display: flex; align-items: baseline; gap: var(--o-space-8); min-width: 0; padding: var(--o-space-2) var(--o-space-12); border-left: var(--o-size-hairline) solid var(--o-line-firm); color: var(--o-ink-3); font: var(--o-type-small); }
+.line > .caret { flex: none; align-self: center; color: var(--o-ink-4); }
+.line > .tool { flex: none; align-self: center; color: var(--o-series-4); }
+.line > .tool.f-edit { color: var(--o-series-2); }
+.line > .tool.f-shell { color: var(--o-series-3); }
+.line > .tool.f-search { color: var(--o-series-1); }
+.line > .tool.f-agent { color: var(--o-series-5); }
+.line > .name { flex: none; color: var(--o-role-ref); }
+.line > .name.plain { color: var(--o-ink-2); font-weight: var(--o-font-weight-bold); }
+.line > .arg { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.line > .arg.strong { color: var(--o-ink-2); }
+.line > .more { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-ink-4); }
+.line > .end { display: inline-flex; align-items: center; gap: var(--o-space-8); margin-left: auto; flex: none; }
+.line.running { padding-left: calc(var(--o-space-12) - var(--o-size-rail) + var(--o-size-hairline)); border-left: var(--o-size-rail) solid var(--o-role-live); }
+.line.running > .end { color: var(--o-role-live); }
+.line.failed > .end { color: var(--o-role-bad); }
+.line.stopped > .end { color: var(--o-ink-3); }
+.line.thinking > .arg { font-style: italic; }
+.line.error > .arg { color: var(--o-role-bad); }
+.line .lbl { flex: none; color: var(--o-ink-3); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+.line .dots { display: inline-flex; align-items: center; gap: var(--o-space-2); }
+.line .dots i { width: var(--o-size-dot); height: var(--o-size-dot); border-radius: var(--o-radius-round); background: var(--o-line-glyph); }
+.line .dots i.bad { background: var(--o-role-bad); }
+.line .dots i.live { background: var(--o-role-live); animation: pulse var(--o-loop-pulse) ease-in-out infinite; }
+a.line:hover, button.line:hover, .line.hover { background: var(--o-surface-well); color: var(--o-ink-2); }
+button.line { width: 100%; }
+/* What a line opens: a tool's result, a thought, a brief. */
+.opened { margin: var(--o-space-4) 0 var(--o-space-8) var(--o-space-12); padding: var(--o-space-8) var(--o-space-12); border-radius: var(--o-radius-2); background: var(--o-surface-well); color: var(--o-ink-2); font: var(--o-type-small); white-space: pre-wrap; overflow-wrap: anywhere; }
+.opened.bad { color: var(--o-role-bad); }
+.opened.prosey { white-space: normal; }
+.touch .line { padding-top: var(--o-space-8); padding-bottom: var(--o-space-8); }
+
+/* Rule: a mark across the column. One line; it never wraps. */
+.rule { display: flex; align-items: center; gap: var(--o-space-12); min-width: 0; color: var(--o-ink-3); white-space: nowrap; }
+.rule::before { content: ""; flex: none; width: var(--o-space-16); height: var(--o-size-hairline); background: currentColor; }
+.rule::after { content: ""; flex: 1 1 auto; height: var(--o-size-hairline); background: currentColor; }
+.rule .lbl { flex: none; font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+.rule .detail { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--o-ink-3); font: var(--o-type-small); }
+.rule.plain::before, .rule.plain::after { background: var(--o-line-soft); }
+.rule.new { color: var(--o-role-new); }
+.rule.halt { color: var(--o-role-halt); }
+
+/* Ask: it waits on you. The one loud thing on a page: an attention rail, tint and outline. The question is body
+   text at regular weight; the options are numbered rows. */
+.ask { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--o-space-12); min-width: 0; padding: var(--o-space-12) var(--o-space-16); border-left: var(--o-size-rail) solid var(--o-role-attention); border-radius: 0 var(--o-radius-3) var(--o-radius-3) 0; background: var(--o-role-attention-fill); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-role-attention-line); }
+.ask > .head { display: flex; align-items: center; gap: var(--o-space-8); min-width: 0; color: var(--o-ink-2); font: var(--o-type-small); }
+.touch .ask > .head { flex-wrap: wrap; }
+.touch .ask > .head .cut { flex-basis: 100%; order: 3; }
+.ask > .head .lbl { flex: none; color: var(--o-role-attention); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+.ask > .head .age { flex: none; color: var(--o-ink-3); white-space: nowrap; }
+.ask > .head .end { display: inline-flex; align-items: center; gap: var(--o-space-4); margin-left: auto; flex: none; position: relative; }
+.ask > .head .end > .menu { position: absolute; top: calc(100% + var(--o-space-4)); right: 0; z-index: var(--o-z-menu); }
+/* A question you put off: quiet, still answerable, off your list. */
+.ask.later { border-left-color: var(--o-ink-3); background: var(--o-surface-well); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-soft); }
+.ask.later > .head .lbl { color: var(--o-ink-3); }
+.ask > .q { color: var(--o-ink-1); font: var(--o-type-body); overflow-wrap: anywhere; }
+.ask > .q.prose { gap: var(--o-space-8); }
+.ask > .ctx-chips { display: flex; flex-wrap: wrap; gap: var(--o-space-4); }
+.opts { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--o-space-4); }
+.opt { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; column-gap: var(--o-space-12); align-items: baseline; width: 100%; padding: var(--o-space-8) var(--o-space-12); border-radius: var(--o-radius-2); background: var(--o-surface-raised); color: var(--o-ink-1); }
+.opt:hover, .opt.hover { background: var(--o-surface-pressed); }
+.opt .nm { font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
+.opt .ds { grid-column: 2 / -1; color: var(--o-ink-2); font: var(--o-type-small); }
+.opt.picked { box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-role-focus); }
+.opt.picked .kbd { background: var(--o-role-primary); }
+.opt .field { grid-column: 2 / -1; margin-top: var(--o-space-8); background: var(--o-surface-page); }
+.touch .opt { grid-template-columns: minmax(0, 1fr) auto; min-height: var(--o-size-control-touch); align-content: center; }
+.touch .opt .ds { grid-column: 1 / -1; }
+.ask > .foot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-12); }
+.ask .record { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: var(--o-space-4); }
+.ask .record .t-label { color: var(--o-ink-3); }
+.ask .record code { display: block; overflow-wrap: anywhere; padding: var(--o-space-4) var(--o-space-8); border-radius: var(--o-radius-1); background: var(--o-surface-well); color: var(--o-ink-2); font: var(--o-type-small); }
+/* An Ask that is over folds to one line. */
+.ask.folded { display: flex; align-items: baseline; gap: var(--o-space-8); padding: var(--o-space-8) var(--o-space-12); border-left-color: var(--o-role-ok); border-radius: 0 var(--o-radius-2) var(--o-radius-2) 0; background: var(--o-surface-well); box-shadow: none; font: var(--o-type-small); color: var(--o-ink-2); }
+.ask.folded .lbl { color: var(--o-role-ok); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+.ask.folded.settled { border-left-color: var(--o-ink-3); }
+.ask.folded.settled .lbl { color: var(--o-ink-3); }
+
+/* ============================================================ 3. The dock: state and what is pending */
+
+/* Dock: one box at the foot of a conversation. The state's rail is its left edge. Top to bottom, each part only when
+   it has rows: the goal, the state bar, the trays (running, arriving, queued), the input. The transcript is the past;
+   everything still running, arriving or queued is here, where it stays in sight. */
+.dock { flex: none; padding: 0 var(--o-layout-page-pad-desk) var(--o-space-16); }
+.dock > .col { gap: var(--o-space-4); padding-left: calc(var(--o-layout-gutter-ch) + var(--o-space-16)); }
+.dock-box { --state: var(--o-line-firm); display: grid; min-width: 0; border-left: var(--o-size-rail) solid var(--state); border-radius: var(--o-radius-3); background: var(--o-surface-well); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm); overflow: hidden; }
+.dock-box[data-state="working"] { --state: var(--o-state-working); }
+.dock-box[data-state="waiting"] { --state: var(--o-state-waiting); }
+.dock-box[data-state="held"] { --state: var(--o-state-held); }
+.dock-box[data-state="done"] { --state: var(--o-state-done); }
+.dock-box[data-state="interrupted"], .dock-box[data-state="interrupting"] { --state: var(--o-state-interrupted); }
+.dock-box[data-state="failed"] { --state: var(--o-state-failed); }
+.dock-box.focused { box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-role-focus); }
+.dock-box > * + * { border-top: var(--o-size-hairline) solid var(--o-line-soft); }
+
+/* StateBar: the state, once, beside the controls that change it. */
+.statebar { display: flex; align-items: center; gap: var(--o-space-8); min-width: 0; min-height: var(--o-size-control-desk); padding: var(--o-space-4) var(--o-space-4) var(--o-space-4) var(--o-space-12); font: var(--o-type-small); color: var(--o-ink-2); }
+.statebar .glyph { color: var(--state); }
+.statebar .word { flex: none; color: var(--state); font-weight: var(--o-font-weight-bold); }
+.dock-box[data-state="done"] .statebar .word, .dock-box[data-state="idle"] .statebar .word, .dock-box[data-state="stopped"] .statebar .word { color: var(--o-ink-2); font-weight: var(--o-font-weight-regular); }
+.statebar .what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.statebar .what .name { color: var(--o-role-ref); }
+.statebar .clock { flex: none; color: var(--state); }
+.statebar .end { display: inline-flex; align-items: center; gap: var(--o-space-4); margin-left: auto; flex: none; }
+.touch .statebar { min-height: var(--o-size-control-desk); }
+/* Ctl: a control inside a line of the dock or a tray. It is the height of the line's text, the same at the desk and on
+   touch; its touch target is the line it sits in. */
+.ctl { display: inline-flex; align-items: center; gap: var(--o-space-4); flex: none; height: var(--o-space-24); padding: 0 var(--o-space-8); border-radius: var(--o-radius-1); color: var(--o-ink-2); font: var(--o-type-small); white-space: nowrap; }
+.ctl:hover, .ctl.hover { background: var(--o-surface-raised); color: var(--o-ink-1); }
+.ctl.bad .icon { color: var(--o-role-bad); }
+.ctl.go .icon { color: var(--o-role-ok); }
+.ctl:disabled { color: var(--o-ink-4); }
+.ctl.only { padding: 0 var(--o-space-4); }
+
+/* GoalLine: the session's goal, one line until opened. */
+.goal { display: flex; align-items: baseline; gap: var(--o-space-8); min-width: 0; padding: var(--o-space-4) var(--o-space-12); font: var(--o-type-small); color: var(--o-ink-2); }
+.goal .lbl { flex: none; color: var(--o-ink-3); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+.goal .text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.goal.open .text { white-space: normal; }
+.goal .icon { align-self: center; color: var(--o-ink-4); }
+
+/* Tray: rows that have not happened yet. Each row's rail is dashed, in the tone of who it belongs to. */
+.tray { display: grid; padding: var(--o-space-4) 0; }
+.tray-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--o-space-8); padding: var(--o-space-2) var(--o-space-12); font: var(--o-type-small); color: var(--o-ink-3); }
+.tray-head .lbl { flex: none; font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+.tray-head .why { flex: 1 1 auto; min-width: 0; }
+.tray-head .end { display: inline-flex; align-items: center; gap: var(--o-space-8); margin-left: auto; flex: none; }
+.tray-row { --rail: var(--o-line-firm); display: flex; align-items: center; gap: var(--o-space-8); min-width: 0; margin-left: var(--o-space-12); padding: var(--o-space-2) var(--o-space-12) var(--o-space-2) var(--o-space-8); border-left: var(--o-size-rail) dashed var(--rail); font: var(--o-type-small); color: var(--o-ink-2); }
+.tray-row.you { --rail: var(--o-role-you); color: var(--o-ink-1); font: var(--o-type-body); }
+.tray-row.engine { --rail: var(--o-role-engine); }
+.tray-row.live { --rail: var(--o-role-live); border-left-style: solid; }
+.tray-row.quiet { --rail: var(--o-line-firm); border-left-style: solid; color: var(--o-ink-3); }
+.tray-row.cancelled { --rail: var(--o-role-halt); color: var(--o-ink-3); text-decoration: line-through; }
+.tray-row .name { flex: none; color: var(--o-role-ref); }
+.tray-row .lbl { display: inline-block; flex: none; color: var(--rail); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; text-decoration: none; }
+.tray-row .text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tray-row .text.wrap { white-space: pre-wrap; }
+.tray-row .more { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-ink-3); }
+.tray-row .end { display: inline-flex; align-items: center; gap: var(--o-space-4); margin-left: auto; flex: none; color: var(--o-ink-3); font: var(--o-type-small); }
+.tray-row .end.live { color: var(--o-role-live); }
+.tray-row .btn { height: var(--o-space-24); width: var(--o-space-24); }
+.touch .tray-row .btn { height: var(--o-size-control-touch); width: var(--o-size-control-touch); }
+.tray-more { margin-left: var(--o-space-12); padding: var(--o-space-2) var(--o-space-12); font: var(--o-type-small); color: var(--o-ink-3); }
+
+/* The input: what you type, and Send. The placeholder says what a send will do in this state. */
+.dock-input { display: flex; align-items: flex-end; gap: var(--o-space-8); padding: var(--o-space-8) var(--o-space-8) var(--o-space-8) var(--o-space-12); }
+.dock-input .text { flex: 1 1 auto; min-width: 0; min-height: var(--o-size-control-desk); padding: var(--o-space-4) 0; color: var(--o-ink-1); font: var(--o-type-body); white-space: pre-wrap; overflow-wrap: anywhere; }
+.dock-input .text.placeholder { color: var(--o-ink-4); }
+.dock-input .text .caret { display: inline-block; width: var(--o-space-2); height: var(--o-space-16); background: var(--o-role-focus); vertical-align: text-bottom; animation: blink var(--o-loop-blink) steps(1) infinite; }
+.touch .dock { padding: 0 var(--o-space-8) var(--o-space-8); }
+.touch .dock > .col { padding-left: 0; }
+.touch .dock-input .text { min-height: var(--o-size-control-touch); padding: var(--o-space-12) 0; }
+
+/* QuickKeys: keys sent straight to a terminal pane. Android only. */
+.quickkeys { display: flex; gap: var(--o-space-4); overflow-x: auto; }
+.quickkeys .btn { flex: 1 0 auto; padding: 0 var(--o-space-12); }
+.quickkeys .btn.flash { background: var(--o-role-live); color: var(--o-ink-on-accent); }
+
+/* FindBar: find in the transcript. */
+.findbar { flex: none; padding: var(--o-space-8) var(--o-layout-page-pad-desk); border-bottom: var(--o-size-hairline) solid var(--o-line-soft); }
+.findbar > .col { padding-left: calc(var(--o-layout-gutter-ch) + var(--o-space-16)); }
+.touch .findbar { padding: var(--o-space-8) var(--o-layout-page-pad-phone); }
+.touch .findbar > .col { padding-left: 0; }
+
+/* ============================================================ 4. Shell: the frame, the inbox, the title row */
+
+.app { position: relative; display: flex; height: 100%; min-height: 0; overflow: hidden; background: var(--o-surface-page); color: var(--o-ink-1); font: var(--o-type-body); }
+.page { position: relative; display: flex; flex-direction: column; flex: 1 1 0; min-width: 0; min-height: 0; background: var(--o-surface-page); }
+.page + .page { border-left: var(--o-size-hairline) solid var(--o-line-soft); }
+.menu-item > span:not(.sub) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.menu-item .sub { flex: none; }
+/* A menu whose items are conversations: the title on one line, what it is doing under it. */
+.menu.two .menu-item { display: grid; grid-template-columns: var(--o-size-glyph) minmax(0, 1fr); align-items: center; gap: 0 var(--o-space-12); height: auto; padding: var(--o-space-8) var(--o-space-12); white-space: normal; }
+.menu.two .menu-item > .icon { grid-row: 1 / span 2; }
+.menu.two .menu-item .sub { grid-column: 2; margin-left: 0; }
+/* SubjectBand: what a conversation is steering, one line each, under its title row. The record open in the right
+   pane is marked and points at it. */
+.subject { display: grid; flex: none; border-bottom: var(--o-size-hairline) solid var(--o-line-soft); background: var(--o-surface-well); }
+.subj { display: flex; align-items: center; gap: var(--o-space-8); min-width: 0; min-height: var(--o-size-control-desk); padding: var(--o-space-4) var(--o-space-16); border-left: var(--o-size-rail) solid var(--subj, var(--o-role-live)); color: var(--o-ink-2); font: var(--o-type-small); }
+.subj + .subj { border-top: var(--o-size-hairline) solid var(--o-line-soft); }
+.subj.attention { --subj: var(--o-role-attention); }
+.subj.live { --subj: var(--o-role-live); }
+.subj .what { flex: none; color: var(--o-ink-1); }
+.subj .st { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--subj); text-overflow: ellipsis; white-space: nowrap; }
+.subj .end { display: inline-flex; align-items: center; gap: var(--o-space-4); flex: none; color: var(--o-role-ref); }
+a.subj:hover { background: var(--o-surface-raised); }
+.subj.more { --subj: var(--o-ink-3); }
+.dock-waits { display: flex; align-items: center; gap: var(--o-space-8); padding: var(--o-space-4) var(--o-space-12); border-top: var(--o-size-hairline) solid var(--o-line-soft); color: var(--o-role-engine); font: var(--o-type-small); }
+.dock-box.ended .ended-body { display: grid; gap: var(--o-space-8); padding: var(--o-space-8) var(--o-space-12) var(--o-space-12); color: var(--o-ink-2); font: var(--o-type-small); }
+.dock-box.ended .acts { display: flex; flex-wrap: wrap; gap: var(--o-space-8); }
+.subj.more .what { color: var(--o-ink-2); }
+.subj.here { background: var(--o-surface-raised); }
+.subj.here .end { color: var(--o-ink-3); }
+.touch .subj { flex-wrap: wrap; min-height: var(--o-size-control-touch); padding: var(--o-space-4) var(--o-layout-page-pad-phone); }
+.touch .subj .st { white-space: normal; }
+
+/* WorkCard: an epic this conversation started, live: where it is, what it is doing, what it asks. */
+.wcard { --rail: var(--o-line-firm); --tint: transparent; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--o-space-8); padding: var(--o-space-12); border-left: var(--o-size-rail) solid var(--rail); border-radius: 0 var(--o-radius-2) var(--o-radius-2) 0; background: linear-gradient(var(--tint), var(--tint)), var(--o-surface-well); }
+.wcard.live { --rail: var(--o-role-live); }
+.wcard.attention { --rail: var(--o-role-attention); --tint: var(--o-role-attention-fill); }
+.wcard.ok { --rail: var(--o-role-ok); }
+.wcard.engine { --rail: var(--o-role-engine); }
+.wcard .top { display: flex; align-items: center; gap: var(--o-space-8); min-width: 0; }
+.wcard .slug { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-ink-1); font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
+.wcard .top .end { margin-left: auto; flex: none; }
+.wcard .now { color: var(--o-ink-2); font: var(--o-type-small); }
+.wcard .asks { display: flex; align-items: center; gap: var(--o-space-8); color: var(--o-role-attention); font: var(--o-type-small); }
+.wcard .asks span { flex: 1 1 auto; min-width: 0; }
+.wcard .foot { display: flex; align-items: center; gap: var(--o-space-8); color: var(--o-ink-3); font: var(--o-type-small); }
+.wcard .foot .end { margin-left: auto; }
+/* MiniTrack: the track's five stages as five marks. */
+.mtrack { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--o-space-2); }
+.mtrack i { height: var(--o-space-4); border-radius: var(--o-radius-round); background: var(--o-line-soft); }
+.mtrack i.done { background: var(--o-role-ok); }
+.mtrack i.now { background: var(--rail); }
+.wrows { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--o-space-2); }
+.wrows .tray-row { margin-left: 0; padding-top: var(--o-space-4); padding-bottom: var(--o-space-4); }
+/* WorkBar: on touch, a conversation's work is one line under the title row; it opens the Work page. */
+.page-body { position: relative; display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.blank { margin: auto; display: grid; gap: var(--o-space-8); justify-items: center; max-width: 48ch; padding: var(--o-space-24); color: var(--o-ink-3); font: var(--o-type-small); text-align: center; }
+.blank .t-body { color: var(--o-ink-2); }
+
+/* Inbox: the list of everything, grouped by the directory the work is in. A row never has a rail; rails belong to
+   the conversation. The open row is raised; the keyboard's row is outlined. */
+.inbox { display: flex; flex-direction: column; flex: none; width: var(--o-layout-inbox-width); min-height: 0; border-right: var(--o-size-hairline) solid var(--o-line-soft); background: var(--o-surface-side); }
+.app[data-inbox="rail"] > .inbox { display: none; }
+.app[data-inbox="flyout"] > .inbox { position: absolute; top: 0; bottom: 0; left: var(--o-layout-rail-width); z-index: var(--o-z-flyout); box-shadow: var(--o-elevation-side); }
+.app.narrow .inbox { width: var(--o-layout-inbox-width-narrow); }
+.touch .inbox, .touch.inbox { width: 100%; border-right: 0; background: var(--o-surface-page); }
+.inbox-head { display: flex; align-items: center; gap: var(--o-space-8); flex: none; padding: var(--o-space-12) var(--o-space-8) var(--o-space-8) var(--o-space-16); }
+.inbox-head .name { color: var(--o-ink-1); font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
+.inbox-head .end { display: inline-flex; align-items: center; gap: var(--o-space-4); margin-left: auto; }
+.inbox-attn { display: flex; flex-wrap: wrap; gap: var(--o-space-8); flex: none; padding: 0 var(--o-space-12) var(--o-space-8) var(--o-space-16); }
+.inbox-search { flex: none; padding: 0 var(--o-space-12) var(--o-space-8); }
+.inbox-rows { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 var(--o-space-8) var(--o-space-16); }
+.inbox-foot { display: flex; align-items: center; gap: var(--o-space-4); flex: none; padding: var(--o-space-4) var(--o-space-8); border-top: var(--o-size-hairline) solid var(--o-line-soft); }
+.inbox-foot .end { margin-left: auto; display: inline-flex; gap: var(--o-space-4); }
+.inbox .inote { padding: var(--o-space-4) var(--o-space-16); }
+
+/* Dir: a directory and what is in it: its sessions, then its epics, then what has ended. */
+.dir { display: grid; grid-template-columns: minmax(0, 1fr); margin-top: var(--o-space-8); border-radius: var(--o-radius-3); background: var(--o-surface-well); }
+.dir:first-child { margin-top: 0; }
+.dir-head { display: flex; align-items: center; gap: var(--o-space-4); min-width: 0; padding: var(--o-space-4) var(--o-space-8) var(--o-space-4) var(--o-space-4); color: var(--o-ink-3); font: var(--o-type-small); }
+.dir-head .fold { display: grid; place-items: center; flex: none; width: var(--o-space-24); height: var(--o-size-control-desk); border-radius: var(--o-radius-1); color: var(--o-ink-4); }
+.dir-head .fold:hover { background: var(--o-surface-raised); color: var(--o-ink-1); }
+.dir-head .proj { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--o-space-8); align-items: center; flex: 1 1 auto; min-width: 0; padding: var(--o-space-4) var(--o-space-8); border-radius: var(--o-radius-2); }
+.dir-head .proj:hover { background: var(--o-surface-raised); }
+.dir-head .proj > .icon, .dir-head .proj > .gauge { grid-row: 1 / span 2; color: var(--hue, var(--o-role-place)); }
+.dir-head .proj > .gauge { color: inherit; }
+
+
+
+.dir-head .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-role-place); font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
+.dir-head .path { grid-column: 2; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-ink-3); }
+/* What a project holds hangs from a line under its head: its sessions, then its epics, then what has ended. */
+.dir-kids { display: grid; grid-template-columns: minmax(0, 1fr); margin: 0 var(--o-space-4) var(--o-space-8) var(--o-space-16); padding-left: var(--o-space-4); border-left: var(--o-size-hairline) solid var(--o-line-firm); }
+.dir-head .end { display: inline-flex; align-items: center; gap: var(--o-space-8); margin-left: auto; flex: none; color: var(--o-ink-3); }
+.dir-head .end .is-attention { font-weight: var(--o-font-weight-bold); }
+.fold-line { display: flex; align-items: center; gap: var(--o-space-8); width: 100%; padding: var(--o-space-4) var(--o-space-8); border-radius: var(--o-radius-2); color: var(--o-ink-3); font: var(--o-type-small); }
+.fold-line:hover { background: var(--o-surface-page); color: var(--o-ink-2); }
+.fold-line .icon { color: var(--o-ink-4); }
+.touch .dir-head, .touch .fold-line { min-height: var(--o-size-control-touch); }
+.touch .dir-head .fold { height: var(--o-size-control-touch); width: var(--o-space-32); }
+
+/* InboxRow: a session. Unseen dot, state glyph, one line saying what it has been doing, its age; then its last words,
+   or what it asks. */
+.row { position: relative; display: grid; grid-template-columns: var(--o-size-dot) var(--o-size-glyph) minmax(0, 1fr) auto; column-gap: var(--o-space-8); align-items: start; width: 100%; min-width: 0; padding: var(--o-space-8); border-radius: var(--o-radius-2); color: var(--o-ink-2); }
+.row > .dot, .row > .glyph { margin-top: var(--o-space-4); }
+.row > .dot { margin-top: calc(var(--o-space-8) + var(--o-space-2)); }
+.row:hover, .row.hover { background: var(--o-surface-page); }
+.row.open { background: var(--o-surface-raised); }
+.row.cur { box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-role-focus); }
+.row .dot { width: var(--o-size-dot); height: var(--o-size-dot); border-radius: var(--o-radius-round); }
+.row[data-unseen] .dot { background: var(--o-role-new); }
+.row .title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; min-width: 0; overflow: hidden; font: var(--o-type-body); }
+.row[data-unseen] .title, .row.open .title { color: var(--o-ink-1); }
+.row[data-unseen] .title { font-weight: var(--o-font-weight-bold); }
+.row .age { color: var(--o-ink-3); font: var(--o-type-small); white-space: nowrap; }
+.row[data-unseen] .age { color: var(--o-role-new); }
+.row .l2 { grid-column: 3 / -1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-ink-3); font: var(--o-type-small); }
+.row .l2.asks { color: var(--o-role-attention); }
+.row .l2 .name { color: var(--o-role-ref); }
+.row .l2 .icon, .row .l3 .icon { display: inline-block; margin-right: var(--o-space-4); vertical-align: text-bottom; }
+.row .l2.wrap2 { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; }
+.row .acts { grid-column: 3 / -1; display: flex; flex-wrap: wrap; gap: var(--o-space-4); margin-top: var(--o-space-4); }
+.row .more-btn { position: absolute; top: var(--o-space-4); right: var(--o-space-4); display: none; background: var(--o-surface-raised); }
+.row:hover .more-btn, .row.cur .more-btn, .row.menu-open .more-btn { display: inline-flex; }
+.row:hover .age, .row.cur .age, .row.menu-open .age { visibility: hidden; }
+.row > .menu { position: absolute; top: calc(100% - var(--o-space-4)); right: var(--o-space-4); z-index: var(--o-z-menu); }
+.row .tag { color: var(--o-ink-4); font: var(--o-type-small); }
+.touch .row { padding: var(--o-space-12) var(--o-space-8); }
+.touch .row .more-btn { display: none; }
+.touch .row:hover .age { visibility: visible; }
+
+/* EpicRow: an epic. Its gauge, its name, its count; then its state in words; then what blocks it, in attention. */
+.row.epic { grid-template-columns: var(--o-size-gauge) minmax(0, 1fr) auto; align-items: start; }
+.row.epic .gauge { grid-row: 1 / span 2; }
+.row.epic .title { color: var(--o-ink-1); font-weight: var(--o-font-weight-bold); }
+.row.epic .l2, .row.epic .l3, .row.epic .acts { grid-column: 2 / -1; }
+.row.epic .l3 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-role-attention); font: var(--o-type-small); }
+.row.epic.ended .title { color: var(--o-ink-2); font-weight: var(--o-font-weight-regular); }
+/* What a conversation steers hangs from a line under its row: its epics with their running steps, and a contract
+   not yet accepted, led by the contract's mark. */
+.steers { display: grid; grid-template-columns: minmax(0, 1fr); margin: 0 0 var(--o-space-4) var(--o-space-24); padding-left: var(--o-space-4); border-left: var(--o-size-hairline) solid var(--o-line-firm); }
+.steers .row.epic .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row.epic.contract .cmark { display: grid; place-items: center; grid-row: 1 / span 2; width: var(--o-size-gauge); height: var(--o-size-gauge); color: var(--o-role-attention); }
+.dir-kids .steers .row.step { grid-template-columns: var(--o-size-glyph) minmax(0, max-content) auto minmax(0, 1fr); margin-left: var(--o-space-16); }
+.steers .row.step .label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* StepRow: a running step, under its epic. */
+.row.step { grid-template-columns: var(--o-size-glyph) auto auto minmax(0, 1fr); align-items: center; margin-left: var(--o-space-32); width: auto; padding: var(--o-space-4) var(--o-space-8); font: var(--o-type-small); }
+.row.step > .glyph { margin-top: 0; }
+.row.step .label { color: var(--o-ink-1); white-space: nowrap; }
+.row.step .doing { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-ink-3); }
+.row.step.held .doing { color: var(--o-role-attention); }
+.touch .row.step { min-height: var(--o-size-control-touch); }
+
+/* TitleRow: where you are, and what you can do here. The last crumb is the page and the largest text in the row. */
+.titlerow { display: grid; gap: var(--o-space-4); flex: none; padding: var(--o-space-8) var(--o-layout-page-pad-desk); border-bottom: var(--o-size-hairline) solid var(--o-line-soft); }
+.titlerow .line1 { display: flex; align-items: center; gap: var(--o-space-8); min-width: 0; min-height: var(--o-size-control-desk); }
+.titlerow .line2 { display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-8); min-width: 0; min-height: var(--o-space-24); }
+.titlerow .lead { display: inline-flex; align-items: center; gap: var(--o-space-4); flex: none; margin-left: calc(-1 * var(--o-space-8)); }
+.crumbs { display: flex; align-items: baseline; gap: var(--o-space-8); flex: 0 1 auto; min-width: 0; }
+.crumb { flex: none; color: var(--o-ink-3); font: var(--o-type-small); white-space: nowrap; }
+a.crumb:hover { color: var(--o-ink-1); text-decoration: underline; }
+.crumb.sep { color: var(--o-ink-4); }
+.crumb.dir { color: var(--o-role-place); }
+.crumb.here { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--o-ink-1); font: var(--o-type-title); }
+.titlerow .state { display: inline-flex; align-items: center; gap: var(--o-space-8); flex: 0 1 auto; min-width: 0; }
+.titlerow .state .pill { display: block; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.titlerow .state .pill + .pill { flex: 0 100 auto; }
+.titlerow .state .pill .glyph { display: inline-block; margin-right: var(--o-space-4); vertical-align: text-bottom; }
+.titlerow .cmds { display: inline-flex; align-items: center; gap: var(--o-space-4); flex: none; margin-left: auto; }
+.titlerow .cmds { position: relative; }
+.titlerow .cmds > .menu { position: absolute; top: calc(100% + var(--o-space-4)); right: 0; z-index: var(--o-z-menu); }
+.strip { display: flex; align-items: center; gap: var(--o-space-16); min-width: 0; min-height: var(--o-space-24); overflow: hidden; color: var(--o-ink-3); font: var(--o-type-small); }
+.strip .host { display: inline-flex; align-items: center; gap: var(--o-space-4); flex: none; color: var(--o-ink-2); font-weight: var(--o-font-weight-bold); }
+.strip .host .icon { color: var(--o-ink-4); }
+.strip .ctx { margin-left: auto; }
+.strip .other { color: var(--o-ink-4); }
+.page-note { flex: none; padding: var(--o-space-4) var(--o-layout-page-pad-desk); border-bottom: var(--o-size-hairline) solid var(--o-line-soft); background: var(--o-role-bad-fill); }
+.touch .titlerow { padding: var(--o-space-4) var(--o-space-4) var(--o-space-8); }
+.touch .titlerow .line1 { min-height: var(--o-size-control-touch); gap: var(--o-space-4); }
+.touch .titlerow .lead { margin-left: 0; }
+.touch .titlerow .heading { display: grid; flex: 1 1 auto; min-width: 0; }
+.touch .titlerow .heading .dirline { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-role-place); font: var(--o-type-small); }
+.touch .titlerow .heading .here { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; min-width: 0; overflow: hidden; color: var(--o-ink-1); font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
+.touch .titlerow .heading .here.one { -webkit-line-clamp: 1; }
+.touch .strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--o-space-8) var(--o-space-12); padding: 0 var(--o-space-12); }
+.touch .strip .host { display: none; }
+.touch .strip .other { grid-column: 1 / -1; }
+.touch .strip .ctx { margin-left: 0; }
+.touch .page-note { padding: var(--o-space-4) var(--o-layout-page-pad-phone); }
+
+/* EpicPin: a conversation that created an epic keeps a line to it in sight, wherever it is scrolled. */
+.epic-pin { display: flex; align-items: center; gap: var(--o-space-8); flex: none; min-width: 0; padding: var(--o-space-4) var(--o-layout-page-pad-desk); border-bottom: var(--o-size-hairline) solid var(--o-line-soft); color: var(--o-ink-2); font: var(--o-type-small); }
+.epic-pin:hover { background: var(--o-surface-well); }
+.epic-pin .slug { flex: none; color: var(--o-ink-1); font-weight: var(--o-font-weight-bold); }
+.epic-pin .words { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.epic-pin .blocker { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-role-attention); }
+.epic-pin .end { display: inline-flex; align-items: center; gap: var(--o-space-4); margin-left: auto; flex: none; color: var(--o-ink-3); }
+.touch .epic-pin .end span { display: none; }
+.touch .epic-pin .words { display: none; }
+.touch .epic-pin { min-height: var(--o-size-control-touch); padding: var(--o-space-4) var(--o-layout-page-pad-phone); }
+
+/* NoticeStack: what happened elsewhere, at the top right of the page area, under the title row and never over it. */
+.notices { position: absolute; top: var(--o-space-12); right: var(--o-space-16); z-index: var(--o-z-notices); display: grid; gap: var(--o-space-4); width: min(52ch, calc(100% - var(--o-space-32))); }
+.notice { --rail: var(--o-line-firm); display: grid; grid-template-columns: auto minmax(0, 1fr) auto; column-gap: var(--o-space-12); align-items: start; min-width: 0; padding: var(--o-space-12); border-left: var(--o-size-rail) solid var(--rail); border-radius: 0 var(--o-radius-3) var(--o-radius-3) 0; background: var(--o-surface-overlay); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm), var(--o-elevation-overlay); color: var(--o-ink-2); font: var(--o-type-small); }
+.notice.attention { --rail: var(--o-role-attention); }
+.notice.ok { --rail: var(--o-role-ok); }
+.notice.bad { --rail: var(--o-role-bad); }
+.notice.live { --rail: var(--o-role-live); }
+.notice > .icon, .notice > .gauge, .notice > .glyph { margin-top: var(--o-space-4); color: var(--rail); }
+.notice .t { color: var(--o-ink-1); font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
+.notice .t .dirn { color: var(--o-role-place); font-weight: var(--o-font-weight-regular); }
+.notice .b { grid-column: 2; }
+.notice .acts { grid-column: 2; display: flex; align-items: center; gap: var(--o-space-8); margin-top: var(--o-space-8); }
+.notice .when { color: var(--o-ink-3); white-space: nowrap; }
+.notice.flat { background: none; box-shadow: none; border-radius: 0; }
+.notice.flat.unread .t::after { content: ""; display: inline-block; width: var(--o-size-dot); height: var(--o-size-dot); margin-left: var(--o-space-8); border-radius: var(--o-radius-round); background: var(--o-role-new); vertical-align: middle; }
+/* NoticeCentre: where notices collect. Opened by the bell, which counts the unread. */
+.ncentre { position: absolute; top: var(--o-space-8); right: var(--o-space-16); z-index: var(--o-z-panel); display: grid; grid-template-columns: minmax(0, 1fr); width: min(56ch, calc(100% - var(--o-space-32))); max-height: calc(100% - var(--o-space-32)); overflow-y: auto; border-radius: var(--o-radius-3); background: var(--o-surface-overlay); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm), var(--o-elevation-overlay); }
+.ncentre > .head { display: flex; align-items: center; gap: var(--o-space-8); padding: var(--o-space-12) var(--o-space-8) var(--o-space-8) var(--o-space-16); }
+.ncentre > .head .t-title { flex: 1 1 auto; }
+.ncentre .day { padding: var(--o-space-8) var(--o-space-16) var(--o-space-4); color: var(--o-ink-3); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+.ncentre .notice + .notice { border-top: var(--o-size-hairline) solid var(--o-line-soft); }
+.ncentre.flat { position: static; width: auto; max-height: none; box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm); }
+.nlist { display: grid; grid-template-columns: minmax(0, 1fr); }
+/* Badged: a control that counts something, the count on its corner. */
+.badged { position: relative; display: inline-flex; }
+.badged .n { position: absolute; top: 0; right: 0; display: grid; place-items: center; min-width: var(--o-space-16); height: var(--o-space-16); padding: 0 var(--o-space-4); border-radius: var(--o-radius-round); background: var(--o-role-attention); color: var(--o-ink-on-accent); font: var(--o-type-label); pointer-events: none; }
+.badged .n.new { background: var(--o-role-new); }
+
+
+.notices .rest { justify-self: end; padding: 0 var(--o-space-12); color: var(--o-ink-3); font: var(--o-type-small); }
+.touch .notices { top: var(--o-space-8); right: var(--o-space-8); width: calc(100% - var(--o-space-16)); }
+
+/* Panel: an overlay over the page, with the page dimmed under it. The palette (New), the key list, a confirm. */
+.scrim { position: absolute; inset: 0; z-index: var(--o-z-panel); display: flex; align-items: flex-start; justify-content: center; padding: var(--o-space-48) var(--o-space-16); background: var(--o-scrim); }
+.panel { display: grid; gap: var(--o-space-12); width: min(76ch, 100%); max-height: 100%; overflow-y: auto; padding: var(--o-space-16); border-radius: var(--o-radius-3); background: var(--o-surface-overlay); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm), var(--o-elevation-overlay); }
+.panel.wide { width: min(120ch, 100%); }
+.panel > .head { display: flex; align-items: center; gap: var(--o-space-8); }
+.panel > .head .t-title { flex: 1 1 auto; }
+.panel .foot { display: flex; align-items: center; gap: var(--o-space-8); }
+.panel .foot .end { margin-left: auto; display: inline-flex; gap: var(--o-space-8); }
+.pick-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; column-gap: var(--o-space-12); align-items: baseline; width: 100%; padding: var(--o-space-8) var(--o-space-12); border-radius: var(--o-radius-2); }
+.pick-row:hover, .pick-row.cur { background: var(--o-surface-raised); }
+.pick-row .t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-ink-1); }
+.pick-row .n { grid-column: 2 / -1; min-width: 0; color: var(--o-ink-3); font: var(--o-type-small); }
+.pick-row .k { color: var(--o-ink-3); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+.form-row { display: grid; gap: var(--o-space-4); }
+.form-row > .t-label { color: var(--o-ink-3); }
+.keygroups { display: grid; grid-template-columns: repeat(auto-fill, minmax(34ch, 1fr)); gap: var(--o-space-24); }
+.keygroup { display: grid; align-content: start; gap: var(--o-space-4); }
+.keygroup .t-label { margin-bottom: var(--o-space-4); color: var(--o-ink-3); }
+.keyline { display: grid; grid-template-columns: 12ch minmax(0, 1fr); column-gap: var(--o-space-12); align-items: baseline; font: var(--o-type-small); color: var(--o-ink-2); }
+.keyline .ks { display: inline-flex; flex-wrap: wrap; gap: var(--o-space-4); }
+
+/* Sheet: on touch, a menu or a confirm rises from the foot of the screen. */
+.sheet-scrim { position: absolute; inset: 0; z-index: var(--o-z-panel); display: flex; align-items: flex-end; background: var(--o-scrim); }
+.sheet { display: grid; gap: var(--o-space-8); width: 100%; max-height: 90%; overflow-y: auto; padding: var(--o-space-8) var(--o-space-8) var(--o-space-16); border-radius: var(--o-radius-3) var(--o-radius-3) 0 0; background: var(--o-surface-overlay); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm); }
+.sheet::before { content: ""; justify-self: center; width: var(--o-space-32); height: var(--o-space-4); border-radius: var(--o-radius-round); background: var(--o-line-firm); }
+.sheet .menu { min-width: 0; padding: 0; background: none; box-shadow: none; }
+.sheet .sheet-head { padding: var(--o-space-4) var(--o-space-12); color: var(--o-ink-2); font: var(--o-type-small); }
+.sheet .sheet-head b { display: block; color: var(--o-ink-1); font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
+.sheet .sheet-body { display: grid; gap: var(--o-space-12); padding: var(--o-space-4) var(--o-space-8); }
+.sheet .foot { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: var(--o-space-8); padding: 0 var(--o-space-4); }
+
+/* Toast: on touch, one line saying what a control just did, at the foot of the screen. */
+.toast { position: absolute; left: var(--o-space-16); right: var(--o-space-16); bottom: var(--o-space-16); z-index: var(--o-z-notices); display: flex; align-items: center; gap: var(--o-space-8); padding: var(--o-space-12) var(--o-space-16); border-radius: var(--o-radius-2); background: var(--o-surface-pressed); box-shadow: var(--o-elevation-overlay); color: var(--o-ink-1); font: var(--o-type-small); }
+
+/* ============================================================ 5. Epic pages */
+
+/* A page of sections at page measure: the epic, a contract, a phase, pools, settings. */
+.spage { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: var(--o-space-24) var(--o-layout-page-pad-desk) var(--o-space-48); }
+.spage > .inner { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--o-space-32); max-width: var(--o-layout-page-measure); margin: 0 auto; }
+.spage section { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--o-space-12); min-width: 0; }
+.spage .measure { max-width: var(--o-layout-read-measure-ch); }
+.touch .spage { padding: var(--o-space-16) var(--o-layout-page-pad-phone) var(--o-space-32); }
+.touch .spage > .inner { gap: var(--o-space-24); }
+
+/* Lede: what this epic is, in a paragraph at reading measure, and the two doors out of it. */
+.lede { display: grid; gap: var(--o-space-8); }
+.lede .summary { max-width: var(--o-layout-read-measure-ch); color: var(--o-ink-2); font: var(--o-type-body); }
+.doors { display: flex; flex-wrap: wrap; gap: var(--o-space-4) var(--o-space-24); }
+.door { display: inline-flex; align-items: center; gap: var(--o-space-8); min-width: 0; padding: var(--o-space-4) 0; color: var(--o-ink-3); font: var(--o-type-small); }
+.door b { color: var(--o-role-ref); font-weight: var(--o-font-weight-regular); }
+.door:hover b { text-decoration: underline; }
+.door .icon { color: var(--o-ink-4); }
+.touch .door { min-height: var(--o-size-control-touch); }
+
+/* Track: where the epic is, as five stages in its own order. A stage is done, now, or ahead. A stage that is
+   ahead is drawn here and nowhere else: the page has no empty sections. */
+.track { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--o-space-4); }
+.stage { display: grid; align-content: start; gap: var(--o-space-2); min-width: 0; padding: var(--o-space-8) var(--o-space-8) 0 0; border-top: var(--o-size-rail) solid var(--o-line-soft); color: var(--o-ink-4); font: var(--o-type-small); }
+.stage .nm { display: flex; align-items: center; gap: var(--o-space-4); min-width: 0; overflow: hidden; font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+.stage .ds { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stage.done { border-top-color: var(--o-role-ok); color: var(--o-ink-3); }
+.stage.done .nm { color: var(--o-ink-2); }
+.stage.now { border-top-color: var(--tone, var(--o-role-live)); color: var(--o-ink-2); }
+.stage.now .nm { color: var(--tone, var(--o-role-live)); }
+.stage.now.attention { --tone: var(--o-role-attention); }
+.stage.now.bad { --tone: var(--o-role-bad); }
+.stage.now.quiet { --tone: var(--o-ink-3); }
+.stage.now.ok { --tone: var(--o-role-ok); }
+.touch .track { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.touch .stage .ds, .touch .stage .nm .icon { display: none; }
+.touch .stage { padding-right: 0; }
+.touch .stage .nm { font: var(--o-type-small); letter-spacing: 0; text-transform: none; }
+
+/* NowBlock: what the epic is doing, in one sentence at title size; then what blocks it; then what runs. */
+.now-sentence { color: var(--o-ink-1); font: var(--o-type-title); }
+.now-sentence .ink-3 { font: var(--o-type-small); }
+
+/* Table: rows of facts in real columns. Each row is one line at the desk; on touch a row stacks. */
+.tbl { display: grid; grid-template-columns: var(--cols, minmax(0, 1fr)); column-gap: var(--o-space-16); min-width: 0; }
+.tr { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: baseline; min-width: 0; padding: var(--o-space-8) var(--o-space-8); border-top: var(--o-size-hairline) solid var(--o-line-soft); color: var(--o-ink-2); font: var(--o-type-small); }
+.tr.head { padding-top: 0; padding-bottom: var(--o-space-4); border-top: 0; color: var(--o-ink-3); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+a.tr:hover, .tr.hover { background: var(--o-surface-well); }
+.tr.cur { background: var(--o-surface-raised); }
+.tr > * { min-width: 0; }
+.tr > .glyph { align-self: center; }
+.tr .id { color: var(--o-ink-3); white-space: nowrap; }
+.tr .strong { color: var(--o-ink-1); }
+.tr .body { color: var(--o-ink-1); font: var(--o-type-body); }
+.tr .cutc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tr .end { justify-self: end; display: inline-flex; align-items: center; gap: var(--o-space-8); white-space: nowrap; }
+.tr .cell { display: inline-flex; align-items: center; gap: var(--o-space-4); white-space: nowrap; }
+.tr .cell.ok { color: var(--o-role-ok); }
+.tr .cell.bad { color: var(--o-role-bad); }
+.tr .cell.live { color: var(--o-role-live); }
+.tr .cell.none { color: var(--o-ink-4); }
+.tr .wrapc { overflow-wrap: anywhere; }
+.tr-detail { display: grid; grid-column: 1 / -1; grid-template-columns: minmax(0, 1fr); gap: var(--o-space-8); padding: 0 var(--o-space-8) var(--o-space-12) var(--o-space-32); }
+.touch .tbl { grid-template-columns: minmax(0, 1fr); }
+.touch .tr { grid-template-columns: var(--cols-touch, minmax(0, 1fr) auto); column-gap: var(--o-space-12); row-gap: var(--o-space-2); padding: var(--o-space-12) 0; }
+.touch .tr.head { display: none; }
+.touch .tr .wide { grid-column: 1 / -1; }
+.touch .tr-detail { padding-left: 0; }
+
+/* Orrery: every task as a wedge, every phase as a ring, outside in. A cell is passed, now, or ahead. Labels are
+   never drawn on the chart: a legend sits under it and the wedge under the pointer is named in a caption. */
+.orrery-fig { display: grid; justify-items: center; gap: var(--o-space-8); min-width: 0; }
+.orrery { width: var(--o-size-orrery-full); max-width: 100%; height: auto; }
+.orrery .c { fill: var(--o-line-soft); }
+.orrery .c.ok { fill: var(--o-tone-ok); }
+.orrery .c.run { fill: var(--o-tone-run); animation: pulse var(--o-loop-pulse) ease-in-out infinite; }
+.orrery .c.mine { fill: var(--o-tone-mine); }
+.orrery .c.bad { fill: var(--o-tone-bad); }
+.orrery .c.acc { fill: var(--o-tone-acc); }
+.orrery .c.plan { fill: var(--o-tone-plan); }
+.orrery .req { fill: var(--o-line-firm); }
+.orrery .req.proven { fill: var(--o-role-ok); }
+.orrery .hl { fill: none; stroke: var(--o-ink-1); stroke-width: 1.5; }
+.orrery .count { fill: var(--o-ink-1); font: var(--o-type-display); text-anchor: middle; }
+.orrery .of { fill: var(--o-ink-3); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-anchor: middle; text-transform: uppercase; }
+.orrery .ring-way { fill: none; stroke: none; }
+.orrery .ring-name { fill: var(--o-ink-2); font: var(--o-type-label); text-anchor: end; dominant-baseline: central; }
+.orrery-cap { color: var(--o-ink-2); font: var(--o-type-small); text-align: center; }
+.build { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--o-space-32); }
+.build > .orrery-fig { flex: 0 0 var(--o-size-orrery-full); max-width: 100%; margin: 0 auto; }
+.build > div { flex: 1 1 56ch; min-width: 0; }
+
+/* Happenings: what just happened, newest first. A clock, a gap, then the words. */
+.happen { display: grid; grid-template-columns: minmax(0, 1fr); }
+.happen .h { display: grid; grid-template-columns: var(--o-layout-gutter-ch) minmax(0, 1fr); column-gap: var(--o-space-16); padding: var(--o-space-2) 0; color: var(--o-ink-2); font: var(--o-type-small); }
+.happen .h .at { color: var(--o-ink-4); text-align: right; }
+.happen .h .tail { grid-column: 2; }
+
+/* EvidenceRun: one run of a requirement's test, as a sentence and a verdict; its log folds under it. */
+.run-line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-4) var(--o-space-8); min-width: 0; padding: var(--o-space-4) var(--o-space-12); border-left: var(--o-size-hairline) solid var(--o-line-firm); color: var(--o-ink-2); font: var(--o-type-small); }
+.run-line .meta { color: var(--o-ink-3); }
+.run-line .end { display: inline-flex; align-items: center; gap: var(--o-space-8); margin-left: auto; }
+.run-line .link { cursor: pointer; }
+.log { margin-left: var(--o-space-12); padding: var(--o-space-8) var(--o-space-12); border-radius: var(--o-radius-2); background: var(--o-surface-well); color: var(--o-ink-2); font: var(--o-type-small); white-space: pre-wrap; overflow-wrap: anywhere; }
+.log.side { background: var(--o-surface-side); }
+.log .lbl { display: block; margin-bottom: var(--o-space-4); color: var(--o-ink-3); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+.artifact { display: grid; gap: var(--o-space-4); margin-left: var(--o-space-12); color: var(--o-ink-3); font: var(--o-type-small); }
+.artifact .img { display: grid; place-items: center; height: calc(var(--o-space-48) * 3); border-radius: var(--o-radius-2); background: var(--o-surface-well); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-soft); color: var(--o-ink-4); }
+
+/* PhaseRow: one of a task's four phases. Passed, now, or ahead; one is open. */
+.phase { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; border-left: var(--o-size-rail) solid var(--o-line-soft); }
+.phase.passed { border-left-color: var(--o-role-ok); }
+.phase.now { border-left-color: var(--o-role-live); }
+.phase.now.mine { border-left-color: var(--o-role-attention); }
+.phase.now.bad { border-left-color: var(--o-role-bad); }
+.phase-head { display: flex; align-items: baseline; gap: var(--o-space-12); width: 100%; min-width: 0; padding: var(--o-space-8) var(--o-space-12); color: var(--o-ink-2); font: var(--o-type-small); }
+.phase-head:hover { background: var(--o-surface-well); }
+.phase-head .nm { flex: none; color: var(--o-ink-1); font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
+.phase.ahead .phase-head, .phase.ahead .phase-head .nm { color: var(--o-ink-4); font-weight: var(--o-font-weight-regular); }
+.phase-head .sum { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.phase-head .end { flex: none; color: var(--o-ink-3); }
+.phase-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--o-space-12); padding: var(--o-space-4) var(--o-space-12) var(--o-space-16); }
+.phase-body .sub { color: var(--o-ink-3); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+.touch .phase-head { min-height: var(--o-size-control-touch); align-items: center; }
+
+/* CommandBar: on touch, a page's state and commands sit at its foot, in reach of a thumb. */
+.cmdbar { display: flex; align-items: center; gap: var(--o-space-8); flex: none; padding: var(--o-space-8); border-top: var(--o-size-hairline) solid var(--o-line-soft); background: var(--o-surface-well); }
+.cmdbar .pill { display: block; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.cmdbar .pill + .pill { flex: 0 100 auto; }
+.cmdbar .pill .glyph { display: inline-block; margin-right: var(--o-space-4); vertical-align: text-bottom; }
+.cmdbar .inote { min-width: 0; }
+.cmdbar .btn.grow { flex: 1 1 auto; }
+.touch .titlerow .line1.state { min-height: 0; padding: 0 var(--o-space-12); }
+.touch .titlerow .line1.state .pill:first-child { flex: none; }
+.touch .cmdbar .pill + .pill { display: none; }
+.cmdbar .end { display: inline-flex; gap: var(--o-space-4); margin-left: auto; flex: none; }
+.cmdbar.sticky { position: sticky; bottom: 0; }
+
+/* Contract: sections of rows a reader can scan, and the bar that accepts it. */
+.contract-title { display: grid; gap: var(--o-space-8); }
+.contract-title h2 { font: var(--o-type-display); max-width: var(--o-layout-read-measure-ch); }
+.keepdrop { display: inline-flex; gap: var(--o-space-4); }
+.unread { color: var(--o-role-bad); }
+
+/* ListItem: a setting, a pool member, a talk target: a title, a line under it, and something at its end. */
+.litem { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--o-space-12); align-items: center; width: 100%; min-width: 0; min-height: var(--o-size-control-touch); padding: var(--o-space-8) var(--o-space-12); border-radius: var(--o-radius-2); color: var(--o-ink-1); }
+a.litem:hover, button.litem:hover { background: var(--o-surface-well); }
+.litem .t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--o-type-body); }
+.litem .s { grid-column: 1; min-width: 0; color: var(--o-ink-3); font: var(--o-type-small); overflow-wrap: anywhere; }
+.litem .e { grid-row: 1 / span 2; grid-column: 2; display: inline-flex; align-items: center; gap: var(--o-space-8); color: var(--o-ink-3); font: var(--o-type-small); }
+.group { display: grid; grid-template-columns: minmax(0, 1fr); border-radius: var(--o-radius-2); background: var(--o-surface-well); }
+.group > * + * { border-top: var(--o-size-hairline) solid var(--o-line-soft); border-radius: 0; }
+
+/* Shade: Android's notification shade, to show what a push looks like outside the app. */
+.shade { display: grid; align-content: start; gap: var(--o-space-8); flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: var(--o-space-16) var(--o-space-12); background: var(--o-surface-side); }
+.push { display: grid; gap: var(--o-space-4); padding: var(--o-space-12) var(--o-space-16); border-radius: var(--o-radius-3); background: var(--o-surface-raised); color: var(--o-ink-2); font: var(--o-type-small); }
+.push .app-line { display: flex; align-items: center; gap: var(--o-space-8); color: var(--o-ink-3); }
+.push .app-line .mark { width: var(--o-space-16); height: var(--o-space-16); }
+.push .t { color: var(--o-ink-1); font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
+.push .acts { display: flex; flex-wrap: wrap; gap: var(--o-space-16); margin-top: var(--o-space-4); color: var(--o-role-primary); font-weight: var(--o-font-weight-bold); }
+.push.quiet { background: var(--o-surface-well); }
+
+
+/* ============================================================ 6. Ties between a page and what it belongs to */
+
+/* IdChip: the short id of a contract row or a requirement. Its colour says which kind of row, and nothing else. */
+.idc { display: inline-flex; align-items: center; flex: none; padding: 0 var(--o-space-4); border-radius: var(--o-radius-1); background: var(--o-surface-raised); color: var(--o-ink-2); font: var(--o-type-small); font-weight: var(--o-font-weight-bold); white-space: nowrap; }
+.idc[data-k="R"] { background: var(--o-series-4-fill); color: var(--o-series-4); }
+.idc[data-k="F"] { background: var(--o-series-3-fill); color: var(--o-series-3); }
+.idc[data-k="P"] { background: var(--o-series-1-fill); color: var(--o-series-1); }
+.idc[data-k="A"] { background: var(--o-series-2-fill); color: var(--o-series-2); }
+.th-red { color: var(--o-role-bad); }
+.th-green { color: var(--o-role-ok); }
+
+/* ContextBand: a task's page says which epic it belongs to, and shows every task of that epic, this one marked. */
+.band { display: grid; grid-template-columns: minmax(0, 1fr); flex: none; border-bottom: var(--o-size-hairline) solid var(--o-line-soft); background: var(--o-surface-well); }
+.band .epic-pin { border-bottom: 0; }
+.tstrip { display: flex; gap: var(--o-space-4); min-width: 0; padding: 0 var(--o-layout-page-pad-desk) var(--o-space-8); overflow-x: auto; }
+.tchip { display: inline-grid; gap: var(--o-space-2); flex: none; padding: var(--o-space-4) var(--o-space-8); border-radius: var(--o-radius-2); color: var(--o-ink-3); font: var(--o-type-small); white-space: nowrap; }
+.tchip:hover { background: var(--o-surface-raised); color: var(--o-ink-1); }
+.tchip.cur { background: var(--o-surface-raised); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-role-focus); color: var(--o-ink-1); font-weight: var(--o-font-weight-bold); }
+.touch .tstrip { padding: 0 var(--o-layout-page-pad-phone) var(--o-space-8); }
+.brief { display: grid; gap: var(--o-space-4); padding: var(--o-space-8) var(--o-space-12); border-left: var(--o-size-rail) solid var(--o-role-engine); border-radius: 0 var(--o-radius-2) var(--o-radius-2) 0; background: linear-gradient(var(--o-role-engine-fill), var(--o-role-engine-fill)), var(--o-surface-well); color: var(--o-ink-1); }
+.brief .lbl { color: var(--o-role-engine); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+
+/* Quote: what a message is about, on the dock above the input: a contract's row, a requirement. */
+.quote { display: flex; align-items: center; gap: var(--o-space-8); min-width: 0; padding: var(--o-space-4) var(--o-space-8) var(--o-space-4) var(--o-space-12); color: var(--o-ink-2); font: var(--o-type-small); }
+.quote .text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tr .say { display: inline-flex; vertical-align: middle; visibility: hidden; }
+.tr .say.on { visibility: visible; }
+.tr .say .ctl { background: var(--o-surface-raised); color: var(--o-role-you); }
+.tr:hover .say, .tr.hover .say { visibility: visible; }
+.touch .tr .say { visibility: visible; }
+
+/* ============================================================ 7. The project page, and the rail a side column folds to */
+
+
+/* Project: everything working in one directory. */
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(44ch, 100%), 1fr)); gap: var(--o-space-12); }
+.proj-head { display: grid; gap: var(--o-space-4); }
+.proj-head .path { color: var(--o-ink-3); font: var(--o-type-small); }
+.proj-head .counts { display: flex; flex-wrap: wrap; gap: var(--o-space-4) var(--o-space-16); color: var(--o-ink-2); font: var(--o-type-small); }
+.proj-head .counts span { display: inline-flex; align-items: center; gap: var(--o-space-4); }
+/* A project's conversations: each its row, and under it, hanging from a line, the live cards of what it steers. */
+.pconvs { display: grid; gap: var(--o-space-4); }
+.pconv { display: grid; gap: var(--o-space-8); padding-bottom: var(--o-space-8); border-bottom: var(--o-size-hairline) solid var(--o-line-soft); }
+.pc-row { display: grid; grid-template-columns: var(--o-size-glyph) minmax(0, 1.2fr) minmax(0, 1fr) auto; align-items: start; gap: var(--o-space-12); padding: var(--o-space-8); border-radius: var(--o-radius-2); }
+.pc-row:hover { background: var(--o-surface-raised); }
+.pc-row > .glyph { margin-top: var(--o-space-4); }
+.pc-row .t { color: var(--o-ink-1); font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
+.pc-row .said { display: -webkit-box; overflow: hidden; color: var(--o-ink-3); font: var(--o-type-small); -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.pc-row .said.asked { color: var(--o-role-attention); }
+.pc-row .end { display: inline-flex; align-items: center; gap: var(--o-space-8); color: var(--o-ink-3); font: var(--o-type-small); }
+.pc-kids { margin-left: var(--o-space-16); padding-left: var(--o-space-16); border-left: var(--o-size-hairline) solid var(--o-line-firm); }
+.touch .pc-row { grid-template-columns: var(--o-size-glyph) minmax(0, 1fr) auto; }
+.touch .pc-row .said { grid-column: 2 / -1; grid-row: 2; }
+
+/* DecisionLine: what a contract opens with: what is approved, the level of care, and how many decisions are open. */
+.dline { display: grid; gap: var(--o-space-8); max-width: var(--o-layout-read-measure-ch); }
+.dline h2 { font: var(--o-type-display); }
+.dline .facts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-8) var(--o-space-16); color: var(--o-ink-2); font: var(--o-type-small); }
+.dline .facts.rec .by { display: inline-flex; align-items: baseline; gap: var(--o-space-8); }
+.dline .facts.rec .by > .icon { flex: none; align-self: center; color: var(--o-role-you); }
+.dline .facts.rec .link { display: inline-flex; align-items: center; gap: var(--o-space-4); }
+.dline .tbl { margin-top: var(--o-space-8); }
+.verb { color: var(--o-ink-1); font-weight: var(--o-font-weight-bold); }
+.checks-list { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--o-space-4) var(--o-space-12); padding: var(--o-space-12); border-radius: var(--o-radius-2); background: var(--o-surface-well); color: var(--o-ink-2); font: var(--o-type-small); }
+.checks-list .k { color: var(--o-ink-3); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+
+/* ============================================================ 8. The two rails, and the panes they open */
+
+/* Rail: a pane at rest. The left rail is the inbox at rest: the mark, then a tile per project. The right rail is a
+   conversation's Work at rest: a tile per thing it has started. A tile says its state at a glance: a count of what
+   waits on you, a dot for something running, a dot for something new. Hovering a rail, or pressing b on the left and
+   ] on the right, brings its pane out over the page; pinning sets the pane beside the page. */
+.rail { display: none; flex-direction: column; align-items: center; gap: var(--o-space-4); flex: none; width: var(--o-layout-rail-width); min-height: 0; padding: var(--o-space-8) 0; background: var(--o-surface-side); }
+.rail.start { border-right: var(--o-size-hairline) solid var(--o-line-soft); }
+.rail.end { border-left: var(--o-size-hairline) solid var(--o-line-soft); }
+.rail .spring { flex: 1 1 auto; }
+.rail-sep { flex: none; width: var(--o-space-24); height: var(--o-size-hairline); margin: var(--o-space-4) 0; background: var(--o-line-soft); }
+.tile { position: relative; display: grid; place-items: center; flex: none; width: calc(var(--o-space-32) + var(--o-space-8)); height: calc(var(--o-space-32) + var(--o-space-8)); border-radius: var(--o-radius-2); background: var(--o-surface-well); color: var(--o-ink-2); font: var(--o-type-small); font-weight: var(--o-font-weight-bold); }
+.tile:hover, .tile.hover { background: var(--o-surface-raised); }
+.tile.cur { background: var(--o-surface-raised); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-role-focus); }
+.tile.bare { background: none; color: var(--o-ink-3); }
+.tile.bare:hover { background: var(--o-surface-well); color: var(--o-ink-1); }
+.tile.place { color: var(--o-role-place); }
+.tile.live { color: var(--o-role-live); }
+.tile.attention { color: var(--o-role-attention); }
+.tile.engine { color: var(--o-role-engine); }
+.tile.primary { background: var(--o-role-primary); color: var(--o-ink-on-accent); }
+.tile .n { position: absolute; top: 0; right: 0; display: grid; place-items: center; min-width: var(--o-space-16); height: var(--o-space-16); padding: 0 var(--o-space-4); border-radius: var(--o-radius-round); background: var(--o-role-attention); color: var(--o-ink-on-accent); font: var(--o-type-label); }
+.tile .n.live { background: var(--o-role-live); }
+.tile .n.engine { background: var(--o-role-engine); }
+.tile .n.new { background: var(--o-role-new); }
+.tile .n.quiet { background: var(--o-surface-pressed); color: var(--o-ink-1); }
+.tile .dots { position: absolute; bottom: var(--o-space-2); left: 0; right: 0; display: flex; justify-content: center; gap: var(--o-space-2); }
+.tile .dots i { width: var(--o-space-4); height: var(--o-space-4); border-radius: var(--o-radius-round); }
+.tile .dots i.live { background: var(--o-role-live); }
+.tile .dots i.new { background: var(--o-role-new); }
+/* A tile that names itself: its face, then one word under it. The Work rail's tiles are named, since work on the right
+   is not where anyone expects it; the head names the rail, as the mark names the left one. */
+.tile-w { position: relative; display: grid; justify-items: center; gap: var(--o-space-2); flex: none; width: calc(var(--o-layout-rail-width) - var(--o-space-8)); color: var(--o-ink-3); }
+.tile-w .cap { max-width: 100%; overflow: hidden; color: var(--o-ink-2); font: var(--o-type-label); text-overflow: ellipsis; white-space: nowrap; }
+.tile-w:hover .tile { background: var(--o-surface-raised); }
+.tile.brand .mark { width: var(--o-space-32); height: var(--o-space-32); }
+.tile.brand:hover { background: none; }
+
+/* Which of a pane and its rail is drawn. data-inbox is rail (at rest), flyout (out over the page), docked or pinned.
+   data-side is rail (no panel) or panel (one thing open beside the conversation, its tile lit). */
+.app[data-inbox="rail"] > .rail.start, .app[data-inbox="flyout"] > .rail.start { display: flex; }
+.app > .page.side { display: none; }
+.app > .rail.end { display: flex; }
+/* A panel is one thing from the right rail opened beside the conversation: on the rail's ground, the thing inset as a
+   card whose top edge takes its colour, so it reads as its lit tile opened. One width for every kind, so the
+   conversation narrows once, when a panel opens, and never moves between panels. */
+.app[data-side="panel"] > .page.side.rpanel { display: flex; flex: 1.4 1 0; width: auto; padding-top: var(--o-space-8); background: var(--o-surface-side); }
+.rcard { display: flex; flex: 1 1 auto; min-height: 0; margin: 0 var(--o-space-8) var(--o-space-8); overflow: hidden; border: var(--o-size-hairline) solid var(--o-line-firm); border-radius: var(--o-radius-3); background: var(--o-surface-page); }
+.rcard > .page { flex: 1 1 auto; }
+.rcard.attention { border-top: var(--o-size-rail) solid var(--o-role-attention); }
+.rcard.live { border-top: var(--o-size-rail) solid var(--o-role-live); }
+.rcard.engine { border-top: var(--o-size-rail) solid var(--o-role-engine); }
+.plist { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--o-space-4); }
+.plist > .inote { margin-bottom: var(--o-space-8); }
+/* The lit tile: the one whose panel is open, marked on the edge it opens from, in its colour. */
+.rail.end .tile-w.on::before { content: ""; position: absolute; top: var(--o-space-8); left: calc(var(--o-space-4) * -1); width: var(--o-size-rail); height: var(--o-space-24); border-radius: var(--o-radius-round); background: var(--o-role-focus); }
+.rail.end .tile-w.on.attention::before { background: var(--o-role-attention); }
+.rail.end .tile-w.on.live::before { background: var(--o-role-live); }
+.rail.end .tile-w.on.engine::before { background: var(--o-role-engine); }
+@media (max-width: 1249px) {
+  .app[data-side="panel"] > .page.side.rpanel { position: absolute; top: 0; bottom: 0; right: var(--o-layout-rail-width); left: calc(var(--o-layout-rail-width) * 2); z-index: var(--o-z-flyout); box-shadow: var(--o-elevation-side-end); }
+}
+/* The right rail's groups, each named once. A group of more than three is one tile of dots, and opens a picker. */
+.rail.end { gap: 0; }
+.rgroup { position: relative; display: grid; justify-items: center; gap: var(--o-space-4); width: 100%; padding: var(--o-space-4) 0 var(--o-space-8); }
+.rgroup + .rgroup { border-top: var(--o-size-hairline) solid var(--o-line-soft); padding-top: var(--o-space-8); }
+.rlabel { max-width: 100%; overflow: hidden; color: var(--o-ink-3); font: var(--o-type-label); text-overflow: ellipsis; white-space: nowrap; }
+.dotgrid { display: grid; grid-template-columns: repeat(3, var(--o-space-8)); gap: var(--o-space-4); }
+.dotgrid i { width: var(--o-space-8); height: var(--o-space-8); border-radius: var(--o-radius-round); background: var(--o-ink-4); }
+.dotgrid i.attention { background: var(--o-role-attention); }
+.dotgrid i.live { background: var(--o-role-live); }
+.dotgrid i.engine { background: var(--o-role-engine); }
+.rail.end .tile.cur::before { content: ""; position: absolute; top: var(--o-space-8); left: calc(var(--o-space-8) * -1); width: var(--o-size-rail); height: var(--o-space-24); border-radius: var(--o-radius-round); background: var(--o-role-focus); }
+.rail.end .tile.cur.attention::before { background: var(--o-role-attention); }
+.rail.end .tile.cur.live::before { background: var(--o-role-live); }
+.rail.end .tile.cur.engine::before { background: var(--o-role-engine); }
+.rpick { position: absolute; top: 0; right: calc(100% + var(--o-space-4)); z-index: var(--o-z-menu); display: grid; width: calc(var(--o-space-32) * 10); padding: var(--o-space-4); border-radius: var(--o-radius-2); background: var(--o-surface-overlay); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm), var(--o-elevation-overlay); }
+.rpick-row { display: grid; grid-template-columns: var(--o-size-gauge) minmax(0, 1fr); align-items: center; gap: 0 var(--o-space-12); padding: var(--o-space-8); border-radius: var(--o-radius-2); }
+.rpick-row:hover { background: var(--o-surface-raised); }
+.rpick-row > .gauge, .rpick-row > .icon { grid-row: 1 / span 2; }
+.rpick-row .t { color: var(--o-ink-1); font: var(--o-type-small); font-weight: var(--o-font-weight-bold); }
+.rpick-row .s { color: var(--o-ink-3); font: var(--o-type-small); }
+/* The control that folds the phone's header away, at the end of its tiles. */
+.fold-head { display: grid; place-items: center; flex: none; align-self: center; width: var(--o-size-control-touch); height: var(--o-size-control-touch); margin-left: auto; border-radius: var(--o-radius-2); color: var(--o-ink-3); }
+.fold-head:hover { background: var(--o-surface-well); color: var(--o-ink-1); }
+/* The phone header folded to one line: the rail's groups as badges. Peach when something asks you. */
+.compact { display: flex; align-items: center; gap: var(--o-space-12); flex: none; min-height: var(--o-size-control-touch); padding: 0 var(--o-layout-page-pad-phone); border-bottom: var(--o-size-hairline) solid var(--o-line-soft); border-left: var(--o-size-rail) solid transparent; background: var(--o-surface-side); color: var(--o-ink-2); font: var(--o-type-small); }
+.compact.attention { border-left-color: var(--o-role-attention); }
+.compact .cask { color: var(--o-role-attention); font-weight: var(--o-font-weight-bold); }
+.compact .cb { display: inline-flex; align-items: center; gap: var(--o-space-4); }
+.compact .cb.attention { color: var(--o-role-attention); font-weight: var(--o-font-weight-bold); }
+.compact .gauge { width: var(--o-size-glyph); height: var(--o-size-glyph); }
+.compact .end { display: inline-flex; align-items: center; gap: var(--o-space-8); margin-left: auto; color: var(--o-ink-3); }
+/* On touch the right rail's groups are a strip under the title row, each its name over its tiles. */
+.tilestrip .rgroup { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--o-space-4) var(--o-space-8); width: auto; padding: 0; border: 0; }
+.tilestrip .rgroup + .rgroup { padding: 0; border: 0; }
+.tilestrip .rlabel { flex-basis: 100%; }
+.tilestrip { display: flex; align-items: flex-start; gap: var(--o-space-16); flex: none; overflow-x: auto; padding: var(--o-space-8) var(--o-layout-page-pad-phone); border-bottom: var(--o-size-hairline) solid var(--o-line-soft); background: var(--o-surface-side); }
+.subj.goal { --subj: var(--o-series-2); }
+.subj.goal .st { color: var(--o-ink-1); white-space: normal; }
+.subj.goal > .icon { color: var(--o-series-2); }
+.row > .icon { margin-top: var(--o-space-4); color: var(--o-role-engine); }

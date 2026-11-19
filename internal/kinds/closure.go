@@ -2,6 +2,7 @@ package kinds
 
 import (
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strings"
 
@@ -9,8 +10,9 @@ import (
 )
 
 // Closure is the closure kind. Its run is a closure run in a correction round, and it checks each finding that is open in
-// that round once, through a close chain of its own. The run ends passed when no closure is open, and failed when one is,
-// with the round it ran and each finding's closure.
+// that round once: by the owner's answer when a question's answered choice closes the finding (decisionClosure), and
+// otherwise through a close chain of its own. The run ends passed when no closure is open, and failed when one is, with
+// the round it ran and each finding's closure.
 type Closure struct{}
 
 // kindPlan is the kind of a plan node run. The fix plan of a correction round is the plan run in the round's prefix, and
@@ -23,9 +25,11 @@ const (
 	closureResultOpen   = "open"
 )
 
-// Decide decides a closure run. Without a revision it prepares the run. Otherwise it walks the close chain of each open
-// finding of its round, then holds the epic for a stopped step, starts the work the chains ask for, waits while a chain
-// runs, or ends with the closures its chains settled.
+// Decide decides a closure run. Without a revision it prepares the run. Otherwise it closes each open finding of its
+// round that an owner's answer closes, and walks the close chain of every other one. It then holds the epic for a
+// stopped step, starts the work the chains ask for, waits while a chain runs, or ends with the closures the answers and
+// the chains settled. A finding an answer closes starts no verifier, and a verifier of it that already runs is not
+// waited for: the owner's answer settles it whatever the verifier finds.
 func (Closure) Decide(node Node, rows Rows) Action {
 	if node.Run.Revision == "" {
 		return prepare(rows)
@@ -33,6 +37,10 @@ func (Closure) Decide(node Node, rows Rows) Action {
 	pass := reviewPass{run: node.Run, rows: rows}
 	var closures []store.Closure
 	for _, finding := range OpenFindings(rows.Review, node.Run.Round) {
+		if closure, ok := decisionClosure(rows.Epic, node.Run.Round, finding.ID); ok {
+			closures = append(closures, closure)
+			continue
+		}
 		closures = append(closures, pass.settleClose(node.Run.Round, finding))
 	}
 	switch {
@@ -83,6 +91,43 @@ func closureSettled(finding store.LedgerFinding, round int64) bool {
 		return closure.Round < round &&
 			(closure.Result == closureResultClosed || closure.Result == reviewResultUndetermined)
 	})
+}
+
+// decisionClosure returns the closure the owner's answer gives the finding with id finding in round, and true, when the
+// latest answered question of epic that has a choice closing the finding was answered with a choice that closes it.
+// The closure is closed, names no step, since no verifier ran, and its reason cites the decision that answered:
+// `closed by decision <id> (answers Q<n> with <choice>): <text>`, with no `: <text>` when the text is empty. A later
+// answer with another choice or with other keeps the finding to its verifier, and so does no such question at all.
+func decisionClosure(epic store.EpicRow, round int64, finding string) (store.Closure, bool) {
+	closes := func(choice store.EpicChoice) bool { return slices.Contains(choice.Closes, finding) }
+	var latest store.EpicQuestion
+	for _, question := range epic.Questions {
+		if question.State == store.QuestionAnswered && slices.ContainsFunc(question.Choices, closes) {
+			latest = question
+		}
+	}
+	chosen := slices.IndexFunc(latest.Choices, func(choice store.EpicChoice) bool { return choice.ID == latest.Choice })
+	if chosen < 0 || !closes(latest.Choices[chosen]) {
+		return store.Closure{}, false
+	}
+	answer := slices.IndexFunc(epic.Decisions, func(decision store.EpicDecision) bool {
+		return decision.Question == latest.Seq
+	})
+	if answer < 0 {
+		return store.Closure{}, false
+	}
+	decision := epic.Decisions[answer]
+	reason := fmt.Sprintf("closed by decision %s (answers Q%d with %s)", decision.ID, latest.Seq, latest.Choice)
+	if decision.Text != "" {
+		reason += ": " + decision.Text
+	}
+	return store.Closure{Finding: finding, Round: round, Result: closureResultClosed, Reason: reason}, true
+}
+
+// closedByDecision reports whether closure is one an owner's answer gave (decisionClosure): it is closed and names no
+// step. A verifier's closed closure always names the step that gave it.
+func closedByDecision(closure store.Closure) bool {
+	return closure.Result == closureResultClosed && closure.Step == ""
 }
 
 // settleClose returns the closure of finding in round. A verdict of its close chain is the closure, and a gap leaves the

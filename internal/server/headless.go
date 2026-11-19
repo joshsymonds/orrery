@@ -49,6 +49,10 @@ func (s sessionsServer) ListHeadless(
 	if err != nil {
 		return nil, err
 	}
+	puts, err := readPutOffMarks(ctx, s.reader)
+	if err != nil {
+		return nil, err
+	}
 	sessions := make([]*orreryv1.HeadlessSession, 0, len(rows))
 	for _, row := range rows {
 		session, convErr := headlessMessage(row)
@@ -58,6 +62,7 @@ func (s sessionsServer) ListHeadless(
 		mark := marks[archiveKey{kind: archiveKindHeadless, id: row.ID}]
 		aged := headlessAged(session.GetState(), session.GetChanged(), session.GetSeen(), now)
 		session.Archived = archivedRow(mark, session.GetChanged(), aged)
+		session.PutOff = headlessPutOff(puts, row.ID, row.RequestID, row.State)
 		sessions = append(sessions, session)
 	}
 	return connect.NewResponse(&orreryv1.ListHeadlessResponse{Sessions: sessions}), nil

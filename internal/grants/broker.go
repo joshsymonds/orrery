@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"maps"
 	"os"
 	"regexp"
 	"slices"
@@ -120,6 +121,10 @@ type Broker struct {
 	// detached holds the grants Restore kept, by grant id. Each holds its members while it waits for its client to
 	// reclaim it, and is in no queue.
 	detached map[string]*waiter
+	// ending holds the grants that have ended but whose rows the store has yet to remove, by grant id. Each keeps its
+	// members granted until a settle removes its row (see endPendingLocked), so a member is free only once no grant row
+	// names it.
+	ending map[string]*Grant
 	// holds holds the owner holds by member name, each with the time it was placed. A held member is never reserved or
 	// granted, in whichever pool in use it belongs to, and a hold on a member of no pool in use applies once that pool
 	// comes into use.
@@ -225,6 +230,7 @@ func NewBroker(cfg Config) *Broker {
 		pools:       make(map[string]*poolUse),
 		attached:    make(map[string]*waiter),
 		detached:    make(map[string]*waiter),
+		ending:      make(map[string]*Grant),
 		holds:       make(map[string]time.Time),
 		cancels:     make(map[uint64]context.CancelFunc),
 	}
@@ -343,7 +349,7 @@ func (b *Broker) statusTick(ctx context.Context) {
 
 // endDeadLocked ends each detached grant that neither its client nor its holder keeps alive, and each requeued request
 // that neither its client nor its holder keeps alive, then reconsiders the queue. A grant whose row the store cannot
-// remove still frees its members, as releaseLocked does, and the failure is logged.
+// remove keeps its members until a later settle removes it, as releaseLocked does.
 func (b *Broker) endDeadLocked(ctx context.Context) {
 	ended := false
 	for id, held := range b.detached {
@@ -352,7 +358,8 @@ func (b *Broker) endDeadLocked(ctx context.Context) {
 		}
 		delete(b.detached, id)
 		if err := b.releaseLocked(ctx, held.grant); err != nil {
-			b.logger.WarnContext(ctx, "end grant of dead client", "grant", id, "err", err)
+			b.logger.WarnContext(ctx, "end grant of dead client; members held until it is removed", "grant", id,
+				"err", err)
 		}
 		ended = true
 	}
@@ -368,10 +375,11 @@ func (b *Broker) endDeadLocked(ctx context.Context) {
 }
 
 // Restore brings back the holds and the grants an earlier broker stored, before this broker serves. The holds come back
-// first, before any grant. A stored grant that neither its client nor its holder keeps alive ends in the store at once.
-// Each other grant's pools come back into use and its members are held again, and the grant waits detached until its
-// client reclaims it by id and pid, or its holder by id and holder. A grant with a held member is stopping, so its
-// reclaim is sent the stop. A detached grant that neither its client nor its holder keeps alive ends on a tick.
+// first, before any grant. A stored grant that neither its client nor its holder keeps alive ends in the store at once,
+// and one whose removal the store refuses keeps its members, its pools in use, until a settle removes it. Each other
+// grant's pools come back into use and its members are held again, and the grant waits detached until its client
+// reclaims it by id and pid, or its holder by id and holder. A grant with a held member is stopping, so its reclaim is
+// sent the stop. A detached grant that neither its client nor its holder keeps alive ends on a tick.
 func (b *Broker) Restore(ctx context.Context) error {
 	holds, err := b.store.Holds(ctx)
 	if err != nil {
@@ -390,9 +398,8 @@ func (b *Broker) Restore(ctx context.Context) error {
 	}
 	for _, row := range rows {
 		if !b.lasts(row.ClientPID, row.ClientStart, row.Holder) {
-			err = b.store.EndGrant(storeCtx, row.ID)
-			if err != nil {
-				return fmt.Errorf("end grant %s of dead client %d: %w", row.ID, row.ClientPID, err)
+			if deadErr := b.restoreDeadLocked(storeCtx, row); deadErr != nil {
+				return deadErr
 			}
 			continue
 		}
@@ -404,30 +411,29 @@ func (b *Broker) Restore(ctx context.Context) error {
 	return nil
 }
 
+// restoreDeadLocked ends a stored grant whose client and holder are gone. A grant whose removal the store refuses keeps
+// its members granted, with its pools in use, and is kept in ending for a settle to remove.
+func (b *Broker) restoreDeadLocked(ctx context.Context, row store.GrantRow) error {
+	endErr := b.store.EndGrant(ctx, row.ID)
+	if endErr == nil {
+		return nil
+	}
+	b.logger.WarnContext(ctx, "end grant of dead client; members held until it is removed", "grant", row.ID,
+		"client", row.ClientPID, "err", endErr)
+	kept, _, err := b.holdRowLocked(ctx, row)
+	if err != nil {
+		return err
+	}
+	b.ending[row.ID] = kept
+	return nil
+}
+
 // restoreLocked keeps a stored grant whose client is alive: it brings each pool the grant names into use, marks each of
 // its members granted, and records the grant as detached.
 func (b *Broker) restoreLocked(ctx context.Context, row store.GrantRow) error {
-	defs, err := decodePools(row.Pools)
+	kept, defs, err := b.holdRowLocked(ctx, row)
 	if err != nil {
-		return fmt.Errorf("grant %s: %w", row.ID, err)
-	}
-	for _, def := range defs {
-		b.useLocked(ctx, def)
-	}
-	kept := &Grant{ID: row.ID}
-	for _, stored := range row.Members {
-		use, ok := b.pools[stored.Pool]
-		if !ok {
-			return fmt.Errorf("grant %s holds a member of pool %q, which the grant does not name", row.ID, stored.Pool)
-		}
-		member, ok := use.members[stored.Member]
-		if !ok {
-			return fmt.Errorf("grant %s holds member %q, which pool %q does not define",
-				row.ID, stored.Member, stored.Pool)
-		}
-		member.grant = row.ID
-		member.project = row.Project
-		kept.Members = append(kept.Members, Member{Pool: stored.Pool, Name: stored.Member})
+		return err
 	}
 	b.seq++
 	restored := &waiter{
@@ -449,6 +455,35 @@ func (b *Broker) restoreLocked(ctx context.Context, row store.GrantRow) error {
 		b.stopLocked(restored)
 	}
 	return nil
+}
+
+// holdRowLocked brings each pool a stored grant names into use and marks each of its members granted to it. It returns
+// the grant and the pool definitions the row records.
+func (b *Broker) holdRowLocked(ctx context.Context, row store.GrantRow) (*Grant, []pools.Pool, error) {
+	defs, err := decodePools(row.Pools)
+	if err != nil {
+		return nil, nil, fmt.Errorf("grant %s: %w", row.ID, err)
+	}
+	for _, def := range defs {
+		b.useLocked(ctx, def)
+	}
+	kept := &Grant{ID: row.ID}
+	for _, stored := range row.Members {
+		use, ok := b.pools[stored.Pool]
+		if !ok {
+			return nil, nil, fmt.Errorf("grant %s holds a member of pool %q, which the grant does not name",
+				row.ID, stored.Pool)
+		}
+		member, ok := use.members[stored.Member]
+		if !ok {
+			return nil, nil, fmt.Errorf("grant %s holds member %q, which pool %q does not define",
+				row.ID, stored.Member, stored.Pool)
+		}
+		member.grant = row.ID
+		member.project = row.Project
+		kept.Members = append(kept.Members, Member{Pool: stored.Pool, Name: stored.Member})
+	}
+	return kept, defs, nil
 }
 
 // needsOf returns the needs that members meet: for each pool in the order members first name it, the count of its
@@ -825,12 +860,14 @@ func (b *Broker) useLocked(ctx context.Context, def pools.Pool) {
 	}
 }
 
-// settleLocked runs after every change to the broker: it grants the requests Plan grants, prepares the members Plan
-// reserves, and forgets the pools nothing uses. It does nothing once the broker is closed.
+// settleLocked runs after every change to the broker: it removes the ended grants the store still holds, then grants the
+// requests Plan grants, prepares the members Plan reserves, and forgets the pools nothing uses. It does nothing once the
+// broker is closed.
 func (b *Broker) settleLocked(ctx context.Context) {
 	if b.closed {
 		return
 	}
+	b.endPendingLocked(ctx)
 	decision := Plan(b.poolViewsLocked(), b.waitingViewsLocked())
 	for _, assignment := range decision.Grants {
 		b.grantLocked(ctx, assignment)
@@ -895,7 +932,8 @@ func (b *Broker) prepareLocked(ctx context.Context, reserved Member) {
 }
 
 // grantLocked grants the members of assignment to the queued request it names. The grant is stored before the request
-// is granted, and a store error fails the request and leaves its members free.
+// is granted. A store that refuses the grant as busy leaves the request queued and its members free, for a later settle
+// to grant again, and any other store error fails the request and leaves its members free.
 func (b *Broker) grantLocked(ctx context.Context, assignment Assignment) {
 	queued := b.queuedLocked(assignment.Request)
 	id := rand.Text()
@@ -917,6 +955,11 @@ func (b *Broker) grantLocked(ctx context.Context, assignment Assignment) {
 		Granted: granted,
 	}
 	if err := b.store.AddGrant(ctx, row); err != nil {
+		if store.Busy(err) {
+			b.logger.WarnContext(ctx, "store grant refused busy; request kept queued", "grant", id,
+				"project", queued.req.Project, "err", err)
+			return
+		}
 		b.failLocked(queued, fmt.Errorf("store grant %s: %w", id, err))
 		return
 	}
@@ -982,20 +1025,40 @@ func (b *Broker) leave(ctx context.Context, queued *waiter, cause error) error {
 }
 
 // releaseLocked ends grant: it removes the grant from the store, then frees its members. When the store refuses the
-// removal the members are freed all the same, so a request for one of them then fails at the store rather than waiting
-// on a grant that has ended.
+// removal, a busy store among the causes, the grant is kept in ending and its members stay granted to it until a
+// settle removes it (see endPendingLocked). Freeing them first would leave the store's row naming them, so every grant
+// of one of them would fail at the store with ErrMemberGranted until the row was removed by hand.
 func (b *Broker) releaseLocked(ctx context.Context, grant *Grant) error {
-	err := b.store.EndGrant(ctx, grant.ID)
 	delete(b.attached, grant.ID)
+	if err := b.store.EndGrant(ctx, grant.ID); err != nil {
+		b.ending[grant.ID] = grant
+		return fmt.Errorf("end grant %s: %w", grant.ID, err)
+	}
+	b.freeLocked(grant)
+	return nil
+}
+
+// freeLocked frees the members of grant, whose row the store no longer holds.
+func (b *Broker) freeLocked(grant *Grant) {
 	for _, m := range grant.Members {
 		member := b.pools[m.Pool].members[m.Name]
 		member.grant = ""
 		member.project = ""
 	}
-	if err != nil {
-		return fmt.Errorf("end grant %s: %w", grant.ID, err)
+}
+
+// endPendingLocked removes again, in id order, the row of each grant in ending, and frees the members of each grant the
+// store no longer holds. It stops at the first removal the store refuses: the store still refuses writes, so the rest
+// wait for the next settle.
+func (b *Broker) endPendingLocked(ctx context.Context) {
+	for _, id := range slices.Sorted(maps.Keys(b.ending)) {
+		if err := b.store.EndGrant(ctx, id); err != nil {
+			return
+		}
+		b.freeLocked(b.ending[id])
+		delete(b.ending, id)
+		b.logger.InfoContext(ctx, "ended grant removed after a retry", "grant", id)
 	}
-	return nil
 }
 
 // requeueLocked puts the request of the stopped grant queued back in the queue at its arrival place, unattached and

@@ -44,13 +44,16 @@ func (r *Runner) execute(ctx context.Context, epic store.EpicRow, view View, act
 	}
 }
 
-// record carries out an action that is one store write of the task's build: a move, a pause, a park, a review or a
-// finding. Any other action does nothing and reports false.
+// record carries out an action that is one store write of the task's build: a move, a settle of a checking version, a
+// pause, a park, a review or a finding. Any other action does nothing and reports false.
 func (r *Runner) record(ctx context.Context, epic store.EpicRow, view View, action Action) bool {
 	seq, from := view.Task.Seq, view.Task.Build
 	switch action.Kind {
 	case ActMove:
 		return r.written(ctx, epic.ID, seq, "move build", r.store.SetTaskBuild(ctx, epic.ID, seq, from, action.Next))
+	case ActSettleVersion:
+		err := r.store.SettleTaskVersion(ctx, epic.ID, seq, from, action.Next, *action.Settle, r.now())
+		return r.written(ctx, epic.ID, seq, "settle version", err)
 	case ActPause:
 		err := r.store.StopTask(ctx, epic.ID, seq, from, action.Next)
 		return r.written(ctx, epic.ID, seq, "pause task", err)
@@ -159,7 +162,9 @@ func (r *Runner) fail(ctx context.Context, epic store.EpicRow, view View, action
 // refusal, carrying the files it named, when the task has no decisions left.
 func (r *Runner) grant(ctx context.Context, epic store.EpicRow, view View, action Action) bool {
 	seq := view.Task.Seq
-	err := r.store.GrantTaskFiles(ctx, epic.ID, seq, view.Task.Build, action.Next, action.NeedsFiles)
+	err := r.store.GrantTaskFiles(ctx, epic.ID, seq, view.Task.Build, action.Next, store.TaskVersionInput{
+		Source: store.SourceGrant, Step: view.Task.Build.Step, Reason: action.Next.Failure, Files: action.NeedsFiles,
+	}, r.now())
 	var owned store.FileOwnedError
 	if errors.As(err, &owned) {
 		reason := action.Reason + "; " + owned.Error()
@@ -173,14 +178,14 @@ func (r *Runner) grant(ctx context.Context, epic store.EpicRow, view View, actio
 	return r.written(ctx, epic.ID, seq, "grant files", err)
 }
 
-// decide carries out an orchestrator's rerun or grant: in one write the task gets the files action names, its build
-// moves to action's, and the decision is recorded (store.Store.RerunTask). When an open task the build does not wait
-// for owns one of the files, the store writes nothing, and the request is settled as action's fallback, with the
-// refusal added.
+// decide carries out an orchestrator's rerun or grant: in one write the task's version, action's Version, is stored
+// with the files it adds, its build moves to action's, and the decision is recorded (store.Store.RerunTask). When an
+// open task the build does not wait for owns one of the files, the store writes nothing, and the request is settled as
+// action's fallback, with the refusal added.
 func (r *Runner) decide(ctx context.Context, epic store.EpicRow, view View, action Action) bool {
 	seq := view.Task.Seq
 	err := r.store.RerunTask(
-		ctx, epic.ID, seq, view.Task.Build, action.Next, action.NeedsFiles, action.Behind, *action.Decision, r.now(),
+		ctx, epic.ID, seq, view.Task.Build, action.Next, action.Version, action.Behind, *action.Decision, r.now(),
 	)
 	var owned store.FileOwnedError
 	if errors.As(err, &owned) && action.Fallback != nil {

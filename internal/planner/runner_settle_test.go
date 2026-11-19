@@ -101,7 +101,7 @@ func TestRunnerRetriesCompleteTurnWriteUntilItLands(t *testing.T) {
 	}
 	wantTasks := []store.EpicTask{{
 		Seq: 1, Turn: 1, Title: "Build it", Deliverable: "the runner", Files: []string{"internal/planner/runner.go"},
-		Requirements: []string{"R1"}, Gate: "check", Evidence: runnerEvidenceItem(), Status: "open",
+		Requirements: []string{"R1"}, Gate: "check", Evidence: runnerEvidenceItem(), Status: "open", Version: 1,
 	}}
 	if !reflect.DeepEqual(epic.Tasks, wantTasks) {
 		t.Errorf("tasks = %+v, want %+v", epic.Tasks, wantTasks)

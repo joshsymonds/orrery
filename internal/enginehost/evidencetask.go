@@ -11,11 +11,13 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// RunTask runs the evidence item of task T<task> of epic at revision, in phase red or green, and stores the run under the
-// caller's id. It is Run for a task's item: the run's Item is T<task> and its Spec is the item the task names. A stored run
-// with id is returned as it is, and nothing starts; the id is checked first, and a stored run is returned whatever the other
-// arguments are. An id that is not 32 lowercase hex digits, a task the epic does not have, a task whose item is the zero
-// value, and a bad phase are refused with an error matching ErrEvidenceRefused, and store no run.
+// RunTask runs the evidence item of task T<task> of epic at revision, in phase red or green, and stores the run under
+// the caller's id. It is Run for a task's item: the run's Item is T<task>. Its Spec is the item the task names, except
+// in phase red while the task has a checking version (store.EpicTask.Checking): the red run then judges that version's
+// item, and its Spec is that item. A stored run with id is returned as it is, and nothing starts; the id is checked
+// first, and a stored run is returned whatever the other arguments are. An id that is not 32 lowercase hex digits, a
+// task the epic does not have, a task whose item is the zero value, and a bad phase are refused with an error matching
+// ErrEvidenceRefused, and store no run.
 func (e *Evidence) RunTask(
 	ctx context.Context, id, epic string, task int64, revision, phase string,
 ) (store.EvidenceRun, error) {
@@ -27,7 +29,7 @@ func (e *Evidence) RunTask(
 		revision,
 		phase,
 		func(row store.EpicRow) (evidence.Item, error) {
-			return evidenceRunTaskItemOf(row, task)
+			return evidenceRunTaskItemOf(row, task, phase)
 		},
 	)
 }
@@ -119,17 +121,28 @@ func (e *Evidence) runUnder(
 	return stored, nil
 }
 
-// evidenceRunTaskItemOf returns the evidence item task T<task> of row was planned with. A task the epic does not have, and
-// a task whose item is the zero value, are refused with an error matching ErrEvidenceRefused that names the task.
-func evidenceRunTaskItemOf(row store.EpicRow, task int64) (evidence.Item, error) {
+// evidenceRunTaskItemOf returns the evidence item a run of task T<task> of row in phase is held to. A task the epic
+// does not have, and an item that is the zero value, are refused with an error matching ErrEvidenceRefused that names
+// the task.
+func evidenceRunTaskItemOf(row store.EpicRow, task int64, phase string) (evidence.Item, error) {
 	for _, planned := range row.Tasks {
 		if planned.Seq != task {
 			continue
 		}
-		if reflect.ValueOf(planned.Evidence).IsZero() {
+		item := taskRunItem(planned, phase)
+		if reflect.ValueOf(item).IsZero() {
 			return evidence.Item{}, fmt.Errorf("%w: task T%d has no evidence item", ErrEvidenceRefused, task)
 		}
-		return planned.Evidence, nil
+		return item, nil
 	}
 	return evidence.Item{}, fmt.Errorf("%w: no task T%d", ErrEvidenceRefused, task)
+}
+
+// taskRunItem returns the evidence item a run of task in phase is held to: in phase red while the task has a checking
+// version, the item of that version, which its red run judges, and otherwise the task's current item.
+func taskRunItem(task store.EpicTask, phase string) evidence.Item {
+	if version, ok := task.Checking(); ok && phase == evidence.PhaseRed && version.Evidence != nil {
+		return *version.Evidence
+	}
+	return task.Evidence
 }

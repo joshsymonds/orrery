@@ -441,9 +441,20 @@ func (s *Store) RunningCallerSteps(ctx context.Context, caller string) ([]StepRo
 }
 
 // LabelledSteps returns the step rows with a non-empty epic, narrowed to rows whose epic is epic when epic is not
-// empty and to rows whose task is task when task is not empty, ordered by start time then id.
+// empty and to rows whose task is task when task is not empty, ordered by start time then id. A read narrowed to an
+// epic searches the steps by their epic and task labels; only a read not narrowed to an epic reads the whole table.
 func (s *Store) LabelledSteps(ctx context.Context, epic, task string) ([]StepRow, error) {
-	rows, err := sqlcgen.New(s.db).ListLabelledSteps(ctx, sqlcgen.ListLabelledStepsParams{Epic: epic, Task: task})
+	queries := sqlcgen.New(s.db)
+	var rows []sqlcgen.Step
+	var err error
+	switch {
+	case epic == "":
+		rows, err = queries.ListLabelledSteps(ctx, task)
+	case task == "":
+		rows, err = queries.ListEpicSteps(ctx, epic)
+	default:
+		rows, err = queries.ListEpicTaskSteps(ctx, sqlcgen.ListEpicTaskStepsParams{Epic: epic, Tasks: []string{task}})
+	}
 	if err != nil {
 		return nil, fmt.Errorf("list labeled steps: %w", err)
 	}

@@ -315,7 +315,7 @@ func TestRunnerConcludeEndsEpicOnceAndRunPassed(t *testing.T) {
 	ctx := context.Background()
 	s := openRunStore(t)
 	createRunEpic(t, s, store.EpicWorkflow{})
-	body := kinds.EndingBody("ended_with_gaps", []string{"reviewer security: gave no verdict twice"})
+	body := kinds.EndingBody("ended_with_gaps", []string{"reviewer security: gave no verdict twice"}, nil)
 	runner := runnerReviewRunner(s, runnerReviewers{}, s)
 	runner.kinds[concludeNodeKind] = runnerEnds(kinds.Action{
 		Kind: kinds.ActEnd, Outcome: "passed", Phase: "ended_with_gaps", Output: body,

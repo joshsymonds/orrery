@@ -153,6 +153,10 @@ type Store interface {
 // the owner's Say to a session returns nil, when the owner's Say clears a session's quiet, when a session goes live,
 // when the last request a session has open closes, and when a session slot or step slot frees. It must not block or
 // call the manager: the manager calls it synchronously, including under its locks. Nil does nothing (see wakeEvent).
+//
+// PutOffs stores the owner's put-off marks, which NotNow and BringBack set and clear, and it refuses both as unavailable
+// when nil. Panes reads the panes' questions and reports a pane seen to the notice router, which NotNow and BringBack of a
+// pane need, so it refuses a pane call as unavailable when nil.
 type Config struct {
 	Shell             string
 	Claude            string
@@ -172,6 +176,8 @@ type Config struct {
 	Metrics           *telemetry.Daemon
 	CronWake          func(session string)
 	EventWake         func()
+	PutOffs           PutOffStore
+	Panes             PaneQuestions
 }
 
 // liveSession is one running session: its directory, its process, the done channel closed when its pump has finished,
@@ -262,6 +268,9 @@ type Manager struct {
 	cronWake func(session string)
 	// eventWake is Config.EventWake, called synchronously (see wakeEvent).
 	eventWake func()
+	// putOffs and panes are Config.PutOffs and Config.Panes, which NotNow and BringBack use.
+	putOffs PutOffStore
+	panes   PaneQuestions
 
 	pumps sync.WaitGroup
 	// calls counts the calls under way that can start or end work (see callsInFlight).
@@ -324,6 +333,8 @@ func NewManager(cfg Config) *Manager {
 		metrics:           cfg.Metrics,
 		cronWake:          cfg.CronWake,
 		eventWake:         cfg.EventWake,
+		putOffs:           cfg.PutOffs,
+		panes:             cfg.Panes,
 		sessions:          map[string]*liveSession{},
 		stopping:          map[string]*liveSession{},
 		stepObservers:     map[string]StepObserver{},
