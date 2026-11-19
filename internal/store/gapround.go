@@ -42,24 +42,47 @@ func (s *Store) ReplaceReviewerVerdict(
 	ctx context.Context, epic string, verdict ReviewVerdict, findings []LedgerFinding, _ time.Time,
 ) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		if err := deleteReviewerVerdict(ctx, queries, epic, verdict.Reviewer); err != nil {
-			return err
-		}
-		if err := queries.DeleteEpicClosuresOfReviewer(ctx, sqlcgen.DeleteEpicClosuresOfReviewerParams{
-			Epic: epic, Reviewer: verdict.Reviewer,
-		}); err != nil {
-			return fmt.Errorf("delete closures of findings by %s of epic %s: %w", verdict.Reviewer, epic, err)
-		}
-		if err := queries.DeleteEpicLedgerOfReviewer(ctx, sqlcgen.DeleteEpicLedgerOfReviewerParams{
-			Epic: epic, Reviewer: verdict.Reviewer,
-		}); err != nil {
-			return fmt.Errorf("delete findings by %s of epic %s: %w", verdict.Reviewer, epic, err)
-		}
-		if err := insertVerdicts(ctx, queries, epic, []ReviewVerdict{verdict}); err != nil {
-			return err
-		}
-		return insertLedger(ctx, queries, epic, findings)
+		return replaceReviewerVerdict(ctx, queries, epic, verdict, findings)
 	})
+}
+
+// EndReviewRerun ends, in one write, the running run end names of epic as EndNodes ends it, and replaces the stored
+// verdict and findings of the review's reviewer as ReplaceReviewerVerdict does. The rerun of a reviewer whose gap a
+// planner turn fixed ends with the verdict and findings its try chain settled. A review with no verdict by that reviewer
+// is an error, and the write leaves the run running, as it writes nothing.
+func (s *Store) EndReviewRerun(
+	ctx context.Context, epic string, end NodeEnd, verdict ReviewVerdict, findings []LedgerFinding, at time.Time,
+) error {
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		if err := endNodeRuns(ctx, queries, epic, []NodeEnd{end}, at); err != nil {
+			return err
+		}
+		return replaceReviewerVerdict(ctx, queries, epic, verdict, findings)
+	})
+}
+
+// replaceReviewerVerdict replaces, in the caller's write, the stored verdict of epic's review by verdict.Reviewer with
+// verdict, and that reviewer's ledger findings, with their closures, with findings, as ReplaceReviewerVerdict describes.
+func replaceReviewerVerdict(
+	ctx context.Context, queries *sqlcgen.Queries, epic string, verdict ReviewVerdict, findings []LedgerFinding,
+) error {
+	if err := deleteReviewerVerdict(ctx, queries, epic, verdict.Reviewer); err != nil {
+		return err
+	}
+	if err := queries.DeleteEpicClosuresOfReviewer(ctx, sqlcgen.DeleteEpicClosuresOfReviewerParams{
+		Epic: epic, Reviewer: verdict.Reviewer,
+	}); err != nil {
+		return fmt.Errorf("delete closures of findings by %s of epic %s: %w", verdict.Reviewer, epic, err)
+	}
+	if err := queries.DeleteEpicLedgerOfReviewer(ctx, sqlcgen.DeleteEpicLedgerOfReviewerParams{
+		Epic: epic, Reviewer: verdict.Reviewer,
+	}); err != nil {
+		return fmt.Errorf("delete findings by %s of epic %s: %w", verdict.Reviewer, epic, err)
+	}
+	if err := insertVerdicts(ctx, queries, epic, []ReviewVerdict{verdict}); err != nil {
+		return err
+	}
+	return insertLedger(ctx, queries, epic, findings)
 }
 
 // deleteReviewerVerdict deletes the stored verdict of epic's review by reviewer in the caller's write. A review with no

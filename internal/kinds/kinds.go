@@ -35,9 +35,11 @@ type Rows struct {
 	AmendActions int
 	Actions      int
 	// GapTurns holds the planner turns each gap was given, and Unresolvable the gaps the latest succeeded turn declared
-	// it cannot resolve without the owner, as store.EpicFlow reads them.
+	// it cannot resolve without the owner, as store.EpicFlow reads them. Reruns holds the reruns rerun_review actions
+	// asked for, in turn then position order, as store.EpicFlow reads them.
 	GapTurns     []store.GapTurn
 	Unresolvable []store.GapDeclaration
+	Reruns       []store.ReviewRerun
 	Review       store.Review
 	Reviewers    []Reviewer
 	Releases     []store.ReleaseRun

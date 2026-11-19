@@ -19,11 +19,12 @@ const releaseKind = "release"
 // judgePart is the part of a release node run's work the judge ran under.
 const judgePart = "judge"
 
-// flowReviewKind and flowClosureKind are the kinds of the review and closure nodes, whose node runs label their steps
-// with their path. A release node run labels its release integrator's steps with its path too.
+// flowReviewKind, flowClosureKind and flowRerunKind are the kinds of the review, closure and rerun nodes, whose node
+// runs label their steps with their path. A release node run labels its release integrator's steps with its path too.
 const (
 	flowReviewKind  = "review"
 	flowClosureKind = "closure"
+	flowRerunKind   = "rerun"
 )
 
 // EpicFlow is one epic's rows as the interpreter decides from them: the epic as Epic returns it, its review as
@@ -233,13 +234,15 @@ func workParts(kind string, releaseSteps int) []string {
 }
 
 // readLabeledSteps returns, in the order of runs, the steps labeled with epic and the path of each review, closure or
-// release node run, each run's steps ordered by start time then id. They are read in one search of the steps by their
-// labels, and none is read when runs has no such run. Node run paths are unique to an epic, so each step is read once.
-// A release run's release steps and judge carry no path label, so only its release integrator's steps are read here.
+// release, closure or rerun node run, each run's steps ordered by start time then id. They are read in one search of
+// the steps by their labels, and none is read when runs has no such run. Node run paths are unique to an epic, so each
+// step is read once. A release run's release steps and judge carry no path label, so only its release integrator's
+// steps are read here.
 func readLabeledSteps(ctx context.Context, queries *sqlcgen.Queries, epic string, runs []NodeRun) ([]StepRow, error) {
 	var paths []string
 	for _, run := range runs {
-		if run.Kind == flowReviewKind || run.Kind == flowClosureKind || run.Kind == releaseKind {
+		if run.Kind == flowReviewKind || run.Kind == flowClosureKind || run.Kind == flowRerunKind ||
+			run.Kind == releaseKind {
 			paths = append(paths, run.Path)
 		}
 	}
@@ -248,7 +251,7 @@ func readLabeledSteps(ctx context.Context, queries *sqlcgen.Queries, epic string
 	}
 	rows, err := queries.ListEpicTaskSteps(ctx, sqlcgen.ListEpicTaskStepsParams{Epic: epic, Tasks: paths})
 	if err != nil {
-		return nil, fmt.Errorf("list steps of the review, closure and release runs of epic %s: %w", epic, err)
+		return nil, fmt.Errorf("list steps of the review, closure, rerun and release runs of epic %s: %w", epic, err)
 	}
 	byPath := make(map[string][]sqlcgen.Step, len(paths))
 	for _, row := range rows {

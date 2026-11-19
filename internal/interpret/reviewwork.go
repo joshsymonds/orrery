@@ -37,8 +37,9 @@ func (r *Runner) prepareReview(ctx context.Context, epic store.EpicRow, act Acti
 	return nil
 }
 
-// prepareClosure records the stored base of epic as the revision of the closure run at act's path. A closure run takes no
-// refs, so none are recorded.
+// prepareClosure records the stored base of epic as the revision of the closure run, or of the rerun run, at act's path.
+// Neither takes refs, so none are recorded. A rerun run's revision is the stored base too, as a closure's is, and a
+// rerun is not frozen, so it does not freeze the review.
 func (r *Runner) prepareClosure(ctx context.Context, epic store.EpicRow, act Action) error {
 	base, err := storedBaseOf(epic)
 	if err != nil {

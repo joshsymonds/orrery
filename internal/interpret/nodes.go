@@ -36,9 +36,13 @@ const (
 // store reads the step under the same part.
 const stepPart = "step"
 
+// kindRerun is the kind of the rerun run a conclusion starts for a rerun_review action: one reviewer's try chain walked
+// again at the epic's stored base. Its work is a closure's, and its starts are a review's.
+const kindRerun = "rerun"
+
 // work carries out one work action of a check node run: the prepare, start, capture, repro, refs check or advance its
-// kind asks for. An integrate run's prepare claims its batch, and its advance moves the epic's branch. A review or
-// closure run's prepare and start are its own. The work of a release run is carried out by release, and that of a sync
+// kind asks for. An integrate run's prepare claims its batch, and its advance moves the epic's branch. A review, closure
+// or rerun run's prepare and start are its own. The work of a release run is carried out by release, and that of a sync
 // run by syncWork.
 func (r *Runner) work(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	switch act.NodeKind {
@@ -54,7 +58,7 @@ func (r *Runner) work(ctx context.Context, epic store.EpicRow, act Action, at ti
 			return r.prepareBatch(ctx, epic, act)
 		case reviewNodeKind:
 			return r.prepareReview(ctx, epic, act, at)
-		case closureNodeKind:
+		case closureNodeKind, kindRerun:
 			return r.prepareClosure(ctx, epic, act)
 		}
 		return r.prepare(ctx, epic, act)
@@ -138,11 +142,11 @@ func (r *Runner) refSnapshot(ctx context.Context, epic store.EpicRow) (string, e
 }
 
 // start carries out the start of a check node run's work: its check, its evidence runs or its agent step, or the record of
-// an owned run's result. A review or closure run starts the units it asks for. The work of a kind whose service the
-// runner was not given is an error, not a start.
+// an owned run's result. A review, closure or rerun run starts the units it asks for. The work of a kind whose service
+// the runner was not given is an error, not a start.
 func (r *Runner) start(ctx context.Context, epic store.EpicRow, act Action) error {
 	switch act.NodeKind {
-	case reviewNodeKind, closureNodeKind:
+	case reviewNodeKind, closureNodeKind, kindRerun:
 		if r.steps == nil {
 			return missingService("steps")
 		}

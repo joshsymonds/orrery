@@ -78,6 +78,10 @@ type Store interface {
 		ctx context.Context, epic, path string, attempt int64, output string, verdicts []store.ReviewVerdict,
 		ledger []store.LedgerFinding, at time.Time,
 	) error
+	EndReviewRerun(
+		ctx context.Context, epic string, end store.NodeEnd, verdict store.ReviewVerdict,
+		findings []store.LedgerFinding, at time.Time,
+	) error
 	EndClosure(
 		ctx context.Context, epic, path string, attempt int64, outcome, output string, round store.ReviewRound,
 		closures []store.Closure, at time.Time,
@@ -356,7 +360,7 @@ func flowRows(read store.EpicFlow) kinds.Rows {
 	return kinds.Rows{
 		Epic: read.Epic, Runs: read.Runs, Checks: read.Checks, Evidence: read.Evidence, Steps: read.Steps,
 		Pending: read.Pending, Actions: read.Actions, Releases: read.Releases, Slot: read.Slot, Review: read.Review,
-		GapTurns: read.GapTurns, Unresolvable: read.Unresolvable,
+		GapTurns: read.GapTurns, Unresolvable: read.Unresolvable, Reruns: read.Reruns,
 	}
 }
 
@@ -408,7 +412,7 @@ func (r *Runner) carry(ctx context.Context, epic store.EpicRow, act Action) erro
 		err = r.endBatch(ctx, epic, act, at)
 	case ActSync, ActReadOrigin:
 		err = r.carrySync(ctx, epic, act, at)
-	case ActHold, ActReview, ActClosure, ActConclude, ActGapRound:
+	case ActHold, ActReview, ActClosure, ActConclude, ActGapRound, ActRerun:
 		return r.carryReview(ctx, epic.ID, act, at)
 	case ActWork:
 		err = r.work(ctx, epic, act, at)
@@ -436,8 +440,9 @@ func (r *Runner) carrySync(ctx context.Context, epic store.EpicRow, act Action, 
 }
 
 // carryReview writes one review action of epic to the store at at: the hold of a stopped review step, the verdicts and
-// ledger of a review run, the round and closures of a closure run, the ending of a conclusion run, or the gap round a
-// conclusion starts.
+// ledger of a review run, the round and closures of a closure run, the ending of a conclusion run, the gap round a
+// conclusion starts, or the end of a rerun run with the verdict and findings its reviewer settled, which replace the
+// reviewer's stored verdict and findings.
 func (r *Runner) carryReview(ctx context.Context, epic string, act Action, at time.Time) error {
 	var err error
 	switch act.Kind {
@@ -447,6 +452,11 @@ func (r *Runner) carryReview(ctx context.Context, epic string, act Action, at ti
 		err = r.store.HoldReviewStep(ctx, epic, act.IDs[0], act.Reason, at)
 	case ActReview:
 		err = r.store.EndReview(ctx, epic, act.Path, act.Attempt, act.Output, act.Verdicts, act.Ledger, at)
+	case ActRerun:
+		err = r.store.EndReviewRerun(
+			ctx, epic, store.NodeEnd{Path: act.Path, Outcome: outcomePassed, Output: act.Output}, act.Verdicts[0],
+			act.Ledger, at,
+		)
 	case ActClosure:
 		err = r.store.EndClosure(
 			ctx, epic, act.Path, act.Attempt, act.Outcome, act.Output, act.ReviewRound, act.Closures, at,
