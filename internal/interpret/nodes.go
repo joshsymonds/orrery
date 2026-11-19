@@ -320,8 +320,9 @@ func (r *Runner) recordOwned(ctx context.Context, epic store.EpicRow, act Action
 	return nil
 }
 
-// checkRefs compares the refs a check node run was prepared with to the refs now. The first move that parks is the park
-// reason, which parks the run and the epic. Every other move is told.
+// checkRefs compares the refs a check node run was prepared with to the refs now. A check node makes no commits, so
+// build.ScopeMoves blames it only for the moves that park and for the epic's own refs. The first move that parks is the
+// park reason, which parks the run and the epic. Every other move is told.
 func (r *Runner) checkRefs(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	now, err := r.refSnapshot(ctx, epic)
 	if err != nil {
@@ -330,6 +331,10 @@ func (r *Runner) checkRefs(ctx context.Context, epic store.EpicRow, act Action, 
 	moves, err := build.Compare(act.Run.Refs, now)
 	if err != nil {
 		return fmt.Errorf("compare refs of node %s: %w", act.Path, err)
+	}
+	moves, err = build.ScopeMoves(ctx, epic.Repository, epic.ID, moves, "", "")
+	if err != nil {
+		return fmt.Errorf("scope refs of node %s: %w", act.Path, err)
 	}
 	var park string
 	var tells []string

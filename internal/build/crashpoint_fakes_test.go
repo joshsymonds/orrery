@@ -149,11 +149,12 @@ func (w *crashWorld) count(counts map[string]int, key string) {
 }
 
 // implementerRef is the ref the fake implementer moves before it returns. It is a ref the build's check reports as a
-// tell, not as a move that parks the epic.
+// tell, not as a move that parks the epic, since the commit it moves to is one of the step's commits.
 const implementerRef = "refs/heads/scratch-implementer"
 
 // finishOpen ends each open step that is not limited. It is the work a resumed step does after its resume: the
-// implementer moves its scratch ref, which is a git ref write, and then returns. Each is one action.
+// implementer makes its commit and moves its scratch ref to it, which are git writes, and then returns. Each is one
+// action.
 func (w *crashWorld) finishOpen(ctx context.Context) error {
 	rows, err := w.store.OpenSteps(ctx)
 	if err != nil {
@@ -163,15 +164,17 @@ func (w *crashWorld) finishOpen(ctx context.Context) error {
 		if row.LoopLimited {
 			continue
 		}
+		var commit string
 		err = w.act("git ref write", func() error {
-			_, gitErr := runGit(ctx, w.repo, "update-ref", implementerRef, w.base)
-			return wrapErr("move implementer ref", gitErr)
+			var gitErr error
+			commit, gitErr = w.implementerCommit(ctx)
+			return wrapErr("make implementer commit", gitErr)
 		})
 		if err != nil {
 			return err
 		}
 		ops := []store.EngineOp{
-			store.StepReturn{ID: row.ID, Result: implementerReturnJSON(w.base)},
+			store.StepReturn{ID: row.ID, Result: implementerReturnJSON(commit)},
 			store.StepEnd{ID: row.ID, End: endDone},
 		}
 		err = w.act("step return", func() error {
@@ -184,9 +187,31 @@ func (w *crashWorld) finishOpen(ctx context.Context) error {
 	return nil
 }
 
-// implementerReturnJSON is the kept return of an implementer step that finished at base.
-func implementerReturnJSON(base string) string {
-	return fmt.Sprintf(`{"summary":"done","commit":%q}`, base)
+// implementerCommit makes the commit the fake implementer leaves in its worktree, and moves implementerRef to it. The
+// commit is an orphan of base's tree, with a fixed identity and dates, so every run of the harness makes the same id. It
+// holds none of base's commits, so it is one of the step's commits.
+func (w *crashWorld) implementerCommit(ctx context.Context) (string, error) {
+	identity := []string{
+		"GIT_AUTHOR_NAME=Test", "GIT_AUTHOR_EMAIL=test@example.invalid", "GIT_AUTHOR_DATE=1700000000 +0000",
+		"GIT_COMMITTER_NAME=Test", "GIT_COMMITTER_EMAIL=test@example.invalid", "GIT_COMMITTER_DATE=1700000000 +0000",
+	}
+	commit, err := runGitEnv(ctx, w.repo, identity, "commit-tree", w.base+"^{tree}", "-m", "implementer")
+	if err != nil {
+		return "", err
+	}
+	worktree := ImplementWorktree(w.stateDir, crashEpic, 1)
+	if _, err = runGit(ctx, worktree, "checkout", "-q", "--detach", commit); err != nil {
+		return "", err
+	}
+	if _, err = runGit(ctx, w.repo, "update-ref", implementerRef, commit); err != nil {
+		return "", err
+	}
+	return commit, nil
+}
+
+// implementerReturnJSON is the kept return of an implementer step that finished at commit.
+func implementerReturnJSON(commit string) string {
+	return fmt.Sprintf(`{"summary":"done","commit":%q}`, commit)
 }
 
 // crashPlanReturn is the planner's return for a turn that plans one task, with no questions.
