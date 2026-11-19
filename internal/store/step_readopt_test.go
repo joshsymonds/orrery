@@ -279,36 +279,39 @@ func TestStepTurnReportsBackgroundFlag(t *testing.T) {
 		t.Fatalf("ApplyEngine: %v", err)
 	}
 
-	// A turn that ended while a background task is listed has ended: it is found, and flagged, so a re-adopt does not
-	// take it for a running turn.
-	background := true
+	// A turn that ended while a task that runs a model is listed has ended: it is found, and flagged awaited, so a
+	// re-adopt does not take it for a running turn and does not read its not-done return.
+	background, awaited := true, true
 	if err := s.ApplyEngine(ctx, []EngineOp{
-		EngineConsumed{ID: "s1", Consumed: 2, Output: &output, Background: &background},
+		EngineConsumed{ID: "s1", Consumed: 2, Output: &output, Background: &background, Awaited: &awaited},
 	}, engineNowAt()); err != nil {
-		t.Fatalf("ApplyEngine background on: %v", err)
+		t.Fatalf("ApplyEngine awaited on: %v", err)
 	}
 	turn, ok, err := s.StepTurn(ctx, "s1")
 	if err != nil {
-		t.Fatalf("StepTurn while background: %v", err)
+		t.Fatalf("StepTurn while awaited: %v", err)
 	}
 	seq := newestSeqOf(t, s, "s1", EventEngineTurnEnded)
-	want := StepTurnEnd{Seq: seq, Output: output, Background: true}
+	want := StepTurnEnd{Seq: seq, Output: output, Awaited: true}
 	if !ok || !reflect.DeepEqual(turn, want) {
-		t.Fatalf("StepTurn while background: got %+v ok %v, want %+v ok true", turn, ok, want)
+		t.Fatalf("StepTurn while awaited: got %+v ok %v, want %+v ok true", turn, ok, want)
 	}
 
-	background = false
-	if err := s.ApplyEngine(ctx, []EngineOp{EngineConsumed{ID: "s1", Consumed: 2, Background: &background}},
-		engineNowAt()); err != nil {
-		t.Fatalf("ApplyEngine background off: %v", err)
+	// A shell task alone, a Monitor's watch among them, leaves the session's background flag on and its awaited flag
+	// off, so the turn end is not flagged.
+	awaited = false
+	if err := s.ApplyEngine(ctx, []EngineOp{
+		EngineConsumed{ID: "s1", Consumed: 2, Background: &background, Awaited: &awaited},
+	}, engineNowAt()); err != nil {
+		t.Fatalf("ApplyEngine awaited off: %v", err)
 	}
 	turn, ok, err = s.StepTurn(ctx, "s1")
 	if err != nil {
-		t.Fatalf("StepTurn after background off: %v", err)
+		t.Fatalf("StepTurn with a shell task listed: %v", err)
 	}
 	want = StepTurnEnd{Seq: seq, Output: output}
 	if !ok || !reflect.DeepEqual(turn, want) {
-		t.Fatalf("StepTurn after background off: got %+v ok %v, want %+v ok true", turn, ok, want)
+		t.Fatalf("StepTurn with a shell task listed: got %+v ok %v, want %+v ok true", turn, ok, want)
 	}
 }
 

@@ -185,12 +185,13 @@ UPDATE sessions
 SET consumed = sqlc.arg(consumed),
     replay_from = COALESCE(sqlc.narg(replay_from), replay_from),
     turn_output = COALESCE(sqlc.narg(turn_output), turn_output),
-    background = COALESCE(sqlc.narg(background), background)
+    background = COALESCE(sqlc.narg(background), background),
+    awaited = COALESCE(sqlc.narg(awaited), awaited)
 WHERE id = sqlc.arg(id) AND kind IN ('engine', 'step');
 
 -- name: UpdateEngineLaunch :execrows
 UPDATE sessions
-SET consumed = 0, replay_from = 0, background = 0, prompts_from = sqlc.arg(prompts_from)
+SET consumed = 0, replay_from = 0, background = 0, awaited = 0, prompts_from = sqlc.arg(prompts_from)
 WHERE id = sqlc.arg(id) AND kind IN ('engine', 'step');
 
 -- name: UpsertEngineText :exec
@@ -391,7 +392,7 @@ UPDATE steps SET gate_grant = ?, gate_holder = ?, gate_round = ? WHERE id = ?;
 
 -- name: GetStepTurnEnd :one
 SELECT events.seq, CAST(json_extract(events.payload, '$.isError') AS INTEGER) AS is_error, sessions.turn_output,
-       sessions.background, steps.loop_seq
+       sessions.awaited, steps.loop_seq
 FROM events
 JOIN sessions ON sessions.id = events.session_id
 JOIN steps ON steps.id = events.session_id

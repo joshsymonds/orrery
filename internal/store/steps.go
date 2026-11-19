@@ -147,14 +147,14 @@ type StepGate struct {
 
 // StepTurnEnd is the turn a step's session last ended after its last prompt. Seq is the turn end's event seq, IsError
 // whether the turn ended in error, Output the session's turn output, and Returned whether the turn ended at or before
-// the step's latest return. Background is set while the session's background flag is: a background task was listed
-// when the session was last recorded, so the turn end is a return only when its output is the step's done value.
+// the step's latest return. Awaited is set while the session's awaited flag is: a background task that runs a model was
+// listed when the session was last recorded, so the turn end is a return only when its output is the step's done value.
 type StepTurnEnd struct {
-	Seq        int64
-	IsError    bool
-	Output     string
-	Returned   bool
-	Background bool
+	Seq      int64
+	IsError  bool
+	Output   string
+	Returned bool
+	Awaited  bool
 }
 
 // StepBlock is a finished block a step's session stored, with when it was stored. Block holds the block as it was
@@ -371,7 +371,7 @@ func (s *Store) Step(ctx context.Context, id string) (StepRow, error) {
 }
 
 // StepTurn returns the last turn end of the step id's session that was stored after the session's last prompt, with
-// its output, whether it is at or before the step's latest return, and whether the session's background flag is set.
+// its output, whether it is at or before the step's latest return, and whether the session's awaited flag is set.
 // It returns false, and no error, when there is no such turn end, so the turn the last prompt started is still running.
 func (s *Store) StepTurn(ctx context.Context, id string) (StepTurnEnd, bool, error) {
 	row, err := sqlcgen.New(s.db).GetStepTurnEnd(ctx, id)
@@ -383,7 +383,7 @@ func (s *Store) StepTurn(ctx context.Context, id string) (StepTurnEnd, bool, err
 	}
 	return StepTurnEnd{
 		Seq: row.Seq, IsError: row.IsError != 0, Output: row.TurnOutput, Returned: row.Seq <= row.LoopSeq,
-		Background: row.Background,
+		Awaited: row.Awaited,
 	}, true, nil
 }
 
