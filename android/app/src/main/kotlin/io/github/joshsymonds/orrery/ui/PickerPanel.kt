@@ -208,7 +208,7 @@ fun PickerPanel(
                     .clickable(enabled = work == PickerWork.IDLE) { open(row) }
                     .padding(vertical = OrreryTokens.Space.four + OrreryTokens.Space.two),
             ) {
-                Text(row.kind, style = OrreryTokens.Type.small, color = OrreryTokens.Role.new)
+                Text(row.kind, style = OrreryTokens.Type.small, color = OrreryTokens.Ink.three)
                 Text(row.dir, style = OrreryTokens.Type.small, color = OrreryTokens.Role.place)
                 if (row.label.isNotBlank()) {
                     Text(row.label, style = OrreryTokens.Type.body, color = OrreryTokens.Ink.one)
@@ -217,7 +217,7 @@ fun PickerPanel(
                     Text(row.note, style = OrreryTokens.Type.body, color = OrreryTokens.Ink.one)
                 }
                 if (row.prompt) {
-                    Text("first prompt", style = OrreryTokens.Type.small, color = OrreryTokens.Role.live)
+                    Text("first prompt", style = OrreryTokens.Type.small, color = OrreryTokens.Ink.three)
                 }
             }
         }

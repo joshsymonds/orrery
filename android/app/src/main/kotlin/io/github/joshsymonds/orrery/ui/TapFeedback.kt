@@ -61,11 +61,11 @@ fun rememberTapFeedback(): TapFeedback {
 fun Modifier.tapFeedback(feedback: TapFeedback): Modifier =
     semantics(mergeDescendants = true) { this[Flashing] = feedback.flashing }
 
-/** Container colours for a button: the highlight while flashing, the Material default otherwise. */
+/** Container colours for a button: surface.pressed while flashing, the Material default otherwise. */
 @Composable
 fun tapFeedbackColors(feedback: TapFeedback): ButtonColors =
     if (feedback.flashing) {
-        ButtonDefaults.buttonColors(containerColor = OrreryTokens.Role.live, contentColor = OrreryTokens.Surface.side)
+        ButtonDefaults.buttonColors(containerColor = OrreryTokens.Surface.pressed, contentColor = OrreryTokens.Ink.one)
     } else {
         ButtonDefaults.buttonColors()
     }

@@ -99,7 +99,7 @@ fun TitleRow(
                 Text(state, modifier = Modifier.testTag("title-state"))
             }
             if (blocker.isNotEmpty()) {
-                Text(blocker, color = OrreryTokens.Role.bad, modifier = Modifier.testTag("title-blocker"))
+                Text(blocker, color = OrreryTokens.Role.attention, modifier = Modifier.testTag("title-blocker"))
             }
             actions()
         }

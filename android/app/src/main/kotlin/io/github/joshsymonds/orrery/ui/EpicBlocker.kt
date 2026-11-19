@@ -52,7 +52,7 @@ fun NowBlock(
                 AnswerForm(blocker.question, onAnswer = onAnswer)
             }
             is EpicBlocker.Parked -> {
-                Text(blocker.text, color = OrreryTokens.Role.bad)
+                Text(blocker.text, color = OrreryTokens.Role.attention)
                 TextButton(onClick = onRetry, modifier = Modifier.testTag("blocker-retry")) {
                     Text("Retry")
                 }

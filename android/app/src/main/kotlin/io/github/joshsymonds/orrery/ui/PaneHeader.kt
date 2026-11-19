@@ -139,9 +139,9 @@ private fun HairLine() {
     )
 }
 
-/** The project in bold mauve, then the opening prompt, or the cwd when there is no prompt. */
+/** The project in bold in the place colour, then the opening prompt, or the cwd when there is no prompt. */
 private fun originLine(pane: Pane, origin: String?): AnnotatedString = buildAnnotatedString {
-    withStyle(SpanStyle(color = OrreryTokens.Role.you, fontWeight = OrreryTokens.Font.Weight.bold)) {
+    withStyle(SpanStyle(color = OrreryTokens.Role.place, fontWeight = OrreryTokens.Font.Weight.bold)) {
         append(projectOf(pane.cwd))
     }
     append("  ")
