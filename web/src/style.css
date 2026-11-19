@@ -573,7 +573,7 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 /* A caller event the session holds and has not taken draws in a lower ink, until its prompt arrives or the session takes it. */
 .reader .step-card.waiting, .reader .event-ring.waiting { --o-ink-1: var(--o-ink-3); --o-ink-2: var(--o-ink-3); }
 .reader .event-ring.waiting .ring-line { cursor: default; }
-.reader .wait-label { display: block; font: var(--o-type-small); color: var(--o-ink-3); }
+.reader .wait-label { display: block; font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; color: var(--o-ink-3); }
 /* A background task's row: its type, its description and latest activity on the line, and its status once it has ended,
    red when it failed. The type is blue only on an agent task's row, which is a button reset to the line and opens its Agent call. */
 .reader .background-row { display: flex; gap: var(--o-space-8); min-width: 0; padding: var(--o-space-2) var(--o-space-8); font: var(--o-type-small); color: var(--o-ink-3); }
@@ -860,6 +860,7 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 .commit-mark { flex: none; color: var(--o-ink-3); }
 /* The contract page's checks keep their line breaks, as the machines wrote them. */
 .contract .checks { white-space: pre-wrap; }
+.contract > h2 { font: var(--o-type-display); }
 
 /* ============ the phase output and the worker session: a task's four phases as rows, the open row's output, a step's session ============ */
 /* A row's head is its phase's name, its summary and its time. A passed row's name is ok green, a now row's live yellow, and an ahead
@@ -885,7 +886,7 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
   font: var(--o-type-small); appearance: none; -webkit-appearance: none;
 }
 .phase-output .phase-head:disabled { cursor: default; }
-.phase-output .phase-name { font-weight: var(--o-font-weight-bold); white-space: nowrap; }
+.phase-output .phase-name { font: var(--o-type-title); white-space: nowrap; }
 .phase-output .phase-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-ink-2); }
 .phase-output .phase-time { white-space: nowrap; color: var(--o-ink-3); }
 .phase-output .phase-row.ahead .phase-summary, .phase-output .phase-row.ahead .phase-time { color: var(--o-ink-3); }
