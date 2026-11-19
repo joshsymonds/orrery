@@ -55,7 +55,6 @@ import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.ui.theme.Move
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
-import io.github.joshsymonds.orrery.ui.theme.animationsOn
 import io.github.joshsymonds.orrery.ui.theme.spec
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
@@ -255,10 +254,9 @@ fun PaneScreen(
     var endRequests by remember(paneId) { mutableIntStateOf(0) }
     var headerHeightPx by remember { mutableIntStateOf(0) }
     var headerMeasured by remember { mutableStateOf(false) }
-    val animated = animationsOn()
     val headerShift by animateIntAsState(
         targetValue = if (headerRule.visible) 0 else -headerHeightPx,
-        animationSpec = Move.STATE.spec(animated),
+        animationSpec = Move.STATE.spec(animated = true),
         label = "header-shift",
     )
     val bodyTop = with(density) { headerHeightPx.toDp() } + BODY_GAP_BELOW_HEADER
@@ -384,8 +382,8 @@ fun PaneScreen(
         )
         AnimatedVisibility(
             visible = !draftPresent,
-            enter = expandVertically(Move.LAYOUT.spec(animated)) + fadeIn(Move.LAYOUT.spec(animated)),
-            exit = shrinkVertically(Move.LEAVE.spec(animated)) + fadeOut(Move.LEAVE.spec(animated)),
+            enter = expandVertically(Move.LAYOUT.spec(animated = true)) + fadeIn(Move.LAYOUT.spec(animated = true)),
+            exit = shrinkVertically(Move.LAYOUT.spec(animated = true)) + fadeOut(Move.LAYOUT.spec(animated = true)),
             label = "quick-keys",
         ) {
             QuickKeys(paneId, client, state = current?.state.orEmpty(), changed = current?.changed ?: 0L)
