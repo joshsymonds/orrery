@@ -20,6 +20,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	orreryv1connect "github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
+	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/storetest"
 )
@@ -39,6 +40,9 @@ type epicCommandsFake struct {
 	limited  []string
 	decision *enginev1.EpicDecision
 	warning  string
+
+	// closeSessions is the Orrery-Session header each CloseEpic call carried, in order.
+	closeSessions []string
 }
 
 func (f *epicCommandsFake) PauseEpic(
@@ -131,6 +135,29 @@ func (f *epicCommandsFake) UnarchiveRow(
 	return connect.NewResponse(&enginev1.UnarchiveRowResponse{}), nil
 }
 
+func (f *epicCommandsFake) ReleaseEpic(
+	_ context.Context,
+	req *connect.Request[enginev1.ReleaseEpicRequest],
+) (*connect.Response[enginev1.ReleaseEpicResponse], error) {
+	if err := f.record(req.Msg); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&enginev1.ReleaseEpicResponse{}), nil
+}
+
+func (f *epicCommandsFake) CloseEpic(
+	_ context.Context,
+	req *connect.Request[enginev1.CloseEpicRequest],
+) (*connect.Response[enginev1.CloseEpicResponse], error) {
+	f.mu.Lock()
+	f.closeSessions = append(f.closeSessions, req.Header().Get(protocol.HeaderSession))
+	f.mu.Unlock()
+	if err := f.record(req.Msg); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&enginev1.CloseEpicResponse{}), nil
+}
+
 // record appends req to the calls and returns the next queued failure, or nil when the call succeeds.
 func (f *epicCommandsFake) record(req proto.Message) error {
 	f.mu.Lock()
@@ -149,6 +176,13 @@ func (f *epicCommandsFake) recorded() []proto.Message {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]proto.Message(nil), f.calls...)
+}
+
+// recordedCloseSessions returns the Orrery-Session header of each CloseEpic call, in order.
+func (f *epicCommandsFake) recordedCloseSessions() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.closeSessions...)
 }
 
 // epicCommandServe serves newEpicsHandler over commands with the fixed clock, and returns a generated Epics client.
@@ -518,5 +552,250 @@ func TestEpicsAnswerOptionsOtherWithTextIsRecordedByEngine(t *testing.T) {
 	}
 	if len(epic.Decisions) != 1 || epic.Decisions[0].Question != 1 || epic.Decisions[0].Text != text {
 		t.Fatalf("stored decisions = %v, want one decision answering question 1 with %q", epic.Decisions, text)
+	}
+}
+
+// releaseCall returns a call that sends a release of syntheticEpicID naming the undo-none positions undoNone.
+func releaseCall(undoNone []int32) func(context.Context, orreryv1connect.EpicsClient) error {
+	return func(ctx context.Context, client orreryv1connect.EpicsClient) error {
+		_, err := client.Release(ctx, connect.NewRequest(&orreryv1.EpicsReleaseRequest{
+			Id: syntheticEpicID, UndoNone: undoNone,
+		}))
+		return err
+	}
+}
+
+// closeCall returns a call that sends a close of syntheticEpicID with the kind and the epic that replaces it, by.
+func closeCall(kind, by string) func(context.Context, orreryv1connect.EpicsClient) error {
+	return func(ctx context.Context, client orreryv1connect.EpicsClient) error {
+		_, err := client.Close(ctx, connect.NewRequest(&orreryv1.EpicsCloseRequest{
+			Id: syntheticEpicID, Kind: kind, By: by,
+		}))
+		return err
+	}
+}
+
+// assertConnectError fails t unless err is a Connect error with code and message.
+func assertConnectError(t *testing.T, err error, code connect.Code, message string) {
+	t.Helper()
+	var connectErr *connect.Error
+	if !errors.As(err, &connectErr) {
+		t.Fatalf("error = %v, want a Connect error", err)
+	}
+	if connectErr.Code() != code || connectErr.Message() != message {
+		t.Fatalf("error = %v %q, want %v %q", connectErr.Code(), connectErr.Message(), code, message)
+	}
+}
+
+// assertRetriedOnlyWhenNeverConnected runs call against a refused dial, which is retried so the engine sees two
+// requests equal to want, and against a connection cut mid-call, which is answered and sent once.
+func assertRetriedOnlyWhenNeverConnected(
+	t *testing.T,
+	call func(context.Context, orreryv1connect.EpicsClient) error,
+	want proto.Message,
+) {
+	t.Helper()
+	refusedDial := &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}
+	t.Run("refused dial is retried", func(t *testing.T) {
+		t.Parallel()
+		fake := &epicCommandsFake{failures: []error{connect.NewError(connect.CodeUnavailable, refusedDial)}}
+		client := epicCommandServe(t, fake)
+		if err := call(t.Context(), client); err != nil {
+			t.Fatalf("call: %v", err)
+		}
+		calls := fake.recorded()
+		if len(calls) != 2 {
+			t.Fatalf("engine calls = %d, want two: the refused dial then its retry", len(calls))
+		}
+		for _, got := range calls {
+			if !proto.Equal(got, want) {
+				t.Fatalf("engine request = %v, want %v", got, want)
+			}
+		}
+	})
+	t.Run("connection cut mid-call is not retried", func(t *testing.T) {
+		t.Parallel()
+		cut := connect.NewError(connect.CodeUnavailable, errors.New("synthetic connection cut"))
+		fake := &epicCommandsFake{failures: []error{cut}}
+		client := epicCommandServe(t, fake)
+		err := call(t.Context(), client)
+		if code := connect.CodeOf(err); code != connect.CodeUnavailable {
+			t.Fatalf("code = %v, want %v", code, connect.CodeUnavailable)
+		}
+		if n := len(fake.recorded()); n != 1 {
+			t.Fatalf("engine calls = %d, want one: a cut call may have been taken", n)
+		}
+	})
+}
+
+func TestEpicsReleaseForwardsOneRequestAndAnswersEmpty(t *testing.T) {
+	t.Parallel()
+	fake := &epicCommandsFake{}
+	client := epicCommandServe(t, fake)
+	reply, err := client.Release(t.Context(), connect.NewRequest(&orreryv1.EpicsReleaseRequest{
+		Id: syntheticEpicID, UndoNone: []int32{2},
+	}))
+	if err != nil {
+		t.Fatalf("Release: %v", err)
+	}
+	assertForwarded(t, fake.recorded(), &enginev1.ReleaseEpicRequest{Id: syntheticEpicID, UndoNone: []int32{2}})
+	if !proto.Equal(reply.Msg, &orreryv1.EpicsReleaseResponse{}) {
+		t.Fatalf("Release = %v, want an empty response", reply.Msg)
+	}
+}
+
+func TestEpicsReleaseForwardsUndoNoneAsSent(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name     string
+		undoNone []int32
+	}{
+		{name: "ended with gaps names none", undoNone: nil},
+		{name: "repeated position", undoNone: []int32{2, 2}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fake := &epicCommandsFake{}
+			client := epicCommandServe(t, fake)
+			if err := releaseCall(tc.undoNone)(t.Context(), client); err != nil {
+				t.Fatalf("Release: %v", err)
+			}
+			assertForwarded(t, fake.recorded(), &enginev1.ReleaseEpicRequest{
+				Id: syntheticEpicID, UndoNone: tc.undoNone,
+			})
+		})
+	}
+}
+
+func TestEpicsReleaseRefusalReachesCallerAfterOneCall(t *testing.T) {
+	t.Parallel()
+	const message = "undo_none: position 2 is not an undo-none step"
+	refused := connect.NewError(connect.CodeFailedPrecondition, errors.New(message))
+	fake := &epicCommandsFake{failures: []error{refused}}
+	client := epicCommandServe(t, fake)
+	err := releaseCall([]int32{2})(t.Context(), client)
+	assertConnectError(t, err, connect.CodeFailedPrecondition, message)
+	if n := len(fake.recorded()); n != 1 {
+		t.Fatalf("engine calls = %d, want one: a refusal is not retried", n)
+	}
+}
+
+func TestEpicsReleaseRetryOnlyWhenNeverConnected(t *testing.T) {
+	t.Parallel()
+	want := &enginev1.ReleaseEpicRequest{Id: syntheticEpicID, UndoNone: []int32{2}}
+	assertRetriedOnlyWhenNeverConnected(t, releaseCall([]int32{2}), want)
+}
+
+func TestEpicsReleaseNilClientAnswersUnavailable(t *testing.T) {
+	t.Parallel()
+	client := epicCommandServe(t, nil)
+	err := releaseCall([]int32{2})(t.Context(), client)
+	assertConnectError(t, err, connect.CodeUnavailable, epicCommandsUnavailable)
+}
+
+func TestEpicsCloseForwardsOneRequestAndAnswersEmpty(t *testing.T) {
+	t.Parallel()
+	fake := &epicCommandsFake{}
+	client := epicCommandServe(t, fake)
+	reply, err := client.Close(t.Context(), connect.NewRequest(&orreryv1.EpicsCloseRequest{
+		Id: syntheticEpicID, Kind: "superseded", By: "synthetic-repo/beta",
+	}))
+	if err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	assertForwarded(t, fake.recorded(), &enginev1.CloseEpicRequest{
+		Id: syntheticEpicID, Kind: "superseded", By: "synthetic-repo/beta",
+	})
+	if !proto.Equal(reply.Msg, &orreryv1.EpicsCloseResponse{}) {
+		t.Fatalf("Close = %v, want an empty response", reply.Msg)
+	}
+}
+
+func TestEpicsCloseForwardsKindsUnchanged(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		kind string
+		by   string
+	}{
+		{name: "superseded with by", kind: "superseded", by: "synthetic-repo/beta"},
+		{name: "shipped", kind: "shipped"},
+		{name: "abandoned", kind: "abandoned"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fake := &epicCommandsFake{}
+			client := epicCommandServe(t, fake)
+			if err := closeCall(tc.kind, tc.by)(t.Context(), client); err != nil {
+				t.Fatalf("Close: %v", err)
+			}
+			assertForwarded(t, fake.recorded(), &enginev1.CloseEpicRequest{
+				Id: syntheticEpicID, Kind: tc.kind, By: tc.by,
+			})
+		})
+	}
+}
+
+func TestEpicsCloseRefusalReachesCallerAfterOneCall(t *testing.T) {
+	t.Parallel()
+	refusals := []struct {
+		name    string
+		call    func(context.Context, orreryv1connect.EpicsClient) error
+		code    connect.Code
+		message string
+	}{
+		{
+			name:    "superseded without by",
+			call:    closeCall("superseded", ""),
+			code:    connect.CodeFailedPrecondition,
+			message: "by: a superseded close names the epic that replaces it",
+		},
+		{
+			name:    "unknown epic",
+			call:    closeCall("abandoned", ""),
+			code:    connect.CodeNotFound,
+			message: "id: no epic " + syntheticEpicID,
+		},
+	}
+	for _, tc := range refusals {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fake := &epicCommandsFake{failures: []error{connect.NewError(tc.code, errors.New(tc.message))}}
+			client := epicCommandServe(t, fake)
+			assertConnectError(t, tc.call(t.Context(), client), tc.code, tc.message)
+			if n := len(fake.recorded()); n != 1 {
+				t.Fatalf("engine calls = %d, want one: a refusal is not retried", n)
+			}
+		})
+	}
+}
+
+func TestEpicsCloseRetryOnlyWhenNeverConnected(t *testing.T) {
+	t.Parallel()
+	want := &enginev1.CloseEpicRequest{Id: syntheticEpicID, Kind: "shipped"}
+	assertRetriedOnlyWhenNeverConnected(t, closeCall("shipped", ""), want)
+}
+
+func TestEpicsCloseNilClientAnswersUnavailable(t *testing.T) {
+	t.Parallel()
+	client := epicCommandServe(t, nil)
+	err := closeCall("abandoned", "")(t.Context(), client)
+	assertConnectError(t, err, connect.CodeUnavailable, epicCommandsUnavailable)
+}
+
+func TestEpicsCloseDropsOwnerSessionHeader(t *testing.T) {
+	t.Parallel()
+	fake := &epicCommandsFake{}
+	client := epicCommandServe(t, fake)
+	req := connect.NewRequest(&orreryv1.EpicsCloseRequest{Id: syntheticEpicID, Kind: "abandoned"})
+	req.Header().Set(protocol.HeaderSession, "synthetic-session")
+	if _, err := client.Close(t.Context(), req); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	assertForwarded(t, fake.recorded(), &enginev1.CloseEpicRequest{Id: syntheticEpicID, Kind: "abandoned"})
+	if sessions := fake.recordedCloseSessions(); len(sessions) != 1 || sessions[0] != "" {
+		t.Fatalf("Orrery-Session headers = %q, want one empty header", sessions)
 	}
 }
