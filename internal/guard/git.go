@@ -25,8 +25,8 @@ type Spec struct {
 	Owned []string
 }
 
-// Check returns the refusals of the changes from base to commit under spec, in diff order. It reads the changes with
-// git, so an unknown base or commit is an error.
+// Check returns the judgments of the changes from base to commit under spec, in diff order: the refusals and the facts
+// (see Refusals and FactLines). It reads the changes with git, so an unknown base or commit is an error.
 func Check(ctx context.Context, repo, base, commit string, spec Spec) ([]Refusal, error) {
 	captures, err := blobPaths(ctx, repo, base, repoPaths(spec.CaptureArgs))
 	if err != nil {
