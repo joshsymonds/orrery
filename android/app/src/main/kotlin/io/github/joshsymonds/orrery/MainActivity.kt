@@ -251,6 +251,7 @@ class MainActivity : ComponentActivity() {
                                                 }
                                                 hasServer = settings.hasServer
                                             },
+                                            startPushSetup = pushSetup::start,
                                         )
                                     }
                                 }

@@ -1,9 +1,12 @@
 package io.github.joshsymonds.orrery.ui
 
 import android.content.Context
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithTag
@@ -12,8 +15,12 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextReplacement
 import androidx.test.core.app.ApplicationProvider
+import com.connectrpc.Code
 import io.github.joshsymonds.orrery.BuildConfig
 import io.github.joshsymonds.orrery.ServerSettings
+import io.github.joshsymonds.orrery.api.FakeOrreryServer
+import io.github.joshsymonds.orrery.awaitUntilAfterIdle
+import io.github.joshsymonds.orrery.gen.orrery.v1.HostStatusResponse
 import io.github.joshsymonds.orrery.mainThreadComposeRule
 import io.github.joshsymonds.orrery.ui.theme.inLabelCase
 import org.junit.Assert.assertEquals
@@ -33,6 +40,8 @@ class SettingsScreenTest {
         const val ADDRESS_FIELD_TAG = "server-address"
         const val BUILT_IN = "https://orrery.example.invalid:8490"
         const val SAVED = "https://orrery.example.invalid:9000"
+        const val HOST_STATUS = "/orrery.v1.Host/Status"
+        const val NO_ANSWER = "No answer from that address. Nothing was changed."
     }
 
     @get:Rule
@@ -79,26 +88,92 @@ class SettingsScreenTest {
     }
 
     @Test
-    fun saveStoresEditedAddressAndSignalsSaved() {
-        var saved = false
-        setContent(onSaved = { saved = true })
+    fun saveAsksTheTypedAddressForItsHostThenSavesAndStartsPushSetup() {
+        FakeOrreryServer().use { server ->
+            server.respond(HOST_STATUS, hostStatus("halyard"))
+            var saved = false
+            val pushStartedAt = mutableListOf<String>()
+            setContent(
+                onSaved = { saved = true },
+                startPushSetup = { pushStartedAt += ServerSettings(context).serverUrl },
+            )
 
-        composeRule.onNodeWithTag(ADDRESS_FIELD_TAG).performTextReplacement("https://orrery.example.invalid:8491")
-        composeRule.onNodeWithText("Save").performClick()
+            composeRule.onNodeWithTag(ADDRESS_FIELD_TAG).performTextReplacement(server.baseUrl)
+            composeRule.onNodeWithText("Save").performClick()
+            composeRule.awaitUntilAfterIdle { saved }
 
-        assertEquals("https://orrery.example.invalid:8491", ServerSettings(context).serverUrl)
-        assertTrue(saved)
+            assertEquals(1, server.requests.count { it.rawPath == HOST_STATUS })
+            assertEquals(server.baseUrl, ServerSettings(context).serverUrl)
+            // Push setup starts once, after the new address is saved, so its registration reads the new address.
+            assertEquals(listOf(server.baseUrl), pushStartedAt)
+            composeRule.onNodeWithText("Connected to halyard.").assert(hasTone(NoteTone.Ok))
+            assertFalse(addressInError())
+        }
     }
 
     @Test
-    fun savingBlankFieldRestoresDefault() {
+    fun aNotFoundAnswerIsAnAnswerAndConnectsByTheAddressFirstLabel() {
+        FakeOrreryServer().use { server ->
+            val address = server.baseUrl.replace("127.0.0.1", "localhost")
+            var saved = false
+            var pushStarted = false
+            setContent(onSaved = { saved = true }, startPushSetup = { pushStarted = true })
+
+            composeRule.onNodeWithTag(ADDRESS_FIELD_TAG).performTextReplacement(address)
+            composeRule.onNodeWithText("Save").performClick()
+            composeRule.awaitUntilAfterIdle { saved }
+
+            assertEquals(address, ServerSettings(context).serverUrl)
+            assertTrue(pushStarted)
+            composeRule.onNodeWithText("Connected to localhost.").assert(hasTone(NoteTone.Ok))
+        }
+    }
+
+    @Test
+    fun anAddressThatDoesNotAnswerIsNotSavedAndSaysSo() {
         ServerSettings(context, defaultUrl = BUILT_IN).saveServerUrl(SAVED)
+        FakeOrreryServer().use { server ->
+            server.fail(HOST_STATUS, Code.UNAVAILABLE)
+            var saved = false
+            var pushStarted = false
+            setContent(onSaved = { saved = true }, startPushSetup = { pushStarted = true })
+
+            composeRule.onNodeWithTag(ADDRESS_FIELD_TAG).performTextReplacement(server.baseUrl)
+            composeRule.onNodeWithText("Save").performClick()
+            composeRule.awaitUntilAfterIdle { shown(hasText(NO_ANSWER)) }
+
+            assertEquals(SAVED, ServerSettings(context, defaultUrl = BUILT_IN).serverUrl)
+            assertFalse(saved)
+            assertFalse(pushStarted)
+            assertTrue(addressInError())
+            composeRule.onNodeWithText(NO_ANSWER).assert(hasTone(NoteTone.Error))
+        }
+    }
+
+    @Test
+    fun aMalformedAddressIsNotSavedAndSaysSo() {
+        ServerSettings(context, defaultUrl = BUILT_IN).saveServerUrl(SAVED)
+        var saved = false
+        setContent(onSaved = { saved = true })
+
+        composeRule.onNodeWithTag(ADDRESS_FIELD_TAG).performTextReplacement("ftp://halyard.invalid")
+        composeRule.onNodeWithText("Save").performClick()
+        composeRule.awaitUntilAfterIdle { shown(hasText(NO_ANSWER)) }
+
+        assertEquals(SAVED, ServerSettings(context, defaultUrl = BUILT_IN).serverUrl)
+        assertFalse(saved)
+        assertTrue(addressInError())
+    }
+
+    @Test
+    fun saveIsDisabledWhileTheFieldIsBlank() {
         setContent()
 
         composeRule.onNodeWithTag(ADDRESS_FIELD_TAG).performTextReplacement("   ")
-        composeRule.onNodeWithText("Save").performClick()
+        composeRule.onNodeWithText("Save").assertIsNotEnabled()
 
-        assertEquals(BUILT_IN, ServerSettings(context, defaultUrl = BUILT_IN).serverUrl)
+        composeRule.onNodeWithTag(ADDRESS_FIELD_TAG).performTextReplacement(SAVED)
+        composeRule.onNodeWithText("Save").assertIsEnabled()
     }
 
     @Test
@@ -179,6 +254,13 @@ class SettingsScreenTest {
 
     private fun asks(): Boolean = shown(hasTestTag(SERVER_ASK_TAG))
 
+    private fun addressInError(): Boolean =
+        shown(hasTestTag(ADDRESS_FIELD_TAG).and(SemanticsMatcher.keyIsDefined(SemanticsProperties.Error)))
+
+    private fun hasTone(tone: NoteTone): SemanticsMatcher = SemanticsMatcher.expectValue(NoteToneKey, tone)
+
+    private fun hostStatus(host: String): HostStatusResponse = HostStatusResponse.newBuilder().setHost(host).build()
+
     private fun shown(matcher: SemanticsMatcher): Boolean =
         composeRule.onAllNodes(matcher).fetchSemanticsNodes().isNotEmpty()
 
@@ -189,12 +271,18 @@ class SettingsScreenTest {
     private fun topOfText(text: String): Float =
         composeRule.onNodeWithText(text).fetchSemanticsNode().boundsInRoot.top
 
-    private fun setContent(onSaved: () -> Unit = {}, onBack: () -> Unit = {}, defaultUrl: String = BUILT_IN) {
+    private fun setContent(
+        onSaved: () -> Unit = {},
+        onBack: () -> Unit = {},
+        startPushSetup: () -> Unit = {},
+        defaultUrl: String = BUILT_IN,
+    ) {
         composeRule.setContent {
             SettingsScreen(
                 settings = ServerSettings(context, defaultUrl = defaultUrl),
                 onBack = onBack,
                 onSaved = onSaved,
+                startPushSetup = startPushSetup,
             )
         }
     }
