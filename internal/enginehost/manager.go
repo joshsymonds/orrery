@@ -2539,14 +2539,20 @@ func (m *Manager) stopRetired(live *liveSession) {
 
 // notify sends the owner a notice of session id in dir, in state with body. It sends nothing without a notifier.
 func (m *Manager) notify(ctx context.Context, id, dir, state, body string) {
+	m.notifyNotice(ctx, Notice{Session: id, Dir: dir, State: state, Body: body})
+}
+
+// notifyNotice sends the owner the notice n. It sends nothing without a notifier.
+func (m *Manager) notifyNotice(ctx context.Context, n Notice) {
 	if m.notifier == nil {
 		return
 	}
-	m.notifier.Notify(ctx, Notice{Session: id, Dir: dir, State: state, Body: body})
+	m.notifier.Notify(ctx, n)
 }
 
 // tellOwner tells the owner of recorded event of live: a notice when the event calls for one, and otherwise that the
-// session changed when the event ends its pending notice. A step tells the owner nothing.
+// session changed when the event ends its pending notice. A step tells the owner nothing. A notice of an open request
+// carries the request's options and id.
 func (m *Manager) tellOwner(
 	ctx context.Context, live *liveSession, event session.Event, reply string, interrupted bool,
 ) {
@@ -2554,7 +2560,10 @@ func (m *Manager) tellOwner(
 		return
 	}
 	if state, body, notify := eventNotice(event, reply, interrupted); notify {
-		m.notify(ctx, live.id, live.dir, state, body)
+		options, request := requestChoices(event)
+		m.notifyNotice(ctx, Notice{
+			Session: live.id, Dir: live.dir, State: state, Body: body, Options: options, Request: request,
+		})
 	} else if endsNotice(event) {
 		m.changed(ctx, live.id)
 	}

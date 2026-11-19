@@ -1,6 +1,7 @@
 package enginehost
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/joshsymonds/orrery/internal/store"
@@ -74,7 +75,7 @@ func TestSayTurnThatEndsWhileItsOwnSendIsUnderWayEndsDone(t *testing.T) {
 	}
 	waitUntil(t, engineOf(m), "the said turn's done notice", func() bool { return len(sink.got()) == 2 })
 	want := Notice{Session: id, Dir: dir, State: "done", Body: "fake reply 2"}
-	if got := sink.got(); got[1] != want {
+	if got := sink.got(); !reflect.DeepEqual(got[1], want) {
 		t.Fatalf("second notice = %+v, want %+v", got[1], want)
 	}
 }
