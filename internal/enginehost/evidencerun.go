@@ -36,6 +36,9 @@ const evidenceJudgeTries = 3
 // evidenceSubscribeRetry is how long a judge's wait waits after a Subscribe that failed before it subscribes to the judge again.
 const evidenceSubscribeRetry = 5 * time.Second
 
+// evidencePauseRecheck is how long a judge waits before it reads its epic again while the epic is paused.
+const evidencePauseRecheck = 5 * time.Second
+
 // EvidenceStore is the store an evidence runner reads epics and records runs in. *store.Store satisfies it.
 type EvidenceStore interface {
 	Epic(ctx context.Context, id string) (store.EpicRow, error)
@@ -60,7 +63,8 @@ type EvidenceSteps interface {
 // GateScope and GateScopeMemory run each captured item's gate as a capture does. StateDir holds the blobs and the capture worktrees.
 // NewTimer arms a timer that sends on its channel once, after a duration, and returns the timer's stop; a nil NewTimer wraps
 // time.NewTimer. A nil Now is time.Now, and a nil Logger discards. After returns the channel a failed store write of a run
-// waits on before it is tried again (see retryStore), and nil is time.After.
+// waits on before it is tried again (see retryStore), and that a judge of a paused epic waits on before it reads the epic
+// again, and nil is time.After.
 type EvidenceConfig struct {
 	Store           EvidenceStore
 	Steps           EvidenceSteps
@@ -436,11 +440,12 @@ func evidenceRunCaptured(run store.EvidenceRun, capture store.EvidenceCapture) s
 }
 
 // judgeRun gives run its verdict. A judge that ends with no verdict is followed by another, up to evidenceJudgeTries attempts
-// in all, and the last attempt's end then stands as the reason. An attempt whose judge does not start is one too. The verdict
-// is recorded once.
+// in all, and the last attempt's end then stands as the reason. An attempt whose judge does not start is one too. A judge that
+// ends with no verdict while its epic is paused spends no attempt, and the next judge starts once the epic is resumed (see
+// judgeOnce). The verdict is recorded once.
 func (e *Evidence) judgeRun(ctx context.Context, repo string, run store.EvidenceRun) {
-	judges := run.Judges
-	for tries := 1; ; tries++ {
+	judges, tries := run.Judges, 1
+	for {
 		started, verdict, reason, err := e.judgeOnce(ctx, repo, run, judges+1)
 		if err != nil {
 			e.logger.WarnContext(ctx, "evidence judge stopped", "run", run.ID, "err", err)
@@ -449,20 +454,60 @@ func (e *Evidence) judgeRun(ctx context.Context, repo string, run store.Evidence
 		if started {
 			judges++
 		}
+		if verdict == "" && started {
+			paused, pauseErr := e.epicPaused(ctx, run.Epic)
+			if pauseErr != nil {
+				e.logger.WarnContext(ctx, "evidence judge stopped", "run", run.ID, "err", pauseErr)
+				return
+			}
+			if paused {
+				continue
+			}
+		}
 		if verdict != "" || tries == evidenceJudgeTries {
 			e.recordVerdict(ctx, run, verdict, reason)
 			return
 		}
+		tries++
 	}
 }
 
-// judgeOnce starts judge number judge on run's kept output and waits for it to end. It returns whether the judge started and
-// was recorded as run's judge, and the verdict its end gives, or the reason it gives none. A judge that does not start gives no
-// verdict, and the reason is why. An error is returned only when the step cannot be recorded or waited for.
+// epicPaused reports whether epic is paused in the store.
+func (e *Evidence) epicPaused(ctx context.Context, epic string) (bool, error) {
+	row, err := e.store.Epic(ctx, epic)
+	if err != nil {
+		return false, fmt.Errorf("epic %s: %w", epic, err)
+	}
+	return row.Paused, nil
+}
+
+// awaitResume returns once epic is not paused. While it is, it reads the epic again each evidencePauseRecheck, so a judge that
+// waits here starts once the epic is resumed. It returns an error when the epic cannot be read, or when ctx ends first.
+func (e *Evidence) awaitResume(ctx context.Context, epic string) error {
+	for {
+		paused, err := e.epicPaused(ctx, epic)
+		if err != nil || !paused {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("wait for epic %s to resume: %w", epic, ctx.Err())
+		case <-e.after(evidencePauseRecheck):
+		}
+	}
+}
+
+// judgeOnce starts judge number judge on run's kept output and waits for it to end. A judge does not start while run's epic is
+// paused, so it waits for the epic to be resumed first (see awaitResume). It returns whether the judge started and was recorded
+// as run's judge, and the verdict its end gives, or the reason it gives none. A judge that does not start gives no verdict, and
+// the reason is why. An error is returned only when the step cannot be recorded or waited for.
 func (e *Evidence) judgeOnce(
 	ctx context.Context, repo string, run store.EvidenceRun, judge int,
 ) (bool, string, string, error) {
 	if err := ctx.Err(); err != nil {
+		return false, "", "", fmt.Errorf("judge evidence run %s: %w", run.ID, err)
+	}
+	if err := e.awaitResume(ctx, run.Epic); err != nil {
 		return false, "", "", fmt.Errorf("judge evidence run %s: %w", run.ID, err)
 	}
 	step, refusal := e.startJudge(ctx, repo, run, judge)
