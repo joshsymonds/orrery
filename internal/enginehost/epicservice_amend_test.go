@@ -26,10 +26,10 @@ func amendTestItem() *v1.EvidenceItem {
 	return item
 }
 
-// TestAmendEvidenceRPCStoresACheckingAmendmentAndShowsItOnTheEpic amends R1 as the owner. The reply carries the stored
-// amendment, checking, with R1's old item and the new one, and the epic read back, which lists the amendment and still
-// holds the old item; GetEpic shows the same.
-func TestAmendEvidenceRPCStoresACheckingAmendmentAndShowsItOnTheEpic(t *testing.T) {
+// TestAmendShownEvidenceRPCAppliesAndShowsItOnTheEpic amends how R1 is shown as the owner, keeping its conclusion and
+// kind. The reply carries the stored amendment, applied in the call with no red run, with R1's old item and the new one,
+// and the epic read back, which lists the amendment and holds the new item; GetEpic shows the same.
+func TestAmendShownEvidenceRPCAppliesAndShowsItOnTheEpic(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	st, _ := openPlannerStore(t)
@@ -45,15 +45,15 @@ func TestAmendEvidenceRPCStoresACheckingAmendmentAndShowsItOnTheEpic(t *testing.
 	got := amended.Msg.GetAmendment()
 	want := &v1.EpicAmendment{
 		Seq: 1, Requirement: "R1", Amender: store.AmenderOwner, PriorItem: epicTestItem(), Item: amendTestItem(),
-		Reason: "the test moved", Base: created.GetContract().GetBase(), State: store.AmendmentChecking,
+		Reason: "the test moved", Base: created.GetContract().GetBase(), State: store.AmendmentApplied,
 		RedRun: store.AmendmentWorkID(epicServiceID, 1, store.AmendmentRed, 0), Created: got.GetCreated(),
+		Settled: got.GetCreated(),
 	}
 	if !proto.Equal(got, want) {
 		t.Errorf("amendment = %v, want %v", got, want)
 	}
-	if got.GetCreated() == 0 || got.GetSettled() != 0 {
-		t.Errorf("amendment times = created %d settled %d, want created and not settled", got.GetCreated(),
-			got.GetSettled())
+	if got.GetCreated() == 0 {
+		t.Errorf("amendment created = 0, want the time it was stored")
 	}
 	epic := getEpicOK(t, client)
 	if !proto.Equal(epic, amended.Msg.GetEpic()) {
@@ -62,8 +62,8 @@ func TestAmendEvidenceRPCStoresACheckingAmendmentAndShowsItOnTheEpic(t *testing.
 	if len(epic.GetAmendments()) != 1 || !proto.Equal(epic.GetAmendments()[0], want) {
 		t.Errorf("epic amendments = %v, want the one amendment", epic.GetAmendments())
 	}
-	if item := epic.GetContract().GetRequirements()[0].GetItem(); !proto.Equal(item, epicTestItem()) {
-		t.Errorf("R1 item while checking = %v, want the old item", item)
+	if item := epic.GetContract().GetRequirements()[0].GetItem(); !proto.Equal(item, amendTestItem()) {
+		t.Errorf("R1 item after the amendment = %v, want the new item", item)
 	}
 }
 

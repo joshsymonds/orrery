@@ -8,7 +8,9 @@ package io.github.joshsymonds.orrery.gen.orrery.v1;
 /**
  * <pre>
  * HeadlessSession is one headless session as the phone lists it: a row of kind engine with an event in the last 14
- * days, its label and summary derived when it is read.
+ * days, its label and summary derived when it is read. Every listed row is a conversation: a session of kind engine,
+ * whether the owner, a client or Talk started it. A row is never a step's session (the planner's, the evidence
+ * judge's, a reviewer's, an implementer's or the release integrator's).
  * </pre>
  *
  * Protobuf type {@code orrery.v1.HeadlessSession}
@@ -794,7 +796,9 @@ public  final class HeadlessSession extends
   /**
    * <pre>
    * HeadlessSession is one headless session as the phone lists it: a row of kind engine with an event in the last 14
-   * days, its label and summary derived when it is read.
+   * days, its label and summary derived when it is read. Every listed row is a conversation: a session of kind engine,
+   * whether the owner, a client or Talk started it. A row is never a step's session (the planner's, the evidence
+   * judge's, a reviewer's, an implementer's or the release integrator's).
    * </pre>
    *
    * Protobuf type {@code orrery.v1.HeadlessSession}

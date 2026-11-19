@@ -42,8 +42,7 @@ type verdictFinding struct {
 }
 
 // assertionsCheck checks a schema-valid return of an agent gate step against the gate's assertions. It returns the
-// assertions check and the return it read, which is empty when the return does not read. The first fails result of any
-// such return is latched whether or not the check passes, so no later return ends done.
+// assertions check and the return it read, which is empty when the return does not read.
 func (r *stepRun) assertionsCheck(round int, value json.RawMessage) (store.StepCheck, verdictReturn) {
 	check := store.StepCheck{Round: round, Name: stepLoopAssertionsName, OK: true}
 	var ret verdictReturn
@@ -52,39 +51,11 @@ func (r *stepRun) assertionsCheck(round int, value json.RawMessage) (store.StepC
 		check.Detail = fmt.Sprintf("read verdict: %v", err)
 		return check, verdictReturn{}
 	}
-	r.latchFirstFails(ret)
 	if detail := assertionsMismatch(r.agentGate.Assertions, ret); detail != "" {
 		check.OK = false
 		check.Detail = detail
 	}
 	return check, ret
-}
-
-// latchFirstFails keeps the first fails result of ret in firstFails when none is kept yet.
-func (r *stepRun) latchFirstFails(ret verdictReturn) {
-	if r.firstFails != nil {
-		return
-	}
-	for i := range ret.Results {
-		if ret.Results[i].Result == verdictFails {
-			r.firstFails = &ret.Results[i]
-			return
-		}
-	}
-}
-
-// latchNoRound latches the first fails result of value, the output of a turn end that is no round, as a round's return
-// would. It latches nothing for an ordinary step, for output that fails the step's schema, or for output that does not
-// read as a verdict.
-func (r *stepRun) latchNoRound(value json.RawMessage) {
-	if r.agentGate == nil || validateReturn(r.schema, value) != nil {
-		return
-	}
-	var ret verdictReturn
-	if err := json.Unmarshal(value, &ret); err != nil {
-		return
-	}
-	r.latchFirstFails(ret)
 }
 
 // assertionsMismatch returns the first way ret's results differ from assertions, or "" when they agree. The results
@@ -114,17 +85,14 @@ func citesAssertion(findings []verdictFinding, text string) bool {
 }
 
 // verdictReasons returns the reasons a return with status and ret does not end done, in order: each result that is
-// not holds, the status when it is not the step's done value, and the first fails an earlier return held when ret
-// holds none. It is empty when the return ends done.
+// not holds, and the status when it is not the step's done value. It is empty when the return ends done.
 func (r *stepRun) verdictReasons(status string, ret verdictReturn) []string {
 	var reasons []string
-	held := false
 	for _, res := range ret.Results {
 		switch res.Result {
 		case verdictHolds:
 			continue
 		case verdictFails:
-			held = true
 			reasons = append(reasons, "fails: "+res.Assertion)
 		default:
 			reasons = append(reasons, "undetermined: "+res.Assertion)
@@ -132,9 +100,6 @@ func (r *stepRun) verdictReasons(status string, ret verdictReturn) []string {
 	}
 	if status != r.doneValue {
 		reasons = append(reasons, "status "+status)
-	}
-	if !held && r.firstFails != nil {
-		reasons = append(reasons, "an earlier return held fails: "+r.firstFails.Assertion)
 	}
 	return reasons
 }
