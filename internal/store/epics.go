@@ -74,6 +74,9 @@ type EpicRow struct {
 	// among them (see epicMoves), so a reader can tell that the epic changed in any part by comparing it alone.
 	Revision int64
 	Paused   bool
+	// PauseSource is who paused the epic: "owner" for a pause its owner made, "limit" for a usage-limit pause, and ""
+	// while the epic is not paused.
+	PauseSource string
 	// Parked is the park reason, empty when the epic is not parked, and ParkClass is the class of that park, which says
 	// who answers it.
 	Parked    string
@@ -101,7 +104,9 @@ type EpicRow struct {
 	Turns        []EpicTurn
 	Tasks        []EpicTask
 	Questions    []EpicQuestion
-	Reviewers    []reviewers.Reviewer
+	// OpenQuestions is how many of Questions are open.
+	OpenQuestions int64
+	Reviewers     []reviewers.Reviewer
 	// Amendments are the amendments of the evidence items of the epic's Requirements, in seq order.
 	Amendments []EvidenceAmendment
 }
@@ -484,6 +489,7 @@ func readEpicOf(ctx context.Context, queries *sqlcgen.Queries, head sqlcgen.Epic
 	if err = loadEpicSections(ctx, queries, &row); err != nil {
 		return EpicRow{}, fmt.Errorf("read sections of epic %s: %w", row.ID, err)
 	}
+	row.OpenQuestions = countOpenQuestions(row.Questions)
 	if err = loadEpicWorkflowNodes(ctx, queries, &row); err != nil {
 		return EpicRow{}, fmt.Errorf("read workflow of epic %s: %w", row.ID, err)
 	}
@@ -497,6 +503,17 @@ func readEpicOf(ctx context.Context, queries *sqlcgen.Queries, head sqlcgen.Epic
 		return EpicRow{}, err
 	}
 	return row, nil
+}
+
+// countOpenQuestions returns how many of questions are open.
+func countOpenQuestions(questions []EpicQuestion) int64 {
+	var open int64
+	for _, question := range questions {
+		if question.State == QuestionOpen {
+			open++
+		}
+	}
+	return open
 }
 
 // epicRevisionOf returns the revision of epic: its epic_revisions row's, or 0 when no store write has moved it.
@@ -693,8 +710,9 @@ func readEpics(ctx context.Context, queries *sqlcgen.Queries) ([]EpicRow, error)
 }
 
 // EpicListings returns every stored epic ordered by id, with only the fields a listing of epics reads: its id,
-// repository, title, phase, phase time, created and changed times, revision and seen mark. Every other field is zero,
-// and no workflow node is read. The rows come from one query.
+// repository, title, phase, phase time, created and changed times, revision, seen mark, steerer, pause and its source,
+// park reason and open question count. Every other field is zero, and no workflow node is read. The rows come from one
+// query.
 func (s *Store) EpicListings(ctx context.Context) ([]EpicRow, error) {
 	return readEpicListings(ctx, sqlcgen.New(s.db))
 }
@@ -711,14 +729,19 @@ func readEpicListings(ctx context.Context, queries *sqlcgen.Queries) ([]EpicRow,
 // epicListingOf returns the epic a listing row holds, with the fields EpicListings reads and no others.
 func epicListingOf(listed sqlcgen.ListEpicListingsRow) EpicRow {
 	row := EpicRow{
-		ID:         listed.ID,
-		Repository: listed.Repository,
-		Title:      listed.Title,
-		Phase:      listed.Phase,
-		Created:    time.Unix(listed.Created, 0),
-		Changed:    time.Unix(listed.Changed, 0),
-		PhaseAt:    time.Unix(listed.PhaseAt, 0),
-		Revision:   listed.Revision,
+		ID:            listed.ID,
+		Repository:    listed.Repository,
+		Title:         listed.Title,
+		Phase:         listed.Phase,
+		Created:       time.Unix(listed.Created, 0),
+		Changed:       time.Unix(listed.Changed, 0),
+		PhaseAt:       time.Unix(listed.PhaseAt, 0),
+		Revision:      listed.Revision,
+		Steerer:       listed.Steerer,
+		Paused:        listed.Paused != 0,
+		PauseSource:   listed.PauseSource,
+		Parked:        listed.Parked,
+		OpenQuestions: listed.OpenQuestions,
 	}
 	if listed.SeenAt.Valid {
 		row.Seen = time.Unix(listed.SeenAt.Int64, 0)
@@ -1123,6 +1146,7 @@ func epicHeadOf(head sqlcgen.Epic) EpicRow {
 		Changed:      time.Unix(head.Changed, 0),
 		PhaseAt:      time.Unix(head.PhaseAt, 0),
 		Paused:       head.Paused != 0,
+		PauseSource:  head.PauseSource,
 		Parked:       head.Parked,
 		ParkClass:    ParkClass(head.ParkClass),
 		ClosedBy:     head.ClosedBy,

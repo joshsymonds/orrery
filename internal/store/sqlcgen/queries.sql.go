@@ -4622,7 +4622,10 @@ func (q *Queries) ListEpicLedger(ctx context.Context, epic string) ([]EpicLedger
 
 const listEpicListings = `-- name: ListEpicListings :many
 SELECT epics.id, epics.repository, epics.title, epics.phase, epics.phase_at, epics.created, epics.changed,
-    CAST(COALESCE(epic_revisions.revision, 0) AS INTEGER) AS revision, epic_seen.at AS seen_at
+    epics.steerer, epics.paused, epics.pause_source, epics.parked,
+    CAST(COALESCE(epic_revisions.revision, 0) AS INTEGER) AS revision, epic_seen.at AS seen_at,
+    CAST((SELECT COUNT(*) FROM epic_questions WHERE epic_questions.epic = epics.id AND epic_questions.state = 'open')
+        AS INTEGER) AS open_questions
 FROM epics
 LEFT JOIN epic_revisions ON epic_revisions.epic = epics.id
 LEFT JOIN epic_seen ON epic_seen.epic = epics.id
@@ -4630,15 +4633,20 @@ ORDER BY epics.id
 `
 
 type ListEpicListingsRow struct {
-	ID         string
-	Repository string
-	Title      string
-	Phase      string
-	PhaseAt    int64
-	Created    int64
-	Changed    int64
-	Revision   int64
-	SeenAt     sql.NullInt64
+	ID            string
+	Repository    string
+	Title         string
+	Phase         string
+	PhaseAt       int64
+	Created       int64
+	Changed       int64
+	Steerer       string
+	Paused        int64
+	PauseSource   string
+	Parked        string
+	Revision      int64
+	SeenAt        sql.NullInt64
+	OpenQuestions int64
 }
 
 func (q *Queries) ListEpicListings(ctx context.Context) ([]ListEpicListingsRow, error) {
@@ -4658,8 +4666,13 @@ func (q *Queries) ListEpicListings(ctx context.Context) ([]ListEpicListingsRow, 
 			&i.PhaseAt,
 			&i.Created,
 			&i.Changed,
+			&i.Steerer,
+			&i.Paused,
+			&i.PauseSource,
+			&i.Parked,
 			&i.Revision,
 			&i.SeenAt,
+			&i.OpenQuestions,
 		); err != nil {
 			return nil, err
 		}
