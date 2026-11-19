@@ -17,7 +17,7 @@ import (
 // epicTableColumns returns, keyed by table, the columns in declaration order of every table migrations 00014, 00016,
 // 00019, 00028, 00030, 00035, 00036, 00037, 00038, 00040, 00041, 00043, 00044, 00049, 00051 and 00052 create, and of the
 // columns those migrations and 00020, 00021, 00022, 00025, 00029, 00033, 00034, 00035, 00039, 00040, 00042, 00044, 00045,
-// 00048, 00050, 00051, 00052, 00053, 00054 and 00057 add to epic tables.
+// 00048, 00050, 00051, 00052, 00053, 00054, 00057 and 00064 add to epic tables.
 func epicTableColumns() map[string][]string {
 	return map[string][]string{
 		"epics": {
@@ -115,10 +115,10 @@ func epicTableColumns() map[string][]string {
 		"epic_met_at_base": {"epic", "question", "path", "attempt", "requirements"},
 		// R2: the actions a planner turn returned, from 00049_planner_actions.sql. park, the planner park an action
 		// answers, is 00051_park_bound.sql. requirement and item, what an amend_evidence action asks for, are
-		// 00052_evidence_amendments.sql.
+		// 00052_evidence_amendments.sql. deliverable, what a change_approach action asks for, is 00064_task_ladder.sql.
 		"planner_actions": {
 			"epic", "turn", "position", "kind", "node", "task", "close_kind", "by_epic", "undo_none", "reason", "state",
-			"refusal", "park", "requirement", "item",
+			"refusal", "park", "requirement", "item", "deliverable",
 		},
 		// The amendments of the epics' Requirement evidence items, from 00052_evidence_amendments.sql.
 		"epic_amendments": {

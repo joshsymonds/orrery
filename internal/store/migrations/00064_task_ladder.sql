@@ -37,6 +37,11 @@ CREATE TABLE epic_task_rung_outcomes (
     PRIMARY KEY (epic, task, rung)
 );
 
+-- deliverable holds a change_approach action's new deliverable, the whole deliverable its version sets, and is '' for
+-- every other kind of action.
+ALTER TABLE planner_actions ADD COLUMN deliverable TEXT NOT NULL DEFAULT '';
+
 -- +goose Down
+ALTER TABLE planner_actions DROP COLUMN deliverable;
 DROP TABLE epic_task_rung_outcomes;
 DROP TABLE epic_task_rungs;

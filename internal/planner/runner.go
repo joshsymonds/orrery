@@ -619,7 +619,8 @@ func planOf(ret Return) store.EpicPlan {
 	for _, action := range ret.Actions {
 		actions = append(actions, store.EpicActionInput{
 			Kind: action.Kind, Node: action.Node, Task: action.Task, Close: action.Close, By: action.By,
-			Requirement: action.Requirement, Item: action.Item, UndoNone: action.UndoNone, Reason: action.Reason,
+			Requirement: action.Requirement, Item: action.Item, Deliverable: action.Deliverable,
+			UndoNone: action.UndoNone, Reason: action.Reason,
 		})
 	}
 	return store.EpicPlan{

@@ -682,6 +682,7 @@ type PlannerAction struct {
 	Park        int64
 	Requirement string
 	Item        string
+	Deliverable string
 }
 
 type PromptState struct {
