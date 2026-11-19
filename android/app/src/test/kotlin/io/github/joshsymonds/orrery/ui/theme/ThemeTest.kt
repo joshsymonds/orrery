@@ -1,8 +1,8 @@
 package io.github.joshsymonds.orrery.ui.theme
 
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
@@ -25,15 +25,17 @@ class ThemeTest {
     val composeRule = mainThreadComposeRule()
 
     @Test
-    fun mochaSchemePinsBackgroundSurfacePrimaryAndOnSurface() {
-        assertEquals(Color(0xFF1E1E2E), MochaColorScheme.background)
-        assertEquals(Color(0xFF313244), MochaColorScheme.surface)
-        assertEquals(Color(0xFFCBA6F7), MochaColorScheme.primary)
-        assertEquals(Color(0xFFCDD6F4), MochaColorScheme.onSurface)
+    fun colorSchemeIsBuiltFromTokens() {
+        assertEquals(OrreryTokens.Surface.page, OrreryColorScheme.background)
+        assertEquals(OrreryTokens.Surface.raised, OrreryColorScheme.surface)
+        assertEquals(OrreryTokens.Role.primary, OrreryColorScheme.primary)
+        assertEquals(OrreryTokens.Ink.one, OrreryColorScheme.onSurface)
+        assertEquals(OrreryTokens.Line.firm, OrreryColorScheme.outline)
+        assertEquals(OrreryTokens.Role.bad, OrreryColorScheme.error)
     }
 
     @Test
-    fun orreryThemeProvidesMochaSchemeToContent() {
+    fun orreryThemeProvidesTokenSchemeToContent() {
         var provided: ColorScheme? = null
         composeRule.setContent {
             OrreryTheme {
@@ -41,7 +43,42 @@ class ThemeTest {
             }
         }
         composeRule.waitForIdle()
-        assertSame(MochaColorScheme, provided)
+        assertSame(OrreryColorScheme, provided)
+    }
+
+    @Test
+    fun typographyIsTheFiveTypeTokens() {
+        val typography = OrreryTypography
+        assertEquals(OrreryTokens.Type.display, typography.displayLarge)
+        assertEquals(OrreryTokens.Type.display, typography.displayMedium)
+        assertEquals(OrreryTokens.Type.display, typography.displaySmall)
+        assertEquals(OrreryTokens.Type.title, typography.headlineLarge)
+        assertEquals(OrreryTokens.Type.title, typography.headlineMedium)
+        assertEquals(OrreryTokens.Type.title, typography.headlineSmall)
+        assertEquals(OrreryTokens.Type.title, typography.titleLarge)
+        assertEquals(OrreryTokens.Type.title, typography.titleMedium)
+        assertEquals(OrreryTokens.Type.body, typography.titleSmall)
+        assertEquals(OrreryTokens.Type.body, typography.bodyLarge)
+        assertEquals(OrreryTokens.Type.body, typography.bodyMedium)
+        assertEquals(OrreryTokens.Type.small, typography.bodySmall)
+        assertEquals(OrreryTokens.Type.small, typography.labelLarge)
+        assertEquals(OrreryTokens.Type.small, typography.labelMedium)
+        assertEquals(OrreryTokens.Type.label, typography.labelSmall)
+    }
+
+    @Test
+    fun shapesAreTheThreeRadii() {
+        assertEquals(RoundedCornerShape(OrreryTokens.Radius.one), OrreryShapes.extraSmall)
+        assertEquals(RoundedCornerShape(OrreryTokens.Radius.two), OrreryShapes.small)
+        assertEquals(RoundedCornerShape(OrreryTokens.Radius.two), OrreryShapes.medium)
+        assertEquals(RoundedCornerShape(OrreryTokens.Radius.three), OrreryShapes.large)
+        assertEquals(RoundedCornerShape(OrreryTokens.Radius.three), OrreryShapes.extraLarge)
+    }
+
+    @Test
+    fun labelCaseFollowsTheLabelCapsFlag() {
+        val expected = if (OrreryTokens.Type.labelCaps) "WORKING" else "Working"
+        assertEquals(expected, "Working".inLabelCase())
     }
 
     @Test
