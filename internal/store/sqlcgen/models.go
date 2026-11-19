@@ -476,6 +476,28 @@ type EpicTaskReview struct {
 	Verdict  string
 }
 
+type EpicTaskRung struct {
+	Epic      string
+	Task      int64
+	Rung      int64
+	Kind      string
+	MovedBy   string
+	Cause     string
+	Gate      string
+	Assertion string
+	Step      string
+	Created   int64
+}
+
+type EpicTaskRungOutcome struct {
+	Epic    string
+	Task    int64
+	Rung    int64
+	Outcome string
+	Reason  string
+	Ended   int64
+}
+
 type EpicTaskTestChange struct {
 	Epic     string
 	Task     int64

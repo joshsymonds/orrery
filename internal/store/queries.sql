@@ -940,6 +940,25 @@ SELECT * FROM epic_task_versions WHERE epic = ? ORDER BY task, version;
 -- name: MaxEpicTaskVersion :one
 SELECT CAST(COALESCE(MAX(version), 1) AS INTEGER) FROM epic_task_versions WHERE epic = ? AND task = ?;
 
+-- name: InsertEpicTaskRung :execrows
+INSERT INTO epic_task_rungs (epic, task, rung, kind, moved_by, cause, gate, assertion, step, created)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (epic, task, rung) DO NOTHING;
+
+-- name: InsertEpicTaskRungOutcome :execrows
+INSERT INTO epic_task_rung_outcomes (epic, task, rung, outcome, reason, ended)
+VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT (epic, task, rung) DO NOTHING;
+
+-- name: ListEpicTaskRungs :many
+SELECT rungs.epic, rungs.task, rungs.rung, rungs.kind, rungs.moved_by, rungs.cause, rungs.gate, rungs.assertion,
+       rungs.step, rungs.created, outcomes.outcome, outcomes.reason, outcomes.ended
+FROM epic_task_rungs AS rungs
+LEFT JOIN epic_task_rung_outcomes AS outcomes
+    ON outcomes.epic = rungs.epic AND outcomes.task = rungs.task AND outcomes.rung = rungs.rung
+WHERE rungs.epic = ?
+ORDER BY rungs.task, rungs.rung;
+
 -- name: MaxEpicTellSeq :one
 SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_tells WHERE epic = ?;
 

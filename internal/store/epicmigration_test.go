@@ -72,6 +72,11 @@ func epicTableColumns() map[string][]string {
 			"epic", "task", "attempt", "review", "position", "id", "claim", "citation", "location", "evidence",
 			"verify_by", "step", "result", "reason", "unverified",
 		},
+		// The task ladder's rungs and their outcomes, from 00064_task_ladder.sql.
+		"epic_task_rungs": {
+			"epic", "task", "rung", "kind", "moved_by", "cause", "gate", "assertion", "step", "created",
+		},
+		"epic_task_rung_outcomes": {"epic", "task", "rung", "outcome", "reason", "ended"},
 		"epic_reviewers": {
 			"epic", "position", "name", "enabled", "stage", "must", "must_not", "prompt", "agent", "model", "tools",
 			"effort", "limit_seconds", "verify",
@@ -531,11 +536,12 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00063_task_versions.sql is the newest. The newest was
-	// 00062_drop_engine_held.sql before the task versions added 00063, 00061_prompt_states.sql before the drop of
-	// engine_held added 00062, and 00060_cron_jobs.sql before the prompt states added 00061.
-	if version != 63 {
-		t.Fatalf("store version after Open = %d, want 63", version)
+	// Open applies 00014_epics.sql and every migration after it: 00064_task_ladder.sql is the newest. The newest was
+	// 00063_task_versions.sql before the task ladder added 00064, 00062_drop_engine_held.sql before the task versions
+	// added 00063, 00061_prompt_states.sql before the drop of engine_held added 00062, and 00060_cron_jobs.sql
+	// before the prompt states added 00061.
+	if version != 64 {
+		t.Fatalf("store version after Open = %d, want 64", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and

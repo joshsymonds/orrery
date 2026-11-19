@@ -2921,6 +2921,74 @@ func (q *Queries) InsertEpicTaskReview(ctx context.Context, arg InsertEpicTaskRe
 	return err
 }
 
+const insertEpicTaskRung = `-- name: InsertEpicTaskRung :execrows
+INSERT INTO epic_task_rungs (epic, task, rung, kind, moved_by, cause, gate, assertion, step, created)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (epic, task, rung) DO NOTHING
+`
+
+type InsertEpicTaskRungParams struct {
+	Epic      string
+	Task      int64
+	Rung      int64
+	Kind      string
+	MovedBy   string
+	Cause     string
+	Gate      string
+	Assertion string
+	Step      string
+	Created   int64
+}
+
+func (q *Queries) InsertEpicTaskRung(ctx context.Context, arg InsertEpicTaskRungParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, insertEpicTaskRung,
+		arg.Epic,
+		arg.Task,
+		arg.Rung,
+		arg.Kind,
+		arg.MovedBy,
+		arg.Cause,
+		arg.Gate,
+		arg.Assertion,
+		arg.Step,
+		arg.Created,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const insertEpicTaskRungOutcome = `-- name: InsertEpicTaskRungOutcome :execrows
+INSERT INTO epic_task_rung_outcomes (epic, task, rung, outcome, reason, ended)
+VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT (epic, task, rung) DO NOTHING
+`
+
+type InsertEpicTaskRungOutcomeParams struct {
+	Epic    string
+	Task    int64
+	Rung    int64
+	Outcome string
+	Reason  string
+	Ended   int64
+}
+
+func (q *Queries) InsertEpicTaskRungOutcome(ctx context.Context, arg InsertEpicTaskRungOutcomeParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, insertEpicTaskRungOutcome,
+		arg.Epic,
+		arg.Task,
+		arg.Rung,
+		arg.Outcome,
+		arg.Reason,
+		arg.Ended,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const insertEpicTaskTestChange = `-- name: InsertEpicTaskTestChange :exec
 INSERT INTO epic_task_test_changes (epic, task, position, path) VALUES (?, ?, ?, ?)
 `
@@ -5113,6 +5181,69 @@ func (q *Queries) ListEpicTaskReviews(ctx context.Context, epic string) ([]EpicT
 			&i.Gate,
 			&i.Step,
 			&i.Verdict,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEpicTaskRungs = `-- name: ListEpicTaskRungs :many
+SELECT rungs.epic, rungs.task, rungs.rung, rungs.kind, rungs.moved_by, rungs.cause, rungs.gate, rungs.assertion,
+       rungs.step, rungs.created, outcomes.outcome, outcomes.reason, outcomes.ended
+FROM epic_task_rungs AS rungs
+LEFT JOIN epic_task_rung_outcomes AS outcomes
+    ON outcomes.epic = rungs.epic AND outcomes.task = rungs.task AND outcomes.rung = rungs.rung
+WHERE rungs.epic = ?
+ORDER BY rungs.task, rungs.rung
+`
+
+type ListEpicTaskRungsRow struct {
+	Epic      string
+	Task      int64
+	Rung      int64
+	Kind      string
+	MovedBy   string
+	Cause     string
+	Gate      string
+	Assertion string
+	Step      string
+	Created   int64
+	Outcome   sql.NullString
+	Reason    sql.NullString
+	Ended     sql.NullInt64
+}
+
+func (q *Queries) ListEpicTaskRungs(ctx context.Context, epic string) ([]ListEpicTaskRungsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicTaskRungs, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListEpicTaskRungsRow
+	for rows.Next() {
+		var i ListEpicTaskRungsRow
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Task,
+			&i.Rung,
+			&i.Kind,
+			&i.MovedBy,
+			&i.Cause,
+			&i.Gate,
+			&i.Assertion,
+			&i.Step,
+			&i.Created,
+			&i.Outcome,
+			&i.Reason,
+			&i.Ended,
 		); err != nil {
 			return nil, err
 		}
