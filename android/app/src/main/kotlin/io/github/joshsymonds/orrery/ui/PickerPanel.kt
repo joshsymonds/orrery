@@ -11,7 +11,6 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -25,10 +24,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.unit.dp
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.PickRow
-import io.github.joshsymonds.orrery.ui.theme.Mocha
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -145,8 +143,8 @@ fun PickerPanel(
         modifier = modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+            .padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.eight),
+        verticalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
     ) {
         OutlinedTextField(
             value = text,
@@ -157,7 +155,7 @@ fun PickerPanel(
             keyboardActions = KeyboardActions(onSearch = { if (canAsk) ask() }),
         )
         Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             TextButton(onClick = onClose, modifier = Modifier.testTag("picker-cancel")) {
@@ -175,17 +173,17 @@ fun PickerPanel(
             Text("working...", modifier = Modifier.testTag("picker-working"))
         }
         failure?.let { reason ->
-            Text(reason, modifier = Modifier.testTag("picker-error"), color = Mocha.Red)
+            Text(reason, modifier = Modifier.testTag("picker-error"), color = OrreryTokens.Role.bad)
         }
         form?.let { current ->
             Column(
                 modifier = Modifier.fillMaxWidth().testTag("start-form"),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
             ) {
                 Text(
                     current.dir,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Mocha.Subtext0,
+                    style = OrreryTokens.Type.small,
+                    color = OrreryTokens.Role.place,
                     modifier = Modifier.testTag("start-dir"),
                 )
                 OutlinedTextField(
@@ -208,18 +206,18 @@ fun PickerPanel(
                     .fillMaxWidth()
                     .testTag("picker-row:$index")
                     .clickable(enabled = work == PickerWork.IDLE) { open(row) }
-                    .padding(vertical = 6.dp),
+                    .padding(vertical = OrreryTokens.Space.four + OrreryTokens.Space.two),
             ) {
-                Text(row.kind, style = MaterialTheme.typography.labelSmall, color = Mocha.Lavender)
-                Text(row.dir, style = MaterialTheme.typography.bodySmall, color = Mocha.Subtext0)
+                Text(row.kind, style = OrreryTokens.Type.small, color = OrreryTokens.Role.new)
+                Text(row.dir, style = OrreryTokens.Type.small, color = OrreryTokens.Role.place)
                 if (row.label.isNotBlank()) {
-                    Text(row.label, style = MaterialTheme.typography.bodyLarge, color = Mocha.Text)
+                    Text(row.label, style = OrreryTokens.Type.body, color = OrreryTokens.Ink.one)
                 }
                 if (row.note.isNotBlank()) {
-                    Text(row.note, style = MaterialTheme.typography.bodyMedium, color = Mocha.Text)
+                    Text(row.note, style = OrreryTokens.Type.body, color = OrreryTokens.Ink.one)
                 }
                 if (row.prompt) {
-                    Text("first prompt", style = MaterialTheme.typography.labelSmall, color = Mocha.Yellow)
+                    Text("first prompt", style = OrreryTokens.Type.small, color = OrreryTokens.Role.live)
                 }
             }
         }

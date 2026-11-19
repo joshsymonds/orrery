@@ -19,10 +19,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.unit.dp
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.StepCallResult
-import io.github.joshsymonds.orrery.ui.theme.Mocha
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -87,7 +86,7 @@ fun StepActions(calls: StepCalls, held: Boolean) {
     var confirming by remember(calls) { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxWidth()) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight)) {
             if (!held) {
                 StepButton("Hold", "step-hold") {
                     scope.launch { withContext(Dispatchers.IO) { calls.hold() } }
@@ -101,7 +100,7 @@ fun StepActions(calls: StepCalls, held: Boolean) {
                 }
             }
         }
-        calls.outcome?.let { Text(it, modifier = Modifier.padding(top = 4.dp)) }
+        calls.outcome?.let { Text(it, modifier = Modifier.padding(top = OrreryTokens.Space.four)) }
     }
 }
 
@@ -110,11 +109,11 @@ private fun StepButton(label: String, tag: String, onClick: () -> Unit) {
     Button(
         onClick = onClick,
         modifier = Modifier.testTag(tag),
-        shape = RoundedCornerShape(10.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = Mocha.Surface0, contentColor = Mocha.Text),
-        border = BorderStroke(1.dp, Mocha.Surface1),
+        shape = RoundedCornerShape(OrreryTokens.Radius.two),
+        colors = ButtonDefaults.buttonColors(containerColor = OrreryTokens.Surface.raised, contentColor = OrreryTokens.Ink.one),
+        border = BorderStroke(OrreryTokens.Size.hairline, OrreryTokens.Line.firm),
         elevation = null,
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+        contentPadding = PaddingValues(horizontal = OrreryTokens.Space.twelve, vertical = OrreryTokens.Space.eight + OrreryTokens.Space.two),
     ) {
         Text(label)
     }

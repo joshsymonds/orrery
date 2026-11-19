@@ -196,7 +196,7 @@ class PoolsScreenTest {
             setScreen(server)
             awaitTag("member:$GRANTED")
 
-            assertEquals(1, countNodes(hasText(POOL)))
+            assertEquals(1, countNodes(hasText(POOL.uppercase())))
             assertEquals(1, textUnder("member:$FREE", FREE))
             assertEquals(1, textUnder("member:$FREE", "free"))
             assertEquals(1, textUnder("member:$FREE", "awake"))

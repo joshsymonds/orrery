@@ -22,7 +22,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -42,15 +41,14 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 import io.github.joshsymonds.orrery.R
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.api.StepCallResult
-import io.github.joshsymonds.orrery.ui.theme.Mocha
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
+import io.github.joshsymonds.orrery.ui.theme.inLabelCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -93,11 +91,11 @@ private sealed interface PaneLoad {
     data class Loaded(val panes: List<Pane>) : PaneLoad
 }
 
-/** The Mocha colour of a pane's state word; any other state keeps the default text colour. */
+/** The colour of a pane's state word; any other state keeps the default text colour. */
 private fun stateColorOf(state: String): Color = when (state) {
-    "working" -> Mocha.Yellow
-    "waiting" -> Mocha.Peach
-    "done" -> Mocha.Green
+    "working" -> OrreryTokens.State.working
+    "waiting" -> OrreryTokens.State.waiting
+    "done" -> OrreryTokens.State.done
     else -> Color.Unspecified
 }
 
@@ -109,10 +107,10 @@ private fun ageOf(seconds: Long): String = when {
 }
 
 /** The tallest the picker panel grows before it scrolls, so the pane list keeps room below it. */
-private val PICKER_MAX_HEIGHT = 320.dp
+private val PICKER_MAX_HEIGHT = OrreryTokens.Space.thirtyTwo * 10
 
 /** The indent of one folder level, in dp. */
-private const val INDENT_DP = 16
+private val INDENT_DP = OrreryTokens.Space.sixteen
 
 /** Panes in a tmux session with this prefix are internal to orrery and are not listed. */
 private const val SHELL_SESSION_PREFIX = "_orrery-shell-"
@@ -199,7 +197,7 @@ fun PaneListScreen(
 
     Column(modifier = modifier.fillMaxSize()) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.eight),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -208,8 +206,8 @@ fun PaneListScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 TitleMark(modifier = Modifier.fillMaxHeight())
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Panes", style = MaterialTheme.typography.titleLarge)
+                Spacer(modifier = Modifier.width(OrreryTokens.Space.eight))
+                Text("Panes", style = OrreryTokens.Type.title)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 TextButton(
@@ -244,7 +242,7 @@ fun PaneListScreen(
                 modifier = Modifier.heightIn(max = PICKER_MAX_HEIGHT),
             )
         }
-        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = OrreryTokens.Space.eight)) {
             PaneFilter.entries.forEach { option ->
                 TextButton(
                     onClick = { state.filter = option },
@@ -252,15 +250,15 @@ fun PaneListScreen(
                 ) {
                     Text(
                         option.label,
-                        fontWeight = if (option == state.filter) FontWeight.Bold else FontWeight.Normal,
+                        style = OrreryTokens.Type.small.copy(fontWeight = if (option == state.filter) OrreryTokens.Font.Weight.bold else OrreryTokens.Font.Weight.regular),
                     )
                 }
             }
         }
         when (val current = load) {
-            PaneLoad.Loading -> Text("Loading...", modifier = Modifier.padding(16.dp))
-            PaneLoad.Failed -> Column(modifier = Modifier.padding(16.dp)) {
-                Text("could not load panes", color = MaterialTheme.colorScheme.error)
+            PaneLoad.Loading -> Text("Loading...", modifier = Modifier.padding(OrreryTokens.Space.sixteen))
+            PaneLoad.Failed -> Column(modifier = Modifier.padding(OrreryTokens.Space.sixteen)) {
+                Text("could not load panes", color = OrreryTokens.Role.bad)
                 TextButton(onClick = { generation++ }) {
                     Text("Retry")
                 }
@@ -380,8 +378,8 @@ private fun PaneRows(
                 if (notice.isNotEmpty()) {
                     Text(
                         notice,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(horizontal = 16.dp).testTag("needs-notice"),
+                        color = OrreryTokens.Role.bad,
+                        modifier = Modifier.padding(horizontal = OrreryTokens.Space.sixteen).testTag("needs-notice"),
                     )
                 }
             }
@@ -456,12 +454,12 @@ private fun EndedLine(count: Int, open: Boolean, onToggle: () -> Unit) {
             .fillMaxWidth()
             .testTag("ended-toggle")
             .clickable(onClick = onToggle)
-            .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+            .padding(start = OrreryTokens.Space.sixteen, end = OrreryTokens.Space.sixteen, top = OrreryTokens.Space.four, bottom = OrreryTokens.Space.four),
+        horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(if (open) "\u25BE" else "\u25B8", style = MaterialTheme.typography.titleSmall)
-        Text("$count ended", style = MaterialTheme.typography.titleSmall)
+        Text((if (open) "▾" else "▸").inLabelCase(), style = OrreryTokens.Type.label)
+        Text("$count ended".inLabelCase(), style = OrreryTokens.Type.label)
     }
 }
 
@@ -472,12 +470,12 @@ private fun FolderRow(folder: Folder, onToggle: () -> Unit) {
             .fillMaxWidth()
             .testTag("folder:${folder.key}")
             .clickable(onClick = onToggle)
-            .padding(start = 16.dp + (INDENT_DP * folder.depth).dp, end = 16.dp, top = 4.dp, bottom = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+            .padding(start = OrreryTokens.Space.sixteen + INDENT_DP * folder.depth, end = OrreryTokens.Space.sixteen, top = OrreryTokens.Space.four, bottom = OrreryTokens.Space.four),
+        horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(if (folder.collapsed) "\u25B8" else "\u25BE", style = MaterialTheme.typography.titleSmall)
-        Text(folder.name, style = MaterialTheme.typography.titleSmall)
+        Text((if (folder.collapsed) "▸" else "▾").inLabelCase(), style = OrreryTokens.Type.label)
+        Text(folder.name.inLabelCase(), style = OrreryTokens.Type.label)
     }
 }
 
@@ -488,36 +486,36 @@ private fun PaneRow(pane: Pane, depth: Int, project: String?, now: Long, onOpenP
             .fillMaxWidth()
             .testTag("pane-row:${pane.id}")
             .clickable { onOpenPane(pane) }
-            .padding(start = 16.dp + (INDENT_DP * depth).dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(start = OrreryTokens.Space.sixteen + INDENT_DP * depth, end = OrreryTokens.Space.sixteen, top = OrreryTokens.Space.eight, bottom = OrreryTokens.Space.eight),
+        horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.twelve),
         verticalAlignment = Alignment.Top,
     ) {
         if (pane.unread()) {
             Box(
                 modifier = Modifier
-                    .padding(top = 6.dp)
-                    .size(8.dp)
-                    .background(MaterialTheme.colorScheme.primary, CircleShape)
+                    .padding(top = OrreryTokens.Space.four + OrreryTokens.Space.two)
+                    .size(OrreryTokens.Space.eight)
+                    .background(OrreryTokens.Role.primary, CircleShape)
                     .semantics { contentDescription = "unseen" },
             )
         } else {
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(OrreryTokens.Space.eight))
         }
         Column(modifier = Modifier.weight(1f)) {
-            Text(pane.label, style = MaterialTheme.typography.bodyLarge)
-            Text(pane.summary, style = MaterialTheme.typography.bodySmall)
+            Text(pane.label, style = OrreryTokens.Type.body)
+            Text(pane.summary, style = OrreryTokens.Type.small)
             if (project != null) {
-                Text(project, style = MaterialTheme.typography.labelSmall)
+                Text(project, style = OrreryTokens.Type.small)
             }
         }
         Column(horizontalAlignment = Alignment.End) {
             Text(
                 pane.state,
-                style = MaterialTheme.typography.labelMedium,
+                style = OrreryTokens.Type.small,
                 color = stateColorOf(pane.state),
             )
             if (pane.changed != 0L) {
-                Text(ageOf(now - pane.changed), style = MaterialTheme.typography.labelSmall)
+                Text(ageOf(now - pane.changed), style = OrreryTokens.Type.small)
             }
         }
     }
