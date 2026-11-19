@@ -495,7 +495,7 @@ private fun PaneRow(pane: Pane, depth: Int, project: String?, now: Long, onOpenP
                 modifier = Modifier
                     .padding(top = OrreryTokens.Space.four + OrreryTokens.Space.two)
                     .size(OrreryTokens.Space.eight)
-                    .background(OrreryTokens.Role.primary, CircleShape)
+                    .background(OrreryTokens.Role.new, CircleShape)
                     .semantics { contentDescription = "unseen" },
             )
         } else {
