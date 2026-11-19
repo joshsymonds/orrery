@@ -241,12 +241,15 @@ func reproCheck(checks []store.NodeCheck, run store.NodeRun, id string) (store.N
 }
 
 // captureCauses returns a line for each capture that did not run or was not judged, and for each Requirement that was
-// green at the stored base and whose capture does not pass now.
+// green at the stored base and whose capture does not pass now. A carried capture is no cause (see carried).
 func captureCauses(rows Rows, captured map[string]store.EvidenceRun) []string {
 	green := GreenAt(rows, rows.Epic.StoredBase)
 	var causes []string
 	for _, requirement := range itemRequirements(rows.Epic.Requirements) {
 		capture := captured[requirement.ID]
+		if carried(capture, green[requirement.ID]) {
+			continue
+		}
 		if capture.NotCaptured != "" || capture.Verdict == "" {
 			causes = append(causes, requirement.ID+" capture failed")
 		}
@@ -259,18 +262,39 @@ func captureCauses(rows Rows, captured map[string]store.EvidenceRun) []string {
 	return causes
 }
 
-// requirementLines returns a line for each Requirement in contract order: green when its capture passed, and not yet
-// green otherwise.
+// requirementLines returns a line for each Requirement in contract order: green when its capture passed, green with a
+// note when its capture is carried (see carried), and not yet green otherwise.
 func requirementLines(rows Rows, captured map[string]store.EvidenceRun) []string {
+	green := GreenAt(rows, rows.Epic.StoredBase)
 	lines := make([]string, 0, len(rows.Epic.Requirements))
 	for _, requirement := range rows.Epic.Requirements {
-		if captured[requirement.ID].Passed {
+		capture := captured[requirement.ID]
+		switch {
+		case capture.Passed:
 			lines = append(lines, requirement.ID+" green")
-		} else {
+		case carried(capture, green[requirement.ID]):
+			lines = append(lines, fmt.Sprintf(
+				"%s green: the judge gave no verdict on its exit-0 capture (%s), so its verdict at the stored base %s carries",
+				requirement.ID,
+				capture.JudgeReason,
+				rows.Epic.StoredBase,
+			))
+		default:
 			lines = append(lines, requirement.ID+" not yet green")
 		}
 	}
 	return lines
+}
+
+// carried reports whether a capture carries its Requirement's earlier verdict: the capture is judgeless, and the
+// Requirement was green at the stored base. A carried capture passes its node, with a note (requirementLines).
+func carried(capture store.EvidenceRun, green bool) bool {
+	return green && judgeless(capture)
+}
+
+// judgeless reports whether a capture ran and exited 0 without timing out, yet the judge gave it no verdict.
+func judgeless(capture store.EvidenceRun) bool {
+	return capture.NotCaptured == "" && !capture.TimedOut && capture.Exit == 0 && capture.Verdict == ""
 }
 
 // settle ends an integrate run once its refs are checked: failed with its causes when there are any, and advanced
@@ -291,8 +315,9 @@ func outputOf(lines, leftOut []string) string {
 }
 
 // GreenAt returns the Requirements whose capture passed in an integrate or sync run that ended passed at revision, at
-// the run's attempt. A rerun stands for the capture it reran. A Requirement whose evidence amendment ran its green run
-// at revision is green there too when that run passed (see amendedGreen).
+// the run's attempt. A rerun stands for the capture it reran. A passed run also holds a judgeless capture, which only
+// the carry lets it hold, so that capture counts as green too (see judgeless). A Requirement whose evidence amendment
+// ran its green run at revision is green there too when that run passed (see amendedGreen).
 func GreenAt(rows Rows, revision string) map[string]bool {
 	green := make(map[string]bool)
 	for _, run := range rows.Runs {
@@ -301,7 +326,7 @@ func GreenAt(rows Rows, revision string) map[string]bool {
 		}
 		for _, requirement := range itemRequirements(rows.Epic.Requirements) {
 			capture, _, outcome := evidenceChain(run, rows.Evidence, captureWork(requirement.ID), true)
-			if outcome != chainNone && capture.Passed {
+			if outcome != chainNone && (capture.Passed || judgeless(capture)) {
 				green[requirement.ID] = true
 			}
 		}
