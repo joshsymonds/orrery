@@ -14,6 +14,8 @@ import (
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/joshsymonds/orrery/internal/enginehost"
+	enginev1connect "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
 	"github.com/joshsymonds/orrery/internal/server"
@@ -26,7 +28,7 @@ const (
 	eventsWatchPath = "/" + orreryv1connect.EventsName + "/Watch"
 	// eventAt is the unix second every test event is stored at.
 	eventAt = 1_700_000_000
-	// eventPoll is the Watch poll interval the tests inject.
+	// eventPoll is the interval of the tests' own tickers and sleeps. Watch does not poll.
 	eventPoll = 10 * time.Millisecond
 	// replayCount is more events than one page holds (eventPageSize is 100), so a replay reads several pages.
 	replayCount = 250
@@ -37,15 +39,15 @@ const (
 )
 
 // guardedHandler returns the guarded handler that admits allowedLogin and reads events and sessions from the
-// store at path, polling every eventPoll.
-func guardedHandler(t *testing.T, path string) http.Handler {
+// store at path, waking its Events streams from changes.
+func guardedHandler(t *testing.T, path string, changes enginev1connect.ChangesClient) http.Handler {
 	t.Helper()
 	handler, err := server.New(server.Config{
-		Logins:    []string{allowedLogin},
-		Tmux:      newTmuxClient(t),
-		Push:      newPushStore(t),
-		Sessions:  store.NewReader(path),
-		EventPoll: eventPoll,
+		Logins:   []string{allowedLogin},
+		Tmux:     newTmuxClient(t),
+		Push:     newPushStore(t),
+		Sessions: store.NewReader(path),
+		Changes:  changes,
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -53,13 +55,28 @@ func guardedHandler(t *testing.T, path string) http.Handler {
 	return handler
 }
 
-// startServer serves guardedHandler for the store at path on an httptest server that closes at cleanup, and
-// returns its URL.
-func startServer(t *testing.T, path string) string {
+// startServer serves guardedHandler for the store at path, with changes as its change feed, on an httptest server
+// that closes at cleanup, and returns its URL.
+func startServer(t *testing.T, path string, changes enginev1connect.ChangesClient) string {
 	t.Helper()
-	srv := httptest.NewServer(guardedHandler(t, path))
+	srv := httptest.NewServer(guardedHandler(t, path, changes))
 	t.Cleanup(srv.Close)
 	return srv.URL
+}
+
+// startChanges serves a change feed on an httptest server that closes at cleanup, and returns the feed and the client
+// of that server. When s is not nil, its session events publish to the feed, so a stream that reads through the feed
+// wakes on each write s makes.
+func startChanges(t *testing.T, s *store.Store) (*enginehost.ChangeFeed, enginev1connect.ChangesClient) {
+	t.Helper()
+	feed := enginehost.NewChangeFeed()
+	if s != nil {
+		s.OnSessionEvents(feed.Publish)
+	}
+	_, handler := enginehost.NewChangesHandler(feed)
+	srv := httptest.NewServer(handler)
+	t.Cleanup(srv.Close)
+	return feed, enginev1connect.NewChangesClient(http.DefaultClient, srv.URL)
 }
 
 // guardedHTTPClient returns an HTTP client whose requests carry the login and client headers the guard requires.
@@ -216,7 +233,8 @@ func TestWatchReplaysMoreThanOnePageThenFollows(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openFilledEventStore(t, path, "state", replayCount, writeStateEvents)
-	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path))
+	_, changes := startChanges(t, s)
+	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path, changes))
 
 	w := openWatch(t, events, 0)
 	for i := range replayCount + 1 {
@@ -241,7 +259,8 @@ func TestWatchAfterCursorResumesAtNextSeq(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	seedEvents(t, s, 5)
-	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path))
+	_, changes := startChanges(t, s)
+	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path, changes))
 
 	w := openWatch(t, events, 3)
 	for _, want := range []int64{4, 5, 6} {
@@ -261,7 +280,8 @@ func TestWatchAfterListReceivesOnlyLaterWrites(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	seedEvents(t, s, 3)
-	url := startServer(t, path)
+	_, changes := startChanges(t, s)
+	url := startServer(t, path, changes)
 	sessions := orreryv1connect.NewSessionsClient(guardedHTTPClient(), url)
 	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), url)
 
@@ -285,7 +305,7 @@ func TestWatchRefusesCursorPastEnd(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	seedEvents(t, s, 2)
-	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path))
+	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path, nil))
 
 	w := openWatch(t, events, 4)
 	wantCode(t, w.finish(t), connect.CodeOutOfRange)
@@ -302,7 +322,7 @@ func TestWatchRefusesCursorOlderThanPrunedLog(t *testing.T) {
 	if err := s.SyncServer(t.Context(), "-L a", []store.Pane{pane}, later); err != nil {
 		t.Fatalf("SyncServer after retention: %v", err)
 	}
-	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path))
+	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path, nil))
 
 	w := openWatch(t, events, 0)
 	wantCode(t, w.finish(t), connect.CodeOutOfRange)
@@ -335,7 +355,7 @@ func TestWatchDecodesEachKind(t *testing.T) {
 	if err := s.SyncServer(ctx, "-L a", nil, at); err != nil {
 		t.Fatalf("SyncServer removed: %v", err)
 	}
-	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path))
+	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path, nil))
 
 	want := []*orreryv1.WatchResponse{
 		{Seq: 1, SessionId: eventPane, At: eventAt, Event: &orreryv1.WatchResponse_SessionAdded{
@@ -392,7 +412,7 @@ func TestWatchSendsEngineEventsBetweenPaneEvents(t *testing.T) {
 	writeState(t, s, 1)
 	promptEngine(t, s, 2)
 	writeState(t, s, 2)
-	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path))
+	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path, nil))
 
 	at := int64(eventAt)
 	paneAdded := &orreryv1.WatchResponse{
@@ -454,7 +474,8 @@ func TestWatchReachesPaneEventsAfterMoreThanOnePageOfEngineEvents(t *testing.T) 
 	addEngine(t, s)
 	promptEngine(t, s, replayCount)
 	writeState(t, s, 1)
-	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path))
+	_, changes := startChanges(t, s)
+	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path, changes))
 
 	w := openWatch(t, events, 0)
 	if got := w.next(t).GetSeq(); got != 1 {
@@ -479,7 +500,7 @@ func TestWatchReachesPaneEventsAfterMoreThanOnePageOfEngineEvents(t *testing.T) 
 func TestWatchUnavailableWhenStoreIsMissing(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "absent", "orrery.db")
-	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path))
+	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path, nil))
 
 	w := openWatch(t, events, 0)
 	wantCode(t, w.finish(t), connect.CodeUnavailable)
@@ -489,7 +510,8 @@ func TestWatchUnavailableWhenStoreIsRemoved(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	seq := seedSessionStore(t, path)
-	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path))
+	feed, changes := startChanges(t, nil)
+	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path, changes))
 
 	w := openWatch(t, events, 0)
 	for range seq {
@@ -498,6 +520,9 @@ func TestWatchUnavailableWhenStoreIsRemoved(t *testing.T) {
 	if err := os.Remove(path); err != nil {
 		t.Fatalf("remove store: %v", err)
 	}
+	// Removing the store is no change the feed reports, so the test publishes one. The stream then reads, and the
+	// read finds the store gone.
+	feed.Publish(0, []string{eventPane})
 	wantCode(t, w.finish(t), connect.CodeUnavailable)
 }
 
@@ -505,7 +530,7 @@ func TestWatchRequiresGuard(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	seedSessionStore(t, path)
-	handler := guardedHandler(t, path)
+	handler := guardedHandler(t, path, nil)
 
 	cases := []struct {
 		name  string
@@ -536,18 +561,5 @@ func TestWatchRequiresGuard(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 	if rec.Code == http.StatusForbidden {
 		t.Fatal("admitted Watch request: status = 403, want the Connect handler to answer")
-	}
-}
-
-func TestNewRejectsNegativeEventPoll(t *testing.T) {
-	t.Parallel()
-	_, err := server.New(server.Config{
-		Logins:    []string{allowedLogin},
-		Tmux:      newTmuxClient(t),
-		Push:      newPushStore(t),
-		EventPoll: -time.Millisecond,
-	})
-	if err == nil {
-		t.Fatal("New with a negative EventPoll: no error")
 	}
 }

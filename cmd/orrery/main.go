@@ -599,6 +599,7 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 		evidence     server.EvidenceClient
 		pools        enginev1connect.PoolsClient
 		notices      enginev1connect.NoticesClient
+		changes      enginev1connect.ChangesClient
 	)
 	if daemonSocket, sockErr := protocol.SocketPath(opts.daemonSocket, getenv); sockErr == nil {
 		sessionClient := cli.SessionHTTPClient(protocol.SessionSocketPath(daemonSocket))
@@ -609,6 +610,7 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 			enginev1connect.NewEvidenceClient(sessionClient, cli.SessionBaseURL)
 		pools = enginev1connect.NewPoolsClient(sessionClient, cli.SessionBaseURL)
 		notices = enginev1connect.NewNoticesClient(sessionClient, cli.SessionBaseURL)
+		changes = enginev1connect.NewChangesClient(sessionClient, cli.SessionBaseURL)
 	}
 	// Without a HOME the record root stays empty: os.DirFS refuses an empty root, so Epics fails its reads rather than
 	// reading the working directory's .gambit.
@@ -634,6 +636,7 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 		Steps:          steps,
 		Pools:          pools,
 		Notices:        notices,
+		Changes:        changes,
 		Records:        records,
 		EpicStore:      epicStore,
 		EpicCommands:   epicCommands,

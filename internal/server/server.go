@@ -169,8 +169,12 @@ type Config struct {
 	// of Epics.Get, or is nil when there is no store reader: Sessions and Events answer unavailable, Panes report no
 	// turn ends, and Epics.Get lists no sessions.
 	Sessions *store.Reader
-	// EventPoll is the interval at which Events.Watch polls the store for new events, or zero for the default.
-	EventPoll time.Duration
+	// Changes is orreryd's change feed, which wakes each Events.Watch stream when a change is stored, or is nil, which
+	// wakes none: a stream then reads only when it opens.
+	Changes enginev1connect.ChangesClient
+	// NewTimer arms the retry timer of the change feed, a timer that sends on its channel once, after a duration, and
+	// returns the timer's stop, or is nil for time.NewTimer.
+	NewTimer func(time.Duration) (<-chan time.Time, func() bool)
 	// EventSendTimeout bounds each Events.Watch, Notices.Watch, Panes.WatchConversation and Sessions.WatchConversation
 	// send, or is zero for the default. A send that does not complete in time ends its stream, and no other.
 	EventSendTimeout time.Duration
@@ -236,10 +240,6 @@ func New(cfg Config) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
-	poll := cfg.EventPoll
-	if poll == 0 {
-		poll = defaultEventPoll
-	}
 	sendTimeout := cfg.EventSendTimeout
 	if sendTimeout == 0 {
 		sendTimeout = defaultEventSendTimeout
@@ -269,7 +269,8 @@ func New(cfg Config) (http.Handler, error) {
 		cfg.HandlerOptions...,
 	)
 	mux.Handle(sessionsPath, sessions)
-	eventsPath, events := newEventsHandler(cfg.Sessions, poll, sendTimeout, cfg.Shutdown, cfg.HandlerOptions...)
+	changes := newChangeHub(cfg.Changes, cfg.NewTimer)
+	eventsPath, events := newEventsHandler(cfg.Sessions, changes, sendTimeout, cfg.Shutdown, cfg.HandlerOptions...)
 	mux.Handle(eventsPath, events)
 	controlPath, control := newControlHandler(
 		cfg.Engine, cfg.ControlTimeout, cfg.Home, cfg.Steps, cfg.HandlerOptions...,
@@ -385,9 +386,6 @@ func checkConfig(cfg Config) (map[string]struct{}, error) {
 			return nil, errors.New("server: empty allowed login")
 		}
 		allowed[login] = struct{}{}
-	}
-	if cfg.EventPoll < 0 {
-		return nil, fmt.Errorf("server: negative event poll interval %v", cfg.EventPoll)
 	}
 	if cfg.ConversationPoll < 0 {
 		return nil, fmt.Errorf("server: negative conversation poll interval %v", cfg.ConversationPoll)

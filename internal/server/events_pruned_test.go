@@ -31,7 +31,8 @@ func TestListThenWatchAfterPrunedLogReceivesNextWrite(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s, later := prunedLog(t, path)
-	url := startServer(t, path)
+	_, changes := startChanges(t, s)
+	url := startServer(t, path, changes)
 	sessions := orreryv1connect.NewSessionsClient(guardedHTTPClient(), url)
 	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), url)
 
@@ -53,7 +54,8 @@ func TestWatchAfterPrunedLogLastSeqReceivesNextWrite(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s, later := prunedLog(t, path)
-	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path))
+	_, changes := startChanges(t, s)
+	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path, changes))
 
 	w := openWatch(t, events, 4)
 	pane := store.Pane{ID: eventPane, Pane: "%1", Fields: store.Fields{State: "after-prune"}}
