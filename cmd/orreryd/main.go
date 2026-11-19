@@ -901,7 +901,7 @@ func newSessionHost(logger *slog.Logger) *sessionHost {
 // limitTick until stop; the session titles write each headless session's missing title through haiku, every limitTick
 // until stop; the session headlines refresh each headless session's headline once its turns have ended, through haiku,
 // every limitTick until stop; the manager stops idle sessions, until stop; and the caller-event delivery tells each
-// step's caller when the step ends, and each epic's creator of its events, on its start, on each wake, and once more
+// step's caller when the step ends, and each epic's steerer of its events, on its start, on each wake, and once more
 // after a failed round, until stop (startCallerEvents);
 // and the cron scheduler fires each cron job of a headless session when it is due, through the manager's DeliverCron,
 // from one timer for the next due fire until stop (startCron). A readopt, reconcile, restore or resume failure is
