@@ -201,14 +201,14 @@ function eventPrompt(step: string, text: string, time: number) {
   return { kind: "prompt", time: String(time), text, sender: "event", promptId: `step:${step}` };
 }
 
-// PendingStepFields are the fields of a step's end the session holds, as the server lists it: its summary is the one
-// line a waiting card draws.
+// PendingStepFields are the fields of a step's end the session holds, as the server lists it: its brief is the lines a
+// waiting card draws, ending with the More line.
 interface PendingStepFields {
   step: string;
   agent: string;
   end: string;
   status: string;
-  summary: string;
+  brief: string;
 }
 
 // pendingStep is a step's end the session holds and has not taken, as the server lists it.
@@ -220,7 +220,7 @@ function pendingStep(fields: PendingStepFields, waits: string) {
     agent: fields.agent,
     end: fields.end,
     status: fields.status,
-    summary: fields.summary,
+    brief: fields.brief,
     epic: "",
     title: "",
     waits,
@@ -236,7 +236,7 @@ function pendingEpic(kind: string, waits: string) {
     agent: "",
     end: "",
     status: "",
-    summary: "",
+    brief: "",
     epic,
     title: epicTitle,
     waits,
@@ -380,7 +380,13 @@ test("StepEventCard: two step_end prompts delivered one after another draw two c
 
 test("StepEventCard: a pending event draws a waiting card labelled for speak and for free", async (t) => {
   await withPage(t, async ({ container, fake }) => {
-    const waiting: PendingStepFields = { step: "s3", agent: "builder", end: "done", status: "done", summary: "Done." };
+    const waiting: PendingStepFields = {
+      step: "s3",
+      agent: "builder",
+      end: "done",
+      status: "done",
+      brief: "Done.\nMore: step_result id s3",
+    };
     const pending = [pendingStep(waiting, "speak"), pendingEpic("release", "free")];
     fake.emit(delta([], { seq: 2, reset: true, pending }));
     await settle(t, () => countOf(container, ".waiting") === 2, "both waiting cards are drawn");
@@ -396,7 +402,13 @@ test("StepEventCard: a pending event draws a waiting card labelled for speak and
 test("StepEventCard: a waiting card gives way to an ordinary card once its prompt arrives", async (t) => {
   await withPage(t, async ({ container, fake }) => {
     const step: StepFields = { step: "s4", agent: "builder", end: "done", status: "done", brief: ["Done."] };
-    const waiting: PendingStepFields = { step: "s4", agent: "builder", end: "done", status: "done", summary: "Done." };
+    const waiting: PendingStepFields = {
+      step: "s4",
+      agent: "builder",
+      end: "done",
+      status: "done",
+      brief: "Done.\nMore: step_result id s4",
+    };
     const pending = [pendingStep(waiting, "speak")];
     fake.emit(delta([], { seq: 2, reset: true, pending }));
     await settle(t, () => countOf(container, ".step-card.waiting") === 1, "the waiting card is drawn");

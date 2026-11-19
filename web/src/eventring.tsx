@@ -125,14 +125,12 @@ export function stepEventOf(text: string): StepEvent | null {
 // briefOf is a step's brief from its body: the body's lines, without a last line that starts with More:. An empty body
 // has no lines.
 function briefOf(body: string): string[] {
-  if (body === "") {
-    return [];
-  }
-  const lines = body.split("\n");
-  if (lines.at(-1)?.startsWith(morePrefix) === true) {
-    lines.pop();
-  }
-  return lines;
+  return body === "" ? [] : dropMore(body.split("\n"));
+}
+
+// dropMore returns lines without a last line that starts with More:, the line that points to the full return.
+function dropMore(lines: string[]): string[] {
+  return lines.at(-1)?.startsWith(morePrefix) === true ? lines.slice(0, -1) : lines;
 }
 
 // returnBody is a return as the fold draws it: pretty-printed when the return parses as JSON, its raw text otherwise.
@@ -255,7 +253,7 @@ export function WaitingCard({ event, calls }: { event: PendingEvent; calls?: Epi
       status: event.status,
       epic: event.epic,
       task: "",
-      brief: event.summary === "" ? [] : [event.summary],
+      brief: event.brief === "" ? [] : dropMore(event.brief.split("\n")),
     };
     return <StepCard event={step} calls={calls} waiting={label} />;
   }

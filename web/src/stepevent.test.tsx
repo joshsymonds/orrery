@@ -136,6 +136,31 @@ test("StepEventBrief web: a delivered step card draws its head from the tag's ag
     assert.deepEqual(lines, ["Added the index.", "Ran the suite."], "the brief draws, and the More line does not");
   }));
 
+test("StepEventBrief web: a waiting card draws the pending brief without its More line", () =>
+  withReader(
+    conversation(
+      [],
+      [
+        create(PendingEventSchema, {
+          id: "step:s9",
+          kind: "step_end",
+          step: "s9",
+          agent: "builder",
+          end: "done",
+          status: "done",
+          brief: "Return: shipped\nNot shown: none\nMore: step_result id s9",
+          waits: "speak",
+        }),
+      ],
+    ),
+    undefined,
+    async (container) => {
+      assert.equal(container.querySelectorAll(".step-card.waiting").length, 1, "one waiting step card is drawn");
+      const lines = [...container.querySelectorAll(".step-summary")].map((line) => line.textContent);
+      assert.deepEqual(lines, ["Return: shipped", "Not shown: none"], "the brief draws, and the More line does not");
+    },
+  ));
+
 // questionBody is the body of an open question's block: its epic line, then the question's own line.
 const questionBody = `Epic ${ringEpic} (Plan the runner) asks a question.\nQ1 which-store: which store?`;
 
@@ -184,7 +209,7 @@ test("StepEventBrief web: a waiting step card's return fold calls stepResult wit
       agent: "builder",
       end: "done",
       status: "done",
-      summary: "Shipped the index.",
+      brief: "Shipped the index.\nMore: step_result id s3",
       epic: ringEpic,
       waits: "speak",
     }),

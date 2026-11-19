@@ -14,7 +14,7 @@ import { installTestDom, removeTestDom } from "./testdom";
 import { turn, until } from "./testwait";
 
 // The step's end cards over the two sources they draw from: a delivered step_end, read from its prompt's block, and a
-// pending step_end as the server lists it, with its summary. A card's return is read through the epic calls its fold is
+// pending step_end as the server lists it, with its brief. A card's return is read through the epic calls its fold is
 // given. Each test's name carries the token StepEndText.
 
 // stepBlock is the block a delivered step_end carries, as enginehost's CallerEventBlock writes it: its agent, end and
@@ -37,8 +37,9 @@ function deliveredCard(brief: string[], calls?: EpicCalls): JSX.Element {
   return <StepCard event={event} calls={calls} />;
 }
 
-// pendingCard draws the waiting card of a step_end the server holds, with its summary as its one brief line.
-function pendingCard(summary: string, calls?: EpicCalls): JSX.Element {
+// pendingCard draws the waiting card of a step_end the server holds, with line as its one brief line and then the More
+// line.
+function pendingCard(line: string, calls?: EpicCalls): JSX.Element {
   const event = create(PendingEventSchema, {
     id: "step:s1",
     kind: "step_end",
@@ -46,7 +47,7 @@ function pendingCard(summary: string, calls?: EpicCalls): JSX.Element {
     agent: "builder",
     end: "done",
     status: "done",
-    summary,
+    brief: `${line}\nMore: step_result id s1`,
     waits: "speak",
   });
   return <WaitingCard event={event} calls={calls} />;

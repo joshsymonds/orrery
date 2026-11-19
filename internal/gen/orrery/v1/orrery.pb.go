@@ -4814,19 +4814,15 @@ type PendingEvent struct {
 	End string `protobuf:"bytes,5,opt,name=end,proto3" json:"end,omitempty"`
 	// The step's status, for a step_end.
 	Status string `protobuf:"bytes,6,opt,name=status,proto3" json:"status,omitempty"`
-	// The step's reason, for a step_end.
-	Reason string `protobuf:"bytes,7,opt,name=reason,proto3" json:"reason,omitempty"`
-	// The headline of the step's result, for a step_end: its answer, summary or verdict string field when the result is a
-	// JSON object that has one, in that order, else the result's first line.
-	Summary string `protobuf:"bytes,8,opt,name=summary,proto3" json:"summary,omitempty"`
+	// The step's brief, for a step_end: its lines joined by newlines, exactly the body of its step_end block before
+	// escaping, at most 1000 bytes. It ends with the More line that names step_result.
+	Brief string `protobuf:"bytes,8,opt,name=brief,proto3" json:"brief,omitempty"`
 	// The epic that holds the step, for a step_end an epic holds, or the epic of an epic event.
 	Epic string `protobuf:"bytes,9,opt,name=epic,proto3" json:"epic,omitempty"`
 	// The epic's title, for an epic event.
 	Title string `protobuf:"bytes,10,opt,name=title,proto3" json:"title,omitempty"`
 	// How the event waits: speak when the owner's interrupt keeps the session quiet, and free otherwise.
-	Waits string `protobuf:"bytes,11,opt,name=waits,proto3" json:"waits,omitempty"`
-	// The step's full result, for a step_end.
-	Result        string `protobuf:"bytes,12,opt,name=result,proto3" json:"result,omitempty"`
+	Waits         string `protobuf:"bytes,11,opt,name=waits,proto3" json:"waits,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4903,16 +4899,9 @@ func (x *PendingEvent) GetStatus() string {
 	return ""
 }
 
-func (x *PendingEvent) GetReason() string {
+func (x *PendingEvent) GetBrief() string {
 	if x != nil {
-		return x.Reason
-	}
-	return ""
-}
-
-func (x *PendingEvent) GetSummary() string {
-	if x != nil {
-		return x.Summary
+		return x.Brief
 	}
 	return ""
 }
@@ -4934,13 +4923,6 @@ func (x *PendingEvent) GetTitle() string {
 func (x *PendingEvent) GetWaits() string {
 	if x != nil {
 		return x.Waits
-	}
-	return ""
-}
-
-func (x *PendingEvent) GetResult() string {
-	if x != nil {
-		return x.Result
 	}
 	return ""
 }
@@ -7215,21 +7197,19 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\n" +
 	"background\x18\n" +
 	" \x03(\v2\x19.orrery.v1.BackgroundTaskR\n" +
-	"background\"\x90\x02\n" +
+	"background\"\x81\x02\n" +
 	"\fPendingEvent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x12\n" +
 	"\x04step\x18\x03 \x01(\tR\x04step\x12\x14\n" +
 	"\x05agent\x18\x04 \x01(\tR\x05agent\x12\x10\n" +
 	"\x03end\x18\x05 \x01(\tR\x03end\x12\x16\n" +
-	"\x06status\x18\x06 \x01(\tR\x06status\x12\x16\n" +
-	"\x06reason\x18\a \x01(\tR\x06reason\x12\x18\n" +
-	"\asummary\x18\b \x01(\tR\asummary\x12\x12\n" +
+	"\x06status\x18\x06 \x01(\tR\x06status\x12\x14\n" +
+	"\x05brief\x18\b \x01(\tR\x05brief\x12\x12\n" +
 	"\x04epic\x18\t \x01(\tR\x04epic\x12\x14\n" +
 	"\x05title\x18\n" +
 	" \x01(\tR\x05title\x12\x14\n" +
-	"\x05waits\x18\v \x01(\tR\x05waits\x12\x16\n" +
-	"\x06result\x18\f \x01(\tR\x06result\"\xff\x01\n" +
+	"\x05waits\x18\v \x01(\tR\x05waitsJ\x04\b\a\x10\bJ\x04\b\f\x10\rR\x06reasonR\x06resultR\asummary\"\xff\x01\n" +
 	"\x0eBackgroundTask\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1e\n" +
 	"\vtool_use_id\x18\x02 \x01(\tR\ttoolUseId\x12 \n" +

@@ -2,9 +2,11 @@ package server_test
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"google.golang.org/protobuf/encoding/prototext"
 	"google.golang.org/protobuf/proto"
 
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
@@ -63,8 +65,15 @@ func cardPending(waits string) []*orreryv1.PendingEvent {
 // cardStepEnd is the card of cardStep's end, labeled waits.
 func cardStepEnd(waits string) *orreryv1.PendingEvent {
 	return &orreryv1.PendingEvent{
-		Id: cardStepEvent, Kind: "step_end", Step: cardStep, Agent: "implementer", End: "done", Status: "passed",
-		Reason: "gate green", Summary: "First line", Result: "First line\nSecond line", Epic: cardEpic, Waits: waits,
+		Id:     cardStepEvent,
+		Kind:   "step_end",
+		Step:   cardStep,
+		Agent:  "implementer",
+		End:    "done",
+		Status: "passed",
+		Brief:  "Return: First line...\nNot shown: return (22 bytes)\nReason: gate green\nMore: step_result id step-card",
+		Epic:   cardEpic,
+		Waits:  waits,
 	}
 }
 
@@ -143,4 +152,34 @@ func TestSessionWatchStepEventCardDeliveredEventsLeaveThePending(t *testing.T) {
 		t.Fatalf("MarkCallerEvent release: %v", err)
 	}
 	wantPendingEvents(t, stream.nextDelta(t))
+}
+
+// TestStepEventBriefPendingStateCarriesBrief serves the conversation of eventEngine, whose step cardStep ended with two
+// lines of result. The state's pending step end of cardStep carries exactly its brief, and the message holds no second
+// line of the result.
+func TestStepEventBriefPendingStateCarriesBrief(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "orrery.db")
+	s := openEventStore(t, path)
+	addCardEvents(t, s)
+	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, 0))
+	stream := openSessionStream(t, client, sessionReq(eventEngine, 0, 0))
+	msg := stream.next(t)
+
+	var step *orreryv1.PendingEvent
+	for _, event := range msg.GetState().GetPending() {
+		if event.GetId() == cardStepEvent {
+			step = event
+		}
+	}
+	if step == nil {
+		t.Fatalf("pending events %v hold no event %s", msg.GetState().GetPending(), cardStepEvent)
+	}
+	const brief = "Return: First line...\nNot shown: return (22 bytes)\nReason: gate green\nMore: step_result id step-card"
+	if got := step.GetBrief(); got != brief {
+		t.Fatalf("pending step end Brief = %q, want %q", got, brief)
+	}
+	if text := prototext.Format(msg); strings.Contains(text, "Second line") {
+		t.Fatalf("the state holds the second line of the result:\n%s", text)
+	}
 }

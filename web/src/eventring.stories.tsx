@@ -86,7 +86,7 @@ const pendingStep = create(PendingEventSchema, {
   agent: "haiku",
   end: "done",
   status: "ended",
-  summary: shiftsBrief,
+  brief: `${shiftsBrief}\nMore: step_result id st-rota-t4-impl`,
   epic: rota,
   waits: "speak",
 });

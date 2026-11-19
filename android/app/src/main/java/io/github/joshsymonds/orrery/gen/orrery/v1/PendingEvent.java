@@ -26,12 +26,10 @@ public  final class PendingEvent extends
     agent_ = "";
     end_ = "";
     status_ = "";
-    reason_ = "";
-    summary_ = "";
+    brief_ = "";
     epic_ = "";
     title_ = "";
     waits_ = "";
-    result_ = "";
   }
   public static final int ID_FIELD_NUMBER = 1;
   private java.lang.String id_;
@@ -435,142 +433,75 @@ public  final class PendingEvent extends
 
   }
 
-  public static final int REASON_FIELD_NUMBER = 7;
-  private java.lang.String reason_;
+  public static final int BRIEF_FIELD_NUMBER = 8;
+  private java.lang.String brief_;
   /**
    * <pre>
-   * The step's reason, for a step_end.
+   * The step's brief, for a step_end: its lines joined by newlines, exactly the body of its step_end block before
+   * escaping, at most 1000 bytes. It ends with the More line that names step_result.
    * </pre>
    *
-   * <code>string reason = 7 [json_name = "reason"];</code>
-   * @return The reason.
+   * <code>string brief = 8 [json_name = "brief"];</code>
+   * @return The brief.
    */
   @java.lang.Override
-  public java.lang.String getReason() {
-    return reason_;
+  public java.lang.String getBrief() {
+    return brief_;
   }
   /**
    * <pre>
-   * The step's reason, for a step_end.
+   * The step's brief, for a step_end: its lines joined by newlines, exactly the body of its step_end block before
+   * escaping, at most 1000 bytes. It ends with the More line that names step_result.
    * </pre>
    *
-   * <code>string reason = 7 [json_name = "reason"];</code>
-   * @return The bytes for reason.
-   */
-  @java.lang.Override
-  public com.google.protobuf.ByteString
-      getReasonBytes() {
-    return com.google.protobuf.ByteString.copyFromUtf8(reason_);
-  }
-  /**
-   * <pre>
-   * The step's reason, for a step_end.
-   * </pre>
-   *
-   * <code>string reason = 7 [json_name = "reason"];</code>
-   * @param value The reason to set.
-   */
-  private void setReason(
-      java.lang.String value) {
-    java.util.Objects.requireNonNull(value);
-
-    reason_ = value;
-  }
-  /**
-   * <pre>
-   * The step's reason, for a step_end.
-   * </pre>
-   *
-   * <code>string reason = 7 [json_name = "reason"];</code>
-   */
-  private void clearReason() {
-
-    reason_ = getDefaultInstance().getReason();
-  }
-  /**
-   * <pre>
-   * The step's reason, for a step_end.
-   * </pre>
-   *
-   * <code>string reason = 7 [json_name = "reason"];</code>
-   * @param value The bytes for reason to set.
-   */
-  private void setReasonBytes(
-      com.google.protobuf.ByteString value) {
-    checkByteStringIsUtf8(value);
-    reason_ = value.toStringUtf8();
-
-  }
-
-  public static final int SUMMARY_FIELD_NUMBER = 8;
-  private java.lang.String summary_;
-  /**
-   * <pre>
-   * The headline of the step's result, for a step_end: its answer, summary or verdict string field when the result is a
-   * JSON object that has one, in that order, else the result's first line.
-   * </pre>
-   *
-   * <code>string summary = 8 [json_name = "summary"];</code>
-   * @return The summary.
-   */
-  @java.lang.Override
-  public java.lang.String getSummary() {
-    return summary_;
-  }
-  /**
-   * <pre>
-   * The headline of the step's result, for a step_end: its answer, summary or verdict string field when the result is a
-   * JSON object that has one, in that order, else the result's first line.
-   * </pre>
-   *
-   * <code>string summary = 8 [json_name = "summary"];</code>
-   * @return The bytes for summary.
+   * <code>string brief = 8 [json_name = "brief"];</code>
+   * @return The bytes for brief.
    */
   @java.lang.Override
   public com.google.protobuf.ByteString
-      getSummaryBytes() {
-    return com.google.protobuf.ByteString.copyFromUtf8(summary_);
+      getBriefBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(brief_);
   }
   /**
    * <pre>
-   * The headline of the step's result, for a step_end: its answer, summary or verdict string field when the result is a
-   * JSON object that has one, in that order, else the result's first line.
+   * The step's brief, for a step_end: its lines joined by newlines, exactly the body of its step_end block before
+   * escaping, at most 1000 bytes. It ends with the More line that names step_result.
    * </pre>
    *
-   * <code>string summary = 8 [json_name = "summary"];</code>
-   * @param value The summary to set.
+   * <code>string brief = 8 [json_name = "brief"];</code>
+   * @param value The brief to set.
    */
-  private void setSummary(
+  private void setBrief(
       java.lang.String value) {
     java.util.Objects.requireNonNull(value);
 
-    summary_ = value;
+    brief_ = value;
   }
   /**
    * <pre>
-   * The headline of the step's result, for a step_end: its answer, summary or verdict string field when the result is a
-   * JSON object that has one, in that order, else the result's first line.
+   * The step's brief, for a step_end: its lines joined by newlines, exactly the body of its step_end block before
+   * escaping, at most 1000 bytes. It ends with the More line that names step_result.
    * </pre>
    *
-   * <code>string summary = 8 [json_name = "summary"];</code>
+   * <code>string brief = 8 [json_name = "brief"];</code>
    */
-  private void clearSummary() {
+  private void clearBrief() {
 
-    summary_ = getDefaultInstance().getSummary();
+    brief_ = getDefaultInstance().getBrief();
   }
   /**
    * <pre>
-   * The headline of the step's result, for a step_end: its answer, summary or verdict string field when the result is a
-   * JSON object that has one, in that order, else the result's first line.
+   * The step's brief, for a step_end: its lines joined by newlines, exactly the body of its step_end block before
+   * escaping, at most 1000 bytes. It ends with the More line that names step_result.
    * </pre>
    *
-   * <code>string summary = 8 [json_name = "summary"];</code>
-   * @param value The bytes for summary to set.
+   * <code>string brief = 8 [json_name = "brief"];</code>
+   * @param value The bytes for brief to set.
    */
-  private void setSummaryBytes(
+  private void setBriefBytes(
       com.google.protobuf.ByteString value) {
     checkByteStringIsUtf8(value);
-    summary_ = value.toStringUtf8();
+    brief_ = value.toStringUtf8();
 
   }
 
@@ -772,73 +703,6 @@ public  final class PendingEvent extends
       com.google.protobuf.ByteString value) {
     checkByteStringIsUtf8(value);
     waits_ = value.toStringUtf8();
-
-  }
-
-  public static final int RESULT_FIELD_NUMBER = 12;
-  private java.lang.String result_;
-  /**
-   * <pre>
-   * The step's full result, for a step_end.
-   * </pre>
-   *
-   * <code>string result = 12 [json_name = "result"];</code>
-   * @return The result.
-   */
-  @java.lang.Override
-  public java.lang.String getResult() {
-    return result_;
-  }
-  /**
-   * <pre>
-   * The step's full result, for a step_end.
-   * </pre>
-   *
-   * <code>string result = 12 [json_name = "result"];</code>
-   * @return The bytes for result.
-   */
-  @java.lang.Override
-  public com.google.protobuf.ByteString
-      getResultBytes() {
-    return com.google.protobuf.ByteString.copyFromUtf8(result_);
-  }
-  /**
-   * <pre>
-   * The step's full result, for a step_end.
-   * </pre>
-   *
-   * <code>string result = 12 [json_name = "result"];</code>
-   * @param value The result to set.
-   */
-  private void setResult(
-      java.lang.String value) {
-    java.util.Objects.requireNonNull(value);
-
-    result_ = value;
-  }
-  /**
-   * <pre>
-   * The step's full result, for a step_end.
-   * </pre>
-   *
-   * <code>string result = 12 [json_name = "result"];</code>
-   */
-  private void clearResult() {
-
-    result_ = getDefaultInstance().getResult();
-  }
-  /**
-   * <pre>
-   * The step's full result, for a step_end.
-   * </pre>
-   *
-   * <code>string result = 12 [json_name = "result"];</code>
-   * @param value The bytes for result to set.
-   */
-  private void setResultBytes(
-      com.google.protobuf.ByteString value) {
-    checkByteStringIsUtf8(value);
-    result_ = value.toStringUtf8();
 
   }
 
@@ -1360,144 +1224,75 @@ public  final class PendingEvent extends
 
     /**
      * <pre>
-     * The step's reason, for a step_end.
+     * The step's brief, for a step_end: its lines joined by newlines, exactly the body of its step_end block before
+     * escaping, at most 1000 bytes. It ends with the More line that names step_result.
      * </pre>
      *
-     * <code>string reason = 7 [json_name = "reason"];</code>
-     * @return The reason.
+     * <code>string brief = 8 [json_name = "brief"];</code>
+     * @return The brief.
      */
     @java.lang.Override
-    public java.lang.String getReason() {
-      return instance.getReason();
+    public java.lang.String getBrief() {
+      return instance.getBrief();
     }
     /**
      * <pre>
-     * The step's reason, for a step_end.
+     * The step's brief, for a step_end: its lines joined by newlines, exactly the body of its step_end block before
+     * escaping, at most 1000 bytes. It ends with the More line that names step_result.
      * </pre>
      *
-     * <code>string reason = 7 [json_name = "reason"];</code>
-     * @return The bytes for reason.
-     */
-    @java.lang.Override
-    public com.google.protobuf.ByteString
-        getReasonBytes() {
-      return instance.getReasonBytes();
-    }
-    /**
-     * <pre>
-     * The step's reason, for a step_end.
-     * </pre>
-     *
-     * <code>string reason = 7 [json_name = "reason"];</code>
-     * @param value The reason to set.
-     * @return This builder for chaining.
-     */
-    public Builder setReason(
-        java.lang.String value) {
-      copyOnWrite();
-      instance.setReason(value);
-      return this;
-    }
-    /**
-     * <pre>
-     * The step's reason, for a step_end.
-     * </pre>
-     *
-     * <code>string reason = 7 [json_name = "reason"];</code>
-     * @return This builder for chaining.
-     */
-    public Builder clearReason() {
-      copyOnWrite();
-      instance.clearReason();
-      return this;
-    }
-    /**
-     * <pre>
-     * The step's reason, for a step_end.
-     * </pre>
-     *
-     * <code>string reason = 7 [json_name = "reason"];</code>
-     * @param value The bytes for reason to set.
-     * @return This builder for chaining.
-     */
-    public Builder setReasonBytes(
-        com.google.protobuf.ByteString value) {
-      copyOnWrite();
-      instance.setReasonBytes(value);
-      return this;
-    }
-
-    /**
-     * <pre>
-     * The headline of the step's result, for a step_end: its answer, summary or verdict string field when the result is a
-     * JSON object that has one, in that order, else the result's first line.
-     * </pre>
-     *
-     * <code>string summary = 8 [json_name = "summary"];</code>
-     * @return The summary.
-     */
-    @java.lang.Override
-    public java.lang.String getSummary() {
-      return instance.getSummary();
-    }
-    /**
-     * <pre>
-     * The headline of the step's result, for a step_end: its answer, summary or verdict string field when the result is a
-     * JSON object that has one, in that order, else the result's first line.
-     * </pre>
-     *
-     * <code>string summary = 8 [json_name = "summary"];</code>
-     * @return The bytes for summary.
+     * <code>string brief = 8 [json_name = "brief"];</code>
+     * @return The bytes for brief.
      */
     @java.lang.Override
     public com.google.protobuf.ByteString
-        getSummaryBytes() {
-      return instance.getSummaryBytes();
+        getBriefBytes() {
+      return instance.getBriefBytes();
     }
     /**
      * <pre>
-     * The headline of the step's result, for a step_end: its answer, summary or verdict string field when the result is a
-     * JSON object that has one, in that order, else the result's first line.
+     * The step's brief, for a step_end: its lines joined by newlines, exactly the body of its step_end block before
+     * escaping, at most 1000 bytes. It ends with the More line that names step_result.
      * </pre>
      *
-     * <code>string summary = 8 [json_name = "summary"];</code>
-     * @param value The summary to set.
+     * <code>string brief = 8 [json_name = "brief"];</code>
+     * @param value The brief to set.
      * @return This builder for chaining.
      */
-    public Builder setSummary(
+    public Builder setBrief(
         java.lang.String value) {
       copyOnWrite();
-      instance.setSummary(value);
+      instance.setBrief(value);
       return this;
     }
     /**
      * <pre>
-     * The headline of the step's result, for a step_end: its answer, summary or verdict string field when the result is a
-     * JSON object that has one, in that order, else the result's first line.
+     * The step's brief, for a step_end: its lines joined by newlines, exactly the body of its step_end block before
+     * escaping, at most 1000 bytes. It ends with the More line that names step_result.
      * </pre>
      *
-     * <code>string summary = 8 [json_name = "summary"];</code>
+     * <code>string brief = 8 [json_name = "brief"];</code>
      * @return This builder for chaining.
      */
-    public Builder clearSummary() {
+    public Builder clearBrief() {
       copyOnWrite();
-      instance.clearSummary();
+      instance.clearBrief();
       return this;
     }
     /**
      * <pre>
-     * The headline of the step's result, for a step_end: its answer, summary or verdict string field when the result is a
-     * JSON object that has one, in that order, else the result's first line.
+     * The step's brief, for a step_end: its lines joined by newlines, exactly the body of its step_end block before
+     * escaping, at most 1000 bytes. It ends with the More line that names step_result.
      * </pre>
      *
-     * <code>string summary = 8 [json_name = "summary"];</code>
-     * @param value The bytes for summary to set.
+     * <code>string brief = 8 [json_name = "brief"];</code>
+     * @param value The bytes for brief to set.
      * @return This builder for chaining.
      */
-    public Builder setSummaryBytes(
+    public Builder setBriefBytes(
         com.google.protobuf.ByteString value) {
       copyOnWrite();
-      instance.setSummaryBytes(value);
+      instance.setBriefBytes(value);
       return this;
     }
 
@@ -1708,75 +1503,6 @@ public  final class PendingEvent extends
       return this;
     }
 
-    /**
-     * <pre>
-     * The step's full result, for a step_end.
-     * </pre>
-     *
-     * <code>string result = 12 [json_name = "result"];</code>
-     * @return The result.
-     */
-    @java.lang.Override
-    public java.lang.String getResult() {
-      return instance.getResult();
-    }
-    /**
-     * <pre>
-     * The step's full result, for a step_end.
-     * </pre>
-     *
-     * <code>string result = 12 [json_name = "result"];</code>
-     * @return The bytes for result.
-     */
-    @java.lang.Override
-    public com.google.protobuf.ByteString
-        getResultBytes() {
-      return instance.getResultBytes();
-    }
-    /**
-     * <pre>
-     * The step's full result, for a step_end.
-     * </pre>
-     *
-     * <code>string result = 12 [json_name = "result"];</code>
-     * @param value The result to set.
-     * @return This builder for chaining.
-     */
-    public Builder setResult(
-        java.lang.String value) {
-      copyOnWrite();
-      instance.setResult(value);
-      return this;
-    }
-    /**
-     * <pre>
-     * The step's full result, for a step_end.
-     * </pre>
-     *
-     * <code>string result = 12 [json_name = "result"];</code>
-     * @return This builder for chaining.
-     */
-    public Builder clearResult() {
-      copyOnWrite();
-      instance.clearResult();
-      return this;
-    }
-    /**
-     * <pre>
-     * The step's full result, for a step_end.
-     * </pre>
-     *
-     * <code>string result = 12 [json_name = "result"];</code>
-     * @param value The bytes for result to set.
-     * @return This builder for chaining.
-     */
-    public Builder setResultBytes(
-        com.google.protobuf.ByteString value) {
-      copyOnWrite();
-      instance.setResultBytes(value);
-      return this;
-    }
-
     // @@protoc_insertion_point(builder_scope:orrery.v1.PendingEvent)
   }
   @java.lang.Override
@@ -1799,17 +1525,14 @@ public  final class PendingEvent extends
             "agent_",
             "end_",
             "status_",
-            "reason_",
-            "summary_",
+            "brief_",
             "epic_",
             "title_",
             "waits_",
-            "result_",
           };
           java.lang.String info =
-              "\u0000\f\u0000\u0000\u0001\f\f\u0000\u0000\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
-              "\u0004\u0208\u0005\u0208\u0006\u0208\u0007\u0208\b\u0208\t\u0208\n\u0208\u000b\u0208" +
-              "\f\u0208";
+              "\u0000\n\u0000\u0000\u0001\u000b\n\u0000\u0000\u0000\u0001\u0208\u0002\u0208\u0003" +
+              "\u0208\u0004\u0208\u0005\u0208\u0006\u0208\b\u0208\t\u0208\n\u0208\u000b\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {
