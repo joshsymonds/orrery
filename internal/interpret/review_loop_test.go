@@ -64,6 +64,8 @@ const (
 	reviewLoopFindingLine   = "security-1 (security): claim: the claim; citation: a.go:1; location: a.go; evidence: the evidence; reason: a reason"
 	reviewLoopRoundOneCause = "ledger round 1: open findings to correct\n" + reviewLoopFindingLine
 	reviewLoopRoundTwoCause = "ledger round 2: open findings to correct\n" + reviewLoopFindingLine
+	reviewLoopGapCause      = "ledger round 1: no open findings; gaps to reconcile\n" +
+		"gap reviewer:security: reviewer security: reviewer 1 gave no verdict twice: failed: " + reviewLoopGapFailure
 )
 
 // The returns the test steps keep: a reviewer's gate return with one finding, a verifier's return confirming it, and a
@@ -516,7 +518,7 @@ func TestReviewLoopCostlyReviewerEndsWithGap(t *testing.T) {
 		t.Errorf("verdicts = %+v, want %+v", got.review.Verdicts, want)
 	}
 	reviewLoopWantStarts(t, got, []string{"security", "security", "tests"})
-	reviewLoopWantCauses(t, got, []string{reviewLoopCreatedCause, reviewLoopEmptyCause})
+	reviewLoopWantCauses(t, got, []string{reviewLoopCreatedCause, reviewLoopGapCause})
 	reviewLoopWantEnd(t, got, "ended_with_gaps",
 		kinds.EndingBody("ended_with_gaps", []string{"reviewer security: " + reason}, nil))
 }

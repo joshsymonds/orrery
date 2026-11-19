@@ -190,7 +190,7 @@ func TestLedgerCause(t *testing.T) {
 	openInRound1 := closureFinding(2, "confirmed", store.Closure{Finding: "security-2", Round: 1, Result: "open"})
 	openInRound1.Reason = "the claim holds"
 	undeterminedInRound1 := closureFinding(3, "confirmed",
-		store.Closure{Finding: "security-3", Round: 1, Result: "undetermined"})
+		store.Closure{Finding: "security-3", Round: 1, Result: "undetermined", Reason: "cannot tell"})
 
 	tests := []struct {
 		name   string
@@ -199,19 +199,20 @@ func TestLedgerCause(t *testing.T) {
 		want   string
 	}{
 		{
-			name:  "round 1 with no ledger names nothing to correct",
-			round: 1,
-			want:  "ledger round 1: no confirmed findings; nothing to correct",
+			name:   "round 1 with no ledger names nothing to correct",
+			review: store.Review{Frozen: testRev},
+			round:  1,
+			want:   "ledger round 1: no confirmed findings; nothing to correct",
 		},
 		{
 			name:   "round 1 with only dropped findings names nothing to correct",
-			review: store.Review{Ledger: []store.LedgerFinding{closureFinding(1, "dropped")}},
+			review: store.Review{Frozen: testRev, Ledger: []store.LedgerFinding{closureFinding(1, "dropped")}},
 			round:  1,
 			want:   "ledger round 1: no confirmed findings; nothing to correct",
 		},
 		{
 			name: "round 1 lists each confirmed finding with its fields",
-			review: store.Review{Ledger: []store.LedgerFinding{
+			review: store.Review{Frozen: testRev, Ledger: []store.LedgerFinding{
 				confirmed, closureFinding(2, "dropped"), unverified,
 			}},
 			round: 1,
@@ -223,17 +224,18 @@ func TestLedgerCause(t *testing.T) {
 		},
 		{
 			name: "round 2 lists only what round 1 left open",
-			review: store.Review{Ledger: []store.LedgerFinding{
+			review: store.Review{Frozen: testRev, Ledger: []store.LedgerFinding{
 				closedInRound1, openInRound1, undeterminedInRound1,
 			}},
 			round: 2,
 			want: "ledger round 2: open findings to correct\n" +
 				"security-2 (security): claim: claim 2; citation: file2.go:2; location: file2.go; " +
-				"evidence: seen 2; reason: the claim holds",
+				"evidence: seen 2; reason: the claim holds\n" +
+				"gap closure:security-3:1: security-3: closure undetermined in round 1: cannot tell",
 		},
 		{
 			name:   "round 2 with nothing left open names nothing to correct",
-			review: store.Review{Ledger: []store.LedgerFinding{closedInRound1}},
+			review: store.Review{Frozen: testRev, Ledger: []store.LedgerFinding{closedInRound1}},
 			round:  2,
 			want:   "ledger round 2: no open findings; nothing to correct",
 		},

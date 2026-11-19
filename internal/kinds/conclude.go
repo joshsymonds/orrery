@@ -1,7 +1,6 @@
 package kinds
 
 import (
-	"cmp"
 	"fmt"
 	"slices"
 	"strings"
@@ -58,80 +57,53 @@ func decidedLines(decided []string) []string {
 	return lines
 }
 
-// Gaps returns the gaps of review in order: that no review ran, each reviewer's gap verdict in verdict order,
-// and then each ledger finding's gaps in ledger order. A finding gives its undetermined verifier, each undetermined
-// closure in round order, and, when it is confirmed and still open after every round, the number of rounds it stayed
-// open.
+// Gaps returns the reasons of the gaps of review that GapList lists before the task gaps, in GapList's order: that no
+// review ran, each reviewer's gap verdict, and then each ledger finding's undetermined verifier, undetermined closures
+// and, when it is still open after every round, the rounds it stayed open.
 func Gaps(review store.Review) []string {
-	var gaps []string
-	if review.Frozen == "" {
-		gaps = append(gaps, "no review ran")
-	}
-	for _, verdict := range review.Verdicts {
-		if verdict.Verdict == reviewVerdictGap {
-			gaps = append(gaps, fmt.Sprintf("reviewer %s: %s", verdict.Reviewer, verdict.Reason))
-		}
-	}
-	open := OpenFindings(review, int64(len(review.Rounds))+1)
-	for _, finding := range review.Ledger {
-		if finding.Result == reviewResultUndetermined {
-			gaps = append(gaps, fmt.Sprintf("%s: verifier undetermined: %s", finding.ID, finding.Reason))
-		}
-		for _, closure := range finding.Closures {
-			if closure.Result == reviewResultUndetermined {
-				gaps = append(gaps, fmt.Sprintf(
-					"%s: closure undetermined in round %d: %s", finding.ID, closure.Round, closure.Reason,
-				))
-			}
-		}
-		isOpen := func(candidate store.LedgerFinding) bool { return candidate.ID == finding.ID }
-		if slices.ContainsFunc(open, isOpen) {
-			gaps = append(gaps, fmt.Sprintf("%s: open after %d rounds", finding.ID, len(review.Rounds)))
-		}
-	}
-	return gaps
+	return gapReasons(reviewGaps(review))
 }
 
-// TaskGaps returns a line for each task whose status is taskGap, in seq order: the task's seq, the Requirements it holds,
-// and its failure. It returns nil when no task is a gap.
+// TaskGaps returns the reasons of the task gaps GapList lists, in seq order: each task whose status is taskGap, with
+// the Requirements it holds and its failure. It returns nil when no task is a gap.
 func TaskGaps(tasks []store.EpicTask) []string {
-	var gapped []store.EpicTask
-	for i := range tasks {
-		if tasks[i].Status == taskGap {
-			gapped = append(gapped, tasks[i])
-		}
-	}
-	if len(gapped) == 0 {
-		return nil
-	}
-	slices.SortFunc(gapped, func(a, b store.EpicTask) int { return cmp.Compare(a.Seq, b.Seq) })
-	lines := make([]string, 0, len(gapped))
-	for _, task := range gapped {
-		lines = append(lines, fmt.Sprintf(
-			"T%d ended as a gap holding %s: %s", task.Seq, strings.Join(task.Requirements, ", "), task.Build.Failure,
-		))
-	}
-	return lines
+	return gapReasons(taskGaps(tasks))
 }
 
 // LedgerCause returns the cause the ledger trigger of a correction round gives the planner. Its first line names the
-// round. Each line after it is an open finding the round corrects, with its fields. Round 1 with no open finding says
-// that no finding was confirmed; a later round with none says that none is open.
+// round. Each line after it is an open finding the round corrects, with its fields. Then each review gap of GapList
+// that is not an open one follows as `gap <key>: <reason>`. A round with no open finding but a gap says that the gaps
+// are to reconcile. A round with neither says that no finding was confirmed in round 1, and that none is open in a
+// later round.
 func LedgerCause(review store.Review, round int64) string {
 	open := OpenFindings(review, round)
-	if len(open) == 0 {
+	var gaps []Gap
+	for _, gap := range GapList(review, nil) {
+		if !strings.HasPrefix(gap.Key, "open:") {
+			gaps = append(gaps, gap)
+		}
+	}
+	if len(open) == 0 && len(gaps) == 0 {
 		if round == 1 {
 			return "ledger round 1: no confirmed findings; nothing to correct"
 		}
 		return fmt.Sprintf("ledger round %d: no open findings; nothing to correct", round)
 	}
-	lines := []string{fmt.Sprintf("ledger round %d: open findings to correct", round)}
-	for _, finding := range open {
-		lines = append(lines, fmt.Sprintf(
-			"%s (%s): claim: %s; citation: %s; location: %s; evidence: %s; reason: %s",
-			finding.ID, finding.Reviewer, finding.Claim, finding.Citation, finding.Location, finding.Evidence,
-			finding.Reason,
-		))
+	var lines []string
+	if len(open) == 0 {
+		lines = []string{fmt.Sprintf("ledger round %d: no open findings; gaps to reconcile", round)}
+	} else {
+		lines = []string{fmt.Sprintf("ledger round %d: open findings to correct", round)}
+		for _, finding := range open {
+			lines = append(lines, fmt.Sprintf(
+				"%s (%s): claim: %s; citation: %s; location: %s; evidence: %s; reason: %s",
+				finding.ID, finding.Reviewer, finding.Claim, finding.Citation, finding.Location, finding.Evidence,
+				finding.Reason,
+			))
+		}
+	}
+	for _, gap := range gaps {
+		lines = append(lines, fmt.Sprintf("gap %s: %s", gap.Key, gap.Reason))
 	}
 	return strings.Join(lines, "\n")
 }
