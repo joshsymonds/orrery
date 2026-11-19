@@ -114,13 +114,14 @@ type NoticeSink interface {
 }
 
 // Store reads the engine rows Reconcile settles, the ids of the sessions holding unfinished text that Reconcile clears, the
-// rows Say resumes, checks and Seen marks, the prompts a re-adopted holder has not written and how many prompts were written
-// that no later turn end answers, the step rows Continue respawns from, the failure markers Say checks, the prompt
-// Withdraw names, by its prompt id, for its write id and text, and the prompts OwnerInterrupt reads for the texts of the
-// write ids Claude cancelled. *store.Store satisfies it.
+// ids of the quiet sessions that Reconcile holds (see readQuiet), the rows Say resumes, checks and Seen marks, the prompts
+// a re-adopted holder has not written and how many prompts were written that no later turn end answers, the step rows
+// Continue respawns from, the failure markers Say checks, the prompt Withdraw names, by its prompt id, for its write id and
+// text, and the prompts OwnerInterrupt reads for the texts of the write ids Claude cancelled. *store.Store satisfies it.
 type Store interface {
 	EngineSessions(ctx context.Context) ([]store.EngineRow, error)
 	EngineTextSessions(ctx context.Context) (map[string]bool, error)
+	QuietSessions(ctx context.Context) ([]string, error)
 	EngineSession(ctx context.Context, id string) (store.EngineRow, error)
 	HolderPrompts(ctx context.Context, id string) ([]store.HolderPrompt, error)
 	HolderPromptsUnanswered(ctx context.Context, id string) (int, error)
@@ -295,11 +296,16 @@ type Manager struct {
 	// and its slot still counts in stepsRunning until Stop, Release or a respawn takes it.
 	kept map[string]*liveSession
 	// quiet holds the ids of the sessions the owner's Interrupt left quiet, until the owner's next Say to each clears it.
-	// While an id is in it, no caller event starts a turn in that session or resumes it (see claimFree and admitEvent).
-	// It is kept apart from the live session, so a session the idle check stops stays quiet when it is resumed, and in
-	// memory only, so a restart of orreryd clears it.
-	quiet  map[string]struct{}
-	closed bool
+	// While an id is in it, no caller event starts a turn in that session or resumes it (see claimFree and admitEvent),
+	// and Reconcile does not resume it (see resumable). It is kept apart from the live session, so a session the idle
+	// check stops stays quiet when it is resumed. A restart restores it from the store's engine_interrupt events that no
+	// owner prompt follows, as Reconcile reads them (see readQuiet and Store.QuietSessions), so it stays quiet across a
+	// restart until its owner speaks.
+	quiet map[string]struct{}
+	// quietUnread is set while Reconcile runs after its read of the quiet sessions failed. Which sessions are quiet is then
+	// not known, so Reconcile resumes no row (see resumable).
+	quietUnread bool
+	closed      bool
 
 	// resumeMu serializes the resume of a session that is not live, so concurrent Says to one id start one process.
 	resumeMu sync.Mutex

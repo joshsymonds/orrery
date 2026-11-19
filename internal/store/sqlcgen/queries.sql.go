@@ -7603,6 +7603,43 @@ func (q *Queries) ListPutOffQuestions(ctx context.Context) ([]PutOffQuestion, er
 	return items, nil
 }
 
+const listQuietSessions = `-- name: ListQuietSessions :many
+SELECT sessions.id FROM sessions
+WHERE sessions.kind = 'engine' AND EXISTS (
+    SELECT 1 FROM events AS interrupts
+    WHERE interrupts.session_id = sessions.id AND interrupts.kind = 'engine_interrupt'
+      AND interrupts.seq > COALESCE((
+          SELECT MAX(owners.seq) FROM events AS owners
+          WHERE owners.session_id = sessions.id AND owners.kind = 'engine_prompt'
+            AND COALESCE(json_extract(owners.payload, '$.sender'), '') = 'owner'
+      ), 0)
+)
+ORDER BY sessions.id
+`
+
+func (q *Queries) ListQuietSessions(ctx context.Context) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listQuietSessions)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRecentEpicTurnStates = `-- name: ListRecentEpicTurnStates :many
 SELECT state FROM epic_turns
 WHERE epic = ?1 AND state <> 'free'
