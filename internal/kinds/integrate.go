@@ -241,7 +241,8 @@ func reproCheck(checks []store.NodeCheck, run store.NodeRun, id string) (store.N
 }
 
 // captureCauses returns a line for each capture that did not run or was not judged, and for each Requirement that was
-// green at the stored base and whose capture does not pass now. A carried capture is no cause (see carried).
+// green at the stored base and whose capture does not pass now. A regression also names the capture's exit, verdict and
+// the judge's reason when the capture has a verdict and a reason. A carried capture is no cause (see carried).
 func captureCauses(rows Rows, captured map[string]store.EvidenceRun) []string {
 	green := GreenAt(rows, rows.Epic.StoredBase)
 	var causes []string
@@ -254,9 +255,14 @@ func captureCauses(rows Rows, captured map[string]store.EvidenceRun) []string {
 			causes = append(causes, requirement.ID+" capture failed")
 		}
 		if green[requirement.ID] && !capture.Passed {
-			causes = append(causes, fmt.Sprintf(
+			regression := fmt.Sprintf(
 				"%s regressed from green at the stored base %s", requirement.ID, rows.Epic.StoredBase,
-			))
+			)
+			if capture.Verdict != "" && capture.JudgeReason != "" {
+				regression += fmt.Sprintf(": its capture exited %d and was judged %s: %s",
+					capture.Exit, capture.Verdict, capture.JudgeReason)
+			}
+			causes = append(causes, regression)
 		}
 	}
 	return causes
