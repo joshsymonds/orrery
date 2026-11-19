@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/taskspec"
 )
 
 //go:embed role.md
@@ -322,9 +323,10 @@ func followLines(follows []store.LabelFollow) []string {
 	return lines
 }
 
-// taskLines returns each task as `- Tseq [status] title`, then its deliverable, files, requirements, contributes,
-// test_changes, gate, and its evidence item as compact JSON, then the guard's last refusal of its build when there is
-// one. A failed task is followed by failedLines.
+// taskLines returns each task as `- Tseq [status] title`, then the lines taskspec.Lines gives for its spec version,
+// each indented two spaces, when the task's current version is past version 1, then its deliverable, files,
+// requirements, contributes, test_changes, gate, and its evidence item as compact JSON, then the guard's last refusal
+// of its build when there is one. A failed task is followed by failedLines.
 func taskLines(tasks []store.EpicTask) ([]string, error) {
 	lines := make([]string, 0, 8*len(tasks))
 	for _, task := range tasks {
@@ -332,8 +334,11 @@ func taskLines(tasks []store.EpicTask) ([]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("encode evidence of T%d: %w", task.Seq, err)
 		}
+		lines = append(lines, fmt.Sprintf("- T%d [%s] %s", task.Seq, task.Status, task.Title))
+		for _, line := range taskspec.Lines(task) {
+			lines = append(lines, "  "+line)
+		}
 		lines = append(lines,
-			fmt.Sprintf("- T%d [%s] %s", task.Seq, task.Status, task.Title),
 			"  deliverable: "+task.Deliverable,
 			"  files: "+strings.Join(task.Files, ", "),
 			"  requirements: "+strings.Join(task.Requirements, ", "),

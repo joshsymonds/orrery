@@ -154,7 +154,7 @@ func TestOrchestratePassAfterARestartFindsTheStepByItsDerivedID(t *testing.T) {
 		t.Fatalf("ReadoptCheck nil = %v, error %v, want the orchestrator's check", check == nil, err)
 	}
 	got := check(
-		json.RawMessage(orchReturn(t, map[string]any{"decision": "rerun", "note": "n", "after_tasks": []int64{1}})),
+		json.RawMessage(orchReturn(t, map[string]any{"decision": "rerun", "after_tasks": []int64{1}})),
 	)
 	if want := []string{"after_tasks[0]: T1 is this task"}; !slices.Equal(got, want) {
 		t.Errorf("restored check = %q, want %q", got, want)
@@ -169,13 +169,21 @@ func TestOrchestratePassAfterARestartFindsTheStepByItsDerivedID(t *testing.T) {
 func TestOrchestratePassRerunRecordsTheDecisionAndRerunsTheImplementerWithTheNote(t *testing.T) {
 	t.Parallel()
 	f := newRequestFixture(t)
-	const note = "Your work in this worktree is kept. thing.go:3 already names the field; use it and return done."
-	f.endOrchestrator(orchID(0, 0), orchReturn(t, map[string]any{"decision": "rerun", "note": note}))
+	const deliverable = "Thing holds: thing.go:3 already names the field; use it and return done."
+	f.endOrchestrator(orchID(0, 0), orchReturn(t, map[string]any{
+		"decision": "rerun", "version": versionWith(map[string]any{
+			"changed": []string{"deliverable"}, "deliverable": deliverable,
+		}),
+	}))
 	f.pass()
 	build := f.task().Build
 	if build.Stage != StageImplement || build.Rerun != 1 || build.Attempt != 1 || build.Decisions != 1 ||
-		build.Failure != note {
-		t.Fatalf("build = %+v, want implement at attempt 1, rerun 1, one decision, the note as failure", build)
+		build.Failure != "returned blocked: the spec does not say which field" {
+		t.Fatalf("build = %+v, want implement at attempt 1, rerun 1, one decision, orreryd's failure", build)
+	}
+	if task := f.task(); task.Deliverable != deliverable || task.Version != 2 {
+		t.Errorf("task deliverable %q at version %d, want the version's deliverable at version 2",
+			task.Deliverable, task.Version)
 	}
 	decisions := f.epic().Decisions
 	if len(decisions) == 0 || decisions[len(decisions)-1].ID != "T1-request-1" ||
@@ -183,8 +191,8 @@ func TestOrchestratePassRerunRecordsTheDecisionAndRerunsTheImplementerWithTheNot
 		t.Fatalf("epic decisions = %+v, want T1-request-1 recording the rerun", decisions)
 	}
 	start := f.lastStart()
-	if start.ID != passStep(StageImplement, 1, 1) || !strings.Contains(start.Prompt, note) {
-		t.Fatalf("start %s, want the implementer at rerun 1 with the note in its brief", start.ID)
+	if start.ID != passStep(StageImplement, 1, 1) || !strings.Contains(start.Prompt, deliverable) {
+		t.Fatalf("start %s, want the implementer at rerun 1 with the version's deliverable in its brief", start.ID)
 	}
 }
 
@@ -268,7 +276,7 @@ func TestOrchestratePassBoundsDecisionsAtThree(t *testing.T) {
 	f := newRequestFixture(t)
 	for decision := range int64(decisionLimit) {
 		f.endOrchestrator(orchID(decision, decision), orchReturn(t, map[string]any{
-			"decision": "rerun", "note": "try again " + decimal(decision),
+			"decision": "rerun",
 		}))
 		f.pass()
 		f.returnRequest(decision+1, "blocked", "still stuck")
@@ -288,7 +296,7 @@ func TestOrchestratePassGrantsAFreeFile(t *testing.T) {
 	t.Parallel()
 	f := newRequestFixture(t)
 	f.endOrchestrator(orchID(0, 0), orchReturn(t, map[string]any{
-		"decision": "grant", "note": "b.go is yours now", "files": []string{"internal/b.go"},
+		"decision": "grant", "version": filesVersion("internal/b.go"),
 	}))
 	f.pass()
 	task := f.task()
@@ -334,7 +342,7 @@ func TestOrchestratePassGrantsAnOwnedFileBehindItsOwnerAndWaits(t *testing.T) {
 			start.Prompt)
 	}
 	f.endOrchestrator(orchID(0, 0), orchReturn(t, map[string]any{
-		"decision": "grant", "note": "a.go is yours once T2 lands", "files": []string{file},
+		"decision": "grant", "version": filesVersion(file),
 		"after_tasks": []int64{2},
 	}))
 	f.runner.PassTasks(f.ctx, passEpic, []int64{1})
@@ -358,7 +366,7 @@ func TestOrchestratePassGrantRefusedByTheStoreSettlesAsBefore(t *testing.T) {
 	// The step's check saw T2 as accepted and pending, and T2 opened again before the decision was carried out: the
 	// store refuses the grant of its file, since after_tasks does not name it.
 	peers := []Peer{{Task: f.task()}}
-	ret := orchReturn(t, map[string]any{"decision": "grant", "note": "n", "files": []string{"internal/c.go", file}})
+	ret := orchReturn(t, map[string]any{"decision": "grant", "version": filesVersion("internal/c.go", file)})
 	if got := OrchestratorCheck(f.task(), peers)(json.RawMessage(ret)); len(got) != 0 {
 		t.Fatalf("check with T2 unseen = %q, want none", got)
 	}
@@ -454,7 +462,7 @@ func TestOrchestratePassWaitingTaskMovesOntoTheNewBaseOnceItsTaskIsIntegrated(t 
 	worktree := ImplementWorktree(f.stateDir, passEpic, 1)
 	writeFile(t, filepath.Join(worktree, "thing.go"), "package thing // kept\n")
 	f.endOrchestrator(orchID(0, 0), orchReturn(t, map[string]any{
-		"decision": "rerun", "note": "T2 adds the field; use it", "after_tasks": []int64{2},
+		"decision": "rerun", "after_tasks": []int64{2},
 	}))
 	first := []int64{1}
 	f.runner.PassTasks(f.ctx, passEpic, first)
@@ -494,7 +502,7 @@ func TestOrchestratePassWaitingTaskWhoseMoveFailsFailsWithTheReason(t *testing.T
 	writeFile(t, filepath.Join(worktree, file), "package mine\n")
 	buildRun(t, worktree, "add", file)
 	f.endOrchestrator(orchID(0, 0), orchReturn(t, map[string]any{
-		"decision": "rerun", "note": "wait for T2", "after_tasks": []int64{2},
+		"decision": "rerun", "after_tasks": []int64{2},
 	}))
 	f.runner.PassTasks(f.ctx, passEpic, []int64{1})
 	newBase := commitOff(t, f.repo, f.base, file, "package other\n")

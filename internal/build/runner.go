@@ -217,8 +217,8 @@ func (r *Runner) park(ctx context.Context, epic, reason string) error {
 
 // view returns the View of task, which is open in epic, with the epic's branch at tip and the epic's candidate. It
 // reads the evidence run or step of the task's current unit by its derived id, and the reproduction check of a test
-// item's green unit. The run is kept only while its spec is current with the task's evidence item, as the store reads
-// a task's runs, so a run whose item has changed reads missing. It also counts the earlier reruns of a red or green
+// item's green unit. The run is kept only while its spec is current with runItemOf(task), so a run whose item has
+// changed reads missing. It also counts the earlier reruns of a red or green
 // unit that exited store.EnvironmentExit in a row, so Decide knows how many runs of the unit have done so. For an
 // ended implementer step it reads the HEAD of the workspace the step's row records, which is the worktree the step ran
 // in whatever path that has, and when the step's refs snapshot is set, the ref moves since it. It reads what a request
@@ -257,7 +257,7 @@ func (r *Runner) readUnit(ctx context.Context, epic store.EpicRow, task store.Ep
 		if err != nil {
 			return err
 		}
-		if ok && evidence.Current(run.Spec, task.Evidence) {
+		if ok && evidence.Current(run.Spec, runItemOf(task)) {
 			view.Run = &run
 		}
 	}
@@ -353,6 +353,15 @@ func noVerify(epic store.EpicRow, task store.EpicTask) bool {
 	return pos >= 0 && pos < int64(len(stage)) && !stage[pos].Verify
 }
 
+// runItemOf returns the evidence item the runs of task's current unit are held to: the item of its checking version
+// while it has one, since its red run judges that version, and otherwise the task's evidence item.
+func runItemOf(task store.EpicTask) evidence.Item {
+	if version, ok := task.Checking(); ok && version.Evidence != nil {
+		return *version.Evidence
+	}
+	return task.Evidence
+}
+
 // unitIDs returns the derived ids of the evidence run and of the step of the unit build is on. A red or green unit has
 // a run and no step, a review or verify unit a step and no run, and an implement unit a step. An orchestrate unit's
 // step counts the decisions made on the task where a review step has its gate position. A unit a build is not on
@@ -360,7 +369,7 @@ func noVerify(epic store.EpicRow, task store.EpicTask) bool {
 func unitIDs(epic string, seq int64, build store.TaskBuild) (string, string) {
 	switch build.Stage {
 	case StageRed:
-		return RunID(epic, seq, StageRed, 0, build.Rerun), ""
+		return RunID(epic, seq, StageRed, build.Attempt, build.Rerun), ""
 	case StageGreen:
 		return RunID(epic, seq, StageGreen, build.Attempt, build.Rerun), ""
 	case StageImplement:
@@ -464,7 +473,7 @@ func (r *Runner) environmentAt(
 	if err != nil {
 		return false, err
 	}
-	return ok && evidence.Current(run.Spec, task.Evidence) && run.NotCaptured == store.NotCapturedEnvironment, nil
+	return ok && evidence.Current(run.Spec, runItemOf(task)) && run.NotCaptured == store.NotCapturedEnvironment, nil
 }
 
 // head returns the commit HEAD names in the worktree at dir. A worktree that cannot be read has no head: the error is

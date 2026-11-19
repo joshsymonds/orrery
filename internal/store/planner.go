@@ -77,6 +77,11 @@ type EpicTask struct {
 	Green        *EvidenceRun
 	Batch        string
 	NeedsFiles   []string
+	// Version is the number of the task's current version: its highest applied version, or 1 when none is applied. The
+	// Deliverable, TestChanges, Gate and Evidence above are the current version's.
+	Version int64
+	// Versions are every version stored for the task, applied, checking or refused, in version order.
+	Versions []TaskVersion
 }
 
 // EpicQuestion is one question a planner turn asked, with its state. Turn is the seq of the turn that asked it. Label,
@@ -233,9 +238,17 @@ func loadPlanSections(ctx context.Context, queries *sqlcgen.Queries, row *EpicRo
 	testChangesOf := groupByTask(testChanges, func(change sqlcgen.EpicTaskTestChange) int64 { return change.Task },
 		func(change sqlcgen.EpicTaskTestChange) string { return change.Path })
 	reviewsOf := taskReviewsOf(reviews, findings)
+	versions, err := queries.ListEpicTaskVersions(ctx, row.ID)
+	if err != nil {
+		return fmt.Errorf("list task versions: %w", err)
+	}
+	versionsOf, err := taskVersionsOf(versions)
+	if err != nil {
+		return fmt.Errorf("task versions: %w", err)
+	}
 	row.Tasks, err = convertInOrder(tasks, func(task sqlcgen.EpicTask) (EpicTask, error) {
 		return taskOf(ctx, queries, task, pathsOf[task.Seq], requirementsOf[task.Seq], contributesOf[task.Seq],
-			testChangesOf[task.Seq], reviewsOf[task.Seq])
+			testChangesOf[task.Seq], reviewsOf[task.Seq], versionsOf[task.Seq])
 	})
 	if err != nil {
 		return fmt.Errorf("tasks: %w", err)
@@ -267,14 +280,17 @@ func groupByTask[R any](rows []R, task func(R) int64, value func(R) string) map[
 }
 
 // taskOf returns the task a stored row holds, with the files, Requirements, contributions and reviews stored under it,
-// its evidence item decoded, its build state, and the evidence runs its build names as red and green, each kept only
-// while its spec is current with the evidence item.
+// its build state, and the evidence runs its build names as red and green. Its Deliverable, TestChanges, Gate and
+// Evidence are the stored row's, overlaid with each applied version in version order, so they are the current version's
+// and Version is that version's number. Versions lists every stored version, and a checking or refused one is never
+// overlaid. Each run is kept only while its spec is current with the task's evidence item.
 func taskOf(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
 	stored sqlcgen.EpicTask,
 	files, requirements, contributes, testChanges []string,
 	reviews []TaskReview,
+	versions []TaskVersion,
 ) (EpicTask, error) {
 	item, err := decodeItem(stored.Evidence)
 	if err != nil {
@@ -289,14 +305,15 @@ func taskOf(
 		Files: files, Requirements: requirements, Contributes: contributes, TestChanges: testChanges,
 		Gate: stored.Gate, Evidence: item,
 		Status: stored.Status, Build: buildOf(stored), Reviews: reviews, Batch: stored.Batch,
-		NeedsFiles: needsFiles,
+		NeedsFiles: needsFiles, Version: 1, Versions: versions,
 	}
+	overlayVersions(&task)
 	if task.Build.RedRun != "" {
 		run, runErr := taskRunOf(ctx, queries, task.Build.RedRun)
 		if runErr != nil {
 			return EpicTask{}, fmt.Errorf("task %d red run: %w", stored.Seq, runErr)
 		}
-		if evidence.Current(run.Spec, item) {
+		if evidence.Current(run.Spec, task.Evidence) {
 			task.Red = &run
 		}
 	}
@@ -305,11 +322,35 @@ func taskOf(
 		if runErr != nil {
 			return EpicTask{}, fmt.Errorf("task %d green run: %w", stored.Seq, runErr)
 		}
-		if evidence.Current(run.Spec, item) {
+		if evidence.Current(run.Spec, task.Evidence) {
 			task.Green = &run
 		}
 	}
 	return task, nil
+}
+
+// overlayVersions sets the Deliverable, TestChanges, Gate and Evidence of task to those of each applied version in its
+// Versions, in version order, and its Version to the number of the last one. A checking or refused version is not
+// overlaid.
+func overlayVersions(task *EpicTask) {
+	for _, version := range task.Versions {
+		if version.State != VersionApplied {
+			continue
+		}
+		task.Version = version.Version
+		if version.Deliverable != nil {
+			task.Deliverable = *version.Deliverable
+		}
+		if version.TestChanges != nil {
+			task.TestChanges = *version.TestChanges
+		}
+		if version.Gate != nil {
+			task.Gate = *version.Gate
+		}
+		if version.Evidence != nil {
+			task.Evidence = *version.Evidence
+		}
+	}
 }
 
 // taskRunOf returns the evidence run with id. The id names a run that must be stored: its absence is an error.

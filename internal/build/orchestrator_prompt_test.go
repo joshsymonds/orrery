@@ -76,7 +76,9 @@ func TestHistoryOfListsEachDecisionAndWhatCameBack(t *testing.T) {
 	rows := []store.StepRow{
 		{ID: "i0", Schema: ImplementerSchema, End: endReturned, Status: "blocked", Result: `{"summary":"first"}`},
 		{ID: "o0", Schema: OrchestratorSchema, End: endDone, Result: orchReturn(t, map[string]any{
-			"decision": "rerun", "note": "read b.go:3",
+			"decision": "rerun", "version": versionWith(map[string]any{
+				"changed": []string{"deliverable", "gate"}, "deliverable": "read b.go:3", "gate": "check",
+			}),
 		})},
 		{ID: "i1", Schema: ImplementerSchema, End: endReturned, Status: "blocked", Result: `{"summary":"again"}`},
 		{ID: "o1", Schema: OrchestratorSchema, End: endDone, Result: orchReturn(t, map[string]any{
@@ -84,13 +86,23 @@ func TestHistoryOfListsEachDecisionAndWhatCameBack(t *testing.T) {
 		})},
 		{ID: "o2", Schema: OrchestratorSchema, End: "failed"},
 		{ID: "o3", Schema: OrchestratorSchema},
+		{ID: "o4", Schema: OrchestratorSchema, End: endDone, Result: orchReturn(t, map[string]any{
+			"decision": "grant", "version": filesVersion("b.go"),
+		})},
+		{ID: "o5", Schema: OrchestratorSchema, End: endDone, Result: orchReturn(t, map[string]any{
+			"decision": "rerun",
+		})},
 	}
 	want := []string{
-		"- T1 rerun: the code says so", "  note: read b.go:3",
+		"- T1 rerun: the code says so", "  version: changes deliverable, gate",
 		"  then: the implementer ended returned, returning blocked: again",
 		"- T1 ask (contract-cannot-hold): the code says so", "  question: R1's capture exits 2 as written",
 		"  then: no implementer run since",
 		"- o2: no decision (failed)",
+		"- T1 grant b.go: the code says so", "  version: changes files",
+		"  then: no implementer run since",
+		"- T1 rerun: the code says so", "  version: changes nothing",
+		"  then: no implementer run since",
 		"Decisions left before orreryd settles the request without one: 1",
 	}
 	if got := historyOf(rows, task); !slices.Equal(got, want) {

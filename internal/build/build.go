@@ -92,26 +92,28 @@ type ActionKind string
 // Revision. ActFail, ActAccept, ActPause and ActPark end the task's build. ActReview stores a review and ActFinding a
 // finding's verification. ActGrant grants an implementer the files it asked for. ActDecide carries out an
 // orchestrator's rerun or grant, and ActAsk its question to the owner. ActResume moves a waiting build's worktree onto
-// Revision, the new base, before Next is stored.
+// Revision, the new base, before Next is stored. ActSettleVersion settles the checking version a red run judged, with
+// Settle, and moves the build to implement as Next.
 const (
-	ActNone      ActionKind = "none"
-	ActMove      ActionKind = "move"
-	ActGuard     ActionKind = "guard"
-	ActSnapshot  ActionKind = "snapshot"
-	ActRefs      ActionKind = "refs"
-	ActStartRun  ActionKind = "start_run"
-	ActStartStep ActionKind = "start_step"
-	ActRepro     ActionKind = "repro"
-	ActFail      ActionKind = "fail"
-	ActAccept    ActionKind = "accept"
-	ActPause     ActionKind = "pause"
-	ActPark      ActionKind = "park"
-	ActReview    ActionKind = "review"
-	ActFinding   ActionKind = "finding"
-	ActGrant     ActionKind = "grant"
-	ActDecide    ActionKind = "decide"
-	ActAsk       ActionKind = "ask"
-	ActResume    ActionKind = "resume"
+	ActNone          ActionKind = "none"
+	ActMove          ActionKind = "move"
+	ActGuard         ActionKind = "guard"
+	ActSnapshot      ActionKind = "snapshot"
+	ActRefs          ActionKind = "refs"
+	ActStartRun      ActionKind = "start_run"
+	ActStartStep     ActionKind = "start_step"
+	ActRepro         ActionKind = "repro"
+	ActFail          ActionKind = "fail"
+	ActAccept        ActionKind = "accept"
+	ActPause         ActionKind = "pause"
+	ActPark          ActionKind = "park"
+	ActReview        ActionKind = "review"
+	ActFinding       ActionKind = "finding"
+	ActGrant         ActionKind = "grant"
+	ActDecide        ActionKind = "decide"
+	ActAsk           ActionKind = "ask"
+	ActResume        ActionKind = "resume"
+	ActSettleVersion ActionKind = "settle_version"
 )
 
 // Action is one thing a pass does for a task. Next is the build the task moves to. Reason is what a fail or a park
@@ -120,8 +122,11 @@ const (
 // run or step to start, Revision the revision it runs at, and Unit the step's unit. Review and Finding are what a
 // review or finding action stores, and Tells are the texts the owner is told. Decision is the epic decision that
 // records an orchestrator's decision, written with the action. Behind is the tasks a decided build waits for, whose
-// ownership of a granted file does not refuse it. Question is the owner question an ask opens, with Reason as the tell
-// that carries it. Fallback is what a decided grant does instead when the store refuses one of its files.
+// ownership of a granted file does not refuse it. Version is the task spec version a decided rerun or grant stores with
+// its decision: the files it adds to the task and the fields it changes. Question is the owner question an ask opens,
+// with Reason as the tell that carries it. Fallback is what a decided grant does instead when the store refuses one of
+// its files. Settle is how an ActSettleVersion settles the task's checking version: applied or refused, with the red
+// run that judged it and the refusal it was refused for.
 type Action struct {
 	Kind       ActionKind
 	Next       store.TaskBuild
@@ -136,8 +141,10 @@ type Action struct {
 	Tells      []string
 	Decision   *store.TaskDecision
 	Behind     []int64
+	Version    store.TaskVersionInput
 	Question   *store.EpicQuestionInput
 	Fallback   *Action
+	Settle     *store.TaskVersionSettle
 }
 
 // spend returns the action for a unit of the build that failed with failure. The first attempt moves the build to the
@@ -218,14 +225,21 @@ type Store interface {
 		ctx context.Context, epic string, seq int64, from store.TaskBuild, reason string, needsFiles []string,
 		decision store.TaskDecision, at time.Time,
 	) error
-	GrantTaskFiles(ctx context.Context, epic string, seq int64, from, to store.TaskBuild, files []string) error
+	GrantTaskFiles(
+		ctx context.Context, epic string, seq int64, from, to store.TaskBuild, grant store.TaskVersionInput,
+		at time.Time,
+	) error
 	RerunTask(
-		ctx context.Context, epic string, seq int64, from, to store.TaskBuild, files []string, behind []int64,
-		decision store.TaskDecision, at time.Time,
+		ctx context.Context, epic string, seq int64, from, to store.TaskBuild, version store.TaskVersionInput,
+		behind []int64, decision store.TaskDecision, at time.Time,
 	) error
 	AskTask(
 		ctx context.Context, epic string, seq int64, from, to store.TaskBuild, question store.EpicQuestionInput,
 		tell string, decision store.TaskDecision, at time.Time,
+	) error
+	SettleTaskVersion(
+		ctx context.Context, epic string, seq int64, from, to store.TaskBuild, settle store.TaskVersionSettle,
+		at time.Time,
 	) error
 	NodeRuns(ctx context.Context, epic string) ([]store.NodeRun, error)
 	LabelledSteps(ctx context.Context, epic, task string) ([]store.StepRow, error)

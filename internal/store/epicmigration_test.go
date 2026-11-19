@@ -62,7 +62,12 @@ func epicTableColumns() map[string][]string {
 		"epic_task_requirements": {"epic", "task", "position", "requirement"},
 		"epic_task_contributes":  {"epic", "task", "position", "requirement"},
 		"epic_task_test_changes": {"epic", "task", "position", "path"},
-		"epic_task_reviews":      {"epic", "task", "attempt", "position", "gate", "step", "verdict"},
+		// The task spec versions, from 00063_task_versions.sql.
+		"epic_task_versions": {
+			"epic", "task", "version", "source", "decision", "step", "reason", "deliverable", "files", "test_changes",
+			"gate", "evidence", "state", "red_run", "refusal", "created", "settled",
+		},
+		"epic_task_reviews": {"epic", "task", "attempt", "position", "gate", "step", "verdict"},
 		"epic_task_findings": {
 			"epic", "task", "attempt", "review", "position", "id", "claim", "citation", "location", "evidence",
 			"verify_by", "step", "result", "reason", "unverified",
@@ -526,11 +531,11 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00062_drop_engine_held.sql is the newest. The newest was
-	// 00061_prompt_states.sql before the drop of engine_held added 00062, and 00060_cron_jobs.sql before the prompt
-	// states added 00061.
-	if version != 62 {
-		t.Fatalf("store version after Open = %d, want 62", version)
+	// Open applies 00014_epics.sql and every migration after it: 00063_task_versions.sql is the newest. The newest was
+	// 00062_drop_engine_held.sql before the task versions added 00063, 00061_prompt_states.sql before the drop of
+	// engine_held added 00062, and 00060_cron_jobs.sql before the prompt states added 00061.
+	if version != 63 {
+		t.Fatalf("store version after Open = %d, want 63", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and
@@ -732,7 +737,7 @@ func TestEpicTaskStoredAtVersion16MigratesCheckToEvidence(t *testing.T) {
 	}
 	want := []EpicTask{{
 		Seq: 1, Turn: 1, Title: "Build it", Deliverable: "the migration", Status: "open",
-		Evidence: evidence.Item{Conclusion: "go test ./x"},
+		Evidence: evidence.Item{Conclusion: "go test ./x"}, Version: 1,
 	}}
 	if !reflect.DeepEqual(got.Tasks, want) {
 		t.Errorf("tasks stored at version 16 = %+v, want %+v", got.Tasks, want)

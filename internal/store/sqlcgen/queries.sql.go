@@ -2942,6 +2942,52 @@ func (q *Queries) InsertEpicTaskTestChange(ctx context.Context, arg InsertEpicTa
 	return err
 }
 
+const insertEpicTaskVersion = `-- name: InsertEpicTaskVersion :exec
+INSERT INTO epic_task_versions (
+    epic, task, version, source, decision, step, reason, deliverable, files, test_changes, gate, evidence,
+    state, created, settled
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type InsertEpicTaskVersionParams struct {
+	Epic        string
+	Task        int64
+	Version     int64
+	Source      string
+	Decision    string
+	Step        string
+	Reason      string
+	Deliverable sql.NullString
+	Files       sql.NullString
+	TestChanges sql.NullString
+	Gate        sql.NullString
+	Evidence    sql.NullString
+	State       string
+	Created     int64
+	Settled     int64
+}
+
+func (q *Queries) InsertEpicTaskVersion(ctx context.Context, arg InsertEpicTaskVersionParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicTaskVersion,
+		arg.Epic,
+		arg.Task,
+		arg.Version,
+		arg.Source,
+		arg.Decision,
+		arg.Step,
+		arg.Reason,
+		arg.Deliverable,
+		arg.Files,
+		arg.TestChanges,
+		arg.Gate,
+		arg.Evidence,
+		arg.State,
+		arg.Created,
+		arg.Settled,
+	)
+	return err
+}
+
 const insertEpicTell = `-- name: InsertEpicTell :exec
 INSERT INTO epic_tells (epic, seq, text, at, told) VALUES (?, ?, ?, ?, 0)
 `
@@ -5099,6 +5145,51 @@ func (q *Queries) ListEpicTaskTestChanges(ctx context.Context, epic string) ([]E
 			&i.Task,
 			&i.Position,
 			&i.Path,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEpicTaskVersions = `-- name: ListEpicTaskVersions :many
+SELECT epic, task, version, source, decision, step, reason, deliverable, files, test_changes, gate, evidence, state, red_run, refusal, created, settled FROM epic_task_versions WHERE epic = ? ORDER BY task, version
+`
+
+func (q *Queries) ListEpicTaskVersions(ctx context.Context, epic string) ([]EpicTaskVersion, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicTaskVersions, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicTaskVersion
+	for rows.Next() {
+		var i EpicTaskVersion
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Task,
+			&i.Version,
+			&i.Source,
+			&i.Decision,
+			&i.Step,
+			&i.Reason,
+			&i.Deliverable,
+			&i.Files,
+			&i.TestChanges,
+			&i.Gate,
+			&i.Evidence,
+			&i.State,
+			&i.RedRun,
+			&i.Refusal,
+			&i.Created,
+			&i.Settled,
 		); err != nil {
 			return nil, err
 		}
@@ -7492,6 +7583,22 @@ func (q *Queries) MaxEpicTaskSeq(ctx context.Context, epic string) (int64, error
 	return column_1, err
 }
 
+const maxEpicTaskVersion = `-- name: MaxEpicTaskVersion :one
+SELECT CAST(COALESCE(MAX(version), 1) AS INTEGER) FROM epic_task_versions WHERE epic = ? AND task = ?
+`
+
+type MaxEpicTaskVersionParams struct {
+	Epic string
+	Task int64
+}
+
+func (q *Queries) MaxEpicTaskVersion(ctx context.Context, arg MaxEpicTaskVersionParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, maxEpicTaskVersion, arg.Epic, arg.Task)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const maxEpicTellSeq = `-- name: MaxEpicTellSeq :one
 SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_tells WHERE epic = ?
 `
@@ -8684,6 +8791,37 @@ type SetSessionTitleParams struct {
 func (q *Queries) SetSessionTitle(ctx context.Context, arg SetSessionTitleParams) error {
 	_, err := q.db.ExecContext(ctx, setSessionTitle, arg.Title, arg.ID)
 	return err
+}
+
+const settleEpicTaskVersion = `-- name: SettleEpicTaskVersion :execrows
+UPDATE epic_task_versions SET state = ?, red_run = ?, refusal = ?, settled = ?
+WHERE epic = ? AND task = ? AND version = ? AND state = 'checking'
+`
+
+type SettleEpicTaskVersionParams struct {
+	State   string
+	RedRun  string
+	Refusal string
+	Settled int64
+	Epic    string
+	Task    int64
+	Version int64
+}
+
+func (q *Queries) SettleEpicTaskVersion(ctx context.Context, arg SettleEpicTaskVersionParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, settleEpicTaskVersion,
+		arg.State,
+		arg.RedRun,
+		arg.Refusal,
+		arg.Settled,
+		arg.Epic,
+		arg.Task,
+		arg.Version,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const startEpicRelease = `-- name: StartEpicRelease :exec

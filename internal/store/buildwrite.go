@@ -86,76 +86,74 @@ func (e FileOwnedError) Error() string {
 	return fmt.Sprintf("%s is owned by open task T%d", e.File, e.Task)
 }
 
-// GrantTaskFiles adds files, in order, after the files of task seq of epic and stores to as its build, in one write,
-// when its stored build is from. A file another open task of the epic owns is a FileOwnedError and writes nothing. A
-// task that is not open, or whose stored build is not from, is ErrTaskMoved and writes nothing.
-func (s *Store) GrantTaskFiles(ctx context.Context, epic string, seq int64, from, to TaskBuild, files []string) error {
+// GrantTaskFiles adds the files of grant, in order, after the files of task seq of epic and stores to as its build,
+// and stores grant as the task's next version, in one write, when its stored build is from. The version mints no epic
+// decision. A file another open task of the epic owns is a FileOwnedError and writes nothing. A task that is not open,
+// or whose stored build is not from, is ErrTaskMoved and writes nothing.
+func (s *Store) GrantTaskFiles(
+	ctx context.Context,
+	epic string,
+	seq int64,
+	from, to TaskBuild,
+	grant TaskVersionInput,
+	at time.Time,
+) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		return grantFiles(ctx, queries, epic, seq, from, to, files, nil)
+		return grantFiles(ctx, queries, epic, seq, from, to, grant, nil, "", at)
 	})
 }
 
-// grantFiles adds files, in order, after the files of task seq of epic and stores to as its build, in the caller's
-// write, when its stored build is from. A file an open task of the epic other than seq owns is a FileOwnedError,
-// unless that task is among behind.
+// grantFiles adds the files of grant after the files of task seq of epic, stores to as its build, and stores grant as
+// the task's next version applied by decision, in the caller's write, when its stored build is from. A file an open
+// task of the epic other than seq owns is a FileOwnedError, unless that task is among behind.
 func grantFiles(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
 	epic string,
 	seq int64,
 	from, to TaskBuild,
-	files []string,
+	grant TaskVersionInput,
 	behind []int64,
+	decision string,
+	at time.Time,
 ) error {
-	next, err := grantPosition(ctx, queries, epic, seq, files, behind)
-	if err != nil {
+	if err := checkFileOwners(ctx, queries, epic, seq, grant.Files, behind); err != nil {
 		return err
 	}
 	if moveErr := moveTask(ctx, queries, epic, seq, from, to); moveErr != nil {
 		return moveErr
 	}
-	for i, file := range files {
-		if insertErr := queries.InsertEpicTaskFile(ctx, sqlcgen.InsertEpicTaskFileParams{
-			Epic: epic, Task: seq, Position: next + int64(i), Path: file,
-		}); insertErr != nil {
-			return fmt.Errorf("grant file %s to task %d of epic %s: %w", file, seq, epic, insertErr)
-		}
-	}
-	return nil
+	return appendTaskVersion(ctx, queries, epic, seq, decision, grant, at)
 }
 
-// grantPosition returns the position after the last file of task seq of epic, where granted files go. A file in files
-// that another open task of the epic owns is a FileOwnedError, unless that task is among behind.
-func grantPosition(
+// checkFileOwners refuses a file in files that an open task of the epic other than seq owns, unless that task is among
+// behind, as a FileOwnedError.
+func checkFileOwners(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
 	epic string,
 	seq int64,
 	files []string,
 	behind []int64,
-) (int64, error) {
+) error {
 	tasks, err := queries.ListEpicTasks(ctx, epic)
 	if err != nil {
-		return 0, fmt.Errorf("read tasks of epic %s: %w", epic, err)
+		return fmt.Errorf("read tasks of epic %s: %w", epic, err)
 	}
 	rows, err := queries.ListEpicTaskFiles(ctx, epic)
 	if err != nil {
-		return 0, fmt.Errorf("read task files of epic %s: %w", epic, err)
+		return fmt.Errorf("read task files of epic %s: %w", epic, err)
 	}
 	open := map[int64]bool{}
 	for _, task := range tasks {
 		open[task.Seq] = task.Status == "open" && !slices.Contains(behind, task.Seq)
 	}
-	var next int64
 	for _, row := range rows {
-		switch {
-		case row.Task == seq:
-			next = max(next, row.Position+1)
-		case open[row.Task] && slices.Contains(files, row.Path):
-			return 0, FileOwnedError{File: row.Path, Task: row.Task}
+		if row.Task != seq && open[row.Task] && slices.Contains(files, row.Path) {
+			return FileOwnedError{File: row.Path, Task: row.Task}
 		}
 	}
-	return next, nil
+	return nil
 }
 
 // SetTaskBuildTelling stores to as the build of task seq of epic and adds each of tells as a tell of epic, in one

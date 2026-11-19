@@ -52,7 +52,7 @@ func TestRerunTaskGrantsBehindAWaitedTaskAndRecordsTheDecision(t *testing.T) {
 		1,
 		openBuildOf(),
 		to,
-		[]string{"b.go"},
+		store.TaskVersionInput{Source: store.SourceOrchestrator, Files: []string{"b.go"}},
 		[]int64{2},
 		requestDecision(),
 		writtenAt(),
@@ -73,7 +73,8 @@ func TestRerunTaskRefusesAFileAnOpenTaskOwnsWhenNotBehindIt(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openRequestStore(ctx, t)
-	err := s.RerunTask(ctx, buildEpic, 1, openBuildOf(), grantedBuild(), []string{"b.go"}, nil, requestDecision(),
+	version := store.TaskVersionInput{Source: store.SourceOrchestrator, Files: []string{"b.go"}}
+	err := s.RerunTask(ctx, buildEpic, 1, openBuildOf(), grantedBuild(), version, nil, requestDecision(),
 		writtenAt())
 	var owned store.FileOwnedError
 	if !errors.As(err, &owned) || owned.Task != 2 {
@@ -95,7 +96,8 @@ func TestRerunTaskOfAMovedBuildWritesNothing(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openRequestStore(ctx, t)
-	err := s.RerunTask(ctx, buildEpic, 1, grantedBuild(), openBuildOf(), nil, nil, requestDecision(), writtenAt())
+	err := s.RerunTask(ctx, buildEpic, 1, grantedBuild(), openBuildOf(), store.TaskVersionInput{}, nil,
+		requestDecision(), writtenAt())
 	if !errors.Is(err, store.ErrTaskMoved) {
 		t.Fatalf("RerunTask from a stale build = %v, want ErrTaskMoved", err)
 	}
