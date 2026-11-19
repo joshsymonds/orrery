@@ -394,7 +394,7 @@ private fun WaitingRow(item: WaitingItem, expanded: Set<String>, onToggle: (Stri
             modifier = Modifier
                 .width(OrreryTokens.Size.rail)
                 .fillMaxHeight()
-                .background(OrreryTokens.Ink.four),
+                .background(OrreryTokens.Ink.three),
         )
         Column(
             modifier = Modifier.padding(
