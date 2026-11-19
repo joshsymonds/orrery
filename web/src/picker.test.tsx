@@ -8,6 +8,7 @@ import { createClients, createTransport } from "./client";
 import type { Row } from "./rows";
 import { NewPanel } from "./picker";
 import { assertNone, installTestDom, removeTestDom, teardownOnce } from "./testdom";
+import { mockTimers } from "./testclock";
 import { turn, until } from "./testwait";
 
 const askPath = "/orrery.v1.Picker/Ask";
@@ -88,15 +89,29 @@ interface Reply {
 
 // FakeServer answers Picker.Ask, Picker.Run and Control.Start through TransportOptions.fetch. A path answers with the
 // reply a test queues for it, once, and an unqueued call answers an empty reply. Every call is recorded with its body.
+// A path that silence names never answers: its call ends only when the call's deadline aborts it. A path that hold
+// names waits for the release hold returns before it answers, once.
 class FakeServer {
   readonly calls: Call[] = [];
   readonly replies = new Map<string, Reply>();
+  readonly silent = new Set<string>();
+  readonly held = new Map<string, Promise<void>>();
 
   readonly fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const request = new Request(input, init);
     const path = new URL(request.url).pathname;
     const bytes = new Uint8Array(await request.arrayBuffer());
     this.calls.push({ path, body: JSON.parse(new TextDecoder().decode(bytes)) });
+    if (this.silent.has(path)) {
+      await new Promise((_, reject) => {
+        request.signal.addEventListener("abort", () => reject(request.signal.reason), { once: true });
+      });
+    }
+    const release = this.held.get(path);
+    if (release !== undefined) {
+      this.held.delete(path);
+      await release;
+    }
     const reply = this.replies.get(path) ?? { status: 200, body: {} };
     this.replies.delete(path);
     return new Response(JSON.stringify(reply.body), {
@@ -109,6 +124,18 @@ class FakeServer {
 
   callsTo(path: string): Call[] {
     return this.calls.filter((call) => call.path === path);
+  }
+
+  // hold makes the next call to path wait until the release it returns is called.
+  hold(path: string): () => void {
+    let release = () => {};
+    this.held.set(
+      path,
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+    );
+    return release;
   }
 }
 
@@ -144,10 +171,18 @@ async function mountPalette(
   onClose: () => void = () => {},
   onStart: (session: string) => void = () => {},
   rows: Row[] = [],
+  sheet = false,
 ): Promise<void> {
   await act(() => {
     render(
-      <NewPanel clients={server.clients} rows={rows} onRun={onRun} onStart={onStart} onClose={onClose} />,
+      <NewPanel
+        clients={server.clients}
+        rows={rows}
+        sheet={sheet}
+        onRun={onRun}
+        onStart={onStart}
+        onClose={onClose}
+      />,
       container,
     );
   });
@@ -166,15 +201,32 @@ function input(container: HTMLElement): HTMLInputElement {
 }
 
 function rowButtons(container: HTMLElement): HTMLButtonElement[] {
-  return [...container.querySelectorAll<HTMLButtonElement>(".picker-row")];
+  return [...container.querySelectorAll<HTMLButtonElement>(".pick-row")];
 }
 
-// rowTexts is the label and note of each row the palette lists, in order.
+// rowTexts is the title and note of each row the palette lists, in order.
 function rowTexts(container: HTMLElement): string[][] {
   return rowButtons(container).map((button) => [
-    button.querySelector(".picker-label")?.textContent ?? "",
-    button.querySelector(".picker-note")?.textContent ?? "",
+    button.querySelector(".t")?.textContent ?? "",
+    button.querySelector(".n")?.textContent ?? "",
   ]);
+}
+
+// dialogOf is the New session dialog, which is drawn as a panel or a sheet.
+function dialogOf(container: HTMLElement): HTMLElement {
+  const dialog = container.querySelector<HTMLElement>('[role="dialog"][aria-label="New session"]');
+  assert.ok(dialog, "the New session dialog is drawn");
+  return dialog;
+}
+
+// hintOf is the one note in the hint's place: the hint, a nothing-found line or a failure.
+function hintOf(container: HTMLElement): HTMLElement | null {
+  return container.querySelector<HTMLElement>("p.inote");
+}
+
+// countOf is the count the field ends with: asking… while an ask runs, else the Enter key.
+function countOf(container: HTMLElement): string | null {
+  return container.querySelector(".field > :last-child")?.textContent ?? null;
 }
 
 function alertTexts(container: HTMLElement): string[] {
@@ -225,9 +277,9 @@ test("TitleParts: a pane row joined to a listed pane draws the listed row's dire
     await pressKey(input(container), "Enter");
     await untilTurn(t.signal, () => rowButtons(container).length === 1, "the row is listed");
     const [row] = rowButtons(container);
-    assert.equal(row.querySelector(".picker-label .title-dir")?.textContent, "billing", "the listed directory");
-    assert.equal(row.querySelector(".picker-label .title-line")?.textContent, "retry the webhook", "the listed summary");
-    assert.equal(row.querySelector(".picker-note")?.textContent, "waiting on you", "the note follows the title");
+    assert.equal(row.querySelector(".t .title-dir")?.textContent, "billing", "the listed directory");
+    assert.equal(row.querySelector(".t .title-line")?.textContent, "retry the webhook", "the listed summary");
+    assert.equal(row.querySelector(".n")?.textContent, "waiting on you", "the note follows the title");
     assert.deepEqual(rowTexts(container), [["billing retry the webhook", "waiting on you"]]);
   }));
 
@@ -239,9 +291,9 @@ test("TitleParts: a folder row draws its directory and note, with no line", (t) 
     await pressKey(input(container), "Enter");
     await untilTurn(t.signal, () => rowButtons(container).length === 1, "the row is listed");
     const [row] = rowButtons(container);
-    assert.equal(row.querySelector(".picker-label .title-dir")?.textContent, "web", "the folder's directory");
-    assertNone(row.querySelector(".picker-label .title-line"), "a folder row has no line");
-    assert.equal(row.querySelector(".picker-note")?.textContent, "start fresh");
+    assert.equal(row.querySelector(".t .title-dir")?.textContent, "web", "the folder's directory");
+    assertNone(row.querySelector(".t .title-line"), "a folder row has no line");
+    assert.equal(row.querySelector(".n")?.textContent, "start fresh");
   }));
 
 test("TitleParts: no picker row shows a pane id, and a pane row with no listed pane draws its own directory and label", (t) =>
@@ -294,18 +346,182 @@ test("PickerPalette: Escape closes the palette", (t) =>
     assert.equal(closes, 1);
   }));
 
-test("PickerPalette: a failed Ask shows the fixed error line and none of the server's text", (t) =>
+test("NewPanel: at 760px and wider it draws a panel titled New session, with the N or ⌘K hint and a Close button", (t) =>
   withDom(t.signal, async (container, server) => {
-    server.replies.set(askPath, {
-      status: 400,
-      body: { code: "invalid_argument", message: "text is refused: secret detail" },
+    let closes = 0;
+    await mountPalette(container, server, () => {}, () => {
+      closes += 1;
     });
+    const dialog = dialogOf(container);
+    assert.equal(dialog.className, "panel", "the dialog is a panel");
+    assert.equal(dialog.parentElement?.className, "scrim", "the panel dims the page behind it");
+    assert.equal(dialog.querySelector("h2.t-title")?.textContent, "New session");
+    const hint = dialog.querySelector(".head .t-small");
+    assert.equal(hint?.textContent, "N or ⌘K", "the hint names both keys");
+    assert.deepEqual([...(hint?.querySelectorAll("kbd") ?? [])].map((key) => key.textContent), ["N", "⌘K"]);
+    const close = dialog.querySelector<HTMLButtonElement>('.head button[aria-label="Close"]');
+    assert.ok(close, "the panel has its Close button");
+    assert.equal(close.title, "Close  esc", "the Close button's tip names esc");
+    await click(close);
+    assert.equal(closes, 1, "Close closes the panel");
+  }));
+
+test("NewPanel: as a sheet it draws a sheet titled New session with its body, and no head or Close button", (t) =>
+  withDom(t.signal, async (container, server) => {
+    await mountPalette(container, server, () => {}, () => {}, () => {}, [], true);
+    const dialog = dialogOf(container);
+    assert.equal(dialog.className, "sheet", "the dialog is a sheet");
+    assert.equal(dialog.parentElement?.className, "sheet-scrim");
+    assert.equal(dialog.querySelector(".sheet-head b")?.textContent, "New session");
+    assert.ok(dialog.querySelector(".sheet-body .field input"), "the field is in the sheet's body");
+    assertNone(dialog.querySelector("h2"), "a sheet has no heading");
+    assertNone(dialog.querySelector('button[aria-label="Close"]'), "a sheet has no Close button");
+  }));
+
+test("NewPanel: Escape closes the sheet as it closes the panel", (t) =>
+  withDom(t.signal, async (container, server) => {
+    let closes = 0;
+    await mountPalette(container, server, () => {}, () => {
+      closes += 1;
+    }, () => {}, [], true);
+    await pressKey(input(container), "Escape");
+    assert.equal(closes, 1);
+  }));
+
+test("NewPanel: the field has focus, its placeholder and label, and the hint shows before anything is asked", (t) =>
+  withDom(t.signal, async (container, server) => {
+    await mountPalette(container, server);
+    const box = input(container);
+    assert.equal(document.activeElement, box, "the field has focus on open");
+    assert.equal(box.placeholder, "A directory, a session, or what you want to start");
+    assert.equal(box.getAttribute("aria-label"), "New session");
+    assert.equal(countOf(container), "⏎", "the field ends with the Enter key before an ask");
+    assert.equal(hintOf(container)?.textContent, "Name a directory to start a session there, or say a few words about a session to find it.");
+    assert.equal(hintOf(container)?.className, "inote", "the hint is not an error");
+    assert.equal(rowButtons(container).length, 0, "nothing is listed before an ask");
+    assert.deepEqual(server.calls, [], "opening the panel asks nothing");
+  }));
+
+test("NewPanel: Enter sends the words to Picker.Ask with a 90 second deadline, and never a blank field", (t) =>
+  withDom(t.signal, async (container, server) => {
+    server.replies.set(askPath, { status: 200, body: { rows: [freshRow] } });
+    await mountPalette(container, server);
+    await pressKey(input(container), "Enter");
+    await typeWords(container, "   ");
+    await pressKey(input(container), "Enter");
+    assert.deepEqual(server.calls, [], "a blank field sends nothing");
+
+    await typeWords(container, "api  web");
+    await pressKey(input(container), "Enter");
+    await untilTurn(t.signal, () => rowButtons(container).length === 1, "the answer is listed");
+    assert.deepEqual(server.callsTo(askPath).map((call) => call.body), [{ text: "api  web" }]);
+  }));
+
+test("NewPanel: while an ask runs the field reads asking…, nothing is listed or chosen, and Enter sends nothing", (t) =>
+  withDom(t.signal, async (container, server) => {
+    server.replies.set(askPath, { status: 200, body: { rows: [jumpRow, freshRow] } });
+    const release = server.hold(askPath);
     await mountPalette(container, server);
     await typeWords(container, "api");
     await pressKey(input(container), "Enter");
-    await untilTurn(t.signal, () => alertTexts(container).length === 1, "the failure shows its line");
-    assert.deepEqual(alertTexts(container), ["the picker failed"]);
-    assert.equal(container.textContent?.includes("secret detail"), false, "the server's text is not shown");
+    await untilTurn(t.signal, () => server.callsTo(askPath).length === 1, "the ask is sent");
+    assert.equal(countOf(container), "asking…", "the field says asking… while the ask runs");
+    assert.equal(hintOf(container), null, "no hint while the ask runs");
+    assert.equal(rowButtons(container).length, 0, "no row is listed while the ask runs");
+
+    await pressKey(input(container), "Enter");
+    assert.equal(server.callsTo(askPath).length, 1, "Enter while the ask runs sends nothing");
+
+    release();
+    await untilTurn(t.signal, () => rowButtons(container).length === 2, "the rows arrive");
+    assert.equal(countOf(container), "⏎", "the field ends with the Enter key again");
+    assert.equal(server.callsTo(askPath).length, 1);
+  }));
+
+test("NewPanel: an ask that starts while a start form is open closes the form, and no Start is offered while it runs", (t) =>
+  withDom(t.signal, async (container, server) => {
+    server.replies.set(askPath, { status: 200, body: { rows: [freshRow] } });
+    await mountPalette(container, server);
+    await askAndChoose(t.signal, container, "web", 0);
+    startForm(container);
+
+    server.replies.set(askPath, { status: 200, body: { rows: [freshRow] } });
+    const release = server.hold(askPath);
+    await typeWords(container, "api");
+    await pressKey(input(container), "Enter");
+    await untilTurn(t.signal, () => server.callsTo(askPath).length === 2, "the second ask is sent");
+    try {
+      assertNone(container.querySelector(".picker-start"), "the start form closes while the ask runs");
+      assert.equal(
+        [...container.querySelectorAll("button")].some((button) => button.textContent === "Start"),
+        false,
+        "no Start button is drawn while the ask runs",
+      );
+    } finally {
+      release();
+    }
+    await untilTurn(t.signal, () => rowButtons(container).length === 1, "the rows arrive");
+    assertNone(container.querySelector(".picker-start"), "the start form stays closed after the answer");
+  }));
+
+test("NewPanel: an ask the server does not answer in 90 seconds ends as DeadlineExceeded with its sentence", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withDom(t.signal, async (container, server) => {
+    server.silent.add(askPath);
+    await mountPalette(container, server);
+    await typeWords(container, "api");
+    await pressKey(input(container), "Enter");
+    await untilTurn(t.signal, () => server.callsTo(askPath).length === 1, "the ask is sent");
+
+    t.mock.timers.tick(89_999);
+    assert.equal(countOf(container), "asking…", "the ask still runs one millisecond short of 90 seconds");
+    assert.deepEqual(alertTexts(container), [], "nothing has failed yet");
+
+    t.mock.timers.tick(1);
+    await untilTurn(t.signal, () => alertTexts(container).length === 1, "the deadline shows its sentence");
+    assert.deepEqual(alertTexts(container), [
+      "The search did not finish: the server did not answer in 90 seconds.",
+    ]);
+    assert.equal(countOf(container), "⏎", "the field is no longer asking");
+  });
+});
+
+// askFailures are the sentences a failed Ask shows, by the code the server answers with, and the status it answers with.
+const askFailures: [string, number, string][] = [
+  ["deadline_exceeded", 504, "The search did not finish: the server did not answer in 90 seconds."],
+  ["unavailable", 503, "The search did not finish: the server could not answer."],
+  ["not_found", 404, "New is not set up on this server."],
+  ["internal", 500, "The search did not finish."],
+];
+
+for (const [code, status, sentence] of askFailures) {
+  test(`NewPanel: a failed Ask with ${code} shows its sentence, none of the server's text, and keeps the words`, (t) =>
+    withDom(t.signal, async (container, server) => {
+      server.replies.set(askPath, { status, body: { code, message: "text is refused: secret detail" } });
+      await mountPalette(container, server);
+      await typeWords(container, "api");
+      await pressKey(input(container), "Enter");
+      await untilTurn(t.signal, () => alertTexts(container).length === 1, "the failure shows its sentence");
+      assert.deepEqual(alertTexts(container), [sentence]);
+      assert.equal(hintOf(container)?.className, "inote error", "the failure takes the hint's place");
+      assert.equal(hintOf(container)?.getAttribute("role"), "alert");
+      assert.equal(container.textContent?.includes("secret detail"), false, "the server's text is not shown");
+      assert.equal(input(container).value, "api", "the field keeps the words after a failure");
+    }));
+}
+
+test("NewPanel: an ask that finds nothing says so with the words asked, and keeps the field's words", (t) =>
+  withDom(t.signal, async (container, server) => {
+    server.replies.set(askPath, { status: 200, body: { rows: [] } });
+    await mountPalette(container, server);
+    await typeWords(container, "api  web");
+    await pressKey(input(container), "Enter");
+    await untilTurn(t.signal, () => hintOf(container)?.textContent?.startsWith("Nothing found") === true, "the nothing-found line shows");
+    assert.equal(hintOf(container)?.textContent, "Nothing found for “api  web”. Try a directory name.");
+    assert.equal(hintOf(container)?.className, "inote", "nothing found is not an error");
+    assert.equal(hintOf(container)?.getAttribute("role") ?? null, null, "nothing found is not an alert");
+    assert.deepEqual(alertTexts(container), []);
+    assert.equal(input(container).value, "api  web", "the field keeps the words");
   }));
 
 // startForm is the start form the palette draws for a folder row, which it draws only while the form is open.

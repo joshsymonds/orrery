@@ -1649,6 +1649,7 @@ export function App({
         <NewPanel
           clients={clients}
           rows={rows}
+          sheet={!wide}
           onRun={(pane) => {
             setPickerOpen(false);
             setPending({ kind: "pane", id: pane });

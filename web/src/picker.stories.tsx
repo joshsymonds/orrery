@@ -18,6 +18,7 @@ export const NewPanel: Stories = {
     <Panel
       clients={createFixtureTransport().clients}
       rows={rows}
+      sheet={false}
       onRun={noop}
       onStart={noop}
       onClose={noop}

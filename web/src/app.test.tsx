@@ -373,8 +373,12 @@ async function withApp(
   signal: AbortSignal,
   props: Partial<Omit<Props, "clients" | "seen">>,
   check: (container: HTMLElement, fake: FakeServer) => void | Promise<void>,
+  width?: number,
 ): Promise<void> {
   const window = installTestDom();
+  if (width !== undefined) {
+    window.innerWidth = width;
+  }
   const container = document.createElement("div");
   document.body.append(container);
   const fake = new FakeServer();
@@ -4955,12 +4959,12 @@ function askButton(container: HTMLElement): HTMLButtonElement {
 
 // pickerShown is whether the picker palette is open.
 function pickerShown(container: HTMLElement): boolean {
-  return container.querySelector('[aria-label="picker"]') !== null;
+  return container.querySelector('[role="dialog"][aria-label="New session"]') !== null;
 }
 
 // pickerInput is the palette's text box, which is drawn only while the palette is open.
 function pickerInput(container: HTMLElement): HTMLInputElement {
-  const input = container.querySelector<HTMLInputElement>('[aria-label="picker"] input');
+  const input = container.querySelector<HTMLInputElement>('[role="dialog"][aria-label="New session"] input');
   assert.ok(input, "the palette's text box is drawn");
   return input;
 }
@@ -4976,12 +4980,12 @@ async function typePicker(container: HTMLElement, text: string): Promise<void> {
 
 // pickerRows is the label of each row the palette lists, in order.
 function pickerRows(container: HTMLElement): string[] {
-  return [...container.querySelectorAll(".picker-row .picker-label")].map((element) => element.textContent ?? "");
+  return [...container.querySelectorAll(".pick-row .t")].map((element) => element.textContent ?? "");
 }
 
 // pickerRow is the button of the palette's row at index, which the palette must list.
 function pickerRow(container: HTMLElement, index: number): HTMLButtonElement {
-  const found = container.querySelectorAll<HTMLButtonElement>(".picker-row")[index];
+  const found = container.querySelectorAll<HTMLButtonElement>(".pick-row")[index];
   assert.ok(found, `the palette lists row ${index}`);
   return found;
 }
@@ -5091,7 +5095,7 @@ test("PickerStartForm: a started session takes the cursor once its row arrives i
     await pressIn(pickerInput(container), "Enter");
     await untilTurn(t.signal, () => pickerRows(container).length === 1, "the answer's row is listed");
     await clickElement(pickerRow(container, 0));
-    await clickButton(container, '[aria-label="picker"]', "Start");
+    await clickButton(container, '[role="dialog"][aria-label="New session"]', "Start");
     await untilTurn(t.signal, () => !pickerShown(container), "the start closes the palette");
     assert.equal(cursorKey(container), "a", "the started session's row is not in the list yet");
 
@@ -5155,3 +5159,33 @@ test("PickerPalette: Enter on the focused + Ask button is not defaultPrevented a
     await letTurnsRun();
     assert.equal(fake.callsTo(markPanePath).length, 0, "Enter on + Ask writes no seen");
   }));
+
+test("NewPanel: at 760px and wider App opens the panel titled New session, with its hint", (t) =>
+  withApp(
+    t.signal,
+    {},
+    async (container) => {
+      await press("N");
+      const dialog = container.querySelector<HTMLElement>('[role="dialog"][aria-label="New session"]');
+      assert.ok(dialog, "the New session dialog is drawn");
+      assert.equal(dialog.className, "panel", "the dialog is a panel");
+      assert.equal(dialog.querySelector("h2.t-title")?.textContent, "New session");
+      assert.equal(dialog.querySelector(".head .t-small")?.textContent, "N or ⌘K");
+    },
+    1024,
+  ));
+
+test("NewPanel: under 760px App opens the sheet titled New session, with no panel heading", (t) =>
+  withApp(
+    t.signal,
+    {},
+    async (container) => {
+      await press("N");
+      const dialog = container.querySelector<HTMLElement>('[role="dialog"][aria-label="New session"]');
+      assert.ok(dialog, "the New session dialog is drawn");
+      assert.equal(dialog.className, "sheet", "the dialog is a sheet");
+      assert.equal(dialog.querySelector(".sheet-head b")?.textContent, "New session");
+      assertNone(dialog.querySelector("h2"), "a sheet has no heading");
+    },
+    600,
+  ));
