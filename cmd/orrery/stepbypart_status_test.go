@@ -2,6 +2,7 @@ package main
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
@@ -46,5 +47,17 @@ func TestStepByPartStatusCommandIsStateOnly(t *testing.T) {
 		`"reason":"gate red","checks":[{"round":1,"name":"gate","ok":false}]}` + "\n"
 	if stdout != want {
 		t.Errorf("stdout = %q, want %q", stdout, want)
+	} else {
+		t.Logf("orrery step status printed: %s", strings.TrimSuffix(stdout, "\n"))
+	}
+	for _, leaked := range []string{
+		"invented-result", "invented-detail", "invented-stdout", "invented-stderr", "/invented/gate.log",
+		"invented-reason-tail",
+	} {
+		if strings.Contains(stdout, leaked) {
+			t.Errorf("orrery step status prints %q, want the state only: %s", leaked, stdout)
+		} else {
+			t.Logf("orrery step status prints no %q", leaked)
+		}
 	}
 }

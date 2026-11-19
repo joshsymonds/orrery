@@ -1,10 +1,13 @@
 package stepmcp
 
 import (
+	"maps"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -64,8 +67,19 @@ func TestStepByPartStatusToolIsStateOnly(t *testing.T) {
 			map[string]any{"round": float64(1), "name": "gate", "ok": false},
 		},
 	}
-	if got := decodeObject(t, outcome.text); !reflect.DeepEqual(got, want) {
+	got := decodeObject(t, outcome.text)
+	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("step_status = %v, want %v", got, want)
+	}
+	t.Logf("step_status keys = [%s]", strings.Join(slices.Sorted(maps.Keys(got)), " "))
+	// The DeepEqual above holds, so reason is a string and checks is a list of objects.
+	reason, _ := got["reason"].(string)
+	t.Logf("step_status reason is the first line cut to %d runes (199 + …)", utf8.RuneCountInString(reason))
+	checks, _ := got["checks"].([]any)
+	for _, item := range checks {
+		check, _ := item.(map[string]any)
+		t.Logf("step_status check = {round:%v name:%v ok:%v}, no detail, stdout, stderr or log",
+			check["round"], check["name"], check["ok"])
 	}
 	for _, leaked := range []string{
 		"invented-result", "invented-workspace", "invented-revision", "invented-worktree",
@@ -73,6 +87,8 @@ func TestStepByPartStatusToolIsStateOnly(t *testing.T) {
 	} {
 		if strings.Contains(outcome.text, leaked) {
 			t.Errorf("step_status carries %q, want the state only: %s", leaked, outcome.text)
+		} else {
+			t.Logf("step_status carries no %q", leaked)
 		}
 	}
 }
@@ -89,13 +105,17 @@ func TestStepByPartStartResultNamesNext(t *testing.T) {
 		t.Fatalf("step_start reported an error: %s", outcome.text)
 	}
 	got := decodeObject(t, outcome.text)
+	next, _ := got["next"].(string)
 	if got["id"] != fake.startID {
 		t.Errorf("step_start id = %v, want %s", got["id"], fake.startID)
+	} else {
+		t.Logf("step_start id = %v; next = %s", got["id"], next)
 	}
-	next, _ := got["next"].(string)
 	for _, want := range []string{"orrery-event", "step_end"} {
 		if !strings.Contains(next, want) {
 			t.Errorf("step_start next = %q, want it to name %s", next, want)
+		} else {
+			t.Logf("step_start next names %s", want)
 		}
 	}
 }

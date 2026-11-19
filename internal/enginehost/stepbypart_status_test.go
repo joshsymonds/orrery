@@ -35,6 +35,8 @@ func TestStepByPartStatusRPCKeepsFullStep(t *testing.T) {
 	step := status.Msg.GetStep()
 	if got := step.GetResult(); got != row.Result {
 		t.Errorf("StepStatus result = %q, want the stored result %q", got, row.Result)
+	} else {
+		t.Logf("StepStatus RPC returns the full step: result = %s", got)
 	}
 	checks := step.GetChecks()
 	if len(checks) != 1 {
@@ -43,14 +45,22 @@ func TestStepByPartStatusRPCKeepsFullStep(t *testing.T) {
 	check := checks[0]
 	if got := check.GetDetail(); got != "invented-detail" {
 		t.Errorf("check detail = %q, want invented-detail", got)
+	} else {
+		t.Logf("check detail = %s", got)
 	}
 	if got := check.GetStdout(); got != "invented-stdout" {
 		t.Errorf("check stdout = %q, want invented-stdout", got)
+	} else {
+		t.Logf("check stdout = %s", got)
 	}
 	if got := check.GetStderr(); got != "invented-stderr" {
 		t.Errorf("check stderr = %q, want invented-stderr", got)
+	} else {
+		t.Logf("check stderr = %s", got)
 	}
 	if got := check.GetLog(); got != "/invented/gate.log" {
 		t.Errorf("check log = %q, want /invented/gate.log", got)
+	} else {
+		t.Logf("check log = %s", got)
 	}
 }
