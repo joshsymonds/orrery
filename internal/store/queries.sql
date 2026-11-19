@@ -506,6 +506,36 @@ DELETE FROM pushed_alert_notices WHERE alert = ?;
 -- name: ListPushedAlertNotices :many
 SELECT * FROM pushed_alert_notices ORDER BY alert;
 
+-- name: UpdateUnreadNoticeHistory :execrows
+UPDATE notice_history SET state = ?, title = ?, body = ?, block = ?, block_ref = ?, time = ?
+WHERE id = (
+    SELECT newest.id FROM notice_history AS newest
+    WHERE newest.pane = ? AND newest.session = ? AND newest.epic = ? AND newest.limit_key = ? AND newest.alert = ?
+    ORDER BY newest.id DESC LIMIT 1
+) AND read = 0;
+
+-- name: InsertNoticeHistory :exec
+INSERT INTO notice_history (pane, session, epic, limit_key, alert, state, title, body, block, block_ref, time)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: MarkNoticeHistoryRead :exec
+UPDATE notice_history SET read = 1
+WHERE pane = ? AND session = ? AND epic = ? AND limit_key = ? AND alert = ? AND time <= ?;
+
+-- name: CountUnreadNoticeHistory :one
+SELECT COUNT(*) FROM notice_history
+WHERE pane = ? AND session = ? AND epic = ? AND limit_key = ? AND alert = ? AND read = 0;
+
+-- name: MarkAllNoticeHistoryRead :exec
+UPDATE notice_history SET read = 1;
+
+-- name: ListNoticeHistorySince :many
+SELECT * FROM notice_history WHERE time >= ? ORDER BY time DESC, id DESC;
+
+-- name: ListUnreadNoticeHistoryKeys :many
+SELECT DISTINCT pane, session, epic, limit_key, alert FROM notice_history
+WHERE read = 0 ORDER BY pane, session, epic, limit_key, alert;
+
 -- name: InsertToldLimitStep :exec
 INSERT INTO told_limit_steps (limit_key, step) VALUES (?, ?)
 ON CONFLICT (limit_key, step) DO NOTHING;

@@ -495,6 +495,32 @@ func (q *Queries) CountRunningEpicTurns(ctx context.Context, epic string) (int64
 	return column_1, err
 }
 
+const countUnreadNoticeHistory = `-- name: CountUnreadNoticeHistory :one
+SELECT COUNT(*) FROM notice_history
+WHERE pane = ? AND session = ? AND epic = ? AND limit_key = ? AND alert = ? AND read = 0
+`
+
+type CountUnreadNoticeHistoryParams struct {
+	Pane     string
+	Session  string
+	Epic     string
+	LimitKey string
+	Alert    string
+}
+
+func (q *Queries) CountUnreadNoticeHistory(ctx context.Context, arg CountUnreadNoticeHistoryParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countUnreadNoticeHistory,
+		arg.Pane,
+		arg.Session,
+		arg.Epic,
+		arg.LimitKey,
+		arg.Alert,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countWorkingEvidenceNodeRuns = `-- name: CountWorkingEvidenceNodeRuns :one
 SELECT COUNT(*) FROM epic_node_runs AS run
 WHERE run.epic = ?1 AND run.state = 'running'
@@ -3449,6 +3475,42 @@ type InsertHoldParams struct {
 
 func (q *Queries) InsertHold(ctx context.Context, arg InsertHoldParams) error {
 	_, err := q.db.ExecContext(ctx, insertHold, arg.Member, arg.Since)
+	return err
+}
+
+const insertNoticeHistory = `-- name: InsertNoticeHistory :exec
+INSERT INTO notice_history (pane, session, epic, limit_key, alert, state, title, body, block, block_ref, time)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type InsertNoticeHistoryParams struct {
+	Pane     string
+	Session  string
+	Epic     string
+	LimitKey string
+	Alert    string
+	State    string
+	Title    string
+	Body     string
+	Block    string
+	BlockRef string
+	Time     int64
+}
+
+func (q *Queries) InsertNoticeHistory(ctx context.Context, arg InsertNoticeHistoryParams) error {
+	_, err := q.db.ExecContext(ctx, insertNoticeHistory,
+		arg.Pane,
+		arg.Session,
+		arg.Epic,
+		arg.LimitKey,
+		arg.Alert,
+		arg.State,
+		arg.Title,
+		arg.Body,
+		arg.Block,
+		arg.BlockRef,
+		arg.Time,
+	)
 	return err
 }
 
@@ -7059,6 +7121,47 @@ func (q *Queries) ListLimitedSteps(ctx context.Context) ([]Step, error) {
 	return items, nil
 }
 
+const listNoticeHistorySince = `-- name: ListNoticeHistorySince :many
+SELECT id, pane, session, epic, limit_key, alert, state, title, body, block, block_ref, time, read FROM notice_history WHERE time >= ? ORDER BY time DESC, id DESC
+`
+
+func (q *Queries) ListNoticeHistorySince(ctx context.Context, time int64) ([]NoticeHistory, error) {
+	rows, err := q.db.QueryContext(ctx, listNoticeHistorySince, time)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []NoticeHistory
+	for rows.Next() {
+		var i NoticeHistory
+		if err := rows.Scan(
+			&i.ID,
+			&i.Pane,
+			&i.Session,
+			&i.Epic,
+			&i.LimitKey,
+			&i.Alert,
+			&i.State,
+			&i.Title,
+			&i.Body,
+			&i.Block,
+			&i.BlockRef,
+			&i.Time,
+			&i.Read,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOpenEpicAmendments = `-- name: ListOpenEpicAmendments :many
 SELECT epic, seq, requirement, amender, turn, position, prior_item, item, reason, base, state, red_attempt, red_run, stored_base, green_attempt, green_run, repro_check, refusal, created, settled FROM epic_amendments WHERE state IN ('checking', 'capturing') ORDER BY epic, seq
 `
@@ -8445,6 +8548,48 @@ func (q *Queries) ListUnfinishedEngineText(ctx context.Context) ([]EngineText, e
 	return items, nil
 }
 
+const listUnreadNoticeHistoryKeys = `-- name: ListUnreadNoticeHistoryKeys :many
+SELECT DISTINCT pane, session, epic, limit_key, alert FROM notice_history
+WHERE read = 0 ORDER BY pane, session, epic, limit_key, alert
+`
+
+type ListUnreadNoticeHistoryKeysRow struct {
+	Pane     string
+	Session  string
+	Epic     string
+	LimitKey string
+	Alert    string
+}
+
+func (q *Queries) ListUnreadNoticeHistoryKeys(ctx context.Context) ([]ListUnreadNoticeHistoryKeysRow, error) {
+	rows, err := q.db.QueryContext(ctx, listUnreadNoticeHistoryKeys)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUnreadNoticeHistoryKeysRow
+	for rows.Next() {
+		var i ListUnreadNoticeHistoryKeysRow
+		if err := rows.Scan(
+			&i.Pane,
+			&i.Session,
+			&i.Epic,
+			&i.LimitKey,
+			&i.Alert,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUnreportedEpics = `-- name: ListUnreportedEpics :many
 SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source, stored_base, candidate, summary, phase_at, report_phase, report_shipped, report_not_shipped, report_why, closed_by, superseded_by, park_class, synced, origin_read_base, origin_read_commit, origin_read_state, origin_read_at FROM epics
 WHERE (phase IN ('released', 'done', 'ended_with_gaps')
@@ -8620,6 +8765,15 @@ func (q *Queries) ListUntitledEngineSessions(ctx context.Context) ([]ListUntitle
 	return items, nil
 }
 
+const markAllNoticeHistoryRead = `-- name: MarkAllNoticeHistoryRead :exec
+UPDATE notice_history SET read = 1
+`
+
+func (q *Queries) MarkAllNoticeHistoryRead(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, markAllNoticeHistoryRead)
+	return err
+}
+
 const markEpicTellTold = `-- name: MarkEpicTellTold :execrows
 UPDATE epic_tells SET told = 1 WHERE epic = ? AND seq = ?
 `
@@ -8652,6 +8806,32 @@ func (q *Queries) MarkEpicTurnTold(ctx context.Context, arg MarkEpicTurnToldPara
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const markNoticeHistoryRead = `-- name: MarkNoticeHistoryRead :exec
+UPDATE notice_history SET read = 1
+WHERE pane = ? AND session = ? AND epic = ? AND limit_key = ? AND alert = ? AND time <= ?
+`
+
+type MarkNoticeHistoryReadParams struct {
+	Pane     string
+	Session  string
+	Epic     string
+	LimitKey string
+	Alert    string
+	Time     int64
+}
+
+func (q *Queries) MarkNoticeHistoryRead(ctx context.Context, arg MarkNoticeHistoryReadParams) error {
+	_, err := q.db.ExecContext(ctx, markNoticeHistoryRead,
+		arg.Pane,
+		arg.Session,
+		arg.Epic,
+		arg.LimitKey,
+		arg.Alert,
+		arg.Time,
+	)
+	return err
 }
 
 const maxEpicAmendmentSeq = `-- name: MaxEpicAmendmentSeq :one
@@ -10353,6 +10533,49 @@ type UpdateStepWatchParams struct {
 func (q *Queries) UpdateStepWatch(ctx context.Context, arg UpdateStepWatchParams) error {
 	_, err := q.db.ExecContext(ctx, updateStepWatch, arg.Verdicts, arg.Doing, arg.ID)
 	return err
+}
+
+const updateUnreadNoticeHistory = `-- name: UpdateUnreadNoticeHistory :execrows
+UPDATE notice_history SET state = ?, title = ?, body = ?, block = ?, block_ref = ?, time = ?
+WHERE id = (
+    SELECT newest.id FROM notice_history AS newest
+    WHERE newest.pane = ? AND newest.session = ? AND newest.epic = ? AND newest.limit_key = ? AND newest.alert = ?
+    ORDER BY newest.id DESC LIMIT 1
+) AND read = 0
+`
+
+type UpdateUnreadNoticeHistoryParams struct {
+	State    string
+	Title    string
+	Body     string
+	Block    string
+	BlockRef string
+	Time     int64
+	Pane     string
+	Session  string
+	Epic     string
+	LimitKey string
+	Alert    string
+}
+
+func (q *Queries) UpdateUnreadNoticeHistory(ctx context.Context, arg UpdateUnreadNoticeHistoryParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateUnreadNoticeHistory,
+		arg.State,
+		arg.Title,
+		arg.Body,
+		arg.Block,
+		arg.BlockRef,
+		arg.Time,
+		arg.Pane,
+		arg.Session,
+		arg.Epic,
+		arg.LimitKey,
+		arg.Alert,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const upsertArchivedRow = `-- name: UpsertArchivedRow :exec

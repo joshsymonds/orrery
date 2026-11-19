@@ -656,6 +656,22 @@ type Hold struct {
 	Since  int64
 }
 
+type NoticeHistory struct {
+	ID       int64
+	Pane     string
+	Session  string
+	Epic     string
+	LimitKey string
+	Alert    string
+	State    string
+	Title    string
+	Body     string
+	Block    string
+	BlockRef string
+	Time     int64
+	Read     bool
+}
+
 type PendingNotice struct {
 	ID          int64
 	Pane        string
