@@ -31,7 +31,17 @@ func rerunWithCheckingFiles(ctx context.Context, t *testing.T, s *store.Store) {
 		Source: store.SourceOrchestrator, Step: "step-2", Reason: "the evidence and files move", Evidence: &item,
 		Files: []string{"b.go"}, Remove: []string{"a.go"},
 	}
-	err := s.RerunTask(ctx, buildEpic, 1, store.TaskBuild{}, openBuildOf(), version, nil, requestDecision(), writtenAt())
+	err := s.RerunTask(
+		ctx,
+		buildEpic,
+		1,
+		store.TaskBuild{},
+		openBuildOf(),
+		version,
+		nil,
+		requestDecision(),
+		writtenAt(),
+	)
 	if err != nil {
 		t.Fatalf("RerunTask: %v", err)
 	}
@@ -49,7 +59,11 @@ func TestTaskRepairsVersionFilesRerunAddsAndRemovesFiles(t *testing.T) {
 
 	rerun := openBuildOf()
 	rerun.Rerun = 1
-	second := store.TaskVersionInput{Source: store.SourceOrchestrator, Files: []string{"c.go"}, Remove: []string{"a.go"}}
+	second := store.TaskVersionInput{
+		Source: store.SourceOrchestrator,
+		Files:  []string{"c.go"},
+		Remove: []string{"a.go"},
+	}
 	decision := store.TaskDecision{ID: "T1-request-2", Text: "T1 rerun: a.go is the wrong file"}
 	if err := s.RerunTask(ctx, buildEpic, 1, openBuildOf(), rerun, second, nil, decision, writtenAt()); err != nil {
 		t.Fatalf("second RerunTask: %v", err)
@@ -123,7 +137,7 @@ func TestTaskRepairsVersionFilesSettleRefusesAFileAnotherOpenTaskNowOwns(t *test
 	t.Parallel()
 	ctx := context.Background()
 	s, raw := openBuildStore(ctx, t)
-	addRawTask(t, raw, 2, "open")
+	addRawTask(t, raw, 3, "open")
 	item := checkingEvidence()
 	version := store.TaskVersionInput{
 		Source: store.SourceOrchestrator, Step: "step-2", Reason: "the evidence and files move", Evidence: &item,
@@ -135,19 +149,19 @@ func TestTaskRepairsVersionFilesSettleRefusesAFileAnotherOpenTaskNowOwns(t *test
 		t.Fatalf("RerunTask: %v", err)
 	}
 
-	// Task 1 does not own c.go while its version checks, so task 2 can be granted it before the settle.
+	// Task 1 does not own c.go while its version checks, so task 3 can be granted it before the settle.
 	grant := store.TaskVersionInput{Source: store.SourceGrant, Files: []string{"c.go"}}
 	granted := store.TaskBuild{Stage: "implement", Base: buildBase, Attempt: 1, Step: "step-1"}
-	if err = s.GrantTaskFiles(ctx, buildEpic, 2, store.TaskBuild{}, granted, grant, writtenAt()); err != nil {
-		t.Fatalf("GrantTaskFiles of task 2: %v", err)
+	if err = s.GrantTaskFiles(ctx, buildEpic, 3, store.TaskBuild{}, granted, grant, writtenAt()); err != nil {
+		t.Fatalf("GrantTaskFiles of task 3: %v", err)
 	}
 
 	err = s.SettleTaskVersion(ctx, buildEpic, 1, openBuildOf(), openBuildOf(), store.TaskVersionSettle{
 		Version: 2, State: store.VersionApplied, RedRun: checkingRedRun,
 	}, time.Unix(1700000900, 0))
 	var owned store.FileOwnedError
-	if !errors.As(err, &owned) || owned != (store.FileOwnedError{File: "c.go", Task: 2}) {
-		t.Fatalf("SettleTaskVersion err = %v, want c.go owned by T2", err)
+	if !errors.As(err, &owned) || owned != (store.FileOwnedError{File: "c.go", Task: 3}) {
+		t.Fatalf("SettleTaskVersion err = %v, want c.go owned by T3", err)
 	}
 
 	task := buildTaskOf(ctx, t, s)

@@ -228,10 +228,8 @@ func writeTaskFiles(
 		return "", fmt.Errorf("version of task %d of epic %s would leave it no files", seq, epic)
 	}
 	if applied {
-		if err = removeTaskFiles(ctx, queries, epic, seq, in.Remove); err != nil {
-			return "", err
-		}
-		if err = appendTaskFiles(ctx, queries, epic, seq, in.Files); err != nil {
+		err = applyTaskFiles(ctx, queries, epic, seq, in)
+		if err != nil {
 			return "", err
 		}
 	}
@@ -240,6 +238,15 @@ func writeTaskFiles(
 		return "", fmt.Errorf("encode files of task %d of epic %s: %w", seq, epic, err)
 	}
 	return encoded, nil
+}
+
+// applyTaskFiles deletes the Remove files of in from task seq of epic and adds its Files after the task's last file, in
+// the caller's write.
+func applyTaskFiles(ctx context.Context, queries *sqlcgen.Queries, epic string, seq int64, in TaskVersionInput) error {
+	if err := removeTaskFiles(ctx, queries, epic, seq, in.Remove); err != nil {
+		return err
+	}
+	return appendTaskFiles(ctx, queries, epic, seq, in.Files)
 }
 
 // settleTaskFiles makes the files of task seq of epic the whole list that version number of the task stores, in the
@@ -266,10 +273,12 @@ func settleTaskFiles(ctx context.Context, queries *sqlcgen.Queries, epic string,
 		return err
 	}
 	added := withoutPaths(whole, owned)
-	if err = checkFileOwners(ctx, queries, epic, seq, added, nil); err != nil {
+	err = checkFileOwners(ctx, queries, epic, seq, added, nil)
+	if err != nil {
 		return err
 	}
-	if err = removeTaskFiles(ctx, queries, epic, seq, withoutPaths(owned, whole)); err != nil {
+	err = removeTaskFiles(ctx, queries, epic, seq, withoutPaths(owned, whole))
+	if err != nil {
 		return err
 	}
 	return appendTaskFiles(ctx, queries, epic, seq, added)
