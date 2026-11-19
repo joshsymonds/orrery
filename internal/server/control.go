@@ -143,6 +143,30 @@ func (c controlServer) Interrupt(
 	return connect.NewResponse(&orreryv1.InterruptResponse{Texts: texts}), nil
 }
 
+// Decline forwards a decline to the engine, unless its id names a step. It answers with the texts the engine cancelled
+// from the session's queue at the decline, in send order.
+func (c controlServer) Decline(
+	ctx context.Context,
+	req *connect.Request[orreryv1.DeclineRequest],
+) (*connect.Response[orreryv1.DeclineResponse], error) {
+	if err := c.refuseStep(ctx, req.Msg.GetId()); err != nil {
+		return nil, err
+	}
+	var resp *connect.Response[enginev1.DeclineResponse]
+	err := c.forward(ctx, func(ctx context.Context, engine enginev1connect.EngineClient) error {
+		var callErr error
+		resp, callErr = engine.Decline(ctx, connect.NewRequest(&enginev1.DeclineRequest{
+			Id:        req.Msg.GetId(),
+			RequestId: req.Msg.GetRequestId(),
+		}))
+		return wrapEngine("decline", callErr)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&orreryv1.DeclineResponse{Texts: resp.Msg.GetTexts()}), nil
+}
+
 // Stop forwards a stop to the engine, unless its id names a step.
 func (c controlServer) Stop(
 	ctx context.Context,

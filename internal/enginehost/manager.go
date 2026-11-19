@@ -1302,6 +1302,26 @@ func (m *Manager) OwnerInterrupt(ctx context.Context, id string) ([]string, erro
 	return m.ownerTexts(ctx, id, cancelled)
 }
 
+// Decline is the owner's decline of the open question or permission request requestID of the live session id. It
+// returns an error wrapping ErrNoSession when id is not live. It returns an error wrapping ErrQuestionNotOpen, naming
+// requestID, when requestID is empty or is not an open request of the session, and then sends and records nothing.
+// Otherwise it is OwnerInterrupt, which denies every open request, ends the turn and leaves the session quiet, and it
+// returns OwnerInterrupt's texts.
+func (m *Manager) Decline(ctx context.Context, id, requestID string) ([]string, error) {
+	defer m.calls.enter()()
+	live, err := m.live(id)
+	if err != nil {
+		return nil, fmt.Errorf("decline session %s: %w", id, err)
+	}
+	m.mu.Lock()
+	_, open := live.requests[requestID]
+	m.mu.Unlock()
+	if requestID == "" || !open {
+		return nil, fmt.Errorf("decline request %q of session %s: %w", requestID, id, ErrQuestionNotOpen)
+	}
+	return m.OwnerInterrupt(ctx, id)
+}
+
 // ownerTexts returns the texts of the owner's prompts of session id among the write ids cancelled, in the order they were
 // sent. A caller event's prompt is left out. It returns no texts when no write id is one of those prompts.
 func (m *Manager) ownerTexts(ctx context.Context, id string, cancelled []string) ([]string, error) {

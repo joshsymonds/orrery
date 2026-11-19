@@ -33,6 +33,12 @@ public interface ControlClientInterface {
   public suspend fun interrupt(request: InterruptRequest, headers: Headers = emptyMap()): ResponseMessage<InterruptResponse>
 
   /**
+   *  Decline denies an open question or permission request of a headless session and ends its turn, as Interrupt does.
+   *  It is refused unless the request is open.
+   */
+  public suspend fun decline(request: DeclineRequest, headers: Headers = emptyMap()): ResponseMessage<DeclineResponse>
+
+  /**
    *  Stop stops a headless session.
    */
   public suspend fun stop(request: StopRequest, headers: Headers = emptyMap()): ResponseMessage<StopResponse>

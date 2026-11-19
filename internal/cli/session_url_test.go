@@ -88,6 +88,13 @@ func (f *urlFake) Interrupt(
 	return controlReply(f, req.Msg, &orreryv1.InterruptResponse{})
 }
 
+func (f *urlFake) Decline(
+	_ context.Context,
+	req *connect.Request[orreryv1.DeclineRequest],
+) (*connect.Response[orreryv1.DeclineResponse], error) {
+	return controlReply(f, req.Msg, &orreryv1.DeclineResponse{})
+}
+
 func (f *urlFake) Stop(
 	_ context.Context,
 	req *connect.Request[orreryv1.StopRequest],

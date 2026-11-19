@@ -41,6 +41,8 @@ const (
 	EngineAnswerProcedure = "/orrery.engine.v1.Engine/Answer"
 	// EngineInterruptProcedure is the fully-qualified name of the Engine's Interrupt RPC.
 	EngineInterruptProcedure = "/orrery.engine.v1.Engine/Interrupt"
+	// EngineDeclineProcedure is the fully-qualified name of the Engine's Decline RPC.
+	EngineDeclineProcedure = "/orrery.engine.v1.Engine/Decline"
 	// EngineStopProcedure is the fully-qualified name of the Engine's Stop RPC.
 	EngineStopProcedure = "/orrery.engine.v1.Engine/Stop"
 	// EngineSeenProcedure is the fully-qualified name of the Engine's Seen RPC.
@@ -68,6 +70,9 @@ type EngineClient interface {
 	Answer(context.Context, *connect.Request[v1.AnswerRequest]) (*connect.Response[v1.AnswerResponse], error)
 	// Interrupt stops a session's current turn.
 	Interrupt(context.Context, *connect.Request[v1.InterruptRequest]) (*connect.Response[v1.InterruptResponse], error)
+	// Decline denies an open question or permission request of a session and ends its turn, as Interrupt does. It is
+	// refused unless the request is open.
+	Decline(context.Context, *connect.Request[v1.DeclineRequest]) (*connect.Response[v1.DeclineResponse], error)
 	// Stop ends a session's process.
 	Stop(context.Context, *connect.Request[v1.StopRequest]) (*connect.Response[v1.StopResponse], error)
 	// Seen marks a session's conversation as read.
@@ -120,6 +125,12 @@ func NewEngineClient(httpClient connect.HTTPClient, baseURL string, opts ...conn
 			connect.WithSchema(engineMethods.ByName("Interrupt")),
 			connect.WithClientOptions(opts...),
 		),
+		decline: connect.NewClient[v1.DeclineRequest, v1.DeclineResponse](
+			httpClient,
+			baseURL+EngineDeclineProcedure,
+			connect.WithSchema(engineMethods.ByName("Decline")),
+			connect.WithClientOptions(opts...),
+		),
 		stop: connect.NewClient[v1.StopRequest, v1.StopResponse](
 			httpClient,
 			baseURL+EngineStopProcedure,
@@ -165,6 +176,7 @@ type engineClient struct {
 	say       *connect.Client[v1.SayRequest, v1.SayResponse]
 	answer    *connect.Client[v1.AnswerRequest, v1.AnswerResponse]
 	interrupt *connect.Client[v1.InterruptRequest, v1.InterruptResponse]
+	decline   *connect.Client[v1.DeclineRequest, v1.DeclineResponse]
 	stop      *connect.Client[v1.StopRequest, v1.StopResponse]
 	seen      *connect.Client[v1.SeenRequest, v1.SeenResponse]
 	resume    *connect.Client[v1.ResumeRequest, v1.ResumeResponse]
@@ -191,6 +203,11 @@ func (c *engineClient) Answer(ctx context.Context, req *connect.Request[v1.Answe
 // Interrupt calls orrery.engine.v1.Engine.Interrupt.
 func (c *engineClient) Interrupt(ctx context.Context, req *connect.Request[v1.InterruptRequest]) (*connect.Response[v1.InterruptResponse], error) {
 	return c.interrupt.CallUnary(ctx, req)
+}
+
+// Decline calls orrery.engine.v1.Engine.Decline.
+func (c *engineClient) Decline(ctx context.Context, req *connect.Request[v1.DeclineRequest]) (*connect.Response[v1.DeclineResponse], error) {
+	return c.decline.CallUnary(ctx, req)
 }
 
 // Stop calls orrery.engine.v1.Engine.Stop.
@@ -236,6 +253,9 @@ type EngineHandler interface {
 	Answer(context.Context, *connect.Request[v1.AnswerRequest]) (*connect.Response[v1.AnswerResponse], error)
 	// Interrupt stops a session's current turn.
 	Interrupt(context.Context, *connect.Request[v1.InterruptRequest]) (*connect.Response[v1.InterruptResponse], error)
+	// Decline denies an open question or permission request of a session and ends its turn, as Interrupt does. It is
+	// refused unless the request is open.
+	Decline(context.Context, *connect.Request[v1.DeclineRequest]) (*connect.Response[v1.DeclineResponse], error)
 	// Stop ends a session's process.
 	Stop(context.Context, *connect.Request[v1.StopRequest]) (*connect.Response[v1.StopResponse], error)
 	// Seen marks a session's conversation as read.
@@ -284,6 +304,12 @@ func NewEngineHandler(svc EngineHandler, opts ...connect.HandlerOption) (string,
 		connect.WithSchema(engineMethods.ByName("Interrupt")),
 		connect.WithHandlerOptions(opts...),
 	)
+	engineDeclineHandler := connect.NewUnaryHandler(
+		EngineDeclineProcedure,
+		svc.Decline,
+		connect.WithSchema(engineMethods.ByName("Decline")),
+		connect.WithHandlerOptions(opts...),
+	)
 	engineStopHandler := connect.NewUnaryHandler(
 		EngineStopProcedure,
 		svc.Stop,
@@ -330,6 +356,8 @@ func NewEngineHandler(svc EngineHandler, opts ...connect.HandlerOption) (string,
 			engineAnswerHandler.ServeHTTP(w, r)
 		case EngineInterruptProcedure:
 			engineInterruptHandler.ServeHTTP(w, r)
+		case EngineDeclineProcedure:
+			engineDeclineHandler.ServeHTTP(w, r)
 		case EngineStopProcedure:
 			engineStopHandler.ServeHTTP(w, r)
 		case EngineSeenProcedure:
@@ -365,6 +393,10 @@ func (UnimplementedEngineHandler) Answer(context.Context, *connect.Request[v1.An
 
 func (UnimplementedEngineHandler) Interrupt(context.Context, *connect.Request[v1.InterruptRequest]) (*connect.Response[v1.InterruptResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Engine.Interrupt is not implemented"))
+}
+
+func (UnimplementedEngineHandler) Decline(context.Context, *connect.Request[v1.DeclineRequest]) (*connect.Response[v1.DeclineResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Engine.Decline is not implemented"))
 }
 
 func (UnimplementedEngineHandler) Stop(context.Context, *connect.Request[v1.StopRequest]) (*connect.Response[v1.StopResponse], error) {

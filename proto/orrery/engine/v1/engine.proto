@@ -20,6 +20,10 @@ service Engine {
   // Interrupt stops a session's current turn.
   rpc Interrupt(InterruptRequest) returns (InterruptResponse);
 
+  // Decline denies an open question or permission request of a session and ends its turn, as Interrupt does. It is
+  // refused unless the request is open.
+  rpc Decline(DeclineRequest) returns (DeclineResponse);
+
   // Stop ends a session's process.
   rpc Stop(StopRequest) returns (StopResponse);
 
@@ -104,6 +108,22 @@ message InterruptRequest {
 // InterruptResponse acknowledges an interrupt.
 message InterruptResponse {
   // The texts of the owner's messages that Claude cancelled from its queue at the interrupt, in send order. A caller
+  // event's text is never among them.
+  repeated string texts = 1;
+}
+
+// DeclineRequest asks a session to deny one open question or permission request and end its turn.
+message DeclineRequest {
+  // The session's id.
+  string id = 1;
+
+  // The id of the question or permission request being declined.
+  string request_id = 2;
+}
+
+// DeclineResponse carries the texts of the owner's queued messages that Claude cancelled at the decline.
+message DeclineResponse {
+  // The texts of the owner's messages that Claude cancelled from its queue at the decline, in send order. A caller
   // event's text is never among them.
   repeated string texts = 1;
 }

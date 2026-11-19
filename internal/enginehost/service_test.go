@@ -90,6 +90,13 @@ func (f *fakeCommands) OwnerInterrupt(_ context.Context, id string) ([]string, e
 	return f.interruptTexts, nil
 }
 
+func (f *fakeCommands) Decline(_ context.Context, id, requestID string) ([]string, error) {
+	if err := f.record(call{method: "Decline", id: id, requestID: requestID}); err != nil {
+		return nil, err
+	}
+	return f.interruptTexts, nil
+}
+
 func (f *fakeCommands) Stop(_ context.Context, id string) error {
 	return f.record(call{method: "Stop", id: id})
 }

@@ -78,6 +78,22 @@ public class ControlClient(
 
 
   /**
+   *  Decline denies an open question or permission request of a headless session and ends its turn, as Interrupt does.
+   *  It is refused unless the request is open.
+   */
+  override suspend fun decline(request: DeclineRequest, headers: Headers): ResponseMessage<DeclineResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "orrery.v1.Control/Decline",
+      io.github.joshsymonds.orrery.gen.orrery.v1.DeclineRequest::class,
+      io.github.joshsymonds.orrery.gen.orrery.v1.DeclineResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
    *  Stop stops a headless session.
    */
   override suspend fun stop(request: StopRequest, headers: Headers): ResponseMessage<StopResponse> = client.unary(

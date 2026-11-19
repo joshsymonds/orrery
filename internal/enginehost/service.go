@@ -32,6 +32,7 @@ type Commands interface {
 	Say(ctx context.Context, req SayRequest) error
 	Answer(ctx context.Context, id, requestID, answer string) error
 	OwnerInterrupt(ctx context.Context, id string) ([]string, error)
+	Decline(ctx context.Context, id, requestID string) ([]string, error)
 	Stop(ctx context.Context, id string) error
 	Seen(ctx context.Context, id string) error
 	Resume(ctx context.Context, id string) error
@@ -58,9 +59,9 @@ func Listen(socketPath string) (net.Listener, error) {
 // nil pools refuses every Acquire as unavailable, a nil evidence refuses every evidence RPC as unavailable, a nil notices
 // refuses every notices RPC as unavailable, and a nil crons refuses every cron call as unavailable. The crons service
 // answers each call for the session in the Orrery-Session header, and refuses a call with no such header as
-// InvalidArgument. With steps served, the engine refuses Say, Answer, Interrupt, Stop and Resume on a step id, and NotNow
-// and BringBack on a headless step id, since a step is driven only through the Steps service. opts apply to each of the
-// seven handlers.
+// InvalidArgument. With steps served, the engine refuses Say, Answer, Interrupt, Decline, Stop and Resume on a step
+// id, and NotNow and BringBack on a headless step id, since a step is driven only through the Steps service. opts apply
+// to each of the seven handlers.
 func Serve(
 	ctx context.Context,
 	ln net.Listener,
@@ -220,6 +221,23 @@ func (s *service) Interrupt(
 		return nil, commandError(err)
 	}
 	return connect.NewResponse(&v1.InterruptResponse{Texts: texts}), nil
+}
+
+func (s *service) Decline(
+	ctx context.Context,
+	req *connect.Request[v1.DeclineRequest],
+) (*connect.Response[v1.DeclineResponse], error) {
+	if err := s.ready(); err != nil {
+		return nil, err
+	}
+	if err := s.refuseStep(ctx, req.Msg.GetId()); err != nil {
+		return nil, err
+	}
+	texts, err := s.commands.Decline(ctx, req.Msg.GetId(), req.Msg.GetRequestId())
+	if err != nil {
+		return nil, commandError(err)
+	}
+	return connect.NewResponse(&v1.DeclineResponse{Texts: texts}), nil
 }
 
 func (s *service) Stop(
