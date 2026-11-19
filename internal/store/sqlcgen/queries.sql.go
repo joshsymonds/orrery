@@ -4583,6 +4583,59 @@ func (q *Queries) ListEpicLedger(ctx context.Context, epic string) ([]EpicLedger
 	return items, nil
 }
 
+const listEpicListings = `-- name: ListEpicListings :many
+SELECT epics.id, epics.repository, epics.title, epics.phase, epics.phase_at, epics.created, epics.changed,
+    epics.revision, epic_seen.at AS seen_at
+FROM epics
+LEFT JOIN epic_seen ON epic_seen.epic = epics.id
+ORDER BY epics.id
+`
+
+type ListEpicListingsRow struct {
+	ID         string
+	Repository string
+	Title      string
+	Phase      string
+	PhaseAt    int64
+	Created    int64
+	Changed    int64
+	Revision   int64
+	SeenAt     sql.NullInt64
+}
+
+func (q *Queries) ListEpicListings(ctx context.Context) ([]ListEpicListingsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicListings)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListEpicListingsRow
+	for rows.Next() {
+		var i ListEpicListingsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Repository,
+			&i.Title,
+			&i.Phase,
+			&i.PhaseAt,
+			&i.Created,
+			&i.Changed,
+			&i.Revision,
+			&i.SeenAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listEpicNodeChecks = `-- name: ListEpicNodeChecks :many
 SELECT id, epic, path, revision, argv, limit_seconds, needs, state, grant_id, holder, exit, timed_out, not_run, stdout, stderr, created, ended FROM epic_node_checks WHERE epic = ? ORDER BY created, id
 `

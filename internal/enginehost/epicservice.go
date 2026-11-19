@@ -37,6 +37,7 @@ type EpicCommands interface {
 	EpicFlow(ctx context.Context, id string) (store.EpicFlow, error)
 	EpicHistory(ctx context.Context, id string) (store.EpicHistory, error)
 	Epics(ctx context.Context) ([]store.EpicRow, error)
+	EpicListings(ctx context.Context) ([]store.EpicRow, error)
 	AnswerEpic(ctx context.Context, epic, id, text string, at time.Time) (store.EpicDecision, error)
 	AnswerQuestion(
 		ctx context.Context, epic, id, text string, question int64, choice string, at time.Time,
@@ -195,7 +196,7 @@ func (s *epicService) ListEpics(
 	if err := s.ready(); err != nil {
 		return nil, err
 	}
-	rows, err := s.epics.Epics(ctx)
+	rows, err := s.epics.EpicListings(ctx)
 	if err != nil {
 		return nil, epicStoreError(err)
 	}

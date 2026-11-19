@@ -505,6 +505,13 @@ SELECT * FROM epics WHERE id = ?;
 -- name: ListEpics :many
 SELECT * FROM epics ORDER BY id;
 
+-- name: ListEpicListings :many
+SELECT epics.id, epics.repository, epics.title, epics.phase, epics.phase_at, epics.created, epics.changed,
+    epics.revision, epic_seen.at AS seen_at
+FROM epics
+LEFT JOIN epic_seen ON epic_seen.epic = epics.id
+ORDER BY epics.id;
+
 -- name: ListBuildEpics :many
 SELECT epics.id FROM epics
 WHERE epics.base <> '' AND epics.phase NOT IN ('met_at_base', 'clean', 'ended_with_gaps', 'released', 'done', 'stopped',

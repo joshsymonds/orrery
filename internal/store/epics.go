@@ -677,6 +677,40 @@ func readEpics(ctx context.Context, queries *sqlcgen.Queries) ([]EpicRow, error)
 	return rows, nil
 }
 
+// EpicListings returns every stored epic ordered by id, with only the fields a listing of epics reads: its id,
+// repository, title, phase, phase time, created and changed times, revision and seen mark. Every other field is zero,
+// and no workflow node is read. The rows come from one query.
+func (s *Store) EpicListings(ctx context.Context) ([]EpicRow, error) {
+	return readEpicListings(ctx, sqlcgen.New(s.db))
+}
+
+// readEpicListings returns every stored epic as EpicListings does, read with queries.
+func readEpicListings(ctx context.Context, queries *sqlcgen.Queries) ([]EpicRow, error) {
+	listed, err := queries.ListEpicListings(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list epic listings: %w", err)
+	}
+	return mapInOrder(listed, epicListingOf), nil
+}
+
+// epicListingOf returns the epic a listing row holds, with the fields EpicListings reads and no others.
+func epicListingOf(listed sqlcgen.ListEpicListingsRow) EpicRow {
+	row := EpicRow{
+		ID:         listed.ID,
+		Repository: listed.Repository,
+		Title:      listed.Title,
+		Phase:      listed.Phase,
+		Created:    time.Unix(listed.Created, 0),
+		Changed:    time.Unix(listed.Changed, 0),
+		PhaseAt:    time.Unix(listed.PhaseAt, 0),
+		Revision:   listed.Revision,
+	}
+	if listed.SeenAt.Valid {
+		row.Seen = time.Unix(listed.SeenAt.Int64, 0)
+	}
+	return row
+}
+
 // UnsummarizedEpics returns every stored epic whose summary is empty, ordered by id, each read as Epic reads it. A
 // stored epic with a summary is not returned.
 func (s *Store) UnsummarizedEpics(ctx context.Context) ([]EpicRow, error) {
