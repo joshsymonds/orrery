@@ -596,7 +596,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		views:       newDoneViews(),
 	})
 	router := hub.router
-	pageNotices := enginehost.NewPageNotices(pages, router, time.Now)
+	pageNotices := enginehost.NewPageNotices(pages, router, router, time.Now)
 	observe := func(transition daemon.Transition) { hub.observe(ctx, transition) }
 	// callerWake holds the caller-event wake once startSessions has returned the host, so the pane observer does nothing
 	// until then.

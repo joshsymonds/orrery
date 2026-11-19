@@ -1920,10 +1920,12 @@ A requeued request is kept in memory only. A restart of `orreryd` ends it, and a
 
 #### Notices
 
-`orreryd` serves the `orrery.engine.v1.Notices` service (`proto/orrery/engine/v1/notice.proto`) on the session socket, beside `Steps`, with the same socket mode and Connect rules. `serve` forwards its calls as the page's `orrery.v1.Notices` service (see [orrery serve](#orrery-serve)). The service has two calls:
+`orreryd` serves the `orrery.engine.v1.Notices` service (`proto/orrery/engine/v1/notice.proto`) on the session socket, beside `Steps`, with the same socket mode and Connect rules. `serve` forwards its calls as the page's `orrery.v1.Notices` service (see [orrery serve](#orrery-serve)). The service has four calls:
 
 - `Watch` streams the in-app notices (see [In-app notices](#in-app-notices)). It sends each notice showing now as a `shown` message. Then it sends each change: a `shown` message for a notice that shows, or replaces the one under its key, and an `ended` message for the key of a notice that ends. The stream ends when the call ends (`enginehost.noticesService.Watch`; `inapp.Hub.Watch`). With no notice source, `Watch` answers `unavailable` (`enginehost.noticesService.Watch`).
-- `Seen` names the key of a notice the owner opened. A key that sets none of its fields, or more than one, answers `invalid_argument` (`enginehost.noticeKeyOf`). A valid key goes to the router as seen at orreryd's clock (`enginehost.PageNotices.Seen`, `enginehost.noticesService.Seen`). The router ends the pending notice for that key when the notice was recorded at or before the seen time (`route.Router.Seen`). With no notice source, `Seen` answers `unavailable`.
+- `Seen` names the key of a notice the owner opened. A key that sets none of its fields, or more than one, answers `invalid_argument` (`enginehost.noticeKeyOf`). A valid key goes to the router as seen at orreryd's clock (`enginehost.PageNotices.Seen`, `enginehost.noticesService.Seen`). The router ends the pending notice for that key when the notice was recorded at or before the seen time, and marks read the history rows of that key at or before the seen time (`route.Router.Seen`). With no notice source, `Seen` answers `unavailable`.
+- `List` answers the notice history: each notice orreryd showed at the desk or sent away with its desk text built (see [Notice history in the store](#notice-history-in-the-store)). It holds the notices timed within the last 14 days at orreryd's clock, newest first, each as a `ListedNotice` with its `key`, `state`, `title`, `body`, `block` (unset when the notice opens the epic view), `time` in unix seconds when the router delivered it, and its `read` mark. The window is the 14 days before orreryd's clock (`enginehost.PageNotices.List`, `enginehost.noticesService.List`), and the rows come from `route.Router.History`. With no notice history, `List` answers `unavailable`.
+- `ReadAll` marks every notice in the history read (`enginehost.PageNotices.ReadAll`, `enginehost.noticesService.ReadAll`, `route.Router.ReadAll`). With no notice history, `ReadAll` answers `unavailable`.
 
 A `NoticeKey` (`proto/orrery/engine/v1/notice.proto: NoticeKey`) sets one of five fields: `pane`, `session`, `epic`, `limit`, or `alert`, the name of an alert (see [Alert intake](#alert-intake)). `Seen` takes exactly one. `serve` copies the key field for field (`server.noticeKeyMessage`, `server.engineNoticeKey`), and the page keys each notice by all five fields (`web/src/notices.tsx: noticeKey`).
 
@@ -2802,6 +2804,34 @@ The `pending_notice_ids` table has one row, whose `high` is the highest `id` the
 | `high` | `INTEGER` | the highest `id` stored |
 
 A row is written when its notice is recorded, with phase `deciding`. A pane notice's row is also written at each hold, with phase `held`, and when its judge wait starts, with phase `delayed`. A row is written again before its desk post, with phase `desk`, which it keeps until it escalates. Each row write runs under the router's store-call bound. The router arms it through `route.Config.StoreAfter`, an injected timer: it is called with the 200 ms bound and a cancel func, and it returns a stop func. `orreryd` leaves `StoreAfter` nil, which uses `time.AfterFunc` (`route.Config`, `route.New`, `route.afterFunc`; `route.storeDeadline`, `route.Router.armed`). A write whose bound fires before it returns reads as failed, with an error that wraps `context.DeadlineExceeded` (`route.Router.bounded`). A write that fails or runs past it is logged by `orreryd`, and the notice routes as it would. Later row writes, the retry 5 seconds after the failure, and the next stop retry it. A retry that still fails arms the next, until the writes land or the router stops (`route.RowRetry`, `route.Router.armRetryLocked`). So a sent notice's row whose delete fails does not wait for the next notice to be deleted, and a restart soon after does not find it `sending` and send the push to the phone again. The row of an epic notice carries the told mark of its turn or tell, which its first write applies (see [Planner turns](#planner-turns)). The row is deleted when the notice ends, after its sinks have been handed the notice, except for a notice handed to the phone. That notice is written `sending` before its push, and its row is deleted when the publish returns, with or without an error.
+
+#### Notice history in the store
+
+The `notice_history` table (migration `00073_notice_history.sql`) keeps one row per notice the router delivered: a notice shown at the desk, or sent away with its desk text built (see [Notice routing](#notice-routing)). The router writes the row when it posts the desk text, timed at the router's clock (`route.Router.recordHistoryLocked`). A notice whose desk text fails to build has no row.
+
+| Column | Type | Meaning |
+|---|---|---|
+| `id` | `INTEGER`, primary key | the row's id. `AUTOINCREMENT`, so an id is never reused |
+| `pane` | `TEXT` | the notice's pane; `""` for a notice of another key |
+| `session` | `TEXT` | the notice's session id; `""` for a notice of another key |
+| `epic` | `TEXT` | the epic's id; `""` for a notice of another key |
+| `limit_key` | `TEXT` | the usage limit's key, `<kind>@<reset>`; `""` for a notice of another key |
+| `alert` | `TEXT` | the alert's name; `""` for a notice of another key |
+| `state` | `TEXT` | the notice's state |
+| `title` | `TEXT` | the notice's title |
+| `body` | `TEXT` | the notice's body |
+| `block` | `TEXT` | the kind of block the notice opens on; `""` for the epic view |
+| `block_ref` | `TEXT` | the block's reference; `""` for the epic view |
+| `time` | `INTEGER` | unix seconds when the router delivered the notice |
+| `read` | `BOOLEAN` | `0` until a client reads the row, then `1` |
+
+Exactly one of `pane`, `session`, `epic`, `limit_key` and `alert` is set on a row, as the notice's key is. The migration indexes the table by `time` (`notice_history_time`) and by the key fields and `id` (`notice_history_key`).
+
+The newest row of a key is the one with the highest `id`. A later notice under a key whose newest row is unread replaces that row's `state`, `title`, `body`, `block`, `block_ref` and `time` in one write, so a key holds at most one unread row. A later notice under a key whose newest row is read adds a new unread row, and the read row stays as a record of what was told (`store.Store.RecordNoticeHistory`).
+
+`route.Router.Seen` marks read the rows of its key whose `time` is at or before the seen time (`store.Store.MarkNoticeHistoryRead`). It does so only for a key the router tracks as unread, and the router reads those keys from the table when it attaches to the store (`route.Router.markHistoryLocked`, `store.Store.UnreadNoticeHistoryKeys`). `route.Router.ReadAll` marks every row read (`store.Store.ReadAllNoticeHistory`).
+
+No row is pruned: a row is never deleted, so the table keeps every notice the router wrote. `Notices.List` reads only the rows timed within the 14 days before orreryd's clock (`store.Store.NoticeHistory`, `enginehost.PageNotices.List`).
 
 #### Pushed notices in the store
 
