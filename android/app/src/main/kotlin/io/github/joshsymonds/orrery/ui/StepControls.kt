@@ -6,7 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -109,7 +109,7 @@ fun StepActions(calls: StepCalls, held: Boolean) {
 private fun StepButton(label: String, tag: String, onClick: () -> Unit) {
     Button(
         onClick = onClick,
-        modifier = Modifier.testTag(tag).heightIn(min = OrreryTokens.Space.twentyFour),
+        modifier = Modifier.testTag(tag).height(OrreryTokens.Size.gauge),
         shape = RoundedCornerShape(OrreryTokens.Radius.two),
         colors = ButtonDefaults.buttonColors(containerColor = OrreryTokens.Surface.raised, contentColor = OrreryTokens.Ink.one),
         border = BorderStroke(OrreryTokens.Size.hairline, OrreryTokens.Line.firm),

@@ -8,7 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -216,7 +216,7 @@ private fun ControlButton(label: String, tag: String, feedback: TapFeedback, onC
             feedback.tap()
             onClick()
         },
-        modifier = Modifier.testTag(tag).tapFeedback(feedback).heightIn(min = OrreryTokens.Space.twentyFour),
+        modifier = Modifier.testTag(tag).tapFeedback(feedback).height(OrreryTokens.Size.gauge),
         shape = RoundedCornerShape(OrreryTokens.Radius.two),
         colors = if (feedback.flashing) {
             tapFeedbackColors(feedback)
