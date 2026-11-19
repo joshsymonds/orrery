@@ -303,6 +303,23 @@ SELECT * FROM steps WHERE epic = sqlc.arg(epic) ORDER BY started, id;
 -- name: ListEpicTaskSteps :many
 SELECT * FROM steps WHERE epic = sqlc.arg(epic) AND task IN (sqlc.slice(tasks)) ORDER BY started, id;
 
+-- name: ListLabelledStepListings :many
+SELECT * FROM step_listings
+WHERE epic <> '' AND (CAST(sqlc.arg(task) AS TEXT) = '' OR task = CAST(sqlc.arg(task) AS TEXT))
+ORDER BY started, id;
+
+-- name: ListEpicStepListings :many
+SELECT * FROM step_listings WHERE epic = sqlc.arg(epic) ORDER BY started, id;
+
+-- name: ListEpicTaskStepListings :many
+SELECT * FROM step_listings WHERE epic = sqlc.arg(epic) AND task = sqlc.arg(task) ORDER BY started, id;
+
+-- name: ListOpenStepListings :many
+SELECT * FROM step_listings WHERE end_value = '' AND epic <> '' ORDER BY started, id;
+
+-- name: CountLabelledSteps :many
+SELECT epic, task, COUNT(*) AS steps FROM steps WHERE epic <> '' GROUP BY epic, task;
+
 -- name: ListLimitedSteps :many
 SELECT * FROM steps WHERE end_value = '' AND loop_limited = 1 ORDER BY started, id;
 
@@ -494,6 +511,9 @@ WHERE epics.base <> '' AND epics.phase NOT IN ('met_at_base', 'clean', 'ended_wi
     'closed_superseded', 'closed_shipped', 'closed_abandoned')
   AND EXISTS (SELECT 1 FROM epic_tasks WHERE epic_tasks.epic = epics.id AND epic_tasks.status = 'open')
 ORDER BY epics.id;
+
+-- name: ResetEpicRevision :exec
+UPDATE epics SET revision = 0 WHERE id = ?;
 
 -- name: UpdateEpicChanged :exec
 UPDATE epics SET changed = ? WHERE id = ?;
@@ -1076,6 +1096,16 @@ INSERT INTO evidence_artifacts (run, position, path, state, hash, blob, size) VA
 
 -- name: ListEvidenceArtifacts :many
 SELECT * FROM evidence_artifacts WHERE run = ? ORDER BY position;
+
+-- name: ListEpicEvidenceArtifacts :many
+SELECT * FROM evidence_artifacts
+WHERE run IN (SELECT evidence_runs.id FROM evidence_runs WHERE evidence_runs.epic = ?)
+ORDER BY run, position;
+
+-- name: ListOpenEvidenceArtifacts :many
+SELECT * FROM evidence_artifacts
+WHERE run IN (SELECT evidence_runs.id FROM evidence_runs WHERE evidence_runs.state <> 'ended')
+ORDER BY run, position;
 
 -- name: SetEvidenceRunJudge :exec
 UPDATE evidence_runs SET judge_step = ?, judges = judges + 1 WHERE id = ?;

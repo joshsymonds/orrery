@@ -249,4 +249,16 @@ public interface EpicOrBuilder extends
    * @return The archived.
    */
   boolean getArchived();
+
+  /**
+   * <pre>
+   * How many writes have changed the database epic's row or a row of its parts, its steps aside; 0 for an epic only the
+   * records hold. It only grows, so an epic whose revision moved has changed in some part Get answers that this
+   * message does not carry, such as its questions, its park, its nodes, its tasks or its ledger.
+   * </pre>
+   *
+   * <code>int64 revision = 16 [json_name = "revision"];</code>
+   * @return The revision.
+   */
+  long getRevision();
 }

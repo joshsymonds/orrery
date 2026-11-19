@@ -23,6 +23,8 @@ type StepCommands interface {
 	Stop(ctx context.Context, id string) error
 	Status(ctx context.Context, id string) (store.StepRow, error)
 	List(ctx context.Context, epic, task string) ([]store.StepRow, error)
+	Listings(ctx context.Context, epic, task string) ([]store.StepListing, error)
+	RunningListings(ctx context.Context, epic, task string) ([]store.StepListing, map[string]int, error)
 	Hold(ctx context.Context, id string) error
 	Held(id string) bool
 	Nudge(ctx context.Context, id, text string) error
@@ -111,6 +113,8 @@ func (s *stepService) StepStatus(
 	return connect.NewResponse(&v1.StepStatusResponse{Step: step}), nil
 }
 
+// ListSteps answers the listings of the labeled steps the request narrows to, each with no result. A request for the
+// running steps reads only those, and the count of each epic's ended steps.
 func (s *stepService) ListSteps(
 	ctx context.Context,
 	req *connect.Request[v1.ListStepsRequest],
@@ -118,19 +122,44 @@ func (s *stepService) ListSteps(
 	if err := s.ready(); err != nil {
 		return nil, err
 	}
-	rows, err := s.steps.List(ctx, req.Msg.GetEpic(), req.Msg.GetTask())
+	var listings []store.StepListing
+	var ended map[string]int
+	var err error
+	if req.Msg.GetRunning() {
+		listings, ended, err = s.steps.RunningListings(ctx, req.Msg.GetEpic(), req.Msg.GetTask())
+	} else {
+		listings, err = s.steps.Listings(ctx, req.Msg.GetEpic(), req.Msg.GetTask())
+	}
 	if err != nil {
 		return nil, stepCommandError(err)
 	}
-	resp := &v1.ListStepsResponse{Steps: make([]*v1.Step, 0, len(rows))}
-	for _, row := range rows {
+	resp := &v1.ListStepsResponse{Steps: make([]*v1.Step, 0, len(listings))}
+	for _, listing := range listings {
 		var step *v1.Step
-		if step, err = stepMessage(row, s.steps.Held(row.ID)); err != nil {
+		if step, err = listingMessage(listing, s.steps.Held(listing.ID)); err != nil {
 			return nil, stepCommandError(err)
 		}
 		resp.Steps = append(resp.Steps, step)
 	}
+	if req.Msg.GetRunning() {
+		if resp.Ended, err = endedCounts(ended); err != nil {
+			return nil, stepCommandError(err)
+		}
+	}
 	return connect.NewResponse(resp), nil
+}
+
+// endedCounts returns ended, the count of each epic's ended steps, as the reply carries it. A count outside int32 is an
+// error, since the reply cannot carry it.
+func endedCounts(ended map[string]int) (map[string]int32, error) {
+	out := make(map[string]int32, len(ended))
+	for epic, count := range ended {
+		if count < 0 || count > math.MaxInt32 {
+			return nil, fmt.Errorf("epic %s ended step count %d is outside int32", epic, count)
+		}
+		out[epic] = int32(count)
+	}
+	return out, nil
 }
 
 func (s *stepService) HoldStep(
@@ -172,9 +201,19 @@ func (s *stepService) ResumeStep(
 	return connect.NewResponse(&v1.ResumeStepResponse{}), nil
 }
 
-// stepMessage returns the Step message of row, with held as its held flag. Ended is zero while the step runs. A check
-// or verdict round outside uint32 is an error, since the reply cannot carry it.
+// stepMessage returns the Step message of row, with held as its held flag: the message of its listing, with its result.
 func stepMessage(row store.StepRow, held bool) (*v1.Step, error) {
+	step, err := listingMessage(row.Listing(), held)
+	if err != nil {
+		return nil, err
+	}
+	step.Result = row.Result
+	return step, nil
+}
+
+// listingMessage returns the Step message of row, a step's listing, with held as its held flag and no result. Ended is
+// zero while the step runs. A check or verdict round outside uint32 is an error, since the reply cannot carry it.
+func listingMessage(row store.StepListing, held bool) (*v1.Step, error) {
 	checks := make([]*v1.StepCheck, 0, len(row.Checks))
 	for _, check := range row.Checks {
 		if int64(check.Round) < 0 || int64(check.Round) > math.MaxUint32 {
@@ -214,7 +253,6 @@ func stepMessage(row store.StepRow, held bool) (*v1.Step, error) {
 		Worktree:         row.Worktree,
 		End:              row.End,
 		Status:           row.Status,
-		Result:           row.Result,
 		Checks:           checks,
 		Doing:            row.Doing,
 		Reason:           row.Reason,
@@ -226,6 +264,9 @@ func stepMessage(row store.StepRow, held bool) (*v1.Step, error) {
 		GateLimitSeconds: int64(row.GateLimit / time.Second),
 		Verdicts:         verdicts,
 		Caller:           row.Caller,
+		Summary:          row.Summary,
+		RedEvidence:      row.RedEvidence,
+		GreenEvidence:    row.GreenEvidence,
 	}
 	if !row.Ended.IsZero() {
 		step.Ended = row.Ended.Unix()

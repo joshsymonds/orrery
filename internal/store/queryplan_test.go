@@ -162,9 +162,12 @@ func TestToldLimitQueryPlans(t *testing.T) {
 // TestStepQueryPlans fails when a query that reads steps by an epic's labels, lists the open steps or lists the step
 // ends a caller has not read scans steps, or scans it through an index that is not partial. steps holds every step's
 // prompt, result, checks and verdicts, so a scan of it reads the whole history: the interpreter reads an epic's labeled
-// steps on every decision, and the limit notices and caller events list theirs on every pass. A search of steps is not
-// a scan and passes. ListLabelledSteps lists the labeled steps of every epic and so reads the whole table; no pass reads
-// it, and it is not listed. A read of one task's steps of an epic searches both labels, in the order it returns them.
+// steps on every decision, the limit notices and caller events list theirs on every pass, and serve lists the running
+// steps' listings for every epic list and an epic's listings for every epic page. A search of steps is not a scan and
+// passes. ListLabelledSteps and ListLabelledStepListings list the labeled steps of every epic and so read the whole
+// table; no pass reads them, and they are not listed. A read of one task's steps of an epic searches both labels, in
+// the order it returns them. The count of the labeled steps by label, which an epic list takes its ended counts from,
+// reads the label index alone and no step's row.
 func TestStepQueryPlans(t *testing.T) {
 	t.Parallel()
 	texts := sqlcQueryTexts(t)
@@ -173,7 +176,8 @@ func TestStepQueryPlans(t *testing.T) {
 	names := map[string]bool{"steps": true}
 	for _, name := range []string{
 		"ListEpicTaskSteps", "ListEpicSteps", "ListOpenEpicSteps", "ListOpenEpicTaskSteps", "ListOpenSteps",
-		"ListLimitedSteps", "ListCallerSteps", "ListPendingCallerSteps",
+		"ListLimitedSteps", "ListCallerSteps", "ListPendingCallerSteps", "ListEpicStepListings",
+		"ListEpicTaskStepListings", "ListOpenStepListings",
 	} {
 		text, ok := texts[name]
 		if !ok {
@@ -188,6 +192,52 @@ func TestStepQueryPlans(t *testing.T) {
 	want := []string{"SEARCH steps USING INDEX steps_epic_task (epic=? AND task=?)"}
 	if got := planDetails(t, s.db.DB, "ListEpicTaskSteps", texts["ListEpicTaskSteps"]); !reflect.DeepEqual(got, want) {
 		t.Errorf("ListEpicTaskSteps plan = %q, want %q", got, want)
+	}
+	for name, first := range map[string]string{
+		"ListEpicStepListings":     "SEARCH steps USING INDEX steps_epic_task (epic=?)",
+		"ListEpicTaskStepListings": "SEARCH steps USING INDEX steps_epic_task (epic=? AND task=?)",
+		"ListOpenStepListings":     "SCAN steps USING INDEX steps_open",
+	} {
+		if got := planDetails(t, s.db.DB, name, texts[name]); len(got) == 0 || got[0] != first {
+			t.Errorf("%s plan = %q, want it to read steps by %q", name, got, first)
+		}
+	}
+	want = []string{"SCAN steps USING COVERING INDEX steps_epic_task"}
+	if got := planDetails(
+		t,
+		s.db.DB,
+		"CountLabelledSteps",
+		texts["CountLabelledSteps"],
+	); !reflect.DeepEqual(
+		got,
+		want,
+	) {
+		t.Errorf("CountLabelledSteps plan = %q, want %q", got, want)
+	}
+}
+
+// TestEvidenceArtifactQueryPlans checks that the read of every artifact of an epic's runs searches the epic's runs by
+// their epic index and each run's artifacts by its key, in key order, so one query serves every run of the epic. The
+// read of the open runs' artifacts searches each open run's artifacts by its key too.
+func TestEvidenceArtifactQueryPlans(t *testing.T) {
+	t.Parallel()
+	texts := sqlcQueryTexts(t)
+	s := openWriterAt(t, filepath.Join(t.TempDir(), "orrery.db"))
+	for name, want := range map[string][]string{
+		"ListEpicEvidenceArtifacts": {
+			"SEARCH evidence_artifacts USING INDEX sqlite_autoindex_evidence_artifacts_1 (run=?)",
+			"LIST SUBQUERY 1",
+			"SEARCH evidence_runs USING INDEX evidence_runs_epic_created (epic=?)",
+		},
+		"ListOpenEvidenceArtifacts": {
+			"SEARCH evidence_artifacts USING INDEX sqlite_autoindex_evidence_artifacts_1 (run=?)",
+			"LIST SUBQUERY 1",
+			"SCAN evidence_runs",
+		},
+	} {
+		if got := planDetails(t, s.db.DB, name, texts[name]); !reflect.DeepEqual(got, want) {
+			t.Errorf("%s plan = %q, want %q", name, got, want)
+		}
 	}
 }
 

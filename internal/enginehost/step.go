@@ -121,13 +121,15 @@ type StepStart struct {
 	ReturnCheck func(value json.RawMessage) []string
 }
 
-// StepStore reads the step rows Steps reports, the turn ends and finished blocks their sessions stored and the rate
-// limits their sessions were rejected with, the running steps a caller started, and the sessions row a caller names,
-// which Start checks a caller against before it stores a step. *store.Store satisfies it.
+// StepStore reads the step rows and listings Steps reports, the turn ends and finished blocks their sessions stored and
+// the rate limits their sessions were rejected with, the running steps a caller started, and the sessions row a caller
+// names, which Start checks a caller against before it stores a step. *store.Store satisfies it.
 type StepStore interface {
 	Step(ctx context.Context, id string) (store.StepRow, error)
 	OpenSteps(ctx context.Context) ([]store.StepRow, error)
 	LabelledSteps(ctx context.Context, epic, task string) ([]store.StepRow, error)
+	StepListings(ctx context.Context, epic, task string) ([]store.StepListing, error)
+	RunningStepListings(ctx context.Context, epic, task string) ([]store.StepListing, map[string]int, error)
 	StepTurn(ctx context.Context, id string) (store.StepTurnEnd, bool, error)
 	StepBlocks(ctx context.Context, id string, limit int) ([]store.StepBlock, error)
 	StepRateLimit(ctx context.Context, id string) (store.RateLimit, bool, error)
@@ -457,6 +459,26 @@ func (s *Steps) List(ctx context.Context, epic, task string) ([]store.StepRow, e
 		return nil, fmt.Errorf("list labeled steps: %w", err)
 	}
 	return rows, nil
+}
+
+// Listings returns the listings of the labeled steps narrowed to epic when it is not empty and to task when it is not
+// empty, oldest first. A step started without an epic is never listed.
+func (s *Steps) Listings(ctx context.Context, epic, task string) ([]store.StepListing, error) {
+	listings, err := s.store.StepListings(ctx, epic, task)
+	if err != nil {
+		return nil, fmt.Errorf("list labeled step listings: %w", err)
+	}
+	return listings, nil
+}
+
+// RunningListings returns the listings of the labeled steps that have not ended, narrowed as Listings narrows them,
+// oldest first, and by epic how many of the narrowed labeled steps have ended. It reads no ended step's row.
+func (s *Steps) RunningListings(ctx context.Context, epic, task string) ([]store.StepListing, map[string]int, error) {
+	listings, ended, err := s.store.RunningStepListings(ctx, epic, task)
+	if err != nil {
+		return nil, nil, fmt.Errorf("list running step listings: %w", err)
+	}
+	return listings, ended, nil
 }
 
 // runLoop runs run in its own goroutine under a context derived from ctx's values, not its cancellation, so the loop

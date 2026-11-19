@@ -664,6 +664,11 @@ message Epic {
 
   // True while the epic is archived: the owner archived it and has not unarchived it since.
   bool archived = 15;
+
+  // How many writes have changed the database epic's row or a row of its parts, its steps aside; 0 for an epic only the
+  // records hold. It only grows, so an epic whose revision moved has changed in some part Get answers that this
+  // message does not carry, such as its questions, its park, its nodes, its tasks or its ledger.
+  int64 revision = 16;
 }
 
 // EpicTask is one task from an effort's state.json.
