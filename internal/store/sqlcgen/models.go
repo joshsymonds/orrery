@@ -104,6 +104,18 @@ type Epic struct {
 	Steerer          string
 }
 
+type EpicAction struct {
+	Epic         string
+	Seq          int64
+	Kind         string
+	Maker        string
+	MakerSession string
+	FromSession  string
+	ToSession    string
+	Recipient    string
+	At           int64
+}
+
 type EpicAddition struct {
 	Epic     string
 	Position int64
@@ -162,6 +174,7 @@ type EpicDecision struct {
 	Question     int64
 	Maker        string
 	MakerSession string
+	Recipient    string
 }
 
 type EpicExclusion struct {

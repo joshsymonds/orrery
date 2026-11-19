@@ -51,8 +51,15 @@ func epicTableColumns() map[string][]string {
 			"epic", "position", "name", "argv", "limit_seconds", "needs", "agent", "must", "must_not",
 		},
 		"epic_gate_lists": {"epic", "list", "position", "gate"},
-		"epic_decisions":  {"epic", "seq", "client_id", "text", "time", "question", "maker", "maker_session"},
-		"epic_triggers":   {"epic", "id", "cause", "state", "turn", "created"},
+		// The recipient an owner's decision is owed to, from 00079_epic_actions.sql.
+		"epic_decisions": {
+			"epic", "seq", "client_id", "text", "time", "question", "maker", "maker_session", "recipient",
+		},
+		// The epic's action log: each move and owner or orreryd control, from 00079_epic_actions.sql.
+		"epic_actions": {
+			"epic", "seq", "kind", "maker", "maker_session", "from_session", "to_session", "recipient", "at",
+		},
+		"epic_triggers": {"epic", "id", "cause", "state", "turn", "created"},
 		"epic_turns": {
 			"epic", "seq", "step", "state", "reason", "seen", "outline", "outcome", "started", "ended",
 			"told", "stop", "resets",
@@ -447,7 +454,7 @@ func TestEpicDecisionsRefuseUpdateAndDelete(t *testing.T) {
 
 	const id = seededEpic
 	seedEpic(t, s.db.DB)
-	want := [][]any{{id, int64(1), "D1", "Use the store", int64(1700000000), int64(0), "", ""}}
+	want := [][]any{{id, int64(1), "D1", "Use the store", int64(1700000000), int64(0), "", "", ""}}
 
 	if got := rowsOf(t, s.db.DB, "epic_decisions"); !reflect.DeepEqual(got, want) {
 		t.Fatalf("seeded decisions = %v, want %v", got, want)
@@ -550,9 +557,10 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00078_epic_steerer.sql is the newest. The newest was
-	// 00077_gambit_ladder.sql before the steerer migration added 00078, 00076_notice_history.sql before the gambit ladder added 00077, 00075_step_facts.sql before the notice history added
-	// 00076,
+	// Open applies 00014_epics.sql and every migration after it: 00079_epic_actions.sql is the newest. The newest was
+	// 00078_epic_steerer.sql before the epic actions migration added 00079, 00077_gambit_ladder.sql before the steerer
+	// migration added 00078, 00076_notice_history.sql before the gambit ladder added 00077, 00075_step_facts.sql before
+	// the notice history added 00076,
 	// 00074_task_repairs.sql before the step facts added 00075, 00073_session_awaited.sql before the task repairs added
 	// 00074, 00072_epic_revisions_table.sql before the awaited flag added 00073, 00071_park_question_runs.sql before the
 	// revisions table added 00072, 00070_task_ladder.sql before the
@@ -563,8 +571,8 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 	// 00064_step_indexes.sql before the gate changes added 00065, 00063_task_versions.sql before the step indexes added
 	// 00064, 00062_drop_engine_held.sql before the task versions added 00063, 00061_prompt_states.sql before the drop of
 	// engine_held added 00062, and 00060_cron_jobs.sql before the prompt states added 00061.
-	if version != 78 {
-		t.Fatalf("store version after Open = %d, want 78", version)
+	if version != 79 {
+		t.Fatalf("store version after Open = %d, want 79", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and
@@ -1209,7 +1217,7 @@ func TestPlannerControlsDefaultOnRowsStoredAtVersion16(t *testing.T) {
 			"",
 		},
 		"epic_turns":      {int64(0), int64(0), int64(0)},
-		"epic_decisions":  {int64(0), "", ""},
+		"epic_decisions":  {int64(0), "", "", ""},
 		"pending_notices": {"", ""},
 	}
 	for _, table := range tables {

@@ -1297,7 +1297,7 @@ func (q *Queries) GetEpicAmendment(ctx context.Context, arg GetEpicAmendmentPara
 }
 
 const getEpicDecisionByClientID = `-- name: GetEpicDecisionByClientID :one
-SELECT epic, seq, client_id, text, time, question, maker, maker_session FROM epic_decisions WHERE epic = ? AND client_id = ?
+SELECT epic, seq, client_id, text, time, question, maker, maker_session, recipient FROM epic_decisions WHERE epic = ? AND client_id = ?
 `
 
 type GetEpicDecisionByClientIDParams struct {
@@ -1317,6 +1317,7 @@ func (q *Queries) GetEpicDecisionByClientID(ctx context.Context, arg GetEpicDeci
 		&i.Question,
 		&i.Maker,
 		&i.MakerSession,
+		&i.Recipient,
 	)
 	return i, err
 }
@@ -2202,6 +2203,38 @@ func (q *Queries) InsertEpic(ctx context.Context, arg InsertEpicParams) error {
 	return err
 }
 
+const insertEpicAction = `-- name: InsertEpicAction :exec
+INSERT INTO epic_actions (epic, seq, kind, maker, maker_session, from_session, to_session, recipient, at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type InsertEpicActionParams struct {
+	Epic         string
+	Seq          int64
+	Kind         string
+	Maker        string
+	MakerSession string
+	FromSession  string
+	ToSession    string
+	Recipient    string
+	At           int64
+}
+
+func (q *Queries) InsertEpicAction(ctx context.Context, arg InsertEpicActionParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicAction,
+		arg.Epic,
+		arg.Seq,
+		arg.Kind,
+		arg.Maker,
+		arg.MakerSession,
+		arg.FromSession,
+		arg.ToSession,
+		arg.Recipient,
+		arg.At,
+	)
+	return err
+}
+
 const insertEpicAddition = `-- name: InsertEpicAddition :exec
 INSERT INTO epic_additions (epic, position, location, what, why, cost) VALUES (?, ?, ?, ?, ?, ?)
 `
@@ -2317,8 +2350,8 @@ func (q *Queries) InsertEpicClosure(ctx context.Context, arg InsertEpicClosurePa
 }
 
 const insertEpicDecision = `-- name: InsertEpicDecision :exec
-INSERT INTO epic_decisions (epic, seq, client_id, text, time, question, maker, maker_session)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO epic_decisions (epic, seq, client_id, text, time, question, maker, maker_session, recipient)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertEpicDecisionParams struct {
@@ -2330,6 +2363,7 @@ type InsertEpicDecisionParams struct {
 	Question     int64
 	Maker        string
 	MakerSession string
+	Recipient    string
 }
 
 func (q *Queries) InsertEpicDecision(ctx context.Context, arg InsertEpicDecisionParams) error {
@@ -2342,6 +2376,7 @@ func (q *Queries) InsertEpicDecision(ctx context.Context, arg InsertEpicDecision
 		arg.Question,
 		arg.Maker,
 		arg.MakerSession,
+		arg.Recipient,
 	)
 	return err
 }
@@ -3807,6 +3842,114 @@ func (q *Queries) LinkPlannerActionPark(ctx context.Context, arg LinkPlannerActi
 	return err
 }
 
+const listAddressedEpicActions = `-- name: ListAddressedEpicActions :many
+SELECT epic_actions.epic, epic_actions.seq, epic_actions.kind, epic_actions.maker, epic_actions.maker_session, epic_actions.from_session, epic_actions.to_session, epic_actions.recipient, epic_actions.at, epics.title FROM epic_actions
+JOIN epics ON epics.id = epic_actions.epic
+WHERE epic_actions.recipient != '' OR epic_actions.kind = 'move'
+ORDER BY epic_actions.at, epic_actions.epic, epic_actions.seq
+`
+
+type ListAddressedEpicActionsRow struct {
+	Epic         string
+	Seq          int64
+	Kind         string
+	Maker        string
+	MakerSession string
+	FromSession  string
+	ToSession    string
+	Recipient    string
+	At           int64
+	Title        string
+}
+
+func (q *Queries) ListAddressedEpicActions(ctx context.Context) ([]ListAddressedEpicActionsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listAddressedEpicActions)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListAddressedEpicActionsRow
+	for rows.Next() {
+		var i ListAddressedEpicActionsRow
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Seq,
+			&i.Kind,
+			&i.Maker,
+			&i.MakerSession,
+			&i.FromSession,
+			&i.ToSession,
+			&i.Recipient,
+			&i.At,
+			&i.Title,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAddressedEpicDecisions = `-- name: ListAddressedEpicDecisions :many
+SELECT epic_decisions.epic, epic_decisions.seq, epic_decisions.client_id, epic_decisions.text, epic_decisions.time, epic_decisions.question, epic_decisions.maker, epic_decisions.maker_session, epic_decisions.recipient, epics.title FROM epic_decisions
+JOIN epics ON epics.id = epic_decisions.epic
+WHERE epic_decisions.recipient != ''
+ORDER BY epic_decisions.time, epic_decisions.epic, epic_decisions.seq
+`
+
+type ListAddressedEpicDecisionsRow struct {
+	Epic         string
+	Seq          int64
+	ClientID     string
+	Text         string
+	Time         int64
+	Question     int64
+	Maker        string
+	MakerSession string
+	Recipient    string
+	Title        string
+}
+
+func (q *Queries) ListAddressedEpicDecisions(ctx context.Context) ([]ListAddressedEpicDecisionsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listAddressedEpicDecisions)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListAddressedEpicDecisionsRow
+	for rows.Next() {
+		var i ListAddressedEpicDecisionsRow
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Seq,
+			&i.ClientID,
+			&i.Text,
+			&i.Time,
+			&i.Question,
+			&i.Maker,
+			&i.MakerSession,
+			&i.Recipient,
+			&i.Title,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAllEpicWorkflowNodes = `-- name: ListAllEpicWorkflowNodes :many
 SELECT epic, position, id, parent, kind FROM epic_workflow_nodes ORDER BY epic, position
 `
@@ -4233,6 +4376,43 @@ func (q *Queries) ListEngineText(ctx context.Context, sessionID string) ([]Engin
 	return items, nil
 }
 
+const listEpicActions = `-- name: ListEpicActions :many
+SELECT epic, seq, kind, maker, maker_session, from_session, to_session, recipient, at FROM epic_actions WHERE epic = ? ORDER BY seq
+`
+
+func (q *Queries) ListEpicActions(ctx context.Context, epic string) ([]EpicAction, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicActions, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicAction
+	for rows.Next() {
+		var i EpicAction
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Seq,
+			&i.Kind,
+			&i.Maker,
+			&i.MakerSession,
+			&i.FromSession,
+			&i.ToSession,
+			&i.Recipient,
+			&i.At,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listEpicAdditions = `-- name: ListEpicAdditions :many
 SELECT epic, position, location, what, why, cost FROM epic_additions WHERE epic = ? ORDER BY position
 `
@@ -4478,7 +4658,7 @@ func (q *Queries) ListEpicClosures(ctx context.Context, epic string) ([]EpicClos
 }
 
 const listEpicDecisions = `-- name: ListEpicDecisions :many
-SELECT epic, seq, client_id, text, time, question, maker, maker_session FROM epic_decisions WHERE epic = ? ORDER BY seq
+SELECT epic, seq, client_id, text, time, question, maker, maker_session, recipient FROM epic_decisions WHERE epic = ? ORDER BY seq
 `
 
 func (q *Queries) ListEpicDecisions(ctx context.Context, epic string) ([]EpicDecision, error) {
@@ -4499,6 +4679,7 @@ func (q *Queries) ListEpicDecisions(ctx context.Context, epic string) ([]EpicDec
 			&i.Question,
 			&i.Maker,
 			&i.MakerSession,
+			&i.Recipient,
 		); err != nil {
 			return nil, err
 		}
@@ -8480,6 +8661,116 @@ func (q *Queries) ListSessionCronJobs(ctx context.Context, session string) ([]Cr
 	return items, nil
 }
 
+const listSessionEpicActions = `-- name: ListSessionEpicActions :many
+SELECT epic_actions.epic, epic_actions.seq, epic_actions.kind, epic_actions.maker, epic_actions.maker_session, epic_actions.from_session, epic_actions.to_session, epic_actions.recipient, epic_actions.at, epics.title FROM epic_actions
+JOIN epics ON epics.id = epic_actions.epic
+WHERE epic_actions.recipient = CAST(?1 AS TEXT)
+    OR (epic_actions.kind = 'move' AND (epic_actions.from_session = CAST(?1 AS TEXT)
+        OR epic_actions.to_session = CAST(?1 AS TEXT)))
+ORDER BY epic_actions.at, epic_actions.epic, epic_actions.seq
+`
+
+type ListSessionEpicActionsRow struct {
+	Epic         string
+	Seq          int64
+	Kind         string
+	Maker        string
+	MakerSession string
+	FromSession  string
+	ToSession    string
+	Recipient    string
+	At           int64
+	Title        string
+}
+
+func (q *Queries) ListSessionEpicActions(ctx context.Context, session string) ([]ListSessionEpicActionsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listSessionEpicActions, session)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSessionEpicActionsRow
+	for rows.Next() {
+		var i ListSessionEpicActionsRow
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Seq,
+			&i.Kind,
+			&i.Maker,
+			&i.MakerSession,
+			&i.FromSession,
+			&i.ToSession,
+			&i.Recipient,
+			&i.At,
+			&i.Title,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSessionEpicDecisions = `-- name: ListSessionEpicDecisions :many
+SELECT epic_decisions.epic, epic_decisions.seq, epic_decisions.client_id, epic_decisions.text, epic_decisions.time, epic_decisions.question, epic_decisions.maker, epic_decisions.maker_session, epic_decisions.recipient, epics.title FROM epic_decisions
+JOIN epics ON epics.id = epic_decisions.epic
+WHERE epic_decisions.recipient = CAST(?1 AS TEXT)
+ORDER BY epic_decisions.time, epic_decisions.epic, epic_decisions.seq
+`
+
+type ListSessionEpicDecisionsRow struct {
+	Epic         string
+	Seq          int64
+	ClientID     string
+	Text         string
+	Time         int64
+	Question     int64
+	Maker        string
+	MakerSession string
+	Recipient    string
+	Title        string
+}
+
+func (q *Queries) ListSessionEpicDecisions(ctx context.Context, session string) ([]ListSessionEpicDecisionsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listSessionEpicDecisions, session)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSessionEpicDecisionsRow
+	for rows.Next() {
+		var i ListSessionEpicDecisionsRow
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Seq,
+			&i.ClientID,
+			&i.Text,
+			&i.Time,
+			&i.Question,
+			&i.Maker,
+			&i.MakerSession,
+			&i.Recipient,
+			&i.Title,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSessions = `-- name: ListSessions :many
 SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from, title, headline, headline_at, awaited FROM sessions WHERE kind = '' ORDER BY id
 `
@@ -9045,6 +9336,17 @@ func (q *Queries) MarkNoticeHistoryRead(ctx context.Context, arg MarkNoticeHisto
 		arg.Time,
 	)
 	return err
+}
+
+const maxEpicActionSeq = `-- name: MaxEpicActionSeq :one
+SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_actions WHERE epic = ?
+`
+
+func (q *Queries) MaxEpicActionSeq(ctx context.Context, epic string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, maxEpicActionSeq, epic)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const maxEpicAmendmentSeq = `-- name: MaxEpicAmendmentSeq :one
@@ -10013,6 +10315,20 @@ type SetEpicReviewCleanParams struct {
 
 func (q *Queries) SetEpicReviewClean(ctx context.Context, arg SetEpicReviewCleanParams) error {
 	_, err := q.db.ExecContext(ctx, setEpicReviewClean, arg.Clean, arg.Epic)
+	return err
+}
+
+const setEpicSteerer = `-- name: SetEpicSteerer :exec
+UPDATE epics SET steerer = ? WHERE id = ?
+`
+
+type SetEpicSteererParams struct {
+	Steerer string
+	ID      string
+}
+
+func (q *Queries) SetEpicSteerer(ctx context.Context, arg SetEpicSteererParams) error {
+	_, err := q.db.ExecContext(ctx, setEpicSteerer, arg.Steerer, arg.ID)
 	return err
 }
 

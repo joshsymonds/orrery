@@ -860,8 +860,8 @@ ON CONFLICT (epic, id) DO NOTHING;
 SELECT CAST(COUNT(*) AS INTEGER) FROM epic_triggers WHERE epic = ? AND id = ?;
 
 -- name: InsertEpicDecision :exec
-INSERT INTO epic_decisions (epic, seq, client_id, text, time, question, maker, maker_session)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO epic_decisions (epic, seq, client_id, text, time, question, maker, maker_session, recipient)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: GetEpicDecisionByClientID :one
 SELECT * FROM epic_decisions WHERE epic = ? AND client_id = ?;
@@ -871,6 +871,45 @@ SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_decisions WHERE epic = ?
 
 -- name: ListEpicDecisions :many
 SELECT * FROM epic_decisions WHERE epic = ? ORDER BY seq;
+
+-- name: ListAddressedEpicDecisions :many
+SELECT epic_decisions.*, epics.title FROM epic_decisions
+JOIN epics ON epics.id = epic_decisions.epic
+WHERE epic_decisions.recipient != ''
+ORDER BY epic_decisions.time, epic_decisions.epic, epic_decisions.seq;
+
+-- name: ListSessionEpicDecisions :many
+SELECT epic_decisions.*, epics.title FROM epic_decisions
+JOIN epics ON epics.id = epic_decisions.epic
+WHERE epic_decisions.recipient = CAST(sqlc.arg(session) AS TEXT)
+ORDER BY epic_decisions.time, epic_decisions.epic, epic_decisions.seq;
+
+-- name: InsertEpicAction :exec
+INSERT INTO epic_actions (epic, seq, kind, maker, maker_session, from_session, to_session, recipient, at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: MaxEpicActionSeq :one
+SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_actions WHERE epic = ?;
+
+-- name: ListEpicActions :many
+SELECT * FROM epic_actions WHERE epic = ? ORDER BY seq;
+
+-- name: ListAddressedEpicActions :many
+SELECT epic_actions.*, epics.title FROM epic_actions
+JOIN epics ON epics.id = epic_actions.epic
+WHERE epic_actions.recipient != '' OR epic_actions.kind = 'move'
+ORDER BY epic_actions.at, epic_actions.epic, epic_actions.seq;
+
+-- name: ListSessionEpicActions :many
+SELECT epic_actions.*, epics.title FROM epic_actions
+JOIN epics ON epics.id = epic_actions.epic
+WHERE epic_actions.recipient = CAST(sqlc.arg(session) AS TEXT)
+    OR (epic_actions.kind = 'move' AND (epic_actions.from_session = CAST(sqlc.arg(session) AS TEXT)
+        OR epic_actions.to_session = CAST(sqlc.arg(session) AS TEXT)))
+ORDER BY epic_actions.at, epic_actions.epic, epic_actions.seq;
+
+-- name: SetEpicSteerer :exec
+UPDATE epics SET steerer = ? WHERE id = ?;
 
 -- name: ListEpicPlanStates :many
 SELECT epics.id, epics.paused, epics.parked, epics.park_class,

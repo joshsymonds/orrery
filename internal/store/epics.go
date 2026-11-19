@@ -198,13 +198,15 @@ type EpicReleaseStep struct {
 // EpicDecision is one recorded answer on an epic. Seq counts from 1 in recording order, and ID is the caller's id
 // for the decision: a seed decision's id, or the client id of an answer. Question is the seq of the question the
 // decision answers, and 0 for a note. Maker is who recorded it, empty for a decision stored before makers were kept.
+// Recipient is the session the decision is owed to, or "" when none is.
 type EpicDecision struct {
-	Seq      int64
-	ID       string
-	Text     string
-	Time     time.Time
-	Question int64
-	Maker    Maker
+	Seq       int64
+	ID        string
+	Text      string
+	Time      time.Time
+	Question  int64
+	Maker     Maker
+	Recipient string
 }
 
 // CreateEpic stores row as one write. It seeds row.Decisions as seq 1..n dated at row.Created, ignoring their Seq
@@ -324,7 +326,7 @@ func insertEpicSections(ctx context.Context, queries *sqlcgen.Queries, row EpicR
 	if err := insertInOrder(row.Decisions, func(position int64, d EpicDecision) error {
 		return queries.InsertEpicDecision(ctx, sqlcgen.InsertEpicDecisionParams{
 			Epic: row.ID, Seq: position, ClientID: d.ID, Text: d.Text, Time: row.Created.Unix(), Question: 0,
-			Maker: d.Maker.By, MakerSession: d.Maker.Session,
+			Maker: d.Maker.By, MakerSession: d.Maker.Session, Recipient: "",
 		})
 	}); err != nil {
 		return fmt.Errorf("decisions: %w", err)
@@ -1111,7 +1113,7 @@ func appendDecision(
 	}
 	if err = queries.InsertEpicDecision(ctx, sqlcgen.InsertEpicDecisionParams{
 		Epic: epic, Seq: decision.Seq, ClientID: id, Text: text, Time: at.Unix(), Question: question,
-		Maker: maker.By, MakerSession: maker.Session,
+		Maker: maker.By, MakerSession: maker.Session, Recipient: "",
 	}); err != nil {
 		return EpicDecision{}, fmt.Errorf("insert decision %s on epic %s: %w", id, epic, err)
 	}
@@ -1162,12 +1164,13 @@ func epicHeadOf(head sqlcgen.Epic) EpicRow {
 // epicDecisionOf returns the decision a stored row holds, its client id as the decision id.
 func epicDecisionOf(decision sqlcgen.EpicDecision) EpicDecision {
 	return EpicDecision{
-		Seq:      decision.Seq,
-		ID:       decision.ClientID,
-		Text:     decision.Text,
-		Time:     time.Unix(decision.Time, 0),
-		Question: decision.Question,
-		Maker:    Maker{By: decision.Maker, Session: decision.MakerSession},
+		Seq:       decision.Seq,
+		ID:        decision.ClientID,
+		Text:      decision.Text,
+		Time:      time.Unix(decision.Time, 0),
+		Question:  decision.Question,
+		Maker:     Maker{By: decision.Maker, Session: decision.MakerSession},
+		Recipient: decision.Recipient,
 	}
 }
 
