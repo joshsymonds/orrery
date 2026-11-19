@@ -79,8 +79,8 @@ class HostMetersTest {
             HostMeters(
                 listOf(
                     HostStat("cpu", "50%", 50.0, "ok"),
-                    HostStat("disk", "50%", 50.0, "warn"),
-                    HostStat("temp", "50%", 50.0, "crit"),
+                    HostStat("disk", "60%", 60.0, "warn"),
+                    HostStat("temp", "70%", 70.0, "crit"),
                 ),
             )
         }
@@ -93,20 +93,9 @@ class HostMetersTest {
         assertFillColour(bitmap, "cpu", OrreryTokens.Series.one)
         assertFillColour(bitmap, "disk", OrreryTokens.Level.warn)
         assertFillColour(bitmap, "temp", OrreryTokens.Level.crit)
-    }
-
-    @Test
-    fun valueTakesTheLevelColourAtWarnAndCrit() {
-        composeRule.setContent { HostMeters(mixed) }
-        composeRule.waitForIdle()
-
-        val decor = composeRule.activity.window.decorView
-        val bitmap = Bitmap.createBitmap(decor.width, decor.height, Bitmap.Config.ARGB_8888)
-        decor.draw(Canvas(bitmap))
-
-        assertValueColour(bitmap, "42%", OrreryTokens.Ink.one)
-        assertValueColour(bitmap, "71%", OrreryTokens.Level.warn)
-        assertValueColour(bitmap, "93 C", OrreryTokens.Level.crit)
+        assertValueColour(bitmap, "50%", OrreryTokens.Ink.one)
+        assertValueColour(bitmap, "60%", OrreryTokens.Level.warn)
+        assertValueColour(bitmap, "70%", OrreryTokens.Level.crit)
     }
 
     private fun assertFillColour(bitmap: Bitmap, label: String, expected: Color) {
