@@ -16,6 +16,12 @@ service Steps {
   // StepStatus returns a step's row.
   rpc StepStatus(StepStatusRequest) returns (StepStatusResponse);
 
+  // ReadStepResult returns one part of a step's result. A request that names no field returns the outline of a result
+  // that is a JSON object, and the raw text of any other result, paged. A request that names a field returns that
+  // field's value, and one that also names an item returns one element of that array field. A value is paged over its
+  // runes: it is cut to the request's limit from its offset, and next_offset names where the rest starts.
+  rpc ReadStepResult(ReadStepResultRequest) returns (ReadStepResultResponse);
+
   // ListSteps lists the labelled steps, oldest first. An unlabelled step is never listed. A listed step carries no
   // result: its summary, red_evidence and green_evidence carry what a list reads of it. A list of the running steps also
   // counts, by epic, the matching steps that have ended, without reading them.
@@ -207,6 +213,62 @@ message Step {
   // Whether the step's latest result is a JSON object whose green_evidence is a string that, trimmed of white space, is
   // not empty and does not start with NOT RUN in any case.
   bool green_evidence = 29;
+}
+
+// ReadStepResultRequest asks for part of a step's result.
+message ReadStepResultRequest {
+  // The step's id.
+  string id = 1;
+
+  // The top-level field of the result to read. Empty reads the outline of a result that is a JSON object, or the raw
+  // text of any other result.
+  string field = 2;
+
+  // The element of the array field to read: the first element that is an object whose id property equals item, or,
+  // when no element has such an id and item is a decimal integer, the element at that 0-based index. Requires field.
+  string item = 3;
+
+  // The rune offset the value starts at. Paging applies to a value, so an outline ignores it.
+  uint32 offset = 4;
+
+  // The most runes the value holds. Zero means 4000, and a larger limit reads as 4000.
+  uint32 limit = 5;
+}
+
+// ReadStepResultResponse carries the part of the result the request asked for.
+message ReadStepResultResponse {
+  // The top-level fields of a result that is a JSON object, when the request names no field, in the order the object
+  // first holds them. Empty for any other part.
+  repeated StepResultField outline = 1;
+
+  // The part's value, cut to the request's limit runes from its offset. Empty for an outline.
+  string value = 2;
+
+  // Whether value is compact JSON. False means value is the raw text of a string, or the raw text of a result that is
+  // not a JSON object.
+  bool json = 3;
+
+  // The rune offset value starts at.
+  uint32 offset = 4;
+
+  // The offset to continue from to read the rest of the part, or zero when value reaches the end of the part.
+  uint32 next_offset = 5;
+
+  // The rune count of the whole part. Zero for an outline.
+  uint32 total = 6;
+}
+
+// StepResultField is one top-level field of a step's result, as an outline lists it.
+message StepResultField {
+  // The field's name.
+  string name = 1;
+
+  // The field's JSON type: string, number, boolean, null, object or array.
+  string type = 2;
+
+  // The field's size: the runes of a string, the elements of an array, the keys of an object, and the bytes of the JSON
+  // text of a number, boolean or null.
+  uint32 size = 3;
 }
 
 // ListStepsRequest asks for the labelled steps.

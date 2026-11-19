@@ -113,6 +113,26 @@ func (s *stepService) StepStatus(
 	return connect.NewResponse(&v1.StepStatusResponse{Step: step}), nil
 }
 
+// ReadStepResult answers one part of a step's result: its outline, one field's value, or one element of an array field.
+func (s *stepService) ReadStepResult(
+	ctx context.Context,
+	req *connect.Request[v1.ReadStepResultRequest],
+) (*connect.Response[v1.ReadStepResultResponse], error) {
+	if err := s.ready(); err != nil {
+		return nil, err
+	}
+	row, err := s.steps.Status(ctx, req.Msg.GetId())
+	if err != nil {
+		return nil, stepCommandError(err)
+	}
+	msg := req.Msg
+	resp, err := readStepResult(row.Result, msg.GetField(), msg.GetItem(), msg.GetOffset(), msg.GetLimit())
+	if err != nil {
+		return nil, stepCommandError(err)
+	}
+	return connect.NewResponse(resp), nil
+}
+
 // ListSteps answers the listings of the labeled steps the request narrows to, each with no result. A request for the
 // running steps reads only those, and the count of each epic's ended steps.
 func (s *stepService) ListSteps(
@@ -293,7 +313,8 @@ func stepCommandError(err error) error {
 		code = connect.CodeFailedPrecondition
 	case errors.Is(err, ErrEmptyPrompt), errors.Is(err, ErrBadSchema), errors.Is(err, ErrBadAgent),
 		errors.Is(err, ErrBadDir), errors.Is(err, ErrBadOwned), errors.Is(err, ErrBadGate),
-		errors.Is(err, ErrNotGit), errors.Is(err, ErrMainWorktree), errors.Is(err, agents.ErrUnresolved):
+		errors.Is(err, ErrBadResultRead), errors.Is(err, ErrNotGit), errors.Is(err, ErrMainWorktree),
+		errors.Is(err, agents.ErrUnresolved):
 		code = connect.CodeInvalidArgument
 	}
 	return errors.Join(connect.NewError(code, err))

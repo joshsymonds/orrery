@@ -720,6 +720,248 @@ func (x *Step) GetGreenEvidence() bool {
 	return false
 }
 
+// ReadStepResultRequest asks for part of a step's result.
+type ReadStepResultRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The step's id.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// The top-level field of the result to read. Empty reads the outline of a result that is a JSON object, or the raw
+	// text of any other result.
+	Field string `protobuf:"bytes,2,opt,name=field,proto3" json:"field,omitempty"`
+	// The element of the array field to read: the first element that is an object whose id property equals item, or,
+	// when no element has such an id and item is a decimal integer, the element at that 0-based index. Requires field.
+	Item string `protobuf:"bytes,3,opt,name=item,proto3" json:"item,omitempty"`
+	// The rune offset the value starts at. Paging applies to a value, so an outline ignores it.
+	Offset uint32 `protobuf:"varint,4,opt,name=offset,proto3" json:"offset,omitempty"`
+	// The most runes the value holds. Zero means 4000, and a larger limit reads as 4000.
+	Limit         uint32 `protobuf:"varint,5,opt,name=limit,proto3" json:"limit,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReadStepResultRequest) Reset() {
+	*x = ReadStepResultRequest{}
+	mi := &file_orrery_engine_v1_step_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReadStepResultRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReadStepResultRequest) ProtoMessage() {}
+
+func (x *ReadStepResultRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_step_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReadStepResultRequest.ProtoReflect.Descriptor instead.
+func (*ReadStepResultRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_step_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *ReadStepResultRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *ReadStepResultRequest) GetField() string {
+	if x != nil {
+		return x.Field
+	}
+	return ""
+}
+
+func (x *ReadStepResultRequest) GetItem() string {
+	if x != nil {
+		return x.Item
+	}
+	return ""
+}
+
+func (x *ReadStepResultRequest) GetOffset() uint32 {
+	if x != nil {
+		return x.Offset
+	}
+	return 0
+}
+
+func (x *ReadStepResultRequest) GetLimit() uint32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+// ReadStepResultResponse carries the part of the result the request asked for.
+type ReadStepResultResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The top-level fields of a result that is a JSON object, when the request names no field, in the order the object
+	// first holds them. Empty for any other part.
+	Outline []*StepResultField `protobuf:"bytes,1,rep,name=outline,proto3" json:"outline,omitempty"`
+	// The part's value, cut to the request's limit runes from its offset. Empty for an outline.
+	Value string `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
+	// Whether value is compact JSON. False means value is the raw text of a string, or the raw text of a result that is
+	// not a JSON object.
+	Json bool `protobuf:"varint,3,opt,name=json,proto3" json:"json,omitempty"`
+	// The rune offset value starts at.
+	Offset uint32 `protobuf:"varint,4,opt,name=offset,proto3" json:"offset,omitempty"`
+	// The offset to continue from to read the rest of the part, or zero when value reaches the end of the part.
+	NextOffset uint32 `protobuf:"varint,5,opt,name=next_offset,json=nextOffset,proto3" json:"next_offset,omitempty"`
+	// The rune count of the whole part. Zero for an outline.
+	Total         uint32 `protobuf:"varint,6,opt,name=total,proto3" json:"total,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReadStepResultResponse) Reset() {
+	*x = ReadStepResultResponse{}
+	mi := &file_orrery_engine_v1_step_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReadStepResultResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReadStepResultResponse) ProtoMessage() {}
+
+func (x *ReadStepResultResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_step_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReadStepResultResponse.ProtoReflect.Descriptor instead.
+func (*ReadStepResultResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_step_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *ReadStepResultResponse) GetOutline() []*StepResultField {
+	if x != nil {
+		return x.Outline
+	}
+	return nil
+}
+
+func (x *ReadStepResultResponse) GetValue() string {
+	if x != nil {
+		return x.Value
+	}
+	return ""
+}
+
+func (x *ReadStepResultResponse) GetJson() bool {
+	if x != nil {
+		return x.Json
+	}
+	return false
+}
+
+func (x *ReadStepResultResponse) GetOffset() uint32 {
+	if x != nil {
+		return x.Offset
+	}
+	return 0
+}
+
+func (x *ReadStepResultResponse) GetNextOffset() uint32 {
+	if x != nil {
+		return x.NextOffset
+	}
+	return 0
+}
+
+func (x *ReadStepResultResponse) GetTotal() uint32 {
+	if x != nil {
+		return x.Total
+	}
+	return 0
+}
+
+// StepResultField is one top-level field of a step's result, as an outline lists it.
+type StepResultField struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The field's name.
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// The field's JSON type: string, number, boolean, null, object or array.
+	Type string `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"`
+	// The field's size: the runes of a string, the elements of an array, the keys of an object, and the bytes of the JSON
+	// text of a number, boolean or null.
+	Size          uint32 `protobuf:"varint,3,opt,name=size,proto3" json:"size,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StepResultField) Reset() {
+	*x = StepResultField{}
+	mi := &file_orrery_engine_v1_step_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StepResultField) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StepResultField) ProtoMessage() {}
+
+func (x *StepResultField) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_step_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StepResultField.ProtoReflect.Descriptor instead.
+func (*StepResultField) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_step_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *StepResultField) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *StepResultField) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+func (x *StepResultField) GetSize() uint32 {
+	if x != nil {
+		return x.Size
+	}
+	return 0
+}
+
 // ListStepsRequest asks for the labelled steps.
 type ListStepsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -736,7 +978,7 @@ type ListStepsRequest struct {
 
 func (x *ListStepsRequest) Reset() {
 	*x = ListStepsRequest{}
-	mi := &file_orrery_engine_v1_step_proto_msgTypes[7]
+	mi := &file_orrery_engine_v1_step_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -748,7 +990,7 @@ func (x *ListStepsRequest) String() string {
 func (*ListStepsRequest) ProtoMessage() {}
 
 func (x *ListStepsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_step_proto_msgTypes[7]
+	mi := &file_orrery_engine_v1_step_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -761,7 +1003,7 @@ func (x *ListStepsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListStepsRequest.ProtoReflect.Descriptor instead.
 func (*ListStepsRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_step_proto_rawDescGZIP(), []int{7}
+	return file_orrery_engine_v1_step_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ListStepsRequest) GetEpic() string {
@@ -799,7 +1041,7 @@ type ListStepsResponse struct {
 
 func (x *ListStepsResponse) Reset() {
 	*x = ListStepsResponse{}
-	mi := &file_orrery_engine_v1_step_proto_msgTypes[8]
+	mi := &file_orrery_engine_v1_step_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -811,7 +1053,7 @@ func (x *ListStepsResponse) String() string {
 func (*ListStepsResponse) ProtoMessage() {}
 
 func (x *ListStepsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_step_proto_msgTypes[8]
+	mi := &file_orrery_engine_v1_step_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -824,7 +1066,7 @@ func (x *ListStepsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListStepsResponse.ProtoReflect.Descriptor instead.
 func (*ListStepsResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_step_proto_rawDescGZIP(), []int{8}
+	return file_orrery_engine_v1_step_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ListStepsResponse) GetSteps() []*Step {
@@ -852,7 +1094,7 @@ type HoldStepRequest struct {
 
 func (x *HoldStepRequest) Reset() {
 	*x = HoldStepRequest{}
-	mi := &file_orrery_engine_v1_step_proto_msgTypes[9]
+	mi := &file_orrery_engine_v1_step_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -864,7 +1106,7 @@ func (x *HoldStepRequest) String() string {
 func (*HoldStepRequest) ProtoMessage() {}
 
 func (x *HoldStepRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_step_proto_msgTypes[9]
+	mi := &file_orrery_engine_v1_step_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -877,7 +1119,7 @@ func (x *HoldStepRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HoldStepRequest.ProtoReflect.Descriptor instead.
 func (*HoldStepRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_step_proto_rawDescGZIP(), []int{9}
+	return file_orrery_engine_v1_step_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *HoldStepRequest) GetId() string {
@@ -896,7 +1138,7 @@ type HoldStepResponse struct {
 
 func (x *HoldStepResponse) Reset() {
 	*x = HoldStepResponse{}
-	mi := &file_orrery_engine_v1_step_proto_msgTypes[10]
+	mi := &file_orrery_engine_v1_step_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -908,7 +1150,7 @@ func (x *HoldStepResponse) String() string {
 func (*HoldStepResponse) ProtoMessage() {}
 
 func (x *HoldStepResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_step_proto_msgTypes[10]
+	mi := &file_orrery_engine_v1_step_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -921,7 +1163,7 @@ func (x *HoldStepResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HoldStepResponse.ProtoReflect.Descriptor instead.
 func (*HoldStepResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_step_proto_rawDescGZIP(), []int{10}
+	return file_orrery_engine_v1_step_proto_rawDescGZIP(), []int{13}
 }
 
 // NudgeStepRequest asks for the owner's text to be sent to a step.
@@ -937,7 +1179,7 @@ type NudgeStepRequest struct {
 
 func (x *NudgeStepRequest) Reset() {
 	*x = NudgeStepRequest{}
-	mi := &file_orrery_engine_v1_step_proto_msgTypes[11]
+	mi := &file_orrery_engine_v1_step_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -949,7 +1191,7 @@ func (x *NudgeStepRequest) String() string {
 func (*NudgeStepRequest) ProtoMessage() {}
 
 func (x *NudgeStepRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_step_proto_msgTypes[11]
+	mi := &file_orrery_engine_v1_step_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -962,7 +1204,7 @@ func (x *NudgeStepRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NudgeStepRequest.ProtoReflect.Descriptor instead.
 func (*NudgeStepRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_step_proto_rawDescGZIP(), []int{11}
+	return file_orrery_engine_v1_step_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *NudgeStepRequest) GetId() string {
@@ -988,7 +1230,7 @@ type NudgeStepResponse struct {
 
 func (x *NudgeStepResponse) Reset() {
 	*x = NudgeStepResponse{}
-	mi := &file_orrery_engine_v1_step_proto_msgTypes[12]
+	mi := &file_orrery_engine_v1_step_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1000,7 +1242,7 @@ func (x *NudgeStepResponse) String() string {
 func (*NudgeStepResponse) ProtoMessage() {}
 
 func (x *NudgeStepResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_step_proto_msgTypes[12]
+	mi := &file_orrery_engine_v1_step_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1013,7 +1255,7 @@ func (x *NudgeStepResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NudgeStepResponse.ProtoReflect.Descriptor instead.
 func (*NudgeStepResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_step_proto_rawDescGZIP(), []int{12}
+	return file_orrery_engine_v1_step_proto_rawDescGZIP(), []int{15}
 }
 
 // ResumeStepRequest asks for a limited step to be resumed.
@@ -1027,7 +1269,7 @@ type ResumeStepRequest struct {
 
 func (x *ResumeStepRequest) Reset() {
 	*x = ResumeStepRequest{}
-	mi := &file_orrery_engine_v1_step_proto_msgTypes[13]
+	mi := &file_orrery_engine_v1_step_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1039,7 +1281,7 @@ func (x *ResumeStepRequest) String() string {
 func (*ResumeStepRequest) ProtoMessage() {}
 
 func (x *ResumeStepRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_step_proto_msgTypes[13]
+	mi := &file_orrery_engine_v1_step_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1052,7 +1294,7 @@ func (x *ResumeStepRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResumeStepRequest.ProtoReflect.Descriptor instead.
 func (*ResumeStepRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_step_proto_rawDescGZIP(), []int{13}
+	return file_orrery_engine_v1_step_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ResumeStepRequest) GetId() string {
@@ -1071,7 +1313,7 @@ type ResumeStepResponse struct {
 
 func (x *ResumeStepResponse) Reset() {
 	*x = ResumeStepResponse{}
-	mi := &file_orrery_engine_v1_step_proto_msgTypes[14]
+	mi := &file_orrery_engine_v1_step_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1083,7 +1325,7 @@ func (x *ResumeStepResponse) String() string {
 func (*ResumeStepResponse) ProtoMessage() {}
 
 func (x *ResumeStepResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_step_proto_msgTypes[14]
+	mi := &file_orrery_engine_v1_step_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1096,7 +1338,7 @@ func (x *ResumeStepResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResumeStepResponse.ProtoReflect.Descriptor instead.
 func (*ResumeStepResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_step_proto_rawDescGZIP(), []int{14}
+	return file_orrery_engine_v1_step_proto_rawDescGZIP(), []int{17}
 }
 
 // StepCheck is one check a step's return ran.
@@ -1123,7 +1365,7 @@ type StepCheck struct {
 
 func (x *StepCheck) Reset() {
 	*x = StepCheck{}
-	mi := &file_orrery_engine_v1_step_proto_msgTypes[15]
+	mi := &file_orrery_engine_v1_step_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1135,7 +1377,7 @@ func (x *StepCheck) String() string {
 func (*StepCheck) ProtoMessage() {}
 
 func (x *StepCheck) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_step_proto_msgTypes[15]
+	mi := &file_orrery_engine_v1_step_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1148,7 +1390,7 @@ func (x *StepCheck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StepCheck.ProtoReflect.Descriptor instead.
 func (*StepCheck) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_step_proto_rawDescGZIP(), []int{15}
+	return file_orrery_engine_v1_step_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *StepCheck) GetRound() uint32 {
@@ -1217,7 +1459,7 @@ type StepVerdict struct {
 
 func (x *StepVerdict) Reset() {
 	*x = StepVerdict{}
-	mi := &file_orrery_engine_v1_step_proto_msgTypes[16]
+	mi := &file_orrery_engine_v1_step_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1229,7 +1471,7 @@ func (x *StepVerdict) String() string {
 func (*StepVerdict) ProtoMessage() {}
 
 func (x *StepVerdict) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_step_proto_msgTypes[16]
+	mi := &file_orrery_engine_v1_step_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1242,7 +1484,7 @@ func (x *StepVerdict) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StepVerdict.ProtoReflect.Descriptor instead.
 func (*StepVerdict) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_step_proto_rawDescGZIP(), []int{16}
+	return file_orrery_engine_v1_step_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *StepVerdict) GetRound() uint32 {
@@ -1338,7 +1580,25 @@ const file_orrery_engine_v1_step_proto_rawDesc = "" +
 	"\x06caller\x18\x1a \x01(\tR\x06caller\x12\x18\n" +
 	"\asummary\x18\x1b \x01(\tR\asummary\x12!\n" +
 	"\fred_evidence\x18\x1c \x01(\bR\vredEvidence\x12%\n" +
-	"\x0egreen_evidence\x18\x1d \x01(\bR\rgreenEvidence\"T\n" +
+	"\x0egreen_evidence\x18\x1d \x01(\bR\rgreenEvidence\"\x7f\n" +
+	"\x15ReadStepResultRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
+	"\x05field\x18\x02 \x01(\tR\x05field\x12\x12\n" +
+	"\x04item\x18\x03 \x01(\tR\x04item\x12\x16\n" +
+	"\x06offset\x18\x04 \x01(\rR\x06offset\x12\x14\n" +
+	"\x05limit\x18\x05 \x01(\rR\x05limit\"\xce\x01\n" +
+	"\x16ReadStepResultResponse\x12;\n" +
+	"\aoutline\x18\x01 \x03(\v2!.orrery.engine.v1.StepResultFieldR\aoutline\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value\x12\x12\n" +
+	"\x04json\x18\x03 \x01(\bR\x04json\x12\x16\n" +
+	"\x06offset\x18\x04 \x01(\rR\x06offset\x12\x1f\n" +
+	"\vnext_offset\x18\x05 \x01(\rR\n" +
+	"nextOffset\x12\x14\n" +
+	"\x05total\x18\x06 \x01(\rR\x05total\"M\n" +
+	"\x0fStepResultField\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
+	"\x04type\x18\x02 \x01(\tR\x04type\x12\x12\n" +
+	"\x04size\x18\x03 \x01(\rR\x04size\"T\n" +
 	"\x10ListStepsRequest\x12\x12\n" +
 	"\x04epic\x18\x01 \x01(\tR\x04epic\x12\x12\n" +
 	"\x04task\x18\x02 \x01(\tR\x04task\x12\x18\n" +
@@ -1372,12 +1632,13 @@ const file_orrery_engine_v1_step_proto_rawDesc = "" +
 	"\x05round\x18\x01 \x01(\rR\x05round\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x18\n" +
 	"\averdict\x18\x03 \x01(\tR\averdict\x12\x16\n" +
-	"\x06detail\x18\x04 \x01(\tR\x06detail2\xe1\x04\n" +
+	"\x06detail\x18\x04 \x01(\tR\x06detail2\xc6\x05\n" +
 	"\x05Steps\x12T\n" +
 	"\tStartStep\x12\".orrery.engine.v1.StartStepRequest\x1a#.orrery.engine.v1.StartStepResponse\x12Q\n" +
 	"\bStopStep\x12!.orrery.engine.v1.StopStepRequest\x1a\".orrery.engine.v1.StopStepResponse\x12W\n" +
 	"\n" +
-	"StepStatus\x12#.orrery.engine.v1.StepStatusRequest\x1a$.orrery.engine.v1.StepStatusResponse\x12T\n" +
+	"StepStatus\x12#.orrery.engine.v1.StepStatusRequest\x1a$.orrery.engine.v1.StepStatusResponse\x12c\n" +
+	"\x0eReadStepResult\x12'.orrery.engine.v1.ReadStepResultRequest\x1a(.orrery.engine.v1.ReadStepResultResponse\x12T\n" +
 	"\tListSteps\x12\".orrery.engine.v1.ListStepsRequest\x1a#.orrery.engine.v1.ListStepsResponse\x12Q\n" +
 	"\bHoldStep\x12!.orrery.engine.v1.HoldStepRequest\x1a\".orrery.engine.v1.HoldStepResponse\x12T\n" +
 	"\tNudgeStep\x12\".orrery.engine.v1.NudgeStepRequest\x1a#.orrery.engine.v1.NudgeStepResponse\x12W\n" +
@@ -1397,52 +1658,58 @@ func file_orrery_engine_v1_step_proto_rawDescGZIP() []byte {
 	return file_orrery_engine_v1_step_proto_rawDescData
 }
 
-var file_orrery_engine_v1_step_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_orrery_engine_v1_step_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
 var file_orrery_engine_v1_step_proto_goTypes = []any{
-	(*StartStepRequest)(nil),   // 0: orrery.engine.v1.StartStepRequest
-	(*StartStepResponse)(nil),  // 1: orrery.engine.v1.StartStepResponse
-	(*StopStepRequest)(nil),    // 2: orrery.engine.v1.StopStepRequest
-	(*StopStepResponse)(nil),   // 3: orrery.engine.v1.StopStepResponse
-	(*StepStatusRequest)(nil),  // 4: orrery.engine.v1.StepStatusRequest
-	(*StepStatusResponse)(nil), // 5: orrery.engine.v1.StepStatusResponse
-	(*Step)(nil),               // 6: orrery.engine.v1.Step
-	(*ListStepsRequest)(nil),   // 7: orrery.engine.v1.ListStepsRequest
-	(*ListStepsResponse)(nil),  // 8: orrery.engine.v1.ListStepsResponse
-	(*HoldStepRequest)(nil),    // 9: orrery.engine.v1.HoldStepRequest
-	(*HoldStepResponse)(nil),   // 10: orrery.engine.v1.HoldStepResponse
-	(*NudgeStepRequest)(nil),   // 11: orrery.engine.v1.NudgeStepRequest
-	(*NudgeStepResponse)(nil),  // 12: orrery.engine.v1.NudgeStepResponse
-	(*ResumeStepRequest)(nil),  // 13: orrery.engine.v1.ResumeStepRequest
-	(*ResumeStepResponse)(nil), // 14: orrery.engine.v1.ResumeStepResponse
-	(*StepCheck)(nil),          // 15: orrery.engine.v1.StepCheck
-	(*StepVerdict)(nil),        // 16: orrery.engine.v1.StepVerdict
-	nil,                        // 17: orrery.engine.v1.ListStepsResponse.EndedEntry
+	(*StartStepRequest)(nil),       // 0: orrery.engine.v1.StartStepRequest
+	(*StartStepResponse)(nil),      // 1: orrery.engine.v1.StartStepResponse
+	(*StopStepRequest)(nil),        // 2: orrery.engine.v1.StopStepRequest
+	(*StopStepResponse)(nil),       // 3: orrery.engine.v1.StopStepResponse
+	(*StepStatusRequest)(nil),      // 4: orrery.engine.v1.StepStatusRequest
+	(*StepStatusResponse)(nil),     // 5: orrery.engine.v1.StepStatusResponse
+	(*Step)(nil),                   // 6: orrery.engine.v1.Step
+	(*ReadStepResultRequest)(nil),  // 7: orrery.engine.v1.ReadStepResultRequest
+	(*ReadStepResultResponse)(nil), // 8: orrery.engine.v1.ReadStepResultResponse
+	(*StepResultField)(nil),        // 9: orrery.engine.v1.StepResultField
+	(*ListStepsRequest)(nil),       // 10: orrery.engine.v1.ListStepsRequest
+	(*ListStepsResponse)(nil),      // 11: orrery.engine.v1.ListStepsResponse
+	(*HoldStepRequest)(nil),        // 12: orrery.engine.v1.HoldStepRequest
+	(*HoldStepResponse)(nil),       // 13: orrery.engine.v1.HoldStepResponse
+	(*NudgeStepRequest)(nil),       // 14: orrery.engine.v1.NudgeStepRequest
+	(*NudgeStepResponse)(nil),      // 15: orrery.engine.v1.NudgeStepResponse
+	(*ResumeStepRequest)(nil),      // 16: orrery.engine.v1.ResumeStepRequest
+	(*ResumeStepResponse)(nil),     // 17: orrery.engine.v1.ResumeStepResponse
+	(*StepCheck)(nil),              // 18: orrery.engine.v1.StepCheck
+	(*StepVerdict)(nil),            // 19: orrery.engine.v1.StepVerdict
+	nil,                            // 20: orrery.engine.v1.ListStepsResponse.EndedEntry
 }
 var file_orrery_engine_v1_step_proto_depIdxs = []int32{
 	6,  // 0: orrery.engine.v1.StepStatusResponse.step:type_name -> orrery.engine.v1.Step
-	15, // 1: orrery.engine.v1.Step.checks:type_name -> orrery.engine.v1.StepCheck
-	16, // 2: orrery.engine.v1.Step.verdicts:type_name -> orrery.engine.v1.StepVerdict
-	6,  // 3: orrery.engine.v1.ListStepsResponse.steps:type_name -> orrery.engine.v1.Step
-	17, // 4: orrery.engine.v1.ListStepsResponse.ended:type_name -> orrery.engine.v1.ListStepsResponse.EndedEntry
-	0,  // 5: orrery.engine.v1.Steps.StartStep:input_type -> orrery.engine.v1.StartStepRequest
-	2,  // 6: orrery.engine.v1.Steps.StopStep:input_type -> orrery.engine.v1.StopStepRequest
-	4,  // 7: orrery.engine.v1.Steps.StepStatus:input_type -> orrery.engine.v1.StepStatusRequest
-	7,  // 8: orrery.engine.v1.Steps.ListSteps:input_type -> orrery.engine.v1.ListStepsRequest
-	9,  // 9: orrery.engine.v1.Steps.HoldStep:input_type -> orrery.engine.v1.HoldStepRequest
-	11, // 10: orrery.engine.v1.Steps.NudgeStep:input_type -> orrery.engine.v1.NudgeStepRequest
-	13, // 11: orrery.engine.v1.Steps.ResumeStep:input_type -> orrery.engine.v1.ResumeStepRequest
-	1,  // 12: orrery.engine.v1.Steps.StartStep:output_type -> orrery.engine.v1.StartStepResponse
-	3,  // 13: orrery.engine.v1.Steps.StopStep:output_type -> orrery.engine.v1.StopStepResponse
-	5,  // 14: orrery.engine.v1.Steps.StepStatus:output_type -> orrery.engine.v1.StepStatusResponse
-	8,  // 15: orrery.engine.v1.Steps.ListSteps:output_type -> orrery.engine.v1.ListStepsResponse
-	10, // 16: orrery.engine.v1.Steps.HoldStep:output_type -> orrery.engine.v1.HoldStepResponse
-	12, // 17: orrery.engine.v1.Steps.NudgeStep:output_type -> orrery.engine.v1.NudgeStepResponse
-	14, // 18: orrery.engine.v1.Steps.ResumeStep:output_type -> orrery.engine.v1.ResumeStepResponse
-	12, // [12:19] is the sub-list for method output_type
-	5,  // [5:12] is the sub-list for method input_type
-	5,  // [5:5] is the sub-list for extension type_name
-	5,  // [5:5] is the sub-list for extension extendee
-	0,  // [0:5] is the sub-list for field type_name
+	18, // 1: orrery.engine.v1.Step.checks:type_name -> orrery.engine.v1.StepCheck
+	19, // 2: orrery.engine.v1.Step.verdicts:type_name -> orrery.engine.v1.StepVerdict
+	9,  // 3: orrery.engine.v1.ReadStepResultResponse.outline:type_name -> orrery.engine.v1.StepResultField
+	6,  // 4: orrery.engine.v1.ListStepsResponse.steps:type_name -> orrery.engine.v1.Step
+	20, // 5: orrery.engine.v1.ListStepsResponse.ended:type_name -> orrery.engine.v1.ListStepsResponse.EndedEntry
+	0,  // 6: orrery.engine.v1.Steps.StartStep:input_type -> orrery.engine.v1.StartStepRequest
+	2,  // 7: orrery.engine.v1.Steps.StopStep:input_type -> orrery.engine.v1.StopStepRequest
+	4,  // 8: orrery.engine.v1.Steps.StepStatus:input_type -> orrery.engine.v1.StepStatusRequest
+	7,  // 9: orrery.engine.v1.Steps.ReadStepResult:input_type -> orrery.engine.v1.ReadStepResultRequest
+	10, // 10: orrery.engine.v1.Steps.ListSteps:input_type -> orrery.engine.v1.ListStepsRequest
+	12, // 11: orrery.engine.v1.Steps.HoldStep:input_type -> orrery.engine.v1.HoldStepRequest
+	14, // 12: orrery.engine.v1.Steps.NudgeStep:input_type -> orrery.engine.v1.NudgeStepRequest
+	16, // 13: orrery.engine.v1.Steps.ResumeStep:input_type -> orrery.engine.v1.ResumeStepRequest
+	1,  // 14: orrery.engine.v1.Steps.StartStep:output_type -> orrery.engine.v1.StartStepResponse
+	3,  // 15: orrery.engine.v1.Steps.StopStep:output_type -> orrery.engine.v1.StopStepResponse
+	5,  // 16: orrery.engine.v1.Steps.StepStatus:output_type -> orrery.engine.v1.StepStatusResponse
+	8,  // 17: orrery.engine.v1.Steps.ReadStepResult:output_type -> orrery.engine.v1.ReadStepResultResponse
+	11, // 18: orrery.engine.v1.Steps.ListSteps:output_type -> orrery.engine.v1.ListStepsResponse
+	13, // 19: orrery.engine.v1.Steps.HoldStep:output_type -> orrery.engine.v1.HoldStepResponse
+	15, // 20: orrery.engine.v1.Steps.NudgeStep:output_type -> orrery.engine.v1.NudgeStepResponse
+	17, // 21: orrery.engine.v1.Steps.ResumeStep:output_type -> orrery.engine.v1.ResumeStepResponse
+	14, // [14:22] is the sub-list for method output_type
+	6,  // [6:14] is the sub-list for method input_type
+	6,  // [6:6] is the sub-list for extension type_name
+	6,  // [6:6] is the sub-list for extension extendee
+	0,  // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_orrery_engine_v1_step_proto_init() }
@@ -1456,7 +1723,7 @@ func file_orrery_engine_v1_step_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orrery_engine_v1_step_proto_rawDesc), len(file_orrery_engine_v1_step_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   18,
+			NumMessages:   21,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
