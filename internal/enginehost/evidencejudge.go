@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -156,14 +157,19 @@ func judgeStart(run store.EvidenceRun, repo, prompt string) StepStart {
 	}
 }
 
-// judgeVerdict reads the verdict of a judge step from its row. A done end holds, and a gate_failed end whose kept
-// return's first result fails fails. Any other end gives no verdict, and its reason is the end with the row's reason.
+// judgeVerdict reads the verdict of a judge step from its row, and the reason it keeps: the judge's reasoning, read from
+// the row's result, which is the return the step kept. A done end holds, with the first result's evidence, trimmed, as its
+// reason; the reason is empty when the return does not read or has no results. A gate_failed end whose kept return's first
+// result fails fails, with the reason judgeFailsReason gives. Any other end gives no verdict, and its reason is the end with
+// the row's reason. The reasoning is kept as the judge wrote it, and is never checked.
 func judgeVerdict(row store.StepRow) (verdict, reason string) {
 	if row.End == stepLoopEndDone {
-		return evidence.VerdictHolds, ""
+		return evidence.VerdictHolds, judgeHoldsReason(row.Result)
 	}
-	if row.End == stepLoopEndGateFailed && judgeFirstResultFails(row.Result) {
-		return evidence.VerdictFails, ""
+	if row.End == stepLoopEndGateFailed {
+		if ret, ok := judgeReturn(row.Result); ok && ret.Results[0].Result == verdictFails {
+			return evidence.VerdictFails, judgeFailsReason(ret)
+		}
 	}
 	if row.Reason == "" {
 		return "", row.End
@@ -171,12 +177,41 @@ func judgeVerdict(row store.StepRow) (verdict, reason string) {
 	return "", row.End + ": " + row.Reason
 }
 
-// judgeFirstResultFails reports whether result, the return a step kept, has a first result that fails. A return that
-// does not read has no results, so it is not a fails.
-func judgeFirstResultFails(result string) bool {
+// judgeReturn reads result, the return a judge step kept, as the verdict reads it. It reports false when result does not
+// read or has no results, so that there is no first result to read.
+func judgeReturn(result string) (verdictReturn, bool) {
 	var ret verdictReturn
 	if err := json.Unmarshal([]byte(result), &ret); err != nil || len(ret.Results) == 0 {
-		return false
+		return verdictReturn{}, false
 	}
-	return ret.Results[0].Result == verdictFails
+	return ret, true
+}
+
+// judgeHoldsReason returns the reason a holds verdict keeps for result, the return a judge step kept: the first result's
+// evidence with its spaces trimmed. It is empty when result does not read or has no results.
+func judgeHoldsReason(result string) string {
+	ret, ok := judgeReturn(result)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(ret.Results[0].Evidence)
+}
+
+// judgeFailsReason returns the reason a fails verdict keeps for ret, a return whose first result fails. It is the claim and
+// evidence of the first finding that cites that result's assertion, joined by ": " with an empty one left out. It is the
+// first result's evidence when no finding cites that assertion, or when the finding has neither a claim nor evidence.
+func judgeFailsReason(ret verdictReturn) string {
+	first := ret.Results[0]
+	i := slices.IndexFunc(ret.Findings, func(f verdictFinding) bool { return f.Citation == first.Assertion })
+	if i < 0 {
+		return first.Evidence
+	}
+	finding := ret.Findings[i]
+	reason := strings.Join(slices.DeleteFunc([]string{finding.Claim, finding.Evidence}, func(s string) bool {
+		return s == ""
+	}), ": ")
+	if reason == "" {
+		return first.Evidence
+	}
+	return reason
 }
