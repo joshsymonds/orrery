@@ -232,7 +232,7 @@ private fun ComposeDraft(
                     containerColor = OrreryTokens.Role.primary,
                     contentColor = OrreryTokens.Ink.onAccent,
                     disabledContainerColor = OrreryTokens.Surface.raised,
-                    disabledContentColor = OrreryTokens.Ink.four,
+                    disabledContentColor = OrreryTokens.Ink.three,
                 ),
                 onClick = {
                     val text = draft

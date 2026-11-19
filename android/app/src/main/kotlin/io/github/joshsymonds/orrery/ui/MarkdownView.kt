@@ -109,7 +109,7 @@ private fun Block(block: MdBlock, style: BodyStyle) {
             )
         }
         is MdBlock.Code -> CodeBlock(block)
-        is MdBlock.Table -> TableBlock(block, style)
+        is MdBlock.Table -> TableBlock(block)
         is MdBlock.Quote -> Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -178,14 +178,14 @@ private fun CodeBlock(block: MdBlock.Code) {
 
 /** An aligned grid, each column as wide as its widest cell, that pans sideways on its own when wide. */
 @Composable
-private fun TableBlock(table: MdBlock.Table, style: BodyStyle) {
+private fun TableBlock(table: MdBlock.Table) {
     Box(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-        TableGrid(table, style.size)
+        TableGrid(table, OrreryTokens.Type.body)
     }
 }
 
 @Composable
-private fun TableGrid(table: MdBlock.Table, size: TextUnit) {
+private fun TableGrid(table: MdBlock.Table, style: TextStyle) {
     val columns = table.alignments.size
     val rowCount = table.rows.size
     Layout(
@@ -195,8 +195,7 @@ private fun TableGrid(table: MdBlock.Table, size: TextUnit) {
                     Text(
                         text = cell,
                         color = OrreryTokens.Ink.one,
-                        fontSize = size,
-                        lineHeight = size * 1.45f,
+                        style = style,
                         fontWeight = if (r == 0) OrreryTokens.Font.Weight.bold else null,
                         softWrap = false,
                     )
