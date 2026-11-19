@@ -7,6 +7,13 @@ import (
 	"testing"
 )
 
+// detachStep checks out the implementer's worktree of the test task at commit, as the implementer leaves it when it makes
+// commit, so commit is one of the step's commits.
+func detachStep(t *testing.T, f *passFixture, commit string) {
+	t.Helper()
+	buildRun(t, ImplementWorktree(f.stateDir, passEpic, 1), "checkout", "-q", "--detach", commit)
+}
+
 // TestRefMovesScopeImplementerUnrelatedBranchTellsNothing covers E2-R2: a branch another session moves during an
 // implementer step to a commit that holds none of the step's commits is not told to the step, and the build goes on to
 // green.

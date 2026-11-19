@@ -712,6 +712,7 @@ func TestPassImplementerNonParkingRefMoveIsToldAndGreenStarts(t *testing.T) {
 	t.Parallel()
 	f := newImplementerFixture(t)
 	commit := buildObject(t, f.repo, f.base)
+	detachStep(t, f, commit)
 	buildRun(t, f.repo, "update-ref", "refs/heads/feature", commit)
 	f.setStep(passStep(StageImplement, 1, 0), "done", `{"summary":"done","commit":"`+commit+`"}`)
 	f.pass()
