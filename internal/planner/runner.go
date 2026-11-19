@@ -45,7 +45,9 @@ type Steps interface {
 }
 
 // Config configures a Runner. A Tick that is not positive means five seconds, and a nil Now means time.Now. A nil
-// Logger discards. Resolve answers whether the gates and judges of a planned task resolve for its epic.
+// Logger discards. Resolve answers whether the gates and judges of a planned task resolve for its epic. After returns
+// the channel a record of a turn's step that the store refused as busy waits on before it is tried again, and nil is
+// time.After.
 type Config struct {
 	Store   Store
 	Steps   Steps
@@ -54,7 +56,11 @@ type Config struct {
 	Now     func() time.Time
 	Logger  *slog.Logger
 	Resolve Resolver
+	After   func(time.Duration) <-chan time.Time
 }
+
+// stepRecordRetry is how long after the store refuses the record of a turn's step as busy the record is tried again.
+const stepRecordRetry = time.Second
 
 // defaultTick is how often a Runner passes when its Config names no positive tick.
 const defaultTick = 5 * time.Second
@@ -98,6 +104,7 @@ type Runner struct {
 	agent   func() (string, error)
 	tick    time.Duration
 	now     func() time.Time
+	after   func(time.Duration) <-chan time.Time
 	logger  *slog.Logger
 	resolve Resolver
 	turns   sync.WaitGroup
@@ -106,14 +113,17 @@ type Runner struct {
 // New returns a Runner for cfg.
 func New(cfg Config) *Runner {
 	runner := &Runner{
-		store: cfg.Store, steps: cfg.Steps, agent: cfg.Agent, tick: cfg.Tick, now: cfg.Now, logger: cfg.Logger,
-		resolve: cfg.Resolve,
+		store: cfg.Store, steps: cfg.Steps, agent: cfg.Agent, tick: cfg.Tick, now: cfg.Now, after: cfg.After,
+		logger: cfg.Logger, resolve: cfg.Resolve,
 	}
 	if runner.tick <= 0 {
 		runner.tick = defaultTick
 	}
 	if runner.now == nil {
 		runner.now = time.Now
+	}
+	if runner.after == nil {
+		runner.after = time.After
 	}
 	if runner.logger == nil {
 		runner.logger = slog.New(slog.DiscardHandler)
@@ -269,8 +279,8 @@ func turnStepID(epic string, seq int64) string {
 }
 
 // startStep reads the claimed turn's epic and triggers and starts its read-only planner step under turnStepID. It
-// returns the step's id. A start that returns an id with an error still has its id recorded on the turn, and a step
-// whose turn was flagged to stop before it had one is stopped as soon as its id is recorded.
+// returns the step's id. A start that returns an id with an error still has its id recorded on the turn (see
+// recordStep), and a step whose turn was flagged to stop before it had one is stopped as soon as its id is recorded.
 func (r *Runner) startStep(ctx context.Context, epic string, turn store.EpicTurn, agent string) (string, error) {
 	row, err := r.store.Epic(ctx, epic)
 	if err != nil {
@@ -299,7 +309,7 @@ func (r *Runner) startStep(ctx context.Context, epic string, turn store.EpicTurn
 		ReturnCheck: returnCheck(ctx, row, r.resolve),
 	})
 	if id != "" {
-		if setErr := r.store.SetTurnStep(ctx, epic, turn.Seq, id); setErr != nil {
+		if setErr := r.recordStep(ctx, epic, turn.Seq, id); setErr != nil {
 			r.logger.ErrorContext(ctx, "record step of planner turn",
 				"epic", epic, "turn", turn.Seq, "step", id, "err", setErr)
 		} else {
@@ -310,6 +320,26 @@ func (r *Runner) startStep(ctx context.Context, epic string, turn store.EpicTurn
 		return id, fmt.Errorf("start planner step: %w", err)
 	}
 	return id, nil
+}
+
+// recordStep records step id on turn seq of epic. A record the store refuses as busy is tried again stepRecordRetry
+// later, until it lands or ctx ends: a turn whose step is unrecorded keeps its epic's planner waiting until a restart,
+// and a stop of the turn finds no step to stop. It returns the error of the last try.
+func (r *Runner) recordStep(ctx context.Context, epic string, seq int64, id string) error {
+	for {
+		err := r.store.SetTurnStep(ctx, epic, seq, id)
+		if err == nil {
+			return nil
+		}
+		if !store.Busy(err) || ctx.Err() != nil {
+			return fmt.Errorf("record step %s: %w", id, err)
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("record step %s: %w", id, err)
+		case <-r.after(stepRecordRetry):
+		}
+	}
 }
 
 // stopIfFlagged stops step id when turn seq of epic was flagged to stop while it had no step. A read or stop error is
@@ -399,11 +429,11 @@ func (r *Runner) restart(ctx context.Context, turn store.EpicTurn) {
 	go r.resume(ctx, turn.Epic, turn.Seq, id)
 }
 
-// recordFound records step id on turn seq of epic, a turn with no recorded step whose step was found under its derived
-// id. An open step is stopped when the turn was flagged to stop, as a step started before its id was recorded is. It
+// recordFound records step id on turn seq of epic (see recordStep), a turn with no recorded step whose step was found
+// under its derived id. An open step is stopped when the turn was flagged to stop, as a step started before its id was recorded is. It
 // reports false, after logging, when the step is not recorded; the turn then stays running for the next start.
 func (r *Runner) recordFound(ctx context.Context, epic string, seq int64, id string, row store.StepRow) bool {
-	if err := r.store.SetTurnStep(ctx, epic, seq, id); err != nil {
+	if err := r.recordStep(ctx, epic, seq, id); err != nil {
 		r.logger.ErrorContext(ctx, "record step of running planner turn",
 			"epic", epic, "turn", seq, "step", id, "err", err)
 		return false

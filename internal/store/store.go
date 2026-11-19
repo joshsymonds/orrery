@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
@@ -81,11 +82,22 @@ const (
 	SynchronousFull   Synchronous = "FULL"
 )
 
+// BusyTimeout is how long a store write waits for SQLite's write lock while another connection holds it, before it
+// fails with SQLITE_BUSY. The other writer of orreryd's store is Litestream, which takes the write lock for its
+// checkpoints. Over a large store those holds outlast 200 ms often enough to fail writes, and Litestream recommends a
+// 5 s busy timeout for the processes that share its database. The store's one connection runs every store call in
+// turn, so the calls behind a write wait out Litestream's hold whatever the timeout is: the timeout decides only
+// whether the write at the front fails.
+const BusyTimeout = 5 * time.Second
+
 // Option changes how Open opens the store.
 type Option func(*openConfig)
 
 type openConfig struct {
 	synchronous Synchronous
+	// busyTimeout is how long a statement waits for a lock another connection holds. It is BusyTimeout unless
+	// WithBusyTimeout set another.
+	busyTimeout time.Duration
 	logger      *slog.Logger
 	slowCounted func(context.Context)
 	// connectGate and closeWaiting are the trackedConnector's gate and waiting. They are for tests and nil otherwise.
@@ -113,6 +125,13 @@ func withCallClock(now func() time.Time) Option {
 	return func(c *openConfig) { c.callClock = now }
 }
 
+// WithBusyTimeout sets how long a store statement waits for a lock another connection holds, in place of BusyTimeout.
+// It is for tests: 0 fails a write at once with SQLITE_BUSY while a test's second connection holds the write lock, so
+// the test waits out no timeout.
+func WithBusyTimeout(d time.Duration) Option {
+	return func(c *openConfig) { c.busyTimeout = d }
+}
+
 // WithSynchronous sets the connection's synchronous mode in place of SQLite's default, FULL. It is for tests: OFF
 // skips the fsync each commit and checkpoint costs, which a test's throwaway store does not need. orreryd never
 // passes it, because restart and re-adoption rely on committed rows surviving an OS crash or power loss.
@@ -121,14 +140,17 @@ func WithSynchronous(mode Synchronous) Option {
 }
 
 // Open creates the store's directory (0700) and file (0600) when absent, opens the database in WAL mode with a
-// 200 ms busy timeout, and applies the embedded migrations. It returns ErrTooNew, without migrating, when the
+// BusyTimeout busy timeout, and applies the embedded migrations. It returns ErrTooNew, without migrating, when the
 // database records a newer migration than this binary embeds. A file it cannot use is left untouched.
 func Open(ctx context.Context, path string, opts ...Option) (*Store, error) {
-	var cfg openConfig
+	cfg := openConfig{busyTimeout: BusyTimeout}
 	for _, opt := range opts {
 		opt(&cfg)
 	}
-	query := "_busy_timeout=200&_journal_mode=WAL"
+	if cfg.busyTimeout < 0 {
+		return nil, fmt.Errorf("open store: negative busy timeout %v", cfg.busyTimeout)
+	}
+	query := "_busy_timeout=" + strconv.FormatInt(cfg.busyTimeout.Milliseconds(), 10) + "&_journal_mode=WAL"
 	switch cfg.synchronous {
 	case "":
 	case SynchronousOff, SynchronousNormal, SynchronousFull:

@@ -39,10 +39,12 @@ type EpicReportsConfig struct {
 }
 
 // EpicReports writes the report of each ended epic that has none for its ending. It keeps the endings, epic id and
-// phase, it has tried since it started, so each ending of an epic gets at most one call per start.
+// phase, it has tried since it started, so each ending of an epic gets at most one call per start, and the reports,
+// by epic id, whose write the store refused, which each later pass writes again.
 type EpicReports struct {
-	cfg   EpicReportsConfig
-	tried map[string]bool
+	cfg      EpicReportsConfig
+	tried    map[string]bool
+	unstored unstoredWrites[store.EpicReport]
 }
 
 // NewEpicReports returns an EpicReports for cfg.
@@ -50,7 +52,7 @@ func NewEpicReports(cfg EpicReportsConfig) *EpicReports {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.DiscardHandler)
 	}
-	return &EpicReports{cfg: cfg, tried: make(map[string]bool)}
+	return &EpicReports{cfg: cfg, tried: make(map[string]bool), unstored: unstoredWrites[store.EpicReport]{}}
 }
 
 // Run writes the reports at start and at each tick until ctx ends.
@@ -68,9 +70,13 @@ func (e *EpicReports) Run(ctx context.Context) {
 	}
 }
 
-// pass reports each stored ended epic that has no report for its ending and whose ending this start has not tried, one
-// call at a time, in id order. A failed read is logged and the pass does nothing else; the next pass reads again.
+// pass writes again the reports whose write the store refused, then reports each stored ended epic that has no report
+// for its ending and whose ending this start has not tried, one call at a time, in id order. A failed read is logged
+// and the pass does nothing else; the next pass reads again.
 func (e *EpicReports) pass(ctx context.Context) {
+	if n := e.unstored.retry(context.WithoutCancel(ctx), e.cfg.Store.SetEpicReport); n > 0 {
+		e.cfg.Logger.InfoContext(ctx, "epic reports stored after a retry", "reports", n)
+	}
 	rows, err := e.cfg.Store.UnreportedEpics(ctx)
 	if err != nil {
 		e.cfg.Logger.ErrorContext(ctx, "read unreported epics", "error", err)
@@ -91,7 +97,8 @@ func (e *EpicReports) pass(ctx context.Context) {
 
 // report calls Haiku for the why of the epic with id and stores its report with the shipped and not-shipped ids. A
 // failed read, call or reply is logged and leaves the report empty. The write ignores ctx's cancellation, so a stop that
-// lands after a reply still stores it.
+// lands after a reply still stores it, and a write the store refuses is logged and kept for the next pass to write
+// again.
 func (e *EpicReports) report(ctx context.Context, id string) {
 	flow, err := e.cfg.Store.EpicFlow(ctx, id)
 	if err != nil {
@@ -118,7 +125,8 @@ func (e *EpicReports) report(ctx context.Context, id string) {
 		Why:        why,
 	}
 	if err = e.cfg.Store.SetEpicReport(context.WithoutCancel(ctx), id, report); err != nil {
-		e.cfg.Logger.ErrorContext(ctx, "store epic report", "epic", id, "error", err)
+		e.cfg.Logger.ErrorContext(ctx, "store epic report; kept for the next pass", "epic", id, "error", err)
+		e.unstored[id] = report
 	}
 }
 

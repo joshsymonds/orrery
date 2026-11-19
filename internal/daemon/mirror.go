@@ -21,6 +21,11 @@ import (
 // is free.
 const mirrorLockWait = 200 * time.Millisecond
 
+// mirrorBusyWait is how long the drain waits before it reruns a sync or tidy whose store write failed busy, so a store
+// that Litestream holds is tried again about once each busy timeout plus this, and a drain over a store that refuses
+// writes at once does not spin.
+const mirrorBusyWait = time.Second
+
 // mirrorSeparator splits the one-command option read. tmux prints it raw, and it cannot appear in a
 // single-line option value.
 const mirrorSeparator = "\x1f"
@@ -52,7 +57,8 @@ const tidyFormat = "#{pane_id}" + mirrorSeparator + mirrorFormat
 // Mirror syncs tmux panes into the store. Each sync holds one lock across its tmux read, its id mint and
 // its store write, so concurrent syncs never mint two ids for one pane or write a stale snapshot over a
 // newer one. A sync or tidy that cannot start within mirrorLockWait is deferred, and one drain runs the deferred work
-// once the store is open and the lock is free.
+// once the store is open and the lock is free. A sync or tidy whose store write fails busy is deferred too, and the
+// drain reruns it mirrorBusyWait later, until it lands or Wait.
 type Mirror struct {
 	// store is set by Attach before opened closes, so it is read only after a receive from opened.
 	store  *store.Store
@@ -63,19 +69,29 @@ type Mirror struct {
 	// lockWait returns the channel that delivers once a sync or tidy has waited mirrorLockWait. It is time.After of
 	// mirrorLockWait; a test replaces it.
 	lockWait func() <-chan time.Time
+	// busyWait returns the channel that delivers once the drain has waited mirrorBusyWait before rerunning work whose
+	// store write failed busy. It is time.After of mirrorBusyWait; a test replaces it.
+	busyWait func() <-chan time.Time
 	// unreachable holds each server whose last list-panes failed, keyed by its store column. Only the lock
 	// holder reads or writes it.
 	unreachable map[string]bool
 
-	// deferredMu guards deferredPanes, deferredServers and draining.
+	// deferredMu guards deferredPanes, deferredServers, busy, draining and closing.
 	deferredMu sync.Mutex
 	// deferredPanes holds each pane whose sync was deferred. A pane deferred again before the drain reaches it is one
 	// entry, so its sync runs once and reads tmux as it is then.
 	deferredPanes map[paneRef]struct{}
 	// deferredServers holds each server whose tidy was deferred.
 	deferredServers map[tmuxctl.Server]struct{}
+	// busy is set when work was deferred because its store write failed busy, and the drain clears it as it waits
+	// mirrorBusyWait before its next run.
+	busy bool
 	// draining is true while a drain goroutine runs. At most one runs, and it runs until nothing is deferred.
 	draining bool
+	// closing is set by Wait. From then a store write that fails busy is dropped rather than deferred, so the drain ends.
+	closing bool
+	// closed is closed by Wait, which ends the drain's wait of mirrorBusyWait.
+	closed chan struct{}
 	// drains counts the running drain, so Wait can wait for it.
 	drains sync.WaitGroup
 }
@@ -105,7 +121,9 @@ func NewPendingMirror(now func() time.Time, logger *slog.Logger) *Mirror {
 		logger:      logger,
 		lock:        make(chan struct{}, 1),
 		lockWait:    func() <-chan time.Time { return time.After(mirrorLockWait) },
+		busyWait:    func() <-chan time.Time { return time.After(mirrorBusyWait) },
 		unreachable: map[string]bool{},
+		closed:      make(chan struct{}),
 
 		deferredPanes:   map[paneRef]struct{}{},
 		deferredServers: map[tmuxctl.Server]struct{}{},
@@ -140,8 +158,9 @@ func (m *Mirror) awaitStore() bool {
 // mints and stores an id when the pane has none, writes the snapshot to its row, and sets @orrery_id only
 // after the store write commits. A sync that waits more than mirrorLockWait for the store to open or for the lock is
 // logged and deferred, and SyncPane returns: the drain syncs the pane once the store is open and the lock is free. A
-// sync whose tmux read or store write fails is logged and dropped. A sync after a failed open returns at once,
-// silently.
+// sync whose store write fails busy is logged and deferred too, for the drain to rerun mirrorBusyWait later (see
+// syncLocked). A sync whose tmux read or store write fails otherwise is logged and dropped. A sync after a failed open
+// returns at once, silently.
 func (m *Mirror) SyncPane(ctx context.Context, server tmuxctl.Server, pane string) {
 	if !m.awaitStore() {
 		m.logger.WarnContext(ctx, "mirror sync deferred", "pane", pane, "reason", "store still opening")
@@ -183,12 +202,11 @@ func (m *Mirror) TryRead(pane string) (cmd []string, ok bool) {
 }
 
 // SyncRead syncs pane on server into the store from out, the output of the command TryRead returned, as SyncPane
-// syncs it from its own read, then releases the lock TryRead took. A sync that fails is logged and dropped.
+// syncs it from its own read, then releases the lock TryRead took. A sync whose store write fails busy is deferred, as
+// SyncPane defers it, and one that fails otherwise is logged and dropped.
 func (m *Mirror) SyncRead(ctx context.Context, server tmuxctl.Server, pane, out string) {
 	defer m.release()
-	if err := m.syncOut(ctx, server, pane, out); err != nil {
-		m.logger.ErrorContext(ctx, "mirror sync dropped", "pane", pane, "error", err)
-	}
+	m.noteSync(ctx, server, pane, m.syncOut(ctx, server, pane, out))
 }
 
 // ReleaseRead releases the lock TryRead took, for a read that never ran.
@@ -199,11 +217,24 @@ func mirrorReadCommand(pane string) []string {
 	return []string{"display-message", "-p", "-t", pane, mirrorFormat}
 }
 
-// syncLocked runs one pane sync and logs its failure. The caller holds m.lock.
+// syncLocked runs one pane sync and notes its failure (see noteSync). The caller holds m.lock.
 func (m *Mirror) syncLocked(ctx context.Context, server tmuxctl.Server, pane string) {
-	if err := m.sync(ctx, server, pane); err != nil {
-		m.logger.ErrorContext(ctx, "mirror sync dropped", "pane", pane, "error", err)
+	m.noteSync(ctx, server, pane, m.sync(ctx, server, pane))
+}
+
+// noteSync handles the outcome err of a sync of pane on server. A sync whose store write failed busy changed nothing,
+// since the write rolled back and @orrery_id is set only after it commits, so it is deferred for the drain to rerun,
+// unless Wait has begun. Any other failure is logged and dropped.
+func (m *Mirror) noteSync(ctx context.Context, server tmuxctl.Server, pane string, err error) {
+	if err == nil {
+		return
 	}
+	if store.Busy(err) &&
+		m.deferBusy(ctx, func() { m.deferredPanes[paneRef{server: server, pane: pane}] = struct{}{} }) {
+		m.logger.WarnContext(ctx, "mirror sync deferred", "pane", pane, "reason", "store busy", "error", err)
+		return
+	}
+	m.logger.ErrorContext(ctx, "mirror sync dropped", "pane", pane, "error", err)
 }
 
 // deferSync records pane on server for the drain, and starts the drain when none runs.
@@ -222,6 +253,21 @@ func (m *Mirror) deferTidy(ctx context.Context, server tmuxctl.Server) {
 	m.startDrainLocked(ctx)
 }
 
+// deferBusy records, with record, work whose store write failed busy, marks the drain to wait mirrorBusyWait before it
+// reruns it, and starts the drain when none runs. It records nothing and reports false once Wait has begun. record runs
+// under deferredMu.
+func (m *Mirror) deferBusy(ctx context.Context, record func()) bool {
+	m.deferredMu.Lock()
+	defer m.deferredMu.Unlock()
+	if m.closing {
+		return false
+	}
+	record()
+	m.busy = true
+	m.startDrainLocked(ctx)
+	return true
+}
+
 // startDrainLocked starts the drain goroutine unless one runs. A running drain stops only when takeDeferred finds
 // nothing recorded, and it clears draining under deferredMu, so every deferral is taken by a drain. The drain keeps
 // ctx's values but not its cancel, since the deferring caller's context ends when it returns; orreryd waits for the
@@ -238,7 +284,8 @@ func (m *Mirror) startDrainLocked(ctx context.Context) {
 // drain runs the deferred tidies and syncs under ctx. It waits, with no bound, for Attach and then for the mirror lock,
 // since it runs on its own goroutine and keeps no hook waiting. Under the lock it takes every deferral recorded so far
 // and runs it: each tidy, then each sync, each reading tmux as it is then. It repeats until it finds nothing deferred.
-// A nil store discards the deferrals.
+// Before a run that follows a busy store write it waits mirrorBusyWait, or until Wait begins. A nil store discards the
+// deferrals.
 func (m *Mirror) drain(ctx context.Context) {
 	defer m.drains.Done()
 	<-m.opened
@@ -248,6 +295,12 @@ func (m *Mirror) drain(ctx context.Context) {
 				return
 			}
 			continue
+		}
+		if m.takeBusy() {
+			select {
+			case <-m.busyWait():
+			case <-m.closed:
+			}
 		}
 		m.lock <- struct{}{}
 		panes, servers, ok := m.takeDeferred()
@@ -279,10 +332,27 @@ func (m *Mirror) takeDeferred() (map[paneRef]struct{}, map[tmuxctl.Server]struct
 	return panes, servers, true
 }
 
+// takeBusy reports whether work was deferred for a busy store write since the drain last asked, and clears the mark.
+func (m *Mirror) takeBusy() bool {
+	m.deferredMu.Lock()
+	defer m.deferredMu.Unlock()
+	busy := m.busy
+	m.busy = false
+	return busy
+}
+
 // Wait returns once no drain runs, so every sync and tidy deferred before the call has run. orreryd calls it after
-// Serve and the summaries have returned, when nothing defers more, and before it closes the store. Wait never
-// returns while the store is still opening and work is deferred: orreryd attaches the store before it serves.
+// Serve and the summaries have returned, when nothing defers more, and before it closes the store. From the call on, a
+// store write that fails busy is logged and dropped rather than deferred, and the drain reruns busy work without its
+// wait, so a store that stays busy cannot hold Wait: the next start's tidy repairs what was dropped. Wait never returns
+// while the store is still opening and work is deferred: orreryd attaches the store before it serves.
 func (m *Mirror) Wait() {
+	m.deferredMu.Lock()
+	if !m.closing {
+		m.closing = true
+		close(m.closed)
+	}
+	m.deferredMu.Unlock()
 	m.drains.Wait()
 }
 
@@ -380,7 +450,7 @@ func fieldsOf(values []string) store.Fields {
 // Tidy matches the store to server's panes: one list-panes -a reads every pane, and SyncServer replaces the
 // server's rows with them. A pane without an @orrery_id gets one minted before the store write, and the option is
 // set only after the write commits. A failed read or write changes nothing; it is logged, and the next tidy repairs
-// it. A failed list-panes is logged as a server transition instead: see noteListPanes. The lock covers the read and
+// it, or the drain reruns it mirrorBusyWait later when its store write failed busy. A failed list-panes is logged as a server transition instead: see noteListPanes. The lock covers the read and
 // the write, so a sync and a tidy never interleave. Like a sync, a tidy that waits more than mirrorLockWait for a store
 // still opening or for the lock is logged and deferred to the drain, and a tidy returns at once after a failed open.
 func (m *Mirror) Tidy(ctx context.Context, server tmuxctl.Server) {
@@ -402,7 +472,8 @@ func (m *Mirror) Tidy(ctx context.Context, server tmuxctl.Server) {
 	m.tidyLocked(ctx, server)
 }
 
-// tidyLocked runs one tidy of server and logs its failure. The caller holds m.lock.
+// tidyLocked runs one tidy of server and logs its failure. A tidy whose store write failed busy changed nothing, so it
+// is deferred for the drain to rerun, unless Wait has begun. The caller holds m.lock.
 func (m *Mirror) tidyLocked(ctx context.Context, server tmuxctl.Server) {
 	client, err := tmuxctl.New(server)
 	if err != nil {
@@ -415,7 +486,13 @@ func (m *Mirror) tidyLocked(ctx context.Context, server tmuxctl.Server) {
 	if err != nil {
 		return
 	}
-	if err = m.tidy(ctx, server, client, out); err != nil {
+	err = m.tidy(ctx, server, client, out)
+	switch {
+	case err == nil:
+	case store.Busy(err) && m.deferBusy(ctx, func() { m.deferredServers[server] = struct{}{} }):
+		m.logger.WarnContext(ctx, "mirror tidy deferred", "server", server.Column(), "reason", "store busy",
+			"error", err)
+	default:
 		m.logger.ErrorContext(ctx, "mirror tidy dropped", "server", server.Column(), "error", err)
 	}
 }

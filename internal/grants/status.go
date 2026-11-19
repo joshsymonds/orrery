@@ -98,8 +98,9 @@ func (b *Broker) poolStatusLocked(use *poolUse) PoolStatus {
 	return ps
 }
 
-// holderStatusLocked returns the holder of the grant with id. A member names only a grant the broker holds, so a lookup
-// that finds none is a failure of the broker's bookkeeping: it is reported by id alone rather than dereferenced.
+// holderStatusLocked returns the holder of the grant with id. A member names a grant the broker holds, or an ended grant
+// whose row the store has yet to remove, which no call holds. A lookup that finds no holder, for an ended grant or a
+// failure of the broker's bookkeeping, is reported by id alone rather than dereferenced.
 func (b *Broker) holderStatusLocked(id string) *Holder {
 	owner := b.holderLocked(id)
 	if owner == nil {
