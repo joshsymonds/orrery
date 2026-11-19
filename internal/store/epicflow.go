@@ -31,6 +31,8 @@ const (
 // runs as EvidenceRuns returns them, less the runs whose kept spec is no longer current with the item now stored under
 // their Item, its steps, its release runs as ReleaseRuns returns them, the holder of its repository's release slot, how
 // many of its triggers and of its amend_evidence actions are pending, and how many of its planner actions are pending.
+// GapTurns, Unresolvable and Reruns hold its gap turns, its unresolvable gaps and its review reruns as GapTurns,
+// UnresolvableGaps and ReviewReruns return them.
 // Steps holds the steps its agent and release node runs ran under as Step returns them, for the runs that have them,
 // then every step labeled with the epic and the path of one of its review, closure or release node runs, in the order
 // of the runs.
@@ -48,6 +50,9 @@ type EpicFlow struct {
 	// action of the epic that is still pending, those among it.
 	AmendActions int
 	Actions      int
+	GapTurns     []GapTurn
+	Unresolvable []GapDeclaration
+	Reruns       []ReviewRerun
 }
 
 // EpicFlow returns the stored epic with id with its review, node runs, checks, evidence runs, steps, release runs,
@@ -120,10 +125,35 @@ func readEpicFlow(ctx context.Context, queries *sqlcgen.Queries, id string) (Epi
 	if err != nil {
 		return EpicFlow{}, fmt.Errorf("count pending planner actions of epic %s: %w", id, err)
 	}
+	gapTurns, unresolvable, reruns, err := readGapRecords(ctx, queries, id)
+	if err != nil {
+		return EpicFlow{}, err
+	}
 	return EpicFlow{
 		Epic: epic, Review: review, Runs: runs, Checks: checks, Evidence: currentRuns(stored, epic), Steps: steps,
 		Releases: releases, Slot: slot, Pending: int(pending), AmendActions: int(amends), Actions: int(actions),
+		GapTurns: gapTurns, Unresolvable: unresolvable, Reruns: reruns,
 	}, nil
+}
+
+// readGapRecords returns the gap turns, unresolvable gaps and review reruns of epic as queries read them, in one
+// read: the three helpers GapTurns, UnresolvableGaps and ReviewReruns read through.
+func readGapRecords(
+	ctx context.Context, queries *sqlcgen.Queries, id string,
+) ([]GapTurn, []GapDeclaration, []ReviewRerun, error) {
+	gapTurns, err := readGapTurns(ctx, queries, id)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	unresolvable, err := readUnresolvable(ctx, queries, id)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	reruns, err := readReviewReruns(ctx, queries, id)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return gapTurns, unresolvable, reruns, nil
 }
 
 // readEvidenceRuns returns the evidence runs of epic as queries read them, ordered by created, then id, each with its

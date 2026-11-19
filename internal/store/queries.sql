@@ -1671,3 +1671,15 @@ INSERT INTO epic_review_reruns (epic, reviewer, turn, position, created) VALUES 
 
 -- name: ListEpicReviewReruns :many
 SELECT * FROM epic_review_reruns WHERE epic = ? ORDER BY turn, position;
+
+-- name: DeleteEpicReviewVerdictOf :execrows
+DELETE FROM epic_review_verdicts WHERE epic = ? AND reviewer = ?;
+
+-- name: DeleteEpicClosuresOfReviewer :exec
+DELETE FROM epic_closures WHERE epic_closures.epic = sqlc.arg(epic) AND epic_closures.finding IN (
+    SELECT epic_ledger.id FROM epic_ledger
+    WHERE epic_ledger.epic = sqlc.arg(epic) AND epic_ledger.reviewer = sqlc.arg(reviewer)
+);
+
+-- name: DeleteEpicLedgerOfReviewer :exec
+DELETE FROM epic_ledger WHERE epic = ? AND reviewer = ?;

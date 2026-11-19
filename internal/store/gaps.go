@@ -30,7 +30,8 @@ type ReviewRerun struct {
 	Created        time.Time
 }
 
-// GapTurn is a planner turn a gap was given: the gap, the turn, the reason, and when it was recorded.
+// GapTurn is a turn a gap was given: the gap, the turn, the reason, and when it was recorded. Turn is the conclude gap
+// round the gap was given, 1 or 2, as StartGapRound records it, and not a planner turn seq.
 type GapTurn struct {
 	Gap     string
 	Turn    int64
@@ -63,7 +64,13 @@ func insertUnresolvable(
 // UnresolvableGaps returns the gaps the epic's highest-seq succeeded turn declared it cannot resolve without the owner, in
 // the order they were declared, or nil when that turn declared none.
 func (s *Store) UnresolvableGaps(ctx context.Context, epic string) ([]GapDeclaration, error) {
-	rows, err := sqlcgen.New(s.db).ListUnresolvableOfLastTurn(ctx, epic)
+	return readUnresolvable(ctx, sqlcgen.New(s.db), epic)
+}
+
+// readUnresolvable returns the gaps the epic's highest-seq succeeded turn declared it cannot resolve as queries read
+// them, in the order they were declared, or nil when that turn declared none.
+func readUnresolvable(ctx context.Context, queries *sqlcgen.Queries, epic string) ([]GapDeclaration, error) {
+	rows, err := queries.ListUnresolvableOfLastTurn(ctx, epic)
 	if err != nil {
 		return nil, fmt.Errorf("list unresolvable gaps of epic %s: %w", epic, err)
 	}
@@ -101,7 +108,13 @@ func rerunReview(ctx context.Context, queries *sqlcgen.Queries, action PlannerAc
 // ReviewReruns returns the reruns of the epic's review that its rerun_review actions carried out, in turn then position
 // order.
 func (s *Store) ReviewReruns(ctx context.Context, epic string) ([]ReviewRerun, error) {
-	rows, err := sqlcgen.New(s.db).ListEpicReviewReruns(ctx, epic)
+	return readReviewReruns(ctx, sqlcgen.New(s.db), epic)
+}
+
+// readReviewReruns returns the reruns of the epic's review that its rerun_review actions carried out as queries read
+// them, in turn then position order.
+func readReviewReruns(ctx context.Context, queries *sqlcgen.Queries, epic string) ([]ReviewRerun, error) {
+	rows, err := queries.ListEpicReviewReruns(ctx, epic)
 	if err != nil {
 		return nil, fmt.Errorf("list review reruns of epic %s: %w", epic, err)
 	}
@@ -117,28 +130,42 @@ func (s *Store) ReviewReruns(ctx context.Context, epic string) ([]ReviewRerun, e
 // record of turn, is an error wrapping ErrGapSpent, and writes nothing.
 func (s *Store) RecordGapTurn(ctx context.Context, epic, gap string, turn int64, reason string, at time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		given, err := queries.ListEpicGapTurnsOf(ctx, sqlcgen.ListEpicGapTurnsOfParams{Epic: epic, Gap: gap})
-		if err != nil {
-			return fmt.Errorf("list turns of gap %s of epic %s: %w", gap, epic, err)
-		}
-		if slices.ContainsFunc(given, func(row sqlcgen.EpicGapTurn) bool { return row.Turn == turn }) {
-			return nil
-		}
-		if len(given) >= GapTurnBound {
-			return fmt.Errorf("gap %s of epic %s has %d turns: %w", gap, epic, len(given), ErrGapSpent)
-		}
-		if err = queries.InsertEpicGapTurn(ctx, sqlcgen.InsertEpicGapTurnParams{
-			Epic: epic, Gap: gap, Turn: turn, Reason: reason, Created: at.Unix(),
-		}); err != nil {
-			return fmt.Errorf("insert turn %d of gap %s of epic %s: %w", turn, gap, epic, err)
-		}
-		return nil
+		return insertGapTurn(ctx, queries, epic, gap, turn, reason, at)
 	})
+}
+
+// insertGapTurn records in the caller's write that gap of epic was given to turn for reason, at at. A gap and turn that
+// are recorded already change nothing and return nil. A gap that already has GapTurnBound turns, and no record of turn,
+// is an error wrapping ErrGapSpent, and writes nothing.
+func insertGapTurn(
+	ctx context.Context, queries *sqlcgen.Queries, epic, gap string, turn int64, reason string, at time.Time,
+) error {
+	given, err := queries.ListEpicGapTurnsOf(ctx, sqlcgen.ListEpicGapTurnsOfParams{Epic: epic, Gap: gap})
+	if err != nil {
+		return fmt.Errorf("list turns of gap %s of epic %s: %w", gap, epic, err)
+	}
+	if slices.ContainsFunc(given, func(row sqlcgen.EpicGapTurn) bool { return row.Turn == turn }) {
+		return nil
+	}
+	if len(given) >= GapTurnBound {
+		return fmt.Errorf("gap %s of epic %s has %d turns: %w", gap, epic, len(given), ErrGapSpent)
+	}
+	if err = queries.InsertEpicGapTurn(ctx, sqlcgen.InsertEpicGapTurnParams{
+		Epic: epic, Gap: gap, Turn: turn, Reason: reason, Created: at.Unix(),
+	}); err != nil {
+		return fmt.Errorf("insert turn %d of gap %s of epic %s: %w", turn, gap, epic, err)
+	}
+	return nil
 }
 
 // GapTurns returns the planner turns each gap of the epic was given, in gap then turn order.
 func (s *Store) GapTurns(ctx context.Context, epic string) ([]GapTurn, error) {
-	rows, err := sqlcgen.New(s.db).ListEpicGapTurns(ctx, epic)
+	return readGapTurns(ctx, sqlcgen.New(s.db), epic)
+}
+
+// readGapTurns returns the turns each gap of the epic was given as queries read them, in gap then turn order.
+func readGapTurns(ctx context.Context, queries *sqlcgen.Queries, epic string) ([]GapTurn, error) {
+	rows, err := queries.ListEpicGapTurns(ctx, epic)
 	if err != nil {
 		return nil, fmt.Errorf("list gap turns of epic %s: %w", epic, err)
 	}

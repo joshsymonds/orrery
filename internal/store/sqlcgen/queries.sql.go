@@ -581,6 +581,54 @@ func (q *Queries) DeleteEngineText(ctx context.Context, arg DeleteEngineTextPara
 	return err
 }
 
+const deleteEpicClosuresOfReviewer = `-- name: DeleteEpicClosuresOfReviewer :exec
+DELETE FROM epic_closures WHERE epic_closures.epic = ?1 AND epic_closures.finding IN (
+    SELECT epic_ledger.id FROM epic_ledger
+    WHERE epic_ledger.epic = ?1 AND epic_ledger.reviewer = ?2
+)
+`
+
+type DeleteEpicClosuresOfReviewerParams struct {
+	Epic     string
+	Reviewer string
+}
+
+func (q *Queries) DeleteEpicClosuresOfReviewer(ctx context.Context, arg DeleteEpicClosuresOfReviewerParams) error {
+	_, err := q.db.ExecContext(ctx, deleteEpicClosuresOfReviewer, arg.Epic, arg.Reviewer)
+	return err
+}
+
+const deleteEpicLedgerOfReviewer = `-- name: DeleteEpicLedgerOfReviewer :exec
+DELETE FROM epic_ledger WHERE epic = ? AND reviewer = ?
+`
+
+type DeleteEpicLedgerOfReviewerParams struct {
+	Epic     string
+	Reviewer string
+}
+
+func (q *Queries) DeleteEpicLedgerOfReviewer(ctx context.Context, arg DeleteEpicLedgerOfReviewerParams) error {
+	_, err := q.db.ExecContext(ctx, deleteEpicLedgerOfReviewer, arg.Epic, arg.Reviewer)
+	return err
+}
+
+const deleteEpicReviewVerdictOf = `-- name: DeleteEpicReviewVerdictOf :execrows
+DELETE FROM epic_review_verdicts WHERE epic = ? AND reviewer = ?
+`
+
+type DeleteEpicReviewVerdictOfParams struct {
+	Epic     string
+	Reviewer string
+}
+
+func (q *Queries) DeleteEpicReviewVerdictOf(ctx context.Context, arg DeleteEpicReviewVerdictOfParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteEpicReviewVerdictOf, arg.Epic, arg.Reviewer)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const deleteGrant = `-- name: DeleteGrant :exec
 DELETE FROM grants WHERE id = ?
 `
