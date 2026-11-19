@@ -243,6 +243,8 @@ The web page is a Preact application in [`web/src`](../web/src/main.tsx). [`star
 
 `scripts/build-web.sh` bundles the page with esbuild into `web/build/page`. The flake copies that directory into `internal/webui/dist`, and [`webui.FS`](../internal/webui/webui.go) embeds it, so the `orrery` binary serves the page itself. `serve` returns `index.html` for `/` after the login check and sets a content security policy on each page response. The page's tests run in `just web-check`.
 
+The page knows its own build. `scripts/build-web.sh` bundles the page once with an empty build, takes the sha256 of that `main.js` as the build, bundles it again with the build compiled in as `ORRERY_PAGE_BUILD`, and writes the build to `build.txt` beside it. `serve` reports that file in `Host.Status`, so a tab an earlier `serve` sent sees a build other than its own and reloads itself, once, at the first moment it is hidden and no text box on it holds unsent text ([`watchPageBuild`](../web/src/pagebuild.ts)).
+
 ## Android app
 
 The Android app is Kotlin and Jetpack Compose, under [`android/`](../android/app/src/main/kotlin/io/github/joshsymonds/orrery/api/OrreryClient.kt). [`OrreryClient`](../android/app/src/main/kotlin/io/github/joshsymonds/orrery/api/OrreryClient.kt) wraps the Connect clients that `just generate` writes from the same schema, and it sends the same client header the web page sends. The screens cover the pane list and pane, headless sessions, epics, pools and settings. [`SessionScreen`](../android/app/src/main/kotlin/io/github/joshsymonds/orrery/ui/SessionScreen.kt) streams a session's conversation and reconnects as the web page does.

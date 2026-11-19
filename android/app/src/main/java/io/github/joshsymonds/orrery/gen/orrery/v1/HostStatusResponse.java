@@ -21,6 +21,7 @@ public  final class HostStatusResponse extends
   private HostStatusResponse() {
     host_ = "";
     stats_ = emptyProtobufList();
+    pageBuild_ = "";
   }
   public static final int HOST_FIELD_NUMBER = 1;
   private java.lang.String host_;
@@ -225,6 +226,78 @@ public  final class HostStatusResponse extends
   private void removeStats(int index) {
     ensureStatsIsMutable();
     stats_.remove(index);
+  }
+
+  public static final int PAGE_BUILD_FIELD_NUMBER = 3;
+  private java.lang.String pageBuild_;
+  /**
+   * <pre>
+   * The build of the web page serve holds: the build.txt the page's bundle was written with, empty when serve holds no
+   * page or its page has no build.txt. A page whose own build differs is a page an earlier serve sent, and reloads.
+   * </pre>
+   *
+   * <code>string page_build = 3 [json_name = "pageBuild"];</code>
+   * @return The pageBuild.
+   */
+  @java.lang.Override
+  public java.lang.String getPageBuild() {
+    return pageBuild_;
+  }
+  /**
+   * <pre>
+   * The build of the web page serve holds: the build.txt the page's bundle was written with, empty when serve holds no
+   * page or its page has no build.txt. A page whose own build differs is a page an earlier serve sent, and reloads.
+   * </pre>
+   *
+   * <code>string page_build = 3 [json_name = "pageBuild"];</code>
+   * @return The bytes for pageBuild.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getPageBuildBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(pageBuild_);
+  }
+  /**
+   * <pre>
+   * The build of the web page serve holds: the build.txt the page's bundle was written with, empty when serve holds no
+   * page or its page has no build.txt. A page whose own build differs is a page an earlier serve sent, and reloads.
+   * </pre>
+   *
+   * <code>string page_build = 3 [json_name = "pageBuild"];</code>
+   * @param value The pageBuild to set.
+   */
+  private void setPageBuild(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    pageBuild_ = value;
+  }
+  /**
+   * <pre>
+   * The build of the web page serve holds: the build.txt the page's bundle was written with, empty when serve holds no
+   * page or its page has no build.txt. A page whose own build differs is a page an earlier serve sent, and reloads.
+   * </pre>
+   *
+   * <code>string page_build = 3 [json_name = "pageBuild"];</code>
+   */
+  private void clearPageBuild() {
+
+    pageBuild_ = getDefaultInstance().getPageBuild();
+  }
+  /**
+   * <pre>
+   * The build of the web page serve holds: the build.txt the page's bundle was written with, empty when serve holds no
+   * page or its page has no build.txt. A page whose own build differs is a page an earlier serve sent, and reloads.
+   * </pre>
+   *
+   * <code>string page_build = 3 [json_name = "pageBuild"];</code>
+   * @param value The bytes for pageBuild to set.
+   */
+  private void setPageBuildBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    pageBuild_ = value.toStringUtf8();
+
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.HostStatusResponse parseFrom(
@@ -547,6 +620,80 @@ public  final class HostStatusResponse extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The build of the web page serve holds: the build.txt the page's bundle was written with, empty when serve holds no
+     * page or its page has no build.txt. A page whose own build differs is a page an earlier serve sent, and reloads.
+     * </pre>
+     *
+     * <code>string page_build = 3 [json_name = "pageBuild"];</code>
+     * @return The pageBuild.
+     */
+    @java.lang.Override
+    public java.lang.String getPageBuild() {
+      return instance.getPageBuild();
+    }
+    /**
+     * <pre>
+     * The build of the web page serve holds: the build.txt the page's bundle was written with, empty when serve holds no
+     * page or its page has no build.txt. A page whose own build differs is a page an earlier serve sent, and reloads.
+     * </pre>
+     *
+     * <code>string page_build = 3 [json_name = "pageBuild"];</code>
+     * @return The bytes for pageBuild.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getPageBuildBytes() {
+      return instance.getPageBuildBytes();
+    }
+    /**
+     * <pre>
+     * The build of the web page serve holds: the build.txt the page's bundle was written with, empty when serve holds no
+     * page or its page has no build.txt. A page whose own build differs is a page an earlier serve sent, and reloads.
+     * </pre>
+     *
+     * <code>string page_build = 3 [json_name = "pageBuild"];</code>
+     * @param value The pageBuild to set.
+     * @return This builder for chaining.
+     */
+    public Builder setPageBuild(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setPageBuild(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The build of the web page serve holds: the build.txt the page's bundle was written with, empty when serve holds no
+     * page or its page has no build.txt. A page whose own build differs is a page an earlier serve sent, and reloads.
+     * </pre>
+     *
+     * <code>string page_build = 3 [json_name = "pageBuild"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearPageBuild() {
+      copyOnWrite();
+      instance.clearPageBuild();
+      return this;
+    }
+    /**
+     * <pre>
+     * The build of the web page serve holds: the build.txt the page's bundle was written with, empty when serve holds no
+     * page or its page has no build.txt. A page whose own build differs is a page an earlier serve sent, and reloads.
+     * </pre>
+     *
+     * <code>string page_build = 3 [json_name = "pageBuild"];</code>
+     * @param value The bytes for pageBuild to set.
+     * @return This builder for chaining.
+     */
+    public Builder setPageBuildBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setPageBuildBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.HostStatusResponse)
   }
   @java.lang.Override
@@ -566,10 +713,11 @@ public  final class HostStatusResponse extends
             "host_",
             "stats_",
             io.github.joshsymonds.orrery.gen.orrery.v1.HostStat.class,
+            "pageBuild_",
           };
           java.lang.String info =
-              "\u0000\u0002\u0000\u0000\u0001\u0002\u0002\u0000\u0001\u0000\u0001\u0208\u0002\u001b" +
-              "";
+              "\u0000\u0003\u0000\u0000\u0001\u0003\u0003\u0000\u0001\u0000\u0001\u0208\u0002\u001b" +
+              "\u0003\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

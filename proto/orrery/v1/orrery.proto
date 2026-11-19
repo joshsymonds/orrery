@@ -1266,6 +1266,10 @@ message HostStatusResponse {
 
   // The host's stats.
   repeated HostStat stats = 2;
+
+  // The build of the web page serve holds: the build.txt the page's bundle was written with, empty when serve holds no
+  // page or its page has no build.txt. A page whose own build differs is a page an earlier serve sent, and reloads.
+  string page_build = 3;
 }
 
 // HostStat is one stat of the host.

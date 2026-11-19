@@ -9,6 +9,7 @@ import type { HostStatusResponse, WatchResponse } from "./gen/orrery/v1/orrery_p
 import { listHolds } from "./listholds";
 import { changedOnly, type HeldEpic, loadEpics, type Refetch } from "./loadepics";
 import { loadRows } from "./load";
+import { bundledBuild, holdsUnsentText, watchPageBuild } from "./pagebuild";
 import { watchNotices } from "./notices";
 import { type Viewing, watchPresence } from "./presence";
 import { type Affects, affectsOf, stepSessions } from "./refresh";
@@ -43,6 +44,15 @@ interface Loaded {
   epics: EpicsView;
   epicsError: string;
 }
+
+// PageBuild is the build the page was bundled with and how it reloads itself.
+export interface PageBuild {
+  build: string;
+  reload: () => void;
+}
+
+// The page's own build and reload: the build scripts/build-web.sh bundled it with, and a reload of the window.
+const bundledPage: PageBuild = { build: bundledBuild, reload: () => window.location.reload() };
 
 // A loaded or popped address that names an entry, held until the list its entry is in has answered its first load.
 type Held = Address & { entry: Entry };
@@ -118,12 +128,17 @@ function joinRefetch(held: Refetch | null, next: Refetch): Refetch {
 // hash: a loaded hash is given to App once the list its entry is in has answered, and falls back to its order when that
 // list lacks the entry. App's reports are written to the history, and a popstate applies the address Back or Forward
 // lands on.
+//
+// A page an earlier serve sent reloads itself: once a Host.Status answer names a page build other than page's, the page
+// reloads through page.reload at the first moment it is hidden and no text box under root holds unsent text, checked at
+// that answer, at each change of visibility, at each input under root and at each tick (watchPageBuild).
 export function start(
   root: HTMLElement,
   clients: ReturnType<typeof createClients>,
   intervalMs = defaultIntervalMs,
   retryMs = defaultRetryMs,
   win: SeenWindow = window,
+  page: PageBuild = bundledPage,
 ): () => void {
   let loaded: Loaded = { rows: [], error: "", epics: noEpics, epicsError: "" };
   let notices: InAppNotice[] = [];
@@ -154,6 +169,8 @@ export function start(
   let epicsAnswered = false;
 
   const hidden = () => win.document.visibilityState === "hidden";
+  const build = watchPageBuild(page.build, hidden, () => holdsUnsentText(root), page.reload);
+  const onInput = () => build.check();
   const isStopped = () => stopped;
 
   const draw = () => {
@@ -243,6 +260,9 @@ export function start(
       }
       host = status;
       draw();
+      if (status !== null) {
+        build.served(status.pageBuild);
+      }
     } finally {
       hostLoading = false;
     }
@@ -426,6 +446,7 @@ export function start(
     if (hidden()) {
       closeStreams();
       stale = true;
+      build.check();
       return;
     }
     if (!stale) {
@@ -448,6 +469,7 @@ export function start(
   }
   window.addEventListener("popstate", onPopState);
   win.document.addEventListener("visibilitychange", onVisibility);
+  root.addEventListener("input", onInput);
   draw();
   if (hidden()) {
     stale = true;
@@ -457,6 +479,7 @@ export function start(
     void loadHostStatus();
   }
   const timer = setInterval(() => {
+    build.check();
     if (hidden()) {
       stale = true;
       return;
@@ -478,6 +501,7 @@ export function start(
     stopped = true;
     window.removeEventListener("popstate", onPopState);
     win.document.removeEventListener("visibilitychange", onVisibility);
+    root.removeEventListener("input", onInput);
     presence.stop();
     clearInterval(timer);
     clearTimeout(eventTimer);

@@ -5467,7 +5467,10 @@ type HostStatusResponse struct {
 	// The host's name.
 	Host string `protobuf:"bytes,1,opt,name=host,proto3" json:"host,omitempty"`
 	// The host's stats.
-	Stats         []*HostStat `protobuf:"bytes,2,rep,name=stats,proto3" json:"stats,omitempty"`
+	Stats []*HostStat `protobuf:"bytes,2,rep,name=stats,proto3" json:"stats,omitempty"`
+	// The build of the web page serve holds: the build.txt the page's bundle was written with, empty when serve holds no
+	// page or its page has no build.txt. A page whose own build differs is a page an earlier serve sent, and reloads.
+	PageBuild     string `protobuf:"bytes,3,opt,name=page_build,json=pageBuild,proto3" json:"page_build,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -5514,6 +5517,13 @@ func (x *HostStatusResponse) GetStats() []*HostStat {
 		return x.Stats
 	}
 	return nil
+}
+
+func (x *HostStatusResponse) GetPageBuild() string {
+	if x != nil {
+		return x.PageBuild
+	}
+	return ""
 }
 
 // HostStat is one stat of the host.
@@ -7240,10 +7250,12 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\x04pane\x18\x01 \x01(\tR\x04pane\"(\n" +
 	"\x12PullQueuedResponse\x12\x12\n" +
 	"\x04text\x18\x01 \x01(\tR\x04text\"\x13\n" +
-	"\x11HostStatusRequest\"S\n" +
+	"\x11HostStatusRequest\"r\n" +
 	"\x12HostStatusResponse\x12\x12\n" +
 	"\x04host\x18\x01 \x01(\tR\x04host\x12)\n" +
-	"\x05stats\x18\x02 \x03(\v2\x13.orrery.v1.HostStatR\x05stats\"w\n" +
+	"\x05stats\x18\x02 \x03(\v2\x13.orrery.v1.HostStatR\x05stats\x12\x1d\n" +
+	"\n" +
+	"page_build\x18\x03 \x01(\tR\tpageBuild\"w\n" +
 	"\bHostStat\x12\x14\n" +
 	"\x05label\x18\x01 \x01(\tR\x05label\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value\x12\x1d\n" +
