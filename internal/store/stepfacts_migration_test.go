@@ -14,7 +14,7 @@ import (
 func TestStepFactsMigration(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, provider := storeAtVersion(t, 77)
+	s, provider := storeAtVersion(t, 75)
 	at := time.Unix(1700000000, 0)
 	applyStepOps(ctx, t, s, at,
 		StepAdd{ID: "step-ended", Agent: "implementer", Prompt: "do it"},
@@ -29,7 +29,7 @@ func TestStepFactsMigration(t *testing.T) {
 
 	seeded := rowsOf(t, s.db.DB, "steps")
 	if _, err := provider.Down(ctx); err != nil {
-		t.Fatalf("Down of 00077: %v", err)
+		t.Fatalf("Down of 00075: %v", err)
 	}
 	if hasAny(columnsOf(t, s, "steps"), "lines_counted", "lines_files", "lines_added", "lines_removed") {
 		t.Errorf("steps columns after Down = %v, want no lines columns", columnsOf(t, s, "steps"))
@@ -41,7 +41,7 @@ func TestStepFactsMigration(t *testing.T) {
 	}
 
 	if _, err := provider.UpByOne(ctx); err != nil {
-		t.Fatalf("Up of 00077: %v", err)
+		t.Fatalf("Up of 00075: %v", err)
 	}
 	if !hasAll(columnsOf(t, s, "steps"), "lines_counted", "lines_files", "lines_added", "lines_removed") {
 		t.Fatalf("steps columns after Up = %v, want the lines columns", columnsOf(t, s, "steps"))

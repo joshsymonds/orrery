@@ -134,13 +134,12 @@ func migrationNames(t *testing.T) map[int64]string {
 	return names
 }
 
-// TestEachMigrationDownAndUp walks the migrations once, in version order. Versions need not be consecutive: goose
-// applies the migrations in that order whatever numbers they skip. Each migration starts from a copy of the store at
-// its version, as the walk of the migrations from the first leaves it, and steps down and up once: its Down must leave
-// the schema of the migration before it, and its Up the schema of its version again, so every Down undoes its Up
-// whatever the version a store is taken down from. The migration's check (see migrationChecks) seeds its rows before
-// the Down and asserts what the Down removes and what the Up restores. A subtest is named for its migration's file, so
-// a broken Down or Up names the migration.
+// TestEachMigrationDownAndUp walks the migrations once. Each migration starts from a copy of the store at its version,
+// as the walk of the migrations from the first leaves it, and steps down and up once: its Down must leave the schema of
+// the version before, and its Up the schema of its version again, so every Down undoes its Up whatever the version a
+// store is taken down from. The migration's check (see migrationChecks) seeds its rows before the Down and asserts what
+// the Down removes and what the Up restores. A subtest is named for its migration's file, so a broken Down or Up names
+// the migration.
 func TestEachMigrationDownAndUp(t *testing.T) {
 	t.Parallel()
 	images, err := storeImages.versions()
@@ -157,19 +156,12 @@ func TestEachMigrationDownAndUp(t *testing.T) {
 			t.Fatalf("a migration check is keyed to version %d, which no migration has", version)
 		}
 	}
-	versions := make([]int64, 0, len(names))
-	for version := range names {
-		versions = append(versions, version)
-	}
-	slices.Sort(versions)
-	for i, version := range versions {
+	for version := int64(1); version <= int64(len(images)); version++ {
 		t.Run(names[version], func(t *testing.T) {
 			t.Parallel()
 			var previous []string
-			var prior int64
-			if i > 0 {
-				prior = versions[i-1]
-				before := openStoreAtVersion(t, filepath.Join(t.TempDir(), "before.db"), prior)
+			if version > 1 {
+				before := openStoreAtVersion(t, filepath.Join(t.TempDir(), "before.db"), version-1)
 				previous = schemaLines(t, before)
 				closeDB(t, before)
 			}
@@ -185,7 +177,7 @@ func TestEachMigrationDownAndUp(t *testing.T) {
 				t.Fatalf("Down of %s: %v", names[version], err)
 			}
 			if got := schemaLines(t, s.db.DB); !slices.Equal(got, previous) {
-				t.Fatalf("schema after the Down of %s differs from version %d:\n%s", names[version], prior,
+				t.Fatalf("schema after the Down of %s differs from version %d:\n%s", names[version], version-1,
 					lineDiff(got, previous))
 			}
 			if check.down != nil {
