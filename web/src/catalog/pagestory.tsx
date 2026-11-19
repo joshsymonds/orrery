@@ -12,7 +12,7 @@ import { liveEpoch } from "../fixtures/clock";
 import { createFixtureTransport, type FixtureTransport } from "../fixtures/transport";
 import type { HostStatusResponse } from "../gen/orrery/v1/orrery_pb";
 import { loadRows } from "../load";
-import { loadEpics } from "../loadepics";
+import { changedOnly, loadEpics } from "../loadepics";
 import type { Row } from "../rows";
 import { type Address, formatAddress } from "../router";
 
@@ -44,7 +44,7 @@ const noop = () => {};
 async function load(clients: ReturnType<typeof createClients>): Promise<Loaded> {
   const [rows, epics, host] = await Promise.all([
     loadRows(clients),
-    loadEpics(clients, new Map(), false),
+    loadEpics(clients, new Map(), changedOnly),
     clients.host.status({}).catch(() => null),
   ]);
   return {

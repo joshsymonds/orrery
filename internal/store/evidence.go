@@ -206,25 +206,25 @@ func (s *Store) EvidenceRun(ctx context.Context, id string) (EvidenceRun, error)
 	return evidenceRunOf(ctx, queries, stored)
 }
 
-// EvidenceRuns returns the runs of epic ordered by created, then id, each with its artifacts.
+// EvidenceRuns returns the runs of epic ordered by created, then id, each with its artifacts. It reads the runs in one
+// query and the artifacts of all of them in another, however many runs the epic has.
 func (s *Store) EvidenceRuns(ctx context.Context, epic string) ([]EvidenceRun, error) {
-	queries := sqlcgen.New(s.db)
-	stored, err := queries.ListEvidenceRuns(ctx, epic)
-	if err != nil {
-		return nil, fmt.Errorf("list evidence runs of epic %s: %w", epic, err)
-	}
-	return evidenceRunsOf(ctx, queries, stored)
+	return readEvidenceRuns(ctx, sqlcgen.New(s.db), epic)
 }
 
 // OpenEvidenceRuns returns every run that is capturing or judging, ordered by created, then id, each with its
-// artifacts.
+// artifacts. It reads the runs in one query and the artifacts of all of them in another.
 func (s *Store) OpenEvidenceRuns(ctx context.Context) ([]EvidenceRun, error) {
 	queries := sqlcgen.New(s.db)
 	stored, err := queries.ListOpenEvidenceRuns(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list open evidence runs: %w", err)
 	}
-	return evidenceRunsOf(ctx, queries, stored)
+	artifacts, err := queries.ListOpenEvidenceArtifacts(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list artifacts of open evidence runs: %w", err)
+	}
+	return evidenceRunsOf(stored, artifacts)
 }
 
 // requireRunState returns ErrNoEvidenceRun when no run has id, and ErrEvidenceState when the run is not in state want.
@@ -242,24 +242,34 @@ func requireRunState(ctx context.Context, queries *sqlcgen.Queries, id, want str
 	return nil
 }
 
-// evidenceRunsOf converts stored rows in order, each with its artifacts.
-func evidenceRunsOf(
-	ctx context.Context, queries *sqlcgen.Queries, stored []sqlcgen.EvidenceRun,
-) ([]EvidenceRun, error) {
+// evidenceRunsOf converts stored rows in order, each with the rows of artifacts whose run is its id, in the order
+// artifacts gives them. artifacts holds each run's rows in position order; a row of a run stored does not hold is left
+// out.
+func evidenceRunsOf(stored []sqlcgen.EvidenceRun, artifacts []sqlcgen.EvidenceArtifact) ([]EvidenceRun, error) {
+	byRun := make(map[string][]sqlcgen.EvidenceArtifact)
+	for _, artifact := range artifacts {
+		byRun[artifact.Run] = append(byRun[artifact.Run], artifact)
+	}
 	return convertInOrder(stored, func(row sqlcgen.EvidenceRun) (EvidenceRun, error) {
-		return evidenceRunOf(ctx, queries, row)
+		return evidenceRunWith(row, byRun[row.ID])
 	})
 }
 
 // evidenceRunOf returns the run a stored row holds, its spec decoded and its artifacts loaded in position order.
 func evidenceRunOf(ctx context.Context, queries *sqlcgen.Queries, stored sqlcgen.EvidenceRun) (EvidenceRun, error) {
-	spec, err := decodeItem(stored.Spec)
-	if err != nil {
-		return EvidenceRun{}, fmt.Errorf("spec of evidence run %s: %w", stored.ID, err)
-	}
 	artifacts, err := queries.ListEvidenceArtifacts(ctx, stored.ID)
 	if err != nil {
 		return EvidenceRun{}, fmt.Errorf("list artifacts of evidence run %s: %w", stored.ID, err)
+	}
+	return evidenceRunWith(stored, artifacts)
+}
+
+// evidenceRunWith returns the run a stored row holds, its spec decoded, with artifacts, the rows of its artifacts in
+// position order.
+func evidenceRunWith(stored sqlcgen.EvidenceRun, artifacts []sqlcgen.EvidenceArtifact) (EvidenceRun, error) {
+	spec, err := decodeItem(stored.Spec)
+	if err != nil {
+		return EvidenceRun{}, fmt.Errorf("spec of evidence run %s: %w", stored.ID, err)
 	}
 	run := EvidenceRun{
 		ID: stored.ID, Epic: stored.Epic, Item: stored.Item, Revision: stored.Revision, Phase: stored.Phase,

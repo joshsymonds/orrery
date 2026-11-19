@@ -836,6 +836,7 @@ func storedEpicMessage(row store.EpicRow) (*v1.StoredEpic, error) {
 		Changed:      row.Changed.Unix(),
 		PhaseAt:      row.PhaseAt.Unix(),
 		Seen:         unixOrZero(row.Seen),
+		Revision:     row.Revision,
 		Decisions:    epicMap(row.Decisions, decisionMessage),
 		Reviewers:    epicMap(row.Reviewers, epicReviewerMessage),
 		Paused:       row.Paused,
@@ -1361,8 +1362,8 @@ func unixOrZero(t time.Time) int64 {
 	return t.Unix()
 }
 
-// summaryMessage returns the EpicSummary message of row: its head fields, its phase time and its seen mark, with no
-// sections.
+// summaryMessage returns the EpicSummary message of row: its head fields, its phase time, its seen mark and its
+// revision, with no sections.
 func summaryMessage(row store.EpicRow) *v1.EpicSummary {
 	return &v1.EpicSummary{
 		Id:         row.ID,
@@ -1373,6 +1374,7 @@ func summaryMessage(row store.EpicRow) *v1.EpicSummary {
 		Seen:       unixOrZero(row.Seen),
 		Created:    row.Created.Unix(),
 		Changed:    row.Changed.Unix(),
+		Revision:   row.Revision,
 	}
 }
 

@@ -1033,6 +1033,9 @@ message StoredEpic {
 
   // The epic a close named as its replacement, empty when the epic is not closed or its close named none.
   string superseded_by = 29;
+
+  // How many writes have changed the epic's row or a row of its parts, its steps aside, as EpicSummary.revision counts.
+  int64 revision = 30;
 }
 
 // EpicReleaseRun is one release run of an epic: the candidate it starts from, a release step, a named step, or the judge.
@@ -1144,6 +1147,10 @@ message EpicSummary {
 
   // When the owner last saw the epic, in unix seconds, from its latest SeeEpic; 0 when the owner has not seen it.
   int64 seen = 8;
+
+  // How many writes have changed the epic's row or a row of its parts, its steps aside. It only grows, so an epic whose
+  // revision moved has changed in some part that GetEpic answers.
+  int64 revision = 9;
 }
 
 // CreateEpicRequest asks for a new epic.

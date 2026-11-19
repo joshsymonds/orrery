@@ -52,6 +52,14 @@ func (mcpSteps) List(context.Context, string, string) ([]store.StepRow, error) {
 	return nil, errors.New("mcp test: List is not expected")
 }
 
+func (mcpSteps) Listings(context.Context, string, string) ([]store.StepListing, error) {
+	return nil, errors.New("mcp test: Listings is not expected")
+}
+
+func (mcpSteps) RunningListings(context.Context, string, string) ([]store.StepListing, map[string]int, error) {
+	return nil, nil, errors.New("mcp test: RunningListings is not expected")
+}
+
 func (mcpSteps) Hold(context.Context, string) error {
 	return errors.New("mcp test: Hold is not expected")
 }

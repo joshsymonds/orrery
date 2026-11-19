@@ -5,6 +5,7 @@ import { type Clients, newPromptId } from "./actions";
 import { epicCallsOf } from "./card";
 import { Composer } from "./composer";
 import { type Conversation, shownConversation } from "./conversation";
+import { type EpicsView, noEpics } from "./epics";
 import { follow } from "./follow";
 import { Reader, ReaderHead } from "./reader";
 import type { Row } from "./rows";
@@ -34,8 +35,8 @@ function plainTitle(title: { dir: string; line: string }): string {
 // its turn; a refusal shows its message under the reader. The reader's "since you looked" rule marks what arrives after
 // the dock opened on the target. A message sent to the target shows in its reader as sending until its stored prompt
 // arrives, and above the box as queued while the target is working or queues it, and as not delivered once it discards
-// it. The reader draws an epic a call created as its card, through the openers openEpic and openStep and the clock tick
-// that the app hands the dock; the reader holds epic calls only when it is given both openers.
+// it. The reader draws an epic a call created as its card, through the openers openEpic and openStep and the epics the
+// app's poll has loaded, which the app hands the dock; the reader holds epic calls only when it is given both openers.
 export function TalkDock({
   clients,
   rows,
@@ -43,7 +44,7 @@ export function TalkDock({
   onClose,
   openEpic,
   openStep,
-  tick = 0,
+  epics = noEpics,
 }: {
   clients: Clients;
   rows: Row[];
@@ -51,7 +52,7 @@ export function TalkDock({
   onClose: () => void;
   openEpic?: (id: string) => void;
   openStep?: (epic: string, step: string) => void;
-  tick?: number;
+  epics?: EpicsView;
 }): JSX.Element {
   const title = listedTitle(rows, target.kind, target.id, target.label);
   const [conversation, setConversation] = useState<Conversation | null>(null);
@@ -128,7 +129,7 @@ export function TalkDock({
         onOlder={() => olderPage.current()}
         sending={unsentEntries(sending, conversation, target.kind)}
         epicCalls={
-          openEpic === undefined || openStep === undefined ? undefined : epicCallsOf(clients, openEpic, openStep, tick)
+          openEpic === undefined || openStep === undefined ? undefined : epicCallsOf(clients, openEpic, openStep, epics)
         }
       />
       {interrupted && (

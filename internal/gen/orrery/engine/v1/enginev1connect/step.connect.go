@@ -58,7 +58,9 @@ type StepsClient interface {
 	StopStep(context.Context, *connect.Request[v1.StopStepRequest]) (*connect.Response[v1.StopStepResponse], error)
 	// StepStatus returns a step's row.
 	StepStatus(context.Context, *connect.Request[v1.StepStatusRequest]) (*connect.Response[v1.StepStatusResponse], error)
-	// ListSteps lists the labelled steps, oldest first. An unlabelled step is never listed.
+	// ListSteps lists the labelled steps, oldest first. An unlabelled step is never listed. A listed step carries no
+	// result: its summary, red_evidence and green_evidence carry what a list reads of it. A list of the running steps also
+	// counts, by epic, the matching steps that have ended, without reading them.
 	ListSteps(context.Context, *connect.Request[v1.ListStepsRequest]) (*connect.Response[v1.ListStepsResponse], error)
 	// HoldStep interrupts the step's running turn and holds the step until a nudge or a stop. The interrupted turn is no
 	// round. A step with no turn running, one already held, or one running its gate refuses with failed_precondition.
@@ -184,7 +186,9 @@ type StepsHandler interface {
 	StopStep(context.Context, *connect.Request[v1.StopStepRequest]) (*connect.Response[v1.StopStepResponse], error)
 	// StepStatus returns a step's row.
 	StepStatus(context.Context, *connect.Request[v1.StepStatusRequest]) (*connect.Response[v1.StepStatusResponse], error)
-	// ListSteps lists the labelled steps, oldest first. An unlabelled step is never listed.
+	// ListSteps lists the labelled steps, oldest first. An unlabelled step is never listed. A listed step carries no
+	// result: its summary, red_evidence and green_evidence carry what a list reads of it. A list of the running steps also
+	// counts, by epic, the matching steps that have ended, without reading them.
 	ListSteps(context.Context, *connect.Request[v1.ListStepsRequest]) (*connect.Response[v1.ListStepsResponse], error)
 	// HoldStep interrupts the step's running turn and holds the step until a nudge or a stop. The interrupted turn is no
 	// round. A step with no turn running, one already held, or one running its gate refuses with failed_precondition.

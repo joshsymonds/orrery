@@ -20,9 +20,12 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// listCall is one StepCommands.List invocation with the labels it received.
+// listCall is one StepCommands.List, Listings or RunningListings invocation with the labels it received. running is
+// set for a RunningListings call, and listings for a Listings or RunningListings call.
 type listCall struct {
 	epic, task string
+	listings   bool
+	running    bool
 }
 
 // nudgeCall is one StepCommands.Nudge invocation with the arguments it received.
@@ -40,12 +43,15 @@ type fakeStepCommands struct {
 	startID string
 	row     store.StepRow
 	listed  []store.StepRow
-	lists   []listCall
-	holds   []string
-	nudges  []nudgeCall
-	resumes []string
-	held    map[string]bool
-	err     error
+	// listings answers Listings and RunningListings, and endedBy is the ended count RunningListings answers with.
+	listings []store.StepListing
+	endedBy  map[string]int
+	lists    []listCall
+	holds    []string
+	nudges   []nudgeCall
+	resumes  []string
+	held     map[string]bool
+	err      error
 }
 
 func (f *fakeStepCommands) Start(_ context.Context, start StepStart) (string, error) {
@@ -74,6 +80,22 @@ func (f *fakeStepCommands) List(_ context.Context, epic, task string) ([]store.S
 	defer f.mu.Unlock()
 	f.lists = append(f.lists, listCall{epic: epic, task: task})
 	return f.listed, f.err
+}
+
+func (f *fakeStepCommands) Listings(_ context.Context, epic, task string) ([]store.StepListing, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.lists = append(f.lists, listCall{epic: epic, task: task, listings: true})
+	return f.listings, f.err
+}
+
+func (f *fakeStepCommands) RunningListings(
+	_ context.Context, epic, task string,
+) ([]store.StepListing, map[string]int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.lists = append(f.lists, listCall{epic: epic, task: task, listings: true, running: true})
+	return f.listings, f.endedBy, f.err
 }
 
 func (f *fakeStepCommands) Hold(_ context.Context, id string) error {
@@ -179,7 +201,7 @@ func fullStepRow() store.StepRow {
 			{Round: 1, Name: "gate", OK: false, Detail: "exit 1"},
 			{Round: 2, Name: "gate", OK: true, Detail: ""},
 		},
-		Result: "all good",
+		Result: `{"summary":"all good","red_evidence":"FAIL TestCheck","green_evidence":"NOT RUN: no gate"}`,
 		Status: "pass",
 		Doing:  "reading the diff",
 		End:    "done",
@@ -200,7 +222,7 @@ func fullStep() *v1.Step {
 		Worktree:  "/wt/s1",
 		End:       "done",
 		Status:    "pass",
-		Result:    "all good",
+		Result:    `{"summary":"all good","red_evidence":"FAIL TestCheck","green_evidence":"NOT RUN: no gate"}`,
 		Doing:     "reading the diff",
 		Checks: []*v1.StepCheck{
 			{Round: 1, Name: "gate", Ok: false, Detail: "exit 1"},
@@ -210,7 +232,15 @@ func fullStep() *v1.Step {
 		Started:          1700000000,
 		Ended:            1700000600,
 		GateLimitSeconds: 60,
+		Summary:          "all good",
+		RedEvidence:      true,
 	}
+}
+
+// listedStep returns step as a ListSteps answer carries it: with no result.
+func listedStep(step *v1.Step) *v1.Step {
+	step.Result = ""
+	return step
 }
 
 // callAllSteps calls each of the seven step RPCs once with fixed arguments and returns each error in order: StartStep,
@@ -420,11 +450,11 @@ func TestStepStatusReportsHeldStep(t *testing.T) {
 	}
 }
 
-func TestListStepsForwardsLabelsAndReturnsRowsInOrder(t *testing.T) {
+func TestListStepsForwardsLabelsAndReturnsListingsInOrder(t *testing.T) {
 	t.Parallel()
 	fake := &fakeStepCommands{
-		listed: []store.StepRow{fullStepRow(), runningStepRow("s2")},
-		held:   map[string]bool{"s2": true},
+		listings: []store.StepListing{fullStepRow().Listing(), runningStepRow("s2").Listing()},
+		held:     map[string]bool{"s2": true},
 	}
 	path, stop := startServerWithSteps(t, nil, fake)
 	client := newStepClient(t, path)
@@ -440,12 +470,13 @@ func TestListStepsForwardsLabelsAndReturnsRowsInOrder(t *testing.T) {
 		t.Fatalf("Serve: %v", err)
 	}
 
-	if got, want := fake.recordedLists(), []listCall{{epic: "orrery", task: "h3e1"}}; !reflect.DeepEqual(got, want) {
+	want := []listCall{{epic: "orrery", task: "h3e1", listings: true}}
+	if got := fake.recordedLists(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("ListSteps reached commands as %+v, want %+v", got, want)
 	}
-	heldSecond := runningStep("s2")
+	heldSecond := listedStep(runningStep("s2"))
 	heldSecond.Held = true
-	wantSteps := []*v1.Step{fullStep(), heldSecond}
+	wantSteps := []*v1.Step{listedStep(fullStep()), heldSecond}
 	got := listed.Msg.GetSteps()
 	if len(got) != len(wantSteps) {
 		t.Fatalf("ListSteps returned %d steps, want %d", len(got), len(wantSteps))
@@ -454,6 +485,55 @@ func TestListStepsForwardsLabelsAndReturnsRowsInOrder(t *testing.T) {
 		if !proto.Equal(got[i], wantSteps[i]) {
 			t.Fatalf("ListSteps step %d = %v, want %v", i, got[i], wantSteps[i])
 		}
+	}
+	if ended := listed.Msg.GetEnded(); len(ended) != 0 {
+		t.Fatalf("ListSteps ended = %v, want none for a list that is not of the running steps", ended)
+	}
+}
+
+// TestListStepsRunningReadsRunningListingsAndEndedCounts proves a ListSteps of the running steps reaches only
+// RunningListings, never the full rows of List, and answers its running listings and its counts of ended steps.
+func TestListStepsRunningReadsRunningListingsAndEndedCounts(t *testing.T) {
+	t.Parallel()
+	fake := &fakeStepCommands{
+		listings: []store.StepListing{runningStepRow("s2").Listing()},
+		endedBy:  map[string]int{"orrery": 3, "other": 1},
+	}
+	path, stop := startServerWithSteps(t, nil, fake)
+	client := newStepClient(t, path)
+
+	listed, err := client.ListSteps(context.Background(), connect.NewRequest(&v1.ListStepsRequest{
+		Epic: "orrery", Running: true,
+	}))
+	if err != nil {
+		t.Fatalf("ListSteps: %v", err)
+	}
+	if err := stop(); err != nil {
+		t.Fatalf("Serve: %v", err)
+	}
+
+	want := []listCall{{epic: "orrery", listings: true, running: true}}
+	if got := fake.recordedLists(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("ListSteps reached commands as %+v, want %+v", got, want)
+	}
+	steps := listed.Msg.GetSteps()
+	if len(steps) != 1 || !proto.Equal(steps[0], listedStep(runningStep("s2"))) {
+		t.Fatalf("ListSteps steps = %v, want the one running listing", steps)
+	}
+	if got, want := listed.Msg.GetEnded(), map[string]int32{"orrery": 3, "other": 1}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("ListSteps ended = %v, want %v", got, want)
+	}
+}
+
+func TestListStepsRefusesEndedCountOutsideInt32AsInternal(t *testing.T) {
+	t.Parallel()
+	fake := &fakeStepCommands{endedBy: map[string]int{"orrery": 1 << 40}}
+	path, _ := startServerWithSteps(t, nil, fake)
+	client := newStepClient(t, path)
+
+	_, err := client.ListSteps(context.Background(), connect.NewRequest(&v1.ListStepsRequest{Running: true}))
+	if got := connect.CodeOf(err); got != connect.CodeInternal {
+		t.Fatalf("ListSteps code = %v, want %v (error %v)", got, connect.CodeInternal, err)
 	}
 }
 

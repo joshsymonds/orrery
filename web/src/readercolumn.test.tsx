@@ -9,7 +9,7 @@ import type { Clients } from "./actions";
 import type { EpicCalls } from "./card";
 import { createClients, createTransport } from "./client";
 import type { Conversation } from "./conversation";
-import type { StepItem } from "./epics";
+import { noEpics, type StepItem } from "./epics";
 import { EpicStepSchema } from "./gen/orrery/v1/epics_pb";
 import { ConversationItemSchema, ConversationStateSchema, type ConversationItem } from "./gen/orrery/v1/orrery_pb";
 import { ReaderColumn, type ReaderColumnProps } from "./readercolumn";
@@ -32,7 +32,7 @@ const epicCalls: EpicCalls = {
   answer: () => new Promise(() => {}),
   openEpic: () => {},
   openStep: () => {},
-  tick: 0,
+  epics: noEpics,
 };
 
 const quietMark: InboxMark = { needs: 0, enter: () => {}, leave: () => {}, pin: () => {} };

@@ -2936,7 +2936,11 @@ type Epic struct {
 	// When the owner last saw the epic, in unix seconds, from its latest Seen; 0 when the owner has not seen it.
 	Seen int64 `protobuf:"varint,14,opt,name=seen,proto3" json:"seen,omitempty"`
 	// True while the epic is archived: the owner archived it and has not unarchived it since.
-	Archived      bool `protobuf:"varint,15,opt,name=archived,proto3" json:"archived,omitempty"`
+	Archived bool `protobuf:"varint,15,opt,name=archived,proto3" json:"archived,omitempty"`
+	// How many writes have changed the database epic's row or a row of its parts, its steps aside; 0 for an epic only the
+	// records hold. It only grows, so an epic whose revision moved has changed in some part Get answers that this
+	// message does not carry, such as its questions, its park, its nodes, its tasks or its ledger.
+	Revision      int64 `protobuf:"varint,16,opt,name=revision,proto3" json:"revision,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3074,6 +3078,13 @@ func (x *Epic) GetArchived() bool {
 		return x.Archived
 	}
 	return false
+}
+
+func (x *Epic) GetRevision() int64 {
+	if x != nil {
+		return x.Revision
+	}
+	return 0
 }
 
 // EpicTask is one task from an effort's state.json.
@@ -5814,7 +5825,7 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x0e\n" +
 	"\x02by\x18\x03 \x01(\tR\x02by\"\x14\n" +
-	"\x12EpicsCloseResponse\"\xab\x03\n" +
+	"\x12EpicsCloseResponse\"\xc7\x03\n" +
 	"\x04Epic\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1e\n" +
 	"\n" +
@@ -5834,7 +5845,8 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\awaiting\x18\f \x01(\bR\awaiting\x12\x19\n" +
 	"\bphase_at\x18\r \x01(\x03R\aphaseAt\x12\x12\n" +
 	"\x04seen\x18\x0e \x01(\x03R\x04seen\x12\x1a\n" +
-	"\barchived\x18\x0f \x01(\bR\barchived\"\x8c\x01\n" +
+	"\barchived\x18\x0f \x01(\bR\barchived\x12\x1a\n" +
+	"\brevision\x18\x10 \x01(\x03R\brevision\"\x8c\x01\n" +
 	"\bEpicTask\x12\x16\n" +
 	"\x06effort\x18\x01 \x01(\x05R\x06effort\x12\x12\n" +
 	"\x04slug\x18\x02 \x01(\tR\x04slug\x12\x18\n" +

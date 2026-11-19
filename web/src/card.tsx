@@ -1,16 +1,19 @@
+import { toJsonString } from "@bufbuild/protobuf";
 import type { JSX } from "preact";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 
 import type { Clients } from "./actions";
 import { nowSentence } from "./blocker";
-import type { EpicRequirement, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
+import type { EpicsView } from "./epics";
+import { type EpicRequirement, EpicSchema, type EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 import { provenOf, type Wedge, wedgesOf } from "./phases";
 import { controlsOf, trackPart, trackParts } from "./status";
 
 // EpicCalls are the epic calls the reader's epic card makes. get reads an epic, pause and resume command it, and answer
 // sends the owner's choice to its open question, resolving to "" once it lands. openEpic opens the epic's page, and
-// openStep opens the page of a step the epic holds, on the step's worker session. tick is the poll's clock: the card
-// reads its epic again each time tick changes.
+// openStep opens the page of a step the epic holds, on the step's worker session. epics is what the page's poll has
+// loaded: a card shows the poll's detail of its epic when the poll holds one, and otherwise reads its epic itself, on
+// mount and each time the epic's listed message changes.
 export interface EpicCalls {
   get: (id: string) => Promise<EpicsGetResponse>;
   pause: (id: string) => Promise<unknown>;
@@ -18,19 +21,19 @@ export interface EpicCalls {
   answer: (id: string, question: string, choice: string, text: string) => Promise<string>;
   openEpic: (id: string) => void;
   openStep: (epic: string, step: string) => void;
-  tick: number;
+  epics: EpicsView;
 }
 
 // The fixed lines the card and its calls leave when a command or an answer fails. They never carry server text.
 const commandFailedText = "epic command failed";
 const answerFailedText = "no answer was sent";
 
-// epicCallsOf makes the epic calls over the clients, with the app's openers and clock.
+// epicCallsOf makes the epic calls over the clients, with the app's openers and the epics its poll has loaded.
 export function epicCallsOf(
   clients: Clients,
   openEpic: (id: string) => void,
   openStep: (epic: string, step: string) => void,
-  tick: number,
+  epics: EpicsView,
 ): EpicCalls {
   return {
     get: (id) => clients.epics.get({ id }),
@@ -43,49 +46,98 @@ export function epicCallsOf(
       ),
     openEpic,
     openStep,
-    tick,
+    epics,
   };
 }
 
-// The reading of the card's epic: the detail it read, or failed when it could not be read or holds no epic. Null until
-// the first read settles.
-type Reading = { detail: EpicsGetResponse } | "failed" | null;
+// The reading of an epic: the detail it read, or failed when it could not be read or holds no epic. Null until the
+// first read settles.
+export type Reading = { detail: EpicsGetResponse } | "failed" | null;
 
-// EpicWidget draws the live card of the epic a tool call created: its head with the slug, the status pill and the open
-// control, its five-part track, the now sentence, each requirement as a row, the open question's title when there is
-// one, and the command controlsOf shows. It reads the epic on mount and each time calls.tick changes, keeping the last
-// reading while the next one is in flight. An epic that cannot be read shows its slug and not available.
-export function EpicWidget({ epic, calls }: { epic: string; calls: EpicCalls }): JSX.Element {
-  const [reading, setReading] = useState<Reading>(null);
-  const [commandError, setCommandError] = useState("");
-  // The effect below runs only when the epic or the tick changes, and reads the calls as they are then. A new calls
-  // object on each render of the reader does not read the epic again.
+// An epic's own reading, with the poll's detail of the epic when it was asked for, which is undefined when the poll held
+// none.
+interface OwnReading {
+  reading: Reading;
+  against: EpicsGetResponse | undefined;
+}
+
+// useEpicReading is the reading of epic that a card draws, and reread, which reads the epic once more. While the poll
+// holds a detail of the epic, the reading is that detail and nothing is read, except that a reread's answer is drawn
+// until the poll's detail changes. While the poll holds none, the epic is read on mount and each time its listed message
+// changes, the last reading kept while the next one is in flight. Each read uses the calls as they are when it starts,
+// so a new calls object on each render of the reader reads nothing.
+export function useEpicReading(epic: string, calls: EpicCalls): { reading: Reading; reread: () => void } {
+  const polled = calls.epics.details.get(epic);
+  const listed = calls.epics.listed.get(epic);
+  const listedKey = listed === undefined ? "" : toJsonString(EpicSchema, listed);
+  const polledHeld = polled !== undefined;
+  const [own, setOwn] = useState<OwnReading | null>(null);
+  const [rereads, setRereads] = useState(0);
   const latest = useRef(calls);
   latest.current = calls;
-  const { tick } = calls;
+  const polledNow = useRef(polled);
+  polledNow.current = polled;
+  // Whether the next run of the read effect was asked for by reread, which reads even while the poll holds a detail.
+  const rereadAsked = useRef(false);
   useEffect(() => {
+    const asked = rereadAsked.current;
+    rereadAsked.current = false;
+    if (polledHeld && !asked) {
+      return;
+    }
     let current = true;
+    const against = polledNow.current;
     latest.current.get(epic).then(
       (detail) => {
         if (current) {
-          setReading(detail.epic === undefined ? "failed" : { detail });
+          setOwn({ reading: detail.epic === undefined ? "failed" : { detail }, against });
         }
       },
       () => {
         if (current) {
-          setReading("failed");
+          setOwn({ reading: "failed", against });
         }
       },
     );
     return () => {
       current = false;
     };
-  }, [epic, tick]);
+  }, [epic, polledHeld, polledHeld ? "" : listedKey, rereads]);
+  const reread = useCallback(() => {
+    rereadAsked.current = true;
+    setRereads((count) => count + 1);
+  }, []);
+  return { reading: shownReading(own, polled), reread };
+}
 
-  // command sends a pause or a resume: a landed one clears the line, and a failed one shows its fixed line.
+// shownReading is the reading a card draws: the epic's own reading while the poll holds no detail of it, else the own
+// reading a reread asked for against the poll's current detail, when it read the epic, else the poll's detail.
+function shownReading(own: OwnReading | null, polled: EpicsGetResponse | undefined): Reading {
+  if (polled === undefined) {
+    return own?.reading ?? null;
+  }
+  if (own !== null && own.against === polled && own.reading !== null && own.reading !== "failed") {
+    return own.reading;
+  }
+  return { detail: polled };
+}
+
+// EpicWidget draws the live card of the epic a tool call created: its head with the slug, the status pill and the open
+// control, its five-part track, the now sentence, each requirement as a row, the open question's title when there is
+// one, and the command controlsOf shows. It draws the epic as useEpicReading reads it, and a pause or resume that lands
+// reads the epic once more. An epic that cannot be read shows its slug and not available.
+export function EpicWidget({ epic, calls }: { epic: string; calls: EpicCalls }): JSX.Element {
+  const { reading, reread } = useEpicReading(epic, calls);
+  const [commandError, setCommandError] = useState("");
+
+  // command sends a pause or a resume: a landed one clears the line and reads the epic again, and a failed one shows its
+  // fixed line.
   const command = (sent: Promise<unknown>): void => {
     void sent.then(
-      () => setCommandError(""),
+      () => {
+        setCommandError("");
+        reread();
+      },
       () => setCommandError(commandFailedText),
     );
   };

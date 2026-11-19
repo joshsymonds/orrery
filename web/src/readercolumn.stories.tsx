@@ -4,7 +4,7 @@
 import type { Stories } from "./catalog/story";
 import { epicCallsOf } from "./card";
 import { applyDelta, type Conversation } from "./conversation";
-import { epicsView, type StepItem } from "./epics";
+import { epicsView, noEpics, type StepItem } from "./epics";
 import { liveEpoch } from "./fixtures/clock";
 import { epics, gets } from "./fixtures/epics";
 import { paneStreams, panes } from "./fixtures/panes";
@@ -20,7 +20,7 @@ const now = Date.parse(liveEpoch) / 1000;
 const noop = () => {};
 const quiet: InboxMark = { needs: 0, enter: noop, leave: noop, pin: noop };
 const { clients } = createFixtureTransport();
-const epicCalls = epicCallsOf(clients, noop, noop, now);
+const epicCalls = epicCallsOf(clients, noop, noop, noEpics);
 
 // must returns value, or throws naming what the fixtures do not hold.
 function must<T>(value: T | undefined, what: string): T {

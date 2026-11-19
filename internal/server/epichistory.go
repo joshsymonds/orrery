@@ -131,11 +131,11 @@ func (e epicsServer) History(
 	if !inStore && !found {
 		return nil, listError(connect.CodeNotFound, epicNotFound)
 	}
-	steps, err := e.listSteps(ctx, id)
+	listed, err := e.listSteps(ctx, &enginev1.ListStepsRequest{Epic: id})
 	if err != nil {
 		return nil, err
 	}
-	labeled := epicStepMessages(stepsByEpic(steps)[id])
+	labeled := epicStepMessages(stepsByEpic(listed.GetSteps())[id])
 	var entries []historyEntry
 	if inStore {
 		runs := e.listEvidence(ctx, id)

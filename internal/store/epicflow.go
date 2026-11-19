@@ -127,13 +127,17 @@ func readEpicFlow(ctx context.Context, queries *sqlcgen.Queries, id string) (Epi
 }
 
 // readEvidenceRuns returns the evidence runs of epic as queries read them, ordered by created, then id, each with its
-// artifacts.
+// artifacts. It issues two queries, one for the runs and one for the artifacts of all of them.
 func readEvidenceRuns(ctx context.Context, queries *sqlcgen.Queries, epic string) ([]EvidenceRun, error) {
 	stored, err := queries.ListEvidenceRuns(ctx, epic)
 	if err != nil {
 		return nil, fmt.Errorf("list evidence runs of epic %s: %w", epic, err)
 	}
-	return evidenceRunsOf(ctx, queries, stored)
+	artifacts, err := queries.ListEpicEvidenceArtifacts(ctx, epic)
+	if err != nil {
+		return nil, fmt.Errorf("list evidence artifacts of epic %s: %w", epic, err)
+	}
+	return evidenceRunsOf(stored, artifacts)
 }
 
 // currentRuns returns the runs of epic whose kept spec is current with the item now stored under their Item, in the

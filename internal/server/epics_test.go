@@ -7,14 +7,17 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/proto"
 
 	enginev1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	orreryv1connect "github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
+	"github.com/joshsymonds/orrery/internal/store"
 )
 
 // epicsNow returns the fixed clock the epics tests read the records against.
@@ -27,12 +30,66 @@ func epicsAgo(d time.Duration) int64 {
 	return epicsNow().Add(-d).Unix()
 }
 
-// epicsFake is a StepClient whose ListSteps answers steps, or listErr when it is set, and counts its calls. The
-// epics handler calls no other StepClient method, so those answer an error.
+// epicsFake is a StepClient whose ListSteps answers from steps as orreryd's Steps service answers (see
+// listStepsAnswer), or listErr when it is set, and records each request. The epics handler calls no other StepClient
+// method, so those answer an error.
 type epicsFake struct {
-	steps     []*enginev1.Step
-	listErr   error
+	steps   []*enginev1.Step
+	listErr error
+
+	// mu guards listCalls and requests, which the handler's goroutine writes.
+	mu        sync.Mutex
 	listCalls int
+	requests  []*enginev1.ListStepsRequest
+}
+
+// listRequests returns a copy of each ListSteps request the fake was asked, in order.
+func (f *epicsFake) listRequests() []*enginev1.ListStepsRequest {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]*enginev1.ListStepsRequest(nil), f.requests...)
+}
+
+// calls returns how many ListSteps calls reached the fake.
+func (f *epicsFake) calls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.listCalls
+}
+
+// listStepsAnswer answers req over steps as orreryd's Steps service does: the labeled steps of req's epic and task,
+// each as its listing, with its result's summary and evidence and no result. A request for the running steps answers
+// only those that have not ended, and counts the ended ones by epic.
+func listStepsAnswer(steps []*enginev1.Step, req *enginev1.ListStepsRequest) *enginev1.ListStepsResponse {
+	resp := &enginev1.ListStepsResponse{}
+	if req.GetRunning() {
+		resp.Ended = make(map[string]int32)
+	}
+	for _, step := range steps {
+		if step.GetEpic() == "" || (req.GetEpic() != "" && step.GetEpic() != req.GetEpic()) ||
+			(req.GetTask() != "" && step.GetTask() != req.GetTask()) {
+			continue
+		}
+		if req.GetRunning() && step.GetEnd() != "" {
+			resp.Ended[step.GetEpic()]++
+			continue
+		}
+		resp.Steps = append(resp.Steps, listedStep(step))
+	}
+	return resp
+}
+
+// listedStep returns step as a ListSteps answer carries it: its summary and evidence read from its result as orreryd
+// reads them, and no result. A step with no result keeps the summary and evidence it was given.
+func listedStep(step *enginev1.Step) *enginev1.Step {
+	listed := proto.CloneOf(step)
+	if result := step.GetResult(); result != "" {
+		listing := store.StepRow{Result: result}.Listing()
+		listed.Summary, listed.RedEvidence, listed.GreenEvidence =
+			listing.Summary, listing.RedEvidence, listing.GreenEvidence
+	}
+	listed.Result = ""
+	return listed
 }
 
 func (f *epicsFake) StepStatus(
@@ -43,14 +100,17 @@ func (f *epicsFake) StepStatus(
 }
 
 func (f *epicsFake) ListSteps(
-	context.Context,
-	*connect.Request[enginev1.ListStepsRequest],
+	_ context.Context,
+	req *connect.Request[enginev1.ListStepsRequest],
 ) (*connect.Response[enginev1.ListStepsResponse], error) {
+	f.mu.Lock()
 	f.listCalls++
+	f.requests = append(f.requests, req.Msg)
+	f.mu.Unlock()
 	if f.listErr != nil {
 		return nil, f.listErr
 	}
-	return connect.NewResponse(&enginev1.ListStepsResponse{Steps: f.steps}), nil
+	return connect.NewResponse(listStepsAnswer(f.steps, req.Msg)), nil
 }
 
 func (f *epicsFake) HoldStep(
@@ -188,8 +248,8 @@ func TestEpicsListLiveRuleAndStepCounts(t *testing.T) {
 	if running[0].GetHeld() || !running[1].GetHeld() {
 		t.Errorf("held = %v, %v; want false then true", running[0].GetHeld(), running[1].GetHeld())
 	}
-	if steps.listCalls != 1 {
-		t.Errorf("ListSteps calls = %d, want 1", steps.listCalls)
+	if calls := steps.calls(); calls != 1 {
+		t.Errorf("ListSteps calls = %d, want 1", calls)
 	}
 }
 
@@ -272,8 +332,8 @@ func TestEpicsGetReturnsTasksAndSteps(t *testing.T) {
 		checks[1].GetRound() != 2 || checks[1].GetName() != "test" || checks[1].GetOk() {
 		t.Errorf("checks = %v, want round 1 build ok, round 2 test failed", checks)
 	}
-	if steps.listCalls != 1 {
-		t.Errorf("ListSteps calls = %d, want 1", steps.listCalls)
+	if calls := steps.calls(); calls != 1 {
+		t.Errorf("ListSteps calls = %d, want 1", calls)
 	}
 }
 

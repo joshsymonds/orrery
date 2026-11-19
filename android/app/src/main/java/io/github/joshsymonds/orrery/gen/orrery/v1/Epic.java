@@ -912,6 +912,50 @@ public  final class Epic extends
     archived_ = false;
   }
 
+  public static final int REVISION_FIELD_NUMBER = 16;
+  private long revision_;
+  /**
+   * <pre>
+   * How many writes have changed the database epic's row or a row of its parts, its steps aside; 0 for an epic only the
+   * records hold. It only grows, so an epic whose revision moved has changed in some part Get answers that this
+   * message does not carry, such as its questions, its park, its nodes, its tasks or its ledger.
+   * </pre>
+   *
+   * <code>int64 revision = 16 [json_name = "revision"];</code>
+   * @return The revision.
+   */
+  @java.lang.Override
+  public long getRevision() {
+    return revision_;
+  }
+  /**
+   * <pre>
+   * How many writes have changed the database epic's row or a row of its parts, its steps aside; 0 for an epic only the
+   * records hold. It only grows, so an epic whose revision moved has changed in some part Get answers that this
+   * message does not carry, such as its questions, its park, its nodes, its tasks or its ledger.
+   * </pre>
+   *
+   * <code>int64 revision = 16 [json_name = "revision"];</code>
+   * @param value The revision to set.
+   */
+  private void setRevision(long value) {
+    
+    revision_ = value;
+  }
+  /**
+   * <pre>
+   * How many writes have changed the database epic's row or a row of its parts, its steps aside; 0 for an epic only the
+   * records hold. It only grows, so an epic whose revision moved has changed in some part Get answers that this
+   * message does not carry, such as its questions, its park, its nodes, its tasks or its ledger.
+   * </pre>
+   *
+   * <code>int64 revision = 16 [json_name = "revision"];</code>
+   */
+  private void clearRevision() {
+
+    revision_ = 0L;
+  }
+
   public static io.github.joshsymonds.orrery.gen.orrery.v1.Epic parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -1937,6 +1981,52 @@ public  final class Epic extends
       return this;
     }
 
+    /**
+     * <pre>
+     * How many writes have changed the database epic's row or a row of its parts, its steps aside; 0 for an epic only the
+     * records hold. It only grows, so an epic whose revision moved has changed in some part Get answers that this
+     * message does not carry, such as its questions, its park, its nodes, its tasks or its ledger.
+     * </pre>
+     *
+     * <code>int64 revision = 16 [json_name = "revision"];</code>
+     * @return The revision.
+     */
+    @java.lang.Override
+    public long getRevision() {
+      return instance.getRevision();
+    }
+    /**
+     * <pre>
+     * How many writes have changed the database epic's row or a row of its parts, its steps aside; 0 for an epic only the
+     * records hold. It only grows, so an epic whose revision moved has changed in some part Get answers that this
+     * message does not carry, such as its questions, its park, its nodes, its tasks or its ledger.
+     * </pre>
+     *
+     * <code>int64 revision = 16 [json_name = "revision"];</code>
+     * @param value The revision to set.
+     * @return This builder for chaining.
+     */
+    public Builder setRevision(long value) {
+      copyOnWrite();
+      instance.setRevision(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * How many writes have changed the database epic's row or a row of its parts, its steps aside; 0 for an epic only the
+     * records hold. It only grows, so an epic whose revision moved has changed in some part Get answers that this
+     * message does not carry, such as its questions, its park, its nodes, its tasks or its ledger.
+     * </pre>
+     *
+     * <code>int64 revision = 16 [json_name = "revision"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearRevision() {
+      copyOnWrite();
+      instance.clearRevision();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.Epic)
   }
   @java.lang.Override
@@ -1969,11 +2059,12 @@ public  final class Epic extends
             "phaseAt_",
             "seen_",
             "archived_",
+            "revision_",
           };
           java.lang.String info =
-              "\u0000\u000f\u0000\u0000\u0001\u000f\u000f\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
+              "\u0000\u0010\u0000\u0000\u0001\u0010\u0010\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
               "\u0003\u0208\u0004\u0208\u0005\u0002\u0006\u0007\u0007\u001b\b\u0004\t\u0208\n\u0208" +
-              "\u000b\u0208\f\u0007\r\u0002\u000e\u0002\u000f\u0007";
+              "\u000b\u0208\f\u0007\r\u0002\u000e\u0002\u000f\u0007\u0010\u0002";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {
