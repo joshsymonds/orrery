@@ -114,6 +114,9 @@ func (s panesServer) List(
 	if err != nil {
 		return nil, connectError(err)
 	}
+	if markErr := markPanePutOff(ctx, s.reader, out); markErr != nil {
+		return nil, markErr
+	}
 	return connect.NewResponse(&v1.PanesListResponse{Panes: out}), nil
 }
 
