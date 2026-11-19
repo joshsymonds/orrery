@@ -136,7 +136,7 @@ func releaseEndedWithGaps(
 		return RefusalError(fmt.Sprintf("epic %s has not started a release; name no undo-none step", epic))
 	}
 	text := fmt.Sprintf("owner released epic %s, which ended with gaps", epic)
-	if _, err := appendDecision(ctx, queries, epic, releaseEndedWithGapsID, text, 0, maker, at); err != nil {
+	if _, err := appendDecision(ctx, queries, epic, releaseEndedWithGapsID, text, 0, maker, "", at); err != nil {
 		return err
 	}
 	return setEpicPhase(ctx, queries, epic, PhaseClean, at)
@@ -202,7 +202,7 @@ func recordNamedReleases(
 		}
 		decision := fmt.Sprintf("owner named undo-none release step %d, %s, to run it again", position, step)
 		id := fmt.Sprintf("release-undo-none-%d-%d", position, attempt)
-		if _, err := appendDecision(ctx, queries, epic, id, decision, 0, maker, at); err != nil {
+		if _, err := appendDecision(ctx, queries, epic, id, decision, 0, maker, "", at); err != nil {
 			return err
 		}
 	}

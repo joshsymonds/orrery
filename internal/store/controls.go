@@ -304,7 +304,11 @@ func (s *Store) KickEpic(ctx context.Context, epic, text string, maker Maker, at
 			return fmt.Errorf("read decision count of epic %s: %w", epic, err)
 		}
 		id := fmt.Sprintf("owner-kick:%d", next+1)
-		if _, err = appendDecision(ctx, queries, epic, id, text, 0, maker, at); err != nil {
+		owed, err := ownerRecipient(ctx, queries, epic, maker)
+		if err != nil {
+			return err
+		}
+		if _, err = appendDecision(ctx, queries, epic, id, text, 0, maker, owed, at); err != nil {
 			return err
 		}
 		if err = queries.InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{

@@ -200,6 +200,7 @@ func takeAction(ctx context.Context, queries *sqlcgen.Queries, action PlannerAct
 		text,
 		0,
 		Maker{By: MakerOrreryd},
+		"",
 		at,
 	); err != nil {
 		return nil, err
@@ -481,7 +482,7 @@ func refuseLinkedAction(
 		}
 		text += "." + itemsText(old, action.Item)
 	}
-	if _, err = appendDecision(ctx, queries, action.Epic, id, text, 0, Maker{By: MakerOrreryd}, at); err != nil {
+	if _, err = appendDecision(ctx, queries, action.Epic, id, text, 0, Maker{By: MakerOrreryd}, "", at); err != nil {
 		return err
 	}
 	bound, err := boundHeldPark(ctx, queries, action.Epic, head, at)

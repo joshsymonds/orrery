@@ -804,7 +804,11 @@ func (s *Store) AnswerEpic(
 			answer = replay
 			return nil
 		}
-		answer, err = appendDecision(ctx, queries, epic, id, text, 0, maker, at)
+		owed, err := ownerRecipient(ctx, queries, epic, maker)
+		if err != nil {
+			return err
+		}
+		answer, err = appendDecision(ctx, queries, epic, id, text, 0, maker, owed, at)
 		return err
 	})
 	if err != nil {
@@ -881,7 +885,11 @@ func recordQuestionAnswer(
 	}); err != nil {
 		return EpicDecision{}, fmt.Errorf("insert trigger of answer %s on epic %s: %w", id, epic, err)
 	}
-	decision, err := appendDecision(ctx, queries, epic, id, text, question, maker, at)
+	owed, err := ownerRecipient(ctx, queries, epic, maker)
+	if err != nil {
+		return EpicDecision{}, err
+	}
+	decision, err := appendDecision(ctx, queries, epic, id, text, question, maker, owed, at)
 	if err != nil {
 		return EpicDecision{}, err
 	}
@@ -1094,14 +1102,16 @@ func offers(question sqlcgen.EpicQuestion, choice string) (bool, error) {
 	return slices.ContainsFunc(declared, func(offered EpicChoice) bool { return offered.ID == choice }), nil
 }
 
-// appendDecision appends text as decision id on epic, answering question (0 for a note), made by maker, as the next
-// seq dated at, and moves the epic's changed to at.
+// appendDecision appends text as decision id on epic, answering question (0 for a note), made by maker and owed to the
+// session recipient ("" when none), as the next seq dated at, and moves the epic's changed to at. A decision owed to
+// a session is inserted with withEpicEvent.
 func appendDecision(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
 	epic, id, text string,
 	question int64,
 	maker Maker,
+	recipient string,
 	at time.Time,
 ) (EpicDecision, error) {
 	maxSeq, err := queries.MaxEpicDecisionSeq(ctx, epic)
@@ -1110,10 +1120,16 @@ func appendDecision(
 	}
 	decision := EpicDecision{
 		Seq: maxSeq + 1, ID: id, Text: text, Time: time.Unix(at.Unix(), 0), Question: question, Maker: maker,
+		Recipient: recipient,
 	}
-	if err = queries.InsertEpicDecision(ctx, sqlcgen.InsertEpicDecisionParams{
+	insertCtx := ctx
+	if recipient != "" {
+		// A decision owed to a session is a caller event, so the committed write wakes the caller-event pass.
+		insertCtx = withEpicEvent(ctx)
+	}
+	if err = queries.InsertEpicDecision(insertCtx, sqlcgen.InsertEpicDecisionParams{
 		Epic: epic, Seq: decision.Seq, ClientID: id, Text: text, Time: at.Unix(), Question: question,
-		Maker: maker.By, MakerSession: maker.Session, Recipient: "",
+		Maker: maker.By, MakerSession: maker.Session, Recipient: recipient,
 	}); err != nil {
 		return EpicDecision{}, fmt.Errorf("insert decision %s on epic %s: %w", id, epic, err)
 	}

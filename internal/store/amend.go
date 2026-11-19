@@ -504,6 +504,7 @@ func applyAmendment(
 		text,
 		0,
 		Maker{By: MakerOrreryd},
+		"",
 		at,
 	); err != nil {
 		return err
@@ -630,7 +631,17 @@ func refuseAmendment(
 	id := amendmentDecisionID(amendment) + "-refused"
 	text := fmt.Sprintf("%s amendment A%d of the evidence of %s refused: %s. Its reason: %s.%s", amendment.Amender,
 		amendment.Seq, amendment.Requirement, refusal, amendment.Reason, itemsText(amendment.Prior, amendment.Item))
-	if _, err := appendDecision(ctx, queries, amendment.Epic, id, text, 0, Maker{By: MakerOrreryd}, at); err != nil {
+	if _, err := appendDecision(
+		ctx,
+		queries,
+		amendment.Epic,
+		id,
+		text,
+		0,
+		Maker{By: MakerOrreryd},
+		"",
+		at,
+	); err != nil {
 		return err
 	}
 	tell := fmt.Sprintf("Evidence amendment A%d of %s refused: %s", amendment.Seq, amendment.Requirement, refusal)
