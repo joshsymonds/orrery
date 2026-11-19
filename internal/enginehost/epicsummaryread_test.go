@@ -80,7 +80,11 @@ func TestEpicSummaryReadMatchesFullRead(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Epic %s: %v", summary.GetId(), err)
 		}
-		if want := summaryMessage(full); !proto.Equal(summary, want) {
+		want, err := summaryMessage(full)
+		if err != nil {
+			t.Fatalf("summaryMessage %s: %v", summary.GetId(), err)
+		}
+		if !proto.Equal(summary, want) {
 			t.Errorf("summary of epic %s = %v, want %v", summary.GetId(), summary, want)
 		}
 	}

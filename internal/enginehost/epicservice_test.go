@@ -541,17 +541,29 @@ func TestEpicListReturnsSummariesByID(t *testing.T) {
 	}
 }
 
-// summaryOf returns the summary of a stored epic: its id, repository, title, phase, phase time, created and changed.
+// summaryOf returns the summary of a stored epic: its id, repository, title, phase, phase time, created and changed,
+// revision, steerer, pause, park and open question count.
 func summaryOf(epic *v1.StoredEpic) *v1.EpicSummary {
+	var open int32
+	for _, question := range epic.GetQuestions() {
+		if question.GetState() == store.QuestionOpen {
+			open++
+		}
+	}
 	return &v1.EpicSummary{
-		Id:         epic.GetContract().GetId(),
-		Repository: epic.GetContract().GetRepository(),
-		Title:      epic.GetContract().GetTitle(),
-		Phase:      epic.GetPhase(),
-		PhaseAt:    epic.GetPhaseAt(),
-		Created:    epic.GetCreated(),
-		Changed:    epic.GetChanged(),
-		Revision:   epic.GetRevision(),
+		Id:            epic.GetContract().GetId(),
+		Repository:    epic.GetContract().GetRepository(),
+		Title:         epic.GetContract().GetTitle(),
+		Phase:         epic.GetPhase(),
+		PhaseAt:       epic.GetPhaseAt(),
+		Created:       epic.GetCreated(),
+		Changed:       epic.GetChanged(),
+		Revision:      epic.GetRevision(),
+		Steerer:       epic.GetSteerer(),
+		Paused:        epic.GetPaused(),
+		PauseSource:   epic.GetPauseSource(),
+		Parked:        epic.GetParked(),
+		OpenQuestions: open,
 	}
 }
 
