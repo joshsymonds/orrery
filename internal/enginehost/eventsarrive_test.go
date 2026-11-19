@@ -111,7 +111,8 @@ func TestEventsArriveTurnAndBackgroundTask(t *testing.T) {
 }
 
 // TestEventsArriveIdleKeepsBackground advances the idle clock past the idle limit while a session has a background task
-// listed after its turn ended. The idle check leaves the session running.
+// listed after its turn ended. The session is kept while the task is listed and stopped by the idle limit once the task
+// has ended.
 func TestEventsArriveIdleKeepsBackground(t *testing.T) {
 	t.Parallel()
 	m, path, clock := newIdleManager(t, 1)
@@ -131,6 +132,28 @@ func TestEventsArriveIdleKeepsBackground(t *testing.T) {
 	clock.advance(defaultIdleAfter + time.Minute)
 	m.checkIdle(t.Context())
 	requireRunning(t, m, id, pid)
+
+	if err := m.Say(t.Context(), SayRequest{ID: id, Text: "BGEND"}); err != nil {
+		t.Fatalf("Say BGEND: %v", err)
+	}
+	waitHistory(
+		t,
+		engineOf(m),
+		path,
+		id,
+		"the reply after the background task ended",
+		func(h store.EngineHistory) bool {
+			return hasBlock(t, h, "fake reply 2") && lastState(t, h) == string(protocol.StateDone)
+		},
+	)
+
+	clock.advance(10*time.Minute - time.Millisecond)
+	m.checkIdle(t.Context())
+	requireRunning(t, m, id, pid)
+
+	clock.advance(time.Millisecond)
+	m.checkIdle(t.Context())
+	requireGone(t, pid)
 }
 
 // TestEventsArriveParentStepStaysOpen covers a parent step whose not-done turn ended while its child step runs. The
