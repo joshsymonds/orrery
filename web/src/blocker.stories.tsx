@@ -47,8 +47,8 @@ const recommended = create(EpicQuestionSchema, {
   recommendation: { choice: "composite", why: "open shifts are the only rows the backfill scans", confidence: "high" },
 });
 
-export const AskFirst: Stories = {
-  idle: () => (
+export const ConfirmButton: Stories = {
+  rest: () => (
     <blocker.AskFirst
       label="Stop…"
       question="Stop rota-export?"

@@ -22,7 +22,7 @@ export const storyExemptions: Readonly<Record<string, string>> = {
 // so the stories need not share the component's name.
 export const storyRenames: Renames = {
   "backgroundrow.tsx": { BackgroundRow: "TaskLine" },
-  "blocker.tsx": { QuestionCard: "Ask" },
+  "blocker.tsx": { QuestionCard: "Ask", AskFirst: "ConfirmButton" },
   "card.tsx": { EpicWidget: "WorkCard" },
   "composer.tsx": { Composer: "Dock" },
   "epicline.tsx": { EpicLine: "EpicRow" },

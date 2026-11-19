@@ -26,7 +26,7 @@ export const TitleRow: Stories = {
       blocker="waiting 4 min on halyard"
     />
   ),
-  "inbox-count": () => (
+  "inbox-hidden": () => (
     <titlerow.TitleRow crumbs={[{ label: "rota-export" }]} onBack={ignore} mark={withCount} />
   ),
   "with-commands": () => (
