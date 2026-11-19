@@ -140,6 +140,20 @@
     }
   },
   {
+    "name": "step_list",
+    "description": "List the steps this session started, one line each: id, agent, epic, task, end (running while the step runs) and status. It lists each running step and the 20 most recently ended, oldest first, only one epic's when epic is given. The text is at most 4000 bytes; when steps are cut, the earliest go and a first line counts them. Read one step with step_status, step_result or step_check.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "epic": {
+          "type": "string"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
     "name": "step_stop",
     "description": "Stop a running step by id.",
     "inputSchema": {

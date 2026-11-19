@@ -384,6 +384,7 @@ func TestToolsListNamesEveryStepEpicAndEvidenceTool(t *testing.T) {
 		"evidence_list",
 		"evidence_run",
 		"step_check",
+		"step_list",
 		"step_result",
 		"step_resume",
 		"step_start",

@@ -78,6 +78,10 @@ func stepTools(steps enginev1connect.StepsClient, clock rpcretry.Clock) ([]Tool,
 	if err != nil {
 		return nil, err
 	}
+	listInput, err := argumentSchema[stepListArgs](nil)
+	if err != nil {
+		return nil, err
+	}
 	return []Tool{
 		{
 			Name: "step_start",
@@ -113,6 +117,15 @@ func stepTools(steps enginev1connect.StepsClient, clock rpcretry.Clock) ([]Tool,
 				"error naming the step's checks.",
 			InputSchema: checkInput,
 			Handler:     stepCheckHandler(steps, clock),
+		},
+		{
+			Name: "step_list",
+			Description: "List the steps this session started, one line each: id, agent, epic, task, end (running " +
+				"while the step runs) and status. It lists each running step and the 20 most recently ended, oldest " +
+				"first, only one epic's when epic is given. The text is at most 4000 bytes; when steps are cut, the " +
+				"earliest go and a first line counts them. Read one step with step_status, step_result or step_check.",
+			InputSchema: listInput,
+			Handler:     stepListHandler(steps, clock),
 		},
 		{
 			Name:        "step_stop",
