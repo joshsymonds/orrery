@@ -764,8 +764,8 @@ func serveInBackground(ctx context.Context, ln net.Listener, cfg daemon.Config) 
 
 // shutdownServe runs once Serve has returned. It closes pages first, so the Watch streams open on it end before the
 // session socket stops serving. It waits for the summaries and then for the mirror's deferred syncs and tidies, stops
-// the sessions, then waits for the router and the notices, since the sessions can post to them, and closes the store.
-// It returns the sessions' stop error.
+// the sessions, then waits for the router and the notices, since the sessions can post to them, clears the store hooks,
+// and closes the store. It returns the sessions' stop error.
 func shutdownServe(
 	ctx context.Context,
 	logger *slog.Logger,
@@ -791,6 +791,7 @@ func shutdownServe(
 	// notices close before the store, so a row write the store refused gets its last try while the store is open.
 	shutdownPhase(logger, "router", func() { shutdownRouter(router) })
 	shutdownPhase(logger, "notices", func() { notices.Close(ctx) })
+	clearStoreHooks(st)
 	shutdownPhase(logger, "store", func() { closeStore(ctx, st, logger) })
 	return sessionErr
 }
@@ -842,6 +843,11 @@ type sessionHost struct {
 	callerEvents     *enginehost.CallerEvents
 	stopCallerEvents context.CancelFunc
 	callerEventsDone chan struct{}
+	// flowWake is the relay the steps' EpicWake and the manager's StepFreed hand epics to. startFlow sets it to the
+	// interpreter's Wake.
+	flowWake flowWakeRelay
+	// changes is the change feed the Changes service serves, nil without a store. wireStore sets it.
+	changes *enginehost.ChangeFeed
 	// logger logs each phase of the shutdown.
 	logger *slog.Logger
 }
@@ -898,7 +904,8 @@ func newSessionHost(logger *slog.Logger) *sessionHost {
 // from one timer for the next due fire until stop (startCron). A readopt, reconcile, restore or resume failure is
 // logged and serving goes on; a failed restore serves no Pools, which refuse as unavailable, and the gates fail for
 // want of pools. The Notices service on it answers from notices, and refuses as unavailable when notices is nil. With
-// st open, each call of the Epics service on it that names an epic records its session in st.
+// st open, each call of the Epics service on it that names an epic records its session in st. The Changes service on it
+// relays the sessions each store write appends events to, from the change feed st publishes to.
 func startSessions(
 	ctx context.Context,
 	opts options,
@@ -939,7 +946,7 @@ func startSessions(
 			Logger:            logger,
 			Metrics:           opts.metrics,
 			CronWake:          host.cron.Wake, PutOffs: st, Panes: newPaneQuestions(questionServer(opts), router),
-			EventWake: host.callerEvents.Wake,
+			EventWake: host.callerEvents.Wake, StepFreed: host.stepFreedWake,
 		})
 		host.startBroker(ctx, hostName, st, logger)
 		// host.pools is nil when the broker's restore failed, which leaves the gates no pools to run under.
@@ -959,14 +966,14 @@ func startSessions(
 			GateScopeMemory: opts.scopeMemory,
 			ReadoptCheck:    readoptCheck(st, resolve),
 			ReadoptGate:     readoptGate(st),
-			Stored:          host.callerEvents.Wake,
+			Stored:          host.callerEvents.Wake, EpicWake: host.stepEpicWake,
 		})
 		if err != nil {
 			host.stopBroker()
 			return nil, fmt.Errorf("step engine: %w", err)
 		}
 		host.steps = steps
-		st.SetEngineLive(host.manager.Live)
+		host.wireStore(st)
 		commands, stepCommands = host.manager, host.steps
 		epics = st
 		crons = enginehost.NewCronAnswers(enginehost.CronAnswersConfig{
@@ -996,7 +1003,7 @@ func startSessions(
 	serveCtx, host.stopServe = context.WithCancel(ctx)
 	go func() {
 		host.serveDone <- enginehost.Serve(
-			serveCtx, ln, commands, stepCommands, epics, host.pools, evidence, notices, crons,
+			serveCtx, ln, commands, stepCommands, epics, host.pools, evidence, notices, crons, host.changes,
 			serveOpts(opts, st, logger)...,
 		)
 	}()
@@ -1233,7 +1240,9 @@ func (h *sessionHost) startNodeChecks(
 // environment through getenv. With a
 // router, the attention loop runs under the same context and routes the epics that need their owner through it,
 // passing at each value of attentionTicks when it is not nil. With flowTicks set, the flow passes at start and once per
-// SIGUSR1, and logs each pass to the file flowTicks names (flowSeam).
+// SIGUSR1, and logs each pass to the file flowTicks names (flowSeam). Without flowTicks, each wake passes the flow too:
+// a store write that moves an epic, a step end or hold of an epic, and a freed step slot that refused an epic
+// (subscribeFlowWake).
 func (h *sessionHost) startFlow(
 	ctx context.Context,
 	st *store.Store,
@@ -1279,6 +1288,7 @@ func (h *sessionHost) startFlow(
 		Ticks:     ticks,
 		Passed:    passed,
 	})
+	h.subscribeFlowWake(st, flow.Wake)
 	go func() {
 		flow.Run(flowCtx)
 		close(h.flowDone)
@@ -1294,6 +1304,70 @@ func (h *sessionHost) startFlow(
 		attention.Run(flowCtx)
 		close(h.attentionDone)
 	}()
+}
+
+// flowWakeRelay hands the epics a wake names to the flow's interpreter wake, which subscribeFlowWake sets. Until then a
+// wake does nothing: the interpreter's first pass, which covers every epic, makes up for it. It is safe from any
+// goroutine, never blocks, and takes only its own lock.
+type flowWakeRelay struct {
+	mu   sync.Mutex
+	wake func(epics []string)
+}
+
+// set makes wake the interpreter's wake that Wake hands epics to.
+func (r *flowWakeRelay) set(wake func(epics []string)) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.wake = wake
+}
+
+// Wake hands epics to the interpreter's wake, or does nothing while none is set. The wake is called outside the lock.
+func (r *flowWakeRelay) Wake(epics []string) {
+	r.mu.Lock()
+	wake := r.wake
+	r.mu.Unlock()
+	if wake != nil {
+		wake(epics)
+	}
+}
+
+// wireStore points st's engine liveness at the manager, and makes h.changes the change feed that st's session-events
+// hook publishes each event write to, for the Changes service to relay.
+func (h *sessionHost) wireStore(st *store.Store) {
+	st.SetEngineLive(h.manager.Live)
+	h.changes = enginehost.NewChangeFeed()
+	st.OnSessionEvents(h.changes.Publish)
+}
+
+// subscribeFlowWake makes wake the flow's wake: the relay the steps and the manager hand epics to, and the store's
+// epics-changed hook, which calls it on each write that moves an epic.
+func (h *sessionHost) subscribeFlowWake(st *store.Store, wake func(epics []string)) {
+	h.flowWake.set(wake)
+	st.OnEpicsChanged(wake)
+}
+
+// stepEpicWake is the steps' EpicWake: it hands the epic of a step end or hold to the flow.
+func (h *sessionHost) stepEpicWake(epic string) {
+	h.flowWake.Wake([]string{epic})
+}
+
+// stepFreedWake is the manager's StepFreed: it hands the epics a freed step slot refused to the flow, and does nothing
+// for none. The manager calls it under its lock, so it does not block.
+func (h *sessionHost) stepFreedWake(epics []string) {
+	if len(epics) == 0 {
+		return
+	}
+	h.flowWake.Wake(epics)
+}
+
+// clearStoreHooks clears the epics-changed and session-events hooks of st, so no write after it calls them. A nil st
+// has no hooks.
+func clearStoreHooks(st *store.Store) {
+	if st == nil {
+		return
+	}
+	st.OnEpicsChanged(nil)
+	st.OnSessionEvents(nil)
 }
 
 // flowSeam returns the test seam of the flow when path is set: the channel the flow passes at, which gets one value per
