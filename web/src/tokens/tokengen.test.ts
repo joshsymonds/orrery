@@ -42,6 +42,27 @@ const members = (body: string): string[] =>
 const argument = (line: string, name: string): string | undefined => new RegExp(`\\b${name} = ([^,)]+)`).exec(line)?.[1];
 // A #rrggbb colour as Color writes it.
 const colour = (hex: string): string => `Color(0xFF${hex.slice(1).toUpperCase()})`;
+// The #rrggbb a token's value names: a "{a.b}" reference is followed, through as many as it takes, to the colour it ends at.
+const hexOf = (value: string): string => (value.startsWith("{") ? hexOf(refValue(value)) : value);
+// The Color a solid colour member holds, written as Color writes it.
+const colourOf = (line: string): string => {
+  const m = /^val \w+: Color = (Color\(0xFF[0-9A-F]{6}\))$/.exec(line);
+  assert.ok(m, `${line} is not a Color`);
+  return m[1];
+};
+// The number a Dp member holds: 8.dp is 8, and (-8).dp is -8.
+const dpOf = (line: string): number => {
+  const m = /^val \w+: Dp = (\(-\d+\)|\d+)\.dp$/.exec(line);
+  assert.ok(m, `${line} is not a Dp length`);
+  return Number(m[1].replace(/[()]/g, ""));
+};
+// The number a Layout ...Ch member holds, which is an Int.
+const chOf = (line: string): number => {
+  const m = /^val \w+Ch: Int = (\d+)$/.exec(line);
+  assert.ok(m, `${line} is not an Int`);
+  return Number(m[1]);
+};
+const numeric = (a: number, b: number): number => a - b;
 
 test("TokenGen: --check on the repository exits 0, so the four committed outputs equal what gen-tokens.mjs writes from tokens.json", () => {
   const result = run(["--check"]);
@@ -65,9 +86,11 @@ test("TokenGen: --check on a copy with one output altered and another deleted ex
   }
 });
 
-test("TokenGen: web/src/tokens.css follows meta.css: ink.1 is --o-ink-1, each role and series colour has -fill and -line tints, and --o-type-body is one font shorthand", () => {
+// The meta.css checks on a stylesheet at rel: ink.1 is --o-ink-1, each role and series colour has -fill and -line tints,
+// and each type is one font shorthand.
+function assertFollowsMeta(rel: string): void {
   const css = new Map(
-    [...read("web/src/tokens.css").matchAll(/(--o-[a-z0-9-]+):\s*([^;]+);/g)].map((m): [string, string] => [m[1], m[2].trim()]),
+    [...read(rel).matchAll(/(--o-[a-z0-9-]+):\s*([^;]+);/g)].map((m): [string, string] => [m[1], m[2].trim()]),
   );
   assert.ok(css.has("--o-ink-1"), "--o-ink-1 is not defined");
   const percent = (alpha: number): string => `${Math.round(alpha * 100)}%`;
@@ -82,6 +105,14 @@ test("TokenGen: web/src/tokens.css follows meta.css: ink.1 is --o-ink-1, each ro
   for (const [name, t] of Object.entries(tokens.type) as [string, any][]) {
     assert.equal(css.get(`--o-type-${name}`), `${refValue(t.weight)} ${t.size}px/${t.line}px var(--o-font-mono)`);
   }
+}
+
+test("TokenGen: web/src/tokens.css follows meta.css: ink.1 is --o-ink-1, each role and series colour has -fill and -line tints, and --o-type-body is one font shorthand", () => {
+  assertFollowsMeta("web/src/tokens.css");
+});
+
+test("TokenGen: web/visual/system/tokens.css follows meta.css: ink.1 is --o-ink-1, each role and series colour has -fill and -line tints, and each type is one font shorthand", () => {
+  assertFollowsMeta("web/visual/system/tokens.css");
 });
 
 test("TokenGen: OrreryTokens has one nested object per top-level group of tokens.json, named for it, and no other at its top level", () => {
@@ -97,6 +128,32 @@ test("TokenGen: OrreryTokens.Ink holds ink.1 as one, every ink as a Color, and n
   for (const line of ink) assert.match(line, /^val \w+: Color = Color\(0xFF[0-9A-F]{6}\)$/);
 });
 
+test("TokenGen: every colour in OrreryTokens is a Color: Palette, Surface, Line, State, Tone, Level, Prose, Syntax and the solid Role and Series colours equal tokens.json's after its references", () => {
+  const kt = kotlin();
+  for (const [objectName, group] of [
+    ["Palette", "palette"],
+    ["Surface", "surface"],
+    ["Line", "line"],
+    ["State", "state"],
+    ["Tone", "tone"],
+    ["Level", "level"],
+    ["Prose", "prose"],
+    ["Syntax", "syntax"],
+    ["Role", "role"],
+    ["Series", "series"],
+  ]) {
+    const body = members(bodyOf(kt, `object ${objectName} {`));
+    // Role and Series also hold a Fill and a Line for each colour; only their solid colours are checked here.
+    const solid = group === "role" || group === "series" ? body.filter((line) => !/(Fill|Line): Color/.test(line)) : body;
+    assert.equal(solid.length, Object.keys(tokens[group]).length, `${objectName} does not hold one Color per ${group} token`);
+    assert.deepEqual(
+      solid.map(colourOf).sort(),
+      (Object.values(tokens[group]) as string[]).map((value) => colour(hexOf(value))).sort(),
+      `${objectName}'s colours are not tokens.json's ${group} after their references`,
+    );
+  }
+});
+
 test("TokenGen: lengths are Dp: OrreryTokens.Space holds space.24 as twentyFour, and each space is a .dp equal to tokens.json's", () => {
   const space = members(bodyOf(kotlin(), "object Space {"));
   assert.ok(space.includes(`val twentyFour: Dp = ${tokens.space["24"]}.dp`));
@@ -106,6 +163,42 @@ test("TokenGen: lengths are Dp: OrreryTokens.Space holds space.24 as twentyFour,
     return Number(m[1]);
   });
   assert.deepEqual(values.sort((a, b) => a - b), (Object.values(tokens.space) as number[]).sort((a, b) => a - b));
+});
+
+test("TokenGen: every length in OrreryTokens is Dp: Radius, Size, Layout and Elevation's x, y and blur are .dp equal to tokens.json's, a Layout ...Ch is an Int, and each Z is a Float", () => {
+  const kt = kotlin();
+  for (const [objectName, group] of [["Radius", "radius"], ["Size", "size"]]) {
+    const lengths = members(bodyOf(kt, `object ${objectName} {`)).map(dpOf);
+    assert.deepEqual(lengths.sort(numeric), (Object.values(tokens[group]) as number[]).sort(numeric), `${objectName} is not tokens.json's ${group}`);
+  }
+  const layout = members(bodyOf(kt, "object Layout {"));
+  const isCh = (line: string): boolean => /^val \w+Ch: /.test(line);
+  const layoutTokens = Object.entries(tokens.layout) as [string, number][];
+  assert.deepEqual(
+    layout.filter(isCh).map(chOf).sort(numeric),
+    layoutTokens.filter(([key]) => key.endsWith("Ch")).map(([, value]) => value).sort(numeric),
+    "Layout's ...Ch members are not tokens.json's",
+  );
+  assert.deepEqual(
+    layout.filter((line) => !isCh(line)).map(dpOf).sort(numeric),
+    layoutTokens.filter(([key]) => !key.endsWith("Ch")).map(([, value]) => value).sort(numeric),
+    "Layout's lengths are not tokens.json's",
+  );
+  const elevation = bodyOf(kt, "object Elevation {");
+  for (const [key, e] of Object.entries(tokens.elevation) as [string, any][]) {
+    const lines = members(bodyOf(elevation, `object ${key[0].toUpperCase() + key.slice(1)} {`));
+    for (const field of ["x", "y", "blur"]) {
+      const line = lines.find((l) => l.startsWith(`val ${field}: `));
+      assert.ok(line, `${key} has no ${field}`);
+      assert.equal(dpOf(line), e[field], `${key}.${field} is not tokens.json's`);
+    }
+  }
+  const z = members(bodyOf(kt, "object Z {")).map((line) => {
+    const m = /^val \w+: Float = (-?\d+(?:\.\d+)?)f$/.exec(line);
+    assert.ok(m, `${line} is not a Float`);
+    return Number(m[1]);
+  });
+  assert.deepEqual(z.sort(numeric), (Object.values(tokens.z) as number[]).sort(numeric), "Z is not tokens.json's z");
 });
 
 test("TokenGen: each type is a TextStyle in OrreryMono with its size and line height in sp, weight and tracking, and its Caps Boolean beside it", () => {
