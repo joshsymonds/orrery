@@ -24,6 +24,10 @@ const stepEventPrefix = "step:"
 // stepSummaryCap is the most runes of a step's summary that its end's event carries.
 const stepSummaryCap = 500
 
+// stepReasonCap is the most runes of a step's reason that its end's event carries. A reason can carry a failed gate's
+// output tails, kilobytes each, which step_status gives in full.
+const stepReasonCap = 200
+
 // stepFieldCap is the most runes a string field of a structured result may have and still be told in its step's summary.
 const stepFieldCap = 120
 
@@ -211,18 +215,39 @@ func (e *StepCallerEvents) send(ctx context.Context, step store.CallerStep) erro
 	return nil
 }
 
-// stepEndBody returns the body of the event of step's end: the step, its end, status and reason, its agent, the epic
-// that holds it when one does, the summary of its result (stepSummary), and where its full result is read. A result can
-// run to tens of kilobytes, which the caller never needs in its context to act on the end.
+// stepEndBody returns the body of the event of step's end: the step, its end, status and reason (stepReason), its agent,
+// the epic that holds it when one does, the summary of its result (stepSummary), and where its full result is read. A
+// result can run to tens of kilobytes, which the caller never needs in its context to act on the end.
 func stepEndBody(step store.StepRow) string {
 	lines := []string{
-		fmt.Sprintf("Step %s ended: end %s, status %s, reason %s.", step.ID, step.End, step.Status, step.Reason),
+		fmt.Sprintf(
+			"Step %s ended: end %s, status %s, reason %s.",
+			step.ID,
+			step.End,
+			step.Status,
+			stepReason(step.Reason),
+		),
 		"Agent: " + step.Agent,
 	}
 	if step.Epic != "" {
 		lines = append(lines, "Epic: "+step.Epic)
 	}
 	return strings.Join(append(lines, "Summary: "+stepSummary(step.Result), stepEndHint), "\n")
+}
+
+// stepReason returns what a step's end tells its caller of the step's reason: its first line, cut to stepReasonCap runes.
+// A reason with more lines, or a first line that is cut, ends with "...", so the step line stays one line.
+func stepReason(reason string) string {
+	first, rest, _ := strings.Cut(reason, "\n")
+	first = strings.TrimSpace(first)
+	if strings.TrimSpace(rest) == "" {
+		return capped(first, stepReasonCap)
+	}
+	runes := []rune(first)
+	if len(runes) > stepReasonCap {
+		runes = runes[:stepReasonCap]
+	}
+	return string(runes) + "..."
 }
 
 // stepSummary returns what a step's end tells its caller of the step's result. A result that is one JSON object is told

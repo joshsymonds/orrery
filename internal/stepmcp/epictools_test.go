@@ -33,6 +33,7 @@ type fakeEpics struct {
 	retries      []*v1.RetryEpicRequest
 	kicks        []*v1.KickEpicRequest
 	releases     []*v1.ReleaseEpicRequest
+	closes       []*v1.CloseEpicRequest
 	amends       []*v1.AmendEvidenceRequest
 	follows      []*v1.FollowEpicsRequest
 	createReply  *v1.CreateEpicResponse
@@ -45,6 +46,7 @@ type fakeEpics struct {
 	retryReply   *v1.RetryEpicResponse
 	kickReply    *v1.KickEpicResponse
 	releaseReply *v1.ReleaseEpicResponse
+	closeReply   *v1.CloseEpicResponse
 	amendReply   *v1.AmendEvidenceResponse
 	followReply  *v1.FollowEpicsResponse
 	err          error
@@ -141,13 +143,17 @@ func (f *fakeEpics) StopEpic(
 	return connect.NewResponse(f.stopReply), nil
 }
 
-// CloseEpic is not faked: no test in this package closes an epic through fakeEpics. The close tool's request is compared
-// with the CLI's in cmd/orrery, which fakes the call itself.
 func (f *fakeEpics) CloseEpic(
 	_ context.Context,
-	_ *connect.Request[v1.CloseEpicRequest],
+	req *connect.Request[v1.CloseEpicRequest],
 ) (*connect.Response[v1.CloseEpicResponse], error) {
-	return nil, errors.New("fakeEpics: CloseEpic is not faked")
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.closes = append(f.closes, req.Msg)
+	if f.err != nil {
+		return nil, f.err
+	}
+	return connect.NewResponse(f.closeReply), nil
 }
 
 func (f *fakeEpics) AmendEvidence(
@@ -248,6 +254,7 @@ type epicCalls struct {
 	retries  []*v1.RetryEpicRequest
 	kicks    []*v1.KickEpicRequest
 	releases []*v1.ReleaseEpicRequest
+	closes   []*v1.CloseEpicRequest
 	follows  []*v1.FollowEpicsRequest
 }
 
@@ -265,6 +272,7 @@ func (f *fakeEpics) calls() epicCalls {
 		retries:  slices.Clone(f.retries),
 		kicks:    slices.Clone(f.kicks),
 		releases: slices.Clone(f.releases),
+		closes:   slices.Clone(f.closes),
 		follows:  slices.Clone(f.follows),
 	}
 }
@@ -272,7 +280,7 @@ func (f *fakeEpics) calls() epicCalls {
 func (c epicCalls) total() int {
 	return len(c.creates) + len(c.gets) + len(c.lists) + len(c.answers) +
 		len(c.pauses) + len(c.resumes) + len(c.stops) + len(c.retries) + len(c.kicks) + len(c.releases) +
-		len(c.follows)
+		len(c.follows) + len(c.closes)
 }
 
 // fullContract is an epic contract with every field set, each to a value distinct from the others.
@@ -504,10 +512,9 @@ func TestEpicCreateSendsEveryContractFieldAndSeedDecision(t *testing.T) {
 	if !proto.Equal(calls[0], want) {
 		t.Fatalf("CreateEpic request = %s, want %s", marshalProto(t, calls[0]), marshalProto(t, want))
 	}
-	var got v1.StoredEpic
-	unmarshalResult(t, outcome.text, &got)
-	if !proto.Equal(&got, storedEpicOf(fullContract())) {
-		t.Fatalf("epic_create result = %s, want the stored epic", outcome.text)
+	wantText := "epic " + testEpicID + ": phase accepted\ncreated with 1 requirements and 2 decisions"
+	if outcome.text != wantText {
+		t.Fatalf("epic_create text = %q, want %q", outcome.text, wantText)
 	}
 }
 
@@ -572,13 +579,16 @@ func TestEpicGetSendsIDAndReturnsStoredEpic(t *testing.T) {
 		t.Fatalf("epic_get returned an error: %s", outcome.text)
 	}
 	calls := fake.calls().gets
-	if len(calls) != 1 || calls[0].GetId() != testEpicID {
-		t.Fatalf("GetEpic requests = %v, want one for %s", calls, testEpicID)
+	if len(calls) != 1 || calls[0].GetId() != testEpicID || !calls[0].GetHistory() {
+		t.Fatalf("GetEpic requests = %v, want one for %s with history", calls, testEpicID)
 	}
-	var got v1.StoredEpic
-	unmarshalResult(t, outcome.text, &got)
-	if !proto.Equal(&got, storedEpicOf(fullContract())) {
-		t.Fatalf("epic_get result = %s, want the stored epic", outcome.text)
+	wantHead := "epic demo-0a1b2c3/epic-login: Login with passkeys\nphase: accepted\npaused: no\n" +
+		"open questions: 0\ntasks: 0\nparts:\n"
+	if !strings.HasPrefix(outcome.text, wantHead) {
+		t.Fatalf("epic_get text = %q, want a summary that starts %q", outcome.text, wantHead)
+	}
+	if !strings.Contains(outcome.text, "\n  decisions: 2 items, ") {
+		t.Fatalf("epic_get text = %q, want the decisions part with two items", outcome.text)
 	}
 }
 
@@ -627,7 +637,7 @@ func TestEpicAnswerNoteSendsNoQuestionAndReturnsDecisionWithWarning(t *testing.T
 		Decision: &v1.EpicDecision{Seq: 3, Id: "D3", Text: "Yes, ship it.", Time: 1700000400},
 		Warning:  "questions are open: Q2",
 	}
-	fake := &fakeEpics{answerReply: reply}
+	fake := &fakeEpics{answerReply: reply, getReply: &v1.GetEpicResponse{Epic: storedEpicOf(fullContract())}}
 	p := newPeer(t, nil, fake)
 
 	outcome := p.tool("epic_answer",
@@ -641,10 +651,9 @@ func TestEpicAnswerNoteSendsNoQuestionAndReturnsDecisionWithWarning(t *testing.T
 	if len(calls) != 1 || !proto.Equal(calls[0], want) {
 		t.Fatalf("AnswerEpic requests = %v, want %v", calls, want)
 	}
-	var got v1.AnswerEpicResponse
-	unmarshalResult(t, outcome.text, &got)
-	if !proto.Equal(&got, reply) {
-		t.Fatalf("epic_answer result = %s, want the decision and warning", outcome.text)
+	wantText := "epic " + testEpicID + ": phase accepted\nrecorded note D3\nwarning: questions are open: Q2"
+	if outcome.text != wantText {
+		t.Fatalf("epic_answer text = %q, want %q", outcome.text, wantText)
 	}
 }
 
@@ -652,7 +661,7 @@ func TestEpicAnswerSendsQuestionAndReturnsDecision(t *testing.T) {
 	reply := &v1.AnswerEpicResponse{
 		Decision: &v1.EpicDecision{Seq: 3, Id: "D3", Text: "Yes, ship it.", Time: 1700000400, Question: "Q2"},
 	}
-	fake := &fakeEpics{answerReply: reply}
+	fake := &fakeEpics{answerReply: reply, getReply: &v1.GetEpicResponse{Epic: storedEpicOf(fullContract())}}
 	p := newPeer(t, nil, fake)
 
 	outcome := p.tool("epic_answer",
@@ -666,10 +675,10 @@ func TestEpicAnswerSendsQuestionAndReturnsDecision(t *testing.T) {
 	if len(calls) != 1 || !proto.Equal(calls[0], want) {
 		t.Fatalf("AnswerEpic requests = %v, want %v", calls, want)
 	}
-	var got v1.AnswerEpicResponse
-	unmarshalResult(t, outcome.text, &got)
-	if !proto.Equal(&got, reply) {
-		t.Fatalf("epic_answer result = %s, want the decision", outcome.text)
+	// The request names no choice, which the service refuses but the fake accepts, so the line gives the empty choice.
+	wantText := "epic " + testEpicID + ": phase accepted\nrecorded decision D3 answering Q2 with "
+	if outcome.text != wantText {
+		t.Fatalf("epic_answer text = %q, want %q", outcome.text, wantText)
 	}
 }
 
@@ -884,11 +893,24 @@ func TestEpicControlSendsOneCallAndReturnsTheEpic(t *testing.T) {
 	cases := []struct {
 		tool string
 		ids  func(epicCalls) []string
+		want string
 	}{
-		{tool: "epic_pause", ids: func(c epicCalls) []string { return requestIDs(c.pauses) }},
-		{tool: "epic_stop", ids: func(c epicCalls) []string { return requestIDs(c.stops) }},
-		{tool: "epic_retry", ids: func(c epicCalls) []string { return requestIDs(c.retries) }},
-		{tool: "epic_release", ids: func(c epicCalls) []string { return requestIDs(c.releases) }},
+		{
+			tool: "epic_pause", ids: func(c epicCalls) []string { return requestIDs(c.pauses) },
+			want: "epic " + testEpicID + ": phase accepted\npaused",
+		},
+		{
+			tool: "epic_stop", ids: func(c epicCalls) []string { return requestIDs(c.stops) },
+			want: "epic " + testEpicID + ": phase accepted\nstopped its release and freed the release slot",
+		},
+		{
+			tool: "epic_retry", ids: func(c epicCalls) []string { return requestIDs(c.retries) },
+			want: "epic " + testEpicID + ": phase accepted\nended the park",
+		},
+		{
+			tool: "epic_release", ids: func(c epicCalls) []string { return requestIDs(c.releases) },
+			want: "epic " + testEpicID + ": phase accepted\nrelease started",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.tool, func(t *testing.T) {
@@ -913,10 +935,8 @@ func TestEpicControlSendsOneCallAndReturnsTheEpic(t *testing.T) {
 			if ids := tc.ids(calls); !slices.Equal(ids, []string{testEpicID}) {
 				t.Fatalf("%s request ids = %v, want [%s]", tc.tool, ids, testEpicID)
 			}
-			var got v1.StoredEpic
-			unmarshalResult(t, outcome.text, &got)
-			if !proto.Equal(&got, stored) {
-				t.Fatalf("%s result = %s, want the stored epic", tc.tool, outcome.text)
+			if outcome.text != tc.want {
+				t.Fatalf("%s text = %q, want %q", tc.tool, outcome.text, tc.want)
 			}
 		})
 	}
@@ -969,9 +989,16 @@ func TestEpicReleasePassesTheIDAndPositionsInOneCall(t *testing.T) {
 		name     string
 		args     string
 		undoNone []int32
+		want     string
 	}{
-		{name: "named positions", args: `{"id":"` + testEpicID + `","undoNone":[2,3]}`, undoNone: []int32{2, 3}},
-		{name: "no positions", args: `{"id":"` + testEpicID + `"}`},
+		{
+			name: "named positions", args: `{"id":"` + testEpicID + `","undoNone":[2,3]}`, undoNone: []int32{2, 3},
+			want: "epic " + testEpicID + ": phase accepted\nrelease started; undo-none steps 2, 3 run again",
+		},
+		{
+			name: "no positions", args: `{"id":"` + testEpicID + `"}`,
+			want: "epic " + testEpicID + ": phase accepted\nrelease started",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -996,10 +1023,8 @@ func TestEpicReleasePassesTheIDAndPositionsInOneCall(t *testing.T) {
 				t.Fatalf("ReleaseEpic request = id %q undo_none %v, want id %q undo_none %v",
 					got.GetId(), got.GetUndoNone(), testEpicID, tc.undoNone)
 			}
-			var got v1.StoredEpic
-			unmarshalResult(t, outcome.text, &got)
-			if !proto.Equal(&got, stored) {
-				t.Fatalf("epic_release result = %s, want the stored epic", outcome.text)
+			if outcome.text != tc.want {
+				t.Fatalf("epic_release text = %q, want %q", outcome.text, tc.want)
 			}
 		})
 	}
@@ -1012,9 +1037,18 @@ func TestEpicResumeResultCarriesEpicResumedAndStillLimited(t *testing.T) {
 		name         string
 		resumed      []string
 		stillLimited []string
+		want         string
 	}{
-		{name: "every limited step resumed", resumed: []string{"step-a", "step-b"}},
-		{name: "one left limited by the cap", resumed: []string{"step-b"}, stillLimited: []string{"step-a"}},
+		{
+			name: "every limited step resumed", resumed: []string{"step-a", "step-b"},
+			want: "epic " + testEpicID + ": phase accepted\n" +
+				"resumed 2 limited steps: step-a, step-b; 0 left limited by the step cap",
+		},
+		{
+			name: "one left limited by the cap", resumed: []string{"step-b"}, stillLimited: []string{"step-a"},
+			want: "epic " + testEpicID + ": phase accepted\n" +
+				"resumed 1 limited steps: step-b; 1 left limited by the step cap: step-a",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1034,25 +1068,8 @@ func TestEpicResumeResultCarriesEpicResumedAndStillLimited(t *testing.T) {
 			if n := fake.calls().total(); n != 1 {
 				t.Fatalf("epic_resume made %d service calls, want 1", n)
 			}
-			var fields map[string]json.RawMessage
-			if err := json.Unmarshal([]byte(outcome.text), &fields); err != nil {
-				t.Fatalf("decode result %q: %v", outcome.text, err)
-			}
-			for _, key := range []string{"epic", "resumed", "stillLimited"} {
-				if _, ok := fields[key]; !ok {
-					t.Fatalf("epic_resume result %s lacks %q", outcome.text, key)
-				}
-			}
-			var got v1.ResumeEpicResponse
-			unmarshalResult(t, outcome.text, &got)
-			if !proto.Equal(got.GetEpic(), stored) {
-				t.Fatalf("epic = %v, want the stored epic", got.GetEpic())
-			}
-			if !slices.Equal(got.GetResumed(), tc.resumed) {
-				t.Fatalf("resumed = %v, want %v", got.GetResumed(), tc.resumed)
-			}
-			if !slices.Equal(got.GetStillLimited(), tc.stillLimited) {
-				t.Fatalf("still_limited = %v, want %v", got.GetStillLimited(), tc.stillLimited)
+			if outcome.text != tc.want {
+				t.Fatalf("epic_resume text = %q, want %q", outcome.text, tc.want)
 			}
 		})
 	}
@@ -1106,10 +1123,9 @@ func TestCallEpicToolRunsTheNamedTool(t *testing.T) {
 	if ids := requestIDs(fake.calls().pauses); !slices.Equal(ids, []string{testEpicID}) {
 		t.Fatalf("PauseEpic request ids = %v, want [%s]", ids, testEpicID)
 	}
-	var got v1.StoredEpic
-	unmarshalResult(t, result.Content[0].Text, &got)
-	if !proto.Equal(&got, stored) {
-		t.Fatalf("CallEpicTool(epic_pause) text = %s, want the stored epic", result.Content[0].Text)
+	want := "epic " + testEpicID + ": phase accepted\npaused"
+	if result.Content[0].Text != want {
+		t.Fatalf("CallEpicTool(epic_pause) text = %q, want %q", result.Content[0].Text, want)
 	}
 }
 

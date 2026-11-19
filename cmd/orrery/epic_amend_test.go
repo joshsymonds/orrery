@@ -69,17 +69,8 @@ func TestAmendEpicCLISendsTheToolsRequest(t *testing.T) {
 			if !ok || sent.GetRequirement() != "R2" || !proto.Equal(sent.GetItem(), &item) {
 				t.Errorf("request = %v, want R2 with the item %v", got[0], &item)
 			}
-			var printed struct {
-				Amendment struct {
-					Requirement string `json:"requirement"`
-					State       string `json:"state"`
-				} `json:"amendment"`
-			}
-			if err = json.Unmarshal([]byte(stdout), &printed); err != nil {
-				t.Fatalf("stdout %q is not the tool's JSON: %v", stdout, err)
-			}
-			if printed.Amendment.Requirement != "R2" || printed.Amendment.State != "checking" {
-				t.Errorf("printed amendment = %+v, want R2 checking", printed.Amendment)
+			if wantOut := result.Content[0].Text + "\n"; stdout != wantOut {
+				t.Errorf("stdout = %q, want the tool's text %q", stdout, wantOut)
 			}
 		})
 	}

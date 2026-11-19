@@ -23,8 +23,10 @@
 #   - proto-lint, proto-breaking and gen-diff when proto/ changed.
 #   - web-check and web-page when web/ changed (outside web/build).
 #   - alert-check when observability/ changed.
-#   - android-test when android/ or proto/ changed.
+#   - android-test when android/ changed. A proto/ change that reaches the Android client regenerates its code under
+#     android/ (gen-diff keeps it committed), so it selects android-test too; one that does not reach it selects nothing.
 #   - gate-remote-test when scripts/gate-remote.sh or its test changed.
+#   - box-cache-test when scripts/box-cache.sh or its test changed.
 #   - test-deadline-test when scripts/test-deadline.sh or its test changed.
 #   - test-budget-test when scripts/test-budget.sh or its test changed.
 #   - pin-check always (it is fast).
@@ -155,9 +157,10 @@ if has '^proto/'; then within "proto checks" just proto-lint proto-breaking gen-
 if printf '%s\n' "$changed" | grep -E '^(web/|android/app/src/main/kotlin/io/github/joshsymonds/orrery/ui/)' | grep -vqE '^web/build/'; then within "web checks" just web-check web-page; fi
 if has '^observability/'; then within alert-check just alert-check; fi
 if has '^scripts/gate-remote(-test)?\.sh$'; then within gate-remote-test just gate-remote-test; fi
+if has '^scripts/box-cache(-test)?\.sh$'; then within box-cache-test just box-cache-test; fi
 if has '^scripts/test-deadline(-test)?\.sh$'; then within test-deadline-test just test-deadline-test; fi
 if has '^scripts/test-budget(-test)?\.sh$'; then within test-budget-test just test-budget-test; fi
-if has '^(android/|proto/)'; then
+if has '^android/'; then
     within android-test just android-test
 else
     echo "check-changed: Android untouched; android-test skipped"

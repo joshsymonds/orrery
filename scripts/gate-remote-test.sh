@@ -3,10 +3,10 @@
 # Tests scripts/gate-remote.sh without AWS or a network: the "box" is a directory standing in for the orrery user's home,
 # reached through a fake ssh that runs each remote command there. A fixture repository carries a copy of the script and
 # a scripts/in-devenv that runs bash directly. Covers the push, the sync, the run, exit codes, waiting for a box when
-# the known one is gone, the local fallback when none can come up, a box lost mid-run, connections that drop mid-run
-# while the box stays up (the run's status and its whole output, once, after one drop or many), a run that cannot be
-# collected or never records its exit, stopping the script and killing it outright, and `wake` against a fake ec2,
-# including two runs that share one launch.
+# the known one is gone, the box cache wrapping a run, the local fallback when none can come up, a box lost mid-run,
+# connections that drop mid-run while the box stays up (the run's status and its whole output, once, after one drop or
+# many), a run that cannot be collected or never records its exit, stopping the script and killing it outright, and
+# `wake` against a fake ec2, including two runs that share one launch.
 #
 # Usage: scripts/gate-remote-test.sh   (exits 0 when every case passes)
 
@@ -381,6 +381,27 @@ expect_status 0 "sync removes deleted files and keeps the box's ignored output"
 # A remote command that exits 255 itself is the command's result, not a lost box.
 gate "$root/out" "$root/err" bash -c 'exit 255'
 expect_status 255 "a command's own 255 comes back as 255"
+
+# A box that mounts no fleet cache runs the command as it is; one with a cache root runs it under
+# scripts/box-cache.sh run with that root, and the command's output and status come back through it.
+cat >"$work/scripts/box-cache.sh" <<'EOF'
+#!/usr/bin/env bash
+echo "$1 $2" >>"$FAKE_ROOT/box-cache.calls"
+shift 2
+exec "$@"
+EOF
+chmod +x "$work/scripts/box-cache.sh"
+rm -f "$root/box-cache.calls"
+gate "$root/out" "$root/err" true
+expect_status 0 "a box with no fleet cache runs the command"
+expect "a box with no fleet cache runs no box cache" test ! -e "$root/box-cache.calls"
+export ORRERY_BOX_CACHE_ROOT="$root/fleet"
+gate "$root/out" "$root/err" bash -c 'echo cached-ran; exit 6'
+unset ORRERY_BOX_CACHE_ROOT
+expect_status 6 "a cached run returns the command's status"
+expect_line "$root/out" '^cached-ran$' "a cached run's output comes back"
+expect_line "$root/box-cache.calls" "^run $root/fleet\$" "a box with a cache root runs the command under box-cache.sh run"
+rm "$work/scripts/box-cache.sh"
 
 # gone <pid>: true once the process has ended; the scope's stop signals it, so wait for it a little.
 gone() {

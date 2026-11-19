@@ -34,6 +34,10 @@
 #          systemd user scope, orrery-gate-<run>.scope, which is stopped when the run ends or is stopped: whatever the
 #          command left behind (a timed-out test's daemons, a Gradle daemon) ends with it, since a process stays in its
 #          scope's cgroup however it detaches. A box whose user manager does not answer runs nothing.
+#          On a box that mounts the fleet S3 cache at ~/.cache/fleet, the command runs under
+#          `scripts/box-cache.sh run ~/.cache/fleet/box`, which restores the Go caches an earlier box saved before it and
+#          saves them after a command that exited 0 (see that script); $ORRERY_BOX_CACHE_ROOT on the box names another
+#          cache root, and empty runs without one.
 #          The run lives apart from every connection: one short connection starts it on the box in a session of its
 #          own (host_launch), with its stdout and stderr in out and err in the checkout's .meta, beside its exit record,
 #          and the output comes back over two more connections, one per log, each following its log until the run ends
@@ -348,6 +352,18 @@ while [ -z "$slot_fd" ]; do
     end_waiters
 done
 echo "gate-remote: took $label slot $slot of $slots on $(uname -n) after $(($(date +%s) - start))s" >&2
+# The command runs under scripts/box-cache.sh run when the box mounts the fleet S3 cache, so a fresh box starts from the
+# caches an earlier box saved. ORRERY_BOX_CACHE_ROOT names the cache root in place of the mount (empty: no cache).
+if [ -n "${ORRERY_BOX_CACHE_ROOT+x}" ]; then
+    cache_root="$ORRERY_BOX_CACHE_ROOT"
+elif mountpoint -q "$HOME/.cache/fleet" 2>/dev/null; then
+    cache_root="$HOME/.cache/fleet/box"
+else
+    cache_root=""
+fi
+if [ -n "$cache_root" ] && [ -x scripts/box-cache.sh ]; then
+    set -- scripts/box-cache.sh run "$cache_root" "$@"
+fi
 systemd-run --user --scope --quiet --collect -p TimeoutStopSec=15 --unit="$unit" -- \
     scripts/in-devenv -c '"$@"; exit $?' orrery-gate-run "$@" {slot_fd}>&- &
 wait "$!"

@@ -12,9 +12,6 @@ import (
 	"strconv"
 	"strings"
 
-	"google.golang.org/protobuf/encoding/protojson"
-
-	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/stepmcp"
 )
@@ -98,8 +95,9 @@ type epicAnswerArgs struct {
 
 // epicCommand implements `orrery epic`. Each form turns its arguments into the arguments of the epic tool epic_<verb>
 // and calls that tool through stepmcp.CallEpicTool, as the MCP server does. It prints the tool's result text on stdout
-// with a newline. A refusal returns an error carrying the tool's text and prints nothing. For answer, a non-empty
-// warning in the result is also printed on stderr. A wrong form returns a usage error naming the form it wants.
+// with a newline. A refusal returns an error carrying the tool's text and prints nothing. For answer, the rest of the
+// acknowledgement's warning line is also printed on stderr. A wrong form returns a usage error naming the form it
+// wants.
 // lineage reads the Epics client directly instead of calling an epic tool.
 func epicCommand(
 	ctx context.Context, epics enginev1connect.EpicsClient, args []string, stdin io.Reader, stdout, stderr io.Writer,
@@ -318,13 +316,11 @@ func epicAnswer(
 	if err != nil {
 		return err
 	}
-	var answered v1.AnswerEpicResponse
-	if err = protojson.Unmarshal([]byte(text), &answered); err != nil {
-		return fmt.Errorf("epic answer: read result: %w", err)
-	}
 	fmt.Fprintln(stdout, text)
-	if answered.GetWarning() != "" {
-		fmt.Fprintln(stderr, answered.GetWarning())
+	for line := range strings.SplitSeq(text, "\n") {
+		if warning, ok := strings.CutPrefix(line, "warning: "); ok {
+			fmt.Fprintln(stderr, warning)
+		}
 	}
 	return nil
 }
