@@ -85,6 +85,7 @@ export function Reader({
   onAnswer,
   onToggleOpen,
   onOlder,
+  onNewest,
   register,
   sending = [],
   find,
@@ -98,6 +99,7 @@ export function Reader({
   onAnswer?: (choice: 1 | 2 | 3) => void;
   onToggleOpen?: () => void;
   onOlder?: () => void;
+  onNewest?: (atNewest: boolean) => void; // told each time the owner's scroll or a page changes whether the reader is pinned
   register?: (handle: ReaderHandle | null) => void; // gets the handle while mounted, and null once unmounted
   sending?: Sending[];
   find?: { query: string; matches: Match[]; current: number };
@@ -176,7 +178,11 @@ export function Reader({
   const followScroll = (): void => {
     const reader = root.current;
     if (reader !== null) {
+      const wasPinned = pinned.current;
       pinned.current = distanceFromBottom(reader) <= nearBottomPixels;
+      if (pinned.current !== wasPinned) {
+        onNewest?.(pinned.current);
+      }
     }
     askOlder();
   };
@@ -205,6 +211,7 @@ export function Reader({
     // A conversation that opens starts pinned at its bottom, whatever the owner did to the one shown before it.
     if (opening) {
       pinned.current = true;
+      onNewest?.(true);
     }
     // A render that draws items above the first row shown before keeps that row where it was: the reader moves by
     // how much its content grew above it.

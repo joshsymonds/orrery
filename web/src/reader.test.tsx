@@ -68,6 +68,7 @@ interface Props {
   onAnswer?: (choice: 1 | 2 | 3) => void;
   onToggleOpen?: () => void;
   onOlder?: () => void;
+  onNewest?: (atNewest: boolean) => void;
   register?: (handle: ReaderHandle | null) => void;
   sending?: Sending[];
   find?: { query: string; matches: Match[]; current: number };
@@ -1272,6 +1273,87 @@ test("PinnedScroll: a conversation that opens after a null one follows its items
       "the row that opened follows its items as they outgrow the viewport",
     );
   }));
+
+// newestReports is an onNewest that records each report the reader makes, in order.
+function newestReports(): { reports: boolean[]; onNewest: (atNewest: boolean) => void } {
+  const reports: boolean[] = [];
+  return {
+    reports,
+    onNewest: (atNewest) => {
+      reports.push(atNewest);
+    },
+  };
+}
+
+test("PhoneHead: a conversation that opens reports that the owner is at its newest line", () => {
+  const newest = newestReports();
+  return withScrollingReader({ ...readerProps(heldItems(1, 20)), onNewest: newest.onNewest }, () => {
+    assert.deepEqual(newest.reports, [true]);
+  });
+});
+
+test("PhoneHead: an owner scroll away from the bottom reports not at newest, and a further scroll away reports nothing", () => {
+  const newest = newestReports();
+  return withScrollingReader({ ...readerProps(heldItems(1, 20)), onNewest: newest.onNewest }, (container) => {
+    const reader = readerOf(container);
+    reader.scrollTop = 500;
+    reader.dispatchEvent(new Event("scroll"));
+    assert.deepEqual(newest.reports, [true, false]);
+
+    reader.scrollTop = 400;
+    reader.dispatchEvent(new Event("scroll"));
+    assert.deepEqual(newest.reports, [true, false], "a scroll that leaves the reader away from its bottom reports nothing");
+  });
+});
+
+test("PhoneHead: scrolling back to the bottom reports at newest", () => {
+  const newest = newestReports();
+  return withScrollingReader({ ...readerProps(heldItems(1, 20)), onNewest: newest.onNewest }, (container) => {
+    const reader = readerOf(container);
+    reader.scrollTop = 500;
+    reader.dispatchEvent(new Event("scroll"));
+
+    reader.scrollTop = reader.scrollHeight;
+    reader.dispatchEvent(new Event("scroll"));
+    assert.deepEqual(newest.reports, [true, false, true]);
+  });
+});
+
+test("PhoneHead: a scroll that leaves the reader at its bottom reports nothing", () => {
+  const newest = newestReports();
+  return withScrollingReader({ ...readerProps(heldItems(1, 20)), onNewest: newest.onNewest }, (container) => {
+    const reader = readerOf(container);
+    reader.scrollTop = reader.scrollHeight;
+    reader.dispatchEvent(new Event("scroll"));
+    assert.deepEqual(newest.reports, [true]);
+  });
+});
+
+test("PhoneHead: a render that grows the content reports nothing, at the bottom or above a reader the owner scrolled up", () => {
+  const newest = newestReports();
+  return withScrollingReader({ ...readerProps(heldItems(1, 20)), onNewest: newest.onNewest }, async (container, rerender) => {
+    const reader = readerOf(container);
+    await rerender({ ...readerProps(heldItems(1, 21)), onNewest: newest.onNewest });
+    assert.deepEqual(newest.reports, [true], "a new item at the bottom reports nothing");
+
+    reader.scrollTop = 500;
+    reader.dispatchEvent(new Event("scroll"));
+    await rerender({ ...readerProps(heldItems(1, 22)), onNewest: newest.onNewest });
+    assert.deepEqual(newest.reports, [true, false], "a new item under a reader the owner scrolled up reports nothing");
+  });
+});
+
+test("PhoneHead: a page up from the bottom reports not at newest", () => {
+  const holder: { handle: ReaderHandle | null } = { handle: null };
+  const newest = newestReports();
+  return withScrollingReader(
+    pagedProps({ ...readerProps(heldItems(1, 20)), onNewest: newest.onNewest }, holder),
+    () => {
+      assert.equal(handleOf(holder).page("up"), true);
+      assert.deepEqual(newest.reports, [true, false]);
+    },
+  );
+});
 
 // olderItems are count replies older than heldItems, each with its own text, so a page of them is drawn above the held
 // rows.
