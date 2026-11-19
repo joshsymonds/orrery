@@ -95,34 +95,75 @@ func stepEndNew(attrs []EventAttr, brief StepBrief) *stepEndState {
 
 // stepEndFit gives way the parts of st, one stage at a time, until the block fits. Each stage changes only what the
 // stages before it have left, and stops as soon as the block fits.
+//
+// The block is never built to be measured. Its length is frame plus units: frame is its opening tag, the newline after
+// it and its closing tag, and units is the sum over its body lines of each line's units (see stepEndLineUnit). units
+// starts as the total of the body as stepEndNew leaves it, and each stage moves it by the lines it changes. A stage
+// takes the lines it does not change as fixed while it runs, so a probe costs only the units of the line it sets: a
+// count probes the prefix sums of its lines' units, built once for the stage (see stepEndPrefix), and a cut costs the
+// length of each candidate it tries.
 func stepEndFit(st *stepEndState) {
+	// CallerEventBlock of an empty body is frame plus the units of one empty line, which is its newline.
+	frame := len(CallerEventBlock(CallerKindStepEnd, st.event, st.attrs, "")) - 1
+	fits := func(units int) bool { return frame+units <= StepEndBlockCap }
+	omitSums := stepEndOmitSums(st.omits)
+	failSums := stepEndCheckSums(st.failed)
+	// Every part is shown when fitting starts, as stepEndNew leaves it.
+	units := stepEndLineUnit(st.more) + stepEndChecksUnit(st, failSums, st.failKept) +
+		stepEndNotShownUnit(omitSums, st.omitKept)
+	if st.reason != "" {
+		units += stepEndReasonUnit(st.reason)
+	}
+	for _, shown := range st.shown {
+		units += stepEndShownUnit(shown.name, shown.value)
+	}
+
+	// The Not shown entries, from the end.
+	base := units - stepEndNotShownUnit(omitSums, st.omitKept)
 	st.omitKept = stepEndKeep(len(st.omits), func(k int) bool {
-		st.omitKept = k
-		return stepEndFits(st)
+		return fits(base + stepEndNotShownUnit(omitSums, k))
 	})
-	for i := len(st.shown) - 1; i >= 0 && !stepEndFits(st); i-- {
-		if st.shown[i].short {
-			st.shown[i].value = stepEndCut(st.shown[i].value, func(v string) bool {
-				st.shown[i].value = v
-				return stepEndFits(st)
-			})
+	units = base + stepEndNotShownUnit(omitSums, st.omitKept)
+
+	// The short strings, the last first.
+	for i := len(st.shown) - 1; i >= 0 && !fits(units); i-- {
+		shown := &st.shown[i]
+		if !shown.short {
+			continue
 		}
+		others := units - stepEndShownUnit(shown.name, shown.value)
+		shown.value = stepEndCut(shown.value, func(kept string) bool {
+			return fits(others + stepEndShownUnit(shown.name, kept) + len("..."))
+		})
+		units = others + stepEndShownUnit(shown.name, shown.value)
 	}
+
+	// The failing checks past those kept.
 	if len(st.failed) > 0 {
+		base = units - stepEndChecksUnit(st, failSums, st.failKept)
 		st.failKept = stepEndKeep(len(st.failed), func(k int) bool {
-			st.failKept = k
-			return stepEndFits(st)
+			return fits(base + stepEndChecksUnit(st, failSums, k))
 		})
+		units = base + stepEndChecksUnit(st, failSums, st.failKept)
 	}
-	if st.reason != "" && !stepEndFits(st) {
-		st.reason = stepEndCut(st.reason, func(v string) bool {
-			st.reason = v
-			return stepEndFits(st)
+
+	// The reason, cut.
+	if st.reason != "" && !fits(units) {
+		base = units - stepEndReasonUnit(st.reason)
+		st.reason = stepEndCut(st.reason, func(kept string) bool {
+			return fits(base + stepEndReasonUnit(kept) + len("..."))
 		})
+		units = base + stepEndReasonUnit(st.reason)
 	}
+
+	// The field or Return lines, from the end, with the "..." line that stands for those given way. Their values are
+	// final now, so their units are summed afresh.
+	sums := stepEndPrefix(len(st.shown), func(i int) int {
+		return stepEndShownUnit(st.shown[i].name, st.shown[i].value)
+	})
+	base = units - sums[len(st.shown)]
 	st.shownKept = stepEndKeep(len(st.shown), func(k int) bool {
-		st.shownKept = k
-		return stepEndFits(st)
+		return fits(base + stepEndShownPart(sums, k))
 	})
 }
 
@@ -139,38 +180,150 @@ func stepEndKeep(n int, fitsWith func(int) bool) int {
 }
 
 // stepEndCut returns text cut to its longest rune prefix followed by "..." that fitsWith holds for, or "..." when even
-// the empty prefix does not fit. Text that is empty is returned as it is. fitsWith sets the candidate it is given on
-// the state and reports whether the block fits with it, so the caller sets the value returned.
-func stepEndCut(text string, fitsWith func(string) bool) string {
+// the empty prefix does not fit. Text that is empty is returned as it is. fitsWith reports whether the block fits with
+// the prefix it is given in place of text, followed by "...", and the caller sets the value returned.
+func stepEndCut(text string, fitsWith func(kept string) bool) string {
 	if text == "" {
 		return text
 	}
-	bounds := stepEndRuneBounds(text)
-	if !fitsWith("...") {
+	if !fitsWith("") {
 		return "..."
 	}
-	// The first prefix that does not fit comes after the longest that does, which is at least the empty one.
-	runes := len(bounds) - 1
-	first := sort.Search(runes, func(m int) bool { return !fitsWith(text[:bounds[m]] + "...") })
-	return text[:bounds[first-1]] + "..."
+	// The first prefix that does not fit comes after the longest that does, which is at least the empty one. The
+	// prefixes are bisected by their rune count, and each is found by walking to it, so a probe costs the length of text
+	// and no probe allocates.
+	runes := stepEndRuneCount(text)
+	first := sort.Search(runes, func(m int) bool { return !fitsWith(text[:stepEndRuneOffset(text, m)]) })
+	return text[:stepEndRuneOffset(text, first-1)] + "..."
 }
 
-// stepEndRuneBounds returns the byte offset of each rune boundary of text, from 0 to len(text). A byte that is not
-// UTF-8 counts as a rune of its own, so a cut keeps the bytes of text.
-func stepEndRuneBounds(text string) []int {
-	bounds := []int{0}
-	for i := 0; i < len(text); {
+// stepEndRuneCount returns how many runes text has, where a byte that is not UTF-8 counts as a rune of its own, so a
+// cut keeps the bytes of text.
+func stepEndRuneCount(text string) int {
+	n := 0
+	for i := 0; i < len(text); n++ {
 		_, size := utf8.DecodeRuneInString(text[i:])
 		i += size
-		bounds = append(bounds, i)
 	}
-	return bounds
+	return n
 }
 
-// stepEndFits reports whether the block of st is at most StepEndBlockCap bytes.
-func stepEndFits(st *stepEndState) bool {
-	body := strings.Join(stepEndLines(st), "\n")
-	return len(CallerEventBlock(CallerKindStepEnd, st.event, st.attrs, body)) <= StepEndBlockCap
+// stepEndRuneOffset returns the byte offset just after the first m runes of text, counted as stepEndRuneCount counts
+// them. m is at most the rune count of text.
+func stepEndRuneOffset(text string, m int) int {
+	offset := 0
+	for range m {
+		_, size := utf8.DecodeRuneInString(text[offset:])
+		offset += size
+	}
+	return offset
+}
+
+// stepEndEscapedLen returns the length of s once escapeEvent has escaped it: each & < > " takes the bytes of its
+// entity, and every other byte is kept. It counts the bytes escapeEvent would write, without writing them.
+func stepEndEscapedLen(s string) int {
+	n := len(s)
+	for i := range len(s) {
+		switch s[i] {
+		case '&':
+			n += len("&amp;") - 1
+		case '<', '>':
+			n += len("&lt;") - 1
+		case '"':
+			n += len("&quot;") - 1
+		}
+	}
+	return n
+}
+
+// stepEndLineUnit returns the units of a body line that reads as text: its escaped length and the newline after it.
+// The newline after the block's tag is in frame, not here.
+func stepEndLineUnit(text string) int {
+	return stepEndEscapedLen(text) + 1
+}
+
+// stepEndShownUnit returns the units of the line of a field or the Return: its name and value joined by ": ". A value
+// cut to a kept prefix and "..." adds len("...") to the units of the kept prefix.
+func stepEndShownUnit(name, value string) int {
+	return stepEndEscapedLen(name) + len(": ") + stepEndEscapedLen(value) + 1
+}
+
+// stepEndReasonUnit returns the units of the Reason line of reason, which the caller leaves off when reason is empty.
+// A reason cut to a kept prefix and "..." adds len("...") to the units of the kept prefix.
+func stepEndReasonUnit(reason string) int {
+	return stepEndEscapedLen("Reason: ") + stepEndEscapedLen(reason) + 1
+}
+
+// stepEndNotShownUnit returns the units of the Not shown line when its first k entries are kept. sums holds the prefix
+// sums of the entries' escaped lengths (see stepEndPrefix), so it has one more entry than there are entries. The line
+// joins the kept entries, then "..." when some are given way, by ", ".
+func stepEndNotShownUnit(sums []int, k int) int {
+	n := len(sums) - 1
+	if n == 0 {
+		return stepEndLineUnit("Not shown: none")
+	}
+	parts, sum := k, sums[k]
+	if k < n {
+		parts++
+		sum += stepEndEscapedLen("...")
+	}
+	return stepEndEscapedLen("Not shown: ") + stepEndJoined(sum, parts, len(", ")) + 1
+}
+
+// stepEndChecksUnit returns the units of the Checks line of st when its first k failing checks are named. sums holds
+// the prefix sums of the escaped lengths of the names (see stepEndPrefix). The line is left off when st has no checks.
+// The line has the same text as stepEndChecks gives it.
+func stepEndChecksUnit(st *stepEndState, sums []int, k int) int {
+	failed := len(st.failed)
+	if st.passed+failed == 0 {
+		return 0
+	}
+	head := fmt.Sprintf("Checks: %d passed", st.passed)
+	if failed > 0 {
+		head += fmt.Sprintf(", %d failed: ", failed)
+	}
+	if k == failed {
+		return stepEndEscapedLen(head) + stepEndJoined(sums[failed], failed, len(", ")) + 1
+	}
+	// The names kept, then the count of those given way, which is the last part of the line.
+	tail := fmt.Sprintf("... (%d more)", failed-k)
+	return stepEndEscapedLen(head) + stepEndJoined(sums[k]+stepEndEscapedLen(tail), k+1, len(", ")) + 1
+}
+
+// stepEndShownPart returns the units of the first k field or Return lines, given the prefix sums of their units (see
+// stepEndPrefix), and of the "..." line when some are given way.
+func stepEndShownPart(sums []int, k int) int {
+	if k < len(sums)-1 {
+		return sums[k] + stepEndLineUnit("...")
+	}
+	return sums[k]
+}
+
+// stepEndJoined returns the length of parts pieces totalling sum bytes, joined by a separator sep bytes long.
+func stepEndJoined(sum, parts, sep int) int {
+	if parts == 0 {
+		return 0
+	}
+	return sum + sep*(parts-1)
+}
+
+// stepEndPrefix returns the prefix sums of n lengths: sums[k] is the sum of the first k of them, so sums has n+1 entries.
+func stepEndPrefix(n int, length func(i int) int) []int {
+	sums := make([]int, n+1)
+	for i := range n {
+		sums[i+1] = sums[i] + length(i)
+	}
+	return sums
+}
+
+// stepEndOmitSums returns the prefix sums of the escaped lengths of the Not shown entries of omits.
+func stepEndOmitSums(omits []BriefOmit) []int {
+	return stepEndPrefix(len(omits), func(i int) int { return stepEndEscapedLen(stepEndOmitEntry(omits[i])) })
+}
+
+// stepEndCheckSums returns the prefix sums of the escaped lengths of the names of failed checks on the Checks line.
+func stepEndCheckSums(failed []StepCheck) []int {
+	return stepEndPrefix(len(failed), func(i int) int { return stepEndEscapedLen(stepEndCheckName(failed[i])) })
 }
 
 // stepEndLines returns the lines of the body of st, unescaped, in the order the brief gives: the fields or the Return,
@@ -193,6 +346,16 @@ func stepEndLines(st *stepEndState) []string {
 	return append(lines, st.more)
 }
 
+// stepEndOmitEntry returns an entry of the Not shown line: the name of a part and its raw size.
+func stepEndOmitEntry(omit BriefOmit) string {
+	return fmt.Sprintf("%s (%d bytes)", omit.Name, omit.Bytes)
+}
+
+// stepEndCheckName returns a failing check as the Checks line names it: its name and its round.
+func stepEndCheckName(check StepCheck) string {
+	return fmt.Sprintf("%s round %d", check.Name, check.Round)
+}
+
 // stepEndNotShown returns the Not shown line of st: its entries kept, then "..." when some are given way.
 func stepEndNotShown(st *stepEndState) string {
 	if len(st.omits) == 0 {
@@ -200,7 +363,7 @@ func stepEndNotShown(st *stepEndState) string {
 	}
 	parts := make([]string, 0, st.omitKept+1)
 	for _, omit := range st.omits[:st.omitKept] {
-		parts = append(parts, fmt.Sprintf("%s (%d bytes)", omit.Name, omit.Bytes))
+		parts = append(parts, stepEndOmitEntry(omit))
 	}
 	if st.omitKept < len(st.omits) {
 		parts = append(parts, "...")
@@ -217,7 +380,7 @@ func stepEndChecks(st *stepEndState) string {
 	}
 	names := make([]string, 0, st.failKept)
 	for _, check := range st.failed[:st.failKept] {
-		names = append(names, fmt.Sprintf("%s round %d", check.Name, check.Round))
+		names = append(names, stepEndCheckName(check))
 	}
 	line += fmt.Sprintf(", %d failed: ", len(st.failed))
 	switch {

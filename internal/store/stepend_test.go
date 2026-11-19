@@ -2,6 +2,8 @@ package store_test
 
 import (
 	"fmt"
+	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -345,5 +347,71 @@ func TestStepEventBriefBoundStagesGiveWayInOrder(t *testing.T) {
 	}
 	if !reached.notShown || !reached.shorts || !reached.checks || !reached.reason {
 		t.Fatalf("stages reached = %+v, want every stage reached by some reason length", reached)
+	}
+}
+
+// stepEndTestRepeated returns a JSON object of n copies of member, n being at least 1.
+func stepEndTestRepeated(member string, n int) string {
+	return "{" + strings.Repeat(member+",", n-1) + member + "}"
+}
+
+// stepEndTestBlockAllocs returns the block of step and the bytes allocated while StepEndBlock made it.
+func stepEndTestBlockAllocs(step store.StepRow) (string, uint64) {
+	runtime.GC()
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	block := store.StepEndBlock(step)
+	runtime.ReadMemStats(&after)
+	return block, after.TotalAlloc - before.TotalAlloc
+}
+
+// TestStepEventBriefBoundManyFieldsShortStrings: a return of 2000 members, each a short string field, is briefed in at
+// most 1 MiB plus 4 KiB per member, and its block is bounded, ends in its More line and opens with a field line.
+func TestStepEventBriefBoundManyFieldsShortStrings(t *testing.T) {
+	const members = 2000
+	step := store.StepRow{
+		ID: "s1", Agent: "implementer", End: "done", Status: "passed",
+		Schema: `{"type":"object","properties":{"a":{"type":"string"}}}`,
+		Result: stepEndTestRepeated(`"a":"`+strings.Repeat("x", 100)+`"`, members),
+	}
+	block, allocated := stepEndTestBlockAllocs(step)
+	if limit := uint64(1<<20 + 4096*members); allocated > limit {
+		t.Fatalf("StepEndBlock allocated %d bytes, want at most %d", allocated, limit)
+	}
+	if len(block) > store.StepEndBlockCap {
+		t.Fatalf("block is %d bytes, want at most %d", len(block), store.StepEndBlockCap)
+	}
+	body := stepEndTestBody(block)
+	if last := body[len(body)-1]; last != stepEndTestMore {
+		t.Fatalf("last line = %q, want %q", last, stepEndTestMore)
+	}
+	if !strings.HasPrefix(body[0], "a: ") {
+		t.Fatalf("first line = %q, want a field line", body[0])
+	}
+}
+
+// TestStepEventBriefBoundManyFieldsScalars: a return of 5000 members, each an enum scalar field, is briefed in at most
+// 1 MiB plus 4 KiB per member, and its block is bounded, holds a "..." line for the dropped fields and ends in its More
+// line.
+func TestStepEventBriefBoundManyFieldsScalars(t *testing.T) {
+	const members = 5000
+	step := store.StepRow{
+		ID: "s1", Agent: "implementer", End: "done", Status: "passed",
+		Schema: `{"type":"object","properties":{"v":{"enum":["yes","no"]}}}`,
+		Result: stepEndTestRepeated(`"v":"yes"`, members),
+	}
+	block, allocated := stepEndTestBlockAllocs(step)
+	if limit := uint64(1<<20 + 4096*members); allocated > limit {
+		t.Fatalf("StepEndBlock allocated %d bytes, want at most %d", allocated, limit)
+	}
+	if len(block) > store.StepEndBlockCap {
+		t.Fatalf("block is %d bytes, want at most %d", len(block), store.StepEndBlockCap)
+	}
+	body := stepEndTestBody(block)
+	if last := body[len(body)-1]; last != stepEndTestMore {
+		t.Fatalf("last line = %q, want %q", last, stepEndTestMore)
+	}
+	if !slices.Contains(body, "...") {
+		t.Fatalf("body %q has no ... line for the dropped fields", body)
 	}
 }
