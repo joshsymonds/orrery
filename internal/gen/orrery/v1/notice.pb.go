@@ -445,6 +445,264 @@ func (*NoticesSeenResponse) Descriptor() ([]byte, []int) {
 	return file_orrery_v1_notice_proto_rawDescGZIP(), []int{6}
 }
 
+// ListedNotice is one notice in the notice history: a notice orreryd showed at the desk or sent away with its desk text
+// built.
+type ListedNotice struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// What the notice is about.
+	Key *NoticeKey `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	// The state the notice reports, such as waiting, done or limited.
+	State string `protobuf:"bytes,2,opt,name=state,proto3" json:"state,omitempty"`
+	// The notice's title.
+	Title string `protobuf:"bytes,3,opt,name=title,proto3" json:"title,omitempty"`
+	// The notice's body.
+	Body string `protobuf:"bytes,4,opt,name=body,proto3" json:"body,omitempty"`
+	// The block of the epic's page the notice opens on; unset opens the epic view.
+	Block *NoticeBlock `protobuf:"bytes,5,opt,name=block,proto3" json:"block,omitempty"`
+	// When the router delivered the notice, in unix seconds.
+	Time int64 `protobuf:"varint,6,opt,name=time,proto3" json:"time,omitempty"`
+	// Whether the owner has read the notice.
+	Read          bool `protobuf:"varint,7,opt,name=read,proto3" json:"read,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListedNotice) Reset() {
+	*x = ListedNotice{}
+	mi := &file_orrery_v1_notice_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListedNotice) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListedNotice) ProtoMessage() {}
+
+func (x *ListedNotice) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_notice_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListedNotice.ProtoReflect.Descriptor instead.
+func (*ListedNotice) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_notice_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *ListedNotice) GetKey() *NoticeKey {
+	if x != nil {
+		return x.Key
+	}
+	return nil
+}
+
+func (x *ListedNotice) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+func (x *ListedNotice) GetTitle() string {
+	if x != nil {
+		return x.Title
+	}
+	return ""
+}
+
+func (x *ListedNotice) GetBody() string {
+	if x != nil {
+		return x.Body
+	}
+	return ""
+}
+
+func (x *ListedNotice) GetBlock() *NoticeBlock {
+	if x != nil {
+		return x.Block
+	}
+	return nil
+}
+
+func (x *ListedNotice) GetTime() int64 {
+	if x != nil {
+		return x.Time
+	}
+	return 0
+}
+
+func (x *ListedNotice) GetRead() bool {
+	if x != nil {
+		return x.Read
+	}
+	return false
+}
+
+// NoticesListRequest asks for the notice history. It has no fields.
+type NoticesListRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NoticesListRequest) Reset() {
+	*x = NoticesListRequest{}
+	mi := &file_orrery_v1_notice_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NoticesListRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NoticesListRequest) ProtoMessage() {}
+
+func (x *NoticesListRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_notice_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NoticesListRequest.ProtoReflect.Descriptor instead.
+func (*NoticesListRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_notice_proto_rawDescGZIP(), []int{8}
+}
+
+// NoticesListResponse is the reply to a List: the notices in the history, newest first.
+type NoticesListResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The notices timed within the last 14 days, newest first.
+	Notices       []*ListedNotice `protobuf:"bytes,1,rep,name=notices,proto3" json:"notices,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NoticesListResponse) Reset() {
+	*x = NoticesListResponse{}
+	mi := &file_orrery_v1_notice_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NoticesListResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NoticesListResponse) ProtoMessage() {}
+
+func (x *NoticesListResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_notice_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NoticesListResponse.ProtoReflect.Descriptor instead.
+func (*NoticesListResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_notice_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *NoticesListResponse) GetNotices() []*ListedNotice {
+	if x != nil {
+		return x.Notices
+	}
+	return nil
+}
+
+// NoticesReadAllRequest asks that every notice in the notice history be marked read. It has no fields.
+type NoticesReadAllRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NoticesReadAllRequest) Reset() {
+	*x = NoticesReadAllRequest{}
+	mi := &file_orrery_v1_notice_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NoticesReadAllRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NoticesReadAllRequest) ProtoMessage() {}
+
+func (x *NoticesReadAllRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_notice_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NoticesReadAllRequest.ProtoReflect.Descriptor instead.
+func (*NoticesReadAllRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_notice_proto_rawDescGZIP(), []int{10}
+}
+
+// NoticesReadAllResponse is the reply to a ReadAll. It has no fields.
+type NoticesReadAllResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NoticesReadAllResponse) Reset() {
+	*x = NoticesReadAllResponse{}
+	mi := &file_orrery_v1_notice_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NoticesReadAllResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NoticesReadAllResponse) ProtoMessage() {}
+
+func (x *NoticesReadAllResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_notice_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NoticesReadAllResponse.ProtoReflect.Descriptor instead.
+func (*NoticesReadAllResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_notice_proto_rawDescGZIP(), []int{11}
+}
+
 var File_orrery_v1_notice_proto protoreflect.FileDescriptor
 
 const file_orrery_v1_notice_proto_rawDesc = "" +
@@ -472,10 +730,25 @@ const file_orrery_v1_notice_proto_rawDesc = "" +
 	"\x06change\"<\n" +
 	"\x12NoticesSeenRequest\x12&\n" +
 	"\x03key\x18\x01 \x01(\v2\x14.orrery.v1.NoticeKeyR\x03key\"\x15\n" +
-	"\x13NoticesSeenResponse2\x9c\x01\n" +
+	"\x13NoticesSeenResponse\"\xcc\x01\n" +
+	"\fListedNotice\x12&\n" +
+	"\x03key\x18\x01 \x01(\v2\x14.orrery.v1.NoticeKeyR\x03key\x12\x14\n" +
+	"\x05state\x18\x02 \x01(\tR\x05state\x12\x14\n" +
+	"\x05title\x18\x03 \x01(\tR\x05title\x12\x12\n" +
+	"\x04body\x18\x04 \x01(\tR\x04body\x12,\n" +
+	"\x05block\x18\x05 \x01(\v2\x16.orrery.v1.NoticeBlockR\x05block\x12\x12\n" +
+	"\x04time\x18\x06 \x01(\x03R\x04time\x12\x12\n" +
+	"\x04read\x18\a \x01(\bR\x04read\"\x14\n" +
+	"\x12NoticesListRequest\"H\n" +
+	"\x13NoticesListResponse\x121\n" +
+	"\anotices\x18\x01 \x03(\v2\x17.orrery.v1.ListedNoticeR\anotices\"\x17\n" +
+	"\x15NoticesReadAllRequest\"\x18\n" +
+	"\x16NoticesReadAllResponse2\xb3\x02\n" +
 	"\aNotices\x12J\n" +
 	"\x05Watch\x12\x1e.orrery.v1.NoticesWatchRequest\x1a\x1f.orrery.v1.NoticesWatchResponse0\x01\x12E\n" +
-	"\x04Seen\x12\x1d.orrery.v1.NoticesSeenRequest\x1a\x1e.orrery.v1.NoticesSeenResponseB\xa0\x01\n" +
+	"\x04Seen\x12\x1d.orrery.v1.NoticesSeenRequest\x1a\x1e.orrery.v1.NoticesSeenResponse\x12E\n" +
+	"\x04List\x12\x1d.orrery.v1.NoticesListRequest\x1a\x1e.orrery.v1.NoticesListResponse\x12N\n" +
+	"\aReadAll\x12 .orrery.v1.NoticesReadAllRequest\x1a!.orrery.v1.NoticesReadAllResponseB\xa0\x01\n" +
 	"\rcom.orrery.v1B\vNoticeProtoP\x01Z=github.com/joshsymonds/orrery/internal/gen/orrery/v1;orreryv1\xa2\x02\x03OXX\xaa\x02\tOrrery.V1\xca\x02\tOrrery\\V1\xe2\x02\x15Orrery\\V1\\GPBMetadata\xea\x02\n" +
 	"Orrery::V1b\x06proto3"
 
@@ -491,31 +764,43 @@ func file_orrery_v1_notice_proto_rawDescGZIP() []byte {
 	return file_orrery_v1_notice_proto_rawDescData
 }
 
-var file_orrery_v1_notice_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_orrery_v1_notice_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_orrery_v1_notice_proto_goTypes = []any{
-	(*NoticeKey)(nil),            // 0: orrery.v1.NoticeKey
-	(*NoticeBlock)(nil),          // 1: orrery.v1.NoticeBlock
-	(*InAppNotice)(nil),          // 2: orrery.v1.InAppNotice
-	(*NoticesWatchRequest)(nil),  // 3: orrery.v1.NoticesWatchRequest
-	(*NoticesWatchResponse)(nil), // 4: orrery.v1.NoticesWatchResponse
-	(*NoticesSeenRequest)(nil),   // 5: orrery.v1.NoticesSeenRequest
-	(*NoticesSeenResponse)(nil),  // 6: orrery.v1.NoticesSeenResponse
+	(*NoticeKey)(nil),              // 0: orrery.v1.NoticeKey
+	(*NoticeBlock)(nil),            // 1: orrery.v1.NoticeBlock
+	(*InAppNotice)(nil),            // 2: orrery.v1.InAppNotice
+	(*NoticesWatchRequest)(nil),    // 3: orrery.v1.NoticesWatchRequest
+	(*NoticesWatchResponse)(nil),   // 4: orrery.v1.NoticesWatchResponse
+	(*NoticesSeenRequest)(nil),     // 5: orrery.v1.NoticesSeenRequest
+	(*NoticesSeenResponse)(nil),    // 6: orrery.v1.NoticesSeenResponse
+	(*ListedNotice)(nil),           // 7: orrery.v1.ListedNotice
+	(*NoticesListRequest)(nil),     // 8: orrery.v1.NoticesListRequest
+	(*NoticesListResponse)(nil),    // 9: orrery.v1.NoticesListResponse
+	(*NoticesReadAllRequest)(nil),  // 10: orrery.v1.NoticesReadAllRequest
+	(*NoticesReadAllResponse)(nil), // 11: orrery.v1.NoticesReadAllResponse
 }
 var file_orrery_v1_notice_proto_depIdxs = []int32{
-	0, // 0: orrery.v1.InAppNotice.key:type_name -> orrery.v1.NoticeKey
-	1, // 1: orrery.v1.InAppNotice.block:type_name -> orrery.v1.NoticeBlock
-	2, // 2: orrery.v1.NoticesWatchResponse.shown:type_name -> orrery.v1.InAppNotice
-	0, // 3: orrery.v1.NoticesWatchResponse.ended:type_name -> orrery.v1.NoticeKey
-	0, // 4: orrery.v1.NoticesSeenRequest.key:type_name -> orrery.v1.NoticeKey
-	3, // 5: orrery.v1.Notices.Watch:input_type -> orrery.v1.NoticesWatchRequest
-	5, // 6: orrery.v1.Notices.Seen:input_type -> orrery.v1.NoticesSeenRequest
-	4, // 7: orrery.v1.Notices.Watch:output_type -> orrery.v1.NoticesWatchResponse
-	6, // 8: orrery.v1.Notices.Seen:output_type -> orrery.v1.NoticesSeenResponse
-	7, // [7:9] is the sub-list for method output_type
-	5, // [5:7] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	0,  // 0: orrery.v1.InAppNotice.key:type_name -> orrery.v1.NoticeKey
+	1,  // 1: orrery.v1.InAppNotice.block:type_name -> orrery.v1.NoticeBlock
+	2,  // 2: orrery.v1.NoticesWatchResponse.shown:type_name -> orrery.v1.InAppNotice
+	0,  // 3: orrery.v1.NoticesWatchResponse.ended:type_name -> orrery.v1.NoticeKey
+	0,  // 4: orrery.v1.NoticesSeenRequest.key:type_name -> orrery.v1.NoticeKey
+	0,  // 5: orrery.v1.ListedNotice.key:type_name -> orrery.v1.NoticeKey
+	1,  // 6: orrery.v1.ListedNotice.block:type_name -> orrery.v1.NoticeBlock
+	7,  // 7: orrery.v1.NoticesListResponse.notices:type_name -> orrery.v1.ListedNotice
+	3,  // 8: orrery.v1.Notices.Watch:input_type -> orrery.v1.NoticesWatchRequest
+	5,  // 9: orrery.v1.Notices.Seen:input_type -> orrery.v1.NoticesSeenRequest
+	8,  // 10: orrery.v1.Notices.List:input_type -> orrery.v1.NoticesListRequest
+	10, // 11: orrery.v1.Notices.ReadAll:input_type -> orrery.v1.NoticesReadAllRequest
+	4,  // 12: orrery.v1.Notices.Watch:output_type -> orrery.v1.NoticesWatchResponse
+	6,  // 13: orrery.v1.Notices.Seen:output_type -> orrery.v1.NoticesSeenResponse
+	9,  // 14: orrery.v1.Notices.List:output_type -> orrery.v1.NoticesListResponse
+	11, // 15: orrery.v1.Notices.ReadAll:output_type -> orrery.v1.NoticesReadAllResponse
+	12, // [12:16] is the sub-list for method output_type
+	8,  // [8:12] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_orrery_v1_notice_proto_init() }
@@ -533,7 +818,7 @@ func file_orrery_v1_notice_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orrery_v1_notice_proto_rawDesc), len(file_orrery_v1_notice_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   7,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

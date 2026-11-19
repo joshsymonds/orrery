@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file orrery/v1/notice.proto.
  */
 export const file_orrery_v1_notice: GenFile = /*@__PURE__*/
-  fileDesc("ChZvcnJlcnkvdjEvbm90aWNlLnByb3RvEglvcnJlcnkudjEiVgoJTm90aWNlS2V5EgwKBHBhbmUYASABKAkSDwoHc2Vzc2lvbhgCIAEoCRIMCgRlcGljGAMgASgJEg0KBWxpbWl0GAQgASgJEg0KBWFsZXJ0GAUgASgJIigKC05vdGljZUJsb2NrEgwKBGtpbmQYASABKAkSCwoDcmVmGAIgASgJIoMBCgtJbkFwcE5vdGljZRIhCgNrZXkYASABKAsyFC5vcnJlcnkudjEuTm90aWNlS2V5Eg0KBXN0YXRlGAIgASgJEg0KBXRpdGxlGAMgASgJEgwKBGJvZHkYBCABKAkSJQoFYmxvY2sYBSABKAsyFi5vcnJlcnkudjEuTm90aWNlQmxvY2siFQoTTm90aWNlc1dhdGNoUmVxdWVzdCJwChROb3RpY2VzV2F0Y2hSZXNwb25zZRInCgVzaG93bhgBIAEoCzIWLm9ycmVyeS52MS5JbkFwcE5vdGljZUgAEiUKBWVuZGVkGAIgASgLMhQub3JyZXJ5LnYxLk5vdGljZUtleUgAQggKBmNoYW5nZSI3ChJOb3RpY2VzU2VlblJlcXVlc3QSIQoDa2V5GAEgASgLMhQub3JyZXJ5LnYxLk5vdGljZUtleSIVChNOb3RpY2VzU2VlblJlc3BvbnNlMpwBCgdOb3RpY2VzEkoKBVdhdGNoEh4ub3JyZXJ5LnYxLk5vdGljZXNXYXRjaFJlcXVlc3QaHy5vcnJlcnkudjEuTm90aWNlc1dhdGNoUmVzcG9uc2UwARJFCgRTZWVuEh0ub3JyZXJ5LnYxLk5vdGljZXNTZWVuUmVxdWVzdBoeLm9ycmVyeS52MS5Ob3RpY2VzU2VlblJlc3BvbnNlYgZwcm90bzM");
+  fileDesc("ChZvcnJlcnkvdjEvbm90aWNlLnByb3RvEglvcnJlcnkudjEiVgoJTm90aWNlS2V5EgwKBHBhbmUYASABKAkSDwoHc2Vzc2lvbhgCIAEoCRIMCgRlcGljGAMgASgJEg0KBWxpbWl0GAQgASgJEg0KBWFsZXJ0GAUgASgJIigKC05vdGljZUJsb2NrEgwKBGtpbmQYASABKAkSCwoDcmVmGAIgASgJIoMBCgtJbkFwcE5vdGljZRIhCgNrZXkYASABKAsyFC5vcnJlcnkudjEuTm90aWNlS2V5Eg0KBXN0YXRlGAIgASgJEg0KBXRpdGxlGAMgASgJEgwKBGJvZHkYBCABKAkSJQoFYmxvY2sYBSABKAsyFi5vcnJlcnkudjEuTm90aWNlQmxvY2siFQoTTm90aWNlc1dhdGNoUmVxdWVzdCJwChROb3RpY2VzV2F0Y2hSZXNwb25zZRInCgVzaG93bhgBIAEoCzIWLm9ycmVyeS52MS5JbkFwcE5vdGljZUgAEiUKBWVuZGVkGAIgASgLMhQub3JyZXJ5LnYxLk5vdGljZUtleUgAQggKBmNoYW5nZSI3ChJOb3RpY2VzU2VlblJlcXVlc3QSIQoDa2V5GAEgASgLMhQub3JyZXJ5LnYxLk5vdGljZUtleSIVChNOb3RpY2VzU2VlblJlc3BvbnNlIqABCgxMaXN0ZWROb3RpY2USIQoDa2V5GAEgASgLMhQub3JyZXJ5LnYxLk5vdGljZUtleRINCgVzdGF0ZRgCIAEoCRINCgV0aXRsZRgDIAEoCRIMCgRib2R5GAQgASgJEiUKBWJsb2NrGAUgASgLMhYub3JyZXJ5LnYxLk5vdGljZUJsb2NrEgwKBHRpbWUYBiABKAMSDAoEcmVhZBgHIAEoCCIUChJOb3RpY2VzTGlzdFJlcXVlc3QiPwoTTm90aWNlc0xpc3RSZXNwb25zZRIoCgdub3RpY2VzGAEgAygLMhcub3JyZXJ5LnYxLkxpc3RlZE5vdGljZSIXChVOb3RpY2VzUmVhZEFsbFJlcXVlc3QiGAoWTm90aWNlc1JlYWRBbGxSZXNwb25zZTKzAgoHTm90aWNlcxJKCgVXYXRjaBIeLm9ycmVyeS52MS5Ob3RpY2VzV2F0Y2hSZXF1ZXN0Gh8ub3JyZXJ5LnYxLk5vdGljZXNXYXRjaFJlc3BvbnNlMAESRQoEU2VlbhIdLm9ycmVyeS52MS5Ob3RpY2VzU2VlblJlcXVlc3QaHi5vcnJlcnkudjEuTm90aWNlc1NlZW5SZXNwb25zZRJFCgRMaXN0Eh0ub3JyZXJ5LnYxLk5vdGljZXNMaXN0UmVxdWVzdBoeLm9ycmVyeS52MS5Ob3RpY2VzTGlzdFJlc3BvbnNlEk4KB1JlYWRBbGwSIC5vcnJlcnkudjEuTm90aWNlc1JlYWRBbGxSZXF1ZXN0GiEub3JyZXJ5LnYxLk5vdGljZXNSZWFkQWxsUmVzcG9uc2ViBnByb3RvMw");
 
 /**
  * NoticeKey names what a notice is about. Exactly one field is set.
@@ -225,8 +225,138 @@ export const NoticesSeenResponseSchema: GenMessage<NoticesSeenResponse> = /*@__P
   messageDesc(file_orrery_v1_notice, 6);
 
 /**
- * Notices streams the notices open web pages show in-app, and takes the page's word that the owner opened one. serve
- * forwards both to orreryd.
+ * ListedNotice is one notice in the notice history: a notice orreryd showed at the desk or sent away with its desk text
+ * built.
+ *
+ * @generated from message orrery.v1.ListedNotice
+ */
+export type ListedNotice = Message<"orrery.v1.ListedNotice"> & {
+  /**
+   * What the notice is about.
+   *
+   * @generated from field: orrery.v1.NoticeKey key = 1;
+   */
+  key?: NoticeKey | undefined;
+
+  /**
+   * The state the notice reports, such as waiting, done or limited.
+   *
+   * @generated from field: string state = 2;
+   */
+  state: string;
+
+  /**
+   * The notice's title.
+   *
+   * @generated from field: string title = 3;
+   */
+  title: string;
+
+  /**
+   * The notice's body.
+   *
+   * @generated from field: string body = 4;
+   */
+  body: string;
+
+  /**
+   * The block of the epic's page the notice opens on; unset opens the epic view.
+   *
+   * @generated from field: orrery.v1.NoticeBlock block = 5;
+   */
+  block?: NoticeBlock | undefined;
+
+  /**
+   * When the router delivered the notice, in unix seconds.
+   *
+   * @generated from field: int64 time = 6;
+   */
+  time: bigint;
+
+  /**
+   * Whether the owner has read the notice.
+   *
+   * @generated from field: bool read = 7;
+   */
+  read: boolean;
+};
+
+/**
+ * Describes the message orrery.v1.ListedNotice.
+ * Use `create(ListedNoticeSchema)` to create a new message.
+ */
+export const ListedNoticeSchema: GenMessage<ListedNotice> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_notice, 7);
+
+/**
+ * NoticesListRequest asks for the notice history. It has no fields.
+ *
+ * @generated from message orrery.v1.NoticesListRequest
+ */
+export type NoticesListRequest = Message<"orrery.v1.NoticesListRequest"> & {
+};
+
+/**
+ * Describes the message orrery.v1.NoticesListRequest.
+ * Use `create(NoticesListRequestSchema)` to create a new message.
+ */
+export const NoticesListRequestSchema: GenMessage<NoticesListRequest> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_notice, 8);
+
+/**
+ * NoticesListResponse is the reply to a List: the notices in the history, newest first.
+ *
+ * @generated from message orrery.v1.NoticesListResponse
+ */
+export type NoticesListResponse = Message<"orrery.v1.NoticesListResponse"> & {
+  /**
+   * The notices timed within the last 14 days, newest first.
+   *
+   * @generated from field: repeated orrery.v1.ListedNotice notices = 1;
+   */
+  notices: ListedNotice[];
+};
+
+/**
+ * Describes the message orrery.v1.NoticesListResponse.
+ * Use `create(NoticesListResponseSchema)` to create a new message.
+ */
+export const NoticesListResponseSchema: GenMessage<NoticesListResponse> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_notice, 9);
+
+/**
+ * NoticesReadAllRequest asks that every notice in the notice history be marked read. It has no fields.
+ *
+ * @generated from message orrery.v1.NoticesReadAllRequest
+ */
+export type NoticesReadAllRequest = Message<"orrery.v1.NoticesReadAllRequest"> & {
+};
+
+/**
+ * Describes the message orrery.v1.NoticesReadAllRequest.
+ * Use `create(NoticesReadAllRequestSchema)` to create a new message.
+ */
+export const NoticesReadAllRequestSchema: GenMessage<NoticesReadAllRequest> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_notice, 10);
+
+/**
+ * NoticesReadAllResponse is the reply to a ReadAll. It has no fields.
+ *
+ * @generated from message orrery.v1.NoticesReadAllResponse
+ */
+export type NoticesReadAllResponse = Message<"orrery.v1.NoticesReadAllResponse"> & {
+};
+
+/**
+ * Describes the message orrery.v1.NoticesReadAllResponse.
+ * Use `create(NoticesReadAllResponseSchema)` to create a new message.
+ */
+export const NoticesReadAllResponseSchema: GenMessage<NoticesReadAllResponse> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_notice, 11);
+
+/**
+ * Notices streams the notices open web pages show in-app, takes the page's word that the owner opened one, lists the
+ * notice history and marks it read. serve forwards every call to orreryd.
  *
  * @generated from service orrery.v1.Notices
  */
@@ -254,6 +384,27 @@ export const Notices: GenService<{
     methodKind: "unary";
     input: typeof NoticesSeenRequestSchema;
     output: typeof NoticesSeenResponseSchema;
+  },
+  /**
+   * List returns the notices orreryd showed at the desk or sent away with their desk text built, timed within the last
+   * 14 days, newest first, each with its read mark. With no orreryd to forward to, List is unavailable.
+   *
+   * @generated from rpc orrery.v1.Notices.List
+   */
+  list: {
+    methodKind: "unary";
+    input: typeof NoticesListRequestSchema;
+    output: typeof NoticesListResponseSchema;
+  },
+  /**
+   * ReadAll marks every notice in the notice history read. With no orreryd to forward to, ReadAll is unavailable.
+   *
+   * @generated from rpc orrery.v1.Notices.ReadAll
+   */
+  readAll: {
+    methodKind: "unary";
+    input: typeof NoticesReadAllRequestSchema;
+    output: typeof NoticesReadAllResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_orrery_v1_notice, 0);

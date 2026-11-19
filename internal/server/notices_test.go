@@ -23,17 +23,22 @@ import (
 )
 
 // fakeNoticesEngine is a recording orreryd Notices. Watch sends msgs in order, then returns end. Seen records its
-// request and returns seenErr. When block is set, each call waits after its sends until its context ends or the test
-// releases the fake, so the call stays open.
+// request and returns seenErr. List returns listed in order and returns listErr. ReadAll counts its calls and returns
+// readAllErr. When block is set, Watch and Seen wait after their sends until their context ends or the test releases the
+// fake, so the call stays open.
 type fakeNoticesEngine struct {
 	enginev1connect.UnimplementedNoticesHandler
-	mu      sync.Mutex
-	seen    []*enginev1.NoticesSeenRequest
-	msgs    []*enginev1.NoticesWatchResponse
-	end     error
-	seenErr error
-	block   bool
-	release chan struct{}
+	mu         sync.Mutex
+	seen       []*enginev1.NoticesSeenRequest
+	readAll    int
+	msgs       []*enginev1.NoticesWatchResponse
+	listed     []*enginev1.ListedNotice
+	end        error
+	seenErr    error
+	listErr    error
+	readAllErr error
+	block      bool
+	release    chan struct{}
 }
 
 func (f *fakeNoticesEngine) Watch(
@@ -67,11 +72,41 @@ func (f *fakeNoticesEngine) Seen(
 	return connect.NewResponse(&enginev1.NoticesSeenResponse{}), nil
 }
 
+func (f *fakeNoticesEngine) List(
+	_ context.Context,
+	_ *connect.Request[enginev1.NoticesListRequest],
+) (*connect.Response[enginev1.NoticesListResponse], error) {
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
+	return connect.NewResponse(&enginev1.NoticesListResponse{Notices: f.listed}), nil
+}
+
+func (f *fakeNoticesEngine) ReadAll(
+	_ context.Context,
+	_ *connect.Request[enginev1.NoticesReadAllRequest],
+) (*connect.Response[enginev1.NoticesReadAllResponse], error) {
+	f.mu.Lock()
+	f.readAll++
+	f.mu.Unlock()
+	if f.readAllErr != nil {
+		return nil, f.readAllErr
+	}
+	return connect.NewResponse(&enginev1.NoticesReadAllResponse{}), nil
+}
+
 // recorded returns the Seen requests the fake has received, in order.
 func (f *fakeNoticesEngine) recorded() []*enginev1.NoticesSeenRequest {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return slices.Clone(f.seen)
+}
+
+// readAllCalls returns how many ReadAll calls the fake has received.
+func (f *fakeNoticesEngine) readAllCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.readAll
 }
 
 // hold returns once the call's context ends or the test releases the fake, when block is set.
@@ -460,7 +495,12 @@ func TestNoticesRequireLoginAndClientHeaderOnEveryPath(t *testing.T) {
 		{"PUT no client header", http.MethodPut, connectHeader(allowedLogin, "application/proto", false)},
 		{"DELETE no client header", http.MethodDelete, connectHeader(allowedLogin, "application/proto", false)},
 	}
-	paths := []string{orreryv1connect.NoticesWatchProcedure, orreryv1connect.NoticesSeenProcedure}
+	paths := []string{
+		orreryv1connect.NoticesWatchProcedure,
+		orreryv1connect.NoticesSeenProcedure,
+		orreryv1connect.NoticesListProcedure,
+		orreryv1connect.NoticesReadAllProcedure,
+	}
 	for _, path := range paths {
 		for _, probe := range probes {
 			rec := serve(t, handler, probe.method, path, probe.header, "")
@@ -477,4 +517,107 @@ func TestNoticesRequireLoginAndClientHeaderOnEveryPath(t *testing.T) {
 	if calls := fake.recorded(); len(calls) != 0 {
 		t.Fatalf("refused and GET probes forwarded %d Seen requests, want none", len(calls))
 	}
+	if calls := fake.readAllCalls(); calls != 0 {
+		t.Fatalf("refused and GET probes forwarded %d ReadAll requests, want none", calls)
+	}
+}
+
+func TestNoticeHistoryListRelaysEveryField(t *testing.T) {
+	t.Parallel()
+	pairs := noticeKeyPairs()
+	engineNotices := make([]*enginev1.ListedNotice, 0, len(pairs))
+	want := make([]*orreryv1.ListedNotice, 0, len(pairs))
+	for i, pair := range pairs {
+		// The engine lists newest first, so the times fall down the list.
+		at := int64(1700000000 + 100*(len(pairs)-i))
+		read := i%2 == 1
+		var engineBlock *enginev1.NoticeBlock
+		var pageBlock *orreryv1.NoticeBlock
+		if i%2 == 0 {
+			engineBlock = &enginev1.NoticeBlock{Kind: "question", Ref: "Q3"}
+			pageBlock = &orreryv1.NoticeBlock{Kind: "question", Ref: "Q3"}
+		}
+		engineNotices = append(engineNotices, &enginev1.ListedNotice{
+			Key: pair.engine, State: "waiting", Title: "synthetic title", Body: "synthetic body",
+			Block: engineBlock, Time: at, Read: read,
+		})
+		want = append(want, &orreryv1.ListedNotice{
+			Key: pair.page, State: "waiting", Title: "synthetic title", Body: "synthetic body",
+			Block: pageBlock, Time: at, Read: read,
+		})
+	}
+	fake := &fakeNoticesEngine{listed: engineNotices}
+	notices := noticesClient(t, guardedNoticesHandler(t, newFakeNoticesOrreryd(t, fake), 0, nil))
+
+	resp, err := notices.List(t.Context(), connect.NewRequest(&orreryv1.NoticesListRequest{}))
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if !proto.Equal(resp.Msg, &orreryv1.NoticesListResponse{Notices: want}) {
+		t.Fatalf("List = %v, want %v", resp.Msg, want)
+	}
+}
+
+func TestNoticeHistoryReadAllReachesEngine(t *testing.T) {
+	t.Parallel()
+	fake := &fakeNoticesEngine{}
+	notices := noticesClient(t, guardedNoticesHandler(t, newFakeNoticesOrreryd(t, fake), 0, nil))
+
+	if _, err := notices.ReadAll(t.Context(), connect.NewRequest(&orreryv1.NoticesReadAllRequest{})); err != nil {
+		t.Fatalf("ReadAll: %v", err)
+	}
+	if calls := fake.readAllCalls(); calls != 1 {
+		t.Fatalf("ReadAll forwarded %d calls, want 1", calls)
+	}
+}
+
+func TestNoticeHistoryAnswersEngineErrorsAsSeenDoes(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name    string
+		err     error
+		code    connect.Code
+		message string
+	}{
+		{
+			name:    "not_found",
+			err:     connect.NewError(connect.CodeNotFound, errors.New("synthetic notice not found")),
+			code:    connect.CodeNotFound,
+			message: "synthetic notice not found",
+		},
+		{
+			name:    "unavailable",
+			err:     connect.NewError(connect.CodeUnavailable, errors.New("synthetic orreryd detail")),
+			code:    connect.CodeUnavailable,
+			message: "session service unavailable",
+		},
+		{
+			name:    "unknown",
+			err:     errors.New("synthetic store detail"),
+			code:    connect.CodeInternal,
+			message: "session command failed",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fake := &fakeNoticesEngine{listErr: tc.err, readAllErr: tc.err}
+			notices := noticesClient(t, guardedNoticesHandler(t, newFakeNoticesOrreryd(t, fake), 0, nil))
+
+			_, err := notices.List(t.Context(), connect.NewRequest(&orreryv1.NoticesListRequest{}))
+			assertConnectError(t, err, tc.code, tc.message)
+			_, err = notices.ReadAll(t.Context(), connect.NewRequest(&orreryv1.NoticesReadAllRequest{}))
+			assertConnectError(t, err, tc.code, tc.message)
+		})
+	}
+}
+
+func TestNoticeHistoryUnavailableWithoutEngine(t *testing.T) {
+	t.Parallel()
+	notices := noticesClient(t, guardedNoticesHandler(t, nil, 0, nil))
+
+	_, err := notices.List(t.Context(), connect.NewRequest(&orreryv1.NoticesListRequest{}))
+	assertConnectError(t, err, connect.CodeUnavailable, "session service unavailable")
+	_, err = notices.ReadAll(t.Context(), connect.NewRequest(&orreryv1.NoticesReadAllRequest{}))
+	assertConnectError(t, err, connect.CodeUnavailable, "session service unavailable")
 }
