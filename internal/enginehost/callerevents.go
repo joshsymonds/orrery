@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -73,13 +74,24 @@ type CallerSender struct {
 	store       CallerEventStore
 	now         func() time.Time
 	logger      *slog.Logger
+
+	// mu guards unmarked.
+	mu sync.Mutex
+	// unmarked holds the pane events whose keys were sent but whose mark failed. Their keys are not sent again: a later
+	// send only retries the mark. It is in memory, so a restart of the sender forgets it.
+	unmarked map[paneEvent]struct{}
+}
+
+// paneEvent names an event of a session, as a key of CallerSender.unmarked.
+type paneEvent struct {
+	session, event string
 }
 
 // NewCallerSender returns a CallerSender for cfg.
 func NewCallerSender(cfg CallerSenderConfig) *CallerSender {
 	sender := &CallerSender{
 		deliver: cfg.Deliver, deliverStep: cfg.DeliverStep, wakePane: cfg.WakePane, store: cfg.Store, now: cfg.Now,
-		logger: cfg.Logger,
+		logger: cfg.Logger, unmarked: make(map[paneEvent]struct{}),
 	}
 	if sender.now == nil {
 		sender.now = time.Now
@@ -95,7 +107,8 @@ func NewCallerSender(cfg CallerSenderConfig) *CallerSender {
 // instead. A headless caller receives text as a prompt whose PromptID is event. A caller that is busy, stopped, or quiet
 // since the owner interrupted it holds the event, with no error and no mark, until a later send. A pane caller receives
 // text as keys, which WakePane holds while the pane is not idle, and the event is marked after the keys are
-// sent. Any other error is returned with no mark.
+// sent. A pane whose keys were sent but whose mark failed is not sent them again: a later send only retries the mark.
+// Any other error is returned with no mark.
 func (s *CallerSender) Send(ctx context.Context, caller store.CallerSession, event, text string) (bool, error) {
 	switch caller.Kind {
 	case store.KindStep:
@@ -141,8 +154,16 @@ func (s *CallerSender) SendStepEnd(ctx context.Context, caller store.CallerSessi
 }
 
 // wake sends text to the pane of caller and marks event once the keys are sent. A pane that is not idle holds the
-// event. An error that comes with the keys sent is logged, as the keys were sent and the event is finished.
+// event. An error that comes with the keys sent is logged, as the keys were sent and the event is finished. An event
+// whose keys were sent but whose mark failed only has its mark retried, so its keys are typed once.
 func (s *CallerSender) wake(ctx context.Context, caller store.CallerSession, event, text string) (bool, error) {
+	key := paneEvent{session: caller.ID, event: event}
+	s.mu.Lock()
+	_, pending := s.unmarked[key]
+	s.mu.Unlock()
+	if pending {
+		return s.markSent(ctx, key)
+	}
 	sent, err := s.wakePane(ctx, caller.Server, caller.Pane, text)
 	if !sent {
 		if err != nil {
@@ -155,7 +176,21 @@ func (s *CallerSender) wake(ctx context.Context, caller store.CallerSession, eve
 			ctx, "wake pane after its keys were sent", "event", event, "session", caller.ID, "err", err,
 		)
 	}
-	return s.mark(ctx, caller.ID, event)
+	return s.markSent(ctx, key)
+}
+
+// markSent marks the event of key, whose keys were sent. A mark that fails holds key in unmarked, and a mark that lands
+// releases it.
+func (s *CallerSender) markSent(ctx context.Context, key paneEvent) (bool, error) {
+	finished, err := s.mark(ctx, key.session, key.event)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err != nil {
+		s.unmarked[key] = struct{}{}
+		return false, err
+	}
+	delete(s.unmarked, key)
+	return finished, nil
 }
 
 // mark records event as delivered to session.
