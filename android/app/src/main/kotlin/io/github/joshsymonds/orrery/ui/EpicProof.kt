@@ -6,24 +6,24 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.unit.dp
 import io.github.joshsymonds.orrery.api.EpicContractRow
 import io.github.joshsymonds.orrery.api.EpicReleaseProofRow
 import io.github.joshsymonds.orrery.api.EpicReportRow
 import io.github.joshsymonds.orrery.api.EpicRequirementRow
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
+import io.github.joshsymonds.orrery.ui.theme.inLabelCase
 
 private const val RED = "red"
 private const val GREEN = "green"
 private const val WAITING = "waiting"
-private const val DIM_ALPHA = 0.4f
 
 /** The red proof: a card per requirement with its red runs. It is reached once any requirement has a red run. */
 @Composable
@@ -86,26 +86,26 @@ fun ReleaseProof(contract: EpicContractRow?, releaseProof: List<EpicReleaseProof
         contract?.releaseSteps?.forEachIndexed { index, step ->
             val proof = releaseProof.firstOrNull { it.position == index + 1L }
             Column(modifier = Modifier.fillMaxWidth().testTag("release-step:$index")) {
-                Text(step.step, style = MaterialTheme.typography.bodyMedium)
-                Text(step.target, style = MaterialTheme.typography.bodySmall)
-                Text(step.undo, style = MaterialTheme.typography.labelSmall)
+                Text(step.step, style = OrreryTokens.Type.body)
+                Text(step.target, style = OrreryTokens.Type.small)
+                Text(step.undo, style = OrreryTokens.Type.small.copy(fontWeight = OrreryTokens.Font.Weight.bold))
                 if (proof != null) {
                     Text(
                         proof.state,
-                        style = MaterialTheme.typography.bodySmall,
+                        style = OrreryTokens.Type.small,
                         modifier = Modifier.testTag("release-step-state:$index"),
                     )
                     if (proof.evidence.isNotEmpty()) {
                         Text(
                             proof.evidence,
-                            style = MaterialTheme.typography.labelSmall,
+                            style = OrreryTokens.Type.small.copy(fontWeight = OrreryTokens.Font.Weight.bold),
                             modifier = Modifier.testTag("release-step-evidence:$index"),
                         )
                     }
                     if (proof.reason.isNotEmpty()) {
                         Text(
                             proof.reason,
-                            style = MaterialTheme.typography.labelSmall,
+                            style = OrreryTokens.Type.small.copy(fontWeight = OrreryTokens.Font.Weight.bold),
                             modifier = Modifier.testTag("release-step-reason:$index"),
                         )
                     }
@@ -113,7 +113,7 @@ fun ReleaseProof(contract: EpicContractRow?, releaseProof: List<EpicReleaseProof
             }
         }
         if (contract != null) {
-            Text(contract.releaseThen, style = MaterialTheme.typography.bodySmall)
+            Text(contract.releaseThen, style = OrreryTokens.Type.small)
         }
     }
 }
@@ -126,22 +126,22 @@ fun ReleaseProof(contract: EpicContractRow?, releaseProof: List<EpicReleaseProof
 fun Report(report: EpicReportRow?) {
     ProofSection(name = "report", title = "Report", reached = report != null) {
         if (report != null) {
-            Text(report.outcome, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("report-outcome"))
+            Text(report.outcome, style = OrreryTokens.Type.body, modifier = Modifier.testTag("report-outcome"))
             if (report.shipped.isNotEmpty()) {
                 Text(
                     "shipped ${report.shipped.joinToString(", ")}",
-                    style = MaterialTheme.typography.bodySmall,
+                    style = OrreryTokens.Type.small,
                     modifier = Modifier.testTag("report-shipped"),
                 )
             }
             if (report.notShipped.isNotEmpty()) {
                 Text(
                     "not shipped ${report.notShipped.joinToString(", ")}",
-                    style = MaterialTheme.typography.bodySmall,
+                    style = OrreryTokens.Type.small,
                     modifier = Modifier.testTag("report-not-shipped"),
                 )
             }
-            Text(report.why, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("report-why"))
+            Text(report.why, style = OrreryTokens.Type.small, modifier = Modifier.testTag("report-why"))
         }
     }
 }
@@ -156,11 +156,13 @@ private fun ProofSection(name: String, title: String, reached: Boolean, content:
             .fillMaxWidth()
             .testTag("proof:$name")
             .semantics { stateDescription = if (reached) "reached" else "dim" }
-            .alpha(if (reached) 1f else DIM_ALPHA)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.eight),
     ) {
-        Text(title, style = MaterialTheme.typography.titleSmall)
-        content()
+        // A dim section draws its text in the lower ink, not with opacity, as the web's .proof.dim does.
+        CompositionLocalProvider(LocalContentColor provides (if (reached) OrreryTokens.Ink.one else OrreryTokens.Ink.four)) {
+            Text(title.inLabelCase(), style = OrreryTokens.Type.label)
+            content()
+        }
     }
 }
 
@@ -197,17 +199,17 @@ private fun ProofCard(
             .fillMaxWidth()
             .testTag("proof-card:$name:$index")
             .then(if (onOpen != null) Modifier.clickable(onClick = onOpen) else Modifier)
-            .padding(vertical = 6.dp),
+            .padding(vertical = OrreryTokens.Space.four + OrreryTokens.Space.two),
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(requirement.id, style = MaterialTheme.typography.bodyMedium)
-            Text(requirement.text, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+        Row(horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight)) {
+            Text(requirement.id, style = OrreryTokens.Type.body)
+            Text(requirement.text, modifier = Modifier.weight(1f), style = OrreryTokens.Type.small)
             if (requirement.kind.isNotEmpty()) {
-                Text(requirement.kind, style = MaterialTheme.typography.labelMedium)
+                Text(requirement.kind, style = OrreryTokens.Type.small)
             }
         }
         if (requirement.conclusion.isNotEmpty()) {
-            Text(requirement.conclusion, style = MaterialTheme.typography.bodySmall)
+            Text(requirement.conclusion, style = OrreryTokens.Type.small)
         }
         EvidenceRuns(
             requirement = index,

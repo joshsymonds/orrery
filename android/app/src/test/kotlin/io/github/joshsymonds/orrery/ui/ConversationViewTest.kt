@@ -412,7 +412,7 @@ class ConversationViewTest {
     /** The divider sits between the bottom of entry row [below] - 1 and the top of entry row [below]. */
     private fun assertDividerBefore(below: Int) {
         composeRule.onAllNodesWithTag("new-divider").assertCountEquals(1)
-        composeRule.onNodeWithText(NEW_LABEL).assertIsDisplayed()
+        composeRule.onNodeWithText("NEW").assertIsDisplayed()
         val divider = composeRule.onNodeWithTag("new-divider").fetchSemanticsNode().boundsInRoot
         val row = composeRule.onNodeWithTag("entry-row:$below").fetchSemanticsNode().boundsInRoot
         assertTrue("the divider ends above entry row $below", divider.bottom <= row.top + 1f)
@@ -650,10 +650,10 @@ class ConversationViewTest {
         )
 
         composeRule.onAllNodesWithTag("waiting-row").assertCountEquals(2)
-        composeRule.onAllNodesWithText("waiting").assertCountEquals(2)
+        composeRule.onAllNodesWithText("WAITING").assertCountEquals(2)
         val replyBottom = composeRule.onNodeWithText("synthetic last reply").fetchSemanticsNode().boundsInRoot.bottom
-        val first = waitingRow("synthetic first queued", "waiting").fetchSemanticsNode().boundsInRoot
-        val second = waitingRow("synthetic second queued", "waiting").fetchSemanticsNode().boundsInRoot
+        val first = waitingRow("synthetic first queued", "WAITING").fetchSemanticsNode().boundsInRoot
+        val second = waitingRow("synthetic second queued", "WAITING").fetchSemanticsNode().boundsInRoot
         val footerTop = composeRule.onNodeWithText("synthetic footer").fetchSemanticsNode().boundsInRoot.top
         assertTrue(first.top >= replyBottom)
         assertTrue(second.top >= first.bottom)
@@ -667,8 +667,8 @@ class ConversationViewTest {
             waiting = listOf(WaitingItem("synthetic cleared", 300L, true)),
         )
 
-        waitingRow("synthetic cleared", "not delivered").assertIsDisplayed()
-        composeRule.onAllNodesWithText("waiting").assertCountEquals(0)
+        waitingRow("synthetic cleared", "NOT DELIVERED").assertIsDisplayed()
+        composeRule.onAllNodesWithText("WAITING").assertCountEquals(0)
     }
 
     @Test
@@ -713,8 +713,8 @@ class ConversationViewTest {
             ),
         )
 
-        val shortRow = waitingRow("synthetic short queued", "waiting").fetchSemanticsNode().boundsInRoot
-        val longRow = waitingRow(longQueued, "waiting").fetchSemanticsNode().boundsInRoot
+        val shortRow = waitingRow("synthetic short queued", "WAITING").fetchSemanticsNode().boundsInRoot
+        val longRow = waitingRow(longQueued, "WAITING").fetchSemanticsNode().boundsInRoot
         assertTrue("the long row is no taller than a one-line row", longRow.height <= shortRow.height + 1f)
         val layout = waitingLayout(longQueued)
         assertEquals(1, layout.lineCount)
@@ -729,12 +729,12 @@ class ConversationViewTest {
         )
 
         assertEquals(1, waitingLayout(longQueued).lineCount)
-        waitingRow(longQueued, "waiting").performClick()
+        waitingRow(longQueued, "WAITING").performClick()
         val open = waitingLayout(longQueued)
         assertEquals(3, open.lineCount)
         assertEquals("the last line ends where the message ends", longQueued.length, open.getLineEnd(2))
 
-        waitingRow(longQueued, "waiting").performClick()
+        waitingRow(longQueued, "WAITING").performClick()
         assertEquals(1, waitingLayout(longQueued).lineCount)
     }
 
@@ -750,7 +750,7 @@ class ConversationViewTest {
         }
 
         assertEquals(1, waitingLayout(longQueued).lineCount)
-        waitingRow(longQueued, "waiting").performClick()
+        waitingRow(longQueued, "WAITING").performClick()
         assertEquals(3, waitingLayout(longQueued).lineCount)
 
         composeRule.runOnIdle {
@@ -768,8 +768,8 @@ class ConversationViewTest {
         )
 
         composeRule.onAllNodesWithTag("waiting-row").assertCountEquals(3)
-        composeRule.onAllNodesWithText("waiting").assertCountEquals(3)
-        waitingRow("synthetic queued 3", "waiting").assertIsDisplayed()
+        composeRule.onAllNodesWithText("WAITING").assertCountEquals(3)
+        waitingRow("synthetic queued 3", "WAITING").assertIsDisplayed()
         composeRule.onAllNodesWithText("synthetic queued 4").assertCountEquals(0)
         composeRule.onAllNodesWithText("synthetic queued 5").assertCountEquals(0)
         composeRule.onAllNodesWithTag("waiting-more").assertCountEquals(1)
@@ -832,7 +832,7 @@ class ConversationViewTest {
         composeRule.waitForIdle()
         assertFalse("the list can still scroll forward", list.canScrollForward)
         val listBottom = composeRule.onNodeWithTag("conversation-list").fetchSemanticsNode().boundsInRoot.bottom
-        val rowBottom = waitingRow("synthetic queued", "waiting").fetchSemanticsNode().boundsInRoot.bottom
+        val rowBottom = waitingRow("synthetic queued", "WAITING").fetchSemanticsNode().boundsInRoot.bottom
         assertTrue("the new row's end is below the list's end", rowBottom <= listBottom + 1f)
     }
 

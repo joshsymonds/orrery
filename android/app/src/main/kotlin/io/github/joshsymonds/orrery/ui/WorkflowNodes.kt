@@ -5,15 +5,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.unit.dp
 import io.github.joshsymonds.orrery.api.EpicNodeCheckRow
 import io.github.joshsymonds.orrery.api.EpicNodeRow
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
+import io.github.joshsymonds.orrery.ui.theme.inLabelCase
 
 /**
  * The requirement index a node's evidence runs are drawn under. A node's runs belong to no Requirement, so their
@@ -34,36 +33,36 @@ internal fun WorkflowNodeRow(index: Int, node: EpicNodeRow, loadArtifact: Artifa
         modifier = Modifier
             .fillMaxWidth()
             .testTag("node-row:$index")
-            .padding(horizontal = 16.dp, vertical = 6.dp),
+            .padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.four + OrreryTokens.Space.two),
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(node.path, style = MaterialTheme.typography.bodyMedium)
-            Text(node.kind, style = MaterialTheme.typography.labelMedium)
-            Text(node.state, style = MaterialTheme.typography.labelMedium)
+        Row(horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight)) {
+            Text(node.path, style = OrreryTokens.Type.body)
+            Text(node.kind, style = OrreryTokens.Type.small)
+            Text(node.state, style = OrreryTokens.Type.small)
             if (node.outcome.isNotEmpty()) {
-                Text(node.outcome, style = MaterialTheme.typography.labelMedium)
+                Text(node.outcome, style = OrreryTokens.Type.small)
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("round ${node.round}", style = MaterialTheme.typography.labelSmall)
+        Row(horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight)) {
+            Text("round ${node.round}", style = OrreryTokens.Type.small)
             if (node.loopRound > 0L) {
-                Text("loop round ${node.loopRound}", style = MaterialTheme.typography.labelSmall)
+                Text("loop round ${node.loopRound}", style = OrreryTokens.Type.small)
             }
             if (node.attempt > 0L) {
-                Text("attempt ${node.attempt}", style = MaterialTheme.typography.labelSmall)
+                Text("attempt ${node.attempt}", style = OrreryTokens.Type.small)
             }
         }
-        node.turns.forEach { Text("turn $it", style = MaterialTheme.typography.bodySmall) }
-        node.tasks.forEach { Text("task $it", style = MaterialTheme.typography.bodySmall) }
+        node.turns.forEach { Text("turn $it", style = OrreryTokens.Type.small) }
+        node.tasks.forEach { Text("task $it", style = OrreryTokens.Type.small) }
         if (node.runs.isNotEmpty()) {
             EvidenceRuns(requirement = NODE_RUNS, runs = node.runs, loadArtifact = loadArtifact)
         }
         node.check?.let { NodeCheck(index, it) }
         if (node.step.isNotEmpty()) {
-            Text("step ${node.step}", style = MaterialTheme.typography.bodySmall)
+            Text("step ${node.step}", style = OrreryTokens.Type.small)
         }
         if (node.output.isNotEmpty()) {
-            Text(node.output, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+            Text(node.output, style = OrreryTokens.Type.small)
         }
     }
 }
@@ -74,17 +73,17 @@ internal fun WorkflowNodeRow(index: Int, node: EpicNodeRow, loadArtifact: Artifa
  */
 @Composable
 private fun NodeCheck(index: Int, check: EpicNodeCheckRow) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("check ${check.state}", style = MaterialTheme.typography.labelMedium)
+    Row(horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight)) {
+        Text("check ${check.state}", style = OrreryTokens.Type.small)
         if (check.state == "ended" && check.notRun.isEmpty()) {
-            Text("exit ${check.exit}", style = MaterialTheme.typography.labelMedium)
+            Text("exit ${check.exit}", style = OrreryTokens.Type.small)
         }
         if (check.timedOut) {
-            Text("timed out", style = MaterialTheme.typography.labelMedium)
+            Text("timed out", style = OrreryTokens.Type.small)
         }
     }
     if (check.notRun.isNotEmpty()) {
-        Text("not run · ${check.notRun}", style = MaterialTheme.typography.bodySmall)
+        Text("not run · ${check.notRun}", style = OrreryTokens.Type.small)
     }
     CheckTail(index, "stdout", check.stdout)
     CheckTail(index, "stderr", check.stderr)
@@ -95,7 +94,7 @@ private fun NodeCheck(index: Int, check: EpicNodeCheckRow) {
 private fun CheckTail(index: Int, stream: String, tail: String) {
     if (tail.isEmpty()) return
     Column(modifier = Modifier.fillMaxWidth().testTag("node-check-tail:$index:$stream")) {
-        Text(stream, style = MaterialTheme.typography.labelSmall)
-        Text(tail, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+        Text(stream.inLabelCase(), style = OrreryTokens.Type.label)
+        Text(tail, style = OrreryTokens.Type.small)
     }
 }

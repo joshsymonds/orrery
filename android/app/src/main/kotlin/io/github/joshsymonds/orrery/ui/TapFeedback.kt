@@ -14,7 +14,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.SemanticsPropertyKey
 import androidx.compose.ui.semantics.semantics
-import io.github.joshsymonds.orrery.ui.theme.Mocha
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -61,11 +61,11 @@ fun rememberTapFeedback(): TapFeedback {
 fun Modifier.tapFeedback(feedback: TapFeedback): Modifier =
     semantics(mergeDescendants = true) { this[Flashing] = feedback.flashing }
 
-/** Container colours for a button: the highlight while flashing, the Material default otherwise. */
+/** Container colours for a button: surface.pressed while flashing, the Material default otherwise. */
 @Composable
 fun tapFeedbackColors(feedback: TapFeedback): ButtonColors =
     if (feedback.flashing) {
-        ButtonDefaults.buttonColors(containerColor = Mocha.Yellow, contentColor = Mocha.Crust)
+        ButtonDefaults.buttonColors(containerColor = OrreryTokens.Surface.pressed, contentColor = OrreryTokens.Ink.one)
     } else {
         ButtonDefaults.buttonColors()
     }

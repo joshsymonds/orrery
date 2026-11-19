@@ -217,6 +217,10 @@ web-check:
     fi
     exit "$rc"
 
+# Write the design tokens from tokens.json: tokens.css, web/src/tokens.css, web/src/tokens/rules.ts and OrreryTokens.kt.
+tokens:
+    node web/visual/system/gen-tokens.mjs
+
 # Bundle the web page into web/build/page, the directory the flake package embeds. scripts/build-web.sh holds the
 # bundle command, which the flake calls too.
 web-page:

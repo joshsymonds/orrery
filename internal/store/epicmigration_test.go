@@ -62,7 +62,7 @@ func epicTableColumns() map[string][]string {
 			"gate_pos", "finding_pos", "batch", "guard", "needs_files", "decisions", "after_tasks", "question",
 			// The declared gate-needed changes, from 00065_task_gate_changes.sql.
 			"gate_changes",
-			// The first line of each failure a re-brief answered, from 00075_gambit_ladder.sql.
+			// The first line of each failure a re-brief answered, from 00077_gambit_ladder.sql.
 			"rebriefs",
 		},
 		"epic_task_files":        {"epic", "task", "position", "path"},
@@ -127,7 +127,7 @@ func epicTableColumns() map[string][]string {
 		// R2: the actions a planner turn returned, from 00049_planner_actions.sql. park, the planner park an action
 		// answers, is 00051_park_bound.sql. requirement and item, what an amend_evidence action asks for, are
 		// 00052_evidence_amendments.sql. deliverable, what a change_approach action asks for, is 00070_task_ladder.sql.
-		// files and remove_files, the files a change_approach action adds and removes, are 00075_gambit_ladder.sql.
+		// files and remove_files, the files a change_approach action adds and removes, are 00077_gambit_ladder.sql.
 		"planner_actions": {
 			"epic", "turn", "position", "kind", "node", "task", "close_kind", "by_epic", "undo_none", "reason", "state",
 			"refusal", "park", "requirement", "item", "deliverable", "files", "remove_files",
@@ -548,10 +548,11 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00075_gambit_ladder.sql is the newest. The newest was
-	// 00074_task_repairs.sql before the gambit ladder added 00075, 00073_session_awaited.sql before the task repairs
-	// added 00074, 00072_epic_revisions_table.sql before the awaited
-	// flag added 00073, 00071_park_question_runs.sql before the
+	// Open applies 00014_epics.sql and every migration after it: 00077_gambit_ladder.sql is the newest. The newest was
+	// 00076_notice_history.sql before the gambit ladder added 00077, 00075_step_facts.sql before the notice history added
+	// 00076,
+	// 00074_task_repairs.sql before the step facts added 00075, 00073_session_awaited.sql before the task repairs added
+	// 00074, 00072_epic_revisions_table.sql before the awaited flag added 00073, 00071_park_question_runs.sql before the
 	// revisions table added 00072, 00070_task_ladder.sql before the
 	// park question runs added 00071, 00069_epic_revisions.sql before the task ladder added 00070,
 	// 00068_step_listings.sql before the epic revisions added 00069, 00067_drop_caller_read.sql before the step listings
@@ -560,8 +561,8 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 	// 00064_step_indexes.sql before the gate changes added 00065, 00063_task_versions.sql before the step indexes added
 	// 00064, 00062_drop_engine_held.sql before the task versions added 00063, 00061_prompt_states.sql before the drop of
 	// engine_held added 00062, and 00060_cron_jobs.sql before the prompt states added 00061.
-	if version != 75 {
-		t.Fatalf("store version after Open = %d, want 75", version)
+	if version != 77 {
+		t.Fatalf("store version after Open = %d, want 77", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and

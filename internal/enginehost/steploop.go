@@ -95,7 +95,9 @@ const apiErrorRateLimit = "rate_limit"
 // with commitChecks against start and owned in dir, without its owned check when unowned, and with gate when every
 // commit check passes and gate is set. gate
 // runs holding the members of grant that pools grants, and its check records gateName and gateSource; a nil pools fails
-// the gate. stateDir and scope are the state directory and the systemd-run scope the gate's holder runs under, and
+// the gate. countLines counts the lines a done return's commit changes from start in dir, and newStepRun makes it
+// stepGitLines when nil. stateDir and scope are the state directory and the systemd-run scope the gate's holder runs
+// under, and
 // scopeMemory is the scope's memory cap in bytes, zero for holder.DefaultScopeMemory. A read-only
 // step runs in dir too, and each of its returns is compared with checkout, the state its checkout was in at its start; a
 // moved checkout ends it checks_failed. A read-only step's done return passes on its schema check alone. A nil cleanup
@@ -133,6 +135,7 @@ type stepRunConfig struct {
 	start       string
 	owned       []string
 	unowned     bool
+	countLines  func(ctx context.Context, dir, start, commit string) (store.StepLines, error)
 	gate        []string
 	gateLimit   time.Duration
 	environ     []string
@@ -235,6 +238,9 @@ func newStepRun(cfg stepRunConfig) *stepRun {
 	}
 	if cfg.publish == nil {
 		cfg.publish = func(context.Context, string) {}
+	}
+	if cfg.countLines == nil {
+		cfg.countLines = stepGitLines
 	}
 	start := cfg.now()
 	return &stepRun{
@@ -678,6 +684,7 @@ func (r *stepRun) judge(ctx context.Context, round int, value json.RawMessage) b
 	}
 	var commit, gateDir string
 	var verdict verdictReturn
+	var lines *store.StepLines
 	if schemaErr == nil {
 		if err := json.Unmarshal(value, &head); err != nil {
 			r.finish(ctx, stepLoopEndFailed, "", fmt.Sprintf("read status of step %s: %v", r.id, err))
@@ -689,12 +696,13 @@ func (r *stepRun) judge(ctx context.Context, round int, value json.RawMessage) b
 			if checks, gateDir, ok = r.writingChecks(ctx, round, commit, checks); !ok {
 				return false
 			}
+			lines = r.countLinesOf(ctx, commit)
 		}
 	}
 	if schemaErr == nil {
 		checks, verdict = r.valueChecks(round, value, checks)
 	}
-	ret := store.StepReturn{ID: r.id, Result: string(value), Checks: checks}
+	ret := store.StepReturn{ID: r.id, Result: string(value), Checks: checks, Lines: lines}
 	if err := r.commitReturn(ctx, round, ret); err != nil {
 		r.finish(ctx, stepLoopEndFailed, "", fmt.Sprintf("record return of step %s: %v", r.id,
 			errors.Join(err, gateClear(ctx, gateDir))))
@@ -1034,6 +1042,21 @@ func (r *stepRun) stepLoopCommit(ctx context.Context, raw json.RawMessage) strin
 		return ""
 	}
 	return head
+}
+
+// countLinesOf returns the line counts of commit, the commit a done return's checks ran on. An unowned step's return is
+// not counted, so it returns nil and leaves the row's counts as they are. When the count fails, it logs the failure and
+// returns uncounted counts, which clear the counts of an earlier return.
+func (r *stepRun) countLinesOf(ctx context.Context, commit string) *store.StepLines {
+	if r.unowned {
+		return nil
+	}
+	lines, err := r.countLines(ctx, r.dir, r.start, commit)
+	if err != nil {
+		r.logger.WarnContext(ctx, "count lines of step", "step", r.id, "err", err)
+		return &store.StepLines{}
+	}
+	return &lines
 }
 
 // stepLoopRecord returns c as a check stored with round.

@@ -84,7 +84,7 @@ class ContractScreenTest {
         HEADINGS.forEachIndexed { index, heading ->
             val tag = "contract-heading:$index"
             composeRule.onNodeWithTag(BODY_TAG).performScrollToNode(hasTestTag(tag))
-            composeRule.onNodeWithTag(tag).assertTextEquals(heading)
+            composeRule.onNodeWithTag(tag).assertTextEquals(heading.uppercase())
         }
     }
 

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"sort"
 	"strconv"
@@ -16,7 +17,8 @@ import (
 	"github.com/joshsymonds/orrery/internal/telemetry"
 )
 
-// Notification is one pane event sent to every registered subscription.
+// Notification is one pane event sent to every registered subscription. Options are the option labels in answer
+// order, so option n is key n. Request is the headless request's id.
 type Notification struct {
 	Pane, Host, Project      string
 	Session                  string
@@ -27,6 +29,8 @@ type Notification struct {
 	BlockRef                 string
 	State                    protocol.State
 	Summary, Label, Question string
+	Options                  []string
+	Request                  string
 	Time                     int64
 	Silent                   bool
 }
@@ -55,6 +59,8 @@ const (
 	keyLabel        = "label"
 	keyQuestion     = "question"
 	keyQuestionHash = "question_hash"
+	keyOptions      = "options"
+	keyRequest      = "request"
 	keyTime         = "time"
 	keyKind         = "kind"
 	keySeen         = "seen"
@@ -164,16 +170,52 @@ func clearPayload(cleared Clear) ([]byte, error) {
 	return body, nil
 }
 
-// boundedPayload returns the JSON payload for note. The question is shortened first, then the summary if
-// the payload still does not fit with an empty question. The question_hash always covers the full question.
-// The time key is always present. The session key is present only when note.Session is set, the epic key only
-// when note.Epic is set, the limit key only when note.Limit is set, the alert key only when note.Alert is set, the
-// block key only when note.Block is set, the block_ref key only when note.BlockRef is set, and the silent key only
-// when note.Silent is set.
+// errPayloadTooLarge is the error of a payload that does not fit one record even with an empty question and summary.
+var errPayloadTooLarge = fmt.Errorf(
+	"push payload exceeds %d bytes even with an empty question and summary", MaxPlaintextBytes)
+
+// boundedPayload returns the JSON payload for note, cut to fit one record. The question is shortened first, then
+// the summary, with an empty question, if the payload still does not fit. The options key is an array of the
+// option labels, present only when note.Options is set, and it is kept whole while the question and summary are
+// cut. When the options do not fit even with an empty question and summary, they are dropped, and the question
+// is then cut first and the summary second, from their full text. The question_hash always covers the full
+// question. The request key is present only when note.Request is set, and it is kept in every cut. The time key
+// is always present. The session key is present only when note.Session is set, the epic key only when note.Epic
+// is set, the limit key only when note.Limit is set, the alert key only when note.Alert is set, the block key only
+// when note.Block is set, the block_ref key only when note.BlockRef is set, and the silent key only when
+// note.Silent is set. A payload that does not fit even with no options, an empty question and an empty summary is
+// an error.
 func boundedPayload(note Notification) ([]byte, error) {
+	if len(note.Options) == 0 {
+		return cutPayload(note)
+	}
+	body, err := cutPayload(note)
+	if !errors.Is(err, errPayloadTooLarge) {
+		return body, err
+	}
+	note.Options = nil
+	return cutPayload(note)
+}
+
+// answerKeys returns the options and request keys of note. The options key is present only when note.Options is
+// set, and the request key only when note.Request is set.
+func answerKeys(note Notification) map[string]any {
+	keys := make(map[string]any, 2)
+	if len(note.Options) > 0 {
+		keys[keyOptions] = note.Options
+	}
+	if note.Request != "" {
+		keys[keyRequest] = note.Request
+	}
+	return keys
+}
+
+// cutPayload returns the JSON payload for note with its options, cut as boundedPayload describes. It fails with
+// errPayloadTooLarge when no cut fits one record.
+func cutPayload(note Notification) ([]byte, error) {
 	hash := protocol.QuestionHash(note.Question)
 	encode := func(summary, question string) ([]byte, error) {
-		fields := map[string]string{
+		fields := map[string]any{
 			keyPane:         note.Pane,
 			keyHost:         note.Host,
 			keyProject:      note.Project,
@@ -184,6 +226,7 @@ func boundedPayload(note Notification) ([]byte, error) {
 			keyQuestionHash: hash,
 			keyTime:         strconv.FormatInt(note.Time, 10),
 		}
+		maps.Copy(fields, answerKeys(note))
 		if note.Session != "" {
 			fields[keySession] = note.Session
 		}
@@ -221,8 +264,7 @@ func boundedPayload(note Notification) ([]byte, error) {
 		question = ""
 	}
 	if !fits(summary, question) {
-		return nil, fmt.Errorf(
-			"push payload exceeds %d bytes even with an empty question and summary", MaxPlaintextBytes)
+		return nil, errPayloadTooLarge
 	}
 	return encode(summary, question)
 }

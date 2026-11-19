@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -244,7 +245,7 @@ func checkLimitNotice(t *testing.T, n route.Notice, key notice.Key, body string)
 		t.Fatalf("push notification: %v", err)
 	}
 	want := push.Notification{Project: "usage limit", State: protocol.State("limited"), Summary: body}
-	if note != want {
+	if !reflect.DeepEqual(note, want) {
 		t.Fatalf("push notification = %+v, want %+v", note, want)
 	}
 }

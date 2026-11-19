@@ -251,8 +251,10 @@ func applyTaskFiles(ctx context.Context, queries *sqlcgen.Queries, epic string, 
 
 // settleTaskFiles makes the files of task seq of epic the whole list that version number of the task stores, in the
 // caller's write, when the version stores one. A file the list adds that an open task of the epic other than seq owns
-// is a FileOwnedError, as grantFiles refuses it, and writes nothing. Otherwise the files the task owns and the list
-// lacks are deleted, and the files the list adds are appended in its order.
+// is a FileOwnedError, as grantFiles refuses it, and writes nothing; one that an accepted task whose integrate batch has
+// not ended owns is a RefusalError naming that task, as refuseHeldFiles refuses it, and writes nothing. The build
+// reports either and settles again on a later pass, once the holder has integrated. Otherwise the files the task owns
+// and the list lacks are deleted, and the files the list adds are appended in its order.
 func settleTaskFiles(ctx context.Context, queries *sqlcgen.Queries, epic string, seq, number int64) error {
 	rows, err := queries.ListEpicTaskVersions(ctx, epic)
 	if err != nil {
@@ -277,6 +279,10 @@ func settleTaskFiles(ctx context.Context, queries *sqlcgen.Queries, epic string,
 	}
 	added := withoutPaths(whole, owned)
 	err = checkFileOwners(ctx, queries, epic, seq, added, nil)
+	if err != nil {
+		return err
+	}
+	err = refuseHeldFiles(ctx, queries, epic, seq, added)
 	if err != nil {
 		return err
 	}

@@ -5,9 +5,8 @@ import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.font.FontStyle
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
-import io.github.joshsymonds.orrery.ui.theme.Mocha
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 
 enum class ColumnAlign { Start, Center, End }
 
@@ -49,14 +48,18 @@ private val RULE = Regex("""^(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,}
 private val ITEM = Regex("""^([ ]*)([-*+]|\d{1,9}[.)])(?:[ \t]+(.*))?$""")
 private val DELIMITER_ROW = Regex("""^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-*:?\s*)*\|?\s*$""")
 
-private val CODE_STYLE = SpanStyle(color = Mocha.Peach, background = Mocha.Surface0)
-private val BOLD_STYLE = SpanStyle(fontWeight = FontWeight.Bold)
+private val CODE_STYLE = SpanStyle(color = OrreryTokens.Prose.code, background = OrreryTokens.Surface.raised)
+private val BOLD_STYLE = SpanStyle(fontWeight = OrreryTokens.Font.Weight.bold)
 private val ITALIC_STYLE = SpanStyle(fontStyle = FontStyle.Italic)
 private val STRIKE_STYLE = SpanStyle(textDecoration = TextDecoration.LineThrough)
-private val DEAD_LINK_STYLE = SpanStyle(color = Mocha.Blue)
+private val DEAD_LINK_STYLE = SpanStyle(color = OrreryTokens.Role.ref)
 private val LINK_STYLES = TextLinkStyles(
-    style = SpanStyle(color = Mocha.Blue, textDecoration = TextDecoration.Underline),
-    pressedStyle = SpanStyle(color = Mocha.Blue, background = Mocha.Surface1, textDecoration = TextDecoration.Underline),
+    style = SpanStyle(color = OrreryTokens.Role.ref, textDecoration = TextDecoration.Underline),
+    pressedStyle = SpanStyle(
+        color = OrreryTokens.Role.ref,
+        background = OrreryTokens.Surface.pressed,
+        textDecoration = TextDecoration.Underline,
+    ),
 )
 
 /**

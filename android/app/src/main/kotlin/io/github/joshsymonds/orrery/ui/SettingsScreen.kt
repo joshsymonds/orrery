@@ -18,9 +18,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.unit.dp
 import io.github.joshsymonds.orrery.R
 import io.github.joshsymonds.orrery.ServerSettings
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 
 /** The line settings shows while there is no server address to talk to. */
 internal const val SERVER_ASK_TAG = "server-ask"
@@ -33,7 +33,9 @@ fun SettingsScreen(settings: ServerSettings, onSaved: () -> Unit, modifier: Modi
         context.resources.openRawResource(R.raw.orrery_mono_ofl).bufferedReader().use { it.readText() }
     }
 
-    Column(modifier = modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp)) {
+    Column(
+        modifier = modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(OrreryTokens.Space.sixteen),
+    ) {
         if (!settings.hasServer) {
             Text("Which orreryd server should Orrery talk to?", modifier = Modifier.testTag(SERVER_ASK_TAG))
         }

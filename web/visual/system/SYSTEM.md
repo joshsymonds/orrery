@@ -7,7 +7,8 @@ was adopted as the reference with the epic `orrery-round6-yardstick`; the decisi
 
 One spec, three clients: the web at the desk, the web under 760 px, and the Android app. Lengths are px on the web and
 dp (sp for type) on Android, with the same numbers. `tokens.json` is the source; `gen-tokens.mjs` writes `tokens.css`.
-A Kotlin generator is not written yet.
+`just tokens` runs it and writes four files: `tokens.css`, `web/src/tokens.css`, `web/src/tokens/rules.ts` and
+`OrreryTokens.kt` in the Android theme package.
 
 ## 0. The moves
 
