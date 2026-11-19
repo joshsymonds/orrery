@@ -383,6 +383,9 @@ func TestToolsListNamesEveryStepEpicAndEvidenceTool(t *testing.T) {
 		"evidence_get",
 		"evidence_list",
 		"evidence_run",
+		"step_check",
+		"step_list",
+		"step_result",
 		"step_resume",
 		"step_start",
 		"step_status",
@@ -467,8 +470,9 @@ func TestStepStartDeliversEveryFieldAndReturnsID(t *testing.T) {
 	if outcome.isError {
 		t.Fatalf("step_start reported an error: %s", outcome.text)
 	}
-	if got := decodeObject(t, outcome.text); !reflect.DeepEqual(got, map[string]any{"id": fake.startID}) {
-		t.Fatalf("step_start result = %v, want id %s", got, fake.startID)
+	wantResult := map[string]any{"id": fake.startID, "next": startedNext}
+	if got := decodeObject(t, outcome.text); !reflect.DeepEqual(got, wantResult) {
+		t.Fatalf("step_start result = %v, want %v", got, wantResult)
 	}
 	want := []enginehost.StepStart{{
 		Agent:     "reviewer",
@@ -602,8 +606,9 @@ func TestStepStartWithoutAgentAndSchemaReachesTheDaemon(t *testing.T) {
 	if outcome.isError {
 		t.Fatalf("step_start reported an error: %s", outcome.text)
 	}
-	if got := decodeObject(t, outcome.text); !reflect.DeepEqual(got, map[string]any{"id": fake.startID}) {
-		t.Fatalf("step_start result = %v, want id %s", got, fake.startID)
+	wantResult := map[string]any{"id": fake.startID, "next": startedNext}
+	if got := decodeObject(t, outcome.text); !reflect.DeepEqual(got, wantResult) {
+		t.Fatalf("step_start result = %v, want %v", got, wantResult)
 	}
 	want := []enginehost.StepStart{{
 		Prompt:    "check the change",
@@ -641,28 +646,24 @@ func TestStepStatusAndStopReachTheDaemonByID(t *testing.T) {
 		t.Fatalf("step_status reported an error: %s", status.text)
 	}
 	wantStep := map[string]any{
-		"id":        "s1",
-		"agent":     "reviewer",
-		"workspace": "/work",
-		"revision":  "abc123",
-		"readOnly":  true,
-		"worktree":  "/wt/s1",
-		"end":       "done",
-		"status":    "pass",
-		"result":    "all good",
-		"checks": []any{
-			map[string]any{
-				"round": float64(1), "name": "gate", "ok": false, "detail": "exit 1", "stdout": "red\n",
-				"stderr": "err-tail\n", "log": "/state/gates/logs/s1/round-1.log",
-			},
-			map[string]any{"round": float64(2), "name": "gate", "ok": true, "detail": "", "stdout": "green\n"},
-		},
-		"reason":      "returned",
+		"id":          "s1",
+		"agent":       "reviewer",
+		"end":         "done",
+		"status":      "pass",
+		"stage":       "",
+		"doing":       "",
+		"epic":        "",
+		"task":        "",
 		"started":     float64(1700000000),
 		"ended":       float64(1700000600),
 		"limited":     false,
 		"limitKind":   "",
 		"limitResets": float64(0),
+		"reason":      "returned",
+		"checks": []any{
+			map[string]any{"round": float64(1), "name": "gate", "ok": false},
+			map[string]any{"round": float64(2), "name": "gate", "ok": true},
+		},
 	}
 	if got := decodeObject(t, status.text); !reflect.DeepEqual(got, wantStep) {
 		t.Fatalf("step_status result = %v, want %v", got, wantStep)

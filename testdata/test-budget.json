@@ -50,7 +50,7 @@
   "internal/route": 4.7,
   "internal/rpcretry": 0.2,
   "internal/sdnotify": 0.2,
-  "internal/server": 101.0,
+  "internal/server": 101.5,
   "internal/shell": 0.7,
   "internal/stamp": 0.6,
   "internal/state": 3.2,

@@ -106,6 +106,7 @@ class FakeEpics {
         this.opened.push(id);
       },
       openStep: () => {},
+      stepResult: () => Promise.resolve(""),
       epics,
     };
   }

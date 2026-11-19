@@ -347,6 +347,18 @@ ORDER BY steps.ended, steps.id;
 -- name: ListRunningCallerSteps :many
 SELECT * FROM steps WHERE end_value = '' AND caller = ? ORDER BY started, id;
 
+-- name: ListCallerStepListings :many
+SELECT * FROM step_listings
+WHERE step_listings.caller = sqlc.arg(caller)
+  AND (CAST(sqlc.arg(epic) AS TEXT) = '' OR step_listings.epic = CAST(sqlc.arg(epic) AS TEXT))
+  AND (step_listings.end_value = '' OR step_listings.id IN (
+      SELECT recent.id FROM step_listings AS recent
+      WHERE recent.caller = sqlc.arg(caller) AND recent.end_value <> ''
+        AND (CAST(sqlc.arg(epic) AS TEXT) = '' OR recent.epic = CAST(sqlc.arg(epic) AS TEXT))
+      ORDER BY recent.ended DESC, recent.id DESC
+      LIMIT 20))
+ORDER BY started, id;
+
 -- name: UpdateStepReturn :exec
 UPDATE steps
 SET result = ?, checks = ?,

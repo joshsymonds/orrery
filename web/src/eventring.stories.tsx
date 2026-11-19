@@ -50,28 +50,33 @@ const endEvent: EpicEvent = {
   sentence: "Epic tidepool/offline-tables has ended.",
 };
 
-// stepEnded is a step that ended with a result the return fold pretty-prints.
+// shiftsBrief is the one line the step's brief holds.
+const shiftsBrief = "Shifts are stored per keeper and ISO week in the shifts table.";
+
+// stepEnded is a step that ended with a brief, and whose full return the fold reads through stepReturn.
 const stepEnded: StepEvent = {
   step: "st-rota-t4-impl",
   agent: "haiku",
   end: "done",
   status: "ended",
-  reason: "",
   epic: rota,
-  headline: "Shifts are stored per keeper and ISO week in the shifts table.",
-  result: `{"verdict": "met", "answer": "Shifts are stored per keeper and ISO week in the shifts table."}`,
+  task: "",
+  brief: [shiftsBrief],
 };
 
-// stepLooping is a step whose body names no agent and gives a reason and no result.
+// stepReturn is the full return of stepEnded, which the fold pretty-prints once it is opened.
+const stepReturn = `{"verdict": "met", "answer": "${shiftsBrief}"}`;
+const returningCalls: EpicCalls = { ...calls, stepResult: async () => stepReturn };
+
+// stepLooping is a step whose block names no agent and gives a brief of its own.
 const stepLooping: StepEvent = {
   step: "st-rota-t5-try1",
   agent: "",
   end: "looping",
   status: "ended",
-  reason: "The monitor saw the same edit three times, so it was nudged, ended and retried on sonnet.",
   epic: "",
-  headline: "",
-  result: "",
+  task: "",
+  brief: ["The monitor saw the same edit three times, so it was nudged, ended and retried on sonnet."],
 };
 
 const pendingStep = create(PendingEventSchema, {
@@ -81,10 +86,9 @@ const pendingStep = create(PendingEventSchema, {
   agent: "haiku",
   end: "done",
   status: "ended",
-  summary: stepEnded.headline,
+  brief: `${shiftsBrief}\nMore: step_result id st-rota-t4-impl`,
   epic: rota,
   waits: "speak",
-  result: stepEnded.result,
 });
 
 const pendingQuestion = create(PendingEventSchema, {
@@ -104,7 +108,7 @@ export const EpicEventBlock: Stories = {
 };
 
 export const StepEndBlock: Stories = {
-  ok: () => <eventring.StepCard event={stepEnded} />,
+  ok: () => <eventring.StepCard event={stepEnded} calls={returningCalls} />,
   "without-agent": () => <eventring.StepCard event={stepLooping} />,
   waiting: () => <eventring.StepCard event={stepEnded} waiting="arrives when you next speak" />,
 };

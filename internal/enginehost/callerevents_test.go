@@ -39,10 +39,16 @@ func addEndedCallerStep(t *testing.T, s *store.Store, caller store.EpicCaller, r
 // endCallerStep starts the step add, sets its result to result, and ends it done, passed for gate green.
 func endCallerStep(t *testing.T, s *store.Store, add store.StepAdd, result string) {
 	t.Helper()
+	endCallerStepWith(t, s, add, result, "gate green")
+}
+
+// endCallerStepWith starts the step add, sets its result to result, and ends it done, passed for reason.
+func endCallerStepWith(t *testing.T, s *store.Store, add store.StepAdd, result, reason string) {
+	t.Helper()
 	ops := []store.EngineOp{
 		add,
 		store.StepReturn{ID: add.ID, Result: result},
-		store.StepEnd{ID: add.ID, End: "done", Status: "passed", Reason: "gate green"},
+		store.StepEnd{ID: add.ID, End: "done", Status: "passed", Reason: reason},
 	}
 	for _, op := range ops {
 		if err := s.ApplyEngine(t.Context(), []store.EngineOp{op}, fixedClock()); err != nil {
@@ -51,33 +57,34 @@ func endCallerStep(t *testing.T, s *store.Store, add store.StepAdd, result strin
 	}
 }
 
-// wantStepEndBlock returns the block the end of step-1 sends a caller whose result is summary, for a step of the
-// implementer agent that no epic holds.
-func wantStepEndBlock(summary string) string {
-	return "<orrery-event kind=\"step_end\" id=\"step:step-1\">\n" +
-		"Step step-1 ended: end done, status passed, reason gate green.\n" +
-		"Agent: implementer\n" +
-		"Summary: " + summary + "\n" +
-		"step_status gives the full result.\n" +
+// wantStepEndBlock returns the block the end of step-1 sends a caller whose return is result, for a step of the
+// implementer agent that no epic holds, ended done and passed for the reason gate green.
+func wantStepEndBlock(result string) string {
+	return "<orrery-event kind=\"step_end\" id=\"step:step-1\" agent=\"implementer\" end=\"done\" status=\"passed\">\n" +
+		"Return: " + result + "\n" +
+		"Not shown: none\n" +
+		"Reason: gate green\n" +
+		"More: step_result id step-1\n" +
 		"</orrery-event>"
 }
 
-// stepEndTextToPane starts the step add under a pane, ends it with the result all green, and returns the text a pass
-// sends that pane, which is idle to take it. The pane takes the text as keys, so the test runs no headless session.
+// stepEndTextToPane starts the step add under a pane, ends it with the result all green and the reason gate green, and
+// returns the text a pass sends that pane, which is idle to take it. The pane takes the text as keys, so the test runs
+// no headless session.
 func stepEndTextToPane(t *testing.T, s *store.Store, add store.StepAdd) string {
 	t.Helper()
-	return stepEndTextOfResultToPane(t, s, add, "all green")
+	return stepEndTextOfEndToPane(t, s, add, "all green", "gate green")
 }
 
-// stepEndTextOfResultToPane is stepEndTextToPane for a step that ends with result.
-func stepEndTextOfResultToPane(t *testing.T, s *store.Store, add store.StepAdd, result string) string {
+// stepEndTextOfEndToPane is stepEndTextToPane for a step that ends with result and reason.
+func stepEndTextOfEndToPane(t *testing.T, s *store.Store, add store.StepAdd, result, reason string) string {
 	t.Helper()
 	const server, pane = "-S /tmp/tmux-1000/orrery", "%7"
 	if err := s.SyncPane(t.Context(), server, store.Pane{ID: "orrery-1", Pane: pane}, fixedClock()); err != nil {
 		t.Fatalf("SyncPane: %v", err)
 	}
 	add.Caller = store.EpicCaller{Server: server, Pane: pane}
-	endCallerStep(t, s, add, result)
+	endCallerStepWith(t, s, add, result, reason)
 	var woken []string
 	sender := NewCallerSender(CallerSenderConfig{
 		Deliver: func(context.Context, DeliverRequest) error {
@@ -406,94 +413,60 @@ func TestPaneWakeStepHeldUntilKeysSentThenMarked(t *testing.T) {
 	}
 }
 
-func TestStepEventCardNamesAgentWithoutEpicLine(t *testing.T) {
+// TestStepEventBriefSentToPaneUnlabeled: the end of a step that no epic or task holds, by a reviewer, is sent to its pane
+// as its block, with agent, end and status in the tag and no epic or task.
+func TestStepEventBriefSentToPaneUnlabeled(t *testing.T) {
 	t.Parallel()
 	s, _ := openStore(t)
 	got := stepEndTextToPane(t, s, store.StepAdd{ID: callerStepID, Agent: "reviewer", Prompt: "check it"})
-	want := "<orrery-event kind=\"step_end\" id=\"step:step-1\">\n" +
-		"Step step-1 ended: end done, status passed, reason gate green.\n" +
-		"Agent: reviewer\n" +
-		"Summary: all green\n" +
-		"step_status gives the full result.\n" +
+	want := "<orrery-event kind=\"step_end\" id=\"step:step-1\" agent=\"reviewer\" end=\"done\" status=\"passed\">\n" +
+		"Return: all green\n" +
+		"Not shown: none\n" +
+		"Reason: gate green\n" +
+		"More: step_result id step-1\n" +
 		"</orrery-event>"
 	if got != want {
 		t.Fatalf("step end text = %q, want %q", got, want)
 	}
 }
 
-func TestStepEventCardNamesEpicOfEpicHeldStep(t *testing.T) {
+// TestStepEventBriefSentToPaneLabeled: the end of a step that an epic and a task hold is sent to its pane with the epic
+// and the task in the tag, after status.
+func TestStepEventBriefSentToPaneLabeled(t *testing.T) {
 	t.Parallel()
 	s, _ := openStore(t)
 	got := stepEndTextToPane(t, s, store.StepAdd{
-		ID: callerStepID, Agent: "implementer", Prompt: "do it", Epic: "epic-1",
+		ID: callerStepID, Agent: "implementer", Prompt: "do it", Epic: "epic-1", Task: "task-1",
 	})
-	want := "<orrery-event kind=\"step_end\" id=\"step:step-1\">\n" +
-		"Step step-1 ended: end done, status passed, reason gate green.\n" +
-		"Agent: implementer\n" +
-		"Epic: epic-1\n" +
-		"Summary: all green\n" +
-		"step_status gives the full result.\n" +
+	want := "<orrery-event kind=\"step_end\" id=\"step:step-1\" agent=\"implementer\" end=\"done\" status=\"passed\" " +
+		"epic=\"epic-1\" task=\"task-1\">\n" +
+		"Return: all green\n" +
+		"Not shown: none\n" +
+		"Reason: gate green\n" +
+		"More: step_result id step-1\n" +
 		"</orrery-event>"
 	if got != want {
 		t.Fatalf("step end text = %q, want %q", got, want)
 	}
 }
 
-// TestStepEndSummaryTellsAStructuredResultByItsShortFields: a step whose result is one JSON object ends with a summary
-// of its short top-level fields in the object's order, its long answer, its array and its null left for step_status.
-func TestStepEndSummaryTellsAStructuredResultByItsShortFields(t *testing.T) {
+// TestStepEventBriefSentWithinCap: the end of a step whose result is 20 KB and whose reason is 16 KB over several lines
+// is sent to its pane as a block of at most the cap, which is the block the store builds for the stored step.
+func TestStepEventBriefSentWithinCap(t *testing.T) {
 	t.Parallel()
 	s, _ := openStore(t)
-	result := `{"status":"done","answer":"` + strings.Repeat("x", 7000) +
-		`","evidence":["a.go:1"],"verdict":"READY","count":3,"clean":true,"gap":null,"note":"two\nlines"}`
-	add := store.StepAdd{ID: callerStepID, Agent: "implementer", Prompt: "do it"}
-	got := stepEndTextOfResultToPane(t, s, add, result)
-	want := wantStepEndBlock("status: done; verdict: READY; count: 3; clean: true; note: two lines")
-	if got != want {
-		t.Fatalf("step end text = %q, want %q", got, want)
+	got := stepEndTextOfEndToPane(
+		t, s, store.StepAdd{ID: callerStepID, Agent: "implementer", Prompt: "do it"},
+		strings.Repeat("r", 20000), strings.Repeat("s", 16000)+"\nsecond line",
+	)
+	if len(got) > store.StepEndBlockCap {
+		t.Fatalf("step end text is %d bytes, want at most %d", len(got), store.StepEndBlockCap)
 	}
-}
-
-// TestStepEndSummaryOfOtherResults: a result that is not one JSON object with a short field is told by its start, cut to
-// stepSummaryCap runes, and a short one whole.
-func TestStepEndSummaryOfOtherResults(t *testing.T) {
-	t.Parallel()
-	long := strings.Repeat("y", 7000)
-	cut := strings.Repeat("y", stepSummaryCap) + "..."
-	for _, tc := range []struct{ name, result, want string }{
-		{"short text", "all green", "all green"},
-		{"long text", long, cut},
-		{"object with no short field", `{"answer":"` + long + `"}`, capped(`{"answer":"`+long+`"}`, stepSummaryCap)},
-		{"array", `["a","b"]`, `["a","b"]`},
-		{"object then more", `{"status":"done"} trailing`, `{"status":"done"} trailing`},
-		{"broken object", `{"status":"done"`, `{"status":"done"`},
-	} {
-		if got := stepSummary(tc.result); got != tc.want {
-			t.Errorf("%s: stepSummary = %q, want %q", tc.name, got, tc.want)
-		}
+	row, err := s.Step(t.Context(), callerStepID)
+	if err != nil {
+		t.Fatalf("Step %s: %v", callerStepID, err)
 	}
-}
-
-// TestStepEndReasonIsItsFirstLineCut checks that a step end's event tells the step's reason by its first line, cut to
-// stepReasonCap runes, so a failed gate's output tails in the reason never reach the caller's context.
-func TestStepEndReasonIsItsFirstLineCut(t *testing.T) {
-	t.Parallel()
-	long := strings.Repeat("z", 3000)
-	for _, tc := range []struct{ name, reason, want string }{
-		{"one line", "gate green", "gate green"},
-		{"empty", "", ""},
-		{"long line", long, strings.Repeat("z", stepReasonCap) + "..."},
-		{"gate tails", "gate: exit 1\nstdout: " + long + "\nstderr: " + long, "gate: exit 1..."},
-		{"trailing newline", "gate green\n", "gate green"},
-	} {
-		if got := stepReason(tc.reason); got != tc.want {
-			t.Errorf("%s: stepReason = %q, want %q", tc.name, got, tc.want)
-		}
-	}
-	body := stepEndBody(store.StepRow{ID: "s1", End: "checks_failed", Reason: "gate: exit 1\n" + long, Agent: "a"})
-	lines := strings.Split(body, "\n")
-	want := "Step s1 ended: end checks_failed, status , reason gate: exit 1...."
-	if lines[0] != want || lines[1] != "Agent: a" {
-		t.Errorf("stepEndBody's first lines = %q, %q; want %q, %q", lines[0], lines[1], want, "Agent: a")
+	if want := store.StepEndBlock(row); got != want {
+		t.Fatalf("step end text = %q, want the store's block %q", got, want)
 	}
 }
