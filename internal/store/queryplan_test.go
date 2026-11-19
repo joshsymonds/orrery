@@ -158,6 +158,62 @@ func TestToldLimitQueryPlans(t *testing.T) {
 	}
 }
 
+// TestStepQueryPlans fails when a query that reads steps by an epic's labels, lists the open steps or lists the step
+// ends a caller has not read scans steps, or scans it through an index that is not partial. steps holds every step's
+// prompt, result, checks and verdicts, so a scan of it reads the whole history: the interpreter reads an epic's labeled
+// steps on every decision, and the limit notices and caller events list theirs on every pass. A search of steps is not
+// a scan and passes. ListLabelledSteps lists the labeled steps of every epic and so reads the whole table; no pass reads
+// it, and it is not listed. A read of one task's steps of an epic searches both labels, in the order it returns them.
+func TestStepQueryPlans(t *testing.T) {
+	t.Parallel()
+	texts := sqlcQueryTexts(t)
+	s := openWriterAt(t, filepath.Join(t.TempDir(), "orrery.db"))
+	partial := partialIndexesOf(t, s.db.DB, "steps")
+	names := map[string]bool{"steps": true}
+	for _, name := range []string{
+		"ListEpicTaskSteps", "ListEpicSteps", "ListOpenEpicSteps", "ListOpenEpicTaskSteps", "ListOpenSteps",
+		"ListLimitedSteps", "ListCallerSteps", "ListPendingCallerSteps",
+	} {
+		text, ok := texts[name]
+		if !ok {
+			t.Fatalf("query %s is not defined in %s", name, queryPlanSource)
+		}
+		for _, detail := range planDetails(t, s.db.DB, name, text) {
+			if index, scans := eventsScan(detail, names); scans && !partial[index] {
+				t.Errorf("query %s: plan row %q scans steps without a partial index", name, detail)
+			}
+		}
+	}
+	want := []string{"SEARCH steps USING INDEX steps_epic_task (epic=? AND task=?)"}
+	if got := planDetails(t, s.db.DB, "ListEpicTaskSteps", texts["ListEpicTaskSteps"]); !reflect.DeepEqual(got, want) {
+		t.Errorf("ListEpicTaskSteps plan = %q, want %q", got, want)
+	}
+}
+
+// TestPassQueryPlans fails when the read of every open epic's node run states scans epic_node_runs. The interpreter
+// reads it on every pass, and the table keeps the runs of every epic the store has held, so it must search each open
+// epic's runs by key. It may scan epics, one row per epic, which the pass lists anyway.
+func TestPassQueryPlans(t *testing.T) {
+	t.Parallel()
+	texts := sqlcQueryTexts(t)
+	s := openWriterAt(t, filepath.Join(t.TempDir(), "orrery.db"))
+	name := "ListOpenEpicNodeRunStates"
+	details := planDetails(t, s.db.DB, name, texts[name])
+	searched := false
+	for _, detail := range details {
+		fields := strings.Fields(detail)
+		if len(fields) > 1 && fields[1] == "epic_node_runs" {
+			searched = searched || fields[0] == "SEARCH"
+			if fields[0] == "SCAN" {
+				t.Errorf("query %s: plan row %q scans epic_node_runs, want a search of each epic's runs", name, detail)
+			}
+		}
+	}
+	if !searched {
+		t.Errorf("query %s: plan %q does not search epic_node_runs", name, details)
+	}
+}
+
 // TestReaderQueryPlansAliases checks that the guard sees a scan of events under an alias, with or without AS, and
 // passes a search of events under an alias. EXPLAIN QUERY PLAN names an aliased table by its alias, so each plan row
 // of a query that reads events through an alias must be matched against the names that the query gives events.
@@ -343,9 +399,10 @@ func eventsScan(detail string, names map[string]bool) (string, bool) {
 }
 
 // TestNodeRunQueryPlans fails when a query that EpicFlow issues, or a node-run write, scans a table without an index.
-// The interpreter calls EpicFlow for every epic on every pass, so each of its queries must search an epic's rows by
-// key rather than read a whole table. The EpicFlow queries are recorded from a real read of a seeded epic with a
-// planned task and a node run, so a query EpicFlow later adds is checked too.
+// The interpreter calls EpicFlow for every epic it decides on every pass, so each of its queries must search an epic's
+// rows by key rather than read a whole table. The EpicFlow queries are recorded from a real read of a seeded epic with
+// a planned task, a plan run and a review run, so a query EpicFlow later adds is checked too, and the read of the
+// review run's labeled steps among them.
 func TestNodeRunQueryPlans(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -361,6 +418,9 @@ func TestNodeRunQueryPlans(t *testing.T) {
 		if name, ok := queryName(text); ok {
 			byName[name] = text
 		}
+	}
+	if _, ok := byName["ListEpicTaskSteps"]; !ok {
+		t.Fatalf("EpicFlow issued no ListEpicTaskSteps for the review run, want its labeled steps read")
 	}
 	for _, name := range []string{
 		"ListEpicNodeRuns", "CountPendingEpicTriggers", "InsertEpicNodeRun", "EndEpicNodeRun",
@@ -388,8 +448,8 @@ func TestNodeRunQueryPlans(t *testing.T) {
 // queryPlanEpic is the synthetic epic TestNodeRunQueryPlans reads.
 const queryPlanEpic = "orrery-0123456/query-plan"
 
-// seedFlowPlanEpic stores queryPlanEpic with one planned task and a running plan run, so a read of it issues every
-// query EpicFlow has, the per-task ones included.
+// seedFlowPlanEpic stores queryPlanEpic with one planned task, a running plan run and a running review run, so a read
+// of it issues every query EpicFlow has, the per-task ones and the labeled steps of a review run included.
 func seedFlowPlanEpic(t *testing.T, s *Store) {
 	t.Helper()
 	ctx := context.Background()
@@ -403,6 +463,8 @@ func seedFlowPlanEpic(t *testing.T, s *Store) {
 	}
 	if err := s.StartNodes(ctx, queryPlanEpic, []NodeRun{{
 		Path: "plan", ID: NodeRunID(queryPlanEpic, "plan", 0, "start"), Node: "plan", Kind: "plan",
+	}, {
+		Path: "review", ID: NodeRunID(queryPlanEpic, "review", 0, "start"), Node: "review", Kind: flowReviewKind,
 	}}, nil, at); err != nil {
 		t.Fatalf("StartNodes: %v", err)
 	}

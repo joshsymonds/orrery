@@ -315,3 +315,59 @@ func TestNodeRunIDMatchesFormAndDiffers(t *testing.T) {
 		}
 	}
 }
+
+// TestOpenNodeRunStatesReadsOpenEpicsRunStates checks that OpenNodeRunStates returns, by epic, the path, kind, state,
+// outcome and attempt of each node run of every epic not in a closed phase, an ended phase among them, ordered by
+// path, and nothing for a closed epic or an epic with no run.
+func TestOpenNodeRunStatesReadsOpenEpicsRunStates(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, _ := openNodeStore(t)
+	const (
+		released = "orrery-7a8b9c0/epic-released"
+		closed   = "orrery-7a8b9c0/epic-closed"
+		bare     = "orrery-7a8b9c0/epic-bare"
+	)
+	for id, phase := range map[string]string{
+		nodeEpic: "accepted", released: "released", closed: store.PhaseClosedShipped, bare: "accepted",
+	} {
+		if err := s.CreateEpic(ctx, store.EpicRow{
+			ID: id, Repository: "/work/synthetic", Base: "base", Title: "Read the run states", Phase: phase,
+			Created: nodeStartedAt(), Changed: nodeStartedAt(),
+		}); err != nil {
+			t.Fatalf("CreateEpic %s: %v", id, err)
+		}
+	}
+	for _, id := range []string{nodeEpic, released, closed} {
+		runs := []store.NodeRun{
+			{Path: "review", ID: "id-review", Node: "review", Kind: "review", Attempt: 2},
+			{Path: "plan", ID: "id-plan", Node: "plan", Kind: "plan", Mark: 3},
+		}
+		if err := s.StartNodes(ctx, id, runs, nil, nodeStartedAt()); err != nil {
+			t.Fatalf("StartNodes of epic %s: %v", id, err)
+		}
+	}
+	if err := s.EndNodes(ctx, released, []store.NodeEnd{
+		{Path: "plan", Outcome: "complete"}, {Path: "review", Outcome: "passed", Output: "clean"},
+	}, nodeEndedAt()); err != nil {
+		t.Fatalf("EndNodes: %v", err)
+	}
+
+	got, err := s.OpenNodeRunStates(ctx)
+	if err != nil {
+		t.Fatalf("OpenNodeRunStates: %v", err)
+	}
+	want := map[string][]store.NodeRun{
+		nodeEpic: {
+			{Path: "plan", Kind: "plan", State: store.NodeRunning},
+			{Path: "review", Kind: "review", State: store.NodeRunning, Attempt: 2},
+		},
+		released: {
+			{Path: "plan", Kind: "plan", State: store.NodeEnded, Outcome: "complete"},
+			{Path: "review", Kind: "review", State: store.NodeEnded, Outcome: "passed", Attempt: 2},
+		},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("OpenNodeRunStates = %+v, want %+v", got, want)
+	}
+}
