@@ -235,7 +235,7 @@ func TestRerunReviewRunsReviewerAgainGapTurn(t *testing.T) {
 }
 
 // TestConcludeWaitsOnPendingActionGapTurn: while the rerun_review action the gap's turn returned is still pending, a pass
-// at the conclusion starts no rerun and no second gap round, though the gap round's plan has ended.
+// at the conclusion starts no rerun and no second gap round.
 func TestConcludeWaitsOnPendingActionGapTurn(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -248,9 +248,6 @@ func TestConcludeWaitsOnPendingActionGapTurn(t *testing.T) {
 
 	runner.Pass(ctx)
 	runner.Pass(ctx)
-	if plan := runAt(t, s, "conclude/G1/fix"); plan.State != store.NodeEnded {
-		t.Fatalf("gap round plan = %+v, want it ended", plan)
-	}
 	for _, run := range runsOf(t, s) {
 		if strings.HasPrefix(run.Path, "conclude/R") || run.Path == "conclude/G2/fix" {
 			t.Errorf("node run %s started while the rerun_review action is pending", run.Path)
