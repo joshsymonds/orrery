@@ -44,6 +44,15 @@ const freshRow = {
   note: "start fresh",
   prompt: false,
 };
+const continueRow = {
+  token: "tok-continue",
+  kind: "continue",
+  dir: "/work/ops",
+  pane: "",
+  label: "",
+  note: "continue sess-9",
+  prompt: false,
+};
 const promptRow = {
   token: "tok-prompt",
   kind: "pane",
@@ -251,6 +260,20 @@ async function click(element: HTMLElement): Promise<void> {
   await act(() => {
     element.dispatchEvent(new Event("click", { bubbles: true }));
   });
+}
+
+// pressArrow sends an arrow key and resolves whether a handler prevented it, so the caret is left where it was.
+async function pressArrow(element: Element, key: string): Promise<boolean> {
+  const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+  await act(() => {
+    element.dispatchEvent(event);
+  });
+  return event.defaultPrevented;
+}
+
+// currentIndex is the index of the row marked current, or -1 when none is.
+function currentIndex(container: HTMLElement): number {
+  return rowButtons(container).findIndex((button) => button.classList.contains("cur"));
 }
 
 test("PickerPalette: Enter sends the typed words to Picker.Ask, and the rows come back with label and note", (t) =>
@@ -644,3 +667,185 @@ test("PickerStartForm: a refused Start keeps the message and shows the fixed lin
     assert.equal(container.textContent?.includes("secret detail"), false, "the server's text is not shown");
     assert.equal(messageBox(container).value, "keep this", "the form keeps the message as typed");
   }));
+
+test("NewPanel: each result leads with its kind's word, then its title, its chip when it has one, and its note", (t) =>
+  withDom(t.signal, async (container, server) => {
+    server.replies.set(askPath, {
+      status: 200,
+      body: { rows: [jumpRow, resumeRow, continueRow, freshRow, promptRow] },
+    });
+    await mountPalette(container, server, () => {}, () => {}, () => {}, [
+      listedPane("%3", "/work/billing", "retry the webhook"),
+    ]);
+    await typeWords(container, "api");
+    await pressKey(input(container), "Enter");
+    await untilTurn(t.signal, () => rowButtons(container).length === 5, "the rows are listed");
+    assert.deepEqual(
+      rowButtons(container).map((button) => [
+        button.querySelector(".k")?.textContent ?? "",
+        button.querySelector(".t")?.textContent ?? "",
+        button.querySelector(".n")?.textContent ?? "",
+      ]),
+      [
+        ["go to", "billing retry the webhook", "waiting on you"],
+        ["resume", "docs", "resume sess-7"],
+        ["continue", "ops", "continue sess-9"],
+        ["start in", "web", "start fresh"],
+        ["start in", "docs", "pane in docs"],
+      ],
+    );
+    assert.deepEqual(
+      rowButtons(container).map((button) => [...button.children].map((child) => child.className)),
+      [
+        ["k", "t", "n"],
+        ["k", "t", "chip live", "n"],
+        ["k", "t", "n"],
+        ["k", "t", "n"],
+        ["k", "t", "chip live", "n"],
+      ],
+    );
+  }));
+
+test("NewPanel: the chip says starts with your words on a prompt row, and on no other", (t) =>
+  withDom(t.signal, async (container, server) => {
+    server.replies.set(askPath, { status: 200, body: { rows: [jumpRow, promptRow, freshRow] } });
+    await mountPalette(container, server);
+    await typeWords(container, "api");
+    await pressKey(input(container), "Enter");
+    await untilTurn(t.signal, () => rowButtons(container).length === 3, "the rows are listed");
+    assert.deepEqual(
+      rowButtons(container).map((button) => button.querySelector(".chip")?.textContent ?? null),
+      [null, "starts with your words", null],
+    );
+  }));
+
+test("NewPanel: the first result is the current one, marked cur and aria-selected", (t) =>
+  withDom(t.signal, async (container, server) => {
+    server.replies.set(askPath, { status: 200, body: { rows: [jumpRow, resumeRow, freshRow] } });
+    await mountPalette(container, server);
+    await typeWords(container, "api");
+    await pressKey(input(container), "Enter");
+    await untilTurn(t.signal, () => rowButtons(container).length === 3, "the rows are listed");
+    assert.deepEqual(
+      rowButtons(container).map((button) => [button.className, button.getAttribute("aria-selected")]),
+      [
+        ["pick-row cur", "true"],
+        ["pick-row", "false"],
+        ["pick-row", "false"],
+      ],
+    );
+  }));
+
+test("NewPanel: ↓ and ↑ in the field move the current result, wrap at both ends, and are prevented", (t) =>
+  withDom(t.signal, async (container, server) => {
+    server.replies.set(askPath, { status: 200, body: { rows: [jumpRow, resumeRow, freshRow] } });
+    await mountPalette(container, server);
+    await typeWords(container, "api");
+    await pressKey(input(container), "Enter");
+    await untilTurn(t.signal, () => rowButtons(container).length === 3, "the rows are listed");
+    const field = input(container);
+
+    assert.equal(await pressArrow(field, "ArrowDown"), true, "↓ is prevented");
+    assert.equal(currentIndex(container), 1, "↓ moves the current result down");
+    await pressArrow(field, "ArrowDown");
+    assert.equal(currentIndex(container), 2);
+    await pressArrow(field, "ArrowDown");
+    assert.equal(currentIndex(container), 0, "↓ from the last result wraps to the first");
+    assert.equal(await pressArrow(field, "ArrowUp"), true, "↑ is prevented");
+    assert.equal(currentIndex(container), 2, "↑ from the first result wraps to the last");
+    await pressArrow(field, "ArrowUp");
+    assert.equal(currentIndex(container), 1, "↑ moves the current result up");
+    assert.equal(
+      rowButtons(container).filter((button) => button.getAttribute("aria-selected") === "true").length,
+      1,
+      "exactly one result is selected",
+    );
+  }));
+
+test("NewPanel: Enter chooses the current result while the field holds the words last asked", (t) =>
+  withDom(t.signal, async (container, server) => {
+    server.replies.set(askPath, { status: 200, body: { rows: [jumpRow, resumeRow] } });
+    const panes: string[] = [];
+    await mountPalette(container, server, (pane) => panes.push(pane));
+    await typeWords(container, "api");
+    await pressKey(input(container), "Enter");
+    await untilTurn(t.signal, () => rowButtons(container).length === 2, "the rows are listed");
+
+    server.replies.set(runPath, { status: 200, body: { pane: "%5" } });
+    await pressArrow(input(container), "ArrowDown");
+    await pressKey(input(container), "Enter");
+    await untilTurn(t.signal, () => panes.length === 1, "Enter reports the pane");
+    assert.deepEqual(panes, ["%5"]);
+    assert.deepEqual(server.callsTo(runPath).map((call) => call.body), [{ token: "tok-resume" }]);
+    assert.equal(server.callsTo(askPath).length, 1, "Enter chose the result and did not ask again");
+  }));
+
+test("NewPanel: Enter asks again once the words change, and chooses nothing", (t) =>
+  withDom(t.signal, async (container, server) => {
+    server.replies.set(askPath, { status: 200, body: { rows: [jumpRow] } });
+    await mountPalette(container, server);
+    await typeWords(container, "api");
+    await pressKey(input(container), "Enter");
+    await untilTurn(t.signal, () => rowButtons(container).length === 1, "the first answer is listed");
+
+    server.replies.set(askPath, { status: 200, body: { rows: [freshRow] } });
+    await typeWords(container, "api web");
+    await pressKey(input(container), "Enter");
+    await untilTurn(t.signal, () => rowTexts(container)[0]?.[0] === "web", "the second answer is listed");
+    assert.deepEqual(server.callsTo(askPath).map((call) => call.body), [{ text: "api" }, { text: "api web" }]);
+    assert.deepEqual(server.callsTo(runPath), [], "no result is chosen");
+  }));
+
+test("NewPanel: a click chooses the row clicked, whichever result is current", (t) =>
+  withDom(t.signal, async (container, server) => {
+    server.replies.set(askPath, { status: 200, body: { rows: [jumpRow, resumeRow] } });
+    const panes: string[] = [];
+    await mountPalette(container, server, (pane) => panes.push(pane));
+    await typeWords(container, "api");
+    await pressKey(input(container), "Enter");
+    await untilTurn(t.signal, () => rowButtons(container).length === 2, "the rows are listed");
+
+    server.replies.set(runPath, { status: 200, body: { pane: "%5" } });
+    await click(rowButtons(container)[1]);
+    await untilTurn(t.signal, () => panes.length === 1, "the click reports the pane");
+    assert.deepEqual(panes, ["%5"]);
+    assert.deepEqual(server.callsTo(runPath).map((call) => call.body), [{ token: "tok-resume" }]);
+  }));
+
+test("NewPanel: choosing a continue row sends its token to Picker.Run and reports the pane", (t) =>
+  withDom(t.signal, async (container, server) => {
+    server.replies.set(askPath, { status: 200, body: { rows: [continueRow] } });
+    server.replies.set(runPath, { status: 200, body: { pane: "%7" } });
+    const panes: string[] = [];
+    await mountPalette(container, server, (pane) => panes.push(pane));
+    await askAndChoose(t.signal, container, "ops", 0);
+    await untilTurn(t.signal, () => panes.length === 1, "the continue reports its pane");
+    assert.deepEqual(panes, ["%7"]);
+    assert.deepEqual(server.callsTo(runPath).map((call) => call.body), [{ token: "tok-continue" }]);
+    assertNone(container.querySelector(".picker-start"), "a continue row opens no start form");
+  }));
+
+// runFailures are the sentences a failed Run shows, by the code the server answers with, and the status it answers with.
+const runFailures: [string, number, string][] = [
+  ["not_found", 404, "That result has gone stale. Ask again."],
+  ["failed_precondition", 400, "It did not open: the result expired, or tmux is not running on the server."],
+  ["unavailable", 503, "It did not open: the server could not run it."],
+  ["internal", 500, "It did not open."],
+];
+
+for (const [code, status, sentence] of runFailures) {
+  test(`NewPanel: a failed Run with ${code} shows its sentence, none of the server's text, and reports no pane`, (t) =>
+    withDom(t.signal, async (container, server) => {
+      server.replies.set(askPath, { status: 200, body: { rows: [jumpRow] } });
+      server.replies.set(runPath, { status, body: { code, message: "text is refused: secret detail" } });
+      const panes: string[] = [];
+      await mountPalette(container, server, (pane) => panes.push(pane));
+      await askAndChoose(t.signal, container, "api", 0);
+      await untilTurn(t.signal, () => alertTexts(container).length === 1, "the failed run shows its sentence");
+      assert.deepEqual(alertTexts(container), [sentence]);
+      assert.equal(hintOf(container)?.className, "inote error", "the failure takes the hint's place");
+      assert.equal(hintOf(container)?.getAttribute("role"), "alert");
+      assert.deepEqual(panes, [], "a failed run reports no pane");
+      assert.equal(container.textContent?.includes("secret detail"), false, "the server's text is not shown");
+    }));
+}
