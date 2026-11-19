@@ -58,6 +58,7 @@ func wantStepEndBlock(summary string) string {
 		"Step step-1 ended: end done, status passed, reason gate green.\n" +
 		"Agent: implementer\n" +
 		"Summary: " + summary + "\n" +
+		"step_status gives the full result.\n" +
 		"</orrery-event>"
 }
 
@@ -413,6 +414,7 @@ func TestStepEventCardNamesAgentWithoutEpicLine(t *testing.T) {
 		"Step step-1 ended: end done, status passed, reason gate green.\n" +
 		"Agent: reviewer\n" +
 		"Summary: all green\n" +
+		"step_status gives the full result.\n" +
 		"</orrery-event>"
 	if got != want {
 		t.Fatalf("step end text = %q, want %q", got, want)
@@ -430,20 +432,44 @@ func TestStepEventCardNamesEpicOfEpicHeldStep(t *testing.T) {
 		"Agent: implementer\n" +
 		"Epic: epic-1\n" +
 		"Summary: all green\n" +
+		"step_status gives the full result.\n" +
 		"</orrery-event>"
 	if got != want {
 		t.Fatalf("step end text = %q, want %q", got, want)
 	}
 }
 
-func TestStepEndTextCarriesWholeJSONReturn(t *testing.T) {
+// TestStepEndSummaryTellsAStructuredResultByItsShortFields: a step whose result is one JSON object ends with a summary
+// of its short top-level fields in the object's order, its long answer, its array and its null left for step_status.
+func TestStepEndSummaryTellsAStructuredResultByItsShortFields(t *testing.T) {
 	t.Parallel()
 	s, _ := openStore(t)
-	const jsonPrefix, jsonSuffix = `{"notes":"`, `"}`
-	result := jsonPrefix + strings.Repeat("x", 7000-len(jsonPrefix)-len(jsonSuffix)) + jsonSuffix
+	result := `{"status":"done","answer":"` + strings.Repeat("x", 7000) +
+		`","evidence":["a.go:1"],"verdict":"READY","count":3,"clean":true,"gap":null,"note":"two\nlines"}`
 	add := store.StepAdd{ID: callerStepID, Agent: "implementer", Prompt: "do it"}
 	got := stepEndTextOfResultToPane(t, s, add, result)
-	if want := wantStepEndBlock(result); got != want {
-		t.Fatalf("step end text = %q, want the whole result with no hint line: %q", got, want)
+	want := wantStepEndBlock("status: done; verdict: READY; count: 3; clean: true; note: two lines")
+	if got != want {
+		t.Fatalf("step end text = %q, want %q", got, want)
+	}
+}
+
+// TestStepEndSummaryOfOtherResults: a result that is not one JSON object with a short field is told by its start, cut to
+// stepSummaryCap runes, and a short one whole.
+func TestStepEndSummaryOfOtherResults(t *testing.T) {
+	t.Parallel()
+	long := strings.Repeat("y", 7000)
+	cut := strings.Repeat("y", stepSummaryCap) + "..."
+	for _, tc := range []struct{ name, result, want string }{
+		{"short text", "all green", "all green"},
+		{"long text", long, cut},
+		{"object with no short field", `{"answer":"` + long + `"}`, capped(`{"answer":"`+long+`"}`, stepSummaryCap)},
+		{"array", `["a","b"]`, `["a","b"]`},
+		{"object then more", `{"status":"done"} trailing`, `{"status":"done"} trailing`},
+		{"broken object", `{"status":"done"`, `{"status":"done"`},
+	} {
+		if got := stepSummary(tc.result); got != tc.want {
+			t.Errorf("%s: stepSummary = %q, want %q", tc.name, got, tc.want)
+		}
 	}
 }
