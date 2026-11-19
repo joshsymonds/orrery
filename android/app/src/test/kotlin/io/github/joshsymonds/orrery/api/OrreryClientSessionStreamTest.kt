@@ -53,6 +53,7 @@ class OrreryClientSessionStreamTest {
         questionHash = "",
         newestReply = 4102444950L,
         headless = true,
+        orreryId = SESSION_ID,
     )
 
     private val exampleRequest = OpenRequestProto.newBuilder()
