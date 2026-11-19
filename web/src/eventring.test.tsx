@@ -91,6 +91,7 @@ class FakeEpics {
         this.opened.push(id);
       },
       openStep: () => {},
+      stepResult: () => Promise.resolve(""),
       epics,
     };
   }
@@ -153,11 +154,12 @@ test("EventRing: epicEventOf reads a block's kind, epic, event tail and first se
     tail: "released",
     sentence: `${title} is released.`,
   });
-  assert.equal(
-    epicEventOf(`<orrery-event kind="step_end" id="step:step-1">\nThe step ended.\n</orrery-event>`),
-    null,
-    "a step's event is not an epic's",
-  );
+  const stepEnd = [
+    '<orrery-event kind="step_end" id="step:step-1" end="done" status="done">',
+    "The step ended.",
+    "</orrery-event>",
+  ].join("\n");
+  assert.equal(epicEventOf(stepEnd), null, "a step's event is not an epic's");
   assert.equal(epicEventOf(eventBlock("exploded", "Q1", "a body")), null, "an unknown kind is not an epic's event");
   assert.equal(epicEventOf("Plain prompt text"), null, "a prompt that is no block is not an epic's event");
 });

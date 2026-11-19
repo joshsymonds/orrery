@@ -12,12 +12,13 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// StepObserver receives what a step session hands it. Event receives each event the session records, before that event's
-// hand-off. Done reports whether a turn's structured return is the step's done value. Return receives a turn's end once
-// no background task of the step is live, or once Done reports that turn's return as done; the step then counts busy
-// until Continue sends its next prompt or the session stops. Exited receives the failure reason when the step's process
-// ends on its own. Event, Return and Exited run on the step's pump goroutine and must not block. Done runs under the
-// manager's lock, so it must not block or take a lock of the observer.
+// StepObserver receives what a step session hands it. Event receives each event the session records, before that
+// event's hand-off. Done reports whether a turn's structured return is the step's done value. Return receives a turn's
+// end when no background task of the step that runs a model is live (see awaitsTask), whatever shell tasks are, or when
+// Done reports that turn's return as done; the step then counts busy until Continue sends its next prompt or the
+// session stops. Exited receives the failure reason when the step's process ends on its own. Event, Return and Exited
+// run on the step's pump goroutine and must not block. Done runs under the manager's lock, so it must not block or take
+// a lock of the observer.
 type StepObserver interface {
 	Event(event session.Event)
 	Done(turn session.TurnEnded) bool

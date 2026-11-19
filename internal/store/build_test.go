@@ -123,11 +123,11 @@ func TestSetTaskBuildOnDoneFailedOrUnknownTaskIsErrTaskMoved(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := plannedBuildEpic(t)
-	if _, err := s.db.ExecContext(ctx,
+	if _, err := s.fixtureExec(ctx,
 		`UPDATE epic_tasks SET status = 'done' WHERE epic = ? AND seq = 1`, buildEpic); err != nil {
 		t.Fatalf("mark task 1 done: %v", err)
 	}
-	if _, err := s.db.ExecContext(ctx,
+	if _, err := s.fixtureExec(ctx,
 		`UPDATE epic_tasks SET status = 'failed' WHERE epic = ? AND seq = 2`, buildEpic); err != nil {
 		t.Fatalf("mark task 2 failed: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestSetTaskBuildOnDoneFailedOrUnknownTaskIsErrTaskMoved(t *testing.T) {
 // insertBuildTask stores task seq of epic as an open task, as a planner return does.
 func insertBuildTask(t *testing.T, s *Store, epic string, seq int64) {
 	t.Helper()
-	if err := sqlcgen.New(s.db).InsertEpicTask(context.Background(), sqlcgen.InsertEpicTaskParams{
+	if err := s.fixtureQueries().InsertEpicTask(context.Background(), sqlcgen.InsertEpicTaskParams{
 		Epic: epic, Seq: seq, Turn: 1, Title: "Build it", Deliverable: "the build", Gate: "check",
 	}); err != nil {
 		t.Fatalf("insert task %d of %s: %v", seq, epic, err)
@@ -186,7 +186,7 @@ func TestBuildEpicsListsEpicsWithBaseAndAnOpenTaskUnlessEnded(t *testing.T) {
 		stored(id, "main", phase)
 		insertBuildTask(t, s, id, 1)
 	}
-	if _, err := s.db.ExecContext(ctx,
+	if _, err := s.fixtureExec(ctx,
 		`UPDATE epic_tasks SET status = 'done' WHERE epic = ?`, onlyDone); err != nil {
 		t.Fatalf("mark task of %s done: %v", onlyDone, err)
 	}
@@ -215,7 +215,7 @@ func TestReviewsAndFindingsReadBackInAttemptAndPositionOrder(t *testing.T) {
 		{1, 1, "check", "review-1-1", "holds"},
 	}
 	for _, r := range reviews {
-		if _, err := s.db.ExecContext(ctx, `INSERT INTO epic_task_reviews
+		if _, err := s.fixtureExec(ctx, `INSERT INTO epic_task_reviews
 			(epic, task, attempt, position, gate, step, verdict) VALUES (?, 1, ?, ?, ?, ?, ?)`,
 			buildEpic, r.attempt, r.position, r.gate, r.step, r.verdict); err != nil {
 			t.Fatalf("insert review %d of attempt %d: %v", r.position, r.attempt, err)
@@ -230,7 +230,7 @@ func TestReviewsAndFindingsReadBackInAttemptAndPositionOrder(t *testing.T) {
 		VerifyBy: "read a.go", Step: "verify-1-2-1", Result: "dropped", Reason: "not in a.go",
 	}
 	for _, f := range []TaskFinding{findingB, findingA} {
-		if _, err := s.db.ExecContext(ctx, `INSERT INTO epic_task_findings
+		if _, err := s.fixtureExec(ctx, `INSERT INTO epic_task_findings
 			(epic, task, attempt, review, position, id, claim, citation, location, evidence, verify_by, step, result, reason)
 			VALUES (?, 1, 1, 2, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			buildEpic, f.Position, f.ID, f.Claim, f.Citation, f.Location, f.Evidence, f.VerifyBy, f.Step, f.Result,
@@ -314,7 +314,7 @@ func TestBuildColumnsRefuseValuesOutsideTheirSets(t *testing.T) {
 		},
 	}
 	for _, r := range refused {
-		_, err := s.db.ExecContext(ctx, r.stmt, r.args...)
+		_, err := s.fixtureExec(ctx, r.stmt, r.args...)
 		if err == nil || !strings.Contains(err.Error(), "CHECK constraint failed") {
 			t.Errorf("%s: err = %v, want the CHECK refusal", r.name, err)
 		}

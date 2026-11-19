@@ -6,8 +6,6 @@ import (
 	"reflect"
 	"testing"
 	"time"
-
-	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
 // headlineStore writes a store with the sessions the headline tests read, every event timed relative to engineNowAt.
@@ -155,7 +153,7 @@ func TestSessionHeadlineSetStoresHeadlineAndTimeOfEngineSessionsOnly(t *testing.
 	if err := s.SetSessionHeadline(ctx, "e-idle", "Idle work, rewritten", at.Add(10*time.Second)); err != nil {
 		t.Fatalf("SetSessionHeadline again: %v", err)
 	}
-	row, err := sqlcgen.New(s.db).GetSession(ctx, "e-idle")
+	row, err := s.fixtureQueries().GetSession(ctx, "e-idle")
 	if err != nil {
 		t.Fatalf("GetSession: %v", err)
 	}
@@ -170,7 +168,7 @@ func TestSessionHeadlineSetStoresHeadlineAndTimeOfEngineSessionsOnly(t *testing.
 		}
 	}
 	for _, id := range []string{"step-a", "orrery-1"} {
-		row, err := sqlcgen.New(s.db).GetSession(ctx, id)
+		row, err := s.fixtureQueries().GetSession(ctx, id)
 		if err != nil {
 			t.Fatalf("GetSession %s: %v", id, err)
 		}

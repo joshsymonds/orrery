@@ -129,7 +129,7 @@ func TestHolderPromptsUnansweredNullTurnEndAnswersEarlierPrompts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encode turn end payload: %v", err)
 	}
-	if err := sqlcgen.New(s.db).InsertEngineTurnEndedEvent(ctx, sqlcgen.InsertEngineTurnEndedEventParams{
+	if err := s.fixtureQueries().InsertEngineTurnEndedEvent(ctx, sqlcgen.InsertEngineTurnEndedEventParams{
 		SessionID: "e1", At: engineNowAt().Unix(), Payload: payload,
 	}); err != nil {
 		t.Fatalf("insert turn end with NULL answered: %v", err)

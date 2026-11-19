@@ -353,9 +353,13 @@ linters:
           msg: "NO versioned function names (V2) - replace old implementations"
         - pattern: '.*v2$'
           msg: "NO versioned function names (v2) - replace old implementations"
+        # The Old patterns ban names this module declares. A dependency's own API is out of their reach: the sqlite
+        # driver names a pre-update hook's replaced row SQLitePreUpdateData.Old, and the store must call it.
         - pattern: '.*Old$'
+          pkg: '^github\.com/joshsymonds/orrery(/.*)?$'
           msg: "NO 'Old' prefix/suffix - delete old code"
         - pattern: '^Old.*'
+          pkg: '^github\.com/joshsymonds/orrery(/.*)?$'
           msg: "NO 'Old' prefix - delete old code"
         - pattern: '.*Deprecated$'
           msg: "NO 'Deprecated' - remove deprecated code"

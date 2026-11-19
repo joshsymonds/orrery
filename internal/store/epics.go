@@ -70,8 +70,8 @@ type EpicRow struct {
 	Changed     time.Time
 	PhaseAt     time.Time
 	Seen        time.Time
-	// Revision counts the writes to the epic's row and to the rows of its parts, its steps aside (see
-	// 00069_epic_revisions.sql), so a reader can tell that the epic changed in any part by comparing it alone.
+	// Revision counts the store writes that wrote the epic's row or a row of its parts, its steps aside, its creation
+	// among them (see epicMoves), so a reader can tell that the epic changed in any part by comparing it alone.
 	Revision int64
 	Paused   bool
 	// Parked is the park reason, empty when the epic is not parked, and ParkClass is the class of that park, which says
@@ -231,10 +231,6 @@ func (s *Store) CreateEpic(ctx context.Context, row EpicRow) error {
 			Created: row.Created.Unix(),
 		}); err != nil {
 			return fmt.Errorf("insert trigger of epic %s: %w", row.ID, err)
-		}
-		// The rows above each moved the revision; a created epic is at revision 0, and only later writes move it.
-		if err = queries.ResetEpicRevision(ctx, row.ID); err != nil {
-			return fmt.Errorf("reset revision of epic %s: %w", row.ID, err)
 		}
 		return nil
 	})
@@ -474,7 +470,7 @@ func readEpic(ctx context.Context, queries *sqlcgen.Queries, id string) (EpicRow
 }
 
 // readEpicOf returns the stored epic whose head is head, every section in order, its pinned workflow's nodes, its seen
-// mark and its evidence amendments.
+// mark, its evidence amendments and its revision.
 func readEpicOf(ctx context.Context, queries *sqlcgen.Queries, head sqlcgen.Epic) (EpicRow, error) {
 	row := epicHeadOf(head)
 	report, err := epicReportOf(head)
@@ -494,7 +490,22 @@ func readEpicOf(ctx context.Context, queries *sqlcgen.Queries, head sqlcgen.Epic
 	if err = loadAmendments(ctx, queries, &row); err != nil {
 		return EpicRow{}, fmt.Errorf("read amendments of epic %s: %w", row.ID, err)
 	}
+	if row.Revision, err = epicRevisionOf(ctx, queries, row.ID); err != nil {
+		return EpicRow{}, err
+	}
 	return row, nil
+}
+
+// epicRevisionOf returns the revision of epic: its epic_revisions row's, or 0 when no store write has moved it.
+func epicRevisionOf(ctx context.Context, queries *sqlcgen.Queries, epic string) (int64, error) {
+	revision, err := queries.GetEpicRevision(ctx, epic)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("read revision of epic %s: %w", epic, err)
+	}
+	return revision, nil
 }
 
 // loadEpicWorkflowNodes fills the nodes of the workflow of row from the rows stored under row.ID, in position order.
@@ -667,14 +678,49 @@ func readEpics(ctx context.Context, queries *sqlcgen.Queries) ([]EpicRow, error)
 	for _, mark := range seen {
 		seenAt[mark.Epic] = mark.At
 	}
-	rows := mapInOrder(heads, epicHeadOf)
+	rows := mapInOrder(heads, func(head sqlcgen.ListEpicsRow) EpicRow { return epicHeadOf(head.Epic) })
 	for i := range rows {
 		rows[i].Workflow.Nodes = byEpic[rows[i].ID]
+		rows[i].Revision = heads[i].Revision
 		if at, ok := seenAt[rows[i].ID]; ok {
 			rows[i].Seen = time.Unix(at, 0)
 		}
 	}
 	return rows, nil
+}
+
+// EpicListings returns every stored epic ordered by id, with only the fields a listing of epics reads: its id,
+// repository, title, phase, phase time, created and changed times, revision and seen mark. Every other field is zero,
+// and no workflow node is read. The rows come from one query.
+func (s *Store) EpicListings(ctx context.Context) ([]EpicRow, error) {
+	return readEpicListings(ctx, sqlcgen.New(s.db))
+}
+
+// readEpicListings returns every stored epic as EpicListings does, read with queries.
+func readEpicListings(ctx context.Context, queries *sqlcgen.Queries) ([]EpicRow, error) {
+	listed, err := queries.ListEpicListings(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list epic listings: %w", err)
+	}
+	return mapInOrder(listed, epicListingOf), nil
+}
+
+// epicListingOf returns the epic a listing row holds, with the fields EpicListings reads and no others.
+func epicListingOf(listed sqlcgen.ListEpicListingsRow) EpicRow {
+	row := EpicRow{
+		ID:         listed.ID,
+		Repository: listed.Repository,
+		Title:      listed.Title,
+		Phase:      listed.Phase,
+		Created:    time.Unix(listed.Created, 0),
+		Changed:    time.Unix(listed.Changed, 0),
+		PhaseAt:    time.Unix(listed.PhaseAt, 0),
+		Revision:   listed.Revision,
+	}
+	if listed.SeenAt.Valid {
+		row.Seen = time.Unix(listed.SeenAt.Int64, 0)
+	}
+	return row
 }
 
 // UnsummarizedEpics returns every stored epic whose summary is empty, ordered by id, each read as Epic reads it. A
@@ -811,7 +857,7 @@ func recordQuestionAnswer(
 	if err != nil {
 		return EpicDecision{}, err
 	}
-	err = endParkByAnswer(ctx, queries, epic, answered)
+	err = endParkByAnswer(ctx, queries, epic, answered, choice)
 	if err != nil {
 		return EpicDecision{}, err
 	}
@@ -841,7 +887,8 @@ func answerMetAtBase(
 	}
 	switch choice {
 	case ChoiceRetry:
-		return rerunParkedRun(ctx, queries, epic, met.Path)
+		_, err = rerunParkedRun(ctx, queries, epic, met.Path)
+		return err
 	case ChoiceDrop:
 		return dropMetAtBase(ctx, queries, epic, met, decision)
 	case ChoiceEnd:
@@ -867,14 +914,24 @@ func dropMetAtBase(
 			return fmt.Errorf("drop requirement %s of epic %s: %w", id, epic, err)
 		}
 	}
-	return rerunParkedRun(ctx, queries, epic, met.Path)
+	_, err = rerunParkedRun(ctx, queries, epic, met.Path)
+	return err
 }
 
 // endParkByAnswer ends the park of epic in the caller's write when answered, the question an answer has just closed, is
-// a park question and epic is not met_at_base. An epic in met_at_base is left parked, as an end leaves it.
-func endParkByAnswer(ctx context.Context, queries *sqlcgen.Queries, epic string, answered sqlcgen.EpicQuestion) error {
+// a park question and epic is not met_at_base. A retry answer first reruns the parked node run that the question names,
+// when it names one, and an answer of any other choice reruns nothing. An epic in met_at_base is left parked, as an end
+// leaves it.
+func endParkByAnswer(
+	ctx context.Context, queries *sqlcgen.Queries, epic string, answered sqlcgen.EpicQuestion, choice string,
+) error {
 	if answered.Turn != 0 || answered.Label != ParkLabel {
 		return nil
+	}
+	if choice == ChoiceRetry {
+		if err := rerunParkQuestionRun(ctx, queries, epic, answered.Seq); err != nil {
+			return err
+		}
 	}
 	head, err := epicHead(ctx, queries, epic)
 	if err != nil {
@@ -1056,7 +1113,6 @@ func epicHeadOf(head sqlcgen.Epic) EpicRow {
 		Created:      time.Unix(head.Created, 0),
 		Changed:      time.Unix(head.Changed, 0),
 		PhaseAt:      time.Unix(head.PhaseAt, 0),
-		Revision:     head.Revision,
 		Paused:       head.Paused != 0,
 		Parked:       head.Parked,
 		ParkClass:    ParkClass(head.ParkClass),

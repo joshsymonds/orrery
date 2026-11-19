@@ -69,7 +69,7 @@ type Config struct {
 	Timeout time.Duration                          // per-run limit; zero selects DefaultTimeout
 	Now     func() time.Time                       // clock for the throttle; nil selects time.Now
 	Logger  *slog.Logger                           // receives failed runs; nil discards
-	OnWrite func(ctx context.Context, pane string) // called with pane after a run writes its options; nil does nothing
+	OnWrite func(ctx context.Context, pane string) // called with pane after its options are written; its ctx is not cancelled with the run; nil does nothing
 }
 
 // Request is one summary trigger for one pane.
@@ -167,7 +167,9 @@ func (s *Summarizer) Summarize(ctx context.Context, job Job) error {
 	return s.summarize(ctx, job, s.paneEpoch(job.PaneID))
 }
 
-// summarize runs job and writes its reply unless its pane was forgotten since epoch was read (see write).
+// summarize runs job and writes its reply unless its pane was forgotten since epoch was read (see write). A written
+// pane is passed to OnWrite under a context that is not cancelled with ctx, so a shutdown that cancels the run does not
+// cancel the sync of the pane's options.
 func (s *Summarizer) summarize(ctx context.Context, job Job, epoch int) error {
 	reply, err := s.run(ctx, job)
 	if err != nil {
@@ -180,7 +182,7 @@ func (s *Summarizer) summarize(ctx context.Context, job Job, epoch int) error {
 
 	wrote, err := s.write(ctx, job.PaneID, epoch, summary, label)
 	if wrote {
-		s.onWrite(ctx, job.PaneID)
+		s.onWrite(context.WithoutCancel(ctx), job.PaneID)
 	}
 	return err
 }

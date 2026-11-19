@@ -350,8 +350,8 @@ func TestStepLoopResumeTurnEndLeavesNoTurnRunning(t *testing.T) {
 	}
 }
 
-// A turn that ended while a background task is listed, with a return that is not done, has ended: the restored step
-// waits for the turn claude starts once the task ends, as a live step does, with no turn running meanwhile. The
+// A turn that ended while a background task that runs a model is listed, with a return that is not done, has ended: the
+// restored step waits for the turn claude starts once the task ends, as a live step does, with no turn running meanwhile. The
 // unread return is no round, and the next turn's return is.
 func TestStepLoopResumeBackgroundTurnEndWaitsWithNoTurnRunning(t *testing.T) {
 	t.Parallel()
@@ -361,7 +361,7 @@ func TestStepLoopResumeBackgroundTurnEndWaitsWithNoTurnRunning(t *testing.T) {
 	f.run.modelLimit = time.Hour
 	row := f.row(t)
 	f.resumeFrom(stepRestore{
-		Row: row, Turn: store.StepTurnEnd{Seq: 6, Output: `{"status":"BLOCKED"}`, Background: true}, Found: true,
+		Row: row, Turn: store.StepTurnEnd{Seq: 6, Output: `{"status":"BLOCKED"}`, Awaited: true}, Found: true,
 	})
 	_, done := f.start(t)
 	f.loopSettled(t)
@@ -396,14 +396,14 @@ func TestStepLoopResumeBackgroundTurnEndWaitsWithNoTurnRunning(t *testing.T) {
 	}
 }
 
-// A turn that ended while a background task is listed with a done return is a return, as a live step hands it, so the
-// restored step takes it up.
+// A turn that ended while a background task that runs a model is listed with a done return is a return, as a live step
+// hands it, so the restored step takes it up.
 func TestStepLoopResumeBackgroundDoneTurnEndIsTaken(t *testing.T) {
 	t.Parallel()
 	f := newStepLoopFixture(t, nil)
 	row := f.row(t)
 	f.resumeFrom(stepRestore{
-		Row: row, Turn: store.StepTurnEnd{Seq: 6, Output: `{"status":"DONE"}`, Background: true}, Found: true,
+		Row: row, Turn: store.StepTurnEnd{Seq: 6, Output: `{"status":"DONE"}`, Awaited: true}, Found: true,
 	})
 	_, done := f.start(t)
 	waitRunEnd(t, done)

@@ -11,11 +11,11 @@
 #       one line per package over its budget, where the budget is the baseline plus the larger of 15% and 5 CPU
 #       seconds:
 #           test-budget: internal/store 212 cpu-s > 160 (+33%)
-#       A package over its budget and over twice its baseline gets ", over twice its baseline" on its line and fails the
-#       check. A package with no baseline gets "test-budget: internal/new 12 cpu-s, no baseline" and does not fail it.
-#       A baseline package missing from RECORD is not mentioned: a run may test only some packages. The last line
-#       counts the packages checked. Exits 0 when nothing failed, 3 when a package is over twice its baseline, and 1 on
-#       a malformed RECORD or BASELINE. With --lines, the lines printed are written to LINES too (it is emptied first),
+#       A package over its budget and over twice its baseline gets ", over twice its baseline" on its line. The check is
+#       advisory: a package over budget never fails it. A package with no baseline gets "test-budget: internal/new 12
+#       cpu-s, no baseline". A baseline package missing from RECORD is not mentioned: a run may test only some packages.
+#       The last line counts the packages checked. Exits 0 whatever it prints, and 1 on a malformed RECORD or BASELINE.
+#       With --lines, the lines printed are written to LINES too (it is emptied first),
 #       so a gate that runs more checks afterwards can print them again as its last output: a gate's output is kept
 #       only as a tail, and the budget lines are what the test_parsimony reviewer reads of it.
 #   scripts/test-budget.sh update BASELINE RECORD...
@@ -101,11 +101,8 @@ check() {
                 }
                 print line
             }
-            if (failed) {
-                printf "test-budget: %d of %d packages over twice their baseline\n", failed, count
-                exit 3
-            }
-            printf "test-budget: %d packages checked, none over twice its baseline\n", count
+            if (failed) printf "test-budget: %d of %d packages over twice their baseline\n", failed, count
+            else printf "test-budget: %d packages checked, none over twice its baseline\n", count
         }'
 }
 

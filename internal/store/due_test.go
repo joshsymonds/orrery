@@ -62,7 +62,7 @@ func dueIDs(t *testing.T, s *Store) []string {
 // dueStateOf returns the state of the due row id, failing the test when there is no such row.
 func dueStateOf(t *testing.T, s *Store, id string) string {
 	t.Helper()
-	row, err := sqlcgen.New(s.db).GetDueResume(context.Background(), id)
+	row, err := s.fixtureQueries().GetDueResume(context.Background(), id)
 	if err != nil {
 		t.Fatalf("GetDueResume %s: %v", id, err)
 	}
@@ -77,7 +77,7 @@ func TestLimitedStepLoopStoresItsDueRowInTheSameWrite(t *testing.T) {
 	if got := dueIDs(t, s); !reflect.DeepEqual(got, []string{dueStepS1A}) {
 		t.Fatalf("due rows after the limit = %v, want [%s]", got, dueStepS1A)
 	}
-	row, err := sqlcgen.New(s.db).GetDueResume(context.Background(), dueStepS1A)
+	row, err := s.fixtureQueries().GetDueResume(context.Background(), dueStepS1A)
 	if err != nil {
 		t.Fatalf("GetDueResume: %v", err)
 	}
@@ -245,8 +245,8 @@ func TestEpicPauseSourceIsSetAndClearedByResume(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
-	seedEpic(t, s.db.DB)
-	q := sqlcgen.New(s.db)
+	seedEpic(t, fixtureDB{s: s})
+	q := s.fixtureQueries()
 
 	if err := q.PauseEpic(ctx, seededEpic); err != nil {
 		t.Fatalf("PauseEpic: %v", err)
@@ -279,9 +279,9 @@ func TestEpicPauseSourceRejectsAnUnknownSource(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
-	seedEpic(t, s.db.DB)
+	seedEpic(t, fixtureDB{s: s})
 
-	err := sqlcgen.New(s.db).SetEpicPauseSource(ctx, sqlcgen.SetEpicPauseSourceParams{
+	err := s.fixtureQueries().SetEpicPauseSource(ctx, sqlcgen.SetEpicPauseSourceParams{
 		PauseSource: "weekly", ID: seededEpic,
 	})
 	if err == nil {

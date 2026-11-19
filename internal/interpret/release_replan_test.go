@@ -31,10 +31,11 @@ type replanWorld struct {
 	planner *fakePlanner
 }
 
-// newReplanWorld returns a replan world whose release has not started.
-func newReplanWorld(t *testing.T) replanWorld {
+// newReplanWorld returns a replan world whose release has not started, and whose epic declares requirements.
+func newReplanWorld(t *testing.T, requirements ...store.EpicRequirement) replanWorld {
 	t.Helper()
 	w := newReleaseWorld(t, &recordingEnding{})
+	w.requirements = requirements
 	plans := &fakePlanner{known: []string{runEpic}}
 	w.runner.planner = plans
 	base := nodeGit(t, w.repo, "rev-parse", "main")

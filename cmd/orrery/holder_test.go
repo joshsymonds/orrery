@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -465,5 +466,70 @@ func TestHolderClearedOnceItsLockIsFreeExitsWithItsChildStatus(t *testing.T) {
 				t.Fatalf("exit status %d, stderr %q; want %d and no stderr", code, stderr.String(), tc.want)
 			}
 		})
+	}
+}
+
+// TestHolderGateLimitSignalNeedsGateLimit gives --gate-limit-signal without --gate-limit, which is a usage error that
+// names the flag it needs, and nothing is started.
+func TestHolderGateLimitSignalNeedsGateLimit(t *testing.T) {
+	work := chdirTemp(t)
+	root := shortStateDir(t)
+	fifo := filepath.Join(t.TempDir(), "limit")
+	args := append([]string{
+		"holder", "--state-dir", root, "--session", "s1", "--gate-limit-signal", fifo, "--",
+	}, shellChild(t, "touch started")...)
+	res := awaitHolderRefusal(t, work, root, args)
+	if !strings.Contains(res.stderr, "--gate-limit-signal needs --gate-limit") {
+		t.Errorf("stderr %q, want it to say --gate-limit-signal needs --gate-limit", res.stderr)
+	}
+}
+
+// TestHolderGateLimitSignalRefusesEmptyPath gives --gate-limit-signal an empty path, with a gate limit. It is a usage
+// error, and nothing is started.
+func TestHolderGateLimitSignalRefusesEmptyPath(t *testing.T) {
+	work := chdirTemp(t)
+	root := shortStateDir(t)
+	args := append([]string{
+		"holder", "--state-dir", root, "--session", "s1", "--gate-limit", "30", "--gate-limit-signal", "", "--",
+	}, shellChild(t, "touch started")...)
+	res := awaitHolderRefusal(t, work, root, args)
+	if !strings.Contains(res.stderr, "want the path of a FIFO") {
+		t.Errorf("stderr %q, want it to say the path of a FIFO is wanted", res.stderr)
+	}
+}
+
+// TestHolderGateLimitSignalReachesLimitOnOpen runs a gate whose limit is an hour away and whose limit signal is a
+// FIFO. Once the holder serves, a process opens the FIFO for writing, which reaches the limit: the holder stops the
+// child, the exit record gives ReasonLimit, and the holder exits 0 as it does for any child it stops.
+func TestHolderGateLimitSignalReachesLimitOnOpen(t *testing.T) {
+	chdirTemp(t)
+	root := shortStateDir(t)
+	fifo := filepath.Join(t.TempDir(), "limit")
+	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+		t.Fatalf("make limit FIFO %s: %v", fifo, err)
+	}
+	socket, err := holder.SocketPath(sessionDirOf(t, root, "s1"))
+	if err != nil {
+		t.Fatalf("SocketPath: %v", err)
+	}
+	args := append([]string{
+		"holder", "--state-dir", root, "--session", "s1", "--gate-limit", "3600", "--gate-limit-signal", fifo, "--",
+	}, shellChild(t, "sleep 3600")...)
+	hc := &holderCommand{t: t, ch: startOrrery(t, io.Discard, args...), socket: socket}
+	t.Cleanup(hc.stopIfServing)
+	// Serving means the holder has started the child and opened the FIFO for reading, so the open below returns.
+	hc.dial()
+	signal, err := os.OpenFile(fifo, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatalf("open limit FIFO %s for writing: %v", fifo, err)
+	}
+	if err = signal.Close(); err != nil {
+		t.Fatalf("close limit FIFO %s: %v", fifo, err)
+	}
+	if res := hc.result(); res.code != exitOK {
+		t.Fatalf("exit status %d, want %d; stderr %q", res.code, exitOK, res.stderr)
+	}
+	if exit := gateExit(t, root, "s1"); exit.Reason != holder.ReasonLimit {
+		t.Errorf("exit reason %q, want %q", exit.Reason, holder.ReasonLimit)
 	}
 }

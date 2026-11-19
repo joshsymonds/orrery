@@ -48,7 +48,7 @@ func TestDefaultsMerge(t *testing.T) {
 			Name:  "floor",
 			Stage: []string{StageTask},
 			Must: []string{
-				"Each capture for the task's Requirements would fail if the behavior it proves were removed.",
+				"The task's own tests would fail if the behavior they cover were removed.",
 			},
 			MustNot: []string{
 				"The change suppresses, skips or disables a check.",

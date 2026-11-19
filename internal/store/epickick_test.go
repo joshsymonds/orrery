@@ -71,7 +71,7 @@ func TestEpicKickRefusesEveryEndedPhaseAndWritesNothing(t *testing.T) {
 	createEpic(t, s, fullEpic(claimEpic))
 	endedPhases := []string{"met_at_base", "clean", "ended_with_gaps", "released", "done", "stopped"}
 	for _, phase := range endedPhases {
-		if _, err := s.db.ExecContext(ctx, `UPDATE epics SET phase = ? WHERE id = ?`, phase, claimEpic); err != nil {
+		if _, err := s.fixtureExec(ctx, `UPDATE epics SET phase = ? WHERE id = ?`, phase, claimEpic); err != nil {
 			t.Fatalf("set phase %s: %v", phase, err)
 		}
 		before := kickRows(t, s)

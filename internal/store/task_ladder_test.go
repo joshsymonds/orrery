@@ -16,7 +16,7 @@ func insertLadder(t *testing.T, s *Store, rungs []sqlcgen.InsertEpicTaskRungPara
 ) {
 	t.Helper()
 	ctx := context.Background()
-	queries := sqlcgen.New(s.db)
+	queries := s.fixtureQueries()
 	for _, rung := range rungs {
 		n, err := queries.InsertEpicTaskRung(ctx, rung)
 		if err != nil {
@@ -46,7 +46,7 @@ func TestTaskLadderRungsRead(t *testing.T) {
 	s := openEpicStore(t)
 	const id = "orrery-1a2b3c4/task-ladder"
 	createEpic(t, s, fullEpic(id))
-	if _, err := s.db.ExecContext(ctx, `INSERT INTO epic_tasks (epic, seq, turn, title, deliverable, status)
+	if _, err := s.fixtureExec(ctx, `INSERT INTO epic_tasks (epic, seq, turn, title, deliverable, status)
 		VALUES (?, 1, 1, 'Climbs', 'the first change', 'open'), (?, 2, 1, 'Never climbs', 'the second change', 'open')`,
 		id, id); err != nil {
 		t.Fatalf("insert tasks: %v", err)
@@ -93,7 +93,7 @@ func TestTaskLadderRungsRead(t *testing.T) {
 	}
 
 	// The open rung 3 has no outcome, and the write of a second outcome for rung 1 writes no row and leaves the first.
-	n, err := sqlcgen.New(s.db).InsertEpicTaskRungOutcome(ctx, sqlcgen.InsertEpicTaskRungOutcomeParams{
+	n, err := s.fixtureQueries().InsertEpicTaskRungOutcome(ctx, sqlcgen.InsertEpicTaskRungOutcomeParams{
 		Epic: id, Task: 1, Rung: 1, Outcome: RungAccepted, Reason: "the second outcome", Ended: 1700000900,
 	})
 	if err != nil {

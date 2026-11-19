@@ -88,7 +88,7 @@ func (e *EpicCallerEvents) send(
 	if marked {
 		return nil
 	}
-	text := enginehost.CallerEventBlock(kind, event, body)
+	text := store.CallerEventBlock(kind, event, nil, body)
 	if _, err = e.sender.Send(ctx, creator, event, text); err != nil {
 		return fmt.Errorf("send epic event %s of epic %s to caller %s: %w", event, epic, creator.ID, err)
 	}

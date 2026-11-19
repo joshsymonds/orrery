@@ -456,7 +456,7 @@ func TestOrchestratorActionRerunsFailedIntegrateBehindAnEmptyPass(t *testing.T) 
 	failIntegrateRun(t, s, retryEarlierBatch, "id-s1", "rev-1", "lint failed")
 	startIntegrateRuns(t, s,
 		NodeRun{Path: retryLatestBatch, ID: "id-s2", Node: "integrate", Kind: "integrate", Attempt: 1})
-	if err := s.EndBatch(ctx, integrateEpic, retryLatestBatch, 1, "passed", "", nil,
+	if err := s.EndBatch(ctx, integrateEpic, BatchEnd{Path: retryLatestBatch, Attempt: 1, Outcome: "passed"}, nil,
 		integrateEndedAt()); err != nil {
 		t.Fatalf("EndBatch passed: %v", err)
 	}

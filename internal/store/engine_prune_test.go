@@ -5,14 +5,12 @@ import (
 	"reflect"
 	"testing"
 	"time"
-
-	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
 // engineIDsOf returns the ids of every engine session row, in id order.
 func engineIDsOf(t *testing.T, s *Store) []string {
 	t.Helper()
-	rows, err := sqlcgen.New(s.db).ListEngineSessions(context.Background())
+	rows, err := s.fixtureQueries().ListEngineSessions(context.Background())
 	if err != nil {
 		t.Fatalf("ListEngineSessions: %v", err)
 	}
@@ -36,7 +34,7 @@ func paneIDsOf(t *testing.T, s *Store) []string {
 
 func engineTextCountOf(t *testing.T, s *Store, id string) int {
 	t.Helper()
-	rows, err := sqlcgen.New(s.db).ListEngineText(context.Background(), id)
+	rows, err := s.fixtureQueries().ListEngineText(context.Background(), id)
 	if err != nil {
 		t.Fatalf("ListEngineText %s: %v", id, err)
 	}

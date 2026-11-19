@@ -205,7 +205,7 @@ func TestEventsSkipsEngineKindsWithoutDecodingPayload(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openWriterAt(t, path)
-	if err := sqlcgen.New(s.db).InsertEvent(ctx, sqlcgen.InsertEventParams{
+	if err := s.fixtureQueries().InsertEvent(ctx, sqlcgen.InsertEventParams{
 		SessionID: "e1", Kind: EventEngineBlock, At: 1, Payload: `{"not json`,
 	}); err != nil {
 		t.Fatalf("InsertEvent: %v", err)
@@ -301,7 +301,7 @@ func TestEventsRejectsRowsThatDoNotDecode(t *testing.T) {
 			ctx := context.Background()
 			path := filepath.Join(t.TempDir(), "orrery.db")
 			s := openWriterAt(t, path)
-			if err := sqlcgen.New(s.db).InsertEvent(ctx, sqlcgen.InsertEventParams{
+			if err := s.fixtureQueries().InsertEvent(ctx, sqlcgen.InsertEventParams{
 				SessionID: "orrery-1", Kind: tc.kind, At: 1, Payload: tc.payload,
 			}); err != nil {
 				t.Fatalf("InsertEvent: %v", err)

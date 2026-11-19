@@ -53,10 +53,11 @@ func runHolder(ctx context.Context, args []string, stderr io.Writer, getenv func
 		Dir:     dir,
 		Session: parsed.session,
 		Child: holder.ChildConfig{
-			Path:      parsed.child[0],
-			Args:      parsed.child[1:],
-			GateLimit: parsed.gateLimit,
-			GateTail:  parsed.gateTail,
+			Path:            parsed.child[0],
+			Args:            parsed.child[1:],
+			GateLimit:       parsed.gateLimit,
+			GateTail:        parsed.gateTail,
+			GateLimitSignal: parsed.gateLimitSignal,
 		},
 	}, stderr, holder.Run)
 }
@@ -88,10 +89,11 @@ func holdSession(
 
 // holderArgs is the command line of orrery holder, as parseHolder reads it.
 type holderArgs struct {
-	session   string
-	stateDir  string
-	gateLimit time.Duration
-	gateTail  int
+	session         string
+	stateDir        string
+	gateLimit       time.Duration
+	gateTail        int
+	gateLimitSignal string
 	// child is PATH followed by its ARGS.
 	child []string
 }
@@ -127,25 +129,52 @@ func parseHolder(args []string) (holderArgs, error) {
 		gateTail = int(count)
 		return nil
 	})
+	// --gate-limit-signal is a test seam, hidden from the usage text: the gate's limit is reached when a process opens
+	// the FIFO at PATH for writing, in place of the clock.
+	var gateLimitSignal string
+	flags.Func("gate-limit-signal", "reach the gate's limit when a process opens the FIFO at PATH for writing",
+		func(value string) error {
+			if value == "" {
+				return errors.New("want the path of a FIFO")
+			}
+			gateLimitSignal = value
+			return nil
+		})
 	if err := flags.Parse(flagArgs); err != nil {
 		return holderArgs{}, usagef("holder: %v", err)
 	}
 	if flags.NArg() > 0 {
 		return holderArgs{}, usagef("holder: unexpected argument %q before --", flags.Arg(0))
 	}
-	if gateTail > 0 && gateLimit == 0 {
-		return holderArgs{}, usagef("holder: --gate-tail needs --gate-limit")
+	if err := gateFlagNeedsLimit(gateLimit, gateTail, gateLimitSignal); err != nil {
+		return holderArgs{}, usagef("holder: %v", err)
 	}
 	if *session == "" {
 		return holderArgs{}, usagef("holder: --session is required")
 	}
 	return holderArgs{
-		session:   *session,
-		stateDir:  *stateDir,
-		gateLimit: gateLimit,
-		gateTail:  gateTail,
-		child:     argv,
+		session:         *session,
+		stateDir:        *stateDir,
+		gateLimit:       gateLimit,
+		gateTail:        gateTail,
+		gateLimitSignal: gateLimitSignal,
+		child:           argv,
 	}, nil
+}
+
+// gateFlagNeedsLimit returns the error for a gate flag given without --gate-limit, or nil when every gate flag given
+// has its limit.
+func gateFlagNeedsLimit(gateLimit time.Duration, gateTail int, gateLimitSignal string) error {
+	if gateLimit > 0 {
+		return nil
+	}
+	if gateTail > 0 {
+		return errors.New("--gate-tail needs --gate-limit")
+	}
+	if gateLimitSignal != "" {
+		return errors.New("--gate-limit-signal needs --gate-limit")
+	}
+	return nil
 }
 
 // childStatus returns the status the holder exits with, from the exit record exit. A child the holder stopped

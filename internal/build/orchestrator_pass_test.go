@@ -424,7 +424,9 @@ func (f *passFixture) integrateTask(seq int64, commit string) {
 	if err := f.store.ClaimBatch(f.ctx, passEpic, path, attempt, commit, "", result, []int64{seq}); err != nil {
 		f.t.Fatalf("ClaimBatch: %v", err)
 	}
-	if err := f.store.EndBatch(f.ctx, passEpic, path, attempt, "passed", "", nil, passClock()); err != nil {
+	if err := f.store.EndBatch(f.ctx, passEpic, store.BatchEnd{
+		Path: path, Attempt: attempt, Outcome: "passed", Over: commit,
+	}, nil, passClock()); err != nil {
 		f.t.Fatalf("EndBatch: %v", err)
 	}
 }

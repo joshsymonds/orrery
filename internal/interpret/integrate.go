@@ -34,17 +34,29 @@ type batchLeftOut struct {
 	Reason string `json:"reason"`
 }
 
-// prepareBatch composes the batch of an integrate run on the epic's candidate, or on its stored base when no candidate is
-// stored, and pins the candidate under the run. It claims the batch with the candidate, the refs as they are now and the
-// result compose made.
+// prepareBatch composes the batch of an integrate run and pins the candidate under the run. The batch composes on the
+// epic's batch base (batchBase), and holds, with the tasks act names, each task whose work a failed batch composed and
+// the batch base does not hold (strandedTasks), so that work is composed again or left out with its reason, never
+// lost. The tasks compose in seq order. It claims the batch with the candidate, the refs as they are now and the result
+// compose made, and claims only the tasks act names.
 func (r *Runner) prepareBatch(ctx context.Context, epic store.EpicRow, act Action) error {
-	tasks, err := batchTasks(epic, act.Tasks)
+	base, err := batchBase(ctx, epic)
 	if err != nil {
 		return err
 	}
-	base := epic.StoredBase
-	if epic.Candidate != "" {
-		base = epic.Candidate
+	runs, err := r.store.NodeRuns(ctx, epic.ID)
+	if err != nil {
+		return fmt.Errorf("read node runs of epic %s: %w", epic.ID, err)
+	}
+	stranded, err := strandedTasks(ctx, epic, runs, act.Path, base)
+	if err != nil {
+		return err
+	}
+	seqs := slices.Concat(stranded, act.Tasks)
+	slices.Sort(seqs)
+	tasks, err := batchTasks(epic, slices.Compact(seqs))
+	if err != nil {
+		return err
 	}
 	result, err := compose.Compose(ctx, epic.Repository, base, tasks, candidateRef(epic, act.Run))
 	if err != nil {
@@ -64,6 +76,116 @@ func (r *Runner) prepareBatch(ctx context.Context, epic store.EpicRow, act Actio
 		return fmt.Errorf("claim batch of node %s: %w", act.Path, err)
 	}
 	return nil
+}
+
+// batchBase returns the commit the next batch of epic composes on, which always builds on the epic's stored base: the
+// stored base when the epic has no candidate, and otherwise the candidate joined with the stored base (compose.Join),
+// which is the candidate when it builds on the stored base and the merge of the stored base into it when it does not.
+// A candidate that does not merge with the stored base gives the stored base, and the work of the candidate's tasks
+// that the stored base lacks is then composed again (strandedTasks).
+func batchBase(ctx context.Context, epic store.EpicRow) (string, error) {
+	if epic.Candidate == "" {
+		return epic.StoredBase, nil
+	}
+	joined, ok, err := compose.Join(ctx, epic.Repository, epic.StoredBase, epic.Candidate, joinPrefix(epic))
+	if err != nil {
+		return "", fmt.Errorf(
+			"join candidate %s of epic %s with its stored base %s: %w", epic.Candidate, epic.ID, epic.StoredBase, err,
+		)
+	}
+	if !ok {
+		return epic.StoredBase, nil
+	}
+	return joined, nil
+}
+
+// strandedTasks returns, in seq order, the done tasks of epic whose work a failed batch composed and base does not
+// hold: the integrate run that claimed the task ended failed, no other integrate run that composed it is still running
+// or parked, and no commit an integrate run composed it into is base or an ancestor of it. A failed batch whose
+// revision did not join the stored base, or whose candidate a passed batch cleared without holding it, leaves such
+// tasks. The integrate run at path, the one being prepared, is not read.
+func strandedTasks(
+	ctx context.Context, epic store.EpicRow, runs []store.NodeRun, path, base string,
+) ([]int64, error) {
+	batches := readBatches(runs, path)
+	var stranded []int64
+	for _, task := range epic.Tasks {
+		commits, ok := batches.failedWork(task)
+		if !ok {
+			continue
+		}
+		held, err := holdsAny(ctx, epic.Repository, base, commits)
+		if err != nil {
+			return nil, err
+		}
+		if !held {
+			stranded = append(stranded, task.Seq)
+		}
+	}
+	return stranded, nil
+}
+
+// batches is what strandedTasks reads of an epic's integrate runs: each run by its path, the commits the runs composed
+// each task into, and the tasks a run that has not ended composed.
+type batches struct {
+	runs     map[string]store.NodeRun
+	commits  map[int64][]string
+	inFlight map[int64]bool
+}
+
+// readBatches returns the batches of the integrate runs among runs, all but the one at path. A run whose result is not
+// a batch result composed nothing.
+func readBatches(runs []store.NodeRun, path string) batches {
+	read := batches{
+		runs: make(map[string]store.NodeRun), commits: make(map[int64][]string), inFlight: make(map[int64]bool),
+	}
+	for _, run := range runs {
+		if run.Kind != kindIntegrate || run.Path == path {
+			continue
+		}
+		read.runs[run.Path] = run
+		var result batchResult
+		if json.Unmarshal([]byte(run.Result), &result) != nil {
+			continue
+		}
+		for _, composed := range result.Composed {
+			read.commits[composed.Task] = append(read.commits[composed.Task], composed.Commit)
+			read.inFlight[composed.Task] = read.inFlight[composed.Task] || run.State != store.NodeEnded
+		}
+	}
+	return read
+}
+
+// failedWork returns the commits the integrate runs composed task into, and true, when task is done, the run that
+// claimed it ended failed, and no run that composed it is still running or parked.
+func (b batches) failedWork(task store.EpicTask) ([]string, bool) {
+	claim, claimed := b.runs[task.Batch]
+	failed := claimed && claim.State == store.NodeEnded && claim.Outcome == outcomeFailed
+	commits := b.commits[task.Seq]
+	if task.Status != taskDone || !failed || b.inFlight[task.Seq] || len(commits) == 0 {
+		return nil, false
+	}
+	return commits, true
+}
+
+// holdsAny reports whether one of commits is base or an ancestor of it.
+func holdsAny(ctx context.Context, repo, base string, commits []string) (bool, error) {
+	for _, commit := range commits {
+		held, err := isAncestor(ctx, repo, commit, base)
+		if err != nil {
+			return false, fmt.Errorf("check that %s holds %s: %w", base, commit, err)
+		}
+		if held {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// joinPrefix returns the namespace a merge of an epic's stored base into its candidate is pinned under, each merge by
+// its own id (compose.Join).
+func joinPrefix(epic store.EpicRow) string {
+	return fmt.Sprintf("refs/orrery/%s/join/", build.Slug(epic.ID))
 }
 
 // batchTasks returns the tasks seqs name, in that order, as compose takes them: each with the base it was built on and
@@ -107,6 +229,38 @@ func encodeBatch(result compose.Result) (string, error) {
 	return string(data), nil
 }
 
+// composedAny reports whether result, the result an integrate run claimed its batch with, names a task compose made
+// into a commit. A result that is not a batch result names none.
+func composedAny(result string) bool {
+	var batch batchResult
+	return json.Unmarshal([]byte(result), &batch) == nil && len(batch.Composed) > 0
+}
+
+// endBatch ends the integrate run of act, which ended without an advance, with its outcome, and keeps the epic's
+// candidate on its stored base. A failed run that composed a task leaves as the candidate its revision joined with the
+// stored base (compose.Join): the revision itself when it builds on the stored base, and otherwise the merge of the
+// stored base into it, as a batch composed on a stored base that a newer batch has since moved needs. A revision that
+// does not merge with the stored base leaves the candidate as it is, and the next batch composes the run's tasks again
+// (strandedTasks). Any other run ends with the candidate as it is.
+func (r *Runner) endBatch(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
+	end := store.BatchEnd{
+		Path: act.Path, Attempt: act.Attempt, Outcome: act.Outcome, Output: act.Output, Over: epic.StoredBase,
+	}
+	if act.Outcome == outcomeFailed && composedAny(act.Run.Result) {
+		joined, ok, err := compose.Join(ctx, epic.Repository, epic.StoredBase, act.Run.Revision, joinPrefix(epic))
+		if err != nil {
+			return fmt.Errorf("join batch %s with the stored base %s: %w", act.Path, epic.StoredBase, err)
+		}
+		if ok {
+			end.Candidate = joined
+		}
+	}
+	if err := r.store.EndBatch(ctx, epic.ID, end, act.Trigger, at); err != nil {
+		return fmt.Errorf("end batch %s: %w", act.Path, err)
+	}
+	return nil
+}
+
 // capture starts the captures of the Requirements an integrate run's action names, at its candidate, in the green phase.
 func (r *Runner) capture(ctx context.Context, epic store.EpicRow, act Action) error {
 	if r.evidence == nil {
@@ -117,7 +271,11 @@ func (r *Runner) capture(ctx context.Context, epic store.EpicRow, act Action) er
 
 // advance moves the epic's branch from the stored base to the candidate of a batch that is green. A branch already at the
 // candidate is one a restart left after it moved the branch, so the batch ends passed without a move. A branch that is
-// at another commit, or checked out in a worktree, is not moved: the batch parks, and the epic with it, told why.
+// at another commit, or checked out in a worktree, is not moved: the batch parks, and the epic with it, told why. The
+// batch's revision becomes the stored base. An epic candidate that the revision does not hold, which a failed batch
+// leaves while this batch was composed on an older base, stays the candidate joined with the new stored base
+// (compose.Join), so its work is kept on a candidate that builds on the stored base. One that does not merge with the
+// revision is cleared, and the next batch composes its tasks again (strandedTasks).
 func (r *Runner) advance(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	tip, ok, err := build.BranchTip(ctx, epic.Repository, epic.ID)
 	if err != nil {
@@ -140,9 +298,22 @@ func (r *Runner) advance(ctx context.Context, epic store.EpicRow, act Action, at
 			return fmt.Errorf("advance epic %s to %s: %w", epic.ID, act.Run.Revision, err)
 		}
 	}
-	if err = r.store.EndBatch(
-		ctx, epic.ID, act.Path, act.Run.Attempt, outcomePassed, act.Output, act.Trigger, at,
-	); err != nil {
+	end := store.BatchEnd{
+		Path: act.Path, Attempt: act.Run.Attempt, Outcome: outcomePassed, Output: act.Output, Over: act.Run.Revision,
+	}
+	if epic.Candidate != "" {
+		joined, joins, joinErr := compose.Join(
+			ctx, epic.Repository, act.Run.Revision, epic.Candidate, joinPrefix(epic),
+		)
+		if joinErr != nil {
+			return fmt.Errorf("join candidate %s of epic %s with %s: %w", epic.Candidate, epic.ID,
+				act.Run.Revision, joinErr)
+		}
+		if joins {
+			end.Candidate = joined
+		}
+	}
+	if err = r.store.EndBatch(ctx, epic.ID, end, act.Trigger, at); err != nil {
 		return fmt.Errorf("end batch %s: %w", act.Path, err)
 	}
 	return nil

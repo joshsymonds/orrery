@@ -528,6 +528,7 @@ func summaryOf(epic *v1.StoredEpic) *v1.EpicSummary {
 		PhaseAt:    epic.GetPhaseAt(),
 		Created:    epic.GetCreated(),
 		Changed:    epic.GetChanged(),
+		Revision:   epic.GetRevision(),
 	}
 }
 

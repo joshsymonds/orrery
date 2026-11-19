@@ -33,10 +33,12 @@ type stepsCall struct {
 
 // stepsFake is a recording StepClient. StepStatus finds stepsLabeled and stepsUnlabeled, and answers statusErr for
 // every id when it is set. Hold, Nudge and Stop record the call and answer forwardErr when it is set. StartStep is not
-// part of StepClient, so no test can reach it through the fake.
+// part of StepClient, so no test can reach it through the fake. results gives the result each found step's row carries,
+// by id.
 type stepsFake struct {
 	statusErr  error
 	forwardErr error
+	results    map[string]string
 	calls      []stepsCall
 }
 
@@ -49,10 +51,11 @@ func (f *stepsFake) StepStatus(
 	}
 	switch req.Msg.GetId() {
 	case stepsLabeled:
-		step := &enginev1.Step{Id: stepsLabeled, Epic: stepsEpic}
+		step := &enginev1.Step{Id: stepsLabeled, Epic: stepsEpic, Result: f.results[stepsLabeled]}
 		return connect.NewResponse(&enginev1.StepStatusResponse{Step: step}), nil
 	case stepsUnlabeled:
-		return connect.NewResponse(&enginev1.StepStatusResponse{Step: &enginev1.Step{Id: stepsUnlabeled}}), nil
+		step := &enginev1.Step{Id: stepsUnlabeled, Result: f.results[stepsUnlabeled]}
+		return connect.NewResponse(&enginev1.StepStatusResponse{Step: step}), nil
 	}
 	return nil, connect.NewError(connect.CodeNotFound, errors.New("synthetic step not found"))
 }
@@ -272,4 +275,46 @@ func TestStepsZeroTimeoutIsTheDefault(t *testing.T) {
 	if len(fake.calls) != 1 {
 		t.Fatalf("forwarded %d calls, want 1", len(fake.calls))
 	}
+}
+
+// stepsLabeledResult and stepsUnlabeledResult are the multi-line results the fake's labeled and unlabeled steps carry.
+// Each has a blank line and a trailing newline, so a result cut short or trimmed would not match.
+const (
+	stepsLabeledResult   = "{\n  \"status\": \"done\",\n\n  \"note\": \"synthetic labeled\"\n}\n"
+	stepsUnlabeledResult = "synthetic unlabeled\nsecond line\n\nfourth line\n"
+)
+
+func TestStepsResultReturnsLabeledAndUnlabeledResultsWhole(t *testing.T) {
+	t.Parallel()
+	fake := &stepsFake{results: map[string]string{
+		stepsLabeled:   stepsLabeledResult,
+		stepsUnlabeled: stepsUnlabeledResult,
+	}}
+	client := stepsClient(t, fake)
+	for _, tc := range []struct{ name, id, want string }{
+		{"labeled", stepsLabeled, stepsLabeledResult},
+		{"unlabeled", stepsUnlabeled, stepsUnlabeledResult},
+	} {
+		resp, err := client.Result(t.Context(), connect.NewRequest(&orreryv1.StepsResultRequest{Id: tc.id}))
+		if err != nil {
+			t.Fatalf("%s: Result: %v", tc.name, err)
+		}
+		if got := resp.Msg.GetResult(); got != tc.want {
+			t.Fatalf("%s: result = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestStepsResultUnknownIDAnswersNotFound(t *testing.T) {
+	t.Parallel()
+	client := stepsClient(t, &stepsFake{})
+	_, err := client.Result(t.Context(), connect.NewRequest(&orreryv1.StepsResultRequest{Id: "step-unknown"}))
+	requireConnectError(t, err, connect.CodeNotFound, "step not found")
+}
+
+func TestStepsResultNilClientAnswersUnavailable(t *testing.T) {
+	t.Parallel()
+	client := stepsClient(t, nil)
+	_, err := client.Result(t.Context(), connect.NewRequest(&orreryv1.StepsResultRequest{Id: stepsLabeled}))
+	requireConnectError(t, err, connect.CodeUnavailable, "step service unavailable")
 }

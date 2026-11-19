@@ -288,7 +288,7 @@ func New(cfg Config) (http.Handler, error) {
 		conversationPoll, conversationKeepalive, sendTimeout, cfg.Shutdown, cfg.HandlerOptions...,
 	)
 	mux.Handle(panesPath, panesService)
-	hostPath, hostService := newHostHandler(cfg.HostStatus, cfg.HandlerOptions...)
+	hostPath, hostService := newHostHandler(cfg.HostStatus, cfg.Web, cfg.HandlerOptions...)
 	mux.Handle(hostPath, hostService)
 	presencePath := registerPresence(mux, cfg.ReportInput, now, cfg.HandlerOptions...)
 	pushPath, pushService := newPushHandler(cfg.Push, cfg.HandlerOptions...)

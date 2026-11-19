@@ -9,7 +9,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/protocol"
 )
 
-// Synthetic <orrery-event> tags, shaped as enginehost.CallerEventBlock writes them.
+// Synthetic <orrery-event> tags, shaped as store.CallerEventBlock writes them.
 const (
 	paneWakeOpenTag  = `<orrery-event kind="step_end" id="step:synthetic">`
 	paneWakeCloseTag = "</orrery-event>"

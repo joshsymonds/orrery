@@ -41,10 +41,8 @@ type Store interface {
 	ClaimBatch(
 		ctx context.Context, epic, path string, attempt int64, revision, refs, result string, tasks []int64,
 	) error
-	EndBatch(
-		ctx context.Context, epic, path string, attempt int64, outcome, output string, trigger *store.NodeTrigger,
-		at time.Time,
-	) error
+	EndBatch(ctx context.Context, epic string, end store.BatchEnd, trigger *store.NodeTrigger, at time.Time) error
+	NodeRuns(ctx context.Context, epic string) ([]store.NodeRun, error)
 	PrepareSync(
 		ctx context.Context, epic, path string, attempt int64, revision, result string, read store.OriginRead,
 	) error
@@ -402,7 +400,7 @@ func (r *Runner) carry(ctx context.Context, epic store.EpicRow, act Action) erro
 	case ActParkEpic:
 		err = r.store.ParkEpicWaking(ctx, epic.ID, act.Reason, *act.Trigger, at)
 	case ActBatch:
-		err = r.store.EndBatch(ctx, epic.ID, act.Path, act.Attempt, act.Outcome, act.Output, act.Trigger, at)
+		err = r.endBatch(ctx, epic, act, at)
 	case ActSync, ActReadOrigin:
 		err = r.carrySync(ctx, epic, act, at)
 	case ActHold, ActReview, ActClosure, ActConclude:

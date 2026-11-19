@@ -14,7 +14,7 @@ import (
 // due after its epic was resumed or stopped, the state the store held before the owner's controls closed due rows.
 func insertStaleDueRow(t *testing.T, s *Store) {
 	t.Helper()
-	err := sqlcgen.New(s.db).InsertDueResume(context.Background(), sqlcgen.InsertDueResumeParams{
+	err := s.fixtureQueries().InsertDueResume(context.Background(), sqlcgen.InsertDueResumeParams{
 		ID: dueEpicA, Kind: dueKindEpic, Target: claimEpic, Resets: dueResetA,
 	})
 	if err != nil {

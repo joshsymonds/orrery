@@ -42,8 +42,9 @@ func ladderCarryFiles(t *testing.T, dir string, want map[string]string) {
 	}
 }
 
-// ladderCarryBatch runs an integrate batch over commit, which composed task 1, and ends it with outcome. No task is
-// claimed, so task 1 stays open.
+// ladderCarryBatch runs an integrate batch over commit, which composed task 1, and ends it with outcome. A failed batch
+// ends with commit as the candidate, checked against the stored base, as the interpreter ends a batch composed on it.
+// No task is claimed, so task 1 stays open.
 func ladderCarryBatch(f *passFixture, commit, outcome, output string) {
 	f.t.Helper()
 	const path = "plan/S1/integrate"
@@ -64,7 +65,11 @@ func ladderCarryBatch(f *passFixture, commit, outcome, output string) {
 	if err = f.store.ClaimBatch(f.ctx, passEpic, path, runs[i].Attempt, commit, "", result, nil); err != nil {
 		f.t.Fatalf("ClaimBatch: %v", err)
 	}
-	if err = f.store.EndBatch(f.ctx, passEpic, path, runs[i].Attempt, outcome, output, nil, passClock()); err != nil {
+	end := store.BatchEnd{Path: path, Attempt: runs[i].Attempt, Outcome: outcome, Output: output, Over: commit}
+	if outcome == "failed" {
+		end.Candidate, end.Over = commit, f.epic().StoredBase
+	}
+	if err = f.store.EndBatch(f.ctx, passEpic, end, nil, passClock()); err != nil {
 		f.t.Fatalf("EndBatch: %v", err)
 	}
 }

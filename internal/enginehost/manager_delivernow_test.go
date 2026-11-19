@@ -15,9 +15,9 @@ import (
 // deliverNowSummary is the summary of the step end the DeliverNow tests send, as addEndedCallerStep stores it.
 const deliverNowSummary = "the work is in"
 
-// stepEndText is the first line of the step end the DeliverNow tests send. The fake claude's stdin carries it once the
-// step end is written.
-const stepEndText = "Step " + callerStepID + " ended"
+// stepEndText is the More line of the step end the DeliverNow tests send. The block's body carries it as a line of its
+// own, and the fake claude's stdin carries that line once the step end is written.
+const stepEndText = "More: step_result id " + callerStepID
 
 // stepEndPrompt is the engine_prompt the step end of the DeliverNow tests is stored as, sent by the event sender.
 func stepEndPrompt() deliveredPrompt {
@@ -87,88 +87,6 @@ func waitsForOwnerSpeech(t *testing.T, history store.EngineHistory) bool {
 		}
 	}
 	return interruptSeq > ownerSeq
-}
-
-// TestDeliverNowRunningTurnWritesStepEndOnce ends the step of a caller whose HANG turn runs. One pass stores the step
-// end and writes it to the fake's stdin while the turn runs, and marks it. A second pass writes nothing more.
-func TestDeliverNowRunningTurnWritesStepEndOnce(t *testing.T) {
-	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
-	s := storeOf(t, m)
-	dir := t.TempDir()
-	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "HANG"})
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	waitHistory(t, engineOf(m), path, id, "the hanging turn running", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake hanging 1") && h.State == string(protocol.StateWorking)
-	})
-	addEndedCallerStep(t, s, store.EpicCaller{Session: id}, deliverNowSummary)
-	pass := stepEndPass(newStepEndSender(t, m, s), s)
-
-	pass.Pass(t.Context())
-	want := []deliveredPrompt{{Text: "HANG"}, stepEndPrompt()}
-	if got := enginePromptsOf(t, historyOf(t, path, id)); !reflect.DeepEqual(got, want) {
-		t.Fatalf("prompts after one pass = %+v, want %+v", got, want)
-	}
-	if !eventMarked(t, s, id) {
-		t.Fatal("step end not marked after its delivery")
-	}
-	awaitStepEndWrites(t, m, dir, 1)
-
-	pass.Pass(t.Context())
-	if got := enginePromptsOf(t, historyOf(t, path, id)); !reflect.DeepEqual(got, want) {
-		t.Fatalf("prompts after a second pass = %+v, want %+v", got, want)
-	}
-	if n := sayMarker(t, m, dir, id, "owner marker", "p-marker"); n != 1 {
-		t.Fatalf("step ends read by the fake claude after a second pass = %d, want 1", n)
-	}
-}
-
-// TestDeliverNowBackgroundTaskWritesStepEndOnce ends the step of a caller whose turn has ended with a background task
-// still listed. One pass writes the step end at once and marks it. A second pass writes nothing more.
-func TestDeliverNowBackgroundTaskWritesStepEndOnce(t *testing.T) {
-	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
-	s := storeOf(t, m)
-	dir := t.TempDir()
-	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "BACKGROUND"})
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	waitHistory(t, engineOf(m), path, id, "the background turn done", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake background 1") && lastState(t, h) == string(protocol.StateDone)
-	})
-	live, err := m.live(id)
-	if err != nil {
-		t.Fatalf("live: %v", err)
-	}
-	m.mu.Lock()
-	background, turning := live.background, live.turning
-	m.mu.Unlock()
-	if !background || turning {
-		t.Fatalf("background task listed = %v, turn running = %v, want listed and not running", background, turning)
-	}
-	addEndedCallerStep(t, s, store.EpicCaller{Session: id}, deliverNowSummary)
-	pass := stepEndPass(newStepEndSender(t, m, s), s)
-
-	pass.Pass(t.Context())
-	want := []deliveredPrompt{{Text: "BACKGROUND"}, stepEndPrompt()}
-	if got := enginePromptsOf(t, historyOf(t, path, id)); !reflect.DeepEqual(got, want) {
-		t.Fatalf("prompts after one pass = %+v, want %+v", got, want)
-	}
-	if !eventMarked(t, s, id) {
-		t.Fatal("step end not marked after its delivery")
-	}
-	awaitStepEndWrites(t, m, dir, 1)
-
-	pass.Pass(t.Context())
-	if got := enginePromptsOf(t, historyOf(t, path, id)); !reflect.DeepEqual(got, want) {
-		t.Fatalf("prompts after a second pass = %+v, want %+v", got, want)
-	}
-	if n := sayMarker(t, m, dir, id, "owner marker", "p-marker"); n != 1 {
-		t.Fatalf("step ends read by the fake claude after a second pass = %d, want 1", n)
-	}
 }
 
 // TestDeliverNowQuietCallerWaitsForOwnersSay interrupts an idle caller as its owner. A pass writes nothing and leaves

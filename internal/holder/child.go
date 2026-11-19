@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -39,6 +41,10 @@ type ChildConfig struct {
 	// GateTail is the number of newest bytes a gate keeps of each of its stdout and stderr in its exit record, from 1 to
 	// MaxGateTail. Zero takes 8 KiB. It is read only when GateLimit is positive.
 	GateTail int
+	// GateLimitSignal is a test seam that replaces the timer of GateLimit: with it set and GateLimit positive, the limit
+	// is reached when a process opens the FIFO at this path for writing, and Clock never times it. Clock still times the
+	// grace. A path that cannot be opened stops the child, and the failure is reported in Exit. Empty takes the timer.
+	GateLimitSignal string
 	// Clock times the grace and the gate limit. Nil takes SystemClock{}.
 	Clock Clock
 }
@@ -97,7 +103,11 @@ func StartChild(cfg ChildConfig, spool *Spool) (*Child, error) {
 	}
 	if gate {
 		// The limit is armed here, before the child is observed to run, so it counts from the child's start.
-		go child.limitAfter(cfg.Clock.After(cfg.GateLimit))
+		if cfg.GateLimitSignal != "" {
+			go child.limitOnOpen(cfg.GateLimitSignal)
+		} else {
+			go child.limitAfter(cfg.Clock.After(cfg.GateLimit))
+		}
 	}
 	go child.pump()
 	return child, nil
@@ -169,6 +179,27 @@ func (c *Child) limitAfter(limit <-chan time.Time) {
 	case <-c.proc.Done():
 		return
 	}
+	c.reachLimit()
+}
+
+// limitOnOpen stops the child once the open of the FIFO at path for reading returns, which happens when a process opens
+// the FIFO for writing. The open cannot be cancelled, so it may outlast the child; the holder's exit ends it. A path
+// that cannot be opened is a fault: the child is stopped and Exit reports the fault.
+func (c *Child) limitOnOpen(path string) {
+	signal, err := os.Open(filepath.Clean(path))
+	if err != nil {
+		c.fail(fmt.Errorf("holder: open gate limit signal %s: %w", path, err))
+		c.Stop()
+		return
+	}
+	if closeErr := signal.Close(); closeErr != nil {
+		c.fail(fmt.Errorf("holder: close gate limit signal %s: %w", path, closeErr))
+	}
+	c.reachLimit()
+}
+
+// reachLimit marks the child limited and stops it, unless the child is reaped first.
+func (c *Child) reachLimit() {
 	c.mu.Lock()
 	select {
 	case <-c.proc.Done():

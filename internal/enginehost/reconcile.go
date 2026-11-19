@@ -32,27 +32,30 @@ const resumePrompt = "Resume working."
 // resumedBody is the body of the notice that tells the owner a restart resumed the turn it interrupted.
 const resumedBody = "orreryd restarted during the turn; resumed it"
 
-// Reconcile goes through the holder directories under the manager's state directory whose session has no pump in this
-// manager. Each such holder is re-adopted when its row allows it (see readoptable). A holder that has ended is drained
-// into the store, and its row is settled by that drain. A live holder that cannot be attached is stopped first, then drained
-// the same way. A step's holder that has ended or cannot be attached is cleared, never drained or stopped. Each other holder
-// is cleared. Then it settles the engine rows that have no process in this manager, as a restart leaves them. A re-adopted
-// session is live, so its row is left as its replay gave it, except that a session re-adopted from a holder one version
-// older is stopped once it is not busy, at its turn's end or at once (see retireLocked), and that stop records nothing. A
-// step's stop keeps its slot for its id, and the step stays held (see StepLive). A drained row is settled by its drain.
-// Each other row loses its unfinished text. A row whose turn was running, working or waiting, is recorded interrupted with
+// Reconcile first reads the quiet sessions and holds each from resume (see readQuiet). It then goes through the holder
+// directories under the manager's state directory whose session has no pump in this manager. Each such holder is
+// re-adopted when its row allows it (see readoptable). A holder that has ended is drained into the store, and its row
+// is settled by that drain. A live holder that cannot be attached is stopped first, then drained the same way. A step's
+// holder that has ended or cannot be attached is cleared, never drained or stopped. Each other holder is cleared. Then
+// it settles the engine rows that have no process in this manager, as a restart leaves them. A re-adopted session is
+// live, so its row is left as its replay gave it, except that a session re-adopted from a holder one version older is
+// stopped once it is not busy, at its turn's end or at once (see retireLocked), and that stop records nothing. A step's
+// stop keeps its slot for its id, and the step stays held (see StepLive). A drained row is settled by its drain. Each
+// other row loses its unfinished text. A row whose turn was running, working or waiting, is recorded interrupted with
 // restartedReason and no question. A working turn of an engine row whose session has a Claude id is then resumed with
-// resumePrompt, unless its last prompt is resumePrompt already, and the owner is told of the resume in place of the
-// interruption (see resumable). A step row is settled without a notice. A row in any other state keeps its state. No row
-// is removed. A holder that fails to re-adopt, to stop, to drain or to clear is logged and its session is cleared, and the
-// rows are settled anyway. The rows that need a write are settled in one store transaction, so a row that needs nothing,
-// with no text and no turn running, is not written. A write that fails stops no other row. It returns the first read or
-// write error.
+// resumePrompt, unless its session is quiet, its last prompt is resumePrompt already, or the read of the quiet sessions
+// failed, and the owner is told of the resume in place of the interruption (see resumable). A step row is settled
+// without a notice. A row in any other state keeps its state. No row is removed. A holder that fails to re-adopt, to
+// stop, to drain or to clear is logged and its session is cleared, and the rows are settled anyway. The rows that need
+// a write are settled in one store transaction, so a row that needs nothing, with no text and no turn running, is not
+// written. A write that fails stops no other row. It returns the first read or write error.
 func (m *Manager) Reconcile(ctx context.Context) error {
 	defer m.calls.enter()()
+	quietErr := m.readQuiet(ctx)
+	defer m.clearQuietUnread()
 	settled, err := m.reconcileHolders(ctx)
 	if err != nil {
-		return fmt.Errorf("reconcile sessions: %w", err)
+		return errors.Join(quietErr, fmt.Errorf("reconcile sessions: %w", err))
 	}
 	// The sessions with a pump are taken before the rows are read: a pump that ends after this has stored its state
 	// before the read, and one that runs at the read is left to record its own.
@@ -60,12 +63,12 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 	// The rows are read once, after the holder pass, since a drain that failed after it recorded lines has changed them.
 	rows, err := m.store.EngineSessions(ctx)
 	if err != nil {
-		return fmt.Errorf("reconcile sessions: %w", err)
+		return errors.Join(quietErr, fmt.Errorf("reconcile sessions: %w", err))
 	}
 	text, textErr := m.store.EngineTextSessions(ctx)
-	var firstErr error
+	firstErr := quietErr
 	if textErr != nil {
-		firstErr = fmt.Errorf("read unfinished text: %w", textErr)
+		firstErr = errors.Join(firstErr, fmt.Errorf("read unfinished text: %w", textErr))
 	}
 	pending := m.pendingRows(rows, pumped, settled, text, textErr)
 	groups := make([]SessionOps, len(pending))
@@ -84,6 +87,30 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 		return firstErr
 	}
 	return writeErr
+}
+
+// readQuiet reads the ids of the quiet sessions from the store and adds each to m.quiet, so that a caller event or cron
+// fire to a session that a restart leaves quiet waits for its owner's Say (see Store.QuietSessions). A failed read sets
+// quietUnread, so that Reconcile resumes no row, and its error is returned.
+func (m *Manager) readQuiet(ctx context.Context) error {
+	ids, err := m.store.QuietSessions(ctx)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.quietUnread = err != nil
+	for _, id := range ids {
+		m.quiet[id] = struct{}{}
+	}
+	if err != nil {
+		return fmt.Errorf("read quiet sessions: %w", err)
+	}
+	return nil
+}
+
+// clearQuietUnread ends the hold that a failed read of the quiet sessions put on resumes, as Reconcile returns.
+func (m *Manager) clearQuietUnread() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.quietUnread = false
 }
 
 // pendingRows returns the rows Reconcile settles: each row that had no pump in this manager when pumped was taken and
@@ -449,11 +476,12 @@ func (m *Manager) resumeOrNotify(ctx context.Context, row store.EngineRow) {
 }
 
 // resumable reports whether row, an engine row whose turn was running, is resumed rather than only interrupted. Its turn
-// must have been working, not waiting for an answer, and its session must have a Claude id to resume. Its last prompt must
+// must have been working, not waiting for an answer, and its session must have a Claude id to resume. Reconcile holds
+// it from resume when it is quiet, or when the read of the quiet sessions failed (see resumeHeld). Its last prompt must
 // not be resumePrompt already, so that a turn a restart interrupts again after its resume is interrupted, not resumed
 // again. A prompt that cannot be read leaves the turn interrupted.
 func (m *Manager) resumable(ctx context.Context, row store.EngineRow) bool {
-	if row.State != string(protocol.StateWorking) || row.ClaudeSession == "" {
+	if row.State != string(protocol.StateWorking) || row.ClaudeSession == "" || m.resumeHeld(row.ID) {
 		return false
 	}
 	prompts, err := m.store.HolderPrompts(ctx, row.ID)
@@ -462,6 +490,15 @@ func (m *Manager) resumable(ctx context.Context, row store.EngineRow) bool {
 		return false
 	}
 	return len(prompts) == 0 || prompts[len(prompts)-1].Text != resumePrompt
+}
+
+// resumeHeld reports whether Reconcile holds the session id from resume: the session is quiet, or the read of the quiet
+// sessions failed, so that no session is known to be quiet and none is resumed.
+func (m *Manager) resumeHeld(id string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	_, quiet := m.quiet[id]
+	return quiet || m.quietUnread
 }
 
 // resumeInterrupted resumes the session of row with resumePrompt, after the settle write of row is stored, so the resume

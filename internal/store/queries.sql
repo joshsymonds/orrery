@@ -185,12 +185,13 @@ UPDATE sessions
 SET consumed = sqlc.arg(consumed),
     replay_from = COALESCE(sqlc.narg(replay_from), replay_from),
     turn_output = COALESCE(sqlc.narg(turn_output), turn_output),
-    background = COALESCE(sqlc.narg(background), background)
+    background = COALESCE(sqlc.narg(background), background),
+    awaited = COALESCE(sqlc.narg(awaited), awaited)
 WHERE id = sqlc.arg(id) AND kind IN ('engine', 'step');
 
 -- name: UpdateEngineLaunch :execrows
 UPDATE sessions
-SET consumed = 0, replay_from = 0, background = 0, prompts_from = sqlc.arg(prompts_from)
+SET consumed = 0, replay_from = 0, background = 0, awaited = 0, prompts_from = sqlc.arg(prompts_from)
 WHERE id = sqlc.arg(id) AND kind IN ('engine', 'step');
 
 -- name: UpsertEngineText :exec
@@ -271,6 +272,19 @@ WHERE prompts.session_id = sqlc.arg(id) AND prompts.kind = 'engine_prompt' AND p
         AND states.seq = (SELECT MAX(newest.seq) FROM prompt_states AS newest
                           WHERE newest.session_id = states.session_id AND newest.write_id = states.write_id)
   );
+
+-- name: ListQuietSessions :many
+SELECT sessions.id FROM sessions
+WHERE sessions.kind = 'engine' AND EXISTS (
+    SELECT 1 FROM events AS interrupts
+    WHERE interrupts.session_id = sessions.id AND interrupts.kind = 'engine_interrupt'
+      AND interrupts.seq > COALESCE((
+          SELECT MAX(owners.seq) FROM events AS owners
+          WHERE owners.session_id = sessions.id AND owners.kind = 'engine_prompt'
+            AND COALESCE(json_extract(owners.payload, '$.sender'), '') = 'owner'
+      ), 0)
+)
+ORDER BY sessions.id;
 
 -- name: InsertEnginePromptFailed :exec
 INSERT INTO engine_prompt_failed (session_id, prompt_id, reason) VALUES (?, ?, ?)
@@ -378,7 +392,7 @@ UPDATE steps SET gate_grant = ?, gate_holder = ?, gate_round = ? WHERE id = ?;
 
 -- name: GetStepTurnEnd :one
 SELECT events.seq, CAST(json_extract(events.payload, '$.isError') AS INTEGER) AS is_error, sessions.turn_output,
-       sessions.background, steps.loop_seq
+       sessions.awaited, steps.loop_seq
 FROM events
 JOIN sessions ON sessions.id = events.session_id
 JOIN steps ON steps.id = events.session_id
@@ -515,7 +529,17 @@ SELECT COUNT(*) FROM epics WHERE id = ?;
 SELECT * FROM epics WHERE id = ?;
 
 -- name: ListEpics :many
-SELECT * FROM epics ORDER BY id;
+SELECT sqlc.embed(epics), CAST(COALESCE(epic_revisions.revision, 0) AS INTEGER) AS revision
+FROM epics LEFT JOIN epic_revisions ON epic_revisions.epic = epics.id
+ORDER BY epics.id;
+
+-- name: ListEpicListings :many
+SELECT epics.id, epics.repository, epics.title, epics.phase, epics.phase_at, epics.created, epics.changed,
+    CAST(COALESCE(epic_revisions.revision, 0) AS INTEGER) AS revision, epic_seen.at AS seen_at
+FROM epics
+LEFT JOIN epic_revisions ON epic_revisions.epic = epics.id
+LEFT JOIN epic_seen ON epic_seen.epic = epics.id
+ORDER BY epics.id;
 
 -- name: ListBuildEpics :many
 SELECT epics.id FROM epics
@@ -524,8 +548,15 @@ WHERE epics.base <> '' AND epics.phase NOT IN ('met_at_base', 'clean', 'ended_wi
   AND EXISTS (SELECT 1 FROM epic_tasks WHERE epic_tasks.epic = epics.id AND epic_tasks.status = 'open')
 ORDER BY epics.id;
 
--- name: ResetEpicRevision :exec
-UPDATE epics SET revision = 0 WHERE id = ?;
+-- name: MoveEpicRevision :exec
+INSERT INTO epic_revisions (epic, revision) VALUES (?, 1)
+ON CONFLICT (epic) DO UPDATE SET revision = epic_revisions.revision + 1;
+
+-- name: ListEvidenceRunEpics :many
+SELECT DISTINCT epic FROM evidence_runs WHERE id IN (sqlc.slice(runs));
+
+-- name: GetEpicRevision :one
+SELECT revision FROM epic_revisions WHERE epic = ?;
 
 -- name: UpdateEpicChanged :exec
 UPDATE epics SET changed = ? WHERE id = ?;
@@ -752,6 +783,11 @@ UPDATE epic_node_runs SET state = 'running', attempt = attempt + 1, outcome = ''
     refs = '', refs_checked = 0, result = '', ended = 0
 WHERE epic = ? AND node = ? AND kind <> 'loop' AND state = 'parked';
 
+-- name: RetryEpicNodeRun :execrows
+UPDATE epic_node_runs SET state = 'running', attempt = attempt + 1, outcome = '', output = '', revision = '',
+    refs = '', refs_checked = 0, result = '', ended = 0
+WHERE epic = ? AND path = ? AND kind <> 'loop' AND state = 'parked';
+
 -- name: NextEpicNodeRunAttempt :execrows
 UPDATE epic_node_runs SET attempt = attempt + 1, outcome = '', output = '', revision = '', refs = '', refs_checked = 0,
     result = '', ended = 0
@@ -844,6 +880,9 @@ INSERT INTO epic_tasks (epic, seq, turn, title, deliverable, gate, evidence, sta
 
 -- name: InsertEpicTaskFile :exec
 INSERT INTO epic_task_files (epic, task, position, path) VALUES (?, ?, ?, ?);
+
+-- name: DeleteEpicTaskFile :exec
+DELETE FROM epic_task_files WHERE epic = ? AND task = ? AND path = ?;
 
 -- name: InsertEpicTaskRequirement :exec
 INSERT INTO epic_task_requirements (epic, task, position, requirement) VALUES (?, ?, ?, ?);
@@ -1016,6 +1055,16 @@ LEFT JOIN epic_task_rung_outcomes AS outcomes
 WHERE rungs.epic = ?
 ORDER BY rungs.task, rungs.rung;
 
+-- name: InsertEpicTaskRefused :exec
+INSERT INTO epic_task_refused (epic, task, path, decision, created) VALUES (?, ?, ?, ?, ?)
+ON CONFLICT (epic, task, path) DO NOTHING;
+
+-- name: DeleteEpicTaskRefused :exec
+DELETE FROM epic_task_refused WHERE epic = ? AND task = ? AND path = ?;
+
+-- name: ListEpicTaskRefused :many
+SELECT * FROM epic_task_refused WHERE epic = ? ORDER BY task, created, path;
+
 -- name: MaxEpicTellSeq :one
 SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_tells WHERE epic = ?;
 
@@ -1045,6 +1094,12 @@ INSERT INTO epic_met_at_base (epic, question, path, attempt, requirements) VALUE
 
 -- name: GetEpicMetAtBase :one
 SELECT * FROM epic_met_at_base WHERE epic = ? AND question = ?;
+
+-- name: InsertEpicParkQuestionRun :exec
+INSERT INTO epic_park_question_runs (epic, question, path) VALUES (?, ?, ?);
+
+-- name: GetEpicParkQuestionRun :one
+SELECT path FROM epic_park_question_runs WHERE epic = ? AND question = ?;
 
 -- name: SetEpicQuestionAnswered :exec
 UPDATE epic_questions SET state = 'answered', choice = ? WHERE epic = ? AND seq = ?;
@@ -1478,10 +1533,35 @@ WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq) AND state = 'checking';
 UPDATE epic_amendments SET state = 'applied', settled = CASE WHEN settled = 0 THEN sqlc.arg(settled) ELSE settled END
 WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq) AND state IN ('checking', 'capturing');
 
+-- CountWorkingEvidenceNodeRuns counts the running node runs of an epic that capture its Requirements under ids of their
+-- own: an evidence, integrate or sync run with a revision, and a release run of a releasing epic whose release
+-- integrator's latest round that passed at the run's attempt made a merge not yet recorded as a candidate of that
+-- attempt, since the release walks that merge's Done gates and captures until it records the merge as its candidate.
+-- A release run that is doing anything else, such as waiting on the plan its replan started, captures nothing.
 -- name: CountWorkingEvidenceNodeRuns :one
-SELECT COUNT(*) FROM epic_node_runs
-WHERE epic = ? AND state = 'running'
-  AND ((kind IN ('evidence', 'integrate', 'sync') AND revision != '') OR kind = 'release');
+SELECT COUNT(*) FROM epic_node_runs AS run
+WHERE run.epic = sqlc.arg(epic) AND run.state = 'running'
+  AND (
+    (run.kind IN ('evidence', 'integrate', 'sync') AND run.revision != '')
+    OR (
+      run.kind = 'release'
+      AND EXISTS (SELECT 1 FROM epics WHERE epics.id = run.epic AND epics.phase = 'releasing')
+      AND EXISTS (
+        SELECT 1 FROM epic_release_runs AS merged
+        WHERE merged.epic = run.epic AND merged.part = 'integrator' AND merged.attempt = run.attempt AND merged.passed
+          AND NOT EXISTS (
+            SELECT 1 FROM epic_release_runs AS later
+            WHERE later.epic = run.epic AND later.part = 'integrator' AND later.attempt = run.attempt AND later.passed
+              AND later.position > merged.position
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM epic_release_runs AS candidate
+            WHERE candidate.epic = run.epic AND candidate.part = 'candidate' AND candidate.attempt = run.attempt
+              AND candidate.passed AND candidate.head = merged.head
+          )
+      )
+    )
+  );
 
 -- name: CountPendingAmendActions :one
 SELECT COUNT(*) FROM planner_actions WHERE epic = ? AND kind = 'amend_evidence' AND state = 'pending';

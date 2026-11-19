@@ -21,7 +21,7 @@ const claimEpic = "orrery-1a2b3c4/epic-store"
 // addPendingTrigger stores a second pending trigger, t2, on claimEpic, as a later planner trigger would.
 func addPendingTrigger(t *testing.T, s *Store) {
 	t.Helper()
-	if err := sqlcgen.New(s.db).InsertEpicTrigger(context.Background(), sqlcgen.InsertEpicTriggerParams{
+	if err := s.fixtureQueries().InsertEpicTrigger(context.Background(), sqlcgen.InsertEpicTriggerParams{
 		Epic: claimEpic, ID: "t2", Cause: "test trigger", State: "pending", Turn: 0, Created: epicCreated().Unix(),
 	}); err != nil {
 		t.Fatalf("insert trigger t2 of %s: %v", claimEpic, err)
@@ -93,7 +93,7 @@ func TestClaimTurnRefusesPausedAndParkedEpicsAndWritesNothing(t *testing.T) {
 	} {
 		s := openEpicStore(t)
 		createEpic(t, s, fullEpic(tc.epic))
-		if _, err := s.db.Exec(tc.setup, tc.epic); err != nil {
+		if _, err := s.fixtureExec(context.Background(), tc.setup, tc.epic); err != nil {
 			t.Fatalf("set %s: %v", tc.name, err)
 		}
 		triggersBefore := rowsOf(t, s.db.DB, "epic_triggers")
@@ -119,7 +119,11 @@ func TestClaimTurnRefusesEpicWithNoPendingTrigger(t *testing.T) {
 	if _, err := s.ClaimTurn(ctx, id, claimedAt()); err != nil {
 		t.Fatalf("first ClaimTurn: %v", err)
 	}
-	if _, err := s.db.Exec(`UPDATE epic_turns SET state = 'succeeded' WHERE epic = ?`, id); err != nil {
+	if _, err := s.fixtureExec(
+		context.Background(),
+		`UPDATE epic_turns SET state = 'succeeded' WHERE epic = ?`,
+		id,
+	); err != nil {
 		t.Fatalf("finish turn: %v", err)
 	}
 	turnsBefore := rowsOf(t, s.db.DB, "epic_turns")
@@ -154,7 +158,11 @@ func TestClaimTurnNumbersTurnsAndSeesTheLatestDecision(t *testing.T) {
 	if _, err := s.ClaimTurn(ctx, id, claimedAt()); err != nil {
 		t.Fatalf("first ClaimTurn: %v", err)
 	}
-	if _, err := s.db.Exec(`UPDATE epic_turns SET state = 'succeeded' WHERE epic = ?`, id); err != nil {
+	if _, err := s.fixtureExec(
+		context.Background(),
+		`UPDATE epic_turns SET state = 'succeeded' WHERE epic = ?`,
+		id,
+	); err != nil {
 		t.Fatalf("finish turn: %v", err)
 	}
 	if _, err := s.AnswerEpic(ctx, id, "D3", "Answered after turn 1", claimedAt()); err != nil {
@@ -223,7 +231,11 @@ func TestPlanStatesReportsPauseParkAndRunningTurn(t *testing.T) {
 		t.Errorf("PlanStates with a running turn = %+v, want %+v", got, want)
 	}
 
-	if _, err := s.db.Exec(`UPDATE epics SET paused = 1, parked = 'needs a human' WHERE id = ?`, id); err != nil {
+	if _, err := s.fixtureExec(
+		context.Background(),
+		`UPDATE epics SET paused = 1, parked = 'needs a human' WHERE id = ?`,
+		id,
+	); err != nil {
 		t.Fatalf("set paused and parked: %v", err)
 	}
 	got, err = s.PlanStates(ctx)
@@ -235,7 +247,12 @@ func TestPlanStatesReportsPauseParkAndRunningTurn(t *testing.T) {
 		t.Errorf("PlanStates of paused and parked epic = %+v, want %+v", got, want)
 	}
 
-	if _, err := s.db.Exec(`UPDATE epics SET park_class = ? WHERE id = ?`, ParkClassNode, id); err != nil {
+	if _, err := s.fixtureExec(
+		context.Background(),
+		`UPDATE epics SET park_class = ? WHERE id = ?`,
+		ParkClassNode,
+		id,
+	); err != nil {
 		t.Fatalf("set park class: %v", err)
 	}
 	got, err = s.PlanStates(ctx)
@@ -279,7 +296,11 @@ func TestSetTurnStepRefusesATurnThatIsNotRunning(t *testing.T) {
 	if _, err := s.ClaimTurn(ctx, id, claimedAt()); err != nil {
 		t.Fatalf("ClaimTurn: %v", err)
 	}
-	if _, err := s.db.Exec(`UPDATE epic_turns SET state = 'succeeded' WHERE epic = ?`, id); err != nil {
+	if _, err := s.fixtureExec(
+		context.Background(),
+		`UPDATE epic_turns SET state = 'succeeded' WHERE epic = ?`,
+		id,
+	); err != nil {
 		t.Fatalf("finish turn: %v", err)
 	}
 	turnsBefore := rowsOf(t, s.db.DB, "epic_turns")

@@ -22,7 +22,7 @@ const retryParkReason = "epic not built: R1 is not green"
 
 // failIntegrateRun starts the integrate run at path as attempt 1, claims it at revision with retryComposed, checks its
 // refs and ends it failed with output, as an integrate run whose Done gate failed does. The epic's candidate becomes
-// revision.
+// revision, checked against the stored base the epic holds, as the interpreter checks a revision that builds on it.
 func failIntegrateRun(t *testing.T, s *Store, path, id, revision, output string) {
 	t.Helper()
 	ctx := context.Background()
@@ -37,7 +37,10 @@ func failIntegrateRun(t *testing.T, s *Store, path, id, revision, output string)
 		t.Fatalf("CheckNodeRefs %s: %v", path, err)
 	}
 	trigger := NodeTrigger{ID: "workflow:failed:" + id, Cause: "workflow node " + path + " failed: " + output}
-	if err := s.EndBatch(ctx, integrateEpic, path, 1, "failed", output, &trigger, integrateEndedAt()); err != nil {
+	if err := s.EndBatch(ctx, integrateEpic, BatchEnd{
+		Path: path, Attempt: 1, Outcome: "failed", Output: output, Candidate: revision,
+		Over: integrateEpicRow(t, s).StoredBase,
+	}, &trigger, integrateEndedAt()); err != nil {
 		t.Fatalf("EndBatch %s: %v", path, err)
 	}
 }
@@ -126,7 +129,7 @@ func TestRetryFailedIntegrateRefusesPassedRun(t *testing.T) {
 	s := openIntegrateStore(t)
 	startIntegrateRuns(t, s, NodeRun{Path: retryLatestBatch, ID: "id-s2", Node: "integrate", Kind: "integrate",
 		Attempt: 1})
-	if err := s.EndBatch(ctx, integrateEpic, retryLatestBatch, 1, "passed", "", nil,
+	if err := s.EndBatch(ctx, integrateEpic, BatchEnd{Path: retryLatestBatch, Attempt: 1, Outcome: "passed"}, nil,
 		integrateEndedAt()); err != nil {
 		t.Fatalf("EndBatch passed: %v", err)
 	}
@@ -241,7 +244,9 @@ func TestRetryFailedIntegrateRerunsALateWalkStartedAfterTheSettleWalk(t *testing
 	if err := s.PrepareNode(ctx, integrateEpic, late, 1, "rev-1", "refs-1"); err != nil {
 		t.Fatalf("PrepareNode: %v", err)
 	}
-	if err := s.EndBatch(ctx, integrateEpic, late, 1, "failed", "lint failed", nil, integrateEndedAt()); err != nil {
+	if err := s.EndBatch(ctx, integrateEpic, BatchEnd{
+		Path: late, Attempt: 1, Outcome: "failed", Output: "lint failed",
+	}, nil, integrateEndedAt()); err != nil {
 		t.Fatalf("EndBatch: %v", err)
 	}
 	parkIntegrateEpic(t, s)

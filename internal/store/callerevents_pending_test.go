@@ -2,9 +2,10 @@ package store
 
 import (
 	"context"
-	"fmt"
 	"path/filepath"
 	"reflect"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -138,9 +139,14 @@ func TestStepEventCardPendingListsOwedStepEndsAndEpicEvents(t *testing.T) {
 	got := readPending(t, path, "engine-1")
 	want := []PendingEvent{
 		{
-			ID: "step:step-a", Kind: CallerKindStepEnd, Step: "step-a", Agent: "implementer", End: "done",
-			Status: "passed", Reason: "gate green", Summary: "First line", Result: "First line\nSecond line",
-			Epic: claimEpic,
+			ID:     "step:step-a",
+			Kind:   CallerKindStepEnd,
+			Step:   "step-a",
+			Agent:  "implementer",
+			End:    "done",
+			Status: "passed",
+			Brief:  "Return: First line...\nNot shown: return (22 bytes)\nReason: gate green\nMore: step_result id step-a",
+			Epic:   claimEpic,
 		},
 		{
 			ID: "epic:orrery-1a2b3c4/epic-ended:done", Kind: CallerKindEnd, Epic: pendingEnded, Title: "Synthetic epic",
@@ -166,7 +172,7 @@ func TestStepEventCardPendingListsOwedStepEndsAndEpicEvents(t *testing.T) {
 	gotOther := readPending(t, path, "engine-2")
 	wantOther := []PendingEvent{
 		{ID: "step:step-b", Kind: CallerKindStepEnd, Step: "step-b", Agent: "implementer", End: "done",
-			Status: "passed", Reason: "gate green", Summary: "Other", Result: "Other"},
+			Status: "passed", Brief: "Return: Other\nNot shown: none\nReason: gate green\nMore: step_result id step-b"},
 		{ID: "epic:orrery-1a2b3c4/epic-other:released", Kind: CallerKindRelease, Epic: pendingOther,
 			Title: "Synthetic epic"},
 	}
@@ -246,38 +252,76 @@ func TestEndComesBackPendingDropsMarkedEvents(t *testing.T) {
 	}
 }
 
-// TestStepEndTextPendingHeadlines ends a step under engine-1 for each result of cases, in order, and reads the pending
-// step ends. Each carries the headline its result gives and the full result.
-func TestStepEndTextPendingHeadlines(t *testing.T) {
+// TestStepEventBriefPendingCarriesBrief ends a step under engine-1 with two lines of result and a reason, and reads its
+// pending step end: its Brief is the brief's lines, the last of them the More line that names step_result.
+func TestStepEventBriefPendingCarriesBrief(t *testing.T) {
 	t.Parallel()
-	cases := []struct {
-		result   string
-		headline string
-	}{
-		{`{"answer":"Yes, it works"}`, "Yes, it works"},
-		{`{"summary":"Summary line"}`, "Summary line"},
-		{`{"verdict":"pass"}`, "pass"},
-		{`{"verdict":"V","summary":"S","answer":"A"}`, "A"},
-		{`{"verdict":"V","summary":"S"}`, "S"},
-		{`{"answer":3,"summary":"S","verdict":"pass"}`, "S"},
-		{`{"answer":"Yes\nwith detail"}`, "Yes\nwith detail"},
-		{`{"answer":"\nDetail","verdict":"pass"}`, "\nDetail"},
-		{"Plain first\nPlain second", "Plain first"},
-		{`{"other":"x"}`, `{"other":"x"}`},
-	}
 	s, path := openPendingStore(t)
 	addPendingEngines(t, s, "engine-1")
-	want := make([]PendingEvent, 0, len(cases))
-	for i, c := range cases {
-		id := fmt.Sprintf("step-text-%d", i)
-		startPendingStep(t, s, id, "", "engine-1")
-		endPendingStep(t, s, id, c.result, pendingAt().Add(time.Duration(i+1)*time.Minute))
-		want = append(want, PendingEvent{
-			ID: stepEventPrefix + id, Kind: CallerKindStepEnd, Step: id, Agent: "implementer", End: "done",
-			Status: "passed", Reason: "gate green", Summary: c.headline, Result: c.result,
-		})
+	startPendingStep(t, s, "step-brief", "", "engine-1")
+	endPendingStep(t, s, "step-brief", "First line\nSecond line", pendingAt().Add(time.Minute))
+
+	want := []string{
+		"Return: First line...",
+		"Not shown: return (22 bytes)",
+		"Reason: gate green",
+		"More: step_result id step-brief",
 	}
-	if got := readPending(t, path, "engine-1"); !reflect.DeepEqual(got, want) {
-		t.Fatalf("PendingCallerEvents(engine-1) =\n %+v\nwant\n %+v", got, want)
+	got := readPending(t, path, "engine-1")
+	if len(got) != 1 {
+		t.Fatalf("PendingCallerEvents(engine-1) = %v, want the one step end", pendingIDs(got))
+	}
+	if lines := strings.Split(got[0].Brief, "\n"); !reflect.DeepEqual(lines, want) {
+		t.Fatalf("Brief lines = %q, want %q", lines, want)
+	}
+}
+
+// TestStepEventBriefPendingIsBounded ends a step under engine-1 with a 20 KB one-line result and a 16 KB reason of many
+// lines, and reads its pending step end. Its Brief is the lines StepEndParts gives the step, at most StepEndBlockCap
+// bytes, and it holds none of the result's last 100 bytes.
+func TestStepEventBriefPendingIsBounded(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, path := openPendingStore(t)
+	addPendingEngines(t, s, "engine-1")
+	startPendingStep(t, s, "step-big", "", "engine-1")
+	result := strings.Repeat("a", 20*1024-100) + strings.Repeat("z", 100)
+	reason := strings.Repeat("a reason line\n", 16*1024/len("a reason line\n"))
+	at := pendingAt().Add(time.Minute)
+	if err := s.ApplyEngine(ctx, []EngineOp{StepReturn{ID: "step-big", Result: result}}, at); err != nil {
+		t.Fatalf("ApplyEngine return step-big: %v", err)
+	}
+	end := StepEnd{ID: "step-big", End: "done", Status: "passed", Reason: reason}
+	if err := s.ApplyEngine(ctx, []EngineOp{end}, at); err != nil {
+		t.Fatalf("ApplyEngine end step-big: %v", err)
+	}
+
+	callers, err := s.CallerSteps(ctx)
+	if err != nil {
+		t.Fatalf("CallerSteps: %v", err)
+	}
+	i := slices.IndexFunc(callers, func(c CallerStep) bool { return c.Step.ID == "step-big" })
+	if i < 0 {
+		t.Fatalf("CallerSteps = %v, want step-big among them", callers)
+	}
+	_, lines := StepEndParts(callers[i].Step)
+	want := strings.Join(lines, "\n")
+
+	got := readPending(t, path, "engine-1")
+	if len(got) != 1 {
+		t.Fatalf("PendingCallerEvents(engine-1) = %v, want the one step end", pendingIDs(got))
+	}
+	brief := got[0].Brief
+	if brief != want {
+		t.Fatalf("Brief = %q, want the StepEndParts lines %q", brief, want)
+	}
+	if len(brief) > StepEndBlockCap {
+		t.Fatalf("Brief is %d bytes, over the %d-byte cap", len(brief), StepEndBlockCap)
+	}
+	if !strings.HasSuffix(brief, "\nMore: step_result id step-big") {
+		t.Fatalf("Brief = %q, which does not end with its More line", brief)
+	}
+	if tail := result[len(result)-100:]; strings.Contains(brief, tail) {
+		t.Fatalf("Brief holds the result's last 100 bytes %q", tail)
 	}
 }

@@ -29,7 +29,7 @@ func openSyncStore(t *testing.T) *Store {
 
 func sessionsOf(t *testing.T, s *Store) []sqlcgen.Session {
 	t.Helper()
-	rows, err := sqlcgen.New(s.db).ListSessions(context.Background())
+	rows, err := s.fixtureQueries().ListSessions(context.Background())
 	if err != nil {
 		t.Fatalf("ListSessions: %v", err)
 	}
@@ -38,7 +38,7 @@ func sessionsOf(t *testing.T, s *Store) []sqlcgen.Session {
 
 func eventsOf(t *testing.T, s *Store) []sqlcgen.Event {
 	t.Helper()
-	events, err := sqlcgen.New(s.db).ListEvents(context.Background())
+	events, err := s.fixtureQueries().ListEvents(context.Background())
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
 	}
@@ -292,13 +292,13 @@ func TestSyncServerLeavesEngineRowsOfTheDefaultServer(t *testing.T) {
 	s := openSyncStore(t)
 	t0 := time.Unix(1_700_000_000, 0)
 
-	if err := sqlcgen.New(s.db).InsertEngineSession(ctx, sqlcgen.InsertEngineSessionParams{
+	if err := s.fixtureQueries().InsertEngineSession(ctx, sqlcgen.InsertEngineSessionParams{
 		ID: "engine-1", Kind: KindEngine, Dir: "/work", State: "working", Changed: "t0",
 	}); err != nil {
 		t.Fatalf("InsertEngineSession: %v", err)
 	}
 	// Every engine row has its engine_added event; without one the tidy's 14-day removal would take the row.
-	if err := sqlcgen.New(s.db).InsertEvent(ctx, sqlcgen.InsertEventParams{
+	if err := s.fixtureQueries().InsertEvent(ctx, sqlcgen.InsertEventParams{
 		SessionID: "engine-1", Kind: EventEngineAdded, At: t0.Unix(), Payload: `{"dir":"/work","state":"working"}`,
 	}); err != nil {
 		t.Fatalf("InsertEvent: %v", err)
@@ -312,7 +312,7 @@ func TestSyncServerLeavesEngineRowsOfTheDefaultServer(t *testing.T) {
 		t.Fatalf("SyncServer with an unrelated pane: %v", err)
 	}
 
-	row, err := sqlcgen.New(s.db).GetEngineSession(ctx, "engine-1")
+	row, err := s.fixtureQueries().GetEngineSession(ctx, "engine-1")
 	if err != nil {
 		t.Fatalf("GetEngineSession after SyncServer: %v", err)
 	}

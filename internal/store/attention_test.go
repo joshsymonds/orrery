@@ -71,7 +71,7 @@ func TestAttentionReportsParkPauseOpenQuestionsAndTheLatestEndedTurn(t *testing.
 	if _, err := s.ClaimTurn(ctx, id, claimedAt().Add(2*time.Minute)); err != nil {
 		t.Fatalf("third ClaimTurn: %v", err)
 	}
-	if err := sqlcgen.New(s.db).SetEpicQuestionAnswered(ctx, sqlcgen.SetEpicQuestionAnsweredParams{
+	if err := s.fixtureQueries().SetEpicQuestionAnswered(ctx, sqlcgen.SetEpicQuestionAnsweredParams{
 		Choice: ChoiceOther, Epic: id, Seq: 1,
 	}); err != nil {
 		t.Fatalf("answer question 1: %v", err)

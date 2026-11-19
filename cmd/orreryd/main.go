@@ -101,6 +101,8 @@ const (
 	// limitTick is how often the limit notices check the limited steps for a change, and how often the due pass, the
 	// epic summaries, the session titles, the session headlines and the epic reports run.
 	limitTick = 5 * time.Second
+	// storeOpenRetry is how long openStore waits before it tries a busy store open again.
+	storeOpenRetry = 2 * time.Second
 	// waitingBody and doneBody stand in for an empty question or summary.
 	waitingBody = "waiting for input"
 	doneBody    = "done"
@@ -182,6 +184,9 @@ type options struct {
 	// limitTicks is a test seam: when set, the limit notices check at each value it delivers in place of every
 	// limitTick, and production leaves it nil.
 	limitTicks <-chan time.Time
+	// storeRetryAfter is a test seam: openStore waits on the channel it returns for a busy store open to be tried again,
+	// in place of time.After. Production leaves it nil.
+	storeRetryAfter func(time.Duration) <-chan time.Time
 	// dueNow is a test seam: the clock the due pass reads to decide which limited steps are due. Production leaves it
 	// nil, which is time.Now. A test whose steps carry fixed reset dates sets it, so the real date never makes them due.
 	dueNow func() time.Time
@@ -617,7 +622,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		AfterTidy: notices.Retry,
 	})
 
-	st := openStore(ctx, getenv, logger, opts.metrics, opts.storeBusy)
+	st := openStore(ctx, getenv, logger, opts.metrics, opts.storeBusy, opts.storeRetryAfter)
 	attachStore(ctx, st, mirror, notices, router)
 	var sessions *sessionHost
 	var startErr error
@@ -1721,30 +1726,46 @@ func (h *sessionHost) phase(name string, phase func()) {
 	shutdownPhase(logger, name, phase)
 }
 
-// openStore opens the store at its resolved path and logs "store open" once the store is open and migrated. When the
-// path does not resolve or the store cannot be opened, it logs the error and returns nil, so orreryd serves hooks and
-// notifications without the store. The store warns on logger of each call over 100 ms and counts it on metrics, and
-// each of its writes waits at most busy for the write lock.
+// openStore opens the store at its resolved path and logs "store open" once the store is open and migrated. A store
+// that is busy when it opens, as Litestream holds it during a checkpoint, is tried again each storeOpenRetry, waiting on
+// retryAfter (time.After when nil), until it opens or ctx ends; the wait is logged as "store busy, retrying open". When
+// the path does not resolve or the store cannot be opened for another reason, it logs the error and returns nil, so
+// orreryd serves hooks and notifications without the store. The store warns on logger of each call over 100 ms and
+// counts it on metrics, and each of its writes waits at most busy for the write lock.
 func openStore(
 	ctx context.Context,
 	getenv func(string) string,
 	logger *slog.Logger,
 	metrics *telemetry.Daemon,
 	busy time.Duration,
+	retryAfter func(time.Duration) <-chan time.Time,
 ) *store.Store {
 	path, err := store.Path(getenv)
 	if err != nil {
 		logger.ErrorContext(ctx, "store unavailable, serving without it", "error", err)
 		return nil
 	}
-	st, err := store.Open(ctx, path, store.WithLogger(logger), store.WithSlowCallCounter(metrics.StoreSlowCall),
-		store.WithBusyTimeout(busy))
-	if err != nil {
-		logger.ErrorContext(ctx, "store unavailable, serving without it", "path", path, "error", err)
-		return nil
+	if retryAfter == nil {
+		retryAfter = time.After
 	}
-	logger.InfoContext(ctx, "store open", "path", path)
-	return st
+	for {
+		st, err := store.Open(ctx, path, store.WithLogger(logger), store.WithSlowCallCounter(metrics.StoreSlowCall),
+			store.WithBusyTimeout(busy))
+		if err == nil {
+			logger.InfoContext(ctx, "store open", "path", path)
+			return st
+		}
+		if !store.Busy(err) {
+			logger.ErrorContext(ctx, "store unavailable, serving without it", "path", path, "error", err)
+			return nil
+		}
+		logger.WarnContext(ctx, "store busy, retrying open", "path", path, "error", err)
+		select {
+		case <-retryAfter(storeOpenRetry):
+		case <-ctx.Done():
+			return nil
+		}
+	}
 }
 
 // attachStore attaches st to the mirror and to notices, which keep each key's last push in it. When the store opened,

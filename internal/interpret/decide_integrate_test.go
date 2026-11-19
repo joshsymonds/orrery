@@ -144,7 +144,7 @@ func TestDecideBatchActions(t *testing.T) {
 			reg:  integrateKinds(scripted{0: {Kind: kinds.ActEnd, Outcome: "passed", Output: "R1 green"}}),
 			want: []Action{plan, {
 				Kind: ActBatch, Path: batchPath, Attempt: 1, Outcome: "passed", Output: "R1 green",
-				Trigger: batchTrigger("passed", "R1 green"),
+				Trigger: batchTrigger("passed", "R1 green"), Run: batchRun("c1"),
 			}},
 		},
 		{
@@ -154,7 +154,7 @@ func TestDecideBatchActions(t *testing.T) {
 			reg:  integrateKinds(scripted{0: {Kind: kinds.ActEnd, Outcome: "failed", Output: "Done gate lint failed"}}),
 			want: []Action{plan, {
 				Kind: ActBatch, Path: batchPath, Attempt: 1, Outcome: "failed", Output: "Done gate lint failed",
-				Trigger: batchTrigger("failed", "Done gate lint failed"),
+				Trigger: batchTrigger("failed", "Done gate lint failed"), Run: batchRun("c1"),
 			}},
 		},
 		{
@@ -166,6 +166,7 @@ func TestDecideBatchActions(t *testing.T) {
 			}}),
 			want: []Action{plan, {
 				Kind: ActBatch, Path: batchPath, Attempt: 1, Outcome: "passed", Output: "no accepted task to integrate",
+				Run: batchRun(""),
 			}},
 		},
 		{
@@ -344,15 +345,14 @@ type carryLog struct {
 // EndBatch logs the end of a batch.
 func (c *carryLog) EndBatch(
 	_ context.Context,
-	epic, path string,
-	attempt int64,
-	outcome, output string,
+	epic string,
+	end store.BatchEnd,
 	trigger *store.NodeTrigger,
 	_ time.Time,
 ) error {
 	c.writes = append(
 		c.writes,
-		fmt.Sprintf("EndBatch %s %s %d %s %q %+v", epic, path, attempt, outcome, output, trigger),
+		fmt.Sprintf("EndBatch %s %s %d %s %q %+v", epic, end.Path, end.Attempt, end.Outcome, end.Output, trigger),
 	)
 	return nil
 }

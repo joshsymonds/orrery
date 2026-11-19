@@ -13,7 +13,8 @@ import { controlsOf, trackPart, trackParts } from "./status";
 // sends the owner's choice to its open question, resolving to "" once it lands. openEpic opens the epic's page, and
 // openStep opens the page of a step the epic holds, on the step's worker session. epics is what the page's poll has
 // loaded: a card shows the poll's detail of its epic when the poll holds one, and otherwise reads its epic itself, on
-// mount and each time the epic's listed message changes.
+// mount and each time the epic's listed message changes. stepResult reads a step's full return, which a step card draws
+// in its return fold.
 export interface EpicCalls {
   get: (id: string) => Promise<EpicsGetResponse>;
   pause: (id: string) => Promise<unknown>;
@@ -21,6 +22,7 @@ export interface EpicCalls {
   answer: (id: string, question: string, choice: string, text: string) => Promise<string>;
   openEpic: (id: string) => void;
   openStep: (epic: string, step: string) => void;
+  stepResult: (id: string) => Promise<string>;
   epics: EpicsView;
 }
 
@@ -46,6 +48,7 @@ export function epicCallsOf(
       ),
     openEpic,
     openStep,
+    stepResult: (id) => clients.steps.result({ id }).then((reply) => reply.result),
     epics,
   };
 }

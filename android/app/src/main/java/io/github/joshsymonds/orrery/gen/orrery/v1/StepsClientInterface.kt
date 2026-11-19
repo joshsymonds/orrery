@@ -25,4 +25,9 @@ public interface StepsClientInterface {
    *  Stop ends the step's loop.
    */
   public suspend fun stop(request: StepsStopRequest, headers: Headers = emptyMap()): ResponseMessage<StepsStopResponse>
+
+  /**
+   *  Result returns the step's full result, as its latest return carried it, whether the step is labelled or not.
+   */
+  public suspend fun result(request: StepsResultRequest, headers: Headers = emptyMap()): ResponseMessage<StepsResultResponse>
 }

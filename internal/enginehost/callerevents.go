@@ -2,48 +2,22 @@ package enginehost
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
-	"strings"
+	"sync"
 	"time"
-	"unicode/utf8"
 
 	"github.com/joshsymonds/orrery/internal/store"
 )
-
-// stepEndKind is the kind of the event a step's end sends its caller.
-const stepEndKind = "step_end"
 
 // stepEventPrefix heads the event id of a step's end: the prefix and the step id. The store's CallerSteps lists the
 // steps whose end has no mark under this id.
 const stepEventPrefix = "step:"
 
-// stepSummaryCap is the most runes of a step's summary that its end's event carries.
-const stepSummaryCap = 500
-
-// stepReasonCap is the most runes of a step's reason that its end's event carries. A reason can carry a failed gate's
-// output tails, kilobytes each, which step_status gives in full.
-const stepReasonCap = 200
-
-// stepFieldCap is the most runes a string field of a structured result may have and still be told in its step's summary.
-const stepFieldCap = 120
-
-// stepEndHint is a step end's last line. It tells the caller where the full result is read, so the event carries only
-// what the caller needs to act and the caller asks for the rest.
-const stepEndHint = "step_status gives the full result."
-
 // callerEventRetry is how long a CallerEvents waits before it runs a round again after a round failed, when its Retry
 // is not positive.
 const callerEventRetry = 5 * time.Second
-
-// CallerEventBlock returns the block that carries an event of kind, with id, to its caller: an <orrery-event> opening
-// tag, the body on a line of its own, and the closing tag.
-func CallerEventBlock(kind, id, body string) string {
-	return fmt.Sprintf("<orrery-event kind=\"%s\" id=\"%s\">\n%s\n</orrery-event>", kind, id, body)
-}
 
 // CallerEventStore is the store a CallerSender marks the events it has finished in. *store.Store satisfies it.
 type CallerEventStore interface {
@@ -73,13 +47,24 @@ type CallerSender struct {
 	store       CallerEventStore
 	now         func() time.Time
 	logger      *slog.Logger
+
+	// mu guards unmarked.
+	mu sync.Mutex
+	// unmarked holds the pane events whose keys were sent but whose mark failed. Their keys are not sent again: a later
+	// send only retries the mark. It is in memory, so a restart of the sender forgets it.
+	unmarked map[paneEvent]struct{}
+}
+
+// paneEvent names an event of a session, as a key of CallerSender.unmarked.
+type paneEvent struct {
+	session, event string
 }
 
 // NewCallerSender returns a CallerSender for cfg.
 func NewCallerSender(cfg CallerSenderConfig) *CallerSender {
 	sender := &CallerSender{
 		deliver: cfg.Deliver, deliverStep: cfg.DeliverStep, wakePane: cfg.WakePane, store: cfg.Store, now: cfg.Now,
-		logger: cfg.Logger,
+		logger: cfg.Logger, unmarked: make(map[paneEvent]struct{}),
 	}
 	if sender.now == nil {
 		sender.now = time.Now
@@ -95,7 +80,8 @@ func NewCallerSender(cfg CallerSenderConfig) *CallerSender {
 // instead. A headless caller receives text as a prompt whose PromptID is event. A caller that is busy, stopped, or quiet
 // since the owner interrupted it holds the event, with no error and no mark, until a later send. A pane caller receives
 // text as keys, which WakePane holds while the pane is not idle, and the event is marked after the keys are
-// sent. Any other error is returned with no mark.
+// sent. A pane whose keys were sent but whose mark failed is not sent them again: a later send only retries the mark.
+// Any other error is returned with no mark.
 func (s *CallerSender) Send(ctx context.Context, caller store.CallerSession, event, text string) (bool, error) {
 	switch caller.Kind {
 	case store.KindStep:
@@ -141,8 +127,16 @@ func (s *CallerSender) SendStepEnd(ctx context.Context, caller store.CallerSessi
 }
 
 // wake sends text to the pane of caller and marks event once the keys are sent. A pane that is not idle holds the
-// event. An error that comes with the keys sent is logged, as the keys were sent and the event is finished.
+// event. An error that comes with the keys sent is logged, as the keys were sent and the event is finished. An event
+// whose keys were sent but whose mark failed only has its mark retried, so its keys are typed once.
 func (s *CallerSender) wake(ctx context.Context, caller store.CallerSession, event, text string) (bool, error) {
+	key := paneEvent{session: caller.ID, event: event}
+	s.mu.Lock()
+	_, pending := s.unmarked[key]
+	s.mu.Unlock()
+	if pending {
+		return s.markSent(ctx, key)
+	}
 	sent, err := s.wakePane(ctx, caller.Server, caller.Pane, text)
 	if !sent {
 		if err != nil {
@@ -155,7 +149,21 @@ func (s *CallerSender) wake(ctx context.Context, caller store.CallerSession, eve
 			ctx, "wake pane after its keys were sent", "event", event, "session", caller.ID, "err", err,
 		)
 	}
-	return s.mark(ctx, caller.ID, event)
+	return s.markSent(ctx, key)
+}
+
+// markSent marks the event of key, whose keys were sent. A mark that fails holds key in unmarked, and a mark that lands
+// releases it.
+func (s *CallerSender) markSent(ctx context.Context, key paneEvent) (bool, error) {
+	finished, err := s.mark(ctx, key.session, key.event)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err != nil {
+		s.unmarked[key] = struct{}{}
+		return false, err
+	}
+	delete(s.unmarked, key)
+	return finished, nil
 }
 
 // mark records event as delivered to session.
@@ -208,120 +216,11 @@ func (e *StepCallerEvents) Pass(ctx context.Context) error {
 // send sends the end of step to its caller as a step_end event through SendStepEnd, and returns the error of the send.
 func (e *StepCallerEvents) send(ctx context.Context, step store.CallerStep) error {
 	event := stepEventPrefix + step.Step.ID
-	text := CallerEventBlock(stepEndKind, event, stepEndBody(step.Step))
+	text := store.StepEndBlock(step.Step)
 	if _, err := e.sender.SendStepEnd(ctx, step.Caller, event, text); err != nil {
 		return fmt.Errorf("send step end of %s to caller %s: %w", step.Step.ID, step.Caller.ID, err)
 	}
 	return nil
-}
-
-// stepEndBody returns the body of the event of step's end: the step, its end, status and reason (stepReason), its agent,
-// the epic that holds it when one does, the summary of its result (stepSummary), and where its full result is read. A
-// result can run to tens of kilobytes, which the caller never needs in its context to act on the end.
-func stepEndBody(step store.StepRow) string {
-	lines := []string{
-		fmt.Sprintf(
-			"Step %s ended: end %s, status %s, reason %s.",
-			step.ID,
-			step.End,
-			step.Status,
-			stepReason(step.Reason),
-		),
-		"Agent: " + step.Agent,
-	}
-	if step.Epic != "" {
-		lines = append(lines, "Epic: "+step.Epic)
-	}
-	return strings.Join(append(lines, "Summary: "+stepSummary(step.Result), stepEndHint), "\n")
-}
-
-// stepReason returns what a step's end tells its caller of the step's reason: its first line, cut to stepReasonCap runes.
-// A reason with more lines, or a first line that is cut, ends with "...", so the step line stays one line.
-func stepReason(reason string) string {
-	first, rest, _ := strings.Cut(reason, "\n")
-	first = strings.TrimSpace(first)
-	if strings.TrimSpace(rest) == "" {
-		return capped(first, stepReasonCap)
-	}
-	runes := []rune(first)
-	if len(runes) > stepReasonCap {
-		runes = runes[:stepReasonCap]
-	}
-	return string(runes) + "..."
-}
-
-// stepSummary returns what a step's end tells its caller of the step's result. A result that is one JSON object is told
-// by its short top-level fields (shortFields); any other result, and an object with no short field, by its start. Either
-// is cut to stepSummaryCap runes.
-func stepSummary(result string) string {
-	if fields := shortFields(result); fields != "" {
-		return capped(fields, stepSummaryCap)
-	}
-	return capped(result, stepSummaryCap)
-}
-
-// shortFields returns the top-level fields of result as "key: value" joined by "; ", in the object's own order, when
-// result is exactly one JSON object. Only a boolean, a number, or a non-empty string of at most stepFieldCap runes is
-// told, with a string's line breaks made spaces; an object, an array, null, or a longer string is left for step_status.
-// It returns "" when result is not one JSON object or has no such field.
-func shortFields(result string) string {
-	dec := json.NewDecoder(strings.NewReader(result))
-	dec.UseNumber()
-	if open, err := dec.Token(); err != nil || open != json.Delim('{') {
-		return ""
-	}
-	var parts []string
-	for dec.More() {
-		keyToken, err := dec.Token()
-		if err != nil {
-			return ""
-		}
-		key, ok := keyToken.(string)
-		if !ok {
-			return ""
-		}
-		var value any
-		if err = dec.Decode(&value); err != nil {
-			return ""
-		}
-		if text, told := shortValue(value); told {
-			parts = append(parts, key+": "+text)
-		}
-	}
-	if closing, err := dec.Token(); err != nil || closing != json.Delim('}') {
-		return ""
-	}
-	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
-		return ""
-	}
-	return strings.Join(parts, "; ")
-}
-
-// shortValue returns a field's value as shortFields tells it, and whether it is told at all.
-func shortValue(value any) (string, bool) {
-	switch field := value.(type) {
-	case bool:
-		return fmt.Sprint(field), true
-	case json.Number:
-		return field.String(), true
-	case string:
-		text := strings.Join(strings.Fields(field), " ")
-		if text == "" || utf8.RuneCountInString(field) > stepFieldCap {
-			return "", false
-		}
-		return text, true
-	default:
-		return "", false
-	}
-}
-
-// capped returns the first n runes of s, or s whole when it has no more than n. A text cut short ends with "...".
-func capped(s string, n int) string {
-	runes := []rune(s)
-	if len(runes) <= n {
-		return s
-	}
-	return string(runes[:n]) + "..."
 }
 
 // CallerPass is one pass over the caller events. It sends what is due, and returns the read error or the joined send

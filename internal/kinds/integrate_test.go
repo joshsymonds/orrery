@@ -418,7 +418,10 @@ func TestGreenAt(t *testing.T) {
 		{
 			"capture that did not pass is not green",
 			Rows{Epic: integrateEpic(), Runs: []store.NodeRun{integrated}, Evidence: []store.EvidenceRun{
-				{ID: store.NodeWorkID("int-run", 1, "capture R1"), Phase: evidence.PhaseGreen, State: runEnded},
+				{
+					ID: store.NodeWorkID("int-run", 1, "capture R1"), Phase: evidence.PhaseGreen, State: runEnded,
+					Verdict: evidence.VerdictFails,
+				},
 			}},
 			"base-1",
 			map[string]bool{},

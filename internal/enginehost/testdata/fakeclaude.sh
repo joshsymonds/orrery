@@ -6,11 +6,15 @@
 # releases them when it exists (see pace), TRICKLEHELD streams them as TRICKLE does but waits until fakeclaude.release
 # exists in its directory before the last one, STALL streams the start of a text block and never finishes it, TERMPROOF
 # ignores SIGTERM and then stalls as STALL does, DIE streams the same start, writes fake died to stderr and exits with
-# status 3, BACKGROUND starts a background task and ends
-# its turn while the task runs, BGEND ends that task and then answers as any other prompt does, BGDONE answers with a
-# success result whose structured output is done with no commit, and leaves any task listed, BGSELF starts two tasks and
-# ends its turn with a not-done return, then, once fakeclaude.release exists, ends the first task and starts a turn by
-# itself, reading no stdin, which ends with a done return while the second task still runs, BGSELFHELD plays BGSELF but
+# status 3, BACKGROUND starts a background shell task and ends
+# its turn while the task runs, BGAGENT plays BACKGROUND with a background agent in place of the shell task, BGEND ends
+# that task and then answers as any other prompt does, BGDONE answers with a
+# success result whose structured output is done with no commit, and leaves any task listed, BGSELF starts two background
+# agents and ends its turn with a not-done return, then, once fakeclaude.release exists, ends the first agent and starts a
+# turn by itself, reading no stdin, which ends with a done return while the second agent still runs, LEFTOVER:PATH: starts
+# a background shell task that holds the FIFO at PATH open for writing and never exits, as a Monitor's tail -f does, and
+# ends its turn with a not-done return while the task runs, LEFTOVERHOLD:PATH: starts that task and then stays in a
+# foreground Bash tool call that never ends (see leftover), BGSELFHELD plays BGSELF but
 # holds the turn it starts by itself, after that turn's text block, until fakeclaude.open exists, BGSELFMID plays BGSELF's
 # background task, but the turn claude starts by itself reads the next line from stdin during a Bash tool call and takes it
 # in with the call's result (see bgselfmid), PAIR answers with one
@@ -47,6 +51,10 @@
 # When fakeclaude.next exists in its directory as a prompt arrives, the contents of that file are matched in place of
 # the prompt's text for that prompt, and the file is removed, so a test can choose what a later prompt, such as a
 # resume, plays.
+#
+# BGHANG starts a background task, streams a text block and holds its turn open until an interrupt, as HANG does,
+# reading stdin while the turn runs (see bghang). The task stays listed for the whole turn, so a turn runs with a task
+# listed.
 #
 # MIDTURN opens a turn with a Bash tool call, reads the next line from stdin while the turn runs, then ends the tool
 # call with its result, which takes that line in, and streams one text block (see tool_fold).
@@ -363,11 +371,45 @@ termproof() {
 	stall
 }
 
-# background starts a background task, streams a text block and ends the turn while the task still runs.
+# background starts a background task of the task type $1, streams a text block and ends the turn while the task still
+# runs.
 background() {
 	turn_open
-	printf '%s\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"task_fake_1","task_type":"local_bash","description":"fake sleep"}],"session_id":"session_1","uuid":"uuid_t1"}'
+	printf '%s\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"task_fake_1","task_type":"'"$1"'","description":"fake task"}],"session_id":"session_1","uuid":"uuid_t1"}'
 	text_block 0 "fake background $n" "fake background $n"
+	turn_close
+}
+
+# bghang starts a background task, streams a text block and holds the turn open with await_interrupt, so the task stays
+# listed while the turn runs, and the turn reads stdin as hang does.
+bghang() {
+	turn_open
+	printf '%s\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"task_fake_1","task_type":"local_bash","description":"fake sleep"}],"session_id":"session_1","uuid":"uuid_t1"}'
+	text_block 0 "fake bghang $n" "fake bghang $n"
+	await_interrupt
+}
+
+# leftover starts a task that never exits in a session of its own, as claude starts a background shell task, with its
+# stdio closed and the FIFO whose path the prompt names between LEFTOVER: (or LEFTOVERHOLD:) and the next colon open for
+# writing on descriptor 3, so the FIFO's reader gets its EOF only once the task has ended. It lists the task as a shell
+# task, as claude lists a Monitor's watch, and streams a text block. With no argument the turn then ends with a not-done
+# return, blocked, while the task runs, and the process reads stdin as after any turn, so nothing but a stop ends the task.
+# With hold set it opens a foreground Bash tool call instead and reads stdin until it ends, so the turn never ends.
+leftover() {
+	hold=$1
+	fifo=$(printf '%s\n' "$prompt" | sed -n 's/.*LEFTOVER[A-Z]*:\([^:"]*\):.*/\1/p')
+	setsid sh -c 'exec sleep 2147483647' 3>"$fifo" </dev/null >/dev/null 2>&1 &
+	turn_open
+	printf '%s\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"task_fake_1","task_type":"local_bash","description":"fake watch"}],"session_id":"session_1","uuid":"uuid_t1"}'
+	text_block 0 "fake leftover $n" "fake leftover $n"
+	if [ -n "$hold" ]; then
+		assistant_line '{"type":"tool_use","id":"toolu_hold_'"$n"'","name":"Bash","input":{"command":"fake long build"}}'
+		while next_turn; do
+			:
+		done
+		return
+	fi
+	structured='{"status":"blocked","summary":"fake blocked"}'
 	turn_close
 }
 
@@ -386,14 +428,14 @@ bgdone() {
 	turn_close
 }
 
-# bgself starts two background tasks, streams a text block and ends the turn with a not-done return while both run. Once
-# fakeclaude.release exists in its directory, the first task ends: claude reports it, reads no stdin and starts a turn by
+# bgself starts two background agents, streams a text block and ends the turn with a not-done return while both run. Once
+# fakeclaude.release exists in its directory, the first agent ends: claude reports it, reads no stdin and starts a turn by
 # itself. That turn has no user_message_uuids, a result_index of 1 and the origin of a task notification, and ends with a
-# done return while the second task still runs.
+# done return while the second agent still runs.
 bgself() {
 	held=$1
 	turn_open
-	printf '%s\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"task_fake_1","task_type":"local_bash","description":"fake sleep"},{"task_id":"task_fake_2","task_type":"local_bash","description":"fake sleep"}],"session_id":"session_1","uuid":"uuid_t1"}'
+	printf '%s\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"task_fake_1","task_type":"local_agent","description":"fake agent"},{"task_id":"task_fake_2","task_type":"local_agent","description":"fake agent"}],"session_id":"session_1","uuid":"uuid_t1"}'
 	text_block 0 "fake bgself $n" "fake bgself $n"
 	structured='{"status":"needs_context","summary":"fake waiting"}'
 	turn_close
@@ -401,8 +443,8 @@ bgself() {
 		sleep 0.05
 	done
 	printf '%s\n' '{"type":"system","subtype":"task_updated","task_id":"task_fake_1","patch":{"status":"completed","end_time":0},"session_id":"session_1","uuid":"uuid_t4"}'
-	printf '%s\n' '{"type":"system","subtype":"task_notification","task_id":"task_fake_1","status":"completed","output_file":"fake.output","summary":"fake sleep","session_id":"session_1","uuid":"uuid_t5"}'
-	printf '%s\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"task_fake_2","task_type":"local_bash","description":"fake sleep"}],"session_id":"session_1","uuid":"uuid_t6"}'
+	printf '%s\n' '{"type":"system","subtype":"task_notification","task_id":"task_fake_1","status":"completed","output_file":"fake.output","summary":"fake agent","session_id":"session_1","uuid":"uuid_t5"}'
+	printf '%s\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"task_fake_2","task_type":"local_agent","description":"fake agent"}],"session_id":"session_1","uuid":"uuid_t6"}'
 	answered='[]'
 	answers=
 	turn_open
@@ -728,9 +770,12 @@ while next; do
 			is_error=false
 			result_text=redacted
 			case $prompt in
+				*LEFTOVERHOLD:*) mode=leftoverhold ;;
+				*LEFTOVER:*) mode=leftover ;;
 				*TASKS*) mode=tasks ;;
 				*ASK*) mode=ask ;;
 				*PERMIT*) mode=permit ;;
+				*BGHANG*) mode=bghang ;;
 				*HANG*) mode=hang ;;
 				*FLOOD*) mode=flood ;;
 				*TRICKLEHELD*) mode=trickleheld ;;
@@ -740,6 +785,7 @@ while next; do
 				*DIEQUEUED*) mode=diequeued ;;
 				*DIE*) mode=die ;;
 				*BACKGROUND*) mode=background ;;
+				*BGAGENT*) mode=bgagent ;;
 				*BGEND*) mode=bgend ;;
 				*BGDONE*) mode=bgdone ;;
 				*BGSELFHELD*) mode=bgselfheld ;;
@@ -767,9 +813,12 @@ while next; do
 				lifecycle "$uuid" queued
 			fi
 			case $mode in
+				leftoverhold) leftover hold ;;
+				leftover) leftover ;;
 				tasks) tasks ;;
 				ask) ask ;;
 				permit) permit ;;
+				bghang) bghang ;;
 				hang) hang ;;
 				flood) flood ;;
 				trickleheld) trickle held ;;
@@ -778,7 +827,8 @@ while next; do
 				termproof) termproof ;;
 				diequeued) diequeued ;;
 				die) die ;;
-				background) background ;;
+				background) background local_bash ;;
+				bgagent) background local_agent ;;
 				bgend) bgend ;;
 				bgdone) bgdone ;;
 				bgselfheld) bgself held ;;

@@ -235,6 +235,9 @@ func TestGrantedGateQueuedTimeDoesNotCountTowardLimit(t *testing.T) {
 	queue := make(chan struct{})
 	pools := &fakeGatePools{queue: queue}
 	ran := filepath.Join(t.TempDir(), "ran")
+	// The limit is reached only by a signal on its FIFO, and this test sends none: the gate exits at once, and its
+	// TimedOut stays false however long the queue holds it.
+	limit := gateLimitFIFO(t)
 
 	type outcome struct {
 		result gateResult
@@ -243,10 +246,11 @@ func TestGrantedGateQueuedTimeDoesNotCountTowardLimit(t *testing.T) {
 	done := make(chan outcome, 1)
 	go func() {
 		result, err := runGrantedGate(t.Context(), pools, gateGrantRequest(), gateRun{
-			Argv:    []string{"/bin/sh", "-c", `echo 1 > "$RAN"; exit 0`},
-			Dir:     t.TempDir(),
-			Limit:   time.Second,
-			Environ: gateEnv("RAN=" + ran),
+			Argv:        []string{"/bin/sh", "-c", `echo 1 > "$RAN"; exit 0`},
+			Dir:         t.TempDir(),
+			Limit:       time.Hour,
+			limitSignal: limit,
+			Environ:     gateEnv("RAN=" + ran),
 		})
 		done <- outcome{result, err}
 	}()

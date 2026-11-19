@@ -55,4 +55,26 @@ public interface HostStatusResponseOrBuilder extends
    * <code>repeated .orrery.v1.HostStat stats = 2 [json_name = "stats"];</code>
    */
   int getStatsCount();
+
+  /**
+   * <pre>
+   * The build of the web page serve holds: the build.txt the page's bundle was written with, empty when serve holds no
+   * page or its page has no build.txt. A page whose own build differs is a page an earlier serve sent, and reloads.
+   * </pre>
+   *
+   * <code>string page_build = 3 [json_name = "pageBuild"];</code>
+   * @return The pageBuild.
+   */
+  java.lang.String getPageBuild();
+  /**
+   * <pre>
+   * The build of the web page serve holds: the build.txt the page's bundle was written with, empty when serve holds no
+   * page or its page has no build.txt. A page whose own build differs is a page an earlier serve sent, and reloads.
+   * </pre>
+   *
+   * <code>string page_build = 3 [json_name = "pageBuild"];</code>
+   * @return The bytes for pageBuild.
+   */
+  com.google.protobuf.ByteString
+      getPageBuildBytes();
 }

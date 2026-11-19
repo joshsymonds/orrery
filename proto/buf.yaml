@@ -10,3 +10,10 @@ lint:
 breaking:
   use:
     - WIRE_JSON
+  ignore_only:
+    # PendingEvent's field 8 is renamed from summary to brief on purpose. Its number and type stay, so the wire format
+    # holds; the name and so the JSON name change.
+    FIELD_SAME_NAME:
+      - orrery/v1/orrery.proto
+    FIELD_SAME_JSON_NAME:
+      - orrery/v1/orrery.proto
