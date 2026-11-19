@@ -310,11 +310,12 @@ func composesTask(run NodeRun, seq int64) bool {
 	return slices.ContainsFunc(result.Composed, func(composed composedTask) bool { return composed.Task == seq })
 }
 
-// runningBatchOf returns the path of a running integrate run that claims task or composes it, or "" when none does. Such a
-// run carries the task's commit onward, so the task is not sent back while one runs.
+// runningBatchOf returns the path of an integrate run that has not ended, running or parked, and claims task or composes
+// it, or "" when none does. Such a run carries the task's commit onward, and a parked one can be retried and pass, so
+// the task is not sent back while one is open.
 func runningBatchOf(runs []NodeRun, task sqlcgen.EpicTask) string {
 	for _, run := range runs {
-		if run.State != NodeRunning || run.Kind != integrateKind {
+		if run.State == NodeEnded || run.Kind != integrateKind {
 			continue
 		}
 		if (task.Batch != "" && run.Path == task.Batch) || composesTask(run, task.Seq) {

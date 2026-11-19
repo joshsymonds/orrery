@@ -300,7 +300,7 @@ func TestSendBackRefusedWhileAClaimingRunRuns(t *testing.T) {
 		sendBackCarry(t, s, action)
 
 		requireRefusedAction(t, s, action, "send back task 1", "task 1 of epic "+sendBackEpic+
-			" is in running integrate run plan/integrate")
+			" is in integrate run plan/integrate, which has not ended")
 		if task := sendBackTask(t, s, 1); task.Status != "done" || task.Batch != "plan/integrate" {
 			t.Errorf("task 1 = status %q batch %q, want done and claimed by the running batch", task.Status, task.Batch)
 		}
@@ -316,8 +316,32 @@ func TestSendBackRefusedWhileAClaimingRunRuns(t *testing.T) {
 		sendBackCarry(t, s, action)
 
 		requireRefusedAction(t, s, action, "send back task 1", "task 1 of epic "+sendBackEpic+
-			" is in running integrate run plan/integrate")
+			" is in integrate run plan/integrate, which has not ended")
 	})
+}
+
+// TestSendBackRefusedWhileAClaimingRunIsParked checks that a send_back is refused, and writes nothing, while the
+// integrate run that claims the task is parked: a retry of that run could pass and integrate the task's old commit.
+func TestSendBackRefusedWhileAClaimingRunIsParked(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := sendBackStore(t)
+	sendBackDone(t, s, 1, TaskBuild{Stage: "implement", Base: sendBackBase, Attempt: 1, Revision: "rev-1"})
+	sendBackRun(t, s)
+	sendBackClaim(t, s, "rev-cand", []int64{1}, 1)
+	if _, err := s.fixtureExec(ctx, `UPDATE epic_node_runs SET state = ? WHERE epic = ? AND path = ?`,
+		NodeParked, sendBackEpic, sendBackBatch); err != nil {
+		t.Fatalf("park run %s: %v", sendBackBatch, err)
+	}
+	action := sendBackAction(t, s, 1, sendBackInput())
+
+	sendBackCarry(t, s, action)
+
+	requireRefusedAction(t, s, action, "send back task 1", "task 1 of epic "+sendBackEpic+
+		" is in integrate run plan/integrate, which has not ended")
+	if task := sendBackTask(t, s, 1); task.Status != "done" || task.Batch != "plan/integrate" {
+		t.Errorf("task 1 = status %q batch %q, want done and claimed by the parked batch", task.Status, task.Batch)
+	}
 }
 
 // TestSendBackRefusedForAnEndedEpic checks that a send_back on an epic in an ended phase is refused and writes nothing.

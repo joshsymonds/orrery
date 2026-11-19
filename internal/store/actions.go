@@ -200,8 +200,8 @@ func takeAction(ctx context.Context, queries *sqlcgen.Queries, action PlannerAct
 }
 
 // sendBack sends the task action names back to implement in the caller's write, as CarryOutAction describes. The task may
-// be open, done or ended as a gap, from any rung. It is refused while an integrate run that claims it or composes it is
-// running, and on an epic in an ended phase, and writes nothing then. Otherwise the task is reopened: its status is open
+// be open, done or ended as a gap, from any rung. It is refused while an integrate run that claims it or composes it has
+// not ended, running or parked, and on an epic in an ended phase, and writes nothing then. Otherwise the task is reopened: its status is open
 // and its build is a fresh build on implement at attempt 1, built on the stored base, with the action's reason as its
 // failure (sentBackBuild). Its batch claim is cleared, so the next batch claims it once it is done again. The epic's
 // candidate is cleared too, unless the task's claiming batch passed with the task in it: then the stored base holds the
@@ -231,7 +231,7 @@ func sendBack(ctx context.Context, queries *sqlcgen.Queries, action PlannerActio
 	}
 	if path := runningBatchOf(runs, task); path != "" {
 		return nil, RefusalError(fmt.Sprintf(
-			"task %d of epic %s is in running integrate run %s", action.Task, action.Epic, path))
+			"task %d of epic %s is in integrate run %s, which has not ended", action.Task, action.Epic, path))
 	}
 	inBase := claimedPassed(runs, task)
 	from := buildOf(task)
