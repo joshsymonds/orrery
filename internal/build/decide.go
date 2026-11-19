@@ -148,7 +148,7 @@ func decideRed(view View) Action {
 		}
 		return Action{
 			Kind: ActStartRun, Phase: StageRed, Revision: build.Base,
-			ID: RunID(view.Epic, view.Task.Seq, StageRed, build.Attempt, build.Rerun),
+			ID: RunID(unitScope(view.Epic, view.Task), view.Task.Seq, StageRed, build.Attempt, build.Rerun),
 		}
 	}
 	if run.Ended.IsZero() {
@@ -231,7 +231,9 @@ func decideImplement(view View) Action {
 		}
 		return Action{
 			Kind: ActStartStep, Unit: StageImplement,
-			ID: StepID(view.Epic, view.Task.Seq, StageImplement, build.Attempt, build.Rerun, 0, 0),
+			ID: StepID(
+				unitScope(view.Epic, view.Task), view.Task.Seq, StageImplement, build.Attempt, build.Rerun, 0, 0,
+			),
 		}
 	}
 	if step.End == "" {

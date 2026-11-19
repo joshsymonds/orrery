@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/joshsymonds/orrery/internal/store"
 )
 
 // idNamespace starts the parts every derived id hashes, so the ids are this package's.
@@ -21,20 +23,38 @@ const (
 	taskDirLength = 16
 )
 
-// StepID returns the id of the step of unit for attempt and rerun of task seq of epic, at gatePos and findingPos.
-// A unit with no review gate or finding passes zero for them. The same inputs give the same id, so a step started
-// again under its id is that step.
-func StepID(epic string, seq int64, unit string, attempt, rerun, gatePos, findingPos int64) string {
+// unitScope returns the scope the derived ids of task's units are made under, given the task's epic. A task never sent
+// back is scoped by its epic alone, so its ids are those of its epic. A task sent back n times is scoped by its epic and
+// "/reopen-n", so a reopened task restarts at attempt 1 under new ids and never adopts the steps or runs an earlier
+// attempt of the task used.
+func unitScope(epic string, task store.EpicTask) string {
+	reopens := 0
+	for _, version := range task.Versions {
+		if version.Source == store.SourceSendBack {
+			reopens++
+		}
+	}
+	if reopens == 0 {
+		return epic
+	}
+	return epic + "/reopen-" + decimal(int64(reopens))
+}
+
+// StepID returns the id of the step of unit for attempt and rerun of task seq, in scope, at gatePos and findingPos. The
+// scope is the unit scope of the task (unitScope), which is its epic for a task never sent back. A unit with no review
+// gate or finding passes zero for them. The same inputs give the same id, so a step started again under its id is that
+// step.
+func StepID(scope string, seq int64, unit string, attempt, rerun, gatePos, findingPos int64) string {
 	return digest(
-		idNamespace, epic, taskLabel(seq), unit,
+		idNamespace, scope, taskLabel(seq), unit,
 		decimal(attempt), decimal(rerun), decimal(gatePos), decimal(findingPos),
 	)[:idLength]
 }
 
-// RunID returns the id of the evidence run of phase for attempt and rerun of task seq of epic. The same inputs give
-// the same id, so a run started again under its id is that run.
-func RunID(epic string, seq int64, phase string, attempt, rerun int64) string {
-	return digest(idNamespace, epic, taskLabel(seq), phase, decimal(attempt), decimal(rerun))[:idLength]
+// RunID returns the id of the evidence run of phase for attempt and rerun of task seq, in scope, as StepID's scope
+// describes. The same inputs give the same id, so a run started again under its id is that run.
+func RunID(scope string, seq int64, phase string, attempt, rerun int64) string {
+	return digest(idNamespace, scope, taskLabel(seq), phase, decimal(attempt), decimal(rerun))[:idLength]
 }
 
 // TaskDir returns the directory the worktrees of task seq of epic are added under: a name of taskDirLength hex
