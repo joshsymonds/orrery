@@ -80,7 +80,7 @@ func ladderPathsReturned(t *testing.T, status, result, reason string, wantNeeds 
 		t.Errorf("NeedsFiles = %v, want %v", action.NeedsFiles, wantNeeds)
 	}
 	ladderClimbExecute(f, action)
-	ladderClimbCheck(f, 1, taskOpen, store.MovedByUnit)
+	ladderClimbCheck(f, 1, store.MovedByUnit)
 	if !slices.Equal(f.task().NeedsFiles, wantNeeds) {
 		t.Errorf("task NeedsFiles = %v, want %v", f.task().NeedsFiles, wantNeeds)
 	}
@@ -110,7 +110,7 @@ func TestTaskLadderFailurePathsRedHoldsAtBase(t *testing.T) {
 		action := Decide(View{Epic: passEpic, Run: ladderPathsHoldingRun(), Task: f.task()})
 		ladderPathsWantFail(t, action, "red: the conclusion holds at the base")
 		ladderClimbExecute(f, action)
-		ladderClimbCheck(f, 1, taskOpen, store.MovedByUnit)
+		ladderClimbCheck(f, 1, store.MovedByUnit)
 	})
 	t.Run("a checking version is settled refused and climbs nothing", func(t *testing.T) {
 		t.Parallel()
@@ -178,7 +178,7 @@ func TestTaskLadderFailurePathsOrchestratorBlocked(t *testing.T) {
 	})
 	ladderPathsWantFail(t, action, "returned blocked: the gate cannot run")
 	ladderClimbExecute(f, action)
-	ladderClimbCheck(f, 1, taskOpen, store.MovedByUnit)
+	ladderClimbCheck(f, 1, store.MovedByUnit)
 }
 
 // TestTaskLadderFailurePathsOnlyConfirmedFindings: a review whose findings all settle dropped moves the build to the
@@ -216,6 +216,6 @@ func TestTaskLadderFailurePathsOnlyConfirmedFindings(t *testing.T) {
 			t.Fatalf("move = %+v, want moved by %q at gate lint for F2 claim two", move, store.MovedByFinding)
 		}
 		ladderClimbExecute(f, action)
-		ladderClimbCheck(f, 1, taskOpen, store.MovedByFinding)
+		ladderClimbCheck(f, 1, store.MovedByFinding)
 	})
 }
