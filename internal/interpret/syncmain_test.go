@@ -405,7 +405,9 @@ func syncCaptureRegressionTellsAndDoesNotAdvance(images *worldImages) func(t *te
 		w.endCaptureFailed(workID(t, w.s, syncFirst, "capture R1"))
 		w.pass()
 		output := fmt.Sprintf(
-			"merge %s of origin's commit %s into the stored base %s\nR1 regressed from green at the stored base %s",
+			"merge %s of origin's commit %s into the stored base %s\n"+
+				"R1 regressed from green at the stored base %s: its capture exited 0 and was judged fails: "+
+				"the runner stopped",
 			sync.Revision, originHead, candidate, candidate,
 		)
 		w.requireSyncEnded(syncFirst, outcomeFailed, output)
