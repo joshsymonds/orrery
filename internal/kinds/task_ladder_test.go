@@ -77,7 +77,7 @@ func TestTaskLadderConcludeEndsWithGapsNamingEach(t *testing.T) {
 		{
 			"clean review with two gapped tasks ends with gaps naming each task and Requirement",
 			node,
-			ladderRows([]store.EpicTask{
+			declare(ladderRows([]store.EpicTask{
 				{
 					Seq: 1, Status: taskGap, Requirements: []string{"R1"},
 					Build: store.TaskBuild{Failure: "the parser never went green"},
@@ -86,16 +86,22 @@ func TestTaskLadderConcludeEndsWithGapsNamingEach(t *testing.T) {
 					Seq: 2, Status: taskGap, Requirements: []string{"R2", "R3"},
 					Build: store.TaskBuild{Failure: "the printer never went green"},
 				},
-			}),
-			concludeEnd(phaseEndedWithGaps, "Ended with 2 gaps:\n"+
+			}), "task:T1", "task:T2"),
+			gapsEnd("Ended with 2 gaps:\n"+
 				"- T1 ended as a gap holding R1: the parser never went green\n"+
-				"- T2 ended as a gap holding R2, R3: the printer never went green"),
+				"- T2 ended as a gap holding R2, R3: the printer never went green",
+				correctFor([]string{
+					"T1 ended as a gap holding R1: the parser never went green " +
+						"(planner: the planner cannot resolve it)",
+					"T2 ended as a gap holding R2, R3: the printer never went green " +
+						"(planner: the planner cannot resolve it)",
+				}, "task:T1", "task:T2")),
 		},
 		{
 			"clean review with no gapped task still ends clean",
 			node,
 			ladderRows([]store.EpicTask{{Seq: 1, Status: taskDone}}),
-			concludeEnd(phaseClean, "epic epic-1 ended clean at base-1"),
+			concludeClean("epic epic-1 ended clean at base-1"),
 		},
 	})
 }

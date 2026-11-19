@@ -2,31 +2,120 @@ package kinds
 
 import (
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// Conclude is the conclude kind. Its run ends the epic once its correction rounds have run: passed, with the phase clean
-// when no gap is left and ended_with_gaps when one is, and an output that names each gap. A gap is one the review left
-// (Gaps), or a task that ended as a gap (TaskGaps).
+// ActGapRound is the action a conclusion gives while a gap is live: a gap round, which gives each gap of Action.Gaps
+// a planner turn.
+const ActGapRound ActionKind = "gap_round"
+
+// Conclude is the conclude kind. Its run ends the epic once no gap is live: passed, with the phase clean when the
+// review and the epic's tasks leave no gap, and ended_with_gaps otherwise, with an output that names each gap and a
+// question the owner answers. A gap is one the review left (GapList), or a task that ended as a gap. While a gap is
+// live, the run gives a gap round, which gives each live gap a planner turn.
 type Conclude struct{}
 
-// Decide ends the epic passed. Its phase is clean, with the stored base, when neither Gaps of the review nor TaskGaps of
-// the epic's tasks finds a gap. Otherwise its phase is ended_with_gaps, and its output names the review's gaps, then the
-// task gaps. Either output then names each finding an owner's answer closed (Decided).
+// Decide ends the epic passed, or asks for a gap round. With no gap in GapList of the review and the epic's tasks, its
+// phase is clean, with the stored base. Otherwise a gap is live unless the latest succeeded turn declared it, or it
+// has had store.GapTurnBound planner turns. While a gap is live the run gives a gap round of the live gaps, in
+// GapList order, and a paused or parked epic gives none. Once no gap is live, its phase is ended_with_gaps, and its
+// output and question are GapEnding's. Either output then names each finding an owner's answer closed (Decided).
 func (Conclude) Decide(_ Node, rows Rows) Action {
-	gaps, decided := slices.Concat(Gaps(rows.Review), TaskGaps(rows.Epic.Tasks)), Decided(rows.Review)
+	gaps, decided := GapList(rows.Review, rows.Epic.Tasks), Decided(rows.Review)
 	if len(gaps) == 0 {
 		lines := append([]string{fmt.Sprintf("epic %s ended clean at %s", rows.Epic.ID, rows.Epic.StoredBase)},
 			decidedLines(decided)...)
 		return Action{Kind: ActEnd, Outcome: outcomePassed, Phase: phaseClean, Output: strings.Join(lines, "\n")}
 	}
-	return Action{
-		Kind: ActEnd, Outcome: outcomePassed, Phase: phaseEndedWithGaps,
-		Output: EndingBody(phaseEndedWithGaps, gaps, decided),
+	if live := liveGaps(gaps, rows); len(live) > 0 {
+		if rows.Epic.Paused || rows.Epic.Parked != "" {
+			return Action{Kind: ActNone}
+		}
+		return Action{Kind: ActGapRound, Gaps: live}
 	}
+	body, question := GapEnding(rows)
+	return Action{Kind: ActEnd, Outcome: outcomePassed, Phase: phaseEndedWithGaps, Output: body, Question: question}
+}
+
+// liveGaps returns the gaps of gaps that rows leave live, in order: each gap that the latest succeeded turn did not
+// declare, and that has had fewer than store.GapTurnBound planner turns.
+func liveGaps(gaps []Gap, rows Rows) []Gap {
+	var live []Gap
+	for _, gap := range gaps {
+		if _, declared := declaredBy(gap.Key, rows.Unresolvable); declared {
+			continue
+		}
+		if GapTurnCount(gap.Key, rows.GapTurns) < store.GapTurnBound {
+			live = append(live, gap)
+		}
+	}
+	return live
+}
+
+// GapTurnCount returns how many planner turns the gap with key was given, among turns.
+func GapTurnCount(key string, turns []store.GapTurn) int {
+	count := 0
+	for _, turn := range turns {
+		if turn.Gap == key {
+			count++
+		}
+	}
+	return count
+}
+
+// declaredBy returns the declaration among declarations that names the gap with key, and whether there is one.
+func declaredBy(key string, declarations []store.GapDeclaration) (store.GapDeclaration, bool) {
+	for _, declaration := range declarations {
+		if declaration.Gap == key {
+			return declaration, true
+		}
+	}
+	return store.GapDeclaration{}, false
+}
+
+// GapEnding returns the body and the gaps question of an ending with gaps. The body is EndingBody of ended_with_gaps
+// over the reason of each gap of GapList and the decided findings. The question has one entry per gap, in GapList
+// order: the gap's reason, then ` (` and its parts joined with `; ` and `)` when it has parts. The parts are
+// `planner: <reason>` when the latest turn declared the gap, then `turn <n>: <reason>` for each planner turn the gap
+// was given. The question recommends release when every gap is declared with release, and otherwise correct for the
+// gaps not declared with release.
+func GapEnding(rows Rows) (string, store.GapsQuestion) {
+	gaps := GapList(rows.Review, rows.Epic.Tasks)
+	question := store.GapsQuestion{
+		Recommended: store.ChoiceRelease, Why: "the planner recommends release for every gap",
+	}
+	var correct []string
+	for _, gap := range gaps {
+		question.Gaps = append(question.Gaps, gapEntry(gap, rows))
+		declaration, declared := declaredBy(gap.Key, rows.Unresolvable)
+		if !declared || declaration.Recommended != store.ChoiceRelease {
+			correct = append(correct, gap.Key)
+		}
+	}
+	if len(correct) > 0 {
+		question.Recommended = store.ChoiceCorrect
+		question.Why = "correct for: " + strings.Join(correct, ", ")
+	}
+	return EndingBody(phaseEndedWithGaps, gapReasons(gaps), Decided(rows.Review)), question
+}
+
+// gapEntry returns the entry of gap in a gaps question: its reason, then its parts in brackets when it has any.
+func gapEntry(gap Gap, rows Rows) string {
+	var parts []string
+	if declaration, declared := declaredBy(gap.Key, rows.Unresolvable); declared {
+		parts = append(parts, "planner: "+declaration.Reason)
+	}
+	for _, turn := range rows.GapTurns {
+		if turn.Gap == gap.Key {
+			parts = append(parts, fmt.Sprintf("turn %d: %s", turn.Turn, turn.Reason))
+		}
+	}
+	if len(parts) == 0 {
+		return gap.Reason
+	}
+	return fmt.Sprintf("%s (%s)", gap.Reason, strings.Join(parts, "; "))
 }
 
 // Decided returns the findings of review that an owner's answer closed, in ledger order, each as `<id> in round <n>`

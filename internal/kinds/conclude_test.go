@@ -1,6 +1,7 @@
 package kinds
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/joshsymonds/orrery/internal/store"
@@ -14,14 +15,39 @@ const (
 	concludeBase   = "base-1"
 )
 
+// concludeDeclared is the reason the latest turn gives for each gap declare declares unresolvable.
+const concludeDeclared = "the planner cannot resolve it"
+
 // concludeRows returns the rows of a conclude run over review, of the test epic.
 func concludeRows(review store.Review) Rows {
 	return Rows{Epic: store.EpicRow{ID: concludeEpicID, StoredBase: concludeBase}, Review: review}
 }
 
-// concludeEnd returns the end of a conclude run in phase with output. A conclusion always ends passed.
-func concludeEnd(phase, output string) Action {
-	return Action{Kind: ActEnd, Outcome: outcomePassed, Phase: phase, Output: output}
+// declare returns rows whose latest turn declares each gap of keys unresolvable, recommending correct.
+func declare(rows Rows, keys ...string) Rows {
+	for _, key := range keys {
+		rows.Unresolvable = append(rows.Unresolvable, store.GapDeclaration{
+			Gap: key, Reason: concludeDeclared, Recommended: store.ChoiceCorrect,
+		})
+	}
+	return rows
+}
+
+// concludeClean returns the end of a conclude run that ends clean with output. A conclusion always ends passed.
+func concludeClean(output string) Action {
+	return Action{Kind: ActEnd, Outcome: outcomePassed, Phase: phaseClean, Output: output}
+}
+
+// gapsEnd returns the end of a conclude run that ends with gaps: its output, and the question it opens.
+func gapsEnd(output string, question store.GapsQuestion) Action {
+	return Action{Kind: ActEnd, Outcome: outcomePassed, Phase: phaseEndedWithGaps, Output: output, Question: question}
+}
+
+// correctFor returns the gaps question of entries, which recommends correct for the gaps of keys.
+func correctFor(entries []string, keys ...string) store.GapsQuestion {
+	return store.GapsQuestion{
+		Gaps: entries, Recommended: store.ChoiceCorrect, Why: "correct for: " + strings.Join(keys, ", "),
+	}
 }
 
 func TestConcludeDecide(t *testing.T) {
@@ -45,8 +71,11 @@ func TestConcludeDecide(t *testing.T) {
 		{
 			"no review ran ends with gaps",
 			node,
-			concludeRows(store.Review{}),
-			concludeEnd(phaseEndedWithGaps, EndingBody(phaseEndedWithGaps, []string{"no review ran"}, nil)),
+			declare(concludeRows(store.Review{}), "review"),
+			gapsEnd(
+				EndingBody(phaseEndedWithGaps, []string{"no review ran"}, nil),
+				correctFor([]string{"no review ran (planner: the planner cannot resolve it)"}, "review"),
+			),
 		},
 		{
 			"all holds end clean at the stored base",
@@ -55,7 +84,7 @@ func TestConcludeDecide(t *testing.T) {
 				Frozen:   testRev,
 				Verdicts: []store.ReviewVerdict{{Position: 1, Reviewer: "security", Verdict: "holds"}},
 			}),
-			concludeEnd(phaseClean, "epic epic-1 ended clean at base-1"),
+			concludeClean("epic epic-1 ended clean at base-1"),
 		},
 		{
 			"dropped findings end clean",
@@ -65,7 +94,7 @@ func TestConcludeDecide(t *testing.T) {
 				Verdicts: []store.ReviewVerdict{fails},
 				Ledger:   []store.LedgerFinding{closureFinding(1, "dropped")},
 			}),
-			concludeEnd(phaseClean, "epic epic-1 ended clean at base-1"),
+			concludeClean("epic epic-1 ended clean at base-1"),
 		},
 		{
 			"a confirmed finding closed in its round ends clean",
@@ -77,7 +106,7 @@ func TestConcludeDecide(t *testing.T) {
 					store.Closure{Finding: "security-1", Round: 1, Step: "close-1", Result: "closed"})},
 				Rounds: []store.ReviewRound{{Round: 1, Revision: testRev, Outcome: outcomePassed}},
 			}),
-			concludeEnd(phaseClean, "epic epic-1 ended clean at base-1"),
+			concludeClean("epic epic-1 ended clean at base-1"),
 		},
 		{
 			"a confirmed finding open in an earlier round and closed later ends clean",
@@ -93,62 +122,69 @@ func TestConcludeDecide(t *testing.T) {
 					{Round: 2, Revision: testRev, Outcome: outcomePassed},
 				},
 			}),
-			concludeEnd(phaseClean, "epic epic-1 ended clean at base-1"),
+			concludeClean("epic epic-1 ended clean at base-1"),
 		},
 		{
 			"a gap verdict ends with gaps naming the reviewer",
 			node,
-			concludeRows(store.Review{
+			declare(concludeRows(store.Review{
 				Frozen: testRev,
 				Verdicts: []store.ReviewVerdict{{
 					Position: 1, Reviewer: "security", Verdict: "gap",
 					Reason: "security gave no verdict twice: done: boom",
 				}},
-			}),
-			concludeEnd(
-				phaseEndedWithGaps,
+			}), "reviewer:security"),
+			gapsEnd(
 				EndingBody(
 					phaseEndedWithGaps,
 					[]string{"reviewer security: security gave no verdict twice: done: boom"},
 					nil,
 				),
+				correctFor([]string{
+					"reviewer security: security gave no verdict twice: done: boom " +
+						"(planner: the planner cannot resolve it)",
+				}, "reviewer:security"),
 			),
 		},
 		{
 			"an undetermined verifier ends with gaps naming the finding",
 			node,
-			concludeRows(store.Review{
+			declare(concludeRows(store.Review{
 				Frozen:   testRev,
 				Verdicts: []store.ReviewVerdict{fails},
 				Ledger:   []store.LedgerFinding{undetermined},
-			}),
-			concludeEnd(
-				phaseEndedWithGaps,
+			}), "verify:security-1"),
+			gapsEnd(
 				EndingBody(phaseEndedWithGaps, []string{"security-1: verifier undetermined: cannot tell"}, nil),
+				correctFor([]string{
+					"security-1: verifier undetermined: cannot tell (planner: the planner cannot resolve it)",
+				}, "verify:security-1"),
 			),
 		},
 		{
 			"an undetermined closure ends with gaps naming its round, and is not also open",
 			node,
-			concludeRows(store.Review{
+			declare(concludeRows(store.Review{
 				Frozen:   testRev,
 				Verdicts: []store.ReviewVerdict{fails},
 				Ledger:   []store.LedgerFinding{undeterminedClosure},
 				Rounds:   []store.ReviewRound{{Round: 1, Revision: testRev, Outcome: outcomePassed}},
-			}),
-			concludeEnd(
-				phaseEndedWithGaps,
+			}), "closure:security-1:1"),
+			gapsEnd(
 				EndingBody(
 					phaseEndedWithGaps,
 					[]string{"security-1: closure undetermined in round 1: cannot tell"},
 					nil,
 				),
+				correctFor([]string{
+					"security-1: closure undetermined in round 1: cannot tell (planner: the planner cannot resolve it)",
+				}, "closure:security-1:1"),
 			),
 		},
 		{
 			"a finding open after every round ends with gaps naming the rounds",
 			node,
-			concludeRows(store.Review{
+			declare(concludeRows(store.Review{
 				Frozen:   testRev,
 				Verdicts: []store.ReviewVerdict{fails},
 				Ledger:   []store.LedgerFinding{openTwice},
@@ -156,14 +192,18 @@ func TestConcludeDecide(t *testing.T) {
 					{Round: 1, Revision: testRev, Outcome: outcomeFailed},
 					{Round: 2, Revision: testRev, Outcome: outcomeFailed},
 				},
-			}),
-			concludeEnd(phaseEndedWithGaps,
-				EndingBody(phaseEndedWithGaps, []string{"security-2: open after 2 rounds"}, nil)),
+			}), "open:security-2"),
+			gapsEnd(
+				EndingBody(phaseEndedWithGaps, []string{"security-2: open after 2 rounds"}, nil),
+				correctFor([]string{
+					"security-2: open after 2 rounds (planner: the planner cannot resolve it)",
+				}, "open:security-2"),
+			),
 		},
 		{
 			"gaps join in reviewer order, then ledger order",
 			node,
-			concludeRows(store.Review{
+			declare(concludeRows(store.Review{
 				Frozen: testRev,
 				Verdicts: []store.ReviewVerdict{
 					fails,
@@ -171,12 +211,16 @@ func TestConcludeDecide(t *testing.T) {
 				},
 				Ledger: []store.LedgerFinding{undetermined, openOnce},
 				Rounds: []store.ReviewRound{{Round: 1, Revision: testRev, Outcome: outcomeFailed}},
-			}),
-			concludeEnd(phaseEndedWithGaps, EndingBody(phaseEndedWithGaps, []string{
+			}), "reviewer:perf", "verify:security-1", "open:security-2"),
+			gapsEnd(EndingBody(phaseEndedWithGaps, []string{
 				"reviewer perf: perf reason",
 				"security-1: verifier undetermined: cannot tell",
 				"security-2: open after 1 rounds",
-			}, nil)),
+			}, nil), correctFor([]string{
+				"reviewer perf: perf reason (planner: the planner cannot resolve it)",
+				"security-1: verifier undetermined: cannot tell (planner: the planner cannot resolve it)",
+				"security-2: open after 1 rounds (planner: the planner cannot resolve it)",
+			}, "reviewer:perf", "verify:security-1", "open:security-2")),
 		},
 	})
 }

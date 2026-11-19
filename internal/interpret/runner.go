@@ -23,6 +23,10 @@ type Store interface {
 	OpenNodeRunStates(ctx context.Context) (map[string][]store.NodeRun, error)
 	EpicFlow(ctx context.Context, id string) (store.EpicFlow, error)
 	StartNodes(ctx context.Context, epic string, runs []store.NodeRun, trigger *store.NodeTrigger, at time.Time) error
+	StartGapRound(
+		ctx context.Context, epic string, run store.NodeRun, triggers []store.NodeTrigger, turns []store.GapTurn,
+		at time.Time,
+	) error
 	EndNodes(ctx context.Context, epic string, ends []store.NodeEnd, at time.Time) error
 	EndNodesWaking(
 		ctx context.Context, epic string, ends []store.NodeEnd, trigger store.NodeTrigger, at time.Time,
@@ -352,6 +356,7 @@ func flowRows(read store.EpicFlow) kinds.Rows {
 	return kinds.Rows{
 		Epic: read.Epic, Runs: read.Runs, Checks: read.Checks, Evidence: read.Evidence, Steps: read.Steps,
 		Pending: read.Pending, Actions: read.Actions, Releases: read.Releases, Slot: read.Slot, Review: read.Review,
+		GapTurns: read.GapTurns, Unresolvable: read.Unresolvable,
 	}
 }
 
@@ -403,7 +408,7 @@ func (r *Runner) carry(ctx context.Context, epic store.EpicRow, act Action) erro
 		err = r.endBatch(ctx, epic, act, at)
 	case ActSync, ActReadOrigin:
 		err = r.carrySync(ctx, epic, act, at)
-	case ActHold, ActReview, ActClosure, ActConclude:
+	case ActHold, ActReview, ActClosure, ActConclude, ActGapRound:
 		return r.carryReview(ctx, epic.ID, act, at)
 	case ActWork:
 		err = r.work(ctx, epic, act, at)
@@ -431,10 +436,13 @@ func (r *Runner) carrySync(ctx context.Context, epic store.EpicRow, act Action, 
 }
 
 // carryReview writes one review action of epic to the store at at: the hold of a stopped review step, the verdicts and
-// ledger of a review run, the round and closures of a closure run, or the ending of a conclusion run.
+// ledger of a review run, the round and closures of a closure run, the ending of a conclusion run, or the gap round a
+// conclusion starts.
 func (r *Runner) carryReview(ctx context.Context, epic string, act Action, at time.Time) error {
 	var err error
 	switch act.Kind {
+	case ActGapRound:
+		err = r.store.StartGapRound(ctx, epic, act.Runs[0], act.Triggers, act.GapTurns, at)
 	case ActHold:
 		err = r.store.HoldReviewStep(ctx, epic, act.IDs[0], act.Reason, at)
 	case ActReview:
@@ -455,11 +463,18 @@ func (r *Runner) carryReview(ctx context.Context, epic string, act Action, at ti
 }
 
 // conclude ends epic at the phase act names, with act's output as its ending body, and ends the conclusion run at act's
-// path passed, in one write. Split in two, a kill after the ending and before the run's end, with a release moving the
-// phase on in between, left the run running: the next pass decided the ending again and ended the epic a second time.
+// path passed, in one write. An ending with gaps also opens act's question for the owner. Split in two, a kill after
+// the ending and before the run's end, with a release moving the phase on in between, left the run running: the next
+// pass decided the ending again and ended the epic a second time.
 func (r *Runner) conclude(ctx context.Context, epic string, act Action, at time.Time) error {
 	ends := []store.NodeEnd{{Path: act.Path, Outcome: outcomePassed, Output: act.Output}}
-	if err := r.ending.EndEpic(ctx, epic, act.Phase, act.Output, ends, at); err != nil {
+	var err error
+	if act.Phase == phaseEndedWithGaps {
+		err = r.ending.EndEpicWithGaps(ctx, epic, act.Output, act.Question, ends, at)
+	} else {
+		err = r.ending.EndEpic(ctx, epic, act.Phase, act.Output, ends, at)
+	}
+	if err != nil {
 		return fmt.Errorf("end epic %s and its conclusion run %s: %w", epic, act.Path, err)
 	}
 	return nil

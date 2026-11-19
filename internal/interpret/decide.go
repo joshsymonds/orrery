@@ -20,7 +20,8 @@ type ActionKind string
 // The actions Decide returns. ActStart, ActEnd, ActRound, ActPark, ActParkNode, ActBatch, ActSync and ActParkEpic
 // change the node runs or the epic in the store, and so do ActHold, ActReview, ActClosure and ActConclude for the
 // review. ActWork hands a check, sync or release node run's work to the interpreter, and ActRun hands a node run to its
-// kind. ActReadOrigin reads origin's main for a sync and records the read on the epic.
+// kind. ActReadOrigin reads origin's main for a sync and records the read on the epic. ActGapRound starts the gap round
+// of a conclusion run, which gives each live gap a planner turn.
 const (
 	ActStart      ActionKind = "start"
 	ActEnd        ActionKind = "end"
@@ -35,6 +36,7 @@ const (
 	ActReview     ActionKind = "review"
 	ActClosure    ActionKind = "closure"
 	ActConclude   ActionKind = "conclude"
+	ActGapRound   ActionKind = "gap_round"
 	ActWork       ActionKind = "work"
 	ActRun        ActionKind = "run"
 )
@@ -54,12 +56,15 @@ const (
 // its Reason, and a sync run's advance as its Reason why the epic is no longer at the quiet point the sync started at. Hold
 // pauses the epic for the review step IDs[0], stopped for Reason. Review ends the review run at Path, whose Attempt
 // ended with Output, Verdicts and Ledger. Closure ends the closure run at Path, whose Attempt ended with Outcome and
-// Output, with ReviewRound and Closures. Conclude ends the conclusion run at Path, whose Attempt ended with Phase and
-// Output. ReadOrigin carries nothing: it reads origin's main for the epic it was decided for.
+// Output, with ReviewRound and Closures. Conclude ends the conclusion run at Path, whose Attempt ended with Phase,
+// Output and Question. ReadOrigin carries nothing: it reads origin's main for the epic it was decided for. GapRound
+// starts the gap round of the conclusion run at Path: the plan run in Runs, a trigger per live gap in Triggers, and a
+// gap turn per live gap in GapTurns.
 type Action struct {
 	Kind        ActionKind
 	Runs        []store.NodeRun
 	Trigger     *store.NodeTrigger
+	Triggers    []store.NodeTrigger
 	Ends        []store.NodeEnd
 	Path        string
 	Round       int64
@@ -83,6 +88,8 @@ type Action struct {
 	Phase       string
 	Met         []string
 	Built       bool
+	GapTurns    []store.GapTurn
+	Question    store.GapsQuestion
 }
 
 // The kinds, spent setting, task status, outcome and trigger prefix the pass reads.
@@ -340,18 +347,29 @@ func (p pass) idle(def workflow.Node, run store.NodeRun) bool {
 	return ok && idler.Idle(p.rows.Epic.Phase)
 }
 
+// planning decides a running release or conclusion whose plan runs: a release whose replan plan runs (replanning), and
+// a conclusion whose gap round's plan has not ended (gapRounding). It reports false for any other node, and for a
+// release or conclusion with no such plan running, which its kind decides.
+func (p pass) planning(def workflow.Node, run store.NodeRun) ([]Action, bool) {
+	switch def.Kind {
+	case kindRelease:
+		return p.replanning(run)
+	case concludeNodeKind:
+		return p.gapRounding(run)
+	}
+	return nil, false
+}
+
 // running decides a node run that has not ended. A loop decides its round, and a plan its settle walks and fan-out. A
-// release whose replan plan runs decides that plan (replanning). An idle node gives no action. Any other node is decided
-// by its registered kind, and a node the kind leaves waiting gives no action.
+// release or conclusion whose plan runs decides that plan (planning). An idle node gives no action. Any other node is
+// decided by its registered kind, and a node the kind leaves waiting gives no action.
 func (p pass) running(def workflow.Node, run store.NodeRun, at scope) []Action {
 	if def.Loop != nil {
 		return p.loop(def, run)
 	}
-	kind, ok := p.reg[def.Kind]
-	if ok && def.Kind == kindRelease {
-		if acts, replanning := p.replanning(run); replanning {
-			return acts
-		}
+	kind := p.reg[def.Kind]
+	if acts, planning := p.planning(def, run); planning {
+		return acts
 	}
 	if p.idle(def, run) {
 		return nil
@@ -376,6 +394,8 @@ func (p pass) running(def workflow.Node, run store.NodeRun, at scope) []Action {
 		}}
 	case kinds.ActHold:
 		return []Action{{Kind: ActHold, Path: run.Path, IDs: act.IDs, Reason: act.Output}}
+	case kinds.ActGapRound:
+		return []Action{p.gapRound(run, act)}
 	case kinds.ActRun:
 		return []Action{{Kind: ActRun, Path: run.Path, NodeKind: def.Kind, Task: run.Task}}
 	default:
@@ -692,7 +712,10 @@ func (p pass) end(def workflow.Node, run store.NodeRun, act kinds.Action, at sco
 			ReviewRound: act.Round, Closures: act.Closures,
 		}}
 	case concludeNodeKind:
-		return []Action{{Kind: ActConclude, Path: run.Path, Attempt: run.Attempt, Phase: act.Phase, Output: act.Output}}
+		return []Action{{
+			Kind: ActConclude, Path: run.Path, Attempt: run.Attempt, Phase: act.Phase, Output: act.Output,
+			Question: act.Question,
+		}}
 	}
 	if act.Outcome == outcomeFailed {
 		return p.failed(def, run, act.Output, at)
