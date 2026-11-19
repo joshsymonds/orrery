@@ -36,7 +36,7 @@ func TestRunnerStopsStartedStepWhenTurnWasFlaggedBeforeItHadAStep(t *testing.T) 
 	createRunnerEpic(t, s)
 	steps := &holdingSteps{fakeSteps: newFakeSteps(), entered: make(chan struct{}, 1), release: make(chan struct{})}
 	var reads atomic.Int64
-	runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
+	runner := runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
 	releaseStart := sync.OnceFunc(func() { close(steps.release) })
 	t.Cleanup(releaseStart)
 
@@ -70,8 +70,7 @@ func TestRunnerStopsStartedStepWhenTurnWasFlaggedBeforeItHadAStep(t *testing.T) 
 		t.Errorf("pending triggers = %+v, want the created trigger pending again", triggers)
 	}
 
-	passesAtFree := reads.Load()
-	waitFor(t, "three more passes", func() bool { return reads.Load() >= passesAtFree+3 })
+	passRunner(t, runner, 3)
 	if n := len(steps.started()); n != 1 {
 		t.Errorf("steps started = %d after the stop, want 1", n)
 	}

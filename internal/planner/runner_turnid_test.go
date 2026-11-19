@@ -58,14 +58,13 @@ func TestRecoveryRecordsStepStoredUnderDerivedIDAndCompletesTurnByItsDoneEnd(t *
 	claimTurnKilledBeforeRecord(t, s, runnerTurnStepID, validPlan, "done")
 	steps := newFakeSteps()
 	var reads atomic.Int64
-	runRunner(t, recoverConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
+	runner := runRunner(t, recoverConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
 
 	waitFor(t, "turn 1 to succeed", func() bool { return epicOf(t, s).Turns[0].State == "succeeded" })
 	if got := epicOf(t, s).Turns[0].Step; got != runnerTurnStepID {
 		t.Errorf("turn 1 step = %q, want %q recorded by recovery", got, runnerTurnStepID)
 	}
-	passesAtSuccess := reads.Load()
-	waitFor(t, "three more passes", func() bool { return reads.Load() >= passesAtSuccess+3 })
+	passRunner(t, runner, 3)
 	if n := len(steps.started()); n != 0 {
 		t.Errorf("steps started = %d, want 0: recovery settles the stored step and starts none", n)
 	}
@@ -82,11 +81,10 @@ func TestRecoveryWaitsForOpenStepStoredUnderDerivedIDAndSettlesTurnWhenItEnds(t 
 	steps := newFakeSteps()
 	steps.ended[runnerTurnStepID] = make(chan store.StepRow, 1)
 	var reads atomic.Int64
-	runRunner(t, recoverConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
+	runner := runRunner(t, recoverConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
 
 	waitFor(t, "step recorded on turn 1", func() bool { return epicOf(t, s).Turns[0].Step == runnerTurnStepID })
-	passesAtStart := reads.Load()
-	waitFor(t, "three passes while the open step runs", func() bool { return reads.Load() >= passesAtStart+3 })
+	passRunner(t, runner, 3)
 	if n := len(steps.started()); n != 0 {
 		t.Errorf("steps started while the open step runs = %d, want 0", n)
 	}
