@@ -39,6 +39,33 @@ export const TitleRow: Stories = {
       </button>
     </titlerow.TitleRow>
   ),
+  conversation: () => (
+    <titlerow.TitleRow
+      crumbs={[{ label: "tidepool", place: true }, { label: "Tide table cache warm-up" }]}
+      onBack={ignore}
+    >
+      <button type="button" class="icon find" aria-label="Find in this conversation" title="Find  /">
+        ⌕
+      </button>
+      <button type="button" class="icon more" aria-label="More" title="Archive, hide meters, keys" aria-expanded={false}>
+        ⋯
+      </button>
+    </titlerow.TitleRow>
+  ),
+  "with-error": () => (
+    <titlerow.TitleRow
+      crumbs={[{ label: "tidepool", place: true }, { label: "Tide table cache warm-up" }]}
+      onBack={ignore}
+      note="Could not archive this session: the server did not answer. Nothing changed."
+    >
+      <button type="button" class="icon find" aria-label="Find in this conversation" title="Find  /">
+        ⌕
+      </button>
+      <button type="button" class="icon more" aria-label="More" title="Archive, hide meters, keys" aria-expanded={false}>
+        ⋯
+      </button>
+    </titlerow.TitleRow>
+  ),
   "session-title": () => (
     <titlerow.TitleRow
       crumbs={[

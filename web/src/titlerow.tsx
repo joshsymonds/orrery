@@ -6,6 +6,7 @@ import { Mark } from "./mark";
 export interface Crumb {
   label: ComponentChildren;
   onGo?: () => void;
+  place?: boolean;
 }
 
 // InboxMark is the inbox's hold on the mark every title row draws first: the count of what needs you, the hover that
@@ -17,14 +18,20 @@ export interface InboxMark {
   pin: () => void;
 }
 
+// crumbClass is the class of a crumb: "crumb", plus "here" for the page and "place" for the directory.
+function crumbClass(here: string, place: boolean | undefined): string {
+  return ["crumb", here, place ? "place" : ""].filter(Boolean).join(" ");
+}
+
 // noInbox is the mark of a title row no inbox answers for: no count, and no action.
 const noInbox: InboxMark = { needs: 0, enter: () => {}, leave: () => {}, pin: () => {} };
 
 // TitleRow is the title row every epic page shares: the back button, the breadcrumb, the state, the blocker, and the
 // commands the children are. The breadcrumb opens on the Orrery mark, which carries the count and drives the inbox.
 // Back and every crumb but the last call their handlers; a crumb with no handler is a plain label, and the last crumb
-// is the page itself, a span marked as the current page. Every text is a child text node, so markup in a label shows as
-// text. The strip, when given, takes a line of its own under the row's controls.
+// is the page itself, a span marked as the current page. A place crumb draws in the place colour. Every text is a child
+// text node, so markup in a label shows as text. The strip, when given, takes a line of its own under the row's
+// controls. A non-empty note draws under the row as an alert.
 export function TitleRow({
   crumbs,
   onBack,
@@ -32,6 +39,7 @@ export function TitleRow({
   blocker,
   mark = noInbox,
   strip,
+  note,
   children,
 }: {
   crumbs: Crumb[];
@@ -40,48 +48,56 @@ export function TitleRow({
   blocker?: string;
   mark?: InboxMark;
   strip?: ComponentChildren;
+  note?: string;
   children?: ComponentChildren;
 }): JSX.Element {
   const last = crumbs.length - 1;
   return (
-    <header class="title-row">
-      <button type="button" class="back" aria-label="back" onClick={() => onBack()}>
-        ‹
-      </button>
-      <nav class="crumbs" aria-label="where">
-        <button
-          type="button"
-          class="mark-crumb"
-          aria-label="inbox"
-          onClick={() => mark.pin()}
-          onMouseEnter={() => mark.enter()}
-          onMouseLeave={(event) => mark.leave(event.relatedTarget)}
-        >
-          <Mark />
-          {mark.needs > 0 && <span class="needs">{mark.needs}</span>}
+    <>
+      <header class="title-row">
+        <button type="button" class="back" aria-label="back" onClick={() => onBack()}>
+          ‹
         </button>
-        {crumbs.map((crumb, index) => (
-          <Fragment key={index}>
-            {" "}
-            <span class="sep">›</span>{" "}
-            {index === last ? (
-              <span class="crumb here" aria-current="page">
-                {crumb.label}
-              </span>
-            ) : crumb.onGo === undefined ? (
-              <span class="crumb">{crumb.label}</span>
-            ) : (
-              <button type="button" class="crumb" onClick={() => crumb.onGo?.()}>
-                {crumb.label}
-              </button>
-            )}
-          </Fragment>
-        ))}
-      </nav>
-      {state ? <span class="state">{state}</span> : null}
-      {blocker ? <span class="blocker">{blocker}</span> : null}
-      <div class="acts">{children}</div>
-      {strip}
-    </header>
+        <nav class="crumbs" aria-label="where">
+          <button
+            type="button"
+            class="mark-crumb"
+            aria-label="inbox"
+            onClick={() => mark.pin()}
+            onMouseEnter={() => mark.enter()}
+            onMouseLeave={(event) => mark.leave(event.relatedTarget)}
+          >
+            <Mark />
+            {mark.needs > 0 && <span class="needs">{mark.needs}</span>}
+          </button>
+          {crumbs.map((crumb, index) => (
+            <Fragment key={index}>
+              {" "}
+              <span class="sep">›</span>{" "}
+              {index === last ? (
+                <span class={crumbClass("here", crumb.place)} aria-current="page">
+                  {crumb.label}
+                </span>
+              ) : crumb.onGo === undefined ? (
+                <span class={crumbClass("", crumb.place)}>{crumb.label}</span>
+              ) : (
+                <button type="button" class={crumbClass("", crumb.place)} onClick={() => crumb.onGo?.()}>
+                  {crumb.label}
+                </button>
+              )}
+            </Fragment>
+          ))}
+        </nav>
+        {state ? <span class="state">{state}</span> : null}
+        {blocker ? <span class="blocker">{blocker}</span> : null}
+        <div class="acts">{children}</div>
+        {strip}
+      </header>
+      {note ? (
+        <p class="page-note" role="alert">
+          {note}
+        </p>
+      ) : null}
+    </>
   );
 }

@@ -182,3 +182,42 @@ test("markup in a label, state, or blocker shows as text, not as elements", asyn
     },
   );
 });
+
+test("HeadTitle: a place crumb draws with class crumb place, and the page crumb does not", async () => {
+  const crumbs: Crumb[] = [{ label: "tidepool", place: true }, { label: "Tide table cache warm-up" }];
+  await withRow(<TitleRow crumbs={crumbs} onBack={() => {}} />, (container) => {
+    assert.equal(countOf(container, ".crumbs .crumb.place"), 1);
+    assert.equal(textOf(container, ".crumbs .crumb.place"), "tidepool");
+    assert.equal(container.querySelector(".crumbs .here")?.classList.contains("place") ?? null, false);
+  });
+});
+
+test("HeadTitle: a non-empty note draws one page-note with role alert after the header, as text", async () => {
+  const crumbs: Crumb[] = [{ label: "tidepool", place: true }, { label: "Tide table cache warm-up" }];
+  const note = "Could not archive this session: <b>the server did not answer</b>. Nothing changed.";
+  await withRow(<TitleRow crumbs={crumbs} onBack={() => {}} note={note} />, (container) => {
+    assert.equal(countOf(container, "p.page-note"), 1);
+    const drawn = container.querySelector("p.page-note");
+    assert.equal(drawn?.getAttribute("role") ?? null, "alert");
+    assert.equal(drawn?.textContent ?? null, note);
+    assert.equal(countOf(container, "p.page-note b"), 0);
+    assert.equal(drawn?.previousElementSibling?.classList.contains("title-row") ?? null, true);
+  });
+});
+
+test("HeadTitle: no note, or an empty one, draws no page-note", async () => {
+  const crumbs: Crumb[] = [{ label: "tidepool", place: true }, { label: "Tide table cache warm-up" }];
+  await withRow(<TitleRow crumbs={crumbs} onBack={() => {}} />, (container) => {
+    assert.equal(countOf(container, "p.page-note"), 0);
+  });
+  await withRow(<TitleRow crumbs={crumbs} onBack={() => {}} note="" />, (container) => {
+    assert.equal(countOf(container, "p.page-note"), 0);
+  });
+});
+
+test("HeadTitle: a row given no state draws no state", async () => {
+  const crumbs: Crumb[] = [{ label: "tidepool", place: true }, { label: "Tide table cache warm-up" }];
+  await withRow(<TitleRow crumbs={crumbs} onBack={() => {}} />, (container) => {
+    assert.equal(countOf(container, ".state"), 0);
+  });
+});
