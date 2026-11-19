@@ -1709,3 +1709,12 @@ WHERE caller_events.session = sqlc.arg(id) AND caller_events.event IN (
             AND states.state <> 'queued'
       )
 );
+
+-- name: ClearEpicTaskBatch :exec
+UPDATE epic_tasks SET batch = '' WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq);
+
+-- name: DeleteEpicTaskRungOutcomes :exec
+DELETE FROM epic_task_rung_outcomes WHERE epic = sqlc.arg(epic) AND task = sqlc.arg(task);
+
+-- name: DeleteEpicTaskRungs :exec
+DELETE FROM epic_task_rungs WHERE epic = sqlc.arg(epic) AND task = sqlc.arg(task);

@@ -181,6 +181,20 @@ func (q *Queries) ClearEpicNodeRevision(ctx context.Context, arg ClearEpicNodeRe
 	return result.RowsAffected()
 }
 
+const clearEpicTaskBatch = `-- name: ClearEpicTaskBatch :exec
+UPDATE epic_tasks SET batch = '' WHERE epic = ?1 AND seq = ?2
+`
+
+type ClearEpicTaskBatchParams struct {
+	Epic string
+	Seq  int64
+}
+
+func (q *Queries) ClearEpicTaskBatch(ctx context.Context, arg ClearEpicTaskBatchParams) error {
+	_, err := q.db.ExecContext(ctx, clearEpicTaskBatch, arg.Epic, arg.Seq)
+	return err
+}
+
 const closeDueResume = `-- name: CloseDueResume :exec
 UPDATE due_resumes SET state = 'done' WHERE id = ?
 `
@@ -634,6 +648,34 @@ type DeleteEpicTaskRefusedParams struct {
 
 func (q *Queries) DeleteEpicTaskRefused(ctx context.Context, arg DeleteEpicTaskRefusedParams) error {
 	_, err := q.db.ExecContext(ctx, deleteEpicTaskRefused, arg.Epic, arg.Task, arg.Path)
+	return err
+}
+
+const deleteEpicTaskRungOutcomes = `-- name: DeleteEpicTaskRungOutcomes :exec
+DELETE FROM epic_task_rung_outcomes WHERE epic = ?1 AND task = ?2
+`
+
+type DeleteEpicTaskRungOutcomesParams struct {
+	Epic string
+	Task int64
+}
+
+func (q *Queries) DeleteEpicTaskRungOutcomes(ctx context.Context, arg DeleteEpicTaskRungOutcomesParams) error {
+	_, err := q.db.ExecContext(ctx, deleteEpicTaskRungOutcomes, arg.Epic, arg.Task)
+	return err
+}
+
+const deleteEpicTaskRungs = `-- name: DeleteEpicTaskRungs :exec
+DELETE FROM epic_task_rungs WHERE epic = ?1 AND task = ?2
+`
+
+type DeleteEpicTaskRungsParams struct {
+	Epic string
+	Task int64
+}
+
+func (q *Queries) DeleteEpicTaskRungs(ctx context.Context, arg DeleteEpicTaskRungsParams) error {
+	_, err := q.db.ExecContext(ctx, deleteEpicTaskRungs, arg.Epic, arg.Task)
 	return err
 }
 
