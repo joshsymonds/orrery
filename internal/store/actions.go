@@ -25,6 +25,7 @@ const (
 	ActionCloseEpic      = "close_epic"
 	ActionAmendEvidence  = "amend_evidence"
 	ActionChangeApproach = "change_approach"
+	ActionRerunReview    = "rerun_review"
 )
 
 // The states a planner action leaves its pending state in, once: taken, or refused. The state is stored as text, so
@@ -38,8 +39,8 @@ const (
 var errActionSettled = errors.New("action is not pending")
 
 // EpicActionInput is one action of a planner return: its kind, the node, task, close kind, replacing epic, Requirement,
-// evidence item and deliverable it names where its kind uses them, the undo-none positions it names, and the planner's
-// reason.
+// evidence item, deliverable and reviewer it names where its kind uses them, the undo-none positions it names, and the
+// planner's reason.
 type EpicActionInput struct {
 	Kind        string
 	Node        string
@@ -49,6 +50,7 @@ type EpicActionInput struct {
 	Requirement string
 	Item        evidence.Item
 	Deliverable string
+	Reviewer    string
 	UndoNone    []int64
 	Reason      string
 }
@@ -87,7 +89,8 @@ func plannerActionOf(row sqlcgen.PlannerAction) (PlannerAction, error) {
 		Epic: row.Epic, Turn: row.Turn, Position: row.Position,
 		EpicActionInput: EpicActionInput{
 			Kind: row.Kind, Node: row.Node, Task: row.Task, Close: row.CloseKind, By: row.ByEpic,
-			Requirement: row.Requirement, Item: item, Deliverable: row.Deliverable, UndoNone: undo, Reason: row.Reason,
+			Requirement: row.Requirement, Item: item, Deliverable: row.Deliverable, Reviewer: row.Reviewer,
+			UndoNone: undo, Reason: row.Reason,
 		},
 	}, nil
 }
@@ -98,7 +101,8 @@ func plannerActionOf(row sqlcgen.PlannerAction) (PlannerAction, error) {
 // fail_task climbs the task one rung off its stored build with the reason as the cause, as failPlannedTask does,
 // resume_release is the planner's resume of a stopped release, close_epic is CloseEpic by the planner, and
 // change_approach stores the task's change-of-approach version from the action's deliverable and evidence item, as
-// changeApproach does.
+// changeApproach does, and rerun_review records a rerun of the epic's review for the action's reviewer, as rerunReview
+// does.
 //
 // A close returns the step of the turn it ended and each step of the epic with no end. A fail_task returns the open
 // steps of the task it climbs off. Every other action returns none.
@@ -202,6 +206,8 @@ func carryOutAction(
 		return closePlannedEpic(ctx, queries, action, at)
 	case ActionChangeApproach:
 		return nil, changeApproach(ctx, queries, action, at)
+	case ActionRerunReview:
+		return nil, rerunReview(ctx, queries, action, at)
 	}
 	return nil, RefusalError(fmt.Sprintf("%q is not a planner action", action.Kind))
 }
@@ -447,7 +453,7 @@ func insertActions(
 		return queries.InsertPlannerAction(ctx, sqlcgen.InsertPlannerActionParams{
 			Epic: epic, Turn: turn, Position: position, Kind: action.Kind, Node: action.Node, Task: action.Task,
 			CloseKind: action.Close, ByEpic: action.By, UndoNone: string(encoded), Reason: action.Reason,
-			Requirement: action.Requirement, Item: item, Deliverable: action.Deliverable,
+			Requirement: action.Requirement, Item: item, Deliverable: action.Deliverable, Reviewer: action.Reviewer,
 		})
 	})
 }

@@ -16,9 +16,9 @@ import (
 )
 
 // epicTableColumns returns, keyed by table, the columns in declaration order of every table migrations 00014, 00016,
-// 00019, 00028, 00030, 00035, 00036, 00037, 00038, 00040, 00041, 00043, 00044, 00049, 00051 and 00052 create, and of the
-// columns those migrations and 00020, 00021, 00022, 00025, 00029, 00033, 00034, 00035, 00039, 00040, 00042, 00044, 00045,
-// 00048, 00050, 00051, 00052, 00053, 00054, 00057, 00065 and 00070 add to epic tables.
+// 00019, 00028, 00030, 00035, 00036, 00037, 00038, 00040, 00041, 00043, 00044, 00049, 00051, 00052 and 00073 create,
+// and of the columns those migrations and 00020, 00021, 00022, 00025, 00029, 00033, 00034, 00035, 00039, 00040, 00042,
+// 00044, 00045, 00048, 00050, 00051, 00052, 00053, 00054, 00057, 00065, 00070 and 00073 add to epic tables.
 func epicTableColumns() map[string][]string {
 	return map[string][]string{
 		"epics": {
@@ -123,10 +123,17 @@ func epicTableColumns() map[string][]string {
 		// R2: the actions a planner turn returned, from 00049_planner_actions.sql. park, the planner park an action
 		// answers, is 00051_park_bound.sql. requirement and item, what an amend_evidence action asks for, are
 		// 00052_evidence_amendments.sql. deliverable, what a change_approach action asks for, is 00070_task_ladder.sql.
+		// reviewer, the reviewer a rerun_review action names, is 00073_gap_reconcile.sql.
 		"planner_actions": {
 			"epic", "turn", "position", "kind", "node", "task", "close_kind", "by_epic", "undo_none", "reason", "state",
-			"refusal", "park", "requirement", "item", "deliverable",
+			"refusal", "park", "requirement", "item", "deliverable", "reviewer",
 		},
+		// The gaps a planner turn declared it cannot resolve without the owner, from 00073_gap_reconcile.sql.
+		"planner_unresolvable": {"epic", "turn", "position", "gap", "reason", "recommended"},
+		// The planner turns each gap was given, and the reruns of the review a rerun_review action asked for, from
+		// 00073_gap_reconcile.sql.
+		"epic_gap_turns":     {"epic", "gap", "turn", "reason", "created"},
+		"epic_review_reruns": {"epic", "reviewer", "turn", "position", "created"},
 		// The amendments of the epics' Requirement evidence items, from 00052_evidence_amendments.sql.
 		"epic_amendments": {
 			"epic", "seq", "requirement", "amender", "turn", "position", "prior_item", "item", "reason", "base",
@@ -543,17 +550,18 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00072_epic_revisions_table.sql is the newest. The
-	// newest was 00071_park_question_runs.sql before the revisions table added 00072, 00070_task_ladder.sql before the
-	// park question runs added 00071, 00069_epic_revisions.sql before the task ladder added 00070,
+	// Open applies 00014_epics.sql and every migration after it: 00073_gap_reconcile.sql is the newest. The newest was
+	// 00072_epic_revisions_table.sql before the gap reconciliation added 00073, 00071_park_question_runs.sql before the
+	// revisions table added 00072, 00070_task_ladder.sql before the park question runs added 00071,
+	// 00069_epic_revisions.sql before the task ladder added 00070,
 	// 00068_step_listings.sql before the epic revisions added 00069, 00067_drop_caller_read.sql before the step listings
 	// added 00068, 00066_put_off_questions.sql before
 	// the drop of caller_read added 00067, 00065_task_gate_changes.sql before the put-off marks added 00066,
 	// 00064_step_indexes.sql before the gate changes added 00065, 00063_task_versions.sql before the step indexes added
 	// 00064, 00062_drop_engine_held.sql before the task versions added 00063, 00061_prompt_states.sql before the drop of
 	// engine_held added 00062, and 00060_cron_jobs.sql before the prompt states added 00061.
-	if version != 72 {
-		t.Fatalf("store version after Open = %d, want 72", version)
+	if version != 73 {
+		t.Fatalf("store version after Open = %d, want 73", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and

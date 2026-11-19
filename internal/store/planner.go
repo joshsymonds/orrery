@@ -117,15 +117,16 @@ type EpicTrigger struct {
 	Created time.Time
 }
 
-// EpicPlan is the valid return of one planner turn: its decisions, its tasks, its outline, its questions, its outcome and
-// its actions.
+// EpicPlan is the valid return of one planner turn: its decisions, its tasks, its outline, its questions, its outcome, its
+// actions and the gaps it cannot resolve without the owner.
 type EpicPlan struct {
-	Decisions []string
-	Tasks     []EpicTaskInput
-	Outline   string
-	Questions []EpicQuestionInput
-	Outcome   string
-	Actions   []EpicActionInput
+	Decisions    []string
+	Tasks        []EpicTaskInput
+	Outline      string
+	Questions    []EpicQuestionInput
+	Outcome      string
+	Actions      []EpicActionInput
+	Unresolvable []GapDeclaration
 }
 
 // EpicTaskInput is one task of a planner return: its title, its deliverable, the files it touches, the Requirements
@@ -501,13 +502,18 @@ func startTurn(ctx context.Context, queries *sqlcgen.Queries, epic string, at ti
 }
 
 // CompleteTurn stores plan as the return of the running turn seq of epic in one write: its decisions, its tasks with
-// their files and Requirements, its outline, its questions, its outcome and its actions, which are stored pending. The
-// turn succeeds ended at at, and every trigger the turn claimed is consumed. When epic has a running plan run whose pinned workflow holds a build node
+// their files and Requirements, its outline, its questions, its outcome, its actions, which are stored pending, and the
+// gaps it cannot resolve, which are stored in order. The turn succeeds ended at at, and every trigger the turn claimed
+// is consumed. When epic has a running plan run whose pinned workflow holds a build node
 // under the plan, each task also gets a running build child run under that node in the same write. A turn that is not
 // running, or does not exist, is ErrTurnNotRunning and writes nothing. A question of the plan that breaks a rule of
-// QuestionRefusals, or replaces a question epic does not hold, is ErrBadQuestion, and the call writes nothing.
+// QuestionRefusals, or replaces a question epic does not hold, is ErrBadQuestion, and the call writes nothing. A gap
+// declaration whose recommendation is not release or correct also writes nothing.
 func (s *Store) CompleteTurn(ctx context.Context, epic string, turn int64, plan EpicPlan, at time.Time) error {
 	if err := checkQuestions(plan.Questions); err != nil {
+		return err
+	}
+	if err := checkGapDeclarations(plan.Unresolvable); err != nil {
 		return err
 	}
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
@@ -539,6 +545,9 @@ func (s *Store) CompleteTurn(ctx context.Context, epic string, turn int64, plan 
 		}
 		if err = insertActions(ctx, queries, epic, turn, plan.Actions); err != nil {
 			return fmt.Errorf("actions of turn %d of epic %s: %w", turn, epic, err)
+		}
+		if err = insertUnresolvable(ctx, queries, epic, turn, plan.Unresolvable); err != nil {
+			return fmt.Errorf("unresolvable gaps of turn %d of epic %s: %w", turn, epic, err)
 		}
 		if err = queries.ConsumeEpicTriggers(ctx, sqlcgen.ConsumeEpicTriggersParams{
 			Epic: epic, Turn: turn,

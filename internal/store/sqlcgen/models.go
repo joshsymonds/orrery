@@ -176,6 +176,14 @@ type EpicFailure struct {
 	Response string
 }
 
+type EpicGapTurn struct {
+	Epic    string
+	Gap     string
+	Turn    int64
+	Reason  string
+	Created int64
+}
+
 type EpicGate struct {
 	Epic         string
 	Position     int64
@@ -352,6 +360,14 @@ type EpicReview struct {
 type EpicReviewHold struct {
 	Epic string
 	Step string
+}
+
+type EpicReviewRerun struct {
+	Epic     string
+	Reviewer string
+	Turn     int64
+	Position int64
+	Created  int64
 }
 
 type EpicReviewRound struct {
@@ -695,6 +711,16 @@ type PlannerAction struct {
 	Requirement string
 	Item        string
 	Deliverable string
+	Reviewer    string
+}
+
+type PlannerUnresolvable struct {
+	Epic        string
+	Turn        int64
+	Position    int64
+	Gap         string
+	Reason      string
+	Recommended string
 }
 
 type PromptState struct {

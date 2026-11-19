@@ -1351,9 +1351,9 @@ SELECT epic, at FROM epic_seen;
 -- name: InsertPlannerAction :exec
 INSERT INTO planner_actions (
     epic, turn, position, kind, node, task, close_kind, by_epic, undo_none, reason, state, refusal, requirement, item,
-    deliverable
+    deliverable, reviewer
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?, ?, ?);
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?, ?, ?, ?);
 
 -- name: ListPendingPlannerActions :many
 SELECT * FROM planner_actions WHERE state = 'pending' ORDER BY epic, turn, position;
@@ -1644,3 +1644,30 @@ WHERE caller_events.session = sqlc.arg(id) AND caller_events.event IN (
             AND states.state <> 'queued'
       )
 );
+
+-- name: InsertPlannerUnresolvable :exec
+INSERT INTO planner_unresolvable (epic, turn, position, gap, reason, recommended) VALUES (?, ?, ?, ?, ?, ?);
+
+-- name: ListUnresolvableOfLastTurn :many
+SELECT * FROM planner_unresolvable
+WHERE planner_unresolvable.epic = sqlc.arg(epic)
+  AND planner_unresolvable.turn = (
+      SELECT MAX(epic_turns.seq) FROM epic_turns
+      WHERE epic_turns.epic = sqlc.arg(epic) AND epic_turns.state = 'succeeded'
+  )
+ORDER BY planner_unresolvable.position;
+
+-- name: ListEpicGapTurnsOf :many
+SELECT * FROM epic_gap_turns WHERE epic = ? AND gap = ? ORDER BY turn;
+
+-- name: InsertEpicGapTurn :exec
+INSERT INTO epic_gap_turns (epic, gap, turn, reason, created) VALUES (?, ?, ?, ?, ?);
+
+-- name: ListEpicGapTurns :many
+SELECT * FROM epic_gap_turns WHERE epic = ? ORDER BY gap, turn;
+
+-- name: InsertEpicReviewRerun :exec
+INSERT INTO epic_review_reruns (epic, reviewer, turn, position, created) VALUES (?, ?, ?, ?, ?);
+
+-- name: ListEpicReviewReruns :many
+SELECT * FROM epic_review_reruns WHERE epic = ? ORDER BY turn, position;
