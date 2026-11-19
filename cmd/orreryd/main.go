@@ -952,7 +952,7 @@ func startSessions(
 		// host.pools is nil when the broker's restore failed, which leaves the gates no pools to run under.
 		resolve := planner.NewResolver(os.Environ(), managedDir)
 		haiku := enginehost.NewHaiku(enginehost.HaikuConfig{Claude: opts.claude, Environ: os.Environ()})
-		steps, err := enginehost.NewSteps(enginehost.StepsConfig{
+		steps := enginehost.NewSteps(enginehost.StepsConfig{
 			Sessions:        host.manager,
 			Store:           st,
 			Writer:          host.writer,
@@ -968,10 +968,6 @@ func startSessions(
 			ReadoptGate:     readoptGate(st),
 			Stored:          host.callerEvents.Wake, EpicWake: host.stepEpicWake,
 		})
-		if err != nil {
-			host.stopBroker()
-			return nil, fmt.Errorf("step engine: %w", err)
-		}
 		host.steps = steps
 		host.wireStore(st)
 		commands, stepCommands = host.manager, host.steps

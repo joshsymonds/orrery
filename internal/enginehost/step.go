@@ -32,9 +32,6 @@ var ErrBadGate = errors.New("step gate is refused")
 // so the step's end would have nowhere to go.
 var ErrNoCaller = errors.New("step caller resolves to no orrery session, so the step's end would have nowhere to go")
 
-// ErrBadWatchTick reports a StepsConfig whose WatchTick is negative.
-var ErrBadWatchTick = errors.New("step watch tick must not be negative")
-
 // ErrBadStepID reports a StepStart whose ID is not exactly 32 lowercase hex digits.
 var ErrBadStepID = errors.New("step id must be 32 lowercase hex digits")
 
@@ -49,9 +46,6 @@ const stepDefaultGateLimit = 30 * time.Minute
 
 // stepDefaultModelLimit is how long a step's model time may run when its StepStart names no limit.
 const stepDefaultModelLimit = 60 * time.Minute
-
-// stepDefaultWatchTick is how often a started step's watch is checked when StepsConfig names no tick.
-const stepDefaultWatchTick = 5 * time.Second
 
 // StepStart describes a step to start. A writing step (ReadOnly false) runs in Workspace, a linked worktree, and its
 // done return is checked against its commit and Owned paths and, when it names one, its gate. A writing step needs at
@@ -144,7 +138,8 @@ type StepStore interface {
 // runs. Environ is the environment gates run in, and the one a named gate is resolved under.
 // Worktrees is the directory read-only steps' worktrees are added under, one per step id. A nil Logger discards. Haiku
 // makes the monitor and judge calls of every started step, and nil makes none. Now is the clock each step's watch reads,
-// time.Now when nil. WatchTick is how often each started step's watch is checked, five seconds when zero.
+// time.Now when nil. NewTimer arms each started step's deadline timer, a timer that sends on its channel once after a
+// duration and returns the timer's stop; a nil NewTimer wraps time.NewTimer.
 // GateStateDir is the state directory each gate's holder lives under, and a directory under os.TempDir when empty.
 // GateScope is the systemd-run scope each gate's holder runs in, and empty runs it without one. GateScopeMemory is that
 // scope's memory cap in bytes, and zero takes holder.DefaultScopeMemory. With GateScope set, Close
@@ -169,7 +164,7 @@ type StepsConfig struct {
 	Logger          *slog.Logger
 	Haiku           *Haiku
 	Now             func() time.Time
-	WatchTick       time.Duration
+	NewTimer        func(time.Duration) (<-chan time.Time, func() bool)
 	GateStateDir    string
 	GateScope       string
 	GateScopeMemory int64
@@ -203,7 +198,7 @@ type Steps struct {
 	logger          *slog.Logger
 	haiku           *Haiku
 	now             func() time.Time
-	tick            time.Duration
+	newTimer        func(time.Duration) (<-chan time.Time, func() bool)
 	gateStateDir    string
 	gateScope       string
 	gateScopeMemory int64
@@ -225,18 +220,18 @@ type Steps struct {
 	calls callsInFlight
 }
 
-// NewSteps returns a Steps for cfg. A negative cfg.WatchTick returns an error matching ErrBadWatchTick and no Steps.
-func NewSteps(cfg StepsConfig) (*Steps, error) {
+// NewSteps returns a Steps for cfg.
+func NewSteps(cfg StepsConfig) *Steps {
 	logger := cfg.Logger
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
-	tick := cfg.WatchTick
-	if tick < 0 {
-		return nil, fmt.Errorf("%w: %s", ErrBadWatchTick, tick)
-	}
-	if tick == 0 {
-		tick = stepDefaultWatchTick
+	newTimer := cfg.NewTimer
+	if newTimer == nil {
+		newTimer = func(d time.Duration) (<-chan time.Time, func() bool) {
+			timer := time.NewTimer(d)
+			return timer.C, timer.Stop
+		}
 	}
 	steps := &Steps{
 		sessions:        cfg.Sessions,
@@ -248,7 +243,7 @@ func NewSteps(cfg StepsConfig) (*Steps, error) {
 		logger:          logger,
 		haiku:           cfg.Haiku,
 		now:             cfg.Now,
-		tick:            tick,
+		newTimer:        newTimer,
 		gateStateDir:    cfg.GateStateDir,
 		gateScope:       cfg.GateScope,
 		gateScopeMemory: cfg.GateScopeMemory,
@@ -264,7 +259,7 @@ func NewSteps(cfg StepsConfig) (*Steps, error) {
 		subs:            map[*StepSubscription]bool{},
 	}
 	steps.idle = sync.NewCond(&steps.mu)
-	return steps, nil
+	return steps
 }
 
 // Start checks start and its caller, resolves its gate, which an agent gate turns into the step's agent, schema and
@@ -490,13 +485,12 @@ func (s *Steps) RunningListings(ctx context.Context, epic, task string) ([]store
 }
 
 // runLoop runs run in its own goroutine under a context derived from ctx's values, not its cancellation, so the loop
-// outlives the Start call. The run's watch ticks come from a ticker at the Steps' tick, which stops when the loop
-// returns. The context's cancel, with and without a cause, and run are kept in loops, causes and runs until the loop
-// returns, and then they are removed and the cancel is called.
+// outlives the Start call. The run arms its deadline timers with the Steps' newTimer, and its loop stops the armed timer
+// when the loop returns. The context's cancel, with and without a cause, and run are kept in loops, causes and runs
+// until the loop returns, and then they are removed and the cancel is called.
 func (s *Steps) runLoop(ctx context.Context, id string, run *stepRun) {
 	loop, cancel := context.WithCancelCause(context.WithoutCancel(ctx))
-	ticker := time.NewTicker(s.tick)
-	run.ticks = ticker.C
+	run.newTimer = s.newTimer
 	s.mu.Lock()
 	s.loops[id] = func() { cancel(nil) }
 	s.causes[id] = cancel
@@ -504,7 +498,6 @@ func (s *Steps) runLoop(ctx context.Context, id string, run *stepRun) {
 	s.mu.Unlock()
 	go func() {
 		defer s.endLoop(id)
-		defer ticker.Stop()
 		run.run(loop)
 	}()
 }
@@ -707,7 +700,7 @@ func (s *Steps) dataCommandGate(ctx context.Context, start StepStart) (stepGate,
 // dataAgentGate returns the gate of start, whose AgentGate is set, and reads no file. It is refused with an error
 // matching ErrBadGate when start also names a gate or a gates file, and when the gate has no name, no agent, no
 // assertion, a limit under a second, or an argv or needs. The file parser refuses each of those for an agent gate, and
-// the run would otherwise drop argv or needs, or end the step overtime at its first tick.
+// the run would otherwise drop argv or needs, or end the step overtime at its first check.
 func dataAgentGate(start StepStart) (stepGate, error) {
 	gate := *start.AgentGate
 	switch {

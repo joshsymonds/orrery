@@ -119,7 +119,7 @@ func newStepNudgeFixture(t *testing.T) *stepNudgeFixture {
 	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	sessions := &nudgeSessions{stepStartSessions: &stepStartSessions{writer: writer}}
-	steps, err := NewSteps(StepsConfig{
+	steps := NewSteps(StepsConfig{
 		Sessions:     sessions,
 		Store:        s,
 		Writer:       writer,
@@ -128,9 +128,6 @@ func newStepNudgeFixture(t *testing.T) *stepNudgeFixture {
 		Logger:       slog.New(slog.DiscardHandler),
 		GateStateDir: gateShortStateDir(t),
 	})
-	if err != nil {
-		t.Fatalf("NewSteps: %v", err)
-	}
 	t.Cleanup(steps.Close)
 	return &stepNudgeFixture{steps: steps, sessions: sessions, store: s, writer: writer}
 }

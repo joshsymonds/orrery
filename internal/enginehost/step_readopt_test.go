@@ -96,7 +96,7 @@ func newRigSteps(
 	t *testing.T, rig stepsRig, sessions stepSessions, writer *Writer, environ []string, logger *slog.Logger,
 ) *Steps {
 	t.Helper()
-	steps, err := NewSteps(StepsConfig{
+	steps := NewSteps(StepsConfig{
 		Sessions:     sessions,
 		Store:        rig.store,
 		Writer:       writer,
@@ -107,9 +107,6 @@ func newRigSteps(
 		GateStateDir: rig.gateRoot,
 		GateScope:    fakeSystemdRunPath(t),
 	})
-	if err != nil {
-		t.Fatalf("NewSteps: %v", err)
-	}
 	t.Cleanup(steps.Close)
 	return steps
 }
@@ -170,7 +167,7 @@ func stepsRunOf(t *testing.T, steps *Steps, id string) *stepRun {
 // the fake systemd-run scope. It is closed at cleanup.
 func (f *stepCtlFixture) newGateScopedSteps(t *testing.T, root string) *Steps {
 	t.Helper()
-	steps, err := NewSteps(StepsConfig{
+	steps := NewSteps(StepsConfig{
 		Sessions:     f.sessions,
 		Store:        f.store,
 		Writer:       f.writer,
@@ -181,9 +178,6 @@ func (f *stepCtlFixture) newGateScopedSteps(t *testing.T, root string) *Steps {
 		GateStateDir: root,
 		GateScope:    fakeSystemdRunPath(t),
 	})
-	if err != nil {
-		t.Fatalf("NewSteps: %v", err)
-	}
 	t.Cleanup(steps.Close)
 	return steps
 }

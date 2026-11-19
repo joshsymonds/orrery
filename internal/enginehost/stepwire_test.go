@@ -11,33 +11,36 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// stepWireWatchTick is the watch tick the wiring tests run at.
-const stepWireWatchTick = 5 * time.Millisecond
-
 // stepWireMonitorLine is a success result line whose monitor verdict is progressing.
 const stepWireMonitorLine = `{"type":"result","subtype":"success","is_error":false,` +
 	`"structured_output":{"verdict":"progressing","doing":"building the package"}}`
 
 // stepWireSessions is stepStartSessions that hands the observer a Started event once the step starts, as a real
-// session does, so the step's turn is running on its watch.
+// session does, so the step's turn is running on its watch. run is the run of the step it started last, nil before one.
 type stepWireSessions struct {
 	*stepStartSessions
+	run *stepRun
 }
 
 func (f *stepWireSessions) StartStep(ctx context.Context, step StepSession) error {
 	if err := f.stepStartSessions.StartStep(ctx, step); err != nil {
 		return err
 	}
+	if run, ok := step.Observer.(*stepRun); ok {
+		f.run = run
+	}
 	step.Observer.Event(session.Started{SessionID: step.ID})
 	return nil
 }
 
-// stepWireFixture is a Steps configured with the Haiku caller, an injected clock and stepWireWatchTick.
+// stepWireFixture is a Steps configured with the Haiku caller, an injected clock and fake deadline timers. Each move of
+// the clock fires the started step's armed deadline at the new reading.
 type stepWireFixture struct {
 	steps    *Steps
 	sessions *stepWireSessions
 	store    *store.Store
 	clock    *watchLoopClock
+	timers   *stepDeadlineTimers
 }
 
 // newStepWireFixture returns a fixture whose Steps calls haiku for the monitor and judge, with nil meaning none.
@@ -47,8 +50,9 @@ func newStepWireFixture(t *testing.T, haiku *Haiku) *stepWireFixture {
 	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	clock := &watchLoopClock{at: watchEpoch()}
+	timers := &stepDeadlineTimers{}
 	sessions := &stepWireSessions{stepStartSessions: &stepStartSessions{writer: writer}}
-	steps, err := NewSteps(StepsConfig{
+	steps := NewSteps(StepsConfig{
 		Sessions:     sessions,
 		Store:        s,
 		Writer:       writer,
@@ -57,12 +61,9 @@ func newStepWireFixture(t *testing.T, haiku *Haiku) *stepWireFixture {
 		Logger:       slog.New(slog.DiscardHandler),
 		Haiku:        haiku,
 		Now:          clock.now,
-		WatchTick:    stepWireWatchTick,
+		NewTimer:     timers.newTimer,
 		GateStateDir: gateShortStateDir(t),
 	})
-	if err != nil {
-		t.Fatalf("NewSteps: %v", err)
-	}
 	t.Cleanup(func() {
 		steps.mu.Lock()
 		defer steps.mu.Unlock()
@@ -70,7 +71,9 @@ func newStepWireFixture(t *testing.T, haiku *Haiku) *stepWireFixture {
 			cancel()
 		}
 	})
-	return &stepWireFixture{steps: steps, sessions: sessions, store: s, clock: clock}
+	f := &stepWireFixture{steps: steps, sessions: sessions, store: s, clock: clock, timers: timers}
+	clock.onSet = func(time.Time) { stepWireFireArmed(t, f) }
+	return f
 }
 
 // stepWireRun returns the run of the step StartStep was called with first.
@@ -83,19 +86,37 @@ func stepWireRun(t *testing.T, f *stepWireFixture) *stepRun {
 	return run
 }
 
-// stepWireStartOvertime starts a writing step with a two-minute model limit and runs its turn past that limit, so the
-// first watch tick trips overtime. It returns the fixture and the step id.
-func stepWireStartOvertime(t *testing.T, haiku *Haiku) (*stepWireFixture, string) {
+// stepWireStart starts a writing step with a model limit of limit, and returns the fixture and the step id.
+func stepWireStart(t *testing.T, haiku *Haiku, limit time.Duration) (*stepWireFixture, string) {
 	t.Helper()
 	f := newStepWireFixture(t, haiku)
 	start := stepStartWriting(stepWorktreeTestAddLinked(t, stepGitTestRepo(t)))
-	start.ModelLimit = 2 * time.Minute
+	start.ModelLimit = limit
 	id, err := f.steps.Start(t.Context(), start)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
+	return f, id
+}
+
+// stepWireStartOvertime starts a writing step with a two-minute model limit and moves the clock past that limit, so the
+// step's deadline fires and trips overtime. It returns the fixture and the step id.
+func stepWireStartOvertime(t *testing.T, haiku *Haiku) (*stepWireFixture, string) {
+	t.Helper()
+	f, id := stepWireStart(t, haiku, 2*time.Minute)
 	f.clock.set(2 * time.Minute)
 	return f, id
+}
+
+// stepWireFireArmed settles the started step's run and fires its armed deadline at the clock's reading. It fires
+// nothing before a step starts, or when no deadline is armed.
+func stepWireFireArmed(t *testing.T, f *stepWireFixture) {
+	t.Helper()
+	if f.sessions.run == nil {
+		return
+	}
+	stepDeadlineSettle(t, f.sessions.run)
+	f.timers.fire(f.clock.now())
 }
 
 func TestStepsStartWiresEachRun(t *testing.T) {
@@ -181,9 +202,15 @@ func TestStepsStartStopsWatchTicksWhenStepEnds(t *testing.T) {
 	t.Parallel()
 	h := NewHaiku(HaikuConfig{Claude: haikuWriteFake(t, haikuDir(t), haikuFake{stdout: stepWireMonitorLine}),
 		Environ: haikuEnviron()})
-	f, id := stepWireStartOvertime(t, h)
+	f, id := stepWireStart(t, h, 2*time.Minute)
 	run := stepWireRun(t, f)
+	stepDeadlineSettle(t, run)
+	if _, armed := f.timers.armedDuration(); !armed {
+		t.Fatal("no deadline armed before the step ends")
+	}
 
+	// An exit ends the step while its deadline is still armed, so the loop must stop that timer as it returns.
+	run.Exited("claude exited")
 	stepStartAwait(t, engineOf(f.steps, run), "the step's loop to return", func() bool {
 		f.steps.mu.Lock()
 		defer f.steps.mu.Unlock()
@@ -193,12 +220,13 @@ func TestStepsStartStopsWatchTicksWhenStepEnds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read step: %v", err)
 	}
-	if row.End != "overtime" {
-		t.Fatalf("step ended %q, want overtime", row.End)
+	if row.End != stepLoopEndFailed {
+		t.Fatalf("step ended %q, want failed", row.End)
 	}
-	select {
-	case <-run.ticks:
-		t.Fatal("the watch ticked after its step's loop returned")
-	case <-time.After(10 * stepWireWatchTick):
+	if _, armed := f.timers.armedDuration(); armed {
+		t.Fatal("a deadline is still armed after the step's loop returned")
+	}
+	if got := f.timers.stopCount(); got != 1 {
+		t.Fatalf("stopped timers = %d, want 1: the armed deadline", got)
 	}
 }

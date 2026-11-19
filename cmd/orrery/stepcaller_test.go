@@ -72,15 +72,12 @@ func startStepCallerSteps(t *testing.T) (string, *store.Store) {
 		<-writerDone
 	})
 
-	steps, err := enginehost.NewSteps(enginehost.StepsConfig{
+	steps := enginehost.NewSteps(enginehost.StepsConfig{
 		Sessions:  stepCallerSessions{writer: writer},
 		Store:     s,
 		Writer:    writer,
 		Worktrees: t.TempDir(),
 	})
-	if err != nil {
-		t.Fatalf("NewSteps: %v", err)
-	}
 	t.Cleanup(steps.Close)
 	return startMCPDaemon(t, steps), s
 }

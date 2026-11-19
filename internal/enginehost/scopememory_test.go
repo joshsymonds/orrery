@@ -110,10 +110,7 @@ func TestEvidenceCaptureGateRunsUnderTheConfiguredScopeMemory(t *testing.T) {
 
 func TestStepsGateRunsUnderTheConfiguredScopeMemory(t *testing.T) {
 	t.Parallel()
-	steps, err := NewSteps(StepsConfig{GateScope: "/run/systemd-run", GateScopeMemory: testScopeMemory})
-	if err != nil {
-		t.Fatalf("NewSteps: %v", err)
-	}
+	steps := NewSteps(StepsConfig{GateScope: "/run/systemd-run", GateScopeMemory: testScopeMemory})
 	if steps.gateScope != "/run/systemd-run" || steps.gateScopeMemory != testScopeMemory {
 		t.Fatalf("steps scope %q with memory %d, want /run/systemd-run with %d", steps.gateScope,
 			steps.gateScopeMemory, testScopeMemory)

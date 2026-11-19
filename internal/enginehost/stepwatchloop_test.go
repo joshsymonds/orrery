@@ -22,10 +22,12 @@ const watchLoopDoing = "rerunning the same grep"
 // watchLoopModelLimit is a model-time limit no test reaches unless it means to.
 const watchLoopModelLimit = 60 * time.Minute
 
-// watchLoopClock is the injected clock a watch loop test drives. It reads what the test last set.
+// watchLoopClock is the injected clock a watch loop test drives. It reads what the test last set. onSet, when set, is
+// called with each reading the test sets, once the clock reads it.
 type watchLoopClock struct {
-	mu sync.Mutex
-	at time.Time
+	mu    sync.Mutex
+	at    time.Time
+	onSet func(at time.Time)
 }
 
 // now returns the clock's reading.
@@ -35,11 +37,15 @@ func (c *watchLoopClock) now() time.Time {
 	return c.at
 }
 
-// set moves the clock to d after watchEpoch.
+// set moves the clock to d after watchEpoch, and then calls onSet with the new reading when it is set.
 func (c *watchLoopClock) set(d time.Duration) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.at = watchAt(d)
+	at := c.at
+	c.mu.Unlock()
+	if c.onSet != nil {
+		c.onSet(at)
+	}
 }
 
 // watchLoopReply is one canned reply of a watchLoopHaiku: a structured output, or an error when err is set.
@@ -85,14 +91,14 @@ func (h *watchLoopHaiku) recorded() []string {
 	return append([]string(nil), h.schemas...)
 }
 
-// watchLoopFixture is a stepRun over a real store and writer, with a step row, a clock the test sets and a tick channel
-// the test feeds. Its run is started by newWatchLoopFixture and stops when the test ends.
+// watchLoopFixture is a stepRun over a real store and writer, with a step row, a clock the test sets and the fake
+// deadline timers the test fires. Its run is started by newWatchLoopFixture and stops when the test ends.
 type watchLoopFixture struct {
 	run      *stepRun
 	store    *store.Store
 	sessions *stepLoopSessions
 	clock    *watchLoopClock
-	ticks    chan time.Time
+	timers   *stepDeadlineTimers
 	done     chan struct{}
 }
 
@@ -118,13 +124,13 @@ func newWatchLoopFixture(t *testing.T, caller haikuCaller, sessions *stepLoopSes
 		store:    s,
 		sessions: sessions,
 		clock:    &watchLoopClock{at: watchEpoch()},
-		ticks:    make(chan time.Time),
+		timers:   &stepDeadlineTimers{},
 		done:     make(chan struct{}),
 	}
 	f.run = newStepRun(stepRunConfig{
 		id: stepLoopID, schema: stepLoopSchema, doneValue: stepLoopDone, sessions: sessions, store: s, writer: writer,
 		logger: slog.New(slog.DiscardHandler), now: f.clock.now, modelLimit: modelLimit, haiku: caller,
-		ticks: f.ticks,
+		newTimer: f.timers.newTimer,
 	})
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
@@ -147,12 +153,14 @@ func (f *watchLoopFixture) turnEnd(d time.Duration, ended session.TurnEnded) {
 	f.run.Return(ended)
 }
 
-// tick sets the clock to d and hands the run one tick. The send returns once the run has taken the tick, and the run
-// handles a tick completely before it takes another hand-off, so a later hand-off is handled after this tick.
+// tick sets the clock to d and fires the run's armed deadline at it. The run has settled first, so the timer fired is
+// the one its events leave armed. It fires nothing when no deadline is armed, as a run with no check due has none. The
+// fire returns once the run has taken it, and the run handles it completely before it takes another hand-off.
 func (f *watchLoopFixture) tick(t *testing.T, d time.Duration) {
 	t.Helper()
 	f.clock.set(d)
-	f.ticks <- time.Time{}
+	stepDeadlineSettle(t, f.run)
+	f.timers.fire(f.clock.now())
 }
 
 // row returns the step row the fixture's store holds.
@@ -698,4 +706,20 @@ func TestWatchLoopFailedInterruptKeepsToolClock(t *testing.T) {
 	if got := sessions.interruptedIDs(); len(got) != 2 {
 		t.Fatalf("interrupt attempts = %d, want 2", len(got))
 	}
+}
+
+// A nudge on a stuck tool call whose interrupt fails leaves the call past its limit, so the watch finds it due again at
+// once. The run checks it again stepCheckRetry after the last check, and not at once, so a failing interrupt is retried
+// at a pace and the monitor is not called in a loop.
+func TestWatchLoopFailedInterruptRetryIsPaced(t *testing.T) {
+	t.Parallel()
+	haiku := &watchLoopHaiku{replies: []watchLoopReply{watchLoopVerdict(watchVerdictWedged, "stuck on the grep")}}
+	sessions := &stepLoopSessions{interruptErr: errors.New("interrupt refused")}
+	f := newWatchLoopFixture(t, haiku, sessions, watchLoopModelLimit)
+	f.event(0, session.Started{})
+	f.event(0, session.ToolCallStarted{ToolUseID: watchToolID, Name: "Bash"})
+
+	f.tick(t, 30*time.Minute)
+	f.waitVerdicts(t, 1)
+	stepDeadlineWantArmed(t, f.run, f.timers, stepCheckRetry)
 }

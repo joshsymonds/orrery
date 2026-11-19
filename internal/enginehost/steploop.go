@@ -88,6 +88,10 @@ const stepLoopMaxContinues = 3
 // stepLoopBuffer is the capacity of the returns and exits channels. A send waits only while the buffer is full.
 const stepLoopBuffer = 8
 
+// stepCheckRetry is how long a check that finds a trip still due waits after the last check before it runs again. Such a
+// trip is a tool call past its limit that a nudge could not interrupt, which the watch keeps finding past its limit.
+const stepCheckRetry = 5 * time.Second
+
 // apiErrorRateLimit is the API error an assistant message carries on a turn that hit a usage limit.
 const apiErrorRateLimit = "rate_limit"
 
@@ -100,9 +104,10 @@ const apiErrorRateLimit = "rate_limit"
 // step runs in dir too, and each of its returns is compared with checkout, the state its checkout was in at its start; a
 // moved checkout ends it checks_failed. A read-only step's done return passes on its schema check alone. A nil cleanup
 // has nothing to run. The watch reads now as its clock, time.Now when now is nil, and allows the step modelLimit of model
-// time. Each tick on ticks checks the watch, and a nil ticks never ticks. A nil haiku makes no monitor or judge calls.
+// time. The run's deadline timer is armed with newTimer, and when it fires the loop checks the watch and the agent
+// gate's limit; a nil newTimer arms none. A nil haiku makes no monitor or judge calls.
 // prompt is the step's first prompt, which the judge is given with each done return. agentGate is the agent gate a step
-// runs, nil for any other step: each schema-valid return is checked against its assertions, and never judged. A tick at
+// runs, nil for any other step: each schema-valid return is checked against its assertions, and never judged. A check at
 // or past the limit of wall time from the run's start ends an agent gate step overtime. returnCheck, when set, checks
 // every schema-valid return: its failure lines are stored as the return check and sent back, and a step with one is
 // never judged. publish is called with the step's id once the run's end or hold is stored, and a nil publish, which
@@ -121,7 +126,7 @@ type stepRunConfig struct {
 	now         func() time.Time
 	modelLimit  time.Duration
 	haiku       haikuCaller
-	ticks       <-chan time.Time
+	newTimer    func(time.Duration) (<-chan time.Time, func() bool)
 	agentGate   *gates.Gate
 	returnCheck func(value json.RawMessage) []string
 	publish     func(ctx context.Context, id string)
@@ -186,7 +191,7 @@ type stepRun struct {
 	// rateLimit is set when the session hands the run an assistant message that carries the rate limit error. Event sets it
 	// on the session's goroutine, and the next turn end clears it.
 	rateLimit atomic.Bool
-	// limited is set once a turn has ended on a usage limit. A limited run spends nothing, skips its ticks and ignores its
+	// limited is set once a turn has ended on a usage limit. A limited run spends nothing, arms no timer and ignores its
 	// exits. limitKind and limitResets are the kind and reset the limit was stored with, empty and zero when unknown.
 	limited     bool
 	limitKind   string
@@ -220,9 +225,18 @@ type stepRun struct {
 	runDone chan struct{}
 	// calls hands owner actions to run, which runs each in its goroutine and replies with its error.
 	calls chan stepOwnerCall
-	// held is set when a hold lands. A held run checks nothing: its ticks are skipped, and its turn ends are no round.
+	// held is set when a hold lands. A held run checks nothing and arms no timer, and its turn ends are no round.
 	// Run sets it and Steps.Held reads it.
 	held atomic.Bool
+	// wakes is a one-slot channel Event signals after it hands an event to the watch, so the loop re-arms its deadline.
+	wakes chan struct{}
+	// deadline is the channel of the armed deadline timer, nil while none is armed. stopDeadline stops that timer, and
+	// deadlineAt is the moment it is armed for.
+	deadline     <-chan time.Time
+	stopDeadline func() bool
+	deadlineAt   time.Time
+	// checked is the clock reading the deadline last fired at, zero before it fires.
+	checked time.Time
 	// gateMu guards gating and gateStart. gateStart is closed when a gate begins, which releases every owner action
 	// waiting for the loop, and replaced when the gate ends.
 	gateMu    sync.Mutex
@@ -252,16 +266,22 @@ func newStepRun(cfg stepRunConfig) *stepRun {
 		runDone:       make(chan struct{}),
 		calls:         make(chan stepOwnerCall),
 		gateStart:     make(chan struct{}),
+		wakes:         make(chan struct{}, 1),
 	}
 }
 
 // Event hands an event the session recorded to the watch, with the clock's reading now, and notes an assistant message
-// that carries the rate limit error for the next turn end. It never blocks.
+// that carries the rate limit error for the next turn end. It signals the loop to re-arm its deadline, since the event
+// may bring a check earlier. It never blocks.
 func (r *stepRun) Event(event session.Event) {
 	if ev, ok := event.(session.AssistantError); ok && ev.Error == apiErrorRateLimit {
 		r.rateLimit.Store(true)
 	}
 	r.watch.event(r.now(), event)
+	select {
+	case r.wakes <- struct{}{}:
+	default:
+	}
 }
 
 // Done reports whether the structured return of ended has the step's done value. It reads only the step's fixed config,
@@ -293,13 +313,16 @@ func (r *stepRun) Exited(reason string) {
 	}
 }
 
-// run handles returns and exits until the step ends or ctx ends. A run with a restore takes it up first. A ctx that
-// ends stores no end.
+// run handles returns, exits, owner actions and the deadline timer until the step ends or ctx ends. A run with a restore
+// takes it up first, and the run arms its deadline once it is up. The loop re-arms after each case it handles, and stops
+// the armed timer when it returns. A ctx that ends stores no end.
 func (r *stepRun) run(ctx context.Context) {
 	defer close(r.runDone)
+	defer r.disarm()
 	if r.restore != nil && !r.resume(ctx, *r.restore) {
 		return
 	}
+	r.arm()
 	for {
 		select {
 		case <-ctx.Done():
@@ -309,21 +332,28 @@ func (r *stepRun) run(ctx context.Context) {
 				return
 			}
 		case call := <-r.calls:
-			call.reply <- call.act(ctx)
+			reply := call.act(ctx)
+			// The run re-arms before it replies, so an owner action that returns has its deadline armed for it.
+			r.arm()
+			call.reply <- reply
 			select {
 			case <-r.ended:
 				return
 			default:
 			}
-		case <-r.ticks:
+		case <-r.deadline:
+			r.deadline, r.stopDeadline = nil, nil
+			r.checked = r.now()
 			if !r.tick(ctx) {
 				return
 			}
+		case <-r.wakes:
 		case ended := <-r.returns:
 			if !r.turnEnded(ctx, ended) {
 				return
 			}
 		}
+		r.arm()
 	}
 }
 
@@ -359,12 +389,72 @@ func (r *stepRun) takeQueuedReturns(ctx context.Context) bool {
 	}
 }
 
-// tick checks the watch on one tick. A held or limited run checks nothing. It reports whether the run goes on.
+// tick runs the check of the run's deadline when its timer fires: the agent gate's limit, then the watch. A held or
+// limited run checks nothing. It reports whether the run goes on.
 func (r *stepRun) tick(ctx context.Context) bool {
 	if r.held.Load() || r.limited {
 		return true
 	}
 	return r.watchGateLimit(ctx) && r.watchTick(ctx)
+}
+
+// arm keeps the run's deadline timer armed for the earliest moment a check is due, as nextCheck gives it. It drains the
+// wakes first, so the moment reflects every event handed to the watch before it. While the armed timer's moment is the
+// one due, the timer stays. A changed moment stops the timer and arms one for the time left, and no moment arms none. A
+// run with no newTimer arms none.
+func (r *stepRun) arm() {
+	if r.newTimer == nil {
+		return
+	}
+	select {
+	case <-r.wakes:
+	default:
+	}
+	now := r.now()
+	at, due := r.nextCheck(now)
+	if r.deadline != nil && (!due || !at.Equal(r.deadlineAt)) {
+		r.disarm()
+	}
+	if !due || r.deadline != nil {
+		return
+	}
+	r.deadline, r.stopDeadline = r.newTimer(at.Sub(now))
+	r.deadlineAt = at
+}
+
+// disarm stops the run's deadline timer, if one is armed.
+func (r *stepRun) disarm() {
+	if r.deadline != nil {
+		r.stopDeadline()
+		r.deadline, r.stopDeadline = nil, nil
+	}
+}
+
+// nextCheck returns the earliest moment a check is due as of now, and false when none is. A held or limited run has
+// none. Otherwise it is the earlier of the watch's next check and, for an agent gate step, the gate's limit moment,
+// which counts from the run's start or from its latest resume, as watchGateLimit reads it. A moment already due waits
+// stepCheckRetry after the last check, so a trip that stays due after its check is not checked again at once.
+func (r *stepRun) nextCheck(now time.Time) (time.Time, bool) {
+	if r.held.Load() || r.limited {
+		return time.Time{}, false
+	}
+	at, due := r.watch.next(now)
+	if r.agentGate != nil {
+		from := r.started
+		if !r.gateFrom.IsZero() {
+			from = r.gateFrom
+		}
+		if limit := from.Add(r.agentGate.Limit); !due || limit.Before(at) {
+			at, due = limit, true
+		}
+	}
+	if due && !at.After(now) {
+		at = now
+		if retry := r.checked.Add(stepCheckRetry); retry.After(now) {
+			at = retry
+		}
+	}
+	return at, due
 }
 
 // resume takes up a re-adopted step from restore. Its loop state is restored, and the watch's turn is marked running

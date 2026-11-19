@@ -42,7 +42,7 @@ func (f *stepCtlFixture) startNoticeStep(t *testing.T, repo, epic string) string
 // restartSteps returns a Steps over the fixture's store and sessions, with writer. It is closed at cleanup.
 func (f *stepCtlFixture) restartSteps(t *testing.T, writer *Writer) *Steps {
 	t.Helper()
-	steps, err := NewSteps(StepsConfig{
+	steps := NewSteps(StepsConfig{
 		Sessions:     f.sessions,
 		Store:        f.store,
 		Writer:       writer,
@@ -52,9 +52,6 @@ func (f *stepCtlFixture) restartSteps(t *testing.T, writer *Writer) *Steps {
 		Logger:       slog.New(slog.DiscardHandler),
 		GateStateDir: f.gateStateDir,
 	})
-	if err != nil {
-		t.Fatalf("NewSteps: %v", err)
-	}
 	t.Cleanup(steps.Close)
 	return steps
 }

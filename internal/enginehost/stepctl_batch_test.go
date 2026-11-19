@@ -87,7 +87,7 @@ func seedOpenSteps(t *testing.T, s *store.Store, ids ...string) {
 // test's own. It is closed at cleanup.
 func newBatchRestartSteps(t *testing.T, s *store.Store, writer *Writer) *Steps {
 	t.Helper()
-	steps, err := NewSteps(StepsConfig{
+	steps := NewSteps(StepsConfig{
 		Sessions:     &stepCtlSessions{stepStartSessions: &stepStartSessions{writer: writer}},
 		Store:        s,
 		Writer:       writer,
@@ -95,9 +95,6 @@ func newBatchRestartSteps(t *testing.T, s *store.Store, writer *Writer) *Steps {
 		Logger:       slog.New(slog.DiscardHandler),
 		GateStateDir: gateShortStateDir(t),
 	})
-	if err != nil {
-		t.Fatalf("NewSteps: %v", err)
-	}
 	t.Cleanup(steps.Close)
 	return steps
 }

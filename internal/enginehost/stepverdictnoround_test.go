@@ -88,12 +88,12 @@ func verdictNoRoundWantRoundOne(t *testing.T, row store.StepRow) {
 	}
 }
 
-// newVerdictWatchFixture returns a started agent gate step fixture whose clock and ticks the test drives, with haiku as
-// its monitor. Its gate's limit is an hour, so the periodic check is due before the gate runs overtime.
+// newVerdictWatchFixture returns a started agent gate step fixture whose clock and deadline timers the test drives,
+// with haiku as its monitor. Its gate's limit is an hour, so the periodic check is due before the gate runs overtime.
 func newVerdictWatchFixture(t *testing.T, haiku haikuCaller) *watchLoopFixture {
 	t.Helper()
 	clock := &watchLoopClock{at: watchEpoch()}
-	ticks := make(chan time.Time)
+	timers := &stepDeadlineTimers{}
 	gate := stepAgentGate("watch-reviewer")
 	gate.Limit = time.Hour
 	base := newStepDoneFixture(t, func(cfg *stepRunConfig) {
@@ -103,14 +103,14 @@ func newVerdictWatchFixture(t *testing.T, haiku haikuCaller) *watchLoopFixture {
 		cfg.haiku = haiku
 		cfg.now = clock.now
 		cfg.modelLimit = watchLoopModelLimit
-		cfg.ticks = ticks
+		cfg.newTimer = timers.newTimer
 	})
 	f := &watchLoopFixture{
 		run:      base.run,
 		store:    base.store,
 		sessions: base.sessions,
 		clock:    clock,
-		ticks:    ticks,
+		timers:   timers,
 		done:     make(chan struct{}),
 	}
 	ctx, cancel := context.WithCancel(t.Context())

@@ -79,7 +79,7 @@ func newStepCtlFixture(t *testing.T) *stepCtlFixture {
 // newSteps returns a Steps over the fixture's store, writer and sessions. It is closed at cleanup.
 func (f *stepCtlFixture) newSteps(t *testing.T) *Steps {
 	t.Helper()
-	steps, err := NewSteps(StepsConfig{
+	steps := NewSteps(StepsConfig{
 		Sessions:     f.sessions,
 		Store:        f.store,
 		Writer:       f.writer,
@@ -89,9 +89,6 @@ func (f *stepCtlFixture) newSteps(t *testing.T) *Steps {
 		Logger:       slog.New(slog.DiscardHandler),
 		GateStateDir: f.gateStateDir,
 	})
-	if err != nil {
-		t.Fatalf("NewSteps: %v", err)
-	}
 	t.Cleanup(steps.Close)
 	return steps
 }
