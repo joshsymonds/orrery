@@ -325,7 +325,7 @@ private fun RoundView(round: CheckRound) {
             Text(gate.stdout, style = OrreryTokens.Type.small)
         }
         if (gate.stderr.isNotEmpty()) {
-            Text(gate.stderr, style = OrreryTokens.Type.small)
+            Text(gate.stderr, style = OrreryTokens.Type.small, color = OrreryTokens.Role.halt)
         }
     }
     round.judge?.let { judge ->

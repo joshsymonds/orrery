@@ -206,7 +206,7 @@ fun SessionScreen(sessionId: String, client: OrreryClient, onBack: () -> Unit = 
             }
         }
         if (step == null && interruptTaken && pane != null && state !in LIVE_STATES) {
-            Text(RESULT_TEXT, modifier = Modifier.testTag(RESULT_TAG).padding(horizontal = OrreryTokens.Space.twelve + OrreryTokens.Space.two))
+            Text(RESULT_TEXT, modifier = Modifier.testTag(RESULT_TAG).padding(horizontal = OrreryTokens.Space.twelve + OrreryTokens.Space.two), color = OrreryTokens.Role.halt)
         }
         // The compose key is the session's id; its sends go through the session sender, or a step's nudge.
         ComposeBox(
