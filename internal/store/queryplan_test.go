@@ -113,7 +113,7 @@ func TestSessionHeadlineQueryPlans(t *testing.T) {
 	texts := sqlcQueryTexts(t)
 	s := openWriterAt(t, filepath.Join(t.TempDir(), "orrery.db"))
 	partial := partialIndexesOf(t, s.db.DB, "events")
-	for _, name := range []string{"ListHeadlineDueSessions", "ListRecentTurns", "SetSessionHeadline"} {
+	for _, name := range []string{"ListHeadlineDueSessions", "GetHeadlineDueSession", "ListRecentTurns", "SetSessionHeadline"} {
 		text, ok := texts[name]
 		if !ok {
 			t.Fatalf("query %s is not defined in %s", name, queryPlanSource)

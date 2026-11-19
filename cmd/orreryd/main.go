@@ -98,7 +98,7 @@ const (
 	silentBackground = "background work"
 	// brokerTick is how often the grants broker ticks. Each tick ends the grants of gone clients and polls each member.
 	brokerTick = 60 * time.Second
-	// limitTick is how often the due pass, the session titles and the session headlines run.
+	// limitTick is how often the due pass runs.
 	limitTick = 5 * time.Second
 	// storeOpenRetry is how long openStore waits before it tries a busy store open again.
 	storeOpenRetry = 2 * time.Second
@@ -895,9 +895,9 @@ func newSessionHost(logger *slog.Logger) *sessionHost {
 // builder, and its attention loop routes its epic notices through router when router is not nil. The limit notices tell
 // router which steps a usage limit holds, at start and on each stored hold or resume until stop; the due pass resumes
 // each due row whose reset has passed, every limitTick until stop; the session titles write each headless session's
-// missing title through haiku, every limitTick until stop; the session headlines refresh each headless session's
-// headline once its turns have ended, through haiku, every limitTick until stop; the manager stops idle sessions, until
-// stop; and the caller-event delivery tells each
+// missing title through haiku, at start and on each first prompt the store stores, until stop; the session headlines
+// refresh each headless session's headline once its turns have ended, through haiku, at start and on each turn end the
+// store stores, until stop; the manager stops idle sessions, until stop; and the caller-event delivery tells each
 // step's caller when the step ends, and each epic's creator of its events, on its start, on each wake, and once more
 // after a failed round, until stop (startCallerEvents);
 // and the cron scheduler fires each cron job of a headless session when it is due, through the manager's DeliverCron,
@@ -1578,53 +1578,50 @@ func (h *sessionHost) startSummaries(
 	}()
 }
 
-// startTitles writes the title of each headless session that has none, from its first prompt through haiku, checking st
-// every limitTick until stop. The first check runs at start.
+// startTitles writes the title of each headless session that has none, from its first prompt through haiku. It checks
+// every untitled session at start, then each session whose first prompt the store stores, on the store's OnFirstPrompt
+// hook, until stop.
 func (h *sessionHost) startTitles(
 	ctx context.Context,
 	st *store.Store,
 	haiku *enginehost.Haiku,
 	logger *slog.Logger,
 ) {
-	ticker := time.NewTicker(limitTick)
 	titles := enginehost.NewSessionTitles(enginehost.SessionTitlesConfig{
 		Store:  st,
 		Haiku:  haiku,
-		Tick:   ticker.C,
 		Logger: logger,
 	})
+	st.OnFirstPrompt(titles.Wake)
 	var titlesCtx context.Context
 	titlesCtx, h.stopTitles = context.WithCancel(ctx)
 	h.titlesDone = make(chan struct{})
 	go func() {
 		defer close(h.titlesDone)
-		defer ticker.Stop()
 		titles.Run(titlesCtx)
 	}()
 }
 
 // startHeadlines refreshes the headline of each headless session whose turns have ended since its last headline, from
-// its first prompt and recent turns through haiku, checking st every limitTick until stop. The first check runs at
-// start.
+// its first prompt and recent turns through haiku. It checks every due session at start, then each session whose turn
+// end the store stores, on the store's OnTurnEnded hook, until stop.
 func (h *sessionHost) startHeadlines(
 	ctx context.Context,
 	st *store.Store,
 	haiku *enginehost.Haiku,
 	logger *slog.Logger,
 ) {
-	ticker := time.NewTicker(limitTick)
 	headlines := enginehost.NewSessionHeadlines(enginehost.SessionHeadlinesConfig{
 		Store:  st,
 		Haiku:  haiku,
-		Tick:   ticker.C,
 		Logger: logger,
 	})
+	st.OnTurnEnded(headlines.Wake)
 	var headlinesCtx context.Context
 	headlinesCtx, h.stopHeadlines = context.WithCancel(ctx)
 	h.headlinesDone = make(chan struct{})
 	go func() {
 		defer close(h.headlinesDone)
-		defer ticker.Stop()
 		headlines.Run(headlinesCtx)
 	}()
 }

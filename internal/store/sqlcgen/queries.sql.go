@@ -1590,6 +1590,45 @@ func (q *Queries) GetEvidenceRunState(ctx context.Context, id string) (string, e
 	return state, err
 }
 
+const getHeadlineDueSession = `-- name: GetHeadlineDueSession :one
+SELECT sessions.id, sessions.dir, sessions.headline_at, CAST(COALESCE((
+    SELECT MAX(events.at) FROM events
+    WHERE events.session_id = sessions.id AND events.kind = 'engine_turn_ended'
+), 0) AS INTEGER) AS turn_at, CAST(COALESCE((
+    SELECT json_extract(events.payload, '$.text') FROM events
+    WHERE events.session_id = sessions.id AND events.kind = 'engine_prompt'
+    ORDER BY events.seq LIMIT 1
+), '') AS TEXT) AS first_prompt
+FROM sessions
+WHERE sessions.kind = 'engine'
+  AND EXISTS (
+      SELECT 1 FROM events
+      WHERE events.session_id = sessions.id AND events.kind = 'engine_turn_ended' AND events.at > sessions.headline_at
+  )
+  AND sessions.id = ?
+`
+
+type GetHeadlineDueSessionRow struct {
+	ID          string
+	Dir         string
+	HeadlineAt  int64
+	TurnAt      int64
+	FirstPrompt string
+}
+
+func (q *Queries) GetHeadlineDueSession(ctx context.Context, id string) (GetHeadlineDueSessionRow, error) {
+	row := q.db.QueryRowContext(ctx, getHeadlineDueSession, id)
+	var i GetHeadlineDueSessionRow
+	err := row.Scan(
+		&i.ID,
+		&i.Dir,
+		&i.HeadlineAt,
+		&i.TurnAt,
+		&i.FirstPrompt,
+	)
+	return i, err
+}
+
 const getLatestEndedEpicTurn = `-- name: GetLatestEndedEpicTurn :one
 SELECT epic, seq, step, state, reason, seen, outline, outcome, started, ended, told, stop, resets FROM epic_turns WHERE epic = ? AND state <> 'running' ORDER BY seq DESC LIMIT 1
 `
@@ -1964,6 +2003,31 @@ func (q *Queries) GetUnreportedEpic(ctx context.Context, id string) (Epic, error
 		&i.OriginReadState,
 		&i.OriginReadAt,
 	)
+	return i, err
+}
+
+const getUntitledEngineSession = `-- name: GetUntitledEngineSession :one
+SELECT sessions.id, sessions.dir, CAST(COALESCE((
+    SELECT json_extract(events.payload, '$.text') FROM events
+    WHERE events.session_id = sessions.id AND events.kind = 'engine_prompt'
+    ORDER BY events.seq LIMIT 1
+), '') AS TEXT) AS first_prompt
+FROM sessions
+WHERE sessions.kind = 'engine' AND sessions.title = ''
+  AND EXISTS (SELECT 1 FROM events WHERE events.session_id = sessions.id AND events.kind = 'engine_prompt')
+  AND sessions.id = ?
+`
+
+type GetUntitledEngineSessionRow struct {
+	ID          string
+	Dir         string
+	FirstPrompt string
+}
+
+func (q *Queries) GetUntitledEngineSession(ctx context.Context, id string) (GetUntitledEngineSessionRow, error) {
+	row := q.db.QueryRowContext(ctx, getUntitledEngineSession, id)
+	var i GetUntitledEngineSessionRow
+	err := row.Scan(&i.ID, &i.Dir, &i.FirstPrompt)
 	return i, err
 }
 
