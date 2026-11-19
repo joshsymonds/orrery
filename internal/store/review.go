@@ -27,7 +27,7 @@ type Review struct {
 type ReviewVerdict struct {
 	Position        int64  // 1-based place of the reviewer among the epic's enabled epic-stage reviewers
 	Reviewer, Step  string // reviewer name; the step that gave the verdict (the last try's step for a gap)
-	Verdict, Reason string // holds | fails | gap
+	Verdict, Reason string // holds | fails | gap | undetermined
 }
 
 // LedgerFinding is one finding a reviewer returned, as the review's ledger holds it.

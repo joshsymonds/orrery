@@ -10,9 +10,10 @@ import (
 )
 
 // The epic phases the integration writes set or reads. An epic is built once the integrate batches of its plan have
-// passed and every Requirement is green at its stored base. An evidence node at the epic's base that finds a Requirement
-// already met parks the epic with a question, and the owner's end answer sets met_at_base. A plan that ends built sets
-// built only on an accepted epic.
+// passed and every Requirement is green at its stored base. An evidence node at the epic's base that finds a
+// Requirement already met ends passed with a tell, and the epic goes on. A park an evidence node made before that is
+// still answered: the owner's end answer to it sets met_at_base. A plan that ends built sets built only on an accepted
+// epic.
 const (
 	phaseAccepted  = "accepted"
 	phaseBuilt     = "built"
@@ -133,6 +134,42 @@ func settleBatchBase(
 		return fmt.Errorf("set candidate of epic %s: %w", epic, err)
 	}
 	return nil
+}
+
+// EndNodesTelling ends each of ends at its running run, and adds tell as a tell of epic, in one write. The tell is
+// added only when the first end's run is still running, as EndPlanBuilt requires, so a run that has ended already, and
+// no end, change nothing and a repeat adds no tell.
+func (s *Store) EndNodesTelling(ctx context.Context, epic string, ends []NodeEnd, tell string, at time.Time) error {
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		if len(ends) == 0 {
+			return nil
+		}
+		running, err := queries.CountRunningEpicNodeRun(ctx, sqlcgen.CountRunningEpicNodeRunParams{
+			Epic: epic, Path: ends[0].Path,
+		})
+		if err != nil {
+			return fmt.Errorf("read node run %s of epic %s: %w", ends[0].Path, epic, err)
+		}
+		if running == 0 {
+			return nil
+		}
+		return endAndTell(ctx, queries, epic, ends, tell, at)
+	})
+}
+
+// endAndTell ends each of ends at its running run, and adds tell as a tell of epic, in the caller's write.
+func endAndTell(
+	ctx context.Context,
+	queries *sqlcgen.Queries,
+	epic string,
+	ends []NodeEnd,
+	tell string,
+	at time.Time,
+) error {
+	if err := endNodeRuns(ctx, queries, epic, ends, at); err != nil {
+		return err
+	}
+	return insertTell(ctx, queries, epic, capTurnText(tell), at)
 }
 
 // ParkEpicWaking parks epic with reason as the not_built planner class, and adds trigger pending, in one write. The
