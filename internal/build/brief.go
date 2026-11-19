@@ -225,6 +225,8 @@ func ReviewPrompt(
 		bullets(GateChangeItems(task.GateChanges)),
 		[]string{"Requirements:"},
 		requirementLines(epic.Requirements, task.Requirements),
+		[]string{reviewEvidenceHeading},
+		reviewEvidenceLines(epic.Requirements, task),
 		[]string{change},
 	)
 	if reviewer == reviewers.TestParsimony {
@@ -282,6 +284,47 @@ func bullets(items []string) []string {
 		lines[i] = "- " + item
 	}
 	return lines
+}
+
+// reviewEvidenceHeading heads the evidence a task reviewer judges: the captures that prove the task's work, each with
+// the conclusion it must show.
+const reviewEvidenceHeading = "Evidence (each capture and the conclusion it must show):"
+
+// reviewEvidenceLines renders, for a task reviewer, the task's own evidence item and then the evidence item the
+// contract declares for each Requirement of task, in task.Requirements order, as bullets. A capture renders as
+// `<id>: <conclusion> (capture: <argv>)`, supplied files as `<id>: <conclusion> (supplied: <files>)`, and a closure
+// item as `<id>: <conclusion> (closure: the round's closure check settles it)`. An item with no conclusion, and a
+// Requirement the epic does not declare, render nothing. A reviewer asked whether each capture would fail without the
+// behavior it proves thus sees the capture even when it is no test in the change, such as a grep of a document.
+func reviewEvidenceLines(declared []store.EpicRequirement, task store.EpicTask) []string {
+	items := make([]string, 0, 1+len(task.Requirements))
+	if line, ok := reviewEvidenceLine(fmt.Sprintf("T%d", task.Seq), task.Evidence); ok {
+		items = append(items, line)
+	}
+	for _, id := range task.Requirements {
+		i := slices.IndexFunc(declared, func(r store.EpicRequirement) bool { return r.ID == id })
+		if i < 0 {
+			continue
+		}
+		if line, ok := reviewEvidenceLine(id, declared[i].Item); ok {
+			items = append(items, line)
+		}
+	}
+	return bullets(items)
+}
+
+// reviewEvidenceLine renders item under id for reviewEvidenceLines, and false when item has no conclusion.
+func reviewEvidenceLine(id string, item evidence.Item) (string, bool) {
+	switch {
+	case item.Conclusion == "":
+		return "", false
+	case item.Kind == evidence.KindClosure:
+		return id + ": " + item.Conclusion + " (closure: the round's closure check settles it)", true
+	case len(item.Capture) > 0:
+		return id + ": " + item.Conclusion + " (capture: " + shellWords(item.Capture) + ")", true
+	default:
+		return id + ": " + item.Conclusion + " (supplied: " + strings.Join(item.Supplied, ", ") + ")", true
+	}
 }
 
 // requirementLines renders the Requirements named by ids, in ids order, that epic declares. An id the epic does not

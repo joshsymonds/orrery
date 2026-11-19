@@ -308,9 +308,41 @@ func TestReviewPromptNamesRangeFilesAndRequirements(t *testing.T) {
 		"Requirements:\n" +
 		"- R3: three\n" +
 		"- R1: one\n" +
+		reviewEvidenceHeading + "\n" +
+		"- T4: the brief renders (capture: scripts/in-devenv -c 'go test -run Brief ./internal/build/')\n" +
 		"The change under review is base1..rev1; this worktree is checked out at rev1. Inspect it with `git diff base1 rev1`."
 	if got != want {
 		t.Fatalf("review prompt\n got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// TestReviewPromptListsEachRequirementsContractCapture: a task reviewer's prompt lists, under Evidence, the task's
+// capture and then the contract capture of each Requirement the task covers, with its conclusion, so a Requirement
+// proved by a grep of a document rather than a test in the change shows the reviewer its capture. Supplied files and a
+// closure item render their own form; a Requirement the epic does not declare, or with no evidence, renders nothing.
+func TestReviewPromptListsEachRequirementsContractCapture(t *testing.T) {
+	t.Parallel()
+	epic := briefEpic()
+	epic.Requirements = []store.EpicRequirement{
+		{ID: "R1", Text: "one", Item: evidence.Item{
+			Capture:    []string{"grep", "-n", "Closed by decision", "docs/contract.md"},
+			Conclusion: "docs/contract.md names the Closed by decision list",
+		}},
+		{ID: "R2", Text: "two", Item: evidence.Item{Supplied: []string{"shot.png"}, Conclusion: "the page shows it"}},
+		{ID: "R3", Text: "three"},
+		{ID: "R4", Text: "four", Item: evidence.Item{Kind: evidence.KindClosure, Conclusion: "F1 no longer holds"}},
+	}
+	task := briefTask()
+	task.Evidence = evidence.Item{}
+	task.Requirements = []string{"R1", "R9", "R2", "R3", "R4"}
+	got := ReviewPrompt(epic, task, "floor", "base1", "rev1", store.StepCheck{})
+	want := reviewEvidenceHeading + "\n" +
+		"- R1: docs/contract.md names the Closed by decision list (capture: grep -n 'Closed by decision' docs/contract.md)\n" +
+		"- R2: the page shows it (supplied: shot.png)\n" +
+		"- R4: F1 no longer holds (closure: the round's closure check settles it)\n" +
+		"The change under review"
+	if !strings.Contains(got, want) {
+		t.Fatalf("review prompt lacks the Requirements' contract captures\n got:\n%s\nwant a run of:\n%s", got, want)
 	}
 }
 
@@ -328,6 +360,8 @@ func TestReviewPromptEmptySectionsPrintNone(t *testing.T) {
 		reviewDeclared + "\n" +
 		"- none\n" +
 		"Requirements:\n" +
+		"- none\n" +
+		reviewEvidenceHeading + "\n" +
 		"- none\n" +
 		"The change under review is base1..rev1; this worktree is checked out at rev1. Inspect it with `git diff base1 rev1`."
 	if got != want {
