@@ -13,7 +13,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/engine/session"
 	"github.com/joshsymonds/orrery/internal/holder"
@@ -52,7 +51,7 @@ func newStepsRig(t *testing.T, haiku *Haiku) stepsRig {
 		clearHolderDirs(t, gateRoot)
 	})
 	applier := &crashApplier{inner: s}
-	writer := NewWriter(WriterConfig{Applier: applier, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: applier})
 	startRun(t, writer)
 	home := t.TempDir()
 	writeStepAgents(t, home)
@@ -126,7 +125,7 @@ func (r stepsRig) crash() {
 // restarted Steps runs under environ and logs to logger.
 func (r stepsRig) restart(t *testing.T, environ []string, logger *slog.Logger) (*Manager, *Steps) {
 	t.Helper()
-	writer := NewWriter(WriterConfig{Applier: r.store, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: r.store})
 	startRun(t, writer)
 	m := newRigManager(t, r, writer)
 	return m, newRigSteps(t, r, m, writer, environ, logger)

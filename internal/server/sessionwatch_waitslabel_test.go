@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
@@ -40,7 +39,7 @@ func startWaitsRun(t *testing.T, prompt string) waitsRun {
 
 	ctx, cancel := context.WithCancel(t.Context())
 	writer := enginehost.NewWriter(enginehost.WriterConfig{
-		Applier: s, Tick: 5 * time.Millisecond, Now: speakFixedClock,
+		Applier: s, Now: speakFixedClock,
 	})
 	writerDone := make(chan struct{})
 	go func() {

@@ -21,7 +21,7 @@ func (r stepsRig) restartGated(
 	tick time.Duration,
 ) (*Manager, *Steps) {
 	t.Helper()
-	writer := NewWriter(WriterConfig{Applier: r.store, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: r.store})
 	startRun(t, writer)
 	m := newRigManager(t, r, writer)
 	steps, err := NewSteps(StepsConfig{

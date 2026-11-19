@@ -165,7 +165,6 @@ type options struct {
 	scopeMemory     int64 // the --holder-scope-memory cap of each holder's scope, in bytes
 	stepCap         int
 	judgeDelay      time.Duration           // the --judge-delay test seam's wait, route.JudgeDelay by default
-	writeTick       time.Duration           // the --write-tick test seam's engine writer tick, 0 for the writer's own
 	storeBusy       time.Duration           // the --store-busy-timeout test seam's wait, store.BusyTimeout by default
 	metricsListen   string                  // the --metrics-listen address, "" when unset
 	metrics         *telemetry.Daemon       // set by startMetrics when metricsListen is set, nil otherwise
@@ -365,9 +364,8 @@ func routeJudgeDelay(d time.Duration) time.Duration {
 	return d
 }
 
-// checkLimits refuses a --session-cap or --step-cap below 1 and a negative --judge-delay or --write-tick, each as a
-// usage error.
-func checkLimits(sessionCap, stepCap int, judgeDelay, writeTick, storeBusy time.Duration) error {
+// checkLimits refuses a --session-cap or --step-cap below 1 and a negative --judge-delay, each as a usage error.
+func checkLimits(sessionCap, stepCap int, judgeDelay, storeBusy time.Duration) error {
 	if sessionCap < 1 {
 		return usagef("--session-cap must be at least 1, got %d", sessionCap)
 	}
@@ -376,9 +374,6 @@ func checkLimits(sessionCap, stepCap int, judgeDelay, writeTick, storeBusy time.
 	}
 	if judgeDelay < 0 {
 		return usagef("--judge-delay must not be negative, got %v", judgeDelay)
-	}
-	if writeTick < 0 {
-		return usagef("--write-tick must not be negative, got %v", writeTick)
 	}
 	if storeBusy < 0 {
 		return usagef("--store-busy-timeout must not be negative, got %v", storeBusy)
@@ -409,7 +404,6 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	dueAt := flags.Int64("due-at", 0, "test seam: unix seconds the due pass reads as now")
 	hostName := flags.String("host", "", "test seam: host name in place of the machine's")
 	judgeDelay := flags.Duration("judge-delay", route.JudgeDelay, "test seam: wait of a done before its judge")
-	writeTick := flags.Duration("write-tick", 0, "test seam: how often the engine writer stores queued ops")
 	storeBusy := flags.Duration("store-busy-timeout", store.BusyTimeout,
 		"test seam: how long a store write waits for the write lock")
 	if err := flags.Parse(args); err != nil {
@@ -424,7 +418,7 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	if *claude == "" {
 		return options{}, usagef("--claude is empty")
 	}
-	if err := checkLimits(*sessionCap, *stepCap, *judgeDelay, *writeTick, *storeBusy); err != nil {
+	if err := checkLimits(*sessionCap, *stepCap, *judgeDelay, *storeBusy); err != nil {
 		return options{}, err
 	}
 	if *dueAt < 0 {
@@ -462,7 +456,6 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 		scopeMemory:   *scopeMemory,
 		stepCap:       *stepCap,
 		judgeDelay:    *judgeDelay,
-		writeTick:     *writeTick,
 		storeBusy:     *storeBusy,
 		metricsListen: *metricsListen,
 		flowTicks:     *flowTicks,
@@ -1478,7 +1471,7 @@ func (p passedPass) Pass(ctx context.Context) error {
 // newWriter builds the host's writer over st, which stores the events of the sessions and steps, as h.writer.
 func (h *sessionHost) newWriter(opts options, st *store.Store, logger *slog.Logger) {
 	h.writer = enginehost.NewWriter(enginehost.WriterConfig{
-		Applier: st, Tick: opts.writeTick, Logger: logger, Metrics: opts.metrics,
+		Applier: st, Logger: logger, Metrics: opts.metrics,
 	})
 }
 

@@ -60,7 +60,7 @@ func startStepCallerSteps(t *testing.T) (string, *store.Store) {
 		}
 	})
 
-	writer := enginehost.NewWriter(enginehost.WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := enginehost.NewWriter(enginehost.WriterConfig{Applier: s})
 	writerCtx, cancelWriter := context.WithCancel(context.Background())
 	writerDone := make(chan struct{})
 	go func() {

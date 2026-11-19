@@ -91,7 +91,7 @@ type stepStartFixture struct {
 func newStepStartFixture(t *testing.T) *stepStartFixture {
 	t.Helper()
 	s, _ := openStore(t)
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	sessions := &stepStartSessions{writer: writer}
 	worktrees := t.TempDir()

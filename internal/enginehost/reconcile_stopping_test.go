@@ -69,7 +69,7 @@ func TestReconcileLeavesStoppingDrainingRowToItsPump(t *testing.T) {
 	entered := make(chan struct{})
 	rig.manager.Close()
 	applier := &enteredTurnEnd{inner: hold, entered: entered}
-	writer := NewWriter(WriterConfig{Applier: applier, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: applier})
 	startRun(t, writer)
 	sink := &fakeSink{}
 	restarted := newDrainManager(t, &rowsAfterEntry{Store: rig.store, entered: entered}, writer, sink, rig.root,

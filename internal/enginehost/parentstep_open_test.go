@@ -89,7 +89,7 @@ func newParentRig(t *testing.T) parentRig {
 		clearHolderDirs(t, root)
 		clearHolderDirs(t, gateRoot)
 	})
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	home := t.TempDir()
 	writeStepAgents(t, home)

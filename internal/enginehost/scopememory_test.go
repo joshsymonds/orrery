@@ -129,7 +129,7 @@ func TestStartWithHolderScopeMemoryCapsTheSessionsScope(t *testing.T) {
 		t.Fatalf("find sh: %v", err)
 	}
 	s, path := openStore(t)
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	m := NewManager(Config{
 		Shell:  sh,

@@ -58,7 +58,7 @@ func newStepJudgeRig(t *testing.T) *stepJudgeRig {
 func (r *stepJudgeRig) build(t *testing.T) {
 	t.Helper()
 	r.applier = &crashApplier{inner: r.store}
-	writer := NewWriter(WriterConfig{Applier: r.applier, Tick: 5 * time.Millisecond, Now: r.clock.now})
+	writer := NewWriter(WriterConfig{Applier: r.applier, Now: r.clock.now})
 	startRun(t, writer)
 	r.manager = newRigManager(t, r.stepsRig, writer)
 	steps, err := NewSteps(StepsConfig{

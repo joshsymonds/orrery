@@ -17,7 +17,9 @@ import (
 )
 
 const (
-	defaultTick  = 100 * time.Millisecond
+	// defaultRetry is how long ops the Applier refused wait before they are sent again, when the config names no
+	// positive Retry.
+	defaultRetry = 100 * time.Millisecond
 	defaultLimit = 256
 )
 
@@ -35,15 +37,18 @@ type Applier interface {
 	ApplyEngine(ctx context.Context, ops []store.EngineOp, now time.Time) error
 }
 
-// WriterConfig configures a Writer. A zero Tick is 100 ms and a zero Limit is 256. A nil Now is time.Now, a nil
+// WriterConfig configures a Writer. Retry is how long ops the Applier refused wait before they are sent again, and a
+// Retry that is not positive means 100 ms. NewTimer arms a timer that sends on its channel once, after a duration, and
+// returns the timer's stop; a nil NewTimer wraps time.NewTimer. A zero Limit is 256. A nil Now is time.Now, a nil
 // Logger discards, and a nil Metrics records nothing.
 type WriterConfig struct {
-	Applier Applier
-	Tick    time.Duration
-	Limit   int
-	Now     func() time.Time
-	Logger  *slog.Logger
-	Metrics *telemetry.Daemon
+	Applier  Applier
+	Retry    time.Duration
+	NewTimer func(time.Duration) (<-chan time.Time, func() bool)
+	Limit    int
+	Now      func() time.Time
+	Logger   *slog.Logger
+	Metrics  *telemetry.Daemon
 }
 
 // outcome is how one queued op ends. done is closed once the op is stored or dropped. err is set before done is
@@ -68,20 +73,24 @@ type textKey struct {
 	parentToolUseID string
 }
 
-// Writer stores queued engine ops. Each tick it sends every queued op, from every session, to Applier in one call.
-// Ops the Applier refuses stay queued in order and are sent again on the next tick, except an op whose session row is
-// gone (store.ErrNoEngineSession) or whose step row is gone (store.ErrNoStep): that op is dropped, never sent again,
-// and its Commit fails.
+// Writer stores queued engine ops. Each flush sends every queued op, from every session, to Applier in one call. A
+// Put, Commit or CommitAll wakes Run to flush at once. Ops the Applier refuses stay queued in order, and are sent again
+// when the retry timer fires, except an op whose session row is gone (store.ErrNoEngineSession) or whose step row is
+// gone (store.ErrNoStep): that op is dropped, never sent again, and its Commit fails.
 type Writer struct {
-	applier Applier
-	tick    time.Duration
-	limit   int
-	now     func() time.Time
-	logger  *slog.Logger
-	metrics *telemetry.Daemon
+	applier  Applier
+	retry    time.Duration
+	newTimer func(time.Duration) (<-chan time.Time, func() bool)
+	limit    int
+	now      func() time.Time
+	logger   *slog.Logger
+	metrics  *telemetry.Daemon
 
 	// failing is read and written only by flush, which only Run calls.
 	failing bool
+	// wake holds one pending wake. putAll fills it after it queues ops, and Run takes it to flush, so a wake that comes
+	// while one is pending is absorbed by that one.
+	wake chan struct{}
 
 	mu sync.Mutex
 	// queue holds the ops not yet in an ApplyEngine call that succeeded, oldest first. A flush takes the whole
@@ -105,17 +114,25 @@ type Writer struct {
 func NewWriter(cfg WriterConfig) *Writer {
 	writer := &Writer{
 		applier:  cfg.Applier,
-		tick:     cfg.Tick,
+		retry:    cfg.Retry,
+		newTimer: cfg.NewTimer,
 		limit:    cfg.Limit,
 		now:      cfg.Now,
 		logger:   cfg.Logger,
 		metrics:  cfg.Metrics,
 		unstored: map[string]int{},
 		changed:  make(chan struct{}),
+		wake:     make(chan struct{}, 1),
 		stopped:  make(chan struct{}),
 	}
-	if writer.tick <= 0 {
-		writer.tick = defaultTick
+	if writer.retry <= 0 {
+		writer.retry = defaultRetry
+	}
+	if writer.newTimer == nil {
+		writer.newTimer = func(d time.Duration) (<-chan time.Time, func() bool) {
+			timer := time.NewTimer(d)
+			return timer.C, timer.Stop
+		}
 	}
 	if writer.limit <= 0 {
 		writer.limit = defaultLimit
@@ -129,13 +146,19 @@ func NewWriter(cfg WriterConfig) *Writer {
 	return writer
 }
 
-// Run stores queued ops once per tick until ctx ends, then makes one last flush attempt on a context that ignores
-// ctx's cancellation, and returns. A Put or Commit that would queue once that last flush has begun returns
-// ErrWriterStopped. Run runs once.
+// Run stores queued ops each time a Put, Commit or CommitAll wakes it, and when the retry timer fires, until ctx ends.
+// Then it makes one last flush attempt on a context that ignores ctx's cancellation, and returns. A Put or Commit that
+// would queue once that last flush has begun returns ErrWriterStopped. Run stops the armed retry timer when it returns.
+// Run runs once.
 func (w *Writer) Run(ctx context.Context) {
 	defer close(w.stopped)
-	ticker := time.NewTicker(w.tick)
-	defer ticker.Stop()
+	var retry <-chan time.Time
+	var stopRetry func() bool
+	defer func() {
+		if stopRetry != nil {
+			stopRetry()
+		}
+	}()
 	// No flush runs on a context ctx's cancellation reaches: a store write canceled during its commit can report an
 	// error for a batch SQLite committed, which would queue that batch and store it twice. The store's busy timeout
 	// bounds each write instead.
@@ -148,8 +171,16 @@ func (w *Writer) Run(ctx context.Context) {
 			w.mu.Unlock()
 			w.flush(flushCtx)
 			return
-		case <-ticker.C:
-			w.flush(flushCtx)
+		case <-w.wake:
+			// While the retry timer is armed, a wake does not flush: the refused ops wait for the timer.
+			if retry != nil {
+				continue
+			}
+		case <-retry:
+			retry, stopRetry = nil, nil
+		}
+		if w.flush(flushCtx) {
+			retry, stopRetry = w.newTimer(w.retry)
 		}
 	}
 }
@@ -183,9 +214,9 @@ func (w *Writer) Commit(ctx context.Context, id string, ops ...store.EngineOp) e
 
 // CommitAll queues every group's ops like Commit does for one session, then returns once they are all stored. It
 // waits for room under the limit for every group before queueing any, and queues them all under one hold of the lock,
-// so one tick stores them in one ApplyEngine call. It returns one error per group, in order: nil when every op of the
-// group was stored, or the error of its dropped op. A dropped op does not stop the other groups. When queueing or
-// waiting fails, it returns a nil slice and that error.
+// so the flush their wake starts stores them in one ApplyEngine call. It returns one error per group, in order: nil
+// when every op of the group was stored, or the error of its dropped op. A dropped op does not stop the other groups.
+// When queueing or waiting fails, it returns a nil slice and that error.
 func (w *Writer) CommitAll(ctx context.Context, groups []SessionOps) ([]error, error) {
 	if !slices.ContainsFunc(groups, hasOps) {
 		return make([]error, len(groups)), nil
@@ -246,6 +277,11 @@ func (w *Writer) putAll(ctx context.Context, groups []SessionOps) ([][]*outcome,
 		for _, op := range group.Ops {
 			results[i] = append(results[i], w.enqueueLocked(group.ID, op))
 		}
+	}
+	// Wake Run to flush what is queued. A wake that finds one pending is absorbed by it.
+	select {
+	case w.wake <- struct{}{}:
+	default:
 	}
 	return results, nil
 }
@@ -367,9 +403,9 @@ func blockOf(messageID string, index int, parentToolUseID string) textKey {
 
 // flush sends every queued op in one ApplyEngine call. An op whose session or step row is gone is dropped, and the
 // rest are sent again in the same flush, so it never holds up the others. On any other failure flush puts the ops
-// back at the front of the queue for the next flush. Each flush that stores or drops ops wakes the Puts blocked at the
-// limit. Each flush also records the backlog age once it has finished.
-func (w *Writer) flush(ctx context.Context) {
+// back at the front of the queue to be sent again when the retry timer fires, and returns true. Each flush that stores
+// or drops ops wakes the Puts blocked at the limit. Each flush also records the backlog age once it has finished.
+func (w *Writer) flush(ctx context.Context) bool {
 	defer w.recordBacklog(ctx)
 	w.mu.Lock()
 	batch := w.queue
@@ -377,7 +413,7 @@ func (w *Writer) flush(ctx context.Context) {
 	w.inFlight = len(batch) > 0
 	w.mu.Unlock()
 	if len(batch) == 0 {
-		return
+		return false
 	}
 
 	var dropped []entry
@@ -423,6 +459,7 @@ func (w *Writer) flush(ctx context.Context) {
 		close(w.changed)
 		w.changed = make(chan struct{})
 	}
+	return err != nil
 }
 
 // settleLocked closes the outcome of an op that is stored or dropped, and frees its session's slot when it counted

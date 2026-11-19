@@ -32,7 +32,7 @@ func newGateLimitTestFixture(t *testing.T, caller haikuCaller, sessions *stepLoo
 	}, time.Unix(1, 0)); err != nil {
 		t.Fatalf("add step row: %v", err)
 	}
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	sessions.writer = writer
 	f := &watchLoopFixture{

@@ -12,7 +12,6 @@ import (
 	"sync"
 	"syscall"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/engine/session"
 	"github.com/joshsymonds/orrery/internal/gates"
@@ -60,7 +59,7 @@ type stepCtlFixture struct {
 func newStepCtlFixture(t *testing.T) *stepCtlFixture {
 	t.Helper()
 	s, _ := openStore(t)
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	home := t.TempDir()
 	stepGateMachinePoolsFile(t, home, "pool_a", "pool_b", gates.DefaultPool)

@@ -49,7 +49,7 @@ func TestQuietRestartQuietBeforeSayAndNotResumed(t *testing.T) {
 	dir := t.TempDir()
 	seedQuietRow(t, s, "quiet", dir)
 	requireEngineRows(t, s, map[string]restartRow{"quiet": {state: "working"}})
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	sink := &fakeSink{}
 	m := newReconcileManager(t, s, writer, sink)
@@ -88,7 +88,7 @@ func TestQuietRestartCallerEventAndCronHeldUntilOwnerSays(t *testing.T) {
 	s, path := openStore(t)
 	dir := t.TempDir()
 	seedQuietRow(t, s, "quiet", dir)
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	m := newReconcileManager(t, s, writer, &fakeSink{})
 	if err := m.Reconcile(t.Context()); err != nil {
@@ -159,7 +159,7 @@ func TestQuietRestartOwnerPromptNewerIsNotQuiet(t *testing.T) {
 		t.Fatalf("seed owner prompt after interrupt: %v", err)
 	}
 	stallNextPrompt(t, dir)
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	sink := &fakeSink{}
 	m := newReconcileManager(t, s, writer, sink)
@@ -183,7 +183,7 @@ func TestQuietRestartFailedQuietReadResumesNoRow(t *testing.T) {
 	s, _ := openStore(t)
 	dir := t.TempDir()
 	seedClaudeRow(t, s, "working", dir, "working", store.KindEngine)
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	sink := &fakeSink{}
 	m := newReconcileManager(t, quietFailingStore{Store: s, err: errQuiet}, writer, sink)

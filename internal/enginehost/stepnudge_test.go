@@ -116,7 +116,7 @@ type stepNudgeFixture struct {
 func newStepNudgeFixture(t *testing.T) *stepNudgeFixture {
 	t.Helper()
 	s, _ := openStore(t)
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	sessions := &nudgeSessions{stepStartSessions: &stepStartSessions{writer: writer}}
 	steps, err := NewSteps(StepsConfig{

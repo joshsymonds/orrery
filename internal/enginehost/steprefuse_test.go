@@ -11,7 +11,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/agents"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -57,7 +56,7 @@ func newRefusalFixture(t *testing.T, stepCap int) *refusalFixture {
 	s, _ := openStore(t)
 	log := &refusalLog{}
 	logger := slog.New(slog.NewTextHandler(log, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond, Logger: logger})
+	writer := NewWriter(WriterConfig{Applier: s, Logger: logger})
 	startRun(t, writer)
 	home := t.TempDir()
 	writeStepAgents(t, home)

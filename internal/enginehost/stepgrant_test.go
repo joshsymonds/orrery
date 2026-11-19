@@ -10,7 +10,6 @@ import (
 	"reflect"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/gates"
 	"github.com/joshsymonds/orrery/internal/grants"
@@ -32,7 +31,7 @@ type stepGrantFixture struct {
 func newStepGrantFixture(t *testing.T, commands PoolCommands, poolsText string) *stepGrantFixture {
 	t.Helper()
 	s, _ := openStore(t)
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	sessions := &stepStartSessions{writer: writer}
 	home := t.TempDir()

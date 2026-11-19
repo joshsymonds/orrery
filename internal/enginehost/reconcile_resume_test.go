@@ -111,7 +111,7 @@ func TestReconcileResumesWorkingRowWithClaudeSession(t *testing.T) {
 	dir := t.TempDir()
 	seedClaudeRow(t, s, "working", dir, "working", store.KindEngine)
 	stallNextPrompt(t, dir)
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	sink := &fakeSink{}
 	m := newReconcileManager(t, s, writer, sink)
@@ -128,7 +128,7 @@ func TestReconcileDoesNotResumeWaitingRow(t *testing.T) {
 	s, _ := openStore(t)
 	dir := t.TempDir()
 	seedClaudeRow(t, s, "waiting", dir, "waiting", store.KindEngine)
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	sink := &fakeSink{}
 	m := newReconcileManager(t, s, writer, sink)
@@ -161,7 +161,7 @@ func TestReconcileDoesNotResumeTurnResumedAlready(t *testing.T) {
 	}, time.Unix(2, 0)); err != nil {
 		t.Fatalf("seed resume prompt: %v", err)
 	}
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	sink := &fakeSink{}
 	m := newReconcileManager(t, s, writer, sink)
@@ -187,7 +187,7 @@ func TestReconcileDoesNotResumeStepRow(t *testing.T) {
 	s, _ := openStore(t)
 	dir := t.TempDir()
 	seedClaudeRow(t, s, "step", dir, "working", store.KindStep)
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	sink := &fakeSink{}
 	m := newReconcileManager(t, s, writer, sink)
@@ -210,7 +210,7 @@ func TestReconcileDoesNotResumeStepRow(t *testing.T) {
 func TestReconcileInterruptsWorkingRowWhenCapRefusesResume(t *testing.T) {
 	t.Parallel()
 	s, _ := openStore(t)
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	sink := &fakeSink{}
 	m := newReconcileManager(t, s, writer, sink)
@@ -252,7 +252,7 @@ func TestReconcileNotifiesOnlyFailureWhenResumeFails(t *testing.T) {
 	// The row's directory does not exist, so the resume fails before claude starts.
 	dir := filepath.Join(t.TempDir(), "missing")
 	seedClaudeRow(t, s, "working", dir, "working", store.KindEngine)
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	sink := &fakeSink{}
 	m := newReconcileManager(t, s, writer, sink)

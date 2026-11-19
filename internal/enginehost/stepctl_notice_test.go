@@ -69,7 +69,6 @@ func TestStepsReconcileEndsTheKeptStepWhenAnotherEndIsDropped(t *testing.T) {
 
 	writer := NewWriter(WriterConfig{
 		Applier: &stepCtlDropApplier{db: f.store, dropID: dropped},
-		Tick:    5 * time.Millisecond,
 	})
 	startRun(t, writer)
 	restarted := f.restartSteps(t, writer)

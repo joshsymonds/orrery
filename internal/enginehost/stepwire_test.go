@@ -44,7 +44,7 @@ type stepWireFixture struct {
 func newStepWireFixture(t *testing.T, haiku *Haiku) *stepWireFixture {
 	t.Helper()
 	s, _ := openStore(t)
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	clock := &watchLoopClock{at: watchEpoch()}
 	sessions := &stepWireSessions{stepStartSessions: &stepStartSessions{writer: writer}}

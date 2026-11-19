@@ -104,7 +104,7 @@ func TestReconcileInterruptsTurnsAndClearsTextOfRowsWithoutProcess(t *testing.T)
 	t.Parallel()
 	s, path := openStore(t)
 	seedRestartRows(t, s)
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	sink := &fakeSink{}
 	m := newReconcileManager(t, s, writer, sink)
@@ -147,7 +147,7 @@ func TestReconcileSecondRunChangesNothingAndNotifiesNothing(t *testing.T) {
 	t.Parallel()
 	s, path := openStore(t)
 	seedRestartRows(t, s)
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	sink := &fakeSink{}
 	m := newReconcileManager(t, s, writer, sink)
@@ -235,7 +235,7 @@ func (f failingStore) DeleteSessionCronJobs(context.Context, string) (int, error
 func TestReconcileReturnsReadError(t *testing.T) {
 	t.Parallel()
 	errRead := errors.New("read failed")
-	writer := NewWriter(WriterConfig{Tick: time.Hour})
+	writer := NewWriter(WriterConfig{})
 	m := newReconcileManager(t, failingStore{err: errRead}, writer, &fakeSink{})
 
 	if err := m.Reconcile(t.Context()); !errors.Is(err, errRead) {
@@ -247,7 +247,7 @@ func TestReconcileReturnsWriteErrorAndNotifiesNothing(t *testing.T) {
 	t.Parallel()
 	s, _ := openStore(t)
 	seedRestartRows(t, s)
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	stop := startRun(t, writer)
 	stop()
 	sink := &fakeSink{}
@@ -264,7 +264,7 @@ func TestReconcileReturnsWriteErrorAndNotifiesNothing(t *testing.T) {
 func TestReconcileLeavesLiveSessionAlone(t *testing.T) {
 	t.Parallel()
 	s, path := openStore(t)
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	sink := &fakeSink{}
 	m := newReconcileManager(t, s, writer, sink)
@@ -309,7 +309,7 @@ func TestReconcileSettlesStepRowSilently(t *testing.T) {
 	}, time.Unix(1, 0)); err != nil {
 		t.Fatalf("seed engine rows: %v", err)
 	}
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	sink := &fakeSink{}
 	m := newReconcileManager(t, s, writer, sink)
@@ -578,77 +578,66 @@ func requireSettledOps(t *testing.T, applier *countingApplier, rows []mixedRow) 
 
 func TestReconcileSettlesMixedRowsInOneWrite(t *testing.T) {
 	t.Parallel()
-	for _, tc := range []struct {
-		name string
-		tick time.Duration
-	}{
-		{name: "1 ms tick", tick: time.Millisecond},
-		{name: "default tick", tick: 0},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			s, path := openStore(t)
-			rows := mixedRows(reconcileMixedRows)
-			seedMixedRows(t, path, rows)
-			applier := &countingApplier{store: s}
-			writer := NewWriter(WriterConfig{Applier: applier, Tick: tc.tick})
-			startRun(t, writer)
-			sink := &fakeSink{}
-			m := newReconcileManager(t, s, writer, sink)
-			var skippedIDs []string
-			for _, row := range rows {
-				if row.skipped() {
-					skippedIDs = append(skippedIDs, row.id)
-				}
-			}
-			eventsBefore := eventCounts(t, path, skippedIDs)
+	s, path := openStore(t)
+	rows := mixedRows(reconcileMixedRows)
+	seedMixedRows(t, path, rows)
+	applier := &countingApplier{store: s}
+	writer := NewWriter(WriterConfig{Applier: applier})
+	startRun(t, writer)
+	sink := &fakeSink{}
+	m := newReconcileManager(t, s, writer, sink)
+	var skippedIDs []string
+	for _, row := range rows {
+		if row.skipped() {
+			skippedIDs = append(skippedIDs, row.id)
+		}
+	}
+	eventsBefore := eventCounts(t, path, skippedIDs)
 
-			// Reconcile has no deadline: settling 10,000 rows is real store work whose time is the machine's, and the
-			// test binary's timeout ends a Reconcile that never returns.
-			if err := m.Reconcile(t.Context()); err != nil {
-				t.Fatalf("Reconcile: %v", err)
-			}
+	// Reconcile has no deadline: settling 10,000 rows is real store work whose time is the machine's, and the
+	// test binary's timeout ends a Reconcile that never returns.
+	if err := m.Reconcile(t.Context()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
 
-			requireSettledOps(t, applier, rows)
-			eventsAfter := eventCounts(t, path, skippedIDs)
-			for _, row := range rows {
-				if row.skipped() && eventsAfter[row.id] != eventsBefore[row.id] {
-					t.Fatalf("events of skipped row %s = %d, want %d",
-						row.id, eventsAfter[row.id], eventsBefore[row.id])
-				}
-			}
-			wantRows := make(map[string]restartRow, len(rows))
-			for _, row := range rows {
-				wantRows[row.id] = row.settled()
-			}
-			requireEngineRows(t, s, wantRows)
-			if n := countRows(t, path, "engine_text"); n != 0 {
-				t.Fatalf("unfinished text rows after Reconcile = %d, want 0", n)
-			}
+	requireSettledOps(t, applier, rows)
+	eventsAfter := eventCounts(t, path, skippedIDs)
+	for _, row := range rows {
+		if row.skipped() && eventsAfter[row.id] != eventsBefore[row.id] {
+			t.Fatalf("events of skipped row %s = %d, want %d",
+				row.id, eventsAfter[row.id], eventsBefore[row.id])
+		}
+	}
+	wantRows := make(map[string]restartRow, len(rows))
+	for _, row := range rows {
+		wantRows[row.id] = row.settled()
+	}
+	requireEngineRows(t, s, wantRows)
+	if n := countRows(t, path, "engine_text"); n != 0 {
+		t.Fatalf("unfinished text rows after Reconcile = %d, want 0", n)
+	}
 
-			wantNotices := map[string]Notice{}
-			for _, row := range rows {
-				if row.turning() && row.kind == store.KindEngine {
-					wantNotices[row.id] = Notice{Session: row.id, Dir: "/work", State: "interrupted",
-						Body: "orreryd restarted during the turn"}
-				}
-			}
-			got := sink.got()
-			if len(got) != len(wantNotices) {
-				t.Fatalf("notices = %d, want %d, one for each working and waiting engine row",
-					len(got), len(wantNotices))
-			}
-			for _, notice := range got {
-				wantNotice, ok := wantNotices[notice.Session]
-				if !ok {
-					t.Fatalf("unexpected notice %+v", notice)
-				}
-				if notice != wantNotice {
-					t.Fatalf("notice = %+v, want %+v", notice, wantNotice)
-				}
-				delete(wantNotices, notice.Session)
-			}
-		})
+	wantNotices := map[string]Notice{}
+	for _, row := range rows {
+		if row.turning() && row.kind == store.KindEngine {
+			wantNotices[row.id] = Notice{Session: row.id, Dir: "/work", State: "interrupted",
+				Body: "orreryd restarted during the turn"}
+		}
+	}
+	got := sink.got()
+	if len(got) != len(wantNotices) {
+		t.Fatalf("notices = %d, want %d, one for each working and waiting engine row",
+			len(got), len(wantNotices))
+	}
+	for _, notice := range got {
+		wantNotice, ok := wantNotices[notice.Session]
+		if !ok {
+			t.Fatalf("unexpected notice %+v", notice)
+		}
+		if notice != wantNotice {
+			t.Fatalf("notice = %+v, want %+v", notice, wantNotice)
+		}
+		delete(wantNotices, notice.Session)
 	}
 }
 
@@ -671,7 +660,7 @@ func TestReconcileDroppedGroupStopsNoOtherRow(t *testing.T) {
 	t.Parallel()
 	s, path := openStore(t)
 	seedRestartRows(t, s)
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	sink := &fakeSink{}
 	ghost := ghostStore{Store: s, ghost: store.EngineRow{
@@ -705,7 +694,7 @@ func TestReconcileTextReadErrorClearsEverySettledRow(t *testing.T) {
 	errText := errors.New("text read failed")
 	s, path := openStore(t)
 	seedRestartRows(t, s)
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	sink := &fakeSink{}
 	m := newReconcileManager(t, textFailingStore{Store: s, err: errText}, writer, sink)
@@ -742,7 +731,7 @@ func TestReconcileReadsEveryRowOnce(t *testing.T) {
 	t.Parallel()
 	s, _ := openStore(t)
 	seedRestartRows(t, s)
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	rows := &countingRows{Store: s}
 	m := newReconcileManager(t, rows, writer, &fakeSink{})

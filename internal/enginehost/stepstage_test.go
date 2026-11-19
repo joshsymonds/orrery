@@ -49,7 +49,7 @@ func newStepStageRig(t *testing.T) *stepStageRig {
 // set, the Steps' pools queue each gate's grant until the test closes the queue; otherwise they grant at once.
 func (r *stepStageRig) build(t *testing.T, applier Applier, queued bool) {
 	t.Helper()
-	writer := NewWriter(WriterConfig{Applier: applier, Tick: 5 * time.Millisecond, Now: r.clock.now})
+	writer := NewWriter(WriterConfig{Applier: applier, Now: r.clock.now})
 	startRun(t, writer)
 	r.manager = newRigManager(t, r.stepsRig, writer)
 	r.pools = &fakeGatePools{}
