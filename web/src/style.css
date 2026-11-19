@@ -933,7 +933,7 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 .worker-session > .reader { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 
 /* On a phone, a button, input or select takes the touch height. Controls inside a line keep their own 24 (.back, .notice-dismiss, the crumbs, the folds and the other in-line buttons): their class selectors outrank this element rule. */
-@media (max-width: 759px) {
+@media (width < 760px) {
   button, input, select { min-height: var(--o-size-control-touch); }
 }
 
