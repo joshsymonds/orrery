@@ -473,3 +473,27 @@ func TestStepEndSummaryOfOtherResults(t *testing.T) {
 		}
 	}
 }
+
+// TestStepEndReasonIsItsFirstLineCut checks that a step end's event tells the step's reason by its first line, cut to
+// stepReasonCap runes, so a failed gate's output tails in the reason never reach the caller's context.
+func TestStepEndReasonIsItsFirstLineCut(t *testing.T) {
+	t.Parallel()
+	long := strings.Repeat("z", 3000)
+	for _, tc := range []struct{ name, reason, want string }{
+		{"one line", "gate green", "gate green"},
+		{"empty", "", ""},
+		{"long line", long, strings.Repeat("z", stepReasonCap) + "..."},
+		{"gate tails", "gate: exit 1\nstdout: " + long + "\nstderr: " + long, "gate: exit 1..."},
+		{"trailing newline", "gate green\n", "gate green"},
+	} {
+		if got := stepReason(tc.reason); got != tc.want {
+			t.Errorf("%s: stepReason = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+	body := stepEndBody(store.StepRow{ID: "s1", End: "checks_failed", Reason: "gate: exit 1\n" + long, Agent: "a"})
+	lines := strings.Split(body, "\n")
+	want := "Step s1 ended: end checks_failed, status , reason gate: exit 1...."
+	if lines[0] != want || lines[1] != "Agent: a" {
+		t.Errorf("stepEndBody's first lines = %q, %q; want %q, %q", lines[0], lines[1], want, "Agent: a")
+	}
+}
