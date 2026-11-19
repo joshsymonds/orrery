@@ -302,10 +302,10 @@ func (packageGit) RemoveWorktrees(ctx context.Context, repo, dir string) error {
 	return RemoveWorktrees(ctx, repo, dir)
 }
 
-// Config configures a Runner. A Tick that is not positive means five seconds, and a nil Now means time.Now. A nil
-// Logger discards, and a nil Getenv means os.Getenv. StateDir is the directory the task worktrees live under. A nil Git
-// makes the repository writes through the package's own functions. Checks runs the reproductions of test items, and a
-// test item whose green unit needs one has no reproduction without it.
+// Config configures a Runner. A nil Now means time.Now. A nil Logger discards, and a nil Getenv means os.Getenv.
+// StateDir is the directory the task worktrees live under. A nil Git makes the repository writes through the package's
+// own functions. Checks runs the reproductions of test items, and a test item whose green unit needs one has no
+// reproduction without it.
 type Config struct {
 	Store    Store
 	Steps    Steps
@@ -314,12 +314,11 @@ type Config struct {
 	Getenv   func(string) string
 	StateDir string
 	Git      Git
-	Tick     time.Duration
 	Now      func() time.Time
 	Logger   *slog.Logger
 }
 
-// Runner moves the builds of the tasks of accepted epics, one pass per tick.
+// Runner moves the builds of the tasks of accepted epics, one pass each time the epic flow calls PassTasks.
 type Runner struct {
 	store    Store
 	steps    Steps
@@ -328,25 +327,18 @@ type Runner struct {
 	getenv   func(string) string
 	stateDir string
 	git      Git
-	tick     time.Duration
 	now      func() time.Time
 	logger   *slog.Logger
 }
-
-// defaultTick is how often a Runner passes when its Config names no positive tick.
-const defaultTick = 5 * time.Second
 
 // New returns a Runner for cfg, with the defaults Config documents filled in.
 func New(cfg Config) *Runner {
 	runner := &Runner{
 		store: cfg.Store, steps: cfg.Steps, evidence: cfg.Evidence, checks: cfg.Checks, getenv: cfg.Getenv,
-		stateDir: cfg.StateDir, git: cfg.Git, tick: cfg.Tick, now: cfg.Now, logger: cfg.Logger,
+		stateDir: cfg.StateDir, git: cfg.Git, now: cfg.Now, logger: cfg.Logger,
 	}
 	if runner.git == nil {
 		runner.git = packageGit{}
-	}
-	if runner.tick <= 0 {
-		runner.tick = defaultTick
 	}
 	if runner.getenv == nil {
 		runner.getenv = os.Getenv
