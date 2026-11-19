@@ -374,12 +374,13 @@ func (r *stepRun) tick(ctx context.Context) bool {
 }
 
 // resume takes up a re-adopted step from restore. Its loop state is restored, and the watch's turn is marked running
-// when no turn end was found. A limited row is restored as limited, and its stored turn end is not handled again. A turn
-// end its latest return covers goes to resumeReturn. A turn end stored while a background task is listed is a return
-// only when it has the done value, as Manager.noteEvent hands one, so any other such turn end is left unread and the
-// step waits with no turn running, as a live step does. A stored latest return that is not done is likewise left open
-// while a step the run started runs, as resumeReturn leaves it (see awaitingChildren), so the step waits the same way.
-// Any other turn end is handled as one the session has just given. It reports whether the run goes on.
+// when no turn end was found. A limited row is restored as limited, and its stored turn end is not handled again. A
+// turn end its latest return covers goes to resumeReturn. A turn end stored while a background task that runs a model
+// is listed is a return only when it has the done value, as Manager.noteEvent hands one, so any other such turn end is
+// left unread and the step waits with no turn running, as a live step does. A stored latest return that is not done is
+// likewise left open while a step the run started runs, as resumeReturn leaves it (see awaitingChildren), so the step
+// waits the same way. Any other turn end is handled as one the session has just given. It reports whether the run goes
+// on.
 func (r *stepRun) resume(ctx context.Context, restore stepRestore) bool {
 	row := restore.Row
 	r.round = row.LoopRound
@@ -406,7 +407,7 @@ func (r *stepRun) resume(ctx context.Context, restore stepRestore) bool {
 		return true
 	case restore.Turn.Returned:
 		return r.resumeReturn(ctx, row)
-	case restore.Turn.Background && !r.Done(ended):
+	case restore.Turn.Awaited && !r.Done(ended):
 		return true
 	}
 	return r.turnEnded(ctx, ended)

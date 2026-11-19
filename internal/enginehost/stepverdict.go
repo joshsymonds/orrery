@@ -30,11 +30,15 @@ type verdictResult struct {
 	Assertion string `json:"assertion"`
 	Kind      string `json:"kind"`
 	Result    string `json:"result"`
+	Evidence  string `json:"evidence"`
 }
 
-// verdictFinding is one entry of a return's findings. Only the assertion it cites is read.
+// verdictFinding is one entry of a return's findings. The assertion it cites is read to match a result, and its claim and
+// evidence are the reasoning a judge's verdict keeps.
 type verdictFinding struct {
 	Citation string `json:"citation"`
+	Claim    string `json:"claim"`
+	Evidence string `json:"evidence"`
 }
 
 // assertionsCheck checks a schema-valid return of an agent gate step against the gate's assertions. It returns the

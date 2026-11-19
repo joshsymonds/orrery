@@ -471,6 +471,14 @@ type EpicTaskFinding struct {
 	Unverified int64
 }
 
+type EpicTaskRefused struct {
+	Epic     string
+	Task     int64
+	Path     string
+	Decision string
+	Created  int64
+}
+
 type EpicTaskRequirement struct {
 	Epic        string
 	Task        int64
@@ -757,6 +765,7 @@ type Session struct {
 	Title         string
 	Headline      string
 	HeadlineAt    int64
+	Awaited       bool
 }
 
 type Step struct {

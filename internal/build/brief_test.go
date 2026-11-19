@@ -316,11 +316,11 @@ func TestReviewPromptNamesRangeFilesAndRequirements(t *testing.T) {
 	}
 }
 
-// TestReviewPromptListsEachRequirementsContractCapture: a task reviewer's prompt lists, under Evidence, the task's
-// capture and then the contract capture of each Requirement the task covers, with its conclusion, so a Requirement
-// proved by a grep of a document rather than a test in the change shows the reviewer its capture. Supplied files and a
-// closure item render their own form; a Requirement the epic does not declare, or with no evidence, renders nothing.
-func TestReviewPromptListsEachRequirementsContractCapture(t *testing.T) {
+// TestReviewPromptListsOnlyTheTasksOwnEvidence: a task reviewer's prompt lists, under Evidence, the task's own evidence
+// item and nothing else, so a Requirement's contract capture, whether a capture, supplied files or a closure item, is
+// not shown: the reviewer judges the task's change and its tests as a whole. The Requirements the task claims stay
+// under Requirements, each with its text.
+func TestReviewPromptListsOnlyTheTasksOwnEvidence(t *testing.T) {
 	t.Parallel()
 	epic := briefEpic()
 	epic.Requirements = []store.EpicRequirement{
@@ -336,13 +336,22 @@ func TestReviewPromptListsEachRequirementsContractCapture(t *testing.T) {
 	task.Evidence = evidence.Item{}
 	task.Requirements = []string{"R1", "R9", "R2", "R3", "R4"}
 	got := ReviewPrompt(epic, task, "floor", "base1", "rev1", store.StepCheck{})
-	want := reviewEvidenceHeading + "\n" +
-		"- R1: docs/contract.md names the Closed by decision list (capture: grep -n 'Closed by decision' docs/contract.md)\n" +
-		"- R2: the page shows it (supplied: shot.png)\n" +
-		"- R4: F1 no longer holds (closure: the round's closure check settles it)\n" +
+	want := "Requirements:\n" +
+		"- R1: one\n" +
+		"- R2: two\n" +
+		"- R3: three\n" +
+		"- R4: four\n" +
+		reviewEvidenceHeading + "\n" +
+		"- none\n" +
 		"The change under review"
 	if !strings.Contains(got, want) {
-		t.Fatalf("review prompt lacks the Requirements' contract captures\n got:\n%s\nwant a run of:\n%s", got, want)
+		t.Fatalf("review prompt lists a Requirement's contract capture under Evidence\n got:\n%s\nwant a run of:\n%s",
+			got, want)
+	}
+	for _, shown := range []string{"docs/contract.md", "shot.png", "F1 no longer holds"} {
+		if strings.Contains(got, shown) {
+			t.Errorf("review prompt shows a Requirement's contract capture (%q):\n%s", shown, got)
+		}
 	}
 }
 
