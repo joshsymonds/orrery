@@ -280,7 +280,7 @@ func newNoteLines(decisions []store.EpicDecision, last store.EpicTurn, found boo
 	return lines
 }
 
-// questionLines returns each open question as its questionHead, then each declared choice as `  id: does`, then its
+// questionLines returns each open question as its questionHead, then each declared choice as its choiceLine, then its
 // recommendation as `  recommended: id (confidence): why` when it recommends one.
 func questionLines(questions []store.EpicQuestion) []string {
 	lines := make([]string, 0, len(questions))
@@ -290,7 +290,7 @@ func questionLines(questions []store.EpicQuestion) []string {
 		}
 		lines = append(lines, questionHead(question))
 		for _, choice := range question.Choices {
-			lines = append(lines, fmt.Sprintf("  %s: %s", choice.ID, choice.Does))
+			lines = append(lines, choiceLine(choice))
 		}
 		if question.Recommended != "" {
 			lines = append(lines, fmt.Sprintf("  recommended: %s (%s): %s",
@@ -298,6 +298,15 @@ func questionLines(questions []store.EpicQuestion) []string {
 		}
 	}
 	return lines
+}
+
+// choiceLine returns a declared choice as `  id: does`, or as `  id: does (closes a, b)` when choosing it closes the
+// findings a and b.
+func choiceLine(choice store.EpicChoice) string {
+	if len(choice.Closes) == 0 {
+		return fmt.Sprintf("  %s: %s", choice.ID, choice.Does)
+	}
+	return fmt.Sprintf("  %s: %s (closes %s)", choice.ID, choice.Does, strings.Join(choice.Closes, ", "))
 }
 
 // questionHead returns question q as `- Qseq (park): text` when it is a park question, as

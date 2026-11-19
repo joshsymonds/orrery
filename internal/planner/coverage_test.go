@@ -155,7 +155,7 @@ func TestReturnCheckAppendsCoverageLines(t *testing.T) {
 		Requirements: []store.EpicRequirement{{ID: "R1"}, {ID: "R2"}},
 		Tasks:        []store.EpicTask{storedClaim(1, "open", "R1")},
 	}
-	check := returnCheck(context.Background(), epic, testResolver{})
+	check := returnCheck(context.Background(), epic, store.Review{}, testResolver{})
 	const plan = `{"status":"done","decisions":[],"tasks":[{"title":"Touch a","deliverable":"d",` +
 		`"files":["internal/a.go"],"requirements":["R1","R9"],"gate":"check",` +
 		`"evidence":{"capture":["scripts/check"],"limit":60,"artifacts":[],"supplied":[],"conclusion":"c",` +

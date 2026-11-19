@@ -114,6 +114,39 @@ func checkClosureTasks(ret Return, phase string) []string {
 	return refusals
 }
 
+// checkCloses returns the refusals of the findings the choices of ret's questions close, for an epic in phase whose
+// next closure round checks the findings open. A choice closes findings only in a correction round, so outside
+// phaseCorrecting each choice that closes any gets one line. In it, each id that is not an open finding gets one line,
+// which lists the open findings, so a choice never names a finding that no closure round would close.
+func checkCloses(ret Return, phase string, open []string) []string {
+	var refusals []string
+	for i, question := range ret.Questions {
+		for j, choice := range question.Choices {
+			closes := closesOf(choice.Closes)
+			if len(closes) == 0 {
+				continue
+			}
+			prefix := fmt.Sprintf(`questions[%d] "%s" choices[%d].closes`, i, question.Label, j)
+			if phase != phaseCorrecting {
+				refusals = append(refusals, fmt.Sprintf(
+					"%s: a choice closes findings only in a correction round; this epic is in phase %s", prefix, phase))
+				continue
+			}
+			listed := "no finding is open"
+			if len(open) > 0 {
+				listed = "open: " + strings.Join(open, ", ")
+			}
+			for k, finding := range closes {
+				if finding != "" && !slices.Contains(open, finding) {
+					refusals = append(refusals, fmt.Sprintf("%s[%d]: %s is not an open finding of the ledger (%s)",
+						prefix, k, finding, listed))
+				}
+			}
+		}
+	}
+	return refusals
+}
+
 // checkPark returns the refusal of a return that answers no park: one with no action and no question. park is the
 // reason of the planner-class park the epic holds, or "" when it holds none, and then every return passes. The line names
 // the actions field and the reason, so the planner sees which park its return must answer.
