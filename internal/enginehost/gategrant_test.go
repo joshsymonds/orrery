@@ -14,24 +14,25 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/joshsymonds/orrery/internal/grants"
 	"github.com/joshsymonds/orrery/internal/waittest"
 )
-
-// gateGrantPoll is how often a test reads the fake pools while it waits for a request to reach them.
-const gateGrantPoll = 10 * time.Millisecond
 
 // fakeGatePools is a PoolCommands that grants at once. Each Acquire records its request. A grant holds one member for
 // each need, named <pool>-1 up to the need's count, and a reclaim keeps the grant id it names. A value sent to stop makes
 // the granted call send a stop, and a value sent to drop makes the granted call return that error. onEnd runs when the
 // granted call's ctx ends, before the call returns. queue, when not nil, holds each Acquire until it is closed or its ctx
-// ends. err, when not nil, is what Acquire returns without queuing.
+// ends. err, when not nil, is what Acquire returns without queuing. firstRequest, when not nil, is closed once the first
+// Acquire has recorded its request, before it queues or returns.
 type fakeGatePools struct {
-	queue chan struct{}
-	err   error
-	stop  chan struct{}
-	drop  chan error
-	onEnd func()
+	queue        chan struct{}
+	err          error
+	stop         chan struct{}
+	drop         chan error
+	onEnd        func()
+	firstRequest chan struct{}
 
 	mu       sync.Mutex
 	requests []grants.Request
@@ -43,6 +44,9 @@ type fakeGatePools struct {
 func (f *fakeGatePools) Acquire(ctx context.Context, req grants.Request, send func(grants.Event) error) error {
 	f.mu.Lock()
 	f.requests = append(f.requests, req)
+	if len(f.requests) == 1 && f.firstRequest != nil {
+		close(f.firstRequest)
+	}
 	id := req.GrantID
 	if id == "" {
 		id = fmt.Sprintf("grant-%d", len(f.requests))
@@ -140,8 +144,8 @@ func gateGrantRequest() grants.Request {
 }
 
 // gateGroupGoneAtEnd returns an onEnd hook that checks the group and background child a gate wrote to pids have exited
-// when the grant's ctx ends. A SIGKILL is delivered asynchronously, so the hook polls. It reports through t.Error, which
-// is safe off the test goroutine.
+// when the grant's ctx ends. A SIGKILL is delivered asynchronously, so the hook waits on each pid's pidfd. It reports
+// through t.Error, which is safe off the test goroutine.
 func gateGroupGoneAtEnd(t *testing.T, pids string) func() {
 	t.Helper()
 	return func() {
@@ -157,8 +161,9 @@ func gateGroupGoneAtEnd(t *testing.T, pids string) func() {
 				t.Errorf("pid %q: %v", field, err)
 				return
 			}
-			for !gateProcessGone(pid) {
-				time.Sleep(20 * time.Millisecond)
+			if err := gateWaitPidExit(pid); err != nil {
+				t.Errorf("wait for process %d to exit: %v", pid, err)
+				return
 			}
 			if !gateProcessGone(pid) {
 				t.Errorf(
@@ -167,6 +172,34 @@ func gateGroupGoneAtEnd(t *testing.T, pids string) func() {
 				)
 			}
 		}
+	}
+}
+
+// gateWaitPidExit blocks until the process pid has exited. Its pidfd turns readable when the process exits, and a
+// process that has already been reaped has no pidfd to open (ESRCH), so it is gone at once.
+func gateWaitPidExit(pid int) (err error) {
+	fd, err := unix.PidfdOpen(pid, 0)
+	if errors.Is(err, unix.ESRCH) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("pidfd_open: %w", err)
+	}
+	defer func() {
+		if closeErr := unix.Close(fd); closeErr != nil && err == nil {
+			err = fmt.Errorf("close pidfd: %w", closeErr)
+		}
+	}()
+	fds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}
+	for {
+		_, err := unix.Poll(fds, -1)
+		if errors.Is(err, unix.EINTR) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("poll pidfd: %w", err)
+		}
+		return nil
 	}
 }
 
@@ -227,13 +260,13 @@ func TestGrantedGateRunsOnlyAfterTheGrantAndReportsItsMembers(t *testing.T) {
 	}
 }
 
-func TestGrantedGateQueuedTimeDoesNotCountTowardLimit(t *testing.T) {
+func TestGrantedGateQueueSignalQueuedTimeDoesNotCountTowardLimit(t *testing.T) {
 	t.Parallel()
 	// The gate's limit is its holder's, set when the holder launches, so time queued for the grant can count toward it
 	// only if the gate starts before the grant. While the grant is held queued, the gate must not have started and
 	// runGrantedGate must not have returned.
 	queue := make(chan struct{})
-	pools := &fakeGatePools{queue: queue}
+	pools := &fakeGatePools{queue: queue, firstRequest: make(chan struct{})}
 	ran := filepath.Join(t.TempDir(), "ran")
 	// The limit is reached only by a signal on its FIFO, and this test sends none: the gate exits at once, and its
 	// TimedOut stays false however long the queue holds it.
@@ -254,9 +287,7 @@ func TestGrantedGateQueuedTimeDoesNotCountTowardLimit(t *testing.T) {
 		})
 		done <- outcome{result, err}
 	}()
-	for len(pools.requested()) == 0 {
-		time.Sleep(gateGrantPoll)
-	}
+	<-pools.firstRequest
 	select {
 	case got := <-done:
 		t.Fatalf("runGrantedGate returned (%+v, %v) while its grant was queued", got.result, got.err)
