@@ -156,7 +156,8 @@ func epicRecordTools(epics enginev1connect.EpicsClient, in epicInputs) []Tool {
 			Description: "Create an epic from an accepted contract. decisions seeds the epic's recorded " +
 				"decisions. workflow names the workflow the epic pins, epic by default. Returns a short " +
 				"acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. " +
-				"A refusal names the field that failed.",
+				"Lint findings come back as warnings: a warning line for each, naming its field and reason, and the " +
+				"epic is still stored. A refusal names the field that failed.",
 			InputSchema: in.create,
 			Handler:     epicCreateHandler(epics),
 		},
@@ -335,7 +336,7 @@ func epicCreateHandler(epics enginev1connect.EpicsClient) ToolHandler {
 			return toolFailure(err), nil
 		}
 		epic := created.Msg.GetEpic()
-		return epicAck(epic, req.GetContract().GetId(), createChange(epic)), nil
+		return epicAck(epic, req.GetContract().GetId(), createChange(epic), created.Msg.GetWarnings()...), nil
 	}
 }
 

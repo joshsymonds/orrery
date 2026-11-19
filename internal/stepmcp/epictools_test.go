@@ -534,6 +534,26 @@ func TestEpicCreateWithoutDecisionsSendsNoSeedDecisions(t *testing.T) {
 	}
 }
 
+func TestEpicCreatePrintsEachWarningLine(t *testing.T) {
+	warnings := []string{
+		"requirements[0].item.capture: -run pattern \"X\" matches TestX in ./pkg at the base: name a new top-level test",
+		"release_steps[1].step: says merge: a release step fast-forwards main to the release candidate; write fast-forward",
+	}
+	fake := &fakeEpics{createReply: &v1.CreateEpicResponse{Epic: storedEpicOf(fullContract()), Warnings: warnings}}
+	p := newPeer(t, nil, fake)
+
+	outcome := p.tool("epic_create", `{"contract":{"id":"`+testEpicID+`"}}`)
+
+	if outcome.isError {
+		t.Fatalf("epic_create returned an error: %s", outcome.text)
+	}
+	wantText := "epic " + testEpicID + ": phase accepted\ncreated with 1 requirements and 2 decisions\n" +
+		"warning: " + warnings[0] + "\nwarning: " + warnings[1]
+	if outcome.text != wantText {
+		t.Fatalf("epic_create text = %q, want %q", outcome.text, wantText)
+	}
+}
+
 func TestEpicCreateRefusalNamesTheField(t *testing.T) {
 	fake := &fakeEpics{err: connect.NewError(connect.CodeInvalidArgument,
 		errors.New("release_steps[0].undo: empty"))}
