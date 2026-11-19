@@ -120,8 +120,9 @@ func TestDefaultsMerge(t *testing.T) {
 }
 
 // testCostMustNot is the test_parsimony must_not that judges what the tests a change adds cost.
-const testCostMustNot = "The change adds or changes tests that push a package over its test CPU budget (a test-budget " +
-	"line in Test cost), or a test whose own run is slow (seconds, not milliseconds), without a stated reason in the task."
+const testCostMustNot = "The change adds or changes tests that push a package's test CPU cost over its base (a Test " +
+	"cost line marked over), or, for a package with no base measurement, over its budget (a test-budget line in Test " +
+	"cost), or a test whose own run is slow (seconds, not milliseconds), without a stated reason in the task."
 
 // TestTestParsimonyGateAssertsTestCost: the test_parsimony reviewer's compiled gate carries the test cost must_not, so
 // a review can fail a change on what its tests cost.
@@ -149,7 +150,7 @@ func TestTestParsimonyRoleAdmitsTestCost(t *testing.T) {
 		}
 	}
 	for _, phrase := range []string{
-		"push a package over its test CPU budget (a test-budget line in Test cost)",
+		"push a package's test CPU cost over its base (a `, over` line in Test cost)",
 		"a test whose own run is slow (seconds, not milliseconds), without a stated reason in the task (rule 5)",
 	} {
 		if !strings.Contains(admissible, phrase) {

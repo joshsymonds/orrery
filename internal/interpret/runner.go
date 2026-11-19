@@ -125,11 +125,11 @@ type Builder interface {
 
 // Reviewers reads the epic-stage reviewers enabled for an epic, and starts the step of one reviewer, verifier or closure
 // verifier at a revision of the epic's repository. Start's doneGates are the checks of the Done gates that ran at
-// revision.
+// revision, and its baseCost the epic's cost checks at its base, the base measurement of test cost.
 type Reviewers interface {
 	Epic(epic store.EpicRow) []kinds.Reviewer
 	Start(
-		ctx context.Context, epic store.EpicRow, name, base, revision string, doneGates []store.NodeCheck,
+		ctx context.Context, epic store.EpicRow, name, base, revision string, doneGates, baseCost []store.NodeCheck,
 	) (enginehost.StepStart, error)
 }
 

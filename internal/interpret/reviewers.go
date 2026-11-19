@@ -40,10 +40,10 @@ func (EpicReviewers) Epic(epic store.EpicRow) []kinds.Reviewer {
 // Start returns the read-only step of the epic-stage reviewer name, run at revision of epic's repository over the
 // change from base. The step carries the reviewer's agent gate and its inline agents, and its prompt is the epic review
 // prompt, headed by the reviewer's own prompt when it is an agent reviewer that sets one. The test_parsimony reviewer's
-// prompt ends with the Test cost section of doneGates, the checks of the Done gates that ran at revision. A name that is
-// not an enabled epic-stage reviewer of epic is an error.
+// prompt ends with the Test cost section of doneGates, the checks of the Done gates that ran at revision, compared with
+// baseCost, the epic's cost checks at its base. A name that is not an enabled epic-stage reviewer of epic is an error.
 func (EpicReviewers) Start(
-	_ context.Context, epic store.EpicRow, name, base, revision string, doneGates []store.NodeCheck,
+	_ context.Context, epic store.EpicRow, name, base, revision string, doneGates, baseCost []store.NodeCheck,
 ) (enginehost.StepStart, error) {
 	stage := reviewers.ForStage(epic.Reviewers, reviewers.StageEpic)
 	i := slices.IndexFunc(stage, func(rev reviewers.Reviewer) bool { return rev.Name == name })
@@ -59,7 +59,8 @@ func (EpicReviewers) Start(
 	gate := rev.Gate()
 	prompt := epicStageReviewPrompt(epic, base, revision)
 	if name == reviewers.TestParsimony {
-		prompt += "\n" + strings.Join(reviewers.TestCost(nil, checkOutputs(doneGates)...), "\n")
+		costs := reviewers.Costs(checkOutputs(baseCost)...)
+		prompt += "\n" + strings.Join(reviewers.TestCost(costs, checkOutputs(doneGates)...), "\n")
 	}
 	if rev.Agent != "" && rev.Prompt != "" {
 		prompt = rev.Prompt + "\n\n" + prompt

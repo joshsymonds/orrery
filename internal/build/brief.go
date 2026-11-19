@@ -202,9 +202,11 @@ const plainShellChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ012
 // implementer declared under the heading that says when each is in scope, its Requirements, and the range the change
 // under review spans from base to revision. The test_parsimony reviewer's prompt ends with the Test
 // cost section (reviewers.TestCost) of gate, the gate check the implementer's commit passed, which is the zero check
-// when the task has none.
+// when the task has none, compared with baseCost, the base measurement of each package's CPU seconds (reviewers.Costs)
+// when the epic has one.
 func ReviewPrompt(
 	epic store.EpicRow, task store.EpicTask, reviewer, base, revision string, gate store.StepCheck,
+	baseCost map[string]float64,
 ) string {
 	change := fmt.Sprintf(
 		"The change under review is %s..%s; this worktree is checked out at %s. Inspect it with `git diff %s %s`.",
@@ -230,7 +232,7 @@ func ReviewPrompt(
 		[]string{change},
 	)
 	if reviewer == reviewers.TestParsimony {
-		lines = append(lines, reviewers.TestCost(nil, gate.Stdout, gate.Stderr)...)
+		lines = append(lines, reviewers.TestCost(baseCost, gate.Stdout, gate.Stderr)...)
 	}
 	return strings.Join(lines, "\n")
 }

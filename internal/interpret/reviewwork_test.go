@@ -23,11 +23,11 @@ const (
 	reviewWorkVerifierAgent = "claude-verify"
 )
 
-// reviewWorkCall is one Start a reviewWorkReviewers received: the reviewer's name, the base, the revision and the Done
-// gate checks.
+// reviewWorkCall is one Start a reviewWorkReviewers received: the reviewer's name, the base, the revision, the Done
+// gate checks and the base cost checks.
 type reviewWorkCall struct {
 	name, base, revision string
-	doneGates            []store.NodeCheck
+	doneGates, baseCost  []store.NodeCheck
 }
 
 // reviewWorkReviewers stands in for the reviewers service. It records each Start and returns the read-only step a
@@ -43,9 +43,11 @@ func (*reviewWorkReviewers) Epic(store.EpicRow) []kinds.Reviewer {
 
 // Start records the call and returns the reviewer's step, which carries no id or labels.
 func (r *reviewWorkReviewers) Start(
-	_ context.Context, epic store.EpicRow, name, base, revision string, doneGates []store.NodeCheck,
+	_ context.Context, epic store.EpicRow, name, base, revision string, doneGates, baseCost []store.NodeCheck,
 ) (enginehost.StepStart, error) {
-	r.calls = append(r.calls, reviewWorkCall{name: name, base: base, revision: revision, doneGates: doneGates})
+	r.calls = append(r.calls, reviewWorkCall{
+		name: name, base: base, revision: revision, doneGates: doneGates, baseCost: baseCost,
+	})
 	return enginehost.StepStart{
 		Agent: "reviewer-" + name, Prompt: "review as " + name, Schema: `{"type":"object"}`,
 		Workspace: epic.Repository, Revision: revision, ReadOnly: true,

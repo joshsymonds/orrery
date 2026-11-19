@@ -202,6 +202,7 @@ type Store interface {
 	Epics(ctx context.Context) ([]store.EpicRow, error)
 	EvidenceRun(ctx context.Context, id string) (store.EvidenceRun, error)
 	NodeCheck(ctx context.Context, id string) (store.NodeCheck, error)
+	BaseCost(ctx context.Context, epic string) ([]store.NodeCheck, error)
 	SetTaskBuild(ctx context.Context, epic string, seq int64, from, to store.TaskBuild) error
 	SetTaskBuildGateChanges(
 		ctx context.Context, epic string, seq int64, from, to store.TaskBuild, changes []store.GateChange,
