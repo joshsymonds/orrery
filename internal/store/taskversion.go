@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
@@ -12,13 +13,13 @@ import (
 )
 
 // The sources a task spec version can come from. SourcePlanner is the source of version 1, the planner's epic_tasks row,
-// which is never stored as a version row. SourceOrchestrator and SourceGrant are the sources this epic writes; the
-// other three are reserved for a later epic.
+// which is never stored as a version row. SourceOrchestrator writes a rerun, grant or re-brief, SourceGrant a rule's
+// grant of files, SourceApproach the planner's recarve, and SourceCarry the work a climb could not carry onto its base.
+// A version of source rescue is still read from its stored row, though no version is written with that source.
 const (
 	SourcePlanner      = "planner"
 	SourceOrchestrator = "orchestrator"
 	SourceGrant        = "grant"
-	SourceRescue       = "rescue"
 	SourceApproach     = "approach"
 	SourceCarry        = "carry"
 )
@@ -107,13 +108,15 @@ func (v TaskVersion) Changed() []string {
 
 // TaskVersionInput is a version a writer stores: its Source and Step, the Reason it gives, and the fields it changes. A
 // nil Deliverable, TestChanges, Gate or Evidence leaves that field unchanged, and a non-nil one sets it, even to empty.
-// Files are the files the version adds to the task, after its last file.
+// Files are the files the version adds to the task, after its last file, and Remove the files it removes from the
+// task. The version stores the task's whole file list after it: the task's current list minus Remove, then Files.
 type TaskVersionInput struct {
 	Source      string
 	Step        string
 	Reason      string
 	Deliverable *string
 	Files       []string
+	Remove      []string
 	TestChanges *[]string
 	Gate        *string
 	Evidence    *evidence.Item
@@ -121,14 +124,21 @@ type TaskVersionInput struct {
 
 // changesAny reports whether in changes a field. A version that changes none is not stored.
 func (in TaskVersionInput) changesAny() bool {
-	return in.Deliverable != nil || len(in.Files) > 0 || in.TestChanges != nil || in.Gate != nil || in.Evidence != nil
+	return in.Deliverable != nil || in.changesFiles() || in.TestChanges != nil || in.Gate != nil || in.Evidence != nil
+}
+
+// changesFiles reports whether in adds or removes a file.
+func (in TaskVersionInput) changesFiles() bool {
+	return len(in.Files) > 0 || len(in.Remove) > 0
 }
 
 // appendTaskVersion stores in as the next version of task seq of epic, in the caller's write, applied by the epic
-// decision decision, or by none when decision is empty. Its files are added after the task's last file, and the
-// version stores the task's whole file list. A version that changes the evidence is stored checking, unsettled, and
-// every other version applied and settled at at. It writes nothing when in changes no field, and an input that sets
-// both evidence and files is an error that writes nothing.
+// decision decision, or by none when decision is empty. The version stores the task's whole file list after it, as
+// TaskVersionInput describes. A version that changes the evidence is stored checking, unsettled, and leaves the task's
+// files as they are until SettleTaskVersion settles it applied. Every other version is applied and settled at at, and
+// changes the task's files in this write: it deletes its Remove files and adds its Files after the task's last file. It
+// writes nothing when in changes no field. An input that removes a file the task does not own, or leaves the task no
+// files, is an error that writes nothing.
 func appendTaskVersion(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
@@ -138,9 +148,6 @@ func appendTaskVersion(
 	in TaskVersionInput,
 	at time.Time,
 ) error {
-	if err := checkVersionChanges(epic, seq, in); err != nil {
-		return err
-	}
 	if !in.changesAny() {
 		return nil
 	}
@@ -153,14 +160,10 @@ func appendTaskVersion(
 		Epic: epic, Task: seq, Version: highest + 1, Source: in.Source, Decision: decision, Step: in.Step,
 		Reason: in.Reason, State: state, Created: at.Unix(), Settled: settled,
 	}
-	if len(in.Files) > 0 {
-		whole, filesErr := appendTaskFiles(ctx, queries, epic, seq, in.Files)
+	if in.changesFiles() {
+		encoded, filesErr := writeTaskFiles(ctx, queries, epic, seq, in, state == VersionApplied)
 		if filesErr != nil {
 			return filesErr
-		}
-		encoded, encodeErr := encodeList(whole)
-		if encodeErr != nil {
-			return fmt.Errorf("encode files of task %d of epic %s: %w", seq, epic, encodeErr)
 		}
 		params.Files = nullText(encoded)
 	}
@@ -190,14 +193,6 @@ func appendTaskVersion(
 	return nil
 }
 
-// checkVersionChanges returns an error when in sets both evidence and files, which one version may not do.
-func checkVersionChanges(epic string, seq int64, in TaskVersionInput) error {
-	if in.Evidence != nil && len(in.Files) > 0 {
-		return fmt.Errorf("version of task %d of epic %s sets both evidence and files", seq, epic)
-	}
-	return nil
-}
-
 // storedState returns the state in is stored in and the time it is settled at: a version that changes the evidence is
 // checking and unsettled, and any other version is applied and settled at at.
 func storedState(in TaskVersionInput, at time.Time) (string, int64) {
@@ -207,24 +202,133 @@ func storedState(in TaskVersionInput, at time.Time) (string, int64) {
 	return VersionApplied, at.Unix()
 }
 
-// appendTaskFiles adds files, in order, after the last file of task seq of epic, and returns the task's whole file
-// list.
-func appendTaskFiles(
+// writeTaskFiles stores the file change of in for task seq of epic in the caller's write, and returns the whole file
+// list the version stores, encoded. A version applied now changes the task's files, deleting its Remove files and
+// adding its Files after the last file. A checking version leaves them until it settles applied. A Remove the task does
+// not own, or a list that would be empty, is an error that writes nothing.
+func writeTaskFiles(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
 	epic string,
 	seq int64,
-	files []string,
-) ([]string, error) {
+	in TaskVersionInput,
+	applied bool,
+) (string, error) {
+	owned, err := ownedFiles(ctx, queries, epic, seq)
+	if err != nil {
+		return "", err
+	}
+	for _, path := range in.Remove {
+		if !slices.Contains(owned, path) {
+			return "", fmt.Errorf("remove %s from task %d of epic %s: the task does not own it", path, seq, epic)
+		}
+	}
+	whole := append(withoutPaths(owned, in.Remove), in.Files...)
+	if len(whole) == 0 {
+		return "", fmt.Errorf("version of task %d of epic %s would leave it no files", seq, epic)
+	}
+	if applied {
+		err = applyTaskFiles(ctx, queries, epic, seq, in)
+		if err != nil {
+			return "", err
+		}
+	}
+	encoded, err := encodeList(whole)
+	if err != nil {
+		return "", fmt.Errorf("encode files of task %d of epic %s: %w", seq, epic, err)
+	}
+	return encoded, nil
+}
+
+// applyTaskFiles deletes the Remove files of in from task seq of epic and adds its Files after the task's last file, in
+// the caller's write.
+func applyTaskFiles(ctx context.Context, queries *sqlcgen.Queries, epic string, seq int64, in TaskVersionInput) error {
+	if err := removeTaskFiles(ctx, queries, epic, seq, in.Remove); err != nil {
+		return err
+	}
+	return appendTaskFiles(ctx, queries, epic, seq, in.Files)
+}
+
+// settleTaskFiles makes the files of task seq of epic the whole list that version number of the task stores, in the
+// caller's write, when the version stores one. A file the list adds that an open task of the epic other than seq owns
+// is a FileOwnedError, as grantFiles refuses it, and writes nothing; one that an accepted task whose integrate batch has
+// not ended owns is a RefusalError naming that task, as refuseHeldFiles refuses it, and writes nothing. The build
+// reports either and settles again on a later pass, once the holder has integrated. Otherwise the files the task owns
+// and the list lacks are deleted, and the files the list adds are appended in its order.
+func settleTaskFiles(ctx context.Context, queries *sqlcgen.Queries, epic string, seq, number int64) error {
+	rows, err := queries.ListEpicTaskVersions(ctx, epic)
+	if err != nil {
+		return fmt.Errorf("read versions of epic %s: %w", epic, err)
+	}
+	byTask, err := taskVersionsOf(rows)
+	if err != nil {
+		return fmt.Errorf("read versions of epic %s: %w", epic, err)
+	}
+	index := slices.IndexFunc(byTask[seq], func(version TaskVersion) bool { return version.Version == number })
+	if index < 0 {
+		return fmt.Errorf("version %d of task %d of epic %s is not stored", number, seq, epic)
+	}
+	stored := byTask[seq][index].Files
+	if stored == nil {
+		return nil
+	}
+	whole := *stored
+	owned, err := ownedFiles(ctx, queries, epic, seq)
+	if err != nil {
+		return err
+	}
+	added := withoutPaths(whole, owned)
+	err = checkFileOwners(ctx, queries, epic, seq, added, nil)
+	if err != nil {
+		return err
+	}
+	err = refuseHeldFiles(ctx, queries, epic, seq, added)
+	if err != nil {
+		return err
+	}
+	err = removeTaskFiles(ctx, queries, epic, seq, withoutPaths(owned, whole))
+	if err != nil {
+		return err
+	}
+	return appendTaskFiles(ctx, queries, epic, seq, added)
+}
+
+// ownedFiles returns the files task seq of epic owns, in position order.
+func ownedFiles(ctx context.Context, queries *sqlcgen.Queries, epic string, seq int64) ([]string, error) {
 	rows, err := queries.ListEpicTaskFiles(ctx, epic)
 	if err != nil {
 		return nil, fmt.Errorf("read task files of epic %s: %w", epic, err)
 	}
-	var whole []string
+	var owned []string
+	for _, row := range rows {
+		if row.Task == seq {
+			owned = append(owned, row.Path)
+		}
+	}
+	return owned, nil
+}
+
+// removeTaskFiles deletes each of paths from the files of task seq of epic, in the caller's write.
+func removeTaskFiles(ctx context.Context, queries *sqlcgen.Queries, epic string, seq int64, paths []string) error {
+	for _, path := range paths {
+		if err := queries.DeleteEpicTaskFile(ctx, sqlcgen.DeleteEpicTaskFileParams{
+			Epic: epic, Task: seq, Path: path,
+		}); err != nil {
+			return fmt.Errorf("remove %s from task %d of epic %s: %w", path, seq, epic, err)
+		}
+	}
+	return nil
+}
+
+// appendTaskFiles adds files, in order, after the last file of task seq of epic.
+func appendTaskFiles(ctx context.Context, queries *sqlcgen.Queries, epic string, seq int64, files []string) error {
+	rows, err := queries.ListEpicTaskFiles(ctx, epic)
+	if err != nil {
+		return fmt.Errorf("read task files of epic %s: %w", epic, err)
+	}
 	var next int64
 	for _, row := range rows {
 		if row.Task == seq {
-			whole = append(whole, row.Path)
 			next = max(next, row.Position+1)
 		}
 	}
@@ -232,11 +336,15 @@ func appendTaskFiles(
 		if err = queries.InsertEpicTaskFile(ctx, sqlcgen.InsertEpicTaskFileParams{
 			Epic: epic, Task: seq, Position: next + int64(i), Path: file,
 		}); err != nil {
-			return nil, fmt.Errorf("grant file %s to task %d of epic %s: %w", file, seq, epic, err)
+			return fmt.Errorf("grant file %s to task %d of epic %s: %w", file, seq, epic, err)
 		}
-		whole = append(whole, file)
 	}
-	return whole, nil
+	return nil
+}
+
+// withoutPaths returns the paths of list that are not in drop, in order.
+func withoutPaths(list, drop []string) []string {
+	return slices.DeleteFunc(slices.Clone(list), func(path string) bool { return slices.Contains(drop, path) })
 }
 
 // taskVersionsOf returns the versions stored under each task, from rows in task then version order.
@@ -306,9 +414,12 @@ type TaskVersionSettle struct {
 
 // SettleTaskVersion moves the build of task seq of epic from from to to and settles its version settle.Version to
 // settle.State, with settle.RedRun and settle.Refusal, at at, in one write, when the stored build is from, as
-// SetTaskBuild does. A State other than applied or refused is an error. A task with no checking version under
-// settle.Version is ErrVersionNotChecking. Both write nothing. A task that is not open, or whose stored build is not
-// from, is ErrTaskMoved and writes nothing.
+// SetTaskBuild does. Settled applied, the task's files become the version's stored whole list in the same write: the
+// files it deletes are the task's files the list lacks, and the files it adds are the list's files the task lacks,
+// appended in the list's order. A file the list adds that another open task of the epic owns is a FileOwnedError, which
+// writes nothing and leaves the version checking. Settled refused, the task's files stay as they were. A State other
+// than applied or refused is an error. A task with no checking version under settle.Version is ErrVersionNotChecking.
+// Both write nothing. A task that is not open, or whose stored build is not from, is ErrTaskMoved and writes nothing.
 func (s *Store) SettleTaskVersion(
 	ctx context.Context,
 	epic string,
@@ -337,7 +448,10 @@ func (s *Store) SettleTaskVersion(
 		if rows == 0 {
 			return fmt.Errorf("version %d of task %d of epic %s: %w", settle.Version, seq, epic, ErrVersionNotChecking)
 		}
-		return nil
+		if settle.State == VersionRefused {
+			return nil
+		}
+		return settleTaskFiles(ctx, queries, epic, seq, settle.Version)
 	})
 }
 

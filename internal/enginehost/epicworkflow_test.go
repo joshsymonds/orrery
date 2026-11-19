@@ -33,7 +33,6 @@ nodes:
     kind: review
   - id: correct
     loop:
-      max: 2
       until: closure.passed
       spent: continue
     body:
@@ -52,7 +51,7 @@ nodes:
     kind: release
 `
 
-const pinTestEpicSHA = "635c8150d032f47b09ad509c244e39db5d3c098f1dd18b379cc1eb3cb4c6b7ba"
+const pinTestEpicSHA = "e12a2b6d237e3f15cc4bcbd17924dc2a27cdb498668c595e33d63fd0526fe796"
 
 // pinTestOutline is a committed epic: an outline plan holding one write build.
 const pinTestOutline = "name: epic\nnodes:\n  - id: outline\n    kind: plan\n    body:\n      - id: write\n        kind: build\n"

@@ -71,8 +71,8 @@ func TestMetAtBaseQuestionMetAtBaseSkipsDropped(t *testing.T) {
 }
 
 // TestMetAtBaseQuestionUnbuiltAsksOnlyGreenOfDropped checks what Unbuilt asks of a Requirement dropped as already met:
-// its green at the stored base is still required, but it names neither a missing red at the base nor a reproduction
-// line. The same test item that is not dropped names both.
+// its green at the stored base is still required. A test item that is not dropped asks the same of its green alone: a
+// missing red at the base or a missing reproduction holds nothing.
 func TestMetAtBaseQuestionUnbuiltAsksOnlyGreenOfDropped(t *testing.T) {
 	t.Parallel()
 	integrated := store.NodeRun{
@@ -122,13 +122,13 @@ func TestMetAtBaseQuestionUnbuiltAsksOnlyGreenOfDropped(t *testing.T) {
 			[]string{"R1 is not green at the stored base base-1"},
 		},
 		{
-			"test item that is not dropped and green at the stored base names its missing red",
+			"test item that is not dropped and green at the stored base lacks no proof without a red",
 			Rows{
 				Epic:     withRequirement(testItem),
 				Runs:     []store.NodeRun{integrated},
 				Evidence: []store.EvidenceRun{green},
 			},
-			[]string{"R1 has no red at the epic's base base-1"},
+			nil,
 		},
 	}
 	for _, tc := range cases {

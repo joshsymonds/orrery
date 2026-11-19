@@ -401,7 +401,8 @@ type EpicReviewer struct {
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	// Whether the reviewer runs. A disabled reviewer stays in the list and runs at no stage.
 	Enabled *bool `protobuf:"varint,2,opt,name=enabled,proto3,oneof" json:"enabled,omitempty"`
-	// The stages the reviewer runs at: task, epic, or both.
+	// The stages the reviewer runs at: any of task, epic and release. The release stage runs once before the release's
+	// first step, on the candidate.
 	Stage []string `protobuf:"bytes,3,rep,name=stage,proto3" json:"stage,omitempty"`
 	// The statements the reviewer's return must show hold.
 	Must []string `protobuf:"bytes,4,rep,name=must,proto3" json:"must,omitempty"`
@@ -4565,11 +4566,14 @@ func (x *CreateEpicRequest) GetWorkflow() string {
 	return ""
 }
 
-// CreateEpicResponse carries the stored epic.
+// CreateEpicResponse carries the stored epic and the warnings its contract drew. The epic is stored with them.
 type CreateEpicResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The stored epic.
-	Epic          *StoredEpic `protobuf:"bytes,1,opt,name=epic,proto3" json:"epic,omitempty"`
+	Epic *StoredEpic `protobuf:"bytes,1,opt,name=epic,proto3" json:"epic,omitempty"`
+	// One warning for each lint finding that does not refuse the contract: a go test whose -run pattern matches a test at
+	// the base, or a release step that says merge, names a fixed version or waits on CI. Each names its field and reason.
+	Warnings      []string `protobuf:"bytes,2,rep,name=warnings,proto3" json:"warnings,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4607,6 +4611,13 @@ func (*CreateEpicResponse) Descriptor() ([]byte, []int) {
 func (x *CreateEpicResponse) GetEpic() *StoredEpic {
 	if x != nil {
 		return x.Epic
+	}
+	return nil
+}
+
+func (x *CreateEpicResponse) GetWarnings() []string {
+	if x != nil {
+		return x.Warnings
 	}
 	return nil
 }
@@ -7154,9 +7165,10 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\x11CreateEpicRequest\x12:\n" +
 	"\bcontract\x18\x01 \x01(\v2\x1e.orrery.engine.v1.EpicContractR\bcontract\x12A\n" +
 	"\tdecisions\x18\x02 \x03(\v2#.orrery.engine.v1.EpicDecisionInputR\tdecisions\x12\x1a\n" +
-	"\bworkflow\x18\x03 \x01(\tR\bworkflow\"F\n" +
+	"\bworkflow\x18\x03 \x01(\tR\bworkflow\"b\n" +
 	"\x12CreateEpicResponse\x120\n" +
-	"\x04epic\x18\x01 \x01(\v2\x1c.orrery.engine.v1.StoredEpicR\x04epic\":\n" +
+	"\x04epic\x18\x01 \x01(\v2\x1c.orrery.engine.v1.StoredEpicR\x04epic\x12\x1a\n" +
+	"\bwarnings\x18\x02 \x03(\tR\bwarnings\":\n" +
 	"\x0eGetEpicRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\ahistory\x18\x02 \x01(\bR\ahistory\"C\n" +

@@ -94,3 +94,64 @@ func TestTaskLadderChangeApproachArgs(t *testing.T) {
 		})
 	}
 }
+
+// TestTaskLadderChangeApproachFiles checks that a change_approach action reads the files it adds and removes, refuses an
+// added file whose path is not a repository file, carries both lists to the store, and that files and remove are refused
+// on any other kind.
+func TestTaskLadderChangeApproachFiles(t *testing.T) {
+	t.Parallel()
+	const deliverable = "the change made another way"
+	args := approachArgs(t, map[string]any{
+		"task": 2, "deliverable": deliverable, "files": []string{"b.go"}, "remove": []string{"a.go"},
+	})
+	ret, err := Parse(actionPlan(store.ActionChangeApproach, args))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	got := ret.Actions[0]
+	if !reflect.DeepEqual(got.Files, []string{"b.go"}) || !reflect.DeepEqual(got.Remove, []string{"a.go"}) ||
+		got.ArgsError != "" || len(got.Unknown) != 0 {
+		t.Errorf("Parse change_approach = %+v, want files b.go and remove a.go read with no error", got)
+	}
+	if lines := checkPlan(ret, nil); len(lines) != 0 {
+		t.Errorf("Check of a well-formed change_approach with files = %q, want none", lines)
+	}
+	if action := planOf(ret).Actions[0]; !reflect.DeepEqual(action.Files, []string{"b.go"}) ||
+		!reflect.DeepEqual(action.Remove, []string{"a.go"}) {
+		t.Errorf("planOf action = %+v, want the files and remove carried to the store", action)
+	}
+
+	cases := []struct {
+		name, kind, args, want string
+	}{
+		{
+			name: "an added file that is not a repository path", kind: store.ActionChangeApproach,
+			args: approachArgs(t, map[string]any{
+				"task": 2, "deliverable": deliverable, "files": []string{"../b.go"},
+			}),
+			want: `actions[0] "change_approach" files[0]: not a normalized repository-relative file path`,
+		},
+		{
+			name: "files set on a fail_task", kind: store.ActionFailTask,
+			args: approachArgs(t, map[string]any{"task": 2, "files": []string{"b.go"}}),
+			want: `actions[0] "fail_task" files: not used by this kind; leave it empty or 0`,
+		},
+		{
+			name: "remove set on a retry_epic", kind: store.ActionRetryEpic,
+			args: approachArgs(t, map[string]any{"remove": []string{"a.go"}}),
+			want: `actions[0] "retry_epic" remove: not used by this kind; leave it empty or 0`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ret, err := Parse(actionPlan(tc.kind, tc.args))
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			if got := checkPlan(ret, nil); !reflect.DeepEqual(got, []string{tc.want}) {
+				t.Errorf("Check = %q, want only %q", got, tc.want)
+			}
+		})
+	}
+}

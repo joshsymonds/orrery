@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// TestSteererMigrationSteersEachEpicByItsCreator seeds at version 72 one epic whose creator mark names a session, and
+// TestSteererMigrationSteersEachEpicByItsCreator seeds at version 77 one epic whose creator mark names a session, and
 // a later session of that epic that did not create it, and one ended epic with no creator mark. Migrating the store up
 // steers the first epic by its creator, and leaves the ended epic unsteered. The creator's sessions row is not seeded,
 // so the steerer names a session the store no longer holds, as the migration does not join sessions.
@@ -21,7 +21,7 @@ func TestSteererMigrationSteersEachEpicByItsCreator(t *testing.T) {
 		follower = "claude-follower"
 		ended    = "orrery-0123456/epic-ended"
 	)
-	fixture := openStoreAtVersion(t, path, 72)
+	fixture := openStoreAtVersion(t, path, 77)
 	seedEpic(t, fixture)
 	if _, err := fixture.ExecContext(ctx, `INSERT INTO epic_sessions (epic, session, call, at, creator)
 		VALUES (?, ?, 'epic_create', 1700000100, 1), (?, ?, 'epic_answer', 1700000200, 0)`,
@@ -42,7 +42,7 @@ func TestSteererMigrationSteersEachEpicByItsCreator(t *testing.T) {
 
 	s, err := Open(ctx, path, noSync())
 	if err != nil {
-		t.Fatalf("Open at version 72: %v", err)
+		t.Fatalf("Open at version 77: %v", err)
 	}
 	defer s.Close()
 
@@ -57,30 +57,30 @@ func TestSteererMigrationSteersEachEpicByItsCreator(t *testing.T) {
 	}
 }
 
-// TestSteererMigrationDownAndUpLeavesSchemaUnchanged steps migration 00073 down from a store at version 73 and back up:
-// the Down leaves the schema of version 72, and the Up restores the schema of version 73.
+// TestSteererMigrationDownAndUpLeavesSchemaUnchanged steps migration 00078 down from a store at version 78 and back up:
+// the Down leaves the schema of version 77, and the Up restores the schema of version 78.
 func TestSteererMigrationDownAndUpLeavesSchemaUnchanged(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	before := openStoreAtVersion(t, filepath.Join(t.TempDir(), "before.db"), 72)
-	atVersion72 := schemaLines(t, before)
+	before := openStoreAtVersion(t, filepath.Join(t.TempDir(), "before.db"), 77)
+	atVersion77 := schemaLines(t, before)
 	closeDB(t, before)
 
-	s, provider := storeAtVersion(t, 73)
-	atVersion73 := schemaLines(t, s.db.DB)
+	s, provider := storeAtVersion(t, 78)
+	atVersion78 := schemaLines(t, s.db.DB)
 
 	if _, err := provider.Down(ctx); err != nil {
-		t.Fatalf("Down of 00073: %v", err)
+		t.Fatalf("Down of 00078: %v", err)
 	}
-	if got := schemaLines(t, s.db.DB); !slices.Equal(got, atVersion72) {
-		t.Fatalf("schema after the Down of 00073 differs from version 72:\n%s", lineDiff(got, atVersion72))
+	if got := schemaLines(t, s.db.DB); !slices.Equal(got, atVersion77) {
+		t.Fatalf("schema after the Down of 00078 differs from version 77:\n%s", lineDiff(got, atVersion77))
 	}
 	if _, err := provider.UpByOne(ctx); err != nil {
-		t.Fatalf("Up of 00073: %v", err)
+		t.Fatalf("Up of 00078: %v", err)
 	}
-	if got := schemaLines(t, s.db.DB); !slices.Equal(got, atVersion73) {
-		t.Fatalf("schema after the Down and Up of 00073 differs from version 73:\n%s", lineDiff(got, atVersion73))
+	if got := schemaLines(t, s.db.DB); !slices.Equal(got, atVersion78) {
+		t.Fatalf("schema after the Down and Up of 00078 differs from version 78:\n%s", lineDiff(got, atVersion78))
 	}
 }
 

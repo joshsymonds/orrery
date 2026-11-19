@@ -17,12 +17,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.api.currentTool
-import io.github.joshsymonds.orrery.ui.theme.Mocha
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 
 /**
  * What a Claude pane is doing right now. Working shows the current tool in plain words with its
@@ -37,40 +34,39 @@ fun StatusLine(pane: Pane, nowSeconds: Long, modifier: Modifier = Modifier) {
         modifier = modifier
             .testTag("status-line")
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(if (status.tinted) status.colour.copy(alpha = TINT_ALPHA) else Color.Transparent)
-            .padding(horizontal = 10.dp, vertical = 6.dp),
+            .clip(RoundedCornerShape(OrreryTokens.Radius.two))
+            .background(if (status.tinted) status.colour.copy(alpha = OrreryTokens.Alpha.tintFill) else Color.Transparent)
+            .padding(
+                horizontal = OrreryTokens.Space.eight + OrreryTokens.Space.two,
+                vertical = OrreryTokens.Space.four + OrreryTokens.Space.two,
+            ),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
     ) {
-        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(status.colour))
+        Box(modifier = Modifier.size(OrreryTokens.Size.dot).clip(CircleShape).background(status.colour))
         Text(
             text = status.label,
             color = status.labelColour,
-            fontWeight = FontWeight.Bold,
-            fontSize = 12.5.sp,
+            style = OrreryTokens.Type.small.copy(fontWeight = OrreryTokens.Font.Weight.bold),
             maxLines = 1,
         )
         if (status.tool.isNotEmpty()) {
             Text(
                 text = status.tool,
-                color = Mocha.Blue,
-                fontWeight = FontWeight.Bold,
-                fontSize = 12.5.sp,
+                color = OrreryTokens.Role.ref,
+                style = OrreryTokens.Type.small.copy(fontWeight = OrreryTokens.Font.Weight.bold),
                 maxLines = 1,
             )
         }
         Spacer(modifier = Modifier.weight(1f))
         Text(
             text = status.time,
-            color = Mocha.Subtext1,
-            fontSize = 12.5.sp,
+            color = OrreryTokens.Ink.two,
+            style = OrreryTokens.Type.small,
             maxLines = 1,
         )
     }
 }
-
-private const val TINT_ALPHA = 0.12f
 
 private class StatusText(
     val label: String,
@@ -87,8 +83,8 @@ private fun statusOf(pane: Pane, nowSeconds: Long): StatusText? = when (pane.sta
         val words = toolWords(tool?.name.orEmpty())
         StatusText(
             label = if (words.background) "background" else "working",
-            colour = Mocha.Yellow,
-            labelColour = if (words.background) Mocha.Lavender else Mocha.Yellow,
+            colour = OrreryTokens.State.working,
+            labelColour = if (words.background) OrreryTokens.Ink.three else OrreryTokens.State.working,
             tool = words.text,
             time = clock(nowSeconds - (tool?.start ?: pane.changed)),
             tinted = true,
@@ -96,13 +92,13 @@ private fun statusOf(pane: Pane, nowSeconds: Long): StatusText? = when (pane.sta
     }
     "waiting" -> StatusText(
         label = "waiting for you",
-        colour = Mocha.Peach,
+        colour = OrreryTokens.State.waiting,
         time = age(nowSeconds - pane.changed),
         tinted = true,
     )
     "done" -> StatusText(
         label = "done",
-        colour = Mocha.Green,
+        colour = OrreryTokens.State.done,
         time = "${age(nowSeconds - pane.changed)} ago",
         tinted = false,
     )

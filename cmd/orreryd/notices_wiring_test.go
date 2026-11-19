@@ -113,7 +113,7 @@ func TestSessionsHostWatchShowsPagesNotice(t *testing.T) {
 	st, getenv := openLimitStore(t)
 	pages := inapp.NewHub()
 	router := &recordingRouter{}
-	host, path := startNoticesHost(t, st, getenv, router, enginehost.NewPageNotices(pages, router, time.Now))
+	host, path := startNoticesHost(t, st, getenv, router, enginehost.NewPageNotices(pages, router, nil, time.Now))
 
 	showWiringNotice(pages, noticesWiringPane, "synthetic body before the watch")
 	ctx, cancel := context.WithCancel(t.Context())
@@ -177,7 +177,7 @@ func TestShutdownEndsWatchBeforeSessionsStop(t *testing.T) {
 	st, getenv := openLimitStore(t)
 	pages := inapp.NewHub()
 	router := route.New(route.Config{Host: noticesWiringHost, Now: time.Now, Logger: logger})
-	host, path := startNoticesHost(t, st, getenv, router, enginehost.NewPageNotices(pages, router, time.Now))
+	host, path := startNoticesHost(t, st, getenv, router, enginehost.NewPageNotices(pages, router, nil, time.Now))
 
 	showWiringNotice(pages, noticesWiringPane, "synthetic body")
 	ctx := t.Context()

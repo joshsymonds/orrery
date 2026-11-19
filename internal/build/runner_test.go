@@ -920,7 +920,7 @@ func TestPassConfirmedFindingSpendsAttemptAndStartsSecondImplementer(t *testing.
 }
 
 // TestPassSecondAttemptGreenNotMetClimbsTaskAndKeepsWorktrees: a green run that is not met at attempt two climbs the
-// task to the rescue rung with its reason, adds no trigger, and keeps its worktrees.
+// task to rung 3, the orchestrator's own attempt, with its reason, adds no trigger, and keeps its worktrees.
 func TestPassSecondAttemptGreenNotMetClimbsTaskAndKeepsWorktrees(t *testing.T) {
 	t.Parallel()
 	f := newPassFixture(t)
@@ -936,7 +936,7 @@ func TestPassSecondAttemptGreenNotMetClimbsTaskAndKeepsWorktrees(t *testing.T) {
 	}
 	ladderClimbCheck(f, store.RungOf(before), store.MovedByUnit)
 	if got := f.pendingTriggers(); len(got) != 0 {
-		t.Errorf("pending triggers = %v, want none: a climb to the rescue rung adds no trigger", got)
+		t.Errorf("pending triggers = %v, want none: a climb to rung 3 adds no trigger", got)
 	}
 	ladderClimbKeepsWorktrees(f, worktree)
 }
@@ -1043,8 +1043,8 @@ func TestPassRoleErrorParksTaskHeldParked(t *testing.T) {
 }
 
 // TestPassRefusedRedStartClimbsTask: an evidence run the evidence refuses climbs a red unit with the refusal. The
-// refusal repeats on each rung the pass reaches, so the task climbs rung by rung within the pass to the rescue rung,
-// where the rescue starts, with the refusal as its failure.
+// refusal repeats on each rung the pass reaches, so the task climbs rung by rung within the pass to the recarve rung,
+// where it waits for the planner's change of approach, with the refusal as its failure.
 func TestPassRefusedRedStartClimbsTask(t *testing.T) {
 	t.Parallel()
 	f := newPassFixture(t)
@@ -1056,5 +1056,5 @@ func TestPassRefusedRedStartClimbsTask(t *testing.T) {
 	if task := f.task(); task.Build.Failure != want {
 		t.Errorf("task failure %q, want %q", task.Build.Failure, want)
 	}
-	ladderClimbCheck(f, 2, store.MovedByUnit)
+	ladderClimbCheck(f, store.OrchestratorRung, store.MovedByUnit)
 }

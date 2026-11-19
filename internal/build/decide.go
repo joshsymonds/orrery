@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
-	"github.com/joshsymonds/orrery/internal/planner"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -36,10 +35,9 @@ type implementerReturn struct {
 
 // Decide returns the next action for an open task from its view. A stopped or parked build waits until the owner
 // releases it, a waiting build until the tasks it waits for are integrated (decideWait), and an asked build until its
-// question is answered (decideAsked). A task due its rescue (rescueDue) moves to the rescue's orchestrate unit first. A
-// task on ApproachRung waits for its change of approach before its first unit (approachAwaited), and a task whose
-// change of approach is checking moves to red before its implementer (approachDue). Every other build is decided by its
-// stage (decideStage).
+// question is answered (decideAsked). A task on ApproachRung waits for its change of approach before its first unit
+// (approachAwaited), and a task whose change of approach is checking moves to red before its implementer (approachDue).
+// Every other build is decided by its stage (decideStage).
 func Decide(view View) Action {
 	build := view.Task.Build
 	switch build.Held {
@@ -59,12 +57,6 @@ func Decide(view View) Action {
 		build.NoVerdict = 0
 		return releaseHold(build)
 	}
-	if rescueDue(view) {
-		build.Stage = StageOrchestrate
-		build.Step = ""
-		build.NoVerdict = 0
-		return Action{Kind: ActMove, Next: build}
-	}
 	if approachAwaited(view) {
 		return Action{Kind: ActNone}
 	}
@@ -77,9 +69,8 @@ func Decide(view View) Action {
 	return decideStage(view)
 }
 
-// decideStage returns the action for a build that no hold or rescue move decides, by its stage. A fresh task starts at
-// red, or at implement when it is closure-kind, since a closure-kind task runs no red and no green. The orchestrate
-// unit is decided as its rescue while the build is rescuing (rescuing), and as its request otherwise.
+// decideStage returns the action for a build that no hold or approach move decides, by its stage. A fresh task starts at
+// red, or at implement when it is closure-kind, since a closure-kind task runs no red and no green.
 func decideStage(view View) Action {
 	switch view.Task.Build.Stage {
 	case "":
@@ -89,9 +80,6 @@ func decideStage(view View) Action {
 	case StageImplement:
 		return decideImplement(view)
 	case StageOrchestrate:
-		if rescuing(view) {
-			return decideRescue(view)
-		}
 		return decideOrchestrate(view)
 	case StageGreen:
 		return decideGreen(view)
@@ -105,8 +93,7 @@ func decideStage(view View) Action {
 
 // DecideStartError returns the action for a unit whose start the engine refused with err. A red unit climbs the task,
 // a green unit spends its attempt as a capture that failed does, an orchestrate unit settles its request as it was
-// settled before the orchestrator (requestFallback), and any other unit climbs the task. A rescue that did not start
-// climbs the task, since it has no request to settle.
+// settled before the orchestrator (requestFallback), and any other unit climbs the task.
 func DecideStartError(view View, err error) Action {
 	switch view.Task.Build.Stage {
 	case StageRed:
@@ -114,9 +101,6 @@ func DecideStartError(view View, err error) Action {
 	case StageGreen:
 		return spend(view, fmt.Sprintf("green not captured: %v", err))
 	case StageOrchestrate:
-		if rescuing(view) {
-			return Action{Kind: ActFail, Reason: fmt.Sprintf("rescue did not start: %v", err)}
-		}
 		return withNote(requestFallback(view), fmt.Sprintf("orchestrate did not start: %v", err))
 	}
 	return Action{Kind: ActFail, Reason: fmt.Sprintf("%s did not start: %v", view.Task.Build.Stage, err)}
@@ -341,7 +325,7 @@ func decideReturned(view View, step *store.StepRow) Action {
 	}
 	fail := returnedFail(step, ret)
 	if step.Status == statusNeedsContext {
-		if grant := grantOrFail(view.Task.Build, view.Task.Files, fail); grant.Kind == ActGrant {
+		if grant := grantOrFail(view, fail); grant.Kind == ActGrant {
 			return grant
 		}
 	}
@@ -396,25 +380,26 @@ func parseImplementerReturn(result string) (implementerReturn, bool) {
 const grantLimit = 3
 
 // grantOrFail returns the action for an implementer that returned needs_context naming the files fail carries. When
-// it names a file the task does not own, every such file can be a task's file (planner.FileRefusal), and the build has
-// reruns left under grantLimit, the task is granted those files and its implementer runs again in the same worktree,
-// with a note naming them. The store refuses a file another open task owns, and the request then goes to the
-// orchestrator as one the grant could not settle. Otherwise fail is returned, and the task climbs with its failure.
-func grantOrFail(build store.TaskBuild, owned []string, fail Action) Action {
+// it names a file the task does not own, the build has reruns left under grantLimit, and every such file passes the
+// orchestrator's owner check against the epic's peers (fileRefusal) and is not one of the task's refused files, the
+// task is granted those files and its implementer runs again in the same worktree, with a note naming them. When a file
+// fails either test, no file is granted by rule and the request goes to the orchestrator, which decides it. Otherwise
+// fail is returned, and the task climbs with its failure.
+func grantOrFail(view View, fail Action) Action {
 	var grant []string
 	for _, file := range fail.NeedsFiles {
-		if slices.Contains(owned, file) || slices.Contains(grant, file) {
+		if slices.Contains(view.Task.Files, file) || slices.Contains(grant, file) {
 			continue
 		}
-		if planner.FileRefusal(file) != "" {
+		if fileRefusal(file, view.Task, view.Peers, nil, nil) != "" || slices.Contains(view.Task.Refused, file) {
 			return fail
 		}
 		grant = append(grant, file)
 	}
-	if len(grant) == 0 || build.Rerun >= grantLimit {
+	if len(grant) == 0 || view.Task.Build.Rerun >= grantLimit {
 		return fail
 	}
-	next := build
+	next := view.Task.Build
 	next.Rerun++
 	next.NoVerdict = 0
 	next.Step = ""

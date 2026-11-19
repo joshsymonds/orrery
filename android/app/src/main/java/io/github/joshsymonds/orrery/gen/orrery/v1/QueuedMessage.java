@@ -22,6 +22,7 @@ public  final class QueuedMessage extends
     promptId_ = "";
     text_ = "";
     state_ = "";
+    waits_ = "";
   }
   public static final int PROMPT_ID_FIELD_NUMBER = 1;
   private java.lang.String promptId_;
@@ -221,6 +222,78 @@ public  final class QueuedMessage extends
       com.google.protobuf.ByteString value) {
     checkByteStringIsUtf8(value);
     state_ = value.toStringUtf8();
+
+  }
+
+  public static final int WAITS_FIELD_NUMBER = 4;
+  private java.lang.String waits_;
+  /**
+   * <pre>
+   * What the message waits on: turn while the session is working, when Claude takes it at that turn's next tool result,
+   * or as the next turn if the turn ends first, and start in every other state, when no turn runs to take it.
+   * </pre>
+   *
+   * <code>string waits = 4 [json_name = "waits"];</code>
+   * @return The waits.
+   */
+  @java.lang.Override
+  public java.lang.String getWaits() {
+    return waits_;
+  }
+  /**
+   * <pre>
+   * What the message waits on: turn while the session is working, when Claude takes it at that turn's next tool result,
+   * or as the next turn if the turn ends first, and start in every other state, when no turn runs to take it.
+   * </pre>
+   *
+   * <code>string waits = 4 [json_name = "waits"];</code>
+   * @return The bytes for waits.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getWaitsBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(waits_);
+  }
+  /**
+   * <pre>
+   * What the message waits on: turn while the session is working, when Claude takes it at that turn's next tool result,
+   * or as the next turn if the turn ends first, and start in every other state, when no turn runs to take it.
+   * </pre>
+   *
+   * <code>string waits = 4 [json_name = "waits"];</code>
+   * @param value The waits to set.
+   */
+  private void setWaits(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    waits_ = value;
+  }
+  /**
+   * <pre>
+   * What the message waits on: turn while the session is working, when Claude takes it at that turn's next tool result,
+   * or as the next turn if the turn ends first, and start in every other state, when no turn runs to take it.
+   * </pre>
+   *
+   * <code>string waits = 4 [json_name = "waits"];</code>
+   */
+  private void clearWaits() {
+
+    waits_ = getDefaultInstance().getWaits();
+  }
+  /**
+   * <pre>
+   * What the message waits on: turn while the session is working, when Claude takes it at that turn's next tool result,
+   * or as the next turn if the turn ends first, and start in every other state, when no turn runs to take it.
+   * </pre>
+   *
+   * <code>string waits = 4 [json_name = "waits"];</code>
+   * @param value The bytes for waits to set.
+   */
+  private void setWaitsBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    waits_ = value.toStringUtf8();
 
   }
 
@@ -532,6 +605,80 @@ public  final class QueuedMessage extends
       return this;
     }
 
+    /**
+     * <pre>
+     * What the message waits on: turn while the session is working, when Claude takes it at that turn's next tool result,
+     * or as the next turn if the turn ends first, and start in every other state, when no turn runs to take it.
+     * </pre>
+     *
+     * <code>string waits = 4 [json_name = "waits"];</code>
+     * @return The waits.
+     */
+    @java.lang.Override
+    public java.lang.String getWaits() {
+      return instance.getWaits();
+    }
+    /**
+     * <pre>
+     * What the message waits on: turn while the session is working, when Claude takes it at that turn's next tool result,
+     * or as the next turn if the turn ends first, and start in every other state, when no turn runs to take it.
+     * </pre>
+     *
+     * <code>string waits = 4 [json_name = "waits"];</code>
+     * @return The bytes for waits.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getWaitsBytes() {
+      return instance.getWaitsBytes();
+    }
+    /**
+     * <pre>
+     * What the message waits on: turn while the session is working, when Claude takes it at that turn's next tool result,
+     * or as the next turn if the turn ends first, and start in every other state, when no turn runs to take it.
+     * </pre>
+     *
+     * <code>string waits = 4 [json_name = "waits"];</code>
+     * @param value The waits to set.
+     * @return This builder for chaining.
+     */
+    public Builder setWaits(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setWaits(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * What the message waits on: turn while the session is working, when Claude takes it at that turn's next tool result,
+     * or as the next turn if the turn ends first, and start in every other state, when no turn runs to take it.
+     * </pre>
+     *
+     * <code>string waits = 4 [json_name = "waits"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearWaits() {
+      copyOnWrite();
+      instance.clearWaits();
+      return this;
+    }
+    /**
+     * <pre>
+     * What the message waits on: turn while the session is working, when Claude takes it at that turn's next tool result,
+     * or as the next turn if the turn ends first, and start in every other state, when no turn runs to take it.
+     * </pre>
+     *
+     * <code>string waits = 4 [json_name = "waits"];</code>
+     * @param value The bytes for waits to set.
+     * @return This builder for chaining.
+     */
+    public Builder setWaitsBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setWaitsBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.QueuedMessage)
   }
   @java.lang.Override
@@ -551,10 +698,11 @@ public  final class QueuedMessage extends
             "promptId_",
             "text_",
             "state_",
+            "waits_",
           };
           java.lang.String info =
-              "\u0000\u0003\u0000\u0000\u0001\u0003\u0003\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
-              "\u0003\u0208";
+              "\u0000\u0004\u0000\u0000\u0001\u0004\u0004\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0003\u0208\u0004\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

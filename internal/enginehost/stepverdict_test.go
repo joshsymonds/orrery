@@ -267,7 +267,7 @@ func TestVerdictNotAllHeldEndsGateFailed(t *testing.T) {
 	}
 }
 
-func TestVerdictEarlierFailsEndsGateFailed(t *testing.T) {
+func TestVerdictEarlierFailsLastReturnStands(t *testing.T) {
 	t.Parallel()
 	mustNotHolds := verdictTestResult(verdictTestMustNot, gates.KindMustNot, "holds")
 	cases := []struct {
@@ -275,24 +275,20 @@ func TestVerdictEarlierFailsEndsGateFailed(t *testing.T) {
 		// first is the earlier return, sent back with the assertions mismatch want.
 		first []verdictTestEntry
 		want  string
-		// reason is the gate_failed reason the corrected return that holds every assertion ends with.
-		reason string
 	}{
 		{
 			name: "fails without its finding",
 			first: []verdictTestEntry{
 				verdictTestResult(verdictTestMust, gates.KindMust, "fails"), mustNotHolds,
 			},
-			want:   `result 1 fails assertion "the change keeps the API" and no finding cites it`,
-			reason: "an earlier return held fails: the change keeps the API",
+			want: `result 1 fails assertion "the change keeps the API" and no finding cites it`,
 		},
 		{
 			name: "fails with a blank assertion",
 			first: []verdictTestEntry{
 				verdictTestResult("", gates.KindMust, "fails"), mustNotHolds,
 			},
-			want:   `result 1 is for assertion "", want "the change keeps the API"`,
-			reason: "an earlier return held fails: ",
+			want: `result 1 is for assertion "", want "the change keeps the API"`,
 		},
 	}
 	for _, tc := range cases {
@@ -313,10 +309,46 @@ func TestVerdictEarlierFailsEndsGateFailed(t *testing.T) {
 				t.Errorf("Continue text %q does not name the assertions mismatch %q", continued[0], tc.want)
 			}
 			row := f.row(t)
-			if row.End != stepLoopEndGateFailed || row.Reason != tc.reason {
-				t.Fatalf("end = %q reason %q, want gate_failed with reason %q", row.End, row.Reason, tc.reason)
+			if row.End != stepLoopEndDone || row.Reason != "" {
+				t.Fatalf("end = %q reason %q, want done with no reason once the last return holds", row.End, row.Reason)
+			}
+			failed := stepDoneCheck(t, stepDoneRoundChecks(row.Checks, 1), stepLoopAssertionsName)
+			if failed.OK || failed.Detail != tc.want {
+				t.Errorf("round 1 assertions check = %+v, want failing with detail %q", failed, tc.want)
+			}
+			if passed := stepDoneCheck(t, stepDoneRoundChecks(row.Checks, 2), stepLoopAssertionsName); !passed.OK {
+				t.Errorf("round 2 assertions check = %+v, want passing", passed)
 			}
 		})
+	}
+}
+
+func TestVerdictLastReturnStandsWhenItFails(t *testing.T) {
+	t.Parallel()
+	f := newVerdictFixture(t, nil)
+	_, done := f.start(t)
+	first := []verdictTestEntry{
+		verdictTestResult(verdictTestMust, gates.KindMust, "fails"),
+		verdictTestResult(verdictTestMustNot, gates.KindMustNot, "holds"),
+	}
+	last := []verdictTestEntry{
+		verdictTestResult(verdictTestMust, gates.KindMust, "fails"),
+		verdictTestResult(verdictTestMustNot, gates.KindMustNot, "holds"),
+	}
+
+	f.run.Return(session.TurnEnded{StructuredOutput: verdictTestJSON(t, "done", first, nil)})
+	f.run.Return(session.TurnEnded{
+		StructuredOutput: verdictTestJSON(t, "done", last, []verdictTestFinding{verdictTestCiting(verdictTestMust)}),
+	})
+	waitRunEnd(t, done)
+
+	row := f.row(t)
+	if row.End != stepLoopEndGateFailed || row.Reason != "fails: "+verdictTestMust {
+		t.Fatalf("end = %q reason %q, want gate_failed with reason %q", row.End, row.Reason,
+			"fails: "+verdictTestMust)
+	}
+	if got := len(f.sessions.continuedTexts()); got != 1 {
+		t.Errorf("Continue called %d times, want 1 for the earlier return", got)
 	}
 }
 

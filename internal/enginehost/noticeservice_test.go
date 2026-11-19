@@ -15,6 +15,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/inapp"
 	"github.com/joshsymonds/orrery/internal/notice"
+	"github.com/joshsymonds/orrery/internal/store"
 )
 
 // noticeNow is the clock the notice tests read. It is a fixed time, never the real clock, and its seconds are 1700000456.
@@ -38,6 +39,10 @@ func (f *fakeNoticeSource) Watch() ([]inapp.Notice, <-chan inapp.Change, func())
 }
 
 func (f *fakeNoticeSource) Seen(context.Context, notice.Key) {}
+
+func (f *fakeNoticeSource) List(context.Context) ([]store.NoticeHistoryRow, error) { return nil, nil }
+
+func (f *fakeNoticeSource) ReadAll(context.Context) error { return nil }
 
 // startNoticesServer serves notices on an engine socket in a temporary directory and returns a Notices client of it. The
 // server stops at cleanup. A test ends its own streams before cleanup, since the server waits for open streams to end.
@@ -76,7 +81,7 @@ func TestWatchStreamsSnapshotThenChanges(t *testing.T) {
 	t.Parallel()
 	pages := inapp.NewHub()
 	pages.Show(notice.Key{Pane: "%3"}, deskstream.Notice{State: "waiting", Title: "proj · pane 3", Body: "needs input"})
-	client := startNoticesServer(t, NewPageNotices(pages, &fakeRouter{}, noticeNow))
+	client := startNoticesServer(t, NewPageNotices(pages, &fakeRouter{}, nil, noticeNow))
 
 	ctx := t.Context()
 	stream, err := client.Watch(ctx, connect.NewRequest(&v1.NoticesWatchRequest{}))
@@ -168,7 +173,7 @@ func TestSeenReachesRouterWithClockTime(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			router := &fakeRouter{}
-			client := startNoticesServer(t, NewPageNotices(inapp.NewHub(), router, noticeNow))
+			client := startNoticesServer(t, NewPageNotices(inapp.NewHub(), router, nil, noticeNow))
 
 			if _, err := client.Seen(t.Context(), connect.NewRequest(&v1.NoticesSeenRequest{Key: tc.key})); err != nil {
 				t.Fatalf("Seen: %v", err)
@@ -197,7 +202,7 @@ func TestSeenRefusesKeyWithoutExactlyOneField(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			router := &fakeRouter{}
-			client := startNoticesServer(t, NewPageNotices(inapp.NewHub(), router, noticeNow))
+			client := startNoticesServer(t, NewPageNotices(inapp.NewHub(), router, nil, noticeNow))
 
 			ctx := t.Context()
 			_, err := client.Seen(ctx, connect.NewRequest(&v1.NoticesSeenRequest{Key: tc.key}))

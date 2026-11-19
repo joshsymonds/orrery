@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -20,14 +19,13 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.unit.dp
 import io.github.joshsymonds.orrery.api.EpicHistoryRow
 import io.github.joshsymonds.orrery.api.EpicTurnRow
 import io.github.joshsymonds.orrery.api.EvidenceRunRow
 import io.github.joshsymonds.orrery.api.StepCheckRow
 import io.github.joshsymonds.orrery.api.StepRow
-import io.github.joshsymonds.orrery.ui.theme.Mocha
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
+import io.github.joshsymonds.orrery.ui.theme.inLabelCase
 import java.time.Instant
 import java.time.ZoneId
 
@@ -50,7 +48,7 @@ fun NowRows(wedges: List<Wedge>, now: Long, onOpenPhase: ((task: String, phase: 
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("now-row:$index")
-                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                    .padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.four)
                     .tapping(onTap),
             )
         }
@@ -73,7 +71,7 @@ fun NextRows(wedges: List<Wedge>, onOpenPhase: ((task: String, phase: Phase) -> 
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("next-row:$index")
-                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                    .padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.four)
                     .tapping(onTap),
             )
         }
@@ -104,9 +102,14 @@ fun JustHappened(entries: List<EpicHistoryRow>, steps: List<StepRow>, onOpenStep
 @Composable
 private fun HappenHeading(title: String) {
     Text(
-        title,
-        style = MaterialTheme.typography.titleSmall,
-        modifier = Modifier.padding(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 4.dp),
+        title.inLabelCase(),
+        style = OrreryTokens.Type.label,
+        modifier = Modifier.padding(
+            start = OrreryTokens.Space.sixteen,
+            top = OrreryTokens.Space.twelve,
+            end = OrreryTokens.Space.sixteen,
+            bottom = OrreryTokens.Space.four,
+        ),
     )
 }
 
@@ -118,13 +121,13 @@ private fun HappenedRow(index: Int, entry: EpicHistoryRow, steps: List<StepRow>,
         modifier = Modifier
             .fillMaxWidth()
             .testTag("happened:$index")
-            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.four)
             .semantics(mergeDescendants = true) {}
             .tapping(onTap),
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(clockOf(entry.time), style = MaterialTheme.typography.labelSmall)
-            Text(whatOf(entry), modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+        Row(horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.twelve)) {
+            Text(clockOf(entry.time), style = OrreryTokens.Type.small)
+            Text(whatOf(entry), modifier = Modifier.weight(1f), style = OrreryTokens.Type.small)
         }
         step?.checks?.filter(::tailed)?.forEach { check ->
             CheckTails(tag = "happened-tail:$index:${check.name}", check = check)
@@ -143,15 +146,15 @@ private fun CheckTails(tag: String, check: StepCheckRow) {
         modifier = Modifier
             .fillMaxWidth()
             .testTag(tag)
-            .padding(start = 16.dp, bottom = 4.dp),
+            .padding(start = OrreryTokens.Space.sixteen, bottom = OrreryTokens.Space.four),
     ) {
         if (check.stdout.isNotEmpty()) {
-            Text("stdout", style = MaterialTheme.typography.labelSmall)
-            Text(check.stdout, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+            Text("stdout".inLabelCase(), style = OrreryTokens.Type.label)
+            Text(check.stdout, style = OrreryTokens.Type.small)
         }
         if (check.stderr.isNotEmpty()) {
-            Text("stderr", style = MaterialTheme.typography.labelSmall)
-            Text(check.stderr, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+            Text("stderr".inLabelCase(), style = OrreryTokens.Type.label)
+            Text(check.stderr, style = OrreryTokens.Type.small, color = OrreryTokens.Role.halt)
         }
     }
 }
@@ -167,7 +170,8 @@ private fun nowSliceOf(wedge: Wedge): PhaseSlice? = wedge.slices.find { it.state
 
 // toneColourOf is a now row's colour, as the web's k-now and k-held: yellow while a step runs, peach while the
 // owner holds it. inFlight admits no other tone.
-private fun toneColourOf(wedge: Wedge): Color = if (wedge.tone == WedgeTone.MINE) Mocha.Peach else Mocha.Yellow
+private fun toneColourOf(wedge: Wedge): Color =
+    if (wedge.tone == WedgeTone.MINE) OrreryTokens.Role.attention else OrreryTokens.Role.live
 
 // nowText is a row's text: its task and place, then how long it has been in the phase once the clock has started it.
 private fun nowText(wedge: Wedge, since: Long, now: Long): String {

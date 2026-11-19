@@ -78,21 +78,21 @@ func TestTaskLadderCannotMeetShape(t *testing.T) {
 	}
 }
 
-// TestTaskLadderCannotMeetSkipsToRescue: a cannot_meet on attempt 1 or 2 climbs the task to rescue, and on attempt 3 or
-// 4 to the next rung. On attempt 1 the action is a fail that names the cannot_meet move, its failure, its needs files
-// and its decision. A fail decision on attempt 1 still moves the task to the next rung.
-func TestTaskLadderCannotMeetSkipsToRescue(t *testing.T) {
+// TestTaskLadderCannotMeetSkipsToRecarve: a cannot_meet on attempt 1, 2 or 3 climbs the task to the recarve rung, and on
+// attempt 4 to the next rung. On attempt 1 the action is a fail that names the cannot_meet move, its failure, its needs
+// files and its decision. A fail decision on attempt 1 still moves the task to the next rung.
+func TestTaskLadderCannotMeetSkipsToRecarve(t *testing.T) {
 	t.Parallel()
 	got := Decide(ladderCannotMeetView(t, 1, 0))
 	want := Action{
 		Kind: ActFail, Reason: ladderCannotMeetFailure, NeedsFiles: []string{"b.go"},
 		Decision: &store.TaskDecision{ID: "T3-request-1", Text: "T3 cannot_meet: " + ladderCannotMeetReason},
-		Move:     store.RungMove{MovedBy: store.MovedByCannotMeet, To: store.RescueRung},
+		Move:     store.RungMove{MovedBy: store.MovedByCannotMeet, To: store.ApproachRung},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("cannot_meet on attempt 1 = %+v, want %+v", got, want)
 	}
-	for _, c := range []struct{ attempt, to int64 }{{2, store.RescueRung}, {3, 0}, {4, 0}} {
+	for _, c := range []struct{ attempt, to int64 }{{2, store.ApproachRung}, {3, store.ApproachRung}, {4, 0}} {
 		move := Decide(ladderCannotMeetView(t, c.attempt, 0)).Move
 		wantMove := store.RungMove{MovedBy: store.MovedByCannotMeet, To: c.to}
 		if !reflect.DeepEqual(move, wantMove) {
@@ -107,10 +107,10 @@ func TestTaskLadderCannotMeetSkipsToRescue(t *testing.T) {
 	}
 }
 
-// TestTaskLadderCannotMeetPassClimbsToRescue: an orchestrator's cannot_meet on task 1 at attempt 1 ends the pass with
-// the task open at attempt 3. Rung 1 ends failed with the stored failure as its reason, rung 3 is rescue moved by
-// cannot_meet, no rung 2 is written, and the decision is appended to the epic's decisions.
-func TestTaskLadderCannotMeetPassClimbsToRescue(t *testing.T) {
+// TestTaskLadderCannotMeetPassClimbsToRecarve: an orchestrator's cannot_meet on task 1 at attempt 1 ends the pass with
+// the task open at rung 4, the recarve. Rung 1 ends failed with the stored failure as its reason, rung 4 is an approach
+// rung moved by cannot_meet, no rung 2 is written, and the decision is appended to the epic's decisions.
+func TestTaskLadderCannotMeetPassClimbsToRecarve(t *testing.T) {
 	t.Parallel()
 	f := newRequestFixture(t)
 	f.endOrchestrator(orchID(0, 0), orchReturn(t, map[string]any{
@@ -119,9 +119,9 @@ func TestTaskLadderCannotMeetPassClimbsToRescue(t *testing.T) {
 	ladderClimbBefore(f, 1)
 	f.pass()
 	task := f.task()
-	if task.Status != taskOpen || task.Build.Attempt != store.RescueRung {
+	if task.Status != taskOpen || task.Build.Attempt != store.ApproachRung {
 		t.Fatalf("task status %q attempt %d, want open at attempt %d", task.Status, task.Build.Attempt,
-			store.RescueRung)
+			store.ApproachRung)
 	}
 	want := []store.TaskRung{
 		{
@@ -129,7 +129,7 @@ func TestTaskLadderCannotMeetPassClimbsToRescue(t *testing.T) {
 			Reason: ladderCannotMeetFailure, Ended: passClock(),
 		},
 		{
-			Rung: store.RescueRung, Kind: store.RungRescue, MovedBy: store.MovedByCannotMeet,
+			Rung: store.ApproachRung, Kind: store.RungApproach, MovedBy: store.MovedByCannotMeet,
 			Cause: ladderCannotMeetFailure, Step: passStep(StageImplement, 1, 0), Created: passClock(),
 		},
 	}

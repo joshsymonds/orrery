@@ -3,6 +3,7 @@ package enginehost
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/joshsymonds/orrery/internal/store"
@@ -24,7 +25,7 @@ func TestTurnClaudeStartsByItselfRecordsWorkingUntilItsEnd(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 	first := Notice{Session: id, Dir: dir, State: "done", Body: "fake bgself 1"}
-	if got := waitNotices(t, engineOf(m), sink); len(got) != 1 || got[0] != first {
+	if got := waitNotices(t, engineOf(m), sink); len(got) != 1 || !reflect.DeepEqual(got[0], first) {
 		t.Fatalf("notices after the first turn = %+v, want exactly [%+v]", got, first)
 	}
 	changedBefore := len(sink.changedCalls())
@@ -54,7 +55,7 @@ func TestTurnClaudeStartsByItselfRecordsWorkingUntilItsEnd(t *testing.T) {
 	})
 	waitUntil(t, engineOf(m), "the second notice", func() bool { return len(sink.got()) > 1 })
 	second := Notice{Session: id, Dir: dir, State: "done", Body: "fake self 1"}
-	if got := sink.got(); len(got) != 2 || got[1] != second {
+	if got := sink.got(); len(got) != 2 || !reflect.DeepEqual(got[1], second) {
 		t.Fatalf("notices after the self-started turn = %+v, want [%+v %+v]", got, first, second)
 	}
 }

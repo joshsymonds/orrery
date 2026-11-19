@@ -43,6 +43,7 @@ func TestReaderQueryPlans(t *testing.T) {
 		"PendingCallerEvents": {
 			"ListPendingCallerSteps", "ListSteeredEpics", "ListOpenEpicQuestions", "CountCallerEvent",
 		},
+		"StepFacts": {"ListStepFacts"},
 	}
 	checkReaderMethodsListed(t, readerQueries)
 

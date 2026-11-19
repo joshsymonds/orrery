@@ -124,7 +124,10 @@ const (
 type SessionsClient interface {
 	// List returns every tracked session.
 	List(context.Context, *connect.Request[v1.ListRequest]) (*connect.Response[v1.ListResponse], error)
-	// ListHeadless returns the headless sessions of the last 14 days, each row's text derived when it is read.
+	// ListHeadless returns the headless sessions of the last 14 days, each row's text derived when it is read. Every
+	// listed row is a conversation: a session of kind engine, whether the owner, a client or Talk started it. A row is
+	// never a step's session (the planner's, the evidence judge's, a reviewer's, an implementer's or the release
+	// integrator's).
 	ListHeadless(context.Context, *connect.Request[v1.ListHeadlessRequest]) (*connect.Response[v1.ListHeadlessResponse], error)
 	// WatchConversation streams the conversation of one headless session in the deltas Panes.WatchConversation sends:
 	// a reset with the newest items when the client holds none, then the deltas that follow each change.
@@ -203,7 +206,10 @@ func (c *sessionsClient) Older(ctx context.Context, req *connect.Request[v1.Sess
 type SessionsHandler interface {
 	// List returns every tracked session.
 	List(context.Context, *connect.Request[v1.ListRequest]) (*connect.Response[v1.ListResponse], error)
-	// ListHeadless returns the headless sessions of the last 14 days, each row's text derived when it is read.
+	// ListHeadless returns the headless sessions of the last 14 days, each row's text derived when it is read. Every
+	// listed row is a conversation: a session of kind engine, whether the owner, a client or Talk started it. A row is
+	// never a step's session (the planner's, the evidence judge's, a reviewer's, an implementer's or the release
+	// integrator's).
 	ListHeadless(context.Context, *connect.Request[v1.ListHeadlessRequest]) (*connect.Response[v1.ListHeadlessResponse], error)
 	// WatchConversation streams the conversation of one headless session in the deltas Panes.WatchConversation sends:
 	// a reset with the newest items when the client holds none, then the deltas that follow each change.

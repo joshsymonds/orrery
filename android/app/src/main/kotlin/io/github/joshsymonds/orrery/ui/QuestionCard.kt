@@ -20,13 +20,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import io.github.joshsymonds.orrery.api.KeysResult
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Pane
-import io.github.joshsymonds.orrery.ui.theme.Mocha
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
+import io.github.joshsymonds.orrery.ui.theme.inLabelCase
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -93,27 +91,35 @@ fun QuestionCard(pane: Pane, client: OrreryClient, onRefresh: () -> Unit, modifi
     val question = remember(pane.question) { parseQuestion(pane.question) }
     val scope = rememberCoroutineScope()
     var status by remember(pane.question) { mutableStateOf("") }
-    val cardShape = RoundedCornerShape(14.dp)
-    val buttonShape = RoundedCornerShape(10.dp)
+    val cardShape = RoundedCornerShape(OrreryTokens.Radius.three)
+    val buttonShape = RoundedCornerShape(OrreryTokens.Radius.two)
 
-    Column(modifier = modifier.fillMaxWidth().padding(16.dp)) {
+    Column(modifier = modifier.fillMaxWidth().padding(OrreryTokens.Space.sixteen)) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(cardShape)
-                .background(Mocha.Peach.copy(alpha = 0.06f))
-                .border(1.dp, Mocha.Peach, cardShape)
-                .padding(12.dp),
+                .background(OrreryTokens.Role.attentionFill)
+                .border(OrreryTokens.Size.hairline, OrreryTokens.Role.attention, cardShape)
+                .padding(OrreryTokens.Space.twelve),
         ) {
-            Text("CLAUDE IS ASKING", color = Mocha.Peach, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+            Text(
+                "CLAUDE IS ASKING".inLabelCase(),
+                color = OrreryTokens.Role.attention,
+                style = OrreryTokens.Type.label,
+            )
             if (question.markdown) {
                 MarkdownBody(
                     blocks = remember(question.title) { parseMarkdown(question.title) },
-                    modifier = Modifier.padding(top = 2.dp),
-                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(top = OrreryTokens.Space.two),
+                    fontWeight = OrreryTokens.Font.Weight.bold,
                 )
             } else {
-                Text(question.title, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 2.dp))
+                Text(
+                    question.title,
+                    style = OrreryTokens.Type.body.copy(fontWeight = OrreryTokens.Font.Weight.bold),
+                    modifier = Modifier.padding(top = OrreryTokens.Space.two),
+                )
             }
             question.options.forEach { option ->
                 Button(
@@ -136,20 +142,27 @@ fun QuestionCard(pane: Pane, client: OrreryClient, onRefresh: () -> Unit, modifi
                             }
                         }
                     },
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = OrreryTokens.Space.eight),
                     shape = buttonShape,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Mocha.Surface0,
-                        contentColor = Mocha.Text,
+                        containerColor = OrreryTokens.Surface.raised,
+                        contentColor = OrreryTokens.Ink.one,
                     ),
-                    border = BorderStroke(1.dp, Mocha.Surface1),
+                    border = BorderStroke(OrreryTokens.Size.hairline, OrreryTokens.Line.firm),
                     elevation = null,
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                    contentPadding = PaddingValues(
+                        horizontal = OrreryTokens.Space.twelve,
+                        vertical = OrreryTokens.Space.eight + OrreryTokens.Space.two,
+                    ),
                 ) {
                     Column(modifier = Modifier.fillMaxWidth()) {
                         Text(optionText(option.label, question.markdown))
                         option.description?.let { description ->
-                            Text(optionText(description, question.markdown), color = Mocha.Subtext0, fontSize = 12.sp)
+                            Text(
+                                optionText(description, question.markdown),
+                                color = OrreryTokens.Ink.two,
+                                style = OrreryTokens.Type.small,
+                            )
                         }
                     }
                 }

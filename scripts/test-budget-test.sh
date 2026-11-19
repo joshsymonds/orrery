@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Tests scripts/test-budget.sh with synthetic records and baselines, so no Go runs: which packages are reported and how
-# the line reads, the 15% and 5 cpu-s allowances, failing (exit 3) only past twice the baseline, a package with no
+# the line reads, the 15% and 5 cpu-s allowances, past twice the baseline reported with exit 0, a package with no
 # baseline, malformed input, --lines writing the printed lines to a file, and `update` keeping each package's lowest run.
 #
 # Usage: scripts/test-budget-test.sh   (exits 0 when every case passes)
@@ -63,7 +63,7 @@ check "over twice a tiny baseline but within its 5 cpu-s passes unreported" "$rc
     "0:test-budget: 1 packages checked, none over twice its baseline"
 
 run double $'internal/store 330\ninternal/server 120\ninternal/zero 6\n'
-check "a package over twice its baseline exits 3" "$rc" 3
+check "a package over twice its baseline does not fail the check" "$rc" 0
 check "each package over twice its baseline is named so" "$out" "test-budget: internal/server 120 cpu-s > 100 (+20%)
 test-budget: internal/store 330 cpu-s > 160 (+106%), over twice its baseline
 test-budget: internal/zero 6 cpu-s > 0 (from 0), over twice its baseline
@@ -118,7 +118,7 @@ test-budget: 2 packages checked, none over twice its baseline"
 check "--lines writes the lines printed, replacing the file" "$written" "$out"
 
 lines lines-fail $'internal/store 330\n'
-check "--lines keeps exit 3 for a package over twice its baseline" "$rc" 3
+check "--lines exits 0 for a package over twice its baseline" "$rc" 0
 check "--lines writes the lines of a failing check" "$written" "test-budget: internal/store 330 cpu-s > 160 (+106%), over twice its baseline
 test-budget: 1 of 1 packages over twice their baseline"
 

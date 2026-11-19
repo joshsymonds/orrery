@@ -216,4 +216,25 @@ public interface ConversationStateOrBuilder extends
    * <code>repeated .orrery.v1.BackgroundTask background = 10 [json_name = "background"];</code>
    */
   int getBackgroundCount();
+
+  /**
+   * <pre>
+   * The unix seconds of the engine_interrupt that makes interrupting true, and 0 when interrupting is false. Pane
+   * streams never set it.
+   * </pre>
+   *
+   * <code>int64 interrupting_since = 11 [json_name = "interruptingSince"];</code>
+   * @return The interruptingSince.
+   */
+  long getInterruptingSince();
+
+  /**
+   * <pre>
+   * The unix seconds the running turn started while the session is working, and 0 otherwise. Pane streams never set it.
+   * </pre>
+   *
+   * <code>int64 turn_since = 12 [json_name = "turnSince"];</code>
+   * @return The turnSince.
+   */
+  long getTurnSince();
 }

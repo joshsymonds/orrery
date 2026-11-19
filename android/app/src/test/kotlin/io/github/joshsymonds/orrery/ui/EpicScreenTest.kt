@@ -848,7 +848,7 @@ class EpicScreenTest {
             awaitLoaded()
 
             scrollTo("epic-section:implementation")
-            assertEquals(1, countNodes(hasText("Workflow")))
+            assertEquals(1, countNodes(hasText("WORKFLOW")))
             assertEquals(1, countIn("epic-section:implementation", hasTestTag("node-row:0")))
         }
     }

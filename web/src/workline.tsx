@@ -36,9 +36,9 @@ function currentTool(pane: Pane): PaneTool | null {
   };
 }
 
-// Tone is a pill's colour: the state it shows, with ended for a run that failed or was stopped, and interrupting for a
-// working row the owner has interrupted.
-type Tone = "working" | "waiting" | "held" | "done" | "interrupted" | "interrupting" | "ended" | "idle";
+// Tone is a pill's colour: the state it shows, with ended for a run that failed, stopped for one the owner stopped, and
+// interrupting for a working row the owner has interrupted.
+type Tone = "working" | "waiting" | "held" | "done" | "interrupted" | "interrupting" | "ended" | "stopped" | "idle";
 
 // PillModel is what a pill shows: its tone, its word, its tool's short name when it has one, and the unix seconds its
 // clock runs from when it has a clock.
@@ -86,8 +86,9 @@ function stateModel(state: string): PillModel {
     case "interrupted":
       return { tone: state, word: state, tool: "" };
     case "failed":
-    case "stopped":
       return { tone: "ended", word: state, tool: "" };
+    case "stopped":
+      return { tone: "stopped", word: state, tool: "" };
     default:
       return { tone: "idle", word: state === "" ? "idle" : state, tool: "" };
   }

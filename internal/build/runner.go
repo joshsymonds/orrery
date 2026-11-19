@@ -283,8 +283,9 @@ func (r *Runner) readUnit(ctx context.Context, epic store.EpicRow, task store.Ep
 
 // readRequest sets the parts of view a request reads. An asked build reads whether its question is answered (answered). A
 // waiting build reads the epic's tasks as peers and the base the next integrate batch composes on: the epic's candidate
-// when it has one, and its stored base otherwise. An orchestrate unit reads the implementer step it decides, by the
-// build's step, and once its own step has ended done, the peers its decision is checked against.
+// when it has one, and its stored base otherwise. An implement unit whose step ended needs_context reads the peers a
+// rule grant of its files is checked against. An orchestrate unit reads the implementer step it decides, by the build's
+// step, and once its own step has ended done, the peers its decision is checked against.
 func (r *Runner) readRequest(ctx context.Context, epic store.EpicRow, task store.EpicTask, view *View) error {
 	build := task.Build
 	switch {
@@ -295,6 +296,13 @@ func (r *Runner) readRequest(ctx context.Context, epic store.EpicRow, task store
 		view.NewBase = epic.StoredBase
 		if epic.Candidate != "" {
 			view.NewBase = epic.Candidate
+		}
+		peers, err := r.peers(ctx, epic)
+		view.Peers = peers
+		return err
+	case build.Stage == StageImplement:
+		if view.Step == nil || view.Step.End != endReturned || view.Step.Status != statusNeedsContext {
+			return nil
 		}
 		peers, err := r.peers(ctx, epic)
 		view.Peers = peers

@@ -66,13 +66,13 @@ func TestDecisionByAmendmentSettlingIsOrreryd(t *testing.T) {
 	}
 }
 
-// TestDecisionByDecisionInsertedAtMigration72ReadsEmpty checks that a decision stored before migration 73 reads back
+// TestDecisionByDecisionStoredBeforeMakersReadsEmpty checks that a decision stored before migration 78 reads back
 // with an empty maker and session once the store migrates up.
-func TestDecisionByDecisionInsertedAtMigration72ReadsEmpty(t *testing.T) {
+func TestDecisionByDecisionStoredBeforeMakersReadsEmpty(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
-	fixture := openStoreAtVersion(t, path, 72)
+	fixture := openStoreAtVersion(t, path, 77)
 	seedEpic(t, fixture)
 	if err := fixture.Close(); err != nil {
 		t.Fatalf("close fixture: %v", err)
@@ -80,7 +80,7 @@ func TestDecisionByDecisionInsertedAtMigration72ReadsEmpty(t *testing.T) {
 
 	s, err := Open(ctx, path, noSync())
 	if err != nil {
-		t.Fatalf("Open at version 73: %v", err)
+		t.Fatalf("Open at version 78: %v", err)
 	}
 	defer s.Close()
 
