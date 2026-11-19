@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -208,7 +208,7 @@ func TestGrantedGateRunsOnlyAfterTheGrantAndReportsItsMembers(t *testing.T) {
 	pids := filepath.Join(t.TempDir(), "pids")
 	marker := filepath.Join(t.TempDir(), "started")
 	queue := make(chan struct{})
-	pools := &fakeGatePools{queue: queue, onEnd: gateGroupGoneAtEnd(t, pids)}
+	pools := &fakeGatePools{queue: queue, onEnd: gateGroupGoneAtEnd(t, pids), firstRequest: make(chan struct{})}
 
 	type outcome struct {
 		result gateResult
@@ -225,10 +225,11 @@ func TestGrantedGateRunsOnlyAfterTheGrantAndReportsItsMembers(t *testing.T) {
 		done <- outcome{result, err}
 	}()
 
+	<-pools.firstRequest
 	select {
 	case got := <-done:
 		t.Fatalf("gate finished before its grant: %+v, %v", got.result, got.err)
-	case <-time.After(300 * time.Millisecond):
+	default:
 	}
 	if _, err := os.Stat(marker); err == nil {
 		t.Fatal("gate started before its grant")
@@ -260,17 +261,49 @@ func TestGrantedGateRunsOnlyAfterTheGrantAndReportsItsMembers(t *testing.T) {
 	}
 }
 
-func TestGrantedGateQueueSignalQueuedTimeDoesNotCountTowardLimit(t *testing.T) {
+// gateQueueRanFIFO makes a FIFO in a fresh temporary directory for a gate to write its run marker to, and returns its
+// path. The gate's write waits for a reader, which gateQueueReadRan is, so the marker is a signal, not a file a test
+// would have to poll for.
+func gateQueueRanFIFO(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "ran")
+	if err := unix.Mkfifo(path, 0o600); err != nil {
+		t.Fatalf("make run marker FIFO %s: %v", path, err)
+	}
+	return path
+}
+
+// gateQueueReadRan returns what the gate wrote to the run marker FIFO at ran. Opening the FIFO for reading waits for
+// the gate's write to open it, and reading ends when the gate closes it, so the gate has run its marker line once this
+// returns.
+func gateQueueReadRan(t *testing.T, ran string) string {
+	t.Helper()
+	f, err := os.Open(ran)
+	if err != nil {
+		t.Fatalf("open run marker FIFO %s: %v", ran, err)
+	}
+	data, readErr := io.ReadAll(f)
+	closeErr := f.Close()
+	if readErr != nil {
+		t.Fatalf("read run marker FIFO %s: %v", ran, readErr)
+	}
+	if closeErr != nil {
+		t.Fatalf("close run marker FIFO %s: %v", ran, closeErr)
+	}
+	return string(data)
+}
+
+// TestGrantedGateQueueSignalLimitCountsFromItsGrant checks that a gate's limit is armed only once its grant holds. While
+// the grant queues, the gate has not launched, so no holder reads the limit FIFO and nothing counts toward the limit.
+// Once the grant holds, the holder starts with the whole Limit, and the gate runs until the limit is reached through the
+// FIFO.
+func TestGrantedGateQueueSignalLimitCountsFromItsGrant(t *testing.T) {
 	t.Parallel()
-	// The gate's limit is its holder's, set when the holder launches, so time queued for the grant can count toward it
-	// only if the gate starts before the grant. While the grant is held queued, the gate must not have started and
-	// runGrantedGate must not have returned.
 	queue := make(chan struct{})
 	pools := &fakeGatePools{queue: queue, firstRequest: make(chan struct{})}
-	ran := filepath.Join(t.TempDir(), "ran")
-	// The limit is reached only by a signal on its FIFO, and this test sends none: the gate exits at once, and its
-	// TimedOut stays false however long the queue holds it.
+	ran := gateQueueRanFIFO(t)
 	limit := gateLimitFIFO(t)
+	launched := make(chan struct{})
 
 	type outcome struct {
 		result gateResult
@@ -279,35 +312,59 @@ func TestGrantedGateQueueSignalQueuedTimeDoesNotCountTowardLimit(t *testing.T) {
 	done := make(chan outcome, 1)
 	go func() {
 		result, err := runGrantedGate(t.Context(), pools, gateGrantRequest(), gateRun{
-			Argv:        []string{"/bin/sh", "-c", `echo 1 > "$RAN"; exit 0`},
+			Argv:        []string{"/bin/sh", "-c", `echo 1 > "$RAN"; sleep 60`},
 			Dir:         t.TempDir(),
 			Limit:       time.Hour,
+			StateDir:    gateShortStateDir(t),
 			limitSignal: limit,
 			Environ:     gateEnv("RAN=" + ran),
+			launched:    func() { close(launched) },
 		})
 		done <- outcome{result, err}
 	}()
+
 	<-pools.firstRequest
 	select {
 	case got := <-done:
 		t.Fatalf("runGrantedGate returned (%+v, %v) while its grant was queued", got.result, got.err)
 	default:
 	}
-	if _, err := os.Stat(ran); !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("the gate ran while its grant was queued: stat %s = %v", ran, err)
+	select {
+	case <-launched:
+		t.Fatal("the gate launched while its grant was queued")
+	default:
+	}
+	// A holder opens the limit FIFO for reading only when it starts the gate's child. While the grant queues there is no
+	// holder, so a non-blocking write-open of the FIFO has no reader and fails with ENXIO.
+	fd, err := unix.Open(limit, unix.O_WRONLY|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
+	if err == nil {
+		if closeErr := unix.Close(fd); closeErr != nil {
+			t.Errorf("close limit FIFO %s: %v", limit, closeErr)
+		}
+		t.Fatalf("open limit FIFO %s for writing succeeded while the grant queued: something reads the limit", limit)
+	}
+	if !errors.Is(err, unix.ENXIO) {
+		t.Fatalf("open limit FIFO %s for writing while the grant queued: %v, want ENXIO", limit, err)
 	}
 
 	close(queue)
+	<-launched
+	if got := gateHolderLimit(t, pools.requested()[0].Holder); got != "3600" {
+		t.Fatalf("holder --gate-limit = %s, want the whole one-hour Limit", got)
+	}
+	// The gate writes its marker before it runs on, and the FIFO's read ends once it has. This is read before the limit
+	// is reached, so the gate is still alive for the write.
+	if got := gateQueueReadRan(t, ran); got != "1\n" {
+		t.Fatalf("run marker = %q, want %q: the gate did not run after its grant", got, "1\n")
+	}
+
+	gateSignalLimit(t, limit)
 	got := <-done
-	result, err := got.result, got.err
-	if err != nil {
-		t.Fatalf("runGrantedGate: %v", err)
+	if got.err != nil {
+		t.Fatalf("runGrantedGate: %v", got.err)
 	}
-	if result.TimedOut {
-		t.Fatal("TimedOut = true: the time spent queued counted toward Limit")
-	}
-	if result.Exit != 0 {
-		t.Fatalf("Exit = %d, want 0", result.Exit)
+	if !got.result.TimedOut {
+		t.Fatal("TimedOut = false: the limit, counted from the grant, did not end the gate")
 	}
 }
 
