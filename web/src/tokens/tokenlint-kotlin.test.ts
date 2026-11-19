@@ -90,6 +90,24 @@ test("TokenLint: tween( fails outside ui/theme and passes inside ui/theme/Motion
   assert.deepEqual(where(theme, text), []);
 });
 
+test("TokenLint: inside ui/theme, outside the generated OrreryTokens.kt, a Color( literal, a Mocha name, a literal .sp, a literal .dp, a literal alpha, an ALPHA constant bound to a number, a literal duration and FontFamily.Monospace each fail, in Theme.kt, Type.kt and Motion.kt", () => {
+  const text = fixture(
+    "val edge = Color(0xFF112233)",
+    "val hue = Mocha.Peach",
+    "val size = 12.sp",
+    "val gap = 4.dp",
+    "val faint = color.copy(alpha = 0.5f)",
+    "const val FOO_ALPHA = 0.7f",
+    "    durationMillis = 300,",
+    "val family = FontFamily.Monospace",
+  );
+  const lines = [1, 2, 3, 4, 5, 6, 7, 8];
+  for (const path of [`${ui}theme/Theme.kt`, `${ui}theme/Type.kt`, `${ui}theme/Motion.kt`]) {
+    assert.deepEqual(where(path, text), lines.map((line) => `${path}:${line}`));
+  }
+  assert.deepEqual(where(generated, text), []);
+});
+
 test("TokenLint: FontFamily.Monospace and FontFamily.Default fail on their lines", () => {
   const text = fixture("Text(fontFamily = FontFamily.Monospace)", "Text(fontFamily = FontFamily.Default)");
   assert.deepEqual(where(screen, text), [`${screen}:1`, `${screen}:2`]);
