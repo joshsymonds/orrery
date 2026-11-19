@@ -282,6 +282,8 @@ func TestPumpLinesFloodStoresEveryBatchWithItsLinesConsumedOffset(t *testing.T) 
 	}
 }
 
+// TestPumpLinesBackgroundTurnStoresBackgroundOn covers a turn that lists a background shell task: the row stores
+// background on and awaited off, since a shell task runs no model.
 func TestPumpLinesBackgroundTurnStoresBackgroundOn(t *testing.T) {
 	t.Parallel()
 	out := fakeTurnOutput(t, "BACKGROUND")
@@ -289,8 +291,23 @@ func TestPumpLinesBackgroundTurnStoresBackgroundOn(t *testing.T) {
 	startTurn(t, rig, "BACKGROUND")
 
 	row := waitConsumed(t, rig, int64(len(out)))
-	if !row.Background {
-		t.Fatalf("background = false, want true while the turn's background task runs")
+	if !row.Background || row.Awaited {
+		t.Fatalf("background %v awaited %v, want background on and awaited off while a shell task runs",
+			row.Background, row.Awaited)
+	}
+}
+
+// TestPumpLinesBackgroundAgentTurnStoresAwaitedOn covers a turn that lists a background agent: the row stores both
+// background and awaited on.
+func TestPumpLinesBackgroundAgentTurnStoresAwaitedOn(t *testing.T) {
+	t.Parallel()
+	out := fakeTurnOutput(t, "BGAGENT")
+	rig := newRecordingRig(t)
+	startTurn(t, rig, "BGAGENT")
+
+	row := waitConsumed(t, rig, int64(len(out)))
+	if !row.Background || !row.Awaited {
+		t.Fatalf("background %v awaited %v, want both on while a background agent runs", row.Background, row.Awaited)
 	}
 }
 

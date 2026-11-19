@@ -31,6 +31,7 @@ public  final class PendingEvent extends
     title_ = "";
     waits_ = "";
   }
+  private int bitField0_;
   public static final int ID_FIELD_NUMBER = 1;
   private java.lang.String id_;
   /**
@@ -714,6 +715,73 @@ public  final class PendingEvent extends
     checkByteStringIsUtf8(value);
     waits_ = value.toStringUtf8();
 
+  }
+
+  public static final int STEP_FACTS_FIELD_NUMBER = 13;
+  private io.github.joshsymonds.orrery.gen.orrery.v1.StepFacts stepFacts_;
+  /**
+   * <pre>
+   * The facts of the step, for a step_end.
+   * </pre>
+   *
+   * <code>.orrery.v1.StepFacts step_facts = 13 [json_name = "stepFacts"];</code>
+   */
+  @java.lang.Override
+  public boolean hasStepFacts() {
+    return ((bitField0_ & 0x00000001) != 0);
+  }
+  /**
+   * <pre>
+   * The facts of the step, for a step_end.
+   * </pre>
+   *
+   * <code>.orrery.v1.StepFacts step_facts = 13 [json_name = "stepFacts"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.StepFacts getStepFacts() {
+    return stepFacts_ == null ? io.github.joshsymonds.orrery.gen.orrery.v1.StepFacts.getDefaultInstance() : stepFacts_;
+  }
+  /**
+   * <pre>
+   * The facts of the step, for a step_end.
+   * </pre>
+   *
+   * <code>.orrery.v1.StepFacts step_facts = 13 [json_name = "stepFacts"];</code>
+   */
+  private void setStepFacts(io.github.joshsymonds.orrery.gen.orrery.v1.StepFacts value) {
+    java.util.Objects.requireNonNull(value);
+    stepFacts_ = value;
+    bitField0_ |= 0x00000001;
+  }
+  /**
+   * <pre>
+   * The facts of the step, for a step_end.
+   * </pre>
+   *
+   * <code>.orrery.v1.StepFacts step_facts = 13 [json_name = "stepFacts"];</code>
+   */
+  @java.lang.SuppressWarnings("ReferenceEquality")
+  private void mergeStepFacts(io.github.joshsymonds.orrery.gen.orrery.v1.StepFacts value) {
+    java.util.Objects.requireNonNull(value);
+    if (stepFacts_ != null &&
+        stepFacts_ != io.github.joshsymonds.orrery.gen.orrery.v1.StepFacts.getDefaultInstance()) {
+      stepFacts_ =
+        io.github.joshsymonds.orrery.gen.orrery.v1.StepFacts.newBuilder(stepFacts_).mergeFrom(value).buildPartial();
+    } else {
+      stepFacts_ = value;
+    }
+    bitField0_ |= 0x00000001;
+  }
+  /**
+   * <pre>
+   * The facts of the step, for a step_end.
+   * </pre>
+   *
+   * <code>.orrery.v1.StepFacts step_facts = 13 [json_name = "stepFacts"];</code>
+   */
+  private void clearStepFacts() {
+    stepFacts_ = null;
+    bitField0_ = (bitField0_ & ~0x00000001);
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.PendingEvent parseFrom(
@@ -1523,6 +1591,77 @@ public  final class PendingEvent extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The facts of the step, for a step_end.
+     * </pre>
+     *
+     * <code>.orrery.v1.StepFacts step_facts = 13 [json_name = "stepFacts"];</code>
+     */
+    @java.lang.Override
+    public boolean hasStepFacts() {
+      return instance.hasStepFacts();
+    }
+    /**
+     * <pre>
+     * The facts of the step, for a step_end.
+     * </pre>
+     *
+     * <code>.orrery.v1.StepFacts step_facts = 13 [json_name = "stepFacts"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.StepFacts getStepFacts() {
+      return instance.getStepFacts();
+    }
+    /**
+     * <pre>
+     * The facts of the step, for a step_end.
+     * </pre>
+     *
+     * <code>.orrery.v1.StepFacts step_facts = 13 [json_name = "stepFacts"];</code>
+     */
+    public Builder setStepFacts(io.github.joshsymonds.orrery.gen.orrery.v1.StepFacts value) {
+      copyOnWrite();
+      instance.setStepFacts(value);
+      return this;
+      }
+    /**
+     * <pre>
+     * The facts of the step, for a step_end.
+     * </pre>
+     *
+     * <code>.orrery.v1.StepFacts step_facts = 13 [json_name = "stepFacts"];</code>
+     */
+    public Builder setStepFacts(
+        io.github.joshsymonds.orrery.gen.orrery.v1.StepFacts.Builder builderForValue) {
+      copyOnWrite();
+      instance.setStepFacts(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The facts of the step, for a step_end.
+     * </pre>
+     *
+     * <code>.orrery.v1.StepFacts step_facts = 13 [json_name = "stepFacts"];</code>
+     */
+    public Builder mergeStepFacts(io.github.joshsymonds.orrery.gen.orrery.v1.StepFacts value) {
+      copyOnWrite();
+      instance.mergeStepFacts(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The facts of the step, for a step_end.
+     * </pre>
+     *
+     * <code>.orrery.v1.StepFacts step_facts = 13 [json_name = "stepFacts"];</code>
+     */
+    public Builder clearStepFacts() {  copyOnWrite();
+      instance.clearStepFacts();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.PendingEvent)
   }
   @java.lang.Override
@@ -1539,6 +1678,7 @@ public  final class PendingEvent extends
       }
       case BUILD_MESSAGE_INFO: {
           java.lang.Object[] objects = new java.lang.Object[] {
+            "bitField0_",
             "id_",
             "kind_",
             "step_",
@@ -1549,10 +1689,12 @@ public  final class PendingEvent extends
             "epic_",
             "title_",
             "waits_",
+            "stepFacts_",
           };
           java.lang.String info =
-              "\u0000\n\u0000\u0000\u0001\u000b\n\u0000\u0000\u0000\u0001\u0208\u0002\u0208\u0003" +
-              "\u0208\u0004\u0208\u0005\u0208\u0006\u0208\b\u0208\t\u0208\n\u0208\u000b\u0208";
+              "\u0000\u000b\u0000\u0001\u0001\r\u000b\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0003\u0208\u0004\u0208\u0005\u0208\u0006\u0208\b\u0208\t\u0208\n\u0208\u000b\u0208" +
+              "\r\u1009\u0000";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

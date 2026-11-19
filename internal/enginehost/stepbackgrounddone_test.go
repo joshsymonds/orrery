@@ -11,8 +11,8 @@ import (
 )
 
 // TestStepBackgroundDoneReturnIsHandedWhenClaudeStartsTheTurn covers R1 through the full step loop. A prompted turn
-// starts two background tasks and ends not-done, which is not handed. When one task ends, claude starts a turn by
-// itself, with no stdin read, whose return is done while the other task is still listed. That return is handed: the
+// starts two background agents and ends not-done, which is not handed. When one agent ends, claude starts a turn by
+// itself, with no stdin read, whose return is done while the other agent is still listed. That return is handed: the
 // step ends done with it, and its process stops.
 func TestStepBackgroundDoneReturnIsHandedWhenClaudeStartsTheTurn(t *testing.T) {
 	t.Parallel()
@@ -28,13 +28,13 @@ func TestStepBackgroundDoneReturnIsHandedWhenClaudeStartsTheTurn(t *testing.T) {
 		engineOf(rig.manager, rig.steps),
 		rig.path,
 		id,
-		"the prompted turn done with both tasks listed",
+		"the prompted turn done with both agents listed",
 		func(h store.EngineHistory) bool {
 			return hasBlock(t, h, "fake bgself 1") && lastState(t, h) == string(protocol.StateDone)
 		},
 	)
 	if row := stepRowOf(t, rig.steps, id); row.End != "" || row.Result != "" {
-		t.Fatalf("step with tasks listed and a not-done return: end %q result %q, want open and unreturned",
+		t.Fatalf("step with agents listed and a not-done return: end %q result %q, want open and unreturned",
 			row.End, row.Result)
 	}
 

@@ -12,7 +12,7 @@ import (
 func TestNoticeHistoryMigration(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, provider := storeAtVersion(t, 73)
+	s, provider := storeAtVersion(t, 76)
 	pane := NoticeHistoryKey{Pane: "%3", Session: "session-a"}
 	for _, row := range []NoticeRow{
 		{ID: 1, Pane: "%3", Session: "session-a", State: "waiting", Time: 1_700_000_000, Phase: "delayed",
@@ -47,7 +47,7 @@ func TestNoticeHistoryMigration(t *testing.T) {
 	}
 
 	if _, err := provider.Down(ctx); err != nil {
-		t.Fatalf("Down of 00073: %v", err)
+		t.Fatalf("Down of 00076: %v", err)
 	}
 	if tableNames(t, s)["notice_history"] {
 		t.Errorf("notice_history after Down: present, want absent")
@@ -60,7 +60,7 @@ func TestNoticeHistoryMigration(t *testing.T) {
 	}
 
 	if _, err := provider.UpByOne(ctx); err != nil {
-		t.Fatalf("Up of 00073: %v", err)
+		t.Fatalf("Up of 00076: %v", err)
 	}
 	if !tableNames(t, s)["notice_history"] {
 		t.Fatalf("notice_history after Up: absent, want present")

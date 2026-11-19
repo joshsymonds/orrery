@@ -147,6 +147,7 @@ func TestStepEventCardPendingListsOwedStepEndsAndEpicEvents(t *testing.T) {
 			Status: "passed",
 			Brief:  "Return: First line...\nNot shown: return (22 bytes)\nReason: gate green\nMore: step_result id step-a",
 			Epic:   claimEpic,
+			Facts:  StepFacts{Seconds: 60},
 		},
 		{
 			ID: "epic:orrery-1a2b3c4/epic-ended:done", Kind: CallerKindEnd, Epic: pendingEnded, Title: "Synthetic epic",
@@ -172,7 +173,8 @@ func TestStepEventCardPendingListsOwedStepEndsAndEpicEvents(t *testing.T) {
 	gotOther := readPending(t, path, "engine-2")
 	wantOther := []PendingEvent{
 		{ID: "step:step-b", Kind: CallerKindStepEnd, Step: "step-b", Agent: "implementer", End: "done",
-			Status: "passed", Brief: "Return: Other\nNot shown: none\nReason: gate green\nMore: step_result id step-b"},
+			Status: "passed", Brief: "Return: Other\nNot shown: none\nReason: gate green\nMore: step_result id step-b",
+			Facts: StepFacts{Seconds: 120}},
 		{ID: "epic:orrery-1a2b3c4/epic-other:released", Kind: CallerKindRelease, Epic: pendingOther,
 			Title: "Synthetic epic"},
 	}

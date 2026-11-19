@@ -168,10 +168,10 @@ func ClimbedBuild(from TaskBuild, rung int64, failure string) TaskBuild {
 // gapped, sets the task's status to TaskGap, and adds a pending trigger `T<seq>-gap` with cause
 // `task T<seq> ended as a gap: <cause>`. A climb onto ApproachRung adds a pending trigger `T<seq>-approach` with cause
 // `task T<seq> needs a change of approach: <cause>`. version, when not nil, is stored as the task's next version,
-// applied by decision's id, and decision, when not nil, is appended to the epic's decisions. A target at or below
-// RungOf(from), a to that is not on the target capped at GapRung, and a move whose MovedBy is not one of the MovedBy
-// values are errors that write nothing. A task that is not open, or whose stored build is not from, is ErrTaskMoved
-// and writes nothing.
+// applied by decision's id, and decision, when not nil, is appended to the epic's decisions, with its refused files
+// stored as refused by its id. A target at or below RungOf(from), a to that is not on the target capped at GapRung,
+// and a move whose MovedBy is not one of the MovedBy values are errors that write nothing. A task that is not open, or
+// whose stored build is not from, is ErrTaskMoved and writes nothing.
 func (s *Store) ClimbTask(
 	ctx context.Context,
 	epic string,
@@ -222,10 +222,19 @@ func climbTask(
 	if decision != nil {
 		decisionID = decision.ID
 	}
+	var granted []string
 	if version != nil {
 		if err := appendTaskVersion(ctx, queries, epic, seq, decisionID, *version, at); err != nil {
 			return err
 		}
+		granted = version.Files
+	}
+	var refusals TaskDecision
+	if decision != nil {
+		refusals = *decision
+	}
+	if err := storeRefusals(ctx, queries, epic, seq, refusals, granted, at); err != nil {
+		return err
 	}
 	if decision == nil {
 		return nil

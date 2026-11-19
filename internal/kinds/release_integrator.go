@@ -158,12 +158,15 @@ func gateFailure(checked store.NodeRun, rows Rows) string {
 
 // captureFailures returns one line for each capture at revision that captureCauses finds failing: one that was not
 // captured, with why, one that was not judged, and one whose Requirement was green at the stored base and whose capture
-// does not pass, with its exit, its verdict and its judge's reason.
+// does not pass, with its exit, its verdict and its judge's reason. A carried capture writes no line.
 func captureFailures(revision string, rows Rows, captured map[string]store.EvidenceRun) string {
 	green := GreenAt(rows, rows.Epic.StoredBase)
 	var lines []string
 	for _, requirement := range itemRequirements(rows.Epic.Requirements) {
 		capture := captured[requirement.ID]
+		if carried(capture, green[requirement.ID]) {
+			continue
+		}
 		switch {
 		case capture.NotCaptured != "":
 			lines = append(lines, fmt.Sprintf("The capture of %s did not run on commit %s: %s.",

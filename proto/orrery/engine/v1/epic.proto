@@ -181,7 +181,8 @@ message EpicReviewer {
   // Whether the reviewer runs. A disabled reviewer stays in the list and runs at no stage.
   optional bool enabled = 2;
 
-  // The stages the reviewer runs at: task, epic, or both.
+  // The stages the reviewer runs at: any of task, epic and release. The release stage runs once before the release's
+  // first step, on the candidate.
   repeated string stage = 3;
 
   // The statements the reviewer's return must show hold.
@@ -1205,10 +1206,14 @@ message CreateEpicRequest {
   string workflow = 3;
 }
 
-// CreateEpicResponse carries the stored epic.
+// CreateEpicResponse carries the stored epic and the warnings its contract drew. The epic is stored with them.
 message CreateEpicResponse {
   // The stored epic.
   StoredEpic epic = 1;
+
+  // One warning for each lint finding that does not refuse the contract: a go test whose -run pattern matches a test at
+  // the base, or a release step that says merge, names a fixed version or waits on CI. Each names its field and reason.
+  repeated string warnings = 2;
 }
 
 // GetEpicRequest names one epic.

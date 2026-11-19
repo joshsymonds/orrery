@@ -84,7 +84,7 @@ func toBuiltReproduction(t *testing.T) *integrateWorld {
 	t.Helper()
 	w := newReproWorld(t, pinnedTo(builtinPin(t)), viaRunnerPass())
 	w.pass()
-	w.endRed("red")
+	w.endRed()
 	w.pass()
 	completeTurn(t, w.s, store.EpicPlan{
 		Decisions: []string{}, Tasks: []store.EpicTaskInput{runTask("only", reproTestFile)}, Outline: "one task",

@@ -77,6 +77,7 @@ func TestQueuedConsumedOffsetsStoreAsOneOpWithLaterOffsetAndMergedFields(t *test
 
 	first := store.EngineConsumed{
 		ID: "a", Consumed: 5, ReplayFrom: new(int64(3)), Output: new("first"), Background: new(true),
+		Awaited: new(true),
 	}
 	later := store.EngineConsumed{ID: "a", Consumed: 10, Output: new("second")}
 	for _, op := range []store.EngineConsumed{first, later} {
@@ -92,6 +93,7 @@ func TestQueuedConsumedOffsetsStoreAsOneOpWithLaterOffsetAndMergedFields(t *test
 	}
 	want := store.EngineConsumed{
 		ID: "a", Consumed: 10, ReplayFrom: new(int64(3)), Output: new("second"), Background: new(true),
+		Awaited: new(true),
 	}
 	if got := []store.EngineOp{want}; !reflect.DeepEqual(calls[0], got) {
 		t.Fatalf("ops in the call: got %+v, want %+v", calls[0], got)
@@ -100,9 +102,12 @@ func TestQueuedConsumedOffsetsStoreAsOneOpWithLaterOffsetAndMergedFields(t *test
 	if err != nil {
 		t.Fatalf("EngineSession a: %v", err)
 	}
-	if row.Consumed != 10 || row.ReplayFrom != 3 || row.TurnOutput != "second" || !row.Background {
-		t.Fatalf("stored state of a: consumed %d, replay from %d, output %q, background %t; want 10, 3, second, true",
-			row.Consumed, row.ReplayFrom, row.TurnOutput, row.Background)
+	if row.Consumed != 10 || row.ReplayFrom != 3 || row.TurnOutput != "second" || !row.Background || !row.Awaited {
+		t.Fatalf(
+			"stored state of a: consumed %d, replay from %d, output %q, background %t, awaited %t; "+
+				"want 10, 3, second, true, true",
+			row.Consumed, row.ReplayFrom, row.TurnOutput, row.Background, row.Awaited,
+		)
 	}
 }
 

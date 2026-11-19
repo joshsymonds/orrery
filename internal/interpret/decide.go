@@ -155,19 +155,28 @@ const (
 )
 
 // Decide returns the actions that move flow's node runs on epic forward, given the epic's rows and the registered
-// kinds. The walk takes the top-level nodes in order and stops at the first one that has not ended, so the actions are what
-// that node needs. Once every top-level node has ended, Decide returns none.
+// kinds. An orphaned run, one running under a run that has ended (orphans), is decided first, and while one runs the
+// walk waits. Otherwise the walk takes the top-level nodes in order and stops at the first one that has not ended, so
+// the actions are what that node needs. Once every top-level node has ended, Decide returns none.
 func Decide(flow workflow.Workflow, rows kinds.Rows, reg map[string]kinds.Kind) []Action {
-	acts, _ := newPass(rows, reg, flow).walk(flow.Nodes, scope{where: topLevel})
+	walk := newPass(rows, reg, flow)
+	if acts, orphaned := walk.orphans(); orphaned {
+		return acts
+	}
+	acts, _ := walk.walk(flow.Nodes, scope{where: topLevel})
 	return acts
 }
 
 // Rests reports whether Decide gives flow no action on any rows that hold rows.Epic's phase and rows.Runs, read from
-// the runs' Path, State, Outcome and Attempt alone: the walk of the top-level nodes stops at a node that ended failed,
-// at a parked node, or at the end of the list, or else at a running node that its kind gives no action whatever the
-// epic's other rows hold (idle). An epic at rest has nothing to decide until one of its node runs or its phase changes.
+// the runs' Path, State, Outcome and Attempt alone: no run is orphaned, and the walk of the top-level nodes stops at a
+// node that ended failed, at a parked node, or at the end of the list, or else at a running node that its kind gives no
+// action whatever the epic's other rows hold (idle). An epic at rest has nothing to decide until one of its node runs or
+// its phase changes.
 func Rests(flow workflow.Workflow, rows kinds.Rows, reg map[string]kinds.Kind) bool {
 	walk := newPass(rows, reg, flow)
+	if len(walk.orphaned()) > 0 {
+		return false
+	}
 	def, run, halt := walk.frontier(flow.Nodes, scope{where: topLevel})
 	switch halt {
 	case haltEnded, haltParked:
@@ -384,17 +393,18 @@ func (p pass) running(def workflow.Node, run store.NodeRun, at scope) []Action {
 }
 
 // plan decides a running plan run from the act its kind gives. The plan runs while its kind keeps it running, and it
-// ends once its kind ends it, its latest settle walk has ended and no sync of origin's main holds it. Its settle walks,
-// its sync and its fan-out are decided with it. While a sync holds the plan, the plan gets no run, so the planner gets
-// no turn. The planner's pass still carries out the epic's pending actions, which wait on no turn, so the hold never
-// waits on the planner. A plan whose kind leaves it waiting gives no action.
+// ends once its kind ends it, its latest settle walk has ended, no sync of origin's main holds it and no run under it
+// other than a build child runs (bodyRunning). Its settle walks, its sync and its fan-out are decided with it. While a
+// sync holds the plan, the plan gets no run, so the planner gets no turn. The planner's pass still carries out the
+// epic's pending actions, which wait on no turn, so the hold never waits on the planner. A plan whose kind leaves it
+// waiting gives no action.
 func (p pass) plan(def workflow.Node, run store.NodeRun, act kinds.Action) []Action {
 	if act.Kind != kinds.ActEnd && act.Kind != kinds.ActRun {
 		return nil
 	}
 	walks, settled := p.settle(def, run)
 	synced, holds := p.syncMain(def, run, settled)
-	if act.Kind == kinds.ActEnd && settled && !holds {
+	if act.Kind == kinds.ActEnd && settled && !holds && !p.bodyRunning(run.Path) {
 		return p.complete(def, run, act)
 	}
 	acts := walks
@@ -519,6 +529,16 @@ func (p pass) quiet(def workflow.Node, run store.NodeRun) bool {
 	return slices.ContainsFunc(p.rows.Runs, func(batch store.NodeRun) bool {
 		return batch.Kind == kindIntegrate && within(batch.Path, run.Path) && batch.Outcome == outcomePassed &&
 			batch.Revision != ""
+	})
+}
+
+// bodyRunning reports whether a run under the plan run at path other than a build child is running: a node of an
+// older settle walk, which the latest walk's end does not wait for, such as a parked batch an owner's retry set running
+// again. The plan does not end while one runs, so that run ends under its plan, never cut by the plan's end. A build
+// child's run follows its task, which an open task already holds the plan for, and the plan's end ends it.
+func (p pass) bodyRunning(path string) bool {
+	return slices.ContainsFunc(p.rows.Runs, func(run store.NodeRun) bool {
+		return run.State == store.NodeRunning && run.Kind != kindBuild && within(run.Path, path)
 	})
 }
 
@@ -791,8 +811,9 @@ func (p pass) work(def workflow.Node, run store.NodeRun, act kinds.Action) Actio
 }
 
 // loop decides a running loop by its current round. The round's body walks first, and the round ends once every node
-// of the body has ended. The loop then ends when its until node ended with the until outcome, moves to the next round
-// while rounds remain, and otherwise ends when spent is continue and parks when it is park.
+// of the body has ended. The loop then ends when its until node ended with the until outcome. A loop that names no max
+// moves to the next round while the round's plan planned a task, and otherwise ends with no outcome. A loop with a max
+// moves to the next round while rounds remain, and otherwise ends when spent is continue and parks when it is park.
 func (p pass) loop(def workflow.Node, run store.NodeRun) []Action {
 	body := scope{prefix: fmt.Sprintf("%s@%d/", run.Path, run.LoopRound), round: run.LoopRound, where: loopBody}
 	acts, done := p.walk(def.Body, body)
@@ -801,6 +822,12 @@ func (p pass) loop(def workflow.Node, run store.NodeRun) []Action {
 	}
 	until := def.Loop.Until
 	if p.byPath[body.prefix+until.Node].Outcome == until.Name {
+		return []Action{{Kind: ActEnd, Ends: p.endsUnder(run.Path, "", "")}}
+	}
+	if def.Loop.Max == 0 {
+		if p.planned(body.prefix, def.Body) {
+			return []Action{{Kind: ActRound, Path: run.Path, Round: run.LoopRound}}
+		}
 		return []Action{{Kind: ActEnd, Ends: p.endsUnder(run.Path, "", "")}}
 	}
 	rounds := int64(def.Loop.Max) + run.Granted
@@ -812,6 +839,21 @@ func (p pass) loop(def workflow.Node, run store.NodeRun) []Action {
 	}
 	reason := fmt.Sprintf("loop %s spent its %d rounds without %s.%s", def.ID, rounds, until.Node, until.Name)
 	return []Action{{Kind: ActPark, Path: run.Path, Round: run.LoopRound, Reason: reason}}
+}
+
+// planned reports whether a plan node of a loop body planned a task in the round at prefix: its run holds a task of a
+// turn above the mark it started at. A plan node with no run in the round planned none.
+func (p pass) planned(prefix string, body []workflow.Node) bool {
+	for _, node := range body {
+		run, ran := p.byPath[prefix+node.ID]
+		if node.Kind != kindPlan || !ran {
+			continue
+		}
+		if slices.ContainsFunc(p.rows.Epic.Tasks, func(task store.EpicTask) bool { return task.Turn > run.Mark }) {
+			return true
+		}
+	}
+	return false
 }
 
 // endsUnder returns the end of the run at path with outcome and output, followed by an end with no outcome for each

@@ -185,12 +185,13 @@ UPDATE sessions
 SET consumed = sqlc.arg(consumed),
     replay_from = COALESCE(sqlc.narg(replay_from), replay_from),
     turn_output = COALESCE(sqlc.narg(turn_output), turn_output),
-    background = COALESCE(sqlc.narg(background), background)
+    background = COALESCE(sqlc.narg(background), background),
+    awaited = COALESCE(sqlc.narg(awaited), awaited)
 WHERE id = sqlc.arg(id) AND kind IN ('engine', 'step');
 
 -- name: UpdateEngineLaunch :execrows
 UPDATE sessions
-SET consumed = 0, replay_from = 0, background = 0, prompts_from = sqlc.arg(prompts_from)
+SET consumed = 0, replay_from = 0, background = 0, awaited = 0, prompts_from = sqlc.arg(prompts_from)
 WHERE id = sqlc.arg(id) AND kind IN ('engine', 'step');
 
 -- name: UpsertEngineText :exec
@@ -360,6 +361,10 @@ ORDER BY steps.ended, steps.id;
 -- name: ListRunningCallerSteps :many
 SELECT * FROM steps WHERE end_value = '' AND caller = ? ORDER BY started, id;
 
+-- name: ListStepFacts :many
+SELECT id, loop_round, started, ended, lines_counted, lines_files, lines_added, lines_removed
+FROM steps WHERE id IN (sqlc.slice(ids)) ORDER BY id;
+
 -- name: ListCallerStepListings :many
 SELECT * FROM step_listings
 WHERE step_listings.caller = sqlc.arg(caller)
@@ -391,7 +396,7 @@ UPDATE steps SET gate_grant = ?, gate_holder = ?, gate_round = ? WHERE id = ?;
 
 -- name: GetStepTurnEnd :one
 SELECT events.seq, CAST(json_extract(events.payload, '$.isError') AS INTEGER) AS is_error, sessions.turn_output,
-       sessions.background, steps.loop_seq
+       sessions.awaited, steps.loop_seq
 FROM events
 JOIN sessions ON sessions.id = events.session_id
 JOIN steps ON steps.id = events.session_id
@@ -414,6 +419,9 @@ UPDATE steps SET verdicts = ?, doing = ? WHERE id = ?;
 
 -- name: UpdateStepEnd :exec
 UPDATE steps SET end_value = ?, status = ?, reason = ?, ended = ? WHERE id = ?;
+
+-- name: UpdateStepLines :exec
+UPDATE steps SET lines_counted = ?, lines_files = ?, lines_added = ?, lines_removed = ? WHERE id = ?;
 
 -- name: InsertGrant :exec
 INSERT INTO grants (id, project, client_pid, client_start, pools, command, granted, holder)
@@ -910,6 +918,9 @@ INSERT INTO epic_tasks (epic, seq, turn, title, deliverable, gate, evidence, sta
 -- name: InsertEpicTaskFile :exec
 INSERT INTO epic_task_files (epic, task, position, path) VALUES (?, ?, ?, ?);
 
+-- name: DeleteEpicTaskFile :exec
+DELETE FROM epic_task_files WHERE epic = ? AND task = ? AND path = ?;
+
 -- name: InsertEpicTaskRequirement :exec
 INSERT INTO epic_task_requirements (epic, task, position, requirement) VALUES (?, ?, ?, ?);
 
@@ -1080,6 +1091,16 @@ LEFT JOIN epic_task_rung_outcomes AS outcomes
     ON outcomes.epic = rungs.epic AND outcomes.task = rungs.task AND outcomes.rung = rungs.rung
 WHERE rungs.epic = ?
 ORDER BY rungs.task, rungs.rung;
+
+-- name: InsertEpicTaskRefused :exec
+INSERT INTO epic_task_refused (epic, task, path, decision, created) VALUES (?, ?, ?, ?, ?)
+ON CONFLICT (epic, task, path) DO NOTHING;
+
+-- name: DeleteEpicTaskRefused :exec
+DELETE FROM epic_task_refused WHERE epic = ? AND task = ? AND path = ?;
+
+-- name: ListEpicTaskRefused :many
+SELECT * FROM epic_task_refused WHERE epic = ? ORDER BY task, created, path;
 
 -- name: MaxEpicTellSeq :one
 SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_tells WHERE epic = ?;

@@ -273,8 +273,9 @@ const (
 )
 
 // pendingEvents returns the caller events the session is owed, as store.Reader.PendingCallerEvents reads them. It sets
-// the waits label of each event (see waitsLabel). A step session is owed none, since caller events go to the sessions
-// that start steps or create epics. A failed read is answered as a failed session read is.
+// the waits label of each event (see waitsLabel) and the StepFacts of each step end (see stepFactsProto). A step
+// session is owed none, since caller events go to the sessions that start steps or create epics. A failed read is
+// answered as a failed session read is.
 func (w *sessionWatch) pendingEvents(
 	ctx context.Context,
 	history store.EngineHistory,
@@ -289,7 +290,7 @@ func (w *sessionWatch) pendingEvents(
 	waits := w.waitsLabel(history)
 	pending := make([]*orreryv1.PendingEvent, 0, len(events))
 	for _, event := range events {
-		pending = append(pending, &orreryv1.PendingEvent{
+		card := &orreryv1.PendingEvent{
 			Id:     event.ID,
 			Kind:   event.Kind,
 			Step:   event.Step,
@@ -300,7 +301,11 @@ func (w *sessionWatch) pendingEvents(
 			Epic:   event.Epic,
 			Title:  event.Title,
 			Waits:  waits,
-		})
+		}
+		if event.Kind == store.CallerKindStepEnd {
+			card.StepFacts = stepFactsProto(event.Facts)
+		}
+		pending = append(pending, card)
 	}
 	return pending, nil
 }
@@ -447,7 +452,7 @@ type keptItem struct {
 // The first read scans from seq 0, so it sees the whole history: the origin and the newest request. It keeps the newest
 // limit items when the client asked for a reset, and the items above its seq otherwise. Later reads scan from the seq
 // the stream has reached and keep every item they read. Each read also reads the prompt states (see readPrompts), and
-// it keeps no item that withholds reports.
+// it keeps no item that withholds reports. The items it returns carry their step facts (see withStepFacts).
 func (w *sessionWatch) read(
 	ctx context.Context,
 	first bool,
@@ -483,10 +488,24 @@ func (w *sessionWatch) read(
 			w.seq = after
 		}
 		if len(page.Events) < eventPageSize {
-			items, oldest := keptItems(kept, reset)
-			return items, oldest, page, nil
+			return w.finishRead(ctx, kept, reset, page)
 		}
 	}
+}
+
+// finishRead returns the delta of a read's last page: the kept items (see keptItems) with their step facts set (see
+// withStepFacts), the seq of the oldest of them, and page. A failed facts read is answered as a failed session read is.
+func (w *sessionWatch) finishRead(
+	ctx context.Context,
+	kept []keptItem,
+	reset bool,
+	page store.EngineHistory,
+) ([]*orreryv1.ConversationItem, int64, store.EngineHistory, error) {
+	items, oldest := keptItems(kept, reset)
+	if err := withStepFacts(ctx, w.reader, items); err != nil {
+		return nil, 0, store.EngineHistory{}, sessionReadError(err)
+	}
+	return items, oldest, page, nil
 }
 
 // keptItems returns the items of kept in order, and the seq of the oldest of them when reset is set, or 0 when kept is

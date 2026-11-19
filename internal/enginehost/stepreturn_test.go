@@ -154,12 +154,14 @@ func TestStepHandsEventsToObserverInOrder(t *testing.T) {
 	}
 }
 
-func TestStepBackgroundTurnIsNotHandedOffUntilTaskEnds(t *testing.T) {
+// TestStepBackgroundAgentTurnIsNotHandedOffUntilItEnds covers a turn that ends with no done return while a background
+// agent is listed: it is not handed to the observer, and the turn after the agent's end is.
+func TestStepBackgroundAgentTurnIsNotHandedOffUntilItEnds(t *testing.T) {
 	t.Parallel()
 	m, path, _ := newHandOffManager(t, 1, &fakeSink{})
 	obs := &stepObserver{}
 	err := m.StartStep(t.Context(), StepSession{
-		ID: stepA, Dir: t.TempDir(), Prompt: "BACKGROUND", Agent: "reviewer", Observer: obs,
+		ID: stepA, Dir: t.TempDir(), Prompt: "BGAGENT", Agent: "reviewer", Observer: obs,
 	})
 	if err != nil {
 		t.Fatalf("StartStep: %v", err)
@@ -168,7 +170,7 @@ func TestStepBackgroundTurnIsNotHandedOffUntilTaskEnds(t *testing.T) {
 		return hasBlock(t, h, "fake background 1") && lastState(t, h) == string(protocol.StateDone)
 	})
 	if n := obs.returned(); n != 0 {
-		t.Fatalf("turn ends handed to the observer during the background task = %d, want 0", n)
+		t.Fatalf("turn ends handed to the observer during the background agent = %d, want 0", n)
 	}
 
 	if err := m.Continue(t.Context(), stepA, StepPrompt{Text: "BGEND", Sender: store.PromptSenderOwner}); err != nil {
@@ -179,25 +181,25 @@ func TestStepBackgroundTurnIsNotHandedOffUntilTaskEnds(t *testing.T) {
 		engineOf(m),
 		path,
 		stepA,
-		"the reply after the background task ended",
+		"the reply after the background agent ended",
 		func(h store.EngineHistory) bool {
 			return hasBlock(t, h, "fake reply 2") && lastState(t, h) == string(protocol.StateDone)
 		},
 	)
 	waitReturns(t, engineOf(m), obs, 1)
 	if n := obs.returned(); n != 1 {
-		t.Fatalf("turn ends handed to the observer after the task ended = %d, want 1", n)
+		t.Fatalf("turn ends handed to the observer after the agent ended = %d, want 1", n)
 	}
 }
 
-// TestStepDoneReturnWhileBackgroundTaskIsListedIsHanded covers R1: a turn that Continue sends while a background task is
-// still listed, and that returns done, is handed to the observer before the task ends.
-func TestStepDoneReturnWhileBackgroundTaskIsListedIsHanded(t *testing.T) {
+// TestStepDoneReturnWhileBackgroundAgentIsListedIsHanded covers R1: a turn that Continue sends while a background agent
+// is still listed, and that returns done, is handed to the observer before the agent ends.
+func TestStepDoneReturnWhileBackgroundAgentIsListedIsHanded(t *testing.T) {
 	t.Parallel()
 	m, path, _ := newHandOffManager(t, 1, &fakeSink{})
 	obs := &stepObserver{}
 	if err := m.StartStep(t.Context(), StepSession{
-		ID: stepA, Dir: t.TempDir(), Prompt: "BACKGROUND", Agent: "reviewer", Observer: obs,
+		ID: stepA, Dir: t.TempDir(), Prompt: "BGAGENT", Agent: "reviewer", Observer: obs,
 	}); err != nil {
 		t.Fatalf("StartStep: %v", err)
 	}
@@ -212,20 +214,20 @@ func TestStepDoneReturnWhileBackgroundTaskIsListedIsHanded(t *testing.T) {
 		engineOf(m),
 		path,
 		stepA,
-		"the done reply while the task is listed",
+		"the done reply while the agent is listed",
 		func(h store.EngineHistory) bool {
 			return hasBlock(t, h, "fake bgdone 2") && lastState(t, h) == string(protocol.StateDone)
 		},
 	)
 	waitReturns(t, engineOf(m), obs, 1)
 	if n := obs.returned(); n != 1 {
-		t.Fatalf("turn ends handed to the observer with the task listed = %d, want 1", n)
+		t.Fatalf("turn ends handed to the observer with the agent listed = %d, want 1", n)
 	}
 }
 
-// TestStepNotDoneReturnWhileBackgroundTaskIsListedIsNotHanded covers R1: a turn that ends with a not-done return while
-// background tasks are listed is not handed to the observer.
-func TestStepNotDoneReturnWhileBackgroundTaskIsListedIsNotHanded(t *testing.T) {
+// TestStepNotDoneReturnWhileBackgroundAgentsAreListedIsNotHanded covers R1: a turn that ends with a not-done return while
+// background agents are listed is not handed to the observer.
+func TestStepNotDoneReturnWhileBackgroundAgentsAreListedIsNotHanded(t *testing.T) {
 	t.Parallel()
 	m, path, _ := newHandOffManager(t, 1, &fakeSink{})
 	obs := &stepObserver{}
@@ -239,13 +241,13 @@ func TestStepNotDoneReturnWhileBackgroundTaskIsListedIsNotHanded(t *testing.T) {
 		engineOf(m),
 		path,
 		stepA,
-		"the not-done turn done with its tasks listed",
+		"the not-done turn done with its agents listed",
 		func(h store.EngineHistory) bool {
 			return hasBlock(t, h, "fake bgself 1") && lastState(t, h) == string(protocol.StateDone)
 		},
 	)
 	if n := obs.returned(); n != 0 {
-		t.Fatalf("turn ends handed to the observer with tasks listed = %d, want 0", n)
+		t.Fatalf("turn ends handed to the observer with agents listed = %d, want 0", n)
 	}
 }
 

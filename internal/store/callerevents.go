@@ -119,8 +119,9 @@ func EpicPhaseEventKind(phase string) (string, bool) {
 // marked under once it is delivered, and Kind is the kind its block names.
 //
 // A step_end carries the step: Step is its id, Agent its agent, End and Status how it ended, Brief the lines of its
-// step_end block's body joined by newlines, as StepEndParts gives them, its last line the More line, and Epic the epic
-// that holds it, empty when none does. An epic event carries Epic, the epic's id, and Title, the epic's title.
+// step_end block's body joined by newlines, as StepEndParts gives them, its last line the More line, Epic the epic
+// that holds it, empty when none does, and Facts the step's facts, as StepFactsOf gives them. An epic event carries
+// Epic, the epic's id, and Title, the epic's title, and no facts.
 type PendingEvent struct {
 	ID     string
 	Kind   string
@@ -131,6 +132,7 @@ type PendingEvent struct {
 	Brief  string
 	Epic   string
 	Title  string
+	Facts  StepFacts
 }
 
 // PendingCallerEvents returns the caller events still owed to session, read in one read transaction. A step end is
@@ -195,6 +197,7 @@ func pendingInTx(ctx context.Context, tx *sql.Tx, session string) ([]PendingEven
 		events = append(events, PendingEvent{
 			ID: stepEventPrefix + step.ID, Kind: CallerKindStepEnd, Step: step.ID, Agent: step.Agent,
 			End: step.End, Status: step.Status, Brief: strings.Join(lines, "\n"), Epic: step.Epic,
+			Facts: StepFactsOf(step),
 		})
 	}
 
