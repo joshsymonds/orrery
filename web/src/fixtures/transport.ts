@@ -48,6 +48,18 @@ export function createFixtureTransport(slices: Slices = shippedSlices): FixtureT
   // notFound is the error a read of an id the slices do not hold fails with.
   const notFound = (message: string) => new ConnectError(message, Code.NotFound);
 
+  // say answers Control.Say as the slices choose: absorbed when they set no say, and failed as a refusal or as a call
+  // with no answer when they set one.
+  const say = () => {
+    if (slices.say === "refused") {
+      throw new ConnectError("the session is not taking messages", Code.FailedPrecondition);
+    }
+    if (slices.say === "unanswered") {
+      throw new ConnectError("no answer", Code.Unavailable);
+    }
+    return {};
+  };
+
   // held waits until the call's signal aborts, so a stream stays open until its client ends it.
   const held = (signal: AbortSignal) =>
     new Promise<void>((resolve) => {
@@ -99,7 +111,7 @@ export function createFixtureTransport(slices: Slices = shippedSlices): FixtureT
     router.service(Events, { watch: quiet });
     router.service(Control, {
       start: () => ({ id: "fixture-new-session" }),
-      say: absorb,
+      say,
       answer: absorb,
       interrupt: absorb,
       stop: absorb,

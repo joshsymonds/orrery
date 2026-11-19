@@ -14,6 +14,7 @@ import { EpicsGetResponseSchema, EpicsListResponseSchema, EpicsPauseResponseSche
 import {
   HostStatusResponseSchema,
   PanesListResponseSchema,
+  SayResponseSchema,
   WatchConversationResponseSchema,
 } from "../gen/orrery/v1/orrery_pb";
 import { mockTimers } from "../testclock";
@@ -160,6 +161,29 @@ test("FixtureTransport absorbs Epics.Pause: it answers an empty message, and rec
   const answer = await fixture.clients.epics.pause({ id: "lighthouse/rota-export" });
   assert.deepEqual(toJson(EpicsPauseResponseSchema, answer), {}, "the answer is empty");
   assert.deepEqual([...fixture.unserved], [], "the write is not recorded");
+});
+
+test("FixtureTransport absorbs Control.Say when the slices set no say: it answers an empty message, and records no call", async () => {
+  const fixture = createFixtureTransport();
+  const answer = await fixture.clients.control.say({ id: "fixture-new-session", text: "hello" });
+  assert.deepEqual(toJson(SayResponseSchema, answer), {}, "the answer is empty");
+  assert.deepEqual([...fixture.unserved], [], "the write is not recorded");
+});
+
+test("FixtureTransport refuses Control.Say with FailedPrecondition when the slices say refused, and records no call", async () => {
+  const fixture = createFixtureTransport({ ...shippedSlices, say: "refused" });
+  const error = await refusal(fixture.clients.control.say({ id: "fixture-new-session", text: "hello" }));
+  assert.equal(error.code, Code.FailedPrecondition);
+  assert.equal(error.rawMessage, "the session is not taking messages");
+  assert.deepEqual([...fixture.unserved], [], "a refused write is no unserved call");
+});
+
+test("FixtureTransport fails Control.Say with Unavailable when the slices say unanswered, and records no call", async () => {
+  const fixture = createFixtureTransport({ ...shippedSlices, say: "unanswered" });
+  const error = await refusal(fixture.clients.control.say({ id: "fixture-new-session", text: "hello" }));
+  assert.equal(error.code, Code.Unavailable);
+  assert.equal(error.rawMessage, "no answer");
+  assert.deepEqual([...fixture.unserved], [], "an unanswered write is no unserved call");
 });
 
 test("FixtureTransport records an unserved Picker call, tells each listener until it unregisters, and fails Unimplemented", async () => {

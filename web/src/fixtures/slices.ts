@@ -32,6 +32,9 @@ export interface Slices {
   readonly paneStreams: ReadonlyMap<string, WatchConversationResponse>;
   readonly sessionStreams: ReadonlyMap<string, SessionsWatchConversationResponse>;
   readonly evidenceLogs: ReadonlyMap<string, string>;
+  // say is how the fixture answers Control.Say. refused fails it as a session that takes no messages does, and unanswered
+  // fails it as a call with no answer does. Unset, the write is absorbed.
+  readonly say?: "refused" | "unanswered";
 }
 
 // shippedSlices is the data the fixture transport serves when it is given no slices.
