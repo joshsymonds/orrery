@@ -132,6 +132,8 @@ const (
 	phaseReleased      = "released"
 	phaseDone          = "done"
 	phaseStopped       = "stopped"
+	// taskGap is the status of a task that ended its ladder as a gap and still holds the Requirements it claims.
+	taskGap = "gap"
 )
 
 // Decide returns end complete when planComplete holds, and run otherwise.
