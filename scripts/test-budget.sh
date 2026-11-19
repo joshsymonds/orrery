@@ -8,7 +8,9 @@
 # Usage:
 #   scripts/test-budget.sh check [--lines LINES] RECORD [BASELINE]
 #       Compares the packages in RECORD, one go test run, with BASELINE (default testdata/test-budget.json), and prints
-#       one line per package over its budget, where the budget is the baseline plus the larger of 15% and 5 CPU
+#       first one cost line per package in RECORD, sorted by package, with its CPU seconds to one decimal:
+#           test-budget: cost internal/store 212.3
+#       then one line per package over its budget, where the budget is the baseline plus the larger of 15% and 5 CPU
 #       seconds:
 #           test-budget: internal/store 212 cpu-s > 160 (+33%)
 #       A package over its budget and over twice its baseline gets ", over twice its baseline" on its line and fails the
@@ -81,6 +83,7 @@ check() {
                 for (j = i - 1; j >= 1 && pkgs[j] > p; j--) pkgs[j + 1] = pkgs[j]
                 pkgs[j + 1] = p
             }
+            for (i = 1; i <= count; i++) printf "test-budget: cost %s %.1f\n", pkgs[i], cpu[pkgs[i]]
             failed = 0
             for (i = 1; i <= count; i++) {
                 p = pkgs[i]
