@@ -198,10 +198,10 @@ func newOwnerFixture(t *testing.T, file string) *passFixture {
 	return newPlanFixture(t, plan)
 }
 
-// TestNeedsFilesPassStoresThePathsWithTheFailedTask covers R3: an implementer that returns needs_context with
-// needs_files that cannot be granted, since another open task owns one, on a task with no orchestrator decisions left,
-// fails the task with the paths stored under it.
-func TestNeedsFilesPassStoresThePathsWithTheFailedTask(t *testing.T) {
+// TestNeedsFilesPassStoresThePathsWithTheClimb covers R3: an implementer that returns needs_context with needs_files
+// that cannot be granted, since another open task owns one, on a task with no orchestrator decisions left, climbs the
+// task with the paths stored under it.
+func TestNeedsFilesPassStoresThePathsWithTheClimb(t *testing.T) {
 	t.Parallel()
 	f := newOwnerFixture(t, "internal/other/a.go")
 	first := []int64{1}
@@ -215,19 +215,21 @@ func TestNeedsFilesPassStoresThePathsWithTheFailedTask(t *testing.T) {
 		ID: passStep(StageImplement, 1, 0), End: "returned", Status: "needs_context",
 		Result: `{"status":"needs_context","summary":"stuck","needs_files":["internal/other/a.go"]}`,
 	}
+	before := ladderClimbBefore(f, 1)
 	f.runner.PassTasks(f.ctx, passEpic, first)
 	task := f.task()
 	want := "returned needs_context: stuck; internal/other/a.go is owned by open task T2"
-	if task.Status != "failed" || task.Build.Failure != want {
-		t.Errorf("task status %q failure %q, want failed with %q", task.Status, task.Build.Failure, want)
+	if task.Build.Failure != want {
+		t.Errorf("task failure %q, want %q", task.Build.Failure, want)
 	}
+	ladderClimbCheck(f, store.RungOf(before), taskOpen, store.MovedByUnit)
 	if want := []string{"internal/other/a.go"}; !reflect.DeepEqual(task.NeedsFiles, want) {
 		t.Errorf("NeedsFiles = %v, want %v", task.NeedsFiles, want)
 	}
 }
 
 // TestNeedsFilesPassStoresNoPathsForABlockedReturn covers R3: a blocked return on a task with no orchestrator
-// decisions left fails the task with no paths, even when it names some.
+// decisions left climbs the task with no paths, even when it names some.
 func TestNeedsFilesPassStoresNoPathsForABlockedReturn(t *testing.T) {
 	t.Parallel()
 	f := newPassFixture(t)
@@ -239,12 +241,10 @@ func TestNeedsFilesPassStoresNoPathsForABlockedReturn(t *testing.T) {
 		ID: passStep(StageImplement, 1, 0), End: "returned", Status: "blocked",
 		Result: `{"status":"blocked","summary":"the gate is broken","needs_files":["internal/other/a.go"]}`,
 	}
+	before := ladderClimbBefore(f, 1)
 	f.pass()
-	task := f.task()
-	if task.Status != "failed" {
-		t.Errorf("task status %q, want failed", task.Status)
-	}
-	if len(task.NeedsFiles) != 0 {
+	ladderClimbCheck(f, store.RungOf(before), taskOpen, store.MovedByUnit)
+	if task := f.task(); len(task.NeedsFiles) != 0 {
 		t.Errorf("NeedsFiles = %v, want none", task.NeedsFiles)
 	}
 }

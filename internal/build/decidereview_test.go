@@ -78,13 +78,6 @@ func TestDecideGreen(t *testing.T) {
 	reviewed := store.TaskBuild{
 		Stage: StageReview, Base: "base", Attempt: 1, Revision: "rev", RedRun: "red-run", GreenRun: "green-run",
 	}
-	spentFirst := store.TaskBuild{
-		Stage: StageImplement, Base: "base", Attempt: 2, RedRun: "red-run",
-		Failure: "green not met: exit 1, verdict fails",
-	}
-	spentCaptured := store.TaskBuild{
-		Stage: StageImplement, Base: "base", Attempt: 2, RedRun: "red-run", Failure: "green not captured: no log",
-	}
 	rerunOnce := store.TaskBuild{
 		Stage: StageGreen, Base: "base", Attempt: 1, Rerun: 3, NoVerdict: 1, Revision: "rev", RedRun: "red-run",
 	}
@@ -125,7 +118,7 @@ func TestDecideGreen(t *testing.T) {
 			view: View{Epic: decideEpic, Run: &store.EvidenceRun{
 				ID: "green-run", Ended: ended, NotCaptured: "no log",
 			}, Task: store.EpicTask{Seq: 3, Build: firstAttempt}},
-			want: Action{Kind: ActMove, Next: spentCaptured},
+			want: Action{Kind: ActFail, Reason: "green not captured: no log"},
 		},
 		{
 			name: "run not captured on the second attempt fails",
@@ -170,7 +163,7 @@ func TestDecideGreen(t *testing.T) {
 			view: View{Epic: decideEpic, Run: &store.EvidenceRun{
 				ID: "green-run", Ended: ended, Verdict: "fails", Exit: 1,
 			}, Task: store.EpicTask{Seq: 3, Build: firstAttempt}},
-			want: Action{Kind: ActMove, Next: spentFirst},
+			want: Action{Kind: ActFail, Reason: "green not met: exit 1, verdict fails"},
 		},
 		{
 			name: "not met on the second attempt fails",
@@ -422,10 +415,10 @@ func TestDecideReviewVerifyOffSpendsAttemptWithoutVerifier(t *testing.T) {
 		Epic: decideEpic,
 		Task: store.EpicTask{Seq: 3, Build: review.Next, Reviews: []store.TaskReview{review.Review}},
 	})
-	want := Action{Kind: ActMove, Next: store.TaskBuild{
-		Stage: StageImplement, Base: "base", Attempt: 2, RedRun: "red-run", FindingPos: 2,
-		Failure: "confirmed: F1 claim one; confirmed: F2 claim two",
-	}}
+	want := Action{
+		Kind: ActFail, Reason: "confirmed: F1 claim one; confirmed: F2 claim two",
+		Move: store.RungMove{MovedBy: store.MovedByFinding, Assertion: "F1 claim one; F2 claim two"},
+	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("decideVerify = %+v, want %+v", got, want)
 	}
@@ -502,13 +495,6 @@ func TestDecideVerify(t *testing.T) {
 	pastFindings.FindingPos = 2
 	secondAttempt := pastFindings
 	secondAttempt.Attempt = 2
-	// spend leaves the gate and finding positions where the verify unit stood.
-	spent := store.TaskBuild{
-		Stage: StageImplement, Base: "base", Attempt: 2, RedRun: "red-run", FindingPos: 2,
-		Failure: "confirmed: F1 claim one",
-	}
-	spentBoth := spent
-	spentBoth.Failure = "confirmed: F1 claim one; confirmed: F2 claim two"
 	nextGate := store.TaskBuild{
 		Stage: StageReview, Base: "base", Attempt: 1, Revision: "rev", RedRun: "red-run", GreenRun: "green-run",
 		GatePos: 1,
@@ -553,21 +539,30 @@ func TestDecideVerify(t *testing.T) {
 			view: View{Epic: decideEpic, Task: store.EpicTask{
 				Seq: 3, Build: pastFindings, Reviews: verifyReviews(1, "confirmed", "dropped"),
 			}},
-			want: Action{Kind: ActMove, Next: spent},
+			want: Action{
+				Kind: ActFail, Reason: "confirmed: F1 claim one",
+				Move: store.RungMove{MovedBy: store.MovedByFinding, Assertion: "F1 claim one"},
+			},
 		},
 		{
 			name: "several confirmed results join their claims",
 			view: View{Epic: decideEpic, Task: store.EpicTask{
 				Seq: 3, Build: pastFindings, Reviews: verifyReviews(1, "confirmed", "confirmed"),
 			}},
-			want: Action{Kind: ActMove, Next: spentBoth},
+			want: Action{
+				Kind: ActFail, Reason: "confirmed: F1 claim one; confirmed: F2 claim two",
+				Move: store.RungMove{MovedBy: store.MovedByFinding, Assertion: "F1 claim one; F2 claim two"},
+			},
 		},
 		{
 			name: "past the last finding with a confirmed result on the second attempt fails",
 			view: View{Epic: decideEpic, Task: store.EpicTask{
 				Seq: 3, Build: secondAttempt, Reviews: verifyReviews(2, "confirmed", "dropped"),
 			}},
-			want: Action{Kind: ActFail, Reason: "confirmed: F1 claim one"},
+			want: Action{
+				Kind: ActFail, Reason: "confirmed: F1 claim one",
+				Move: store.RungMove{MovedBy: store.MovedByFinding, Assertion: "F1 claim one"},
+			},
 		},
 		{
 			name: "no step runs the finding's verifier",

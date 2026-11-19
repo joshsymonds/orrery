@@ -54,10 +54,12 @@ const GapRung = 7
 
 // RungMove is the failure that moves a task off its rung: MovedBy is the kind of failure, Cause its text, and Step the
 // step it came from. To is the rung to move to, and 0 means the next rung. Gate and Assertion are the review gate and
-// the claim of the confirmed finding that moved the task, and are empty when no finding did.
+// the claim of the confirmed finding that moved the task, and are empty when no finding did. NeedsFiles are the files
+// the failure named as needed beyond the task's owned list, which a climb stores as the task's needs files.
 type RungMove struct {
 	MovedBy, Cause, Gate, Assertion, Step string
 	To                                    int64
+	NeedsFiles                            []string
 }
 
 // TaskRung is one rung of a task's ladder: its number, its kind, the failure that moved the task onto it, and when the
@@ -100,6 +102,25 @@ func taskRungOf(row sqlcgen.ListEpicTaskRungsRow) TaskRung {
 	return rung
 }
 
+// RungOf returns the rung build is on: its Attempt, or 1 when Attempt is 0, since a build in red before its first
+// attempt is on rung 1.
+func RungOf(build TaskBuild) int64 {
+	if build.Attempt == 0 {
+		return 1
+	}
+	return build.Attempt
+}
+
+// ClimbCause returns the cause a climb records for a failure: cause cut to TaskDecisionMax bytes when decided is true,
+// as an orchestrator's decision that failed the task keeps it, and to TurnReasonMax bytes otherwise, as a failure of a
+// unit keeps it.
+func ClimbCause(cause string, decided bool) string {
+	if decided {
+		return capText(cause, TaskDecisionMax)
+	}
+	return capTurnText(cause)
+}
+
 // RungKind returns the kind of rung: RungAttempt for rungs 1 and 2, RungRescue for RescueRung, RungOrchestrator for
 // OrchestratorRung, RungApproach for the rungs up to LastRung, and RungGap for GapRung and above.
 func RungKind(rung int64) string {
@@ -136,15 +157,16 @@ func ClimbedBuild(from TaskBuild, rung int64, failure string) TaskBuild {
 	return to
 }
 
-// ClimbTask climbs task seq of epic off its rung in one write, when its stored build is from. The rung it climbs to is
-// move.To, or the rung after from's when move.To is 0. The climb ends the rung the task is on as failed with
-// move.Cause, adds the rung it climbs to moved by move, and stores to as the task's build, which must be on that rung:
-// its Attempt is the rung, or GapRung when the rung is past it. A climb onto GapRung also ends that rung as gapped,
-// sets the task's status to TaskGap, and adds a pending trigger `T<seq>-gap` with cause
+// ClimbTask climbs task seq of epic off its rung in one write, when its stored build is from. The rung the task is on
+// is RungOf(from), and the rung it climbs to is move.To, or the rung after that when move.To is 0. The climb ends the
+// rung the task is on as failed with move.Cause, adds the rung it climbs to moved by move, and stores to as the task's
+// build, which must be on that rung: its Attempt is the rung, or GapRung when the rung is past it. move.NeedsFiles are
+// stored as the task's needs files, so a climb with none stores none. A climb onto GapRung also ends that rung as
+// gapped, sets the task's status to TaskGap, and adds a pending trigger `T<seq>-gap` with cause
 // `task T<seq> ended as a gap: <cause>`. A climb onto ApproachRung adds a pending trigger `T<seq>-approach` with cause
 // `task T<seq> needs a change of approach: <cause>`. version, when not nil, is stored as the task's next version,
 // applied by decision's id, and decision, when not nil, is appended to the epic's decisions. A target at or below
-// from's rung, a to that is not on the target capped at GapRung, and a move whose MovedBy is not one of the MovedBy
+// RungOf(from), a to that is not on the target capped at GapRung, and a move whose MovedBy is not one of the MovedBy
 // values are errors that write nothing. A task that is not open, or whose stored build is not from, is ErrTaskMoved
 // and writes nothing.
 func (s *Store) ClimbTask(
@@ -168,7 +190,10 @@ func (s *Store) ClimbTask(
 		if err := moveTask(ctx, queries, epic, seq, from, to); err != nil {
 			return err
 		}
-		if err := insertClimbRungs(ctx, queries, epic, seq, from.Attempt, to.Attempt, move, at); err != nil {
+		if err := setTaskNeedsFiles(ctx, queries, epic, seq, move.NeedsFiles); err != nil {
+			return err
+		}
+		if err := insertClimbRungs(ctx, queries, epic, seq, RungOf(from), to.Attempt, move, at); err != nil {
 			return err
 		}
 		if err := insertClimbEnd(ctx, queries, epic, seq, to.Attempt, move.Cause, at); err != nil {
@@ -188,15 +213,17 @@ func (s *Store) ClimbTask(
 }
 
 // checkClimb returns an error when a climb from from with move cannot land as it names: when its target rung is not
-// above from's rung, when to is not on the target capped at GapRung, or when move's MovedBy is not a MovedBy value.
+// above from's rung, RungOf(from), when to is not on the target capped at GapRung, or when move's MovedBy is not a
+// MovedBy value.
 func checkClimb(epic string, seq int64, from, to TaskBuild, move RungMove) error {
-	target := from.Attempt + 1
+	rung := RungOf(from)
+	target := rung + 1
 	if move.To != 0 {
 		target = move.To
 	}
-	if target <= from.Attempt {
+	if target <= rung {
 		return fmt.Errorf("climb task %d of epic %s to rung %d from rung %d: target not above it",
-			seq, epic, target, from.Attempt)
+			seq, epic, target, rung)
 	}
 	if want := min(target, GapRung); to.Attempt != want {
 		return fmt.Errorf("climb task %d of epic %s: build on rung %d, want rung %d", seq, epic, to.Attempt, want)

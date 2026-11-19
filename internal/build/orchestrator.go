@@ -28,7 +28,7 @@ const (
 )
 
 // decisionLimit is how many orchestrator decisions orreryd carries out on one task. A request past it is settled as it
-// was before the orchestrator: the task fails, or its attempt is spent.
+// was before the orchestrator: the task climbs a rung off the request's failure.
 const decisionLimit = 3
 
 // The decisions an orchestrator's return makes.
@@ -309,13 +309,17 @@ func peersOf(ctx context.Context, epic store.EpicRow, runs []store.NodeRun) ([]P
 	return peers, nil
 }
 
-// integrationOf returns task as a Peer with its integration and no changed paths. A failed task is lost. A task an
-// ended integrate run claimed is integrated when the run composed it, and lost when the run left it out. Every other
-// task is pending.
+// integrationOf returns task as a Peer with its integration and no changed paths. A failed task is lost, and so is a
+// task that ended as a gap. A task an ended integrate run claimed is integrated when the run composed it, and lost when
+// the run left it out. Every other task is pending.
 func integrationOf(task store.EpicTask, runs []store.NodeRun) Peer {
 	peer := Peer{Task: task, State: Pending}
 	if task.Status == taskFailed {
 		peer.State, peer.Why = Lost, "failed"
+		return peer
+	}
+	if task.Status == store.TaskGap {
+		peer.State, peer.Why = Lost, "ended as a gap"
 		return peer
 	}
 	if task.Batch == "" {
@@ -770,8 +774,8 @@ func onlyOwnedFailed(step *store.StepRow) bool {
 }
 
 // requestFallback returns what the build does with the implementer step an orchestrate unit decides when no decision
-// of the orchestrator is carried out: a returned end fails the task as returnedFail gives, and a checks_failed end
-// spends the attempt. A step that is not read fails the task.
+// of the orchestrator is carried out: a returned end climbs the task as returnedFail gives, and a checks_failed end
+// spends the attempt. A step that is not read climbs the task.
 func requestFallback(view View) Action {
 	step := view.Returned
 	if step == nil {
@@ -828,8 +832,8 @@ func decideOrchestrate(view View) Action {
 // (decisionText). A rerun or grant moves the build to implement at its next rerun, with no step and the failure
 // fallbackText gives, held waiting when it names tasks to wait for, and stores the version it returns (versionInput). A
 // rerun that changes the evidence moves the build to red at that rerun instead, so the new evidence is judged at the
-// base before the implementer runs again, and keeps its attempt. A fail fails the task with its failure and
-// needs_files. An ask holds the build until the owner answers its question.
+// base before the implementer runs again, and keeps its attempt. A fail climbs the task off its failure and
+// needs_files, moved by a fail decision. An ask holds the build until the owner answers its question.
 func carry(view View, ret orchestratorReturn, fallback Action) Action {
 	if refusals := stateRefusals(ret, view.Task, view.Peers, true); len(refusals) > 0 {
 		return refused(fallback, ret.Decision, refusals)
@@ -842,7 +846,10 @@ func carry(view View, ret orchestratorReturn, fallback Action) Action {
 	}
 	switch ret.Decision {
 	case decisionFail:
-		return Action{Kind: ActFail, Reason: ret.Failure, NeedsFiles: ret.NeedsFiles, Decision: decision}
+		return Action{
+			Kind: ActFail, Reason: ret.Failure, NeedsFiles: ret.NeedsFiles, Decision: decision,
+			Move: store.RungMove{MovedBy: store.MovedByFailDecision},
+		}
 	case decisionAsk:
 		next.Held = HeldAsked
 		question := ret.Question
@@ -874,7 +881,7 @@ func carry(view View, ret orchestratorReturn, fallback Action) Action {
 }
 
 // fallbackText returns the failure orreryd gives the implementer's step a decision answers: the failure fallback moves
-// the build to when it moves it, and the reason it fails the task with otherwise.
+// the build to when it moves it, and the reason it climbs the task with otherwise.
 func fallbackText(fallback Action) string {
 	if fallback.Kind == ActMove {
 		return fallback.Next.Failure
@@ -946,7 +953,7 @@ func decisionText(seq int64, ret orchestratorReturn) string {
 }
 
 // decideWait returns the action for a build held waiting. It waits while the epic is paused or parked, or while a task
-// it waits for is pending. A task it waits for that is lost, or is not a task of the epic, fails it. Once each is
+// it waits for is pending. A task it waits for that is lost, or is not a task of the epic, climbs it. Once each is
 // integrated, the build resumes on NewBase: its worktree moves there, and the build is stored with that base and no
 // hold. Its After stays, the record that it waited, which a late walk of the plan reads.
 func decideWait(view View) Action {

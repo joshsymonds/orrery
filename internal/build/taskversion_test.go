@@ -394,13 +394,14 @@ func TestTaskVersionRerunWithNoChangeStoresNoVersion(t *testing.T) {
 }
 
 // TestTaskVersionRefusedDecisionKeepsOrrerydsText: a grant of a file another open task owns, without the task named in
-// after_tasks, is refused, so it stores no version and the task fails with orreryd's refusal.
+// after_tasks, is refused, so it stores no version and the task climbs with orreryd's refusal.
 func TestTaskVersionRefusedDecisionKeepsOrrerydsText(t *testing.T) {
 	t.Parallel()
 	f := newWaitFixture(t)
 	f.endOrchestrator(orchID(0, 0), orchReturn(t, map[string]any{
 		"decision": "grant", "version": filesVersion(waitFile),
 	}))
+	before := ladderClimbBefore(f, 1)
 	f.runner.PassTasks(f.ctx, passEpic, []int64{1})
 	task := f.task()
 	if len(task.Versions) != 0 || task.Version != 1 {
@@ -410,7 +411,8 @@ func TestTaskVersionRefusedDecisionKeepsOrrerydsText(t *testing.T) {
 			len(task.Versions),
 		)
 	}
-	if task.Status != "failed" || !strings.Contains(task.Build.Failure, "orreryd refused the orchestrator's grant") {
-		t.Errorf("task %q failure %q, want failed with orreryd's refusal", task.Status, task.Build.Failure)
+	if !strings.Contains(task.Build.Failure, "orreryd refused the orchestrator's grant") {
+		t.Errorf("task failure %q, want orreryd's refusal", task.Build.Failure)
 	}
+	ladderClimbCheck(f, store.RungOf(before), taskOpen, store.MovedByUnit)
 }

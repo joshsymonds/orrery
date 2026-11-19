@@ -71,9 +71,9 @@ func Decide(view View) Action {
 	return Action{Kind: ActNone}
 }
 
-// DecideStartError returns the action for a unit whose start the engine refused with err. A red unit fails, a green
-// unit spends its attempt as a capture that failed does, an orchestrate unit settles its request as it was settled
-// before the orchestrator (requestFallback), and any other unit fails.
+// DecideStartError returns the action for a unit whose start the engine refused with err. A red unit climbs the task,
+// a green unit spends its attempt as a capture that failed does, an orchestrate unit settles its request as it was
+// settled before the orchestrator (requestFallback), and any other unit climbs the task.
 func DecideStartError(view View, err error) Action {
 	switch view.Task.Build.Stage {
 	case StageRed:
@@ -115,9 +115,10 @@ func decideFresh(view View) Action {
 
 // decideRed returns the action for the red unit: its evidence run at the base, once it has ended. A red run that
 // exited store.EnvironmentExit reruns or parks the unit as environmentRerun decides. A red run that fails at the base
-// passes into implement with the run kept. One whose conclusion holds at the base fails the task. While the task has a
-// checking version, the run judges that version instead: a conclusion that holds at the base, or a run not captured,
-// settles it refused, and a conclusion that does not hold settles it applied (settleVersion). Neither fails the task.
+// passes into implement with the run kept, on the rung the build is on, or rung 1 before its first attempt. One whose
+// conclusion holds at the base climbs the task. While the task has a checking version, the run judges that version
+// instead: a conclusion that holds at the base, or a run not captured, settles it refused, and a conclusion that does
+// not hold settles it applied (settleVersion). Neither climbs the task.
 func decideRed(view View) Action {
 	build := view.Task.Build
 	run := view.Run
@@ -151,7 +152,7 @@ func decideRed(view View) Action {
 		})
 	}
 	build.Stage = StageImplement
-	build.Attempt = 1
+	build.Attempt = max(build.Attempt, 1)
 	build.Rerun = 0
 	build.NoVerdict = 0
 	build.RedRun = run.ID
@@ -159,7 +160,7 @@ func decideRed(view View) Action {
 }
 
 // redNotHolding returns the action for a red run that ended without passing, for reason, with id the run. Without a
-// checking version it fails the task. With one, the version is refused for reason and the task carries on, as
+// checking version it climbs the task. With one, the version is refused for reason and the task carries on, as
 // settleVersion gives.
 func redNotHolding(view View, id, reason string) Action {
 	version, ok := view.Task.Checking()
@@ -325,7 +326,7 @@ const grantLimit = 3
 // it names a file the task does not own, every such file can be a task's file (planner.FileRefusal), and the build has
 // reruns left under grantLimit, the task is granted those files and its implementer runs again in the same worktree,
 // with a note naming them. The store refuses a file another open task owns, and the request then goes to the
-// orchestrator as one the grant could not settle. Otherwise the task fails as fail says.
+// orchestrator as one the grant could not settle. Otherwise fail is returned, and the task climbs with its failure.
 func grantOrFail(build store.TaskBuild, owned []string, fail Action) Action {
 	var grant []string
 	for _, file := range fail.NeedsFiles {

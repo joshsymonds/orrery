@@ -114,9 +114,7 @@ func TestSpendFirstAttemptMovesToSecond(t *testing.T) {
 		GreenRun: "green-run", Revision: "rev", Refs: "refs", Failure: "old",
 	})
 	got := spend(v, "the judge found a defect")
-	want := Action{Kind: ActMove, Next: store.TaskBuild{
-		Stage: StageImplement, Base: "base", Attempt: 2, RedRun: "red-run", Failure: "the judge found a defect",
-	}}
+	want := Action{Kind: ActFail, Reason: "the judge found a defect"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("spend on attempt 1 = %+v, want %+v", got, want)
 	}

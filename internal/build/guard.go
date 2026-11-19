@@ -32,9 +32,9 @@ func guardSpec(epic store.EpicRow, task store.EpicTask) guard.Spec {
 }
 
 // guardCommit checks the commit action.Next holds green against the guard before that build is stored. A commit the
-// guard passes stores the build. A refusal stores its text as the build's guard, then spends the attempt with the text
-// as the failure: the first attempt moves to the second with the refusal in its brief, and the second attempt fails the
-// task. A check that errs is reported, and the task waits for the next pass.
+// guard passes stores the build. A refusal stores its text as the build's guard, then climbs the task one rung with the
+// text as the failure, and the task keeps its worktree, so the next rung's implementer carries the refusal in its
+// brief. A check that errs is reported, and the task waits for the next pass.
 func (r *Runner) guardCommit(ctx context.Context, epic store.EpicRow, view View, action Action) bool {
 	seq, from := view.Task.Seq, view.Task.Build
 	refusals, err := guard.Check(ctx, epic.Repository, from.Base, action.Next.Revision, guardSpec(epic, view.Task))

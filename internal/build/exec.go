@@ -137,29 +137,40 @@ func (r *Runner) startUnit(ctx context.Context, epic store.EpicRow, view View, a
 	}
 }
 
-// fail fails the task with action's reason and the files action names as needed, then removes its worktrees. A fail an
-// orchestrator decided records its decision in the same write, and keeps a longer reason (store.FailTaskDecided).
+// fail climbs the task one rung off action's failure, in one write (store.Store.ClimbTask): the rung it climbs to is
+// action's Move.To, or the rung after the task's own. The failure is the cause the climb records, the files action
+// names are the task's needs files, and a fail an orchestrator decided records its decision in the same write, with a
+// longer cause. The climb to the gap rung removes the task's worktrees. Any other climb keeps them, so the next rung's
+// implementer continues in the same worktree.
 func (r *Runner) fail(ctx context.Context, epic store.EpicRow, view View, action Action) bool {
-	seq := view.Task.Seq
-	var err error
-	if action.Decision != nil {
-		err = r.store.FailTaskDecided(
-			ctx, epic.ID, seq, view.Task.Build, action.Reason, action.NeedsFiles, *action.Decision, r.now(),
-		)
-	} else {
-		err = r.store.FailTask(ctx, epic.ID, seq, view.Task.Build, action.Reason, action.NeedsFiles, r.now())
+	seq, from := view.Task.Seq, view.Task.Build
+	target := action.Move.To
+	if target == 0 {
+		target = store.RungOf(from) + 1
 	}
-	if !r.written(ctx, epic.ID, seq, "fail task", err) {
+	cause := store.ClimbCause(action.Reason, action.Decision != nil)
+	next := store.ClimbedBuild(from, min(target, store.GapRung), cause)
+	move := action.Move
+	if move.MovedBy == "" {
+		move.MovedBy = store.MovedByUnit
+	}
+	move.Cause = cause
+	move.Step = from.Step
+	move.NeedsFiles = action.NeedsFiles
+	err := r.store.ClimbTask(ctx, epic.ID, seq, from, next, move, nil, action.Decision, r.now())
+	if !r.written(ctx, epic.ID, seq, "climb task", err) {
 		return false
 	}
-	r.removeWorktrees(ctx, epic, seq)
+	if next.Attempt == store.GapRung {
+		r.removeWorktrees(ctx, epic, seq)
+	}
 	return true
 }
 
 // grant gives the task the files action names and stores action's build, which runs its implementer again in the same
 // worktree. When another open task owns one of the files, the store writes nothing, and the return is a request the
-// grant could not settle: it goes to the orchestrator (request), and fails the task with action's reason and the
-// refusal, carrying the files it named, when the task has no decisions left.
+// grant could not settle: it goes to the orchestrator (request), and when the task has no decisions left, the task
+// climbs with action's reason, the refusal and the files it named.
 func (r *Runner) grant(ctx context.Context, epic store.EpicRow, view View, action Action) bool {
 	seq := view.Task.Seq
 	err := r.store.GrantTaskFiles(ctx, epic.ID, seq, view.Task.Build, action.Next, store.TaskVersionInput{
@@ -210,7 +221,7 @@ func (r *Runner) ask(ctx context.Context, epic store.EpicRow, view View, action 
 
 // resume moves a waiting build's implement worktree onto action's revision, keeping its work, with the task's own ref
 // holding its uncommitted work while the move runs (MoveWorktree, WipRef), then stores action's build. A move git
-// refuses fails the task with `T<seq> could not move onto the new base <base>: <error>`.
+// refuses climbs the task, with `T<seq> could not move onto the new base <base>: <error>` as its failure.
 func (r *Runner) resume(ctx context.Context, epic store.EpicRow, view View, action Action) bool {
 	seq, from := view.Task.Seq, view.Task.Build
 	path := ImplementWorktree(r.stateDir, epic.ID, seq)
