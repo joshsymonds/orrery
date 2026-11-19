@@ -81,14 +81,14 @@ func TestCheck(t *testing.T) {
 			base: map[string]string{testFile: goFile(testA2)},
 			head: map[string]string{testFile: goFile(testA1)},
 			spec: Spec{Guarded: []string{testFile}},
-			want: []Refusal{{File: testFile, Test: "TestA", Rule: "assertions lowered from 2 to 1"}},
+			want: []Refusal{{File: testFile, Test: "TestA", Rule: "assertions lowered from 2 to 1", Fact: true}},
 		},
 		{
 			name: "renamed guarded file is deleted",
 			base: map[string]string{testFile: goFile(testA1)},
 			head: map[string]string{renamedTo: goFile(testA1)},
 			spec: Spec{Guarded: []string{testFile}},
-			want: []Refusal{{File: testFile, Rule: "guarded file deleted"}},
+			want: []Refusal{{File: testFile, Rule: "guarded file deleted", Fact: true}},
 		},
 		{
 			name: "edited capture file is refused",
