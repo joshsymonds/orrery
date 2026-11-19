@@ -277,7 +277,7 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 .b-row.epic .words .state, .b-row.epic .words .blocker { min-width: 0; overflow: hidden; text-overflow: ellipsis; animation: move-fade var(--o-move-state); }
 .b-row.epic.ended { animation: move-fade var(--o-move-layout); }
 .strip { display: flex; gap: var(--o-space-2); height: var(--o-size-rail); margin: var(--o-space-4) 0 var(--o-space-2); }
-.strip i { flex: 1 1 0; min-width: 0; border-radius: var(--o-radius-1); background: var(--o-surface-raised); }
+.strip i { flex: 1 1 0; min-width: 0; border-radius: var(--o-radius-1); background: var(--o-tone-plan); }
 .strip.dense { gap: 0; }
 .strip.dense i { border-radius: 0; }
 .pips { display: inline-flex; gap: var(--o-space-2); vertical-align: middle; }
@@ -781,7 +781,8 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 .orrery text { font: inherit; }
 .orrery .cell, .orrery .req { transition: fill var(--o-move-state); }
 .orrery .cell.passed { fill: var(--o-role-ok); }
-.orrery .cell.ahead, .orrery .cell.planned { fill: var(--o-surface-raised); }
+.orrery .cell.ahead { fill: var(--o-line-soft); }
+.orrery .cell.planned { fill: var(--o-tone-plan); }
 .orrery .cell.now { fill: var(--tone); }
 .orrery .cell.open { cursor: pointer; }
 .orrery .req.proven { fill: var(--o-role-ok); }
