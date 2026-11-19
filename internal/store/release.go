@@ -268,7 +268,9 @@ func stopEpicRelease(
 	if err := parkEpicAs(ctx, queries, epic, class, releaseParkSubject, reason, at); err != nil {
 		return err
 	}
-	if err := queries.StopEpicRelease(ctx, sqlcgen.StopEpicReleaseParams{PhaseAt: at.Unix(), ID: epic}); err != nil {
+	if err := queries.StopEpicRelease(withEpicEvent(ctx), sqlcgen.StopEpicReleaseParams{
+		PhaseAt: at.Unix(), ID: epic,
+	}); err != nil {
 		return fmt.Errorf("stop release of epic %s: %w", epic, err)
 	}
 	return nil

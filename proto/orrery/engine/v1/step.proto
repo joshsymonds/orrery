@@ -4,7 +4,7 @@ package orrery.engine.v1;
 
 // Steps runs steps: agent loops that end with a checked status. orreryd serves it on the same private socket as Engine,
 // mode 0600. serve reads ListSteps and StepStatus and forwards the owner's HoldStep, NudgeStep and StopStep through
-// orrery.v1.Steps, and never calls StartStep or WaitSteps.
+// orrery.v1.Steps, and never calls StartStep.
 service Steps {
   // StartStep starts a step and returns its id once its row exists. A start that is refused returns the refusal and no
   // id. A writing step runs in its workspace; a read-only step runs in a detached worktree at its revision.
@@ -15,9 +15,6 @@ service Steps {
 
   // StepStatus returns a step's row.
   rpc StepStatus(StepStatusRequest) returns (StepStatusResponse);
-
-  // WaitSteps blocks until the first of the named steps ends or the timeout passes. A timeout of zero returns at once.
-  rpc WaitSteps(WaitStepsRequest) returns (WaitStepsResponse);
 
   // ListSteps lists the labelled steps, oldest first. An unlabelled step is never listed.
   rpc ListSteps(ListStepsRequest) returns (ListStepsResponse);
@@ -111,24 +108,6 @@ message StepStatusRequest {
 message StepStatusResponse {
   // The step.
   Step step = 1;
-}
-
-// WaitStepsRequest asks for the first of the named steps to end.
-message WaitStepsRequest {
-  // The ids of the steps to wait for.
-  repeated string ids = 1;
-
-  // How many seconds to wait. Zero returns at once.
-  uint32 timeout_seconds = 2;
-}
-
-// WaitStepsResponse reports the step that ended first, if any, and every named step's row.
-message WaitStepsResponse {
-  // The first step to end. Unset when the timeout passed before any of the steps ended.
-  Step ended = 1;
-
-  // Every named step, in the order the request named them.
-  repeated Step steps = 2;
 }
 
 // Step is a step's row.

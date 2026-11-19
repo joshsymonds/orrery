@@ -36,6 +36,13 @@ type TaskBuild struct {
 	Question                               int64
 }
 
+// GateChange is one gate-needed change a task's implementer declared: a file it changed beyond what the Deliverable
+// names because the task's own gate or evidence could not pass without it, and the reason the gate needs it.
+type GateChange struct {
+	Path   string `json:"path"`
+	Reason string `json:"reason"`
+}
+
 // TaskFinding is one finding a review raised: its position among the review's findings, its id, the claim it makes,
 // where it is cited and located, its evidence and how to verify it. Step, Result and Reason are its verification: the
 // step that checked it, whether it is confirmed, dropped or undecided, and why. Unverified is whether it was settled
@@ -139,6 +146,29 @@ func (s *Store) SetTaskBuild(ctx context.Context, epic string, seq int64, from, 
 		}
 		if rows == 0 {
 			return fmt.Errorf("task %d of epic %s: %w", seq, epic, ErrTaskMoved)
+		}
+		return nil
+	})
+}
+
+// SetTaskBuildGateChanges stores to as the build of task seq of epic and changes as its whole list of declared
+// gate-needed changes, in one compare-and-set write: it writes only when the task is open and its stored build equals
+// from. A task that is not stored, is not open, or whose build differs from from is ErrTaskMoved and writes nothing.
+func (s *Store) SetTaskBuildGateChanges(
+	ctx context.Context, epic string, seq int64, from, to TaskBuild, changes []GateChange,
+) error {
+	encoded, err := encodeList(changes)
+	if err != nil {
+		return fmt.Errorf("encode gate changes of task %d of epic %s: %w", seq, epic, err)
+	}
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		if moveErr := moveTask(ctx, queries, epic, seq, from, to); moveErr != nil {
+			return moveErr
+		}
+		if setErr := queries.SetEpicTaskGateChanges(ctx, sqlcgen.SetEpicTaskGateChangesParams{
+			GateChanges: encoded, Epic: epic, Seq: seq,
+		}); setErr != nil {
+			return fmt.Errorf("set gate changes of task %d of epic %s: %w", seq, epic, setErr)
 		}
 		return nil
 	})

@@ -64,7 +64,8 @@ func (r *Runner) orchestratorPrompt(ctx context.Context, epic store.EpicRow, vie
 }
 
 // requestTaskLines returns the Task section: the task's label and title, the lines naming its spec version when it is
-// past version 1 (taskspec.Lines), its deliverable, files, test_changes, the Requirements it claims and contributes to,
+// past version 1 (taskspec.Lines), its deliverable, files, test_changes, the gate-needed changes its implementers
+// declared, each as `<path>: <reason>`, the Requirements it claims and contributes to,
 // its gate with its argv when it resolves, its evidence item as compact JSON, its base, attempt, rerun and decisions,
 // and the turn that planned it with that turn's outline.
 func (r *Runner) requestTaskLines(ctx context.Context, epic store.EpicRow, task store.EpicTask) ([]string, error) {
@@ -85,6 +86,7 @@ func (r *Runner) requestTaskLines(ctx context.Context, epic store.EpicRow, task 
 		"Deliverable: "+task.Deliverable,
 		"Files: "+listText(task.Files),
 		"Test changes: "+listText(task.TestChanges),
+		"Gate-needed changes declared: "+listText(GateChangeItems(task.GateChanges)),
 		"Requirements: "+listText(task.Requirements),
 		"Contributes: "+listText(task.Contributes),
 		gate,

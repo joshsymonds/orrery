@@ -1,6 +1,6 @@
 {
   "cmd/orrery": 4.3,
-  "cmd/orreryd": 8.6,
+  "cmd/orreryd": 12.9,
   "internal/agents": 0.3,
   "internal/alerts": 0.3,
   "internal/archive": 0.2,

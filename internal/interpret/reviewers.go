@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/joshsymonds/orrery/internal/build"
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/kinds"
@@ -76,7 +77,8 @@ func (EpicReviewers) Start(
 
 // epicStageReviewPrompt renders the prompt of an epic-stage review step: the epic and every Requirement it declares,
 // its Must Not Ship entries, the amendments of its Requirements' evidence items when it has any (see amendmentBullets),
-// and the change from base to revision.
+// the gate-needed changes its tasks declared under the heading that says when each is in scope
+// (build.EpicGateChangeItems), and the change from base to revision.
 func epicStageReviewPrompt(epic store.EpicRow, base, revision string) string {
 	requirements := make([]string, len(epic.Requirements))
 	for i, requirement := range epic.Requirements {
@@ -95,6 +97,8 @@ func epicStageReviewPrompt(epic store.EpicRow, base, revision string) string {
 		[]string{"Must Not Ship:"},
 		epicStageBullets(epic.Exclusions),
 		amendments,
+		[]string{build.EpicDeclaredHeading},
+		epicStageBullets(build.EpicGateChangeItems(epic.Tasks)),
 		[]string{change},
 	), "\n")
 }

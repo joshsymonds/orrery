@@ -788,6 +788,244 @@ func (x *WithdrawResponse) GetTexts() []string {
 	return nil
 }
 
+// NotNowRequest names one open question to take off the owner's list.
+type NotNowRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The question's kind: "headless" or "pane".
+	Kind string `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
+	// The headless session id, or the pane's Pane.id.
+	Id string `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	// The headless open request's OpenRequest.id. Empty for a pane.
+	RequestId string `protobuf:"bytes,3,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	// The pane's Pane.question_hash. Empty for headless.
+	QuestionHash string `protobuf:"bytes,4,opt,name=question_hash,json=questionHash,proto3" json:"question_hash,omitempty"`
+	// The pane's Pane.changed, the unix seconds it started waiting. 0 for headless.
+	Changed       int64 `protobuf:"varint,5,opt,name=changed,proto3" json:"changed,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NotNowRequest) Reset() {
+	*x = NotNowRequest{}
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NotNowRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NotNowRequest) ProtoMessage() {}
+
+func (x *NotNowRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NotNowRequest.ProtoReflect.Descriptor instead.
+func (*NotNowRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_engine_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *NotNowRequest) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *NotNowRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *NotNowRequest) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *NotNowRequest) GetQuestionHash() string {
+	if x != nil {
+		return x.QuestionHash
+	}
+	return ""
+}
+
+func (x *NotNowRequest) GetChanged() int64 {
+	if x != nil {
+		return x.Changed
+	}
+	return 0
+}
+
+// NotNowResponse acknowledges a not-now mark. It has no fields.
+type NotNowResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NotNowResponse) Reset() {
+	*x = NotNowResponse{}
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NotNowResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NotNowResponse) ProtoMessage() {}
+
+func (x *NotNowResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NotNowResponse.ProtoReflect.Descriptor instead.
+func (*NotNowResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_engine_proto_rawDescGZIP(), []int{17}
+}
+
+// BringBackRequest names one open question to put back on the owner's list.
+type BringBackRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The question's kind: "headless" or "pane".
+	Kind string `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
+	// The headless session id, or the pane's Pane.id.
+	Id string `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	// The headless open request's OpenRequest.id. Empty for a pane.
+	RequestId string `protobuf:"bytes,3,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	// The pane's Pane.question_hash. Empty for headless.
+	QuestionHash string `protobuf:"bytes,4,opt,name=question_hash,json=questionHash,proto3" json:"question_hash,omitempty"`
+	// The pane's Pane.changed, the unix seconds it started waiting. 0 for headless.
+	Changed       int64 `protobuf:"varint,5,opt,name=changed,proto3" json:"changed,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BringBackRequest) Reset() {
+	*x = BringBackRequest{}
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BringBackRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BringBackRequest) ProtoMessage() {}
+
+func (x *BringBackRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BringBackRequest.ProtoReflect.Descriptor instead.
+func (*BringBackRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_engine_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *BringBackRequest) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *BringBackRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *BringBackRequest) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *BringBackRequest) GetQuestionHash() string {
+	if x != nil {
+		return x.QuestionHash
+	}
+	return ""
+}
+
+func (x *BringBackRequest) GetChanged() int64 {
+	if x != nil {
+		return x.Changed
+	}
+	return 0
+}
+
+// BringBackResponse acknowledges a bring-back. It has no fields.
+type BringBackResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BringBackResponse) Reset() {
+	*x = BringBackResponse{}
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BringBackResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BringBackResponse) ProtoMessage() {}
+
+func (x *BringBackResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BringBackResponse.ProtoReflect.Descriptor instead.
+func (*BringBackResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_engine_proto_rawDescGZIP(), []int{19}
+}
+
 var File_orrery_engine_v1_engine_proto protoreflect.FileDescriptor
 
 const file_orrery_engine_v1_engine_proto_rawDesc = "" +
@@ -829,7 +1067,23 @@ const file_orrery_engine_v1_engine_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
 	"\tprompt_id\x18\x02 \x01(\tR\bpromptId\"(\n" +
 	"\x10WithdrawResponse\x12\x14\n" +
-	"\x05texts\x18\x01 \x03(\tR\x05texts2\xe7\x04\n" +
+	"\x05texts\x18\x01 \x03(\tR\x05texts\"\x91\x01\n" +
+	"\rNotNowRequest\x12\x12\n" +
+	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x0e\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x03 \x01(\tR\trequestId\x12#\n" +
+	"\rquestion_hash\x18\x04 \x01(\tR\fquestionHash\x12\x18\n" +
+	"\achanged\x18\x05 \x01(\x03R\achanged\"\x10\n" +
+	"\x0eNotNowResponse\"\x94\x01\n" +
+	"\x10BringBackRequest\x12\x12\n" +
+	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x0e\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x03 \x01(\tR\trequestId\x12#\n" +
+	"\rquestion_hash\x18\x04 \x01(\tR\fquestionHash\x12\x18\n" +
+	"\achanged\x18\x05 \x01(\x03R\achanged\"\x13\n" +
+	"\x11BringBackResponse2\x8a\x06\n" +
 	"\x06Engine\x12H\n" +
 	"\x05Start\x12\x1e.orrery.engine.v1.StartRequest\x1a\x1f.orrery.engine.v1.StartResponse\x12B\n" +
 	"\x03Say\x12\x1c.orrery.engine.v1.SayRequest\x1a\x1d.orrery.engine.v1.SayResponse\x12K\n" +
@@ -838,7 +1092,9 @@ const file_orrery_engine_v1_engine_proto_rawDesc = "" +
 	"\x04Stop\x12\x1d.orrery.engine.v1.StopRequest\x1a\x1e.orrery.engine.v1.StopResponse\x12E\n" +
 	"\x04Seen\x12\x1d.orrery.engine.v1.SeenRequest\x1a\x1e.orrery.engine.v1.SeenResponse\x12K\n" +
 	"\x06Resume\x12\x1f.orrery.engine.v1.ResumeRequest\x1a .orrery.engine.v1.ResumeResponse\x12Q\n" +
-	"\bWithdraw\x12!.orrery.engine.v1.WithdrawRequest\x1a\".orrery.engine.v1.WithdrawResponseB\xcb\x01\n" +
+	"\bWithdraw\x12!.orrery.engine.v1.WithdrawRequest\x1a\".orrery.engine.v1.WithdrawResponse\x12K\n" +
+	"\x06NotNow\x12\x1f.orrery.engine.v1.NotNowRequest\x1a .orrery.engine.v1.NotNowResponse\x12T\n" +
+	"\tBringBack\x12\".orrery.engine.v1.BringBackRequest\x1a#.orrery.engine.v1.BringBackResponseB\xcb\x01\n" +
 	"\x14com.orrery.engine.v1B\vEngineProtoP\x01ZDgithub.com/joshsymonds/orrery/internal/gen/orrery/engine/v1;enginev1\xa2\x02\x03OEX\xaa\x02\x10Orrery.Engine.V1\xca\x02\x10Orrery\\Engine\\V1\xe2\x02\x1cOrrery\\Engine\\V1\\GPBMetadata\xea\x02\x12Orrery::Engine::V1b\x06proto3"
 
 var (
@@ -853,7 +1109,7 @@ func file_orrery_engine_v1_engine_proto_rawDescGZIP() []byte {
 	return file_orrery_engine_v1_engine_proto_rawDescData
 }
 
-var file_orrery_engine_v1_engine_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_orrery_engine_v1_engine_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
 var file_orrery_engine_v1_engine_proto_goTypes = []any{
 	(*StartRequest)(nil),      // 0: orrery.engine.v1.StartRequest
 	(*StartResponse)(nil),     // 1: orrery.engine.v1.StartResponse
@@ -871,6 +1127,10 @@ var file_orrery_engine_v1_engine_proto_goTypes = []any{
 	(*ResumeResponse)(nil),    // 13: orrery.engine.v1.ResumeResponse
 	(*WithdrawRequest)(nil),   // 14: orrery.engine.v1.WithdrawRequest
 	(*WithdrawResponse)(nil),  // 15: orrery.engine.v1.WithdrawResponse
+	(*NotNowRequest)(nil),     // 16: orrery.engine.v1.NotNowRequest
+	(*NotNowResponse)(nil),    // 17: orrery.engine.v1.NotNowResponse
+	(*BringBackRequest)(nil),  // 18: orrery.engine.v1.BringBackRequest
+	(*BringBackResponse)(nil), // 19: orrery.engine.v1.BringBackResponse
 }
 var file_orrery_engine_v1_engine_proto_depIdxs = []int32{
 	0,  // 0: orrery.engine.v1.Engine.Start:input_type -> orrery.engine.v1.StartRequest
@@ -881,16 +1141,20 @@ var file_orrery_engine_v1_engine_proto_depIdxs = []int32{
 	10, // 5: orrery.engine.v1.Engine.Seen:input_type -> orrery.engine.v1.SeenRequest
 	12, // 6: orrery.engine.v1.Engine.Resume:input_type -> orrery.engine.v1.ResumeRequest
 	14, // 7: orrery.engine.v1.Engine.Withdraw:input_type -> orrery.engine.v1.WithdrawRequest
-	1,  // 8: orrery.engine.v1.Engine.Start:output_type -> orrery.engine.v1.StartResponse
-	3,  // 9: orrery.engine.v1.Engine.Say:output_type -> orrery.engine.v1.SayResponse
-	5,  // 10: orrery.engine.v1.Engine.Answer:output_type -> orrery.engine.v1.AnswerResponse
-	7,  // 11: orrery.engine.v1.Engine.Interrupt:output_type -> orrery.engine.v1.InterruptResponse
-	9,  // 12: orrery.engine.v1.Engine.Stop:output_type -> orrery.engine.v1.StopResponse
-	11, // 13: orrery.engine.v1.Engine.Seen:output_type -> orrery.engine.v1.SeenResponse
-	13, // 14: orrery.engine.v1.Engine.Resume:output_type -> orrery.engine.v1.ResumeResponse
-	15, // 15: orrery.engine.v1.Engine.Withdraw:output_type -> orrery.engine.v1.WithdrawResponse
-	8,  // [8:16] is the sub-list for method output_type
-	0,  // [0:8] is the sub-list for method input_type
+	16, // 8: orrery.engine.v1.Engine.NotNow:input_type -> orrery.engine.v1.NotNowRequest
+	18, // 9: orrery.engine.v1.Engine.BringBack:input_type -> orrery.engine.v1.BringBackRequest
+	1,  // 10: orrery.engine.v1.Engine.Start:output_type -> orrery.engine.v1.StartResponse
+	3,  // 11: orrery.engine.v1.Engine.Say:output_type -> orrery.engine.v1.SayResponse
+	5,  // 12: orrery.engine.v1.Engine.Answer:output_type -> orrery.engine.v1.AnswerResponse
+	7,  // 13: orrery.engine.v1.Engine.Interrupt:output_type -> orrery.engine.v1.InterruptResponse
+	9,  // 14: orrery.engine.v1.Engine.Stop:output_type -> orrery.engine.v1.StopResponse
+	11, // 15: orrery.engine.v1.Engine.Seen:output_type -> orrery.engine.v1.SeenResponse
+	13, // 16: orrery.engine.v1.Engine.Resume:output_type -> orrery.engine.v1.ResumeResponse
+	15, // 17: orrery.engine.v1.Engine.Withdraw:output_type -> orrery.engine.v1.WithdrawResponse
+	17, // 18: orrery.engine.v1.Engine.NotNow:output_type -> orrery.engine.v1.NotNowResponse
+	19, // 19: orrery.engine.v1.Engine.BringBack:output_type -> orrery.engine.v1.BringBackResponse
+	10, // [10:20] is the sub-list for method output_type
+	0,  // [0:10] is the sub-list for method input_type
 	0,  // [0:0] is the sub-list for extension type_name
 	0,  // [0:0] is the sub-list for extension extendee
 	0,  // [0:0] is the sub-list for field type_name
@@ -907,7 +1171,7 @@ func file_orrery_engine_v1_engine_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orrery_engine_v1_engine_proto_rawDesc), len(file_orrery_engine_v1_engine_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   16,
+			NumMessages:   20,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

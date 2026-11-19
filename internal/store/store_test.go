@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestPathUsesXDGStateHome(t *testing.T) {
@@ -274,6 +275,99 @@ func TestOpenWithSynchronousSetsTheMode(t *testing.T) {
 				t.Fatalf("synchronous = %d, want %d (%s)", got, want, mode)
 			}
 		})
+	}
+}
+
+// busyTimeoutOf returns the store connection's PRAGMA busy_timeout, in milliseconds.
+func busyTimeoutOf(t *testing.T, s *Store) int64 {
+	t.Helper()
+	var millis int64
+	if err := s.db.QueryRowContext(context.Background(), `PRAGMA busy_timeout`).Scan(&millis); err != nil {
+		t.Fatalf("PRAGMA busy_timeout: %v", err)
+	}
+	return millis
+}
+
+func TestOpenWaitsBusyTimeoutForTheWriteLockByDefault(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "orrery.db")
+	seedMigrated(t, path)
+	s, err := Open(context.Background(), path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+	if got := busyTimeoutOf(t, s); got != BusyTimeout.Milliseconds() || got != 5000 {
+		t.Fatalf("busy_timeout = %d ms, want BusyTimeout, 5000 ms", got)
+	}
+}
+
+func TestOpenWithBusyTimeoutSetsTheWait(t *testing.T) {
+	t.Parallel()
+	for _, d := range []time.Duration{0, 250 * time.Millisecond} {
+		t.Run(d.String(), func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(t.TempDir(), "orrery.db")
+			seedMigrated(t, path)
+			s, err := Open(context.Background(), path, WithBusyTimeout(d))
+			if err != nil {
+				t.Fatalf("Open: %v", err)
+			}
+			defer s.Close()
+			if got := busyTimeoutOf(t, s); got != d.Milliseconds() {
+				t.Fatalf("busy_timeout = %d ms, want %d", got, d.Milliseconds())
+			}
+		})
+	}
+}
+
+func TestOpenRefusesNegativeBusyTimeoutBeforeCreatingTheFile(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join(t.TempDir(), "state")
+	s, err := Open(context.Background(), filepath.Join(dir, "orrery.db"), WithBusyTimeout(-time.Millisecond))
+	if err == nil {
+		s.Close()
+		t.Fatal("Open with a negative busy timeout: want error, got nil")
+	}
+	if _, statErr := os.Stat(dir); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("store directory after refused Open: stat err %v, want not exist", statErr)
+	}
+}
+
+func TestBusyReportsOnlyBusyAndLockedResults(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "orrery.db")
+	seedMigrated(t, path)
+	s, err := Open(context.Background(), path, noSync(), WithBusyTimeout(0))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+	other, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("open second connection: %v", err)
+	}
+	defer other.Close()
+	conn, err := other.Conn(context.Background())
+	if err != nil {
+		t.Fatalf("second connection: %v", err)
+	}
+	defer conn.Close()
+	if _, err = conn.ExecContext(context.Background(), "BEGIN IMMEDIATE"); err != nil {
+		t.Fatalf("take write lock: %v", err)
+	}
+	locked := s.AddHold(context.Background(), HoldRow{Member: "m1", Since: time.Unix(1, 0)})
+	if !Busy(locked) || !Busy(fmt.Errorf("wrapped: %w", locked)) {
+		t.Fatalf("Busy(%v) = false, want true for a write the held lock refused, wrapped or not", locked)
+	}
+	if _, err = conn.ExecContext(context.Background(), "ROLLBACK"); err != nil {
+		t.Fatalf("release write lock: %v", err)
+	}
+	_, malformed := s.db.ExecContext(context.Background(), "NOT SQL")
+	for _, err := range []error{nil, errors.New("plain"), context.DeadlineExceeded, malformed} {
+		if Busy(err) {
+			t.Fatalf("Busy(%v) = true, want false", err)
+		}
 	}
 }
 

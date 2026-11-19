@@ -19,6 +19,22 @@
       "items": {
         "type": "string"
       }
+    },
+    "gate_changes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "reason"],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      }
     }
   }
 }

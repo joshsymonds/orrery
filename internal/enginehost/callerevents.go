@@ -18,8 +18,9 @@ const stepEndKind = "step_end"
 // steps whose end has no mark under this id.
 const stepEventPrefix = "step:"
 
-// callerEventTick is how often a StepCallerEvents passes when its Tick is not positive.
-const callerEventTick = 5 * time.Second
+// callerEventRetry is how long a CallerEvents waits before it runs a round again after a round failed, when its Retry
+// is not positive.
+const callerEventRetry = 5 * time.Second
 
 // CallerEventBlock returns the block that carries an event of kind, with id, to its caller: an <orrery-event> opening
 // tag, the body on a line of its own, and the closing tag.
@@ -33,30 +34,35 @@ type CallerEventStore interface {
 }
 
 // CallerSenderConfig configures a CallerSender. Deliver sends a headless caller its text as a prompt (see
-// Manager.Deliver). WakePane sends a pane caller its text as keys, and reports whether the pane was idle to take them.
-// Store records the events finished. A nil Now means time.Now, and a nil Logger discards.
+// Manager.Deliver). DeliverStep sends a step caller the end of a step it started as a prompt (see Steps.DeliverChildEnd),
+// and a nil DeliverStep leaves a step caller with nothing sent. WakePane sends a pane caller its text as keys, and reports
+// whether the pane was idle to take them. Store records the events finished. A nil Now means time.Now, and a nil Logger
+// discards.
 type CallerSenderConfig struct {
-	Deliver  func(context.Context, DeliverRequest) error
-	WakePane func(ctx context.Context, server, pane, text string) (bool, error)
-	Store    CallerEventStore
-	Now      func() time.Time
-	Logger   *slog.Logger
+	Deliver     func(context.Context, DeliverRequest) error
+	DeliverStep func(context.Context, DeliverRequest) error
+	WakePane    func(ctx context.Context, server, pane, text string) (bool, error)
+	Store       CallerEventStore
+	Now         func() time.Time
+	Logger      *slog.Logger
 }
 
 // CallerSender sends an event to the session that called for it, and marks the event finished once it is done. Both
 // the step-end pass and the epic pass send through it.
 type CallerSender struct {
-	deliver  func(context.Context, DeliverRequest) error
-	wakePane func(ctx context.Context, server, pane, text string) (bool, error)
-	store    CallerEventStore
-	now      func() time.Time
-	logger   *slog.Logger
+	deliver     func(context.Context, DeliverRequest) error
+	deliverStep func(context.Context, DeliverRequest) error
+	wakePane    func(ctx context.Context, server, pane, text string) (bool, error)
+	store       CallerEventStore
+	now         func() time.Time
+	logger      *slog.Logger
 }
 
 // NewCallerSender returns a CallerSender for cfg.
 func NewCallerSender(cfg CallerSenderConfig) *CallerSender {
 	sender := &CallerSender{
-		deliver: cfg.Deliver, wakePane: cfg.WakePane, store: cfg.Store, now: cfg.Now, logger: cfg.Logger,
+		deliver: cfg.Deliver, deliverStep: cfg.DeliverStep, wakePane: cfg.WakePane, store: cfg.Store, now: cfg.Now,
+		logger: cfg.Logger,
 	}
 	if sender.now == nil {
 		sender.now = time.Now
@@ -68,10 +74,10 @@ func NewCallerSender(cfg CallerSenderConfig) *CallerSender {
 }
 
 // Send sends text, the block of event, to caller, and reports whether the event is finished: it has been marked. A
-// step caller receives nothing, and its event is marked. A headless caller receives text as a prompt whose PromptID is
-// event. A caller that is busy, stopped, or quiet since the owner interrupted it holds the event, with no error and no
-// mark, until a later send. A pane caller
-// receives text as keys, which WakePane holds while the pane is not idle, and the event is marked after the keys are
+// step caller receives nothing, and its event is marked; the end of a step reaches its step caller through SendStepEnd
+// instead. A headless caller receives text as a prompt whose PromptID is event. A caller that is busy, stopped, or quiet
+// since the owner interrupted it holds the event, with no error and no mark, until a later send. A pane caller receives
+// text as keys, which WakePane holds while the pane is not idle, and the event is marked after the keys are
 // sent. Any other error is returned with no mark.
 func (s *CallerSender) Send(ctx context.Context, caller store.CallerSession, event, text string) (bool, error) {
 	switch caller.Kind {
@@ -91,6 +97,29 @@ func (s *CallerSender) Send(ctx context.Context, caller store.CallerSession, eve
 		return s.wake(ctx, caller, event, text)
 	default:
 		return false, fmt.Errorf("send %s to session %s: unknown kind %q", event, caller.ID, caller.Kind)
+	}
+}
+
+// SendStepEnd sends text, the block of the end of a step with event, to caller, and reports whether the event is
+// finished. A step caller with a DeliverStep receives text as a prompt of the step it started, whose PromptID is event
+// (see DeliverStep): the event is marked once the prompt is sent, and also when the step has ended or is no step, where
+// nothing is sent. A step that is busy, running its gate, held or limited holds the event, with no error and no mark,
+// until a later send. Any other error is returned with no mark. Every other caller, and a step caller when DeliverStep is
+// nil, goes to Send as it does.
+func (s *CallerSender) SendStepEnd(ctx context.Context, caller store.CallerSession, event, text string) (bool, error) {
+	if caller.Kind != store.KindStep || s.deliverStep == nil {
+		return s.Send(ctx, caller, event, text)
+	}
+	err := s.deliverStep(ctx, DeliverRequest{ID: caller.ID, Text: text, PromptID: event})
+	switch {
+	case err == nil:
+		return s.mark(ctx, caller.ID, event)
+	case errors.Is(err, ErrStepNotRunning), errors.Is(err, store.ErrNoStep):
+		return s.mark(ctx, caller.ID, event)
+	case errors.Is(err, ErrSessionBusy), errors.Is(err, ErrStepGating):
+		return false, nil
+	default:
+		return false, fmt.Errorf("deliver step end %s to step %s: %w", event, caller.ID, err)
 	}
 }
 
@@ -126,79 +155,47 @@ type StepCallerStore interface {
 	CallerSteps(ctx context.Context) ([]store.CallerStep, error)
 }
 
-// StepCallerEventsConfig configures a StepCallerEvents. A Tick that is not positive means five seconds. Ticks, when not
-// nil, is where Run takes its ticks in place of a ticker every Tick. A nil Logger discards.
+// StepCallerEventsConfig configures a StepCallerEvents. Store lists the ended steps, and Sender sends each step's end.
 type StepCallerEventsConfig struct {
 	Store  StepCallerStore
 	Sender *CallerSender
-	Tick   time.Duration
-	Ticks  <-chan time.Time
-	Logger *slog.Logger
 }
 
-// StepCallerEvents tells the caller of each step that has ended, once, that the step has ended.
+// StepCallerEvents tells the caller of each step that has ended, once, that the step has ended. A step caller is told
+// through the step it started, while that step is open (see CallerSender.SendStepEnd).
 type StepCallerEvents struct {
 	store  StepCallerStore
 	sender *CallerSender
-	tick   time.Duration
-	ticks  <-chan time.Time
-	logger *slog.Logger
 }
 
 // NewStepCallerEvents returns a StepCallerEvents for cfg.
 func NewStepCallerEvents(cfg StepCallerEventsConfig) *StepCallerEvents {
-	events := &StepCallerEvents{
-		store: cfg.Store, sender: cfg.Sender, tick: cfg.Tick, ticks: cfg.Ticks, logger: cfg.Logger,
-	}
-	if events.tick <= 0 {
-		events.tick = callerEventTick
-	}
-	if events.logger == nil {
-		events.logger = slog.New(slog.DiscardHandler)
-	}
-	return events
+	return &StepCallerEvents{store: cfg.Store, sender: cfg.Sender}
 }
 
-// Run passes at once, then once per tick, until ctx ends.
-func (e *StepCallerEvents) Run(ctx context.Context) {
-	ticks := e.ticks
-	if ticks == nil {
-		ticker := time.NewTicker(e.tick)
-		defer ticker.Stop()
-		ticks = ticker.C
-	}
-	for {
-		e.Pass(ctx)
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticks:
-		}
-	}
-}
-
-// Pass sends the end of each listed step to its caller, as Run does on each tick. A send that fails is logged, and the
-// pass goes on to the next step.
-func (e *StepCallerEvents) Pass(ctx context.Context) {
+// Pass sends the end of each listed step to its caller. It returns the read error of the steps, or else the errors of
+// the sends that failed, joined. A send that holds the end is no error. A failed send does not stop the pass: it goes on
+// to the next step.
+func (e *StepCallerEvents) Pass(ctx context.Context) error {
 	steps, err := e.store.CallerSteps(ctx)
 	if err != nil {
-		e.logger.ErrorContext(ctx, "list caller steps", "err", err)
-		return
+		return fmt.Errorf("read caller steps: %w", err)
 	}
+	errs := make([]error, 0, len(steps))
 	for _, step := range steps {
-		e.send(ctx, step)
+		errs = append(errs, e.send(ctx, step))
 	}
+	return errors.Join(errs...)
 }
 
-// send sends the end of step to its caller as a step_end event.
-func (e *StepCallerEvents) send(ctx context.Context, step store.CallerStep) {
+// send sends the end of step to its caller as a step_end event through SendStepEnd, and returns the error of the send.
+func (e *StepCallerEvents) send(ctx context.Context, step store.CallerStep) error {
 	event := stepEventPrefix + step.Step.ID
 	text := CallerEventBlock(stepEndKind, event, stepEndBody(step.Step))
-	if _, err := e.sender.Send(ctx, step.Caller, event, text); err != nil {
-		e.logger.ErrorContext(
-			ctx, "send step end", "step", step.Step.ID, "caller", step.Caller.ID, "err", err,
-		)
+	if _, err := e.sender.SendStepEnd(ctx, step.Caller, event, text); err != nil {
+		return fmt.Errorf("send step end of %s to caller %s: %w", step.Step.ID, step.Caller.ID, err)
 	}
+	return nil
 }
 
 // stepEndBody returns the body of the event of step's end: the step, its end, status and reason, its agent, the epic
@@ -212,4 +209,101 @@ func stepEndBody(step store.StepRow) string {
 		lines = append(lines, "Epic: "+step.Epic)
 	}
 	return strings.Join(append(lines, "Summary: "+step.Result), "\n")
+}
+
+// CallerPass is one pass over the caller events. It sends what is due, and returns the read error or the joined send
+// errors of the pass.
+type CallerPass interface {
+	Pass(ctx context.Context) error
+}
+
+// CallerEventsConfig configures a CallerEvents. Passes are the passes each round runs, in order. Retry is how long a
+// retry waits after a failed round, and a Retry that is not positive means callerEventRetry. NewTimer arms a timer that
+// sends on its channel once, after a duration, and returns the timer's stop; a nil NewTimer wraps time.NewTimer. A nil
+// Logger discards.
+type CallerEventsConfig struct {
+	Passes   []CallerPass
+	Retry    time.Duration
+	NewTimer func(time.Duration) (<-chan time.Time, func() bool)
+	Logger   *slog.Logger
+}
+
+// CallerEvents runs the caller-event passes on one goroutine: once when Run starts, once on each Wake, and once when a
+// retry fires. There is no ticker, so a pass runs only when it is woken. A round with a failed pass arms one retry when
+// none is armed; the retry, when it fires, runs one round. A round that fails again arms the next retry, and a clean
+// round arms none. Only Run sends, so a caller is never sent to twice at once.
+type CallerEvents struct {
+	passes   []CallerPass
+	retry    time.Duration
+	newTimer func(time.Duration) (<-chan time.Time, func() bool)
+	logger   *slog.Logger
+	// wakes holds one pending wake, so a wake that comes while one is pending is absorbed.
+	wakes chan struct{}
+}
+
+// NewCallerEvents returns the CallerEvents that cfg describes.
+func NewCallerEvents(cfg CallerEventsConfig) *CallerEvents {
+	events := &CallerEvents{
+		passes: cfg.Passes, retry: cfg.Retry, newTimer: cfg.NewTimer, logger: cfg.Logger,
+		wakes: make(chan struct{}, 1),
+	}
+	if events.retry <= 0 {
+		events.retry = callerEventRetry
+	}
+	if events.newTimer == nil {
+		events.newTimer = func(d time.Duration) (<-chan time.Time, func() bool) {
+			timer := time.NewTimer(d)
+			return timer.C, timer.Stop
+		}
+	}
+	if events.logger == nil {
+		events.logger = slog.New(slog.DiscardHandler)
+	}
+	return events
+}
+
+// Run runs every pass once at once, then once on each wake and each retry, until ctx ends. It stops the armed retry
+// when it returns.
+func (e *CallerEvents) Run(ctx context.Context) {
+	var fire <-chan time.Time
+	var stopRetry func() bool
+	defer func() {
+		if stopRetry != nil {
+			stopRetry()
+		}
+	}()
+	failed := e.round(ctx)
+	for {
+		if failed && fire == nil {
+			fire, stopRetry = e.newTimer(e.retry)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-e.wakes:
+		case <-fire:
+			fire = nil
+		}
+		failed = e.round(ctx)
+	}
+}
+
+// round runs each pass once, logs the error of each pass that fails, and reports whether any failed.
+func (e *CallerEvents) round(ctx context.Context) bool {
+	failed := false
+	for _, pass := range e.passes {
+		if err := pass.Pass(ctx); err != nil {
+			e.logger.ErrorContext(ctx, "caller event pass failed", "err", err)
+			failed = true
+		}
+	}
+	return failed
+}
+
+// Wake asks Run for a round, without blocking. A wake that comes while one is pending is absorbed by that one.
+func (e *CallerEvents) Wake() {
+	select {
+	case e.wakes <- struct{}{}:
+	default:
+	}
 }

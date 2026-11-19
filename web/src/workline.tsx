@@ -8,7 +8,7 @@ interface PaneTool {
   start: number;
 }
 
-// shortName reads a tool name by the part after its last "__", so an MCP name such as mcp__orrery__step_wait reads as
+// shortName reads a tool name by the part after its last "__", so an MCP name such as mcp__orrery__step_start reads as
 // its short name.
 function shortName(name: string): string {
   const at = name.lastIndexOf("__");

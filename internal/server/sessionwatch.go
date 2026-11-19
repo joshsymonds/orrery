@@ -154,7 +154,11 @@ func (w *sessionWatch) step(ctx context.Context) (*orreryv1.SessionsWatchConvers
 	if err != nil {
 		return nil, false, err
 	}
-	state, err := w.state(history, pending)
+	putOff, err := w.requestPutOff(ctx, history)
+	if err != nil {
+		return nil, false, err
+	}
+	state, err := w.state(history, pending, putOff)
 	if err != nil {
 		return nil, false, err
 	}
@@ -600,13 +604,29 @@ func (w *sessionWatch) trackChange(event store.EngineEvent) error {
 	return nil
 }
 
+// requestPutOff reports whether the open request of the session is put off, as headlessPutOff judges it. The marks are
+// read only while history waits on a request, so a session with no open request reads no marks and is not put off. A
+// failed read is returned as readPutOffMarks answers it.
+func (w *sessionWatch) requestPutOff(ctx context.Context, history store.EngineHistory) (bool, error) {
+	if history.State != string(protocol.StateWaiting) || w.request == nil {
+		return false, nil
+	}
+	marks, err := readPutOffMarks(ctx, w.reader)
+	if err != nil {
+		return false, err
+	}
+	return headlessPutOff(marks, w.id, w.request.GetId(), history.State), nil
+}
+
 // state returns the state of the session as history reads it: its origin, its headless session without the summary
 // and newest reply, its context figure when its transcript is read, whether the owner's interrupt is running (see
 // interrupting), the caller events it is owed (pending), the background tasks it carries at the clock's time (see
-// backgroundRows), and the open request while the session waits on one.
+// backgroundRows), and the open request while the session waits on one. putOff is whether that request is put off, and
+// the headless session and the request carry it. The request is a copy of w.request, so w.request is not changed.
 func (w *sessionWatch) state(
 	history store.EngineHistory,
 	pending []*orreryv1.PendingEvent,
+	putOff bool,
 ) (*orreryv1.ConversationState, error) {
 	changed, err := parseStamp(history.Changed)
 	if err != nil {
@@ -626,6 +646,7 @@ func (w *sessionWatch) state(
 			Changed:  changed,
 			Seen:     seen,
 			Question: history.Question,
+			PutOff:   putOff,
 		},
 		Interrupting: w.interrupting(history.State),
 		Pending:      pending,
@@ -634,8 +655,10 @@ func (w *sessionWatch) state(
 	if w.transcript != "" {
 		state.Context = &orreryv1.ConversationContext{Tokens: w.figure.Tokens, Window: w.figure.Window}
 	}
-	if history.State == string(protocol.StateWaiting) {
-		state.Request = w.request
+	if history.State == string(protocol.StateWaiting) && w.request != nil {
+		request := proto.CloneOf(w.request)
+		request.PutOff = putOff
+		state.Request = request
 	}
 	return state, nil
 }

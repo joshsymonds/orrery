@@ -64,13 +64,14 @@ func newStoreFixture(t *testing.T) *storeFixture {
 }
 
 // startOrreryd starts orreryd against the fixture's tmux server with XDG_STATE_HOME set to its state home, waits for
-// its socket to listen, and starts reading its notices.
-func (f *storeFixture) startOrreryd(t *testing.T) *orreryProcess {
+// its socket to listen, and starts reading its notices. extra is passed as more flags.
+func (f *storeFixture) startOrreryd(t *testing.T, extra ...string) *orreryProcess {
 	t.Helper()
-	daemon := startBinary(t, "orreryd",
-		scrubbedEnv("XDG_STATE_HOME="+f.stateHome),
+	args := append([]string{
 		"-L", f.server, "--socket", f.socket,
-		"--claude", f.fakeClaude, "--summary-model", exampleContextName+"="+exampleModel)
+		"--claude", f.fakeClaude, "--summary-model", exampleContextName + "=" + exampleModel,
+	}, extra...)
+	daemon := startBinary(t, "orreryd", scrubbedEnv("XDG_STATE_HOME="+f.stateHome), args...)
 	daemon.waitForListener(t, f.socket)
 	f.notices = startNoticeReader(t, scrubbedEnv(), f.socket)
 	return daemon

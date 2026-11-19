@@ -49,6 +49,10 @@ const (
 	EngineResumeProcedure = "/orrery.engine.v1.Engine/Resume"
 	// EngineWithdrawProcedure is the fully-qualified name of the Engine's Withdraw RPC.
 	EngineWithdrawProcedure = "/orrery.engine.v1.Engine/Withdraw"
+	// EngineNotNowProcedure is the fully-qualified name of the Engine's NotNow RPC.
+	EngineNotNowProcedure = "/orrery.engine.v1.Engine/NotNow"
+	// EngineBringBackProcedure is the fully-qualified name of the Engine's BringBack RPC.
+	EngineBringBackProcedure = "/orrery.engine.v1.Engine/BringBack"
 )
 
 // EngineClient is a client for the orrery.engine.v1.Engine service.
@@ -75,6 +79,10 @@ type EngineClient interface {
 	// texts hold that message's text when Claude cancelled it, and none when Claude had already taken it in, when the
 	// session is not running, or when prompt_id is empty.
 	Withdraw(context.Context, *connect.Request[v1.WithdrawRequest]) (*connect.Response[v1.WithdrawResponse], error)
+	// NotNow has orreryd store the not-now mark on an open question, which keeps it off the owner's list until BringBack.
+	NotNow(context.Context, *connect.Request[v1.NotNowRequest]) (*connect.Response[v1.NotNowResponse], error)
+	// BringBack has orreryd clear the not-now mark on an open question.
+	BringBack(context.Context, *connect.Request[v1.BringBackRequest]) (*connect.Response[v1.BringBackResponse], error)
 }
 
 // NewEngineClient constructs a client for the orrery.engine.v1.Engine service. By default, it uses
@@ -136,6 +144,18 @@ func NewEngineClient(httpClient connect.HTTPClient, baseURL string, opts ...conn
 			connect.WithSchema(engineMethods.ByName("Withdraw")),
 			connect.WithClientOptions(opts...),
 		),
+		notNow: connect.NewClient[v1.NotNowRequest, v1.NotNowResponse](
+			httpClient,
+			baseURL+EngineNotNowProcedure,
+			connect.WithSchema(engineMethods.ByName("NotNow")),
+			connect.WithClientOptions(opts...),
+		),
+		bringBack: connect.NewClient[v1.BringBackRequest, v1.BringBackResponse](
+			httpClient,
+			baseURL+EngineBringBackProcedure,
+			connect.WithSchema(engineMethods.ByName("BringBack")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -149,6 +169,8 @@ type engineClient struct {
 	seen      *connect.Client[v1.SeenRequest, v1.SeenResponse]
 	resume    *connect.Client[v1.ResumeRequest, v1.ResumeResponse]
 	withdraw  *connect.Client[v1.WithdrawRequest, v1.WithdrawResponse]
+	notNow    *connect.Client[v1.NotNowRequest, v1.NotNowResponse]
+	bringBack *connect.Client[v1.BringBackRequest, v1.BringBackResponse]
 }
 
 // Start calls orrery.engine.v1.Engine.Start.
@@ -191,6 +213,16 @@ func (c *engineClient) Withdraw(ctx context.Context, req *connect.Request[v1.Wit
 	return c.withdraw.CallUnary(ctx, req)
 }
 
+// NotNow calls orrery.engine.v1.Engine.NotNow.
+func (c *engineClient) NotNow(ctx context.Context, req *connect.Request[v1.NotNowRequest]) (*connect.Response[v1.NotNowResponse], error) {
+	return c.notNow.CallUnary(ctx, req)
+}
+
+// BringBack calls orrery.engine.v1.Engine.BringBack.
+func (c *engineClient) BringBack(ctx context.Context, req *connect.Request[v1.BringBackRequest]) (*connect.Response[v1.BringBackResponse], error) {
+	return c.bringBack.CallUnary(ctx, req)
+}
+
 // EngineHandler is an implementation of the orrery.engine.v1.Engine service.
 type EngineHandler interface {
 	// Start starts a headless session in an existing absolute directory with a first prompt and returns once its row
@@ -215,6 +247,10 @@ type EngineHandler interface {
 	// texts hold that message's text when Claude cancelled it, and none when Claude had already taken it in, when the
 	// session is not running, or when prompt_id is empty.
 	Withdraw(context.Context, *connect.Request[v1.WithdrawRequest]) (*connect.Response[v1.WithdrawResponse], error)
+	// NotNow has orreryd store the not-now mark on an open question, which keeps it off the owner's list until BringBack.
+	NotNow(context.Context, *connect.Request[v1.NotNowRequest]) (*connect.Response[v1.NotNowResponse], error)
+	// BringBack has orreryd clear the not-now mark on an open question.
+	BringBack(context.Context, *connect.Request[v1.BringBackRequest]) (*connect.Response[v1.BringBackResponse], error)
 }
 
 // NewEngineHandler builds an HTTP handler from the service implementation. It returns the path on
@@ -272,6 +308,18 @@ func NewEngineHandler(svc EngineHandler, opts ...connect.HandlerOption) (string,
 		connect.WithSchema(engineMethods.ByName("Withdraw")),
 		connect.WithHandlerOptions(opts...),
 	)
+	engineNotNowHandler := connect.NewUnaryHandler(
+		EngineNotNowProcedure,
+		svc.NotNow,
+		connect.WithSchema(engineMethods.ByName("NotNow")),
+		connect.WithHandlerOptions(opts...),
+	)
+	engineBringBackHandler := connect.NewUnaryHandler(
+		EngineBringBackProcedure,
+		svc.BringBack,
+		connect.WithSchema(engineMethods.ByName("BringBack")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orrery.engine.v1.Engine/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case EngineStartProcedure:
@@ -290,6 +338,10 @@ func NewEngineHandler(svc EngineHandler, opts ...connect.HandlerOption) (string,
 			engineResumeHandler.ServeHTTP(w, r)
 		case EngineWithdrawProcedure:
 			engineWithdrawHandler.ServeHTTP(w, r)
+		case EngineNotNowProcedure:
+			engineNotNowHandler.ServeHTTP(w, r)
+		case EngineBringBackProcedure:
+			engineBringBackHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -329,4 +381,12 @@ func (UnimplementedEngineHandler) Resume(context.Context, *connect.Request[v1.Re
 
 func (UnimplementedEngineHandler) Withdraw(context.Context, *connect.Request[v1.WithdrawRequest]) (*connect.Response[v1.WithdrawResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Engine.Withdraw is not implemented"))
+}
+
+func (UnimplementedEngineHandler) NotNow(context.Context, *connect.Request[v1.NotNowRequest]) (*connect.Response[v1.NotNowResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Engine.NotNow is not implemented"))
+}
+
+func (UnimplementedEngineHandler) BringBack(context.Context, *connect.Request[v1.BringBackRequest]) (*connect.Response[v1.BringBackResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Engine.BringBack is not implemented"))
 }

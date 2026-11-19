@@ -21,12 +21,17 @@ const statusNeedsContext = "needs_context"
 // needsFilesKey is the key of the paths an implementer's return names as needed beyond its owned list.
 const needsFilesKey = "needs_files"
 
-// implementerReturn is the part of the implementer's kept return Decide reads: its summary, the commit it made, and the
-// files it names as needed beyond its owned list, which parseImplementerReturn reads from needsFilesKey.
+// gateChangesKey is the key of the gate-needed changes an implementer's return declares.
+const gateChangesKey = "gate_changes"
+
+// implementerReturn is the part of the implementer's kept return Decide reads: its summary, the commit it made, the
+// files it names as needed beyond its owned list, which parseImplementerReturn reads from needsFilesKey, and the
+// gate-needed changes it declares, which parseImplementerReturn reads from gateChangesKey.
 type implementerReturn struct {
-	Summary    string   `json:"summary"`
-	Commit     string   `json:"commit"`
-	NeedsFiles []string `json:"-"`
+	Summary     string             `json:"summary"`
+	Commit      string             `json:"commit"`
+	NeedsFiles  []string           `json:"-"`
+	GateChanges []store.GateChange `json:"-"`
 }
 
 // Decide returns the next action for an open task from its view. A stopped or parked build waits until the owner
@@ -227,7 +232,10 @@ func decideImplement(view View) Action {
 		if !ok {
 			return noVerdict(view, StageImplement, endText(step))
 		}
-		return Action{Kind: ActGuard, Next: finishedBuild(view, ret)}
+		return Action{
+			Kind: ActGuard, Next: finishedBuild(view, ret),
+			GateChanges: mergeGateChanges(view.Task.GateChanges, ret.GateChanges),
+		}
 	case endReturned:
 		return decideReturned(view, step)
 	case endChecksFailed:
@@ -261,6 +269,34 @@ func finishedBuild(view View, ret implementerReturn) store.TaskBuild {
 	build.NoVerdict = 0
 	build.Step = ""
 	return build
+}
+
+// mergeGateChanges returns the gate-needed changes a task declared before, with declared merged in: a declared file the
+// task had not declared is added after them, in declared order, and one it had declared keeps its place and takes the
+// new reason. A declared change with a blank path or reason declares nothing. It returns nil when declared adds or
+// changes nothing, so the guard's write stores the build alone.
+func mergeGateChanges(before, declared []store.GateChange) []store.GateChange {
+	merged := slices.Clone(before)
+	changed := false
+	for _, change := range declared {
+		change.Path, change.Reason = strings.TrimSpace(change.Path), strings.TrimSpace(change.Reason)
+		if change.Path == "" || change.Reason == "" {
+			continue
+		}
+		i := slices.IndexFunc(merged, func(held store.GateChange) bool { return held.Path == change.Path })
+		switch {
+		case i < 0:
+			merged = append(merged, change)
+			changed = true
+		case merged[i].Reason != change.Reason:
+			merged[i].Reason = change.Reason
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	return merged
 }
 
 // decideReturned returns the action for an implementer step that ended returned. A return that does not parse gives no
@@ -298,8 +334,9 @@ func implementerMoves(view View) (string, []string) {
 	return reason, tells
 }
 
-// parseImplementerReturn decodes the implementer's kept return, and the paths under needsFilesKey when it has them. It
-// reports false when the return does not decode, or when needsFilesKey is not a list of paths.
+// parseImplementerReturn decodes the implementer's kept return, the paths under needsFilesKey and the changes under
+// gateChangesKey when it has them. It reports false when the return does not decode, when needsFilesKey is not a list
+// of paths, or when gateChangesKey is not a list of changes.
 func parseImplementerReturn(result string) (implementerReturn, bool) {
 	var ret implementerReturn
 	if err := json.Unmarshal([]byte(result), &ret); err != nil {
@@ -311,6 +348,11 @@ func parseImplementerReturn(result string) (implementerReturn, bool) {
 	}
 	if raw, ok := fields[needsFilesKey]; ok {
 		if err := json.Unmarshal(raw, &ret.NeedsFiles); err != nil {
+			return implementerReturn{}, false
+		}
+	}
+	if raw, ok := fields[gateChangesKey]; ok {
+		if err := json.Unmarshal(raw, &ret.GateChanges); err != nil {
 			return implementerReturn{}, false
 		}
 	}

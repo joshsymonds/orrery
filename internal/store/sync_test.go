@@ -374,7 +374,8 @@ func TestSyncPaneReturnsErrorWhileStoreIsWriteLocked(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	seedMigrated(t, path)
-	s, err := Open(ctx, path, noSync())
+	// A busy timeout of 0 fails the locked write at once, so the test waits out no timeout.
+	s, err := Open(ctx, path, noSync(), WithBusyTimeout(0))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -404,6 +405,9 @@ func TestSyncPaneReturnsErrorWhileStoreIsWriteLocked(t *testing.T) {
 	err = s.SyncPane(ctx, "-L a", Pane{ID: "orrery-1", Pane: "%1", Fields: Fields{State: "working"}}, time.Unix(1, 0))
 	if err == nil {
 		t.Fatal("SyncPane while write-locked: want error, got nil")
+	}
+	if !Busy(err) {
+		t.Fatalf("SyncPane while write-locked = %v, want an error Busy reports", err)
 	}
 	if rows := sessionsOf(t, s); len(rows) != 0 {
 		t.Fatalf("sessions written while locked: %+v", rows)

@@ -138,4 +138,35 @@ public class ControlClient(
     ),
   )
 
+
+  /**
+   *  NotNow takes the named open question off the owner's list until BringBack, kept by orreryd, refused unless that
+   *  question is open now.
+   */
+  override suspend fun notNow(request: NotNowRequest, headers: Headers): ResponseMessage<NotNowResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "orrery.v1.Control/NotNow",
+      io.github.joshsymonds.orrery.gen.orrery.v1.NotNowRequest::class,
+      io.github.joshsymonds.orrery.gen.orrery.v1.NotNowResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  BringBack returns it and raises no notice.
+   */
+  override suspend fun bringBack(request: BringBackRequest, headers: Headers): ResponseMessage<BringBackResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "orrery.v1.Control/BringBack",
+      io.github.joshsymonds.orrery.gen.orrery.v1.BringBackRequest::class,
+      io.github.joshsymonds.orrery.gen.orrery.v1.BringBackResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
 }

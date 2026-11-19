@@ -68,6 +68,14 @@ func callerEpicEventsOver(s *store.Store, sender *enginehost.CallerSender) *Epic
 	return NewEpicCallerEvents(EpicCallerEventsConfig{Store: s, Sender: sender})
 }
 
+// passEpics runs pass once over ctx, and fails the test on its error.
+func passEpics(ctx context.Context, t *testing.T, pass *EpicCallerEvents) {
+	t.Helper()
+	if err := pass.Pass(ctx); err != nil {
+		t.Fatalf("epic caller-event pass: %v", err)
+	}
+}
+
 // plannedCallerEpic stores the runner epic with one ended planner turn that carries plan.
 func plannedCallerEpic(t *testing.T, s *store.Store, plan store.EpicPlan) {
 	t.Helper()
@@ -188,7 +196,7 @@ Epic orrery-1a2b3c4/planner-runner (Plan the runner) is done. epic_get gives its
 				t.Fatalf("reach %s: %v", c.name, err)
 			}
 			deliver := &fakeCallerDeliver{}
-			callerEpicEventsOver(s, callerSenderOver(s, deliver.deliver, noWake(t))).Pass(ctx)
+			passEpics(ctx, t, callerEpicEventsOver(s, callerSenderOver(s, deliver.deliver, noWake(t))))
 
 			want := []enginehost.DeliverRequest{{ID: "creator", Text: c.block, PromptID: c.event}}
 			if !reflect.DeepEqual(deliver.delivered, want) {
@@ -207,10 +215,10 @@ func TestCallerEventEpicDeliveredOnceAcrossPasses(t *testing.T) {
 	recordRunnerCall(t, s, store.EpicCaller{Session: "creator"}, "epic_create")
 	deliver := &fakeCallerDeliver{}
 	sender := callerSenderOver(s, deliver.deliver, noWake(t))
-	callerEpicEventsOver(s, sender).Pass(ctx)
+	passEpics(ctx, t, callerEpicEventsOver(s, sender))
 
-	callerEpicEventsOver(s, sender).Pass(ctx)
-	callerEpicEventsOver(s, callerSenderOver(s, deliver.deliver, noWake(t))).Pass(ctx)
+	passEpics(ctx, t, callerEpicEventsOver(s, sender))
+	passEpics(ctx, t, callerEpicEventsOver(s, callerSenderOver(s, deliver.deliver, noWake(t))))
 
 	want := []enginehost.DeliverRequest{
 		{ID: "creator", Text: callerEpicQuestionBlock, PromptID: callerEpicQuestionEvent},
@@ -230,7 +238,7 @@ func TestCallerEventEpicBusyCreatorHeldThenDelivered(t *testing.T) {
 	deliver := &fakeCallerDeliver{err: enginehost.ErrSessionBusy}
 	pass := callerEpicEventsOver(s, callerSenderOver(s, deliver.deliver, noWake(t)))
 
-	pass.Pass(ctx)
+	passEpics(ctx, t, pass)
 	if len(deliver.delivered) != 0 {
 		t.Fatalf("delivered while the creator is busy = %+v, want none", deliver.delivered)
 	}
@@ -239,7 +247,7 @@ func TestCallerEventEpicBusyCreatorHeldThenDelivered(t *testing.T) {
 	}
 
 	deliver.err = nil
-	pass.Pass(ctx)
+	passEpics(ctx, t, pass)
 	want := []enginehost.DeliverRequest{
 		{ID: "creator", Text: callerEpicQuestionBlock, PromptID: callerEpicQuestionEvent},
 	}
@@ -257,7 +265,7 @@ func TestCallerEventEpicStoppedCreatorNotDelivered(t *testing.T) {
 	recordRunnerCall(t, s, store.EpicCaller{Session: "creator"}, "epic_create")
 	deliver := &fakeCallerDeliver{err: enginehost.ErrCallerStopped}
 
-	callerEpicEventsOver(s, callerSenderOver(s, deliver.deliver, noWake(t))).Pass(ctx)
+	passEpics(ctx, t, callerEpicEventsOver(s, callerSenderOver(s, deliver.deliver, noWake(t))))
 
 	if len(deliver.delivered) != 0 {
 		t.Fatalf("delivered to a stopped creator = %+v, want none", deliver.delivered)
@@ -276,7 +284,7 @@ func TestCallerEventEpicStepCreatorReceivesNothing(t *testing.T) {
 	recordRunnerCall(t, s, store.EpicCaller{Session: "step-creator"}, "epic_create")
 	deliver := &fakeCallerDeliver{}
 
-	callerEpicEventsOver(s, callerSenderOver(s, deliver.deliver, noWake(t))).Pass(ctx)
+	passEpics(ctx, t, callerEpicEventsOver(s, callerSenderOver(s, deliver.deliver, noWake(t))))
 
 	if len(deliver.delivered) != 0 {
 		t.Fatalf("delivered to a step creator = %+v, want none", deliver.delivered)
@@ -297,7 +305,7 @@ func TestCallerEventEpicPaneCreatorHeldUntilKeysSentThenMarked(t *testing.T) {
 	pass := callerEpicEventsOver(s, callerSenderOver(s, noDeliver(t), wake.wake))
 	want := wakeCall{server: server, pane: pane, text: callerEpicQuestionBlock}
 
-	pass.Pass(ctx)
+	passEpics(ctx, t, pass)
 	if len(wake.calls) != 1 || wake.calls[0] != want {
 		t.Fatalf("wakes while the pane is not idle = %+v, want one %+v", wake.calls, want)
 	}
@@ -306,7 +314,7 @@ func TestCallerEventEpicPaneCreatorHeldUntilKeysSentThenMarked(t *testing.T) {
 	}
 
 	wake.idle = true
-	pass.Pass(ctx)
+	passEpics(ctx, t, pass)
 	if len(wake.calls) != 2 || wake.calls[1] != want {
 		t.Fatalf("wakes once the pane is idle = %+v, want a second %+v", wake.calls, want)
 	}
@@ -314,7 +322,7 @@ func TestCallerEventEpicPaneCreatorHeldUntilKeysSentThenMarked(t *testing.T) {
 		t.Fatalf("CallerEventMarked after the keys were sent = %v, %v, want marked", marked, err)
 	}
 
-	pass.Pass(ctx)
+	passEpics(ctx, t, pass)
 	if len(wake.calls) != 2 {
 		t.Fatalf("wakes after the mark = %d, want still 2", len(wake.calls))
 	}
@@ -337,7 +345,7 @@ func TestCallerEventEpicNoCreatorSendsNothing(t *testing.T) {
 	addCallerEngine(t, s, "reader", store.KindEngine)
 	recordRunnerCall(t, s, store.EpicCaller{Session: "reader"}, "epic_get")
 
-	callerEpicEventsOver(s, callerSenderOver(s, noDeliver(t), noWake(t))).Pass(ctx)
+	passEpics(ctx, t, callerEpicEventsOver(s, callerSenderOver(s, noDeliver(t), noWake(t))))
 }
 
 func TestCallerEventEpicCleanSendsNothing(t *testing.T) {
@@ -351,5 +359,5 @@ func TestCallerEventEpicCleanSendsNothing(t *testing.T) {
 		t.Fatalf("EndEpic clean: %v", err)
 	}
 
-	callerEpicEventsOver(s, callerSenderOver(s, noDeliver(t), noWake(t))).Pass(ctx)
+	passEpics(ctx, t, callerEpicEventsOver(s, callerSenderOver(s, noDeliver(t), noWake(t))))
 }

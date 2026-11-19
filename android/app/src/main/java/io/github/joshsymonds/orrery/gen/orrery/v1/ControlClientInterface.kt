@@ -53,4 +53,15 @@ public interface ControlClientInterface {
    *  already taken it in, when the session is not running, or when prompt_id is empty.
    */
   public suspend fun withdraw(request: WithdrawRequest, headers: Headers = emptyMap()): ResponseMessage<WithdrawResponse>
+
+  /**
+   *  NotNow takes the named open question off the owner's list until BringBack, kept by orreryd, refused unless that
+   *  question is open now.
+   */
+  public suspend fun notNow(request: NotNowRequest, headers: Headers = emptyMap()): ResponseMessage<NotNowResponse>
+
+  /**
+   *  BringBack returns it and raises no notice.
+   */
+  public suspend fun bringBack(request: BringBackRequest, headers: Headers = emptyMap()): ResponseMessage<BringBackResponse>
 }

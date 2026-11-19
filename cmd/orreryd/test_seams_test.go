@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/route"
+	"github.com/joshsymonds/orrery/internal/store"
 )
 
 // TestJudgeDelayFlag checks the --judge-delay test seam: without it the wait is route.JudgeDelay, which reaches
@@ -106,6 +107,36 @@ func TestWriteTickFlag(t *testing.T) {
 	}
 	if strings.Contains(usageText, "write-tick") {
 		t.Errorf("usage text lists the --write-tick test seam:\n%s", usageText)
+	}
+}
+
+// TestStoreBusyTimeoutFlag checks the --store-busy-timeout test seam: without it a store write waits store.BusyTimeout
+// for the write lock; a duration replaces it, zero among them; a negative value is a usage error; and the usage text
+// does not list the seam.
+func TestStoreBusyTimeoutFlag(t *testing.T) {
+	opts, err := parseFlags(nil, holderScopeGetenv)
+	if err != nil {
+		t.Fatalf("parseFlags: %v", err)
+	}
+	if opts.storeBusy != store.BusyTimeout {
+		t.Errorf("storeBusy without the flag = %v, want store.BusyTimeout %v", opts.storeBusy, store.BusyTimeout)
+	}
+
+	opts, err = parseFlags([]string{"--store-busy-timeout", "0s"}, holderScopeGetenv)
+	if err != nil {
+		t.Fatalf("parseFlags(--store-busy-timeout 0s): %v", err)
+	}
+	if opts.storeBusy != 0 {
+		t.Errorf("storeBusy for 0s = %v, want 0", opts.storeBusy)
+	}
+
+	_, err = parseFlags([]string{"--store-busy-timeout", "-1ms"}, holderScopeGetenv)
+	var usage usageError
+	if !errors.As(err, &usage) || !strings.Contains(err.Error(), "--store-busy-timeout must not be negative") {
+		t.Errorf("parseFlags(--store-busy-timeout -1ms) error = %v, want the negative-value usage error", err)
+	}
+	if strings.Contains(usageText, "store-busy-timeout") {
+		t.Errorf("usage text lists the --store-busy-timeout test seam:\n%s", usageText)
 	}
 }
 

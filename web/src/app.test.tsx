@@ -3699,11 +3699,12 @@ test("x, Enter, e, i, 1, 2, 3 and | on an epic entry call nothing and pin nothin
     await press("j");
     assert.equal(cursorKey(container), `epic:${widgetsRepo}/first`);
     await pressEach(["x", "Enter", "e", "i", "1", "2", "3", "|"]);
+    await until(t.signal, () => fake.callsTo(historyPath).length === 1, "the History read the page asks for");
     await settle();
     assert.deepEqual(
       fake.calls.slice(before).map((call) => call.path),
-      [getEpicPath],
-      "the only call is the Epics.Get the page asks for, and no key reaches the server",
+      [getEpicPath, historyPath],
+      "the only calls are the Epics.Get and Epics.History the page asks for, and no key reaches the server",
     );
     assert.equal(container.querySelector(".panes")?.classList.contains("split"), false, "| pinned nothing");
     assert.equal(cursorKey(container), `epic:${widgetsRepo}/first`);

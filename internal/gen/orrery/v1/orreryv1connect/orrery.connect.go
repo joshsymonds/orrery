@@ -76,6 +76,10 @@ const (
 	ControlResumeProcedure = "/orrery.v1.Control/Resume"
 	// ControlWithdrawProcedure is the fully-qualified name of the Control's Withdraw RPC.
 	ControlWithdrawProcedure = "/orrery.v1.Control/Withdraw"
+	// ControlNotNowProcedure is the fully-qualified name of the Control's NotNow RPC.
+	ControlNotNowProcedure = "/orrery.v1.Control/NotNow"
+	// ControlBringBackProcedure is the fully-qualified name of the Control's BringBack RPC.
+	ControlBringBackProcedure = "/orrery.v1.Control/BringBack"
 	// PanesListProcedure is the fully-qualified name of the Panes's List RPC.
 	PanesListProcedure = "/orrery.v1.Panes/List"
 	// PanesScreenProcedure is the fully-qualified name of the Panes's Screen RPC.
@@ -364,6 +368,11 @@ type ControlClient interface {
 	// (cancel_async_message). Its texts hold that message's text when Claude cancelled it, and none when Claude had
 	// already taken it in, when the session is not running, or when prompt_id is empty.
 	Withdraw(context.Context, *connect.Request[v1.WithdrawRequest]) (*connect.Response[v1.WithdrawResponse], error)
+	// NotNow takes the named open question off the owner's list until BringBack, kept by orreryd, refused unless that
+	// question is open now.
+	NotNow(context.Context, *connect.Request[v1.NotNowRequest]) (*connect.Response[v1.NotNowResponse], error)
+	// BringBack returns it and raises no notice.
+	BringBack(context.Context, *connect.Request[v1.BringBackRequest]) (*connect.Response[v1.BringBackResponse], error)
 }
 
 // NewControlClient constructs a client for the orrery.v1.Control service. By default, it uses the
@@ -425,6 +434,18 @@ func NewControlClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 			connect.WithSchema(controlMethods.ByName("Withdraw")),
 			connect.WithClientOptions(opts...),
 		),
+		notNow: connect.NewClient[v1.NotNowRequest, v1.NotNowResponse](
+			httpClient,
+			baseURL+ControlNotNowProcedure,
+			connect.WithSchema(controlMethods.ByName("NotNow")),
+			connect.WithClientOptions(opts...),
+		),
+		bringBack: connect.NewClient[v1.BringBackRequest, v1.BringBackResponse](
+			httpClient,
+			baseURL+ControlBringBackProcedure,
+			connect.WithSchema(controlMethods.ByName("BringBack")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -438,6 +459,8 @@ type controlClient struct {
 	seen      *connect.Client[v1.SeenRequest, v1.SeenResponse]
 	resume    *connect.Client[v1.ResumeRequest, v1.ResumeResponse]
 	withdraw  *connect.Client[v1.WithdrawRequest, v1.WithdrawResponse]
+	notNow    *connect.Client[v1.NotNowRequest, v1.NotNowResponse]
+	bringBack *connect.Client[v1.BringBackRequest, v1.BringBackResponse]
 }
 
 // Start calls orrery.v1.Control.Start.
@@ -480,6 +503,16 @@ func (c *controlClient) Withdraw(ctx context.Context, req *connect.Request[v1.Wi
 	return c.withdraw.CallUnary(ctx, req)
 }
 
+// NotNow calls orrery.v1.Control.NotNow.
+func (c *controlClient) NotNow(ctx context.Context, req *connect.Request[v1.NotNowRequest]) (*connect.Response[v1.NotNowResponse], error) {
+	return c.notNow.CallUnary(ctx, req)
+}
+
+// BringBack calls orrery.v1.Control.BringBack.
+func (c *controlClient) BringBack(ctx context.Context, req *connect.Request[v1.BringBackRequest]) (*connect.Response[v1.BringBackResponse], error) {
+	return c.bringBack.CallUnary(ctx, req)
+}
+
 // ControlHandler is an implementation of the orrery.v1.Control service.
 type ControlHandler interface {
 	// Start starts a headless session in a directory and sends it its first prompt.
@@ -500,6 +533,11 @@ type ControlHandler interface {
 	// (cancel_async_message). Its texts hold that message's text when Claude cancelled it, and none when Claude had
 	// already taken it in, when the session is not running, or when prompt_id is empty.
 	Withdraw(context.Context, *connect.Request[v1.WithdrawRequest]) (*connect.Response[v1.WithdrawResponse], error)
+	// NotNow takes the named open question off the owner's list until BringBack, kept by orreryd, refused unless that
+	// question is open now.
+	NotNow(context.Context, *connect.Request[v1.NotNowRequest]) (*connect.Response[v1.NotNowResponse], error)
+	// BringBack returns it and raises no notice.
+	BringBack(context.Context, *connect.Request[v1.BringBackRequest]) (*connect.Response[v1.BringBackResponse], error)
 }
 
 // NewControlHandler builds an HTTP handler from the service implementation. It returns the path on
@@ -557,6 +595,18 @@ func NewControlHandler(svc ControlHandler, opts ...connect.HandlerOption) (strin
 		connect.WithSchema(controlMethods.ByName("Withdraw")),
 		connect.WithHandlerOptions(opts...),
 	)
+	controlNotNowHandler := connect.NewUnaryHandler(
+		ControlNotNowProcedure,
+		svc.NotNow,
+		connect.WithSchema(controlMethods.ByName("NotNow")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlBringBackHandler := connect.NewUnaryHandler(
+		ControlBringBackProcedure,
+		svc.BringBack,
+		connect.WithSchema(controlMethods.ByName("BringBack")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orrery.v1.Control/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ControlStartProcedure:
@@ -575,6 +625,10 @@ func NewControlHandler(svc ControlHandler, opts ...connect.HandlerOption) (strin
 			controlResumeHandler.ServeHTTP(w, r)
 		case ControlWithdrawProcedure:
 			controlWithdrawHandler.ServeHTTP(w, r)
+		case ControlNotNowProcedure:
+			controlNotNowHandler.ServeHTTP(w, r)
+		case ControlBringBackProcedure:
+			controlBringBackHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -614,6 +668,14 @@ func (UnimplementedControlHandler) Resume(context.Context, *connect.Request[v1.R
 
 func (UnimplementedControlHandler) Withdraw(context.Context, *connect.Request[v1.WithdrawRequest]) (*connect.Response[v1.WithdrawResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Control.Withdraw is not implemented"))
+}
+
+func (UnimplementedControlHandler) NotNow(context.Context, *connect.Request[v1.NotNowRequest]) (*connect.Response[v1.NotNowResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Control.NotNow is not implemented"))
+}
+
+func (UnimplementedControlHandler) BringBack(context.Context, *connect.Request[v1.BringBackRequest]) (*connect.Response[v1.BringBackResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Control.BringBack is not implemented"))
 }
 
 // PanesClient is a client for the orrery.v1.Panes service.

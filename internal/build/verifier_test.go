@@ -29,15 +29,23 @@ func verifierEpic() store.EpicRow {
 	}
 }
 
-// verifierTask is task T4 with Requirements R3 and R1 in that order.
+// verifierTask is task T4 with Requirements R3 and R1 in that order, and one declared gate-needed change.
 func verifierTask() store.EpicTask {
 	return store.EpicTask{
 		Seq:          4,
 		Title:        "Render brief",
 		Deliverable:  "brief.go",
 		Requirements: []string{"R3", "R1"},
+		GateChanges: []store.GateChange{
+			{Path: "internal/enginehost/record.go", Reason: "check_changed fails on a -race report in stoppedTasks"},
+		},
 	}
 }
+
+// epicDeclared heads the gate-needed changes an epic's tasks declared in the prompts of its epic-stage reviewers and
+// verifiers.
+const epicDeclared = "Gate-needed changes the epic's tasks declared (each is in scope, though the contract does not " +
+	"name it, when that task's gate or evidence could not pass without it and it is no larger than that need):"
 
 // verifierFinding is finding F7 of a review, with every field set to its own value.
 func verifierFinding() store.TaskFinding {
@@ -96,6 +104,8 @@ func TestVerifierPromptCarriesRoleTaskRequirementsRangeAndFinding(t *testing.T) 
 		VerifierRole(),
 		"Task T4 of epic repo/epic-x (Build the task): Render brief",
 		"Deliverable: brief.go",
+		reviewDeclared,
+		"- internal/enginehost/record.go: check_changed fails on a -race report in stoppedTasks",
 		"Requirements:",
 		"- R3: three",
 		"- R1: one",
@@ -147,6 +157,9 @@ func TestVerifierStartEpicSubjectNamesEpicAndEveryRequirement(t *testing.T) {
 	t.Parallel()
 	epic := verifierEpic()
 	epic.Repository = "/srv/orrery"
+	failed := verifierTask()
+	failed.Seq, failed.Status = 3, "failed"
+	epic.Tasks = []store.EpicTask{failed, verifierTask(), {Seq: 5, Status: "done"}}
 	start := VerifierStart(
 		Subject{Epic: epic, Base: "base111", Revision: "rev222"},
 		verifierFinding(), verifyStepID, verifyAgent,
@@ -162,6 +175,8 @@ func TestVerifierStartEpicSubjectNamesEpicAndEveryRequirement(t *testing.T) {
 		"- R1: one",
 		"- R2: two",
 		"- R3: three",
+		epicDeclared,
+		"- T4 internal/enginehost/record.go: check_changed fails on a -race report in stoppedTasks",
 		"The change is base111..rev222; this worktree is checked out at rev222.",
 		"Finding F7: the brief drops a Requirement",
 		"Citation: R3",

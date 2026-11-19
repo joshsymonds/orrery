@@ -28,6 +28,10 @@ var ErrBadOwned = errors.New("step owned paths are refused")
 // absolute or is set without a name.
 var ErrBadGate = errors.New("step gate is refused")
 
+// ErrNoCaller reports a step start whose caller resolves to no orrery session, or a call that carries no caller header,
+// so the step's end would have nowhere to go.
+var ErrNoCaller = errors.New("step caller resolves to no orrery session, so the step's end would have nowhere to go")
+
 // ErrBadWatchTick reports a StepsConfig whose WatchTick is negative.
 var ErrBadWatchTick = errors.New("step watch tick must not be negative")
 
@@ -55,8 +59,8 @@ const stepDefaultWatchTick = 5 * time.Second
 // a detached worktree at Revision, which is removed when the step ends. Revision names the start commit and empty means
 // HEAD. DoneValue empty means "done", and ModelLimit zero means 60 minutes, the model-time limit the step is stored
 // with. Epic and Task are optional labels the step is stored with; a step with an empty Epic is never listed by List.
-// Caller is the session or pane that started the step, which the step is stored with once it resolves to a sessions row
-// (see store.StepAdd).
+// Caller is the session or pane that started the step, which the step is stored with (see store.StepAdd). A non-zero
+// Caller that names no sessions row is refused with ErrNoCaller, and a zero Caller is an in-process start.
 //
 // ID, when set, is the step's id in place of a fresh one. It must be 32 lowercase hex digits, the form a fresh id has,
 // or the start is refused with ErrBadStepID. A start under an id that a stored step already has, or that another start
@@ -118,7 +122,8 @@ type StepStart struct {
 }
 
 // StepStore reads the step rows Steps reports, the turn ends and finished blocks their sessions stored and the rate
-// limits their sessions were rejected with, and marks an ended step read by its caller. *store.Store satisfies it.
+// limits their sessions were rejected with, the running steps a caller started, and the sessions row a caller names,
+// which Start checks a caller against before it stores a step. *store.Store satisfies it.
 type StepStore interface {
 	Step(ctx context.Context, id string) (store.StepRow, error)
 	OpenSteps(ctx context.Context) ([]store.StepRow, error)
@@ -126,7 +131,8 @@ type StepStore interface {
 	StepTurn(ctx context.Context, id string) (store.StepTurnEnd, bool, error)
 	StepBlocks(ctx context.Context, id string, limit int) ([]store.StepBlock, error)
 	StepRateLimit(ctx context.Context, id string) (store.RateLimit, bool, error)
-	MarkStepRead(ctx context.Context, id string, caller store.EpicCaller) (bool, error)
+	RunningCallerSteps(ctx context.Context, caller string) ([]store.StepRow, error)
+	CallerSession(ctx context.Context, caller store.EpicCaller) (string, bool, error)
 }
 
 // StepsConfig configures Steps. Sessions starts and stops the step sessions, Store reads the step rows and Writer
@@ -145,6 +151,8 @@ type StepStore interface {
 // ReadoptGate returns the agent gate an agent gate step row is re-adopted with. A gate definition is not stored with the
 // row, so the caller rebuilds it from the row's stored data. A nil ReadoptGate, or one that returns a nil gate or a gate
 // that names no agent or not the row's gate, leaves the row unregistered, and so does an error.
+// Stored, when set, is called once after each end or hold a subscription is handed, once the row is stored, so a caller
+// can wake to deliver it. A nil Stored does nothing.
 type StepsConfig struct {
 	Sessions        stepSessions
 	Store           StepStore
@@ -161,6 +169,7 @@ type StepsConfig struct {
 	GateScopeMemory int64
 	ReadoptCheck    func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error)
 	ReadoptGate     func(ctx context.Context, row store.StepRow) (*gates.Gate, error)
+	Stored          func()
 }
 
 // StepAdopter is what Readopt registers each open step with, and what Reconcile asks whether the step is live. Manager
@@ -174,7 +183,8 @@ type StepAdopter interface {
 // cancel of every loop that has not returned, causes holds the same cancels with a cause, and runs holds its stepRun, all
 // by step id. idle is broadcast whenever a loop is removed from loops. adopter is what Readopt registered the steps with,
 // and adopted holds the run Readopt rebuilt for each open row until Reconcile starts or settles it. starting holds the
-// caller-given id of each start in flight, so a second start under that id is refused until the first returns.
+// caller-given id of each start in flight, so a second start under that id is refused until the first returns. stored is
+// the StepsConfig Stored callback, and subs holds each subscription Subscribe registered and Close has not removed.
 type Steps struct {
 	sessions        stepSessions
 	store           StepStore
@@ -191,6 +201,7 @@ type Steps struct {
 	gateScopeMemory int64
 	readoptCheck    func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error)
 	readoptGate     func(ctx context.Context, row store.StepRow) (*gates.Gate, error)
+	stored          func()
 
 	mu       sync.Mutex
 	loops    map[string]context.CancelFunc
@@ -200,6 +211,7 @@ type Steps struct {
 	adopter  StepAdopter
 	adopted  map[string]*stepRun
 	starting map[string]bool
+	subs     map[*StepSubscription]bool
 	// calls counts the calls under way that can start or end work (see callsInFlight).
 	calls callsInFlight
 }
@@ -233,27 +245,30 @@ func NewSteps(cfg StepsConfig) (*Steps, error) {
 		gateScopeMemory: cfg.GateScopeMemory,
 		readoptCheck:    cfg.ReadoptCheck,
 		readoptGate:     cfg.ReadoptGate,
+		stored:          cfg.Stored,
 		loops:           map[string]context.CancelFunc{},
 		causes:          map[string]context.CancelCauseFunc{},
 		runs:            map[string]*stepRun{},
 		adopted:         map[string]*stepRun{},
 		starting:        map[string]bool{},
+		subs:            map[*StepSubscription]bool{},
 	}
 	steps.idle = sync.NewCond(&steps.mu)
 	return steps, nil
 }
 
-// Start checks start, resolves its gate, which an agent gate turns into the step's agent, schema and prompt, and checks
-// the schema. It then resolves its revision and starts the step under start.ID, or under a fresh id when it names none,
-// and runs its loop. A refusal returns its error with an empty id and stores nothing; a read-only step's worktree is
-// removed then too. A writing step runs in start.Workspace. A read-only step gets a detached worktree at its start
-// commit under the worktrees directory, which is removed when the step ends. Its checkout is fingerprinted before its agent
-// starts, and a git error there refuses the start the same way. A folder whose stamp cannot be read refuses the start the
-// same way. The step's monitor and judge calls carry the env of the stamp in effect for its folder. Any
-// other StartStep error, after the row is written, ends the step failed and returns its id with the error.
+// Start checks start and its caller, resolves its gate, which an agent gate turns into the step's agent, schema and
+// prompt, and checks the schema. It then resolves its revision and starts the step under start.ID, or under a fresh id
+// when it names none, and runs its loop. A refusal returns its error with an empty id and stores nothing; a read-only
+// step's worktree is removed then too. A writing step runs in start.Workspace. A read-only step gets a detached
+// worktree at its start commit under the worktrees directory, which is removed when the step ends. Its checkout is
+// fingerprinted before its agent starts, and a git error there refuses the start the same way. A folder whose stamp
+// cannot be read refuses the start the same way. The step's monitor and judge calls carry the env of the stamp in
+// effect for its folder. Any other StartStep error, after the row is written, ends the step failed and returns its id
+// with the error.
 func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 	defer s.calls.enter()()
-	if err := checkStepStart(start); err != nil {
+	if err := s.checkStart(ctx, start); err != nil {
 		return "", err
 	}
 	start, gate, err := s.resolveStart(ctx, start)
@@ -306,6 +321,8 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 		gateLimit: gateLimit, gateName: gate.name, gateSource: gate.source, grant: gate.grant, pools: s.pools,
 		environ: s.environ, prompt: start.Prompt, now: s.now, modelLimit: modelLimit, agentGate: gate.agent,
 		stateDir: s.gateStateDir, scope: s.gateScope, scopeMemory: s.gateScopeMemory, returnCheck: start.ReturnCheck,
+		publish: s.publish,
+		wake:    s.stored,
 	}
 	step := StepSession{
 		ID: id, Dir: start.Workspace, Prompt: start.Prompt, Agent: start.Agent, Agents: start.Agents,
@@ -497,6 +514,35 @@ func checkStepStart(start StepStart) error {
 		}
 	}
 	return nil
+}
+
+// checkStart reports whether start may be started: checkStepStart must pass, and then checkCaller must allow its caller.
+func (s *Steps) checkStart(ctx context.Context, start StepStart) error {
+	if err := checkStepStart(start); err != nil {
+		return err
+	}
+	return s.checkCaller(ctx, start.Caller)
+}
+
+// checkCaller reports whether caller may start a step. The zero caller is an in-process start and is always allowed. A
+// caller that names a sessions row is allowed, and one that names no row is refused with an error matching ErrNoCaller,
+// since the step's end would have nowhere to go. A read error is returned wrapped.
+func (s *Steps) checkCaller(ctx context.Context, caller store.EpicCaller) error {
+	if caller == (store.EpicCaller{}) {
+		return nil
+	}
+	_, found, err := s.store.CallerSession(ctx, caller)
+	if err != nil {
+		return fmt.Errorf("resolve caller of step: %w", err)
+	}
+	if found {
+		return nil
+	}
+	name := caller.Session
+	if name == "" {
+		name = fmt.Sprintf("server %q pane %s", caller.Server, caller.Pane)
+	}
+	return fmt.Errorf("%w: %s", ErrNoCaller, name)
 }
 
 // startID returns the id a start runs under and the release that frees it once Start returns. A start with no id gets a
