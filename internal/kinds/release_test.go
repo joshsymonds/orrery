@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/joshsymonds/orrery/internal/reviewers"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -740,4 +741,155 @@ func TestReleaseJudge(t *testing.T) {
 func releasingEpicPaused(epic store.EpicRow) store.EpicRow {
 	epic.Paused = true
 	return epic
+}
+
+// releaseReviewed returns a releasing epic with steps and the default release reviewer, enabled or not as enabled says.
+func releaseReviewed(enabled bool, steps ...store.EpicReleaseStep) store.EpicRow {
+	epic := releasingEpic(steps...)
+	epic.Reviewers = []reviewers.Reviewer{{
+		Name: "release", Enabled: enabled, Stage: []string{reviewers.StageRelease},
+		MustNot: []string{"The candidate carries a clear danger to the release's destination."},
+	}}
+	return epic
+}
+
+// releaseReviewRun returns the release reviewer's run of the first attempt, which held the candidate cand-1 or refused it
+// for reason. It is the review of the candidate's first generation, at position 1.
+func releaseReviewRun(passed bool, reason string) store.ReleaseRun {
+	return store.ReleaseRun{
+		Part: store.ReleasePartReview, Position: 1, Attempt: 1, Head: "cand-1", Step: "release", Passed: passed,
+		Reason: reason,
+	}
+}
+
+// TestReleaseReviewerGatesTheFirstStep: the enabled release reviewers review the candidate once before the first release
+// step starts from it. The first step starts only once every one has held the candidate, a refusal stops the release
+// with its reason, and no review gates a later step or an epic with no enabled release reviewer.
+func TestReleaseReviewerGatesTheFirstStep(t *testing.T) {
+	t.Parallel()
+	steps := []store.EpicReleaseStep{releaseStep("build the image", "rollback")}
+	candidate := candidateRun(1, "cand-1")
+	review := attemptWorkID(1, "review release")
+	reviewItems := []string{"review", "cand-1", "release", "1"}
+	firstStep := Action{
+		Kind:  ActStep,
+		IDs:   []string{attemptWorkID(1, "release 1")},
+		Items: []string{"release 1", "cand-1"},
+	}
+	const refusal = "the release reviewer refused the candidate: a tag would overwrite a published release"
+	cases := []decideCase{
+		{
+			"candidate with an enabled release reviewer and no row starts the reviewer at the candidate",
+			releaseNode(1, "", ""),
+			Rows{Epic: releaseReviewed(true, steps...), Slot: releaseEpicID, Releases: []store.ReleaseRun{candidate}},
+			Action{Kind: ActStep, IDs: []string{review}, Items: reviewItems},
+		},
+		{
+			"running release reviewer gives none",
+			releaseNode(1, "", ""),
+			Rows{
+				Epic:     releaseReviewed(true, steps...),
+				Slot:     releaseEpicID,
+				Releases: []store.ReleaseRun{candidate},
+				Steps:    []store.StepRow{{ID: review}},
+			},
+			Action{Kind: ActNone},
+		},
+		{
+			"ended release reviewer is recorded with the candidate",
+			releaseNode(1, "", ""),
+			Rows{
+				Epic:     releaseReviewed(true, steps...),
+				Slot:     releaseEpicID,
+				Releases: []store.ReleaseRun{candidate},
+				Steps:    []store.StepRow{{ID: review, End: "gate_failed"}},
+			},
+			Action{Kind: ActRecord, IDs: []string{review}, Items: reviewItems},
+		},
+		{
+			"release reviewer that held the candidate lets the first step start",
+			releaseNode(1, "", ""),
+			Rows{
+				Epic:     releaseReviewed(true, steps...),
+				Slot:     releaseEpicID,
+				Releases: []store.ReleaseRun{candidate, releaseReviewRun(true, "")},
+			},
+			firstStep,
+		},
+		{
+			"release reviewer that refused the candidate stops naming its reason",
+			releaseNode(1, "", ""),
+			Rows{
+				Epic:     releaseReviewed(true, steps...),
+				Slot:     releaseEpicID,
+				Releases: []store.ReleaseRun{candidate, releaseReviewRun(false, refusal)},
+			},
+			Action{Kind: ActStop, Output: refusal},
+		},
+		{
+			"release reviewer that held an earlier attempt does not count",
+			releaseNode(2, "", ""),
+			Rows{
+				Epic:     releaseReviewed(true, steps...),
+				Slot:     releaseEpicID,
+				Releases: []store.ReleaseRun{candidate, releaseReviewRun(true, "")},
+			},
+			Action{
+				Kind:  ActStep,
+				IDs:   []string{attemptWorkID(2, "review release")},
+				Items: []string{"review", "cand-1", "release", "1"},
+			},
+		},
+		{
+			"release reviewer that held a replaced candidate does not count for the candidate prepared again",
+			releaseNode(1, "", ""),
+			Rows{
+				Epic: releaseReviewed(true, steps...),
+				Slot: releaseEpicID,
+				Releases: []store.ReleaseRun{
+					candidateRun(1, "cand-1"),
+					{Part: store.ReleasePartVerify, Attempt: 1, Head: "cand-1"},
+					candidateRun(1, "cand-2"),
+					releaseReviewRun(true, ""),
+				},
+			},
+			Action{
+				Kind:  ActStep,
+				IDs:   []string{store.NodeWorkID(testRunID+"-generation-1", 1, "review release")},
+				Items: []string{"review", "cand-2", "release", "2"},
+			},
+		},
+		{
+			"release reviewer gives none while the epic is paused",
+			releaseNode(1, "", ""),
+			Rows{
+				Epic:     releasingEpicPaused(releaseReviewed(true, steps...)),
+				Slot:     releaseEpicID,
+				Releases: []store.ReleaseRun{candidate},
+			},
+			Action{Kind: ActNone},
+		},
+		{
+			"first step starts ungated when the release reviewer is disabled",
+			releaseNode(1, "", ""),
+			Rows{Epic: releaseReviewed(false, steps...), Slot: releaseEpicID, Releases: []store.ReleaseRun{candidate}},
+			firstStep,
+		},
+		{
+			"second step starts without a review of its own",
+			releaseNode(1, "", ""),
+			Rows{
+				Epic: releaseReviewed(true,
+					releaseStep("build the image", "rollback"), releaseStep("push the tag", "rollback")),
+				Slot: releaseEpicID,
+				Releases: []store.ReleaseRun{
+					candidate,
+					releaseReviewRun(true, ""),
+					{Part: store.ReleasePartStep, Position: 1, Attempt: 1, Head: "step-1", Passed: true},
+				},
+			},
+			Action{Kind: ActStep, IDs: []string{attemptWorkID(1, "release 2")}, Items: []string{"release 2", "step-1"}},
+		},
+	}
+	checkDecisions(t, Release{}, cases)
 }

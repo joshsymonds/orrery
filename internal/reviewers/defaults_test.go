@@ -106,6 +106,15 @@ func TestDefaultsMerge(t *testing.T) {
 			},
 			Model: "sonnet", Tools: readOnly, Limit: 1800, Verify: true, Enabled: true,
 		},
+		{
+			Name:    "release",
+			Stage:   []string{StageRelease},
+			MustNot: []string{releaseMustNot},
+			Model:   "opus",
+			Tools:   readOnly,
+			Limit:   1800,
+			Enabled: true,
+		},
 	}
 	for i := range got {
 		checkRoleText(t, got[i].Name, got[i].Prompt)
@@ -118,6 +127,10 @@ func TestDefaultsMerge(t *testing.T) {
 		t.Errorf("Merge(Defaults()) =\n%+v\nwant\n%+v", got, want)
 	}
 }
+
+// releaseMustNot is the release reviewer's must_not: a refusal is the assertion holding, so the reviewer refuses only for
+// a danger the contract did not anticipate.
+const releaseMustNot = "The candidate carries a clear danger to the release's destination that the contract did not anticipate."
 
 // testCostMustNot is the test_parsimony must_not that judges what the tests a change adds cost.
 const testCostMustNot = "The change adds or changes tests that push a package over its test CPU budget (a test-budget " +
@@ -189,6 +202,7 @@ func TestDefaultsForStage(t *testing.T) {
 	}{
 		{stage: StageTask, want: []string{"floor", "test_parsimony"}},
 		{stage: StageEpic, want: []string{"conformance", "integration", "security", "test_parsimony"}},
+		{stage: StageRelease, want: []string{"release"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.stage, func(t *testing.T) {

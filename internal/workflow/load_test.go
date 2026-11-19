@@ -25,7 +25,6 @@ nodes:
     kind: review
   - id: correct
     loop:
-      max: 2
       until: closure.passed
       spent: continue
     body:
@@ -44,7 +43,7 @@ nodes:
     kind: release
 `
 
-const epicDigest = "635c8150d032f47b09ad509c244e39db5d3c098f1dd18b379cc1eb3cb4c6b7ba"
+const epicDigest = "e12a2b6d237e3f15cc4bcbd17924dc2a27cdb498668c595e33d63fd0526fe796"
 
 // repoPath is the repository path Load reads a workflow name from.
 func repoPath(name string) string {
@@ -128,7 +127,7 @@ func TestLoadBuiltInEpic(t *testing.T) {
 		{ID: "review", Kind: "review"},
 		{
 			ID:   "correct",
-			Loop: &Loop{Max: 2, Until: Outcome{Node: "closure", Name: "passed"}, Spent: "continue"},
+			Loop: &Loop{Until: Outcome{Node: "closure", Name: "passed"}, Spent: "continue"},
 			Body: []Node{
 				{ID: "fix", Kind: "plan", Body: []Node{
 					{ID: "rebuild", Kind: "build"}, {ID: "reintegrate", Kind: "integrate"},
@@ -181,7 +180,7 @@ func TestLoadExpandsIncludesInPlace(t *testing.T) {
 		"  - id: plan", "    kind: plan", "    body:", "      - id: build", "        kind: build",
 		"      - id: integrate", "        kind: integrate",
 		"  - id: review", "    kind: review",
-		"  - id: correct", "    loop:", "      max: 2", "      until: closure.passed", "      spent: continue",
+		"  - id: correct", "    loop:", "      until: closure.passed", "      spent: continue",
 		"    body:",
 		"      - id: fix", "        kind: plan", "        body:",
 		"          - id: rebuild", "            kind: build",

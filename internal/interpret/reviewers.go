@@ -37,27 +37,35 @@ func (EpicReviewers) Epic(epic store.EpicRow) []kinds.Reviewer {
 	return out
 }
 
-// Start returns the read-only step of the epic-stage reviewer name, run at revision of epic's repository over the
-// change from base. The step carries the reviewer's agent gate and its inline agents, and its prompt is the epic review
-// prompt, headed by the reviewer's own prompt when it is an agent reviewer that sets one. The test_parsimony reviewer's
-// prompt ends with the Test cost section of doneGates, the checks of the Done gates that ran at revision. A name that is
-// not an enabled epic-stage reviewer of epic is an error.
+// Start returns the read-only step of the enabled reviewer name, run at revision of epic's repository over the change from
+// base. An epic-stage reviewer's step carries the reviewer's agent gate and its inline agents, and its prompt is the epic
+// review prompt, headed by the reviewer's own prompt when it is an agent reviewer that sets one. The test_parsimony
+// reviewer's prompt ends with the Test cost section of doneGates, the checks of the Done gates that ran at revision. A
+// release-stage reviewer's step is the same, with the release review prompt, which names the promise and the steps of the
+// release. A reviewer enabled at both stages is started as an epic-stage reviewer. A name that is not an enabled reviewer
+// of either stage is an error.
 func (EpicReviewers) Start(
 	_ context.Context, epic store.EpicRow, name, base, revision string, doneGates []store.NodeCheck,
 ) (enginehost.StepStart, error) {
-	stage := reviewers.ForStage(epic.Reviewers, reviewers.StageEpic)
-	i := slices.IndexFunc(stage, func(rev reviewers.Reviewer) bool { return rev.Name == name })
-	if i < 0 {
+	var (
+		rev    reviewers.Reviewer
+		prompt string
+	)
+	if epicRev, inEpic := namedReviewer(reviewers.ForStage(epic.Reviewers, reviewers.StageEpic), name); inEpic {
+		rev, prompt = epicRev, epicStageReviewPrompt(epic, base, revision)
+	} else if releaseRev, inRelease := namedReviewer(
+		reviewers.ForStage(epic.Reviewers, reviewers.StageRelease), name,
+	); inRelease {
+		rev, prompt = releaseRev, releaseReviewPrompt(epic, base, revision)
+	} else {
 		return enginehost.StepStart{}, fmt.Errorf(
-			"review %s of epic %s is not an enabled epic-stage reviewer", name, epic.ID)
+			"review %s of epic %s is not an enabled epic-stage or release-stage reviewer", name, epic.ID)
 	}
-	rev := stage[i]
 	agents, err := rev.Agents()
 	if err != nil {
 		return enginehost.StepStart{}, fmt.Errorf("review %s: %w", name, err)
 	}
 	gate := rev.Gate()
-	prompt := epicStageReviewPrompt(epic, base, revision)
 	if name == reviewers.TestParsimony {
 		prompt += "\n" + strings.Join(reviewers.TestCost(checkOutputs(doneGates)...), "\n")
 	}
@@ -75,6 +83,43 @@ func (EpicReviewers) Start(
 	}, nil
 }
 
+// namedReviewer returns the reviewer named name among rs, and whether there is one.
+func namedReviewer(rs []reviewers.Reviewer, name string) (reviewers.Reviewer, bool) {
+	i := slices.IndexFunc(rs, func(rev reviewers.Reviewer) bool { return rev.Name == name })
+	if i < 0 {
+		return reviewers.Reviewer{}, false
+	}
+	return rs[i], true
+}
+
+// reviewedChange states the change from base to revision under review, which the worktree is checked out at revision.
+func reviewedChange(base, revision string) string {
+	return fmt.Sprintf(
+		"The change under review is %s..%s; this worktree is checked out at %s. Inspect it with `git diff %s %s`.",
+		base, revision, revision, base, revision)
+}
+
+// releaseReviewPrompt renders the prompt of a release review step: the epic, the promise its release makes, each release
+// step with its target and undo, its Must Not Ship entries, and the change from base to revision.
+func releaseReviewPrompt(epic store.EpicRow, base, revision string) string {
+	steps := make([]string, len(epic.ReleaseSteps))
+	for i, step := range epic.ReleaseSteps {
+		steps[i] = fmt.Sprintf("%s (target %s, undo %s)", step.Step, step.Target, step.Undo)
+	}
+	return strings.Join(slices.Concat(
+		[]string{
+			fmt.Sprintf("Release of epic %s (%s)", epic.ID, epic.Title),
+			"The release promises:",
+			epic.ReleaseThen,
+			"Release steps:",
+		},
+		epicStageBullets(steps),
+		[]string{"Must Not Ship:"},
+		epicStageBullets(epic.Exclusions),
+		[]string{reviewedChange(base, revision)},
+	), "\n")
+}
+
 // epicStageReviewPrompt renders the prompt of an epic-stage review step: the epic and every Requirement it declares,
 // its Must Not Ship entries, the amendments of its Requirements' evidence items when it has any (see amendmentBullets),
 // the gate-needed changes its tasks declared under the heading that says when each is in scope
@@ -84,9 +129,6 @@ func epicStageReviewPrompt(epic store.EpicRow, base, revision string) string {
 	for i, requirement := range epic.Requirements {
 		requirements[i] = requirement.ID + ": " + requirement.Text
 	}
-	change := fmt.Sprintf(
-		"The change under review is %s..%s; this worktree is checked out at %s. Inspect it with `git diff %s %s`.",
-		base, revision, revision, base, revision)
 	var amendments []string
 	if len(epic.Amendments) > 0 {
 		amendments = append([]string{"Evidence amendments:"}, epicStageBullets(amendmentBullets(epic.Amendments))...)
@@ -99,7 +141,7 @@ func epicStageReviewPrompt(epic store.EpicRow, base, revision string) string {
 		amendments,
 		[]string{build.EpicDeclaredHeading},
 		epicStageBullets(build.EpicGateChangeItems(epic.Tasks)),
-		[]string{change},
+		[]string{reviewedChange(base, revision)},
 	), "\n")
 }
 

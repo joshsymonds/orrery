@@ -40,17 +40,25 @@ func TestBuildSigkillDuringImplementerStartsItOnce(t *testing.T) {
 		t.Fatalf("task 1 after the restart is %q with failure %q, want open with no failure",
 			task.GetStatus(), task.GetFailure())
 	}
-	// The epic is paused before the release, so the task stops at green and no evidence run starts after it.
-	r.pause(t)
-
 	stepReadoptTouch(t, filepath.Join(dir, "fakeclaude.release"))
 	commit := requireBuildStepDone(t, dir, r.awaitEnd(t, restarted, id))
 	r.awaitGreen(t, restarted, restartedAck)
+	// The epic is paused once the task is green, so no evidence run starts after it. A pause stops the epic's running
+	// steps, so it comes after the implementer step it waits on has ended.
+	r.pause(t)
 	if got := r.task(t).GetRevision(); got != commit {
 		t.Fatalf("revision of task 1 at green = %q, want the fake's commit %s", got, commit)
 	}
-	if steps := r.taskSteps(t); len(steps) != 1 || steps[0].GetId() != id {
-		t.Fatalf("labeled steps of task 1 = %d, want exactly the implementer step %s", len(steps), id)
+	// A review step of the task may start once it is green; the restart must not have started the implementer again.
+	agent := r.stepRow(t, id).GetAgent()
+	var implementers []string
+	for _, step := range r.taskSteps(t) {
+		if step.GetAgent() == agent {
+			implementers = append(implementers, step.GetId())
+		}
+	}
+	if len(implementers) != 1 || implementers[0] != id {
+		t.Fatalf("implementer steps of task 1 = %v, want exactly %s", implementers, id)
 	}
 	if n := promptsWritten(t, dir, buildRigMarker); n != 1 {
 		t.Fatalf("fake claude read the brief %d times, want 1", n)

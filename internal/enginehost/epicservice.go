@@ -352,9 +352,10 @@ func checkEpicAnswer(req *v1.AnswerEpicRequest) error {
 	return nil
 }
 
-// PauseEpic pauses the epic as its owner's, so the planner starts no turn for it and no reset resumes it, and returns
-// the epic read back. An epic the owner paused, or paused with no recorded source, is refused; an epic a usage limit
-// paused is taken over by the owner.
+// PauseEpic pauses the epic as its owner's, so the planner starts no turn for it and no reset resumes it, stops each
+// running step of the epic, and returns the epic read back. The pause is written before the steps are stopped, so a
+// held unit is not started again in between. An epic the owner paused, or paused with no recorded source, is refused
+// and stops nothing; an epic a usage limit paused is taken over by the owner.
 func (s *epicService) PauseEpic(
 	ctx context.Context,
 	req *connect.Request[v1.PauseEpicRequest],
@@ -368,6 +369,9 @@ func (s *epicService) PauseEpic(
 	}
 	if err := s.epics.PauseEpic(ctx, id); err != nil {
 		return nil, epicControlError(id, err)
+	}
+	if err := s.stopRunningSteps(ctx, id); err != nil {
+		return nil, err
 	}
 	message, err := s.storedEpic(ctx, id)
 	if err != nil {
@@ -429,6 +433,33 @@ func (s *epicService) ResumeEpic(
 		Resumed:      resumed,
 		StillLimited: stillLimited,
 	}), nil
+}
+
+// stopRunningSteps stops each step of epic that is running, and returns the stops that failed, each named by its step,
+// joined. A step a usage limit holds has no process running, so it is not stopped: it stays held until the epic is
+// resumed, as ResumeEpic resumes it. Every other open step is tried, so one that will not stop does not keep the others
+// running. Without a step store there are none.
+func (s *epicService) stopRunningSteps(ctx context.Context, epic string) error {
+	if s.steps == nil {
+		return nil
+	}
+	rows, err := s.steps.List(ctx, epic, "")
+	if err != nil {
+		return epicStoreError(err)
+	}
+	var failed []error
+	for _, row := range rows {
+		if row.End != "" || row.LoopLimited {
+			continue
+		}
+		if err = s.steps.Stop(ctx, row.ID); err != nil {
+			failed = append(failed, fmt.Errorf("stop step %s: %w", row.ID, err))
+		}
+	}
+	if len(failed) > 0 {
+		return epicStoreError(errors.Join(failed...))
+	}
+	return nil
 }
 
 // limitedTaskSteps returns the open steps of epic that a usage limit holds and that have a task, oldest first. A

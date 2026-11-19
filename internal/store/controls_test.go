@@ -76,6 +76,29 @@ func TestPauseEpicPausesAndRefusesASecondPause(t *testing.T) {
 	}
 }
 
+func TestPauseStopsTheRunningTurn(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openEpicStore(t)
+	createEpic(t, s, fullEpic(claimEpic))
+	addPendingTrigger(t, s)
+	turn, err := s.ClaimTurn(ctx, claimEpic, claimedAt())
+	if err != nil {
+		t.Fatalf("ClaimTurn: %v", err)
+	}
+
+	if err = s.PauseEpic(ctx, claimEpic); err != nil {
+		t.Fatalf("PauseEpic: %v", err)
+	}
+	stopped, err := s.TurnStopped(ctx, claimEpic, turn.Seq)
+	if err != nil {
+		t.Fatalf("TurnStopped after PauseEpic: %v", err)
+	}
+	if !stopped {
+		t.Errorf("TurnStopped after PauseEpic = false, want true: the running turn is flagged to stop")
+	}
+}
+
 func TestResumeEpicClearsThePauseAndRefusesWhatIsNotPaused(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
