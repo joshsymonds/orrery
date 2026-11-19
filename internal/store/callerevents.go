@@ -143,6 +143,9 @@ type PendingEvent struct {
 // The step ends come first, oldest end first and then by id. The epic events follow in epic id order. An epic event has
 // no time of its own, so the epic events are not merged into the step ends by time.
 //
+// An action event is owed when session is its recipient or a move leaves or takes it, as ActionEvents lists it; those
+// events come last, after the epic events, in the order ActionEvents gives them.
+//
 // It returns an error matching ErrUnavailable when the store file is missing or the database is busy.
 func (r *Reader) PendingCallerEvents(ctx context.Context, session string) ([]PendingEvent, error) {
 	db, err := sql.Open("sqlite", readOnlyDSN(r.path))
@@ -217,7 +220,15 @@ func pendingInTx(ctx context.Context, tx *sql.Tx, session string) ([]PendingEven
 	if err != nil {
 		return nil, err
 	}
-	return append(events, owed...), nil
+	events = append(events, owed...)
+	actions, err := sessionActionEvents(ctx, queries, session)
+	if err != nil {
+		return nil, err
+	}
+	for _, action := range actions {
+		events = append(events, PendingEvent{ID: action.ID, Kind: action.Kind, Epic: action.Epic, Title: action.Title})
+	}
+	return events, nil
 }
 
 // epicEventsOf returns the epic events of epic before the marks are read: its open questions in seq order, then its
