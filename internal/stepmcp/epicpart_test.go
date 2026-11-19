@@ -449,17 +449,18 @@ func TestEpicByPartRefusesBadArguments(t *testing.T) {
 
 func TestEpicByPartToolsListAdvertisesTheArguments(t *testing.T) {
 	p := newPeer(t, nil, &fakeEpics{})
+	type listedEpicTool struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		InputSchema struct {
+			Properties map[string]json.RawMessage `json:"properties"`
+			Required   []string                   `json:"required"`
+		} `json:"inputSchema"`
+	}
 
 	reply := p.call("tools/list", map[string]any{})
 	var listed struct {
-		Tools []struct {
-			Name        string `json:"name"`
-			Description string `json:"description"`
-			InputSchema struct {
-				Properties map[string]json.RawMessage `json:"properties"`
-				Required   []string                   `json:"required"`
-			} `json:"inputSchema"`
-		} `json:"tools"`
+		Tools []listedEpicTool `json:"tools"`
 	}
 	if err := json.Unmarshal(reply.Result, &listed); err != nil {
 		t.Fatalf("decode tools/list: %v", err)
@@ -501,19 +502,24 @@ func TestEpicByPartToolsListAdvertisesTheArguments(t *testing.T) {
 		}
 	}
 
-	// The committed fixture carries the same description, so a change to the description needs the fixture updated.
+	// The committed fixture carries the same arguments and description, so a change to either needs the fixture updated.
 	raw, err := os.ReadFile(toolsListFixture)
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
 	}
-	var fixture []listedTool
+	var fixture []listedEpicTool
 	if err := json.Unmarshal(raw, &fixture); err != nil {
 		t.Fatalf("decode fixture: %v", err)
 	}
 	inFixture := false
+	var fixtureDescription string
+	var fixtureProperties, fixtureRequired []string
 	for _, tool := range fixture {
 		if tool.Name == "epic_get" {
 			inFixture = true
+			fixtureDescription = tool.Description
+			fixtureProperties = slices.Sorted(maps.Keys(tool.InputSchema.Properties))
+			fixtureRequired = tool.InputSchema.Required
 			if tool.Description != description {
 				t.Errorf("epic_get description differs from the fixture %s", toolsListFixture)
 			}
@@ -522,61 +528,13 @@ func TestEpicByPartToolsListAdvertisesTheArguments(t *testing.T) {
 	if !inFixture {
 		t.Errorf("the fixture %s does not list epic_get", toolsListFixture)
 	}
-}
-
-// TestEpicByPartToolsListFixtureAdvertisesTheArguments reads epic_get's arguments and description from the committed
-// fixture itself, so the fixture the regression compares against advertises the same arguments as the live tools/list.
-func TestEpicByPartToolsListFixtureAdvertisesTheArguments(t *testing.T) {
-	raw, err := os.ReadFile(toolsListFixture)
-	if err != nil {
-		t.Fatalf("read fixture: %v", err)
+	t.Logf("fixture epic_get properties: %v", fixtureProperties)
+	t.Logf("fixture epic_get required: %v", fixtureRequired)
+	t.Logf("fixture epic_get description: %s", fixtureDescription)
+	if !slices.Equal(fixtureProperties, properties) {
+		t.Errorf("fixture epic_get properties = %v, live properties = %v", fixtureProperties, properties)
 	}
-	var fixture []struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		InputSchema struct {
-			Properties map[string]json.RawMessage `json:"properties"`
-			Required   []string                   `json:"required"`
-		} `json:"inputSchema"`
-	}
-	if err := json.Unmarshal(raw, &fixture); err != nil {
-		t.Fatalf("decode fixture: %v", err)
-	}
-	found := false
-	var description string
-	var properties, required []string
-	for _, tool := range fixture {
-		if tool.Name == "epic_get" {
-			found = true
-			description = tool.Description
-			properties = slices.Sorted(maps.Keys(tool.InputSchema.Properties))
-			required = tool.InputSchema.Required
-		}
-	}
-	if !found {
-		t.Fatalf("the fixture %s does not list epic_get", toolsListFixture)
-	}
-	t.Logf("fixture epic_get properties: %v", properties)
-	t.Logf("fixture epic_get required: %v", required)
-	t.Logf("fixture epic_get description: %s", description)
-	if want := []string{"id", "limit", "offset", "part", "question", "task"}; !slices.Equal(properties, want) {
-		t.Fatalf("fixture epic_get properties = %v, want %v", properties, want)
-	}
-	if !slices.Equal(required, []string{"id"}) {
-		t.Fatalf("fixture epic_get required = %v, want [id]", required)
-	}
-	says := []string{
-		"Without part, it returns the one-screen text summary",
-		"With part, it returns that part, one of tasks, turns, decisions, questions, history, contract, workflow, " +
-			"report, task and question.",
-		"tasks, turns, decisions, questions and history give one line per item, 50 from offset by default",
-		"return that item whole as protobuf JSON",
-		"contract, workflow, report, task and question return limit runes from offset, 8000 by default",
-		"name the offset that continues",
-	}
-	for _, phrase := range says {
-		if !strings.Contains(description, phrase) {
-			t.Errorf("fixture epic_get description does not say %q: %q", phrase, description)
-		}
+	if !slices.Equal(fixtureRequired, required) {
+		t.Errorf("fixture epic_get required = %v, live required = %v", fixtureRequired, required)
 	}
 }
