@@ -34,10 +34,13 @@ const epicCloseForm = "close ID --as superseded|shipped|abandoned [--by EPIC]"
 // epicAmendForm names the form of `orrery epic amend`.
 const epicAmendForm = "amend ID R<n> --item JSON [--reason TEXT]"
 
+// epicLineageForm names the form of `orrery epic lineage`.
+const epicLineageForm = "lineage [--epic ID] [--escalated]"
+
 // epicForms names every form of `orrery epic`, for the usage error of a missing or unknown verb.
 const epicForms = "create FILE|-, get ID, list, follow, answer EPIC --id ID [--question QN] [--choice C] [TEXT], " +
 	"pause ID, resume ID, stop ID, " + epicKickForm + ", " + epicRetryForm + ", " + epicReleaseForm + ", " +
-	epicCloseForm + ", " + epicAmendForm
+	epicCloseForm + ", " + epicAmendForm + ", " + epicLineageForm
 
 // epicAnswerForm names the form of `orrery epic answer`.
 const epicAnswerForm = "answer EPIC --id ID [--question QN] [--choice C] [TEXT]"
@@ -97,6 +100,7 @@ type epicAnswerArgs struct {
 // and calls that tool through stepmcp.CallEpicTool, as the MCP server does. It prints the tool's result text on stdout
 // with a newline. A refusal returns an error carrying the tool's text and prints nothing. For answer, a non-empty
 // warning in the result is also printed on stderr. A wrong form returns a usage error naming the form it wants.
+// lineage reads the Epics client directly instead of calling an epic tool.
 func epicCommand(
 	ctx context.Context, epics enginev1connect.EpicsClient, args []string, stdin io.Reader, stdout, stderr io.Writer,
 ) error {
@@ -110,15 +114,9 @@ func epicCommand(
 	case "answer":
 		return epicAnswer(ctx, epics, rest, stdout, stderr)
 	case epicListVerb:
-		if len(rest) != 0 {
-			return epicForm(verb)
-		}
-		return epicInvoke(ctx, epics, "epic_list", map[string]string{}, stdout)
+		return epicNoArgs(ctx, epics, verb, "epic_list", map[string]string{}, rest, stdout)
 	case "follow":
-		if len(rest) != 0 {
-			return epicForm(verb)
-		}
-		return epicInvoke(ctx, epics, "epic_follow", struct{}{}, stdout)
+		return epicNoArgs(ctx, epics, verb, "epic_follow", struct{}{}, rest, stdout)
 	case "get", "pause", "resume", "stop":
 		if len(rest) != 1 {
 			return epicForm(verb + " ID")
@@ -134,9 +132,23 @@ func epicCommand(
 		return epicClose(ctx, epics, rest, stdout)
 	case "amend":
 		return epicAmend(ctx, epics, rest, stdout)
+	case "lineage":
+		return epicLineage(ctx, epics, rest, stdout)
 	default:
 		return epicForm(epicForms)
 	}
+}
+
+// epicNoArgs implements a form of verb that takes no arguments: it calls tool with value, or returns the usage error of
+// verb when rest is not empty.
+func epicNoArgs(
+	ctx context.Context, epics enginev1connect.EpicsClient, verb, tool string, value any, rest []string,
+	stdout io.Writer,
+) error {
+	if len(rest) != 0 {
+		return epicForm(verb)
+	}
+	return epicInvoke(ctx, epics, tool, value, stdout)
 }
 
 // epicKick implements `kick ID TEXT`. TEXT is the owner's words, which the planner reads at the epic's next plan run.
