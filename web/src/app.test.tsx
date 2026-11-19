@@ -21,6 +21,7 @@ import {
   EpicsGetResponseSchema,
 } from "./gen/orrery/v1/epics_pb";
 import type { HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
+import { keyGroups } from "./keys";
 import type { Viewing } from "./presence";
 import type { Row } from "./rows";
 import type { SeenClock, SeenWindow } from "./seen";
@@ -345,7 +346,8 @@ function fixture(): Row[] {
   ];
 }
 
-const keysHelpList = ["j", "k", "↓", "↑", "gg", "G", "a", "p", "v", "A", "w", "n", "N", "⌘K", "x", "Enter", "e", "/", "i", "Shift+Tab", "Page Up", "Page Down", "/", "1", "2", "3", "o", "|", "b", "B", "h", "←", "m", "?", "Esc"];
+// keysHelpList is every cap the key list draws, in the table's order: the ellipsis of a range is text, not a key.
+const keysHelpList = keyGroups.flatMap((group) => group.lines.flatMap((line) => line.caps.filter((cap) => cap !== "…")));
 
 async function mount(container: HTMLElement, props: Props): Promise<void> {
   await act(() => {
@@ -752,34 +754,36 @@ test("/ focuses the filter input and does not type the slash", (t) =>
 
 test("? toggles a help panel listing exactly the keys", (t) =>
   withApp(t.signal, {}, async (container) => {
-    assert.equal(container.querySelector('[aria-label="keys"]') === null, true);
+    assert.equal(container.querySelector('[aria-label="Keys"]') === null, true);
     await press("?");
-    const help = container.querySelector('[aria-label="keys"]');
+    const help = container.querySelector('[aria-label="Keys"]');
     assert.ok(help, "help panel is open");
-    const listed = [...help.querySelectorAll("kbd")].map((element) => element.textContent);
+    const listed = [...help.querySelectorAll(".keygroups kbd")].map((element) => element.textContent);
     assert.deepEqual(listed, keysHelpList);
     await press("?");
-    assert.equal(container.querySelector('[aria-label="keys"]') === null, true);
+    assert.equal(container.querySelector('[aria-label="Keys"]') === null, true);
   }));
 
 test("Esc closes the help when the filter does not have focus", (t) =>
   withApp(t.signal, {}, async (container) => {
     await press("?");
     await press("Escape");
-    assert.equal(container.querySelector('[aria-label="keys"]') === null, true);
+    assert.equal(container.querySelector('[aria-label="Keys"]') === null, true);
   }));
 
 test("? opens the key list over the page, outside the list, and a second ? closes it", (t) =>
   withApp(t.signal, {}, async (container) => {
     await press("?");
-    const help = container.querySelector('[aria-label="keys"]');
+    const help = container.querySelector('[aria-label="Keys"]');
     assert.ok(help !== null, "help panel is open");
     assert.equal(help.closest(".list") === null, true, "the key list is not inside the list");
-    assert.equal(container.querySelector(".list .keys") === null, true, "no key list is inside the list");
-    assert.equal(help.parentElement?.classList.contains("app"), true, "the key list sits in the page");
-    assert.equal(help.previousElementSibling?.classList.contains("panes"), true, "the key list follows the columns");
+    assert.equal(container.querySelector('.list [aria-label="Keys"]') === null, true, "no key list is inside the list");
+    const scrim = help.parentElement;
+    assert.equal(scrim?.classList.contains("scrim"), true, "the key list sits over the page in a scrim");
+    assert.equal(scrim?.parentElement?.classList.contains("app"), true, "the scrim sits in the page");
+    assert.equal(scrim?.previousElementSibling?.classList.contains("panes"), true, "the scrim follows the columns");
     await press("?");
-    assert.equal(container.querySelector('[aria-label="keys"]') === null, true);
+    assert.equal(container.querySelector('[aria-label="Keys"]') === null, true);
   }));
 
 test("with the filter focused, shortcut keys do nothing and Enter blurs it", (t) =>
@@ -791,7 +795,7 @@ test("with the filter focused, shortcut keys do nothing and Enter blurs it", (t)
     await press("x");
     await press("e");
     assert.equal(cursorKey(container), "a");
-    assert.equal(container.querySelector('[aria-label="keys"]') === null, true);
+    assert.equal(container.querySelector('[aria-label="Keys"]') === null, true);
     await settle();
     assert.equal(fake.callsTo(markPanePath).length, 0, "x and e in the filter write no seen");
     await press("Enter");
@@ -848,7 +852,7 @@ test("u outside the filter changes nothing", (t) =>
     await press("u");
     assert.equal(cursorKey(container), "a");
     assert.deepEqual(rowKeys(container), ["a", "c", "b", "d"]);
-    assert.equal(container.querySelector('[aria-label="keys"]') === null, true);
+    assert.equal(container.querySelector('[aria-label="Keys"]') === null, true);
     assert.equal(filterInput(container).value, "");
     await settle();
     assert.equal(fake.callsTo(markPanePath).length, 0, "no seen was written");
@@ -1571,7 +1575,7 @@ test("keys typed in the composer never act as list keys, and Escape leaves it", 
     await pressIn(box, "?");
     await pressIn(box, "/");
     assert.equal(cursorKey(container), "a");
-    assert.equal(container.querySelector('[aria-label="keys"]') === null, true);
+    assert.equal(container.querySelector('[aria-label="Keys"]') === null, true);
     assert.equal(document.activeElement === filterInput(container), false);
     const bar = container.querySelector<HTMLInputElement>(".find input");
     assert.ok(bar, "/ in the empty box opens the find bar");
@@ -1752,21 +1756,21 @@ test("ComposerFocus: closing the pin with | focuses no reply box", (t) =>
     assert.equal(focusedTextBox(), false, "closing the pin focuses no box");
   }));
 
-test("ComposerFocus: the keys help says Enter opens the row into its reply box, and names Shift+Tab, Page Up, Page Down and /", (t) =>
+test("ComposerFocus: the keys help says Enter opens the row into its reply box, and names ⇧ ⇥, ⇞, ⇟ and /", (t) =>
   withApp(t.signal, {}, async (container) => {
     await press("?");
-    const help = container.querySelector('[aria-label="keys"]');
+    const help = container.querySelector('[aria-label="Keys"]');
     assert.ok(help, "help panel is open");
-    const described = (key: string) =>
-      [...help.querySelectorAll(".key")]
-        .filter((entry) => [...entry.querySelectorAll("dt kbd")].some((cap) => cap.textContent === key))
-        .map((entry) => entry.querySelector("dd")?.textContent ?? "")
+    const described = (cap: string) =>
+      [...help.querySelectorAll(".keyline")]
+        .filter((line) => [...(line.querySelector(".ks")?.children ?? [])].some((item) => item.textContent === cap))
+        .map((line) => line.children[1]?.textContent ?? "")
         .join(" | ");
-    assert.match(described("Enter"), /opens the row into its reply box/);
-    assert.match(described("Shift+Tab"), /back to the list/);
-    assert.match(described("Page Up"), /in an empty reply box, page the transcript/);
-    assert.match(described("Page Down"), /in an empty reply box, page the transcript/);
-    assert.match(described("/"), /in an empty reply box, find in the transcript/);
+    assert.match(described("⏎"), /open the row and go to its reply box/);
+    assert.match(described("⇧ ⇥"), /from a reply box, back to the inbox/);
+    assert.match(described("⇞"), /in an empty reply box: page the conversation/);
+    assert.match(described("⇟"), /in an empty reply box: page the conversation/);
+    assert.match(described("/"), /in an empty reply box: find in the conversation/);
   }));
 
 // The stubbed reader is a box 400 px tall over 2000 px of content, and a page moves it the box less the 40 px it keeps on
@@ -4696,7 +4700,7 @@ test("i focuses the step's box, its keys are text, and Escape leaves it", (t) =>
     await pressIn(box, "j");
     await pressIn(box, "?");
     assert.equal(cursorKey(container), "step:s1");
-    assert.equal(container.querySelector('[aria-label="keys"]') === null, true);
+    assert.equal(container.querySelector('[aria-label="Keys"]') === null, true);
     await pressIn(box, "Escape");
     assert.equal(document.activeElement === box, false);
     await press("j");
@@ -5045,12 +5049,14 @@ test("PickerPalette: n still moves the cursor to the next unseen row", (t) =>
 test("PickerPalette: the keys help lists ⌘K and N, each with what it opens", (t) =>
   withApp(t.signal, {}, async (container) => {
     await press("?");
-    const help = container.querySelector('[aria-label="keys"]');
+    const help = container.querySelector('[aria-label="Keys"]');
     assert.ok(help, "help panel is open");
-    const entryFor = (key: string) =>
-      [...help.querySelectorAll(".key")].find((entry) => entry.querySelector("dt")?.textContent === key);
-    assert.match(entryFor("⌘K")?.querySelector("dd")?.textContent ?? "", /palette/);
-    assert.match(entryFor("N")?.querySelector("dd")?.textContent ?? "", /palette/);
+    const lineFor = (cap: string) =>
+      [...help.querySelectorAll(".keyline")].find((line) =>
+        [...(line.querySelector(".ks")?.children ?? [])].some((item) => item.textContent === cap),
+      );
+    assert.match(lineFor("⌘K")?.children[1]?.textContent ?? "", /new session, or find one/);
+    assert.match(lineFor("N")?.children[1]?.textContent ?? "", /new session, or find one/);
   }));
 
 test("PickerPalette: a pane Picker.Run answers takes the cursor once its row arrives in a later render", (t) =>

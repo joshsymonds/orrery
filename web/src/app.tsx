@@ -1661,7 +1661,7 @@ export function App({
           onClose={() => setPickerOpen(false)}
         />
       )}
-      {helpOpen && <KeyList />}
+      {helpOpen && <KeyList onClose={() => setHelpOpen(false)} />}
     </main>
   );
 }
