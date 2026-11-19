@@ -557,7 +557,7 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 	// 00064, 00062_drop_engine_held.sql before the task versions added 00063, 00061_prompt_states.sql before the drop of
 	// engine_held added 00062, and 00060_cron_jobs.sql before the prompt states added 00061.
 	if version != 74 {
-		t.Fatalf("store version after Open = %d, want 73", version)
+		t.Fatalf("store version after Open = %d, want 74", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and
