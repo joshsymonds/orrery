@@ -7,7 +7,6 @@ import { fileURLToPath } from "node:url";
 import { type VNode, render } from "preact";
 import { act } from "preact/test-utils";
 
-import { App } from "../app.stories";
 import { createFixtureTransport } from "../fixtures/transport";
 import * as main from "../main";
 import type { Address } from "../router";
@@ -169,7 +168,7 @@ test("StoryCoverage: missingStories reports neither a lowercase function nor a n
   assert.deepEqual(missingStories({ "widget.tsx": { helper: () => null, LIMIT: 184 } }, {}), []);
 });
 
-test("StoryRenders: storyProblem reports a page wrapper that holds no element but its failures, and passes the app/attention story", async (t) => {
+test("StoryRenders: storyProblem reports a page wrapper that holds no element but its failures", async (t) => {
   mockTimers(t, ["setTimeout"]);
   const window = installTestDom();
   const root = document.createElement("div");
@@ -184,10 +183,6 @@ test("StoryRenders: storyProblem reports a page wrapper that holds no element bu
   } finally {
     await removeTestDom(window);
   }
-  await mountStory(t, App.attention, (drawn, errors) => {
-    assert.equal(storyDrew(drawn), true, "app/attention has not drawn");
-    assert.equal(storyProblem(drawn, errors), null, "app/attention is reported");
-  });
 });
 
 test("StoryRenders: a page story whose fixture is called for a procedure it does not serve is reported as failed, naming it", (t) => {

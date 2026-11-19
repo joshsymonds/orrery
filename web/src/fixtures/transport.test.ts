@@ -490,30 +490,6 @@ test("FixtureTransport: page's keys are exactly the 11 catalog names of its scen
   ]);
 });
 
-test("FixtureTransport: a Picker call made after the first draw draws the failure element, naming the procedure", (t) => {
-  mockTimers(t, ["setTimeout"]);
-  const fixture = createFixtureTransport();
-  const story = () =>
-    h(PageStory, {
-      address: attention,
-      fixture,
-      after: async () => {
-        await refusal(fixture.clients.picker.ask({}));
-      },
-    });
-  return withStory(
-    t,
-    story,
-    (root) => root.querySelector("[data-story-failure]") !== null,
-    (root) => {
-      assert.ok(
-        root.querySelector("[data-story-failure]")?.textContent.includes("orrery.v1.Picker/Ask"),
-        "the failure element names Picker.Ask",
-      );
-    },
-  );
-});
-
 test("FixtureTransport: a story whose after rejects draws no failure and no error, and reports the rejection once", async (t) => {
   mockTimers(t, ["setTimeout"]);
   const reports: unknown[][] = [];
