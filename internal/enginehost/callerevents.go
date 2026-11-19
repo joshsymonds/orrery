@@ -39,12 +39,6 @@ const stepEndHint = "step_status gives the full result."
 // is not positive.
 const callerEventRetry = 5 * time.Second
 
-// CallerEventBlock returns the block that carries an event of kind, with id, to its caller: an <orrery-event> opening
-// tag, the body on a line of its own, and the closing tag.
-func CallerEventBlock(kind, id, body string) string {
-	return fmt.Sprintf("<orrery-event kind=\"%s\" id=\"%s\">\n%s\n</orrery-event>", kind, id, body)
-}
-
 // CallerEventStore is the store a CallerSender marks the events it has finished in. *store.Store satisfies it.
 type CallerEventStore interface {
 	MarkCallerEvent(ctx context.Context, event, session string, at time.Time) error
@@ -208,7 +202,7 @@ func (e *StepCallerEvents) Pass(ctx context.Context) error {
 // send sends the end of step to its caller as a step_end event through SendStepEnd, and returns the error of the send.
 func (e *StepCallerEvents) send(ctx context.Context, step store.CallerStep) error {
 	event := stepEventPrefix + step.Step.ID
-	text := CallerEventBlock(stepEndKind, event, stepEndBody(step.Step))
+	text := store.CallerEventBlock(stepEndKind, event, nil, stepEndBody(step.Step))
 	if _, err := e.sender.SendStepEnd(ctx, step.Caller, event, text); err != nil {
 		return fmt.Errorf("send step end of %s to caller %s: %w", step.Step.ID, step.Caller.ID, err)
 	}
