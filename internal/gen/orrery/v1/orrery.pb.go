@@ -696,7 +696,10 @@ type QueuedMessage struct {
 	// The message text.
 	Text string `protobuf:"bytes,2,opt,name=text,proto3" json:"text,omitempty"`
 	// The message's lifecycle state: queued, canceled or discarded, as the store names them.
-	State         string `protobuf:"bytes,3,opt,name=state,proto3" json:"state,omitempty"`
+	State string `protobuf:"bytes,3,opt,name=state,proto3" json:"state,omitempty"`
+	// What the message waits on: turn while the session is working, when Claude takes it at that turn's next tool result,
+	// or as the next turn if the turn ends first, and start in every other state, when no turn runs to take it.
+	Waits         string `protobuf:"bytes,4,opt,name=waits,proto3" json:"waits,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -748,6 +751,13 @@ func (x *QueuedMessage) GetText() string {
 func (x *QueuedMessage) GetState() string {
 	if x != nil {
 		return x.State
+	}
+	return ""
+}
+
+func (x *QueuedMessage) GetWaits() string {
+	if x != nil {
+		return x.Waits
 	}
 	return ""
 }
@@ -6909,11 +6919,12 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"unfinished\x18\x06 \x03(\v2\x15.orrery.v1.EngineTextR\n" +
 	"unfinished\x12\x16\n" +
 	"\x06oldest\x18\a \x01(\x03R\x06oldest\x120\n" +
-	"\x06queued\x18\t \x03(\v2\x18.orrery.v1.QueuedMessageR\x06queuedJ\x04\b\b\x10\tR\x04held\"V\n" +
+	"\x06queued\x18\t \x03(\v2\x18.orrery.v1.QueuedMessageR\x06queuedJ\x04\b\b\x10\tR\x04held\"l\n" +
 	"\rQueuedMessage\x12\x1b\n" +
 	"\tprompt_id\x18\x01 \x01(\tR\bpromptId\x12\x12\n" +
 	"\x04text\x18\x02 \x01(\tR\x04text\x12\x14\n" +
-	"\x05state\x18\x03 \x01(\tR\x05state\"T\n" +
+	"\x05state\x18\x03 \x01(\tR\x05state\x12\x14\n" +
+	"\x05waits\x18\x04 \x01(\tR\x05waits\"T\n" +
 	"\x14SessionsOlderRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
 	"\x06before\x18\x02 \x01(\x03R\x06before\x12\x14\n" +

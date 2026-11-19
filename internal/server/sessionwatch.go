@@ -177,7 +177,10 @@ func (w *sessionWatch) step(ctx context.Context) (*orreryv1.SessionsWatchConvers
 	if err != nil {
 		return nil, false, err
 	}
-	queued := w.queued(history)
+	queued, err := w.queued(ctx, history)
+	if err != nil {
+		return nil, false, err
+	}
 	stateChanged := first || !proto.Equal(state, w.sent)
 	unfinishedChanged := !slices.EqualFunc(unfinished, w.sentUnfinished, func(a, b *orreryv1.EngineText) bool {
 		return proto.Equal(a, b)
@@ -234,20 +237,37 @@ func (w *sessionWatch) withholds(item *orreryv1.ConversationItem) bool {
 	return item.GetKind() == "prompt" && item.GetSender() == store.PromptSenderOwner && w.withheld[item.GetPromptId()]
 }
 
-// queued returns the owner messages the session has not started, as the stream serves them (see queuedMessages). A step
-// session serves none.
-func (w *sessionWatch) queued(history store.EngineHistory) []*orreryv1.QueuedMessage {
+// queued returns the owner messages the session has not started, as the stream serves them (see queuedMessages), each
+// waiting on a turn while the session is working and on its start otherwise. It reads the prompt states again, after
+// the step's read of the events (see readPrompts), since a Say stores its queued state in the write that stores its
+// prompt: a prompt whose event the step read is then served with that state in the same delta. A step session serves
+// none. A failed read is answered as a failed session read is.
+func (w *sessionWatch) queued(ctx context.Context, history store.EngineHistory) ([]*orreryv1.QueuedMessage, error) {
 	if history.Kind == store.KindStep {
-		return nil
+		return nil, nil
 	}
-	return queuedMessages(w.prompts)
+	if err := w.readPrompts(ctx); err != nil {
+		return nil, err
+	}
+	waits := queuedWaitsStart
+	if history.State == string(protocol.StateWorking) {
+		waits = queuedWaitsTurn
+	}
+	return queuedMessages(w.prompts, waits), nil
 }
 
-// queuedMessages returns the QueuedMessage of each owner prompt the stream serves, in the order of prompts. A prompt
-// whose newest state is queued is always served. A prompt whose newest state is canceled or discarded is served only
-// while no owner prompt after it has a newest state of started or completed. A prompt whose newest state is started or
-// completed is never served, and a caller prompt is never served.
-func queuedMessages(prompts []store.PromptState) []*orreryv1.QueuedMessage {
+// The waits labels of a QueuedMessage: turn while the session is working, when Claude takes the message at the turn's
+// next tool result, and start in every other state.
+const (
+	queuedWaitsTurn  = "turn"
+	queuedWaitsStart = "start"
+)
+
+// queuedMessages returns the QueuedMessage of each owner prompt the stream serves, in the order of prompts, each with
+// waits. A prompt whose newest state is queued is always served. A prompt whose newest state is canceled or discarded is
+// served only while no owner prompt after it has a newest state of started or completed. A prompt whose newest state is
+// started or completed is never served, and a caller prompt is never served.
+func queuedMessages(prompts []store.PromptState, waits string) []*orreryv1.QueuedMessage {
 	var served []*orreryv1.QueuedMessage
 	// started is whether an owner prompt after the one being read has a newest state of started or completed. The
 	// prompts are read newest first, so it is set before the older prompts are judged.
@@ -267,7 +287,7 @@ func queuedMessages(prompts []store.PromptState) []*orreryv1.QueuedMessage {
 		}
 		if keep {
 			served = append(served, &orreryv1.QueuedMessage{
-				PromptId: prompt.PromptID, Text: prompt.Text, State: prompt.State,
+				PromptId: prompt.PromptID, Text: prompt.Text, State: prompt.State, Waits: waits,
 			})
 		}
 	}
