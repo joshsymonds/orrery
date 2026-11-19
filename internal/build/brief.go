@@ -226,7 +226,7 @@ func ReviewPrompt(
 		[]string{"Requirements:"},
 		requirementLines(epic.Requirements, task.Requirements),
 		[]string{reviewEvidenceHeading},
-		reviewEvidenceLines(epic.Requirements, task),
+		reviewEvidenceLines(task),
 		[]string{change},
 	)
 	if reviewer == reviewers.TestParsimony {
@@ -286,29 +286,19 @@ func bullets(items []string) []string {
 	return lines
 }
 
-// reviewEvidenceHeading heads the evidence a task reviewer judges: the captures that prove the task's work, each with
-// the conclusion it must show.
-const reviewEvidenceHeading = "Evidence (each capture and the conclusion it must show):"
+// reviewEvidenceHeading heads the evidence a task reviewer judges: the task's own evidence item, with the conclusion it
+// must show.
+const reviewEvidenceHeading = "Evidence (the task's own evidence and the conclusion it must show):"
 
-// reviewEvidenceLines renders, for a task reviewer, the task's own evidence item and then the evidence item the
-// contract declares for each Requirement of task, in task.Requirements order, as bullets. A capture renders as
-// `<id>: <conclusion> (capture: <argv>)`, supplied files as `<id>: <conclusion> (supplied: <files>)`, and a closure
-// item as `<id>: <conclusion> (closure: the round's closure check settles it)`. An item with no conclusion, and a
-// Requirement the epic does not declare, render nothing. A reviewer asked whether each capture would fail without the
-// behavior it proves thus sees the capture even when it is no test in the change, such as a grep of a document.
-func reviewEvidenceLines(declared []store.EpicRequirement, task store.EpicTask) []string {
-	items := make([]string, 0, 1+len(task.Requirements))
+// reviewEvidenceLines renders, for a task reviewer, the task's own evidence item as a bullet, or none when it has no
+// conclusion. A capture renders as `T<seq>: <conclusion> (capture: <argv>)`, supplied files as `T<seq>: <conclusion>
+// (supplied: <files>)`, and a closure item as `T<seq>: <conclusion> (closure: the round's closure check settles it)`.
+// The reviewer judges the task's change and its tests as a whole, so the contract's evidence for each Requirement the
+// task claims is not listed.
+func reviewEvidenceLines(task store.EpicTask) []string {
+	var items []string
 	if line, ok := reviewEvidenceLine(fmt.Sprintf("T%d", task.Seq), task.Evidence); ok {
 		items = append(items, line)
-	}
-	for _, id := range task.Requirements {
-		i := slices.IndexFunc(declared, func(r store.EpicRequirement) bool { return r.ID == id })
-		if i < 0 {
-			continue
-		}
-		if line, ok := reviewEvidenceLine(id, declared[i].Item); ok {
-			items = append(items, line)
-		}
 	}
 	return bullets(items)
 }
