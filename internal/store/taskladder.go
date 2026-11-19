@@ -230,7 +230,7 @@ func climbTask(
 	if decision == nil {
 		return nil
 	}
-	_, err := appendDecision(ctx, queries, epic, decision.ID, decision.Text, 0, at)
+	_, err := appendDecision(ctx, queries, epic, decision.ID, decision.Text, 0, Maker{By: MakerOrreryd}, at)
 	return err
 }
 

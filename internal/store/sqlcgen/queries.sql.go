@@ -2254,16 +2254,19 @@ func (q *Queries) InsertEpicClosure(ctx context.Context, arg InsertEpicClosurePa
 }
 
 const insertEpicDecision = `-- name: InsertEpicDecision :exec
-INSERT INTO epic_decisions (epic, seq, client_id, text, time, question) VALUES (?, ?, ?, ?, ?, ?)
+INSERT INTO epic_decisions (epic, seq, client_id, text, time, question, maker, maker_session)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertEpicDecisionParams struct {
-	Epic     string
-	Seq      int64
-	ClientID string
-	Text     string
-	Time     int64
-	Question int64
+	Epic         string
+	Seq          int64
+	ClientID     string
+	Text         string
+	Time         int64
+	Question     int64
+	Maker        string
+	MakerSession string
 }
 
 func (q *Queries) InsertEpicDecision(ctx context.Context, arg InsertEpicDecisionParams) error {
@@ -2274,6 +2277,8 @@ func (q *Queries) InsertEpicDecision(ctx context.Context, arg InsertEpicDecision
 		arg.Text,
 		arg.Time,
 		arg.Question,
+		arg.Maker,
+		arg.MakerSession,
 	)
 	return err
 }

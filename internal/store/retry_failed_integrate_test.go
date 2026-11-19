@@ -209,7 +209,16 @@ func TestRetryFailedIntegrateRefusedForEpicEndedAtBase(t *testing.T) {
 		integrateParkedAt()); err != nil {
 		t.Fatalf("ParkNodeMetAtBase: %v", err)
 	}
-	if _, err := s.AnswerQuestion(ctx, integrateEpic, "D3", "", 1, ChoiceEnd, integrateParkedAt()); err != nil {
+	if _, err := s.AnswerQuestion(
+		ctx,
+		integrateEpic,
+		"D3",
+		"",
+		1,
+		ChoiceEnd,
+		Maker{},
+		integrateParkedAt(),
+	); err != nil {
 		t.Fatalf("AnswerQuestion end: %v", err)
 	}
 

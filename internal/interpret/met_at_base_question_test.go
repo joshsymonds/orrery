@@ -137,7 +137,16 @@ func (w *metWorld) answer(id, text, choice string) store.EpicDecision {
 	if err != nil || len(open) != 1 {
 		w.t.Fatalf("open questions = %+v and %v, want one open park question", open, err)
 	}
-	decision, err := w.s.AnswerQuestion(context.Background(), runEpic, id, text, open[0].Seq, choice, runClock())
+	decision, err := w.s.AnswerQuestion(
+		context.Background(),
+		runEpic,
+		id,
+		text,
+		open[0].Seq,
+		choice,
+		store.Maker{},
+		runClock(),
+	)
 	if err != nil {
 		w.t.Fatalf("AnswerQuestion %s: %v", choice, err)
 	}

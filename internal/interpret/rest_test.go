@@ -174,7 +174,7 @@ func TestPassReadsEndedWithGapsEpicAgainOnceReleased(t *testing.T) {
 		}
 	}
 
-	if err := w.s.ReleaseEpic(t.Context(), runEpic, nil, runClock()); err != nil {
+	if err := w.s.ReleaseEpic(t.Context(), runEpic, nil, store.Maker{}, runClock()); err != nil {
 		t.Fatalf("ReleaseEpic: %v", err)
 	}
 	reads.reset()

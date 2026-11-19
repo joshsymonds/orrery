@@ -178,7 +178,16 @@ func takeAction(ctx context.Context, queries *sqlcgen.Queries, action PlannerAct
 		return nil, err
 	}
 	text := fmt.Sprintf("planner %s: %s", actionSummary(action), action.Reason)
-	if _, err = appendDecision(ctx, queries, action.Epic, actionDecisionID(action), text, 0, at); err != nil {
+	if _, err = appendDecision(
+		ctx,
+		queries,
+		action.Epic,
+		actionDecisionID(action),
+		text,
+		0,
+		Maker{By: MakerOrreryd},
+		at,
+	); err != nil {
 		return nil, err
 	}
 	return stop, nil
@@ -366,7 +375,7 @@ func refuseLinkedAction(
 		}
 		text += "." + itemsText(old, action.Item)
 	}
-	if _, err = appendDecision(ctx, queries, action.Epic, id, text, 0, at); err != nil {
+	if _, err = appendDecision(ctx, queries, action.Epic, id, text, 0, Maker{By: MakerOrreryd}, at); err != nil {
 		return err
 	}
 	bound, err := boundHeldPark(ctx, queries, action.Epic, head, at)

@@ -819,7 +819,8 @@ ON CONFLICT (epic, id) DO NOTHING;
 SELECT CAST(COUNT(*) AS INTEGER) FROM epic_triggers WHERE epic = ? AND id = ?;
 
 -- name: InsertEpicDecision :exec
-INSERT INTO epic_decisions (epic, seq, client_id, text, time, question) VALUES (?, ?, ?, ?, ?, ?);
+INSERT INTO epic_decisions (epic, seq, client_id, text, time, question, maker, maker_session)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: GetEpicDecisionByClientID :one
 SELECT * FROM epic_decisions WHERE epic = ? AND client_id = ?;

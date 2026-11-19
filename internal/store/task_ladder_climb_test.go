@@ -131,7 +131,9 @@ func TestTaskLadderClimbCannotMeetSkipsToRescue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Epic: %v", err)
 	}
-	wantDecisions := append(seededDecisions(), EpicDecision{Seq: 3, ID: "D3", Text: decision.Text, Time: climbedAt()})
+	wantDecisions := append(seededDecisions(), EpicDecision{
+		Seq: 3, ID: "D3", Text: decision.Text, Time: climbedAt(), Maker: Maker{By: MakerOrreryd},
+	})
 	if !reflect.DeepEqual(epic.Decisions, wantDecisions) {
 		t.Errorf("decisions:\n got %+v\nwant %+v", epic.Decisions, wantDecisions)
 	}

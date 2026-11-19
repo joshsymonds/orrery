@@ -44,7 +44,7 @@ func TestAnswerQuestionStoresTiedDecisionClosesQuestionAndAddsOneTrigger(t *test
 	questionedEpic(t, s, keepOld, whichStore)
 
 	at := time.Unix(1700000600, 0)
-	got, err := s.AnswerQuestion(ctx, id, "D3", "Keep them", 2, ChoiceOther, at)
+	got, err := s.AnswerQuestion(ctx, id, "D3", "Keep them", 2, ChoiceOther, Maker{}, at)
 	if err != nil {
 		t.Fatalf("AnswerQuestion: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestAnswerQuestionWithDeclaredChoiceRecordsTheChoiceAndKeepsTheText(t *test
 	questionedEpic(t, s, keepOld, whichStore)
 
 	at := time.Unix(1700000600, 0)
-	withWords, err := s.AnswerQuestion(ctx, id, "D3", "Keep them, they still run", 1, "second", at)
+	withWords, err := s.AnswerQuestion(ctx, id, "D3", "Keep them, they still run", 1, "second", Maker{}, at)
 	if err != nil {
 		t.Fatalf("AnswerQuestion with a declared choice and words: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestAnswerQuestionWithDeclaredChoiceRecordsTheChoiceAndKeepsTheText(t *test
 	if !reflect.DeepEqual(withWords, withWordsWant) {
 		t.Errorf("AnswerQuestion = %+v, want %+v", withWords, withWordsWant)
 	}
-	bare, err := s.AnswerQuestion(ctx, id, "D4", "", 2, "first", at)
+	bare, err := s.AnswerQuestion(ctx, id, "D4", "", 2, "first", Maker{}, at)
 	if err != nil {
 		t.Fatalf("AnswerQuestion with a declared choice and no words: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestAnswerQuestionWithChoiceTheQuestionDoesNotOfferIsErrNoChoiceAndWritesNo
 	before := answerRowsOf(t, s)
 
 	for _, choice := range []string{"", "third"} {
-		_, err := s.AnswerQuestion(ctx, id, "D3", "Keep them", 1, choice, claimedAt())
+		_, err := s.AnswerQuestion(ctx, id, "D3", "Keep them", 1, choice, Maker{}, claimedAt())
 		if !errors.Is(err, ErrNoChoice) {
 			t.Fatalf("AnswerQuestion with choice %q err = %v, want ErrNoChoice", choice, err)
 		}
@@ -146,7 +146,7 @@ func TestAnswerQuestionWithOtherAndBlankTextIsErrOtherNeedsTextAndWritesNothing(
 	before := answerRowsOf(t, s)
 
 	for _, text := range []string{"", " \t "} {
-		_, err := s.AnswerQuestion(ctx, id, "D3", text, 1, ChoiceOther, claimedAt())
+		_, err := s.AnswerQuestion(ctx, id, "D3", text, 1, ChoiceOther, Maker{}, claimedAt())
 		if !errors.Is(err, ErrOtherNeedsText) {
 			t.Fatalf("AnswerQuestion of other with text %q err = %v, want ErrOtherNeedsText", text, err)
 		}
@@ -165,7 +165,7 @@ func TestAnswerQuestionOfUnknownQuestionIsErrNoQuestionAndWritesNothing(t *testi
 	questionedEpic(t, s, shapedQuestion("keep-old-tasks", "Keep the old tasks?"))
 	before := answerRowsOf(t, s)
 
-	_, err := s.AnswerQuestion(ctx, id, "D3", "Answer", 5, ChoiceOther, claimedAt())
+	_, err := s.AnswerQuestion(ctx, id, "D3", "Answer", 5, ChoiceOther, Maker{}, claimedAt())
 	if !errors.Is(err, ErrNoQuestion) {
 		t.Fatalf("AnswerQuestion of unknown question err = %v, want ErrNoQuestion", err)
 	}
@@ -180,12 +180,12 @@ func TestAnswerQuestionOfClosedQuestionIsErrQuestionClosedAndWritesNothing(t *te
 	s := openEpicStore(t)
 	const id = claimEpic
 	questionedEpic(t, s, shapedQuestion("keep-old-tasks", "Keep the old tasks?"))
-	if _, err := s.AnswerQuestion(ctx, id, "D3", "Keep them", 1, ChoiceOther, claimedAt()); err != nil {
+	if _, err := s.AnswerQuestion(ctx, id, "D3", "Keep them", 1, ChoiceOther, Maker{}, claimedAt()); err != nil {
 		t.Fatalf("first AnswerQuestion: %v", err)
 	}
 	before := answerRowsOf(t, s)
 
-	if _, err := s.AnswerQuestion(ctx, id, "D4", "Other answer", 1, ChoiceOther, completedAt()); !errors.Is(
+	if _, err := s.AnswerQuestion(ctx, id, "D4", "Other answer", 1, ChoiceOther, Maker{}, completedAt()); !errors.Is(
 		err, ErrQuestionClosed,
 	) {
 		t.Fatalf("AnswerQuestion of closed question err = %v, want ErrQuestionClosed", err)
@@ -207,7 +207,7 @@ func TestAnswerQuestionOfReplacedQuestionIsQuestionReplacedErrorAndWritesNothing
 	completeLaterTurn(t, s, 2, replacing)
 	before := answerRowsOf(t, s)
 
-	_, err := s.AnswerQuestion(ctx, id, "D3", "Keep them", 1, "first", completedAt())
+	_, err := s.AnswerQuestion(ctx, id, "D3", "Keep them", 1, "first", Maker{}, completedAt())
 	var replaced *QuestionReplacedError
 	if !errors.As(err, &replaced) {
 		t.Fatalf("AnswerQuestion of replaced question err = %v, want a *QuestionReplacedError", err)
@@ -226,13 +226,13 @@ func TestAnswerQuestionWithStoredIDAndTextReturnsStoredRowAfterItsQuestionClosed
 	s := openEpicStore(t)
 	const id = claimEpic
 	questionedEpic(t, s, shapedQuestion("keep-old-tasks", "Keep the old tasks?"))
-	stored, err := s.AnswerQuestion(ctx, id, "D3", "Keep them", 1, "first", claimedAt())
+	stored, err := s.AnswerQuestion(ctx, id, "D3", "Keep them", 1, "first", Maker{}, claimedAt())
 	if err != nil {
 		t.Fatalf("first AnswerQuestion: %v", err)
 	}
 	before := answerRowsOf(t, s)
 
-	got, err := s.AnswerQuestion(ctx, id, "D3", "Keep them", 1, "first", completedAt())
+	got, err := s.AnswerQuestion(ctx, id, "D3", "Keep them", 1, "first", Maker{}, completedAt())
 	if err != nil {
 		t.Fatalf("repeated AnswerQuestion: %v", err)
 	}
@@ -253,12 +253,12 @@ func TestAnswerQuestionWithStoredIDAndOtherTextIsErrDecisionConflict(t *testing.
 		shapedQuestion("keep-old-tasks", "Keep the old tasks?"),
 		shapedQuestion("which-store", "Which store?"),
 	)
-	if _, err := s.AnswerQuestion(ctx, id, "D3", "Keep them", 1, "first", claimedAt()); err != nil {
+	if _, err := s.AnswerQuestion(ctx, id, "D3", "Keep them", 1, "first", Maker{}, claimedAt()); err != nil {
 		t.Fatalf("first AnswerQuestion: %v", err)
 	}
 	before := answerRowsOf(t, s)
 
-	_, err := s.AnswerQuestion(ctx, id, "D3", "Other answer", 2, "first", completedAt())
+	_, err := s.AnswerQuestion(ctx, id, "D3", "Other answer", 2, "first", Maker{}, completedAt())
 	if !errors.Is(err, ErrDecisionConflict) {
 		t.Fatalf("AnswerQuestion with other text err = %v, want ErrDecisionConflict", err)
 	}
@@ -273,12 +273,12 @@ func TestAnswerQuestionWithStoredIDAndOtherChoiceIsErrDecisionConflict(t *testin
 	s := openEpicStore(t)
 	const id = claimEpic
 	questionedEpic(t, s, shapedQuestion("keep-old-tasks", "Keep the old tasks?"))
-	if _, err := s.AnswerQuestion(ctx, id, "D3", "Keep them", 1, "first", claimedAt()); err != nil {
+	if _, err := s.AnswerQuestion(ctx, id, "D3", "Keep them", 1, "first", Maker{}, claimedAt()); err != nil {
 		t.Fatalf("first AnswerQuestion: %v", err)
 	}
 	before := answerRowsOf(t, s)
 
-	_, err := s.AnswerQuestion(ctx, id, "D3", "Keep them", 1, "second", completedAt())
+	_, err := s.AnswerQuestion(ctx, id, "D3", "Keep them", 1, "second", Maker{}, completedAt())
 	if !errors.Is(err, ErrDecisionConflict) {
 		t.Fatalf("AnswerQuestion with another choice err = %v, want ErrDecisionConflict", err)
 	}
@@ -293,12 +293,12 @@ func TestAnswerQuestionWithIDOfStoredNoteIsErrDecisionConflict(t *testing.T) {
 	s := openEpicStore(t)
 	const id = claimEpic
 	questionedEpic(t, s, shapedQuestion("keep-old-tasks", "Keep the old tasks?"))
-	if _, err := s.AnswerEpic(ctx, id, "D3", "Keep them", claimedAt()); err != nil {
+	if _, err := s.AnswerEpic(ctx, id, "D3", "Keep them", Maker{}, claimedAt()); err != nil {
 		t.Fatalf("AnswerEpic note: %v", err)
 	}
 	before := answerRowsOf(t, s)
 
-	_, err := s.AnswerQuestion(ctx, id, "D3", "Keep them", 1, "first", completedAt())
+	_, err := s.AnswerQuestion(ctx, id, "D3", "Keep them", 1, "first", Maker{}, completedAt())
 	if !errors.Is(err, ErrDecisionConflict) {
 		t.Fatalf("AnswerQuestion over a stored note err = %v, want ErrDecisionConflict", err)
 	}
@@ -319,7 +319,7 @@ func TestAnswerEpicNoteLeavesEveryQuestionOpenAndAddsNoTrigger(t *testing.T) {
 	triggersBefore := rowsOf(t, s.db.DB, "epic_triggers")
 
 	at := time.Unix(1700000600, 0)
-	got, err := s.AnswerEpic(ctx, id, "D3", "A note", at)
+	got, err := s.AnswerEpic(ctx, id, "D3", "A note", Maker{}, at)
 	if err != nil {
 		t.Fatalf("AnswerEpic: %v", err)
 	}
@@ -349,7 +349,7 @@ func TestOpenQuestionsListsOnlyOpenQuestionsInSeqOrder(t *testing.T) {
 	first := shapedQuestion("first", "First?")
 	third := shapedQuestion("third", "Third?")
 	questionedEpic(t, s, first, shapedQuestion("second", "Second?"), third)
-	if _, err := s.AnswerQuestion(ctx, id, "D3", "Answer two", 2, ChoiceOther, claimedAt()); err != nil {
+	if _, err := s.AnswerQuestion(ctx, id, "D3", "Answer two", 2, ChoiceOther, Maker{}, claimedAt()); err != nil {
 		t.Fatalf("AnswerQuestion: %v", err)
 	}
 
@@ -367,8 +367,8 @@ func TestOpenQuestionsListsOnlyOpenQuestionsInSeqOrder(t *testing.T) {
 		question int64
 	}{{"D4", 1}, {"D5", 3}} {
 		if _, err := s.AnswerQuestion(
-			ctx, id, answer.id, "Answer", answer.question, ChoiceOther, claimedAt(),
-		); err != nil {
+			ctx, id, answer.id, "Answer", answer.question, ChoiceOther, Maker{},
+			claimedAt()); err != nil {
 			t.Fatalf("AnswerQuestion %s: %v", answer.id, err)
 		}
 	}
@@ -390,7 +390,7 @@ func TestAnswerRetryToParkQuestionEndsThePark(t *testing.T) {
 	}
 
 	at := time.Unix(1700000600, 0)
-	got, err := s.AnswerQuestion(ctx, id, "D3", "", 2, ChoiceRetry, at)
+	got, err := s.AnswerQuestion(ctx, id, "D3", "", 2, ChoiceRetry, Maker{}, at)
 	if err != nil {
 		t.Fatalf("AnswerQuestion of the park question with retry: %v", err)
 	}
@@ -434,7 +434,7 @@ func TestAnswerOtherToFinalParkQuestionKeepsWordsAndStaysParked(t *testing.T) {
 		completedAt()); err != nil {
 		t.Fatalf("ParkNodeMetAtBase: %v", err)
 	}
-	if _, err := s.AnswerQuestion(ctx, id, "D3", "", 1, ChoiceEnd, claimedAt()); err != nil {
+	if _, err := s.AnswerQuestion(ctx, id, "D3", "", 1, ChoiceEnd, Maker{}, claimedAt()); err != nil {
 		t.Fatalf("AnswerQuestion end: %v", err)
 	}
 	const reason = "credit ran out"
@@ -443,7 +443,7 @@ func TestAnswerOtherToFinalParkQuestionKeepsWordsAndStaysParked(t *testing.T) {
 	}
 	before := answerRowsOf(t, s)
 
-	if _, err := s.AnswerQuestion(ctx, id, "D4", "Keep the words", 2, ChoiceRetry, claimedAt()); !errors.Is(
+	if _, err := s.AnswerQuestion(ctx, id, "D4", "Keep the words", 2, ChoiceRetry, Maker{}, claimedAt()); !errors.Is(
 		err, ErrNoChoice,
 	) {
 		t.Fatalf("AnswerQuestion of a final park with retry err = %v, want ErrNoChoice", err)
@@ -453,7 +453,7 @@ func TestAnswerOtherToFinalParkQuestionKeepsWordsAndStaysParked(t *testing.T) {
 	}
 
 	at := time.Unix(1700000600, 0)
-	got, err := s.AnswerQuestion(ctx, id, "D4", "Keep the words", 2, ChoiceOther, at)
+	got, err := s.AnswerQuestion(ctx, id, "D4", "Keep the words", 2, ChoiceOther, Maker{}, at)
 	if err != nil {
 		t.Fatalf("AnswerQuestion of a final park with other: %v", err)
 	}
@@ -506,8 +506,9 @@ func TestAnswerQuestionOfUnknownEpicIsErrNoEpic(t *testing.T) {
 	t.Parallel()
 	s := openEpicStore(t)
 	_, err := s.AnswerQuestion(
-		context.Background(), "orrery-1a2b3c4/missing", "D1", "text", 1, ChoiceOther, epicCreated(),
-	)
+		context.Background(), "orrery-1a2b3c4/missing", "D1", "text", 1, ChoiceOther, Maker{},
+		epicCreated())
+
 	if !errors.Is(err, ErrNoEpic) {
 		t.Fatalf("AnswerQuestion of unknown epic err = %v, want ErrNoEpic", err)
 	}

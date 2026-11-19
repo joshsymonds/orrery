@@ -205,7 +205,7 @@ func requireDecisions(t *testing.T, s *store.Store, epic string, want []store.Ep
 func requireRefusedResume(t *testing.T, s *store.Store, raw *sql.DB, epic string, undo []int64, want string) {
 	t.Helper()
 	before := releaseRowsOf(t, raw)
-	requireRefusalError(t, s.ReleaseEpic(context.Background(), epic, undo, resumeAt()), want)
+	requireRefusalError(t, s.ReleaseEpic(context.Background(), epic, undo, store.Maker{}, resumeAt()), want)
 	if got := releaseRowsOf(t, raw); got != before {
 		t.Errorf("rows after refused ReleaseEpic of %s = %s, want %s", epic, got, before)
 	}
@@ -302,7 +302,7 @@ func TestReleaseEpicRefusesAnUnknownEpic(t *testing.T) {
 	t.Parallel()
 	s, raw := stoppedAtPublish(t)
 	before := releaseRowsOf(t, raw)
-	err := s.ReleaseEpic(context.Background(), "orrery-7e8f9a0/no-such-epic", nil, resumeAt())
+	err := s.ReleaseEpic(context.Background(), "orrery-7e8f9a0/no-such-epic", nil, store.Maker{}, resumeAt())
 	if !errors.Is(err, store.ErrNoEpic) {
 		t.Errorf("ReleaseEpic of an unknown epic: err = %v, want ErrNoEpic", err)
 	}
@@ -364,7 +364,7 @@ func TestReleaseEpicResumesAtTheFirstUnfinishedStep(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()
 			s, raw := stoppedRelease(t, c.runs...)
-			if err := s.ReleaseEpic(ctx, resumeEpic, c.undo, resumeAt()); err != nil {
+			if err := s.ReleaseEpic(ctx, resumeEpic, c.undo, store.Maker{}, resumeAt()); err != nil {
 				t.Fatalf("ReleaseEpic: %v", err)
 			}
 			requireNodeRuns(t, s, resumeEpic, []store.NodeRun{{
@@ -393,7 +393,7 @@ func TestReleaseEpicReleasesAnEndedWithGapsEpic(t *testing.T) {
 	ctx := context.Background()
 	s, raw := openReleaseStore(t, resumeEpicIn(resumeEpic, "ended_with_gaps"))
 	tells := tellsOf(t, raw, resumeEpic)
-	if err := s.ReleaseEpic(ctx, resumeEpic, nil, resumeAt()); err != nil {
+	if err := s.ReleaseEpic(ctx, resumeEpic, nil, store.Maker{}, resumeAt()); err != nil {
 		t.Fatalf("ReleaseEpic of an ended_with_gaps epic: %v", err)
 	}
 	requirePhase(t, s, resumeEpic, store.PhaseClean)
@@ -420,7 +420,7 @@ func TestReleaseEpicTakesAFreeSlot(t *testing.T) {
 		t.Fatalf("FreeReleaseSlot of %s: %v", resumeEpic, err)
 	}
 	requireSlot(t, s, resumeEpic, "")
-	if err := s.ReleaseEpic(ctx, resumeEpic, nil, resumeAt()); err != nil {
+	if err := s.ReleaseEpic(ctx, resumeEpic, nil, store.Maker{}, resumeAt()); err != nil {
 		t.Fatalf("ReleaseEpic: %v", err)
 	}
 	requireSlot(t, s, resumeEpic, resumeEpic)
@@ -438,7 +438,7 @@ func TestRetryNodeRefusesTheReleaseNode(t *testing.T) {
 	if got := releaseRowsOf(t, raw); got != before {
 		t.Errorf("rows after refused RetryNode of %s = %s, want %s", resumeEpic, got, before)
 	}
-	if err := s.ReleaseEpic(ctx, resumeEpic, nil, resumeAt()); err != nil {
+	if err := s.ReleaseEpic(ctx, resumeEpic, nil, store.Maker{}, resumeAt()); err != nil {
 		t.Errorf("ReleaseEpic after refused RetryNode: %v", err)
 	}
 }
@@ -448,7 +448,7 @@ func TestRetryNodeRefusesTheReleaseNode(t *testing.T) {
 func TestReleaseEpicNamesAnUndoNoneStepWrittenNone(t *testing.T) {
 	t.Parallel()
 	s, _ := stoppedAtPublishNone(t)
-	if err := s.ReleaseEpic(context.Background(), resumeEpic, []int64{2}, resumeAt()); err != nil {
+	if err := s.ReleaseEpic(context.Background(), resumeEpic, []int64{2}, store.Maker{}, resumeAt()); err != nil {
 		t.Fatalf("ReleaseEpic naming step 2: %v", err)
 	}
 	requireReleaseRuns(t, s, resumeEpic, inReadOrder([]store.ReleaseRun{

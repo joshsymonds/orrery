@@ -192,13 +192,14 @@ type EpicReleaseStep struct {
 
 // EpicDecision is one recorded answer on an epic. Seq counts from 1 in recording order, and ID is the caller's id
 // for the decision: a seed decision's id, or the client id of an answer. Question is the seq of the question the
-// decision answers, and 0 for a note.
+// decision answers, and 0 for a note. Maker is who recorded it, empty for a decision stored before makers were kept.
 type EpicDecision struct {
 	Seq      int64
 	ID       string
 	Text     string
 	Time     time.Time
 	Question int64
+	Maker    Maker
 }
 
 // CreateEpic stores row as one write. It seeds row.Decisions as seq 1..n dated at row.Created, ignoring their Seq
@@ -318,6 +319,7 @@ func insertEpicSections(ctx context.Context, queries *sqlcgen.Queries, row EpicR
 	if err := insertInOrder(row.Decisions, func(position int64, d EpicDecision) error {
 		return queries.InsertEpicDecision(ctx, sqlcgen.InsertEpicDecisionParams{
 			Epic: row.ID, Seq: position, ClientID: d.ID, Text: d.Text, Time: row.Created.Unix(), Question: 0,
+			Maker: d.Maker.By, MakerSession: d.Maker.Session,
 		})
 	}); err != nil {
 		return fmt.Errorf("decisions: %w", err)
@@ -760,8 +762,10 @@ func (s *Store) SetEpicSummary(ctx context.Context, id, summary string) error {
 // AnswerEpic records text as decision id on epic in one write, as a note that answers no question. A stored id with
 // equal text returns the stored decision and writes nothing; a stored id with other text, or one that answered a
 // question, is ErrDecisionConflict; otherwise the decision is appended as the next seq, dated at, and the epic's
-// changed moves to at. An unknown epic is ErrNoEpic.
-func (s *Store) AnswerEpic(ctx context.Context, epic, id, text string, at time.Time) (EpicDecision, error) {
+// changed moves to at. The decision records maker as who made it. An unknown epic is ErrNoEpic.
+func (s *Store) AnswerEpic(
+	ctx context.Context, epic, id, text string, maker Maker, at time.Time,
+) (EpicDecision, error) {
 	var answer EpicDecision
 	err := s.write(ctx, func(queries *sqlcgen.Queries) error {
 		if err := requireEpic(ctx, queries, epic); err != nil {
@@ -775,7 +779,7 @@ func (s *Store) AnswerEpic(ctx context.Context, epic, id, text string, at time.T
 			answer = replay
 			return nil
 		}
-		answer, err = appendDecision(ctx, queries, epic, id, text, 0, at)
+		answer, err = appendDecision(ctx, queries, epic, id, text, 0, maker, at)
 		return err
 	})
 	if err != nil {
@@ -799,6 +803,7 @@ func (s *Store) AnswerQuestion(
 	epic, id, text string,
 	question int64,
 	choice string,
+	maker Maker,
 	at time.Time,
 ) (EpicDecision, error) {
 	var answer EpicDecision
@@ -814,7 +819,7 @@ func (s *Store) AnswerQuestion(
 			answer = replay
 			return nil
 		}
-		answer, err = recordQuestionAnswer(ctx, queries, epic, id, text, question, choice, at)
+		answer, err = recordQuestionAnswer(ctx, queries, epic, id, text, question, choice, maker, at)
 		return err
 	})
 	if err != nil {
@@ -833,6 +838,7 @@ func recordQuestionAnswer(
 	epic, id, text string,
 	question int64,
 	choice string,
+	maker Maker,
 	at time.Time,
 ) (EpicDecision, error) {
 	answered, err := requireAnswerable(ctx, queries, epic, text, question, choice)
@@ -850,7 +856,7 @@ func recordQuestionAnswer(
 	}); err != nil {
 		return EpicDecision{}, fmt.Errorf("insert trigger of answer %s on epic %s: %w", id, epic, err)
 	}
-	decision, err := appendDecision(ctx, queries, epic, id, text, question, at)
+	decision, err := appendDecision(ctx, queries, epic, id, text, question, maker, at)
 	if err != nil {
 		return EpicDecision{}, err
 	}
@@ -1063,13 +1069,14 @@ func offers(question sqlcgen.EpicQuestion, choice string) (bool, error) {
 	return slices.ContainsFunc(declared, func(offered EpicChoice) bool { return offered.ID == choice }), nil
 }
 
-// appendDecision appends text as decision id on epic, answering question (0 for a note), as the next seq dated at,
-// and moves the epic's changed to at.
+// appendDecision appends text as decision id on epic, answering question (0 for a note), made by maker, as the next
+// seq dated at, and moves the epic's changed to at.
 func appendDecision(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
 	epic, id, text string,
 	question int64,
+	maker Maker,
 	at time.Time,
 ) (EpicDecision, error) {
 	maxSeq, err := queries.MaxEpicDecisionSeq(ctx, epic)
@@ -1077,10 +1084,11 @@ func appendDecision(
 		return EpicDecision{}, fmt.Errorf("read decision count of epic %s: %w", epic, err)
 	}
 	decision := EpicDecision{
-		Seq: maxSeq + 1, ID: id, Text: text, Time: time.Unix(at.Unix(), 0), Question: question,
+		Seq: maxSeq + 1, ID: id, Text: text, Time: time.Unix(at.Unix(), 0), Question: question, Maker: maker,
 	}
 	if err = queries.InsertEpicDecision(ctx, sqlcgen.InsertEpicDecisionParams{
 		Epic: epic, Seq: decision.Seq, ClientID: id, Text: text, Time: at.Unix(), Question: question,
+		Maker: maker.By, MakerSession: maker.Session,
 	}); err != nil {
 		return EpicDecision{}, fmt.Errorf("insert decision %s on epic %s: %w", id, epic, err)
 	}
@@ -1135,6 +1143,7 @@ func epicDecisionOf(decision sqlcgen.EpicDecision) EpicDecision {
 		Text:     decision.Text,
 		Time:     time.Unix(decision.Time, 0),
 		Question: decision.Question,
+		Maker:    Maker{By: decision.Maker, Session: decision.MakerSession},
 	}
 }
 

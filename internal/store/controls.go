@@ -280,8 +280,8 @@ func endedPhase(phase string) bool {
 // write. The decision's id is `owner-kick:<seq>` for the decision's seq, which the store assigns, and the trigger has
 // the same id, so the planner claims it at the epic's next plan run and its turn prompt shows text. An unknown epic is
 // ErrNoEpic. An epic in an ended phase, a paused epic and a parked epic are refused and write nothing; the refusal for
-// a parked epic names orrery epic retry, which ends the park.
-func (s *Store) KickEpic(ctx context.Context, epic, text string, at time.Time) error {
+// a parked epic names orrery epic retry, which ends the park. The decision records maker as who made it.
+func (s *Store) KickEpic(ctx context.Context, epic, text string, maker Maker, at time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		head, err := epicHead(ctx, queries, epic)
 		if err != nil {
@@ -302,7 +302,7 @@ func (s *Store) KickEpic(ctx context.Context, epic, text string, at time.Time) e
 			return fmt.Errorf("read decision count of epic %s: %w", epic, err)
 		}
 		id := fmt.Sprintf("owner-kick:%d", next+1)
-		if _, err = appendDecision(ctx, queries, epic, id, text, 0, at); err != nil {
+		if _, err = appendDecision(ctx, queries, epic, id, text, 0, maker, at); err != nil {
 			return err
 		}
 		if err = queries.InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{

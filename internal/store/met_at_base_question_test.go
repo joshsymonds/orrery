@@ -121,7 +121,7 @@ func TestMetAtBaseQuestionRetryRerunsTheRunAtNextAttemptAndUnparks(t *testing.T)
 	createEpic(t, s, fullEpic(claimEpic))
 	parkRedMetAtBase(t, s)
 
-	answer, err := s.AnswerQuestion(context.Background(), claimEpic, "D3", "", 1, ChoiceRetry, claimedAt())
+	answer, err := s.AnswerQuestion(context.Background(), claimEpic, "D3", "", 1, ChoiceRetry, Maker{}, claimedAt())
 	if err != nil {
 		t.Fatalf("AnswerQuestion retry: %v", err)
 	}
@@ -157,8 +157,9 @@ func TestMetAtBaseQuestionDropMarksRequirementsDroppedAndRerunsAndUnparks(t *tes
 	createEpic(t, s, fullEpic(claimEpic))
 	parkRedMetAtBase(t, s)
 
-	answer, err := s.AnswerQuestion(context.Background(), claimEpic, "D3", "R1 is already met", 1, ChoiceDrop,
+	answer, err := s.AnswerQuestion(context.Background(), claimEpic, "D3", "R1 is already met", 1, ChoiceDrop, Maker{},
 		claimedAt())
+
 	if err != nil {
 		t.Fatalf("AnswerQuestion drop: %v", err)
 	}
@@ -196,7 +197,7 @@ func TestMetAtBaseQuestionEndSetsPhaseAndStaysParked(t *testing.T) {
 	createEpic(t, s, fullEpic(claimEpic))
 	parkRedMetAtBase(t, s)
 
-	if _, err := s.AnswerQuestion(ctx, claimEpic, "D3", "", 1, ChoiceEnd, claimedAt()); err != nil {
+	if _, err := s.AnswerQuestion(ctx, claimEpic, "D3", "", 1, ChoiceEnd, Maker{}, claimedAt()); err != nil {
 		t.Fatalf("AnswerQuestion end: %v", err)
 	}
 	row := storedEpicRow(t, s)

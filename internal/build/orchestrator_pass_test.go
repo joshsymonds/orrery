@@ -246,7 +246,16 @@ func TestOrchestratePassAskHoldsTheTaskUntilTheOwnerAnswersThenOrchestratesAgain
 	if n := f.startCount(orchID(0, 1)); n != 0 {
 		t.Fatalf("orchestrator started %d times before the answer, want none", n)
 	}
-	if _, err := f.store.AnswerQuestion(f.ctx, passEpic, "a1", "edit it", asked.Seq, "edit", passClock()); err != nil {
+	if _, err := f.store.AnswerQuestion(
+		f.ctx,
+		passEpic,
+		"a1",
+		"edit it",
+		asked.Seq,
+		"edit",
+		store.Maker{},
+		passClock(),
+	); err != nil {
 		t.Fatalf("AnswerQuestion: %v", err)
 	}
 	f.pass()

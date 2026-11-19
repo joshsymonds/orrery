@@ -198,8 +198,16 @@ func TestRunnerAnswerOtherWithWordsToParkQuestionHoldsWordsInNextPrompt(t *testi
 	broken.Store(false)
 
 	const words = "use the files store"
-	if _, err := s.AnswerQuestion(context.Background(), runnerEpicID, "answer-1", words, 1, store.ChoiceOther,
-		claimedAt()); err != nil {
+	if _, err := s.AnswerQuestion(
+		context.Background(),
+		runnerEpicID,
+		"answer-1",
+		words,
+		1,
+		store.ChoiceOther,
+		store.Maker{},
+		claimedAt(),
+	); err != nil {
 		t.Fatalf("AnswerQuestion of the park question with other: %v", err)
 	}
 	if got := epicOf(t, s).Parked; got != "" {

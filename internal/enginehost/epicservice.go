@@ -38,9 +38,13 @@ type EpicCommands interface {
 	EpicHistory(ctx context.Context, id string) (store.EpicHistory, error)
 	Epics(ctx context.Context) ([]store.EpicRow, error)
 	EpicListings(ctx context.Context) ([]store.EpicRow, error)
-	AnswerEpic(ctx context.Context, epic, id, text string, at time.Time) (store.EpicDecision, error)
+	CallerMaker(ctx context.Context, caller store.EpicCaller) (store.Maker, error)
+	AnswerEpic(
+		ctx context.Context, epic, id, text string, maker store.Maker, at time.Time,
+	) (store.EpicDecision, error)
 	AnswerQuestion(
-		ctx context.Context, epic, id, text string, question int64, choice string, at time.Time,
+		ctx context.Context, epic, id, text string, question int64, choice string, maker store.Maker,
+		at time.Time,
 	) (store.EpicDecision, error)
 	OpenQuestions(ctx context.Context, epic string) ([]store.EpicQuestion, error)
 	Follows(ctx context.Context) ([]store.LabelFollow, error)
@@ -49,8 +53,8 @@ type EpicCommands interface {
 	StopEpic(ctx context.Context, epic string) (string, error)
 	RetryEpic(ctx context.Context, epic string) error
 	RetryNode(ctx context.Context, epic, node string) error
-	KickEpic(ctx context.Context, epic, text string, at time.Time) error
-	ReleaseEpic(ctx context.Context, epic string, undoNone []int64, at time.Time) error
+	KickEpic(ctx context.Context, epic, text string, maker store.Maker, at time.Time) error
+	ReleaseEpic(ctx context.Context, epic string, undoNone []int64, maker store.Maker, at time.Time) error
 	CloseEpic(ctx context.Context, epic, kind, by, closer string, at time.Time) (string, error)
 	AmendEvidence(
 		ctx context.Context,
@@ -78,6 +82,17 @@ func (s *epicService) ready() error {
 		return refuseEpic(connect.CodeUnavailable, epicUnavailableMessage)
 	}
 	return nil
+}
+
+// callerMaker returns who made the call whose headers are header, as the store resolves its caller. Headers that
+// name no caller make the owner the maker.
+func (s *epicService) callerMaker(ctx context.Context, header http.Header) (store.Maker, error) {
+	caller, _ := epicCallerOf(header)
+	maker, err := s.epics.CallerMaker(ctx, caller)
+	if err != nil {
+		return store.Maker{}, epicStoreError(err)
+	}
+	return maker, nil
 }
 
 // CreateEpic checks the contract with checkEpic, merges its reviewers, resolves its base to the full commit the base
@@ -234,15 +249,20 @@ func (s *epicService) AnswerEpic(
 	if err := checkEpicAnswer(req.Msg); err != nil {
 		return nil, err
 	}
+	maker, err := s.callerMaker(ctx, req.Header())
+	if err != nil {
+		return nil, err
+	}
 	if req.Msg.GetQuestion() == "" {
-		return s.answerNote(ctx, req.Msg)
+		return s.answerNote(ctx, req.Msg, maker)
 	}
 	seq, ok := questionSeq(req.Msg.GetQuestion())
 	if !ok {
 		return nil, questionNotFound(req.Msg)
 	}
 	decision, err := s.epics.AnswerQuestion(
-		ctx, req.Msg.GetEpicId(), req.Msg.GetId(), req.Msg.GetText(), seq, req.Msg.GetChoice(), time.Now(),
+		ctx, req.Msg.GetEpicId(), req.Msg.GetId(), req.Msg.GetText(), seq, req.Msg.GetChoice(), maker,
+		time.Now(),
 	)
 	if err != nil {
 		return nil, answerError(req.Msg, err)
@@ -250,12 +270,14 @@ func (s *epicService) AnswerEpic(
 	return connect.NewResponse(&v1.AnswerEpicResponse{Decision: decisionMessage(decision)}), nil
 }
 
-// answerNote records the note req is, and returns it with the warning naming the open questions when any are open.
+// answerNote records the note req is, made by maker, and returns it with the warning naming the open questions when
+// any are open.
 func (s *epicService) answerNote(
 	ctx context.Context,
 	req *v1.AnswerEpicRequest,
+	maker store.Maker,
 ) (*connect.Response[v1.AnswerEpicResponse], error) {
-	decision, err := s.epics.AnswerEpic(ctx, req.GetEpicId(), req.GetId(), req.GetText(), time.Now())
+	decision, err := s.epics.AnswerEpic(ctx, req.GetEpicId(), req.GetId(), req.GetText(), maker, time.Now())
 	if err != nil {
 		return nil, answerError(req, err)
 	}
@@ -511,7 +533,11 @@ func (s *epicService) KickEpic(
 	if isBlank(req.Msg.GetText()) {
 		return nil, refuseEpic(connect.CodeInvalidArgument, "text: empty")
 	}
-	if err := s.epics.KickEpic(ctx, id, req.Msg.GetText(), time.Now()); err != nil {
+	maker, err := s.callerMaker(ctx, req.Header())
+	if err != nil {
+		return nil, err
+	}
+	if err = s.epics.KickEpic(ctx, id, req.Msg.GetText(), maker, time.Now()); err != nil {
 		return nil, epicControlError(id, err)
 	}
 	message, err := s.storedEpic(ctx, id)
@@ -545,7 +571,11 @@ func (s *epicService) ReleaseEpic(
 		}
 		undoNone = append(undoNone, int64(position))
 	}
-	if err := s.epics.ReleaseEpic(ctx, id, undoNone, time.Now()); err != nil {
+	maker, err := s.callerMaker(ctx, req.Header())
+	if err != nil {
+		return nil, err
+	}
+	if err = s.epics.ReleaseEpic(ctx, id, undoNone, maker, time.Now()); err != nil {
 		return nil, epicControlError(id, err)
 	}
 	message, err := s.storedEpic(ctx, id)
@@ -1109,7 +1139,10 @@ func contractMessage(row store.EpicRow) *v1.EpicContract {
 
 // decisionMessage returns the EpicDecision message of d, its question as Q<n> when it answers one, empty for a note.
 func decisionMessage(d store.EpicDecision) *v1.EpicDecision {
-	return &v1.EpicDecision{Seq: d.Seq, Id: d.ID, Text: d.Text, Time: d.Time.Unix(), Question: questionRef(d.Question)}
+	return &v1.EpicDecision{
+		Seq: d.Seq, Id: d.ID, Text: d.Text, Time: d.Time.Unix(), Question: questionRef(d.Question),
+		By: d.Maker.By, Session: d.Maker.Session,
+	}
 }
 
 // turnMessage returns the EpicTurn message of turn. Ended is 0 while the turn runs.

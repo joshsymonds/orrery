@@ -370,7 +370,7 @@ func TestRunnerConcludeKilledAfterItsEndingThenReleasedEndsEpicOnce(t *testing.T
 	killed.kinds[concludeNodeKind] = conclude
 	killed.passFlow(ctx, store.EpicRow{ID: runEpic}, runnerFlow(concludeNodeKind))
 
-	if err := s.ReleaseEpic(ctx, runEpic, nil, runClock().Add(time.Minute)); err != nil {
+	if err := s.ReleaseEpic(ctx, runEpic, nil, store.Maker{}, runClock().Add(time.Minute)); err != nil {
 		t.Fatalf("ReleaseEpic: %v", err)
 	}
 	restarted := runnerReviewRunner(s, runnerReviewers{}, s)

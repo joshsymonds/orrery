@@ -36,9 +36,9 @@ func isUndoNone(undo string) bool {
 // stores a named release run for each distinct position in undoNone for the release node run's next attempt, records one
 // owner decision per such position, moves the release node run to that attempt and unparks epic as RetryNode does, moves
 // epic from stopped to releasing, and adds one tell that says where the release resumed.
-func (s *Store) ReleaseEpic(ctx context.Context, epic string, undoNone []int64, at time.Time) error {
+func (s *Store) ReleaseEpic(ctx context.Context, epic string, undoNone []int64, maker Maker, at time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		return resumeRelease(ctx, queries, epic, undoNone, at)
+		return resumeRelease(ctx, queries, epic, undoNone, maker, at)
 	})
 }
 
@@ -51,18 +51,18 @@ type releaseResume struct {
 	unfinished int64
 }
 
-// resumeRelease releases epic in the caller's write, as ReleaseEpic does.
+// resumeRelease releases epic in the caller's write, as ReleaseEpic does, for maker.
 func resumeRelease(
-	ctx context.Context, queries *sqlcgen.Queries, epic string, undoNone []int64, at time.Time,
+	ctx context.Context, queries *sqlcgen.Queries, epic string, undoNone []int64, maker Maker, at time.Time,
 ) error {
 	head, err := epicHead(ctx, queries, epic)
 	if err != nil {
 		return err
 	}
 	if head.Phase == phaseEndedWithGaps {
-		return releaseEndedWithGaps(ctx, queries, head.ID, undoNone, at)
+		return releaseEndedWithGaps(ctx, queries, head.ID, undoNone, maker, at)
 	}
-	return resumeStoppedRelease(ctx, queries, head, undoNone, at)
+	return resumeStoppedRelease(ctx, queries, head, undoNone, maker, at)
 }
 
 // resumeReleaseByPlanner resumes the stopped release of epic for a planner's resume_release action, in the caller's
@@ -90,14 +90,15 @@ func resumeReleaseByPlanner(
 	if holder != epic {
 		return RefusalError(fmt.Sprintf("epic %s does not hold the release slot of %s", epic, head.Repository))
 	}
-	return resumeStoppedRelease(ctx, queries, head, undoNone, at)
+	return resumeStoppedRelease(ctx, queries, head, undoNone, Maker{By: MakerOrreryd}, at)
 }
 
 // resumeStoppedRelease resumes the stopped release of head in the caller's write, as ReleaseEpic does for an epic that is
 // not ended with gaps: it takes the release slot, stores the named releases, moves the release node run to its next
-// attempt and unparks epic, and moves epic to releasing with the tell that says where it resumed.
+// attempt and unparks epic, and moves epic to releasing with the tell that says where it resumed. The owner
+// decisions it records are made by maker.
 func resumeStoppedRelease(
-	ctx context.Context, queries *sqlcgen.Queries, head sqlcgen.Epic, undoNone []int64, at time.Time,
+	ctx context.Context, queries *sqlcgen.Queries, head sqlcgen.Epic, undoNone []int64, maker Maker, at time.Time,
 ) error {
 	epic := head.ID
 	resume, err := checkReleaseResume(ctx, queries, head, undoNone)
@@ -110,7 +111,7 @@ func resumeStoppedRelease(
 	if err != nil {
 		return fmt.Errorf("take release slot of epic %s: %w", epic, err)
 	}
-	err = recordNamedReleases(ctx, queries, epic, resume, at)
+	err = recordNamedReleases(ctx, queries, epic, resume, maker, at)
 	if err != nil {
 		return err
 	}
@@ -129,13 +130,13 @@ func resumeStoppedRelease(
 // moves epic to clean, so its release run takes the release slot of its repository. It is a RefusalError when undoNone
 // names any position, since epic has not started a release.
 func releaseEndedWithGaps(
-	ctx context.Context, queries *sqlcgen.Queries, epic string, undoNone []int64, at time.Time,
+	ctx context.Context, queries *sqlcgen.Queries, epic string, undoNone []int64, maker Maker, at time.Time,
 ) error {
 	if len(undoNone) > 0 {
 		return RefusalError(fmt.Sprintf("epic %s has not started a release; name no undo-none step", epic))
 	}
 	text := fmt.Sprintf("owner released epic %s, which ended with gaps", epic)
-	if _, err := appendDecision(ctx, queries, epic, releaseEndedWithGapsID, text, 0, at); err != nil {
+	if _, err := appendDecision(ctx, queries, epic, releaseEndedWithGapsID, text, 0, maker, at); err != nil {
 		return err
 	}
 	return setEpicPhase(ctx, queries, epic, PhaseClean, at)
@@ -188,7 +189,7 @@ func checkReleaseResume(
 // recordNamedReleases stores, in the caller's write, the named release run and the owner decision of each named
 // position of resume, for the next attempt of its parked release node run.
 func recordNamedReleases(
-	ctx context.Context, queries *sqlcgen.Queries, epic string, resume releaseResume, at time.Time,
+	ctx context.Context, queries *sqlcgen.Queries, epic string, resume releaseResume, maker Maker, at time.Time,
 ) error {
 	attempt := resume.parked.Attempt + 1
 	for _, position := range resume.named {
@@ -201,7 +202,7 @@ func recordNamedReleases(
 		}
 		decision := fmt.Sprintf("owner named undo-none release step %d, %s, to run it again", position, step)
 		id := fmt.Sprintf("release-undo-none-%d-%d", position, attempt)
-		if _, err := appendDecision(ctx, queries, epic, id, decision, 0, at); err != nil {
+		if _, err := appendDecision(ctx, queries, epic, id, decision, 0, maker, at); err != nil {
 			return err
 		}
 	}

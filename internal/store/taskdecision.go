@@ -39,7 +39,7 @@ func (s *Store) RerunTask(
 		if err := grantFiles(ctx, queries, epic, seq, from, to, version, behind, decision.ID, at); err != nil {
 			return err
 		}
-		_, err := appendDecision(ctx, queries, epic, decision.ID, decision.Text, 0, at)
+		_, err := appendDecision(ctx, queries, epic, decision.ID, decision.Text, 0, Maker{By: MakerOrreryd}, at)
 		return err
 	})
 }
@@ -78,7 +78,7 @@ func (s *Store) AskTask(
 		if tellErr := insertQuestionTell(ctx, queries, epic, tell, asked, at); tellErr != nil {
 			return tellErr
 		}
-		_, err = appendDecision(ctx, queries, epic, decision.ID, decision.Text, 0, at)
+		_, err = appendDecision(ctx, queries, epic, decision.ID, decision.Text, 0, Maker{By: MakerOrreryd}, at)
 		return err
 	})
 }
