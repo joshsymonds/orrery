@@ -3570,7 +3570,9 @@ type StoredEpic struct {
 	// The class of the epic's park, which says who answers it. Empty when the epic is not parked.
 	ParkClass string `protobuf:"bytes,27,opt,name=park_class,json=parkClass,proto3" json:"park_class,omitempty"`
 	// The amendments of the evidence items of the epic's Requirements, in the order they were asked for.
-	Amendments    []*EpicAmendment `protobuf:"bytes,28,rep,name=amendments,proto3" json:"amendments,omitempty"`
+	Amendments []*EpicAmendment `protobuf:"bytes,28,rep,name=amendments,proto3" json:"amendments,omitempty"`
+	// The epic a close named as its replacement, empty when the epic is not closed or its close named none.
+	SupersededBy  string `protobuf:"bytes,29,opt,name=superseded_by,json=supersededBy,proto3" json:"superseded_by,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3799,6 +3801,13 @@ func (x *StoredEpic) GetAmendments() []*EpicAmendment {
 		return x.Amendments
 	}
 	return nil
+}
+
+func (x *StoredEpic) GetSupersededBy() string {
+	if x != nil {
+		return x.SupersededBy
+	}
+	return ""
 }
 
 // EpicReleaseRun is one release run of an epic: the candidate it starts from, a release step, a named step, or the judge.
@@ -6791,7 +6800,7 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\x05round\x18\x01 \x01(\x03R\x05round\x12\x1a\n" +
 	"\brevision\x18\x02 \x01(\tR\brevision\x12\x14\n" +
 	"\x05tasks\x18\x03 \x03(\x03R\x05tasks\x12\x18\n" +
-	"\aoutcome\x18\x04 \x01(\tR\aoutcome\"\xc0\t\n" +
+	"\aoutcome\x18\x04 \x01(\tR\aoutcome\"\xe5\t\n" +
 	"\n" +
 	"StoredEpic\x12:\n" +
 	"\bcontract\x18\x01 \x01(\v2\x1e.orrery.engine.v1.EpicContractR\bcontract\x12\x14\n" +
@@ -6825,7 +6834,8 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"park_class\x18\x1b \x01(\tR\tparkClass\x12?\n" +
 	"\n" +
 	"amendments\x18\x1c \x03(\v2\x1f.orrery.engine.v1.EpicAmendmentR\n" +
-	"amendments\"\xa0\x02\n" +
+	"amendments\x12#\n" +
+	"\rsuperseded_by\x18\x1d \x01(\tR\fsupersededBy\"\xa0\x02\n" +
 	"\x0eEpicReleaseRun\x12\x12\n" +
 	"\x04part\x18\x01 \x01(\tR\x04part\x12\x1a\n" +
 	"\bposition\x18\x02 \x01(\x03R\bposition\x12\x18\n" +

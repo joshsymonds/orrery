@@ -106,6 +106,14 @@ func (f *fakeCommands) Withdraw(_ context.Context, id, promptID string) ([]strin
 	return nil, f.record(call{method: "Withdraw", id: id, promptID: promptID})
 }
 
+func (f *fakeCommands) NotNow(_ context.Context, req PutOffRequest) error {
+	return f.record(call{method: "NotNow", id: req.ID, requestID: req.RequestID})
+}
+
+func (f *fakeCommands) BringBack(_ context.Context, req PutOffRequest) error {
+	return f.record(call{method: "BringBack", id: req.ID, requestID: req.RequestID})
+}
+
 // startServer listens on a socket in a temp directory and serves commands on it, with no steps. The returned stop
 // cancels the server's context and returns Serve's error. A test that does not call stop gets it through t.Cleanup.
 func startServer(t *testing.T, commands Commands) (string, func() error) {

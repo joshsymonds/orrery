@@ -34,6 +34,7 @@ public  final class EpicsGetResponse extends
     sessions_ = emptyProtobufList();
     repository_ = "";
     releaseSteps_ = emptyProtobufList();
+    supersededBy_ = "";
   }
   private int bitField0_;
   public static final int EPIC_FIELD_NUMBER = 1;
@@ -2225,6 +2226,78 @@ public  final class EpicsGetResponse extends
   private void clearPlannerParked() {
 
     plannerParked_ = false;
+  }
+
+  public static final int SUPERSEDED_BY_FIELD_NUMBER = 21;
+  private java.lang.String supersededBy_;
+  /**
+   * <pre>
+   * The orreryd epic a close named as its replacement; empty when its close named none, when it is not closed, and for
+   * a record epic.
+   * </pre>
+   *
+   * <code>string superseded_by = 21 [json_name = "supersededBy"];</code>
+   * @return The supersededBy.
+   */
+  @java.lang.Override
+  public java.lang.String getSupersededBy() {
+    return supersededBy_;
+  }
+  /**
+   * <pre>
+   * The orreryd epic a close named as its replacement; empty when its close named none, when it is not closed, and for
+   * a record epic.
+   * </pre>
+   *
+   * <code>string superseded_by = 21 [json_name = "supersededBy"];</code>
+   * @return The bytes for supersededBy.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getSupersededByBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(supersededBy_);
+  }
+  /**
+   * <pre>
+   * The orreryd epic a close named as its replacement; empty when its close named none, when it is not closed, and for
+   * a record epic.
+   * </pre>
+   *
+   * <code>string superseded_by = 21 [json_name = "supersededBy"];</code>
+   * @param value The supersededBy to set.
+   */
+  private void setSupersededBy(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    supersededBy_ = value;
+  }
+  /**
+   * <pre>
+   * The orreryd epic a close named as its replacement; empty when its close named none, when it is not closed, and for
+   * a record epic.
+   * </pre>
+   *
+   * <code>string superseded_by = 21 [json_name = "supersededBy"];</code>
+   */
+  private void clearSupersededBy() {
+
+    supersededBy_ = getDefaultInstance().getSupersededBy();
+  }
+  /**
+   * <pre>
+   * The orreryd epic a close named as its replacement; empty when its close named none, when it is not closed, and for
+   * a record epic.
+   * </pre>
+   *
+   * <code>string superseded_by = 21 [json_name = "supersededBy"];</code>
+   * @param value The bytes for supersededBy to set.
+   */
+  private void setSupersededByBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    supersededBy_ = value.toStringUtf8();
+
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetResponse parseFrom(
@@ -4689,6 +4762,80 @@ public  final class EpicsGetResponse extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The orreryd epic a close named as its replacement; empty when its close named none, when it is not closed, and for
+     * a record epic.
+     * </pre>
+     *
+     * <code>string superseded_by = 21 [json_name = "supersededBy"];</code>
+     * @return The supersededBy.
+     */
+    @java.lang.Override
+    public java.lang.String getSupersededBy() {
+      return instance.getSupersededBy();
+    }
+    /**
+     * <pre>
+     * The orreryd epic a close named as its replacement; empty when its close named none, when it is not closed, and for
+     * a record epic.
+     * </pre>
+     *
+     * <code>string superseded_by = 21 [json_name = "supersededBy"];</code>
+     * @return The bytes for supersededBy.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getSupersededByBytes() {
+      return instance.getSupersededByBytes();
+    }
+    /**
+     * <pre>
+     * The orreryd epic a close named as its replacement; empty when its close named none, when it is not closed, and for
+     * a record epic.
+     * </pre>
+     *
+     * <code>string superseded_by = 21 [json_name = "supersededBy"];</code>
+     * @param value The supersededBy to set.
+     * @return This builder for chaining.
+     */
+    public Builder setSupersededBy(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setSupersededBy(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic a close named as its replacement; empty when its close named none, when it is not closed, and for
+     * a record epic.
+     * </pre>
+     *
+     * <code>string superseded_by = 21 [json_name = "supersededBy"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearSupersededBy() {
+      copyOnWrite();
+      instance.clearSupersededBy();
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic a close named as its replacement; empty when its close named none, when it is not closed, and for
+     * a record epic.
+     * </pre>
+     *
+     * <code>string superseded_by = 21 [json_name = "supersededBy"];</code>
+     * @param value The bytes for supersededBy to set.
+     * @return This builder for chaining.
+     */
+    public Builder setSupersededByBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setSupersededByBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.EpicsGetResponse)
   }
   @java.lang.Override
@@ -4738,12 +4885,13 @@ public  final class EpicsGetResponse extends
             io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseProof.class,
             "report_",
             "plannerParked_",
+            "supersededBy_",
           };
           java.lang.String info =
-              "\u0000\u0014\u0000\u0001\u0001\u0014\u0014\u0000\f\u0000\u0001\u1009\u0000\u0002" +
+              "\u0000\u0015\u0000\u0001\u0001\u0015\u0015\u0000\f\u0000\u0001\u1009\u0000\u0002" +
               "\u001b\u0003\u001b\u0004\u001b\u0005\u001b\u0006\u001b\u0007\u001b\b\u001b\t\u1009" +
               "\u0001\n\u0007\u000b\u0208\f\u0208\r\u001b\u000e\u001b\u000f\u001b\u0010\u001b\u0011" +
-              "\u0208\u0012\u001b\u0013\u1009\u0002\u0014\u0007";
+              "\u0208\u0012\u001b\u0013\u1009\u0002\u0014\u0007\u0015\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

@@ -58,7 +58,8 @@ type EpicTurn struct {
 // Build is its build state, Reviews its reviews in attempt then position order, and Red and Green the evidence runs
 // its build names, nil when it names none or when the run is not current with Evidence. Batch is the path of the
 // integrate run that claimed the task, "" while none has. NeedsFiles are the paths beyond its owned Files that its
-// implementer named when it failed, in the order it named them.
+// implementer named when it failed, in the order it named them. GateChanges are the gate-needed changes its
+// implementers declared with a commit the guard passed, one per file in the order first declared.
 type EpicTask struct {
 	Seq          int64
 	Turn         int64
@@ -77,6 +78,7 @@ type EpicTask struct {
 	Green        *EvidenceRun
 	Batch        string
 	NeedsFiles   []string
+	GateChanges  []GateChange
 	// Version is the number of the task's current version: its highest applied version, or 1 when none is applied. The
 	// Deliverable, TestChanges, Gate and Evidence above are the current version's.
 	Version int64
@@ -300,12 +302,16 @@ func taskOf(
 	if err != nil {
 		return EpicTask{}, fmt.Errorf("task %d needs files: %w", stored.Seq, err)
 	}
+	gateChanges, err := decodeList[GateChange](stored.GateChanges)
+	if err != nil {
+		return EpicTask{}, fmt.Errorf("task %d gate changes: %w", stored.Seq, err)
+	}
 	task := EpicTask{
 		Seq: stored.Seq, Turn: stored.Turn, Title: stored.Title, Deliverable: stored.Deliverable,
 		Files: files, Requirements: requirements, Contributes: contributes, TestChanges: testChanges,
 		Gate: stored.Gate, Evidence: item,
 		Status: stored.Status, Build: buildOf(stored), Reviews: reviews, Batch: stored.Batch,
-		NeedsFiles: needsFiles, Version: 1, Versions: versions,
+		NeedsFiles: needsFiles, GateChanges: gateChanges, Version: 1, Versions: versions,
 	}
 	overlayVersions(&task)
 	if task.Build.RedRun != "" {
@@ -662,7 +668,7 @@ func insertQuestions(
 				return fmt.Errorf("question %q: %w", question.Label, replaceErr)
 			}
 		}
-		return queries.InsertEpicQuestion(ctx, sqlcgen.InsertEpicQuestionParams{
+		return queries.InsertEpicQuestion(withEpicEvent(ctx), sqlcgen.InsertEpicQuestionParams{
 			Epic: epic, Seq: seq, Turn: turn, Text: question.Text, Label: question.Label, Choices: string(choices),
 			Recommended: question.Recommended, Why: question.Why, Confidence: question.Confidence, Replaces: replaces,
 		})

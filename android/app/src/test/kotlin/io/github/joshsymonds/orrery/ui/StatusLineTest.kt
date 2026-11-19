@@ -77,7 +77,7 @@ class StatusLineTest {
 
     @Test
     fun stepWaitReadsAsABackgroundWait() {
-        setLine(pane("working", changed = now - 5_000, tool = toolStartedAt(now - 40, name = "mcp__orrery__step_wait")))
+        setLine(pane("working", changed = now - 5_000, tool = toolStartedAt(now - 40, name = "mcp__orrery__Monitor")))
 
         composeRule.onNodeWithText("background").assertIsDisplayed()
         composeRule.onNodeWithText("waiting on background work").assertIsDisplayed()

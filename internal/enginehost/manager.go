@@ -148,6 +148,15 @@ type Store interface {
 // CronWake, when set, is called with a session id after the owner's Say to that session returns nil, and after a turn's
 // end that leaves a session which is not a step with no turn running is stored. It is called with "" whenever a session
 // slot frees. Each call runs on its own goroutine, off the manager's locks (see wakeCron).
+//
+// EventWake, when set, is called with no argument when a caller event may now find its session free to take it: after
+// the owner's Say to a session returns nil, when the owner's Say clears a session's quiet, when a session goes live,
+// when the last request a session has open closes, and when a session slot or step slot frees. It must not block or
+// call the manager: the manager calls it synchronously, including under its locks. Nil does nothing (see wakeEvent).
+//
+// PutOffs stores the owner's put-off marks, which NotNow and BringBack set and clear, and it refuses both as unavailable
+// when nil. Panes reads the panes' questions and reports a pane seen to the notice router, which NotNow and BringBack of a
+// pane need, so it refuses a pane call as unavailable when nil.
 type Config struct {
 	Shell             string
 	Claude            string
@@ -166,6 +175,9 @@ type Config struct {
 	Logger            *slog.Logger
 	Metrics           *telemetry.Daemon
 	CronWake          func(session string)
+	EventWake         func()
+	PutOffs           PutOffStore
+	Panes             PaneQuestions
 }
 
 // liveSession is one running session: its directory, its process, the done channel closed when its pump has finished,
@@ -254,6 +266,11 @@ type Manager struct {
 	metrics          *telemetry.Daemon
 	// cronWake is Config.CronWake, called on its own goroutine (see wakeCron).
 	cronWake func(session string)
+	// eventWake is Config.EventWake, called synchronously (see wakeEvent).
+	eventWake func()
+	// putOffs and panes are Config.PutOffs and Config.Panes, which NotNow and BringBack use.
+	putOffs PutOffStore
+	panes   PaneQuestions
 
 	pumps sync.WaitGroup
 	// calls counts the calls under way that can start or end work (see callsInFlight).
@@ -315,6 +332,9 @@ func NewManager(cfg Config) *Manager {
 		logger:            cfg.Logger,
 		metrics:           cfg.Metrics,
 		cronWake:          cfg.CronWake,
+		eventWake:         cfg.EventWake,
+		putOffs:           cfg.PutOffs,
+		panes:             cfg.Panes,
 		sessions:          map[string]*liveSession{},
 		stopping:          map[string]*liveSession{},
 		stepObservers:     map[string]StepObserver{},
@@ -530,6 +550,7 @@ func (m *Manager) dropKeptLocked(id string) {
 	if m.kept[id] != nil {
 		delete(m.kept, id)
 		m.stepsRunning--
+		m.wakeEvent()
 	}
 }
 
@@ -578,6 +599,7 @@ func (m *Manager) Say(ctx context.Context, req SayRequest) error {
 		return err
 	}
 	m.wakeCron(req.ID)
+	m.wakeEvent()
 	return nil
 }
 
@@ -683,7 +705,10 @@ func (m *Manager) decide(ctx context.Context, live *liveSession, req SayRequest)
 		return func() error { return m.send(ctx, live, message) }, nil
 	}
 	m.mu.Lock()
-	delete(m.quiet, live.id)
+	if _, quiet := m.quiet[live.id]; quiet {
+		delete(m.quiet, live.id)
+		m.wakeEvent()
+	}
 	m.mu.Unlock()
 	wasTurning := m.markSending(live)
 	return func() error { return m.sendSay(ctx, live, message, wasTurning) }, nil
@@ -1561,6 +1586,7 @@ func (m *Manager) register(
 		return nil, errors.Join(errManagerClosed, sess.Stop())
 	}
 	go m.pump(pumpCtx, live, rec, reply)
+	m.wakeEvent()
 	return live, nil
 }
 
@@ -1831,8 +1857,10 @@ func (m *Manager) endSend(live *liveSession) {
 func (m *Manager) closeRequest(live *liveSession, requestID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	_, open := live.requests[requestID]
 	delete(live.requests, requestID)
 	m.updateIdleLocked(live)
+	m.wakeIfNoneOpen(live, open)
 }
 
 // checkStart reports whether a start's directory, prompt and model are usable, before anything is stored.
@@ -1932,6 +1960,7 @@ func (m *Manager) release() {
 	m.reserved--
 	m.mu.Unlock()
 	m.wakeCron("")
+	m.wakeEvent()
 }
 
 // newSessionID returns 128 random bits in hex.
@@ -2087,11 +2116,17 @@ func (m *Manager) pump(ctx context.Context, live *liveSession, rec *recorder, re
 	if m.sessions[live.id] == live {
 		delete(m.sessions, live.id)
 	}
+	freed := true
 	switch {
 	case !live.step:
 		m.reserved--
 	case !live.retired:
 		m.stepsRunning--
+	default:
+		freed = false
+	}
+	if freed {
+		m.wakeEvent()
 	}
 	m.mu.Unlock()
 	close(live.done)
@@ -2374,7 +2409,9 @@ func (m *Manager) noteEvent(live *liveSession, event session.Event, pumping bool
 			live.requests[ev.RequestID] = struct{}{}
 		}
 	case session.RequestCancelled:
+		_, open := live.requests[ev.RequestID]
 		delete(live.requests, ev.RequestID)
+		m.wakeIfNoneOpen(live, open)
 	case session.BackgroundTasks:
 		live.background = len(ev.Tasks) > 0
 	case session.TurnEnded:
@@ -2396,7 +2433,9 @@ func (m *Manager) noteEvent(live *liveSession, event session.Event, pumping bool
 // as sent still follows is followed: the turn stays running, since claude runs that prompt next. Any other turn's end ends
 // the turn, hands a step's turn to its observer and retires a draining session. The caller holds the lock.
 func (m *Manager) noteTurnEndedLocked(live *liveSession, ended session.TurnEnded, pumping bool) noted {
+	hadOpen := len(live.requests) > 0
 	clear(live.requests)
+	m.wakeIfNoneOpen(live, hadOpen)
 	interrupted := live.interrupting
 	live.interrupting = false
 	ownerInterrupted := live.ownerInterrupt
@@ -2502,6 +2541,22 @@ func (m *Manager) changed(ctx context.Context, id string) {
 func (m *Manager) wakeCron(id string) {
 	if m.cronWake != nil {
 		go m.cronWake(id)
+	}
+}
+
+// wakeEvent calls the event hook (see Config.EventWake). The hook does not block, so the caller calls it where the
+// change is made, under the locks the change holds. It does nothing without a hook.
+func (m *Manager) wakeEvent() {
+	if m.eventWake != nil {
+		m.eventWake()
+	}
+}
+
+// wakeIfNoneOpen calls the event hook when live has no request open after a request of it closed, which hadOpen says it
+// had open before the change. The caller holds the lock.
+func (m *Manager) wakeIfNoneOpen(live *liveSession, hadOpen bool) {
+	if hadOpen && len(live.requests) == 0 {
+		m.wakeEvent()
 	}
 }
 

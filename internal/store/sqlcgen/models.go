@@ -425,6 +425,7 @@ type EpicTask struct {
 	Decisions   int64
 	AfterTasks  string
 	Question    int64
+	GateChanges string
 }
 
 type EpicTaskContribute struct {
@@ -690,6 +691,13 @@ type PushedNotice struct {
 	Time    int64
 }
 
+type PutOffQuestion struct {
+	Kind      string
+	SessionID string
+	Question  string
+	PutOffAt  int64
+}
+
 type Session struct {
 	ID            string
 	Server        string
@@ -767,7 +775,6 @@ type Step struct {
 	Agents          string
 	Unowned         int64
 	Caller          string
-	CallerRead      int64
 }
 
 type ToldLimitStep struct {

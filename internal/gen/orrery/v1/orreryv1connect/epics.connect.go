@@ -61,6 +61,10 @@ const (
 	EpicsArchiveProcedure = "/orrery.v1.Epics/Archive"
 	// EpicsUnarchiveProcedure is the fully-qualified name of the Epics's Unarchive RPC.
 	EpicsUnarchiveProcedure = "/orrery.v1.Epics/Unarchive"
+	// EpicsReleaseProcedure is the fully-qualified name of the Epics's Release RPC.
+	EpicsReleaseProcedure = "/orrery.v1.Epics/Release"
+	// EpicsCloseProcedure is the fully-qualified name of the Epics's Close RPC.
+	EpicsCloseProcedure = "/orrery.v1.Epics/Close"
 	// StepsHoldProcedure is the fully-qualified name of the Steps's Hold RPC.
 	StepsHoldProcedure = "/orrery.v1.Steps/Hold"
 	// StepsNudgeProcedure is the fully-qualified name of the Steps's Nudge RPC.
@@ -98,6 +102,12 @@ type EpicsClient interface {
 	Archive(context.Context, *connect.Request[v1.EpicsArchiveRequest]) (*connect.Response[v1.EpicsArchiveResponse], error)
 	// Unarchive clears the archive mark of the named list row, so the lists show it again.
 	Unarchive(context.Context, *connect.Request[v1.EpicsUnarchiveRequest]) (*connect.Response[v1.EpicsUnarchiveResponse], error)
+	// Release releases the named orreryd epic, which resumes its stopped release at the first unfinished step and runs
+	// again the undo-none release steps the owner names.
+	Release(context.Context, *connect.Request[v1.EpicsReleaseRequest]) (*connect.Response[v1.EpicsReleaseResponse], error)
+	// Close closes the named orreryd epic as superseded, shipped by hand or abandoned, and records the owner as its
+	// closer.
+	Close(context.Context, *connect.Request[v1.EpicsCloseRequest]) (*connect.Response[v1.EpicsCloseResponse], error)
 }
 
 // NewEpicsClient constructs a client for the orrery.v1.Epics service. By default, it uses the
@@ -183,6 +193,18 @@ func NewEpicsClient(httpClient connect.HTTPClient, baseURL string, opts ...conne
 			connect.WithSchema(epicsMethods.ByName("Unarchive")),
 			connect.WithClientOptions(opts...),
 		),
+		release: connect.NewClient[v1.EpicsReleaseRequest, v1.EpicsReleaseResponse](
+			httpClient,
+			baseURL+EpicsReleaseProcedure,
+			connect.WithSchema(epicsMethods.ByName("Release")),
+			connect.WithClientOptions(opts...),
+		),
+		close: connect.NewClient[v1.EpicsCloseRequest, v1.EpicsCloseResponse](
+			httpClient,
+			baseURL+EpicsCloseProcedure,
+			connect.WithSchema(epicsMethods.ByName("Close")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -200,6 +222,8 @@ type epicsClient struct {
 	seen      *connect.Client[v1.EpicsSeenRequest, v1.EpicsSeenResponse]
 	archive   *connect.Client[v1.EpicsArchiveRequest, v1.EpicsArchiveResponse]
 	unarchive *connect.Client[v1.EpicsUnarchiveRequest, v1.EpicsUnarchiveResponse]
+	release   *connect.Client[v1.EpicsReleaseRequest, v1.EpicsReleaseResponse]
+	close     *connect.Client[v1.EpicsCloseRequest, v1.EpicsCloseResponse]
 }
 
 // List calls orrery.v1.Epics.List.
@@ -262,6 +286,16 @@ func (c *epicsClient) Unarchive(ctx context.Context, req *connect.Request[v1.Epi
 	return c.unarchive.CallUnary(ctx, req)
 }
 
+// Release calls orrery.v1.Epics.Release.
+func (c *epicsClient) Release(ctx context.Context, req *connect.Request[v1.EpicsReleaseRequest]) (*connect.Response[v1.EpicsReleaseResponse], error) {
+	return c.release.CallUnary(ctx, req)
+}
+
+// Close calls orrery.v1.Epics.Close.
+func (c *epicsClient) Close(ctx context.Context, req *connect.Request[v1.EpicsCloseRequest]) (*connect.Response[v1.EpicsCloseResponse], error) {
+	return c.close.CallUnary(ctx, req)
+}
+
 // EpicsHandler is an implementation of the orrery.v1.Epics service.
 type EpicsHandler interface {
 	// List returns every epic under the record root and in orreryd's database, one per id, live or folded.
@@ -289,6 +323,12 @@ type EpicsHandler interface {
 	Archive(context.Context, *connect.Request[v1.EpicsArchiveRequest]) (*connect.Response[v1.EpicsArchiveResponse], error)
 	// Unarchive clears the archive mark of the named list row, so the lists show it again.
 	Unarchive(context.Context, *connect.Request[v1.EpicsUnarchiveRequest]) (*connect.Response[v1.EpicsUnarchiveResponse], error)
+	// Release releases the named orreryd epic, which resumes its stopped release at the first unfinished step and runs
+	// again the undo-none release steps the owner names.
+	Release(context.Context, *connect.Request[v1.EpicsReleaseRequest]) (*connect.Response[v1.EpicsReleaseResponse], error)
+	// Close closes the named orreryd epic as superseded, shipped by hand or abandoned, and records the owner as its
+	// closer.
+	Close(context.Context, *connect.Request[v1.EpicsCloseRequest]) (*connect.Response[v1.EpicsCloseResponse], error)
 }
 
 // NewEpicsHandler builds an HTTP handler from the service implementation. It returns the path on
@@ -370,6 +410,18 @@ func NewEpicsHandler(svc EpicsHandler, opts ...connect.HandlerOption) (string, h
 		connect.WithSchema(epicsMethods.ByName("Unarchive")),
 		connect.WithHandlerOptions(opts...),
 	)
+	epicsReleaseHandler := connect.NewUnaryHandler(
+		EpicsReleaseProcedure,
+		svc.Release,
+		connect.WithSchema(epicsMethods.ByName("Release")),
+		connect.WithHandlerOptions(opts...),
+	)
+	epicsCloseHandler := connect.NewUnaryHandler(
+		EpicsCloseProcedure,
+		svc.Close,
+		connect.WithSchema(epicsMethods.ByName("Close")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orrery.v1.Epics/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case EpicsListProcedure:
@@ -396,6 +448,10 @@ func NewEpicsHandler(svc EpicsHandler, opts ...connect.HandlerOption) (string, h
 			epicsArchiveHandler.ServeHTTP(w, r)
 		case EpicsUnarchiveProcedure:
 			epicsUnarchiveHandler.ServeHTTP(w, r)
+		case EpicsReleaseProcedure:
+			epicsReleaseHandler.ServeHTTP(w, r)
+		case EpicsCloseProcedure:
+			epicsCloseHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -451,6 +507,14 @@ func (UnimplementedEpicsHandler) Archive(context.Context, *connect.Request[v1.Ep
 
 func (UnimplementedEpicsHandler) Unarchive(context.Context, *connect.Request[v1.EpicsUnarchiveRequest]) (*connect.Response[v1.EpicsUnarchiveResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Epics.Unarchive is not implemented"))
+}
+
+func (UnimplementedEpicsHandler) Release(context.Context, *connect.Request[v1.EpicsReleaseRequest]) (*connect.Response[v1.EpicsReleaseResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Epics.Release is not implemented"))
+}
+
+func (UnimplementedEpicsHandler) Close(context.Context, *connect.Request[v1.EpicsCloseRequest]) (*connect.Response[v1.EpicsCloseResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Epics.Close is not implemented"))
 }
 
 // StepsClient is a client for the orrery.v1.Steps service.

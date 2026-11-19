@@ -2,14 +2,16 @@ package kinds
 
 import "testing"
 
-// TestEndingBody asserts that the body of an ending's notice names its outcome and every gap, in the order given.
+// TestEndingBody asserts that the body of an ending's notice names its outcome and every gap, in the order given, then
+// every finding closed by decision.
 func TestEndingBody(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name  string
-		phase string
-		gaps  []string
-		want  string
+		name    string
+		phase   string
+		gaps    []string
+		decided []string
+		want    string
 	}{
 		{
 			name:  "released with no gaps",
@@ -44,12 +46,26 @@ func TestEndingBody(t *testing.T) {
 			gaps:  []string{"R4: store-y unreachable"},
 			want:  "Ended stopped with 1 gap:\n- R4: store-y unreachable",
 		},
+		{
+			name:    "done with no gaps names each finding closed by decision",
+			phase:   "done",
+			decided: []string{"conformance-1 in round 1", "test_parsimony-1 in round 2"},
+			want:    "Done. No gaps.\nClosed by decision:\n- conformance-1 in round 1\n- test_parsimony-1 in round 2",
+		},
+		{
+			name:    "ended with a gap names the finding closed by decision after the gap",
+			phase:   "ended_with_gaps",
+			gaps:    []string{"security-1: open after 2 rounds"},
+			decided: []string{"conformance-1 in round 1"},
+			want: "Ended with 1 gap:\n- security-1: open after 2 rounds\n" +
+				"Closed by decision:\n- conformance-1 in round 1",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if got := EndingBody(tt.phase, tt.gaps); got != tt.want {
-				t.Fatalf("EndingBody(%q, %q) = %q, want %q", tt.phase, tt.gaps, got, tt.want)
+			if got := EndingBody(tt.phase, tt.gaps, tt.decided); got != tt.want {
+				t.Fatalf("EndingBody(%q, %q, %q) = %q, want %q", tt.phase, tt.gaps, tt.decided, got, tt.want)
 			}
 		})
 	}

@@ -40,6 +40,14 @@ service Epics {
 
   // Unarchive clears the archive mark of the named list row, so the lists show it again.
   rpc Unarchive(EpicsUnarchiveRequest) returns (EpicsUnarchiveResponse);
+
+  // Release releases the named orreryd epic, which resumes its stopped release at the first unfinished step and runs
+  // again the undo-none release steps the owner names.
+  rpc Release(EpicsReleaseRequest) returns (EpicsReleaseResponse);
+
+  // Close closes the named orreryd epic as superseded, shipped by hand or abandoned, and records the owner as its
+  // closer.
+  rpc Close(EpicsCloseRequest) returns (EpicsCloseResponse);
 }
 
 // Steps carries the owner's calls on one labelled step. It has no call that starts a step.
@@ -143,6 +151,10 @@ message EpicsGetResponse {
   // Whether the orreryd epic is parked and the planner holds the park, so the owner is not asked about it; false when it
   // is not parked, when the owner holds its park, and for a record epic. The parked reason is still in parked.
   bool planner_parked = 20;
+
+  // The orreryd epic a close named as its replacement; empty when its close named none, when it is not closed, and for
+  // a record epic.
+  string superseded_by = 21;
 }
 
 // EpicSession is one session that works on an epic, with its newest epic call.
@@ -575,6 +587,33 @@ message EpicsUnarchiveRequest {
 
 // EpicsUnarchiveResponse is the reply to an Unarchive. It has no fields.
 message EpicsUnarchiveResponse {}
+
+// EpicsReleaseRequest names the orreryd epic to release, and the undo-none release steps to run again.
+message EpicsReleaseRequest {
+  // The epic's id.
+  string id = 1;
+
+  // The positions, from 1, of the undo-none release steps the owner names to run again. Empty names none.
+  repeated int32 undo_none = 2;
+}
+
+// EpicsReleaseResponse is the reply to a Release. It has no fields.
+message EpicsReleaseResponse {}
+
+// EpicsCloseRequest names the orreryd epic to close, how it closes, and the epic that replaces it.
+message EpicsCloseRequest {
+  // The epic's id.
+  string id = 1;
+
+  // The close kind: superseded, shipped or abandoned.
+  string kind = 2;
+
+  // The epic that replaces this one. A superseded close requires it.
+  string by = 3;
+}
+
+// EpicsCloseResponse is the reply to a Close. It has no fields.
+message EpicsCloseResponse {}
 
 // Epic is one epic under the record root or in orreryd's database. An id in both is one epic, whose source is orreryd.
 message Epic {

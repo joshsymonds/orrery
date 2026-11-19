@@ -1030,6 +1030,9 @@ message StoredEpic {
 
   // The amendments of the evidence items of the epic's Requirements, in the order they were asked for.
   repeated EpicAmendment amendments = 28;
+
+  // The epic a close named as its replacement, empty when the epic is not closed or its close named none.
+  string superseded_by = 29;
 }
 
 // EpicReleaseRun is one release run of an epic: the candidate it starts from, a release step, a named step, or the judge.

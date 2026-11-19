@@ -3,7 +3,6 @@ package enginehost
 import (
 	"context"
 	"errors"
-	"fmt"
 	"reflect"
 	"slices"
 	"strings"
@@ -17,14 +16,9 @@ import (
 	"github.com/joshsymonds/orrery/internal/agents"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
+	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
 )
-
-// waitCall is one StepCommands.Wait invocation with the arguments it received.
-type waitCall struct {
-	ids     []string
-	timeout time.Duration
-}
 
 // listCall is one StepCommands.List invocation with the labels it received.
 type listCall struct {
@@ -43,11 +37,8 @@ type fakeStepCommands struct {
 	starts  []StepStart
 	stops   []string
 	status  []string
-	waits   []waitCall
 	startID string
 	row     store.StepRow
-	ended   *store.StepRow
-	rows    []store.StepRow
 	listed  []store.StepRow
 	lists   []listCall
 	holds   []string
@@ -76,17 +67,6 @@ func (f *fakeStepCommands) Status(_ context.Context, id string) (store.StepRow, 
 	defer f.mu.Unlock()
 	f.status = append(f.status, id)
 	return f.row, f.err
-}
-
-func (f *fakeStepCommands) Wait(
-	_ context.Context,
-	ids []string,
-	timeout time.Duration,
-) (*store.StepRow, []store.StepRow, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.waits = append(f.waits, waitCall{ids: slices.Clone(ids), timeout: timeout})
-	return f.ended, f.rows, f.err
 }
 
 func (f *fakeStepCommands) List(_ context.Context, epic, task string) ([]store.StepRow, error) {
@@ -139,12 +119,6 @@ func (f *fakeStepCommands) recordedStatus() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return slices.Clone(f.status)
-}
-
-func (f *fakeStepCommands) recordedWaits() []waitCall {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return slices.Clone(f.waits)
 }
 
 func (f *fakeStepCommands) recordedLists() []listCall {
@@ -239,22 +213,23 @@ func fullStep() *v1.Step {
 	}
 }
 
-// callAllSteps calls each of the eight step RPCs once with fixed arguments and returns each error in order: StartStep,
-// StopStep, StepStatus, WaitSteps, ListSteps, HoldStep, NudgeStep, ResumeStep.
+// callAllSteps calls each of the seven step RPCs once with fixed arguments and returns each error in order: StartStep,
+// StopStep, StepStatus, ListSteps, HoldStep, NudgeStep, ResumeStep. The StartStep names session-7 as its caller.
 func callAllSteps(t *testing.T, client enginev1connect.StepsClient) []error {
 	t.Helper()
 	ctx := context.Background()
-	_, startErr := client.StartStep(ctx, connect.NewRequest(&v1.StartStepRequest{
+	start := connect.NewRequest(&v1.StartStepRequest{
 		Agent: "reviewer", Prompt: "check", Schema: "{}", Workspace: "/work",
-	}))
+	})
+	start.Header().Set(protocol.HeaderSession, "session-7")
+	_, startErr := client.StartStep(ctx, start)
 	_, stopErr := client.StopStep(ctx, connect.NewRequest(&v1.StopStepRequest{Id: "s1"}))
 	_, statusErr := client.StepStatus(ctx, connect.NewRequest(&v1.StepStatusRequest{Id: "s1"}))
-	_, waitErr := client.WaitSteps(ctx, connect.NewRequest(&v1.WaitStepsRequest{Ids: []string{"s1"}}))
 	_, listErr := client.ListSteps(ctx, connect.NewRequest(&v1.ListStepsRequest{Epic: "orrery"}))
 	_, holdErr := client.HoldStep(ctx, connect.NewRequest(&v1.HoldStepRequest{Id: "s1"}))
 	_, nudgeErr := client.NudgeStep(ctx, connect.NewRequest(&v1.NudgeStepRequest{Id: "s1", Text: "continue"}))
 	_, resumeErr := client.ResumeStep(ctx, connect.NewRequest(&v1.ResumeStepRequest{Id: "s1"}))
-	return []error{startErr, stopErr, statusErr, waitErr, listErr, holdErr, nudgeErr, resumeErr}
+	return []error{startErr, stopErr, statusErr, listErr, holdErr, nudgeErr, resumeErr}
 }
 
 func TestStepStartForwardsEveryField(t *testing.T) {
@@ -263,7 +238,7 @@ func TestStepStartForwardsEveryField(t *testing.T) {
 	path, stop := startServerWithSteps(t, nil, fake)
 	client := newStepClient(t, path)
 
-	started, err := client.StartStep(context.Background(), connect.NewRequest(&v1.StartStepRequest{
+	req := connect.NewRequest(&v1.StartStepRequest{
 		Agent:             "reviewer",
 		Prompt:            "check the change",
 		Schema:            `{"type":"object"}`,
@@ -277,7 +252,9 @@ func TestStepStartForwardsEveryField(t *testing.T) {
 		ModelLimitSeconds: 90,
 		Epic:              "orrery",
 		Task:              "h3e1",
-	}))
+	})
+	req.Header().Set(protocol.HeaderSession, "session-7")
+	started, err := client.StartStep(context.Background(), req)
 	if err != nil {
 		t.Fatalf("StartStep: %v", err)
 	}
@@ -302,6 +279,7 @@ func TestStepStartForwardsEveryField(t *testing.T) {
 		DoneValue:  "pass",
 		Epic:       "orrery",
 		Task:       "h3e1",
+		Caller:     store.EpicCaller{Session: "session-7"},
 	}}
 	if got := fake.recordedStarts(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("StartStep reached commands as %+v, want %+v", got, want)
@@ -352,9 +330,11 @@ func TestStartStepZeroModelLimitHandsZero(t *testing.T) {
 	path, stop := startServerWithSteps(t, nil, fake)
 	client := newStepClient(t, path)
 
-	if _, err := client.StartStep(context.Background(), connect.NewRequest(&v1.StartStepRequest{
+	req := connect.NewRequest(&v1.StartStepRequest{
 		Agent: "reviewer", Prompt: "check", Schema: "{}", Workspace: "/work",
-	})); err != nil {
+	})
+	req.Header().Set(protocol.HeaderSession, "session-7")
+	if _, err := client.StartStep(context.Background(), req); err != nil {
 		t.Fatalf("StartStep: %v", err)
 	}
 	if err := stop(); err != nil {
@@ -437,28 +417,6 @@ func TestStepStatusReportsHeldStep(t *testing.T) {
 	}
 	if got := status.Msg.GetStep().GetHeld(); !got {
 		t.Fatalf("StepStatus held = %v, want true", got)
-	}
-}
-
-func TestWaitStepsReportsHeldRows(t *testing.T) {
-	t.Parallel()
-	fake := &fakeStepCommands{rows: []store.StepRow{runningStepRow("s1")}, held: map[string]bool{"s1": true}}
-	path, stop := startServerWithSteps(t, nil, fake)
-	client := newStepClient(t, path)
-
-	waited, err := client.WaitSteps(context.Background(), connect.NewRequest(&v1.WaitStepsRequest{
-		Ids:            []string{"s1"},
-		TimeoutSeconds: 1,
-	}))
-	if err != nil {
-		t.Fatalf("WaitSteps: %v", err)
-	}
-	if err := stop(); err != nil {
-		t.Fatalf("Serve: %v", err)
-	}
-	steps := waited.Msg.GetSteps()
-	if len(steps) != 1 || !steps[0].GetHeld() {
-		t.Fatalf("WaitSteps steps = %v, want one held step", steps)
 	}
 }
 
@@ -620,92 +578,6 @@ func TestStopStepForwardsID(t *testing.T) {
 	}
 }
 
-func TestWaitStepsTimeoutReturnsNoEndedStep(t *testing.T) {
-	t.Parallel()
-	first := runningStepRow("s1")
-	second := runningStepRow("s2")
-	fake := &fakeStepCommands{ended: nil, rows: []store.StepRow{first, second}}
-	path, stop := startServerWithSteps(t, nil, fake)
-	client := newStepClient(t, path)
-
-	waited, err := client.WaitSteps(context.Background(), connect.NewRequest(&v1.WaitStepsRequest{
-		Ids:            []string{"s1", "s2"},
-		TimeoutSeconds: 5,
-	}))
-	if err != nil {
-		t.Fatalf("WaitSteps: %v", err)
-	}
-	if err := stop(); err != nil {
-		t.Fatalf("Serve: %v", err)
-	}
-
-	if waited.Msg.Ended != nil {
-		t.Fatalf("WaitSteps at timeout ended = %v, want unset", waited.Msg.GetEnded())
-	}
-	wantWaits := []waitCall{{ids: []string{"s1", "s2"}, timeout: 5 * time.Second}}
-	if got := fake.recordedWaits(); !reflect.DeepEqual(got, wantWaits) {
-		t.Fatalf("WaitSteps reached commands as %+v, want %+v", got, wantWaits)
-	}
-	wantSteps := []*v1.Step{runningStep("s1"), runningStep("s2")}
-	got := waited.Msg.GetSteps()
-	if len(got) != len(wantSteps) {
-		t.Fatalf("WaitSteps returned %d steps, want %d", len(got), len(wantSteps))
-	}
-	for i := range wantSteps {
-		if !proto.Equal(got[i], wantSteps[i]) {
-			t.Fatalf("WaitSteps step %d = %v, want %v", i, got[i], wantSteps[i])
-		}
-	}
-}
-
-func TestWaitStepsReturnsFirstEndedStep(t *testing.T) {
-	t.Parallel()
-	ended := fullStepRow()
-	fake := &fakeStepCommands{ended: &ended, rows: []store.StepRow{ended, runningStepRow("s2")}}
-	path, stop := startServerWithSteps(t, nil, fake)
-	client := newStepClient(t, path)
-
-	waited, err := client.WaitSteps(context.Background(), connect.NewRequest(&v1.WaitStepsRequest{
-		Ids:            []string{"s1", "s2"},
-		TimeoutSeconds: 600,
-	}))
-	if err != nil {
-		t.Fatalf("WaitSteps: %v", err)
-	}
-	if err := stop(); err != nil {
-		t.Fatalf("Serve: %v", err)
-	}
-
-	if got := waited.Msg.GetEnded(); !proto.Equal(got, fullStep()) {
-		t.Fatalf("WaitSteps ended = %v, want %v", got, fullStep())
-	}
-	if got := len(waited.Msg.GetSteps()); got != 2 {
-		t.Fatalf("WaitSteps returned %d steps, want 2", got)
-	}
-	if got := fake.recordedWaits()[0].timeout; got != 600*time.Second {
-		t.Fatalf("WaitSteps timeout = %v, want 600s", got)
-	}
-}
-
-func TestWaitStepsZeroTimeoutWaitsNotAtAll(t *testing.T) {
-	t.Parallel()
-	fake := &fakeStepCommands{}
-	path, stop := startServerWithSteps(t, nil, fake)
-	client := newStepClient(t, path)
-
-	if _, err := client.WaitSteps(context.Background(), connect.NewRequest(&v1.WaitStepsRequest{
-		Ids: []string{"s1"},
-	})); err != nil {
-		t.Fatalf("WaitSteps: %v", err)
-	}
-	if err := stop(); err != nil {
-		t.Fatalf("Serve: %v", err)
-	}
-	if got := fake.recordedWaits(); len(got) != 1 || got[0].timeout != 0 {
-		t.Fatalf("WaitSteps calls = %+v, want one call with a zero timeout", got)
-	}
-}
-
 func TestStepErrorsMapToConnectCodes(t *testing.T) {
 	cases := []struct {
 		name string
@@ -827,46 +699,4 @@ func runningStep(id string) *v1.Step {
 	step.Reason = ""
 	step.Ended = 0
 	return step
-}
-
-// heldWaitSteps is a fakeStepCommands whose Wait holds until its context ends, as a Steps wait on a step that never
-// ends does, after closing entered. It returns the context's error then, as Steps.Wait does.
-type heldWaitSteps struct {
-	fakeStepCommands
-	entered chan struct{}
-}
-
-func (h *heldWaitSteps) Wait(
-	ctx context.Context, _ []string, _ time.Duration,
-) (*store.StepRow, []store.StepRow, error) {
-	close(h.entered)
-	<-ctx.Done()
-	return nil, nil, fmt.Errorf("wait for steps: %w", ctx.Err())
-}
-
-// TestWaitStepsFailsUnavailableWhenServeStops holds a WaitSteps in its wait, then stops Serve. The wait must end at
-// once with Unavailable, which its caller retries on the next orreryd, so it holds no part of the shutdown: without the
-// stop ending it, the shutdown would wait for it until Close dropped its connection.
-func TestWaitStepsFailsUnavailableWhenServeStops(t *testing.T) {
-	t.Parallel()
-	steps := &heldWaitSteps{entered: make(chan struct{})}
-	path, stop := startServerWithSteps(t, nil, steps)
-	client := newStepClient(t, path)
-
-	waited := make(chan error, 1)
-	go func() {
-		_, err := client.WaitSteps(context.Background(), connect.NewRequest(&v1.WaitStepsRequest{
-			Ids:            []string{"s1"},
-			TimeoutSeconds: 3600,
-		}))
-		waited <- err
-	}()
-	<-steps.entered
-	if err := stop(); err != nil {
-		t.Fatalf("Serve: %v", err)
-	}
-	err := <-waited
-	if connect.CodeOf(err) != connect.CodeUnavailable || !strings.Contains(err.Error(), stoppingMessage) {
-		t.Fatalf("WaitSteps across the stop = %v, want Unavailable naming %q", err, stoppingMessage)
-	}
 }

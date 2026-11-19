@@ -45,15 +45,25 @@ func replanPlan(nodes []workflow.Node) (workflow.Node, bool) {
 // decided, its settle walks, its fan-out and the planner's turn included, and reports true. A release with no running
 // replan plan reports false, and its kind decides it.
 func (p pass) replanning(run store.NodeRun) ([]Action, bool) {
-	def, ok := replanPlan(p.flow.Nodes)
+	def, plan, ok := p.replanRun(run)
 	if !ok {
 		return nil, false
 	}
+	return p.running(def, plan, scope{where: topLevel}), true
+}
+
+// replanRun returns replanPlan's node and its running run under the replan prefix of the release run at its attempt,
+// and false when the workflow has no such plan or that plan does not run.
+func (p pass) replanRun(run store.NodeRun) (workflow.Node, store.NodeRun, bool) {
+	def, ok := replanPlan(p.flow.Nodes)
+	if !ok {
+		return workflow.Node{}, store.NodeRun{}, false
+	}
 	plan, ok := p.byPath[kinds.ReplanPrefix(run.Path, run.Attempt)+def.ID]
 	if !ok || plan.State != store.NodeRunning {
-		return nil, false
+		return workflow.Node{}, store.NodeRun{}, false
 	}
-	return p.running(def, plan, scope{where: topLevel}), true
+	return def, plan, true
 }
 
 // replan returns the work that sends the release run back to planning, for act, the replan its kind decided with the

@@ -8,8 +8,14 @@ import (
 // EndingBody returns the body of the tell that announces an epic's ending in phase. The label of the phase is Released
 // for released, Done for done, Ended for ended_with_gaps, and Ended followed by the phase for any other. With no gaps the
 // body is the label and "No gaps.", as in "Done. No gaps.". With n gaps it is the label and the count, "with 1 gap:" or
-// "with n gaps:", then one "- gap" line per gap in the order given, joined by newlines.
-func EndingBody(phase string, gaps []string) string {
+// "with n gaps:", then one "- gap" line per gap in the order given, joined by newlines. When findings were closed by
+// decision, the decidedLines of decided follow.
+func EndingBody(phase string, gaps, decided []string) string {
+	return strings.Join(append([]string{endingHead(phase, gaps)}, decidedLines(decided)...), "\n")
+}
+
+// endingHead returns the label and gaps part of EndingBody.
+func endingHead(phase string, gaps []string) string {
 	var label string
 	switch phase {
 	case "released":

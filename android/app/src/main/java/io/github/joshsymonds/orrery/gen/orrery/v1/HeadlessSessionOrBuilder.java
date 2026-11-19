@@ -196,4 +196,15 @@ public interface HeadlessSessionOrBuilder extends
    */
   com.google.protobuf.ByteString
       getHeadlineBytes();
+
+  /**
+   * <pre>
+   * true while the owner has put this question off with Control.NotNow and not brought it back; a mark covers one
+   * question, so a new request or a pane that starts waiting again reads false.
+   * </pre>
+   *
+   * <code>bool put_off = 12 [json_name = "putOff"];</code>
+   * @return The putOff.
+   */
+  boolean getPutOff();
 }

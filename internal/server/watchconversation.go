@@ -270,6 +270,9 @@ func (s panesServer) livePane(ctx context.Context, id string) (*v1.Pane, string,
 	if err != nil {
 		return nil, "", err
 	}
+	if markErr := markPanePutOff(ctx, s.reader, msgs); markErr != nil {
+		return nil, "", markErr
+	}
 	var pane *v1.Pane
 	var transcript string
 	for i, msg := range msgs {

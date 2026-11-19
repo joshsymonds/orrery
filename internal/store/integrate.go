@@ -246,7 +246,7 @@ func parkMetAtBase(
 // setEpicPhase stores phase as the phase of epic in the caller's write, at as the time it was set. A phase that epic
 // already has keeps the time it was set.
 func setEpicPhase(ctx context.Context, queries *sqlcgen.Queries, epic, phase string, at time.Time) error {
-	if err := queries.SetEpicPhase(ctx, sqlcgen.SetEpicPhaseParams{
+	if err := queries.SetEpicPhase(withEpicEvent(ctx), sqlcgen.SetEpicPhaseParams{
 		Phase: phase, At: at.Unix(), ID: epic,
 	}); err != nil {
 		return fmt.Errorf("set phase of epic %s: %w", epic, err)

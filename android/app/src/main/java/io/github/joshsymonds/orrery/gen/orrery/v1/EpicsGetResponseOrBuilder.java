@@ -475,4 +475,26 @@ public interface EpicsGetResponseOrBuilder extends
    * @return The plannerParked.
    */
   boolean getPlannerParked();
+
+  /**
+   * <pre>
+   * The orreryd epic a close named as its replacement; empty when its close named none, when it is not closed, and for
+   * a record epic.
+   * </pre>
+   *
+   * <code>string superseded_by = 21 [json_name = "supersededBy"];</code>
+   * @return The supersededBy.
+   */
+  java.lang.String getSupersededBy();
+  /**
+   * <pre>
+   * The orreryd epic a close named as its replacement; empty when its close named none, when it is not closed, and for
+   * a record epic.
+   * </pre>
+   *
+   * <code>string superseded_by = 21 [json_name = "supersededBy"];</code>
+   * @return The bytes for supersededBy.
+   */
+  com.google.protobuf.ByteString
+      getSupersededByBytes();
 }

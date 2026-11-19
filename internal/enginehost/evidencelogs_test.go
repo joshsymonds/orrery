@@ -29,11 +29,11 @@ func (f *evidenceLogsSteps) Start(_ context.Context, start StepStart) (string, e
 	return "judge-1", nil
 }
 
-// Wait returns the judge with the id given as ended done.
-func (f *evidenceLogsSteps) Wait(
-	_ context.Context, ids []string, _ time.Duration,
-) (*store.StepRow, []store.StepRow, error) {
-	return &store.StepRow{ID: ids[0], End: stepLoopEndDone, Status: "done"}, nil, nil
+// Subscribe returns a subscription to the judge with the id given, offered that judge as ended done.
+func (f *evidenceLogsSteps) Subscribe(_ context.Context, ids []string) (*StepSubscription, error) {
+	sub := NewStepSubscription(ids)
+	sub.Offer(store.StepRow{ID: ids[0], End: stepLoopEndDone, Status: "done"})
+	return sub, nil
 }
 
 // recorded returns the prompts of the judges started, in order.

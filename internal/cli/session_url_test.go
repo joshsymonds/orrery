@@ -116,6 +116,20 @@ func (f *urlFake) Resume(
 	return controlReply(f, req.Msg, &orreryv1.ResumeResponse{})
 }
 
+func (f *urlFake) NotNow(
+	_ context.Context,
+	req *connect.Request[orreryv1.NotNowRequest],
+) (*connect.Response[orreryv1.NotNowResponse], error) {
+	return controlReply(f, req.Msg, &orreryv1.NotNowResponse{})
+}
+
+func (f *urlFake) BringBack(
+	_ context.Context,
+	req *connect.Request[orreryv1.BringBackRequest],
+) (*connect.Response[orreryv1.BringBackResponse], error) {
+	return controlReply(f, req.Msg, &orreryv1.BringBackResponse{})
+}
+
 func (f *urlFake) List(
 	context.Context,
 	*connect.Request[orreryv1.ListRequest],

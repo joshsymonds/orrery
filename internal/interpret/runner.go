@@ -20,6 +20,7 @@ import (
 // through. *store.Store satisfies it.
 type Store interface {
 	Epics(ctx context.Context) ([]store.EpicRow, error)
+	OpenNodeRunStates(ctx context.Context) (map[string][]store.NodeRun, error)
 	EpicFlow(ctx context.Context, id string) (store.EpicFlow, error)
 	StartNodes(ctx context.Context, epic string, runs []store.NodeRun, trigger *store.NodeTrigger, at time.Time) error
 	EndNodes(ctx context.Context, epic string, ends []store.NodeEnd, at time.Time) error
@@ -257,7 +258,9 @@ func (r *Runner) Run(ctx context.Context) {
 
 // Pass drives each open evidence amendment once (see passAmendments), runs each epic's flow once, and then passes the
 // planner once for the epics whose plan run was given its turn. An epic whose flow does not load is parked once, if it
-// is not parked already.
+// is not parked already. The node runs of every open epic are read first, in one query, and an epic at rest (Rests) is
+// not read again: an ended epic whose workflow has run to its end, or waits on its owner, has nothing to decide. When
+// that read fails, every epic's flow is run.
 func (r *Runner) Pass(ctx context.Context) {
 	epics, err := r.store.Epics(ctx)
 	if err != nil {
@@ -265,6 +268,10 @@ func (r *Runner) Pass(ctx context.Context) {
 		return
 	}
 	r.passAmendments(ctx, epics)
+	states, statesErr := r.store.OpenNodeRunStates(ctx)
+	if statesErr != nil {
+		r.logger.ErrorContext(ctx, "list node run states", "err", statesErr)
+	}
 	planned := make(map[string]bool)
 	for _, epic := range epics {
 		if store.IsClosedPhase(epic.Phase) {
@@ -277,7 +284,8 @@ func (r *Runner) Pass(ctx context.Context) {
 		}
 		// A planner park wakes the planner even when no plan run was given its turn, since no node runs on a parked epic.
 		plannerParked := epic.Parked != "" && !epic.ParkClass.OwnerHeld()
-		if r.passFlow(ctx, epic, flow) || plannerParked {
+		resting := statesErr == nil && Rests(flow, kinds.Rows{Epic: epic, Runs: states[epic.ID]}, r.kinds)
+		if (!resting && r.passFlow(ctx, epic, flow)) || plannerParked {
 			planned[epic.ID] = true
 		}
 	}

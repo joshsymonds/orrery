@@ -36,6 +36,8 @@ type Commands interface {
 	Seen(ctx context.Context, id string) error
 	Resume(ctx context.Context, id string) error
 	Withdraw(ctx context.Context, id, promptID string) ([]string, error)
+	NotNow(ctx context.Context, req PutOffRequest) error
+	BringBack(ctx context.Context, req PutOffRequest) error
 }
 
 // Listen returns a listener on the engine socket at socketPath. daemon.Listen creates the socket directory and
@@ -50,14 +52,14 @@ func Listen(socketPath string) (net.Listener, error) {
 
 // Serve answers the engine service on ln with commands, the steps service with steps, the epics service with epics, the
 // pools service with pools, the evidence service with evidence, the notices service with notices and the crons service
-// with crons until ctx ends. It then shuts down within shutdownWait and returns nil. A WaitSteps still waiting when ctx
-// ends fails at once as unavailable, so no wait holds the shutdown. A nil commands refuses every engine RPC as
-// unavailable, a nil steps refuses every step RPC as unavailable, a nil epics refuses every epic RPC as unavailable, a
-// nil pools refuses every Acquire as unavailable, a nil evidence refuses every evidence RPC as unavailable, a nil notices
-// refuses every notices RPC as unavailable, and a nil crons refuses every cron call as unavailable. The crons service
-// answers each call for the session in the Orrery-Session header, and refuses a call with no such header as
-// InvalidArgument. With steps served, the engine refuses Say, Answer, Interrupt, Stop and Resume on a step id, since a
-// step is driven only through the Steps service. opts apply to each of the seven handlers.
+// with crons until ctx ends. It then shuts down within shutdownWait and returns nil. A nil commands refuses every
+// engine RPC as unavailable, a nil steps refuses every step RPC as unavailable, a nil epics refuses every epic RPC as
+// unavailable, a nil pools refuses every Acquire as unavailable, a nil evidence refuses every evidence RPC as
+// unavailable, a nil notices refuses every notices RPC as unavailable, and a nil crons refuses every cron call as
+// unavailable. The crons service answers each call for the session in the Orrery-Session header, and refuses a call
+// with no such header as InvalidArgument. With steps served, the engine refuses Say, Answer, Interrupt, Stop and Resume
+// on a step id, and NotNow and BringBack on a headless step id, since a step is driven only through the Steps service.
+// opts apply to each of the seven handlers.
 func Serve(
 	ctx context.Context,
 	ln net.Listener,
@@ -72,7 +74,7 @@ func Serve(
 ) error {
 	path, handler := enginev1connect.NewEngineHandler(&service{commands: commands, steps: steps}, opts...)
 	stepsPath, stepsHandler := enginev1connect.NewStepsHandler(
-		&stepService{steps: steps, stopping: ctx.Done()},
+		&stepService{steps: steps},
 		opts...)
 	epicsPath, epicsHandler := enginev1connect.NewEpicsHandler(&epicService{epics: epics, steps: steps}, opts...)
 	poolsPath, poolsHandler := enginev1connect.NewPoolsHandler(&poolService{pools: pools}, opts...)
@@ -281,6 +283,58 @@ func (s *service) Withdraw(
 	return connect.NewResponse(&v1.WithdrawResponse{Texts: texts}), nil
 }
 
+func (s *service) NotNow(
+	ctx context.Context,
+	req *connect.Request[v1.NotNowRequest],
+) (*connect.Response[v1.NotNowResponse], error) {
+	put := PutOffRequest{
+		Kind:         req.Msg.GetKind(),
+		ID:           req.Msg.GetId(),
+		RequestID:    req.Msg.GetRequestId(),
+		QuestionHash: req.Msg.GetQuestionHash(),
+		Changed:      req.Msg.GetChanged(),
+	}
+	if err := s.checkPutOff(ctx, put); err != nil {
+		return nil, err
+	}
+	if err := s.commands.NotNow(ctx, put); err != nil {
+		return nil, commandError(err)
+	}
+	return connect.NewResponse(&v1.NotNowResponse{}), nil
+}
+
+func (s *service) BringBack(
+	ctx context.Context,
+	req *connect.Request[v1.BringBackRequest],
+) (*connect.Response[v1.BringBackResponse], error) {
+	put := PutOffRequest{
+		Kind:         req.Msg.GetKind(),
+		ID:           req.Msg.GetId(),
+		RequestID:    req.Msg.GetRequestId(),
+		QuestionHash: req.Msg.GetQuestionHash(),
+		Changed:      req.Msg.GetChanged(),
+	}
+	if err := s.checkPutOff(ctx, put); err != nil {
+		return nil, err
+	}
+	if err := s.commands.BringBack(ctx, put); err != nil {
+		return nil, commandError(err)
+	}
+	return connect.NewResponse(&v1.BringBackResponse{}), nil
+}
+
+// checkPutOff returns the refusal a NotNow or BringBack gets before the commands see it: the refusal ready gives, and for
+// a headless call, the refusal refuseStep gives for its id. A pane call gets no step check.
+func (s *service) checkPutOff(ctx context.Context, req PutOffRequest) error {
+	if err := s.ready(); err != nil {
+		return err
+	}
+	if req.Kind == store.PutOffHeadless {
+		return s.refuseStep(ctx, req.ID)
+	}
+	return nil
+}
+
 // commandError maps a Commands error to its Connect code. The error's text is the message.
 func commandError(err error) error {
 	code := connect.CodeInternal
@@ -290,10 +344,15 @@ func commandError(err error) error {
 	case errors.Is(err, ErrNoSession), errors.Is(err, session.ErrNoPendingRequest):
 		code = connect.CodeNotFound
 	case errors.Is(err, ErrBadDir), errors.Is(err, ErrEmptyPrompt), errors.Is(err, ErrBadModel),
-		errors.Is(err, ErrBadID), errors.Is(err, ErrBadAnswer), errors.Is(err, session.ErrUnverifiedAnswer):
+		errors.Is(err, ErrBadID), errors.Is(err, ErrBadAnswer), errors.Is(err, session.ErrUnverifiedAnswer),
+		errors.Is(err, ErrBadPutOff):
 		code = connect.CodeInvalidArgument
-	case errors.Is(err, ErrNotResumable), errors.Is(err, ErrUnknownPrompt):
+	case errors.Is(err, ErrNotResumable), errors.Is(err, ErrUnknownPrompt), errors.Is(err, ErrQuestionNotOpen):
 		code = connect.CodeFailedPrecondition
+	case errors.Is(err, ErrNoPane):
+		code = connect.CodeNotFound
+	case errors.Is(err, ErrPutOffUnavailable):
+		code = connect.CodeUnavailable
 	}
 	return errors.Join(connect.NewError(code, err))
 }

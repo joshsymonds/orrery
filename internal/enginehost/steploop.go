@@ -105,7 +105,9 @@ const apiErrorRateLimit = "rate_limit"
 // runs, nil for any other step: each schema-valid return is checked against its assertions, and never judged. A tick at
 // or past the limit of wall time from the run's start ends an agent gate step overtime. returnCheck, when set, checks
 // every schema-valid return: its failure lines are stored as the return check and sent back, and a step with one is
-// never judged.
+// never judged. publish is called with the step's id once the run's end or hold is stored, and a nil publish, which
+// newStepRun makes a no-op, reports nothing. wake is called after each prompt the run sends its session and after each
+// resume of a limited run, so a caller event that waited on the step is offered again, and a nil wake does nothing.
 type stepRunConfig struct {
 	id          string
 	schema      string
@@ -122,6 +124,8 @@ type stepRunConfig struct {
 	ticks       <-chan time.Time
 	agentGate   *gates.Gate
 	returnCheck func(value json.RawMessage) []string
+	publish     func(ctx context.Context, id string)
+	wake        func()
 
 	writing     bool
 	dir         string
@@ -231,6 +235,9 @@ type stepRun struct {
 func newStepRun(cfg stepRunConfig) *stepRun {
 	if cfg.now == nil {
 		cfg.now = time.Now
+	}
+	if cfg.publish == nil {
+		cfg.publish = func(context.Context, string) {}
 	}
 	start := cfg.now()
 	return &stepRun{
@@ -364,8 +371,9 @@ func (r *stepRun) tick(ctx context.Context) bool {
 // when no turn end was found. A limited row is restored as limited, and its stored turn end is not handled again. A turn
 // end its latest return covers goes to resumeReturn. A turn end stored while a background task is listed is a return
 // only when it has the done value, as Manager.noteEvent hands one, so any other such turn end is left unread and the
-// step waits with no turn running, as a live step does. Any other turn end is handled as one the session has just
-// given. It reports whether the run goes on.
+// step waits with no turn running, as a live step does. A stored latest return that is not done is likewise left open
+// while a step the run started runs, as resumeReturn leaves it (see awaitingChildren), so the step waits the same way.
+// Any other turn end is handled as one the session has just given. It reports whether the run goes on.
 func (r *stepRun) resume(ctx context.Context, restore stepRestore) bool {
 	row := restore.Row
 	r.round = row.LoopRound
@@ -398,11 +406,30 @@ func (r *stepRun) resume(ctx context.Context, restore stepRestore) bool {
 	return r.turnEnded(ctx, ended)
 }
 
+// awaitingChildren reports whether the step stays open for the steps it started: value is not its done return and one of
+// those steps is still running. A failed read is logged and reports true, so the step stays open, since an end cannot be
+// undone and the next turn end reads again.
+func (r *stepRun) awaitingChildren(ctx context.Context, value json.RawMessage) bool {
+	if r.Done(session.TurnEnded{StructuredOutput: value}) {
+		return false
+	}
+	running, err := r.store.RunningCallerSteps(ctx, r.id)
+	if err != nil {
+		r.logger.ErrorContext(ctx, "read running steps of step", "step", r.id, "err", err)
+		return true
+	}
+	return len(running) > 0
+}
+
 // resumeReturn takes up a step whose latest return is stored and covered by its turn end, so nothing has been sent
-// since that return. A stored failed checkout check ends it checks_failed, as judge would have, and its other failed
-// checks go back as retry sends them. A done return is judged as judge judges it, and any other return ends the step
-// returned. It reports whether the run goes on.
+// since that return. A return that is not done stays open while a step it started runs (see awaitingChildren). A stored
+// failed checkout check ends it checks_failed, as judge would have, and its other failed checks go back as retry sends
+// them. A done return is judged as judge judges it, and any other return ends the step returned. It reports whether the
+// run goes on.
 func (r *stepRun) resumeReturn(ctx context.Context, row store.StepRow) bool {
+	if r.awaitingChildren(ctx, json.RawMessage(row.Result)) {
+		return true
+	}
 	checks := stepLoopRoundChecks(row.Checks, row.LoopRound)
 	if check, moved := stepLoopCheckoutFailure(checks); moved {
 		r.finish(ctx, stepLoopEndChecksFailed, "", check.Name+": "+check.Detail)
@@ -437,8 +464,9 @@ func (r *stepRun) resumeReturn(ctx context.Context, row store.StepRow) bool {
 // held step's turn end is no round and continues nothing, unless an owner nudge is pending, which resumes the step with
 // it. An owner nudge
 // pending continues the step with it, error or not. A pending watchdog nudge is sent back with an error turn end. A turn end
-// that is no round latches its output's first fails for an agent gate step, as judge would latch a round's. Any other
-// turn end is the next round, which judge checks. It reports whether the run goes on.
+// that is no round latches its output's first fails for an agent gate step, as judge would latch a round's. A return that
+// is not done while a step the run started runs is left open, with no round (see awaitingChildren). Any other turn end is
+// the next round, which judge checks. It reports whether the run goes on.
 func (r *stepRun) turnEnded(ctx context.Context, ended session.TurnEnded) bool {
 	if limited, goOn := r.limitTurn(ctx); limited {
 		return goOn
@@ -469,14 +497,17 @@ func (r *stepRun) turnEnded(ctx context.Context, ended session.TurnEnded) bool {
 	if nudge != "" {
 		r.saveLoop(ctx)
 	}
+	if r.awaitingChildren(ctx, ended.StructuredOutput) {
+		return true
+	}
 	return r.judge(ctx, r.round+1, ended.StructuredOutput)
 }
 
 // limitTurn checks whether the turn that has just ended ended on a usage limit: the rate limit the store holds for the
 // step, or the rate limit error the session handed the run since the previous turn end. A limited turn drops the pending
-// nudges and the hold, stores the loop state with its limit, and releases the step's process, so the step stays open
-// and its slot is free. It reports whether the turn was limited and, when it was, whether the run goes on. A failed
-// read, store or release ends the step failed.
+// nudges and the hold, stores the loop state with its limit, publishes the held step, and releases the step's process,
+// so the step stays open and its slot is free. It reports whether the turn was limited and, when it was, whether the run
+// goes on. A failed read, store or release ends the step failed.
 func (r *stepRun) limitTurn(ctx context.Context) (limited, goOn bool) {
 	errored := r.rateLimit.Swap(false)
 	row, found, err := r.store.StepRateLimit(ctx, r.id)
@@ -500,6 +531,7 @@ func (r *stepRun) limitTurn(ctx context.Context) (limited, goOn bool) {
 		r.finish(ctx, stepLoopEndFailed, "", fmt.Sprintf("record limit of step %s: %v", r.id, err))
 		return true, false
 	}
+	r.publish(ctx, r.id)
 	if err = r.sessions.Release(ctx, r.id); err != nil {
 		r.finish(ctx, stepLoopEndFailed, "", fmt.Sprintf("release step %s: %v", r.id, err))
 		return true, false
@@ -517,7 +549,8 @@ func (r *stepRun) continueWith(ctx context.Context, prompt StepPrompt) bool {
 }
 
 // continueStep sends prompt to the session as its next message, with the loop in turn as its Loop, so the loop state is
-// stored in the write that stores the prompt. A failed store or send ends the step failed and returns the error.
+// stored in the write that stores the prompt. A failed store or send ends the step failed and returns the error. A sent
+// prompt wakes the caller events (see wakeCaller).
 func (r *stepRun) continueStep(ctx context.Context, prompt StepPrompt) error {
 	r.setStage(store.StepStageTurn)
 	loop := r.loopState()
@@ -527,7 +560,16 @@ func (r *stepRun) continueStep(ctx context.Context, prompt StepPrompt) error {
 		r.finish(ctx, stepLoopEndFailed, "", err.Error())
 		return err
 	}
+	r.wakeCaller()
 	return nil
+}
+
+// wakeCaller calls the run's wake, when it has one, so a caller event that waited on the step is offered again. A nil
+// wake does nothing.
+func (r *stepRun) wakeCaller() {
+	if r.wake != nil {
+		r.wake()
+	}
 }
 
 // loopState returns the loop state the run stores: its round and continue count, the nudges pending for the next turn
@@ -1096,9 +1138,10 @@ func stepLoopFailures(checks []store.StepCheck) []string {
 	return failures
 }
 
-// finish ends the step once. It stores StepEnd, stops the session unless limitReleased says a limit released it, runs
-// cleanup and closes ended. A store, stop or cleanup error is logged, since nothing above finish can act on it. A ctx
-// that has ended stores no end, so finish does nothing then. It reports whether this call acted.
+// finish ends the step once. It stores StepEnd and publishes the end once it is stored, stops the session unless
+// limitReleased says a limit released it, runs cleanup and closes ended. A store, stop or cleanup error is logged, since
+// nothing above finish can act on it. A ctx that has ended stores no end, so finish does nothing then. It reports whether
+// this call acted.
 func (r *stepRun) finish(ctx context.Context, end, status, reason string) bool {
 	if ctx.Err() != nil {
 		return false
@@ -1113,6 +1156,8 @@ func (r *stepRun) finish(ctx context.Context, end, status, reason string) bool {
 		stepEnd := store.StepEnd{ID: r.id, End: end, Status: status, Reason: reason}
 		if err := r.writer.Commit(ctx, r.id, stepEnd); err != nil {
 			r.logger.ErrorContext(ctx, "record step end", "step", r.id, "err", err)
+		} else {
+			r.publish(ctx, r.id)
 		}
 		if !r.limitReleased {
 			if err := r.sessions.Stop(ctx, r.id); err != nil {

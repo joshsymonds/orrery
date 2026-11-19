@@ -3,9 +3,7 @@ package stepmcp
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
-	"strings"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -80,16 +78,6 @@ func (d *heldDaemon) ResumeStep(
 		return nil, err
 	}
 	return connect.NewResponse(&v1.ResumeStepResponse{}), nil
-}
-
-// WaitSteps holds under the step ids it waits on, so a test can tell the waits apart.
-func (d *heldDaemon) WaitSteps(
-	ctx context.Context, req *connect.Request[v1.WaitStepsRequest],
-) (*connect.Response[v1.WaitStepsResponse], error) {
-	if err := d.hold(ctx, strings.Join(req.Msg.GetIds(), ",")); err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(&v1.WaitStepsResponse{}), nil
 }
 
 func (d *heldDaemon) CreateEpic(
@@ -241,68 +229,19 @@ func serveClient(t *testing.T, server *Server) *clientConn {
 }
 
 // start runs a tools/call of name with arguments, given as JSON object text, through the client in its own goroutine.
-// The client stops waiting once ctx is canceled and sends the cancel notification itself, so the returned channel
-// reports ctx's error then. Otherwise it reports the call's JSON-RPC error, or nil.
-func (c *clientConn) start(ctx context.Context, name, arguments string) <-chan error {
-	outcome := make(chan error, 1)
+// The client stops waiting once ctx is canceled and sends the cancel notification itself. The call's result is not
+// read: a test observes the call through the daemon, and a call a test cancels or ends with its connection fails by
+// design.
+func (c *clientConn) start(ctx context.Context, name, arguments string) {
 	go func() {
-		_, err := c.session.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: json.RawMessage(arguments)})
-		outcome <- err
+		_, _ = c.session.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: json.RawMessage(arguments)})
 	}()
-	return outcome
 }
 
 // receive returns the next value on ch; its last argument names the event. It has no deadline of its own.
 func receive[T any](t *testing.T, ch <-chan T, _ string) T {
 	t.Helper()
 	return <-ch
-}
-
-// TestCancelFreesAWaitSlotForANinthCall checks that with eight step_wait calls held on one connection, a cancel for one
-// ends its context and frees its slot, so a ninth call runs instead of being refused with -32000.
-func TestCancelFreesAWaitSlotForANinthCall(t *testing.T) {
-	t.Parallel()
-	daemon := newHeldDaemon()
-	server, err := NewServer(daemon, daemon, daemon)
-	if err != nil {
-		t.Fatalf("NewServer: %v", err)
-	}
-	freed := make(chan struct{}, 16)
-	server.slotFreed = func() { freed <- struct{}{} }
-	conn := serveClient(t, server)
-
-	const ceiling = 8
-	const canceledIndex = 2
-	const canceledStep = "step-3"
-	canceled, cancelCanceled := context.WithCancel(t.Context())
-	defer cancelCanceled()
-	for n := range ceiling {
-		ctx := t.Context()
-		if n == canceledIndex {
-			ctx = canceled
-		}
-		conn.start(ctx, "step_wait", fmt.Sprintf(`{"ids":["step-%d"]}`, n+1))
-	}
-	for range ceiling {
-		receive(t, daemon.entered, "a step_wait call starts")
-	}
-
-	cancelCanceled()
-	if key := receive(t, daemon.ended, "the canceled step_wait's context ends"); key != canceledStep {
-		t.Fatalf("context ended for %s, want %s", key, canceledStep)
-	}
-	// The handler returns once its context ends, and its slot frees just after, which slotFreed reports.
-	receive(t, freed, "the canceled call's slot frees")
-
-	ninth := conn.start(t.Context(), "step_wait", `{"ids":["step-9"]}`)
-	select {
-	case key := <-daemon.entered:
-		if key != "step-9" {
-			t.Fatalf("ninth call reached the daemon for %s, want step-9", key)
-		}
-	case err := <-ninth:
-		t.Fatalf("ninth call returned before it reached the daemon: %v", err)
-	}
 }
 
 // TestCancelLeavesAMutatingCallRunning checks that a cancel for a call to each mutating tool does not reach the call's

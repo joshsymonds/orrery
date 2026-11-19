@@ -154,7 +154,7 @@ func (r *stepRun) autoResumeLimited(ctx context.Context, resets time.Time) error
 // goroutine. A Continue the step cap refuses leaves the run limited, and any other failed Continue ends the step failed. A
 // sent resume clears the limit, moves the loop into turn, restarts an agent gate step's limit from now, so the wait for the
 // reset never ends it overtime, and stores the loop state with the step's stored rate limit deleted and its due rows closed
-// in one write.
+// in one write. A resume that is stored wakes the caller events (see wakeCaller).
 func (r *stepRun) resumeWith(ctx context.Context, prompt StepPrompt) error {
 	if err := r.sessions.Continue(ctx, r.id, prompt); err != nil {
 		err = fmt.Errorf("continue step %s: %w", r.id, err)
@@ -177,6 +177,7 @@ func (r *stepRun) resumeWith(ctx context.Context, prompt StepPrompt) error {
 		r.finish(ctx, stepLoopEndFailed, "", fmt.Sprintf("record resume of step %s: %v", r.id, err))
 		return err
 	}
+	r.wakeCaller()
 	return nil
 }
 

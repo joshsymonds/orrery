@@ -177,6 +177,42 @@ func (e epicsServer) Unarchive(
 	return connect.NewResponse(&orreryv1.EpicsUnarchiveResponse{}), nil
 }
 
+// Release forwards a release of the named epic to orreryd, which resumes its stopped release at the first unfinished
+// step and runs again the undo-none release steps the request names.
+func (e epicsServer) Release(
+	ctx context.Context,
+	req *connect.Request[orreryv1.EpicsReleaseRequest],
+) (*connect.Response[orreryv1.EpicsReleaseResponse], error) {
+	id, undoNone := req.Msg.GetId(), req.Msg.GetUndoNone()
+	err := e.forwardCommand(ctx, func(ctx context.Context, commands enginev1connect.EpicsClient) error {
+		_, err := commands.ReleaseEpic(ctx, connect.NewRequest(&enginev1.ReleaseEpicRequest{
+			Id: id, UndoNone: undoNone,
+		}))
+		return wrapEngine("release", err)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&orreryv1.EpicsReleaseResponse{}), nil
+}
+
+// Close forwards a close of the named epic to orreryd, which closes it as superseded, shipped by hand or abandoned, and
+// records the owner as its closer.
+func (e epicsServer) Close(
+	ctx context.Context,
+	req *connect.Request[orreryv1.EpicsCloseRequest],
+) (*connect.Response[orreryv1.EpicsCloseResponse], error) {
+	id, kind, by := req.Msg.GetId(), req.Msg.GetKind(), req.Msg.GetBy()
+	err := e.forwardCommand(ctx, func(ctx context.Context, commands enginev1connect.EpicsClient) error {
+		_, err := commands.CloseEpic(ctx, connect.NewRequest(&enginev1.CloseEpicRequest{Id: id, Kind: kind, By: by}))
+		return wrapEngine("close", err)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&orreryv1.EpicsCloseResponse{}), nil
+}
+
 // forwardCommand runs call against the epic command client. A nil client answers unavailable. A call whose connection
 // was never made is retried while rpcretry.NeverConnected accepts its error: a call cut after it connected may already
 // have been taken, so it is answered and not sent again. Any other error answers as translateError does.
