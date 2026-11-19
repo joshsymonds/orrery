@@ -44,7 +44,7 @@ const (
 // loop at Path and its current Round, and Park its Reason. Run names the node run at Path of NodeKind, and for a build
 // child its Task. ParkNode parks the node run at Path, whose Attempt ended with Outcome and Output, for Reason. When
 // Met names Requirements, the evidence node at base found them holding at the base, and the park's question offers them
-// as met. Batch ends the integrate run at Path, whose Attempt ended with Outcome and Output, with Trigger. Sync ends
+// as met. Batch ends the integrate run Run at Path, whose Attempt ended with Outcome and Output, with Trigger. Sync ends
 // the sync run at Path, whose Attempt ended with Outcome and Output, and tells Reason when it is set. ParkEpic parks
 // the epic for Reason, with Trigger. Work carries a check, sync or release node run's work: Work is the kind's action,
 // prepare, start, capture, repro, refs, advance, take, integrator, step, judge, record, stop, ending, free, replan or
@@ -753,7 +753,9 @@ func (p pass) metAtBase(def workflow.Node, run store.NodeRun) []string {
 // batch decides the end of an integrate run. An empty batch ends with no revision, since it claimed no batch, and it
 // writes no trigger. Any other batch ends with a trigger that wakes the planner.
 func (p pass) batch(run store.NodeRun, act kinds.Action) Action {
-	out := Action{Kind: ActBatch, Path: run.Path, Attempt: run.Attempt, Outcome: act.Outcome, Output: act.Output}
+	out := Action{
+		Kind: ActBatch, Path: run.Path, Attempt: run.Attempt, Outcome: act.Outcome, Output: act.Output, Run: run,
+	}
 	if run.Revision != "" {
 		out.Trigger = p.batchTrigger(run, act.Outcome, act.Output)
 	}

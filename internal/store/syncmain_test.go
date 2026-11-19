@@ -271,7 +271,10 @@ func TestRetryNodeOfAnIntegrateNodeNamedSyncRerunsOnlyTheIntegrateRun(t *testing
 	if err := s.RecordNodeResult(ctx, integrateEpic, batch, 1, retryComposed); err != nil {
 		t.Fatalf("RecordNodeResult: %v", err)
 	}
-	if err := s.EndBatch(ctx, integrateEpic, batch, 1, "failed", "lint failed", nil, integrateEndedAt()); err != nil {
+	if err := s.EndBatch(ctx, integrateEpic, BatchEnd{
+		Path: batch, Attempt: 1, Outcome: "failed", Output: "lint failed", Candidate: "rev-1",
+		Over: integrateEpicRow(t, s).StoredBase,
+	}, nil, integrateEndedAt()); err != nil {
 		t.Fatalf("EndBatch: %v", err)
 	}
 	runs := endSyncRuns(t, s)
