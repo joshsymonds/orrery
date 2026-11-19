@@ -39,11 +39,11 @@ func (s *Store) PauseEpic(ctx context.Context, epic string) error {
 		if head.Paused != 0 && head.PauseSource != pauseLimit {
 			return RefusalError(fmt.Sprintf("epic %s is already paused", epic))
 		}
-		if err = pauseAsOwner(ctx, queries, epic); err != nil {
+		_, _, err = flagRunningTurn(ctx, queries, epic)
+		if err != nil {
 			return err
 		}
-		_, _, err = flagRunningTurn(ctx, queries, epic)
-		return err
+		return pauseAsOwner(ctx, queries, epic)
 	})
 }
 
