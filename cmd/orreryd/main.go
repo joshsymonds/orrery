@@ -98,8 +98,8 @@ const (
 	silentBackground = "background work"
 	// brokerTick is how often the grants broker ticks. Each tick ends the grants of gone clients and polls each member.
 	brokerTick = 60 * time.Second
-	// limitTick is how often the limit notices check the limited steps for a change, and how often the due pass, the
-	// epic summaries, the session titles, the session headlines and the epic reports run.
+	// limitTick is how often the due pass, the epic summaries, the session titles, the session headlines and the epic
+	// reports run.
 	limitTick = 5 * time.Second
 	// storeOpenRetry is how long openStore waits before it tries a busy store open again.
 	storeOpenRetry = 2 * time.Second
@@ -181,9 +181,6 @@ type options struct {
 	// attentionTicks is a test seam: when set, the attention loop passes at each value it delivers in place of every
 	// five seconds, and production leaves it nil.
 	attentionTicks <-chan time.Time
-	// limitTicks is a test seam: when set, the limit notices check at each value it delivers in place of every
-	// limitTick, and production leaves it nil.
-	limitTicks <-chan time.Time
 	// storeRetryAfter is a test seam: openStore waits on the channel it returns for a busy store open to be tried again,
 	// in place of time.After. Production leaves it nil.
 	storeRetryAfter func(time.Duration) <-chan time.Time
@@ -849,6 +846,9 @@ type sessionHost struct {
 	callerEvents     *enginehost.CallerEvents
 	stopCallerEvents context.CancelFunc
 	callerEventsDone chan struct{}
+	// limits tells the usage limits. Its Wake is part of the Steps engine's stored wake (see storedWake). stopLimits
+	// cancels its Run, which closes limitsDone when it returns.
+	limits *enginehost.LimitNotices
 	// logger logs each phase of the shutdown.
 	logger *slog.Logger
 }
@@ -894,11 +894,12 @@ func newSessionHost(logger *slog.Logger) *sessionHost {
 // The node checks are built over the store and the pools the same way, and take up the open checks before the flow
 // starts. The flow then runs over the store until stop, with the planner and the build runner as its planner and
 // builder, and its attention loop routes its epic notices through router when router is not nil. The limit notices tell
-// router which steps a usage limit holds, every limitTick until stop; the due pass resumes each due row whose reset has
-// passed, every limitTick until stop; the epic summaries write each stored epic's missing summary through haiku, every
-// limitTick until stop; the session titles write each headless session's missing title through haiku, every limitTick
-// until stop; the session headlines refresh each headless session's headline once its turns have ended, through haiku,
-// every limitTick until stop; the manager stops idle sessions, until stop; and the caller-event delivery tells each
+// router which steps a usage limit holds, at start and on each stored hold or resume until stop; the due pass resumes
+// each due row whose reset has passed, every limitTick until stop; the epic summaries write each stored epic's missing
+// summary through haiku, every limitTick until stop; the session titles write each headless session's missing title
+// through haiku, every limitTick until stop; the session headlines refresh each headless session's headline once its
+// turns have ended, through haiku, every limitTick until stop; the manager stops idle sessions, until stop; and the
+// caller-event delivery tells each
 // step's caller when the step ends, and each epic's creator of its events, on its start, on each wake, and once more
 // after a failed round, until stop (startCallerEvents);
 // and the cron scheduler fires each cron job of a headless session when it is due, through the manager's DeliverCron,
@@ -929,7 +930,7 @@ func startSessions(
 		}
 		host.newWriter(opts, st, logger)
 		host.newCron(opts, st, logger)
-		host.newCallerEvents(st, opts, logger)
+		host.newWakes(st, opts, router, logger)
 		host.manager = enginehost.NewManager(enginehost.Config{
 			Shell:             opts.sessionShell,
 			Claude:            opts.claude,
@@ -966,7 +967,7 @@ func startSessions(
 			GateScopeMemory: opts.scopeMemory,
 			ReadoptCheck:    readoptCheck(st, resolve),
 			ReadoptGate:     readoptGate(st),
-			Stored:          host.callerEvents.Wake,
+			Stored:          host.storedWake,
 		})
 		if err != nil {
 			host.stopBroker()
@@ -986,7 +987,7 @@ func startSessions(
 		evidence = host.evidence
 		host.startNodeChecks(ctx, st, stateDir, opts, childEnviron, logger)
 		host.startFlow(ctx, st, router, opts.attentionTicks, opts.flowTicks, getenv, resolve, stateDir, logger)
-		host.startLimits(ctx, st, router, opts.limitTicks, logger)
+		host.startLimits(ctx)
 		host.startSummaries(ctx, st, haiku, logger)
 		host.startTitles(ctx, st, haiku, logger)
 		host.startHeadlines(ctx, st, haiku, logger)
@@ -1349,36 +1350,41 @@ func appendPassLine(ctx context.Context, logger *slog.Logger, path string) {
 	}
 }
 
-// startLimits tells router which epics a usage limit holds, checking st every limitTick until stop, or at each value
-// ticks delivers when ticks is not nil. The marks st holds say which limits a previous orreryd told, and those are not
-// told again.
-func (h *sessionHost) startLimits(
-	ctx context.Context,
-	st *store.Store,
-	router enginehost.Router,
-	ticks <-chan time.Time,
-	logger *slog.Logger,
-) {
-	stopTicker := func() {}
-	if ticks == nil {
-		ticker := time.NewTicker(limitTick)
-		ticks, stopTicker = ticker.C, ticker.Stop
-	}
-	limits := enginehost.NewLimitNotices(enginehost.LimitNoticesConfig{
+// newWakes builds the caller-event delivery and the limit notices over st, the two loops the Steps engine's stored wake
+// calls (see storedWake). They are built before the Steps engine, so the wake reaches both from the first stored hold.
+func (h *sessionHost) newWakes(st *store.Store, opts options, router enginehost.Router, logger *slog.Logger) {
+	h.newCallerEvents(st, opts, logger)
+	h.newLimitNotices(st, router, logger)
+}
+
+// newLimitNotices builds the limit notices over st as h.limits, routing their notices through router. The marks st
+// holds say which limits a previous orreryd told, and those are not told again.
+func (h *sessionHost) newLimitNotices(st *store.Store, router enginehost.Router, logger *slog.Logger) {
+	h.limits = enginehost.NewLimitNotices(enginehost.LimitNoticesConfig{
 		Steps:  st,
 		Epics:  st,
 		Told:   st,
 		Route:  router,
 		Now:    time.Now,
-		Tick:   ticks,
 		Logger: logger,
 	})
+}
+
+// storedWake is the Steps engine's stored wake. A hold or resume that the Steps engine stores calls it, so the caller
+// events and the limit notices each check at once. Both Wake calls return without blocking.
+func (h *sessionHost) storedWake() {
+	h.callerEvents.Wake()
+	h.limits.Wake()
+}
+
+// startLimits runs h.limits until shutdown, on one goroutine. Its Run checks at start, then once on each wake (see
+// storedWake) and once when a retry fires (see enginehost.LimitNotices).
+func (h *sessionHost) startLimits(ctx context.Context) {
 	var limitsCtx context.Context
 	limitsCtx, h.stopLimits = context.WithCancel(ctx)
 	go func() {
 		defer close(h.limitsDone)
-		defer stopTicker()
-		limits.Run(limitsCtx)
+		h.limits.Run(limitsCtx)
 	}()
 }
 
