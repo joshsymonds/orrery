@@ -23,6 +23,7 @@ type Store interface {
 	OpenNodeRunStates(ctx context.Context) (map[string][]store.NodeRun, error)
 	EpicFlow(ctx context.Context, id string) (store.EpicFlow, error)
 	StartNodes(ctx context.Context, epic string, runs []store.NodeRun, trigger *store.NodeTrigger, at time.Time) error
+	StartCorrectionPlan(ctx context.Context, epic string, plan store.NodeRun, at time.Time) error
 	StartGapRound(
 		ctx context.Context, epic string, run store.NodeRun, triggers []store.NodeTrigger, turns []store.GapTurn,
 		at time.Time,

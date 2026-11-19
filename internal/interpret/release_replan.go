@@ -72,12 +72,13 @@ func (p pass) replanRun(run store.NodeRun) (workflow.Node, store.NodeRun, bool) 
 
 // replan returns the work that starts the replan of the release run, for act, the replan its kind decided. The work
 // starts replanPlan's plan at the release's replan prefix, with the epic's highest turn as its mark. While the epic is
-// correcting, the owner's correction already holds the trigger that wakes the planner, so the work carries no trigger and
-// no reason. Otherwise the replan sends the release back to planning: the work carries the trigger that wakes the planner
-// with the report, whose id is derived from the plan's path and round, and the same text as the tell, and the report
-// as its Output. A workflow with no plan whose body holds an integrate node cannot plan the change, so the release stops
-// with the report instead. A correcting epic whose workflow has no such plan is decided by replanning, which gives it no
-// action, so this function sees a correcting epic only with the plan.
+// correcting, the owner's correction already holds the trigger that wakes the planner, so the work carries no trigger
+// and no reason, and the store marks that plan below the turn that claimed the correction, so that turn's tasks build
+// (store.Store.StartCorrectionPlan). Otherwise the replan sends the release back to planning: the work carries the
+// trigger that wakes the planner with the report, whose id is derived from the plan's path and round, and the same text
+// as the tell, and the report as its Output. A workflow with no plan whose body holds an integrate node cannot plan the
+// change, so the release stops with the report instead. A correcting epic whose workflow has no such plan is decided by
+// replanning, which gives it no action, so this function sees a correcting epic only with the plan.
 func (p pass) replan(def workflow.Node, run store.NodeRun, act kinds.Action) Action {
 	plan, ok := replanPlan(p.flow.Nodes)
 	if !ok {
@@ -109,8 +110,9 @@ func (p pass) replan(def workflow.Node, run store.NodeRun, act kinds.Action) Act
 // replanRelease carries out the replan of act's run. An act with a trigger sends the release back to planning in one
 // write (store.Store.ReplanRelease): the epic moves to correcting and frees its release slot, and the replan's plan run
 // starts with its trigger and tell. An act with no trigger is the replan of a correcting epic, whose owner's correction
-// already woke the planner, so only the plan run starts (store.Store.StartNodes). Either way the run's release
-// integrator worktree, when it has one, is removed first, as a stop removes it.
+// already woke the planner, so only the plan run starts, marked below the turn that claimed the correction so that
+// turn's tasks build (store.Store.StartCorrectionPlan). Either way the run's release integrator worktree, when it has
+// one, is removed first, as a stop removes it.
 func (r *Runner) replanRelease(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	if len(act.Runs) != 1 {
 		return releaseRefused(act)
@@ -119,7 +121,7 @@ func (r *Runner) replanRelease(ctx context.Context, epic store.EpicRow, act Acti
 		return err
 	}
 	if act.Trigger == nil {
-		if err := r.store.StartNodes(ctx, epic.ID, act.Runs, nil, at); err != nil {
+		if err := r.store.StartCorrectionPlan(ctx, epic.ID, act.Runs[0], at); err != nil {
 			return fmt.Errorf("start replan plan of epic %s: %w", epic.ID, err)
 		}
 		return nil

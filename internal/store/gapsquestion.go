@@ -194,6 +194,40 @@ func correctGaps(ctx context.Context, queries *sqlcgen.Queries, epic, id, text s
 	return setEpicPhase(ctx, queries, epic, phaseCorrecting, at)
 }
 
+// StartCorrectionPlan stores plan as a running node run of epic, as StartNodes stores its runs, in one write. The plan
+// is the replan of a correcting epic, whose owner's correction woke the planner through the trigger gapsTriggerPrefix
+// names. The last such trigger epic holds decides the mark: once a planner turn has claimed it, plan's mark is lowered
+// to that turn's seq minus one, when it is above it, so the turn's tasks build. While the trigger is unclaimed, the mark
+// stays as given. A plan whose path is stored already is left as it is, so a repeat changes nothing.
+func (s *Store) StartCorrectionPlan(ctx context.Context, epic string, plan NodeRun, at time.Time) error {
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		triggers, err := queries.ListEpicTriggers(ctx, epic)
+		if err != nil {
+			return fmt.Errorf("read triggers of epic %s: %w", epic, err)
+		}
+		if turn := claimedCorrectionTurn(triggers); turn > 0 {
+			plan.Mark = min(plan.Mark, turn-1)
+		}
+		return insertNodeRuns(ctx, queries, epic, []NodeRun{plan}, at)
+	})
+}
+
+// claimedCorrectionTurn returns the seq of the planner turn that claimed the last gaps trigger among triggers, which
+// are in the order the store lists them, or 0 when that trigger is not claimed or there is none.
+func claimedCorrectionTurn(triggers []sqlcgen.EpicTrigger) int64 {
+	var last sqlcgen.EpicTrigger
+	found := false
+	for _, trigger := range triggers {
+		if strings.HasPrefix(trigger.ID, gapsTriggerPrefix) {
+			last, found = trigger, true
+		}
+	}
+	if !found {
+		return 0
+	}
+	return last.Turn
+}
+
 // answerOpenGapsQuestions answers each open gaps question of epic with choice in the caller's write, so that no gaps
 // question stays open once the owner has released the epic.
 func answerOpenGapsQuestions(ctx context.Context, queries *sqlcgen.Queries, epic, choice string) error {
