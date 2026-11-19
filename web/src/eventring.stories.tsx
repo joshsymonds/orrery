@@ -93,16 +93,16 @@ const pendingQuestion = create(PendingEventSchema, {
   waits: "free",
 });
 
-export const EventRing: Stories = {
+export const EpicEventBlock: Stories = {
   question: () => <eventring.EventRing event={questionEvent} calls={calls} />,
   "question-settled": () => <eventring.EventRing event={settledEvent} calls={calls} />,
-  park: () => <eventring.EventRing event={parkEvent} calls={calls} />,
-  release: () => <eventring.EventRing event={releaseEvent} calls={calls} />,
-  end: () => <eventring.EventRing event={endEvent} calls={calls} />,
+  parked: () => <eventring.EventRing event={parkEvent} calls={calls} />,
+  released: () => <eventring.EventRing event={releaseEvent} calls={calls} />,
+  ended: () => <eventring.EventRing event={endEvent} calls={calls} />,
 };
 
-export const StepCard: Stories = {
-  ended: () => <eventring.StepCard event={stepEnded} />,
+export const StepEndBlock: Stories = {
+  ok: () => <eventring.StepCard event={stepEnded} />,
   "without-agent": () => <eventring.StepCard event={stepLooping} />,
   waiting: () => <eventring.StepCard event={stepEnded} waiting="arrives when you next speak" />,
 };

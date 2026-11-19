@@ -1,4 +1,4 @@
-// The stories of RowMenu and EpicLine: the ⋯ menu shut and open, and an epic's line in each way the list draws it. The
+// The stories of RowMenu and EpicRow: the ⋯ menu shut and open, and an epic's line in each way the list draws it. The
 // lines are the fixture epics' items as the app's list reads them, with no-op actions. No fixture epic holds record
 // tasks, so no line here draws its strip.
 
@@ -44,16 +44,16 @@ export const RowMenu: Stories = {
   "unarchive-open": () => <Menu control={control(true, true)} />,
 };
 
-export const EpicLine: Stories = {
-  // running is a building epic's line, with its orrery and its count and state. Its block is full, as the app passes
+export const EpicRow: Stories = {
+  // building is a building epic's line, with its orrery and its count and state. Its block is full, as the app passes
   // block.full.
-  running: () => (
+  building: () => (
     <Line epic={lineOf(view, "orrery/orrery-followups")} full current={false} now={now} onSelect={noop} />
   ),
   // current is the line the cursor is on.
   current: () => <Line epic={lineOf(view, "tidepool/tide-alerts")} full={false} current now={now} onSelect={noop} />,
-  // ended is an ended epic's line, whose ended words stand in for its count, state and blocker.
-  ended: () => {
+  // shipped is a shipped epic's line, an ended one whose ended words stand in for its count, state and blocker.
+  shipped: () => {
     const item = lineOf(view, "orrery/holder-scopes");
     return <Line epic={item} full={false} current={false} now={now} ended={endedWords(item, now)} onSelect={noop} />;
   },

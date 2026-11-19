@@ -21,7 +21,14 @@ export const storyExemptions: Readonly<Record<string, string>> = {
 // with the story export that holds its stories. The export is covered by that story export in the file's stories module,
 // so the stories need not share the component's name.
 export const storyRenames: Renames = {
+  "backgroundrow.tsx": { BackgroundRow: "TaskLine" },
+  "blocker.tsx": { QuestionCard: "Ask" },
+  "card.tsx": { EpicWidget: "WorkCard" },
   "composer.tsx": { Composer: "Dock" },
+  "epicline.tsx": { EpicLine: "EpicRow" },
+  "eventring.tsx": { EventRing: "EpicEventBlock", StepCard: "StepEndBlock" },
+  "evidence.tsx": { EvidenceRuns: "EvidenceRun" },
+  "happenings.tsx": { JustHappened: "HappeningList" },
   "notices.tsx": { NoticeBanner: "Notice" },
   "stepbox.tsx": { StepBox: "Dock" },
   "strip.tsx": { PaneStrip: "MeterStrip" },
