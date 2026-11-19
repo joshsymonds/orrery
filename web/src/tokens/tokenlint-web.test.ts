@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -128,6 +128,28 @@ test("TokenLint: opacity below 1 fails on its line, and an opacity: 0 keyframe p
   const problems = lintCss("fixture.css", ".a {\n  opacity: 0.5;\n}\n@keyframes fade {\n  0% { opacity: 0; }\n}\n");
   assert.deepEqual(located(problems), ["fixture.css:2"]);
   assert.match(reasonsAt(problems, 2), /opacity/);
+});
+
+test("TokenLint: opacity: 0 at the end of a fade passes, in a 100% keyframe and a to keyframe, while opacity: 0.5 beside them fails", () => {
+  const problems = lintCss(
+    "fixture.css",
+    "@keyframes out {\n  from { opacity: 1; }\n  100% { opacity: 0; }\n}\n@keyframes leave {\n  to { opacity: 0; }\n}\n.a {\n  opacity: 0.5;\n}\n",
+  );
+  assert.deepEqual(located(problems), ["fixture.css:9"]);
+  assert.equal(problems.length, 1);
+  assert.match(reasonsAt(problems, 9), /opacity/);
+});
+
+test("TokenLint: opacity: 0 inside @starting-style passes, as the start of a fade", () => {
+  assert.deepEqual(
+    lintCss("fixture.css", ".a {\n  transition: opacity var(--o-move-state);\n  @starting-style {\n    opacity: 0;\n  }\n}"),
+    [],
+  );
+  const dimmed = lintCss(
+    "fixture.css",
+    ".a {\n  transition: opacity var(--o-move-state);\n  @starting-style {\n    opacity: 0.4;\n  }\n}",
+  );
+  assert.deepEqual(located(dimmed), ["fixture.css:4"]);
 });
 
 test("TokenLint: a raw z-index fails on its line, named by file and line", () => {
@@ -258,4 +280,16 @@ test("TokenLint: the CLI exits 0 on a clean fixture and prints one all-clear lin
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("TokenLint: with no files the CLI lints web/src/style.css and every non-test script under web/src, and skips *.test.ts and *.test.tsx", () => {
+  // The same walk the CLI makes over web/src, so the count it prints can be checked against the files on disk.
+  const scripts = readdirSync(join(repo, "web/src"), { encoding: "utf8", recursive: true }).filter((rel) => /\.tsx?$/.test(rel));
+  const testFiles = scripts.filter((rel) => /\.test\.tsx?$/.test(rel));
+  const nonTestFiles = scripts.filter((rel) => !/\.test\.tsx?$/.test(rel));
+  assert.ok(testFiles.length >= 1, "web/src holds no *.test.ts or *.test.tsx file to skip");
+  const result = spawnSync(process.execPath, [cli], { cwd: repo, encoding: "utf8" });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  // style.css is the one sheet linted, so it is the plus one.
+  assert.equal(result.stdout.trim(), `lint-web: ${nonTestFiles.length + 1} files hold to the tokens`);
 });
