@@ -43,7 +43,7 @@ export const App: Stories = {
   project: () => <PageStory address={{ order: "project", entry: null }} />,
   archived: () => <PageStory address={{ order: "archived", entry: null }} />,
   session: () => <PageStory address={{ order: "attention", entry: { kind: "session", id: headlessSession } }} />,
-  pane: () => <PageStory address={{ order: "attention", entry: { kind: "pane", host: "sextant", pane: "%13" } }} />,
+  pane: () => <PageStory address={{ order: "attention", entry: { kind: "pane", host: "halyard", pane: "%13" } }} />,
   step: () => <PageStory address={{ order: "attention", entry: { kind: "step", id: workerStep } }} />,
   epic: () => <PageStory address={epicAt(rota, { kind: "epic" })} />,
   contract: () => <PageStory address={epicAt(rota, { kind: "contract" })} />,

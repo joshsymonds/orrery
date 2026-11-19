@@ -115,10 +115,10 @@ test("Catalog: page stories read the fixtures' instant, liveEpoch, not the wall 
     await act(() => {
       render(<StoryView entries={catalogStories(storyModules)} name="page/list-home" />, root);
     });
-    // Pane %12 changed at 14:29 and the fixtures' instant is 14:41, so its line reads 12m at that instant alone.
+    // Pane %12 changed at 14:37 and the fixtures' instant is 14:41, so its line reads 4m at that instant alone.
     const age = () => root.querySelector('.b-row[data-key="pane:halyard:%12"] .age')?.textContent ?? "";
     await until(t.signal, () => age() !== "", "the page's line for pane %12 with its age", { step: () => act(turn) });
-    assert.equal(age(), "12m", "the age is not read at the fixtures' instant");
+    assert.equal(age(), "4m", "the age is not read at the fixtures' instant");
   } finally {
     await teardown();
   }

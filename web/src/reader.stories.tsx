@@ -95,7 +95,10 @@ export const Reader: Stories = {
 
 export const ReaderHead: Stories = {
   titled: () => (
-    <reader.ReaderHead label={<TitleParts dir="/home/owner/code/lighthouse" line="adding retry backoff" />} where="" />
+    <reader.ReaderHead
+      label={<TitleParts dir="/home/owner/code/lighthouse" line="Retry backoff and jitter for the telemetry uploader" />}
+      where=""
+    />
   ),
   "where-and-pill": () => (
     <reader.ReaderHead label="rota-export" where="lighthouse › T2 · implementing">

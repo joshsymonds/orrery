@@ -55,12 +55,17 @@ const dock: Omit<DockProps, "target"> = {
 };
 
 export const TalkDock: Stories = {
-  pane: () => <talkdock.TalkDock {...dock} target={{ kind: "pane", id: "%11", label: "lamp-telemetry" }} />,
+  pane: () => (
+    <talkdock.TalkDock
+      {...dock}
+      target={{ kind: "pane", id: "%11", label: "Retry backoff and jitter for the telemetry uploader" }}
+    />
+  ),
   "session-worker": () => <talkdock.TalkDock {...dock} target={{ kind: "session", id: workerId, label: "T2" }} />,
   "session-interrupted": () => (
     <talkdock.TalkDock {...dock} clients={interrupted} target={{ kind: "session", id: workerId, label: "T2" }} />
   ),
   "session-loading": () => (
-    <talkdock.TalkDock {...dock} target={{ kind: "session", id: headlessId, label: "ephemeris-import" }} />
+    <talkdock.TalkDock {...dock} target={{ kind: "session", id: headlessId, label: "The 2027 ephemeris import" }} />
   ),
 };

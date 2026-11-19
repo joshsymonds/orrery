@@ -18,11 +18,16 @@ function stack(...notices: MessageInitShape<typeof InAppNoticeSchema>[]): InAppN
   );
 }
 
-const waiting = { key: { pane: "%12" }, state: "waiting", title: "beacon-schedule", body: "asks which index to add" };
+const waiting = {
+  key: { pane: "%12" },
+  state: "waiting",
+  title: "Why the roster page is slow past forty shifts",
+  body: "Which fix should I make?",
+};
 const interrupted = {
   key: { session: "4be0c6d2-8f3a-4c71-9e25-ephemeris001" },
   state: "interrupted",
-  title: "ephemeris-import",
+  title: "The 2027 ephemeris import",
   body: "orreryd restarted during the turn",
 };
 const question = {

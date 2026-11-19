@@ -17,5 +17,5 @@ export const PaneStrip: Stories = {
   "context-green": () => <Strip host={null} context={context(30000n)} />,
   "context-red": () => <Strip host={null} context={context(184000n)} />,
   // A pane row on another host names that host, with no stats.
-  "other-host": () => <Strip host={{ host: "sextant", stats: [] }} />,
+  "other-host": () => <Strip host={{ host: "brine", stats: [] }} />,
 };

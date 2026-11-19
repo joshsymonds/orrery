@@ -11,7 +11,7 @@ import {
 } from "../gen/orrery/v1/orrery_pb";
 import { at } from "./clock";
 import { rotaGateFailOutput } from "./epics";
-import { call, type ItemInit, prompt } from "./panes";
+import { call, type ItemInit, prompt, reply } from "./panes";
 
 const workerBrief = [
   "Brief from planner turn 2.",
@@ -48,6 +48,19 @@ const workerItems: ItemInit[] = [
   ...call(15, at("@14:40:52"), "Bash", workerLongBash, null),
 ];
 
+// The headless session of Tide table cache warm-up, which its owner stopped.
+const warmupId = "9b5e1a47-2c0d-4e8f-8a31-6d7c0f5b2e90";
+const warmupItems: ItemInit[] = [
+  prompt(at("@-2d 14:02"), "owner", "Warm the tide table cache for the next 30 days, one port at a time."),
+  ...call(1, at("@-2d 14:03"), "Read", "internal/tide/cache.go"),
+  ...call(2, at("@-2d 14:04"), "Read", "internal/tide/ports.go"),
+  ...call(3, at("@-2d 14:05"), "Bash", "just warm --port lisbon"),
+  ...call(4, at("@-2d 14:07"), "Bash", "just warm"),
+  reply(at("@-2d 14:09"),
+    "The cache is warm for all 14 ports through December 17. Each port took between 2 and 9 seconds; the whole run took 71 seconds.\n\n" +
+    "The warm-up is now a `just warm` recipe, and the README says when to run it."),
+];
+
 // sessionStreams holds the Sessions.WatchConversation answer of each session that has a conversation, by session id.
 export const sessionStreams = new Map<string, SessionsWatchConversationResponse>();
 sessionStreams.set("st-rota-t2-impl", create(SessionsWatchConversationResponseSchema, {
@@ -69,16 +82,45 @@ sessionStreams.set("st-rota-t2-impl", create(SessionsWatchConversationResponseSc
     text: "Export now checks for the file before it opens it, and returns ErrExists. Writing the test that proves a second export refus",
   }],
 }));
+sessionStreams.set(warmupId, create(SessionsWatchConversationResponseSchema, {
+  transcript: `${warmupId}.jsonl`,
+  seq: 1n,
+  reset: true,
+  items: warmupItems,
+  state: {
+    goal: "",
+    waiting: [],
+    context: { tokens: 152000n, window: 1000000n },
+    session: {
+      id: warmupId, dir: "/home/owner/code/tidepool", label: "Tide table cache warm-up", state: "stopped",
+      changed: at("@-2d 14:41"), seen: at("@-2d 14:42"), summary: "You stopped it.", question: "", newestReply: at("@-2d 14:09"),
+    },
+  },
+}));
 
 // sessions is the Sessions.List answer: no session is listed, so the rows come from the panes and the headless sessions.
 export const sessions = create(ListResponseSchema, { sessions: [], seq: 0n });
 
-// headless is the Sessions.ListHeadless answer: the one headless session orreryd holds.
+// headless is the Sessions.ListHeadless answer: the headless sessions orreryd holds, in id order.
 export const headless = create(ListHeadlessResponseSchema, {
-  sessions: [{
-    id: "4be0c6d2-8f3a-4c71-9e25-ephemeris001", dir: "/home/owner/code/almanac", label: "ephemeris-import",
-    state: "interrupted", changed: at("@12:41"), seen: at("@12:42"),
-    summary: "orreryd restarted during the turn, and the turn stopped where it was.", question: "",
-    newestReply: at("@12:40:30"),
-  }],
+  sessions: [
+    {
+      id: "4be0c6d2-8f3a-4c71-9e25-ephemeris001", dir: "/home/owner/code/almanac",
+      label: "The 2027 ephemeris import", headline: "The 2027 ephemeris import",
+      state: "interrupted", changed: at("@12:41"), seen: at("@12:42"),
+      summary: "Cut off mid-turn when the server restarted.", question: "", newestReply: at("@12:40:30"),
+    },
+    {
+      id: warmupId, dir: "/home/owner/code/tidepool",
+      label: "Tide table cache warm-up", headline: "Tide table cache warm-up",
+      state: "stopped", changed: at("@-2d 14:41"), seen: at("@-2d 14:42"),
+      summary: "You stopped it.", question: "", newestReply: at("@-2d 14:09"),
+    },
+    {
+      id: "e7d3f08a-5b19-4c26-9f0e-1a8c6d2b4f73", dir: "/home/owner",
+      label: "Swapping the phone’s font for a subset", headline: "Swapping the phone’s font for a subset",
+      state: "waiting", changed: at("@14:33"), seen: at("@14:33:30"),
+      summary: "Its turn ended on a question in words", question: "", newestReply: at("@14:33"),
+    },
+  ],
 });

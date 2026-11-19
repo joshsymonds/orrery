@@ -50,13 +50,13 @@ function inboxState(root: HTMLElement): string | null {
 
 // The opening prompt of pane %12 and a fragment of pane %11's unfinished reply. Pane %12's prompt is drawn at home too,
 // since the cursor rests on %12, and %11's fragment is drawn only when %11's conversation is.
-const beaconPrompt = "The nightly backfill takes forty minutes. Find out why and fix it.";
+const beaconPrompt = "Why is the roster page slow for weeks with more than forty shifts?";
 const lampFragment = "Full jitter is in";
 
 // The open decision of the rota-export epic, and the planning conversation the talk dock draws beside the epic page.
 // The Talk menu and the dock are drawn on the epic page only in the talk states, so the epic's own state checks neither.
 const rotaQuestion = "Bump the embedded tz database?";
-const rotaPrompt = "Why did csv-writer need a retry?";
+const rotaPrompt = "Plan the rota export as an epic.";
 const talkDock = 'aside.dock[aria-label="talk"]';
 
 // listHome is Page/list-home: the attention rows, with the inbox docked beside the cursor's reader on pane %12.
@@ -258,7 +258,7 @@ test("FixtureTransport: app/session draws the headless session's row as the curs
 
 test("FixtureTransport: app/pane draws pane %13's row as the cursor's row", (t) => {
   mockTimers(t, ["setTimeout"]);
-  const cursorRow = '.b-row.cur[data-key="pane:sextant:%13"]';
+  const cursorRow = '.b-row.cur[data-key="pane:halyard:%13"]';
   return withStory(
     t,
     App.pane,
