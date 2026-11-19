@@ -2242,13 +2242,7 @@ func (r *relay) pushNotification(ctx context.Context, transition daemon.Transiti
 	if err != nil {
 		return push.Notification{}, fmt.Errorf("read notification text: %w", err)
 	}
-	return push.Notification{
-		Project:  filepath.Base(transition.Frame.Cwd),
-		State:    transition.To,
-		Summary:  text.summary,
-		Label:    text.label,
-		Question: text.question,
-	}, nil
+	return paneNotification(transition, text), nil
 }
 
 // wait returns once every summary run has finished. It runs after Serve returns, so no observer can start more work.
