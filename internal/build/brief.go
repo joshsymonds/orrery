@@ -32,9 +32,9 @@ const gateNeededRule = "Gate-needed change: when the gate or the Capture cannot 
 	"Requirements do not name, such as a flake the epic's gates failed on, declare each file it changes the same way. " +
 	"Reviewers judge a declared gate-needed change in scope when the gate needs it and it is no larger than that " +
 	"need, and an undeclared change the Deliverable does not ask for fails review. The guard still judges a " +
-	"gate-needed change, so it never removes a test, lowers its assertions or adds a skip. For a gate-needed change " +
-	"in a file outside the owned files, return needs_context naming the file in needs_files, with the reason in " +
-	"summary."
+	"gate-needed change: it refuses a changed capture file, and a removed test, a lowered assertion or an added " +
+	"skip goes to the floor reviewer. For a gate-needed change in a file outside the owned files, return " +
+	"needs_context naming the file in needs_files, with the reason in summary."
 
 // declaredHeading heads the brief's list of the gate-needed changes a task's earlier tries declared.
 const declaredHeading = "Gate-needed changes declared on this task so far:"
@@ -107,9 +107,7 @@ func Brief(
 		},
 		bullets(task.TestChanges),
 		[]string{
-			"Outside those test changes, orreryd's guard refuses a commit that deletes or renames a guarded test " +
-				"file, removes a test present at the base, lowers a test's assertions, adds a skip, or changes a file " +
-				"a capture runs.",
+			"Outside those test changes, orreryd's guard refuses a commit that changes a file a capture runs.",
 			fmt.Sprintf("Gate: %s. After you return done, orreryd runs `%s` on your commit. Do not run the gate "+
 				"yourself. When it fails, orreryd sends you its output: fix the cause, commit the fix on top, and return "+
 				"done again.", task.Gate, shellWords(gate.Argv)),
