@@ -101,6 +101,7 @@ type Epic struct {
 	OriginReadCommit string
 	OriginReadState  string
 	OriginReadAt     int64
+	Steerer          string
 }
 
 type EpicAddition struct {
@@ -153,12 +154,14 @@ type EpicClosure struct {
 }
 
 type EpicDecision struct {
-	Epic     string
-	Seq      int64
-	ClientID string
-	Text     string
-	Time     int64
-	Question int64
+	Epic         string
+	Seq          int64
+	ClientID     string
+	Text         string
+	Time         int64
+	Question     int64
+	Maker        string
+	MakerSession string
 }
 
 type EpicExclusion struct {

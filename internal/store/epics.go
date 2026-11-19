@@ -83,6 +83,7 @@ type EpicRow struct {
 	ClosedBy     string
 	SupersededBy string
 	Summary      string
+	Steerer      string
 	Report       EpicReport
 	Workflow     EpicWorkflow
 
@@ -216,7 +217,7 @@ func (s *Store) CreateEpic(ctx context.Context, row EpicRow) error {
 			Approved: row.Approved, Intent: row.Intent, Care: row.Care, Approach: row.Approach,
 			ReleaseThen: row.ReleaseThen, Checks: row.Checks, Phase: row.Phase, Created: row.Created.Unix(),
 			Changed: row.Changed.Unix(), Workflow: row.Workflow.Name, WorkflowText: row.Workflow.Text,
-			WorkflowSha256: row.Workflow.SHA256, PhaseAt: row.Created.Unix(),
+			WorkflowSha256: row.Workflow.SHA256, PhaseAt: row.Created.Unix(), Steerer: row.Steerer,
 		}); err != nil {
 			return fmt.Errorf("insert epic %s: %w", row.ID, err)
 		}
@@ -1119,6 +1120,7 @@ func epicHeadOf(head sqlcgen.Epic) EpicRow {
 		ClosedBy:     head.ClosedBy,
 		SupersededBy: head.SupersededBy,
 		Summary:      head.Summary,
+		Steerer:      head.Steerer,
 		Workflow: EpicWorkflow{
 			Name: head.Workflow, Text: head.WorkflowText, SHA256: head.WorkflowSha256,
 		},

@@ -518,8 +518,8 @@ SELECT * FROM told_limit_steps ORDER BY limit_key, step;
 
 -- name: InsertEpic :exec
 INSERT INTO epics (id, repository, base, stored_base, title, approved, intent, care, approach, release_then, checks,
-    phase, created, changed, workflow, workflow_text, workflow_sha256, phase_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    phase, created, changed, workflow, workflow_text, workflow_sha256, phase_at, steerer)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: CountEpic :one
 SELECT COUNT(*) FROM epics WHERE id = ?;
