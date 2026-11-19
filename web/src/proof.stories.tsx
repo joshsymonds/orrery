@@ -20,7 +20,7 @@ const holder = "orrery/holder-scopes";
 const tide = "tidepool/tide-alerts";
 const offline = "tidepool/offline-tables";
 const orbit = "orrery/orbit-labels";
-const stopped = "tidepool/tide-cache-drop-tables-older-than-a-week";
+const stopped = "tidepool/tide-cache";
 
 const clients = createFixtureTransport().clients;
 
@@ -87,7 +87,7 @@ export const ReleaseProof: Stories = {
 export const Report: Stories = {
   // written is a released epic's report: its outcome, the requirements it shipped, and why.
   written: () => <ReportSection report={detailOf(holder).report} />,
-  // not-shipped is a stopped epic's report, which names requirements not shipped and no shipped ones.
+  // not-shipped is an ended epic's report, which names requirements not shipped and no shipped ones.
   "not-shipped": () => <ReportSection report={detailOf(stopped).report} />,
   // unwritten is an epic with no report yet, so its section is its heading alone, dim.
   unwritten: () => <ReportSection report={detailOf(rota).report} />,
