@@ -43,7 +43,17 @@ func TestOrchestratorParkTurnOfAPlannerParkNeedsAnActionOrQuestion(t *testing.T)
 	) != 0 {
 		t.Errorf("ReturnCheck of a return with a retry_epic action on a planner park = %q, want none", got)
 	}
-	if got := returnCheck(context.Background(), ownerPark, store.Review{}, testResolver{}, nil)(json.RawMessage(bare)); len(got) != 0 {
+	if got := returnCheck(
+		context.Background(),
+		ownerPark,
+		store.Review{},
+		testResolver{},
+		nil,
+	)(
+		json.RawMessage(bare),
+	); len(
+		got,
+	) != 0 {
 		t.Errorf("ReturnCheck of a return with no action or question on an owner park = %q, want none", got)
 	}
 }
