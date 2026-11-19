@@ -23,7 +23,8 @@ const (
 		reviewFindingOne + `]}`
 	reviewUndeterminedReturn = `{"status":"done","results":[{"result":"undetermined"}],"findings":[` +
 		reviewFindingOne + `]}`
-	reviewBlockedReturn = `{"status":"blocked","results":[{"result":"holds"}],"findings":[` +
+	reviewUndeterminedAlone = `{"status":"done","results":[{"result":"undetermined"}],"findings":[]}`
+	reviewBlockedReturn     = `{"status":"blocked","results":[{"result":"holds"}],"findings":[` +
 		reviewFindingOne + `]}`
 	reviewNoFindingReturn    = `{"status":"done","results":[{"result":"holds"}],"findings":[]}`
 	reviewConfirmedReturn    = `{"status":"done","results":[{"id":"f1","evidence":"the claim holds","result":"confirmed"}]}`
@@ -314,29 +315,82 @@ func TestReviewRetries(t *testing.T) {
 				}},
 			},
 		},
-		{
-			"gate_failed with an undetermined assertion is a costly end",
-			node,
-			Rows{Reviewers: security, Steps: []store.StepRow{
-				{ID: workID("reviewer 1"), End: "gate_failed", Result: reviewUndeterminedReturn, Reason: "undecided"},
-				{ID: workID("reviewer 1 try 2"), End: "gate_failed", Result: reviewUndeterminedReturn, Reason: "again"},
-			}},
-			Action{
-				Kind: ActEnd, Outcome: outcomePassed, Output: "security: gap",
-				Verdicts: []store.ReviewVerdict{{
-					Position: 1, Reviewer: "security", Step: workID("reviewer 1 try 2"), Verdict: "gap",
-					Reason: "reviewer 1 gave no verdict twice: gate_failed: again",
-				}},
-			},
-		},
 	})
 }
 
+// TestReviewVerdicts checks the verdict each reviewer's settled step gives. A reviewer whose return leaves an assertion
+// undetermined records an undetermined verdict with its step's reason, and the review goes on: it is not a costly end
+// that a second try would repeat. The reason names every assertion that is not holds, so a finding raised beside it is
+// not lost from the record.
 func TestReviewVerdicts(t *testing.T) {
 	t.Parallel()
 	node := nodeWith(testRev, false)
 	security := []Reviewer{{Name: "security", Verify: true}}
 	checkDecisions(t, Review{}, []decideCase{
+		{
+			"undetermined reviewer records its verdict with the step's reason",
+			node,
+			Rows{Reviewers: security, Steps: []store.StepRow{
+				{
+					ID:     workID("reviewer 1"),
+					End:    "gate_failed",
+					Result: reviewUndeterminedAlone,
+					Reason: "undetermined: the suite passes",
+				},
+			}},
+			Action{
+				Kind: ActEnd, Outcome: outcomePassed, Output: "security: undetermined",
+				Verdicts: []store.ReviewVerdict{{
+					Position: 1, Reviewer: "security", Step: workID("reviewer 1"), Verdict: "undetermined",
+					Reason: "undetermined: the suite passes",
+				}},
+			},
+		},
+		{
+			"undetermined reviewer beside a holding one ends the review with both",
+			node,
+			Rows{
+				Reviewers: []Reviewer{{Name: "security"}, {Name: "perf"}},
+				Steps: []store.StepRow{
+					{
+						ID:     workID("reviewer 1"),
+						End:    "gate_failed",
+						Result: reviewUndeterminedAlone,
+						Reason: "undetermined: a",
+					},
+					{ID: workID("reviewer 2"), End: "done"},
+				},
+			},
+			Action{
+				Kind: ActEnd, Outcome: outcomePassed, Output: "security: undetermined\nperf: holds",
+				Verdicts: []store.ReviewVerdict{
+					{
+						Position: 1, Reviewer: "security", Step: workID("reviewer 1"), Verdict: "undetermined",
+						Reason: "undetermined: a",
+					},
+					{Position: 2, Reviewer: "perf", Step: workID("reviewer 2"), Verdict: "holds"},
+				},
+			},
+		},
+		{
+			"undetermined assertion beside a finding is undetermined with the step's reason",
+			node,
+			Rows{Reviewers: []Reviewer{{Name: "perf"}}, Steps: []store.StepRow{
+				{ID: workID("reviewer 1"), End: "gate_failed", Result: reviewUndeterminedReturn, Reason: "undecided"},
+			}},
+			Action{
+				Kind: ActEnd, Outcome: outcomePassed, Output: "perf: undetermined",
+				Verdicts: []store.ReviewVerdict{
+					{
+						Position: 1,
+						Reviewer: "perf",
+						Step:     workID("reviewer 1"),
+						Verdict:  "undetermined",
+						Reason:   "undecided",
+					},
+				},
+			},
+		},
 		{
 			"done reviewer holds",
 			node,

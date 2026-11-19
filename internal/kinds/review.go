@@ -17,16 +17,17 @@ type Review struct{}
 // The ends of a step the try chains read, the status a finished gate return has, and the results and verdicts a review
 // stores.
 const (
-	reviewEndEngineRestarted = "engine_restarted"
-	reviewEndStopped         = "stopped"
-	reviewEndGateFailed      = "gate_failed"
-	reviewStatusDone         = "done"
-	reviewVerdictHolds       = "holds"
-	reviewVerdictFails       = "fails"
-	reviewVerdictGap         = "gap"
-	reviewResultConfirmed    = "confirmed"
-	reviewResultDropped      = "dropped"
-	reviewResultUndetermined = "undetermined"
+	reviewEndEngineRestarted  = "engine_restarted"
+	reviewEndStopped          = "stopped"
+	reviewEndGateFailed       = "gate_failed"
+	reviewStatusDone          = "done"
+	reviewVerdictHolds        = "holds"
+	reviewVerdictFails        = "fails"
+	reviewVerdictGap          = "gap"
+	reviewVerdictUndetermined = "undetermined"
+	reviewResultConfirmed     = "confirmed"
+	reviewResultDropped       = "dropped"
+	reviewResultUndetermined  = "undetermined"
 )
 
 // reviewGapEnds is the number of costly step ends at which a part of a review run is a gap.
@@ -125,15 +126,31 @@ func reviewFailedFindings(result string) ([]map[string]string, bool) {
 	return ret.Findings, true
 }
 
-// reviewIsReviewerVerdict reports whether a reviewer step's end gives a verdict: a done step holds, and a gate_failed step
-// whose return failed with findings fails.
+// reviewUndetermined reports whether a gate return finished with an undetermined result: its status is done and one of
+// its assertions is undetermined, whatever findings it raised. The review records that as the reviewer's verdict with
+// the step's reason, which names every assertion that is not holds. It is not a costly end.
+func reviewUndetermined(result string) bool {
+	var ret reviewGateReturn
+	if err := json.Unmarshal([]byte(result), &ret); err != nil || ret.Status != reviewStatusDone {
+		return false
+	}
+	for _, assertion := range ret.Results {
+		if assertion.Result == reviewResultUndetermined {
+			return true
+		}
+	}
+	return false
+}
+
+// reviewIsReviewerVerdict reports whether a reviewer step's end gives a verdict: a done step holds, and a gate_failed
+// step whose return failed with findings fails, or whose return is undetermined.
 func reviewIsReviewerVerdict(step store.StepRow) bool {
 	switch step.End {
 	case stepDone:
 		return true
 	case reviewEndGateFailed:
 		_, failed := reviewFailedFindings(step.Result)
-		return failed
+		return failed || reviewUndetermined(step.Result)
 	}
 	return false
 }
@@ -207,8 +224,9 @@ func (Review) Decide(node Node, rows Rows) Action {
 	}
 }
 
-// settleReviewer walks the try chain of the reviewer at position. A done step holds. A gate_failed step with findings
-// fails, and each of its findings is settled. A gap is a verdict too.
+// settleReviewer walks the try chain of the reviewer at position. A done step holds. A gate_failed step whose return is
+// undetermined is undetermined, with the step's reason. A gate_failed step with findings fails, and each of its
+// findings is settled. A gap is a verdict too.
 func (p *reviewPass) settleReviewer(position int, reviewer Reviewer) {
 	part := fmt.Sprintf("reviewer %d", position)
 	chain := walkTries(p.run, part, p.rows, reviewIsReviewerVerdict)
@@ -221,8 +239,12 @@ func (p *reviewPass) settleReviewer(position int, reviewer Reviewer) {
 		p.pending(chain, Unit{Part: part, Reviewer: reviewer.Name})
 	case chain.verdict.End == stepDone:
 		p.addVerdict(position, reviewer, store.ReviewVerdict{Step: chain.verdict.ID, Verdict: reviewVerdictHolds})
+	case reviewUndetermined(chain.verdict.Result):
+		p.addVerdict(position, reviewer, store.ReviewVerdict{
+			Step: chain.verdict.ID, Verdict: reviewVerdictUndetermined, Reason: chain.verdict.Reason,
+		})
 	default:
-		// reviewIsReviewerVerdict has parsed this return, so the findings are read without a second check.
+		// reviewIsReviewerVerdict has read this return as one with findings, so the findings are read without a second check.
 		findings, _ := reviewFailedFindings(chain.verdict.Result)
 		p.addVerdict(position, reviewer, store.ReviewVerdict{Step: chain.verdict.ID, Verdict: reviewVerdictFails})
 		for i, raised := range findings {
