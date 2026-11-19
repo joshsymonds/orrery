@@ -46,6 +46,18 @@ func (f *storeFixture) assertHooksStillReach(t *testing.T) {
 	requireOption(t, f.client, f.pane, protocol.OptionState, string(protocol.StateDone))
 }
 
+// lockedDrop returns the first line of stderr that logs a mirror sync dropped because the store was locked, or "" when
+// none does. A sync whose tmux read the shutdown ends is dropped for another reason, which this does not count: the
+// next start's tidy repairs that pane, and the locked store is what the write-locked tests are about.
+func lockedDrop(stderr string) string {
+	for line := range strings.SplitSeq(stderr, "\n") {
+		if strings.Contains(line, mirrorDroppedLog) && strings.Contains(line, "SQLITE_BUSY") {
+			return line
+		}
+	}
+	return ""
+}
+
 // prepareStore creates a migrated store at path and closes it.
 func prepareStore(t *testing.T, path string) {
 	t.Helper()
@@ -187,8 +199,8 @@ func TestOrrerydServesHooksWithWriteLockedStore(t *testing.T) {
 	if !strings.Contains(out.stderr, mirrorBusyLog) {
 		t.Fatalf("stderr %q, want the locked write logged as deferred", out.stderr)
 	}
-	if strings.Contains(out.stderr, mirrorDroppedLog) {
-		t.Fatalf("stderr %q, want no locked write dropped", out.stderr)
+	if line := lockedDrop(out.stderr); line != "" {
+		t.Fatalf("stderr logs a locked write dropped: %q, want it deferred", line)
 	}
 	if strings.Contains(out.stderr, storeUnavailableLog) {
 		t.Fatalf("stderr %q: the migrated store should open", out.stderr)
