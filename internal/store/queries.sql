@@ -824,6 +824,9 @@ UPDATE epic_tasks SET status = sqlc.arg(status) WHERE epic = sqlc.arg(epic) AND 
 -- name: SetEpicTaskNeedsFiles :exec
 UPDATE epic_tasks SET needs_files = sqlc.arg(needs_files) WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq);
 
+-- name: SetEpicTaskGateChanges :exec
+UPDATE epic_tasks SET gate_changes = sqlc.arg(gate_changes) WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq);
+
 -- name: ClaimEpicTaskBatch :exec
 UPDATE epic_tasks SET batch = sqlc.arg(batch)
 WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq) AND status = 'done' AND (batch = '' OR batch = sqlc.arg(batch));

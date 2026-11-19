@@ -9,8 +9,8 @@ import (
 )
 
 // ReadoptCheck returns the return check a re-adopted step row is restored with. A row that is the step of a running
-// planner turn gets the plan check of that turn's epic, resolved by resolve, and any other row gets a nil check. A
-// store error is returned.
+// planner turn gets the plan check of that turn's epic, resolved by resolve, with the lines of failed tasks the turn
+// may not try again, read from the triggers it claimed, and any other row gets a nil check. A store error is returned.
 func ReadoptCheck(
 	st Store,
 	resolve Resolver,
@@ -28,7 +28,15 @@ func ReadoptCheck(
 			if epicErr != nil {
 				return nil, fmt.Errorf("read epic %s: %w", turn.Epic, epicErr)
 			}
-			return returnCheck(ctx, epic, resolve), nil
+			triggers, triggersErr := st.TurnTriggers(ctx, turn.Epic, turn.Seq)
+			if triggersErr != nil {
+				return nil, fmt.Errorf("read triggers of turn %d of epic %s: %w", turn.Seq, turn.Epic, triggersErr)
+			}
+			spent, spentErr := spentLines(ctx, st, epic, triggers)
+			if spentErr != nil {
+				return nil, fmt.Errorf("read the spent lines of turn %d of epic %s: %w", turn.Seq, turn.Epic, spentErr)
+			}
+			return returnCheck(ctx, epic, resolve, spent), nil
 		}
 		return nil, nil
 	}

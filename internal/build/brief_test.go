@@ -69,13 +69,26 @@ const briefRules = "Do not edit any other file. When the work needs a file that 
 	"needs_context with each such path in needs_files. orreryd gives you every path no other task owns and sends you " +
 	"back to this same worktree with your work kept.\n"
 
-// briefGuardAndGate are the guard line and the gate line for briefGate.
+// briefGuardAndGate are the guard line and the gate line for briefGate, then the line on a gate-needed change.
 const briefGuardAndGate = "Outside those test changes, orreryd's guard refuses a commit that deletes or renames a guarded " +
 	"test file, removes a test present at the base, lowers a test's assertions, adds a skip, or changes a file a " +
 	"capture runs.\n" +
 	"Gate: check. After you return done, orreryd runs `scripts/in-devenv -c 'just remote just check'` on your commit. " +
 	"Do not run the gate yourself. When it fails, orreryd sends you its output: fix the cause, commit the fix on top, " +
-	"and return done again.\n"
+	"and return done again.\n" +
+	"Gate-needed change: when the gate or the Capture cannot pass without a change the Deliverable does not name, " +
+	"such as an existing test whose expectation your change rightly moves, or a race or flake the gate exposes in " +
+	"code your change runs, make the smallest such change and declare it in gate_changes: each file it touches, with " +
+	"the reason the gate or Capture needs it. When the Deliverable itself fixes a gate failure the Requirements do " +
+	"not name, such as a flake the epic's gates failed on, declare each file it changes the same way. Reviewers judge " +
+	"a declared gate-needed change in scope when the gate needs it and it is no larger than that need, and an " +
+	"undeclared change the Deliverable does not ask for fails review. The guard still judges a gate-needed change, " +
+	"so it never removes a test, lowers its assertions or adds a skip. For a gate-needed change in a file outside " +
+	"the owned files, return needs_context naming the file in needs_files, with the reason in summary.\n"
+
+// reviewDeclared heads the declared gate-needed changes in the prompts of a task's reviewers and verifiers.
+const reviewDeclared = "Gate-needed changes the implementer declared (each is in scope, though the Deliverable does not " +
+	"name it, when the task's gate or evidence cannot pass without it and it is no larger than that need):"
 
 // The lines of a brief, by position: the first headLines, the standing rules after them (standingLines long, the
 // heading and its six bullets), and the last closingLines, the closing instructions. briefRest pins every other line
@@ -290,6 +303,8 @@ func TestReviewPromptNamesRangeFilesAndRequirements(t *testing.T) {
 		"- internal/build/brief_test.go\n" +
 		"Test changes:\n" +
 		"- none\n" +
+		reviewDeclared + "\n" +
+		"- none\n" +
 		"Requirements:\n" +
 		"- R3: three\n" +
 		"- R1: one\n" +
@@ -309,6 +324,8 @@ func TestReviewPromptEmptySectionsPrintNone(t *testing.T) {
 		"Owned files:\n" +
 		"- none\n" +
 		"Test changes:\n" +
+		"- none\n" +
+		reviewDeclared + "\n" +
 		"- none\n" +
 		"Requirements:\n" +
 		"- none\n" +
@@ -429,7 +446,8 @@ func TestBriefCarriesTaskAndStandingRules(t *testing.T) {
 		// The standing rules fill lines 2 to 8, and briefRest pins the Deliverable on the line after them.
 		assertLinesAt(t, lines, headLines, "Standing rules a commit is rejected for:")
 		assertLinesAt(t, lines, headLines+2,
-			"- editing, renaming, or deleting an existing test the Deliverable does not name",
+			"- editing, renaming, or deleting an existing test the Deliverable does not name, other than a declared "+
+				"gate-needed change",
 			"- a test that repeats an existing assertion or passes with the change removed",
 			"- a real timer or clock in a test",
 			"- an Evidence clause left unproved",
@@ -441,8 +459,29 @@ func TestBriefCarriesTaskAndStandingRules(t *testing.T) {
 		lines := briefLines(t, fixtureBrief())
 		assertLinesAt(t, lines, headLines+1,
 			"- changing anything the Deliverable does not ask for, including tidying, reformatting, or fixing code or "+
-				"tests that are already broken; this overrides any standing instruction to fix what you find")
+				"tests that are already broken, other than a declared gate-needed change; this overrides any standing "+
+				"instruction to fix what you find")
 	})
+	t.Run(
+		"the brief lists the gate-needed changes earlier tries declared after the gate-needed rule",
+		func(t *testing.T) {
+			t.Parallel()
+			task := briefTask()
+			task.GateChanges = []store.GateChange{
+				{Path: "internal/enginehost/record.go", Reason: "check_changed fails on a -race report"},
+				{Path: "internal/build/brief_test.go", Reason: "the change moves this test's expected text"},
+			}
+			got := Brief(briefEpic(), task, briefGate(), store.EvidenceRun{}, nil, nil, "")
+			want := "the owned files, return needs_context naming the file in needs_files, with the reason in summary.\n" +
+				"Gate-needed changes declared on this task so far:\n" +
+				"- internal/enginehost/record.go: check_changed fails on a -race report\n" +
+				"- internal/build/brief_test.go: the change moves this test's expected text\n" +
+				"Evidence: the brief renders\n"
+			if !strings.Contains(got, want) {
+				t.Fatalf("brief lacks the declared gate-needed changes after the rule; brief:\n%s", got)
+			}
+		},
+	)
 	t.Run("the brief says to run the Capture before committing", func(t *testing.T) {
 		t.Parallel()
 		lines := briefLines(t, fixtureBrief())
@@ -491,11 +530,34 @@ func TestStepSendBackReviewPromptCarriesTestChanges(t *testing.T) {
 			"Test changes:\n" +
 			"- internal/build/brief_test.go\n" +
 			"- internal/build/floor_test.go\n" +
+			reviewDeclared + "\n" +
+			"- none\n" +
 			"Requirements:\n"
 		if !strings.Contains(got, want) {
 			t.Fatalf("review prompt lacks the Test changes after Files; review prompt:\n%s", got)
 		}
 	})
+	t.Run(
+		"ReviewPrompt lists the gate-needed changes the implementer declared after the Test changes",
+		func(t *testing.T) {
+			t.Parallel()
+			task := briefTask()
+			task.GateChanges = []store.GateChange{
+				{
+					Path:   "cmd/orreryd/callerevent_wiring_test.go",
+					Reason: "the wake moves the delivery this test expects",
+				},
+			}
+			got := ReviewPrompt(briefEpic(), task, "floor", "base1", "rev1", store.StepCheck{})
+			want := "- internal/build/brief_test.go\n" +
+				reviewDeclared + "\n" +
+				"- cmd/orreryd/callerevent_wiring_test.go: the wake moves the delivery this test expects\n" +
+				"Requirements:\n"
+			if !strings.Contains(got, want) {
+				t.Fatalf("review prompt lacks the declared gate-needed changes; review prompt:\n%s", got)
+			}
+		},
+	)
 }
 
 // bulletsUnder returns the bullet lines directly under the line heading of got, without their "- " prefix, and whether

@@ -134,7 +134,7 @@ func decideRepro(view View) (Action, bool) {
 	if repro.Exit == 0 && !repro.TimedOut {
 		return spend(view, fmt.Sprintf(
 			"green not met: the judge and the exit disagree: red was judged fails at the base %s, but its reproduction "+
-				"with the commit's tests exited 0",
+				"with the commit's tests exited 0, so those tests pass at the base without the rest of the commit",
 			build.Base,
 		)), true
 	}

@@ -158,6 +158,9 @@ func checkTask(i int, task Task, known, taken, named map[string]bool, gate, judg
 	for _, line := range evidence.CheckTask(task.Evidence) {
 		refusals = append(refusals, prefix+" evidence."+line)
 	}
+	if testItemOfTestsOnly(task) {
+		refusals = append(refusals, prefix+" evidence.kind: "+reasonTestsOnly)
+	}
 	if strings.TrimSpace(task.Gate) != "" {
 		if err := gate(task.Gate); err != nil {
 			refusals = append(refusals, prefix+" gate: "+err.Error())
@@ -169,6 +172,19 @@ func checkTask(i int, task Task, known, taken, named map[string]bool, gate, judg
 		}
 	}
 	return refusals
+}
+
+// reasonTestsOnly is why a test item is refused on a task whose files are all test files.
+const reasonTestsOnly = "test, but every file of the task is a test file. A test item's green first runs its tests at " +
+	"the base with the rest of the commit left out, and they must fail there; with no other file in the change " +
+	"that run is the commit itself, so it passes as green does and the task can never be met. Give a task that " +
+	"only adds, rewrites or fixes tests kind capture with no tests, and a conclusion its base output cannot show"
+
+// testItemOfTestsOnly reports whether task's evidence is a test item while every one of its files is a test file
+// (evidence.TestFile). Its reproduction overlays its tests on the base, so the change it would leave out is empty.
+func testItemOfTestsOnly(task Task) bool {
+	return task.Evidence.Kind == evidence.KindTest && len(task.Files) > 0 && !slices.ContainsFunc(task.Files,
+		func(file string) bool { return !evidence.TestFile(file) })
 }
 
 // testChangeRefusals returns one refusal per test_changes element of task that is not one of the task's files.

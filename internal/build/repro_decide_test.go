@@ -32,7 +32,8 @@ func TestDecideGreenReproduction(t *testing.T) {
 		Failure: "green not captured: reproduction did not run: no workdir",
 	}
 	disagreement := "green not met: the judge and the exit disagree: red was judged fails at the base repro-base, " +
-		"but its reproduction with the commit's tests exited 0"
+		"but its reproduction with the commit's tests exited 0, so those tests pass at the base without the rest of " +
+		"the commit"
 	firstAttemptDisagreed := store.TaskBuild{
 		Stage: StageImplement, Base: reproBase, Attempt: 2, RedRun: "red-run", Failure: disagreement,
 	}
