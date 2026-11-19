@@ -98,8 +98,8 @@ const (
 	silentBackground = "background work"
 	// brokerTick is how often the grants broker ticks. Each tick ends the grants of gone clients and polls each member.
 	brokerTick = 60 * time.Second
-	// limitTick is how often the limit notices check the limited steps for a change, and how often the due pass, the
-	// epic summaries, the session titles, the session headlines and the epic reports run.
+	// limitTick is how often the limit notices check the limited steps for a change, and how often the epic summaries,
+	// the session titles, the session headlines and the epic reports run.
 	limitTick = 5 * time.Second
 	// storeOpenRetry is how long openStore waits before it tries a busy store open again.
 	storeOpenRetry = 2 * time.Second
@@ -846,6 +846,9 @@ type sessionHost struct {
 	// flowWake is the relay the steps' EpicWake and the manager's StepFreed hand epics to. startFlow sets it to the
 	// interpreter's Wake.
 	flowWake flowWakeRelay
+	// dueWake is the relay the steps' Stored, the manager's StepFreed and the epic writes wake the due pass through.
+	// startDue sets it to the due pass's Wake.
+	dueWake dueWakeRelay
 	// changes is the change feed the Changes service serves, nil without a store. wireStore sets it.
 	changes *enginehost.ChangeFeed
 	// logger logs each phase of the shutdown.
@@ -894,8 +897,9 @@ func newSessionHost(logger *slog.Logger) *sessionHost {
 // starts. The flow then runs over the store until stop, with the planner and the build runner as its planner and
 // builder, and its attention loop routes its epic notices through router when router is not nil. The limit notices tell
 // router which steps a usage limit holds, every limitTick until stop; the due pass resumes each due row whose reset has
-// passed, every limitTick until stop; the epic summaries write each stored epic's missing summary through haiku, every
-// limitTick until stop; the session titles write each headless session's missing title through haiku, every limitTick
+// passed, at its start, on each wake and at each row's moment, until stop (startDue); the epic summaries write each
+// stored epic's missing summary through haiku, every limitTick until stop; the session titles write each headless
+// session's missing title through haiku, every limitTick
 // until stop; the session headlines refresh each headless session's headline once its turns have ended, through haiku,
 // every limitTick until stop; the manager stops idle sessions, until stop; and the caller-event delivery tells each
 // step's caller when the step ends, and each epic's creator of its events, on its start, on each wake, and once more
@@ -966,7 +970,7 @@ func startSessions(
 			GateScopeMemory: opts.scopeMemory,
 			ReadoptCheck:    readoptCheck(st, resolve),
 			ReadoptGate:     readoptGate(st),
-			Stored:          host.callerEvents.Wake, EpicWake: host.stepEpicWake,
+			Stored:          host.stepStored, EpicWake: host.stepEpicWake,
 		})
 		host.steps = steps
 		host.wireStore(st)
@@ -1327,6 +1331,30 @@ func (r *flowWakeRelay) Wake(epics []string) {
 	}
 }
 
+// dueWakeRelay wakes the due pass that startDue sets it to. Until then a wake does nothing: the due pass's first pass,
+// which covers every row, makes up for it. It is safe from any goroutine, never blocks, and takes only its own lock.
+type dueWakeRelay struct {
+	mu   sync.Mutex
+	wake func()
+}
+
+// set makes wake the due pass's wake that Wake calls.
+func (r *dueWakeRelay) set(wake func()) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.wake = wake
+}
+
+// Wake calls the due pass's wake, or does nothing while none is set. The wake is called outside the lock.
+func (r *dueWakeRelay) Wake() {
+	r.mu.Lock()
+	wake := r.wake
+	r.mu.Unlock()
+	if wake != nil {
+		wake()
+	}
+}
+
 // wireStore points st's engine liveness at the manager, and makes h.changes the change feed that st's session-events
 // hook publishes each event write to, for the Changes service to relay.
 func (h *sessionHost) wireStore(st *store.Store) {
@@ -1336,10 +1364,14 @@ func (h *sessionHost) wireStore(st *store.Store) {
 }
 
 // subscribeFlowWake makes wake the flow's wake: the relay the steps and the manager hand epics to, and the store's
-// epics-changed hook, which calls it on each write that moves an epic.
+// epics-changed hook, which calls it on each write that moves an epic and then wakes the due pass. The due pass wakes on
+// an epic write too, since a limit's due row for an epic is stored with the epic's pause, which moves its revision.
 func (h *sessionHost) subscribeFlowWake(st *store.Store, wake func(epics []string)) {
 	h.flowWake.set(wake)
-	st.OnEpicsChanged(wake)
+	st.OnEpicsChanged(func(epics []string) {
+		wake(epics)
+		h.dueWake.Wake()
+	})
 }
 
 // stepEpicWake is the steps' EpicWake: it hands the epic of a step end or hold to the flow.
@@ -1347,9 +1379,18 @@ func (h *sessionHost) stepEpicWake(epic string) {
 	h.flowWake.Wake([]string{epic})
 }
 
-// stepFreedWake is the manager's StepFreed: it hands the epics a freed step slot refused to the flow, and does nothing
-// for none. The manager calls it under its lock, so it does not block.
+// stepStored is the steps' Stored: it wakes the caller-event delivery, and then the due pass, since a step limit publishes
+// its due row once the write that stores it has committed. It does not block.
+func (h *sessionHost) stepStored() {
+	h.callerEvents.Wake()
+	h.dueWake.Wake()
+}
+
+// stepFreedWake is the manager's StepFreed: it wakes the due pass, since a freed slot may let a row the step cap refused
+// resume, and it hands the epics a freed step slot refused to the flow, and does nothing for none. The manager calls it
+// under its lock, so it does not block.
 func (h *sessionHost) stepFreedWake(epics []string) {
+	h.dueWake.Wake()
 	if len(epics) == 0 {
 		return
 	}
@@ -1591,26 +1632,24 @@ func (h *sessionHost) startWriter(ctx context.Context) {
 	}()
 }
 
-// startDue resumes the due rows over st every limitTick until stop, and once when it starts, by the clock now, or
-// time.Now when now is nil. Its steps are the host's steps, which startSessions has re-adopted before it starts the
-// pass.
+// startDue resumes the due rows over st until stop, by the clock now, or time.Now when now is nil. It passes once when it
+// starts, then on each wake of the due relay (see dueWakeRelay) and at each due row's moment. Its steps are the host's
+// steps, which startSessions has re-adopted before it starts the pass.
 func (h *sessionHost) startDue(ctx context.Context, st *store.Store, now func() time.Time, logger *slog.Logger) {
 	if now == nil {
 		now = time.Now
 	}
-	ticker := time.NewTicker(limitTick)
 	due := enginehost.NewDuePass(enginehost.DuePassConfig{
 		Store:  st,
 		Steps:  h.steps,
 		Now:    now,
-		Tick:   ticker.C,
 		Logger: logger,
 	})
+	h.dueWake.set(due.Wake)
 	var dueCtx context.Context
 	dueCtx, h.stopDue = context.WithCancel(ctx)
 	go func() {
 		defer close(h.dueDone)
-		defer ticker.Stop()
 		due.Run(dueCtx)
 	}()
 }
