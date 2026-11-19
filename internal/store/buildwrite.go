@@ -62,8 +62,10 @@ func failTask(
 	return nil
 }
 
-// AcceptTask marks task seq of epic done with review in one write, when its stored build is from. A task that is not
-// open, or whose stored build is not from, is ErrTaskMoved and writes nothing.
+// AcceptTask marks task seq of epic done with review in one write, when its stored build is from. The rung the build
+// is on ends accepted too, with its own created time as the ended time, when the task has a row for that rung, as a
+// task that climbed to it has; a task that never climbed has no ladder row. A task that is not open, or whose stored
+// build is not from, is ErrTaskMoved and writes nothing.
 func (s *Store) AcceptTask(ctx context.Context, epic string, seq int64, from TaskBuild, review string) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		to := from
@@ -71,7 +73,10 @@ func (s *Store) AcceptTask(ctx context.Context, epic string, seq int64, from Tas
 		if err := moveTask(ctx, queries, epic, seq, from, to); err != nil {
 			return err
 		}
-		return setTaskStatus(ctx, queries, epic, seq, "done")
+		if err := setTaskStatus(ctx, queries, epic, seq, "done"); err != nil {
+			return err
+		}
+		return acceptRung(ctx, queries, epic, seq, from.Attempt)
 	})
 }
 
