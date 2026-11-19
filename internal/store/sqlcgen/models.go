@@ -670,6 +670,13 @@ type PushedNotice struct {
 	Time    int64
 }
 
+type PutOffQuestion struct {
+	Kind      string
+	SessionID string
+	Question  string
+	PutOffAt  int64
+}
+
 type Session struct {
 	ID            string
 	Server        string

@@ -23,6 +23,8 @@ type HeadlessRow struct {
 	// NewestReply is the at of the newest such block or of the newest engine_request whose refused is false,
 	// whichever is later, or 0 when the session has neither.
 	NewestReply int64
+	// RequestID is the request_id of the session's newest unrefused engine_request, or "" when there is none.
+	RequestID string
 }
 
 // HeadlessSessions reads the headless engine sessions with an event at or after cutoff, in id order, each with its
@@ -65,7 +67,7 @@ func readHeadlessSessions(ctx context.Context, db *sql.DB, cutoff int64) ([]Head
 		headless = append(headless, HeadlessRow{
 			ID: row.ID, Dir: row.Dir, State: row.State, Changed: row.Changed, Seen: row.Seen,
 			Question: row.Question, Reason: row.Reason, Title: row.Title, Headline: row.Headline,
-			FirstPrompt: row.FirstPrompt, Reply: row.Reply, NewestReply: row.NewestReply,
+			FirstPrompt: row.FirstPrompt, Reply: row.Reply, NewestReply: row.NewestReply, RequestID: row.RequestID,
 		})
 	}
 	return headless, nil

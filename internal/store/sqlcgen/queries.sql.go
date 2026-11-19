@@ -599,6 +599,21 @@ func (q *Queries) DeletePushedNotice(ctx context.Context, arg DeletePushedNotice
 	return err
 }
 
+const deletePutOffQuestion = `-- name: DeletePutOffQuestion :exec
+DELETE FROM put_off_questions WHERE kind = ? AND session_id = ? AND question = ?
+`
+
+type DeletePutOffQuestionParams struct {
+	Kind      string
+	SessionID string
+	Question  string
+}
+
+func (q *Queries) DeletePutOffQuestion(ctx context.Context, arg DeletePutOffQuestionParams) error {
+	_, err := q.db.ExecContext(ctx, deletePutOffQuestion, arg.Kind, arg.SessionID, arg.Question)
+	return err
+}
+
 const deleteSession = `-- name: DeleteSession :exec
 DELETE FROM sessions WHERE id = ?
 `
@@ -5736,7 +5751,13 @@ SELECT
         SELECT json_extract(events.payload, '$.text') FROM events
         WHERE events.session_id = sessions.id AND events.kind = 'engine_prompt'
         ORDER BY events.seq LIMIT 1
-    ), '') AS TEXT) AS first_prompt
+    ), '') AS TEXT) AS first_prompt,
+    CAST(COALESCE((
+        SELECT json_extract(events.payload, '$.requestId') FROM events
+        WHERE events.session_id = sessions.id AND events.kind = 'engine_request'
+          AND json_extract(events.payload, '$.refused') IS NOT 1
+        ORDER BY events.seq DESC LIMIT 1
+    ), '') AS TEXT) AS request_id
 FROM sessions
 WHERE sessions.kind = 'engine'
   AND EXISTS (SELECT 1 FROM events WHERE events.session_id = sessions.id AND events.at >= ?1)
@@ -5756,6 +5777,7 @@ type ListHeadlessSessionsRow struct {
 	Reply       string
 	NewestReply int64
 	FirstPrompt string
+	RequestID   string
 }
 
 func (q *Queries) ListHeadlessSessions(ctx context.Context, cutoff int64) ([]ListHeadlessSessionsRow, error) {
@@ -5780,6 +5802,7 @@ func (q *Queries) ListHeadlessSessions(ctx context.Context, cutoff int64) ([]Lis
 			&i.Reply,
 			&i.NewestReply,
 			&i.FirstPrompt,
+			&i.RequestID,
 		); err != nil {
 			return nil, err
 		}
@@ -6837,6 +6860,38 @@ func (q *Queries) ListPushedNotices(ctx context.Context) ([]PushedNotice, error)
 	for rows.Next() {
 		var i PushedNotice
 		if err := rows.Scan(&i.Pane, &i.Session, &i.Time); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPutOffQuestions = `-- name: ListPutOffQuestions :many
+SELECT kind, session_id, question, put_off_at FROM put_off_questions ORDER BY kind, session_id, question
+`
+
+func (q *Queries) ListPutOffQuestions(ctx context.Context) ([]PutOffQuestion, error) {
+	rows, err := q.db.QueryContext(ctx, listPutOffQuestions)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PutOffQuestion
+	for rows.Next() {
+		var i PutOffQuestion
+		if err := rows.Scan(
+			&i.Kind,
+			&i.SessionID,
+			&i.Question,
+			&i.PutOffAt,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -9260,6 +9315,28 @@ type UpsertPushedNoticeParams struct {
 
 func (q *Queries) UpsertPushedNotice(ctx context.Context, arg UpsertPushedNoticeParams) error {
 	_, err := q.db.ExecContext(ctx, upsertPushedNotice, arg.Pane, arg.Session, arg.Time)
+	return err
+}
+
+const upsertPutOffQuestion = `-- name: UpsertPutOffQuestion :exec
+INSERT INTO put_off_questions (kind, session_id, question, put_off_at) VALUES (?, ?, ?, ?)
+ON CONFLICT(kind, session_id, question) DO UPDATE SET put_off_at = excluded.put_off_at
+`
+
+type UpsertPutOffQuestionParams struct {
+	Kind      string
+	SessionID string
+	Question  string
+	PutOffAt  int64
+}
+
+func (q *Queries) UpsertPutOffQuestion(ctx context.Context, arg UpsertPutOffQuestionParams) error {
+	_, err := q.db.ExecContext(ctx, upsertPutOffQuestion,
+		arg.Kind,
+		arg.SessionID,
+		arg.Question,
+		arg.PutOffAt,
+	)
 	return err
 }
 

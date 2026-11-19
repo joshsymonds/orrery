@@ -163,7 +163,13 @@ SELECT
         SELECT json_extract(events.payload, '$.text') FROM events
         WHERE events.session_id = sessions.id AND events.kind = 'engine_prompt'
         ORDER BY events.seq LIMIT 1
-    ), '') AS TEXT) AS first_prompt
+    ), '') AS TEXT) AS first_prompt,
+    CAST(COALESCE((
+        SELECT json_extract(events.payload, '$.requestId') FROM events
+        WHERE events.session_id = sessions.id AND events.kind = 'engine_request'
+          AND json_extract(events.payload, '$.refused') IS NOT 1
+        ORDER BY events.seq DESC LIMIT 1
+    ), '') AS TEXT) AS request_id
 FROM sessions
 WHERE sessions.kind = 'engine'
   AND EXISTS (SELECT 1 FROM events WHERE events.session_id = sessions.id AND events.at >= sqlc.arg(cutoff))
@@ -1310,6 +1316,16 @@ ON CONFLICT (kind, id) DO UPDATE SET archived_at = 0, unarchived_at = excluded.u
 
 -- name: ListArchivedRows :many
 SELECT * FROM archived_rows ORDER BY kind, id;
+
+-- name: UpsertPutOffQuestion :exec
+INSERT INTO put_off_questions (kind, session_id, question, put_off_at) VALUES (?, ?, ?, ?)
+ON CONFLICT(kind, session_id, question) DO UPDATE SET put_off_at = excluded.put_off_at;
+
+-- name: DeletePutOffQuestion :exec
+DELETE FROM put_off_questions WHERE kind = ? AND session_id = ? AND question = ?;
+
+-- name: ListPutOffQuestions :many
+SELECT * FROM put_off_questions ORDER BY kind, session_id, question;
 
 -- name: ListEpicIntegrateRunPaths :many
 SELECT path FROM epic_node_runs WHERE epic = ? AND node = ? AND kind = 'integrate' ORDER BY rowid;
