@@ -495,10 +495,12 @@ func (r *Runner) head(ctx context.Context, dir string) string {
 	return head
 }
 
-// refMoves returns the ref moves between the snapshot before and a snapshot of epic's repository now. The implementer's
-// commits are those between base, the commit its step started at, and head, the HEAD of its worktree. A move of main or
-// of HEAD onto a commit that origin's main reaches, and that holds none of those commits, is told rather than parked.
-// Without origin's main, or without a head to read the commits from, every move parks as Compare reports it.
+// refMoves returns the ref moves between the snapshot before and a snapshot of epic's repository now that the implementer
+// is blamed for. The implementer's commits are those between base, the commit its step started at, and head, the HEAD of
+// its worktree. ScopeMoves leaves out each move that neither parks nor is the epic's own and whose target holds none of
+// those commits. A move of main or of HEAD onto a commit that origin's main reaches, and that holds none of those
+// commits, is told rather than parked. Without origin's main, or without a head to read the commits from, the moves
+// that remain park as Compare reports them.
 func (r *Runner) refMoves(ctx context.Context, epic store.EpicRow, before, base, head string) ([]RefMove, error) {
 	after, err := snapshotOf(ctx, r.store, epic)
 	if err != nil {
@@ -507,6 +509,10 @@ func (r *Runner) refMoves(ctx context.Context, epic store.EpicRow, before, base,
 	moves, err := Compare(before, after)
 	if err != nil {
 		return nil, fmt.Errorf("compare refs of epic %s: %w", epic.ID, err)
+	}
+	moves, err = ScopeMoves(ctx, epic.Repository, epic.ID, moves, base, head)
+	if err != nil {
+		return nil, fmt.Errorf("scope ref moves of epic %s: %w", epic.ID, err)
 	}
 	origin, ok, err := originMain(ctx, epic.Repository)
 	if err != nil {
