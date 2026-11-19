@@ -1972,7 +1972,8 @@ type EpicTaskVersion struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The version's number on its task, from 2.
 	Version int64 `protobuf:"varint,1,opt,name=version,proto3" json:"version,omitempty"`
-	// The source that wrote the version: orchestrator, grant, rescue, approach or carry.
+	// The source that wrote the version: orchestrator, grant, approach, carry or send_back, or rescue for a version stored
+	// before the rescue rung was removed.
 	Source string `protobuf:"bytes,2,opt,name=source,proto3" json:"source,omitempty"`
 	// The id of the epic decision that wrote the version; empty for orreryd's rule grant.
 	Decision string `protobuf:"bytes,3,opt,name=decision,proto3" json:"decision,omitempty"`
@@ -2152,11 +2153,13 @@ func (x *EpicTaskVersion) GetSettled() int64 {
 // how it ended.
 type EpicTaskRung struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The task build's attempt number, from 1; 7 is the gap.
+	// The task build's attempt number, from 1; 6 is the gap.
 	Rung int64 `protobuf:"varint,1,opt,name=rung,proto3" json:"rung,omitempty"`
-	// The rung's kind: attempt, rescue, orchestrator, approach or gap.
+	// The rung's kind: attempt, orchestrator, approach or gap, or rescue for a rung stored before the rescue rung was
+	// removed.
 	Kind string `protobuf:"bytes,2,opt,name=kind,proto3" json:"kind,omitempty"`
-	// What moved the task onto the rung: unit, finding, fail_decision, cannot_meet or fail_task; empty for rung 1.
+	// What moved the task onto the rung: unit, finding, fail_decision, cannot_meet, fail_task or send_back; empty for
+	// rung 1.
 	MovedBy string `protobuf:"bytes,3,opt,name=moved_by,json=movedBy,proto3" json:"moved_by,omitempty"`
 	// The failure's text that moved the task onto the rung; empty for rung 1.
 	Cause string `protobuf:"bytes,4,opt,name=cause,proto3" json:"cause,omitempty"`

@@ -1,5 +1,5 @@
-// Package guard refuses a task commit that weakens the tests the epic's
-// requirements and other tasks rely on.
+// Package guard judges a task commit against the tests the epic's requirements and other tasks rely on. It refuses a
+// commit that changes a capture file or adds a DOM-node assert, and reports each other weakening of a test as a fact.
 package guard
 
 import (
