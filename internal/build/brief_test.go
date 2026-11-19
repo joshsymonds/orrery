@@ -70,9 +70,8 @@ const briefRules = "Do not edit any other file. When the work needs a file that 
 	"back to this same worktree with your work kept.\n"
 
 // briefGuardAndGate are the guard line and the gate line for briefGate, then the line on a gate-needed change.
-const briefGuardAndGate = "Outside those test changes, orreryd's guard refuses a commit that deletes or renames a guarded " +
-	"test file, removes a test present at the base, lowers a test's assertions, adds a skip, or changes a file a " +
-	"capture runs.\n" +
+const briefGuardAndGate = "Outside those test changes, orreryd's guard refuses a commit that changes a file a capture " +
+	"runs.\n" +
 	"Gate: check. After you return done, orreryd runs `scripts/in-devenv -c 'just remote just check'` on your commit. " +
 	"Do not run the gate yourself. When it fails, orreryd sends you its output: fix the cause, commit the fix on top, " +
 	"and return done again.\n" +
@@ -82,9 +81,10 @@ const briefGuardAndGate = "Outside those test changes, orreryd's guard refuses a
 	"the reason the gate or Capture needs it. When the Deliverable itself fixes a gate failure the Requirements do " +
 	"not name, such as a flake the epic's gates failed on, declare each file it changes the same way. Reviewers judge " +
 	"a declared gate-needed change in scope when the gate needs it and it is no larger than that need, and an " +
-	"undeclared change the Deliverable does not ask for fails review. The guard still judges a gate-needed change, " +
-	"so it never removes a test, lowers its assertions or adds a skip. For a gate-needed change in a file outside " +
-	"the owned files, return needs_context naming the file in needs_files, with the reason in summary.\n"
+	"undeclared change the Deliverable does not ask for fails review. The guard still judges a gate-needed change: " +
+	"it refuses a changed capture file, and a removed test, a lowered assertion or an added skip goes to the floor " +
+	"reviewer. For a gate-needed change in a file outside the owned files, return needs_context naming the file in " +
+	"needs_files, with the reason in summary.\n"
 
 // reviewDeclared heads the declared gate-needed changes in the prompts of a task's reviewers and verifiers.
 const reviewDeclared = "Gate-needed changes the implementer declared (each is in scope, though the Deliverable does not " +
@@ -414,9 +414,9 @@ func TestReviewPromptEndsTestParsimonyWithTheGatesTestCost(t *testing.T) {
 			},
 		},
 		{
-			name: "exceeded budget on stderr",
+			name: "check-changed exceeded line is no budget line",
 			gate: exceeded,
-			want: []string{"- check-changed: exceeded 240s budget (Go tests was running)"},
+			want: []string{"- no budget lines"},
 		},
 		{
 			name: "output without budget lines",

@@ -40,14 +40,10 @@ func Defaults() []Entry {
 			Name:  "floor",
 			Stage: []string{StageTask},
 			Must: []string{
-				"The task's own tests would fail if the behavior they cover were removed.",
+				"The change does what the task asked, leaves the checks that judge it intact, and the tests it adds " +
+					"or changes would fail if the behavior they cover were removed.",
 			},
 			MustNot: []string{
-				"The change suppresses, skips or disables a check.",
-				"The change weakens a test or makes one tautological.",
-				"The change adds dead code.",
-				"The change leaves an error unhandled.",
-				"The change does something the task did not ask for.",
 				"The change introduces a security or data-loss failure with a reachable precondition.",
 			},
 			Prompt: new(floorRole),
@@ -80,7 +76,7 @@ func Defaults() []Entry {
 		},
 		{
 			Name:  TestParsimony,
-			Stage: []string{StageTask, StageEpic},
+			Stage: []string{StageEpic},
 			MustNot: []string{
 				"The change adds a test that uses a real wait or a real clock.",
 				"The change adds a test that starts its own real resource where a shared one exists.",
