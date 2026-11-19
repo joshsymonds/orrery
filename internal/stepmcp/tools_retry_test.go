@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"path/filepath"
-	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -22,14 +21,8 @@ import (
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 )
 
-// waitBeforeCut is how long a step_wait runs before its stream is cut.
-const waitBeforeCut = 4 * time.Second
-
-// maxRetryWait is the longest wait rpcretry.Do makes between two attempts.
-const maxRetryWait = 5 * time.Second
-
-// testClock is the retry clock of a test. Its time moves only when a retry waits or the test advances it, so a retry
-// costs no real time. onWait, when set, runs with the number of waits so far after each wait is recorded.
+// testClock is the retry clock of a test. Its time moves only when a retry waits, so a retry costs no real time. onWait,
+// when set, runs with the number of waits so far after each wait is recorded.
 type testClock struct {
 	mu     sync.Mutex
 	now    time.Time
@@ -64,13 +57,6 @@ func (c *testClock) After(d time.Duration) <-chan time.Time {
 	return fired
 }
 
-// advance moves the clock forward by d, as the time a simulated call spends.
-func (c *testClock) advance(d time.Duration) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.now = c.now.Add(d)
-}
-
 // waitCount returns how many waits the clock has recorded.
 func (c *testClock) waitCount() int {
 	c.mu.Lock()
@@ -78,29 +64,21 @@ func (c *testClock) waitCount() int {
 	return c.waits
 }
 
-// retryWait is one WaitSteps request the service answered: its timeout in seconds and the clock's time on arrival.
-type retryWait struct {
-	seconds uint32
-	at      time.Time
-}
-
-// retrySteps is the Steps service of the retry tests. It counts the calls each method receives, fails the calls that
-// unavailable names with Unavailable, and records every WaitSteps request.
+// retrySteps is the Steps service of the retry tests. It counts the calls each method receives and fails the calls that
+// unavailable names with Unavailable.
 type retrySteps struct {
 	enginev1connect.UnimplementedStepsHandler
 
-	clock       *testClock
 	unavailable func(method string, call int) bool
 
 	mu    sync.Mutex
 	calls map[string]int
-	waits []retryWait
 }
 
-// newRetrySteps returns the Steps service of a retry test on clock. unavailable, when set, decides which calls fail
-// with Unavailable.
-func newRetrySteps(clock *testClock, unavailable func(method string, call int) bool) *retrySteps {
-	return &retrySteps{clock: clock, unavailable: unavailable, calls: map[string]int{}}
+// newRetrySteps returns the Steps service of a retry test. unavailable, when set, decides which calls fail with
+// Unavailable.
+func newRetrySteps(unavailable func(method string, call int) bool) *retrySteps {
+	return &retrySteps{unavailable: unavailable, calls: map[string]int{}}
 }
 
 // reach counts a call to method and returns the Unavailable error the test asked for, or nil.
@@ -119,13 +97,6 @@ func (s *retrySteps) count(method string) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.calls[method]
-}
-
-// recordedWaits returns every WaitSteps request the service received.
-func (s *retrySteps) recordedWaits() []retryWait {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return slices.Clone(s.waits)
 }
 
 func (s *retrySteps) StartStep(
@@ -158,26 +129,12 @@ func (s *retrySteps) StepStatus(
 	return connect.NewResponse(&v1.StepStatusResponse{Step: &v1.Step{Id: req.Msg.GetId(), Status: "running"}}), nil
 }
 
-func (s *retrySteps) WaitSteps(
-	_ context.Context,
-	req *connect.Request[v1.WaitStepsRequest],
-) (*connect.Response[v1.WaitStepsResponse], error) {
-	s.mu.Lock()
-	s.waits = append(s.waits, retryWait{seconds: req.Msg.GetTimeoutSeconds(), at: s.clock.Now()})
-	s.mu.Unlock()
-	if err := s.reach("WaitSteps"); err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(&v1.WaitStepsResponse{Ended: &v1.Step{Id: "s1", Status: "pass", End: "done"}}), nil
-}
-
 // dropper is the HTTP layer of a retry test. It reads the first drops requests to procedure and then closes each
 // connection without answering, so the client sees the stream cut mid-call. Every other request reaches next.
 type dropper struct {
 	t         *testing.T
 	procedure string
 	drops     int
-	onDrop    func()
 	next      http.Handler
 
 	mu       sync.Mutex
@@ -200,9 +157,6 @@ func (d *dropper) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if _, err := io.Copy(io.Discard, r.Body); err != nil {
 		d.t.Errorf("read %s request: %v", d.procedure, err)
 		return
-	}
-	if d.onDrop != nil {
-		d.onDrop()
 	}
 	conn, _, err := http.NewResponseController(w).Hijack()
 	if err != nil {
@@ -304,7 +258,7 @@ func newRetryPeer(t *testing.T, steps enginev1connect.StepsClient, clock *testCl
 // A start cut mid-call is a tool error, and the start is not repeated.
 func TestStepStartCutMidCallIsToolErrorAndNeverRetried(t *testing.T) {
 	clock := newTestClock()
-	service := newRetrySteps(clock, nil)
+	service := newRetrySteps(nil)
 	handler := &dropper{t: t, procedure: enginev1connect.StepsStartStepProcedure, drops: 1, next: stepsHandler(service)}
 	p := startRetryPeer(t, handler, clock)
 
@@ -324,7 +278,7 @@ func TestStepStartCutMidCallIsToolErrorAndNeverRetried(t *testing.T) {
 func TestStepStartStartsOnceWhenTheSocketAppearsAfterRefusedDials(t *testing.T) {
 	clock := newTestClock()
 	path := refusedSocket(t)
-	service := newRetrySteps(clock, nil)
+	service := newRetrySteps(nil)
 	handler := &dropper{t: t, next: stepsHandler(service)}
 	clock.onWait = func(waits int) {
 		if waits == 2 {
@@ -351,7 +305,7 @@ func TestStepStartStartsOnceWhenTheSocketAppearsAfterRefusedDials(t *testing.T) 
 // A status that meets Unavailable once succeeds on the retry.
 func TestStepStatusRetriesOnceAfterUnavailable(t *testing.T) {
 	clock := newTestClock()
-	service := newRetrySteps(clock, func(method string, call int) bool {
+	service := newRetrySteps(func(method string, call int) bool {
 		return method == "StepStatus" && call == 1
 	})
 	p := startRetryPeer(t, &dropper{t: t, next: stepsHandler(service)}, clock)
@@ -374,7 +328,7 @@ func TestStepStatusRetriesOnceAfterUnavailable(t *testing.T) {
 // A stop that meets Unavailable once succeeds on the retry.
 func TestStepStopRetriesOnceAfterUnavailable(t *testing.T) {
 	clock := newTestClock()
-	service := newRetrySteps(clock, func(method string, call int) bool {
+	service := newRetrySteps(func(method string, call int) bool {
 		return method == "StopStep" && call == 1
 	})
 	p := startRetryPeer(t, &dropper{t: t, next: stepsHandler(service)}, clock)
@@ -388,70 +342,5 @@ func TestStepStopRetriesOnceAfterUnavailable(t *testing.T) {
 	}
 	if got := service.count("StopStep"); got != 2 {
 		t.Errorf("StopStep calls = %d, want 2: the Unavailable call is retried once", got)
-	}
-}
-
-// A wait whose stream is cut after waitBeforeCut re-waits for the time its request has left, and still returns the
-// step's end.
-func TestStepWaitReWaitsForTheTimeLeftAfterTheStreamIsLost(t *testing.T) {
-	clock := newTestClock()
-	start := clock.Now()
-	service := newRetrySteps(clock, nil)
-	handler := &dropper{
-		t:         t,
-		procedure: enginev1connect.StepsWaitStepsProcedure,
-		drops:     1,
-		onDrop:    func() { clock.advance(waitBeforeCut) },
-		next:      stepsHandler(service),
-	}
-	p := startRetryPeer(t, handler, clock)
-
-	outcome := p.tool("step_wait", `{"ids":["s1"],"timeoutSeconds":10}`)
-	if outcome.isError {
-		t.Fatalf("step_wait reported an error: %s", outcome.text)
-	}
-	ended, ok := decodeObject(t, outcome.text)["ended"].(map[string]any)
-	if !ok || ended["id"] != "s1" || ended["status"] != "pass" {
-		t.Fatalf("step_wait ended = %v, want step s1 with status pass", decodeObject(t, outcome.text)["ended"])
-	}
-	waits := service.recordedWaits()
-	if len(waits) != 1 {
-		t.Fatalf("WaitSteps reached the daemon %d times, want 1: the retry, since the cut request never arrived",
-			len(waits))
-	}
-	retry := waits[0]
-	if retry.at.Before(start.Add(waitBeforeCut)) {
-		t.Errorf("retry arrived at %v, before the cut %v later", retry.at, waitBeforeCut)
-	}
-	if retry.seconds >= 10 {
-		t.Errorf("retry asked for %d seconds, want the time left of the 10-second wait", retry.seconds)
-	}
-	deadline := start.Add(10 * time.Second)
-	end := retry.at.Add(time.Duration(retry.seconds) * time.Second)
-	if end.Before(deadline) || end.Sub(deadline) >= time.Second {
-		t.Errorf("retry ends at %v, want within a second after the deadline %v", end, deadline)
-	}
-}
-
-// A wait with the daemon down keeps retrying only until its deadline, and then returns a tool error.
-func TestStepWaitEndsAtItsDeadlineWhileTheDaemonIsDown(t *testing.T) {
-	clock := newTestClock()
-	start := clock.Now()
-	service := newRetrySteps(clock, func(method string, _ int) bool { return method == "WaitSteps" })
-	p := startRetryPeer(t, &dropper{t: t, next: stepsHandler(service)}, clock)
-
-	outcome := p.tool("step_wait", `{"ids":["s1"],"timeoutSeconds":10}`)
-	if !outcome.isError {
-		t.Fatalf("step_wait = %q, want a tool error while the daemon is down", outcome.text)
-	}
-	deadline := start.Add(10 * time.Second)
-	for _, wait := range service.recordedWaits() {
-		if !wait.at.Before(deadline) && wait.seconds != 0 {
-			t.Errorf("WaitSteps at %v asked for %d seconds, want 0 once the deadline %v has passed",
-				wait.at, wait.seconds, deadline)
-		}
-	}
-	if elapsed := clock.Now().Sub(start); elapsed >= 10*time.Second+maxRetryWait {
-		t.Errorf("step_wait ended %v after it began, want about its 10-second deadline", elapsed)
 	}
 }

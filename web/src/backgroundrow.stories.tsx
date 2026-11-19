@@ -1,5 +1,5 @@
-// The stories of BackgroundRow: an agent task that runs, which is a link to its Agent call; an agent task that has ended;
-// an agent task that names no sub-agent type; and a shell task, which is not a link.
+// The stories of TaskLine, the export of BackgroundRow's rows: an agent task that runs, which is a link to its Agent
+// call; an agent task that has ended; an agent task that names no sub-agent type; and a shell task, which is not a link.
 
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 
@@ -15,7 +15,7 @@ function taskOf(init: MessageInitShape<typeof BackgroundTaskSchema>): Background
   return create(BackgroundTaskSchema, init);
 }
 
-export const BackgroundRow: Stories = {
+export const TaskLine: Stories = {
   "agent-running": () => (
     <backgroundrow.BackgroundRow
       task={taskOf({
@@ -31,7 +31,7 @@ export const BackgroundRow: Stories = {
       onOpen={ignore}
     />
   ),
-  "agent-done": () => (
+  finished: () => (
     <backgroundrow.BackgroundRow
       task={taskOf({
         id: "bg-2",
@@ -46,7 +46,7 @@ export const BackgroundRow: Stories = {
       onOpen={ignore}
     />
   ),
-  "agent-failed": () => (
+  failed: () => (
     <backgroundrow.BackgroundRow
       task={taskOf({
         id: "bg-3",

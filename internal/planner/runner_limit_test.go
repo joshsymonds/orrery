@@ -14,27 +14,18 @@ import (
 // errSyntheticStop is the error a fakeSteps' Stop fails with while its stopFailures remain.
 var errSyntheticStop = errors.New("synthetic stop failure")
 
-// limitedSteps is a fakeSteps whose step's row shows it limited while limited is set. Each Wait that times out returns
-// that row, and each Wait is counted in waits. A Wait times out after a runner tick rather than after waitInterval, so
-// a test does not wait a minute.
+// limitedSteps is a fakeSteps whose first step a test can hold at a usage limit. hold stores the step's row as limited and
+// offers it to the step's subscriptions, as the store does when a limit holds the step.
 type limitedSteps struct {
 	*fakeSteps
-	limited atomic.Bool
-	waits   atomic.Int64
 }
 
-func (l *limitedSteps) Wait(
-	ctx context.Context, ids []string, _ time.Duration,
-) (*store.StepRow, []store.StepRow, error) {
-	l.waits.Add(1)
-	ended, rows, err := l.fakeSteps.Wait(ctx, ids, runnerTick)
-	if ended != nil || err != nil {
-		return ended, rows, err
-	}
-	return nil, []store.StepRow{{ID: ids[0], LoopLimited: l.limited.Load()}}, nil
+// hold holds step-1, the first step the fake starts, at a usage limit.
+func (l *limitedSteps) hold() {
+	l.end("step-1", store.StepRow{LoopLimited: true})
 }
 
-// newLimitedSteps returns a limitedSteps whose step is not limited.
+// newLimitedSteps returns a limitedSteps whose steps are not held.
 func newLimitedSteps() *limitedSteps {
 	return &limitedSteps{fakeSteps: newFakeSteps()}
 }
@@ -56,7 +47,7 @@ func TestRunnerStopsLimitedStepOnceAndFreesTurnAndPausesEpic(t *testing.T) {
 	waitForStarts(t, steps.fakeSteps, 1)
 	waitFor(t, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
 
-	steps.limited.Store(true)
+	steps.hold()
 	waitFor(t, "the epic to be paused", func() bool { return epicOf(t, s).Paused })
 
 	epic := epicOf(t, s)
@@ -87,7 +78,7 @@ func TestRunnerLimitedStepWithRejectedRateLimitPausesWithLimitReason(t *testing.
 	}}, claimedAt()); err != nil {
 		t.Fatalf("ApplyEngine: %v", err)
 	}
-	steps.limited.Store(true)
+	steps.hold()
 	waitFor(t, "the epic to be paused", func() bool { return epicOf(t, s).Paused })
 
 	const want = "five_hour rate limit, resets 2023-11-15T03:13:20Z"
@@ -115,7 +106,7 @@ func TestRunnerLimitedStepWithRejectedRateLimitWithoutResetPausesWithUnknownRese
 	}}, claimedAt()); err != nil {
 		t.Fatalf("ApplyEngine: %v", err)
 	}
-	steps.limited.Store(true)
+	steps.hold()
 	waitFor(t, "the epic to be paused", func() bool { return epicOf(t, s).Paused })
 
 	const want = "five_hour rate limit, reset time unknown"
@@ -134,7 +125,7 @@ func TestRunnerNotLimitedStepIsNeverStopped(t *testing.T) {
 	waitForStarts(t, steps.fakeSteps, 1)
 	waitFor(t, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
 
-	waitFor(t, "three timed-out waits of the open step", func() bool { return steps.waits.Load() >= 3 })
+	waitFor(t, "the runner to subscribe to the open step", func() bool { return steps.subscribed("step-1") })
 	if got := steps.stopCalls(); len(got) != 0 {
 		t.Errorf("Stop calls = %q, want none: the step's row is not limited", got)
 	}
@@ -155,16 +146,21 @@ func TestRunnerFailedStopIsTriedAgainWhileRowStaysLimited(t *testing.T) {
 	createRunnerEpic(t, s)
 	steps := newLimitedSteps()
 	steps.stopFailures = 1
+	timers := newHandTimers()
 	var reads atomic.Int64
-	runRunner(t, limitRunnerConfig(s, steps, &reads))
+	cfg := limitRunnerConfig(s, steps, &reads)
+	cfg.NewTimer = timers.newTimer
+	runRunner(t, cfg)
 	waitForStarts(t, steps.fakeSteps, 1)
 	waitFor(t, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
 
-	steps.limited.Store(true)
+	steps.hold()
+	waitFor(t, "the retry timer of the failed stop to be armed", func() bool { return timers.count() == 1 })
+	timers.fire(t, 0)
 	waitFor(t, "the epic to be paused", func() bool { return epicOf(t, s).Paused })
 
 	if got := len(steps.stopCalls()); got != 2 {
-		t.Errorf("Stop calls = %d, want 2: the first fails, and the wait goes on to stop the limited step again", got)
+		t.Errorf("Stop calls = %d, want 2: the first fails, and the retry timer stops the held step again", got)
 	}
 	if turn := epicOf(t, s).Turns[0]; turn.State != "free" || turn.Reason != "stopped" {
 		t.Errorf("turn 1 = state %q reason %q, want free stopped", turn.State, turn.Reason)

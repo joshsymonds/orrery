@@ -8,6 +8,7 @@ import { act } from "preact/test-utils";
 import type { EpicCalls } from "./card";
 import { createClients, createTransport } from "./client";
 import type { Conversation } from "./conversation";
+import { noEpics } from "./epics";
 import { follow } from "./follow";
 import { Reader } from "./reader";
 import { installTestDom, removeTestDom } from "./testdom";
@@ -103,7 +104,7 @@ function openersOf(): Openers {
       openStep: (epicId, step) => {
         steps.push([epicId, step]);
       },
-      tick: 1,
+      epics: noEpics,
     },
   };
 }

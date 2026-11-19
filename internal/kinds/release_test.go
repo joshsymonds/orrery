@@ -110,7 +110,7 @@ func TestReleasePhases(t *testing.T) {
 			"clean epic with no release steps ends done with no gaps",
 			releaseNode(1, "", ""),
 			Rows{Epic: store.EpicRow{ID: releaseEpicID, Phase: store.PhaseClean}, Review: releaseFrozen()},
-			Action{Kind: ActEnding, Outcome: outcomeDone, Output: EndingBody(phaseDone, nil)},
+			Action{Kind: ActEnding, Outcome: outcomeDone, Output: EndingBody(phaseDone, nil, nil)},
 		},
 		{
 			"clean epic with no release steps ends done whoever holds the slot",
@@ -120,16 +120,20 @@ func TestReleasePhases(t *testing.T) {
 				Slot:   releaseOtherEpicID,
 				Review: releaseFrozen(),
 			},
-			Action{Kind: ActEnding, Outcome: outcomeDone, Output: EndingBody(phaseDone, nil)},
+			Action{Kind: ActEnding, Outcome: outcomeDone, Output: EndingBody(phaseDone, nil, nil)},
 		},
 		{
 			"clean epic with no release steps ends done naming the gap its review holds",
 			releaseNode(1, "", ""),
 			Rows{Epic: store.EpicRow{ID: releaseEpicID, Phase: store.PhaseClean}, Review: releaseGapped()},
 			Action{
-				Kind: ActEnding, Outcome: outcomeDone,
-				Output: EndingBody(phaseDone,
-					[]string{"reviewer security: security gave no verdict twice: done: boom"}),
+				Kind:    ActEnding,
+				Outcome: outcomeDone,
+				Output: EndingBody(
+					phaseDone,
+					[]string{"reviewer security: security gave no verdict twice: done: boom"},
+					nil,
+				),
 			},
 		},
 		{
@@ -173,6 +177,46 @@ func TestReleasePhases(t *testing.T) {
 		},
 	}
 	checkDecisions(t, Release{}, cases)
+}
+
+// TestReleaseIdlePhases checks the phases a release run waits in: Idle holds for the phases Decide gives no action in
+// whatever the rows, ended_with_gaps and met_at_base among them, and for no phase Decide acts in. Each idle phase is
+// decided over rows that would act in every other phase: the slot held, release steps, a replan of the run's attempt and
+// an ended replan plan.
+func TestReleaseIdlePhases(t *testing.T) {
+	t.Parallel()
+	steps := []store.EpicReleaseStep{releaseStep("tag the release", "none")}
+	run := releaseNode(1, "", "")
+	busy := func(phase string) Rows {
+		return Rows{
+			Epic: store.EpicRow{ID: releaseEpicID, Phase: phase, ReleaseSteps: steps},
+			Slot: releaseEpicID,
+			Releases: []store.ReleaseRun{
+				{Part: store.ReleasePartReplan, Attempt: run.Run.Attempt, Reason: "the candidate needs a change"},
+			},
+			Runs: []store.NodeRun{{
+				Path: ReplanPrefix(run.Run.Path, run.Run.Attempt) + "fix", Kind: kindPlan, State: store.NodeEnded,
+			}},
+		}
+	}
+	for _, phase := range []string{phaseEndedWithGaps, phaseMetAtBase, "accepted", "reviewing", ""} {
+		if !(Release{}).Idle(phase) {
+			t.Errorf("Idle(%q) = false, want a release run to wait in it", phase)
+		}
+		if got := (Release{}).Decide(run, busy(phase)); got.Kind != ActNone {
+			t.Errorf("Decide in idle phase %q = %+v, want none", phase, got)
+		}
+	}
+	for _, phase := range []string{
+		phaseReleased, phaseDone, store.PhaseClean, store.PhaseReleasing, store.PhaseStopped, phaseCorrecting,
+	} {
+		if (Release{}).Idle(phase) {
+			t.Errorf("Idle(%q) = true, want the phase decided", phase)
+		}
+		if got := (Release{}).Decide(run, busy(phase)); got.Kind == ActNone {
+			t.Errorf("Decide in phase %q over rows that act = none, want an action", phase)
+		}
+	}
 }
 
 // TestReleaseCandidate checks how the candidate is decided: a passed candidate of any attempt is the candidate, unless
@@ -609,7 +653,7 @@ func TestReleaseJudge(t *testing.T) {
 				Releases: []store.ReleaseRun{candidate, passedStep, judgeRun(true, "")},
 				Review:   releaseFrozen(),
 			},
-			Action{Kind: ActEnding, Outcome: outcomeReleased, Output: EndingBody(phaseReleased, nil)},
+			Action{Kind: ActEnding, Outcome: outcomeReleased, Output: EndingBody(phaseReleased, nil, nil)},
 		},
 		{
 			"passed judge of this attempt ends released naming the gap its review holds",
@@ -621,9 +665,13 @@ func TestReleaseJudge(t *testing.T) {
 				Review:   releaseGapped(),
 			},
 			Action{
-				Kind: ActEnding, Outcome: outcomeReleased,
-				Output: EndingBody(phaseReleased,
-					[]string{"reviewer security: security gave no verdict twice: done: boom"}),
+				Kind:    ActEnding,
+				Outcome: outcomeReleased,
+				Output: EndingBody(
+					phaseReleased,
+					[]string{"reviewer security: security gave no verdict twice: done: boom"},
+					nil,
+				),
 			},
 		},
 		{

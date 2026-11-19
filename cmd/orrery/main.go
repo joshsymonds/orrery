@@ -145,8 +145,6 @@ subcommands:
   hold [--off] MEMBER                           place an owner hold on MEMBER through orreryd, or free it with --off
   step resume ID                                resume a step a usage limit holds, through orreryd
   step status ID                                print a step as one line of JSON, through orreryd
-  step wait [--all] ID...                       wait until one named step ends and print it as JSON; with --all,
-                                                wait until every named step has ended, printing each as it ends
   evidence run EPIC ITEM REVISION PHASE         run an item's evidence at a revision for one phase, red or green
   evidence list EPIC                            list an epic's evidence runs and the artifacts each kept
   evidence get RUN [NAME]                       write an artifact's bytes to stdout, or the run's log without NAME

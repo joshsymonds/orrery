@@ -61,8 +61,12 @@ func rvReviewer(name string, enabled, verify bool, stages ...string) reviewers.R
 	}
 }
 
+// rvDeclared heads the gate-needed changes an epic's tasks declared in an epic-stage review prompt.
+const rvDeclared = "Gate-needed changes the epic's tasks declared (each is in scope, though the contract does not " +
+	"name it, when that task's gate or evidence could not pass without it and it is no larger than that need):"
+
 // rvWantPrompt is the epic review prompt of rvEpic over base111..frozen222: the epic, its Requirements, its Must Not
-// Ship entries, and the change.
+// Ship entries, the gate-needed changes its tasks declared, none, and the change.
 func rvWantPrompt() string {
 	return strings.Join([]string{
 		"Epic repo/epic-x (Review the epic)",
@@ -72,6 +76,8 @@ func rvWantPrompt() string {
 		"Must Not Ship:",
 		"- no new dependency",
 		"- no network calls",
+		rvDeclared,
+		"- none",
 		"The change under review is base111..frozen222; this worktree is checked out at frozen222. " +
 			"Inspect it with `git diff base111 frozen222`.",
 	}, "\n")
@@ -203,11 +209,45 @@ func TestEpicReviewersStartPromptPrintsNoneForEmptyRequirementsAndMustNotShip(t 
 		"- none",
 		"Must Not Ship:",
 		"- none",
+		rvDeclared,
+		"- none",
 		"The change under review is base111..frozen222; this worktree is checked out at frozen222. " +
 			"Inspect it with `git diff base111 frozen222`.",
 	}, "\n")
 	if got.Prompt != want {
 		t.Errorf("Prompt\n got:\n%s\nwant:\n%s", got.Prompt, want)
+	}
+}
+
+// TestEpicReviewersStartPromptListsTheGateChangesItsTasksDeclared: the epic's reviewers read the gate-needed changes
+// each task that has not failed declared, by task and then in declared order, before the change. A failed task's
+// declarations are not listed, since its change is not in the epic.
+func TestEpicReviewersStartPromptListsTheGateChangesItsTasksDeclared(t *testing.T) {
+	t.Parallel()
+	epic := rvEpic(rvModel())
+	epic.Tasks = []store.EpicTask{
+		{Seq: 18, Status: "failed", GateChanges: []store.GateChange{{Path: "web/src/app.tsx", Reason: "never shown"}}},
+		{Seq: 19, Status: "done", GateChanges: []store.GateChange{
+			{Path: "web/src/app.test.tsx", Reason: "the epic's integrate failed on this test's History race"},
+			{Path: "web/src/testdom.ts", Reason: "the wait the race needs"},
+		}},
+		{Seq: 20, Status: "open", GateChanges: []store.GateChange{{Path: "a.go", Reason: "the gate's race"}}},
+	}
+	got, err := NewEpicReviewers().Start(context.Background(), epic, "correctness", "base111", "frozen222", nil)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	want := strings.Join([]string{
+		"- no network calls",
+		rvDeclared,
+		"- T19 web/src/app.test.tsx: the epic's integrate failed on this test's History race",
+		"- T19 web/src/testdom.ts: the wait the race needs",
+		"- T20 a.go: the gate's race",
+		"The change under review is base111..frozen222; this worktree is checked out at frozen222. " +
+			"Inspect it with `git diff base111 frozen222`.",
+	}, "\n")
+	if !strings.HasSuffix(got.Prompt, want) {
+		t.Errorf("Prompt\n got:\n%s\nwant it to end:\n%s", got.Prompt, want)
 	}
 }
 
@@ -259,6 +299,8 @@ func TestEpicReviewersStartPromptListsTheEvidenceAmendments(t *testing.T) {
 		"- A1 R1 by planner, applied: the test moved; prior item: " + oldJSON + "; new item: " + newJSON,
 		"- A2 R2 by owner, refused: a looser capture; prior item: " + oldJSON + "; new item: " + newJSON +
 			"; refused: its red holds at the base",
+		rvDeclared,
+		"- none",
 		"The change under review is base111..frozen222; this worktree is checked out at frozen222. " +
 			"Inspect it with `git diff base111 frozen222`.",
 	}, "\n")

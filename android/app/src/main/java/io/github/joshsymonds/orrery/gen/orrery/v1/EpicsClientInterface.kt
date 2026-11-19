@@ -71,4 +71,16 @@ public interface EpicsClientInterface {
    *  Unarchive clears the archive mark of the named list row, so the lists show it again.
    */
   public suspend fun unarchive(request: EpicsUnarchiveRequest, headers: Headers = emptyMap()): ResponseMessage<EpicsUnarchiveResponse>
+
+  /**
+   *  Release releases the named orreryd epic, which resumes its stopped release at the first unfinished step and runs
+   *  again the undo-none release steps the owner names.
+   */
+  public suspend fun release(request: EpicsReleaseRequest, headers: Headers = emptyMap()): ResponseMessage<EpicsReleaseResponse>
+
+  /**
+   *  Close closes the named orreryd epic as superseded, shipped by hand or abandoned, and records the owner as its
+   *  closer.
+   */
+  public suspend fun close(request: EpicsCloseRequest, headers: Headers = emptyMap()): ResponseMessage<EpicsCloseResponse>
 }

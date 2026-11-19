@@ -65,9 +65,10 @@ const Schema = `{
 							"type": "object",
 							"properties": {
 								"id": {"type": "string"},
-								"does": {"type": "string"}
+								"does": {"type": "string"},
+								"closes": {"type": "string"}
 							},
-							"required": ["id", "does"],
+							"required": ["id", "does", "closes"],
 							"additionalProperties": false
 						}
 					},
@@ -195,10 +196,27 @@ type Question struct {
 	Replaces    string   `json:"replaces"`
 }
 
-// Choice is one choice a question declares: its id and what choosing it does.
+// Choice is one choice a question declares: its id, what choosing it does, and closes, the ids of the open ledger
+// findings that choosing it settles with no code change, separated by commas, or blank when it closes none. The closure
+// round closes each of them on that answer. closes is one string the engine splits (closesOf), as an action's args is,
+// so that the schema keeps the size the API compiles (TestPlannerSchemaIsTheOneTheAPIAccepted).
 type Choice struct {
-	ID   string `json:"id"`
-	Does string `json:"does"`
+	ID     string `json:"id"`
+	Does   string `json:"does"`
+	Closes string `json:"closes"`
+}
+
+// closesOf returns the finding ids a choice's closes names, in order, each with its surrounding spaces trimmed. A blank
+// closes names none. An id left empty between commas stays, as "", for the store to refuse.
+func closesOf(closes string) []string {
+	if strings.TrimSpace(closes) == "" {
+		return nil
+	}
+	ids := strings.Split(closes, ",")
+	for i, id := range ids {
+		ids[i] = strings.TrimSpace(id)
+	}
+	return ids
 }
 
 // Task is one task the planner proposes for the epic.

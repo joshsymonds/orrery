@@ -565,7 +565,7 @@ func TestReleaseJudgeDecidesFromItsReturn(t *testing.T) {
 				want := endedEpic{
 					epic:  runEpic,
 					phase: "released",
-					body:  kinds.EndingBody("released", nil),
+					body:  kinds.EndingBody("released", nil, nil),
 					at:    runClock(),
 				}
 				if len(ending.calls) == 0 {

@@ -65,6 +65,17 @@ func refusalRules() []refusalRule {
 			q.Choices[1].ID = "first"
 		}, "choices[1].id: named twice"},
 		{"choice does empty", func(q *EpicQuestionInput) { q.Choices[0].Does = "" }, "choices[0].does: empty"},
+		{"closes id empty", func(q *EpicQuestionInput) {
+			q.Choices[0].Closes = []string{""}
+		}, "choices[0].closes[0]: empty"},
+		{"closes id named twice", func(q *EpicQuestionInput) {
+			q.Choices[1].Does, q.Choices[1].Closes = "Keep it and close conformance-1.", []string{
+				"conformance-1", "conformance-1",
+			}
+		}, "choices[1].closes[1]: named twice"},
+		{"closes id not named in does", func(q *EpicQuestionInput) {
+			q.Choices[0].Closes = []string{"conformance-1"}
+		}, "choices[0].closes[0]: conformance-1 is not named in does"},
 		{"recommended names no choice", func(q *EpicQuestionInput) {
 			q.Recommended = "missing"
 		}, "recommended: names no declared choice"},
@@ -209,6 +220,51 @@ func TestCompleteTurnStoresShapedQuestionsAndReadsThemBack(t *testing.T) {
 	}
 	if !reflect.DeepEqual(open, want[1:]) {
 		t.Errorf("OpenQuestions = %+v, want %+v", open, want[1:])
+	}
+}
+
+// TestCompleteTurnStoresTheFindingsAChoiceClosesAndReadsThemBack asserts that the findings a declared choice closes are
+// stored in its choices and read back on the question, and that a choice that closes none stores no closes key.
+func TestCompleteTurnStoresTheFindingsAChoiceClosesAndReadsThemBack(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openEpicStore(t)
+	const id = claimEpic
+	createEpic(t, s, fullEpic(id))
+	addPendingTrigger(t, s)
+	if _, err := s.ClaimTurn(ctx, id, claimedAt()); err != nil {
+		t.Fatalf("ClaimTurn: %v", err)
+	}
+	question := EpicQuestionInput{
+		Label: "review-finding-scope", Text: "Keep the app.test.tsx edit conformance-1 names?",
+		Choices: []EpicChoice{
+			{
+				ID: "keep-fix", Does: "Keep the edit and close conformance-1 and test_parsimony-1 with no code change.",
+				Closes: []string{"conformance-1", "test_parsimony-1"},
+			},
+			{ID: "revert-fix", Does: "Plan a task that restores the test."},
+		},
+		Recommended: "keep-fix", Why: "The edit fixes a flake at its cause.", Confidence: "high",
+	}
+	if err := s.CompleteTurn(ctx, id, 1, EpicPlan{Questions: []EpicQuestionInput{question}, Outcome: "wait"},
+		completedAt()); err != nil {
+		t.Fatalf("CompleteTurn: %v", err)
+	}
+	epic, err := s.Epic(ctx, id)
+	if err != nil {
+		t.Fatalf("Epic: %v", err)
+	}
+	if want := []EpicQuestion{openStored(question, 1, 1)}; !reflect.DeepEqual(epic.Questions, want) {
+		t.Errorf("Epic questions = %+v, want %+v", epic.Questions, want)
+	}
+	stored, err := sqlcgen.New(s.db).GetEpicQuestion(ctx, sqlcgen.GetEpicQuestionParams{Epic: id, Seq: 1})
+	if err != nil {
+		t.Fatalf("GetEpicQuestion: %v", err)
+	}
+	want := `[{"id":"keep-fix","does":"Keep the edit and close conformance-1 and test_parsimony-1 with no code change.",` +
+		`"closes":["conformance-1","test_parsimony-1"]},{"id":"revert-fix","does":"Plan a task that restores the test."}]`
+	if stored.Choices != want {
+		t.Errorf("stored choices = %s, want %s", stored.Choices, want)
 	}
 }
 

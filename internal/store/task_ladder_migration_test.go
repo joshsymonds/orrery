@@ -16,7 +16,7 @@ import (
 func TestTaskLadderMigrationStepsDownAndUp(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, provider := storeAtVersion(t, 63)
+	s, provider := storeAtVersion(t, 69)
 	seedEpic(t, s.db.DB)
 	// readDeliverable returns the deliverable of the seeded planner action, which the column holds once it is added.
 	readDeliverable := func() string {
@@ -50,7 +50,7 @@ func TestTaskLadderMigrationStepsDownAndUp(t *testing.T) {
 	}
 	plannerActions := rowsOf(t, s.db.DB, "planner_actions")
 	if _, err := provider.UpByOne(ctx); err != nil {
-		t.Fatalf("Up of 00064: %v", err)
+		t.Fatalf("Up of 00070: %v", err)
 	}
 	if !hasAll(columnsOf(t, s, "planner_actions"), "deliverable") {
 		t.Fatalf("planner_actions columns after Up = %v, want deliverable", columnsOf(t, s, "planner_actions"))
@@ -73,7 +73,7 @@ func TestTaskLadderMigrationStepsDownAndUp(t *testing.T) {
 	versions := rowsOf(t, s.db.DB, "epic_task_versions")
 
 	if _, err := provider.Down(ctx); err != nil {
-		t.Fatalf("Down of 00064: %v", err)
+		t.Fatalf("Down of 00070: %v", err)
 	}
 	names := tableNames(t, s)
 	if names["epic_task_rungs"] || names["epic_task_rung_outcomes"] {
@@ -97,7 +97,7 @@ func TestTaskLadderMigrationStepsDownAndUp(t *testing.T) {
 	}
 
 	if _, err := provider.UpByOne(ctx); err != nil {
-		t.Fatalf("Up of 00064 again: %v", err)
+		t.Fatalf("Up of 00070 again: %v", err)
 	}
 	names = tableNames(t, s)
 	if !names["epic_task_rungs"] || !names["epic_task_rung_outcomes"] {

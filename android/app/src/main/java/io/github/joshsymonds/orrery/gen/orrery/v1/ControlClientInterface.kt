@@ -33,6 +33,14 @@ public interface ControlClientInterface {
   public suspend fun interrupt(request: InterruptRequest, headers: Headers = emptyMap()): ResponseMessage<InterruptResponse>
 
   /**
+   *  Decline denies an open question or permission request and ends its turn, as Interrupt does. A headless session's
+   *  request is declined by its request_id, and is refused unless the request is open. A pane's question is declined by
+   *  a guarded Escape to the pane, refused unless the question is open and the pane is in no tmux mode, and its response
+   *  holds no texts.
+   */
+  public suspend fun decline(request: DeclineRequest, headers: Headers = emptyMap()): ResponseMessage<DeclineResponse>
+
+  /**
    *  Stop stops a headless session.
    */
   public suspend fun stop(request: StopRequest, headers: Headers = emptyMap()): ResponseMessage<StopResponse>
@@ -53,4 +61,15 @@ public interface ControlClientInterface {
    *  already taken it in, when the session is not running, or when prompt_id is empty.
    */
   public suspend fun withdraw(request: WithdrawRequest, headers: Headers = emptyMap()): ResponseMessage<WithdrawResponse>
+
+  /**
+   *  NotNow takes the named open question off the owner's list until BringBack, kept by orreryd, refused unless that
+   *  question is open now.
+   */
+  public suspend fun notNow(request: NotNowRequest, headers: Headers = emptyMap()): ResponseMessage<NotNowResponse>
+
+  /**
+   *  BringBack returns it and raises no notice.
+   */
+  public suspend fun bringBack(request: BringBackRequest, headers: Headers = emptyMap()): ResponseMessage<BringBackResponse>
 }

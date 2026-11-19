@@ -107,6 +107,17 @@ type Kind interface {
 	Decide(node Node, rows Rows) Action
 }
 
+// Idler is a Kind whose running node runs wait in some phases of their epic: Idle reports whether Decide gives a run
+// of an epic in phase no action, whatever the epic's other rows hold. The interpreter does not read such an epic's rows
+// while its phase stays one its waiting run is idle in.
+type Idler interface {
+	Kind
+	Idle(phase string) bool
+}
+
+// Release waits in the phases it gives no action in.
+var _ Idler = Release{}
+
 // Plan is the plan kind. Its run ends complete once the epic's last turn, above the turn the run started after, has
 // succeeded with outcome complete, and no turn runs, no task is open and no trigger is pending.
 type Plan struct{}

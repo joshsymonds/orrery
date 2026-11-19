@@ -24,9 +24,9 @@ export const Pill: Stories = {
   "working-tool": () => <workline.Pill model={workline.rowPill("working", paneWith("%11"))} now={now} />,
   "working-no-tool": () => <workline.Pill model={workline.rowPill("working")} now={now} />,
   "interrupting": () => <workline.Pill model={workline.rowPill("working", paneWith("%11"), true)} now={now} />,
-  "waiting": () => <workline.Pill model={workline.rowPill("waiting", paneWith("%12"))} now={now} />,
-  "done": () => <workline.Pill model={workline.rowPill("done", paneWith("%13"))} now={now} />,
+  attention: () => <workline.Pill model={workline.rowPill("waiting", paneWith("%12"))} now={now} />,
+  ok: () => <workline.Pill model={workline.rowPill("done", paneWith("%13"))} now={now} />,
   "failed": () => <workline.Pill model={workline.rowPill("failed")} now={now} />,
-  "step-running": () => <workline.Pill model={workline.stepPill(false, Number(at("@14:40:30")))} now={now} />,
+  "with-glyph": () => <workline.Pill model={workline.stepPill(false, Number(at("@14:40:30")))} now={now} />,
   "step-held": () => <workline.Pill model={workline.stepPill(true, 0)} now={now} />,
 };

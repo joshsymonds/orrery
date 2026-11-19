@@ -430,35 +430,31 @@ func (s *Store) LimitedSteps(ctx context.Context) ([]StepRow, error) {
 	return toStepRows(rows)
 }
 
-// MarkStepRead sets the read mark of the step id, in one write, when the step has ended and caller resolves to the row
-// that started it. It reports true when it set the mark. Otherwise it writes nothing and reports false.
-func (s *Store) MarkStepRead(ctx context.Context, id string, caller EpicCaller) (bool, error) {
-	var marked bool
-	err := s.write(ctx, func(queries *sqlcgen.Queries) error {
-		session, err := resolveEpicCaller(ctx, queries, caller)
-		if err != nil {
-			return fmt.Errorf("resolve caller of step %s: %w", id, err)
-		}
-		if session == "" {
-			return nil
-		}
-		rows, err := queries.MarkStepRead(ctx, sqlcgen.MarkStepReadParams{ID: id, Caller: session})
-		if err != nil {
-			return fmt.Errorf("mark step %s read: %w", id, err)
-		}
-		marked = rows > 0
-		return nil
-	})
+// RunningCallerSteps returns the steps still running whose caller is the sessions row caller, ordered by start time
+// then id.
+func (s *Store) RunningCallerSteps(ctx context.Context, caller string) ([]StepRow, error) {
+	rows, err := sqlcgen.New(s.db).ListRunningCallerSteps(ctx, caller)
 	if err != nil {
-		return false, err
+		return nil, fmt.Errorf("list running caller steps: %w", err)
 	}
-	return marked, nil
+	return toStepRows(rows)
 }
 
 // LabelledSteps returns the step rows with a non-empty epic, narrowed to rows whose epic is epic when epic is not
-// empty and to rows whose task is task when task is not empty, ordered by start time then id.
+// empty and to rows whose task is task when task is not empty, ordered by start time then id. A read narrowed to an
+// epic searches the steps by their epic and task labels; only a read not narrowed to an epic reads the whole table.
 func (s *Store) LabelledSteps(ctx context.Context, epic, task string) ([]StepRow, error) {
-	rows, err := sqlcgen.New(s.db).ListLabelledSteps(ctx, sqlcgen.ListLabelledStepsParams{Epic: epic, Task: task})
+	queries := sqlcgen.New(s.db)
+	var rows []sqlcgen.Step
+	var err error
+	switch {
+	case epic == "":
+		rows, err = queries.ListLabelledSteps(ctx, task)
+	case task == "":
+		rows, err = queries.ListEpicSteps(ctx, epic)
+	default:
+		rows, err = queries.ListEpicTaskSteps(ctx, sqlcgen.ListEpicTaskStepsParams{Epic: epic, Tasks: []string{task}})
+	}
 	if err != nil {
 		return nil, fmt.Errorf("list labeled steps: %w", err)
 	}

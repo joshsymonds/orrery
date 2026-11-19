@@ -38,7 +38,7 @@ async function mounted(element: JSX.Element, check: (container: HTMLElement) => 
   }
 }
 
-test("Catalog: the index lists every registered story as component/state in kebab case, including app/attention, page/list-home and each inbox-row state", async () => {
+test("Catalog: the index lists every registered story as component/state in kebab case, including app/attention, page/inbox-home and each inbox-row state", async () => {
   const entries = catalogStories(storyModules);
   const registered = registeredNames().sort();
   await mounted(<CatalogIndex entries={entries} hash="" />, (container) => {
@@ -46,7 +46,7 @@ test("Catalog: the index lists every registered story as component/state in keba
     assert.deepEqual(listed, registered, "the index does not list every registered story");
     assert.ok(listed.every((name) => kebabName.test(name)), "a listed name is not component/state in kebab case");
     assert.ok(listed.includes("app/attention"), "app/attention is not listed");
-    assert.ok(listed.includes("page/list-home"), "page/list-home is not listed");
+    assert.ok(listed.includes("page/inbox-home"), "page/inbox-home is not listed");
     for (const state of Object.keys(InboxRow)) {
       assert.ok(listed.includes(storyName("InboxRow", state)), `inbox-row/${state} is not listed`);
     }
@@ -74,7 +74,7 @@ test("Catalog: catalogStories throws on an export that is not a record of functi
 });
 
 test("Catalog: each frame of the story the hash names is an iframe at 1600, 1000 and 412 wide, whose src is that story's own address", async () => {
-  const name = "inbox-row/waiting";
+  const name = "inbox-row/waiting-question";
   await mounted(<CatalogIndex entries={catalogStories(storyModules)} hash={`#${name}`} />, (container) => {
     const frames = Array.from(container.querySelectorAll("iframe"));
     assert.deepEqual(frames.map((frame) => frame.getAttribute("width")), ["1600", "1000", "412"]);
@@ -85,7 +85,7 @@ test("Catalog: each frame of the story the hash names is an iframe at 1600, 1000
 
 test("Catalog: StoryView draws one story alone in #story, and a name the catalog does not hold draws data-story-failure naming it", async () => {
   const entries = catalogStories(storyModules);
-  await mounted(<StoryView entries={entries} name="inbox-row/waiting" />, (container) => {
+  await mounted(<StoryView entries={entries} name="inbox-row/waiting-question" />, (container) => {
     assert.equal(container.querySelectorAll("#story .b-row").length, 1, "the story does not draw one line");
     assertNone(container.querySelector("a[data-story]"), "the index is drawn beside the story");
   });
@@ -113,12 +113,12 @@ test("Catalog: page stories read the fixtures' instant, liveEpoch, not the wall 
   });
   try {
     await act(() => {
-      render(<StoryView entries={catalogStories(storyModules)} name="page/list-home" />, root);
+      render(<StoryView entries={catalogStories(storyModules)} name="page/inbox-home" />, root);
     });
-    // Pane %12 changed at 14:29 and the fixtures' instant is 14:41, so its line reads 12m at that instant alone.
+    // Pane %12 changed at 14:37 and the fixtures' instant is 14:41, so its line reads 4m at that instant alone.
     const age = () => root.querySelector('.b-row[data-key="pane:halyard:%12"] .age')?.textContent ?? "";
     await until(t.signal, () => age() !== "", "the page's line for pane %12 with its age", { step: () => act(turn) });
-    assert.equal(age(), "12m", "the age is not read at the fixtures' instant");
+    assert.equal(age(), "4m", "the age is not read at the fixtures' instant");
   } finally {
     await teardown();
   }

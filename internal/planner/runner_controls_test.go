@@ -9,8 +9,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
 
+	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/storetest"
 )
@@ -52,24 +52,22 @@ func addPendingTrigger(t *testing.T, path, id string) {
 	}
 }
 
-// waitHeldSteps is a fakeSteps whose Wait reports that it was entered, then waits for release before it returns the
-// step's end. A Wait whose context ends first returns that error.
+// waitHeldSteps is a fakeSteps whose Subscribe reports that it was entered, then waits for release before it subscribes.
+// A Subscribe whose context ends first returns that error.
 type waitHeldSteps struct {
 	*fakeSteps
 	entered chan struct{}
 	release chan struct{}
 }
 
-func (h *waitHeldSteps) Wait(
-	ctx context.Context, ids []string, timeout time.Duration,
-) (*store.StepRow, []store.StepRow, error) {
+func (h *waitHeldSteps) Subscribe(ctx context.Context, ids []string) (*enginehost.StepSubscription, error) {
 	h.entered <- struct{}{}
 	select {
 	case <-h.release:
 	case <-ctx.Done():
-		return nil, nil, ctx.Err()
+		return nil, ctx.Err()
 	}
-	return h.fakeSteps.Wait(ctx, ids, timeout)
+	return h.fakeSteps.Subscribe(ctx, ids)
 }
 
 func TestRunnerPauseDuringTurnLetsTurnFinishAndStartsNoStep(t *testing.T) {
@@ -246,7 +244,7 @@ func TestRunnerStopAfterStepStoredResultKeepsIt(t *testing.T) {
 	t.Cleanup(releaseWait)
 
 	<-steps.entered
-	// The step has stored its result, and the runner holds its Wait, so StopEpic runs before the runner settles it.
+	// The step has stored its result, and the runner holds its Subscribe, so StopEpic runs before the runner settles it.
 	steps.end("step-1", store.StepRow{End: "done", Result: validPlan})
 	step, err := s.StopEpic(ctx, runnerEpicID)
 	if err != nil {

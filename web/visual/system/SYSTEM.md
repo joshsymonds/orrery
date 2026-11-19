@@ -1,8 +1,8 @@
 # The orrery design language
 
-Status: **drawn, proposed 2026-11-17.** Every rule here is drawn in `../wireframe/round6`, whose catalogue
-(`catalog.html`) shows each component in each state and whose stylesheet reads only the generated token variables. It
-is a proposal until the owner accepts round 6; the decisions and what was rejected are in
+Status: **drawn, adopted as the reference.** Every rule here is drawn in `../wireframe/round6`, whose catalogue
+(`catalog.html`) shows each component in each state and whose stylesheet reads only the generated token variables. Round 6
+was adopted as the reference with the epic `orrery-round6-yardstick`; the decisions and what was rejected are in
 `../wireframe/round6/DECISIONS.md`.
 
 One spec, three clients: the web at the desk, the web under 760 px, and the Android app. Lengths are px on the web and

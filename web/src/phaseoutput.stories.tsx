@@ -56,8 +56,8 @@ export const PhaseOutputPage: Stories = {
   checking: () => phasePage("T2", "checking"),
   // T2's review holds one finding.
   reviewing: () => phasePage("T2", "reviewing"),
-  // T2 is not yet integrated, so the phase says it waits to integrate.
-  "integrating-waiting": () => phasePage("T2", "integrating"),
+  // T5 is accepted and not yet integrated, so the phase says it waits to integrate.
+  "integrating-waiting": () => phasePage("T5", "integrating"),
   // T4 is done, so the phase says it is integrated.
   "integrating-integrated": () => phasePage("T4", "integrating"),
 };

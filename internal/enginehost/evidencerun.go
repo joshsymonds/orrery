@@ -33,8 +33,8 @@ var errEvidenceClosed = errors.New("evidence runner is closed")
 // is followed by another on the same kept output.
 const evidenceJudgeTries = 3
 
-// evidenceRunAwait is how long each wait for a judge step lasts before the step is waited for again.
-const evidenceRunAwait = time.Minute
+// evidenceSubscribeRetry is how long a judge's wait waits after a Subscribe that failed before it subscribes to the judge again.
+const evidenceSubscribeRetry = 5 * time.Second
 
 // EvidenceStore is the store an evidence runner reads epics and records runs in. *store.Store satisfies it.
 type EvidenceStore interface {
@@ -50,15 +50,17 @@ type EvidenceStore interface {
 	Step(ctx context.Context, id string) (store.StepRow, error)
 }
 
-// EvidenceSteps starts judge steps and waits for them to end. *Steps satisfies it.
+// EvidenceSteps starts judge steps and subscribes to their ends and holds. *Steps satisfies it.
 type EvidenceSteps interface {
 	Start(ctx context.Context, start StepStart) (string, error)
-	Wait(ctx context.Context, ids []string, timeout time.Duration) (*store.StepRow, []store.StepRow, error)
+	Subscribe(ctx context.Context, ids []string) (*StepSubscription, error)
 }
 
 // EvidenceConfig configures an Evidence. Store records the runs, Steps runs the judges, and Pools, Environ, GateStateDir,
-// GateScope and GateScopeMemory run each captured item's gate as a capture does. StateDir holds the blobs and the capture worktrees. A nil
-// Now is time.Now, and a nil Logger discards.
+// GateScope and GateScopeMemory run each captured item's gate as a capture does. StateDir holds the blobs and the capture worktrees.
+// NewTimer arms a timer that sends on its channel once, after a duration, and returns the timer's stop; a nil NewTimer wraps
+// time.NewTimer. A nil Now is time.Now, and a nil Logger discards. After returns the channel a failed store write of a run
+// waits on before it is tried again (see retryStore), and nil is time.After.
 type EvidenceConfig struct {
 	Store           EvidenceStore
 	Steps           EvidenceSteps
@@ -70,6 +72,8 @@ type EvidenceConfig struct {
 	GateScopeMemory int64
 	Now             func() time.Time
 	Logger          *slog.Logger
+	NewTimer        func(time.Duration) (<-chan time.Time, func() bool)
+	After           func(time.Duration) <-chan time.Time
 }
 
 // Evidence runs evidence items. Each run is stored, captured or read, judged, and recorded once, by a drive that Run starts
@@ -80,7 +84,9 @@ type Evidence struct {
 	captures evidenceCapture
 	blobs    evidenceBlobs
 	now      func() time.Time
+	newTimer func(time.Duration) (<-chan time.Time, func() bool)
 	logger   *slog.Logger
+	after    func(time.Duration) <-chan time.Time
 
 	mu      sync.Mutex
 	closed  bool
@@ -101,6 +107,17 @@ func NewEvidence(cfg EvidenceConfig) *Evidence {
 	if now == nil {
 		now = time.Now
 	}
+	newTimer := cfg.NewTimer
+	if newTimer == nil {
+		newTimer = func(d time.Duration) (<-chan time.Time, func() bool) {
+			timer := time.NewTimer(d)
+			return timer.C, timer.Stop
+		}
+	}
+	after := cfg.After
+	if after == nil {
+		after = time.After
+	}
 	blobs := evidenceBlobs{dir: filepath.Join(cfg.StateDir, "evidence", "blobs")}
 	return &Evidence{
 		store: cfg.Store,
@@ -114,10 +131,12 @@ func NewEvidence(cfg EvidenceConfig) *Evidence {
 			gateScopeMemory: cfg.GateScopeMemory,
 			blobs:           blobs,
 		},
-		blobs:   blobs,
-		now:     now,
-		logger:  logger,
-		cancels: map[string]context.CancelCauseFunc{},
+		blobs:    blobs,
+		now:      now,
+		newTimer: newTimer,
+		logger:   logger,
+		after:    after,
+		cancels:  map[string]context.CancelCauseFunc{},
 	}
 }
 
@@ -328,24 +347,48 @@ func (e *Evidence) finish(id string) {
 	}
 }
 
-// drive runs run to its verdict. A captured run's capture, or a supplied run's reading of its files, is recorded, even when
-// ctx has ended, and a run whose capture captured nothing ends there. A drive whose ctx has ended then stops before judging,
-// and a Resume gives the judge. Otherwise its judge gives the verdict. A capture whose gate detaches records nothing, so the
-// next restart re-adopts it, and so does one cut short before its gate launched or a supplied read cut short.
+// drive runs run to its verdict. A captured run's capture, or a supplied run's reading of its files, is recorded (see
+// recordCapture), even when ctx has ended, and a run whose capture captured nothing ends there. A drive whose ctx has ended
+// then stops before judging, and a Resume gives the judge. Otherwise its judge gives the verdict. A capture whose gate
+// detaches records nothing, so the next restart re-adopts it, and so does one cut short before its gate launched or a
+// supplied read cut short.
 func (e *Evidence) drive(ctx context.Context, repo string, run store.EvidenceRun) {
 	capture, err := e.capture(ctx, repo, run)
 	if err != nil {
 		e.logger.InfoContext(ctx, "evidence capture left for a restart", "run", run.ID, "err", err)
 		return
 	}
-	if err = e.store.RecordEvidenceCapture(context.WithoutCancel(ctx), run.ID, capture); err != nil {
-		e.logger.ErrorContext(ctx, "record evidence capture", "run", run.ID, "err", err)
+	if !e.recordCapture(ctx, run.ID, capture) {
 		return
 	}
 	if capture.NotCaptured != "" || ctx.Err() != nil {
 		return
 	}
 	e.judgeRun(ctx, repo, evidenceRunCaptured(run, capture))
+}
+
+// recordCapture stores capture as the capture of the run with id, retrying a write the store refuses until it lands (see
+// retryStore), since nothing drives a run the store keeps capturing. Only the end of ctx, which Close cancels, stops the
+// retries: the run is then left capturing for a restart's Resume, and recordCapture reports false.
+func (e *Evidence) recordCapture(ctx context.Context, id string, capture store.EvidenceCapture) bool {
+	err := e.retry(ctx, "evidence capture", id,
+		func(storeCtx context.Context) error { return e.store.RecordEvidenceCapture(storeCtx, id, capture) })
+	if err != nil {
+		e.logger.ErrorContext(ctx, "evidence capture unstored at close, left for a restart", "run", id, "err", err)
+		return false
+	}
+	return true
+}
+
+// recordJudge stores step as the judge of the run with id, retrying a write the store refuses until it lands or ctx ends
+// (see retryStore). It returns the error of the last try once ctx has ended.
+func (e *Evidence) recordJudge(ctx context.Context, id, step string) error {
+	err := e.retry(ctx, "evidence judge", id,
+		func(storeCtx context.Context) error { return e.store.SetEvidenceJudge(storeCtx, id, step) })
+	if err != nil {
+		return fmt.Errorf("record judge of evidence run %s: %w", id, err)
+	}
+	return nil
 }
 
 // capture captures run at repo's revision, or reads its supplied files. A captured run's grant and holder are recorded when
@@ -362,7 +405,11 @@ func (e *Evidence) capture(ctx context.Context, repo string, run store.EvidenceR
 	}
 	launched := false
 	started := func(startCtx context.Context, grant, holder string) error {
-		if err := e.store.SetEvidenceGrant(startCtx, run.ID, grant, holder); err != nil {
+		// A refused record is tried again until it lands, since a gate whose grant is unrecorded does not launch. Each try
+		// runs on startCtx, so a cut ends the record unmade and the run is left for a restart.
+		if err := e.retry(startCtx, "evidence grant", run.ID,
+			func(context.Context) error { return e.store.SetEvidenceGrant(startCtx, run.ID, grant, holder) },
+		); err != nil {
 			return fmt.Errorf("record grant of evidence run %s: %w", run.ID, err)
 		}
 		launched = true
@@ -425,8 +472,8 @@ func (e *Evidence) judgeOnce(
 	if err := ctx.Err(); err != nil {
 		return false, "", "", fmt.Errorf("judge evidence run %s: %w", run.ID, err)
 	}
-	if err := e.store.SetEvidenceJudge(ctx, run.ID, step); err != nil {
-		return false, "", "", fmt.Errorf("record judge of evidence run %s: %w", run.ID, err)
+	if err := e.recordJudge(ctx, run.ID, step); err != nil {
+		return false, "", "", err
 	}
 	row, err := e.awaitJudge(ctx, step)
 	if err != nil {
@@ -481,21 +528,91 @@ func (e *Evidence) judgeTaskLines(ctx context.Context, run store.EvidenceRun) ([
 	return nil, fmt.Errorf("task %s of evidence run %s: epic %s has no such task", run.Item, run.ID, run.Epic)
 }
 
-// awaitJudge waits until the judge step with id ends, and returns its row. It returns an error when the wait fails, as a
-// canceled context does.
+// judgeWait is the state of one await of a judge step: its subscription, and the one retry timer armed while a Subscribe has
+// failed.
+type judgeWait struct {
+	id     string
+	sub    *StepSubscription
+	retry  <-chan time.Time
+	disarm func() bool
+}
+
+// awaitJudge waits until the judge step with id ends, and returns its row. It subscribes to the step's ends and holds, and never
+// polls. A row that only holds the step is ignored, since the judge reads only its verdict. A Subscribe that fails with an error
+// matching store.ErrNoStep is returned, as nothing will end the step. Any other failed Subscribe is logged and arms one retry timer
+// of evidenceSubscribeRetry, and when it fires the step is subscribed to again. It returns an error when ctx ends first. The
+// subscription is closed, and an armed timer stopped, when it returns.
 func (e *Evidence) awaitJudge(ctx context.Context, id string) (store.StepRow, error) {
+	wait := &judgeWait{id: id}
+	defer wait.close()
+	if err := e.subscribeJudge(ctx, wait); err != nil {
+		return store.StepRow{}, err
+	}
 	for {
-		ended, _, err := e.steps.Wait(ctx, []string{id}, evidenceRunAwait)
-		if err != nil {
-			return store.StepRow{}, fmt.Errorf("wait for judge step %s: %w", id, err)
-		}
-		if ended != nil {
-			return *ended, nil
+		select {
+		case <-ctx.Done():
+			return store.StepRow{}, fmt.Errorf("wait for judge step %s: %w", id, ctx.Err())
+		case <-wait.ready():
+			if row, ok := judgeEndRow(wait.sub.Take()); ok {
+				return row, nil
+			}
+		case <-wait.retry:
+			wait.retry, wait.disarm = nil, nil
+			if err := e.subscribeJudge(ctx, wait); err != nil {
+				return store.StepRow{}, err
+			}
 		}
 	}
 }
 
-// recordVerdict records verdict and reason for run, and whether run passes its phase, unless ctx has ended.
+// subscribeJudge subscribes wait to its judge step. A Subscribe that fails with an error matching store.ErrNoStep is returned
+// wrapped, as nothing will end the step. Any other failure is logged, and arms the retry timer of wait.
+func (e *Evidence) subscribeJudge(ctx context.Context, wait *judgeWait) error {
+	sub, err := e.steps.Subscribe(ctx, []string{wait.id})
+	if errors.Is(err, store.ErrNoStep) {
+		return fmt.Errorf("wait for judge step %s: %w", wait.id, err)
+	}
+	if err != nil {
+		e.logger.ErrorContext(ctx, "subscribe to judge step", "step", wait.id, "err", err)
+		wait.retry, wait.disarm = e.newTimer(evidenceSubscribeRetry)
+		return nil
+	}
+	wait.sub = sub
+	return nil
+}
+
+// ready returns the channel that signals the pending rows of wait. It is nil while wait has no subscription, which blocks a
+// select on it.
+func (wait *judgeWait) ready() <-chan struct{} {
+	if wait.sub == nil {
+		return nil
+	}
+	return wait.sub.Ready()
+}
+
+// close stops the armed retry timer of wait, if one is armed, and closes its subscription, if it has one.
+func (wait *judgeWait) close() {
+	if wait.disarm != nil {
+		wait.disarm()
+	}
+	if wait.sub != nil {
+		wait.sub.Close()
+	}
+}
+
+// judgeEndRow returns the first row in rows that ends its step, and whether there is one. A row that only holds its step is not.
+func judgeEndRow(rows []store.StepRow) (store.StepRow, bool) {
+	for _, row := range rows {
+		if row.End != "" {
+			return row, true
+		}
+	}
+	return store.StepRow{}, false
+}
+
+// recordVerdict records verdict and reason for run, and whether run passes its phase, unless ctx has ended. A write the
+// store refuses is retried until it lands or ctx ends (see retryStore), and a run left judging then gets its verdict from a
+// restart's Resume, which waits on its ended judge.
 func (e *Evidence) recordVerdict(ctx context.Context, run store.EvidenceRun, verdict, reason string) {
 	if ctx.Err() != nil {
 		return
@@ -506,7 +623,11 @@ func (e *Evidence) recordVerdict(ctx context.Context, run store.EvidenceRun, ver
 		Passed:  evidence.Passed(run.Phase, run.NotCaptured, run.Exit, verdict),
 		At:      e.now(),
 	}
-	if err := e.store.RecordEvidenceVerdict(ctx, run.ID, verdictRecord); err != nil {
-		e.logger.ErrorContext(ctx, "record evidence verdict", "run", run.ID, "err", err)
+	err := e.retry(ctx, "evidence verdict", run.ID,
+		func(storeCtx context.Context) error {
+			return e.store.RecordEvidenceVerdict(storeCtx, run.ID, verdictRecord)
+		})
+	if err != nil {
+		e.logger.ErrorContext(ctx, "evidence verdict unstored at close, left for a restart", "run", run.ID, "err", err)
 	}
 }

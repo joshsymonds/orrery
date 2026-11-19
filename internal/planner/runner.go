@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/agents"
 	"github.com/joshsymonds/orrery/internal/enginehost"
+	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -25,6 +27,7 @@ type Store interface {
 	SetTurnStep(ctx context.Context, epic string, turn int64, step string) error
 	TurnStopped(ctx context.Context, epic string, seq int64) (bool, error)
 	Epic(ctx context.Context, id string) (store.EpicRow, error)
+	EpicReview(ctx context.Context, epic string) (store.Review, error)
 	TurnTriggers(ctx context.Context, epic string, turn int64) ([]store.EpicTrigger, error)
 	CompleteTurn(ctx context.Context, epic string, turn int64, plan store.EpicPlan, at time.Time) error
 	PendingActions(ctx context.Context) ([]store.PlannerAction, error)
@@ -36,31 +39,36 @@ type Store interface {
 	Follows(ctx context.Context) ([]store.LabelFollow, error)
 }
 
-// Steps starts planner steps, waits for them and stops them. *enginehost.Steps satisfies it.
+// Steps starts planner steps, subscribes to their ends and holds, and stops them. *enginehost.Steps satisfies it.
 type Steps interface {
 	Start(ctx context.Context, start enginehost.StepStart) (string, error)
 	Status(ctx context.Context, id string) (store.StepRow, error)
-	Wait(ctx context.Context, ids []string, timeout time.Duration) (*store.StepRow, []store.StepRow, error)
+	Subscribe(ctx context.Context, ids []string) (*enginehost.StepSubscription, error)
 	Stop(ctx context.Context, id string) error
 }
 
 // Config configures a Runner. A Tick that is not positive means five seconds, and a nil Now means time.Now. A nil
-// Logger discards. Resolve answers whether the gates and judges of a planned task resolve for its epic.
+// Logger discards. Resolve answers whether the gates and judges of a planned task resolve for its epic. NewTimer arms a
+// timer that sends on its channel once, after a duration, and returns the timer's stop; a nil NewTimer wraps
+// time.NewTimer. After returns the channel a record of a turn's step that the store refused as busy waits on before it
+// is tried again, and nil is time.After.
 type Config struct {
-	Store   Store
-	Steps   Steps
-	Agent   func() (string, error)
-	Tick    time.Duration
-	Now     func() time.Time
-	Logger  *slog.Logger
-	Resolve Resolver
+	Store    Store
+	Steps    Steps
+	Agent    func() (string, error)
+	Tick     time.Duration
+	Now      func() time.Time
+	Logger   *slog.Logger
+	Resolve  Resolver
+	NewTimer func(time.Duration) (<-chan time.Time, func() bool)
+	After    func(time.Duration) <-chan time.Time
 }
+
+// stepRecordRetry is how long after the store refuses the record of a turn's step as busy the record is tried again.
+const stepRecordRetry = time.Second
 
 // defaultTick is how often a Runner passes when its Config names no positive tick.
 const defaultTick = 5 * time.Second
-
-// waitInterval is how long one Wait on a turn's step lasts before the turn waits again.
-const waitInterval = time.Minute
 
 // stepDone is the end of a step whose return passed its check.
 const stepDone = "done"
@@ -93,27 +101,38 @@ const (
 // Runner passes over the epics with pending triggers and runs their planner turns. Each claimed turn runs in its own
 // goroutine, and turns tracks them until Run returns.
 type Runner struct {
-	store   Store
-	steps   Steps
-	agent   func() (string, error)
-	tick    time.Duration
-	now     func() time.Time
-	logger  *slog.Logger
-	resolve Resolver
-	turns   sync.WaitGroup
+	store    Store
+	steps    Steps
+	agent    func() (string, error)
+	tick     time.Duration
+	now      func() time.Time
+	after    func(time.Duration) <-chan time.Time
+	logger   *slog.Logger
+	resolve  Resolver
+	newTimer func(time.Duration) (<-chan time.Time, func() bool)
+	turns    sync.WaitGroup
 }
 
 // New returns a Runner for cfg.
 func New(cfg Config) *Runner {
 	runner := &Runner{
-		store: cfg.Store, steps: cfg.Steps, agent: cfg.Agent, tick: cfg.Tick, now: cfg.Now, logger: cfg.Logger,
-		resolve: cfg.Resolve,
+		store: cfg.Store, steps: cfg.Steps, agent: cfg.Agent, tick: cfg.Tick, now: cfg.Now, after: cfg.After,
+		logger: cfg.Logger, resolve: cfg.Resolve, newTimer: cfg.NewTimer,
 	}
 	if runner.tick <= 0 {
 		runner.tick = defaultTick
 	}
 	if runner.now == nil {
 		runner.now = time.Now
+	}
+	if runner.newTimer == nil {
+		runner.newTimer = func(d time.Duration) (<-chan time.Time, func() bool) {
+			timer := time.NewTimer(d)
+			return timer.C, timer.Stop
+		}
+	}
+	if runner.after == nil {
+		runner.after = time.After
 	}
 	if runner.logger == nil {
 		runner.logger = slog.New(slog.DiscardHandler)
@@ -269,12 +288,16 @@ func turnStepID(epic string, seq int64) string {
 }
 
 // startStep reads the claimed turn's epic and triggers and starts its read-only planner step under turnStepID. It
-// returns the step's id. A start that returns an id with an error still has its id recorded on the turn, and a step
-// whose turn was flagged to stop before it had one is stopped as soon as its id is recorded.
+// returns the step's id. A start that returns an id with an error still has its id recorded on the turn (see
+// recordStep), and a step whose turn was flagged to stop before it had one is stopped as soon as its id is recorded.
 func (r *Runner) startStep(ctx context.Context, epic string, turn store.EpicTurn, agent string) (string, error) {
 	row, err := r.store.Epic(ctx, epic)
 	if err != nil {
 		return "", fmt.Errorf("read epic %s: %w", epic, err)
+	}
+	review, err := r.store.EpicReview(ctx, epic)
+	if err != nil {
+		return "", fmt.Errorf("read review of epic %s: %w", epic, err)
 	}
 	triggers, err := r.store.TurnTriggers(ctx, epic, turn.Seq)
 	if err != nil {
@@ -284,7 +307,11 @@ func (r *Runner) startStep(ctx context.Context, epic string, turn store.EpicTurn
 	if err != nil {
 		return "", fmt.Errorf("read advice follows: %w", err)
 	}
-	prompt, err := Prompt(row, turn.Seq, triggers, follows)
+	spent, err := spentLines(ctx, r.store, row, triggers)
+	if err != nil {
+		return "", fmt.Errorf("read the spent lines of turn %d of epic %s: %w", turn.Seq, epic, err)
+	}
+	prompt, err := Prompt(row, turn.Seq, triggers, follows, spent)
 	if err != nil {
 		return "", fmt.Errorf("render prompt of turn %d of epic %s: %w", turn.Seq, epic, err)
 	}
@@ -296,10 +323,10 @@ func (r *Runner) startStep(ctx context.Context, epic string, turn store.EpicTurn
 		Workspace:   row.Repository,
 		ReadOnly:    true,
 		Epic:        row.ID,
-		ReturnCheck: returnCheck(ctx, row, r.resolve),
+		ReturnCheck: returnCheck(ctx, row, review, r.resolve, spent),
 	})
 	if id != "" {
-		if setErr := r.store.SetTurnStep(ctx, epic, turn.Seq, id); setErr != nil {
+		if setErr := r.recordStep(ctx, epic, turn.Seq, id); setErr != nil {
 			r.logger.ErrorContext(ctx, "record step of planner turn",
 				"epic", epic, "turn", turn.Seq, "step", id, "err", setErr)
 		} else {
@@ -310,6 +337,26 @@ func (r *Runner) startStep(ctx context.Context, epic string, turn store.EpicTurn
 		return id, fmt.Errorf("start planner step: %w", err)
 	}
 	return id, nil
+}
+
+// recordStep records step id on turn seq of epic. A record the store refuses as busy is tried again stepRecordRetry
+// later, until it lands or ctx ends: a turn whose step is unrecorded keeps its epic's planner waiting until a restart,
+// and a stop of the turn finds no step to stop. It returns the error of the last try.
+func (r *Runner) recordStep(ctx context.Context, epic string, seq int64, id string) error {
+	for {
+		err := r.store.SetTurnStep(ctx, epic, seq, id)
+		if err == nil {
+			return nil
+		}
+		if !store.Busy(err) || ctx.Err() != nil {
+			return fmt.Errorf("record step %s: %w", id, err)
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("record step %s: %w", id, err)
+		case <-r.after(stepRecordRetry):
+		}
+	}
 }
 
 // stopIfFlagged stops step id when turn seq of epic was flagged to stop while it had no step. A read or stop error is
@@ -399,11 +446,11 @@ func (r *Runner) restart(ctx context.Context, turn store.EpicTurn) {
 	go r.resume(ctx, turn.Epic, turn.Seq, id)
 }
 
-// recordFound records step id on turn seq of epic, a turn with no recorded step whose step was found under its derived
-// id. An open step is stopped when the turn was flagged to stop, as a step started before its id was recorded is. It
+// recordFound records step id on turn seq of epic (see recordStep), a turn with no recorded step whose step was found
+// under its derived id. An open step is stopped when the turn was flagged to stop, as a step started before its id was recorded is. It
 // reports false, after logging, when the step is not recorded; the turn then stays running for the next start.
 func (r *Runner) recordFound(ctx context.Context, epic string, seq int64, id string, row store.StepRow) bool {
-	if err := r.store.SetTurnStep(ctx, epic, seq, id); err != nil {
+	if err := r.recordStep(ctx, epic, seq, id); err != nil {
 		r.logger.ErrorContext(ctx, "record step of running planner turn",
 			"epic", epic, "turn", seq, "step", id, "err", err)
 		return false
@@ -433,47 +480,125 @@ func (r *Runner) finish(ctx context.Context, epic string, seq int64, id string) 
 	}
 }
 
-// await waits until the step id ends and returns its row, and reports false once ctx has ended. Each Wait lasts a
-// minute, and a Wait that times out is repeated. A timed-out Wait whose row shows the step limited stops the step. A
-// Stop that succeeds is not repeated; one that fails is logged, and the next timed-out Wait that still shows the step
-// limited tries again. A Wait that fails is logged and repeated after a tick, since the step may still be running.
+// stepWait is the state of one await of a planner step: its subscription, the one retry timer armed while a Subscribe
+// or a Stop has failed, and whether the step has been stopped.
+type stepWait struct {
+	id      string
+	sub     *enginehost.StepSubscription
+	retry   <-chan time.Time
+	disarm  func() bool
+	stopped bool
+}
+
+// await waits until the step id ends and returns its row, and reports false once ctx has ended. It subscribes to the
+// step's ends and holds, and never polls. A row that holds the step stops it, once. A Stop that fails is logged and arms
+// one retry timer: when that fires and the step has still not ended, the Stop is tried again. A Subscribe that fails is
+// logged and arms the same one-shot retry, and when that fires it subscribes again. The subscription is closed when
+// await returns, and so is the armed timer.
 func (r *Runner) await(ctx context.Context, id string) (store.StepRow, bool) {
-	stopped := false
+	wait := &stepWait{id: id}
+	defer wait.close()
+	r.subscribeStep(ctx, wait)
 	for {
-		ended, rows, err := r.steps.Wait(ctx, []string{id}, waitInterval)
-		if ctx.Err() != nil {
+		select {
+		case <-ctx.Done():
 			return store.StepRow{}, false
-		}
-		if err != nil {
-			r.logger.ErrorContext(ctx, "wait for planner step", "step", id, "err", err)
-			select {
-			case <-ctx.Done():
-				return store.StepRow{}, false
-			case <-time.After(r.tick):
+		case <-wait.ready():
+			if row, ok := r.takeRows(ctx, wait); ok {
+				return row, true
 			}
-			continue
-		}
-		if ended != nil {
-			return *ended, true
-		}
-		if !stopped && rowLimited(rows, id) {
-			if err = r.steps.Stop(ctx, id); err != nil {
-				r.logger.ErrorContext(ctx, "stop limited planner step", "step", id, "err", err)
-			} else {
-				stopped = true
+		case <-wait.retry:
+			if row, ok := r.retryStep(ctx, wait); ok {
+				return row, true
 			}
 		}
 	}
 }
 
-// rowLimited reports whether the row of step id in rows shows the step limited by a usage limit.
-func rowLimited(rows []store.StepRow, id string) bool {
+// takeRows takes the rows pending on the subscription of wait. It returns the first row that ends the step, if one is
+// pending. Otherwise a pending hold stops the step, unless a Stop is already pending on the retry timer or the step is
+// stopped.
+func (r *Runner) takeRows(ctx context.Context, wait *stepWait) (store.StepRow, bool) {
+	rows := wait.sub.Take()
+	if row, ok := endedRow(rows); ok {
+		return row, true
+	}
+	held := slices.ContainsFunc(rows, func(row store.StepRow) bool { return row.LoopLimited })
+	if held && !wait.stopped && wait.retry == nil {
+		r.stopStep(ctx, wait)
+	}
+	return store.StepRow{}, false
+}
+
+// retryStep runs when wait's retry timer fires. A step with no subscription subscribes again. Otherwise the step's end is
+// taken if one is pending, and the step is stopped again if it has not ended.
+func (r *Runner) retryStep(ctx context.Context, wait *stepWait) (store.StepRow, bool) {
+	wait.retry, wait.disarm = nil, nil
+	if wait.sub == nil {
+		r.subscribeStep(ctx, wait)
+		return store.StepRow{}, false
+	}
+	if row, ok := endedRow(wait.sub.Take()); ok {
+		return row, true
+	}
+	r.stopStep(ctx, wait)
+	return store.StepRow{}, false
+}
+
+// subscribeStep subscribes wait to its step. A Subscribe that fails is logged and arms the retry timer.
+func (r *Runner) subscribeStep(ctx context.Context, wait *stepWait) {
+	sub, err := r.steps.Subscribe(ctx, []string{wait.id})
+	if err != nil {
+		r.logger.ErrorContext(ctx, "subscribe to planner step", "step", wait.id, "err", err)
+		r.armRetry(wait)
+		return
+	}
+	wait.sub = sub
+}
+
+// stopStep stops the step of wait. A Stop that fails is logged and arms the retry timer; one that succeeds marks the step
+// stopped, so no later hold stops it again.
+func (r *Runner) stopStep(ctx context.Context, wait *stepWait) {
+	if err := r.steps.Stop(ctx, wait.id); err != nil {
+		r.logger.ErrorContext(ctx, "stop limited planner step", "step", wait.id, "err", err)
+		r.armRetry(wait)
+		return
+	}
+	wait.stopped = true
+}
+
+// armRetry arms the one retry timer of wait, of one tick.
+func (r *Runner) armRetry(wait *stepWait) {
+	wait.retry, wait.disarm = r.newTimer(r.tick)
+}
+
+// ready returns the channel that signals the pending rows of wait. It is nil while wait has no subscription, which blocks
+// a select on it.
+func (wait *stepWait) ready() <-chan struct{} {
+	if wait.sub == nil {
+		return nil
+	}
+	return wait.sub.Ready()
+}
+
+// close stops the armed retry timer, if one is armed, and closes the subscription, if there is one.
+func (wait *stepWait) close() {
+	if wait.disarm != nil {
+		wait.disarm()
+	}
+	if wait.sub != nil {
+		wait.sub.Close()
+	}
+}
+
+// endedRow returns the first row in rows that ends its step, and whether there is one.
+func endedRow(rows []store.StepRow) (store.StepRow, bool) {
 	for _, row := range rows {
-		if row.ID == id && row.LoopLimited {
-			return true
+		if row.End != "" {
+			return row, true
 		}
 	}
-	return false
+	return store.StepRow{}, false
 }
 
 // refuse settles turn seq of epic whose planner step did not start, by the error of its start. A refusal for the step
@@ -635,7 +760,7 @@ func planOf(ret Return) store.EpicPlan {
 func questionInputOf(question Question) store.EpicQuestionInput {
 	choices := make([]store.EpicChoice, 0, len(question.Choices))
 	for _, choice := range question.Choices {
-		choices = append(choices, store.EpicChoice{ID: choice.ID, Does: choice.Does})
+		choices = append(choices, store.EpicChoice{ID: choice.ID, Does: choice.Does, Closes: closesOf(choice.Closes)})
 	}
 	why := question.Why
 	if why != "" {
@@ -650,14 +775,23 @@ func questionInputOf(question Question) store.EpicQuestionInput {
 // returnCheck returns the check a planner step's return runs for epic. A return that does not parse is one line.
 // Any other return gets the refusals of Check, against the epic's Requirement ids, the files of its open tasks, and the
 // gates and judges that resolve answers for epic, then the refusals of Coverage against the epic's tasks, then those of
-// checkAmendKeeps against the epic's Requirements, then those of checkClosureTasks against the epic's phase. When epic
-// holds a planner-class park, a return with no action and no question gets one more line from checkPark, which names
-// the park reason. An owner park is not checked, since the owner answers it. The gate resolves under ctx without its
-// cancellation, so the turn that started the step ending does not refuse its return.
-func returnCheck(ctx context.Context, epic store.EpicRow, resolve Resolver) func(value json.RawMessage) []string {
+// checkAmendKeeps against the epic's Requirements, then those of checkClosureTasks against the epic's phase, then those
+// of checkCloses against the epic's phase and the findings of review that the next closure round checks, then those of
+// checkSpentLines against spent, the lines of failed tasks the turn may not try again. When epic holds a planner-class
+// park, a return with no action and no question gets one more line from checkPark, which names the park reason. An
+// owner park is not checked, since the owner answers it. The gate resolves under ctx without its cancellation, so the
+// turn that started the step ending does not refuse its return.
+func returnCheck(
+	ctx context.Context, epic store.EpicRow, review store.Review, resolve Resolver, spent []SpentLine,
+) func(value json.RawMessage) []string {
 	requirements := make([]string, 0, len(epic.Requirements))
 	for _, requirement := range epic.Requirements {
 		requirements = append(requirements, requirement.ID)
+	}
+	findings := kinds.OpenFindings(review, int64(len(review.Rounds))+1)
+	open := make([]string, 0, len(findings))
+	for _, finding := range findings {
+		open = append(open, finding.ID)
 	}
 	owned := openFiles(epic.Tasks)
 	park := ""
@@ -675,6 +809,8 @@ func returnCheck(ctx context.Context, epic store.EpicRow, resolve Resolver) func
 		refusals := append(Check(ret, requirements, owned, gate, judge), Coverage(ret, requirements, epic.Tasks)...)
 		refusals = append(refusals, checkAmendKeeps(ret, epic.Requirements)...)
 		refusals = append(refusals, checkClosureTasks(ret, epic.Phase)...)
+		refusals = append(refusals, checkCloses(ret, epic.Phase, open)...)
+		refusals = append(refusals, checkSpentLines(ret, spent, epic.Tasks)...)
 		return append(refusals, checkPark(ret, park)...)
 	}
 }

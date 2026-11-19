@@ -35,8 +35,8 @@ export const NextRows: Stories = {
   "opens-phase": () => <happenings.NextRows wedges={rotaWedges} onOpenPhase={noop} />,
 };
 
-export const JustHappened: Stories = {
-  rota: () => <happenings.JustHappened entries={rotaEntries} steps={rota.steps} />,
+export const HappeningList: Stories = {
+  default: () => <happenings.JustHappened entries={rotaEntries} steps={rota.steps} />,
   holder: () => <happenings.JustHappened entries={holderEntries} steps={holder.steps} />,
   empty: () => <happenings.JustHappened entries={[]} steps={[]} />,
 };

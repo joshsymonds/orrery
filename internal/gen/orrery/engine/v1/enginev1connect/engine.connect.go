@@ -41,6 +41,8 @@ const (
 	EngineAnswerProcedure = "/orrery.engine.v1.Engine/Answer"
 	// EngineInterruptProcedure is the fully-qualified name of the Engine's Interrupt RPC.
 	EngineInterruptProcedure = "/orrery.engine.v1.Engine/Interrupt"
+	// EngineDeclineProcedure is the fully-qualified name of the Engine's Decline RPC.
+	EngineDeclineProcedure = "/orrery.engine.v1.Engine/Decline"
 	// EngineStopProcedure is the fully-qualified name of the Engine's Stop RPC.
 	EngineStopProcedure = "/orrery.engine.v1.Engine/Stop"
 	// EngineSeenProcedure is the fully-qualified name of the Engine's Seen RPC.
@@ -49,6 +51,10 @@ const (
 	EngineResumeProcedure = "/orrery.engine.v1.Engine/Resume"
 	// EngineWithdrawProcedure is the fully-qualified name of the Engine's Withdraw RPC.
 	EngineWithdrawProcedure = "/orrery.engine.v1.Engine/Withdraw"
+	// EngineNotNowProcedure is the fully-qualified name of the Engine's NotNow RPC.
+	EngineNotNowProcedure = "/orrery.engine.v1.Engine/NotNow"
+	// EngineBringBackProcedure is the fully-qualified name of the Engine's BringBack RPC.
+	EngineBringBackProcedure = "/orrery.engine.v1.Engine/BringBack"
 )
 
 // EngineClient is a client for the orrery.engine.v1.Engine service.
@@ -64,6 +70,11 @@ type EngineClient interface {
 	Answer(context.Context, *connect.Request[v1.AnswerRequest]) (*connect.Response[v1.AnswerResponse], error)
 	// Interrupt stops a session's current turn.
 	Interrupt(context.Context, *connect.Request[v1.InterruptRequest]) (*connect.Response[v1.InterruptResponse], error)
+	// Decline denies an open question or permission request and ends its turn, as Interrupt does. A headless session's
+	// request is declined by its request_id, and is refused unless the request is open. A pane's question is declined by
+	// a guarded Escape to the pane, refused unless the question is open and the pane is in no tmux mode, and its response
+	// holds no texts.
+	Decline(context.Context, *connect.Request[v1.DeclineRequest]) (*connect.Response[v1.DeclineResponse], error)
 	// Stop ends a session's process.
 	Stop(context.Context, *connect.Request[v1.StopRequest]) (*connect.Response[v1.StopResponse], error)
 	// Seen marks a session's conversation as read.
@@ -75,6 +86,10 @@ type EngineClient interface {
 	// texts hold that message's text when Claude cancelled it, and none when Claude had already taken it in, when the
 	// session is not running, or when prompt_id is empty.
 	Withdraw(context.Context, *connect.Request[v1.WithdrawRequest]) (*connect.Response[v1.WithdrawResponse], error)
+	// NotNow has orreryd store the not-now mark on an open question, which keeps it off the owner's list until BringBack.
+	NotNow(context.Context, *connect.Request[v1.NotNowRequest]) (*connect.Response[v1.NotNowResponse], error)
+	// BringBack has orreryd clear the not-now mark on an open question.
+	BringBack(context.Context, *connect.Request[v1.BringBackRequest]) (*connect.Response[v1.BringBackResponse], error)
 }
 
 // NewEngineClient constructs a client for the orrery.engine.v1.Engine service. By default, it uses
@@ -112,6 +127,12 @@ func NewEngineClient(httpClient connect.HTTPClient, baseURL string, opts ...conn
 			connect.WithSchema(engineMethods.ByName("Interrupt")),
 			connect.WithClientOptions(opts...),
 		),
+		decline: connect.NewClient[v1.DeclineRequest, v1.DeclineResponse](
+			httpClient,
+			baseURL+EngineDeclineProcedure,
+			connect.WithSchema(engineMethods.ByName("Decline")),
+			connect.WithClientOptions(opts...),
+		),
 		stop: connect.NewClient[v1.StopRequest, v1.StopResponse](
 			httpClient,
 			baseURL+EngineStopProcedure,
@@ -136,6 +157,18 @@ func NewEngineClient(httpClient connect.HTTPClient, baseURL string, opts ...conn
 			connect.WithSchema(engineMethods.ByName("Withdraw")),
 			connect.WithClientOptions(opts...),
 		),
+		notNow: connect.NewClient[v1.NotNowRequest, v1.NotNowResponse](
+			httpClient,
+			baseURL+EngineNotNowProcedure,
+			connect.WithSchema(engineMethods.ByName("NotNow")),
+			connect.WithClientOptions(opts...),
+		),
+		bringBack: connect.NewClient[v1.BringBackRequest, v1.BringBackResponse](
+			httpClient,
+			baseURL+EngineBringBackProcedure,
+			connect.WithSchema(engineMethods.ByName("BringBack")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -145,10 +178,13 @@ type engineClient struct {
 	say       *connect.Client[v1.SayRequest, v1.SayResponse]
 	answer    *connect.Client[v1.AnswerRequest, v1.AnswerResponse]
 	interrupt *connect.Client[v1.InterruptRequest, v1.InterruptResponse]
+	decline   *connect.Client[v1.DeclineRequest, v1.DeclineResponse]
 	stop      *connect.Client[v1.StopRequest, v1.StopResponse]
 	seen      *connect.Client[v1.SeenRequest, v1.SeenResponse]
 	resume    *connect.Client[v1.ResumeRequest, v1.ResumeResponse]
 	withdraw  *connect.Client[v1.WithdrawRequest, v1.WithdrawResponse]
+	notNow    *connect.Client[v1.NotNowRequest, v1.NotNowResponse]
+	bringBack *connect.Client[v1.BringBackRequest, v1.BringBackResponse]
 }
 
 // Start calls orrery.engine.v1.Engine.Start.
@@ -171,6 +207,11 @@ func (c *engineClient) Interrupt(ctx context.Context, req *connect.Request[v1.In
 	return c.interrupt.CallUnary(ctx, req)
 }
 
+// Decline calls orrery.engine.v1.Engine.Decline.
+func (c *engineClient) Decline(ctx context.Context, req *connect.Request[v1.DeclineRequest]) (*connect.Response[v1.DeclineResponse], error) {
+	return c.decline.CallUnary(ctx, req)
+}
+
 // Stop calls orrery.engine.v1.Engine.Stop.
 func (c *engineClient) Stop(ctx context.Context, req *connect.Request[v1.StopRequest]) (*connect.Response[v1.StopResponse], error) {
 	return c.stop.CallUnary(ctx, req)
@@ -191,6 +232,16 @@ func (c *engineClient) Withdraw(ctx context.Context, req *connect.Request[v1.Wit
 	return c.withdraw.CallUnary(ctx, req)
 }
 
+// NotNow calls orrery.engine.v1.Engine.NotNow.
+func (c *engineClient) NotNow(ctx context.Context, req *connect.Request[v1.NotNowRequest]) (*connect.Response[v1.NotNowResponse], error) {
+	return c.notNow.CallUnary(ctx, req)
+}
+
+// BringBack calls orrery.engine.v1.Engine.BringBack.
+func (c *engineClient) BringBack(ctx context.Context, req *connect.Request[v1.BringBackRequest]) (*connect.Response[v1.BringBackResponse], error) {
+	return c.bringBack.CallUnary(ctx, req)
+}
+
 // EngineHandler is an implementation of the orrery.engine.v1.Engine service.
 type EngineHandler interface {
 	// Start starts a headless session in an existing absolute directory with a first prompt and returns once its row
@@ -204,6 +255,11 @@ type EngineHandler interface {
 	Answer(context.Context, *connect.Request[v1.AnswerRequest]) (*connect.Response[v1.AnswerResponse], error)
 	// Interrupt stops a session's current turn.
 	Interrupt(context.Context, *connect.Request[v1.InterruptRequest]) (*connect.Response[v1.InterruptResponse], error)
+	// Decline denies an open question or permission request and ends its turn, as Interrupt does. A headless session's
+	// request is declined by its request_id, and is refused unless the request is open. A pane's question is declined by
+	// a guarded Escape to the pane, refused unless the question is open and the pane is in no tmux mode, and its response
+	// holds no texts.
+	Decline(context.Context, *connect.Request[v1.DeclineRequest]) (*connect.Response[v1.DeclineResponse], error)
 	// Stop ends a session's process.
 	Stop(context.Context, *connect.Request[v1.StopRequest]) (*connect.Response[v1.StopResponse], error)
 	// Seen marks a session's conversation as read.
@@ -215,6 +271,10 @@ type EngineHandler interface {
 	// texts hold that message's text when Claude cancelled it, and none when Claude had already taken it in, when the
 	// session is not running, or when prompt_id is empty.
 	Withdraw(context.Context, *connect.Request[v1.WithdrawRequest]) (*connect.Response[v1.WithdrawResponse], error)
+	// NotNow has orreryd store the not-now mark on an open question, which keeps it off the owner's list until BringBack.
+	NotNow(context.Context, *connect.Request[v1.NotNowRequest]) (*connect.Response[v1.NotNowResponse], error)
+	// BringBack has orreryd clear the not-now mark on an open question.
+	BringBack(context.Context, *connect.Request[v1.BringBackRequest]) (*connect.Response[v1.BringBackResponse], error)
 }
 
 // NewEngineHandler builds an HTTP handler from the service implementation. It returns the path on
@@ -248,6 +308,12 @@ func NewEngineHandler(svc EngineHandler, opts ...connect.HandlerOption) (string,
 		connect.WithSchema(engineMethods.ByName("Interrupt")),
 		connect.WithHandlerOptions(opts...),
 	)
+	engineDeclineHandler := connect.NewUnaryHandler(
+		EngineDeclineProcedure,
+		svc.Decline,
+		connect.WithSchema(engineMethods.ByName("Decline")),
+		connect.WithHandlerOptions(opts...),
+	)
 	engineStopHandler := connect.NewUnaryHandler(
 		EngineStopProcedure,
 		svc.Stop,
@@ -272,6 +338,18 @@ func NewEngineHandler(svc EngineHandler, opts ...connect.HandlerOption) (string,
 		connect.WithSchema(engineMethods.ByName("Withdraw")),
 		connect.WithHandlerOptions(opts...),
 	)
+	engineNotNowHandler := connect.NewUnaryHandler(
+		EngineNotNowProcedure,
+		svc.NotNow,
+		connect.WithSchema(engineMethods.ByName("NotNow")),
+		connect.WithHandlerOptions(opts...),
+	)
+	engineBringBackHandler := connect.NewUnaryHandler(
+		EngineBringBackProcedure,
+		svc.BringBack,
+		connect.WithSchema(engineMethods.ByName("BringBack")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orrery.engine.v1.Engine/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case EngineStartProcedure:
@@ -282,6 +360,8 @@ func NewEngineHandler(svc EngineHandler, opts ...connect.HandlerOption) (string,
 			engineAnswerHandler.ServeHTTP(w, r)
 		case EngineInterruptProcedure:
 			engineInterruptHandler.ServeHTTP(w, r)
+		case EngineDeclineProcedure:
+			engineDeclineHandler.ServeHTTP(w, r)
 		case EngineStopProcedure:
 			engineStopHandler.ServeHTTP(w, r)
 		case EngineSeenProcedure:
@@ -290,6 +370,10 @@ func NewEngineHandler(svc EngineHandler, opts ...connect.HandlerOption) (string,
 			engineResumeHandler.ServeHTTP(w, r)
 		case EngineWithdrawProcedure:
 			engineWithdrawHandler.ServeHTTP(w, r)
+		case EngineNotNowProcedure:
+			engineNotNowHandler.ServeHTTP(w, r)
+		case EngineBringBackProcedure:
+			engineBringBackHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -315,6 +399,10 @@ func (UnimplementedEngineHandler) Interrupt(context.Context, *connect.Request[v1
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Engine.Interrupt is not implemented"))
 }
 
+func (UnimplementedEngineHandler) Decline(context.Context, *connect.Request[v1.DeclineRequest]) (*connect.Response[v1.DeclineResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Engine.Decline is not implemented"))
+}
+
 func (UnimplementedEngineHandler) Stop(context.Context, *connect.Request[v1.StopRequest]) (*connect.Response[v1.StopResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Engine.Stop is not implemented"))
 }
@@ -329,4 +417,12 @@ func (UnimplementedEngineHandler) Resume(context.Context, *connect.Request[v1.Re
 
 func (UnimplementedEngineHandler) Withdraw(context.Context, *connect.Request[v1.WithdrawRequest]) (*connect.Response[v1.WithdrawResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Engine.Withdraw is not implemented"))
+}
+
+func (UnimplementedEngineHandler) NotNow(context.Context, *connect.Request[v1.NotNowRequest]) (*connect.Response[v1.NotNowResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Engine.NotNow is not implemented"))
+}
+
+func (UnimplementedEngineHandler) BringBack(context.Context, *connect.Request[v1.BringBackRequest]) (*connect.Response[v1.BringBackResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Engine.BringBack is not implemented"))
 }

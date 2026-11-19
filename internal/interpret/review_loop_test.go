@@ -293,9 +293,16 @@ func reviewLoopPlanTurn(t *testing.T, s *store.Store) []string {
 	return causes
 }
 
+// reviewLoopTurn completes the planner turn the test epic waits on, if it waits on one, and returns the cause of each
+// trigger the turn claimed. reviewLoopPlanTurn is the one most cases use.
+type reviewLoopTurn func(t *testing.T, s *store.Store) []string
+
 // reviewLoopDrive passes runner over the test epic, answers the steps of script, and completes each planner turn the epic
-// waits on, until a round of those changes nothing. It returns the causes of the triggers the turns claimed, in turn order.
-func reviewLoopDrive(t *testing.T, s *store.Store, runner *Runner, script []reviewLoopEnd) []string {
+// waits on with turn, until a round of those changes nothing. It returns the causes of the triggers the turns claimed, in
+// turn order.
+func reviewLoopDrive(
+	t *testing.T, s *store.Store, runner *Runner, script []reviewLoopEnd, turn reviewLoopTurn,
+) []string {
 	t.Helper()
 	var causes []string
 	// Nothing writes between one pass's last read of the flow and the next pass, so that read is the next one's before.
@@ -303,7 +310,7 @@ func reviewLoopDrive(t *testing.T, s *store.Store, runner *Runner, script []revi
 	for range reviewLoopPasses {
 		runner.Pass(context.Background())
 		reviewLoopAnswer(t, s, script)
-		causes = append(causes, reviewLoopPlanTurn(t, s)...)
+		causes = append(causes, turn(t, s)...)
 		after := reviewLoopFlowOf(t, s)
 		if reflect.DeepEqual(after, before) {
 			return causes
@@ -315,8 +322,14 @@ func reviewLoopDrive(t *testing.T, s *store.Store, runner *Runner, script []revi
 }
 
 // reviewLoopCase creates the test epic, drives its review loop with the answers of script, and returns what the store then
-// holds of it.
+// holds of it. Each planner turn completes with no task (reviewLoopPlanTurn).
 func reviewLoopCase(t *testing.T, script []reviewLoopEnd) reviewLoopOutcome {
+	t.Helper()
+	return reviewLoopCaseWith(t, script, reviewLoopPlanTurn)
+}
+
+// reviewLoopCaseWith is reviewLoopCase with each planner turn completed by turn.
+func reviewLoopCaseWith(t *testing.T, script []reviewLoopEnd, turn reviewLoopTurn) reviewLoopOutcome {
 	t.Helper()
 	s, path := openNodeStore(t)
 	createReviewLoopEpic(t, s)
@@ -325,7 +338,7 @@ func reviewLoopCase(t *testing.T, script []reviewLoopEnd) reviewLoopOutcome {
 		Store: s, Planner: &fakePlanner{}, Builder: &fakeBuilder{}, Steps: &reviewLoopSteps{store: s},
 		Reviewers: reviewers, Ending: s, Getenv: reviewWorkGetenv(t), Tick: time.Hour, Now: runClock,
 	})
-	causes := reviewLoopDrive(t, s, runner, script)
+	causes := reviewLoopDrive(t, s, runner, script, turn)
 	review, err := s.EpicReview(context.Background(), runEpic)
 	if err != nil {
 		t.Fatalf("EpicReview: %v", err)
@@ -481,7 +494,7 @@ func TestReviewLoopFindingOpenAfterTwoRoundsEndsWithGaps(t *testing.T) {
 	}
 	reviewLoopWantCauses(t, got, []string{reviewLoopCreatedCause, reviewLoopRoundOneCause, reviewLoopRoundTwoCause})
 	reviewLoopWantEnd(t, got, "ended_with_gaps",
-		kinds.EndingBody("ended_with_gaps", []string{"security-1: open after 2 rounds"}))
+		kinds.EndingBody("ended_with_gaps", []string{"security-1: open after 2 rounds"}, nil))
 }
 
 // TestReviewLoopCostlyReviewerEndsWithGap: a reviewer whose two tries both end costly gives a gap, which the review keeps
@@ -505,7 +518,7 @@ func TestReviewLoopCostlyReviewerEndsWithGap(t *testing.T) {
 	reviewLoopWantStarts(t, got, []string{"security", "security", "tests"})
 	reviewLoopWantCauses(t, got, []string{reviewLoopCreatedCause, reviewLoopEmptyCause})
 	reviewLoopWantEnd(t, got, "ended_with_gaps",
-		kinds.EndingBody("ended_with_gaps", []string{"reviewer security: " + reason}))
+		kinds.EndingBody("ended_with_gaps", []string{"reviewer security: " + reason}, nil))
 }
 
 // TestReviewLoopRestartedReviewerRerunsFreeAndEndsClean: a reviewer step the engine restarts reruns without a cost. Two

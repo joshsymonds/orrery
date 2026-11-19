@@ -70,7 +70,10 @@ type EpicRow struct {
 	Changed     time.Time
 	PhaseAt     time.Time
 	Seen        time.Time
-	Paused      bool
+	// Revision counts the writes to the epic's row and to the rows of its parts, its steps aside (see
+	// 00069_epic_revisions.sql), so a reader can tell that the epic changed in any part by comparing it alone.
+	Revision int64
+	Paused   bool
 	// Parked is the park reason, empty when the epic is not parked, and ParkClass is the class of that park, which says
 	// who answers it.
 	Parked    string
@@ -228,6 +231,10 @@ func (s *Store) CreateEpic(ctx context.Context, row EpicRow) error {
 			Created: row.Created.Unix(),
 		}); err != nil {
 			return fmt.Errorf("insert trigger of epic %s: %w", row.ID, err)
+		}
+		// The rows above each moved the revision; a created epic is at revision 0, and only later writes move it.
+		if err = queries.ResetEpicRevision(ctx, row.ID); err != nil {
+			return fmt.Errorf("reset revision of epic %s: %w", row.ID, err)
 		}
 		return nil
 	})
@@ -496,10 +503,13 @@ func loadEpicWorkflowNodes(ctx context.Context, queries *sqlcgen.Queries, row *E
 	if err != nil {
 		return fmt.Errorf("list workflow nodes: %w", err)
 	}
-	row.Workflow.Nodes = mapInOrder(nodes, func(n sqlcgen.EpicWorkflowNode) EpicWorkflowNode {
-		return EpicWorkflowNode{ID: n.ID, Parent: n.Parent, Kind: n.Kind}
-	})
+	row.Workflow.Nodes = mapInOrder(nodes, epicWorkflowNodeOf)
 	return nil
+}
+
+// epicWorkflowNodeOf returns the workflow node a stored row holds.
+func epicWorkflowNodeOf(n sqlcgen.EpicWorkflowNode) EpicWorkflowNode {
+	return EpicWorkflowNode{ID: n.ID, Parent: n.Parent, Kind: n.Kind}
 }
 
 // loadEpicSections fills the ordered sections, decisions and planner sections of row from the rows stored under row.ID.
@@ -618,20 +628,50 @@ func loadEpicReviewers(ctx context.Context, queries *sqlcgen.Queries, row *EpicR
 }
 
 // Epics returns every stored epic ordered by id, with its head fields, seen mark and pinned workflow only: the sections
-// and decisions are nil.
+// and decisions are nil. The heads, every epic's workflow nodes and every seen mark are read in one read transaction,
+// three queries whatever the number of epics.
 func (s *Store) Epics(ctx context.Context) ([]EpicRow, error) {
-	queries := sqlcgen.New(s.db)
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, fmt.Errorf("begin epics read: %w", err)
+	}
+	rows, err := readEpics(ctx, sqlcgen.New(tx))
+	if err != nil {
+		return nil, errors.Join(err, tx.Rollback())
+	}
+	if err = tx.Commit(); err != nil {
+		return nil, fmt.Errorf("end epics read: %w", err)
+	}
+	return rows, nil
+}
+
+// readEpics returns every stored epic as Epics does, read with queries.
+func readEpics(ctx context.Context, queries *sqlcgen.Queries) ([]EpicRow, error) {
 	heads, err := queries.ListEpics(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list epics: %w", err)
 	}
+	nodes, err := queries.ListAllEpicWorkflowNodes(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list workflow nodes: %w", err)
+	}
+	seen, err := queries.ListEpicSeen(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list seen marks: %w", err)
+	}
+	byEpic := make(map[string][]EpicWorkflowNode, len(heads))
+	for _, n := range nodes {
+		byEpic[n.Epic] = append(byEpic[n.Epic], epicWorkflowNodeOf(n))
+	}
+	seenAt := make(map[string]int64, len(seen))
+	for _, mark := range seen {
+		seenAt[mark.Epic] = mark.At
+	}
 	rows := mapInOrder(heads, epicHeadOf)
 	for i := range rows {
-		if err = loadEpicWorkflowNodes(ctx, queries, &rows[i]); err != nil {
-			return nil, fmt.Errorf("read workflow of epic %s: %w", rows[i].ID, err)
-		}
-		if err = loadEpicSeen(ctx, queries, &rows[i]); err != nil {
-			return nil, fmt.Errorf("read seen of epic %s: %w", rows[i].ID, err)
+		rows[i].Workflow.Nodes = byEpic[rows[i].ID]
+		if at, ok := seenAt[rows[i].ID]; ok {
+			rows[i].Seen = time.Unix(at, 0)
 		}
 	}
 	return rows, nil
@@ -1016,6 +1056,7 @@ func epicHeadOf(head sqlcgen.Epic) EpicRow {
 		Created:      time.Unix(head.Created, 0),
 		Changed:      time.Unix(head.Changed, 0),
 		PhaseAt:      time.Unix(head.PhaseAt, 0),
+		Revision:     head.Revision,
 		Paused:       head.Paused != 0,
 		Parked:       head.Parked,
 		ParkClass:    ParkClass(head.ParkClass),

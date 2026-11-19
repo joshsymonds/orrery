@@ -3,12 +3,14 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/reviewers"
+	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
 // epicCreated returns the unix second every test epic is created at.
@@ -241,6 +243,60 @@ func TestEpicsListsEveryEpicByIDWithHeadFields(t *testing.T) {
 	want := []EpicRow{headOnly(alpha), headOnly(fullEpic(storeID))}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Epics = %+v, want %+v", got, want)
+	}
+}
+
+// TestEpicsReadsInThreeQueries checks that Epics reads the heads, workflow nodes and seen marks of every epic in three
+// queries however many epics are stored, and gives each epic its own nodes and mark. The interpreter lists the epics
+// on every pass, and the store has one connection, so a query per epic would queue every other store call behind it.
+func TestEpicsReadsInThreeQueries(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openEpicStore(t)
+	const epics = 8
+	for n := range epics {
+		row := fullEpic(fmt.Sprintf("orrery-1a2b3c4/epic-count-%d", n))
+		row.Workflow = EpicWorkflow{
+			Name: "count", Text: "count", SHA256: "sum",
+			Nodes: []EpicWorkflowNode{{ID: fmt.Sprintf("node-%d", n), Kind: "plan"}},
+		}
+		createEpic(t, s, row)
+		if n%2 == 0 {
+			if err := s.SeeEpic(ctx, row.ID, time.Unix(int64(1700000000+n), 0)); err != nil {
+				t.Fatalf("SeeEpic: %v", err)
+			}
+		}
+	}
+	recorder := &planRecorder{db: s.db.DB}
+	got, err := readEpics(ctx, sqlcgen.New(recorder))
+	if err != nil {
+		t.Fatalf("readEpics: %v", err)
+	}
+	if len(recorder.texts) != 3 {
+		t.Errorf("readEpics of %d epics issued %d queries, want 3", epics, len(recorder.texts))
+	}
+	listed, err := s.Epics(ctx)
+	if err != nil {
+		t.Fatalf("Epics: %v", err)
+	}
+	if !reflect.DeepEqual(listed, got) {
+		t.Errorf("Epics = %+v, want the epics its read returns %+v", listed, got)
+	}
+	if len(got) != epics {
+		t.Fatalf("Epics lists %d epics, want %d", len(got), epics)
+	}
+	for n, row := range got {
+		wantNodes := []EpicWorkflowNode{{ID: fmt.Sprintf("node-%d", n), Kind: "plan"}}
+		if !reflect.DeepEqual(row.Workflow.Nodes, wantNodes) {
+			t.Errorf("epic %s nodes = %+v, want %+v", row.ID, row.Workflow.Nodes, wantNodes)
+		}
+		var wantSeen time.Time
+		if n%2 == 0 {
+			wantSeen = time.Unix(int64(1700000000+n), 0)
+		}
+		if !row.Seen.Equal(wantSeen) {
+			t.Errorf("epic %s seen = %v, want %v", row.ID, row.Seen, wantSeen)
+		}
 	}
 }
 

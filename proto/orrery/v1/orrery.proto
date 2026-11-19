@@ -39,6 +39,12 @@ service Control {
   // Interrupt interrupts the turn a headless session is running.
   rpc Interrupt(InterruptRequest) returns (InterruptResponse);
 
+  // Decline denies an open question or permission request and ends its turn, as Interrupt does. A headless session's
+  // request is declined by its request_id, and is refused unless the request is open. A pane's question is declined by
+  // a guarded Escape to the pane, refused unless the question is open and the pane is in no tmux mode, and its response
+  // holds no texts.
+  rpc Decline(DeclineRequest) returns (DeclineResponse);
+
   // Stop stops a headless session.
   rpc Stop(StopRequest) returns (StopResponse);
 
@@ -52,6 +58,13 @@ service Control {
   // (cancel_async_message). Its texts hold that message's text when Claude cancelled it, and none when Claude had
   // already taken it in, when the session is not running, or when prompt_id is empty.
   rpc Withdraw(WithdrawRequest) returns (WithdrawResponse);
+
+  // NotNow takes the named open question off the owner's list until BringBack, kept by orreryd, refused unless that
+  // question is open now.
+  rpc NotNow(NotNowRequest) returns (NotNowResponse);
+
+  // BringBack returns it and raises no notice.
+  rpc BringBack(BringBackRequest) returns (BringBackResponse);
 }
 
 // ListRequest asks for every tracked session. It has no fields.
@@ -159,6 +172,10 @@ message HeadlessSession {
   // The session's headline: the stored headline once one is written, else the title, else the first words of the first
   // prompt. It never holds the directory, which a client shows beside it.
   string headline = 11;
+
+  // true while the owner has put this question off with Control.NotNow and not brought it back; a mark covers one
+  // question, so a new request or a pane that starts waiting again reads false.
+  bool put_off = 12;
 }
 
 // SessionsWatchConversationRequest asks for the conversation of one headless session. limit follows
@@ -260,6 +277,10 @@ message OpenRequest {
   // The answers the phone may send: the option labels of a request with one question that is not multiSelect, allow
   // and deny for a permission request, and none for any other shape, which the phone cannot answer.
   repeated string options = 4;
+
+  // true while the owner has put this question off with Control.NotNow and not brought it back; a mark covers one
+  // question, so a new request or a pane that starts waiting again reads false.
+  bool put_off = 5;
 }
 
 // WatchRequest asks for the events after a store position.
@@ -432,6 +453,28 @@ message InterruptResponse {
   repeated string texts = 1;
 }
 
+// DeclineRequest asks a session or a pane to deny one open question or permission request and end its turn.
+message DeclineRequest {
+  // The headless session's id, or the pane's Pane.id.
+  string id = 1;
+
+  // The open question or permission request being declined, by its OpenRequest.id. Empty for a pane.
+  string request_id = 2;
+
+  // The question's kind: "headless" or "pane". Empty means headless.
+  string kind = 3;
+
+  // The pane's Pane.question_hash. Empty for headless.
+  string question_hash = 4;
+}
+
+// DeclineResponse is the reply to a Decline.
+message DeclineResponse {
+  // The texts of the owner's messages that Claude cancelled from its queue at the decline, in send order. A caller
+  // event's text is never among them. A pane's response holds no texts.
+  repeated string texts = 1;
+}
+
 // StopRequest asks for a headless session to be stopped.
 message StopRequest {
   // The session's id.
@@ -474,6 +517,48 @@ message WithdrawResponse {
   // running, or when prompt_id is empty.
   repeated string texts = 1;
 }
+
+// NotNowRequest names one open question to take off the owner's list.
+message NotNowRequest {
+  // The question's kind: "headless" or "pane".
+  string kind = 1;
+
+  // The headless session id, or the pane's Pane.id.
+  string id = 2;
+
+  // The headless open request's OpenRequest.id. Empty for a pane.
+  string request_id = 3;
+
+  // The pane's Pane.question_hash. Empty for headless.
+  string question_hash = 4;
+
+  // The pane's Pane.changed, the unix seconds it started waiting. 0 for headless.
+  int64 changed = 5;
+}
+
+// NotNowResponse acknowledges a not-now mark. It has no fields.
+message NotNowResponse {}
+
+// BringBackRequest names one open question to put back on the owner's list.
+message BringBackRequest {
+  // The question's kind: "headless" or "pane".
+  string kind = 1;
+
+  // The headless session id, or the pane's Pane.id.
+  string id = 2;
+
+  // The headless open request's OpenRequest.id. Empty for a pane.
+  string request_id = 3;
+
+  // The pane's Pane.question_hash. Empty for headless.
+  string question_hash = 4;
+
+  // The pane's Pane.changed, the unix seconds it started waiting. 0 for headless.
+  int64 changed = 5;
+}
+
+// BringBackResponse acknowledges a bring-back. It has no fields.
+message BringBackResponse {}
 
 // EngineAdded carries the placement of a headless session row that was inserted.
 message EngineAdded {
@@ -817,6 +902,10 @@ message Pane {
 
   // The pane's @orrery_id option, which is the id its Session row carries, or empty when unset.
   string orrery_id = 21;
+
+  // true while the owner has put this question off with Control.NotNow and not brought it back; a mark covers one
+  // question, so a new request or a pane that starts waiting again reads false.
+  bool put_off = 22;
 }
 
 // ScreenRequest asks for the text of one pane. ansi false gives plain text, and true keeps the color escape

@@ -15,7 +15,7 @@ import { installTestDom, removeTestDom, teardownOnce } from "../testdom";
 import { turn, until } from "../testwait";
 import { componentFiles, componentModules } from "./components.gen";
 import { catalogStories } from "./catalog";
-import { missingStories, storyExemptions } from "./coverage";
+import { missingStories, staleRenames, storyExemptions, storyRenames } from "./coverage";
 import { PageStory } from "./pagestory";
 import { storyModules } from "./registry.gen";
 
@@ -166,6 +166,50 @@ test("StoryCoverage: missingStories reports a component export with no story, wh
 
 test("StoryCoverage: missingStories reports neither a lowercase function nor a number export", () => {
   assert.deepEqual(missingStories({ "widget.tsx": { helper: () => null, LIMIT: 184 } }, {}), []);
+});
+
+test("StoryCoverage: a component export whose story export is renamed through the table is covered by that story export, not by its own name", () => {
+  const widget = () => null;
+  const renames = { "widget.tsx": { Widget: "Gadget" } };
+  assert.deepEqual(
+    missingStories({ "widget.tsx": { Widget: widget } }, { "widget.stories.tsx": { Gadget: {} } }, renames),
+    [],
+    "the stories module holds the renamed Gadget",
+  );
+  assert.deepEqual(
+    missingStories({ "widget.tsx": { Widget: widget } }, { "widget.stories.tsx": { Widget: {} } }, renames),
+    ["widget.tsx export Widget has no story in widget.stories.tsx"],
+    "the stories module holds Widget but not the renamed Gadget",
+  );
+});
+
+test("StoryCoverage: an entry whose component file or component export does not exist is reported, one line each", () => {
+  const widget = () => null;
+  assert.deepEqual(
+    staleRenames({ "gone.tsx": { Gone: "Dock" } }, { "widget.tsx": { Widget: widget } }, {}),
+    ["gone.tsx export Gone renames to Dock: gone.tsx is not a component file"],
+    "the component file does not exist",
+  );
+  assert.deepEqual(
+    staleRenames({ "widget.tsx": { Gadget: "Dock" } }, { "widget.tsx": { Widget: widget } }, { "widget.stories.tsx": { Dock: {} } }),
+    ["widget.tsx export Gadget renames to Dock: widget.tsx exports no component Gadget"],
+    "the component export does not exist",
+  );
+});
+
+test("StoryCoverage: an entry whose story export does not exist is reported, when its stories module is missing and when that module lacks it", () => {
+  const widget = () => null;
+  const line = "widget.tsx export Widget renames to Dock: widget.stories.tsx exports no Dock";
+  assert.deepEqual(staleRenames({ "widget.tsx": { Widget: "Dock" } }, { "widget.tsx": { Widget: widget } }, {}), [line], "the stories module is missing");
+  assert.deepEqual(
+    staleRenames({ "widget.tsx": { Widget: "Dock" } }, { "widget.tsx": { Widget: widget } }, { "widget.stories.tsx": { Gadget: {} } }),
+    [line],
+    "the stories module lacks Dock",
+  );
+});
+
+test("StoryCoverage: the real table reports no stale entry", () => {
+  assert.deepEqual(staleRenames(storyRenames, componentModules, storyModules), []);
 });
 
 test("StoryRenders: storyProblem reports a page wrapper that holds no element but its failures", async (t) => {

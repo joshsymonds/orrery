@@ -39,8 +39,6 @@ const (
 	StepsStopStepProcedure = "/orrery.engine.v1.Steps/StopStep"
 	// StepsStepStatusProcedure is the fully-qualified name of the Steps's StepStatus RPC.
 	StepsStepStatusProcedure = "/orrery.engine.v1.Steps/StepStatus"
-	// StepsWaitStepsProcedure is the fully-qualified name of the Steps's WaitSteps RPC.
-	StepsWaitStepsProcedure = "/orrery.engine.v1.Steps/WaitSteps"
 	// StepsListStepsProcedure is the fully-qualified name of the Steps's ListSteps RPC.
 	StepsListStepsProcedure = "/orrery.engine.v1.Steps/ListSteps"
 	// StepsHoldStepProcedure is the fully-qualified name of the Steps's HoldStep RPC.
@@ -60,9 +58,9 @@ type StepsClient interface {
 	StopStep(context.Context, *connect.Request[v1.StopStepRequest]) (*connect.Response[v1.StopStepResponse], error)
 	// StepStatus returns a step's row.
 	StepStatus(context.Context, *connect.Request[v1.StepStatusRequest]) (*connect.Response[v1.StepStatusResponse], error)
-	// WaitSteps blocks until the first of the named steps ends or the timeout passes. A timeout of zero returns at once.
-	WaitSteps(context.Context, *connect.Request[v1.WaitStepsRequest]) (*connect.Response[v1.WaitStepsResponse], error)
-	// ListSteps lists the labelled steps, oldest first. An unlabelled step is never listed.
+	// ListSteps lists the labelled steps, oldest first. An unlabelled step is never listed. A listed step carries no
+	// result: its summary, red_evidence and green_evidence carry what a list reads of it. A list of the running steps also
+	// counts, by epic, the matching steps that have ended, without reading them.
 	ListSteps(context.Context, *connect.Request[v1.ListStepsRequest]) (*connect.Response[v1.ListStepsResponse], error)
 	// HoldStep interrupts the step's running turn and holds the step until a nudge or a stop. The interrupted turn is no
 	// round. A step with no turn running, one already held, or one running its gate refuses with failed_precondition.
@@ -106,12 +104,6 @@ func NewStepsClient(httpClient connect.HTTPClient, baseURL string, opts ...conne
 			connect.WithSchema(stepsMethods.ByName("StepStatus")),
 			connect.WithClientOptions(opts...),
 		),
-		waitSteps: connect.NewClient[v1.WaitStepsRequest, v1.WaitStepsResponse](
-			httpClient,
-			baseURL+StepsWaitStepsProcedure,
-			connect.WithSchema(stepsMethods.ByName("WaitSteps")),
-			connect.WithClientOptions(opts...),
-		),
 		listSteps: connect.NewClient[v1.ListStepsRequest, v1.ListStepsResponse](
 			httpClient,
 			baseURL+StepsListStepsProcedure,
@@ -144,7 +136,6 @@ type stepsClient struct {
 	startStep  *connect.Client[v1.StartStepRequest, v1.StartStepResponse]
 	stopStep   *connect.Client[v1.StopStepRequest, v1.StopStepResponse]
 	stepStatus *connect.Client[v1.StepStatusRequest, v1.StepStatusResponse]
-	waitSteps  *connect.Client[v1.WaitStepsRequest, v1.WaitStepsResponse]
 	listSteps  *connect.Client[v1.ListStepsRequest, v1.ListStepsResponse]
 	holdStep   *connect.Client[v1.HoldStepRequest, v1.HoldStepResponse]
 	nudgeStep  *connect.Client[v1.NudgeStepRequest, v1.NudgeStepResponse]
@@ -164,11 +155,6 @@ func (c *stepsClient) StopStep(ctx context.Context, req *connect.Request[v1.Stop
 // StepStatus calls orrery.engine.v1.Steps.StepStatus.
 func (c *stepsClient) StepStatus(ctx context.Context, req *connect.Request[v1.StepStatusRequest]) (*connect.Response[v1.StepStatusResponse], error) {
 	return c.stepStatus.CallUnary(ctx, req)
-}
-
-// WaitSteps calls orrery.engine.v1.Steps.WaitSteps.
-func (c *stepsClient) WaitSteps(ctx context.Context, req *connect.Request[v1.WaitStepsRequest]) (*connect.Response[v1.WaitStepsResponse], error) {
-	return c.waitSteps.CallUnary(ctx, req)
 }
 
 // ListSteps calls orrery.engine.v1.Steps.ListSteps.
@@ -200,9 +186,9 @@ type StepsHandler interface {
 	StopStep(context.Context, *connect.Request[v1.StopStepRequest]) (*connect.Response[v1.StopStepResponse], error)
 	// StepStatus returns a step's row.
 	StepStatus(context.Context, *connect.Request[v1.StepStatusRequest]) (*connect.Response[v1.StepStatusResponse], error)
-	// WaitSteps blocks until the first of the named steps ends or the timeout passes. A timeout of zero returns at once.
-	WaitSteps(context.Context, *connect.Request[v1.WaitStepsRequest]) (*connect.Response[v1.WaitStepsResponse], error)
-	// ListSteps lists the labelled steps, oldest first. An unlabelled step is never listed.
+	// ListSteps lists the labelled steps, oldest first. An unlabelled step is never listed. A listed step carries no
+	// result: its summary, red_evidence and green_evidence carry what a list reads of it. A list of the running steps also
+	// counts, by epic, the matching steps that have ended, without reading them.
 	ListSteps(context.Context, *connect.Request[v1.ListStepsRequest]) (*connect.Response[v1.ListStepsResponse], error)
 	// HoldStep interrupts the step's running turn and holds the step until a nudge or a stop. The interrupted turn is no
 	// round. A step with no turn running, one already held, or one running its gate refuses with failed_precondition.
@@ -242,12 +228,6 @@ func NewStepsHandler(svc StepsHandler, opts ...connect.HandlerOption) (string, h
 		connect.WithSchema(stepsMethods.ByName("StepStatus")),
 		connect.WithHandlerOptions(opts...),
 	)
-	stepsWaitStepsHandler := connect.NewUnaryHandler(
-		StepsWaitStepsProcedure,
-		svc.WaitSteps,
-		connect.WithSchema(stepsMethods.ByName("WaitSteps")),
-		connect.WithHandlerOptions(opts...),
-	)
 	stepsListStepsHandler := connect.NewUnaryHandler(
 		StepsListStepsProcedure,
 		svc.ListSteps,
@@ -280,8 +260,6 @@ func NewStepsHandler(svc StepsHandler, opts ...connect.HandlerOption) (string, h
 			stepsStopStepHandler.ServeHTTP(w, r)
 		case StepsStepStatusProcedure:
 			stepsStepStatusHandler.ServeHTTP(w, r)
-		case StepsWaitStepsProcedure:
-			stepsWaitStepsHandler.ServeHTTP(w, r)
 		case StepsListStepsProcedure:
 			stepsListStepsHandler.ServeHTTP(w, r)
 		case StepsHoldStepProcedure:
@@ -309,10 +287,6 @@ func (UnimplementedStepsHandler) StopStep(context.Context, *connect.Request[v1.S
 
 func (UnimplementedStepsHandler) StepStatus(context.Context, *connect.Request[v1.StepStatusRequest]) (*connect.Response[v1.StepStatusResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Steps.StepStatus is not implemented"))
-}
-
-func (UnimplementedStepsHandler) WaitSteps(context.Context, *connect.Request[v1.WaitStepsRequest]) (*connect.Response[v1.WaitStepsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Steps.WaitSteps is not implemented"))
 }
 
 func (UnimplementedStepsHandler) ListSteps(context.Context, *connect.Request[v1.ListStepsRequest]) (*connect.Response[v1.ListStepsResponse], error) {

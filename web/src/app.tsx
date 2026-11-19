@@ -1290,9 +1290,10 @@ export function App({
     return () => document.removeEventListener("keydown", listener);
   }, []);
 
-  // The epic calls the readers of the cursor and the pin make: an epic a call created draws its card, which reads the
-  // epic again on each poll tick and opens the epic through openEpic; a step card opens its step through openEpicStep.
-  const epicCalls = epicCallsOf(clients, navigated(openEpic), navigated(openEpicStep), now);
+  // The epic calls the readers of the cursor and the pin make: an epic a call created draws its card, which shows the
+  // poll's detail of its epic, or reads an epic the poll holds no detail of when its listed message changes, and opens
+  // the epic through openEpic; a step card opens its step through openEpicStep.
+  const epicCalls = epicCallsOf(clients, navigated(openEpic), navigated(openEpicStep), epics);
 
   // pageNode draws the page the section holds over the epic's detail: the epic page, or the contract, the phase output
   // or the worker session the page has moved to.
@@ -1639,7 +1640,7 @@ export function App({
               onClose={() => setTalkDock(null)}
               openEpic={openEpic}
               openStep={openEpicStep}
-              tick={now}
+              epics={epics}
             />
           )}
         </section>
@@ -1754,6 +1755,7 @@ function withEpicMarks(view: EpicsView, marks: Map<string, boolean>): EpicsView 
     endedEarlier: endedEarlier.sort(newestEnding),
     archived,
     details: view.details,
+    listed: view.listed,
   };
 }
 

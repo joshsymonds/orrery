@@ -162,6 +162,23 @@ func Decide(flow workflow.Workflow, rows kinds.Rows, reg map[string]kinds.Kind) 
 	return acts
 }
 
+// Rests reports whether Decide gives flow no action on any rows that hold rows.Epic's phase and rows.Runs, read from
+// the runs' Path, State, Outcome and Attempt alone: the walk of the top-level nodes stops at a node that ended failed,
+// at a parked node, or at the end of the list, or else at a running node that its kind gives no action whatever the
+// epic's other rows hold (idle). An epic at rest has nothing to decide until one of its node runs or its phase changes.
+func Rests(flow workflow.Workflow, rows kinds.Rows, reg map[string]kinds.Kind) bool {
+	walk := newPass(rows, reg, flow)
+	def, run, halt := walk.frontier(flow.Nodes, scope{where: topLevel})
+	switch halt {
+	case haltEnded, haltParked:
+		return true
+	case haltRunning:
+		return walk.idle(def, run)
+	default:
+		return false
+	}
+}
+
 // pass is one Decide call: the epic's rows, the registered kinds, the node runs of the rows by path, and the workflow
 // being walked, whose plan a release's replan runs (replanPlan).
 type pass struct {
@@ -192,23 +209,51 @@ type scope struct {
 // The first node that has not ended decides the walk, so no node after it is looked at. A node that ended failed ends
 // the list as well, so a failed check ends the round of its loop.
 func (p pass) walk(nodes []workflow.Node, at scope) ([]Action, bool) {
+	def, run, halt := p.frontier(nodes, at)
+	switch halt {
+	case haltUnstarted:
+		return []Action{p.start(def, at)}, false
+	case haltParked:
+		return nil, false
+	case haltRunning:
+		return p.running(def, run, at), false
+	default:
+		return nil, true
+	}
+}
+
+// halt is where the walk of a list of nodes stops: at the list's end or a node that ended failed, which ends the list,
+// at a parked node, at a node with no run, or at a running node.
+type halt int
+
+const (
+	haltEnded halt = iota
+	haltParked
+	haltUnstarted
+	haltRunning
+)
+
+// frontier returns the node of nodes, in scope at, that the walk stops at, its run, and why it stops there: the first
+// node with no run, or whose run is running or parked, or that ended failed. A list whose every node ended stops at
+// its end, with no node.
+func (p pass) frontier(nodes []workflow.Node, at scope) (workflow.Node, store.NodeRun, halt) {
 	for _, def := range nodes {
 		run, ok := p.byPath[at.prefix+def.ID]
 		if !ok {
-			return []Action{p.start(def, at)}, false
+			return def, store.NodeRun{}, haltUnstarted
 		}
 		switch run.State {
 		case store.NodeEnded:
 			if run.Outcome == outcomeFailed {
-				return nil, true
+				return def, run, haltEnded
 			}
 		case store.NodeParked:
-			return nil, false
+			return def, run, haltParked
 		default:
-			return p.running(def, run, at), false
+			return def, run, haltRunning
 		}
 	}
-	return nil, true
+	return workflow.Node{}, store.NodeRun{}, haltEnded
 }
 
 // start returns the action that starts def, which has no run at its path in its scope. A loop starts at its first
@@ -275,21 +320,41 @@ func (p pass) highestTurn() int64 {
 	return highest
 }
 
+// idle reports whether running gives def's run, which is running, no action whatever the epic's rows hold beyond its
+// phase and node runs: def is no loop, and its kind is not registered, or its kind is idle in the epic's phase
+// (kinds.Idler) and, for a release, no replan plan of the run's attempt runs (replanRun).
+func (p pass) idle(def workflow.Node, run store.NodeRun) bool {
+	if def.Loop != nil {
+		return false
+	}
+	kind, ok := p.reg[def.Kind]
+	if !ok {
+		return true
+	}
+	if def.Kind == kindRelease {
+		if _, _, replanning := p.replanRun(run); replanning {
+			return false
+		}
+	}
+	idler, ok := kind.(kinds.Idler)
+	return ok && idler.Idle(p.rows.Epic.Phase)
+}
+
 // running decides a node run that has not ended. A loop decides its round, and a plan its settle walks and fan-out. A
-// release whose replan plan runs decides that plan (replanning). Any other node is decided by its registered kind, and a
-// node the kind leaves waiting, or whose kind is not registered, gives no action.
+// release whose replan plan runs decides that plan (replanning). An idle node gives no action. Any other node is decided
+// by its registered kind, and a node the kind leaves waiting gives no action.
 func (p pass) running(def workflow.Node, run store.NodeRun, at scope) []Action {
 	if def.Loop != nil {
 		return p.loop(def, run)
 	}
 	kind, ok := p.reg[def.Kind]
-	if !ok {
-		return nil
-	}
-	if def.Kind == kindRelease {
+	if ok && def.Kind == kindRelease {
 		if acts, replanning := p.replanning(run); replanning {
 			return acts
 		}
+	}
+	if p.idle(def, run) {
+		return nil
 	}
 	act := kind.Decide(kinds.Node{Def: def, Run: run}, p.rows)
 	if def.Kind == kindPlan {

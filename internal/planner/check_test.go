@@ -592,3 +592,38 @@ func TestParseRefusesInvalidJSON(t *testing.T) {
 		})
 	}
 }
+
+// testItemTask is validTask with a test item whose test is the task's first file.
+func testItemTask(title string, files ...string) Task {
+	task := validTask(title, files...)
+	task.Evidence.Kind, task.Evidence.Tests = evidence.KindTest, files[:1]
+	return task
+}
+
+// TestCheckRefusesATestItemOnATaskOfTestFilesOnly: a test item's reproduction runs its tests at the base without the
+// rest of the commit, so a task whose files are all test files, as when it only adds tests for what the base does,
+// gets a test item refused. A test item with a file that is not a test file, and a capture item of test files only,
+// pass.
+func TestCheckRefusesATestItemOnATaskOfTestFilesOnly(t *testing.T) {
+	t.Parallel()
+	const reason = "test, but every file of the task is a test file. A test item's green first runs its tests at " +
+		"the base with the rest of the commit left out, and they must fail there; with no other file in the change " +
+		"that run is the commit itself, so it passes as green does and the task can never be met. Give a task that " +
+		"only adds, rewrites or fixes tests kind capture with no tests, and a conclusion its base output cannot show"
+	t.Run("a test item on Go, web and Kotlin test files only is refused", func(t *testing.T) {
+		t.Parallel()
+		ret := Return{Tasks: []Task{testItemTask("tests only", "internal/enginehost/callerless_mcp_test.go",
+			"web/src/app.test.tsx", "android/app/src/test/kotlin/WordsTest.kt")}}
+		checkLines(t, checkPlan(ret, nil), `tasks[0] "tests only" evidence.kind: `+reason)
+	})
+	t.Run("a test item on a task that also changes code passes", func(t *testing.T) {
+		t.Parallel()
+		ret := Return{Tasks: []Task{testItemTask("tests and code", "internal/x_test.go", "internal/x.go")}}
+		checkLines(t, checkPlan(ret, nil))
+	})
+	t.Run("a capture item on test files only passes", func(t *testing.T) {
+		t.Parallel()
+		ret := Return{Tasks: []Task{validTask("capture", "internal/x_test.go")}}
+		checkLines(t, checkPlan(ret, nil))
+	})
+}

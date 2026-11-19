@@ -102,30 +102,6 @@
     }
   },
   {
-    "name": "step_wait",
-    "description": "Wait until one of the given steps ends, or until timeoutSeconds passes (at most 1500 seconds). Returns the ended step, or null with every step's state at timeout.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "ids": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "minItems": 1
-        },
-        "timeoutSeconds": {
-          "type": "integer",
-          "minimum": 0
-        }
-      },
-      "required": [
-        "ids"
-      ],
-      "additionalProperties": false
-    }
-  },
-  {
     "name": "epic_create",
     "description": "Create an epic from an accepted contract. decisions seeds the epic's recorded decisions. workflow names the workflow the epic pins, epic by default. Returns the stored epic. A refusal names the field that failed.",
     "inputSchema": {

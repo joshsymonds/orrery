@@ -125,26 +125,28 @@ const (
 // its decision: the files it adds to the task and the fields it changes. Question is the owner question an ask opens,
 // with Reason as the tell that carries it. Fallback is what a decided grant does instead when the store refuses one of
 // its files. Settle is how an ActSettleVersion settles the task's checking version: applied or refused, with the red
-// run that judged it and the refusal it was refused for.
+// run that judged it and the refusal it was refused for. GateChanges is the whole list of gate-needed changes an
+// ActGuard stores with its build when the guard passes the commit, nil when the return declares nothing new.
 type Action struct {
-	Kind       ActionKind
-	Next       store.TaskBuild
-	Reason     string
-	NeedsFiles []string
-	Phase      string
-	ID         string
-	Revision   string
-	Unit       string
-	Review     store.TaskReview
-	Finding    store.TaskFindingResult
-	Tells      []string
-	Decision   *store.TaskDecision
-	Behind     []int64
-	Version    store.TaskVersionInput
-	Question   *store.EpicQuestionInput
-	Fallback   *Action
-	Settle     *store.TaskVersionSettle
-	Move       store.RungMove
+	Kind        ActionKind
+	Next        store.TaskBuild
+	Reason      string
+	NeedsFiles  []string
+	Phase       string
+	ID          string
+	Revision    string
+	Unit        string
+	Review      store.TaskReview
+	Finding     store.TaskFindingResult
+	Tells       []string
+	Decision    *store.TaskDecision
+	Behind      []int64
+	Version     store.TaskVersionInput
+	Question    *store.EpicQuestionInput
+	Fallback    *Action
+	Settle      *store.TaskVersionSettle
+	Move        store.RungMove
+	GateChanges []store.GateChange
 }
 
 // spend returns the action for a unit of the build that failed with failure. On every rung the failure climbs the task
@@ -201,6 +203,9 @@ type Store interface {
 	EvidenceRun(ctx context.Context, id string) (store.EvidenceRun, error)
 	NodeCheck(ctx context.Context, id string) (store.NodeCheck, error)
 	SetTaskBuild(ctx context.Context, epic string, seq int64, from, to store.TaskBuild) error
+	SetTaskBuildGateChanges(
+		ctx context.Context, epic string, seq int64, from, to store.TaskBuild, changes []store.GateChange,
+	) error
 	SetTaskBuildTelling(
 		ctx context.Context, epic string, seq int64, from, to store.TaskBuild, tells []string, at time.Time,
 	) error

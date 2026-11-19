@@ -28,7 +28,8 @@ func TestDecideGreenReproduction(t *testing.T) {
 	lostRerun := build
 	lostRerun.Rerun = 3
 	disagreement := "green not met: the judge and the exit disagree: red was judged fails at the base repro-base, " +
-		"but its reproduction with the commit's tests exited 0"
+		"but its reproduction with the commit's tests exited 0, so those tests pass at the base without the rest of " +
+		"the commit"
 	ended := func(exit int, timedOut bool, notRun string) *store.NodeCheck {
 		return &store.NodeCheck{
 			ID: RunID(decideEpic, 3, unitRepro, 1, 2), State: store.NodeEnded,

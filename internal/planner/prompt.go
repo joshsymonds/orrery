@@ -22,11 +22,14 @@ const (
 )
 
 // Prompt renders the prompt of the planner turn turn of epic: the role text, then the contract, the decisions, the
-// new notes, the open questions, the advice followed, the tasks, the evidence amendments, the triggers and the last
-// failure. epic is read after the turn is claimed, so its Turns include turn, and triggers are the triggers turn claimed.
-// follows are the store's follow counts per label. It returns an error when a gate, a Requirement's evidence item, a
-// task's evidence item or an amendment's item cannot be encoded.
-func Prompt(epic store.EpicRow, turn int64, triggers []store.EpicTrigger, follows []store.LabelFollow) (string, error) {
+// new notes, the open questions, the advice followed, the tasks, the evidence amendments, the triggers, the spent lines
+// and the last failure. epic is read after the turn is claimed, so its Turns include turn, and triggers are the
+// triggers turn claimed. follows are the store's follow counts per label, and spent are the lines of failed tasks the
+// turn may not try again (spentLines). It returns an error when a gate, a Requirement's evidence item, a task's evidence
+// item or an amendment's item cannot be encoded.
+func Prompt(
+	epic store.EpicRow, turn int64, triggers []store.EpicTrigger, follows []store.LabelFollow, spent []SpentLine,
+) (string, error) {
 	var out strings.Builder
 	fmt.Fprintln(&out, strings.TrimRight(role, "\n"))
 	last, found := lastTurn(epic.Turns, turn)
@@ -50,6 +53,11 @@ func Prompt(epic store.EpicRow, turn int64, triggers []store.EpicTrigger, follow
 	}
 	WriteSection(&out, "Evidence amendments", amendments)
 	WriteSection(&out, "Triggers", triggerLines(triggers))
+	spentText := make([]string, len(spent))
+	for i, line := range spent {
+		spentText[i] = spentLineText(line)
+	}
+	WriteSection(&out, "Spent lines", spentText)
 	WriteSection(&out, "Last failure", failureLines(last, found))
 	return out.String(), nil
 }
@@ -280,7 +288,7 @@ func newNoteLines(decisions []store.EpicDecision, last store.EpicTurn, found boo
 	return lines
 }
 
-// questionLines returns each open question as its questionHead, then each declared choice as `  id: does`, then its
+// questionLines returns each open question as its questionHead, then each declared choice as its choiceLine, then its
 // recommendation as `  recommended: id (confidence): why` when it recommends one.
 func questionLines(questions []store.EpicQuestion) []string {
 	lines := make([]string, 0, len(questions))
@@ -290,7 +298,7 @@ func questionLines(questions []store.EpicQuestion) []string {
 		}
 		lines = append(lines, questionHead(question))
 		for _, choice := range question.Choices {
-			lines = append(lines, fmt.Sprintf("  %s: %s", choice.ID, choice.Does))
+			lines = append(lines, choiceLine(choice))
 		}
 		if question.Recommended != "" {
 			lines = append(lines, fmt.Sprintf("  recommended: %s (%s): %s",
@@ -298,6 +306,15 @@ func questionLines(questions []store.EpicQuestion) []string {
 		}
 	}
 	return lines
+}
+
+// choiceLine returns a declared choice as `  id: does`, or as `  id: does (closes a, b)` when choosing it closes the
+// findings a and b.
+func choiceLine(choice store.EpicChoice) string {
+	if len(choice.Closes) == 0 {
+		return fmt.Sprintf("  %s: %s", choice.ID, choice.Does)
+	}
+	return fmt.Sprintf("  %s: %s (closes %s)", choice.ID, choice.Does, strings.Join(choice.Closes, ", "))
 }
 
 // questionHead returns question q as `- Qseq (park): text` when it is a park question, as
@@ -330,8 +347,8 @@ const taskGap = "gap"
 // taskLines returns each task as `- Tseq [status] title`, then the lines taskspec.Lines gives for its spec version,
 // each indented two spaces, when the task's current version is past version 1, then one rungLine for each rung of its
 // ladder in rung order, then its deliverable, files, requirements, contributes, test_changes, gate, and its evidence
-// item as compact JSON, then the guard's last refusal of its build when there is one. A failed or gapped task is
-// followed by failedLines.
+// item as compact JSON, then the guard's last refusal of its build when there is one, then the gate-needed changes its
+// implementers declared when there are any. A failed or gapped task is followed by failedLines.
 func taskLines(tasks []store.EpicTask) ([]string, error) {
 	lines := make([]string, 0, 8*len(tasks))
 	for _, task := range tasks {
@@ -358,6 +375,9 @@ func taskLines(tasks []store.EpicTask) ([]string, error) {
 		if task.Build.Guard != "" {
 			lines = append(lines, "  guard refused: "+task.Build.Guard)
 		}
+		if len(task.GateChanges) > 0 {
+			lines = append(lines, "  gate-needed changes declared: "+gateChangeText(task.GateChanges))
+		}
 		if task.Status == taskFailed || task.Status == taskGap {
 			lines = append(lines, failedLines(task)...)
 		}
@@ -383,6 +403,16 @@ func rungLine(rung store.TaskRung) string {
 		line += ": " + rung.Reason
 	}
 	return line
+}
+
+// gateChangeText returns the gate-needed changes a task's implementers declared, each as `<path> (<reason>)`, joined
+// with `; `.
+func gateChangeText(changes []store.GateChange) string {
+	texts := make([]string, len(changes))
+	for i, change := range changes {
+		texts[i] = change.Path + " (" + change.Reason + ")"
+	}
+	return strings.Join(texts, "; ")
 }
 
 // failedLines returns the failure of a failed or gapped task as `  failure: reason`, where the reason is the

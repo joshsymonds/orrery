@@ -251,6 +251,15 @@ shoot *ARGS: _catalog-build
     esbuild web/src/shoot/shoot.ts --bundle --platform=node --format=esm --external:playwright-core --outfile=web/build/shoot-tool/shoot.mjs --log-level=warning
     node web/build/shoot-tool/shoot.mjs web/build/catalog "$@"
 
+# Write round 6's names to web/src/catalog/round6.json: each catalogue cell's Component/State, with the states of each
+# component, and each scenario's id with the frames that draw it. They are read from the wireframe in
+# web/visual/wireframe/round6 in Chromium, under the visual devenv profile, which carries the Chromium that
+# playwright-core drives. The driver is web/src/round6names/round6names.ts.
+[script("devenv", "--profile", "visual", "shell", "--", "bash", "-euo", "pipefail")]
+round6-names:
+    esbuild web/src/round6names/round6names.ts --bundle --platform=node --format=esm --external:playwright-core --outfile=web/build/round6names-tool/round6names.mjs --log-level=warning
+    node web/build/round6names-tool/round6names.mjs web/visual/wireframe/round6 web/src/catalog/round6.json
+
 # Lint, coverage, typed-client, and generated-code gates. The pin check runs first. cover's test-budget lines are
 # printed again last: a gate keeps only the tail of its output, and the checks after cover print far more than it keeps.
 check: reap-test-tmux pin-check doc-cites lint proto-lint proto-breaking cover sqlc-diff gen-diff web-check web-page alert-check gate-remote-test test-deadline-test test-budget-test

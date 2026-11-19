@@ -32,9 +32,10 @@ func guardSpec(epic store.EpicRow, task store.EpicTask) guard.Spec {
 }
 
 // guardCommit checks the commit action.Next holds green against the guard before that build is stored. A commit the
-// guard passes stores the build. A refusal stores its text as the build's guard, then climbs the task one rung with the
-// text as the failure, and the task keeps its worktree, so the next rung's implementer carries the refusal in its
-// brief. A check that errs is reported, and the task waits for the next pass.
+// guard passes stores the build, with action.GateChanges as the task's declared gate-needed changes when the return
+// declared a new one. A refusal stores its text as the build's guard, then climbs the task one rung with the text as
+// the failure, and the task keeps its worktree, so the next rung's implementer carries the refusal in its brief. A
+// check that errs is reported, and the task waits for the next pass.
 func (r *Runner) guardCommit(ctx context.Context, epic store.EpicRow, view View, action Action) bool {
 	seq, from := view.Task.Seq, view.Task.Build
 	refusals, err := guard.Check(ctx, epic.Repository, from.Base, action.Next.Revision, guardSpec(epic, view.Task))
@@ -43,6 +44,10 @@ func (r *Runner) guardCommit(ctx context.Context, epic store.EpicRow, view View,
 		return false
 	}
 	if len(refusals) == 0 {
+		if len(action.GateChanges) > 0 {
+			return r.written(ctx, epic.ID, seq, "move build declaring gate changes",
+				r.store.SetTaskBuildGateChanges(ctx, epic.ID, seq, from, action.Next, action.GateChanges))
+		}
 		return r.written(ctx, epic.ID, seq, "move build", r.store.SetTaskBuild(ctx, epic.ID, seq, from, action.Next))
 	}
 	text := guardText(refusals)

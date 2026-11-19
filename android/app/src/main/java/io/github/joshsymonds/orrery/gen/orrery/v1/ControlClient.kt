@@ -78,6 +78,24 @@ public class ControlClient(
 
 
   /**
+   *  Decline denies an open question or permission request and ends its turn, as Interrupt does. A headless session's
+   *  request is declined by its request_id, and is refused unless the request is open. A pane's question is declined by
+   *  a guarded Escape to the pane, refused unless the question is open and the pane is in no tmux mode, and its response
+   *  holds no texts.
+   */
+  override suspend fun decline(request: DeclineRequest, headers: Headers): ResponseMessage<DeclineResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "orrery.v1.Control/Decline",
+      io.github.joshsymonds.orrery.gen.orrery.v1.DeclineRequest::class,
+      io.github.joshsymonds.orrery.gen.orrery.v1.DeclineResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
    *  Stop stops a headless session.
    */
   override suspend fun stop(request: StopRequest, headers: Headers): ResponseMessage<StopResponse> = client.unary(
@@ -134,6 +152,37 @@ public class ControlClient(
     "orrery.v1.Control/Withdraw",
       io.github.joshsymonds.orrery.gen.orrery.v1.WithdrawRequest::class,
       io.github.joshsymonds.orrery.gen.orrery.v1.WithdrawResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  NotNow takes the named open question off the owner's list until BringBack, kept by orreryd, refused unless that
+   *  question is open now.
+   */
+  override suspend fun notNow(request: NotNowRequest, headers: Headers): ResponseMessage<NotNowResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "orrery.v1.Control/NotNow",
+      io.github.joshsymonds.orrery.gen.orrery.v1.NotNowRequest::class,
+      io.github.joshsymonds.orrery.gen.orrery.v1.NotNowResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  BringBack returns it and raises no notice.
+   */
+  override suspend fun bringBack(request: BringBackRequest, headers: Headers): ResponseMessage<BringBackResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "orrery.v1.Control/BringBack",
+      io.github.joshsymonds.orrery.gen.orrery.v1.BringBackRequest::class,
+      io.github.joshsymonds.orrery.gen.orrery.v1.BringBackResponse::class,
       StreamType.UNARY,
     ),
   )

@@ -68,6 +68,11 @@ func TestEpicReadsItsTurnsTasksAndQuestions(t *testing.T) {
 		},
 	}
 	want.Questions = []EpicQuestion{openStored(plannedTurn().Questions[0], 1, 1)}
+	// A created epic is at revision 0, and the turn's writes each moved it; how far is the count of rows they wrote.
+	if got.Revision <= 0 {
+		t.Errorf("Epic revision after a completed turn = %d, want past 0", got.Revision)
+	}
+	want.Revision = got.Revision
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Epic after a completed turn:\n got %+v\nwant %+v", got, want)
 	}

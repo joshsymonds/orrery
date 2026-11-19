@@ -1091,13 +1091,14 @@ func TestEndInterruptedTurn(t *testing.T) {
 		wantToolID(t, client, pane, "synthetic-1")
 	})
 
-	t.Run("waiting pane is left alone", func(t *testing.T) {
+	t.Run("waiting pane with interruption not after changed is left alone", func(t *testing.T) {
 		client, pane := startPane(t)
 		apply(t, client, pane, userPromptSubmitHook, t0)
 		apply(t, client, pane, permissionHook, t0.Add(time.Second))
 		wantQuestion(t, client, pane, `{"tool":"Bash","input":{"command":"echo synthetic"}}`)
 
-		if endInterrupted(t, client, pane, t0.Unix()+2, t0.Add(3*time.Second)) {
+		// The interruption is at the waiting pane's changed time, which is not later than it.
+		if endInterrupted(t, client, pane, t0.Unix()+1, t0.Add(3*time.Second)) {
 			t.Fatal("EndInterruptedTurn on a waiting pane = true, want false")
 		}
 		wantState(t, client, pane, protocol.StateWaiting)

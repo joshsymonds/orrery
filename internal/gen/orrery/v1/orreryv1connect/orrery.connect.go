@@ -68,6 +68,8 @@ const (
 	ControlAnswerProcedure = "/orrery.v1.Control/Answer"
 	// ControlInterruptProcedure is the fully-qualified name of the Control's Interrupt RPC.
 	ControlInterruptProcedure = "/orrery.v1.Control/Interrupt"
+	// ControlDeclineProcedure is the fully-qualified name of the Control's Decline RPC.
+	ControlDeclineProcedure = "/orrery.v1.Control/Decline"
 	// ControlStopProcedure is the fully-qualified name of the Control's Stop RPC.
 	ControlStopProcedure = "/orrery.v1.Control/Stop"
 	// ControlSeenProcedure is the fully-qualified name of the Control's Seen RPC.
@@ -76,6 +78,10 @@ const (
 	ControlResumeProcedure = "/orrery.v1.Control/Resume"
 	// ControlWithdrawProcedure is the fully-qualified name of the Control's Withdraw RPC.
 	ControlWithdrawProcedure = "/orrery.v1.Control/Withdraw"
+	// ControlNotNowProcedure is the fully-qualified name of the Control's NotNow RPC.
+	ControlNotNowProcedure = "/orrery.v1.Control/NotNow"
+	// ControlBringBackProcedure is the fully-qualified name of the Control's BringBack RPC.
+	ControlBringBackProcedure = "/orrery.v1.Control/BringBack"
 	// PanesListProcedure is the fully-qualified name of the Panes's List RPC.
 	PanesListProcedure = "/orrery.v1.Panes/List"
 	// PanesScreenProcedure is the fully-qualified name of the Panes's Screen RPC.
@@ -354,6 +360,11 @@ type ControlClient interface {
 	Answer(context.Context, *connect.Request[v1.AnswerRequest]) (*connect.Response[v1.AnswerResponse], error)
 	// Interrupt interrupts the turn a headless session is running.
 	Interrupt(context.Context, *connect.Request[v1.InterruptRequest]) (*connect.Response[v1.InterruptResponse], error)
+	// Decline denies an open question or permission request and ends its turn, as Interrupt does. A headless session's
+	// request is declined by its request_id, and is refused unless the request is open. A pane's question is declined by
+	// a guarded Escape to the pane, refused unless the question is open and the pane is in no tmux mode, and its response
+	// holds no texts.
+	Decline(context.Context, *connect.Request[v1.DeclineRequest]) (*connect.Response[v1.DeclineResponse], error)
 	// Stop stops a headless session.
 	Stop(context.Context, *connect.Request[v1.StopRequest]) (*connect.Response[v1.StopResponse], error)
 	// Seen records that the user has seen a headless session.
@@ -364,6 +375,11 @@ type ControlClient interface {
 	// (cancel_async_message). Its texts hold that message's text when Claude cancelled it, and none when Claude had
 	// already taken it in, when the session is not running, or when prompt_id is empty.
 	Withdraw(context.Context, *connect.Request[v1.WithdrawRequest]) (*connect.Response[v1.WithdrawResponse], error)
+	// NotNow takes the named open question off the owner's list until BringBack, kept by orreryd, refused unless that
+	// question is open now.
+	NotNow(context.Context, *connect.Request[v1.NotNowRequest]) (*connect.Response[v1.NotNowResponse], error)
+	// BringBack returns it and raises no notice.
+	BringBack(context.Context, *connect.Request[v1.BringBackRequest]) (*connect.Response[v1.BringBackResponse], error)
 }
 
 // NewControlClient constructs a client for the orrery.v1.Control service. By default, it uses the
@@ -401,6 +417,12 @@ func NewControlClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 			connect.WithSchema(controlMethods.ByName("Interrupt")),
 			connect.WithClientOptions(opts...),
 		),
+		decline: connect.NewClient[v1.DeclineRequest, v1.DeclineResponse](
+			httpClient,
+			baseURL+ControlDeclineProcedure,
+			connect.WithSchema(controlMethods.ByName("Decline")),
+			connect.WithClientOptions(opts...),
+		),
 		stop: connect.NewClient[v1.StopRequest, v1.StopResponse](
 			httpClient,
 			baseURL+ControlStopProcedure,
@@ -425,6 +447,18 @@ func NewControlClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 			connect.WithSchema(controlMethods.ByName("Withdraw")),
 			connect.WithClientOptions(opts...),
 		),
+		notNow: connect.NewClient[v1.NotNowRequest, v1.NotNowResponse](
+			httpClient,
+			baseURL+ControlNotNowProcedure,
+			connect.WithSchema(controlMethods.ByName("NotNow")),
+			connect.WithClientOptions(opts...),
+		),
+		bringBack: connect.NewClient[v1.BringBackRequest, v1.BringBackResponse](
+			httpClient,
+			baseURL+ControlBringBackProcedure,
+			connect.WithSchema(controlMethods.ByName("BringBack")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -434,10 +468,13 @@ type controlClient struct {
 	say       *connect.Client[v1.SayRequest, v1.SayResponse]
 	answer    *connect.Client[v1.AnswerRequest, v1.AnswerResponse]
 	interrupt *connect.Client[v1.InterruptRequest, v1.InterruptResponse]
+	decline   *connect.Client[v1.DeclineRequest, v1.DeclineResponse]
 	stop      *connect.Client[v1.StopRequest, v1.StopResponse]
 	seen      *connect.Client[v1.SeenRequest, v1.SeenResponse]
 	resume    *connect.Client[v1.ResumeRequest, v1.ResumeResponse]
 	withdraw  *connect.Client[v1.WithdrawRequest, v1.WithdrawResponse]
+	notNow    *connect.Client[v1.NotNowRequest, v1.NotNowResponse]
+	bringBack *connect.Client[v1.BringBackRequest, v1.BringBackResponse]
 }
 
 // Start calls orrery.v1.Control.Start.
@@ -460,6 +497,11 @@ func (c *controlClient) Interrupt(ctx context.Context, req *connect.Request[v1.I
 	return c.interrupt.CallUnary(ctx, req)
 }
 
+// Decline calls orrery.v1.Control.Decline.
+func (c *controlClient) Decline(ctx context.Context, req *connect.Request[v1.DeclineRequest]) (*connect.Response[v1.DeclineResponse], error) {
+	return c.decline.CallUnary(ctx, req)
+}
+
 // Stop calls orrery.v1.Control.Stop.
 func (c *controlClient) Stop(ctx context.Context, req *connect.Request[v1.StopRequest]) (*connect.Response[v1.StopResponse], error) {
 	return c.stop.CallUnary(ctx, req)
@@ -480,6 +522,16 @@ func (c *controlClient) Withdraw(ctx context.Context, req *connect.Request[v1.Wi
 	return c.withdraw.CallUnary(ctx, req)
 }
 
+// NotNow calls orrery.v1.Control.NotNow.
+func (c *controlClient) NotNow(ctx context.Context, req *connect.Request[v1.NotNowRequest]) (*connect.Response[v1.NotNowResponse], error) {
+	return c.notNow.CallUnary(ctx, req)
+}
+
+// BringBack calls orrery.v1.Control.BringBack.
+func (c *controlClient) BringBack(ctx context.Context, req *connect.Request[v1.BringBackRequest]) (*connect.Response[v1.BringBackResponse], error) {
+	return c.bringBack.CallUnary(ctx, req)
+}
+
 // ControlHandler is an implementation of the orrery.v1.Control service.
 type ControlHandler interface {
 	// Start starts a headless session in a directory and sends it its first prompt.
@@ -490,6 +542,11 @@ type ControlHandler interface {
 	Answer(context.Context, *connect.Request[v1.AnswerRequest]) (*connect.Response[v1.AnswerResponse], error)
 	// Interrupt interrupts the turn a headless session is running.
 	Interrupt(context.Context, *connect.Request[v1.InterruptRequest]) (*connect.Response[v1.InterruptResponse], error)
+	// Decline denies an open question or permission request and ends its turn, as Interrupt does. A headless session's
+	// request is declined by its request_id, and is refused unless the request is open. A pane's question is declined by
+	// a guarded Escape to the pane, refused unless the question is open and the pane is in no tmux mode, and its response
+	// holds no texts.
+	Decline(context.Context, *connect.Request[v1.DeclineRequest]) (*connect.Response[v1.DeclineResponse], error)
 	// Stop stops a headless session.
 	Stop(context.Context, *connect.Request[v1.StopRequest]) (*connect.Response[v1.StopResponse], error)
 	// Seen records that the user has seen a headless session.
@@ -500,6 +557,11 @@ type ControlHandler interface {
 	// (cancel_async_message). Its texts hold that message's text when Claude cancelled it, and none when Claude had
 	// already taken it in, when the session is not running, or when prompt_id is empty.
 	Withdraw(context.Context, *connect.Request[v1.WithdrawRequest]) (*connect.Response[v1.WithdrawResponse], error)
+	// NotNow takes the named open question off the owner's list until BringBack, kept by orreryd, refused unless that
+	// question is open now.
+	NotNow(context.Context, *connect.Request[v1.NotNowRequest]) (*connect.Response[v1.NotNowResponse], error)
+	// BringBack returns it and raises no notice.
+	BringBack(context.Context, *connect.Request[v1.BringBackRequest]) (*connect.Response[v1.BringBackResponse], error)
 }
 
 // NewControlHandler builds an HTTP handler from the service implementation. It returns the path on
@@ -533,6 +595,12 @@ func NewControlHandler(svc ControlHandler, opts ...connect.HandlerOption) (strin
 		connect.WithSchema(controlMethods.ByName("Interrupt")),
 		connect.WithHandlerOptions(opts...),
 	)
+	controlDeclineHandler := connect.NewUnaryHandler(
+		ControlDeclineProcedure,
+		svc.Decline,
+		connect.WithSchema(controlMethods.ByName("Decline")),
+		connect.WithHandlerOptions(opts...),
+	)
 	controlStopHandler := connect.NewUnaryHandler(
 		ControlStopProcedure,
 		svc.Stop,
@@ -557,6 +625,18 @@ func NewControlHandler(svc ControlHandler, opts ...connect.HandlerOption) (strin
 		connect.WithSchema(controlMethods.ByName("Withdraw")),
 		connect.WithHandlerOptions(opts...),
 	)
+	controlNotNowHandler := connect.NewUnaryHandler(
+		ControlNotNowProcedure,
+		svc.NotNow,
+		connect.WithSchema(controlMethods.ByName("NotNow")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlBringBackHandler := connect.NewUnaryHandler(
+		ControlBringBackProcedure,
+		svc.BringBack,
+		connect.WithSchema(controlMethods.ByName("BringBack")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orrery.v1.Control/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ControlStartProcedure:
@@ -567,6 +647,8 @@ func NewControlHandler(svc ControlHandler, opts ...connect.HandlerOption) (strin
 			controlAnswerHandler.ServeHTTP(w, r)
 		case ControlInterruptProcedure:
 			controlInterruptHandler.ServeHTTP(w, r)
+		case ControlDeclineProcedure:
+			controlDeclineHandler.ServeHTTP(w, r)
 		case ControlStopProcedure:
 			controlStopHandler.ServeHTTP(w, r)
 		case ControlSeenProcedure:
@@ -575,6 +657,10 @@ func NewControlHandler(svc ControlHandler, opts ...connect.HandlerOption) (strin
 			controlResumeHandler.ServeHTTP(w, r)
 		case ControlWithdrawProcedure:
 			controlWithdrawHandler.ServeHTTP(w, r)
+		case ControlNotNowProcedure:
+			controlNotNowHandler.ServeHTTP(w, r)
+		case ControlBringBackProcedure:
+			controlBringBackHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -600,6 +686,10 @@ func (UnimplementedControlHandler) Interrupt(context.Context, *connect.Request[v
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Control.Interrupt is not implemented"))
 }
 
+func (UnimplementedControlHandler) Decline(context.Context, *connect.Request[v1.DeclineRequest]) (*connect.Response[v1.DeclineResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Control.Decline is not implemented"))
+}
+
 func (UnimplementedControlHandler) Stop(context.Context, *connect.Request[v1.StopRequest]) (*connect.Response[v1.StopResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Control.Stop is not implemented"))
 }
@@ -614,6 +704,14 @@ func (UnimplementedControlHandler) Resume(context.Context, *connect.Request[v1.R
 
 func (UnimplementedControlHandler) Withdraw(context.Context, *connect.Request[v1.WithdrawRequest]) (*connect.Response[v1.WithdrawResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Control.Withdraw is not implemented"))
+}
+
+func (UnimplementedControlHandler) NotNow(context.Context, *connect.Request[v1.NotNowRequest]) (*connect.Response[v1.NotNowResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Control.NotNow is not implemented"))
+}
+
+func (UnimplementedControlHandler) BringBack(context.Context, *connect.Request[v1.BringBackRequest]) (*connect.Response[v1.BringBackResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Control.BringBack is not implemented"))
 }
 
 // PanesClient is a client for the orrery.v1.Panes service.

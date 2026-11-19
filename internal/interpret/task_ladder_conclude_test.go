@@ -103,7 +103,7 @@ func TestTaskLadderConcludeStoresGapEnding(t *testing.T) {
 	}
 	want := kinds.EndingBody("ended_with_gaps", []string{
 		fmt.Sprintf("T%d ended as a gap holding R1, R2: %s", task.Seq, ladderConcludeFailure),
-	})
+	}, nil)
 	tells := epicTellTexts(t, s)
 	if !slices.Equal(tells, []string{want}) {
 		t.Fatalf("tells = %q, want the one ending %q", tells, want)

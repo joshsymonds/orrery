@@ -196,4 +196,36 @@ public class EpicsClient(
     ),
   )
 
+
+  /**
+   *  Release releases the named orreryd epic, which resumes its stopped release at the first unfinished step and runs
+   *  again the undo-none release steps the owner names.
+   */
+  override suspend fun release(request: EpicsReleaseRequest, headers: Headers): ResponseMessage<EpicsReleaseResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "orrery.v1.Epics/Release",
+      io.github.joshsymonds.orrery.gen.orrery.v1.EpicsReleaseRequest::class,
+      io.github.joshsymonds.orrery.gen.orrery.v1.EpicsReleaseResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Close closes the named orreryd epic as superseded, shipped by hand or abandoned, and records the owner as its
+   *  closer.
+   */
+  override suspend fun close(request: EpicsCloseRequest, headers: Headers): ResponseMessage<EpicsCloseResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "orrery.v1.Epics/Close",
+      io.github.joshsymonds.orrery.gen.orrery.v1.EpicsCloseRequest::class,
+      io.github.joshsymonds.orrery.gen.orrery.v1.EpicsCloseResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
 }

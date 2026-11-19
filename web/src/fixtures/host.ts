@@ -6,11 +6,11 @@ import { HostStatusResponseSchema, type HostStatusResponse } from "../gen/orrery
 
 // host is the Host.Status answer.
 export const host: HostStatusResponse = create(HostStatusResponseSchema, {
-  host: "vermissian",
+  host: "halyard",
   stats: [
-    { label: "cpu", value: "34%", percent: 34, level: "ok" },
-    { label: "mem", value: "61%", percent: 61, level: "ok" },
-    { label: "load", value: "2.1", level: "" },
-    { label: "disk", value: "48%", percent: 48, level: "ok" },
+    { label: "cpu", value: "12%", percent: 12, level: "ok" },
+    { label: "ram", value: "14G", percent: 44, level: "ok" },
+    { label: "disk", value: "49%", percent: 49, level: "ok" },
+    { label: "net", value: "↓1M ↑298K", level: "ok" },
   ],
 });

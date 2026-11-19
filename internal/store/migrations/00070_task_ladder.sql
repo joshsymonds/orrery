@@ -37,11 +37,62 @@ CREATE TABLE epic_task_rung_outcomes (
     PRIMARY KEY (epic, task, rung)
 );
 
+-- Each write to a rung or a rung's outcome moves its epic's revision by one, in the same transaction, as
+-- 00069_epic_revisions.sql has every write to a table keyed by an epic do.
+
+-- +goose StatementBegin
+CREATE TRIGGER epic_task_rungs_revision_insert AFTER INSERT ON epic_task_rungs
+BEGIN
+    UPDATE epics SET revision = revision + 1 WHERE id = NEW.epic;
+END;
+-- +goose StatementEnd
+
+-- +goose StatementBegin
+CREATE TRIGGER epic_task_rungs_revision_update AFTER UPDATE ON epic_task_rungs
+BEGIN
+    UPDATE epics SET revision = revision + 1 WHERE id IN (OLD.epic, NEW.epic);
+END;
+-- +goose StatementEnd
+
+-- +goose StatementBegin
+CREATE TRIGGER epic_task_rungs_revision_delete AFTER DELETE ON epic_task_rungs
+BEGIN
+    UPDATE epics SET revision = revision + 1 WHERE id = OLD.epic;
+END;
+-- +goose StatementEnd
+
+-- +goose StatementBegin
+CREATE TRIGGER epic_task_rung_outcomes_revision_insert AFTER INSERT ON epic_task_rung_outcomes
+BEGIN
+    UPDATE epics SET revision = revision + 1 WHERE id = NEW.epic;
+END;
+-- +goose StatementEnd
+
+-- +goose StatementBegin
+CREATE TRIGGER epic_task_rung_outcomes_revision_update AFTER UPDATE ON epic_task_rung_outcomes
+BEGIN
+    UPDATE epics SET revision = revision + 1 WHERE id IN (OLD.epic, NEW.epic);
+END;
+-- +goose StatementEnd
+
+-- +goose StatementBegin
+CREATE TRIGGER epic_task_rung_outcomes_revision_delete AFTER DELETE ON epic_task_rung_outcomes
+BEGIN
+    UPDATE epics SET revision = revision + 1 WHERE id = OLD.epic;
+END;
+-- +goose StatementEnd
+
 -- deliverable holds a change_approach action's new deliverable, the whole deliverable its version sets, and is '' for
 -- every other kind of action.
 ALTER TABLE planner_actions ADD COLUMN deliverable TEXT NOT NULL DEFAULT '';
 
 -- +goose Down
 ALTER TABLE planner_actions DROP COLUMN deliverable;
+DROP TRIGGER epic_task_rung_outcomes_revision_delete;
+DROP TRIGGER epic_task_rung_outcomes_revision_update;
+DROP TRIGGER epic_task_rung_outcomes_revision_insert;
+DROP TRIGGER epic_task_rungs_revision_delete;
+DROP TRIGGER epic_task_rungs_revision_update;
+DROP TRIGGER epic_task_rungs_revision_insert;
 DROP TABLE epic_task_rung_outcomes;
 DROP TABLE epic_task_rungs;

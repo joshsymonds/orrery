@@ -27,7 +27,7 @@ const holderWedges = wedgesOf(holder);
 const holderArcs = requirementArcs(holderWedges, holder.requirements);
 
 export const Orrery: Stories = {
-  "in-flight": () => <orrery.Orrery wedges={rotaWedges} arcs={rotaArcs} now={now} />,
-  integrated: () => <orrery.Orrery wedges={holderWedges} arcs={holderArcs} now={now} />,
+  mine: () => <orrery.Orrery wedges={rotaWedges} arcs={rotaArcs} now={now} />,
+  done: () => <orrery.Orrery wedges={holderWedges} arcs={holderArcs} now={now} />,
   "opens-phase": () => <orrery.Orrery wedges={rotaWedges} arcs={rotaArcs} now={now} onOpenPhase={noop} />,
 };

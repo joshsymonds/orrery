@@ -88,6 +88,13 @@ func (f *urlFake) Interrupt(
 	return controlReply(f, req.Msg, &orreryv1.InterruptResponse{})
 }
 
+func (f *urlFake) Decline(
+	_ context.Context,
+	req *connect.Request[orreryv1.DeclineRequest],
+) (*connect.Response[orreryv1.DeclineResponse], error) {
+	return controlReply(f, req.Msg, &orreryv1.DeclineResponse{})
+}
+
 func (f *urlFake) Stop(
 	_ context.Context,
 	req *connect.Request[orreryv1.StopRequest],
@@ -114,6 +121,20 @@ func (f *urlFake) Resume(
 	req *connect.Request[orreryv1.ResumeRequest],
 ) (*connect.Response[orreryv1.ResumeResponse], error) {
 	return controlReply(f, req.Msg, &orreryv1.ResumeResponse{})
+}
+
+func (f *urlFake) NotNow(
+	_ context.Context,
+	req *connect.Request[orreryv1.NotNowRequest],
+) (*connect.Response[orreryv1.NotNowResponse], error) {
+	return controlReply(f, req.Msg, &orreryv1.NotNowResponse{})
+}
+
+func (f *urlFake) BringBack(
+	_ context.Context,
+	req *connect.Request[orreryv1.BringBackRequest],
+) (*connect.Response[orreryv1.BringBackResponse], error) {
+	return controlReply(f, req.Msg, &orreryv1.BringBackResponse{})
 }
 
 func (f *urlFake) List(

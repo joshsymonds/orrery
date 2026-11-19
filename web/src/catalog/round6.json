@@ -1,0 +1,899 @@
+{
+  "components": {
+    "Ask": [
+      "Answered",
+      "Epic",
+      "EpicSomethingElse",
+      "Error",
+      "Permission",
+      "Sending",
+      "Session",
+      "Settled",
+      "Stale",
+      "Unanswerable"
+    ],
+    "Button": [
+      "Danger",
+      "Default",
+      "Disabled",
+      "Focused",
+      "Hover",
+      "Pressed",
+      "Primary",
+      "Quiet",
+      "Stopper"
+    ],
+    "CheckBlock": [
+      "Bad",
+      "NoteOpen",
+      "Ok"
+    ],
+    "Chip": [
+      "Attention",
+      "Bad",
+      "Engine",
+      "Live",
+      "Neutral",
+      "Ok"
+    ],
+    "CommitMark": [
+      "Default"
+    ],
+    "CompactHead": [
+      "Asking",
+      "Quiet"
+    ],
+    "ConfirmButton": [
+      "Asking",
+      "Rest"
+    ],
+    "ContextBand": [
+      "Default"
+    ],
+    "ContextMeter": [
+      "Bare",
+      "Crit",
+      "Ok",
+      "Warn"
+    ],
+    "ContractBlock": [
+      "Accepted",
+      "Waiting"
+    ],
+    "ConvoRow": [
+      "FromShell",
+      "Plain",
+      "SteersEpic",
+      "SteersSeveral",
+      "WroteContract"
+    ],
+    "Ctl": [
+      "Disabled",
+      "IconOnly",
+      "Interrupt",
+      "Resume",
+      "SendNow"
+    ],
+    "Dir": [
+      "Folded",
+      "FoldedWaiting",
+      "Open",
+      "OtherHost"
+    ],
+    "Dock": [
+      "About",
+      "CutOff",
+      "Done",
+      "EventsWait",
+      "Failed",
+      "Focused",
+      "InterruptedByYou",
+      "Interrupting",
+      "PaneQueue",
+      "QueuedCancelled",
+      "SendError",
+      "Shell",
+      "StepConfirm",
+      "StepHeld",
+      "StepRunning",
+      "Stopped",
+      "Waiting",
+      "WithQueued",
+      "Working"
+    ],
+    "EngineFold": [
+      "BriefClosed",
+      "BriefOpen",
+      "EngineClosed"
+    ],
+    "EpicEventBlock": [
+      "Created",
+      "Ended",
+      "Parked",
+      "Question",
+      "Released"
+    ],
+    "EpicPin": [
+      "Asking",
+      "Quiet"
+    ],
+    "EpicRow": [
+      "Asking",
+      "Building",
+      "ContractProposed",
+      "EndedShort",
+      "Parked",
+      "Paused",
+      "Planning",
+      "ReleaseFailed",
+      "Releasing",
+      "Shipped"
+    ],
+    "EventBlock": [
+      "Default"
+    ],
+    "EvidenceRun": [
+      "GreenPasses",
+      "Judging",
+      "LogOpen",
+      "LogUnavailable",
+      "NoVerdict",
+      "RedHolds",
+      "RedMetAtBase"
+    ],
+    "Field": [
+      "Empty",
+      "Error",
+      "Filled",
+      "Focused"
+    ],
+    "FilterChip": [
+      "New",
+      "Off",
+      "On"
+    ],
+    "FindBar": [
+      "Matches",
+      "NoMatch"
+    ],
+    "Gauge": [
+      "AsksYou",
+      "Building",
+      "EndedShort",
+      "NoTasks",
+      "Paused",
+      "Releasing",
+      "Shipped"
+    ],
+    "HappeningList": [
+      "Default",
+      "WithTail"
+    ],
+    "IconButton": [
+      "Back",
+      "Close",
+      "More",
+      "Send",
+      "WithTip"
+    ],
+    "Icons": [
+      "All"
+    ],
+    "IdChip": [
+      "Kinds"
+    ],
+    "InboxRow": [
+      "Cursor",
+      "CutOff",
+      "Done",
+      "Failed",
+      "Hover",
+      "Idle",
+      "Open",
+      "OpenAndCursor",
+      "Stopped",
+      "Unseen",
+      "WaitingQuestion",
+      "Working"
+    ],
+    "InlineNote": [
+      "Error",
+      "Ok",
+      "Quiet"
+    ],
+    "Kbd": [
+      "Active",
+      "Attention",
+      "Default"
+    ],
+    "ListItem": [
+      "Default"
+    ],
+    "ListPanel": [
+      "Agents",
+      "Running"
+    ],
+    "Menu": [
+      "Open"
+    ],
+    "Meter": [
+      "Crit",
+      "Series1",
+      "Series2",
+      "Series3",
+      "Series4NoBar",
+      "Stacked",
+      "Warn"
+    ],
+    "MeterStrip": [
+      "HostAndContext",
+      "HostOnly",
+      "OtherHost",
+      "UnderLoad"
+    ],
+    "Notice": [
+      "AsksYou",
+      "EpicAsks",
+      "Failed",
+      "InTheCentre",
+      "Shipped"
+    ],
+    "NoticeCentre": [
+      "Days",
+      "Empty"
+    ],
+    "NoticeLine": [
+      "Default",
+      "Error"
+    ],
+    "Orrery": [
+      "Dense",
+      "Done",
+      "Mine",
+      "Running"
+    ],
+    "PhaseRow": [
+      "Ahead",
+      "Now",
+      "NowOpen",
+      "Passed"
+    ],
+    "Pill": [
+      "Attention",
+      "Engine",
+      "Live",
+      "Neutral",
+      "Ok",
+      "WithGlyph"
+    ],
+    "Pips": [
+      "Accepted",
+      "Done",
+      "Failed",
+      "Held",
+      "Limited",
+      "NotStarted",
+      "Running"
+    ],
+    "QuickKeys": [
+      "Default",
+      "Flash",
+      "NotSent"
+    ],
+    "ReleaseTable": [
+      "Failed",
+      "Running"
+    ],
+    "Reply": [
+      "Default",
+      "Live"
+    ],
+    "RequirementTable": [
+      "Default",
+      "WithRuns"
+    ],
+    "Rule": [
+      "Compaction",
+      "CompactionOpen",
+      "Day",
+      "Interrupted",
+      "New"
+    ],
+    "SectionHead": [
+      "Attention",
+      "Plain",
+      "WithRest"
+    ],
+    "Sheet": [
+      "Confirm",
+      "Menu"
+    ],
+    "StateGlyph": [
+      "Done",
+      "Failed",
+      "Held",
+      "Idle",
+      "Interrupted",
+      "Interrupting",
+      "Limited",
+      "Stopped",
+      "Waiting",
+      "Working"
+    ],
+    "StepEndBlock": [
+      "Failed",
+      "Ok",
+      "Stopped"
+    ],
+    "SubjectBand": [
+      "Asks",
+      "Contract",
+      "Goal",
+      "OpenOnRight"
+    ],
+    "Switch": [
+      "Off",
+      "On"
+    ],
+    "TaskLine": [
+      "Failed",
+      "Finished",
+      "Stopped"
+    ],
+    "TaskTable": [
+      "Default"
+    ],
+    "ThinkingLine": [
+      "Closed",
+      "Open"
+    ],
+    "Tile": [
+      "Current",
+      "EpicAsks",
+      "LeftRunning",
+      "Lit",
+      "Mark",
+      "New",
+      "Project",
+      "ProjectNew",
+      "ProjectWaiting",
+      "SubAgents"
+    ],
+    "Tip": [
+      "Default"
+    ],
+    "TitleRow": [
+      "Conversation",
+      "Epic",
+      "InboxHidden",
+      "Subpage",
+      "WithError"
+    ],
+    "Toast": [
+      "WithUndo"
+    ],
+    "ToolLine": [
+      "Done",
+      "Failed",
+      "Open",
+      "OpenFailed",
+      "Running"
+    ],
+    "ToolRun": [
+      "Closed",
+      "Open",
+      "Running"
+    ],
+    "Track": [
+      "AsksYou",
+      "Building",
+      "Released",
+      "Reviewing"
+    ],
+    "WorkCard": [
+      "ContractWaiting",
+      "EpicAsks",
+      "EpicBuilding"
+    ],
+    "WorkRail": [
+      "Groups",
+      "Many"
+    ],
+    "YouBlock": [
+      "Default",
+      "FromPhone",
+      "Sending"
+    ]
+  },
+  "scenarios": {
+    "android-first-run": [
+      "phone"
+    ],
+    "android-key-not-sent": [
+      "phone"
+    ],
+    "android-keyboard": [
+      "phone"
+    ],
+    "android-notification-result": [
+      "phone"
+    ],
+    "android-notifications": [
+      "phone"
+    ],
+    "android-pools": [
+      "phone"
+    ],
+    "android-pools-empty": [
+      "phone"
+    ],
+    "android-quick-keys": [
+      "phone"
+    ],
+    "android-settings": [
+      "phone"
+    ],
+    "android-settings-error": [
+      "phone"
+    ],
+    "android-toast": [
+      "phone"
+    ],
+    "ask-answered": [
+      "desk",
+      "phone"
+    ],
+    "ask-decline": [
+      "desk",
+      "phone"
+    ],
+    "ask-error": [
+      "desk",
+      "phone"
+    ],
+    "ask-later": [
+      "desk",
+      "phone"
+    ],
+    "ask-many": [
+      "desk",
+      "phone"
+    ],
+    "ask-permission": [
+      "desk",
+      "phone"
+    ],
+    "ask-sending": [
+      "desk",
+      "phone"
+    ],
+    "ask-session": [
+      "desk",
+      "phone"
+    ],
+    "ask-stale": [
+      "desk",
+      "phone"
+    ],
+    "ask-unanswerable": [
+      "desk",
+      "phone"
+    ],
+    "contract-accepted": [
+      "desk",
+      "phone"
+    ],
+    "contract-ready": [
+      "desk",
+      "phone"
+    ],
+    "contract-set-aside": [
+      "desk",
+      "phone"
+    ],
+    "contract-talk": [
+      "desk",
+      "phone"
+    ],
+    "contract-to-accept": [
+      "desk",
+      "phone"
+    ],
+    "contract-versions": [
+      "desk",
+      "phone"
+    ],
+    "convo-blocks": [
+      "desk",
+      "phone"
+    ],
+    "convo-command-error": [
+      "desk",
+      "phone"
+    ],
+    "convo-contract": [
+      "desk",
+      "phone"
+    ],
+    "convo-empty": [
+      "desk",
+      "phone"
+    ],
+    "convo-epic": [
+      "desk",
+      "phone"
+    ],
+    "convo-find": [
+      "desk",
+      "phone"
+    ],
+    "convo-handed-over": [
+      "desk",
+      "phone"
+    ],
+    "convo-hot": [
+      "desk",
+      "phone"
+    ],
+    "convo-lines": [
+      "desk",
+      "phone"
+    ],
+    "convo-loading": [
+      "desk",
+      "phone"
+    ],
+    "convo-many-epics": [
+      "desk",
+      "phone"
+    ],
+    "convo-markdown": [
+      "desk",
+      "phone"
+    ],
+    "convo-notices": [
+      "desk",
+      "phone"
+    ],
+    "convo-other-host": [
+      "desk",
+      "phone"
+    ],
+    "convo-shell": [
+      "desk",
+      "phone"
+    ],
+    "convo-took-over": [
+      "desk",
+      "phone"
+    ],
+    "convo-working": [
+      "desk",
+      "phone"
+    ],
+    "dock-background": [
+      "desk",
+      "phone"
+    ],
+    "dock-cancelled": [
+      "desk",
+      "phone"
+    ],
+    "dock-cut-off": [
+      "desk",
+      "phone"
+    ],
+    "dock-draft": [
+      "desk",
+      "phone"
+    ],
+    "dock-failed": [
+      "desk",
+      "phone"
+    ],
+    "dock-full": [
+      "desk",
+      "phone"
+    ],
+    "dock-idle": [
+      "desk",
+      "phone"
+    ],
+    "dock-interrupt-queue": [
+      "desk",
+      "phone"
+    ],
+    "dock-interrupted": [
+      "desk",
+      "phone"
+    ],
+    "dock-interrupting": [
+      "desk",
+      "phone"
+    ],
+    "dock-pane-queue": [
+      "desk",
+      "phone"
+    ],
+    "dock-queued": [
+      "desk",
+      "phone"
+    ],
+    "dock-running": [
+      "desk",
+      "phone"
+    ],
+    "dock-send-error": [
+      "desk",
+      "phone"
+    ],
+    "dock-send-unknown": [
+      "desk",
+      "phone"
+    ],
+    "dock-stopped": [
+      "desk",
+      "phone"
+    ],
+    "dock-waiting": [
+      "desk",
+      "phone"
+    ],
+    "epic-building": [
+      "desk",
+      "phone"
+    ],
+    "epic-command-error": [
+      "desk",
+      "phone"
+    ],
+    "epic-convo-ended": [
+      "desk",
+      "phone"
+    ],
+    "epic-dense": [
+      "desk",
+      "phone"
+    ],
+    "epic-ended-gaps": [
+      "desk",
+      "phone"
+    ],
+    "epic-evidence": [
+      "desk",
+      "phone"
+    ],
+    "epic-handover": [
+      "desk",
+      "phone"
+    ],
+    "epic-limited": [
+      "desk",
+      "phone"
+    ],
+    "epic-loading": [
+      "desk",
+      "phone"
+    ],
+    "epic-moved": [
+      "desk",
+      "phone"
+    ],
+    "epic-parked": [
+      "desk",
+      "phone"
+    ],
+    "epic-paused": [
+      "desk",
+      "phone"
+    ],
+    "epic-planner-parked": [
+      "desk",
+      "phone"
+    ],
+    "epic-planning": [
+      "desk",
+      "phone"
+    ],
+    "epic-problem": [
+      "desk",
+      "phone"
+    ],
+    "epic-question": [
+      "desk",
+      "phone"
+    ],
+    "epic-question-other": [
+      "desk",
+      "phone"
+    ],
+    "epic-release-failed": [
+      "desk",
+      "phone"
+    ],
+    "epic-releasing": [
+      "desk",
+      "phone"
+    ],
+    "epic-reviewing": [
+      "desk",
+      "phone"
+    ],
+    "epic-shipped": [
+      "desk",
+      "phone"
+    ],
+    "epic-slot": [
+      "desk",
+      "phone"
+    ],
+    "epic-stop-confirm": [
+      "desk",
+      "phone"
+    ],
+    "epic-talk": [
+      "desk",
+      "phone"
+    ],
+    "epic-unavailable": [
+      "desk",
+      "phone"
+    ],
+    "inbox-archived": [
+      "desk",
+      "phone"
+    ],
+    "inbox-empty": [
+      "desk",
+      "phone"
+    ],
+    "inbox-error": [
+      "desk",
+      "phone"
+    ],
+    "inbox-flyout": [
+      "desk"
+    ],
+    "inbox-folded": [
+      "desk",
+      "phone"
+    ],
+    "inbox-home": [
+      "desk",
+      "phone"
+    ],
+    "inbox-loading": [
+      "desk",
+      "phone"
+    ],
+    "inbox-narrow": [
+      "desk"
+    ],
+    "inbox-new": [
+      "desk",
+      "phone"
+    ],
+    "inbox-rail": [
+      "desk"
+    ],
+    "inbox-row-menu": [
+      "desk",
+      "phone"
+    ],
+    "inbox-search": [
+      "desk",
+      "phone"
+    ],
+    "inbox-search-none": [
+      "desk",
+      "phone"
+    ],
+    "inbox-waiting": [
+      "desk",
+      "phone"
+    ],
+    "keys": [
+      "desk"
+    ],
+    "more-menu": [
+      "desk",
+      "phone"
+    ],
+    "new-empty": [
+      "desk",
+      "phone"
+    ],
+    "new-error": [
+      "desk",
+      "phone"
+    ],
+    "new-form": [
+      "desk",
+      "phone"
+    ],
+    "new-none": [
+      "desk",
+      "phone"
+    ],
+    "new-results": [
+      "desk",
+      "phone"
+    ],
+    "new-working": [
+      "desk",
+      "phone"
+    ],
+    "notices-centre": [
+      "desk"
+    ],
+    "notices-none": [
+      "desk"
+    ],
+    "notices-page": [
+      "phone"
+    ],
+    "phase-green": [
+      "desk",
+      "phone"
+    ],
+    "phase-implement": [
+      "desk",
+      "phone"
+    ],
+    "phase-integrate": [
+      "desk",
+      "phone"
+    ],
+    "phase-red": [
+      "desk",
+      "phone"
+    ],
+    "phase-refused": [
+      "desk",
+      "phone"
+    ],
+    "phase-review": [
+      "desk",
+      "phone"
+    ],
+    "phone-head-hidden": [
+      "phone"
+    ],
+    "phone-head-scrolled": [
+      "phone"
+    ],
+    "project": [
+      "desk",
+      "phone"
+    ],
+    "work-empty": [
+      "desk"
+    ],
+    "work-rail": [
+      "desk"
+    ],
+    "work-rail-group": [
+      "desk"
+    ],
+    "worker-ended": [
+      "desk",
+      "phone"
+    ],
+    "worker-held": [
+      "desk",
+      "phone"
+    ],
+    "worker-note": [
+      "desk",
+      "phone"
+    ],
+    "worker-running": [
+      "desk",
+      "phone"
+    ],
+    "worker-stop-confirm": [
+      "desk",
+      "phone"
+    ]
+  }
+}

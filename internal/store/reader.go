@@ -16,7 +16,9 @@ import (
 // ErrUnavailable reports a store the reader cannot read right now: the file is missing or the database is busy.
 var ErrUnavailable = errors.New("store unavailable")
 
-// readBusyTimeoutMillis matches the writer's busy timeout, so a reader waits as long as a writer does.
+// readBusyTimeoutMillis is how long a reader waits for a lock. In WAL mode a read never waits for the write lock, the
+// one Litestream's checkpoints take, so a reader is busy only while a connection holds the file exclusively. A reader
+// serves the orrery CLI, which reports the store unavailable at once rather than waiting out a writer's BusyTimeout.
 const readBusyTimeoutMillis = 200
 
 // primaryCodeMask strips the extended bits from a SQLite result code, leaving the primary code.
@@ -136,6 +138,21 @@ func readInTx(ctx context.Context, tx *sql.Tx, reach func(readPoint)) (Snapshot,
 	return Snapshot{Sessions: sessions, Seq: seq}, nil
 }
 
+// Busy reports whether err is a SQLite busy or locked result: a store call that waited out its busy timeout for a lock
+// another connection held. Nothing about the call was wrong, so the same call can succeed once the lock is free.
+func Busy(err error) bool {
+	var sqliteErr *sqlite.Error
+	if !errors.As(err, &sqliteErr) {
+		return false
+	}
+	switch sqliteErr.Code() & primaryCodeMask {
+	case sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED:
+		return true
+	default:
+		return false
+	}
+}
+
 // unavailable reports whether err is a SQLite busy, locked or cannot-open result, which is how a busy database
 // or a missing file appears, or an fstat failure, which is how a file removed while it is open appears. Only the
 // fstat extended code counts: other I/O errors share the primary IOERR code and stay internal.
@@ -144,13 +161,6 @@ func unavailable(err error) bool {
 	if !errors.As(err, &sqliteErr) {
 		return false
 	}
-	if sqliteErr.Code() == sqlite3.SQLITE_IOERR_FSTAT {
-		return true
-	}
-	switch sqliteErr.Code() & primaryCodeMask {
-	case sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED, sqlite3.SQLITE_CANTOPEN:
-		return true
-	default:
-		return false
-	}
+	return Busy(err) || sqliteErr.Code() == sqlite3.SQLITE_IOERR_FSTAT ||
+		sqliteErr.Code()&primaryCodeMask == sqlite3.SQLITE_CANTOPEN
 }

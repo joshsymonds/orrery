@@ -127,13 +127,17 @@ func readEpicFlow(ctx context.Context, queries *sqlcgen.Queries, id string) (Epi
 }
 
 // readEvidenceRuns returns the evidence runs of epic as queries read them, ordered by created, then id, each with its
-// artifacts.
+// artifacts. It issues two queries, one for the runs and one for the artifacts of all of them.
 func readEvidenceRuns(ctx context.Context, queries *sqlcgen.Queries, epic string) ([]EvidenceRun, error) {
 	stored, err := queries.ListEvidenceRuns(ctx, epic)
 	if err != nil {
 		return nil, fmt.Errorf("list evidence runs of epic %s: %w", epic, err)
 	}
-	return evidenceRunsOf(ctx, queries, stored)
+	artifacts, err := queries.ListEpicEvidenceArtifacts(ctx, epic)
+	if err != nil {
+		return nil, fmt.Errorf("list evidence artifacts of epic %s: %w", epic, err)
+	}
+	return evidenceRunsOf(stored, artifacts)
 }
 
 // currentRuns returns the runs of epic whose kept spec is current with the item now stored under their Item, in the
@@ -199,22 +203,32 @@ func workParts(kind string, releaseSteps int) []string {
 }
 
 // readLabeledSteps returns, in the order of runs, the steps labeled with epic and the path of each review, closure or
-// release node run, in the order ListLabelledSteps reads them. Node run paths are unique to an epic, so each step is
-// read once. A release run's release steps and judge carry no path label, so only its release integrator's steps are
-// read here.
+// release node run, each run's steps ordered by start time then id. They are read in one search of the steps by their
+// labels, and none is read when runs has no such run. Node run paths are unique to an epic, so each step is read once.
+// A release run's release steps and judge carry no path label, so only its release integrator's steps are read here.
 func readLabeledSteps(ctx context.Context, queries *sqlcgen.Queries, epic string, runs []NodeRun) ([]StepRow, error) {
-	var steps []StepRow
+	var paths []string
 	for _, run := range runs {
-		if run.Kind != flowReviewKind && run.Kind != flowClosureKind && run.Kind != releaseKind {
-			continue
+		if run.Kind == flowReviewKind || run.Kind == flowClosureKind || run.Kind == releaseKind {
+			paths = append(paths, run.Path)
 		}
-		rows, err := queries.ListLabelledSteps(ctx, sqlcgen.ListLabelledStepsParams{Epic: epic, Task: run.Path})
-		if err != nil {
-			return nil, fmt.Errorf("list steps of run %s of epic %s: %w", run.Path, epic, err)
-		}
-		labeled, err := toStepRows(rows)
-		if err != nil {
-			return nil, err
+	}
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	rows, err := queries.ListEpicTaskSteps(ctx, sqlcgen.ListEpicTaskStepsParams{Epic: epic, Tasks: paths})
+	if err != nil {
+		return nil, fmt.Errorf("list steps of the review, closure and release runs of epic %s: %w", epic, err)
+	}
+	byPath := make(map[string][]sqlcgen.Step, len(paths))
+	for _, row := range rows {
+		byPath[row.Task] = append(byPath[row.Task], row)
+	}
+	var steps []StepRow
+	for _, path := range paths {
+		labeled, convErr := toStepRows(byPath[path])
+		if convErr != nil {
+			return nil, convErr
 		}
 		steps = append(steps, labeled...)
 	}

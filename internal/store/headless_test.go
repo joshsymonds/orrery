@@ -86,12 +86,12 @@ func TestHeadlessSessionsListsRecentEngineRowsWithNewestReply(t *testing.T) {
 	want := []HeadlessRow{
 		{
 			ID: "e-neither", Dir: "/n", State: "idle", Changed: strconv.FormatInt(t0, 10),
-			Reply: "", NewestReply: 0,
+			Reply: "", NewestReply: 0, RequestID: "",
 		},
 		{
 			ID: "e-recent", Dir: "/a", State: "waiting", Changed: strconv.FormatInt(t0, 10),
 			Seen: "1699999000", Question: "ask?",
-			Reply: "newest reply", NewestReply: t0 - 50,
+			Reply: "newest reply", NewestReply: t0 - 50, RequestID: "r1",
 		},
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -156,12 +156,12 @@ func TestHeadlessSessionsIgnoresUserTextBlocks(t *testing.T) {
 	want := []HeadlessRow{
 		{
 			ID: "e-neither", Dir: "/n", State: "idle", Changed: strconv.FormatInt(t0, 10),
-			Reply: "", NewestReply: 0,
+			Reply: "", NewestReply: 0, RequestID: "",
 		},
 		{
 			ID: "e-recent", Dir: "/a", State: "waiting", Changed: strconv.FormatInt(t0, 10),
 			Seen: "1699999000", Question: "ask?",
-			Reply: "newest reply", NewestReply: t0 - 50,
+			Reply: "newest reply", NewestReply: t0 - 50, RequestID: "r1",
 		},
 	}
 	if !reflect.DeepEqual(got, want) {
