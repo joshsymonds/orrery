@@ -41,7 +41,7 @@ func TestReaderQueryPlans(t *testing.T) {
 		"ArchivedRows":       {"ListArchivedRows"},
 		"PutOffQuestions":    {"ListPutOffQuestions"},
 		"PendingCallerEvents": {
-			"ListPendingCallerSteps", "ListCreatedEpics", "ListOpenEpicQuestions", "CountCallerEvent",
+			"ListPendingCallerSteps", "ListSteeredEpics", "ListOpenEpicQuestions", "CountCallerEvent",
 		},
 	}
 	checkReaderMethodsListed(t, readerQueries)

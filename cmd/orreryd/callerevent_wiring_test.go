@@ -26,12 +26,12 @@ const (
 // TestCallerEventPassesRunInSessionsHost checks that a --sessions orreryd runs the step caller-event pass and the epic
 // caller-event pass over its store on its start, and on each wake of its caller-event delivery. The synthetic step has
 // ended under a caller whose sessions row is of kind step. The synthetic epic parks for want of a role file, under a
-// creator whose epic_create was recorded by a step-kind session. A step caller receives nothing, so each pass shows its
-// work as the event's mark for its caller. The host then stops without error.
+// steerer of kind step, which also created the epic. A step caller receives nothing, so each pass shows its work as the
+// event's mark for its caller. The host then stops without error.
 func TestCallerEventPassesRunInSessionsHost(t *testing.T) {
 	ctx := t.Context()
 	st, getenv := openCallerWiringStore(t)
-	createAttentionEpic(t, st)
+	createAttentionEpic(t, st, callerEventCreator)
 	seedCallerEvents(t, st)
 
 	passed := make(chan struct{}, 16)
@@ -109,12 +109,12 @@ func TestStepEndPushWiringNoTicker(t *testing.T) {
 
 // TestEpicEventPushWiringNoTicker checks that a --sessions orreryd delivers a seeded epic event from its start pass, and
 // that the store write which stores an epic event wakes the round that delivers it. The synthetic epic is ended as done
-// before the start, and paused so the planner takes no action for it. It is released after the start, under a creator
+// before the start, and paused so the planner takes no action for it. It is released after the start, under a steerer
 // of kind step, which receives nothing and is marked. The pass-count seam shows that no pass runs between the start
 // round and the release write, which is the proof that no tick runs them, and options has no tick seam.
 func TestEpicEventPushWiringNoTicker(t *testing.T) {
 	st, getenv := openCallerWiringStore(t)
-	createAttentionEpic(t, st)
+	createAttentionEpic(t, st, callerEventCreator)
 	addStepSession(t, st, callerEventCreator)
 	recordCallerCreator(t, st, attentionWiringEpic)
 	if err := st.PauseEpic(t.Context(), attentionWiringEpic); err != nil {
@@ -227,8 +227,9 @@ func markedIn(t *testing.T, st *store.Store, event, session string) bool {
 	return marked
 }
 
-// seedCallerEvents stores the synthetic step, which has ended under the step-kind session callerEventCaller, and records
-// callerEventCreator, another step-kind session, as the creator of the synthetic epic.
+// seedCallerEvents stores the synthetic step, which has ended under the step-kind session callerEventCaller, and
+// records callerEventCreator, another step-kind session, as the creator of the synthetic epic. callerEventCreator also
+// steers the epic, as createAttentionEpic set it.
 func seedCallerEvents(t *testing.T, st *store.Store) {
 	t.Helper()
 	addStepSession(t, st, callerEventCaller)

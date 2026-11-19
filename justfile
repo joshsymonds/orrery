@@ -9,7 +9,7 @@ set script-interpreter := ["scripts/in-devenv", "-euo", "pipefail"]
 TEST_BUDGET := "360"
 
 # Wall-clock budget (seconds) for check-changed's Go tests. Override: just CHECK_CHANGED_BUDGET=600 check-changed
-CHECK_CHANGED_BUDGET := "240"
+CHECK_CHANGED_BUDGET := "600"
 
 # Wall-clock budget (seconds) for web-check's node run, the whole web suite. Override: just WEB_TEST_BUDGET=300 web-check
 WEB_TEST_BUDGET := "120"

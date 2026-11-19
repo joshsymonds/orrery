@@ -134,16 +134,15 @@ func (s *Store) CallerMaker(ctx context.Context, caller EpicCaller) (Maker, erro
 	return Maker{By: MakerConversation, Session: row.ID}, nil
 }
 
-// EpicCreator returns the sessions row of the session marked the creator of epic, and true. It returns false, and no
-// error, when no row of epic is marked creator or when the marked session's row is gone. When more than one row is
-// marked, it returns the one of the newest call.
-func (s *Store) EpicCreator(ctx context.Context, epic string) (CallerSession, bool, error) {
-	row, err := sqlcgen.New(s.db).GetEpicCreator(ctx, epic)
+// EpicSteerer returns the sessions row of the session that steers epic, and true. It returns false, and no error, when
+// epic has no steerer or when the steerer's sessions row is gone.
+func (s *Store) EpicSteerer(ctx context.Context, epic string) (CallerSession, bool, error) {
+	row, err := sqlcgen.New(s.db).GetEpicSteerer(ctx, epic)
 	if errors.Is(err, sql.ErrNoRows) {
 		return CallerSession{}, false, nil
 	}
 	if err != nil {
-		return CallerSession{}, false, fmt.Errorf("read creator of epic %s: %w", epic, err)
+		return CallerSession{}, false, fmt.Errorf("read steerer of epic %s: %w", epic, err)
 	}
 	return CallerSession{ID: row.ID, Kind: row.Kind, Server: row.Server, Pane: row.Pane, State: row.State}, true, nil
 }

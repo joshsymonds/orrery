@@ -1295,24 +1295,11 @@ INSERT INTO epic_sessions (epic, session, call, at, creator) VALUES (?, ?, ?, ?,
 ON CONFLICT (epic, session) DO UPDATE SET call = excluded.call, at = excluded.at,
     creator = MAX(epic_sessions.creator, excluded.creator);
 
--- name: GetEpicCreator :one
-SELECT sessions.id, sessions.kind, sessions.server, sessions.pane, sessions.state
-FROM epic_sessions
-JOIN sessions ON sessions.id = epic_sessions.session
-WHERE epic_sessions.epic = ? AND epic_sessions.creator = 1
-ORDER BY epic_sessions.at DESC, epic_sessions.session
-LIMIT 1;
+-- name: GetEpicSteerer :one
+SELECT sessions.id, sessions.kind, sessions.server, sessions.pane, sessions.state FROM epics JOIN sessions ON sessions.id = epics.steerer WHERE epics.id = ?;
 
--- name: ListCreatedEpics :many
-SELECT * FROM epics
-WHERE (
-    SELECT epic_sessions.session FROM epic_sessions
-    JOIN sessions ON sessions.id = epic_sessions.session
-    WHERE epic_sessions.epic = epics.id AND epic_sessions.creator = 1
-    ORDER BY epic_sessions.at DESC, epic_sessions.session
-    LIMIT 1
-) = CAST(sqlc.arg(session) AS TEXT)
-ORDER BY epics.id;
+-- name: ListSteeredEpics :many
+SELECT * FROM epics WHERE epics.steerer != '' AND epics.steerer = CAST(sqlc.arg(session) AS TEXT) ORDER BY epics.id;
 
 -- name: ListEpicSessions :many
 SELECT sessions.id AS session, sessions.kind, sessions.server, sessions.pane, sessions.label, sessions.dir,

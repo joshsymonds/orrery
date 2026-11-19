@@ -36,6 +36,7 @@ func addCardEvents(t *testing.T, s *store.Store) {
 	at := time.Unix(eventAt, 0)
 	epic := store.EpicRow{
 		ID: cardEpic, Repository: "/work/card", Title: "Card epic", Phase: "released", Created: at, Changed: at,
+		Steerer: eventEngine,
 	}
 	if err := s.CreateEpic(t.Context(), epic); err != nil {
 		t.Fatalf("CreateEpic: %v", err)

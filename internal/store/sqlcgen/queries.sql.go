@@ -1239,36 +1239,6 @@ func (q *Queries) GetEpicAmendment(ctx context.Context, arg GetEpicAmendmentPara
 	return i, err
 }
 
-const getEpicCreator = `-- name: GetEpicCreator :one
-SELECT sessions.id, sessions.kind, sessions.server, sessions.pane, sessions.state
-FROM epic_sessions
-JOIN sessions ON sessions.id = epic_sessions.session
-WHERE epic_sessions.epic = ? AND epic_sessions.creator = 1
-ORDER BY epic_sessions.at DESC, epic_sessions.session
-LIMIT 1
-`
-
-type GetEpicCreatorRow struct {
-	ID     string
-	Kind   string
-	Server string
-	Pane   string
-	State  string
-}
-
-func (q *Queries) GetEpicCreator(ctx context.Context, epic string) (GetEpicCreatorRow, error) {
-	row := q.db.QueryRowContext(ctx, getEpicCreator, epic)
-	var i GetEpicCreatorRow
-	err := row.Scan(
-		&i.ID,
-		&i.Kind,
-		&i.Server,
-		&i.Pane,
-		&i.State,
-	)
-	return i, err
-}
-
 const getEpicDecisionByClientID = `-- name: GetEpicDecisionByClientID :one
 SELECT epic, seq, client_id, text, time, question, maker, maker_session FROM epic_decisions WHERE epic = ? AND client_id = ?
 `
@@ -1470,6 +1440,31 @@ func (q *Queries) GetEpicSeen(ctx context.Context, epic string) (int64, error) {
 	var at int64
 	err := row.Scan(&at)
 	return at, err
+}
+
+const getEpicSteerer = `-- name: GetEpicSteerer :one
+SELECT sessions.id, sessions.kind, sessions.server, sessions.pane, sessions.state FROM epics JOIN sessions ON sessions.id = epics.steerer WHERE epics.id = ?
+`
+
+type GetEpicSteererRow struct {
+	ID     string
+	Kind   string
+	Server string
+	Pane   string
+	State  string
+}
+
+func (q *Queries) GetEpicSteerer(ctx context.Context, id string) (GetEpicSteererRow, error) {
+	row := q.db.QueryRowContext(ctx, getEpicSteerer, id)
+	var i GetEpicSteererRow
+	err := row.Scan(
+		&i.ID,
+		&i.Kind,
+		&i.Server,
+		&i.Pane,
+		&i.State,
+	)
+	return i, err
 }
 
 const getEpicTask = `-- name: GetEpicTask :one
@@ -3931,80 +3926,6 @@ func (q *Queries) ListCallerSteps(ctx context.Context) ([]ListCallerStepsRow, er
 			&i.CallerServer,
 			&i.CallerPane,
 			&i.CallerState,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listCreatedEpics = `-- name: ListCreatedEpics :many
-SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source, stored_base, candidate, summary, phase_at, report_phase, report_shipped, report_not_shipped, report_why, closed_by, superseded_by, park_class, synced, origin_read_base, origin_read_commit, origin_read_state, origin_read_at, steerer FROM epics
-WHERE (
-    SELECT epic_sessions.session FROM epic_sessions
-    JOIN sessions ON sessions.id = epic_sessions.session
-    WHERE epic_sessions.epic = epics.id AND epic_sessions.creator = 1
-    ORDER BY epic_sessions.at DESC, epic_sessions.session
-    LIMIT 1
-) = CAST(?1 AS TEXT)
-ORDER BY epics.id
-`
-
-func (q *Queries) ListCreatedEpics(ctx context.Context, session string) ([]Epic, error) {
-	rows, err := q.db.QueryContext(ctx, listCreatedEpics, session)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []Epic
-	for rows.Next() {
-		var i Epic
-		if err := rows.Scan(
-			&i.ID,
-			&i.Repository,
-			&i.Title,
-			&i.Approved,
-			&i.Intent,
-			&i.Care,
-			&i.Approach,
-			&i.ReleaseThen,
-			&i.Checks,
-			&i.Phase,
-			&i.Created,
-			&i.Changed,
-			&i.Paused,
-			&i.Parked,
-			&i.Retried,
-			&i.Base,
-			&i.Branch,
-			&i.Workflow,
-			&i.WorkflowText,
-			&i.WorkflowSha256,
-			&i.PauseSource,
-			&i.StoredBase,
-			&i.Candidate,
-			&i.Summary,
-			&i.PhaseAt,
-			&i.ReportPhase,
-			&i.ReportShipped,
-			&i.ReportNotShipped,
-			&i.ReportWhy,
-			&i.ClosedBy,
-			&i.SupersededBy,
-			&i.ParkClass,
-			&i.Synced,
-			&i.OriginReadBase,
-			&i.OriginReadCommit,
-			&i.OriginReadState,
-			&i.OriginReadAt,
-			&i.Steerer,
 		); err != nil {
 			return nil, err
 		}
@@ -8339,6 +8260,72 @@ func (q *Queries) ListSessions(ctx context.Context) ([]Session, error) {
 			&i.Title,
 			&i.Headline,
 			&i.HeadlineAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSteeredEpics = `-- name: ListSteeredEpics :many
+SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source, stored_base, candidate, summary, phase_at, report_phase, report_shipped, report_not_shipped, report_why, closed_by, superseded_by, park_class, synced, origin_read_base, origin_read_commit, origin_read_state, origin_read_at, steerer FROM epics WHERE epics.steerer != '' AND epics.steerer = CAST(?1 AS TEXT) ORDER BY epics.id
+`
+
+func (q *Queries) ListSteeredEpics(ctx context.Context, session string) ([]Epic, error) {
+	rows, err := q.db.QueryContext(ctx, listSteeredEpics, session)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Epic
+	for rows.Next() {
+		var i Epic
+		if err := rows.Scan(
+			&i.ID,
+			&i.Repository,
+			&i.Title,
+			&i.Approved,
+			&i.Intent,
+			&i.Care,
+			&i.Approach,
+			&i.ReleaseThen,
+			&i.Checks,
+			&i.Phase,
+			&i.Created,
+			&i.Changed,
+			&i.Paused,
+			&i.Parked,
+			&i.Retried,
+			&i.Base,
+			&i.Branch,
+			&i.Workflow,
+			&i.WorkflowText,
+			&i.WorkflowSha256,
+			&i.PauseSource,
+			&i.StoredBase,
+			&i.Candidate,
+			&i.Summary,
+			&i.PhaseAt,
+			&i.ReportPhase,
+			&i.ReportShipped,
+			&i.ReportNotShipped,
+			&i.ReportWhy,
+			&i.ClosedBy,
+			&i.SupersededBy,
+			&i.ParkClass,
+			&i.Synced,
+			&i.OriginReadBase,
+			&i.OriginReadCommit,
+			&i.OriginReadState,
+			&i.OriginReadAt,
+			&i.Steerer,
 		); err != nil {
 			return nil, err
 		}

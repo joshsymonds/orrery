@@ -10,11 +10,11 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// EpicCallerStore is the store an EpicCallerEvents reads the epics, their creators and the marks of their events
+// EpicCallerStore is the store an EpicCallerEvents reads the epics, their steerers and the marks of their events
 // through. *store.Store satisfies it.
 type EpicCallerStore interface {
 	Attention(ctx context.Context) ([]store.EpicAttention, error)
-	EpicCreator(ctx context.Context, epic string) (store.CallerSession, bool, error)
+	EpicSteerer(ctx context.Context, epic string) (store.CallerSession, bool, error)
 	CallerEventMarked(ctx context.Context, event, session string) (bool, error)
 }
 
@@ -25,7 +25,7 @@ type EpicCallerEventsConfig struct {
 	Sender *enginehost.CallerSender
 }
 
-// EpicCallerEvents tells the session that created each epic, once, when the epic parks, asks a question, releases or
+// EpicCallerEvents tells the session that steers each epic, once, when the epic parks, asks a question, releases or
 // ends.
 type EpicCallerEvents struct {
 	store  EpicCallerStore
@@ -37,7 +37,7 @@ func NewEpicCallerEvents(cfg EpicCallerEventsConfig) *EpicCallerEvents {
 	return &EpicCallerEvents{store: cfg.Store, sender: cfg.Sender}
 }
 
-// Pass sends the events of each epic that Store.Attention lists to its creator. An epic with no creator sends nothing.
+// Pass sends the events of each epic that Store.Attention lists to its steerer. An epic with no steerer sends nothing.
 // It returns the read error of the epics, or else the errors of the reads and sends that failed, joined. A failure does
 // not stop the pass: it goes on to the next event.
 func (e *EpicCallerEvents) Pass(ctx context.Context) error {
@@ -52,12 +52,13 @@ func (e *EpicCallerEvents) Pass(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-// attend sends the events of one epic to its creator: each open question in seq order, then the end of its phase. It
-// returns the errors of the creator read and of the sends, joined.
+// attend sends the events of one epic to its steerer: each open question in seq order, then the end of its phase. It
+// returns the errors of the steerer read and of the sends, joined. An epic whose steerer has no sessions row sends
+// nothing.
 func (e *EpicCallerEvents) attend(ctx context.Context, entry store.EpicAttention) error {
-	creator, ok, err := e.store.EpicCreator(ctx, entry.Epic)
+	steerer, ok, err := e.store.EpicSteerer(ctx, entry.Epic)
 	if err != nil {
-		return fmt.Errorf("read creator of epic %s: %w", entry.Epic, err)
+		return fmt.Errorf("read steerer of epic %s: %w", entry.Epic, err)
 	}
 	if !ok {
 		return nil
@@ -66,22 +67,22 @@ func (e *EpicCallerEvents) attend(ctx context.Context, entry store.EpicAttention
 	for _, question := range entry.Open {
 		kind, body := questionEventOf(entry, question)
 		event := store.EpicQuestionEvent(entry.Epic, question.Seq)
-		errs = append(errs, e.send(ctx, entry.Epic, creator, event, kind, body))
+		errs = append(errs, e.send(ctx, entry.Epic, steerer, event, kind, body))
 	}
 	if kind, sends := store.EpicPhaseEventKind(entry.Phase); sends {
 		event := store.EpicPhaseEvent(entry.Epic, entry.Phase)
-		errs = append(errs, e.send(ctx, entry.Epic, creator, event, kind, phaseEventBody(entry)))
+		errs = append(errs, e.send(ctx, entry.Epic, steerer, event, kind, phaseEventBody(entry)))
 	}
 	return errors.Join(errs...)
 }
 
-// send sends the event with id event, of kind and body, to creator, unless the creator's mark shows it was sent. The
-// CallerSender marks the event once it is finished, and holds it while the creator is busy or stopped, so a later pass
+// send sends the event with id event, of kind and body, to steerer, unless the steerer's mark shows it was sent. The
+// CallerSender marks the event once it is finished, and holds it while the steerer is busy or stopped, so a later pass
 // sends it. It returns the error of the mark read or of the send.
 func (e *EpicCallerEvents) send(
-	ctx context.Context, epic string, creator store.CallerSession, event, kind, body string,
+	ctx context.Context, epic string, steerer store.CallerSession, event, kind, body string,
 ) error {
-	marked, err := e.store.CallerEventMarked(ctx, event, creator.ID)
+	marked, err := e.store.CallerEventMarked(ctx, event, steerer.ID)
 	if err != nil {
 		return fmt.Errorf("read caller event mark of %s: %w", event, err)
 	}
@@ -89,8 +90,8 @@ func (e *EpicCallerEvents) send(
 		return nil
 	}
 	text := store.CallerEventBlock(kind, event, nil, body)
-	if _, err = e.sender.Send(ctx, creator, event, text); err != nil {
-		return fmt.Errorf("send epic event %s of epic %s to caller %s: %w", event, epic, creator.ID, err)
+	if _, err = e.sender.Send(ctx, steerer, event, text); err != nil {
+		return fmt.Errorf("send epic event %s of epic %s to caller %s: %w", event, epic, steerer.ID, err)
 	}
 	return nil
 }

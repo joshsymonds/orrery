@@ -83,7 +83,8 @@ func parkedNoticeRouted(t *testing.T, routed *recordRoute) bool {
 }
 
 // createAttentionEpic stores the synthetic epic with a pending trigger, which the planner parks without a role file.
-func createAttentionEpic(t *testing.T, st *store.Store) {
+// Its steerer is steerer, and "" leaves it unsteered.
+func createAttentionEpic(t *testing.T, st *store.Store, steerer string) {
 	t.Helper()
 	created := time.Unix(attentionWiringStamp, 0)
 	if err := st.CreateEpic(t.Context(), store.EpicRow{
@@ -99,6 +100,7 @@ func createAttentionEpic(t *testing.T, st *store.Store) {
 		Phase:       "accepted",
 		Created:     created,
 		Changed:     created,
+		Steerer:     steerer,
 		Requirements: []store.EpicRequirement{
 			{ID: "R1", Text: "the attention loop routes", Evidence: "wiring test", Kind: "test"},
 		},
@@ -122,7 +124,7 @@ func TestSessionsHostRoutesParkedEpicNotice(t *testing.T) {
 		t.Fatalf("store path: %v", err)
 	}
 	st := openPaneStore(t, path)
-	createAttentionEpic(t, st)
+	createAttentionEpic(t, st, "")
 
 	ticks := make(chan time.Time)
 	opts := options{
