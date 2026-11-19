@@ -58,6 +58,9 @@
       "items": {
        "additionalProperties": false,
        "properties": {
+        "closes": {
+         "type": "string"
+        },
         "does": {
          "type": "string"
         },
@@ -67,7 +70,8 @@
        },
        "required": [
         "id",
-        "does"
+        "does",
+        "closes"
        ],
        "type": "object"
       },

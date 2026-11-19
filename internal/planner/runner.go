@@ -15,6 +15,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/agents"
 	"github.com/joshsymonds/orrery/internal/enginehost"
+	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -25,6 +26,7 @@ type Store interface {
 	SetTurnStep(ctx context.Context, epic string, turn int64, step string) error
 	TurnStopped(ctx context.Context, epic string, seq int64) (bool, error)
 	Epic(ctx context.Context, id string) (store.EpicRow, error)
+	EpicReview(ctx context.Context, epic string) (store.Review, error)
 	TurnTriggers(ctx context.Context, epic string, turn int64) ([]store.EpicTrigger, error)
 	CompleteTurn(ctx context.Context, epic string, turn int64, plan store.EpicPlan, at time.Time) error
 	PendingActions(ctx context.Context) ([]store.PlannerAction, error)
@@ -276,6 +278,10 @@ func (r *Runner) startStep(ctx context.Context, epic string, turn store.EpicTurn
 	if err != nil {
 		return "", fmt.Errorf("read epic %s: %w", epic, err)
 	}
+	review, err := r.store.EpicReview(ctx, epic)
+	if err != nil {
+		return "", fmt.Errorf("read review of epic %s: %w", epic, err)
+	}
 	triggers, err := r.store.TurnTriggers(ctx, epic, turn.Seq)
 	if err != nil {
 		return "", fmt.Errorf("read triggers of turn %d of epic %s: %w", turn.Seq, epic, err)
@@ -296,7 +302,7 @@ func (r *Runner) startStep(ctx context.Context, epic string, turn store.EpicTurn
 		Workspace:   row.Repository,
 		ReadOnly:    true,
 		Epic:        row.ID,
-		ReturnCheck: returnCheck(ctx, row, r.resolve),
+		ReturnCheck: returnCheck(ctx, row, review, r.resolve),
 	})
 	if id != "" {
 		if setErr := r.store.SetTurnStep(ctx, epic, turn.Seq, id); setErr != nil {
@@ -634,7 +640,7 @@ func planOf(ret Return) store.EpicPlan {
 func questionInputOf(question Question) store.EpicQuestionInput {
 	choices := make([]store.EpicChoice, 0, len(question.Choices))
 	for _, choice := range question.Choices {
-		choices = append(choices, store.EpicChoice{ID: choice.ID, Does: choice.Does})
+		choices = append(choices, store.EpicChoice{ID: choice.ID, Does: choice.Does, Closes: closesOf(choice.Closes)})
 	}
 	why := question.Why
 	if why != "" {
@@ -649,14 +655,22 @@ func questionInputOf(question Question) store.EpicQuestionInput {
 // returnCheck returns the check a planner step's return runs for epic. A return that does not parse is one line.
 // Any other return gets the refusals of Check, against the epic's Requirement ids, the files of its open tasks, and the
 // gates and judges that resolve answers for epic, then the refusals of Coverage against the epic's tasks, then those of
-// checkAmendKeeps against the epic's Requirements, then those of checkClosureTasks against the epic's phase. When epic
+// checkAmendKeeps against the epic's Requirements, then those of checkClosureTasks against the epic's phase, then those
+// of checkCloses against the epic's phase and the findings of review that the next closure round checks. When epic
 // holds a planner-class park, a return with no action and no question gets one more line from checkPark, which names
 // the park reason. An owner park is not checked, since the owner answers it. The gate resolves under ctx without its
 // cancellation, so the turn that started the step ending does not refuse its return.
-func returnCheck(ctx context.Context, epic store.EpicRow, resolve Resolver) func(value json.RawMessage) []string {
+func returnCheck(
+	ctx context.Context, epic store.EpicRow, review store.Review, resolve Resolver,
+) func(value json.RawMessage) []string {
 	requirements := make([]string, 0, len(epic.Requirements))
 	for _, requirement := range epic.Requirements {
 		requirements = append(requirements, requirement.ID)
+	}
+	findings := kinds.OpenFindings(review, int64(len(review.Rounds))+1)
+	open := make([]string, 0, len(findings))
+	for _, finding := range findings {
+		open = append(open, finding.ID)
 	}
 	owned := openFiles(epic.Tasks)
 	park := ""
@@ -674,6 +688,7 @@ func returnCheck(ctx context.Context, epic store.EpicRow, resolve Resolver) func
 		refusals := append(Check(ret, requirements, owned, gate, judge), Coverage(ret, requirements, epic.Tasks)...)
 		refusals = append(refusals, checkAmendKeeps(ret, epic.Requirements)...)
 		refusals = append(refusals, checkClosureTasks(ret, epic.Phase)...)
+		refusals = append(refusals, checkCloses(ret, epic.Phase, open)...)
 		return append(refusals, checkPark(ret, park)...)
 	}
 }

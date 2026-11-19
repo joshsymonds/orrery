@@ -147,7 +147,7 @@ func requirementIDs(requirements []store.EpicRequirement) []string {
 }
 
 // epicReportText renders the outcome of flow for the report call: its phase, the Requirements that shipped and those
-// that did not with their texts, and the gaps of its ending.
+// that did not with their texts, the gaps of its ending, and the findings closed by decision when there are any.
 func epicReportText(flow store.EpicFlow, shipped, notShipped []store.EpicRequirement) string {
 	var out strings.Builder
 	fmt.Fprintf(&out, "Outcome: %s\n", flow.Epic.Phase)
@@ -162,6 +162,12 @@ func epicReportText(flow store.EpicFlow, shipped, notShipped []store.EpicRequire
 	out.WriteString("Gaps:\n")
 	for _, gap := range kinds.Gaps(flow.Review) {
 		fmt.Fprintf(&out, "- %s\n", gap)
+	}
+	if decided := kinds.Decided(flow.Review); len(decided) > 0 {
+		out.WriteString("Closed by decision:\n")
+		for _, finding := range decided {
+			fmt.Fprintf(&out, "- %s\n", finding)
+		}
 	}
 	return out.String()
 }

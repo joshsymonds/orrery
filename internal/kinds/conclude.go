@@ -13,19 +13,46 @@ import (
 type Conclude struct{}
 
 // Decide ends the epic passed. Its phase is clean, with the stored base, when Gaps finds no gap, and
-// ended_with_gaps, with the gaps, otherwise.
+// ended_with_gaps, with the gaps, otherwise. Either output then names each finding an owner's answer closed (Decided).
 func (Conclude) Decide(_ Node, rows Rows) Action {
-	gaps := Gaps(rows.Review)
+	gaps, decided := Gaps(rows.Review), Decided(rows.Review)
 	if len(gaps) == 0 {
-		return Action{
-			Kind: ActEnd, Outcome: outcomePassed, Phase: phaseClean,
-			Output: fmt.Sprintf("epic %s ended clean at %s", rows.Epic.ID, rows.Epic.StoredBase),
-		}
+		lines := append([]string{fmt.Sprintf("epic %s ended clean at %s", rows.Epic.ID, rows.Epic.StoredBase)},
+			decidedLines(decided)...)
+		return Action{Kind: ActEnd, Outcome: outcomePassed, Phase: phaseClean, Output: strings.Join(lines, "\n")}
 	}
 	return Action{
 		Kind: ActEnd, Outcome: outcomePassed, Phase: phaseEndedWithGaps,
-		Output: EndingBody(phaseEndedWithGaps, gaps),
+		Output: EndingBody(phaseEndedWithGaps, gaps, decided),
 	}
+}
+
+// Decided returns the findings of review that an owner's answer closed, in ledger order, each as `<id> in round <n>`
+// with the round whose closure it closed. Such a finding is no gap: the owner settled it with no code change.
+func Decided(review store.Review) []string {
+	var decided []string
+	for _, finding := range review.Ledger {
+		for _, closure := range finding.Closures {
+			if closedByDecision(closure) {
+				decided = append(decided, fmt.Sprintf("%s in round %d", finding.ID, closure.Round))
+			}
+		}
+	}
+	return decided
+}
+
+// decidedLines returns the lines that name the decided findings: a `Closed by decision:` line, then one `- finding`
+// line each, or none when there are none.
+func decidedLines(decided []string) []string {
+	if len(decided) == 0 {
+		return nil
+	}
+	lines := make([]string, 0, len(decided)+1)
+	lines = append(lines, "Closed by decision:")
+	for _, finding := range decided {
+		lines = append(lines, "- "+finding)
+	}
+	return lines
 }
 
 // Gaps returns the gaps of review in order: that no review ran, each reviewer's gap verdict in verdict order,

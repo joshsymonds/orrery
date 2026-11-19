@@ -116,9 +116,12 @@ func releaseEnded(rows Rows) Action {
 	return Action{Kind: ActEnd, Outcome: outcomePassed}
 }
 
-// endingAction ends the epic in the phase outcome names, with the body that names the gaps its review holds.
+// endingAction ends the epic in the phase outcome names, with the body that names the gaps its review holds and the
+// findings an owner's answer closed.
 func endingAction(outcome string, rows Rows) Action {
-	return Action{Kind: ActEnding, Outcome: outcome, Output: EndingBody(outcome, Gaps(rows.Review))}
+	return Action{
+		Kind: ActEnding, Outcome: outcome, Output: EndingBody(outcome, Gaps(rows.Review), Decided(rows.Review)),
+	}
 }
 
 // releaseClean ends a clean epic with no release steps done, gives none while another epic holds the release slot, and
