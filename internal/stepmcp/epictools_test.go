@@ -271,6 +271,7 @@ type epicCalls struct {
 	lists    []*v1.ListEpicsRequest
 	answers  []*v1.AnswerEpicRequest
 	pauses   []*v1.PauseEpicRequest
+	moves    []*v1.MoveEpicRequest
 	resumes  []*v1.ResumeEpicRequest
 	stops    []*v1.StopEpicRequest
 	retries  []*v1.RetryEpicRequest
@@ -289,6 +290,7 @@ func (f *fakeEpics) calls() epicCalls {
 		lists:    slices.Clone(f.lists),
 		answers:  slices.Clone(f.answers),
 		pauses:   slices.Clone(f.pauses),
+		moves:    slices.Clone(f.moves),
 		resumes:  slices.Clone(f.resumes),
 		stops:    slices.Clone(f.stops),
 		retries:  slices.Clone(f.retries),
@@ -301,7 +303,7 @@ func (f *fakeEpics) calls() epicCalls {
 
 func (c epicCalls) total() int {
 	return len(c.creates) + len(c.gets) + len(c.lists) + len(c.answers) +
-		len(c.pauses) + len(c.resumes) + len(c.stops) + len(c.retries) + len(c.kicks) + len(c.releases) +
+		len(c.pauses) + len(c.moves) + len(c.resumes) + len(c.stops) + len(c.retries) + len(c.kicks) + len(c.releases) +
 		len(c.follows) + len(c.closes)
 }
 
