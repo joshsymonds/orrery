@@ -39,6 +39,8 @@ func TestDeclinePaneSendsEscape(t *testing.T) {
 		t.Fatalf("Decline: %v", err)
 	}
 	sendAwaitInput(t, client, pane, file, "\x1b")
+	t.Logf("decline sent Escape: pane %s received \\x1b after the expect-question guard accepted hash %s",
+		pane, protocol.QuestionHash(declineQuestion))
 }
 
 func TestDeclinePaneRefusesStaleHash(t *testing.T) {
@@ -54,7 +56,9 @@ func TestDeclinePaneRefusesStaleHash(t *testing.T) {
 	if !strings.Contains(err.Error(), "hash does not match") {
 		t.Fatalf("Decline error %q does not name the hash mismatch", err)
 	}
+	t.Logf("decline refused: %v", err)
 	declineSentinel(t, client, pane, file)
+	t.Logf("decline sent nothing: pane %s received only the sentinel \"ok\\r\"", pane)
 }
 
 func TestDeclinePaneRefusesNoQuestion(t *testing.T) {
@@ -69,7 +73,9 @@ func TestDeclinePaneRefusesNoQuestion(t *testing.T) {
 	if !strings.Contains(err.Error(), "pane has no question") {
 		t.Fatalf("Decline error %q does not name the missing question", err)
 	}
+	t.Logf("decline refused: %v", err)
 	declineSentinel(t, client, pane, file)
+	t.Logf("decline sent nothing: pane %s received only the sentinel \"ok\\r\"", pane)
 }
 
 func TestDeclinePaneRefusesCopyMode(t *testing.T) {
@@ -86,10 +92,12 @@ func TestDeclinePaneRefusesCopyMode(t *testing.T) {
 	if !strings.Contains(err.Error(), "in a tmux mode") {
 		t.Fatalf("Decline error %q does not name the mode", err)
 	}
+	t.Logf("decline refused: %v", err)
 
 	// Copy mode would leave on Escape, so a still-set mode shows that no Escape was sent.
 	mode := strings.TrimSpace(sendRun(t, client, "display-message", "-p", "-t", pane, "#{pane_in_mode}"))
 	if mode != "1" {
 		t.Fatalf("pane_in_mode = %q after Decline, want 1", mode)
 	}
+	t.Logf("decline sent nothing: pane %s pane_in_mode is still 1, so no Escape reached copy mode", pane)
 }
