@@ -200,6 +200,9 @@ type EpicsGetResponse struct {
 	// Whether the orreryd epic is parked and the planner holds the park, so the owner is not asked about it; false when it
 	// is not parked, when the owner holds its park, and for a record epic. The parked reason is still in parked.
 	PlannerParked bool `protobuf:"varint,20,opt,name=planner_parked,json=plannerParked,proto3" json:"planner_parked,omitempty"`
+	// The orreryd epic a close named as its replacement; empty when its close named none, when it is not closed, and for
+	// a record epic.
+	SupersededBy  string `protobuf:"bytes,21,opt,name=superseded_by,json=supersededBy,proto3" json:"superseded_by,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -372,6 +375,13 @@ func (x *EpicsGetResponse) GetPlannerParked() bool {
 		return x.PlannerParked
 	}
 	return false
+}
+
+func (x *EpicsGetResponse) GetSupersededBy() string {
+	if x != nil {
+		return x.SupersededBy
+	}
+	return ""
 }
 
 // EpicSession is one session that works on an epic, with its newest epic call.
@@ -5619,7 +5629,7 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\x11EpicsListResponse\x12%\n" +
 	"\x05epics\x18\x01 \x03(\v2\x0f.orrery.v1.EpicR\x05epics\"!\n" +
 	"\x0fEpicsGetRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\xa8\a\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\xcd\a\n" +
 	"\x10EpicsGetResponse\x12#\n" +
 	"\x04epic\x18\x01 \x01(\v2\x0f.orrery.v1.EpicR\x04epic\x12)\n" +
 	"\x05tasks\x18\x02 \x03(\v2\x13.orrery.v1.EpicTaskR\x05tasks\x12)\n" +
@@ -5644,7 +5654,8 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"repository\x12@\n" +
 	"\rrelease_steps\x18\x12 \x03(\v2\x1b.orrery.v1.EpicReleaseProofR\freleaseSteps\x12-\n" +
 	"\x06report\x18\x13 \x01(\v2\x15.orrery.v1.EpicReportR\x06report\x12%\n" +
-	"\x0eplanner_parked\x18\x14 \x01(\bR\rplannerParked\"\x85\x01\n" +
+	"\x0eplanner_parked\x18\x14 \x01(\bR\rplannerParked\x12#\n" +
+	"\rsuperseded_by\x18\x15 \x01(\tR\fsupersededBy\"\x85\x01\n" +
 	"\vEpicSession\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04pane\x18\x02 \x01(\tR\x04pane\x12\x14\n" +

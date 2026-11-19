@@ -189,6 +189,7 @@ func (e epicsServer) Get(
 		resp.Paused = stored.GetPaused()
 		resp.Parked = stored.GetParked()
 		resp.PlannerParked = stored.GetParked() != "" && !store.ParkClass(stored.GetParkClass()).OwnerHeld()
+		resp.SupersededBy = stored.GetSupersededBy()
 	} else {
 		resp.Epic = epicMessage(rec, tasks, taskProblems, labeled, e.now())
 	}

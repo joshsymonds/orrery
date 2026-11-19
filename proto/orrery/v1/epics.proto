@@ -151,6 +151,10 @@ message EpicsGetResponse {
   // Whether the orreryd epic is parked and the planner holds the park, so the owner is not asked about it; false when it
   // is not parked, when the owner holds its park, and for a record epic. The parked reason is still in parked.
   bool planner_parked = 20;
+
+  // The orreryd epic a close named as its replacement; empty when its close named none, when it is not closed, and for
+  // a record epic.
+  string superseded_by = 21;
 }
 
 // EpicSession is one session that works on an epic, with its newest epic call.
