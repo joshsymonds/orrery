@@ -108,6 +108,14 @@ func (w *metWorld) judge(id, verdict, step string) {
 	}
 }
 
+// metContinueTell returns the tell the red run of the test epic writes when R1 is judged holding at the base and the
+// epic goes on.
+func (w *metWorld) metContinueTell() string {
+	return fmt.Sprintf(
+		"workflow node red: R1 met at the epic's base %s, recorded as met there, and the epic goes on", w.base,
+	)
+}
+
 // metReason returns the reason the park of the red run of the test epic gives when R1 is judged holding at the base.
 func (w *metWorld) metReason() string {
 	return fmt.Sprintf(
@@ -118,15 +126,30 @@ func (w *metWorld) metReason() string {
 	)
 }
 
-// parkRedMet runs the test epic until its red run has judged R1 holding at the base and R2 failing it, and the run has
-// parked. It returns the id of the red run's R1 run, at attempt 0.
+// parkRedMet parks the test epic as an evidence node at base did before a met-at-base red continued: its red run has
+// judged R1 holding at the base and R2 failing it, and the run and the epic are parked with the question that offers
+// retry, drop and end. The store writes that park here, since the walk no longer writes it. It returns the id of the
+// red run's R1 run, at attempt 0.
 func (w *metWorld) parkRedMet() string {
 	w.t.Helper()
 	w.pass()
 	first := workID(w.t, w.s, "red", "R1")
 	w.judge(first, evidence.VerdictHolds, "judge-1")
 	w.judge(workID(w.t, w.s, "red", "R2"), evidence.VerdictFails, "judge-1")
-	w.pass()
+	err := w.s.ParkNodeMetAtBase(
+		context.Background(),
+		runEpic,
+		"red",
+		0,
+		outcomeFailed,
+		"R1 red: failed",
+		w.metReason(),
+		[]string{"R1"},
+		runClock(),
+	)
+	if err != nil {
+		w.t.Fatalf("ParkNodeMetAtBase: %v", err)
+	}
 	return first
 }
 
@@ -155,38 +178,38 @@ func (w *metWorld) evidenceCallsOf(ids ...string) []evidenceCall {
 	return calls
 }
 
-// TestMetAtBaseQuestionRedJudgedHoldsParksWithTheQuestion checks that a red run judged holding at the base parks the run
-// and the epic with a question that offers retry, drop and end, and that the epic's phase stays as it was. R4: it used to
-// park for good with the phase set to met_at_base.
-func TestMetAtBaseQuestionRedJudgedHoldsParksWithTheQuestion(t *testing.T) {
+// TestMetAtBaseRedContinuesRedJudgedHoldsEndsPassedWithATell checks that a red run judged holding at the base is
+// recorded as met at the base with a tell, that the red run ends passed, and that the epic goes on to its next node
+// with no park and no question. R4: it used to park the run and the epic with a question that offered retry, drop and
+// end.
+func TestMetAtBaseRedContinuesRedJudgedHoldsEndsPassedWithATell(t *testing.T) {
 	t.Parallel()
 	w := newMetWorld(t)
-	w.parkRedMet()
+	w.pass()
+	first := workID(t, w.s, "red", "R1")
+	w.judge(first, evidence.VerdictHolds, "judge-1")
+	w.judge(workID(t, w.s, "red", "R2"), evidence.VerdictFails, "judge-1")
+	w.pass()
 
-	if run := runAt(t, w.s, "red"); run.State != store.NodeParked || run.Attempt != 0 || run.Outcome != outcomeFailed {
-		t.Errorf("red run = %+v, want parked at attempt 0 as failed", run)
+	if run := runAt(t, w.s, "red"); run.State != store.NodeEnded || run.Outcome != outcomePassed {
+		t.Errorf("red run = %+v, want ended passed", run)
+	}
+	if run := runAt(t, w.s, "lint"); run.State != store.NodeRunning {
+		t.Errorf("gate run after the evidence node = %+v, want it running", run)
 	}
 	epic := epicOf(t, w.s)
-	if epic.Parked != w.metReason() || epic.Phase != runPhase {
-		t.Errorf("parked and phase = %q and %q, want the reason and %s", epic.Parked, epic.Phase, runPhase)
+	if epic.Parked != "" || epic.Phase != runPhase {
+		t.Errorf("parked and phase = %q and %q, want none and %s", epic.Parked, epic.Phase, runPhase)
 	}
 	open, err := w.s.OpenQuestions(context.Background(), runEpic)
 	if err != nil {
 		t.Fatalf("OpenQuestions: %v", err)
 	}
-	if len(open) != 1 || open[0].Label != store.ParkLabel || open[0].Text != w.metReason() ||
-		open[0].Recommended != store.ChoiceRetry {
-		t.Fatalf("open questions = %+v, want one park question that recommends retry", open)
+	if len(open) != 0 {
+		t.Errorf("open questions = %+v, want none: a met-at-base red asks the owner nothing", open)
 	}
-	choices := make([]string, 0, len(open[0].Choices))
-	for _, choice := range open[0].Choices {
-		choices = append(choices, choice.ID)
-	}
-	if want := []string{"retry", "drop", "end"}; !reflect.DeepEqual(choices, want) {
-		t.Errorf("choices = %v, want %v", choices, want)
-	}
-	if tells := nodeTells(t, w.path); !reflect.DeepEqual(tells, []string{w.metReason()}) {
-		t.Errorf("tells = %q, want the park reason once", tells)
+	if tells := nodeTells(t, w.path); !reflect.DeepEqual(tells, []string{w.metContinueTell()}) {
+		t.Errorf("tells = %q, want the met-at-base tell once", tells)
 	}
 }
 
