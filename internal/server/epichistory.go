@@ -196,10 +196,9 @@ func storedHistoryEntries(stored *enginev1.StoredEpic) []historyEntry {
 	for _, decision := range stored.GetDecisions() {
 		out = append(out, historyEntryOf(
 			historyKey{time: decision.GetTime(), kind: historyDecision, seq: decision.GetSeq()},
-			&orreryv1.EpicHistoryEntry{Item: &orreryv1.EpicHistoryEntry_Decision{Decision: &orreryv1.EpicDecision{
-				Seq: decision.GetSeq(), Id: decision.GetId(), Text: decision.GetText(), Time: decision.GetTime(),
-				Question: decision.GetQuestion(),
-			}}},
+			&orreryv1.EpicHistoryEntry{
+				Item: &orreryv1.EpicHistoryEntry_Decision{Decision: epicDecisionMessage(decision)},
+			},
 		))
 	}
 	for _, tell := range stored.GetTells() {

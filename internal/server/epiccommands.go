@@ -240,5 +240,7 @@ func epicDecisionMessage(decision *enginev1.EpicDecision) *orreryv1.EpicDecision
 		Text:     decision.GetText(),
 		Time:     decision.GetTime(),
 		Question: decision.GetQuestion(),
+		By:       decision.GetBy(),
+		Session:  decision.GetSession(),
 	}
 }
