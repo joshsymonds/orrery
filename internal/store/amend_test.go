@@ -531,7 +531,7 @@ func releaseAmendEpic(t *testing.T, s *Store, phase string, runs []ReleaseRun, u
 	t.Helper()
 	ctx := context.Background()
 	createAmendEpic(t, s)
-	if _, err := s.db.ExecContext(ctx, `UPDATE epics SET phase = ? WHERE id = ?`, phase, amendEpic); err != nil {
+	if _, err := s.fixtureExec(ctx, `UPDATE epics SET phase = ? WHERE id = ?`, phase, amendEpic); err != nil {
 		t.Fatalf("set phase %s: %v", phase, err)
 	}
 	if err := s.StartNodes(ctx, amendEpic, append([]NodeRun{amendRelease()}, under...), nil, amendAt()); err != nil {
