@@ -50,14 +50,13 @@ func Listen(socketPath string) (net.Listener, error) {
 
 // Serve answers the engine service on ln with commands, the steps service with steps, the epics service with epics, the
 // pools service with pools, the evidence service with evidence, the notices service with notices and the crons service
-// with crons until ctx ends. It then shuts down within shutdownWait and returns nil. A WaitSteps still waiting when ctx
-// ends fails at once as unavailable, so no wait holds the shutdown. A nil commands refuses every engine RPC as
-// unavailable, a nil steps refuses every step RPC as unavailable, a nil epics refuses every epic RPC as unavailable, a
-// nil pools refuses every Acquire as unavailable, a nil evidence refuses every evidence RPC as unavailable, a nil notices
-// refuses every notices RPC as unavailable, and a nil crons refuses every cron call as unavailable. The crons service
-// answers each call for the session in the Orrery-Session header, and refuses a call with no such header as
-// InvalidArgument. With steps served, the engine refuses Say, Answer, Interrupt, Stop and Resume on a step id, since a
-// step is driven only through the Steps service. opts apply to each of the seven handlers.
+// with crons until ctx ends. It then shuts down within shutdownWait and returns nil. A nil commands refuses every
+// engine RPC as unavailable, a nil steps refuses every step RPC as unavailable, a nil epics refuses every epic RPC as
+// unavailable, a nil pools refuses every Acquire as unavailable, a nil evidence refuses every evidence RPC as
+// unavailable, a nil notices refuses every notices RPC as unavailable, and a nil crons refuses every cron call as
+// unavailable. The crons service answers each call for the session in the Orrery-Session header, and refuses a call
+// with no such header as InvalidArgument. With steps served, the engine refuses Say, Answer, Interrupt, Stop and Resume
+// on a step id, since a step is driven only through the Steps service. opts apply to each of the seven handlers.
 func Serve(
 	ctx context.Context,
 	ln net.Listener,
@@ -72,7 +71,7 @@ func Serve(
 ) error {
 	path, handler := enginev1connect.NewEngineHandler(&service{commands: commands, steps: steps}, opts...)
 	stepsPath, stepsHandler := enginev1connect.NewStepsHandler(
-		&stepService{steps: steps, stopping: ctx.Done()},
+		&stepService{steps: steps},
 		opts...)
 	epicsPath, epicsHandler := enginev1connect.NewEpicsHandler(&epicService{epics: epics, steps: steps}, opts...)
 	poolsPath, poolsHandler := enginev1connect.NewPoolsHandler(&poolService{pools: pools}, opts...)

@@ -22,7 +22,6 @@ type StepCommands interface {
 	Start(ctx context.Context, start StepStart) (string, error)
 	Stop(ctx context.Context, id string) error
 	Status(ctx context.Context, id string) (store.StepRow, error)
-	Wait(ctx context.Context, ids []string, timeout time.Duration) (*store.StepRow, []store.StepRow, error)
 	List(ctx context.Context, epic, task string) ([]store.StepRow, error)
 	Hold(ctx context.Context, id string) error
 	Held(id string) bool
@@ -31,25 +30,8 @@ type StepCommands interface {
 }
 
 // stepService implements the Steps RPCs over steps.
-// stoppingMessage is why a WaitSteps still waiting when the session socket shuts down fails.
-const stoppingMessage = "orreryd is stopping"
-
 type stepService struct {
 	steps StepCommands
-	// stopping ends when Serve begins its shutdown. A WaitSteps still waiting then fails at once as unavailable, since
-	// this orreryd's steps, the producers of every end it waits for, are stopping with it; its caller waits again on the
-	// next orreryd, as it does for any unavailable orreryd.
-	stopping <-chan struct{}
-}
-
-// isStopping reports whether Serve has begun its shutdown.
-func (s *stepService) isStopping() bool {
-	select {
-	case <-s.stopping:
-		return true
-	default:
-		return false
-	}
 }
 
 // ready returns the refusal every step RPC gets when there is no step store.
@@ -127,46 +109,6 @@ func (s *stepService) StepStatus(
 		return nil, stepCommandError(err)
 	}
 	return connect.NewResponse(&v1.StepStatusResponse{Step: step}), nil
-}
-
-func (s *stepService) WaitSteps(
-	ctx context.Context,
-	req *connect.Request[v1.WaitStepsRequest],
-) (*connect.Response[v1.WaitStepsResponse], error) {
-	if err := s.ready(); err != nil {
-		return nil, err
-	}
-	timeout := time.Duration(req.Msg.GetTimeoutSeconds()) * time.Second
-	waitCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	go func() {
-		select {
-		case <-s.stopping:
-			cancel()
-		case <-waitCtx.Done():
-		}
-	}()
-	ended, rows, err := s.steps.Wait(waitCtx, req.Msg.GetIds(), timeout)
-	if err != nil && ctx.Err() == nil && s.isStopping() {
-		return nil, errors.Join(connect.NewError(connect.CodeUnavailable, errors.New(stoppingMessage)))
-	}
-	if err != nil {
-		return nil, stepCommandError(err)
-	}
-	resp := &v1.WaitStepsResponse{Steps: make([]*v1.Step, 0, len(rows))}
-	if ended != nil {
-		if resp.Ended, err = stepMessage(*ended, s.steps.Held(ended.ID)); err != nil {
-			return nil, stepCommandError(err)
-		}
-	}
-	for _, row := range rows {
-		var step *v1.Step
-		if step, err = stepMessage(row, s.steps.Held(row.ID)); err != nil {
-			return nil, stepCommandError(err)
-		}
-		resp.Steps = append(resp.Steps, step)
-	}
-	return connect.NewResponse(resp), nil
 }
 
 func (s *stepService) ListSteps(

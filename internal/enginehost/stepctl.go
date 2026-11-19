@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/gates"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -15,9 +14,6 @@ const stepStoppedEnd = "stopped"
 
 // stepRestartedEnd is the end Reconcile stores on each open step row.
 const stepRestartedEnd = "engine_restarted"
-
-// stepWaitPoll is how often Wait reads the rows it waits on.
-const stepWaitPoll = 20 * time.Millisecond
 
 // Stop ends the step with id as stopped. A running loop is canceled, which kills its gate, and Stop waits for the loop
 // to return before it reads the row, so the end is stored once. The step then ends through finish with a context that
@@ -60,63 +56,6 @@ func (s *Steps) rowRun(row store.StepRow) *stepRun {
 		}
 	}
 	return newStepRun(cfg)
-}
-
-// Wait returns the first step among ids to end. It reads the row of every id first, and an id with no row returns an
-// error matching store.ErrNoStep. If a listed step has already ended, Wait returns the one that ended first at once.
-// Otherwise it reads the rows every stepWaitPoll until one ends. The rows returned are every listed row in the order of
-// ids. At timeout Wait returns no ended step and a nil error, and when ctx ends it returns ctx's error.
-func (s *Steps) Wait(
-	ctx context.Context, ids []string, timeout time.Duration,
-) (*store.StepRow, []store.StepRow, error) {
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-	ticker := time.NewTicker(stepWaitPoll)
-	defer ticker.Stop()
-	for {
-		rows, err := s.readSteps(ctx, ids)
-		if err != nil {
-			return nil, nil, err
-		}
-		if ended := earliestEnded(rows); ended != nil {
-			return ended, rows, nil
-		}
-		select {
-		case <-ctx.Done():
-			return nil, rows, fmt.Errorf("wait for steps: %w", ctx.Err())
-		case <-timer.C:
-			return nil, rows, nil
-		case <-ticker.C:
-		}
-	}
-}
-
-// readSteps returns the row of each id in ids, in order. An id with no row returns an error matching store.ErrNoStep.
-func (s *Steps) readSteps(ctx context.Context, ids []string) ([]store.StepRow, error) {
-	rows := make([]store.StepRow, 0, len(ids))
-	for _, id := range ids {
-		row, err := s.Status(ctx, id)
-		if err != nil {
-			return nil, err
-		}
-		rows = append(rows, row)
-	}
-	return rows, nil
-}
-
-// earliestEnded returns the ended row of rows with the earliest end, or nil when none has ended. A tie keeps the row
-// listed first.
-func earliestEnded(rows []store.StepRow) *store.StepRow {
-	var first *store.StepRow
-	for i := range rows {
-		if rows[i].End == "" {
-			continue
-		}
-		if first == nil || rows[i].Ended.Before(first.Ended) {
-			first = &rows[i]
-		}
-	}
-	return first
 }
 
 // Readopt registers each open step row with adopter before the manager's Reconcile runs, so the manager re-adopts the
