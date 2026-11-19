@@ -581,6 +581,21 @@ func (q *Queries) DeleteEngineText(ctx context.Context, arg DeleteEngineTextPara
 	return err
 }
 
+const deleteEpicTaskFile = `-- name: DeleteEpicTaskFile :exec
+DELETE FROM epic_task_files WHERE epic = ? AND task = ? AND path = ?
+`
+
+type DeleteEpicTaskFileParams struct {
+	Epic string
+	Task int64
+	Path string
+}
+
+func (q *Queries) DeleteEpicTaskFile(ctx context.Context, arg DeleteEpicTaskFileParams) error {
+	_, err := q.db.ExecContext(ctx, deleteEpicTaskFile, arg.Epic, arg.Task, arg.Path)
+	return err
+}
+
 const deleteEpicTaskRefused = `-- name: DeleteEpicTaskRefused :exec
 DELETE FROM epic_task_refused WHERE epic = ? AND task = ? AND path = ?
 `
@@ -1527,6 +1542,41 @@ func (q *Queries) GetEpicTask(ctx context.Context, arg GetEpicTaskParams) (EpicT
 		&i.AfterTasks,
 		&i.Question,
 		&i.GateChanges,
+	)
+	return i, err
+}
+
+const getEpicTaskVersion = `-- name: GetEpicTaskVersion :one
+SELECT epic, task, version, source, decision, step, reason, deliverable, files, test_changes, gate, evidence, state, red_run, refusal, created, settled FROM epic_task_versions WHERE epic = ? AND task = ? AND version = ?
+`
+
+type GetEpicTaskVersionParams struct {
+	Epic    string
+	Task    int64
+	Version int64
+}
+
+func (q *Queries) GetEpicTaskVersion(ctx context.Context, arg GetEpicTaskVersionParams) (EpicTaskVersion, error) {
+	row := q.db.QueryRowContext(ctx, getEpicTaskVersion, arg.Epic, arg.Task, arg.Version)
+	var i EpicTaskVersion
+	err := row.Scan(
+		&i.Epic,
+		&i.Task,
+		&i.Version,
+		&i.Source,
+		&i.Decision,
+		&i.Step,
+		&i.Reason,
+		&i.Deliverable,
+		&i.Files,
+		&i.TestChanges,
+		&i.Gate,
+		&i.Evidence,
+		&i.State,
+		&i.RedRun,
+		&i.Refusal,
+		&i.Created,
+		&i.Settled,
 	)
 	return i, err
 }

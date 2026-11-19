@@ -867,6 +867,9 @@ INSERT INTO epic_tasks (epic, seq, turn, title, deliverable, gate, evidence, sta
 -- name: InsertEpicTaskFile :exec
 INSERT INTO epic_task_files (epic, task, position, path) VALUES (?, ?, ?, ?);
 
+-- name: DeleteEpicTaskFile :exec
+DELETE FROM epic_task_files WHERE epic = ? AND task = ? AND path = ?;
+
 -- name: InsertEpicTaskRequirement :exec
 INSERT INTO epic_task_requirements (epic, task, position, requirement) VALUES (?, ?, ?, ?);
 
@@ -1015,6 +1018,9 @@ WHERE epic = ? AND task = ? AND version = ? AND state = 'checking';
 
 -- name: ListEpicTaskVersions :many
 SELECT * FROM epic_task_versions WHERE epic = ? ORDER BY task, version;
+
+-- name: GetEpicTaskVersion :one
+SELECT * FROM epic_task_versions WHERE epic = ? AND task = ? AND version = ?;
 
 -- name: MaxEpicTaskVersion :one
 SELECT CAST(COALESCE(MAX(version), 1) AS INTEGER) FROM epic_task_versions WHERE epic = ? AND task = ?;
