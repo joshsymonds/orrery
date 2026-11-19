@@ -122,8 +122,9 @@ type StepStart struct {
 }
 
 // StepStore reads the step rows and listings Steps reports, the turn ends and finished blocks their sessions stored and
-// the rate limits their sessions were rejected with, the running steps a caller started, and the sessions row a caller
-// names, which Start checks a caller against before it stores a step. *store.Store satisfies it.
+// the rate limits their sessions were rejected with, the running steps a caller started, the listings of the steps a
+// caller started, and the sessions row a caller names, which Start checks a caller against before it stores a step.
+// *store.Store satisfies it.
 type StepStore interface {
 	Step(ctx context.Context, id string) (store.StepRow, error)
 	OpenSteps(ctx context.Context) ([]store.StepRow, error)
@@ -134,6 +135,7 @@ type StepStore interface {
 	StepBlocks(ctx context.Context, id string, limit int) ([]store.StepBlock, error)
 	StepRateLimit(ctx context.Context, id string) (store.RateLimit, bool, error)
 	RunningCallerSteps(ctx context.Context, caller string) ([]store.StepRow, error)
+	CallerStepListings(ctx context.Context, caller, epic string) ([]store.StepListing, error)
 	CallerSession(ctx context.Context, caller store.EpicCaller) (string, bool, error)
 }
 

@@ -2,6 +2,7 @@ package stepmcp
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +14,11 @@ import (
 
 // textContentType is the Type of a text content block.
 const textContentType = "text"
+
+// serverInstructions is the text the server sends as Instructions in its initialize reply. It states the step protocol.
+//
+//go:embed instructions.txt
+var serverInstructions string
 
 // maxToolCalls is the number of tools/call requests one connection runs at once. A request past it is refused.
 const maxToolCalls = 8
@@ -112,6 +118,7 @@ func (server *Server) Serve(ctx context.Context, input io.Reader, output io.Writ
 func (server *Server) sdk(ctx context.Context) *mcp.Server {
 	sdk := mcp.NewServer(&mcp.Implementation{Name: "orrery", Version: "1"}, &mcp.ServerOptions{
 		Capabilities: &mcp.ServerCapabilities{Tools: &mcp.ToolCapabilities{}},
+		Instructions: serverInstructions,
 	})
 	sdk.AddReceivingMiddleware(limitToolCalls(maxToolCalls, server.slotFreed))
 	for _, tool := range server.tools {

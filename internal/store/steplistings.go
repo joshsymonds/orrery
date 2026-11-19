@@ -98,6 +98,21 @@ func (s *Store) StepListings(ctx context.Context, epic, task string) ([]StepList
 	return readStepListings(ctx, sqlcgen.New(s.db), epic, task)
 }
 
+// CallerStepListings returns the listings of the steps whose caller is the sessions row caller, labeled or not,
+// narrowed to epic when it is not empty, ordered by start time then id. Of the narrowed steps it keeps every one still
+// running and the 20 that ended most recently, by end time then id, so a list holds at most 20 ended steps however many
+// the caller started.
+func (s *Store) CallerStepListings(ctx context.Context, caller, epic string) ([]StepListing, error) {
+	rows, err := sqlcgen.New(s.db).ListCallerStepListings(
+		ctx,
+		sqlcgen.ListCallerStepListingsParams{Caller: caller, Epic: epic},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list caller step listings: %w", err)
+	}
+	return convertInOrder(rows, stepListingOf)
+}
+
 // RunningStepListings returns the listings of the labeled steps that have not ended, held ones among them, narrowed to
 // epic when it is not empty and to task when it is not empty, ordered by start time then id, and, by epic, how many of
 // the labeled steps so narrowed have ended. An epic none of whose narrowed steps has ended has no count. It reads the

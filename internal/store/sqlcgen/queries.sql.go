@@ -3705,6 +3705,75 @@ func (q *Queries) ListBuildEpics(ctx context.Context) ([]string, error) {
 	return items, nil
 }
 
+const listCallerStepListings = `-- name: ListCallerStepListings :many
+SELECT id, agent, workspace, revision, worktree, read_only, started, checks, doing, verdicts, status, end_value, reason, ended, epic, task, gate_name, gate_limit, loop_limited, loop_limit_kind, loop_limit_resets, loop_stage, loop_stage_from, caller, summary, red_evidence, green_evidence FROM step_listings
+WHERE step_listings.caller = ?1
+  AND (CAST(?2 AS TEXT) = '' OR step_listings.epic = CAST(?2 AS TEXT))
+  AND (step_listings.end_value = '' OR step_listings.id IN (
+      SELECT recent.id FROM step_listings AS recent
+      WHERE recent.caller = ?1 AND recent.end_value <> ''
+        AND (CAST(?2 AS TEXT) = '' OR recent.epic = CAST(?2 AS TEXT))
+      ORDER BY recent.ended DESC, recent.id DESC
+      LIMIT 20))
+ORDER BY started, id
+`
+
+type ListCallerStepListingsParams struct {
+	Caller string
+	Epic   string
+}
+
+func (q *Queries) ListCallerStepListings(ctx context.Context, arg ListCallerStepListingsParams) ([]StepListing, error) {
+	rows, err := q.db.QueryContext(ctx, listCallerStepListings, arg.Caller, arg.Epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []StepListing
+	for rows.Next() {
+		var i StepListing
+		if err := rows.Scan(
+			&i.ID,
+			&i.Agent,
+			&i.Workspace,
+			&i.Revision,
+			&i.Worktree,
+			&i.ReadOnly,
+			&i.Started,
+			&i.Checks,
+			&i.Doing,
+			&i.Verdicts,
+			&i.Status,
+			&i.EndValue,
+			&i.Reason,
+			&i.Ended,
+			&i.Epic,
+			&i.Task,
+			&i.GateName,
+			&i.GateLimit,
+			&i.LoopLimited,
+			&i.LoopLimitKind,
+			&i.LoopLimitResets,
+			&i.LoopStage,
+			&i.LoopStageFrom,
+			&i.Caller,
+			&i.Summary,
+			&i.RedEvidence,
+			&i.GreenEvidence,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listCallerSteps = `-- name: ListCallerSteps :many
 SELECT steps.id, steps.agent, steps.prompt, steps.output_schema, steps.workspace, steps.revision, steps.worktree, steps.done_value, steps.read_only, steps.owned, steps.gate, steps.gate_limit, steps.started, steps.checks, steps.result, steps.status, steps.end_value, steps.reason, steps.ended, steps.model_limit, steps.doing, steps.verdicts, steps.epic, steps.task, steps.gate_name, steps.gate_source, steps.gate_needs, steps.loop_round, steps.loop_continues, steps.loop_nudge, steps.loop_owner_nudge, steps.loop_nudged, steps.loop_held, steps.loop_judge_sent, steps.loop_seq, steps.gate_grant, steps.gate_holder, steps.gate_round, steps.loop_limited, steps.loop_limit_kind, steps.loop_limit_resets, steps.loop_gate_from, steps.checkout_head, steps.checkout_hash, steps.loop_stage, steps.loop_stage_from, steps.agents, steps.unowned, steps.caller, sessions.id AS caller_id, sessions.kind AS caller_kind, sessions.server AS caller_server,
        sessions.pane AS caller_pane, sessions.state AS caller_state

@@ -1,7 +1,7 @@
 [
   {
     "name": "step_start",
-    "description": "Start a step: an agent working in a workspace. Returns the step id.",
+    "description": "Start a step: an agent working in a workspace. Returns the step id and next. The step's end arrives in this conversation as an orrery-event of kind step_end.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -55,7 +55,7 @@
   },
   {
     "name": "step_status",
-    "description": "Report a step's current state by id.",
+    "description": "Report a step's current state by id. It returns the state only: no return and no check output.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -66,6 +66,90 @@
       "required": [
         "id"
       ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "step_result",
+    "description": "Read one part of a step's return by id. With only id it returns the outline: each top-level field with its type and size, no values. With field it returns that field's value, a string as text and anything else as compact JSON; with field and item, one element of that array field, by its id property or 0-based index. A value is cut at limit runes (default and most 4000) and the result names the offset to continue from.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "field": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "item": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "step_check",
+    "description": "Read one check of a step by id and check name: its round, whether it passed, its detail (at most 4000 runes), and a slice of its gate output from the log orrery kept, or from the stored tails when none was kept. The slice is the last lines lines (default 40, at most 80, each cut at 150 runes) before line before, keeping only lines containing match when given; the result names the before to continue from. round defaults to the check's last round. An unknown check is an error naming the step's checks.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "before": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "check": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "lines": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "match": {
+          "type": "string"
+        },
+        "round": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        }
+      },
+      "required": [
+        "id",
+        "check"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "step_list",
+    "description": "List the steps this session started, one line each: id, agent, epic, task, end (running while the step runs) and status. It lists each running step and the 20 most recently ended, oldest first, only one epic's when epic is given. The text is at most 4000 bytes; when steps are cut, the earliest go and a first line counts them. Read one step with step_status, step_result or step_check.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "epic": {
+          "type": "string"
+        }
+      },
+      "required": [],
       "additionalProperties": false
     }
   },

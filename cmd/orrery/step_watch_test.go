@@ -15,9 +15,9 @@ import (
 // endedStepLine is the line `orrery step` writes for step s1 ended: the step object step_status returns for
 // stepRow(true), with its newline.
 func endedStepLine() string {
-	return `{"id":"s1","agent":"claude","workspace":"/work/s1` +
-		`","revision":"","readOnly":false,"worktree":"","end":"done","status":"done","result":"","checks":[],` +
-		`"reason":"","started":1700000000,"ended":1700000100,"limited":false,"limitKind":"","limitResets":0}` + "\n"
+	return `{"id":"s1","agent":"claude","end":"done","status":"done","stage":"","doing":"","epic":"","task":"",` +
+		`"started":1700000000,"ended":1700000100,"limited":false,"limitKind":"","limitResets":0,` +
+		`"reason":"","checks":[]}` + "\n"
 }
 
 // TestStepStatusCommandPrintsStep prints a known, ended step as the JSON object step_status returns, on one line of
@@ -53,9 +53,9 @@ func TestStepStatusCommandPrintsRunningStep(t *testing.T) {
 	if code != exitOK {
 		t.Fatalf("exit status %d, want %d; stderr %q", code, exitOK, stderr)
 	}
-	want := `{"id":"s1","agent":"claude","workspace":"/work/s1","revision":"","readOnly":false,"worktree":"",` +
-		`"end":"","status":"","result":"","checks":[],"reason":"","started":1700000000,"ended":0,` +
-		`"limited":false,"limitKind":"","limitResets":0}` + "\n"
+	want := `{"id":"s1","agent":"claude","end":"","status":"","stage":"","doing":"","epic":"","task":"",` +
+		`"started":1700000000,"ended":0,"limited":false,"limitKind":"","limitResets":0,` +
+		`"reason":"","checks":[]}` + "\n"
 	if stdout != want {
 		t.Errorf("stdout = %q, want %q", stdout, want)
 	}

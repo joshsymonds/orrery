@@ -39,6 +39,10 @@ const (
 	StepsStopStepProcedure = "/orrery.engine.v1.Steps/StopStep"
 	// StepsStepStatusProcedure is the fully-qualified name of the Steps's StepStatus RPC.
 	StepsStepStatusProcedure = "/orrery.engine.v1.Steps/StepStatus"
+	// StepsReadStepResultProcedure is the fully-qualified name of the Steps's ReadStepResult RPC.
+	StepsReadStepResultProcedure = "/orrery.engine.v1.Steps/ReadStepResult"
+	// StepsReadStepCheckProcedure is the fully-qualified name of the Steps's ReadStepCheck RPC.
+	StepsReadStepCheckProcedure = "/orrery.engine.v1.Steps/ReadStepCheck"
 	// StepsListStepsProcedure is the fully-qualified name of the Steps's ListSteps RPC.
 	StepsListStepsProcedure = "/orrery.engine.v1.Steps/ListSteps"
 	// StepsHoldStepProcedure is the fully-qualified name of the Steps's HoldStep RPC.
@@ -58,9 +62,19 @@ type StepsClient interface {
 	StopStep(context.Context, *connect.Request[v1.StopStepRequest]) (*connect.Response[v1.StopStepResponse], error)
 	// StepStatus returns a step's row.
 	StepStatus(context.Context, *connect.Request[v1.StepStatusRequest]) (*connect.Response[v1.StepStatusResponse], error)
-	// ListSteps lists the labelled steps, oldest first. An unlabelled step is never listed. A listed step carries no
-	// result: its summary, red_evidence and green_evidence carry what a list reads of it. A list of the running steps also
-	// counts, by epic, the matching steps that have ended, without reading them.
+	// ReadStepResult returns one part of a step's result. A request that names no field returns the outline of a result
+	// that is a JSON object, and the raw text of any other result, paged. A request that names a field returns that
+	// field's value, and one that also names an item returns one element of that array field. A value is paged over its
+	// runes: it is cut to the request's limit from its offset, and next_offset names where the rest starts.
+	ReadStepResult(context.Context, *connect.Request[v1.ReadStepResultRequest]) (*connect.Response[v1.ReadStepResultResponse], error)
+	// ReadStepCheck returns one check's detail and a slice of its kept output, bounded. The check is the one the request
+	// names, in the round it names or in its last round. The output is a slice of the check's kept gate log, or of its
+	// stored stdout and stderr when no log was kept: at most 80 lines, each cut to 150 runes, and the detail is cut to
+	// 4000 runes.
+	ReadStepCheck(context.Context, *connect.Request[v1.ReadStepCheckRequest]) (*connect.Response[v1.ReadStepCheckResponse], error)
+	// ListSteps lists the labelled steps, oldest first. An unlabelled step is listed only by a caller listing. A listed
+	// step carries no result: its summary, red_evidence and green_evidence carry what a list reads of it. A list of the
+	// running steps also counts, by epic, the matching steps that have ended, without reading them.
 	ListSteps(context.Context, *connect.Request[v1.ListStepsRequest]) (*connect.Response[v1.ListStepsResponse], error)
 	// HoldStep interrupts the step's running turn and holds the step until a nudge or a stop. The interrupted turn is no
 	// round. A step with no turn running, one already held, or one running its gate refuses with failed_precondition.
@@ -104,6 +118,18 @@ func NewStepsClient(httpClient connect.HTTPClient, baseURL string, opts ...conne
 			connect.WithSchema(stepsMethods.ByName("StepStatus")),
 			connect.WithClientOptions(opts...),
 		),
+		readStepResult: connect.NewClient[v1.ReadStepResultRequest, v1.ReadStepResultResponse](
+			httpClient,
+			baseURL+StepsReadStepResultProcedure,
+			connect.WithSchema(stepsMethods.ByName("ReadStepResult")),
+			connect.WithClientOptions(opts...),
+		),
+		readStepCheck: connect.NewClient[v1.ReadStepCheckRequest, v1.ReadStepCheckResponse](
+			httpClient,
+			baseURL+StepsReadStepCheckProcedure,
+			connect.WithSchema(stepsMethods.ByName("ReadStepCheck")),
+			connect.WithClientOptions(opts...),
+		),
 		listSteps: connect.NewClient[v1.ListStepsRequest, v1.ListStepsResponse](
 			httpClient,
 			baseURL+StepsListStepsProcedure,
@@ -133,13 +159,15 @@ func NewStepsClient(httpClient connect.HTTPClient, baseURL string, opts ...conne
 
 // stepsClient implements StepsClient.
 type stepsClient struct {
-	startStep  *connect.Client[v1.StartStepRequest, v1.StartStepResponse]
-	stopStep   *connect.Client[v1.StopStepRequest, v1.StopStepResponse]
-	stepStatus *connect.Client[v1.StepStatusRequest, v1.StepStatusResponse]
-	listSteps  *connect.Client[v1.ListStepsRequest, v1.ListStepsResponse]
-	holdStep   *connect.Client[v1.HoldStepRequest, v1.HoldStepResponse]
-	nudgeStep  *connect.Client[v1.NudgeStepRequest, v1.NudgeStepResponse]
-	resumeStep *connect.Client[v1.ResumeStepRequest, v1.ResumeStepResponse]
+	startStep      *connect.Client[v1.StartStepRequest, v1.StartStepResponse]
+	stopStep       *connect.Client[v1.StopStepRequest, v1.StopStepResponse]
+	stepStatus     *connect.Client[v1.StepStatusRequest, v1.StepStatusResponse]
+	readStepResult *connect.Client[v1.ReadStepResultRequest, v1.ReadStepResultResponse]
+	readStepCheck  *connect.Client[v1.ReadStepCheckRequest, v1.ReadStepCheckResponse]
+	listSteps      *connect.Client[v1.ListStepsRequest, v1.ListStepsResponse]
+	holdStep       *connect.Client[v1.HoldStepRequest, v1.HoldStepResponse]
+	nudgeStep      *connect.Client[v1.NudgeStepRequest, v1.NudgeStepResponse]
+	resumeStep     *connect.Client[v1.ResumeStepRequest, v1.ResumeStepResponse]
 }
 
 // StartStep calls orrery.engine.v1.Steps.StartStep.
@@ -155,6 +183,16 @@ func (c *stepsClient) StopStep(ctx context.Context, req *connect.Request[v1.Stop
 // StepStatus calls orrery.engine.v1.Steps.StepStatus.
 func (c *stepsClient) StepStatus(ctx context.Context, req *connect.Request[v1.StepStatusRequest]) (*connect.Response[v1.StepStatusResponse], error) {
 	return c.stepStatus.CallUnary(ctx, req)
+}
+
+// ReadStepResult calls orrery.engine.v1.Steps.ReadStepResult.
+func (c *stepsClient) ReadStepResult(ctx context.Context, req *connect.Request[v1.ReadStepResultRequest]) (*connect.Response[v1.ReadStepResultResponse], error) {
+	return c.readStepResult.CallUnary(ctx, req)
+}
+
+// ReadStepCheck calls orrery.engine.v1.Steps.ReadStepCheck.
+func (c *stepsClient) ReadStepCheck(ctx context.Context, req *connect.Request[v1.ReadStepCheckRequest]) (*connect.Response[v1.ReadStepCheckResponse], error) {
+	return c.readStepCheck.CallUnary(ctx, req)
 }
 
 // ListSteps calls orrery.engine.v1.Steps.ListSteps.
@@ -186,9 +224,19 @@ type StepsHandler interface {
 	StopStep(context.Context, *connect.Request[v1.StopStepRequest]) (*connect.Response[v1.StopStepResponse], error)
 	// StepStatus returns a step's row.
 	StepStatus(context.Context, *connect.Request[v1.StepStatusRequest]) (*connect.Response[v1.StepStatusResponse], error)
-	// ListSteps lists the labelled steps, oldest first. An unlabelled step is never listed. A listed step carries no
-	// result: its summary, red_evidence and green_evidence carry what a list reads of it. A list of the running steps also
-	// counts, by epic, the matching steps that have ended, without reading them.
+	// ReadStepResult returns one part of a step's result. A request that names no field returns the outline of a result
+	// that is a JSON object, and the raw text of any other result, paged. A request that names a field returns that
+	// field's value, and one that also names an item returns one element of that array field. A value is paged over its
+	// runes: it is cut to the request's limit from its offset, and next_offset names where the rest starts.
+	ReadStepResult(context.Context, *connect.Request[v1.ReadStepResultRequest]) (*connect.Response[v1.ReadStepResultResponse], error)
+	// ReadStepCheck returns one check's detail and a slice of its kept output, bounded. The check is the one the request
+	// names, in the round it names or in its last round. The output is a slice of the check's kept gate log, or of its
+	// stored stdout and stderr when no log was kept: at most 80 lines, each cut to 150 runes, and the detail is cut to
+	// 4000 runes.
+	ReadStepCheck(context.Context, *connect.Request[v1.ReadStepCheckRequest]) (*connect.Response[v1.ReadStepCheckResponse], error)
+	// ListSteps lists the labelled steps, oldest first. An unlabelled step is listed only by a caller listing. A listed
+	// step carries no result: its summary, red_evidence and green_evidence carry what a list reads of it. A list of the
+	// running steps also counts, by epic, the matching steps that have ended, without reading them.
 	ListSteps(context.Context, *connect.Request[v1.ListStepsRequest]) (*connect.Response[v1.ListStepsResponse], error)
 	// HoldStep interrupts the step's running turn and holds the step until a nudge or a stop. The interrupted turn is no
 	// round. A step with no turn running, one already held, or one running its gate refuses with failed_precondition.
@@ -228,6 +276,18 @@ func NewStepsHandler(svc StepsHandler, opts ...connect.HandlerOption) (string, h
 		connect.WithSchema(stepsMethods.ByName("StepStatus")),
 		connect.WithHandlerOptions(opts...),
 	)
+	stepsReadStepResultHandler := connect.NewUnaryHandler(
+		StepsReadStepResultProcedure,
+		svc.ReadStepResult,
+		connect.WithSchema(stepsMethods.ByName("ReadStepResult")),
+		connect.WithHandlerOptions(opts...),
+	)
+	stepsReadStepCheckHandler := connect.NewUnaryHandler(
+		StepsReadStepCheckProcedure,
+		svc.ReadStepCheck,
+		connect.WithSchema(stepsMethods.ByName("ReadStepCheck")),
+		connect.WithHandlerOptions(opts...),
+	)
 	stepsListStepsHandler := connect.NewUnaryHandler(
 		StepsListStepsProcedure,
 		svc.ListSteps,
@@ -260,6 +320,10 @@ func NewStepsHandler(svc StepsHandler, opts ...connect.HandlerOption) (string, h
 			stepsStopStepHandler.ServeHTTP(w, r)
 		case StepsStepStatusProcedure:
 			stepsStepStatusHandler.ServeHTTP(w, r)
+		case StepsReadStepResultProcedure:
+			stepsReadStepResultHandler.ServeHTTP(w, r)
+		case StepsReadStepCheckProcedure:
+			stepsReadStepCheckHandler.ServeHTTP(w, r)
 		case StepsListStepsProcedure:
 			stepsListStepsHandler.ServeHTTP(w, r)
 		case StepsHoldStepProcedure:
@@ -287,6 +351,14 @@ func (UnimplementedStepsHandler) StopStep(context.Context, *connect.Request[v1.S
 
 func (UnimplementedStepsHandler) StepStatus(context.Context, *connect.Request[v1.StepStatusRequest]) (*connect.Response[v1.StepStatusResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Steps.StepStatus is not implemented"))
+}
+
+func (UnimplementedStepsHandler) ReadStepResult(context.Context, *connect.Request[v1.ReadStepResultRequest]) (*connect.Response[v1.ReadStepResultResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Steps.ReadStepResult is not implemented"))
+}
+
+func (UnimplementedStepsHandler) ReadStepCheck(context.Context, *connect.Request[v1.ReadStepCheckRequest]) (*connect.Response[v1.ReadStepCheckResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Steps.ReadStepCheck is not implemented"))
 }
 
 func (UnimplementedStepsHandler) ListSteps(context.Context, *connect.Request[v1.ListStepsRequest]) (*connect.Response[v1.ListStepsResponse], error) {

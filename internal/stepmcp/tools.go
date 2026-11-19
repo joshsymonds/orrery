@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strings"
 
 	"connectrpc.com/connect"
 	"github.com/google/jsonschema-go/jsonschema"
@@ -69,18 +70,62 @@ func stepTools(steps enginev1connect.StepsClient, clock rpcretry.Clock) ([]Tool,
 	if err != nil {
 		return nil, err
 	}
+	resultInput, err := argumentSchema[stepResultArgs](nil)
+	if err != nil {
+		return nil, err
+	}
+	checkInput, err := argumentSchema[stepCheckArgs](nil)
+	if err != nil {
+		return nil, err
+	}
+	listInput, err := argumentSchema[stepListArgs](nil)
+	if err != nil {
+		return nil, err
+	}
 	return []Tool{
 		{
-			Name:        "step_start",
-			Description: "Start a step: an agent working in a workspace. Returns the step id.",
+			Name: "step_start",
+			Description: "Start a step: an agent working in a workspace. Returns the step id and next. " +
+				"The step's end arrives in this conversation as an orrery-event of kind step_end.",
 			InputSchema: startInput,
 			Handler:     startHandler(steps, clock),
 		},
 		{
-			Name:        "step_status",
-			Description: "Report a step's current state by id.",
+			Name: "step_status",
+			Description: "Report a step's current state by id. It returns the state only: " +
+				"no return and no check output.",
 			InputSchema: idInput,
 			Handler:     statusHandler(steps, clock),
+		},
+		{
+			Name: "step_result",
+			Description: "Read one part of a step's return by id. With only id it returns the outline: each top-level " +
+				"field with its type and size, no values. With field it returns that field's value, a string as text " +
+				"and anything else as compact JSON; with field and item, one element of that array field, by its id " +
+				"property or 0-based index. A value is cut at limit runes (default and most 4000) and the result names " +
+				"the offset to continue from.",
+			InputSchema: resultInput,
+			Handler:     stepResultHandler(steps, clock),
+		},
+		{
+			Name: "step_check",
+			Description: "Read one check of a step by id and check name: its round, whether it passed, its detail " +
+				"(at most 4000 runes), and a slice of its gate output from the log orrery kept, or from the stored " +
+				"tails when none was kept. The slice is the last lines lines (default 40, at most 80, each cut at " +
+				"150 runes) before line before, keeping only lines containing match when given; the result names " +
+				"the before to continue from. round defaults to the check's last round. An unknown check is an " +
+				"error naming the step's checks.",
+			InputSchema: checkInput,
+			Handler:     stepCheckHandler(steps, clock),
+		},
+		{
+			Name: "step_list",
+			Description: "List the steps this session started, one line each: id, agent, epic, task, end (running " +
+				"while the step runs) and status. It lists each running step and the 20 most recently ended, oldest " +
+				"first, only one epic's when epic is given. The text is at most 4000 bytes; when steps are cut, the " +
+				"earliest go and a first line counts them. Read one step with step_status, step_result or step_check.",
+			InputSchema: listInput,
+			Handler:     stepListHandler(steps, clock),
 		},
 		{
 			Name:        "step_stop",
@@ -96,6 +141,11 @@ func stepTools(steps enginev1connect.StepsClient, clock rpcretry.Clock) ([]Tool,
 		},
 	}, nil
 }
+
+// startedNext is the next of step_start's result: what the caller does with the started step. Its end arrives as an
+// event, so the caller does not poll.
+const startedNext = "The step runs in the background. Its end arrives in this conversation as an orrery-event of " +
+	"kind step_end, so do not poll for it."
 
 // startArgs is the arguments of step_start. A step's workspace and prompt are required; the rest are optional.
 type startArgs struct {
@@ -251,10 +301,11 @@ func startHandler(steps enginev1connect.StepsClient, clock rpcretry.Clock) ToolH
 		if err != nil {
 			return toolFailure(err), nil
 		}
-		return textResult(map[string]string{"id": started.Msg.GetId()})
+		return textResult(map[string]string{"id": started.Msg.GetId(), "next": startedNext})
 	}
 }
 
+// statusHandler returns the handler of step_status, which answers the step's state only: no return and no check output.
 func statusHandler(steps enginev1connect.StepsClient, clock rpcretry.Clock) ToolHandler {
 	return func(ctx context.Context, call Call) (ToolResult, error) {
 		var args idArgs
@@ -312,72 +363,77 @@ func resumeHandler(steps enginev1connect.StepsClient, clock rpcretry.Clock) Tool
 	})
 }
 
-// stepJSON is a step as the tools report it.
+// reasonCap is the most runes of a step's reason that its step object carries. A longer first line is cut to its first
+// reasonCap-1 runes and the ellipsis rune.
+const reasonCap = 200
+
+// stepJSON is a step as the tools report it: its state only, with no return, workspace, revision, read-only flag,
+// worktree or check output.
 type stepJSON struct {
 	ID          string      `json:"id"`
 	Agent       string      `json:"agent"`
-	Workspace   string      `json:"workspace"`
-	Revision    string      `json:"revision"`
-	ReadOnly    bool        `json:"readOnly"`
-	Worktree    string      `json:"worktree"`
 	End         string      `json:"end"`
 	Status      string      `json:"status"`
-	Result      string      `json:"result"`
-	Checks      []checkJSON `json:"checks"`
-	Reason      string      `json:"reason"`
+	Stage       string      `json:"stage"`
+	Doing       string      `json:"doing"`
+	Epic        string      `json:"epic"`
+	Task        string      `json:"task"`
 	Started     int64       `json:"started"`
 	Ended       int64       `json:"ended"`
 	Limited     bool        `json:"limited"`
 	LimitKind   string      `json:"limitKind"`
 	LimitResets int64       `json:"limitResets"`
+	Reason      string      `json:"reason"`
+	Checks      []checkJSON `json:"checks"`
 }
 
-// checkJSON is one check of a step. A gate check carries the redacted tails of its stdout and stderr, and a failed gate
-// check the file its output was kept in.
+// checkJSON is one check of a step: its round, its name and whether it passed. A check's output is not reported.
 type checkJSON struct {
-	Round  uint32 `json:"round"`
-	Name   string `json:"name"`
-	OK     bool   `json:"ok"`
-	Detail string `json:"detail"`
-	Stdout string `json:"stdout,omitempty"`
-	Stderr string `json:"stderr,omitempty"`
-	Log    string `json:"log,omitempty"`
+	Round uint32 `json:"round"`
+	Name  string `json:"name"`
+	OK    bool   `json:"ok"`
+}
+
+// reasonLine returns the first line of reason, the text before its first newline, cut to reasonCap runes as stepJSON's
+// reason is.
+func reasonLine(reason string) string {
+	line, _, _ := strings.Cut(reason, "\n")
+	runes := []rune(line)
+	if len(runes) <= reasonCap {
+		return line
+	}
+	return string(runes[:reasonCap-1]) + "…"
 }
 
 func stepFromProto(step *v1.Step) stepJSON {
 	checks := make([]checkJSON, 0, len(step.GetChecks()))
 	for _, check := range step.GetChecks() {
 		checks = append(checks, checkJSON{
-			Round:  check.GetRound(),
-			Name:   check.GetName(),
-			OK:     check.GetOk(),
-			Detail: check.GetDetail(),
-			Stdout: check.GetStdout(),
-			Stderr: check.GetStderr(),
-			Log:    check.GetLog(),
+			Round: check.GetRound(),
+			Name:  check.GetName(),
+			OK:    check.GetOk(),
 		})
 	}
 	return stepJSON{
 		ID:          step.GetId(),
 		Agent:       step.GetAgent(),
-		Workspace:   step.GetWorkspace(),
-		Revision:    step.GetRevision(),
-		ReadOnly:    step.GetReadOnly(),
-		Worktree:    step.GetWorktree(),
 		End:         step.GetEnd(),
 		Status:      step.GetStatus(),
-		Result:      step.GetResult(),
-		Checks:      checks,
-		Reason:      step.GetReason(),
+		Stage:       step.GetStage(),
+		Doing:       step.GetDoing(),
+		Epic:        step.GetEpic(),
+		Task:        step.GetTask(),
 		Started:     step.GetStarted(),
 		Ended:       step.GetEnded(),
 		Limited:     step.GetLimited(),
 		LimitKind:   step.GetLimitKind(),
 		LimitResets: step.GetLimitResets(),
+		Reason:      reasonLine(step.GetReason()),
+		Checks:      checks,
 	}
 }
 
-// StepObject returns step as the step object that step_status reports it as, with no trailing newline.
+// StepObject returns step as the state-only step object that step_status reports, with no trailing newline.
 // orrery step status prints through it, so its output cannot drift from the tool's.
 func StepObject(step *v1.Step) ([]byte, error) {
 	text, err := json.Marshal(stepFromProto(step))
