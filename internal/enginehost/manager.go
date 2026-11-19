@@ -148,6 +148,10 @@ type Store interface {
 // CronWake, when set, is called with a session id after the owner's Say to that session returns nil, and after a turn's
 // end that leaves a session which is not a step with no turn running is stored. It is called with "" whenever a session
 // slot frees. Each call runs on its own goroutine, off the manager's locks (see wakeCron).
+//
+// PutOffs stores the owner's put-off marks, which NotNow and BringBack set and clear, and it refuses both as unavailable
+// when nil. Panes reads the panes' questions and reports a pane seen to the notice router, which NotNow and BringBack of a
+// pane need, so it refuses a pane call as unavailable when nil.
 type Config struct {
 	Shell             string
 	Claude            string
@@ -166,6 +170,8 @@ type Config struct {
 	Logger            *slog.Logger
 	Metrics           *telemetry.Daemon
 	CronWake          func(session string)
+	PutOffs           PutOffStore
+	Panes             PaneQuestions
 }
 
 // liveSession is one running session: its directory, its process, the done channel closed when its pump has finished,
@@ -254,6 +260,9 @@ type Manager struct {
 	metrics          *telemetry.Daemon
 	// cronWake is Config.CronWake, called on its own goroutine (see wakeCron).
 	cronWake func(session string)
+	// putOffs and panes are Config.PutOffs and Config.Panes, which NotNow and BringBack use.
+	putOffs PutOffStore
+	panes   PaneQuestions
 
 	pumps sync.WaitGroup
 	// calls counts the calls under way that can start or end work (see callsInFlight).
@@ -315,6 +324,8 @@ func NewManager(cfg Config) *Manager {
 		logger:            cfg.Logger,
 		metrics:           cfg.Metrics,
 		cronWake:          cfg.CronWake,
+		putOffs:           cfg.PutOffs,
+		panes:             cfg.Panes,
 		sessions:          map[string]*liveSession{},
 		stopping:          map[string]*liveSession{},
 		stepObservers:     map[string]StepObserver{},

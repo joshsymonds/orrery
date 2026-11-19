@@ -925,7 +925,7 @@ func startSessions(
 			Store:             st,
 			Logger:            logger,
 			Metrics:           opts.metrics,
-			CronWake:          host.cron.Wake,
+			CronWake:          host.cron.Wake, PutOffs: st,
 		})
 		host.startBroker(ctx, hostName, st, logger)
 		// host.pools is nil when the broker's restore failed, which leaves the gates no pools to run under.
