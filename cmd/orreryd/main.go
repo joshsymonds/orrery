@@ -96,8 +96,6 @@ const (
 	readWindow = 30 * time.Second
 	// silentBackground is why a done notice goes nowhere when its Stop left a subagent or workflow running.
 	silentBackground = "background work"
-	// brokerTick is how often the grants broker ticks. Each tick ends the grants of gone clients and polls each member.
-	brokerTick = 60 * time.Second
 	// limitTick is how often the due pass runs.
 	limitTick = 5 * time.Second
 	// storeOpenRetry is how long openStore waits before it tries a busy store open again.
@@ -804,7 +802,7 @@ func shutdownServe(
 // so a grant that a blocked Acquire holds stays stored for the next orreryd. pools is the broker when its restore
 // succeeded, and nil otherwise, so no Pools are served. evidence is the evidence runner over the store, the steps and
 // the pools, and nil without a store. checks is the node checks runner over the store and the pools, and nil without a
-// store. brokerRun is closed when the broker's tick loop returns, and is nil when no loop runs.
+// store.
 type sessionHost struct {
 	manager    *enginehost.Manager
 	steps      *enginehost.Steps
@@ -813,7 +811,6 @@ type sessionHost struct {
 	pools      enginehost.PoolCommands
 	evidence   *enginehost.Evidence
 	checks     *enginehost.NodeChecks
-	brokerRun  chan struct{}
 	stopWriter context.CancelFunc
 	writerDone chan struct{}
 	stopIdle   context.CancelFunc
@@ -886,7 +883,7 @@ func newSessionHost(logger *slog.Logger) *sessionHost {
 // startSessions listens on sessions.sock beside the daemon socket and serves the Engine, Steps, Pools and Evidence
 // services on it until stop. With an open store it also starts the writer, a manager capped at opts.sessionCap that
 // notifies through router, the grants broker for hostName, which restores the grants a previous run stored and then
-// ticks every brokerTick until stop, and the step engine capped at opts.stepCap whose worktrees go under step-worktrees
+// runs no loop until stop, and the step engine capped at opts.stepCap whose worktrees go under step-worktrees
 // beside the store file. The steps re-adopt the open step rows a previous run left, the manager reconciles the session
 // rows and the steps reconcile the rest before the service serves. The evidence runner is then built over the store,
 // the steps and the pools, and takes up the open evidence runs, so no judge starts beside a step already re-adopted.
@@ -1084,10 +1081,10 @@ func (h *sessionHost) reconcile(
 }
 
 // startBroker builds the grants broker for hostName over st and restores the grants a previous run stored. A restore
-// that succeeds makes the broker the host's pools and starts its tick loop. A restore that fails is logged and leaves
-// the pools nil, so no Pools are served; the broker is still closed at shutdown, since its restore may have started
-// member commands. The broker closes as soon as ctx ends: the signal that ends ctx also starts Serve's shutdown, whose
-// Close after shutdownWait cancels each held Acquire, and an Acquire canceled while the broker is open ends its grant.
+// that succeeds makes the broker the host's pools. A restore that fails is logged and leaves the pools nil, so no Pools
+// are served; the broker is still closed at shutdown, since its restore may have started member commands. The broker
+// closes as soon as ctx ends: the signal that ends ctx also starts Serve's shutdown, whose Close after shutdownWait
+// cancels each held Acquire, and an Acquire canceled while the broker is open ends its grant.
 func (h *sessionHost) startBroker(ctx context.Context, hostName string, st *store.Store, logger *slog.Logger) {
 	h.broker = grants.NewBroker(grants.Config{
 		Host:        hostName,
@@ -1102,8 +1099,6 @@ func (h *sessionHost) startBroker(ctx context.Context, hostName string, st *stor
 		return
 	}
 	h.pools = h.broker
-	h.brokerRun = make(chan struct{})
-	go h.runBroker(context.WithoutCancel(ctx))
 }
 
 // holderLives reports whether the holder that serves the holder directory dir is running. A gate's grant names the
@@ -1123,26 +1118,14 @@ func holderLives(dir string) bool {
 	return errors.Is(err, syscall.EWOULDBLOCK)
 }
 
-// runBroker ticks the broker every brokerTick until the broker closes. Each tick ends the grants of clients that are
-// gone and polls each member's status. It closes brokerRun when it returns.
-func (h *sessionHost) runBroker(ctx context.Context) {
-	defer close(h.brokerRun)
-	ticker := time.NewTicker(brokerTick)
-	defer ticker.Stop()
-	h.broker.Run(ctx, ticker.C)
-}
-
-// stopBroker closes the broker and waits for its tick loop to return, and for its member commands to end. Each Acquire
-// the broker is blocking returns without ending its grant, so the grant stays stored for the next orreryd. Without a
-// broker it does nothing, and so does a second call.
+// stopBroker closes the broker, which waits for its member commands to end. Each Acquire the broker is blocking returns
+// without ending its grant, so the grant stays stored for the next orreryd. Without a broker it does nothing, and so
+// does a second call.
 func (h *sessionHost) stopBroker() {
 	if h.broker == nil {
 		return
 	}
 	h.broker.Close()
-	if h.brokerRun != nil {
-		<-h.brokerRun
-	}
 }
 
 // stop stops the broker, then serving the session socket, and then shuts the sessions down. Serve's shutdown closes the

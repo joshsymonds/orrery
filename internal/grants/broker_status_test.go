@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/pools"
+	"github.com/joshsymonds/orrery/internal/store"
 )
 
 // statusBody is the status command of the fake pools. It logs its member to RUNS, then does what the member's mode in
@@ -101,7 +102,7 @@ func await(t *testing.T, cond func() bool) {
 }
 
 // awaitStatuses waits until n status runs have been logged and no member command of pool fleet runs. A status run logs
-// its member before anything else it does, so the count reaches n only once every run of the ticks so far has started.
+// its member before anything else it does, so the count reaches n only once every run so far has started.
 func awaitStatuses(t *testing.T, b *Broker, f fakes, n int) {
 	t.Helper()
 	await(t, func() bool {
@@ -115,45 +116,13 @@ func awaitIdle(t *testing.T, b *Broker) {
 	await(t, func() bool { return runningCommands(b, "fleet") == 0 })
 }
 
-// ticker runs Broker.Run on a goroutine and hands it ticks. The run ends at the end of the test, or when drain closes
-// its tick channel.
-type ticker struct {
-	tick chan time.Time
-	done chan struct{}
-}
-
-// runTicks starts b.Run on a goroutine, fed by the ticks the returned ticker sends.
-func runTicks(t *testing.T, b *Broker) *ticker {
+// deadlineBroker returns a broker on a new store whose commands run with the files of f. Its status deadlines and store
+// retries are armed on the timers it returns, so a test fires them itself. The broker is closed when the test ends.
+func deadlineBroker(t *testing.T, f fakes) (*Broker, *store.Store, *retryTimers) {
 	t.Helper()
-	k := &ticker{tick: make(chan time.Time), done: make(chan struct{})}
-	ctx, cancel := context.WithCancel(t.Context())
-	go func() {
-		b.Run(ctx, k.tick)
-		close(k.done)
-	}()
-	t.Cleanup(func() {
-		cancel()
-		<-k.done
-	})
-	return k
-}
-
-// send hands Run one tick, and fails the test when Run returns first. It has no deadline of its own.
-func (k *ticker) send(t *testing.T) {
-	t.Helper()
-	select {
-	case k.tick <- fixedNow():
-	case <-k.done:
-		t.Fatal("Run returned before taking the tick")
-	}
-}
-
-// drain closes the tick channel and waits for Run to return. Run handles each tick before it takes the next, so every
-// tick sent has been handled when drain returns.
-func (k *ticker) drain(t *testing.T) {
-	t.Helper()
-	close(k.tick)
-	<-k.done
+	s := openStore(t)
+	timers := &retryTimers{}
+	return wakeBroker(t, s, f.env(), nil, timers), s, timers
 }
 
 // admittedFree grants one member of def to a holding request, which keeps it so the pool stays in use. It then grants
@@ -180,6 +149,28 @@ func admittedFree(t *testing.T, b *Broker, def pools.Pool) string {
 	return e.Grant.Members[0].Name
 }
 
+// blocked queues a request of project a for one member of def. While a holds a member of def, the request is over its
+// project's cap, so it waits on def and reserves nothing: the free members of def keep their status deadlines, and none
+// is granted or prepared for it. It returns the request's call and the cancel that ends it.
+func blocked(t *testing.T, b *Broker, def pools.Pool) (*call, context.CancelFunc) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(t.Context())
+	c := start(ctx, b, request("a", def, 1))
+	if e := c.next(t); e.Position == 0 {
+		t.Fatalf("blocked request got %+v, want a queue position", e)
+	}
+	return c, cancel
+}
+
+// unblock ends the request that blocked returned, and checks that its Acquire returns context.Canceled.
+func unblock(t *testing.T, c *call, cancel context.CancelFunc) {
+	t.Helper()
+	cancel()
+	if err := c.finish(t); !errors.Is(err, context.Canceled) {
+		t.Fatalf("blocked Acquire = %v, want context.Canceled", err)
+	}
+}
+
 // wantFree fails the test unless member of pool fleet is in state want and no grant holds it.
 func wantFree(t *testing.T, b *Broker, member string, want MemberState) {
 	t.Helper()
@@ -188,18 +179,20 @@ func wantFree(t *testing.T, b *Broker, member string, want MemberState) {
 	}
 }
 
-// TestTickSleepsFreeAdmittedMemberOnNonzeroStatus checks that a free admitted member whose status exits nonzero
-// becomes asleep, and that the next request wakes it and is granted it.
-func TestTickSleepsFreeAdmittedMemberOnNonzeroStatus(t *testing.T) {
+// TestDeadlineStatusSleepsFreeAdmittedMemberOnNonzeroStatus checks that a free admitted member whose status exits
+// nonzero becomes asleep when its status deadline fires while a request waits on its pool, and that the next request
+// wakes it and is granted it.
+func TestDeadlineStatusSleepsFreeAdmittedMemberOnNonzeroStatus(t *testing.T) {
 	f := newFakes(t)
-	b, _ := newBroker(t, f.env()...)
-	p := statusPool(t, 2, "m1", "m2")
-	tick := runTicks(t, b)
+	b, _, timers := deadlineBroker(t, f)
+	p := statusPool(t, 1, "m1", "m2")
 	free := admittedFree(t, b, p)
+	blocker, cancel := blocked(t, b, p)
 	f.setMode(t, free, "down")
-	tick.send(t)
-	awaitStatuses(t, b, f, 4)
+	timers.fireAfter(t, statusDeadline)
+	awaitStatuses(t, b, f, 3)
 	wantFree(t, b, free, Asleep)
+	unblock(t, blocker, cancel)
 	next := start(t.Context(), b, request("c", p, 1))
 	if e := next.next(t); e.Position != 1 {
 		t.Fatalf("first event = %+v, want position 1", e)
@@ -216,19 +209,20 @@ func TestTickSleepsFreeAdmittedMemberOnNonzeroStatus(t *testing.T) {
 	}
 }
 
-// TestTickLeavesAdmittedMemberAdmittedOnZeroStatus checks that an admitted member whose status exits 0 stays admitted,
-// so the next request is granted it without a wake.
-func TestTickLeavesAdmittedMemberAdmittedOnZeroStatus(t *testing.T) {
+// TestDeadlineStatusLeavesAdmittedMemberAdmittedOnZeroStatus checks that an admitted member whose status exits 0 stays
+// admitted when its deadline fires, so the next request is granted it without a wake.
+func TestDeadlineStatusLeavesAdmittedMemberAdmittedOnZeroStatus(t *testing.T) {
 	f := newFakes(t)
-	b, _ := newBroker(t, f.env()...)
-	p := statusPool(t, 2, "m1", "m2")
-	tick := runTicks(t, b)
+	b, _, timers := deadlineBroker(t, f)
+	p := statusPool(t, 1, "m1", "m2")
 	free := admittedFree(t, b, p)
-	tick.send(t)
-	awaitStatuses(t, b, f, 4)
+	blocker, cancel := blocked(t, b, p)
+	timers.fireAfter(t, statusDeadline)
+	awaitStatuses(t, b, f, 3)
 	if state, grant := memberOf(t, b, "fleet", free); state != Admitted || grant != "" {
 		t.Fatalf("%s is %v holding %q after its status exits 0, want admitted and free", free, state, grant)
 	}
+	unblock(t, blocker, cancel)
 	next := start(t.Context(), b, request("c", p, 1))
 	if e := next.next(t); e.Position != 1 {
 		t.Fatalf("first event = %+v, want position 1", e)
@@ -242,19 +236,20 @@ func TestTickLeavesAdmittedMemberAdmittedOnZeroStatus(t *testing.T) {
 	}
 }
 
-// TestTickPassingStatusLimitLeavesMemberUnavailable checks that a status that passes its limit leaves its free member
-// unavailable, so a waiting request neither is granted it nor wakes it.
-func TestTickPassingStatusLimitLeavesMemberUnavailable(t *testing.T) {
+// TestDeadlineStatusPassingStatusLimitLeavesMemberUnavailable checks that a status that passes its limit leaves its
+// free member unavailable, so a waiting request neither is granted it nor wakes it.
+func TestDeadlineStatusPassingStatusLimitLeavesMemberUnavailable(t *testing.T) {
 	f := newFakes(t)
-	b, _ := newBroker(t, f.env()...)
-	p := statusPool(t, 2, "m1", "m2")
+	b, _, timers := deadlineBroker(t, f)
+	p := statusPool(t, 1, "m1", "m2")
 	p.StatusLimit = time.Second
-	tick := runTicks(t, b)
 	free := admittedFree(t, b, p)
 	f.setMode(t, free, "hang")
-	tick.send(t)
-	awaitStatuses(t, b, f, 4)
+	blocker, cancel := blocked(t, b, p)
+	timers.fireAfter(t, statusDeadline)
+	awaitStatuses(t, b, f, 3)
 	wantFree(t, b, free, Unavailable)
+	unblock(t, blocker, cancel)
 	next := start(t.Context(), b, request("c", p, 1))
 	if e := next.next(t); e.Position != 1 {
 		t.Fatalf("first event = %+v, want position 1", e)
@@ -268,27 +263,28 @@ func TestTickPassingStatusLimitLeavesMemberUnavailable(t *testing.T) {
 	}
 }
 
-// TestTickNonzeroKeepsUnavailableAndZeroAwakensIt checks that a nonzero status leaves an unavailable member
+// TestDeadlineStatusNonzeroKeepsUnavailableAndZeroAwakensIt checks that a nonzero status leaves an unavailable member
 // unavailable, and that a later status that exits 0 makes it awake again.
-func TestTickNonzeroKeepsUnavailableAndZeroAwakensIt(t *testing.T) {
+func TestDeadlineStatusNonzeroKeepsUnavailableAndZeroAwakensIt(t *testing.T) {
 	f := newFakes(t)
-	b, _ := newBroker(t, f.env()...)
-	p := statusPool(t, 2, "m1", "m2")
+	b, _, timers := deadlineBroker(t, f)
+	p := statusPool(t, 1, "m1", "m2")
 	p.StatusLimit = time.Second
-	tick := runTicks(t, b)
 	free := admittedFree(t, b, p)
 	f.setMode(t, free, "hang")
-	tick.send(t)
-	awaitStatuses(t, b, f, 4)
+	blocker, cancel := blocked(t, b, p)
+	timers.fireAfter(t, statusDeadline)
+	awaitStatuses(t, b, f, 3)
 	wantFree(t, b, free, Unavailable)
 	f.setMode(t, free, "down")
-	tick.send(t)
-	awaitStatuses(t, b, f, 6)
+	timers.fireAfter(t, statusDeadline)
+	awaitStatuses(t, b, f, 4)
 	wantFree(t, b, free, Unavailable)
 	f.setMode(t, free, "up")
-	tick.send(t)
-	awaitStatuses(t, b, f, 8)
+	timers.fireAfter(t, statusDeadline)
+	awaitStatuses(t, b, f, 5)
 	wantFree(t, b, free, Awake)
+	unblock(t, blocker, cancel)
 	next := start(t.Context(), b, request("c", p, 1))
 	if e := next.next(t); e.Position != 1 {
 		t.Fatalf("first event = %+v, want position 1", e)
@@ -301,108 +297,102 @@ func TestTickNonzeroKeepsUnavailableAndZeroAwakensIt(t *testing.T) {
 	}
 }
 
-// TestTickLeavesGrantedMemberItsGrant checks that a granted member keeps its grant whatever its status says: the
-// status records the member's state, and the grant stays stored and held.
-func TestTickLeavesGrantedMemberItsGrant(t *testing.T) {
-	cases := []struct {
-		mode string
-		want MemberState
-	}{
-		{"down", Asleep},
-		{"hang", Unavailable},
-	}
-	for _, tc := range cases {
-		t.Run(tc.mode, func(t *testing.T) {
-			f := newFakes(t)
-			b, s := newBroker(t, f.env()...)
-			p := statusPool(t, 1, "m1")
-			p.StatusLimit = time.Second
-			tick := runTicks(t, b)
-			holder := start(t.Context(), b, request("a", p, 1))
-			holder.next(t)
-			held := holder.next(t).Grant
-			if held == nil {
-				t.Fatal("holder was not granted")
-			}
-			f.setMode(t, "m1", tc.mode)
-			tick.send(t)
-			awaitStatuses(t, b, f, 2)
-			if state, grant := memberOf(t, b, "fleet", "m1"); state != tc.want || grant != held.ID {
-				t.Fatalf("m1 is %v holding %q, want %v holding grant %s", state, grant, tc.want, held.ID)
-			}
-			if rows := storedGrants(t, s); len(rows) != 1 || rows[0].ID != held.ID {
-				t.Fatalf("stored grants = %+v, want only grant %s", rows, held.ID)
-			}
-		})
-	}
-}
-
-// TestTickDoesNotDoubleAStatusStillRunning checks that a member whose status is still running gets no second status
-// on the next tick, and that its next tick after the run ends starts one.
-func TestTickDoesNotDoubleAStatusStillRunning(t *testing.T) {
+// TestGrantedMemberRunsNoStatusAndHasNoDeadline checks that a granted member keeps its grant and its state whatever its
+// status would say: with a request waiting on its pool, no status runs and no status deadline is pending.
+func TestGrantedMemberRunsNoStatusAndHasNoDeadline(t *testing.T) {
 	f := newFakes(t)
-	b, _ := newBroker(t, f.env()...)
+	b, s, timers := deadlineBroker(t, f)
 	p := statusPool(t, 1, "m1")
-	tick := runTicks(t, b)
 	holder := start(t.Context(), b, request("a", p, 1))
 	holder.next(t)
-	if e := holder.next(t); e.Grant == nil {
-		t.Fatalf("holder got %+v, want its grant", e)
-	}
-	f.setMode(t, "m1", "gate")
-	tick.send(t)
-	tick.send(t)
-	tick.drain(t)
-	if n := runningCommands(b, "fleet"); n != 1 {
-		t.Fatalf("%d member commands run for p while the status is held, want one", n)
-	}
-	f.openGate(t)
-	awaitStatuses(t, b, f, 2)
-	again := runTicks(t, b)
-	again.send(t)
-	awaitStatuses(t, b, f, 3)
-}
-
-// TestTickSkipsMemberWhoseWakeRuns checks that a tick gives no status to a member whose wake is running, and that the
-// request waiting for it is granted once the wake ends, with one wake and no status in between.
-func TestTickSkipsMemberWhoseWakeRuns(t *testing.T) {
-	f := newFakes(t)
-	b, _ := newBroker(t, f.env()...)
-	p := poolOf(t, "fleet", 1, []string{"m1"}, statusBody, wakeBody+"\n"+holdGate, healthy)
-	tick := runTicks(t, b)
-	ctx, cancel := context.WithCancel(t.Context())
-	holder := start(ctx, b, request("a", p, 1))
-	holder.next(t)
-	if e := holder.next(t); e.Grant == nil {
-		t.Fatalf("holder got %+v, want its grant", e)
+	held := holder.next(t).Grant
+	if held == nil {
+		t.Fatal("holder was not granted")
 	}
 	f.setMode(t, "m1", "down")
-	tick.send(t)
-	awaitStatuses(t, b, f, 2)
+	blocker, cancel := blocked(t, b, p)
+	awaitIdle(t, b)
+	if runs := lines(t, f.runs); len(runs) != 1 {
+		t.Fatalf("status runs = %v, want only the one before the grant", runs)
+	}
+	if n := timers.pendingDeadlines(); n != 0 {
+		t.Fatalf("%d status deadlines pending for a granted member, want none", n)
+	}
+	if state, grant := memberOf(t, b, "fleet", "m1"); state != Admitted || grant != held.ID {
+		t.Fatalf("m1 is %v holding %q, want admitted and holding grant %s", state, grant, held.ID)
+	}
+	if rows := storedGrants(t, s); len(rows) != 1 || rows[0].ID != held.ID {
+		t.Fatalf("stored grants = %+v, want only grant %s", rows, held.ID)
+	}
+	unblock(t, blocker, cancel)
+}
+
+// TestDeadlineStatusDoesNotDoubleAStatusStillRunning checks that a member whose status is still running gets no second
+// status when another request queues on its pool, and that its status deadline after the run ends starts the next one.
+func TestDeadlineStatusDoesNotDoubleAStatusStillRunning(t *testing.T) {
+	f := newFakes(t)
+	b, _, timers := deadlineBroker(t, f)
+	p := statusPool(t, 1, "m1", "m2")
+	free := admittedFree(t, b, p)
+	f.setMode(t, free, "gate")
+	first, cancelFirst := blocked(t, b, p)
+	timers.fireAfter(t, statusDeadline)
+	await(t, func() bool { return len(lines(t, f.runs)) == 3 })
+	if n := runningCommands(b, "fleet"); n != 1 {
+		t.Fatalf("%d member commands run for fleet while the status is held, want one", n)
+	}
+	second, cancelSecond := blocked(t, b, p)
+	if runs := lines(t, f.runs); len(runs) != 3 {
+		t.Fatalf("status runs = %v after a second request queued, want no second status of %s", runs, free)
+	}
+	if n := timers.pendingDeadlines(); n != 0 {
+		t.Fatalf("%d status deadlines pending while the status runs, want none", n)
+	}
+	f.openGate(t)
+	awaitStatuses(t, b, f, 3)
+	if n := timers.pendingDeadlines(); n != 1 {
+		t.Fatalf("%d status deadlines pending after the status ends, want one", n)
+	}
+	timers.fireAfter(t, statusDeadline)
+	awaitStatuses(t, b, f, 4)
+	unblock(t, first, cancelFirst)
+	unblock(t, second, cancelSecond)
+}
+
+// TestDeadlineStatusSkipsMemberWhoseWakeRuns checks that no status deadline is pending for a member whose wake runs,
+// and that the request waiting for it is granted once the wake ends, with one wake and no status in between.
+func TestDeadlineStatusSkipsMemberWhoseWakeRuns(t *testing.T) {
+	f := newFakes(t)
+	b, _, timers := deadlineBroker(t, f)
+	p := poolOf(t, "fleet", 1, []string{"m1", "m2"}, statusBody, wakeBody+"\n"+holdGate, healthy)
+	free := admittedFree(t, b, p)
+	f.setMode(t, free, "down")
+	blocker, cancel := blocked(t, b, p)
+	timers.fireAfter(t, statusDeadline)
+	awaitStatuses(t, b, f, 3)
+	wantFree(t, b, free, Asleep)
+	unblock(t, blocker, cancel)
 	waiter := start(t.Context(), b, request("c", p, 1))
 	if e := waiter.next(t); e.Position != 1 {
 		t.Fatalf("waiter event = %+v, want position 1", e)
 	}
-	cancel()
-	if err := holder.finish(t); !errors.Is(err, context.Canceled) {
-		t.Fatalf("holder Acquire = %v, want context.Canceled", err)
-	}
-	wantFree(t, b, "m1", Waking)
-	tick.send(t)
-	tick.drain(t)
+	wantFree(t, b, free, Waking)
 	if n := runningCommands(b, "fleet"); n != 1 {
-		t.Fatalf("%d member commands run for p during the wake, want the wake alone", n)
+		t.Fatalf("%d member commands run for fleet during the wake, want the wake alone", n)
+	}
+	if n := timers.pendingDeadlines(); n != 0 {
+		t.Fatalf("%d status deadlines pending while the wake runs, want none", n)
 	}
 	f.openGate(t)
 	granted := waiter.next(t).Grant
 	if granted == nil {
 		t.Fatal("waiter was not granted after its wake")
 	}
-	if runs := lines(t, f.runs); len(runs) != 2 {
-		t.Fatalf("status runs = %v, want the two from before the wake", runs)
+	if runs := lines(t, f.runs); len(runs) != 3 {
+		t.Fatalf("status runs = %v, want the three from before the wake", runs)
 	}
-	if woken := lines(t, f.wakes); !slices.Equal(woken, []string{"m1"}) {
-		t.Fatalf("woken members = %v, want one wake of m1", woken)
+	if woken := lines(t, f.wakes); !slices.Equal(woken, []string{free}) {
+		t.Fatalf("woken members = %v, want one wake of %s", woken, free)
 	}
 }
 
@@ -410,9 +400,8 @@ func TestTickSkipsMemberWhoseWakeRuns(t *testing.T) {
 // status is still running: the member is left awake until that status ends, and then it is admitted for the request.
 func TestRequestDoesNotPrepareMemberWhoseStatusRuns(t *testing.T) {
 	f := newFakes(t)
-	b, _ := newBroker(t, f.env()...)
-	p := statusPool(t, 2, "m1", "m2")
-	tick := runTicks(t, b)
+	b, _, timers := deadlineBroker(t, f)
+	p := statusPool(t, 1, "m1", "m2")
 	holder := start(t.Context(), b, request("a", p, 1))
 	holder.next(t)
 	e := holder.next(t)
@@ -425,8 +414,10 @@ func TestRequestDoesNotPrepareMemberWhoseStatusRuns(t *testing.T) {
 		other = "m2"
 	}
 	f.setMode(t, other, "gate")
-	tick.send(t)
-	await(t, func() bool { return runningCommands(b, "fleet") == 1 })
+	blocker, cancel := blocked(t, b, p)
+	timers.fireAfter(t, statusDeadline)
+	await(t, func() bool { return len(lines(t, f.runs)) == 3 })
+	unblock(t, blocker, cancel)
 	waiter := start(t.Context(), b, request("c", p, 1))
 	if e := waiter.next(t); e.Position != 1 {
 		t.Fatalf("waiter event = %+v, want position 1", e)
@@ -442,31 +433,5 @@ func TestRequestDoesNotPrepareMemberWhoseStatusRuns(t *testing.T) {
 	}
 	if woken := lines(t, f.wakes); len(woken) != 0 {
 		t.Fatalf("woken members = %v, want none", woken)
-	}
-}
-
-// TestRunReturnsWhenItsContextEndsOrItsTickCloses checks the two ways Run returns that the orreryd loop relies on.
-func TestRunReturnsWhenItsContextEndsOrItsTickCloses(t *testing.T) {
-	cases := []struct {
-		name string
-		stop func(cancel context.CancelFunc, tick chan time.Time)
-	}{
-		{"context ends", func(cancel context.CancelFunc, _ chan time.Time) { cancel() }},
-		{"tick closes", func(_ context.CancelFunc, tick chan time.Time) { close(tick) }},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			b, _ := newBroker(t)
-			ctx, cancel := context.WithCancel(t.Context())
-			defer cancel()
-			tick := make(chan time.Time)
-			done := make(chan struct{})
-			go func() {
-				b.Run(ctx, tick)
-				close(done)
-			}()
-			tc.stop(cancel, tick)
-			<-done
-		})
 	}
 }

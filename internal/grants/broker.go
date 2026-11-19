@@ -251,7 +251,8 @@ type command struct {
 	op     operation
 }
 
-// NewBroker returns a Broker for cfg. It runs no command until a request arrives.
+// NewBroker returns a Broker for cfg. It starts no goroutine and runs no command until a request arrives, and a
+// member's status runs only while a request waits on its pool.
 func NewBroker(cfg Config) *Broker {
 	broker := &Broker{
 		host: cfg.Host, store: cfg.Store, environ: cfg.Environ, now: cfg.Now, logger: cfg.Logger, alive: cfg.Alive,
@@ -350,45 +351,6 @@ func parseStartTime(stat string) (int64, error) {
 		return 0, fmt.Errorf("parse start time: %w", err)
 	}
 	return start, nil
-}
-
-// Run runs the status of each member of each pool in use on each tick of tick, and returns when ctx ends, when the
-// broker closes, or when tick closes. A member whose command still runs gets no status on a tick, so no member has two
-// commands at once. Each status applies its outcome when it ends, which reconsiders the waiting requests.
-func (b *Broker) Run(ctx context.Context, tick <-chan time.Time) {
-	// Member commands run on a context that never ends, as Acquire's do: Close, not the caller leaving, ends them.
-	cmdCtx := context.WithoutCancel(ctx)
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-b.done:
-			return
-		case _, ok := <-tick:
-			if !ok {
-				return
-			}
-			b.statusTick(cmdCtx)
-		}
-	}
-}
-
-// statusTick starts the status of each member of each pool in use that no command runs for. It does nothing once the
-// broker is closed.
-func (b *Broker) statusTick(ctx context.Context) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if b.closed {
-		return
-	}
-	for _, use := range b.pools {
-		for _, name := range use.def.Members {
-			member := use.members[name]
-			if !member.busy {
-				b.startLocked(ctx, use, member, opStatus, use.def.Status, use.def.StatusLimit)
-			}
-		}
-	}
 }
 
 // watchLocked starts the exit watch of entry, a detached grant or a requeued request. It watches the client entry's
