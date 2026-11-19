@@ -25,10 +25,11 @@ func (r RefusalError) Error() string {
 	return string(r)
 }
 
-// PauseEpic pauses epic in one write, so the planner starts no turn for it, and records the owner as its pause source.
-// An epic a usage limit paused is accepted and becomes the owner's pause, and its due rows close in the same write, so
-// no reset resumes it. An unknown epic is ErrNoEpic, and an epic the owner already paused, or paused with no recorded
-// source, is a RefusalError.
+// PauseEpic pauses epic in one write, so the planner starts no turn for it, records the owner as its pause source, and
+// flags its running turn to stop, as StopEpic does, so the planner stops the turn's step once it has one. An epic a
+// usage limit paused is accepted and becomes the owner's pause, and its due rows close in the same write, so no reset
+// resumes it. An unknown epic is ErrNoEpic, and an epic the owner already paused, or paused with no recorded source, is
+// a RefusalError.
 func (s *Store) PauseEpic(ctx context.Context, epic string) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		head, err := epicHead(ctx, queries, epic)
@@ -38,7 +39,11 @@ func (s *Store) PauseEpic(ctx context.Context, epic string) error {
 		if head.Paused != 0 && head.PauseSource != pauseLimit {
 			return RefusalError(fmt.Sprintf("epic %s is already paused", epic))
 		}
-		return pauseAsOwner(ctx, queries, epic)
+		if err = pauseAsOwner(ctx, queries, epic); err != nil {
+			return err
+		}
+		_, _, err = flagRunningTurn(ctx, queries, epic)
+		return err
 	})
 }
 
@@ -116,18 +121,15 @@ func (s *Store) StopEpic(ctx context.Context, epic string) (string, error) {
 		if err != nil {
 			return err
 		}
-		running, err := queries.GetRunningEpicTurn(ctx, epic)
-		if errors.Is(err, sql.ErrNoRows) {
+		var running bool
+		step, running, err = flagRunningTurn(ctx, queries, epic)
+		if err != nil {
+			return err
+		}
+		if !running {
 			step, err = stopReleaseSlot(ctx, queries, head)
 			return err
 		}
-		if err != nil {
-			return fmt.Errorf("read running turn of epic %s: %w", epic, err)
-		}
-		if err = queries.SetEpicTurnStop(ctx, sqlcgen.SetEpicTurnStopParams{Epic: epic, Seq: running.Seq}); err != nil {
-			return fmt.Errorf("stop turn %d of epic %s: %w", running.Seq, epic, err)
-		}
-		step = running.Step
 		return pauseAsOwner(ctx, queries, epic)
 	})
 	if err != nil {
@@ -337,6 +339,23 @@ func epicHead(ctx context.Context, queries *sqlcgen.Queries, epic string) (sqlcg
 		return sqlcgen.Epic{}, fmt.Errorf("get epic %s: %w", epic, err)
 	}
 	return head, nil
+}
+
+// flagRunningTurn flags the running turn of epic to stop in the caller's write. It returns the turn's step, empty while
+// the turn has none, and whether epic has a running turn. An epic with no running turn gives "" and false, and writes
+// nothing.
+func flagRunningTurn(ctx context.Context, queries *sqlcgen.Queries, epic string) (string, bool, error) {
+	running, err := queries.GetRunningEpicTurn(ctx, epic)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("read running turn of epic %s: %w", epic, err)
+	}
+	if err = queries.SetEpicTurnStop(ctx, sqlcgen.SetEpicTurnStopParams{Epic: epic, Seq: running.Seq}); err != nil {
+		return "", false, fmt.Errorf("stop turn %d of epic %s: %w", running.Seq, epic, err)
+	}
+	return running.Step, true, nil
 }
 
 // pauseAsOwner pauses epic with the owner as its pause source and closes its due rows in the caller's write, so no
