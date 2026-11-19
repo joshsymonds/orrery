@@ -119,6 +119,33 @@ func TestPushOptionsKeptWhileLongQuestionIsCut(t *testing.T) {
 	}
 }
 
+func TestPushOptionsKeptWhileQuestionAndSummaryAreCut(t *testing.T) {
+	question := pubEscapedQuestion(6000)
+	summary := strings.Repeat("é", 1500)
+	n := pubNotification(question)
+	n.Summary = summary
+	n.Options = []string{"first-" + strings.Repeat("a", 1000), "second-" + strings.Repeat("b", 1000)}
+
+	fields := optionsPayloadFields(t, optionsBounded(t, n))
+	if got := optionsPayloadList(t, fields); !slices.Equal(got, n.Options) {
+		t.Errorf("options = %q, want %q kept whole in answer order", got, n.Options)
+	}
+	if got := optionsPayloadString(t, fields, keyQuestion); got != "" {
+		t.Errorf("question is %d bytes, want it emptied before the options are dropped", len(got))
+	}
+	got := optionsPayloadString(t, fields, keySummary)
+	if got == "" || !utf8.ValidString(got) || !strings.HasPrefix(summary, got) || len(got) >= len(summary) {
+		t.Errorf(
+			"summary is %d bytes, want a valid, non-empty truncated prefix of the %d-byte original",
+			len(got),
+			len(summary),
+		)
+	}
+	if hash := optionsPayloadString(t, fields, keyQuestionHash); hash != protocol.QuestionHash(question) {
+		t.Error("question_hash does not hash the original, untruncated question")
+	}
+}
+
 func TestPushOptionsDroppedWhenOptionsDoNotFit(t *testing.T) {
 	question := pubEscapedQuestion(6000)
 	n := pubNotification(question)
