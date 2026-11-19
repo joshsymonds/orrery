@@ -350,11 +350,17 @@ func TestEpicVerbsSendTheMCPToolsRequest(t *testing.T) {
 			}
 
 			got, want := cliFake.recorded(), mcpFake.recorded()
-			if len(got) != 1 || len(want) != 1 {
-				t.Fatalf("requests: cli %d, mcp %d; want 1 each", len(got), len(want))
+			wantCalls := 1
+			if tc.tool == "epic_answer" {
+				wantCalls = 2 // the answer's phase read: AnswerEpic, then GetEpic
 			}
-			if !proto.Equal(got[0], want[0]) {
-				t.Errorf("epicCommand(%v) sent %v, want the MCP tool's request %v", tc.args, got[0], want[0])
+			if len(want) != wantCalls || len(got) != len(want) {
+				t.Fatalf("requests: cli %d, mcp %d; want %d each", len(got), len(want), wantCalls)
+			}
+			for i := range want {
+				if !proto.Equal(got[i], want[i]) {
+					t.Errorf("epicCommand(%v) request %d sent %v, want %v", tc.args, i, got[i], want[i])
+				}
 			}
 			if wantOut := result.Content[0].Text + "\n"; stdout != wantOut {
 				t.Errorf("stdout = %q, want %q", stdout, wantOut)

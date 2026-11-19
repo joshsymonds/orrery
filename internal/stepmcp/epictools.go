@@ -154,7 +154,8 @@ func epicRecordTools(epics enginev1connect.EpicsClient, in epicInputs) []Tool {
 		{
 			Name: "epic_create",
 			Description: "Create an epic from an accepted contract. decisions seeds the epic's recorded " +
-				"decisions. workflow names the workflow the epic pins, epic by default. Returns the stored epic. " +
+				"decisions. workflow names the workflow the epic pins, epic by default. Returns a short " +
+				"acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. " +
 				"A refusal names the field that failed.",
 			InputSchema: in.create,
 			Handler:     epicCreateHandler(epics),
@@ -185,7 +186,8 @@ func epicRecordTools(epics enginev1connect.EpicsClient, in epicInputs) []Tool {
 				"names the choice it gives: a declared choice's id, or other, which needs text. A decision with " +
 				"no question is a note, which takes no choice and returns a warning naming the questions still " +
 				"open. A decision id already recorded with the same text returns the stored decision; other " +
-				"text under that id is refused. Returns the decision and the warning.",
+				"text under that id is refused. Returns a short acknowledgement, not the stored epic: the epic id, " +
+				"its phase and one line naming what changed. A note's warning is the acknowledgement's warning line.",
 			InputSchema: in.answer,
 			Handler:     epicAnswerHandler(epics),
 		},
@@ -206,7 +208,8 @@ func epicControlTools(epics enginev1connect.EpicsClient, in epicInputs) []Tool {
 		{
 			Name: "epic_pause",
 			Description: "Pause an epic by id, so the planner starts no turn for it and no limit reset resumes it. " +
-				"Returns the stored epic. An epic the owner paused, or paused with no recorded source, is refused; " +
+				"Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming " +
+				"what changed. An epic the owner paused, or paused with no recorded source, is refused; " +
 				"an epic a usage limit paused is accepted and stays paused past the reset.",
 			InputSchema: in.id,
 			Handler:     epicPauseHandler(epics),
@@ -214,15 +217,16 @@ func epicControlTools(epics enginev1connect.EpicsClient, in epicInputs) []Tool {
 		{
 			Name: "epic_resume",
 			Description: "Clear the pause of an epic by id, if it is paused, and resume its limited task steps. " +
-				"Returns the stored epic, the ids of the steps resumed, and the ids of the steps a full step cap " +
-				"left limited. An epic that is not paused and holds no limited task step is refused. A park " +
+				"Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming " +
+				"what changed. An epic that is not paused and holds no limited task step is refused. A park " +
 				"stays; epic_retry ends a park.",
 			InputSchema: in.id,
 			Handler:     epicResumeHandler(epics),
 		},
 		{
 			Name: "epic_stop",
-			Description: "Pause an epic by id and stop the step of its running turn. Returns the stored epic. " +
+			Description: "Pause an epic by id and stop the step of its running turn. Returns a short " +
+				"acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. " +
 				"An epic with no running turn is refused, and nothing is stopped, unless it holds its repository's " +
 				"release slot: then the slot is freed, its open release step is stopped if one runs, and the epic " +
 				"is not paused. epic_release resumes a stopped release.",
@@ -233,7 +237,8 @@ func epicControlTools(epics enginev1connect.EpicsClient, in epicInputs) []Tool {
 			Name: "epic_retry",
 			Description: "End the park of an epic by id, so the planner starts its turns again. With node, rerun " +
 				"the parked workflow node of that id under its next attempt instead, which also ends the park. " +
-				"Returns the stored epic. Without node, an epic that is not parked is refused; with node, a node " +
+				"Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming " +
+				"what changed. Without node, an epic that is not parked is refused; with node, a node " +
 				"that is not parked is refused.",
 			InputSchema: in.retry,
 			Handler:     epicRetryHandler(epics),
@@ -242,7 +247,8 @@ func epicControlTools(epics enginev1connect.EpicsClient, in epicInputs) []Tool {
 			Name: "epic_kick",
 			Description: "Kick an epic by id: record text as the owner's decision and wake the epic's planner with it " +
 				"at the epic's next plan run. Refused for a paused epic, for a parked epic (epic_retry ends the park " +
-				"first), and for an epic in an ended phase, which takes no kick. Returns the stored epic.",
+				"first), and for an epic in an ended phase, which takes no kick. Returns a short acknowledgement, " +
+				"not the stored epic: the epic id, its phase and one line naming what changed.",
 			InputSchema: in.kick,
 			Handler:     epicKickHandler(epics),
 		},
@@ -250,7 +256,8 @@ func epicControlTools(epics enginev1connect.EpicsClient, in epicInputs) []Tool {
 			Name: "epic_release",
 			Description: "Release an epic by id. A stopped release resumes at its first unfinished step, and undoNone names the 1-based positions of undo-none release steps to run again. " +
 				"An epic that ended with gaps is released on the owner's word, logged as the owner's decision, so undoNone must be empty for it. " +
-				"Returns the stored epic. Refused unless the release is stopped or the epic ended with gaps, and each position is undo-none.",
+				"Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming " +
+				"what changed. Refused unless the release is stopped or the epic ended with gaps, and each position is undo-none.",
 			InputSchema: in.release,
 			Handler:     epicReleaseHandler(epics),
 		},
@@ -258,7 +265,8 @@ func epicControlTools(epics enginev1connect.EpicsClient, in epicInputs) []Tool {
 			Name: "epic_close",
 			Description: "Close an epic by id as superseded, shipped by hand or abandoned, which ends it. kind names the " +
 				"close; superseded requires by, the epic that replaces it. The close answers the epic's open questions, " +
-				"ends its running turn, node runs and steps, and frees its release slot. Returns the stored epic. " +
+				"ends its running turn, node runs and steps, and frees its release slot. Returns a short " +
+				"acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. " +
 				"Refused for a superseded close without by.",
 			InputSchema: in.close,
 			Handler:     epicCloseHandler(epics),
@@ -269,7 +277,8 @@ func epicControlTools(epics enginev1connect.EpicsClient, in epicInputs) []Tool {
 				"is the whole item it should hold, which must pass the shape check a created epic's items pass. The " +
 				"amendment starts checking: orreryd runs the new item's red at the epic's base and applies the item " +
 				"only when that red is judged not to hold there; a red that holds refuses it and the old item stays. " +
-				"The owner may change the conclusion. Returns the stored amendment and the stored epic.",
+				"The owner may change the conclusion. Returns a short acknowledgement, not the stored epic: the epic " +
+				"id, its phase and one line naming what changed.",
 			InputSchema: in.amend,
 			Handler:     epicAmendHandler(epics),
 		},
@@ -325,7 +334,8 @@ func epicCreateHandler(epics enginev1connect.EpicsClient) ToolHandler {
 		if err != nil {
 			return toolFailure(err), nil
 		}
-		return protoResult(created.Msg.GetEpic())
+		epic := created.Msg.GetEpic()
+		return epicAck(epic, req.GetContract().GetId(), createChange(epic)), nil
 	}
 }
 
@@ -376,7 +386,9 @@ func epicAnswerHandler(epics enginev1connect.EpicsClient) ToolHandler {
 		if err != nil {
 			return toolFailure(err), nil
 		}
-		return protoResult(answered.Msg)
+		status := answerPhase(epics.GetEpic(ctx, connect.NewRequest(&v1.GetEpicRequest{Id: req.GetEpicId()})))
+		change := answerChange(&req, answered.Msg.GetDecision())
+		return ackResult(ackText(ackHead(req.GetEpicId(), status), change, answered.Msg.GetWarning())), nil
 	}
 }
 
@@ -404,7 +416,7 @@ func epicPauseHandler(epics enginev1connect.EpicsClient) ToolHandler {
 		if err != nil {
 			return toolFailure(err), nil
 		}
-		return protoResult(paused.Msg.GetEpic())
+		return epicAck(paused.Msg.GetEpic(), req.GetId(), "paused"), nil
 	}
 }
 
@@ -418,7 +430,8 @@ func epicResumeHandler(epics enginev1connect.EpicsClient) ToolHandler {
 		if err != nil {
 			return toolFailure(err), nil
 		}
-		return protoResult(resumed.Msg)
+		change := resumeChange(resumed.Msg.GetResumed(), resumed.Msg.GetStillLimited())
+		return epicAck(resumed.Msg.GetEpic(), req.GetId(), change), nil
 	}
 }
 
@@ -432,7 +445,8 @@ func epicStopHandler(epics enginev1connect.EpicsClient) ToolHandler {
 		if err != nil {
 			return toolFailure(err), nil
 		}
-		return protoResult(stopped.Msg.GetEpic())
+		epic := stopped.Msg.GetEpic()
+		return epicAck(epic, req.GetId(), stopChange(epic)), nil
 	}
 }
 
@@ -446,7 +460,7 @@ func epicRetryHandler(epics enginev1connect.EpicsClient) ToolHandler {
 		if err != nil {
 			return toolFailure(err), nil
 		}
-		return protoResult(retried.Msg.GetEpic())
+		return epicAck(retried.Msg.GetEpic(), req.GetId(), retryChange(req.GetNode())), nil
 	}
 }
 
@@ -460,7 +474,8 @@ func epicKickHandler(epics enginev1connect.EpicsClient) ToolHandler {
 		if err != nil {
 			return toolFailure(err), nil
 		}
-		return protoResult(kicked.Msg.GetEpic())
+		change := "kicked; the planner reads the words at its next plan run"
+		return epicAck(kicked.Msg.GetEpic(), req.GetId(), change), nil
 	}
 }
 
@@ -474,7 +489,8 @@ func epicCloseHandler(epics enginev1connect.EpicsClient) ToolHandler {
 		if err != nil {
 			return toolFailure(err), nil
 		}
-		return protoResult(closed.Msg.GetEpic())
+		change := closeChange(req.GetKind(), req.GetBy())
+		return epicAck(closed.Msg.GetEpic(), req.GetId(), change), nil
 	}
 }
 
@@ -488,7 +504,8 @@ func epicAmendHandler(epics enginev1connect.EpicsClient) ToolHandler {
 		if err != nil {
 			return toolFailure(err), nil
 		}
-		return protoResult(amended.Msg)
+		change := amendChange(amended.Msg.GetAmendment())
+		return epicAck(amended.Msg.GetEpic(), req.GetId(), change), nil
 	}
 }
 
@@ -502,6 +519,7 @@ func epicReleaseHandler(epics enginev1connect.EpicsClient) ToolHandler {
 		if err != nil {
 			return toolFailure(err), nil
 		}
-		return protoResult(released.Msg.GetEpic())
+		change := releaseChange(req.GetUndoNone())
+		return epicAck(released.Msg.GetEpic(), req.GetId(), change), nil
 	}
 }

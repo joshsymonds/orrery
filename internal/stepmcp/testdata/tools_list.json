@@ -103,7 +103,7 @@
   },
   {
     "name": "epic_create",
-    "description": "Create an epic from an accepted contract. decisions seeds the epic's recorded decisions. workflow names the workflow the epic pins, epic by default. Returns the stored epic. A refusal names the field that failed.",
+    "description": "Create an epic from an accepted contract. decisions seeds the epic's recorded decisions. workflow names the workflow the epic pins, epic by default. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. A refusal names the field that failed.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -190,7 +190,7 @@
   },
   {
     "name": "epic_answer",
-    "description": "Record a decision on an epic. question names the Q\u003cn\u003e the decision answers, and choice names the choice it gives: a declared choice's id, or other, which needs text. A decision with no question is a note, which takes no choice and returns a warning naming the questions still open. A decision id already recorded with the same text returns the stored decision; other text under that id is refused. Returns the decision and the warning.",
+    "description": "Record a decision on an epic. question names the Q\u003cn\u003e the decision answers, and choice names the choice it gives: a declared choice's id, or other, which needs text. A decision with no question is a note, which takes no choice and returns a warning naming the questions still open. A decision id already recorded with the same text returns the stored decision; other text under that id is refused. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. A note's warning is the acknowledgement's warning line.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -232,7 +232,7 @@
   },
   {
     "name": "epic_pause",
-    "description": "Pause an epic by id, so the planner starts no turn for it and no limit reset resumes it. Returns the stored epic. An epic the owner paused, or paused with no recorded source, is refused; an epic a usage limit paused is accepted and stays paused past the reset.",
+    "description": "Pause an epic by id, so the planner starts no turn for it and no limit reset resumes it. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. An epic the owner paused, or paused with no recorded source, is refused; an epic a usage limit paused is accepted and stays paused past the reset.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -248,7 +248,7 @@
   },
   {
     "name": "epic_resume",
-    "description": "Clear the pause of an epic by id, if it is paused, and resume its limited task steps. Returns the stored epic, the ids of the steps resumed, and the ids of the steps a full step cap left limited. An epic that is not paused and holds no limited task step is refused. A park stays; epic_retry ends a park.",
+    "description": "Clear the pause of an epic by id, if it is paused, and resume its limited task steps. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. An epic that is not paused and holds no limited task step is refused. A park stays; epic_retry ends a park.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -264,7 +264,7 @@
   },
   {
     "name": "epic_stop",
-    "description": "Pause an epic by id and stop the step of its running turn. Returns the stored epic. An epic with no running turn is refused, and nothing is stopped, unless it holds its repository's release slot: then the slot is freed, its open release step is stopped if one runs, and the epic is not paused. epic_release resumes a stopped release.",
+    "description": "Pause an epic by id and stop the step of its running turn. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. An epic with no running turn is refused, and nothing is stopped, unless it holds its repository's release slot: then the slot is freed, its open release step is stopped if one runs, and the epic is not paused. epic_release resumes a stopped release.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -280,7 +280,7 @@
   },
   {
     "name": "epic_retry",
-    "description": "End the park of an epic by id, so the planner starts its turns again. With node, rerun the parked workflow node of that id under its next attempt instead, which also ends the park. Returns the stored epic. Without node, an epic that is not parked is refused; with node, a node that is not parked is refused.",
+    "description": "End the park of an epic by id, so the planner starts its turns again. With node, rerun the parked workflow node of that id under its next attempt instead, which also ends the park. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. Without node, an epic that is not parked is refused; with node, a node that is not parked is refused.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -300,7 +300,7 @@
   },
   {
     "name": "epic_kick",
-    "description": "Kick an epic by id: record text as the owner's decision and wake the epic's planner with it at the epic's next plan run. Refused for a paused epic, for a parked epic (epic_retry ends the park first), and for an epic in an ended phase, which takes no kick. Returns the stored epic.",
+    "description": "Kick an epic by id: record text as the owner's decision and wake the epic's planner with it at the epic's next plan run. Refused for a paused epic, for a parked epic (epic_retry ends the park first), and for an epic in an ended phase, which takes no kick. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -321,7 +321,7 @@
   },
   {
     "name": "epic_release",
-    "description": "Release an epic by id. A stopped release resumes at its first unfinished step, and undoNone names the 1-based positions of undo-none release steps to run again. An epic that ended with gaps is released on the owner's word, logged as the owner's decision, so undoNone must be empty for it. Returns the stored epic. Refused unless the release is stopped or the epic ended with gaps, and each position is undo-none.",
+    "description": "Release an epic by id. A stopped release resumes at its first unfinished step, and undoNone names the 1-based positions of undo-none release steps to run again. An epic that ended with gaps is released on the owner's word, logged as the owner's decision, so undoNone must be empty for it. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. Refused unless the release is stopped or the epic ended with gaps, and each position is undo-none.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -344,7 +344,7 @@
   },
   {
     "name": "epic_close",
-    "description": "Close an epic by id as superseded, shipped by hand or abandoned, which ends it. kind names the close; superseded requires by, the epic that replaces it. The close answers the epic's open questions, ends its running turn, node runs and steps, and frees its release slot. Returns the stored epic. Refused for a superseded close without by.",
+    "description": "Close an epic by id as superseded, shipped by hand or abandoned, which ends it. kind names the close; superseded requires by, the epic that replaces it. The close answers the epic's open questions, ends its running turn, node runs and steps, and frees its release slot. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. Refused for a superseded close without by.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -369,7 +369,7 @@
   },
   {
     "name": "epic_amend",
-    "description": "Amend the evidence item of a Requirement of an epic by id: requirement names it and item is the whole item it should hold, which must pass the shape check a created epic's items pass. The amendment starts checking: orreryd runs the new item's red at the epic's base and applies the item only when that red is judged not to hold there; a red that holds refuses it and the old item stays. The owner may change the conclusion. Returns the stored amendment and the stored epic.",
+    "description": "Amend the evidence item of a Requirement of an epic by id: requirement names it and item is the whole item it should hold, which must pass the shape check a created epic's items pass. The amendment starts checking: orreryd runs the new item's red at the epic's base and applies the item only when that red is judged not to hold there; a red that holds refuses it and the old item stays. The owner may change the conclusion. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed.",
     "inputSchema": {
       "type": "object",
       "properties": {
