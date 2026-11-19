@@ -56,5 +56,5 @@ func readoptTurnCheck(
 	if gapTurnsErr != nil {
 		return nil, fmt.Errorf("read the gap turns of epic %s: %w", turn.Epic, gapTurnsErr)
 	}
-	return returnCheck(ctx, epic, review, resolve, spent, gapTurns), nil
+	return returnCheck(ctx, epic, review, resolve, spent, priorGapTurns(gapTurns, triggers)), nil
 }

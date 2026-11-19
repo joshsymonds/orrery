@@ -194,9 +194,9 @@ func checkUnresolvable(ret Return) []string {
 }
 
 // checkSpentGaps returns one refusal for each rerun_review action of ret that names a reviewer whose gap, "reviewer:" and
-// the reviewer's name, has had store.GapTurnBound planner turns in turns, the turns each gap of the epic was given. Such a
-// gap goes to the owner, so the planner declares it in unresolvable instead. An action that names no reviewer gets none;
-// checkNeededFields refuses it.
+// the reviewer's name, has had store.GapTurnBound planner turns in turns, the planner turns each gap of the epic was
+// given before the checked turn. Such a gap goes to the owner, so the planner declares it in unresolvable instead. An
+// action that names no reviewer gets none; checkNeededFields refuses it.
 func checkSpentGaps(ret Return, turns []store.GapTurn) []string {
 	var refusals []string
 	for i, action := range ret.Actions {
@@ -217,6 +217,58 @@ func checkSpentGaps(ret Return, turns []store.GapTurn) []string {
 		}
 	}
 	return refusals
+}
+
+// gapTriggerPrefix is the prefix of the id of each trigger a gap round writes for a live gap.
+const gapTriggerPrefix = "gap:"
+
+// priorGapTurns returns the planner turns of turns that were given before the turn woken by triggers. A gap round
+// records each gap's turn when it starts, so the checked turn's own turn is already among turns. For each gap the checked
+// turn was given, its highest-Turn entry is left out, and every other entry is kept, in order. The checked turn was given
+// gap K when one of triggers has an id that starts gapTriggerPrefix and a cause whose first line starts "gap K: ". K is
+// the text between "gap " and the first ": " of that line. A key holds no ": ", so K is the whole key.
+func priorGapTurns(turns []store.GapTurn, triggers []store.EpicTrigger) []store.GapTurn {
+	given := make(map[string]bool, len(triggers))
+	for _, trigger := range triggers {
+		if key, ok := gapKeyOf(trigger); ok {
+			given[key] = true
+		}
+	}
+	left := make(map[int]bool, len(given))
+	for key := range given {
+		last, found := 0, false
+		var highest int64
+		for i, turn := range turns {
+			if turn.Gap == key && (!found || turn.Turn > highest) {
+				last, highest, found = i, turn.Turn, true
+			}
+		}
+		if found {
+			left[last] = true
+		}
+	}
+	prior := make([]store.GapTurn, 0, len(turns))
+	for i, turn := range turns {
+		if !left[i] {
+			prior = append(prior, turn)
+		}
+	}
+	return prior
+}
+
+// gapKeyOf returns the gap key that trigger is a gap trigger for, read from its cause's first line as priorGapTurns
+// describes, and whether trigger is a gap trigger with one.
+func gapKeyOf(trigger store.EpicTrigger) (string, bool) {
+	if !strings.HasPrefix(trigger.ID, gapTriggerPrefix) {
+		return "", false
+	}
+	first, _, _ := strings.Cut(trigger.Cause, "\n")
+	rest, ok := strings.CutPrefix(first, "gap ")
+	if !ok {
+		return "", false
+	}
+	key, _, ok := strings.Cut(rest, ": ")
+	return key, ok
 }
 
 // checkTask returns the refusals of one task's fields, in the order title, deliverable, files, test_changes,
