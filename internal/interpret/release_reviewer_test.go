@@ -224,6 +224,106 @@ func TestReleaseReviewerRefusalStopsAsOwnerStop(t *testing.T) {
 	}
 }
 
+// TestReleaseReviewerEndThatRefusesNothingLetsStepOneStart: a release reviewer whose step ends in a way that is not a
+// refusal, an undetermined assertion or an engine restart among them, does not refuse the candidate. Its review is recorded
+// passed with the reason its end gives, and the first step starts in the same pass.
+func TestReleaseReviewerEndThatRefusesNothingLetsStepOneStart(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name   string
+		end    string
+		status string
+		result map[string]any
+		reason string
+	}{
+		{
+			name:   "findings with an undetermined assertion",
+			end:    "gate_failed",
+			status: "done",
+			result: map[string]any{
+				"status":   "done",
+				"findings": []map[string]string{{"claim": releaseClaim}},
+				"results":  []map[string]string{{"result": "undetermined"}},
+			},
+			reason: "review ended gate_failed with status done",
+		},
+		{
+			name:   "engine restarted",
+			end:    "engine_restarted",
+			result: map[string]any{},
+			reason: "review ended engine_restarted",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			w := newReleaseWorld(t, &recordingEnding{})
+			mergeRemote(t, w.repo)
+			nodeEpicBranch(t, w.repo, "epic.txt")
+			w.runner.reviewers = &releaseReviewers{}
+			w.createReviewedEpic(defaultReleaseReviewer(t, true), tagStep())
+			w.pass()
+			w.endStep(w.reviewID(), tc.end, tc.status, tc.result)
+			w.pass()
+
+			runs := releaseRunsOf(w.flowOf(runEpic).Releases, store.ReleasePartReview)
+			if len(runs) != 1 || !runs[0].Passed || runs[0].Reason != tc.reason {
+				t.Errorf("review runs = %+v, want one passed review whose reason is %q", runs, tc.reason)
+			}
+			if phase := w.flowOf(runEpic).Epic.Phase; phase == store.PhaseStopped {
+				t.Errorf("epic phase = %q, want the release not stopped", phase)
+			}
+			if len(w.fakes.steps.calls) != 2 || w.fakes.steps.calls[1].ID != w.stepID(1) {
+				t.Errorf("step starts = %+v, want the first release step started after the review", w.fakes.steps.calls)
+			}
+		})
+	}
+}
+
+// TestReleaseReviewerRunsAgainOnRetry: a release stopped at its first step, resumed as a new attempt on the same candidate,
+// has the release reviewer review that candidate again at the new attempt before the first step starts again.
+func TestReleaseReviewerRunsAgainOnRetry(t *testing.T) {
+	t.Parallel()
+	w := newReleaseWorld(t, &recordingEnding{})
+	mergeRemote(t, w.repo)
+	nodeEpicBranch(t, w.repo, "epic.txt")
+	reviewer := &releaseReviewers{}
+	w.runner.reviewers = reviewer
+	w.createReviewedEpic(defaultReleaseReviewer(t, true), rollbackTagStep())
+	w.pass()
+	candidate := runAt(t, w.s, releaseNodePath).Revision
+	firstAttempt := runAt(t, w.s, releaseNodePath).Attempt
+	w.endStep(w.reviewID(), "done", "done", map[string]any{"status": "done"})
+	w.pass()
+	w.stopAtFirstStep()
+
+	if err := w.s.ReleaseEpic(w.t.Context(), runEpic, nil, runClock()); err != nil {
+		t.Fatalf("ReleaseEpic: %v", err)
+	}
+	w.pass()
+
+	retried := runAt(t, w.s, releaseNodePath)
+	if retried.Attempt != firstAttempt+1 {
+		t.Fatalf("attempt = %d after the resume, want %d", retried.Attempt, firstAttempt+1)
+	}
+	if len(reviewer.calls) != 2 || reviewer.calls[1].revision != candidate {
+		t.Fatalf("reviewer starts = %+v, want the release reviewer started again at %s", reviewer.calls, candidate)
+	}
+	if last := w.fakes.steps.calls[len(w.fakes.steps.calls)-1]; last.ID != w.reviewID() {
+		t.Fatalf("last step start = %+v, want the review step of attempt %d", last, retried.Attempt)
+	}
+	w.endStep(w.reviewID(), "done", "done", map[string]any{"status": "done"})
+	w.pass()
+
+	reviewed := releaseRunsOf(w.flowOf(runEpic).Releases, store.ReleasePartReview)
+	if len(reviewed) != 2 || reviewed[1].Attempt != retried.Attempt || !reviewed[1].Passed {
+		t.Errorf("review runs = %+v, want the candidate reviewed again at attempt %d", reviewed, retried.Attempt)
+	}
+	if last := w.fakes.steps.calls[len(w.fakes.steps.calls)-1]; last.ID != w.stepID(1) {
+		t.Errorf("last step start = %+v, want the first release step started after the second review", last)
+	}
+}
+
 // TestReleaseReviewerDisabledLeavesStepOneUngated: with the release reviewer disabled the release starts no review, and
 // its first step starts once the candidate is recorded.
 func TestReleaseReviewerDisabledLeavesStepOneUngated(t *testing.T) {

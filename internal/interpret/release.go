@@ -74,6 +74,9 @@ func (r *Runner) recordRelease(ctx context.Context, epic store.EpicRow, act Acti
 // reviewer and its position.
 const releaseReviewItems = 4
 
+// releaseStoppedEnd is the end a step stopped by a pause stores, as the engine's Stop ends it.
+const releaseStoppedEnd = "stopped"
+
 // startReleaseWork starts the work act names as a release step: a release reviewer's review when act's first item names
 // one, and the release step otherwise.
 func (r *Runner) startReleaseWork(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
@@ -136,8 +139,8 @@ func (r *Runner) failReleaseReview(ctx context.Context, epic store.EpicRow, run 
 	return nil
 }
 
-// recordReleaseReview records the release reviewer act names once its step's end is stored. The reviewer holds the
-// candidate when releaseReviewReason gives no reason, and otherwise its review is recorded failed with that reason.
+// recordReleaseReview records the release reviewer act names once its step's end is stored. Its review is recorded failed
+// with its reason when releaseReviewVerdict refuses the candidate, and otherwise passed, with the reason its end gives.
 func (r *Runner) recordReleaseReview(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	run, err := releaseReviewOf(act, at)
 	if err != nil {
@@ -147,25 +150,26 @@ func (r *Runner) recordReleaseReview(ctx context.Context, epic store.EpicRow, ac
 	if err != nil {
 		return err
 	}
-	run.End, run.Reason = row.End, releaseReviewReason(row)
-	run.Passed = run.Reason == ""
+	refused, reason := releaseReviewVerdict(row)
+	run.End, run.Reason, run.Passed = row.End, reason, !refused
 	if err = r.store.RecordRelease(ctx, epic.ID, run); err != nil {
 		return fmt.Errorf("record release reviewer %s of epic %s: %w", run.Step, epic.ID, err)
 	}
 	return nil
 }
 
-// releaseReviewReason returns why the release reviewer whose step is row did not hold its candidate, or "" when it held
-// it. A step that ended done holds it. A step that refused its candidate is named by each finding's claim, and any other
-// end is named as releaseEndReason names it.
-func releaseReviewReason(row store.StepRow) string {
+// releaseReviewVerdict returns whether the release reviewer whose step is row refuses its candidate, and the reason its
+// review is recorded with, which is "" when the step ended done. A step that failed with findings and no undetermined
+// assertion refuses it, named by each finding's claim. A step stopped by a pause refuses it as well, so the release stops
+// at its review. Any other end holds the candidate, and is recorded with the reason releaseEndReason names it.
+func releaseReviewVerdict(row store.StepRow) (bool, string) {
 	if row.End == releaseDone {
-		return ""
+		return false, ""
 	}
 	if claims := kinds.ReleaseRefusalClaims(row); len(claims) > 0 {
-		return "the release reviewer refused the candidate: " + strings.Join(claims, "; ")
+		return true, "the release reviewer refused the candidate: " + strings.Join(claims, "; ")
 	}
-	return releaseEndReason("review", row)
+	return row.End == releaseStoppedEnd, releaseEndReason("review", row)
 }
 
 // takeSlot takes the release slot of epic's repository for epic. When another epic holds the slot nothing changes, and
