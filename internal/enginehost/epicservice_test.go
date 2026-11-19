@@ -38,9 +38,29 @@ func epicTestStore(t *testing.T) *store.Store {
 	return st
 }
 
-// startEpicServer serves epics on a sessions socket in a temporary directory and returns the socket's path. The
-// server stops at cleanup.
+// fixedSteerID is the session id fixedSteering starts.
+const fixedSteerID = "steering-fixed"
+
+// fixedSteering is the SteeringSessions the epic server helpers serve with: Start returns fixedSteerID and starts no
+// session, and Stop does nothing.
+type fixedSteering struct{}
+
+// Start returns fixedSteerID.
+func (fixedSteering) Start(context.Context, store.EpicRow) (string, error) { return fixedSteerID, nil }
+
+// Stop does nothing.
+func (fixedSteering) Stop(context.Context, string) error { return nil }
+
+// startEpicServer serves epics with fixedSteering on a sessions socket in a temporary directory and returns the socket's
+// path. The server stops at cleanup.
 func startEpicServer(t *testing.T, epics EpicCommands) string {
+	t.Helper()
+	return serveEpicsWith(t, epics, fixedSteering{})
+}
+
+// serveEpicsWith serves epics with steering on a sessions socket in a temporary directory and returns the socket's
+// path. The server stops at cleanup.
+func serveEpicsWith(t *testing.T, epics EpicCommands, steering SteeringSessions) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "sessions.sock")
 	ln, err := Listen(path)
@@ -49,7 +69,7 @@ func startEpicServer(t *testing.T, epics EpicCommands) string {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
-	go func() { done <- Serve(ctx, ln, nil, nil, epics, nil, nil, nil, nil) }()
+	go func() { done <- Serve(ctx, ln, nil, nil, epics, steering, nil, nil, nil, nil) }()
 	t.Cleanup(func() {
 		cancel()
 		if err := <-done; err != nil {
@@ -192,7 +212,10 @@ func TestEpicCreateThenGetRoundTripsContract(t *testing.T) {
 		t.Fatalf("decisions = %d, want %d seeds", len(stored.GetDecisions()), len(seeds))
 	}
 	for i, seed := range seeds {
-		want := &v1.EpicDecision{Seq: int64(i + 1), Id: seed.GetId(), Text: seed.GetText(), Time: stored.GetCreated()}
+		// The seeds are made by the caller, which here names no conversation and so is the owner.
+		want := &v1.EpicDecision{
+			Seq: int64(i + 1), Id: seed.GetId(), Text: seed.GetText(), Time: stored.GetCreated(), By: "owner",
+		}
 		if !proto.Equal(stored.GetDecisions()[i], want) {
 			t.Fatalf("decision %d = %v, want seed %v", i, stored.GetDecisions()[i], want)
 		}

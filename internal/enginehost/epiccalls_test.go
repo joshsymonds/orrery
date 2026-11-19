@@ -66,7 +66,9 @@ func epicCallFixture(t *testing.T, rec EpicCallRecorder) (*store.Store, enginev1
 	t.Helper()
 	st := epicTestStore(t)
 	interceptor := EpicCallInterceptor(rec, epicCallAt, nil, slog.New(slog.DiscardHandler))
-	path, handler := enginev1connect.NewEpicsHandler(&epicService{epics: st}, connect.WithInterceptors(interceptor))
+	path, handler := enginev1connect.NewEpicsHandler(
+		&epicService{epics: st, steering: fixedSteering{}}, connect.WithInterceptors(interceptor),
+	)
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)
 	srv := httptest.NewServer(mux)

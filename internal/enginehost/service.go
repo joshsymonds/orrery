@@ -52,14 +52,15 @@ func Listen(socketPath string) (net.Listener, error) {
 	return ln, nil
 }
 
-// Serve answers the engine service on ln with commands, the steps service with steps, the epics service with epics, the
-// pools service with pools, the evidence service with evidence, the notices service with notices and the crons service
-// with crons until ctx ends. It then shuts down within shutdownWait and returns nil. A nil commands refuses every
-// engine RPC as unavailable, a nil steps refuses every step RPC as unavailable, a nil epics refuses every epic RPC as
-// unavailable, a nil pools refuses every Acquire as unavailable, a nil evidence refuses every evidence RPC as
-// unavailable, a nil notices refuses every notices RPC as unavailable, and a nil crons refuses every cron call as
-// unavailable. The crons service answers each call for the session in the Orrery-Session header, and refuses a call
-// with no such header as InvalidArgument. With steps served, the engine refuses Say, Answer, Interrupt, Stop and Resume
+// Serve answers the engine service on ln with commands, the steps service with steps, the epics service with epics and
+// steering, the pools service with pools, the evidence service with evidence, the notices service with notices and the
+// crons service with crons until ctx ends. It then shuts down within shutdownWait and returns nil. A nil commands
+// refuses every engine RPC as unavailable, a nil steps refuses every step RPC as unavailable, a nil epics refuses every
+// epic RPC as unavailable, a nil steering refuses as unavailable each epic create that needs a steering session started,
+// a nil pools refuses every Acquire as unavailable, a nil evidence refuses every evidence RPC as unavailable, a nil
+// notices refuses every notices RPC as unavailable, and a nil crons refuses every cron call as unavailable. The crons
+// service answers each call for the session in the Orrery-Session header, and refuses a call with no such header as
+// InvalidArgument. With steps served, the engine refuses Say, Answer, Interrupt, Stop and Resume
 // on a step id, Decline on a headless step id, and NotNow and BringBack on a headless step id, since a step is driven
 // only through the Steps service. opts apply to each of the seven handlers.
 func Serve(
@@ -68,6 +69,7 @@ func Serve(
 	commands Commands,
 	steps StepCommands,
 	epics EpicCommands,
+	steering SteeringSessions,
 	pools PoolCommands,
 	evidence EvidenceCommands,
 	notices NoticeSource,
@@ -78,7 +80,8 @@ func Serve(
 	stepsPath, stepsHandler := enginev1connect.NewStepsHandler(
 		&stepService{steps: steps},
 		opts...)
-	epicsPath, epicsHandler := enginev1connect.NewEpicsHandler(&epicService{epics: epics, steps: steps}, opts...)
+	epicsPath, epicsHandler := enginev1connect.NewEpicsHandler(
+		&epicService{epics: epics, steps: steps, steering: steering}, opts...)
 	poolsPath, poolsHandler := enginev1connect.NewPoolsHandler(&poolService{pools: pools}, opts...)
 	evidencePath, evidenceHandler := enginev1connect.NewEvidenceHandler(&evidenceService{evidence: evidence}, opts...)
 	noticesPath, noticesHandler := enginev1connect.NewNoticesHandler(&noticesService{notices: notices}, opts...)

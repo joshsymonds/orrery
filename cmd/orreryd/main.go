@@ -812,6 +812,8 @@ func shutdownServe(
 type sessionHost struct {
 	manager    *enginehost.Manager
 	steps      *enginehost.Steps
+	epics      enginehost.EpicCommands
+	steering   enginehost.SteeringSessions
 	writer     *enginehost.Writer
 	broker     *grants.Broker
 	pools      enginehost.PoolCommands
@@ -919,7 +921,6 @@ func startSessions(
 	host := newSessionHost(logger)
 	var commands enginehost.Commands
 	var stepCommands enginehost.StepCommands
-	var epics enginehost.EpicCommands
 	var evidence enginehost.EvidenceCommands
 	var crons enginehost.CronCommands
 	if st != nil {
@@ -975,7 +976,7 @@ func startSessions(
 		host.steps = steps
 		st.SetEngineLive(host.manager.Live)
 		commands, stepCommands = host.manager, host.steps
-		epics = st
+		host.epics, host.steering = st, epicSteering(host.manager, st)
 		crons = enginehost.NewCronAnswers(enginehost.CronAnswersConfig{
 			Store: st, Now: opts.cronNow, Changed: host.cron.Changed})
 		host.startWriter(ctx)
@@ -1003,11 +1004,28 @@ func startSessions(
 	serveCtx, host.stopServe = context.WithCancel(ctx)
 	go func() {
 		host.serveDone <- enginehost.Serve(
-			serveCtx, ln, commands, stepCommands, epics, host.pools, evidence, notices, crons,
+			serveCtx, ln, commands, stepCommands, host.epics, host.steering, host.pools, evidence, notices, crons,
 			serveOpts(opts, st, logger)...,
 		)
 	}()
 	return host, nil
+}
+
+// steeringLines returns the lines a steering session's first prompt carries for row: the lines of its contract, the line
+// Log:, then the lines of its decisions.
+func steeringLines(row store.EpicRow) ([]string, error) {
+	lines, err := planner.ContractLines(row)
+	if err != nil {
+		return nil, fmt.Errorf("contract lines of epic %s: %w", row.ID, err)
+	}
+	return append(append(lines, "Log:"), planner.DecisionLines(row, 0)...), nil
+}
+
+// epicSteering returns the steering sessions of the epics st serves, which manager starts.
+func epicSteering(manager *enginehost.Manager, st *store.Store) *enginehost.EpicSteering {
+	return enginehost.NewEpicSteering(enginehost.EpicSteeringConfig{
+		Manager: manager, Sessions: st, Render: steeringLines,
+	})
 }
 
 // serveOpts returns the handler options the session socket serves with: opts.metricsHandlers, and with st open, the

@@ -30,6 +30,10 @@ const epicUnavailableMessage = "epic store unavailable"
 // epicPhaseAccepted is the phase of an epic the Epics service creates.
 const epicPhaseAccepted = "accepted"
 
+// steeringUnavailableMessage is the message a create that needs a steering session started is refused with when there
+// are no steering sessions.
+const steeringUnavailableMessage = "steering sessions unavailable"
+
 // EpicCommands is the set of epic operations the Epics service answers with. The store satisfies it.
 type EpicCommands interface {
 	CreateEpic(ctx context.Context, row store.EpicRow) error
@@ -67,13 +71,22 @@ type EpicCommands interface {
 	UnarchiveRow(ctx context.Context, kind, id string, at time.Time) error
 }
 
+// SteeringSessions starts and stops the steering sessions of epics. *EpicSteering satisfies it. CreateEpic starts the
+// steering session of an epic that no conversation creates, and stops it when the create then stores nothing.
+type SteeringSessions interface {
+	Start(ctx context.Context, row store.EpicRow) (string, error)
+	Stop(ctx context.Context, id string) error
+}
+
 // epicService implements the Epics RPCs over epics. getenv reads the environment a contract's gates resolve in; nil
 // reads the process environment. steps is the step store StopEpic stops the turn's step through; it is nil when Serve
-// has no step engine, and StopEpic then stops no step.
+// has no step engine, and StopEpic then stops no step. steering starts the steering session of an epic that no
+// conversation creates; it is nil when Serve has no steering, and a create that needs a start is then refused.
 type epicService struct {
-	epics  EpicCommands
-	steps  StepCommands
-	getenv func(string) string
+	epics    EpicCommands
+	steps    StepCommands
+	steering SteeringSessions
+	getenv   func(string) string
 }
 
 // ready returns the refusal every epic RPC gets when there is no epic store.
@@ -99,6 +112,11 @@ func (s *epicService) callerMaker(ctx context.Context, header http.Header) (stor
 // names, pins the workflow the request names at that commit, then stores it accepted, with its seed decisions, and
 // returns the stored epic read back. Its review list is the enabled task-stage reviewers, in merged order. A reviewer
 // no layer can hold, or a workflow that does not load at the base, is refused, and nothing is stored.
+//
+// The seed decisions are made by the caller. The steerer of the epic is the caller's session when the caller is a
+// conversation. Otherwise the id of an epic already stored is refused first, and then one steering session is started
+// for the epic. A start that is refused, or a store that fails after the start, refuses the create, and the started
+// session is stopped.
 func (s *epicService) CreateEpic(
 	ctx context.Context,
 	req *connect.Request[v1.CreateEpicRequest],
@@ -126,20 +144,96 @@ func (s *epicService) CreateEpic(
 	if err != nil {
 		return nil, refuseEpic(connect.CodeInvalidArgument, "workflow: "+err.Error())
 	}
+	maker, err := s.callerMaker(ctx, req.Header())
+	if err != nil {
+		return nil, err
+	}
 	row := epicRowOf(req.Msg, base, workflow, time.Now())
 	row.Reviewers = merged
 	row.ReviewGates = taskReviewNames(merged)
+	for i := range row.Decisions {
+		row.Decisions[i].Maker = maker
+	}
+	steerer, started, err := s.steererOf(ctx, row, maker)
+	if err != nil {
+		return nil, err
+	}
+	row.Steerer = steerer
 	if err = s.epics.CreateEpic(ctx, row); err != nil {
-		if errors.Is(err, store.ErrEpicExists) {
-			return nil, refuseEpic(connect.CodeAlreadyExists, fmt.Sprintf("id: %s is already in the database", row.ID))
-		}
-		return nil, epicStoreError(err)
+		return nil, s.refuseCreate(ctx, row.ID, started, err)
 	}
 	message, err := s.storedEpic(ctx, row.ID)
 	if err != nil {
 		return nil, epicStoreError(err)
 	}
 	return connect.NewResponse(&v1.CreateEpicResponse{Epic: message}), nil
+}
+
+// storedRefusal returns the refusal of a create whose id, id, is already stored.
+func storedRefusal(id string) error {
+	return refuseEpic(connect.CodeAlreadyExists, fmt.Sprintf("id: %s is already in the database", id))
+}
+
+// refuseStored returns the refusal of a create whose id is already stored, and nil when no epic has id.
+func (s *epicService) refuseStored(ctx context.Context, id string) error {
+	_, err := s.epics.Epic(ctx, id)
+	switch {
+	case err == nil:
+		return storedRefusal(id)
+	case errors.Is(err, store.ErrNoEpic):
+		return nil
+	default:
+		return epicStoreError(err)
+	}
+}
+
+// steererOf returns the steerer that a create of row by maker stores, and the id of the steering session the create
+// started, which is "" when it started none. An id already stored is refused first. A conversation maker is the
+// steerer, and otherwise one steering session is started for row.
+func (s *epicService) steererOf(ctx context.Context, row store.EpicRow, maker store.Maker) (string, string, error) {
+	if err := s.refuseStored(ctx, row.ID); err != nil {
+		return "", "", err
+	}
+	if maker.By == store.MakerConversation {
+		return maker.Session, "", nil
+	}
+	started, err := s.startSteering(ctx, row)
+	if err != nil {
+		return "", "", err
+	}
+	return started, started, nil
+}
+
+// startSteering starts the steering session of row through the steering sessions and returns its id. With no steering
+// sessions, or a start the session cap refuses or a session that fails to spawn, it returns the refusal and no id.
+func (s *epicService) startSteering(ctx context.Context, row store.EpicRow) (string, error) {
+	if s.steering == nil {
+		return "", refuseEpic(connect.CodeUnavailable, steeringUnavailableMessage)
+	}
+	id, err := s.steering.Start(ctx, row)
+	switch {
+	case errors.Is(err, ErrCapReached):
+		return "", refuseEpic(connect.CodeResourceExhausted, err.Error())
+	case err != nil:
+		return "", refuseEpic(connect.CodeUnavailable, err.Error())
+	}
+	return id, nil
+}
+
+// refuseCreate returns the refusal of a create of the epic id that the store refused with err. When the create started
+// the steering session started, that session is stopped, even when ctx has ended, and a stop error joins the refusal.
+func (s *epicService) refuseCreate(ctx context.Context, id, started string, err error) error {
+	refusal := epicStoreError(err)
+	if errors.Is(err, store.ErrEpicExists) {
+		refusal = storedRefusal(id)
+	}
+	if started == "" {
+		return refusal
+	}
+	if stopErr := s.steering.Stop(context.WithoutCancel(ctx), started); stopErr != nil {
+		return errors.Join(refusal, fmt.Errorf("stop steering session %s: %w", started, stopErr))
+	}
+	return refusal
 }
 
 // GetEpic returns the stored epic with its workflow node runs. When req asks for history, it also returns the epic's
