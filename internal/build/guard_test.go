@@ -12,7 +12,11 @@ import (
 )
 
 // guardTestFile is the test file the guard tests change: R1's test item runs it, and a task may list it as a test change.
-const guardTestFile = "thing_test.go"
+// guardCapture is the capture file R1's item runs, which the guard tests change to refuse a commit.
+const (
+	guardTestFile = "thing_test.go"
+	guardCapture  = "scripts/check"
+)
 
 // guardTwoAsserts is guardTestFile at the base, where TestThing makes two assertions. guardOneAssert is the same file at
 // the implementer's commit, which lowers TestThing to one.
@@ -31,16 +35,25 @@ func TestThing(t *testing.T) { t.Fatal("a") }
 `
 )
 
-// guardRefusal is the refusal the commit of guardOneAssert earns against the base.
-const guardRefusal = "guard refused: thing_test.go: TestThing: assertions lowered from 2 to 1"
+// guardCaptureSrc is guardCapture at the base, and guardCaptureChanged is the same file at the implementer's commit.
+const (
+	guardCaptureSrc     = "#!/bin/sh\nexit 0\n"
+	guardCaptureChanged = "#!/bin/sh\nexit 1\n"
+)
 
-// newGuardFixture returns a fixture whose epic has one Requirement, R1, whose test item runs guardTestFile. Its base
-// commit holds guardTestFile with TestThing making two assertions, and task 1 lists testChanges as its test changes.
+// guardRefusal is the refusal the commit of guardCaptureChanged earns against the base.
+const guardRefusal = "guard refused: scripts/check: capture file changed"
+
+// newGuardFixture returns a fixture whose epic has one Requirement, R1, whose test item runs guardCapture and
+// guardTestFile. Its base commit holds both, with TestThing making two assertions, and task 1 lists testChanges as its
+// test changes.
 func newGuardFixture(t *testing.T, testChanges ...string) *passFixture {
 	t.Helper()
 	ctx := context.Background()
 	setup := newStartSetup(t, readoptCommandGate("check"))
-	base := guardCommitIn(t, setup.epic.Repository, guardTwoAsserts)
+	base := guardCommitFiles(t, setup.epic.Repository, map[string]string{
+		guardTestFile: guardTwoAsserts, guardCapture: guardCaptureSrc,
+	})
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	storetest.Seed(t, path)
 	s, err := store.Open(ctx, path, storetest.NoSync())
@@ -79,10 +92,10 @@ func newGuardFixture(t *testing.T, testChanges ...string) *passFixture {
 	}
 }
 
-// guardRequirementItem is the test item of R1: a test that runs guardTestFile.
+// guardRequirementItem is the test item of R1: a test that runs guardCapture and guardTestFile.
 func guardRequirementItem() evidence.Item {
 	return evidence.Item{
-		Capture: []string{"scripts/check"}, Limit: 60, Conclusion: "TestThing holds", Judge: "the judge",
+		Capture: []string{guardCapture}, Limit: 60, Conclusion: "TestThing holds", Judge: "the judge",
 		Kind: evidence.KindTest, Tests: []string{guardTestFile},
 	}
 }
@@ -94,7 +107,7 @@ func guardPlan(testChanges []string) store.EpicPlan {
 			Title: "Build the thing", Deliverable: "The thing holds", Files: []string{"thing.go", guardTestFile},
 			Requirements: []string{"R1"}, TestChanges: testChanges, Gate: "check",
 			Evidence: evidence.Item{
-				Capture: []string{"scripts/check"}, Limit: 60, Conclusion: "the thing holds", Judge: "the judge",
+				Capture: []string{guardCapture}, Limit: 60, Conclusion: "the thing holds", Judge: "the judge",
 			},
 		}},
 		Outline: "One task",
@@ -102,17 +115,29 @@ func guardPlan(testChanges []string) store.EpicPlan {
 	}
 }
 
-// guardCommitIn writes src as guardTestFile in the checkout dir, commits it on dir's HEAD, and returns the commit. An
-// implementer commits in its own worktree, so a step's commit is made there and the primary checkout's HEAD never moves
-// under the step, which would be a ref move the build parks on.
-func guardCommitIn(t *testing.T, dir, src string) string {
+// guardCommitFiles writes each of files, a map from path to content, in the checkout dir, commits them on dir's HEAD,
+// and returns the commit. An implementer commits in its own worktree, so a step's commit is made there and the primary
+// checkout's HEAD never moves under the step, which would be a ref move the build parks on.
+func guardCommitFiles(t *testing.T, dir string, files map[string]string) string {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(dir, guardTestFile), []byte(src), 0o600); err != nil {
-		t.Fatalf("WriteFile: %v", err)
+	for path, src := range files {
+		full := filepath.Join(dir, path)
+		if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
+			t.Fatalf("MkdirAll: %v", err)
+		}
+		if err := os.WriteFile(full, []byte(src), 0o600); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+		buildRun(t, dir, "add", path)
 	}
-	buildRun(t, dir, "add", guardTestFile)
 	buildRun(t, dir, "commit", "-q", "-m", "change")
 	return buildHead(t, dir)
+}
+
+// guardCommitIn writes src as guardTestFile in the checkout dir and commits it, as guardCommitFiles does.
+func guardCommitIn(t *testing.T, dir, src string) string {
+	t.Helper()
+	return guardCommitFiles(t, dir, map[string]string{guardTestFile: src})
 }
 
 // guardDone is the kept return of an implementer that finished with commit.
@@ -138,16 +163,16 @@ func guardGreenRuns(f *passFixture) int {
 	return n
 }
 
-// TestGuardRefusesLoweredAssertionAndMovesFirstAttemptToSecond covers R1: an implementer whose commit lowers an assertion
-// of a guarded test file is refused before green. The attempt is spent, the second attempt's failure and the build's
+// TestGuardRefusesChangedCaptureAndMovesFirstAttemptToSecond covers R1: an implementer whose commit changes the capture
+// file of the Requirement is refused before green. The attempt is spent, the second attempt's failure and the build's
 // guard are the refusal, and no green run starts.
-func TestGuardRefusesLoweredAssertionAndMovesFirstAttemptToSecond(t *testing.T) {
+func TestGuardRefusesChangedCaptureAndMovesFirstAttemptToSecond(t *testing.T) {
 	t.Parallel()
 	f := newGuardFixture(t)
 	guardStartImplementer(f)
 	worktree := f.addTaskWorktree(passStep(StageImplement, 1, 0))
-	lowered := guardCommitIn(t, worktree, guardOneAssert)
-	f.setStep(passStep(StageImplement, 1, 0), "done", guardDone(lowered))
+	changed := guardCommitFiles(t, worktree, map[string]string{guardCapture: guardCaptureChanged})
+	f.setStep(passStep(StageImplement, 1, 0), "done", guardDone(changed))
 	f.pass()
 	build := f.task().Build
 	refused := build.Failure == guardRefusal && build.Guard == guardRefusal
@@ -167,11 +192,11 @@ func TestGuardRefusalOnSecondAttemptClimbsTask(t *testing.T) {
 	f := newGuardFixture(t)
 	guardStartImplementer(f)
 	worktree := f.addTaskWorktree(passStep(StageImplement, 1, 0))
-	lowered := guardCommitIn(t, worktree, guardOneAssert)
-	f.setStep(passStep(StageImplement, 1, 0), "done", guardDone(lowered))
+	changed := guardCommitFiles(t, worktree, map[string]string{guardCapture: guardCaptureChanged})
+	f.setStep(passStep(StageImplement, 1, 0), "done", guardDone(changed))
 	f.pass()
 	before := ladderClimbBefore(f, 2)
-	f.setStep(passStep(StageImplement, 2, 0), "done", guardDone(lowered))
+	f.setStep(passStep(StageImplement, 2, 0), "done", guardDone(changed))
 	f.pass()
 	if task := f.task(); task.Build.Failure != guardRefusal {
 		t.Errorf("task failure %q, want %q", task.Build.Failure, guardRefusal)
@@ -182,15 +207,64 @@ func TestGuardRefusalOnSecondAttemptClimbsTask(t *testing.T) {
 	}
 }
 
-// TestGuardTestChangesLiftTheGuardAndMoveToGreen covers R2: a commit that lowers an assertion of a file the task lists
-// as a test change is not refused, and the build moves to green at the commit.
+// TestGuardTestChangesLiftTheGuardAndMoveToGreen covers R2: a commit that changes the capture file of a task that lists
+// it as a test change is not refused, and the build moves to green at the commit.
 func TestGuardTestChangesLiftTheGuardAndMoveToGreen(t *testing.T) {
 	t.Parallel()
-	f := newGuardFixture(t, guardTestFile)
+	f := newGuardFixture(t, guardCapture)
 	guardStartImplementer(f)
 	worktree := f.addTaskWorktree(passStep(StageImplement, 1, 0))
-	lowered := guardCommitIn(t, worktree, guardOneAssert)
-	f.setStep(passStep(StageImplement, 1, 0), "done", guardDone(lowered))
+	changed := guardCommitFiles(t, worktree, map[string]string{guardCapture: guardCaptureChanged})
+	f.setStep(passStep(StageImplement, 1, 0), "done", guardDone(changed))
 	f.pass()
-	f.expectGreenAt(lowered)
+	f.expectGreenAt(changed)
+}
+
+// TestGuardFactsCommitsPassTheGuard covers G18: a commit that removes a test, lowers an assertion, adds a skip, deletes a
+// guarded test file or leaves one unreadable passes the guard. The build moves to green at the commit, and the facts are
+// left for the task's floor reviewer, so the build stores no guard refusal.
+func TestGuardFactsCommitsPassTheGuard(t *testing.T) {
+	t.Parallel()
+	const (
+		otherTestOnly = "package thing\n\nimport \"testing\"\n\nfunc TestOther(t *testing.T) { t.Fatal(\"a\") }\n"
+		skipped       = "package thing\n\nimport \"testing\"\n\nfunc TestThing(t *testing.T) { t.Fatal(\"a\"); t.Error(\"b\"); t.Skip(\"slow\") }\n"
+		unreadable    = "package thing\n\nfunc ("
+	)
+	tests := []struct {
+		name   string
+		commit func(t *testing.T, dir string) string
+	}{
+		{name: "assertion lowered", commit: func(t *testing.T, dir string) string {
+			return guardCommitIn(t, dir, guardOneAssert)
+		}},
+		{name: "test removed", commit: func(t *testing.T, dir string) string {
+			return guardCommitIn(t, dir, otherTestOnly)
+		}},
+		{name: "skip added", commit: func(t *testing.T, dir string) string {
+			return guardCommitIn(t, dir, skipped)
+		}},
+		{name: "guarded file deleted", commit: func(t *testing.T, dir string) string {
+			buildRun(t, dir, "rm", "-q", guardTestFile)
+			buildRun(t, dir, "commit", "-q", "-m", "change")
+			return buildHead(t, dir)
+		}},
+		{name: "test file unreadable", commit: func(t *testing.T, dir string) string {
+			return guardCommitIn(t, dir, unreadable)
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newGuardFixture(t)
+			guardStartImplementer(f)
+			worktree := f.addTaskWorktree(passStep(StageImplement, 1, 0))
+			commit := tc.commit(t, worktree)
+			f.setStep(passStep(StageImplement, 1, 0), "done", guardDone(commit))
+			f.pass()
+			f.expectGreenAt(commit)
+			if text := f.task().Build.Guard; text != "" {
+				t.Errorf("build guard = %q, want none", text)
+			}
+		})
+	}
 }

@@ -64,13 +64,13 @@ func TestJudge(t *testing.T) {
 			name:    "guarded test file deleted",
 			set:     Set{Guarded: []string{"a_test.go"}},
 			changes: []Change{del("a_test.go", goFile(testA1))},
-			want:    []Refusal{{File: "a_test.go", Rule: "guarded file deleted"}},
+			want:    []Refusal{{File: "a_test.go", Rule: "guarded file deleted", Fact: true}},
 		},
 		{
 			name:    "guarded file with no rules changed",
 			set:     Set{Guarded: []string{"lib/notes.txt"}},
 			changes: []Change{mod("lib/notes.txt", "a", "b")},
-			want:    []Refusal{{File: "lib/notes.txt", Rule: noRulesRule}},
+			want:    []Refusal{{File: "lib/notes.txt", Rule: noRulesRule, Fact: true}},
 		},
 		{
 			name:    "new guarded file with no rules",
@@ -86,13 +86,13 @@ func TestJudge(t *testing.T) {
 			name:    "test removed",
 			set:     Set{Guarded: []string{"a_test.go"}},
 			changes: []Change{mod("a_test.go", goFile(testA1, testB1), goFile(testA1))},
-			want:    []Refusal{{File: "a_test.go", Test: "TestB", Rule: "test present at the base removed"}},
+			want:    []Refusal{{File: "a_test.go", Test: "TestB", Rule: "test present at the base removed", Fact: true}},
 		},
 		{
 			name:    "assertions lowered",
 			set:     Set{Guarded: []string{"a_test.go"}},
 			changes: []Change{mod("a_test.go", goFile(testA2), goFile(testA1))},
-			want:    []Refusal{{File: "a_test.go", Test: "TestA", Rule: "assertions lowered from 2 to 1"}},
+			want:    []Refusal{{File: "a_test.go", Test: "TestA", Rule: "assertions lowered from 2 to 1", Fact: true}},
 		},
 		{
 			name:    "assertions raised",
@@ -108,7 +108,7 @@ func TestJudge(t *testing.T) {
 			name:    "skip added to existing test",
 			set:     Set{Guarded: []string{"a_test.go"}},
 			changes: []Change{mod("a_test.go", goFile(testA1), goFile(testASkip))},
-			want:    []Refusal{{File: "a_test.go", Test: "TestA", Rule: "skip added"}},
+			want:    []Refusal{{File: "a_test.go", Test: "TestA", Rule: "skip added", Fact: true}},
 		},
 		{
 			name:    "skip already present kept",
@@ -119,13 +119,13 @@ func TestJudge(t *testing.T) {
 			name:    "skip added to new test in existing file",
 			set:     Set{Guarded: []string{"a_test.go"}},
 			changes: []Change{mod("a_test.go", goFile(testA1), goFile(testA1, testCSkip))},
-			want:    []Refusal{{File: "a_test.go", Test: "TestC", Rule: "skip added"}},
+			want:    []Refusal{{File: "a_test.go", Test: "TestC", Rule: "skip added", Fact: true}},
 		},
 		{
 			name:    "repeated names sum their assertions",
 			set:     Set{Guarded: []string{"a_test.go"}},
 			changes: []Change{mod("a_test.go", goFile(testA1, testA1), goFile(testA1))},
-			want:    []Refusal{{File: "a_test.go", Test: "TestA", Rule: "assertions lowered from 2 to 1"}},
+			want:    []Refusal{{File: "a_test.go", Test: "TestA", Rule: "assertions lowered from 2 to 1", Fact: true}},
 		},
 		{
 			name:    "repeated names kept",
@@ -142,9 +142,9 @@ func TestJudge(t *testing.T) {
 			set:     Set{Guarded: []string{"a_test.go"}},
 			changes: []Change{mod("a_test.go", goFile(benchFunc, fuzzFunc, exampleFunc), goFile())},
 			want: []Refusal{
-				{File: "a_test.go", Test: "BenchmarkX", Rule: "test present at the base removed"},
-				{File: "a_test.go", Test: "FuzzY", Rule: "test present at the base removed"},
-				{File: "a_test.go", Test: "ExampleZ", Rule: "test present at the base removed"},
+				{File: "a_test.go", Test: "BenchmarkX", Rule: "test present at the base removed", Fact: true},
+				{File: "a_test.go", Test: "FuzzY", Rule: "test present at the base removed", Fact: true},
+				{File: "a_test.go", Test: "ExampleZ", Rule: "test present at the base removed", Fact: true},
 			},
 		},
 		{
@@ -157,7 +157,7 @@ func TestJudge(t *testing.T) {
 					goFile(`func TestA(t *testing.T) { }`),
 				),
 			},
-			want: []Refusal{{File: "a_test.go", Test: "TestA", Rule: "assertions lowered from 1 to 0"}},
+			want: []Refusal{{File: "a_test.go", Test: "TestA", Rule: "assertions lowered from 1 to 0", Fact: true}},
 		},
 		{
 			name: "every assertion form counted",
@@ -173,7 +173,7 @@ func TestJudge(t *testing.T) {
 					),
 				),
 			},
-			want: []Refusal{{File: "a_test.go", Test: "TestA", Rule: "assertions lowered from 6 to 5"}},
+			want: []Refusal{{File: "a_test.go", Test: "TestA", Rule: "assertions lowered from 6 to 5", Fact: true}},
 		},
 		{
 			name: "skip form Skip counted",
@@ -181,7 +181,7 @@ func TestJudge(t *testing.T) {
 			changes: []Change{
 				mod("a_test.go", goFile(testB1), goFile(`func TestB(t *testing.T) { t.Fatal("one"); t.Skip() }`)),
 			},
-			want: []Refusal{{File: "a_test.go", Test: "TestB", Rule: "skip added"}},
+			want: []Refusal{{File: "a_test.go", Test: "TestB", Rule: "skip added", Fact: true}},
 		},
 		{
 			name: "skip form SkipNow counted",
@@ -189,7 +189,7 @@ func TestJudge(t *testing.T) {
 			changes: []Change{
 				mod("a_test.go", goFile(testB1), goFile(`func TestB(t *testing.T) { t.Fatal("one"); t.SkipNow() }`)),
 			},
-			want: []Refusal{{File: "a_test.go", Test: "TestB", Rule: "skip added"}},
+			want: []Refusal{{File: "a_test.go", Test: "TestB", Rule: "skip added", Fact: true}},
 		},
 		{
 			name: "skip form Skipf counted",
@@ -197,7 +197,7 @@ func TestJudge(t *testing.T) {
 			changes: []Change{
 				mod("a_test.go", goFile(testB1), goFile(`func TestB(t *testing.T) { t.Fatal("one"); t.Skipf("x") }`)),
 			},
-			want: []Refusal{{File: "a_test.go", Test: "TestB", Rule: "skip added"}},
+			want: []Refusal{{File: "a_test.go", Test: "TestB", Rule: "skip added", Fact: true}},
 		},
 		{
 			name:    "owned test file lifts removal",
@@ -235,10 +235,10 @@ func TestJudge(t *testing.T) {
 			changes: []Change{del("a_test.go", goFile(testA1))},
 		},
 		{
-			name:    "own test file refuses added skip",
+			name:    "own test file's added skip is a fact",
 			set:     Set{Guarded: []string{"a_test.go"}, Own: []string{"a_test.go"}, Owned: []string{"a_test.go"}},
 			changes: []Change{mod("a_test.go", goFile(testA1), goFile(testASkip))},
-			want:    []Refusal{{File: "a_test.go", Test: "TestA", Rule: "skip added"}},
+			want:    []Refusal{{File: "a_test.go", Test: "TestA", Rule: "skip added", Fact: true}},
 		},
 		{
 			name:    "own test file judged by skip rule only",
@@ -249,13 +249,13 @@ func TestJudge(t *testing.T) {
 			name:    "own test file not owned keeps every rule",
 			set:     Set{Guarded: []string{"a_test.go"}, Own: []string{"a_test.go"}},
 			changes: []Change{mod("a_test.go", goFile(testA2), goFile(testA1))},
-			want:    []Refusal{{File: "a_test.go", Test: "TestA", Rule: "assertions lowered from 2 to 1"}},
+			want:    []Refusal{{File: "a_test.go", Test: "TestA", Rule: "assertions lowered from 2 to 1", Fact: true}},
 		},
 		{
-			name:    "new own test file with skip refused",
+			name:    "new own test file with skip is a fact",
 			set:     Set{Guarded: []string{"a_test.go"}, Own: []string{"a_test.go"}},
 			changes: []Change{add("a_test.go", goFile(testASkip))},
-			want:    []Refusal{{File: "a_test.go", Test: "TestA", Rule: "skip added"}},
+			want:    []Refusal{{File: "a_test.go", Test: "TestA", Rule: "skip added", Fact: true}},
 		},
 		{
 			name:    "new own test file without skip kept",
@@ -278,21 +278,21 @@ func TestJudge(t *testing.T) {
 			changes: []Change{add("notes.txt", "a")},
 		},
 		{
-			name:    "own file with no rules present at the base refused",
+			name:    "own file with no rules present at the base is a fact",
 			set:     Set{Guarded: []string{"notes.txt"}, Own: []string{"notes.txt"}},
 			changes: []Change{mod("notes.txt", "a", "b")},
-			want:    []Refusal{{File: "notes.txt", Rule: noRulesRule}},
+			want:    []Refusal{{File: "notes.txt", Rule: noRulesRule, Fact: true}},
 		},
 		{
-			name: "refusals in change order",
+			name: "judgments in change order",
 			set:  Set{Guarded: []string{"a_test.go", "b_test.go"}},
 			changes: []Change{
 				mod("b_test.go", goFile(testA2), goFile(testA1)),
 				mod("a_test.go", goFile(testA1, testB1), goFile(testA1)),
 			},
 			want: []Refusal{
-				{File: "b_test.go", Test: "TestA", Rule: "assertions lowered from 2 to 1"},
-				{File: "a_test.go", Test: "TestB", Rule: "test present at the base removed"},
+				{File: "b_test.go", Test: "TestA", Rule: "assertions lowered from 2 to 1", Fact: true},
+				{File: "a_test.go", Test: "TestB", Rule: "test present at the base removed", Fact: true},
 			},
 		},
 	}
@@ -304,6 +304,95 @@ func TestJudge(t *testing.T) {
 				t.Errorf("Judge() = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+// TestGuardFactsPassTheGuard covers G18: a change that removes a test, lowers its assertions, adds a skip, deletes a
+// guarded file or changes a guarded file no rule reads refuses nothing, and each of its judgments is a fact the floor
+// reviewer judges, one line each.
+func TestGuardFactsPassTheGuard(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		set    Set
+		change Change
+		want   []string
+	}{
+		{
+			name:   "test removed",
+			set:    Set{Guarded: []string{"a_test.go"}},
+			change: mod("a_test.go", goFile(testA1, testB1), goFile(testA1)),
+			want:   []string{"a_test.go: TestB: test present at the base removed"},
+		},
+		{
+			name:   "assertions lowered",
+			set:    Set{Guarded: []string{"a_test.go"}},
+			change: mod("a_test.go", goFile(testA2), goFile(testA1)),
+			want:   []string{"a_test.go: TestA: assertions lowered from 2 to 1"},
+		},
+		{
+			name:   "skip added",
+			set:    Set{Guarded: []string{"a_test.go"}},
+			change: mod("a_test.go", goFile(testA1), goFile(testASkip)),
+			want:   []string{"a_test.go: TestA: skip added"},
+		},
+		{
+			name:   "guarded file deleted",
+			set:    Set{Guarded: []string{"a_test.go"}},
+			change: del("a_test.go", goFile(testA1)),
+			want:   []string{"a_test.go: guarded file deleted"},
+		},
+		{
+			name:   "guarded file no rule reads",
+			set:    Set{Guarded: []string{"notes.txt"}},
+			change: mod("notes.txt", "a", "b"),
+			want:   []string{"notes.txt: " + noRulesRule},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			judgments := Judge(tc.set, []Change{tc.change})
+			if refusals := Refusals(judgments); refusals != nil {
+				t.Errorf("Refusals() = %v, want none", refusals)
+			}
+			if got := FactLines(judgments); !slices.Equal(got, tc.want) {
+				t.Errorf("FactLines() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+	t.Run("test unreadable", func(t *testing.T) {
+		t.Parallel()
+		judgments := Judge(Set{Guarded: []string{"a_test.go"}}, []Change{mod("a_test.go", goFile(testA1), "package x\nfunc {")})
+		facts := FactLines(judgments)
+		if refusals := Refusals(judgments); refusals != nil || len(facts) != 1 ||
+			!strings.HasPrefix(facts[0], "a_test.go: "+unreadRule) {
+			t.Errorf("Refusals() = %v, FactLines() = %v, want no refusal and one unreadable fact naming a_test.go",
+				refusals, facts)
+		}
+	})
+}
+
+// TestGuardFactsRefuseOnlyCaptureAndDOM covers G18: in one change, a changed capture file and an added DOM-node assert
+// still refuse, and a lowered assertion is a fact that the refusals leave out.
+func TestGuardFactsRefuseOnlyCaptureAndDOM(t *testing.T) {
+	t.Parallel()
+	set := Set{Guarded: []string{"a_test.go"}, Captures: []string{"scripts/gen.sh"}}
+	judgments := Judge(set, []Change{
+		mod("scripts/gen.sh", "old", "new"),
+		mod("a_test.go", goFile(testA2), goFile(testA1)),
+		mod(domTestPath, domBase, withLine(`assert.equal(document.activeElement, box);`)),
+	})
+	wantRefusals := []Refusal{
+		{File: "scripts/gen.sh", Rule: "capture file changed"},
+		domRefusal("assert.equal", 3),
+	}
+	if got := Refusals(judgments); !slices.Equal(got, wantRefusals) {
+		t.Errorf("Refusals() = %v, want %v", got, wantRefusals)
+	}
+	wantFacts := []string{"a_test.go: TestA: assertions lowered from 2 to 1"}
+	if got := FactLines(judgments); !slices.Equal(got, wantFacts) {
+		t.Errorf("FactLines() = %v, want %v", got, wantFacts)
 	}
 }
 
@@ -321,13 +410,13 @@ func TestJudgeUnreadable(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := Judge(set, []Change{tc.change})
-			if len(got) != 1 || got[0].File != "a_test.go" || got[0].Test != "" ||
+			if len(got) != 1 || got[0].File != "a_test.go" || got[0].Test != "" || !got[0].Fact ||
 				!strings.HasPrefix(got[0].Rule, unreadRule) {
-				t.Errorf("Judge() = %v, want one unreadable refusal naming a_test.go", got)
+				t.Errorf("Judge() = %v, want one unreadable fact naming a_test.go", got)
 			}
 		})
 	}
-	t.Run("new file that does not parse is not refused", func(t *testing.T) {
+	t.Run("new file that does not parse is not judged", func(t *testing.T) {
 		t.Parallel()
 		if got := Judge(set, []Change{add("a_test.go", broken)}); got != nil {
 			t.Errorf("Judge() = %v, want nil", got)
