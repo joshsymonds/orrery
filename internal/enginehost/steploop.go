@@ -211,9 +211,6 @@ type stepRun struct {
 	// resumeGate is the gate a restored step's row stores as running: its grant and holder, and the round it runs in.
 	// runDoneGate re-adopts it in that round, and clears it then.
 	resumeGate store.StepGate
-	// firstFails is the first fails result of any schema-valid agent gate output that holds one, a round's return or a
-	// turn end that is no round, nil until one does. It is never cleared, so no return after it can end done.
-	firstFails *verdictResult
 	// ended is closed once finish has acted.
 	ended chan struct{}
 	// runDone is closed when run returns, so Return and Exited never wait on a run that will not drain them.
@@ -463,11 +460,9 @@ func (r *stepRun) resumeReturn(ctx context.Context, row store.StepRow) bool {
 // step's resume, in the write of the prompt it sends (continueStep), so a restart before that write finds the nudge
 // still pending and the step still held, and sends it again. Any other turn end stores the clear before it goes on. A
 // held step's turn end is no round and continues nothing, unless an owner nudge is pending, which resumes the step with
-// it. An owner nudge
-// pending continues the step with it, error or not. A pending watchdog nudge is sent back with an error turn end. A turn end
-// that is no round latches its output's first fails for an agent gate step, as judge would latch a round's. A return that
-// is not done while a step the run started runs is left open, with no round (see awaitingChildren). Any other turn end is
-// the next round, which judge checks. It reports whether the run goes on.
+// it. An owner nudge pending continues the step with it, error or not. A pending watchdog nudge is sent back with an
+// error turn end. A return that is not done while a step the run started runs is left open, with no round (see
+// awaitingChildren). Any other turn end is the next round, which judge checks. It reports whether the run goes on.
 func (r *stepRun) turnEnded(ctx context.Context, ended session.TurnEnded) bool {
 	if limited, goOn := r.limitTurn(ctx); limited {
 		return goOn
@@ -475,7 +470,6 @@ func (r *stepRun) turnEnded(ctx context.Context, ended session.TurnEnded) bool {
 	nudge, owner := r.nudge, r.ownerNudge
 	r.nudge, r.ownerNudge = "", ""
 	if r.held.Load() {
-		r.latchNoRound(ended.StructuredOutput)
 		if owner == "" {
 			r.heldEnded = true
 			if nudge != "" {
@@ -488,11 +482,9 @@ func (r *stepRun) turnEnded(ctx context.Context, ended session.TurnEnded) bool {
 		return r.continueWith(ctx, StepPrompt{Text: joinNudges(nudge, owner), Sender: store.PromptSenderOwner})
 	}
 	if owner != "" {
-		r.latchNoRound(ended.StructuredOutput)
 		return r.continueWith(ctx, StepPrompt{Text: joinNudges(nudge, owner), Sender: store.PromptSenderOwner})
 	}
 	if nudge != "" && ended.IsError {
-		r.latchNoRound(ended.StructuredOutput)
 		return r.continueWith(ctx, StepPrompt{Text: nudge, Sender: store.PromptSenderEngine})
 	}
 	if nudge != "" {
