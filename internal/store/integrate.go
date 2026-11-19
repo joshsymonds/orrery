@@ -232,10 +232,30 @@ func parkMetAtBase(
 	return insertQuestionTell(ctx, queries, epic, park, question, at)
 }
 
+// The phases ListUnreportedEpics reports that no other constant names.
+const (
+	phaseReleased = "released"
+	phaseDone     = "done"
+)
+
+// unreportedEndPhase reports whether phase is one ListUnreportedEpics reports: a phase whose epic ends, which the
+// OnEpicEnded hook is called for.
+func unreportedEndPhase(phase string) bool {
+	switch phase {
+	case phaseReleased, phaseDone, phaseEndedWithGaps, PhaseClosedSuperseded, PhaseClosedShipped, PhaseClosedAbandoned:
+		return true
+	}
+	return false
+}
+
 // setEpicPhase stores phase as the phase of epic in the caller's write, at as the time it was set. A phase that epic
-// already has keeps the time it was set.
+// already has keeps the time it was set. A phase ListUnreportedEpics reports marks the statement for OnEpicEnded.
 func setEpicPhase(ctx context.Context, queries *sqlcgen.Queries, epic, phase string, at time.Time) error {
-	if err := queries.SetEpicPhase(withEpicEvent(ctx), sqlcgen.SetEpicPhaseParams{
+	statement := withEpicEvent(ctx)
+	if unreportedEndPhase(phase) {
+		statement = withHousekeepMark(statement, hookEpicEnded, epic)
+	}
+	if err := queries.SetEpicPhase(statement, sqlcgen.SetEpicPhaseParams{
 		Phase: phase, At: at.Unix(), ID: epic,
 	}); err != nil {
 		return fmt.Errorf("set phase of epic %s: %w", epic, err)

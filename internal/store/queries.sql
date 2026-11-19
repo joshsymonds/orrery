@@ -242,6 +242,9 @@ WHERE prompts.session_id = sqlc.arg(session_id) AND prompts.kind = 'engine_promp
                           WHERE newest.session_id = states.session_id AND newest.write_id = states.write_id)
   ));
 
+-- name: CountSessionPrompts :one
+SELECT COUNT(*) FROM events WHERE session_id = sqlc.arg(session_id) AND kind = 'engine_prompt';
+
 -- name: InsertEnginePromptEvent :exec
 INSERT INTO events (session_id, kind, at, payload, write_id) VALUES (?, 'engine_prompt', ?, ?, ?);
 

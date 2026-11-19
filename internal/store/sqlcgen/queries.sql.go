@@ -495,6 +495,17 @@ func (q *Queries) CountRunningEpicTurns(ctx context.Context, epic string) (int64
 	return column_1, err
 }
 
+const countSessionPrompts = `-- name: CountSessionPrompts :one
+SELECT COUNT(*) FROM events WHERE session_id = ?1 AND kind = 'engine_prompt'
+`
+
+func (q *Queries) CountSessionPrompts(ctx context.Context, sessionID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countSessionPrompts, sessionID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countWorkingEvidenceNodeRuns = `-- name: CountWorkingEvidenceNodeRuns :one
 SELECT COUNT(*) FROM epic_node_runs AS run
 WHERE run.epic = ?1 AND run.state = 'running'
