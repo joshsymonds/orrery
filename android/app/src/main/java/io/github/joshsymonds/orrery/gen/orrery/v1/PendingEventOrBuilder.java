@@ -194,7 +194,9 @@ public interface PendingEventOrBuilder extends
 
   /**
    * <pre>
-   * How the event waits: speak when the owner's interrupt keeps the session quiet, and free otherwise.
+   * How the event waits, one of three values. speak when the owner's interrupt is newer than the owner's last prompt,
+   * even while a request is open, or when the session is stopped. request when the session waits on an open request
+   * and no speak applies. free otherwise.
    * </pre>
    *
    * <code>string waits = 11 [json_name = "waits"];</code>
@@ -203,7 +205,9 @@ public interface PendingEventOrBuilder extends
   java.lang.String getWaits();
   /**
    * <pre>
-   * How the event waits: speak when the owner's interrupt keeps the session quiet, and free otherwise.
+   * How the event waits, one of three values. speak when the owner's interrupt is newer than the owner's last prompt,
+   * even while a request is open, or when the session is stopped. request when the session waits on an open request
+   * and no speak applies. free otherwise.
    * </pre>
    *
    * <code>string waits = 11 [json_name = "waits"];</code>

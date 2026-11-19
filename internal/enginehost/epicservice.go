@@ -80,10 +80,11 @@ func (s *epicService) ready() error {
 	return nil
 }
 
-// CreateEpic checks the contract with checkEpic, merges its reviewers, resolves its base to the full commit the base
-// names, pins the workflow the request names at that commit, then stores it accepted, with its seed decisions, and
-// returns the stored epic read back. Its review list is the enabled task-stage reviewers, in merged order. A reviewer
-// no layer can hold, or a workflow that does not load at the base, is refused, and nothing is stored.
+// CreateEpic checks the contract with checkEpic, collects the lint's warnings, merges its reviewers, resolves its base to
+// the full commit the base names, pins the workflow the request names at that commit, then stores it accepted, with its
+// seed decisions, and returns the stored epic read back with the warnings. Its review list is the enabled task-stage
+// reviewers, in merged order. A reviewer no layer can hold, or a workflow that does not load at the base, is refused,
+// and nothing is stored.
 func (s *epicService) CreateEpic(
 	ctx context.Context,
 	req *connect.Request[v1.CreateEpicRequest],
@@ -99,6 +100,10 @@ func (s *epicService) CreateEpic(
 		return nil, refuseEpic(connect.CodeInvalidArgument, err.Error())
 	}
 	contract := req.Msg.GetContract()
+	warnings, err := contractLintWarnings(ctx, contract)
+	if err != nil {
+		return nil, refuseEpic(connect.CodeInvalidArgument, err.Error())
+	}
 	merged, err := epicReviewers(ctx, contract, getenv)
 	if err != nil {
 		return nil, refuseEpic(connect.CodeInvalidArgument, err.Error())
@@ -124,7 +129,7 @@ func (s *epicService) CreateEpic(
 	if err != nil {
 		return nil, epicStoreError(err)
 	}
-	return connect.NewResponse(&v1.CreateEpicResponse{Epic: message}), nil
+	return connect.NewResponse(&v1.CreateEpicResponse{Epic: message, Warnings: warnings}), nil
 }
 
 // GetEpic returns the stored epic with its workflow node runs. When req asks for history, it also returns the epic's

@@ -156,13 +156,13 @@ func TestTaskRepairsGrantRefusedOwnedFileWritesNothing(t *testing.T) {
 	}
 }
 
-// TestTaskRepairsGrantMigrationWidensMovedByAndSourceAndStepsDown checks migration 00073: before it, a rung's moved_by
+// TestTaskRepairsGrantMigrationWidensMovedByAndSourceAndStepsDown checks migration 00074: before it, a rung's moved_by
 // and a version's source refuse send_back, after it both accept it, and every row stored before it is kept as it was.
 // Its Down removes the rows that only send_back wrote, and keeps the rest.
 func TestTaskRepairsGrantMigrationWidensMovedByAndSourceAndStepsDown(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, provider := storeAtVersion(t, 72)
+	s, provider := storeAtVersion(t, 73)
 	if _, err := s.fixtureExec(ctx, `INSERT INTO epic_task_rungs (epic, task, rung, kind, moved_by, created)
 		VALUES ('repairs', 1, 2, 'attempt', 'unit', 1700000000)`); err != nil {
 		t.Fatalf("insert rung: %v", err)
@@ -175,11 +175,11 @@ func TestTaskRepairsGrantMigrationWidensMovedByAndSourceAndStepsDown(t *testing.
 	versions := rowsOf(t, s.db.DB, "epic_task_versions")
 	if _, err := s.fixtureExec(ctx, `INSERT INTO epic_task_rungs (epic, task, rung, kind, moved_by, created)
 		VALUES ('repairs', 1, 3, 'rescue', 'send_back', 1700000001)`); err == nil {
-		t.Fatal("a send_back rung before migration 00073 = nil, want the check to refuse it")
+		t.Fatal("a send_back rung before migration 00074 = nil, want the check to refuse it")
 	}
 
 	if _, err := provider.UpByOne(ctx); err != nil {
-		t.Fatalf("Up of 00073: %v", err)
+		t.Fatalf("Up of 00074: %v", err)
 	}
 	if got := rowsOf(t, s.db.DB, "epic_task_rungs"); !reflect.DeepEqual(got, rungs) {
 		t.Errorf("epic_task_rungs after Up = %v, want %v", got, rungs)
@@ -200,7 +200,7 @@ func TestTaskRepairsGrantMigrationWidensMovedByAndSourceAndStepsDown(t *testing.
 	}
 
 	if _, err := provider.Down(ctx); err != nil {
-		t.Fatalf("Down of 00073: %v", err)
+		t.Fatalf("Down of 00074: %v", err)
 	}
 	if tableNames(t, s)["epic_task_refused"] {
 		t.Error("epic_task_refused after Down: present, want absent")

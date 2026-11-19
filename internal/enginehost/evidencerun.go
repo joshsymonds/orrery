@@ -486,7 +486,8 @@ func (e *Evidence) judgeOnce(
 // startJudge starts judge number judge of run at repo under the id evidenceJudgeID derives for it. It returns the step's id, or
 // the reason the step did not start: its prompt could not be built, its task could not be read, or Start refused it. A run of a
 // task (T<seq>) reads the task from its epic, and its prompt opens with the lines judgeSpecLines gives for the task, then a blank
-// line; a run of a Requirement or an amendment reads nothing and its prompt is judgePrompt's alone. Start returns the id of a
+// line; a green run that is not a task's reads its epic's runs and its prompt ends with the lines judgeCarryLines gives, after
+// a blank line; a red run that is not a task's reads nothing and its prompt is judgePrompt's alone. Start returns the id of a
 // step whose StartStep failed after its row was written, with that row ended failed, so such a judge returns its id and its end
 // gives the reason; the start's error is that end's reason.
 func (e *Evidence) startJudge(ctx context.Context, repo string, run store.EvidenceRun, judge int) (string, string) {
@@ -500,6 +501,13 @@ func (e *Evidence) startJudge(ctx context.Context, repo string, run store.Eviden
 	}
 	if len(lines) > 0 {
 		prompt = strings.Join(lines, "\n") + "\n\n" + prompt
+	}
+	carry, err := e.judgeCarry(ctx, run)
+	if err != nil {
+		return "", err.Error()
+	}
+	if len(carry) > 0 {
+		prompt += "\n\n" + strings.Join(carry, "\n")
 	}
 	start := judgeStart(run, repo, prompt)
 	start.ID = evidenceJudgeID(run.ID, judge)

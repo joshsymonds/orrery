@@ -192,6 +192,10 @@ func (f failingStore) EngineTextSessions(context.Context) (map[string]bool, erro
 	return nil, f.err
 }
 
+func (f failingStore) QuietSessions(context.Context) ([]string, error) {
+	return nil, f.err
+}
+
 func (f failingStore) EngineSession(context.Context, string) (store.EngineRow, error) {
 	return store.EngineRow{}, f.err
 }

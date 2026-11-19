@@ -264,10 +264,12 @@ func queuedMessages(prompts []store.PromptState) []*orreryv1.QueuedMessage {
 	return served
 }
 
-// The waits labels of a PendingEvent: speak when the owner's interrupt keeps the session quiet, and free otherwise.
+// The waits labels of a PendingEvent: speak while the owner's interrupt keeps the session quiet or the session is
+// stopped, request while the session waits on an open request, and free otherwise.
 const (
-	waitsSpeak = "speak"
-	waitsFree  = "free"
+	waitsSpeak   = "speak"
+	waitsRequest = "request"
+	waitsFree    = "free"
 )
 
 // pendingEvents returns the caller events the session is owed, as store.Reader.PendingCallerEvents reads them. It sets
@@ -284,7 +286,7 @@ func (w *sessionWatch) pendingEvents(
 	if err != nil {
 		return nil, sessionReadError(err)
 	}
-	waits := w.waitsLabel()
+	waits := w.waitsLabel(history)
 	pending := make([]*orreryv1.PendingEvent, 0, len(events))
 	for _, event := range events {
 		pending = append(pending, &orreryv1.PendingEvent{
@@ -303,13 +305,23 @@ func (w *sessionWatch) pendingEvents(
 	return pending, nil
 }
 
-// waitsLabel returns the waits label of the session's caller events: speak when its newest engine_interrupt is newer
-// than its newest owner prompt, and free otherwise.
-func (w *sessionWatch) waitsLabel() string {
-	if w.interruptSeq > w.ownerPromptSeq {
+// waitsLabel returns the waits label of the session's caller events, the first of these that holds: speak when its
+// newest engine_interrupt is newer than its newest owner prompt, even while a request is open; speak when its row is
+// stopped; request when the state serves the session's open request (see servesRequest); and free otherwise.
+func (w *sessionWatch) waitsLabel(history store.EngineHistory) string {
+	switch {
+	case w.interruptSeq > w.ownerPromptSeq, history.State == stateStopped:
 		return waitsSpeak
+	case w.servesRequest(history):
+		return waitsRequest
 	}
 	return waitsFree
+}
+
+// servesRequest reports whether the state serves the session's open request: the row waits on one, and the stream has
+// an unrefused request to serve (see state, which sends it, and waitsLabel).
+func (w *sessionWatch) servesRequest(history store.EngineHistory) bool {
+	return history.State == string(protocol.StateWaiting) && w.request != nil
 }
 
 // interrupting reports whether the owner's Interrupt of the session is recorded and its turn still runs: the state is
@@ -653,7 +665,7 @@ func (w *sessionWatch) state(
 	if w.transcript != "" {
 		state.Context = &orreryv1.ConversationContext{Tokens: w.figure.Tokens, Window: w.figure.Window}
 	}
-	if history.State == string(protocol.StateWaiting) && w.request != nil {
+	if w.servesRequest(history) {
 		request := proto.CloneOf(w.request)
 		request.PutOff = putOff
 		state.Request = request

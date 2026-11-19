@@ -10,8 +10,8 @@ import (
 )
 
 // EngineRow is one headless engine session row, copied from its sessions columns. Tracked is set when the row's
-// consumed offset is not NULL, that is, when an EngineLaunch has tracked it. Consumed, ReplayFrom, Background and
-// TurnOutput are the re-adoption state the row holds.
+// consumed offset is not NULL, that is, when an EngineLaunch has tracked it. Consumed, ReplayFrom, Background, Awaited
+// and TurnOutput are the re-adoption state the row holds.
 type EngineRow struct {
 	ID            string
 	Dir           string
@@ -24,6 +24,7 @@ type EngineRow struct {
 	Consumed      int64
 	ReplayFrom    int64
 	Background    bool
+	Awaited       bool
 	TurnOutput    string
 }
 
@@ -102,11 +103,23 @@ func (s *Store) EngineTextSessions(ctx context.Context) (map[string]bool, error)
 	return out, nil
 }
 
+// QuietSessions returns the ids of the headless engine sessions that the owner's Interrupt left quiet and that no owner
+// Say has cleared since: each whose newest engine_interrupt has a higher seq than its newest engine_prompt sent by the
+// owner, or that holds an engine_interrupt and no owner prompt at all. A step session is never listed. The ids are in
+// id order.
+func (s *Store) QuietSessions(ctx context.Context) ([]string, error) {
+	ids, err := sqlcgen.New(s.db).ListQuietSessions(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list quiet engine sessions: %w", err)
+	}
+	return ids, nil
+}
+
 func toEngineRow(row sqlcgen.Session) EngineRow {
 	return EngineRow{
 		ID: row.ID, Dir: row.Dir, State: row.State, Question: row.Question,
 		ClaudeSession: row.ClaudeSession, Reason: row.Reason, Kind: row.Kind,
 		Tracked: row.Consumed.Valid, Consumed: row.Consumed.Int64, ReplayFrom: row.ReplayFrom,
-		Background: row.Background, TurnOutput: row.TurnOutput,
+		Background: row.Background, Awaited: row.Awaited, TurnOutput: row.TurnOutput,
 	}
 }
