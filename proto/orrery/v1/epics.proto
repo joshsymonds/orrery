@@ -730,11 +730,14 @@ message EpicTaskReview {
   // The step that ran the review.
   string step = 3;
 
-  // The review's verdict: holds or fails.
+  // The review's verdict: holds, fails, or undetermined when the reviewer gave neither twice.
   string verdict = 4;
 
   // The findings the review raised, in position order.
   repeated EpicTaskFinding findings = 5;
+
+  // Why the review is undetermined: how its step ended. Empty for holds and fails.
+  string reason = 6;
 }
 
 // EpicTaskFinding is one finding a review raised, with its verification.

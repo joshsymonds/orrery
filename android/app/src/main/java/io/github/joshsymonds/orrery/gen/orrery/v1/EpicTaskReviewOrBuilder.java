@@ -62,7 +62,7 @@ public interface EpicTaskReviewOrBuilder extends
 
   /**
    * <pre>
-   * The review's verdict: holds or fails.
+   * The review's verdict: holds, fails, or undetermined when the reviewer gave neither twice.
    * </pre>
    *
    * <code>string verdict = 4 [json_name = "verdict"];</code>
@@ -71,7 +71,7 @@ public interface EpicTaskReviewOrBuilder extends
   java.lang.String getVerdict();
   /**
    * <pre>
-   * The review's verdict: holds or fails.
+   * The review's verdict: holds, fails, or undetermined when the reviewer gave neither twice.
    * </pre>
    *
    * <code>string verdict = 4 [json_name = "verdict"];</code>
@@ -105,4 +105,24 @@ public interface EpicTaskReviewOrBuilder extends
    * <code>repeated .orrery.v1.EpicTaskFinding findings = 5 [json_name = "findings"];</code>
    */
   int getFindingsCount();
+
+  /**
+   * <pre>
+   * Why the review is undetermined: how its step ended. Empty for holds and fails.
+   * </pre>
+   *
+   * <code>string reason = 6 [json_name = "reason"];</code>
+   * @return The reason.
+   */
+  java.lang.String getReason();
+  /**
+   * <pre>
+   * Why the review is undetermined: how its step ended. Empty for holds and fails.
+   * </pre>
+   *
+   * <code>string reason = 6 [json_name = "reason"];</code>
+   * @return The bytes for reason.
+   */
+  com.google.protobuf.ByteString
+      getReasonBytes();
 }

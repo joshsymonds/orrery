@@ -2294,10 +2294,12 @@ type EpicTaskReview struct {
 	Gate string `protobuf:"bytes,2,opt,name=gate,proto3" json:"gate,omitempty"`
 	// The step that ran the review.
 	Step string `protobuf:"bytes,3,opt,name=step,proto3" json:"step,omitempty"`
-	// The review's verdict: holds or fails.
+	// The review's verdict: holds, fails, or undetermined when the reviewer gave neither twice.
 	Verdict string `protobuf:"bytes,4,opt,name=verdict,proto3" json:"verdict,omitempty"`
 	// The findings the review raised, in position order.
-	Findings      []*EpicTaskFinding `protobuf:"bytes,5,rep,name=findings,proto3" json:"findings,omitempty"`
+	Findings []*EpicTaskFinding `protobuf:"bytes,5,rep,name=findings,proto3" json:"findings,omitempty"`
+	// Why the review is undetermined: how its step ended. Empty for holds and fails.
+	Reason        string `protobuf:"bytes,6,opt,name=reason,proto3" json:"reason,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2365,6 +2367,13 @@ func (x *EpicTaskReview) GetFindings() []*EpicTaskFinding {
 		return x.Findings
 	}
 	return nil
+}
+
+func (x *EpicTaskReview) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
 }
 
 // EpicTaskFinding is one finding a review raised, with its verification.
@@ -6873,13 +6882,14 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\aoutcome\x18\t \x01(\tR\aoutcome\x12\x16\n" +
 	"\x06reason\x18\n" +
 	" \x01(\tR\x06reason\x12\x14\n" +
-	"\x05ended\x18\v \x01(\x03R\x05ended\"\xab\x01\n" +
+	"\x05ended\x18\v \x01(\x03R\x05ended\"\xc3\x01\n" +
 	"\x0eEpicTaskReview\x12\x18\n" +
 	"\aattempt\x18\x01 \x01(\x03R\aattempt\x12\x12\n" +
 	"\x04gate\x18\x02 \x01(\tR\x04gate\x12\x12\n" +
 	"\x04step\x18\x03 \x01(\tR\x04step\x12\x18\n" +
 	"\averdict\x18\x04 \x01(\tR\averdict\x12=\n" +
-	"\bfindings\x18\x05 \x03(\v2!.orrery.engine.v1.EpicTaskFindingR\bfindings\"\xb7\x01\n" +
+	"\bfindings\x18\x05 \x03(\v2!.orrery.engine.v1.EpicTaskFindingR\bfindings\x12\x16\n" +
+	"\x06reason\x18\x06 \x01(\tR\x06reason\"\xb7\x01\n" +
 	"\x0fEpicTaskFinding\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05claim\x18\x02 \x01(\tR\x05claim\x12\x1a\n" +

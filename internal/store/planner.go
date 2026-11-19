@@ -59,7 +59,8 @@ type EpicTurn struct {
 // its build names, nil when it names none or when the run is not current with Evidence. Batch is the path of the
 // integrate run that claimed the task, "" while none has. NeedsFiles are the paths beyond its owned Files that its
 // implementer named when it failed, in the order it named them. GateChanges are the gate-needed changes its
-// implementers declared with a commit the guard passed, one per file in the order first declared. Refused are the paths
+// implementers declared with a commit the guard passed, one per file in the order first declared. Notes are the notes
+// its build holds, in the order they were recorded. Refused are the paths
 // an orchestrator decision refused on the task, which no rule grant gives the task again until a decision adds them.
 type EpicTask struct {
 	Seq          int64
@@ -80,6 +81,7 @@ type EpicTask struct {
 	Batch        string
 	NeedsFiles   []string
 	GateChanges  []GateChange
+	Notes        []string
 	Refused      []string
 	// Version is the number of the task's current version: its highest applied version, or 1 when none is applied. The
 	// Deliverable, TestChanges, Gate and Evidence above are the current version's.
@@ -337,12 +339,17 @@ func taskOf(
 	if err != nil {
 		return EpicTask{}, fmt.Errorf("task %d gate changes: %w", stored.Seq, err)
 	}
+	notes, err := decodeList[string](stored.Notes)
+	if err != nil {
+		return EpicTask{}, fmt.Errorf("task %d notes: %w", stored.Seq, err)
+	}
 	task := EpicTask{
 		Seq: stored.Seq, Turn: stored.Turn, Title: stored.Title, Deliverable: stored.Deliverable,
 		Files: files, Requirements: requirements, Contributes: contributes, TestChanges: testChanges,
 		Gate: stored.Gate, Evidence: item,
 		Status: stored.Status, Build: buildOf(stored), Reviews: reviews, Batch: stored.Batch,
-		NeedsFiles: needsFiles, GateChanges: gateChanges, Refused: refused, Version: 1, Versions: versions,
+		NeedsFiles: needsFiles, GateChanges: gateChanges, Notes: notes,
+		Refused: refused, Version: 1, Versions: versions,
 	}
 	overlayVersions(&task)
 	if task.Build.RedRun != "" {

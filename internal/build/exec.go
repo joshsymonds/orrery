@@ -50,6 +50,10 @@ func (r *Runner) record(ctx context.Context, epic store.EpicRow, view View, acti
 	seq, from := view.Task.Seq, view.Task.Build
 	switch action.Kind {
 	case ActMove:
+		if action.Notes != nil {
+			err := r.store.SetTaskBuildNotes(ctx, epic.ID, seq, from, action.Next, action.Notes, action.Tells, r.now())
+			return r.written(ctx, epic.ID, seq, "move build with notes", err)
+		}
 		return r.written(ctx, epic.ID, seq, "move build", r.store.SetTaskBuild(ctx, epic.ID, seq, from, action.Next))
 	case ActSettleVersion:
 		err := r.store.SettleTaskVersion(ctx, epic.ID, seq, from, action.Next, *action.Settle, r.now())

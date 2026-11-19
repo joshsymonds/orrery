@@ -3,6 +3,7 @@ package build
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
@@ -20,9 +21,10 @@ const (
 
 // statusDone is the status of a gate return that finished, and the verdicts a review stores.
 const (
-	statusDone   = "done"
-	verdictHolds = "holds"
-	verdictFails = "fails"
+	statusDone          = "done"
+	verdictHolds        = "holds"
+	verdictFails        = "fails"
+	verdictUndetermined = "undetermined"
 )
 
 // The results a gate return gives an assertion, and the results a finding stores.
@@ -59,10 +61,11 @@ type verifierResult struct {
 }
 
 // decideGreen returns the action for the green unit of a task: its evidence run at the commit, once it has ended. A
-// test item's unit first decides its reproduction at the commit, and starts the run only once the reproduction's exit
-// holds. A run that exited store.EnvironmentExit reruns or parks the unit as environmentRerun decides. A run that is
-// not captured otherwise or not met spends the attempt, and a run that gave no verdict reruns or parks the task. A met
-// run is kept as the green run and goes to the review gates; with none, decideReview accepts it unreviewed.
+// test item's unit first decides its reproduction at the commit, and starts the run only once the reproduction's
+// outcome is kept (decideRepro). A run that exited store.EnvironmentExit reruns or parks the unit as environmentRerun
+// decides. A run that is not captured otherwise or not met spends the attempt. A run whose judge gave no verdict twice
+// goes on to review with a note, and its first no verdict reruns the unit. A met run is kept as the green run and goes
+// to the review gates; with none, decideReview accepts it unreviewed.
 func decideGreen(view View) Action {
 	build := view.Task.Build
 	run := view.Run
@@ -90,26 +93,35 @@ func decideGreen(view View) Action {
 		return spend(view, "green not captured: "+run.NotCaptured)
 	}
 	if run.Verdict == "" {
-		return noVerdict(view, StageGreen, run.JudgeReason)
+		if action, again := silentRerun(view); again {
+			return action
+		}
+		note := fmt.Sprintf("%s green: the judge gave no verdict twice: %s", taskLabel(view.Task.Seq), run.JudgeReason)
+		return noted(view, greenToReview(build, run), note)
 	}
 	if !run.Passed {
 		return spend(view, fmt.Sprintf("green not met: exit %d, verdict %s", run.Exit, run.Verdict))
 	}
+	return Action{Kind: ActMove, Next: greenToReview(build, run)}
+}
+
+// greenToReview returns build moved to the review gates with run as its green run: at the first gate, with its rerun
+// and its verdict counted from zero.
+func greenToReview(build store.TaskBuild, run *store.EvidenceRun) store.TaskBuild {
 	build.Stage = StageReview
 	build.GreenRun = run.ID
 	build.GatePos = 0
 	build.FindingPos = 0
 	build.Rerun = 0
 	build.NoVerdict = 0
-	return Action{Kind: ActMove, Next: build}
+	return build
 }
 
 // decideRepro returns the action for the reproduction of a test item's green unit, once the unit has no run. A
 // reproduction not yet started is started at the commit, and one that has not ended waits. One lost at a restart
-// reruns the unit, and one that did not run spends the attempt with its reason. One that exited
-// store.EnvironmentExit without timing out reruns or parks the unit as environmentRerun decides. One that exited 0 and
-// did not time out spends it as a disagreement with the judge, who judged red fails. It reports false when the
-// reproduction's exit holds, so the green run starts.
+// reruns the unit. One that did not run, or that exited 0 without timing out, is a note on the build (reproNoted): the
+// reproduction is not a gate, so the green run starts once its note is kept. One that exited store.EnvironmentExit
+// without timing out reruns or parks the unit as environmentRerun decides. It reports false when the green run starts.
 func decideRepro(view View) (Action, bool) {
 	build := view.Task.Build
 	repro := view.Repro
@@ -126,25 +138,34 @@ func decideRepro(view View) (Action, bool) {
 		return restartUnit(build), true
 	}
 	if repro.NotRun != "" {
-		return spend(view, "green not captured: reproduction did not run: "+repro.NotRun), true
+		return reproNoted(view, "did not run: "+repro.NotRun)
 	}
 	if store.EnvironmentExited(repro.Exit, repro.TimedOut) {
 		return environmentRerun(view, "reproduction"), true
 	}
 	if repro.Exit == 0 && !repro.TimedOut {
-		return spend(view, fmt.Sprintf(
-			"green not met: the judge and the exit disagree: red was judged fails at the base %s, but its reproduction "+
-				"with the commit's tests exited 0, so those tests pass at the base without the rest of the commit",
-			build.Base,
-		)), true
+		return reproNoted(view, "exited 0 on the base with the commit's test files, so they pass without the rest of "+
+			"the commit")
 	}
 	return Action{}, false
 }
 
+// reproNoted returns the action that records outcome, a reproduction's outcome, as a note on the task's build, and
+// reports true; the note goes first, on a move that keeps the build at green. Once the note is kept, it reports false,
+// so the green run starts. A reproduction is noted once per attempt.
+func reproNoted(view View, outcome string) (Action, bool) {
+	note := fmt.Sprintf("%s attempt %d reproduction: %s", taskLabel(view.Task.Seq), view.Task.Build.Attempt, outcome)
+	if slices.Contains(view.Task.Notes, note) {
+		return Action{}, false
+	}
+	return noted(view, view.Task.Build, note), true
+}
+
 // decideReview returns the action for the review of the build's gate, once its step has ended. A done review holds
 // and moves to the next gate. A failed review with findings stores them and moves to their verification, or with
-// verify off stores them settled as confirmed and unverified. Any other end gives no verdict. Past the last gate the
-// task is accepted as reviewed, or as unreviewed when the epic has no review gates.
+// verify off stores them settled as confirmed and unverified. Any other end gives no verdict: its first reruns the
+// gate, and its second stores the review undetermined, with the reason it ended so, and moves to the next gate. Past
+// the last gate the task is accepted as reviewed, or as unreviewed when the epic has no review gates.
 func decideReview(view View) Action {
 	build := view.Task.Build
 	if build.GatePos >= int64(len(view.ReviewGates)) {
@@ -198,19 +219,29 @@ func decideReview(view View) Action {
 			return Action{Kind: ActReview, Review: review, Next: build}
 		}
 	}
-	return noVerdict(view, "review "+gate, endText(step))
+	if action, again := silentRerun(view); again {
+		return action
+	}
+	review := store.TaskReview{
+		Attempt: build.Attempt, Position: build.GatePos, Gate: gate, Step: step.ID, Verdict: verdictUndetermined,
+		Reason: endText(step),
+	}
+	build.GatePos++
+	build.Rerun = 0
+	build.NoVerdict = 0
+	return Action{Kind: ActReview, Review: review, Next: build}
 }
 
 // decideVerify returns the action for the verifier of the build's finding, once its step has ended. A done or returned
 // verifier stores the finding's result. Once every finding of the review is verified, a confirmed one spends the
-// attempt, and otherwise the build moves to the next gate. Any other end gives no verdict.
+// attempt, and otherwise the build moves to the next gate. Any other end gives no verdict: its first reruns the
+// verifier, and its second stores the finding undecided, with the reason it ended so.
 func decideVerify(view View) Action {
 	build := view.Task.Build
 	findings := reviewFindings(view)
 	if build.FindingPos >= int64(len(findings)) {
 		return settledFindings(view, findings)
 	}
-	finding := findings[build.FindingPos]
 	step := view.Step
 	if step == nil {
 		if view.Paused || view.Parked {
@@ -244,7 +275,10 @@ func decideVerify(view View) Action {
 	case endReturned:
 		return verifiedAction(view, step.ID, resultUndecided, "blocked: "+step.Reason)
 	}
-	return noVerdict(view, "verify "+finding.ID, endText(step))
+	if action, again := silentRerun(view); again {
+		return action
+	}
+	return verifiedAction(view, step.ID, resultUndecided, endText(step))
 }
 
 // UnverifiedFindings returns the findings a failed review step raised in result, each settled as confirmed and

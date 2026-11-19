@@ -1527,7 +1527,7 @@ func (q *Queries) GetEpicSeen(ctx context.Context, epic string) (int64, error) {
 }
 
 const getEpicTask = `-- name: GetEpicTask :one
-SELECT epic, seq, turn, title, deliverable, status, gate, evidence, stage, base, attempt, rerun, no_verdict, held, step, red_run, green_run, revision, failure, review, refs, gate_pos, finding_pos, batch, guard, needs_files, decisions, after_tasks, question, gate_changes, rebriefs FROM epic_tasks WHERE epic = ? AND seq = ?
+SELECT epic, seq, turn, title, deliverable, status, gate, evidence, stage, base, attempt, rerun, no_verdict, held, step, red_run, green_run, revision, failure, review, refs, gate_pos, finding_pos, batch, guard, needs_files, decisions, after_tasks, question, gate_changes, rebriefs, notes FROM epic_tasks WHERE epic = ? AND seq = ?
 `
 
 type GetEpicTaskParams struct {
@@ -1570,6 +1570,7 @@ func (q *Queries) GetEpicTask(ctx context.Context, arg GetEpicTaskParams) (EpicT
 		&i.Question,
 		&i.GateChanges,
 		&i.Rebriefs,
+		&i.Notes,
 	)
 	return i, err
 }
@@ -5803,7 +5804,7 @@ func (q *Queries) ListEpicTaskRequirements(ctx context.Context, epic string) ([]
 }
 
 const listEpicTaskReviews = `-- name: ListEpicTaskReviews :many
-SELECT epic, task, attempt, position, gate, step, verdict FROM epic_task_reviews WHERE epic = ? ORDER BY task, attempt, position
+SELECT epic, task, attempt, position, gate, step, verdict, reason FROM epic_task_reviews WHERE epic = ? ORDER BY task, attempt, position
 `
 
 func (q *Queries) ListEpicTaskReviews(ctx context.Context, epic string) ([]EpicTaskReview, error) {
@@ -5823,6 +5824,7 @@ func (q *Queries) ListEpicTaskReviews(ctx context.Context, epic string) ([]EpicT
 			&i.Gate,
 			&i.Step,
 			&i.Verdict,
+			&i.Reason,
 		); err != nil {
 			return nil, err
 		}
@@ -6135,7 +6137,7 @@ func (q *Queries) ListEpicTaskVersions(ctx context.Context, epic string) ([]Epic
 }
 
 const listEpicTasks = `-- name: ListEpicTasks :many
-SELECT epic, seq, turn, title, deliverable, status, gate, evidence, stage, base, attempt, rerun, no_verdict, held, step, red_run, green_run, revision, failure, review, refs, gate_pos, finding_pos, batch, guard, needs_files, decisions, after_tasks, question, gate_changes, rebriefs FROM epic_tasks WHERE epic = ? ORDER BY seq
+SELECT epic, seq, turn, title, deliverable, status, gate, evidence, stage, base, attempt, rerun, no_verdict, held, step, red_run, green_run, revision, failure, review, refs, gate_pos, finding_pos, batch, guard, needs_files, decisions, after_tasks, question, gate_changes, rebriefs, notes FROM epic_tasks WHERE epic = ? ORDER BY seq
 `
 
 func (q *Queries) ListEpicTasks(ctx context.Context, epic string) ([]EpicTask, error) {
@@ -6179,6 +6181,7 @@ func (q *Queries) ListEpicTasks(ctx context.Context, epic string) ([]EpicTask, e
 			&i.Question,
 			&i.GateChanges,
 			&i.Rebriefs,
+			&i.Notes,
 		); err != nil {
 			return nil, err
 		}
@@ -10191,6 +10194,45 @@ type SetEpicTaskNeedsFilesParams struct {
 
 func (q *Queries) SetEpicTaskNeedsFiles(ctx context.Context, arg SetEpicTaskNeedsFilesParams) error {
 	_, err := q.db.ExecContext(ctx, setEpicTaskNeedsFiles, arg.NeedsFiles, arg.Epic, arg.Seq)
+	return err
+}
+
+const setEpicTaskNotes = `-- name: SetEpicTaskNotes :exec
+UPDATE epic_tasks SET notes = ?1 WHERE epic = ?2 AND seq = ?3
+`
+
+type SetEpicTaskNotesParams struct {
+	Notes string
+	Epic  string
+	Seq   int64
+}
+
+func (q *Queries) SetEpicTaskNotes(ctx context.Context, arg SetEpicTaskNotesParams) error {
+	_, err := q.db.ExecContext(ctx, setEpicTaskNotes, arg.Notes, arg.Epic, arg.Seq)
+	return err
+}
+
+const setEpicTaskReviewReason = `-- name: SetEpicTaskReviewReason :exec
+UPDATE epic_task_reviews SET reason = ?1
+WHERE epic = ?2 AND task = ?3 AND attempt = ?4 AND position = ?5
+`
+
+type SetEpicTaskReviewReasonParams struct {
+	Reason   string
+	Epic     string
+	Task     int64
+	Attempt  int64
+	Position int64
+}
+
+func (q *Queries) SetEpicTaskReviewReason(ctx context.Context, arg SetEpicTaskReviewReasonParams) error {
+	_, err := q.db.ExecContext(ctx, setEpicTaskReviewReason,
+		arg.Reason,
+		arg.Epic,
+		arg.Task,
+		arg.Attempt,
+		arg.Position,
+	)
 	return err
 }
 
