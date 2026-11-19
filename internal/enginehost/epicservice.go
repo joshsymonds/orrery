@@ -41,6 +41,8 @@ type EpicCommands interface {
 	Epic(ctx context.Context, id string) (store.EpicRow, error)
 	EpicFlow(ctx context.Context, id string) (store.EpicFlow, error)
 	EpicHistory(ctx context.Context, id string) (store.EpicHistory, error)
+	MoveEpic(ctx context.Context, epic, to string, maker store.Maker, at time.Time) (store.EpicAction, error)
+	SteerTarget(ctx context.Context, id string) (store.SteerTarget, bool, error)
 	Epics(ctx context.Context) ([]store.EpicRow, error)
 	EpicListings(ctx context.Context) ([]store.EpicRow, error)
 	CallerMaker(ctx context.Context, caller store.EpicCaller) (store.Maker, error)
@@ -72,11 +74,13 @@ type EpicCommands interface {
 	UnarchiveRow(ctx context.Context, kind, id string, at time.Time) error
 }
 
-// SteeringSessions starts and stops the steering sessions of epics. *EpicSteering satisfies it. CreateEpic starts the
-// steering session of an epic that no conversation creates, and stops it when the create then stores nothing.
+// SteeringSessions starts and stops the steering sessions of epics, and reads the directory of a tmux pane. *EpicSteering
+// satisfies it. CreateEpic starts the steering session of an epic that no conversation creates, and stops it when the
+// create then stores nothing.
 type SteeringSessions interface {
 	Start(ctx context.Context, row store.EpicRow) (string, error)
 	Stop(ctx context.Context, id string) error
+	PaneDir(ctx context.Context, server, pane string) (string, error)
 }
 
 // epicService implements the Epics RPCs over epics. getenv reads the environment a contract's gates resolve in; nil
@@ -265,8 +269,8 @@ func (s *epicService) GetEpic(
 	return connect.NewResponse(&v1.GetEpicResponse{Epic: message}), nil
 }
 
-// fillHistory sets the triggers and tells of message to the history the store reads for the epic with id. It returns an
-// error matching store.ErrNoEpic when no epic has that id.
+// fillHistory sets the triggers, tells and actions of message to the history the store reads for the epic with id. It
+// returns an error matching store.ErrNoEpic when no epic has that id.
 func (s *epicService) fillHistory(ctx context.Context, id string, message *v1.StoredEpic) error {
 	history, err := s.epics.EpicHistory(ctx, id)
 	if err != nil {
@@ -274,6 +278,7 @@ func (s *epicService) fillHistory(ctx context.Context, id string, message *v1.St
 	}
 	message.Triggers = epicMap(history.Triggers, triggerMessage)
 	message.Tells = epicMap(history.Tells, tellMessage)
+	message.Actions = epicMap(history.Actions, actionMessage)
 	return nil
 }
 
@@ -1052,6 +1057,15 @@ func triggerMessage(trigger store.EpicTrigger) *v1.EpicTrigger {
 // tellMessage returns the EpicTell message of tell: its seq, text, when it was written, and whether it was told.
 func tellMessage(tell store.EpicTell) *v1.EpicTell {
 	return &v1.EpicTell{Seq: tell.Seq, Text: tell.Text, At: tell.At.Unix(), Told: tell.Told}
+}
+
+// actionMessage returns the EpicAction message of action: its seq, kind, when it was taken, who made it, the session that
+// made it, and the sessions a move took the epic from and to.
+func actionMessage(action store.EpicAction) *v1.EpicAction {
+	return &v1.EpicAction{
+		Seq: action.Seq, Kind: action.Kind, Time: action.At.Unix(), By: action.Maker.By,
+		Session: action.Maker.Session, From: action.From, To: action.To,
+	}
 }
 
 // reviewLedgerMessage returns the EpicLedger message of review: its verdicts and its ledger findings by position, and
