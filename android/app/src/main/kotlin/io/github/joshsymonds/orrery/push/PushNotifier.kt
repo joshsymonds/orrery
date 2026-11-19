@@ -71,17 +71,18 @@ class PushNotifier(private val context: Context) {
         manager.notify(id, builder.build())
     }
 
-    fun showResult(notificationId: Int, text: String) {
+    fun showResult(notificationId: Int, title: String, text: String) {
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         ensureChannels()
         val existing = manager.activeNotifications.firstOrNull { it.id == notificationId }?.notification
         val builder = Notification.Builder(context, CHANNEL_ID)
             .setSmallIcon(SMALL_ICON)
+            .setContentTitle(title)
             .setContentText(text)
             .setExtras(timeExtras(existing?.extras?.getLong(EXTRA_TIME) ?: 0L))
-        if (existing != null) {
-            builder.setContentTitle(existing.extras.getCharSequence(Notification.EXTRA_TITLE))
-            existing.contentIntent?.let { builder.setContentIntent(it) }
+        existing?.contentIntent?.let { content ->
+            builder.setContentIntent(content)
+            builder.addAction(Notification.Action.Builder(Icon.createWithResource(context, SMALL_ICON), "Open", content).build())
         }
         manager.notify(notificationId, builder.build())
     }

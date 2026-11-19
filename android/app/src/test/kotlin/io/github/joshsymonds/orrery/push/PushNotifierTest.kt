@@ -323,16 +323,18 @@ class PushNotifierTest {
     }
 
     @Test
-    fun showResultReplacesTextAndDropsActions() {
+    fun showResultReplacesTitleAndTextAndKeepsOnlyOpen() {
         notifier.show(questionEvent)
 
-        notifier.showResult(notificationId(host, pane), "Answered: 2")
+        notifier.showResult(notificationId(host, pane), "orrery-demo: not answered", "The server refused it. Open it to see why.")
 
         val notification = posted(notificationId(host, pane))
-        assertEquals("Answered: 2", notification.extras.getCharSequence(Notification.EXTRA_TEXT).toString())
-        assertEquals("orrery-demo asks you a question", notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
+        assertEquals("orrery-demo: not answered", notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
+        assertEquals("The server refused it. Open it to see why.", notification.extras.getCharSequence(Notification.EXTRA_TEXT).toString())
         assertEquals(MainActivity::class.java.name, intentOf(notification.contentIntent).component?.className)
-        assertTrue(notification.actions.isNullOrEmpty())
+        val actions = notification.actions.orEmpty()
+        assertEquals(listOf("Open"), actions.map { it.title.toString() })
+        assertEquals(MainActivity::class.java.name, intentOf(actions.single().actionIntent).component?.className)
         assertEquals(1, shadowOf(manager).allNotifications.size)
     }
 
@@ -611,7 +613,7 @@ class PushNotifierTest {
     @Test
     fun answeredNoticeKeepsItsTimeForClear() {
         notifier.show(questionEvent.copy(time = 100L))
-        notifier.showResult(notificationId(host, pane), "Answered: 2")
+        notifier.showResult(notificationId(host, pane), "orrery-demo: not sent", "Your reply did not reach the server.")
 
         notifier.clear(host, pane, "", 99L)
 
@@ -623,7 +625,7 @@ class PushNotifierTest {
         shadowOf(RuntimeEnvironment.getApplication()).denyPermissions(Manifest.permission.POST_NOTIFICATIONS)
 
         notifier.show(questionEvent)
-        notifier.showResult(notificationId(host, pane), "Answered: 2")
+        notifier.showResult(notificationId(host, pane), "orrery-demo: not sent", "Your reply did not reach the server.")
 
         assertEquals(0, shadowOf(manager).allNotifications.size)
         assertNull(shadowOf(manager).getNotification(null, notificationId(host, pane)))
