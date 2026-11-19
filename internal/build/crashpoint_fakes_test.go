@@ -461,6 +461,16 @@ func (g crashGit) MoveWorktree(ctx context.Context, path, wip, to string) error 
 	})
 }
 
+func (g crashGit) KeepWork(ctx context.Context, path, wip, ref string) (string, error) {
+	var commit string
+	err := g.w.act("keep work", func() error {
+		var keepErr error
+		commit, keepErr = KeepWork(ctx, path, wip, ref)
+		return wrapErr("keep work", keepErr)
+	})
+	return commit, err
+}
+
 func (g crashGit) RemoveWorktrees(ctx context.Context, repo, dir string) error {
 	return g.w.act("git worktree remove", func() error {
 		return wrapErr("remove worktrees", RemoveWorktrees(ctx, repo, dir))

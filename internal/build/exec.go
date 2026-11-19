@@ -140,8 +140,10 @@ func (r *Runner) startUnit(ctx context.Context, epic store.EpicRow, view View, a
 // fail climbs the task one rung off action's failure, in one write (store.Store.ClimbTask): the rung it climbs to is
 // action's Move.To, or the rung after the task's own. The failure is the cause the climb records, the files action
 // names are the task's needs files, and a fail an orchestrator decided records its decision in the same write, with a
-// longer cause. The climb to the gap rung removes the task's worktrees. Any other climb keeps them, so the next rung's
-// implementer continues in the same worktree.
+// longer cause. A climb below the gap rung carries the task's kept work onto the base it lands on (carry) before the
+// climb is written, so no rung starts from a base without the work. The climb to the gap rung carries nothing, and
+// removes the task's worktrees. Any other climb keeps them, so the next rung's implementer continues in the same
+// worktree.
 func (r *Runner) fail(ctx context.Context, epic store.EpicRow, view View, action Action) bool {
 	seq, from := view.Task.Seq, view.Task.Build
 	target := action.Move.To
@@ -150,6 +152,13 @@ func (r *Runner) fail(ctx context.Context, epic store.EpicRow, view View, action
 	}
 	cause := store.ClimbCause(action.Reason, action.Decision != nil)
 	next := store.ClimbedBuild(from, min(target, store.GapRung), cause)
+	var version *store.TaskVersionInput
+	if next.Attempt < store.GapRung {
+		var carried bool
+		if next, version, carried = r.carry(ctx, epic, view, next); !carried {
+			return false
+		}
+	}
 	move := action.Move
 	if move.MovedBy == "" {
 		move.MovedBy = store.MovedByUnit
@@ -157,7 +166,7 @@ func (r *Runner) fail(ctx context.Context, epic store.EpicRow, view View, action
 	move.Cause = cause
 	move.Step = from.Step
 	move.NeedsFiles = action.NeedsFiles
-	err := r.store.ClimbTask(ctx, epic.ID, seq, from, next, move, nil, action.Decision, r.now())
+	err := r.store.ClimbTask(ctx, epic.ID, seq, from, next, move, version, action.Decision, r.now())
 	if !r.written(ctx, epic.ID, seq, "climb task", err) {
 		return false
 	}
@@ -165,6 +174,46 @@ func (r *Runner) fail(ctx context.Context, epic store.EpicRow, view View, action
 		r.removeWorktrees(ctx, epic, seq)
 	}
 	return true
+}
+
+// carry carries the kept work of the task of view onto the base the climb to next lands on: the epic's candidate, or
+// its stored base when it has none, as readRequest reads a waiting build's base. A base that is empty or is the task's
+// own base carries nothing. When git moves the implement worktree onto that base, next's base is that base. When git
+// refuses the move, the work is kept on CarryRef, and the climb keeps its base with a carry version whose deliverable
+// and reason name the ref. The version is returned with next and true. A keep that fails is reported, and carry returns
+// false, so nothing is written and the next pass tries again.
+func (r *Runner) carry(
+	ctx context.Context, epic store.EpicRow, view View, next store.TaskBuild,
+) (store.TaskBuild, *store.TaskVersionInput, bool) {
+	seq, from := view.Task.Seq, view.Task.Build
+	newBase := epic.Candidate
+	if newBase == "" {
+		newBase = epic.StoredBase
+	}
+	if newBase == "" || newBase == from.Base {
+		return next, nil, true
+	}
+	path, wip := ImplementWorktree(r.stateDir, epic.ID, seq), WipRef(epic.ID, seq)
+	moveErr := r.git.MoveWorktree(ctx, path, wip, newBase)
+	if moveErr == nil {
+		next.Base = newBase
+		return next, nil, true
+	}
+	ref := CarryRef(epic.ID, seq, next.Attempt)
+	commit, keepErr := r.git.KeepWork(ctx, path, wip, ref)
+	if keepErr != nil {
+		r.report(ctx, epic.ID, seq, "keep work", keepErr)
+		return next, nil, false
+	}
+	note := fmt.Sprintf(
+		"orreryd could not carry %s's work onto the epic's branch at %s: %v. The work of the earlier rungs stays in "+
+			"this task's worktree on its base %s, and is kept at %s (commit %s).",
+		taskLabel(seq), newBase, moveErr, from.Base, ref, commit,
+	)
+	deliverable := view.Task.Deliverable + "\n\n" + note
+	return next, &store.TaskVersionInput{
+		Source: store.SourceCarry, Step: from.Step, Reason: note, Deliverable: &deliverable,
+	}, true
 }
 
 // grant gives the task the files action names and stores action's build, which runs its implementer again in the same
@@ -221,7 +270,8 @@ func (r *Runner) ask(ctx context.Context, epic store.EpicRow, view View, action 
 
 // resume moves a waiting build's implement worktree onto action's revision, keeping its work, with the task's own ref
 // holding its uncommitted work while the move runs (MoveWorktree, WipRef), then stores action's build. A move git
-// refuses climbs the task, with `T<seq> could not move onto the new base <base>: <error>` as its failure.
+// refuses climbs the task through fail, with `T<seq> could not move onto the new base <base>: <error>` as its failure.
+// fail then tries the carry onto that base, and when git refuses it again, keeps the work with a carry version.
 func (r *Runner) resume(ctx context.Context, epic store.EpicRow, view View, action Action) bool {
 	seq, from := view.Task.Seq, view.Task.Build
 	path := ImplementWorktree(r.stateDir, epic.ID, seq)

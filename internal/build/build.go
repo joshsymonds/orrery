@@ -259,12 +259,14 @@ type Checks interface {
 }
 
 // Git makes the writes a Runner makes to a repository: the epic's branch create, a pin of a ref, a task worktree add,
-// the move of a task's worktree onto a new base, and the removal of a task's worktrees.
+// the move of a task's worktree onto a new base, the keep of a task's work on a ref when that move is refused, and the
+// removal of a task's worktrees.
 type Git interface {
 	CreateBranch(ctx context.Context, repo, epic, base string) error
 	Pin(ctx context.Context, repo, ref, commit string) error
 	AddWorktree(ctx context.Context, repo, path, base string) error
 	MoveWorktree(ctx context.Context, path, wip, to string) error
+	KeepWork(ctx context.Context, path, wip, ref string) (string, error)
 	RemoveWorktrees(ctx context.Context, repo, dir string) error
 }
 
@@ -285,6 +287,10 @@ func (packageGit) AddWorktree(ctx context.Context, repo, path, base string) erro
 
 func (packageGit) MoveWorktree(ctx context.Context, path, wip, to string) error {
 	return MoveWorktree(ctx, path, wip, to)
+}
+
+func (packageGit) KeepWork(ctx context.Context, path, wip, ref string) (string, error) {
+	return KeepWork(ctx, path, wip, ref)
 }
 
 func (packageGit) RemoveWorktrees(ctx context.Context, repo, dir string) error {
