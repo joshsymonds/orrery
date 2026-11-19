@@ -26,7 +26,7 @@ public  final class DeclineResponse extends
   /**
    * <pre>
    * The texts of the owner's messages that Claude cancelled from its queue at the decline, in send order. A caller
-   * event's text is never among them.
+   * event's text is never among them. A pane's response holds no texts.
    * </pre>
    *
    * <code>repeated string texts = 1 [json_name = "texts"];</code>
@@ -39,7 +39,7 @@ public  final class DeclineResponse extends
   /**
    * <pre>
    * The texts of the owner's messages that Claude cancelled from its queue at the decline, in send order. A caller
-   * event's text is never among them.
+   * event's text is never among them. A pane's response holds no texts.
    * </pre>
    *
    * <code>repeated string texts = 1 [json_name = "texts"];</code>
@@ -52,7 +52,7 @@ public  final class DeclineResponse extends
   /**
    * <pre>
    * The texts of the owner's messages that Claude cancelled from its queue at the decline, in send order. A caller
-   * event's text is never among them.
+   * event's text is never among them. A pane's response holds no texts.
    * </pre>
    *
    * <code>repeated string texts = 1 [json_name = "texts"];</code>
@@ -66,7 +66,7 @@ public  final class DeclineResponse extends
   /**
    * <pre>
    * The texts of the owner's messages that Claude cancelled from its queue at the decline, in send order. A caller
-   * event's text is never among them.
+   * event's text is never among them. A pane's response holds no texts.
    * </pre>
    *
    * <code>repeated string texts = 1 [json_name = "texts"];</code>
@@ -89,7 +89,7 @@ public  final class DeclineResponse extends
   /**
    * <pre>
    * The texts of the owner's messages that Claude cancelled from its queue at the decline, in send order. A caller
-   * event's text is never among them.
+   * event's text is never among them. A pane's response holds no texts.
    * </pre>
    *
    * <code>repeated string texts = 1 [json_name = "texts"];</code>
@@ -105,7 +105,7 @@ public  final class DeclineResponse extends
   /**
    * <pre>
    * The texts of the owner's messages that Claude cancelled from its queue at the decline, in send order. A caller
-   * event's text is never among them.
+   * event's text is never among them. A pane's response holds no texts.
    * </pre>
    *
    * <code>repeated string texts = 1 [json_name = "texts"];</code>
@@ -120,7 +120,7 @@ public  final class DeclineResponse extends
   /**
    * <pre>
    * The texts of the owner's messages that Claude cancelled from its queue at the decline, in send order. A caller
-   * event's text is never among them.
+   * event's text is never among them. A pane's response holds no texts.
    * </pre>
    *
    * <code>repeated string texts = 1 [json_name = "texts"];</code>
@@ -135,7 +135,7 @@ public  final class DeclineResponse extends
   /**
    * <pre>
    * The texts of the owner's messages that Claude cancelled from its queue at the decline, in send order. A caller
-   * event's text is never among them.
+   * event's text is never among them. A pane's response holds no texts.
    * </pre>
    *
    * <code>repeated string texts = 1 [json_name = "texts"];</code>
@@ -146,7 +146,7 @@ public  final class DeclineResponse extends
   /**
    * <pre>
    * The texts of the owner's messages that Claude cancelled from its queue at the decline, in send order. A caller
-   * event's text is never among them.
+   * event's text is never among them. A pane's response holds no texts.
    * </pre>
    *
    * <code>repeated string texts = 1 [json_name = "texts"];</code>
@@ -263,7 +263,7 @@ public  final class DeclineResponse extends
     /**
      * <pre>
      * The texts of the owner's messages that Claude cancelled from its queue at the decline, in send order. A caller
-     * event's text is never among them.
+     * event's text is never among them. A pane's response holds no texts.
      * </pre>
      *
      * <code>repeated string texts = 1 [json_name = "texts"];</code>
@@ -278,7 +278,7 @@ public  final class DeclineResponse extends
     /**
      * <pre>
      * The texts of the owner's messages that Claude cancelled from its queue at the decline, in send order. A caller
-     * event's text is never among them.
+     * event's text is never among them. A pane's response holds no texts.
      * </pre>
      *
      * <code>repeated string texts = 1 [json_name = "texts"];</code>
@@ -291,7 +291,7 @@ public  final class DeclineResponse extends
     /**
      * <pre>
      * The texts of the owner's messages that Claude cancelled from its queue at the decline, in send order. A caller
-     * event's text is never among them.
+     * event's text is never among them. A pane's response holds no texts.
      * </pre>
      *
      * <code>repeated string texts = 1 [json_name = "texts"];</code>
@@ -305,7 +305,7 @@ public  final class DeclineResponse extends
     /**
      * <pre>
      * The texts of the owner's messages that Claude cancelled from its queue at the decline, in send order. A caller
-     * event's text is never among them.
+     * event's text is never among them. A pane's response holds no texts.
      * </pre>
      *
      * <code>repeated string texts = 1 [json_name = "texts"];</code>
@@ -320,7 +320,7 @@ public  final class DeclineResponse extends
     /**
      * <pre>
      * The texts of the owner's messages that Claude cancelled from its queue at the decline, in send order. A caller
-     * event's text is never among them.
+     * event's text is never among them. A pane's response holds no texts.
      * </pre>
      *
      * <code>repeated string texts = 1 [json_name = "texts"];</code>
@@ -337,7 +337,7 @@ public  final class DeclineResponse extends
     /**
      * <pre>
      * The texts of the owner's messages that Claude cancelled from its queue at the decline, in send order. A caller
-     * event's text is never among them.
+     * event's text is never among them. A pane's response holds no texts.
      * </pre>
      *
      * <code>repeated string texts = 1 [json_name = "texts"];</code>
@@ -353,7 +353,7 @@ public  final class DeclineResponse extends
     /**
      * <pre>
      * The texts of the owner's messages that Claude cancelled from its queue at the decline, in send order. A caller
-     * event's text is never among them.
+     * event's text is never among them. A pane's response holds no texts.
      * </pre>
      *
      * <code>repeated string texts = 1 [json_name = "texts"];</code>
@@ -369,7 +369,7 @@ public  final class DeclineResponse extends
     /**
      * <pre>
      * The texts of the owner's messages that Claude cancelled from its queue at the decline, in send order. A caller
-     * event's text is never among them.
+     * event's text is never among them. A pane's response holds no texts.
      * </pre>
      *
      * <code>repeated string texts = 1 [json_name = "texts"];</code>
@@ -383,7 +383,7 @@ public  final class DeclineResponse extends
     /**
      * <pre>
      * The texts of the owner's messages that Claude cancelled from its queue at the decline, in send order. A caller
-     * event's text is never among them.
+     * event's text is never among them. A pane's response holds no texts.
      * </pre>
      *
      * <code>repeated string texts = 1 [json_name = "texts"];</code>

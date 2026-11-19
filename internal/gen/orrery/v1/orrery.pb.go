@@ -1947,13 +1947,17 @@ func (x *InterruptResponse) GetTexts() []string {
 	return nil
 }
 
-// DeclineRequest asks a headless session to deny one open question or permission request and end its turn.
+// DeclineRequest asks a session or a pane to deny one open question or permission request and end its turn.
 type DeclineRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The headless session's id.
+	// The headless session's id, or the pane's Pane.id.
 	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	// The open question or permission request being declined, by its OpenRequest.id.
-	RequestId     string `protobuf:"bytes,2,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	// The open question or permission request being declined, by its OpenRequest.id. Empty for a pane.
+	RequestId string `protobuf:"bytes,2,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	// The question's kind: "headless" or "pane". Empty means headless.
+	Kind string `protobuf:"bytes,3,opt,name=kind,proto3" json:"kind,omitempty"`
+	// The pane's Pane.question_hash. Empty for headless.
+	QuestionHash  string `protobuf:"bytes,4,opt,name=question_hash,json=questionHash,proto3" json:"question_hash,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2002,11 +2006,25 @@ func (x *DeclineRequest) GetRequestId() string {
 	return ""
 }
 
+func (x *DeclineRequest) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *DeclineRequest) GetQuestionHash() string {
+	if x != nil {
+		return x.QuestionHash
+	}
+	return ""
+}
+
 // DeclineResponse is the reply to a Decline.
 type DeclineResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The texts of the owner's messages that Claude cancelled from its queue at the decline, in send order. A caller
-	// event's text is never among them.
+	// event's text is never among them. A pane's response holds no texts.
 	Texts         []string `protobuf:"bytes,1,rep,name=texts,proto3" json:"texts,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -6974,11 +6992,13 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\x10InterruptRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\")\n" +
 	"\x11InterruptResponse\x12\x14\n" +
-	"\x05texts\x18\x01 \x03(\tR\x05texts\"?\n" +
+	"\x05texts\x18\x01 \x03(\tR\x05texts\"x\n" +
 	"\x0eDeclineRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
 	"\n" +
-	"request_id\x18\x02 \x01(\tR\trequestId\"'\n" +
+	"request_id\x18\x02 \x01(\tR\trequestId\x12\x12\n" +
+	"\x04kind\x18\x03 \x01(\tR\x04kind\x12#\n" +
+	"\rquestion_hash\x18\x04 \x01(\tR\fquestionHash\"'\n" +
 	"\x0fDeclineResponse\x12\x14\n" +
 	"\x05texts\x18\x01 \x03(\tR\x05texts\"\x1d\n" +
 	"\vStopRequest\x12\x0e\n" +

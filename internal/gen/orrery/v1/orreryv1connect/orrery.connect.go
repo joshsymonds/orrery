@@ -360,8 +360,10 @@ type ControlClient interface {
 	Answer(context.Context, *connect.Request[v1.AnswerRequest]) (*connect.Response[v1.AnswerResponse], error)
 	// Interrupt interrupts the turn a headless session is running.
 	Interrupt(context.Context, *connect.Request[v1.InterruptRequest]) (*connect.Response[v1.InterruptResponse], error)
-	// Decline denies an open question or permission request of a headless session and ends its turn, as Interrupt does.
-	// It is refused unless the request is open.
+	// Decline denies an open question or permission request and ends its turn, as Interrupt does. A headless session's
+	// request is declined by its request_id, and is refused unless the request is open. A pane's question is declined by
+	// a guarded Escape to the pane, refused unless the question is open and the pane is in no tmux mode, and its response
+	// holds no texts.
 	Decline(context.Context, *connect.Request[v1.DeclineRequest]) (*connect.Response[v1.DeclineResponse], error)
 	// Stop stops a headless session.
 	Stop(context.Context, *connect.Request[v1.StopRequest]) (*connect.Response[v1.StopResponse], error)
@@ -540,8 +542,10 @@ type ControlHandler interface {
 	Answer(context.Context, *connect.Request[v1.AnswerRequest]) (*connect.Response[v1.AnswerResponse], error)
 	// Interrupt interrupts the turn a headless session is running.
 	Interrupt(context.Context, *connect.Request[v1.InterruptRequest]) (*connect.Response[v1.InterruptResponse], error)
-	// Decline denies an open question or permission request of a headless session and ends its turn, as Interrupt does.
-	// It is refused unless the request is open.
+	// Decline denies an open question or permission request and ends its turn, as Interrupt does. A headless session's
+	// request is declined by its request_id, and is refused unless the request is open. A pane's question is declined by
+	// a guarded Escape to the pane, refused unless the question is open and the pane is in no tmux mode, and its response
+	// holds no texts.
 	Decline(context.Context, *connect.Request[v1.DeclineRequest]) (*connect.Response[v1.DeclineResponse], error)
 	// Stop stops a headless session.
 	Stop(context.Context, *connect.Request[v1.StopRequest]) (*connect.Response[v1.StopResponse], error)

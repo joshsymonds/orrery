@@ -22,7 +22,7 @@ var ErrQuestionNotOpen = errors.New("question not open")
 var ErrNoPane = errors.New("no such pane")
 
 // ErrPutOffUnavailable reports a NotNow or BringBack the manager cannot serve: it has no PutOffs, or it has no Panes for
-// a pane call.
+// a pane call. It also reports a pane Decline the manager has no Panes for.
 var ErrPutOffUnavailable = errors.New("put-off store unavailable")
 
 // PutOffRequest is a NotNow or BringBack call. A headless call names the open request RequestID of the live session
@@ -47,12 +47,15 @@ type PaneQuestion struct {
 	Changed int64
 }
 
-// PaneQuestions reads the panes' questions and reports a pane seen to the notice router. PaneQuestion returns an error
-// wrapping ErrNoPane when tmux lists no pane with that id. PaneSeen reports the pane seen at seen to the notice router,
-// which ends the pane's pending notice as the notifier's Seen ends a session's. A tmux-backed implementation lives in
-// cmd/orreryd, which a later change wires in.
+// PaneQuestions reads the panes' questions, declines them and reports a pane seen to the notice router. PaneQuestion
+// returns an error wrapping ErrNoPane when tmux lists no pane with that id. DeclinePane sends the pane its guarded
+// Escape for the question whose protocol.QuestionHash is questionHash. Its errors wrap ErrQuestionNotOpen when the
+// guard refuses, and ErrPaneInMode when the pane is in a tmux mode. PaneSeen reports the pane seen at seen to the
+// notice router, which ends the pane's pending notice as the notifier's Seen ends a session's. A tmux-backed
+// implementation lives in cmd/orreryd, which a later change wires in.
 type PaneQuestions interface {
 	PaneQuestion(ctx context.Context, pane string) (PaneQuestion, error)
+	DeclinePane(ctx context.Context, pane, questionHash string) error
 	PaneSeen(ctx context.Context, pane string, seen time.Time)
 }
 

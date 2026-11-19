@@ -12,7 +12,7 @@ public interface DeclineRequestOrBuilder extends
 
   /**
    * <pre>
-   * The headless session's id.
+   * The headless session's id, or the pane's Pane.id.
    * </pre>
    *
    * <code>string id = 1 [json_name = "id"];</code>
@@ -21,7 +21,7 @@ public interface DeclineRequestOrBuilder extends
   java.lang.String getId();
   /**
    * <pre>
-   * The headless session's id.
+   * The headless session's id, or the pane's Pane.id.
    * </pre>
    *
    * <code>string id = 1 [json_name = "id"];</code>
@@ -32,7 +32,7 @@ public interface DeclineRequestOrBuilder extends
 
   /**
    * <pre>
-   * The open question or permission request being declined, by its OpenRequest.id.
+   * The open question or permission request being declined, by its OpenRequest.id. Empty for a pane.
    * </pre>
    *
    * <code>string request_id = 2 [json_name = "requestId"];</code>
@@ -41,7 +41,7 @@ public interface DeclineRequestOrBuilder extends
   java.lang.String getRequestId();
   /**
    * <pre>
-   * The open question or permission request being declined, by its OpenRequest.id.
+   * The open question or permission request being declined, by its OpenRequest.id. Empty for a pane.
    * </pre>
    *
    * <code>string request_id = 2 [json_name = "requestId"];</code>
@@ -49,4 +49,44 @@ public interface DeclineRequestOrBuilder extends
    */
   com.google.protobuf.ByteString
       getRequestIdBytes();
+
+  /**
+   * <pre>
+   * The question's kind: "headless" or "pane". Empty means headless.
+   * </pre>
+   *
+   * <code>string kind = 3 [json_name = "kind"];</code>
+   * @return The kind.
+   */
+  java.lang.String getKind();
+  /**
+   * <pre>
+   * The question's kind: "headless" or "pane". Empty means headless.
+   * </pre>
+   *
+   * <code>string kind = 3 [json_name = "kind"];</code>
+   * @return The bytes for kind.
+   */
+  com.google.protobuf.ByteString
+      getKindBytes();
+
+  /**
+   * <pre>
+   * The pane's Pane.question_hash. Empty for headless.
+   * </pre>
+   *
+   * <code>string question_hash = 4 [json_name = "questionHash"];</code>
+   * @return The questionHash.
+   */
+  java.lang.String getQuestionHash();
+  /**
+   * <pre>
+   * The pane's Pane.question_hash. Empty for headless.
+   * </pre>
+   *
+   * <code>string question_hash = 4 [json_name = "questionHash"];</code>
+   * @return The bytes for questionHash.
+   */
+  com.google.protobuf.ByteString
+      getQuestionHashBytes();
 }

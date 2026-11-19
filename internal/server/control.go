@@ -16,6 +16,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
+	"github.com/joshsymonds/orrery/internal/store"
 )
 
 // defaultControlTimeout bounds each Control forward when Config.ControlTimeout is zero.
@@ -143,21 +144,27 @@ func (c controlServer) Interrupt(
 	return connect.NewResponse(&orreryv1.InterruptResponse{Texts: texts}), nil
 }
 
-// Decline forwards a decline to the engine, unless its id names a step. It answers with the texts the engine cancelled
-// from the session's queue at the decline, in send order.
+// Decline forwards a decline to the engine, unless it is a headless call whose id names a step. A pane's decline is not
+// checked against steps, since a step is never a pane. It forwards the kind and question_hash unchanged, and answers
+// with the texts the engine cancelled from the session's queue at the decline, in send order, which a pane's decline
+// leaves empty.
 func (c controlServer) Decline(
 	ctx context.Context,
 	req *connect.Request[orreryv1.DeclineRequest],
 ) (*connect.Response[orreryv1.DeclineResponse], error) {
-	if err := c.refuseStep(ctx, req.Msg.GetId()); err != nil {
-		return nil, err
+	if req.Msg.GetKind() != store.PutOffPane {
+		if err := c.refuseStep(ctx, req.Msg.GetId()); err != nil {
+			return nil, err
+		}
 	}
 	var resp *connect.Response[enginev1.DeclineResponse]
 	err := c.forward(ctx, func(ctx context.Context, engine enginev1connect.EngineClient) error {
 		var callErr error
 		resp, callErr = engine.Decline(ctx, connect.NewRequest(&enginev1.DeclineRequest{
-			Id:        req.Msg.GetId(),
-			RequestId: req.Msg.GetRequestId(),
+			Id:           req.Msg.GetId(),
+			RequestId:    req.Msg.GetRequestId(),
+			Kind:         req.Msg.GetKind(),
+			QuestionHash: req.Msg.GetQuestionHash(),
 		}))
 		return wrapEngine("decline", callErr)
 	})

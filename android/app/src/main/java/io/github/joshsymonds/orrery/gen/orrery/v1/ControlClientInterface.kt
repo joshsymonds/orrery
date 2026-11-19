@@ -33,8 +33,10 @@ public interface ControlClientInterface {
   public suspend fun interrupt(request: InterruptRequest, headers: Headers = emptyMap()): ResponseMessage<InterruptResponse>
 
   /**
-   *  Decline denies an open question or permission request of a headless session and ends its turn, as Interrupt does.
-   *  It is refused unless the request is open.
+   *  Decline denies an open question or permission request and ends its turn, as Interrupt does. A headless session's
+   *  request is declined by its request_id, and is refused unless the request is open. A pane's question is declined by
+   *  a guarded Escape to the pane, refused unless the question is open and the pane is in no tmux mode, and its response
+   *  holds no texts.
    */
   public suspend fun decline(request: DeclineRequest, headers: Headers = emptyMap()): ResponseMessage<DeclineResponse>
 
