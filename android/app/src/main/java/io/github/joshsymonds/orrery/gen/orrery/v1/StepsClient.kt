@@ -60,4 +60,19 @@ public class StepsClient(
     ),
   )
 
+
+  /**
+   *  Result returns the step's full result, as its latest return carried it, whether the step is labelled or not.
+   */
+  override suspend fun result(request: StepsResultRequest, headers: Headers): ResponseMessage<StepsResultResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "orrery.v1.Steps/Result",
+      io.github.joshsymonds.orrery.gen.orrery.v1.StepsResultRequest::class,
+      io.github.joshsymonds.orrery.gen.orrery.v1.StepsResultResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
 }

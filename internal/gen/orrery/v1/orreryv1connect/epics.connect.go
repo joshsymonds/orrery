@@ -71,6 +71,8 @@ const (
 	StepsNudgeProcedure = "/orrery.v1.Steps/Nudge"
 	// StepsStopProcedure is the fully-qualified name of the Steps's Stop RPC.
 	StepsStopProcedure = "/orrery.v1.Steps/Stop"
+	// StepsResultProcedure is the fully-qualified name of the Steps's Result RPC.
+	StepsResultProcedure = "/orrery.v1.Steps/Result"
 	// EvidenceArtifactProcedure is the fully-qualified name of the Evidence's Artifact RPC.
 	EvidenceArtifactProcedure = "/orrery.v1.Evidence/Artifact"
 )
@@ -525,6 +527,8 @@ type StepsClient interface {
 	Nudge(context.Context, *connect.Request[v1.StepsNudgeRequest]) (*connect.Response[v1.StepsNudgeResponse], error)
 	// Stop ends the step's loop.
 	Stop(context.Context, *connect.Request[v1.StepsStopRequest]) (*connect.Response[v1.StepsStopResponse], error)
+	// Result returns the step's full result, as its latest return carried it, whether the step is labelled or not.
+	Result(context.Context, *connect.Request[v1.StepsResultRequest]) (*connect.Response[v1.StepsResultResponse], error)
 }
 
 // NewStepsClient constructs a client for the orrery.v1.Steps service. By default, it uses the
@@ -556,14 +560,21 @@ func NewStepsClient(httpClient connect.HTTPClient, baseURL string, opts ...conne
 			connect.WithSchema(stepsMethods.ByName("Stop")),
 			connect.WithClientOptions(opts...),
 		),
+		result: connect.NewClient[v1.StepsResultRequest, v1.StepsResultResponse](
+			httpClient,
+			baseURL+StepsResultProcedure,
+			connect.WithSchema(stepsMethods.ByName("Result")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // stepsClient implements StepsClient.
 type stepsClient struct {
-	hold  *connect.Client[v1.StepsHoldRequest, v1.StepsHoldResponse]
-	nudge *connect.Client[v1.StepsNudgeRequest, v1.StepsNudgeResponse]
-	stop  *connect.Client[v1.StepsStopRequest, v1.StepsStopResponse]
+	hold   *connect.Client[v1.StepsHoldRequest, v1.StepsHoldResponse]
+	nudge  *connect.Client[v1.StepsNudgeRequest, v1.StepsNudgeResponse]
+	stop   *connect.Client[v1.StepsStopRequest, v1.StepsStopResponse]
+	result *connect.Client[v1.StepsResultRequest, v1.StepsResultResponse]
 }
 
 // Hold calls orrery.v1.Steps.Hold.
@@ -581,6 +592,11 @@ func (c *stepsClient) Stop(ctx context.Context, req *connect.Request[v1.StepsSto
 	return c.stop.CallUnary(ctx, req)
 }
 
+// Result calls orrery.v1.Steps.Result.
+func (c *stepsClient) Result(ctx context.Context, req *connect.Request[v1.StepsResultRequest]) (*connect.Response[v1.StepsResultResponse], error) {
+	return c.result.CallUnary(ctx, req)
+}
+
 // StepsHandler is an implementation of the orrery.v1.Steps service.
 type StepsHandler interface {
 	// Hold interrupts the step's running turn and holds the step until a nudge or a stop.
@@ -589,6 +605,8 @@ type StepsHandler interface {
 	Nudge(context.Context, *connect.Request[v1.StepsNudgeRequest]) (*connect.Response[v1.StepsNudgeResponse], error)
 	// Stop ends the step's loop.
 	Stop(context.Context, *connect.Request[v1.StepsStopRequest]) (*connect.Response[v1.StepsStopResponse], error)
+	// Result returns the step's full result, as its latest return carried it, whether the step is labelled or not.
+	Result(context.Context, *connect.Request[v1.StepsResultRequest]) (*connect.Response[v1.StepsResultResponse], error)
 }
 
 // NewStepsHandler builds an HTTP handler from the service implementation. It returns the path on
@@ -616,6 +634,12 @@ func NewStepsHandler(svc StepsHandler, opts ...connect.HandlerOption) (string, h
 		connect.WithSchema(stepsMethods.ByName("Stop")),
 		connect.WithHandlerOptions(opts...),
 	)
+	stepsResultHandler := connect.NewUnaryHandler(
+		StepsResultProcedure,
+		svc.Result,
+		connect.WithSchema(stepsMethods.ByName("Result")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orrery.v1.Steps/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case StepsHoldProcedure:
@@ -624,6 +648,8 @@ func NewStepsHandler(svc StepsHandler, opts ...connect.HandlerOption) (string, h
 			stepsNudgeHandler.ServeHTTP(w, r)
 		case StepsStopProcedure:
 			stepsStopHandler.ServeHTTP(w, r)
+		case StepsResultProcedure:
+			stepsResultHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -643,6 +669,10 @@ func (UnimplementedStepsHandler) Nudge(context.Context, *connect.Request[v1.Step
 
 func (UnimplementedStepsHandler) Stop(context.Context, *connect.Request[v1.StepsStopRequest]) (*connect.Response[v1.StepsStopResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Steps.Stop is not implemented"))
+}
+
+func (UnimplementedStepsHandler) Result(context.Context, *connect.Request[v1.StepsResultRequest]) (*connect.Response[v1.StepsResultResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Steps.Result is not implemented"))
 }
 
 // EvidenceClient is a client for the orrery.v1.Evidence service.

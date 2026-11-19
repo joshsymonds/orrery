@@ -1,4 +1,5 @@
 import type { JSX } from "preact";
+import { useRef, useState } from "preact/hooks";
 
 import { QuestionCard } from "./blocker";
 import { type EpicCalls, useEpicReading } from "./card";
@@ -20,45 +21,70 @@ export interface EpicEvent {
   sentence: string;
 }
 
-// StepEvent is a step's end: the step's id, the agent that ran it (empty when the body names none), how it ended, the
-// epic that holds it (empty when none does), its headline, and its full result. A pending step_end has these fields
-// too.
+// StepEvent is a step's end: the step's id, the agent that ran it (empty when the block names none), how it ended and
+// its status, the epic that holds it and the task it ran (each empty when the block names none), and the brief the
+// block gives, one string a line. A pending step_end has these fields too, its brief its one summary.
 export interface StepEvent {
   step: string;
   agent: string;
   end: string;
   status: string;
-  reason: string;
   epic: string;
-  headline: string;
-  result: string;
+  task: string;
+  brief: string[];
 }
 
-// blockPattern matches a block as enginehost.CallerEventBlock writes it: the opening tag, the body on lines of its own,
-// and the closing tag.
-const blockPattern = /^<orrery-event kind="([^"]*)" id="([^"]*)">\n([\s\S]*)\n<\/orrery-event>$/;
+// blockPattern matches a block as enginehost.CallerEventBlock writes it: the opening tag with its kind and id first and
+// any further attributes after them, the body on lines of its own, and the closing tag. A value holds no raw double
+// quote, since the daemon escapes it.
+const blockPattern = /^<orrery-event kind="([^"]*)" id="([^"]*)"((?: [a-z_]+="[^"]*")*)>\n([\s\S]*)\n<\/orrery-event>$/;
+// attributePattern matches one attribute after the id in an opening tag.
+const attributePattern = / ([a-z_]+)="([^"]*)"/g;
+// entities are the escapes the daemon writes into an attribute value and a body.
+const entities: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"' };
 const epicPrefix = "epic:";
 const stepPrefix = "step:";
-// stepLine matches a step's first line as enginehost's stepEndBody writes it, and takes the end, status and reason.
-const stepLine = /^Step \S+ ended: end (.*?), status (.*?), reason (.*)\.$/;
-const agentLine = "Agent: ";
-const epicLine = "Epic: ";
-const summaryLine = "Summary: ";
-// stepHint is a step body's last line, which points to the full result. It is not part of the result.
-const stepHint = "step_status gives the full result.";
-// headlineFields are the fields a JSON result's headline is read from, in the order they are tried.
-const headlineFields = ["answer", "summary", "verdict"] as const;
+// morePrefix starts a block's last line when that line points to the full return, which is not part of the brief.
+const morePrefix = "More: ";
 const glyphs: Record<EventKind, string> = { question: "?", park: "‖", release: "↗", end: "■" };
 const labels: Record<EventKind, string> = { question: "question", park: "parked", release: "released", end: "ended" };
 
-// epicEventOf reads a prompt's text as an epic's event: a block of one of the four kinds whose id is epic:<epic>:<tail>.
-// It is null for any other text, a step's event among them.
-export function epicEventOf(text: string): EpicEvent | null {
+// Block is an event block as its text holds it: its kind and id, its attributes after them, and its body, with every
+// attribute value and the body unescaped.
+interface Block {
+  kind: string;
+  id: string;
+  attributes: Map<string, string>;
+  body: string;
+}
+
+// blockOf reads text as an event block, or returns null for any other text.
+function blockOf(text: string): Block | null {
   const match = blockPattern.exec(text.trim());
   if (match === null) {
     return null;
   }
-  const [, kind, id, body] = match;
+  const [, kind, id, further, body] = match;
+  const attributes = new Map<string, string>();
+  for (const [, name, value] of further.matchAll(attributePattern)) {
+    attributes.set(name, unescapeText(value));
+  }
+  return { kind: unescapeText(kind), id: unescapeText(id), attributes, body: unescapeText(body) };
+}
+
+// unescapeText reverses the daemon's escapes in one pass, so &amp;lt; reads as &lt; and not as <.
+function unescapeText(text: string): string {
+  return text.replace(/&(amp|lt|gt|quot);/g, (_, name: string) => entities[name]);
+}
+
+// epicEventOf reads a prompt's text as an epic's event: a block of one of the four kinds whose id is
+// epic:<epic>:<tail>. Its first sentence is the body's. It is null for any other text, a step's event among them.
+export function epicEventOf(text: string): EpicEvent | null {
+  const block = blockOf(text);
+  if (block === null) {
+    return null;
+  }
+  const { kind, id, body } = block;
   if (!isEventKind(kind) || !id.startsWith(epicPrefix)) {
     return null;
   }
@@ -70,84 +96,43 @@ export function epicEventOf(text: string): EpicEvent | null {
   return { kind, epic: rest.slice(0, cut), tail: rest.slice(cut + 1), sentence: firstSentence(body) };
 }
 
-// stepEventOf reads a prompt's text as a step's end: a block of kind step_end whose id is step:<id>, with its first line,
-// an Agent line and an Epic line when the body has them, and a Summary line that holds the whole result. A body with no
-// Agent line reads with no agent. It is null for any other text.
+// stepEventOf reads a prompt's text as a step's end: a block of kind step_end whose id is step:<id>, with end and
+// status attributes, and with agent, epic and task attributes when it names them. Its brief is the body's lines,
+// without a last line that starts with More:. A block with no end or no status is no step's end, so an older block
+// reads as no step's end. It is null for any other text.
 export function stepEventOf(text: string): StepEvent | null {
-  const match = blockPattern.exec(text.trim());
-  if (match === null) {
+  const block = blockOf(text);
+  if (block === null || block.kind !== stepKind || !block.id.startsWith(stepPrefix)) {
     return null;
   }
-  const [, kind, id, body] = match;
-  if (kind !== stepKind || !id.startsWith(stepPrefix)) {
+  const { attributes } = block;
+  const end = attributes.get("end");
+  const status = attributes.get("status");
+  if (end === undefined || status === undefined) {
     return null;
   }
-  const [first, ...lines] = body.split("\n");
-  const head = stepLine.exec(first);
-  if (head === null) {
-    return null;
-  }
-  const lineAt = (index: number): string => lines[index] ?? "";
-  const [, end, status, reason] = head;
-  let at = 0;
-  let agent = "";
-  let epic = "";
-  if (lineAt(at).startsWith(agentLine)) {
-    agent = lineAt(at).slice(agentLine.length);
-    at += 1;
-  }
-  if (lineAt(at).startsWith(epicLine)) {
-    epic = lineAt(at).slice(epicLine.length);
-    at += 1;
-  }
-  if (!lineAt(at).startsWith(summaryLine)) {
-    return null;
-  }
-  const result = [lineAt(at).slice(summaryLine.length), ...lines.slice(at + 1)];
-  if (result.at(-1) === stepHint) {
-    result.pop();
-  }
-  const whole = result.join("\n");
   return {
-    step: id.slice(stepPrefix.length),
-    agent,
+    step: block.id.slice(stepPrefix.length),
+    agent: attributes.get("agent") ?? "",
     end,
     status,
-    reason,
-    epic,
-    headline: stepHeadline(whole),
-    result: whole,
+    epic: attributes.get("epic") ?? "",
+    task: attributes.get("task") ?? "",
+    brief: briefOf(block.body),
   };
 }
 
-// stepHeadline is a step's headline, as the store's stepHeadline computes it: when the result is a JSON object, the
-// string of the first of answer, summary and verdict that holds a string; otherwise the result's first line.
-function stepHeadline(result: string): string {
-  const fields = jsonObject(result);
-  if (fields !== null) {
-    for (const key of headlineFields) {
-      const text = fields[key];
-      if (typeof text === "string") {
-        return text;
-      }
-    }
+// briefOf is a step's brief from its body: the body's lines, without a last line that starts with More:. An empty body
+// has no lines.
+function briefOf(body: string): string[] {
+  if (body === "") {
+    return [];
   }
-  const [firstLine] = result.split("\n");
-  return firstLine;
-}
-
-// jsonObject is the JSON object text parses to, or null when it parses to anything else or does not parse.
-function jsonObject(text: string): Record<string, unknown> | null {
-  let value: unknown;
-  try {
-    value = JSON.parse(text);
-  } catch {
-    return null;
+  const lines = body.split("\n");
+  if (lines.at(-1)?.startsWith(morePrefix) === true) {
+    lines.pop();
   }
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return null;
-  }
-  return value as Record<string, unknown>;
+  return lines;
 }
 
 // returnBody is a return as the fold draws it: pretty-printed when the return parses as JSON, its raw text otherwise.
@@ -197,10 +182,16 @@ function RingParts({ kind, sentence, epic }: { kind: EventKind; sentence: string
   );
 }
 
-// StepCard draws a step's end as a card: the agent when the event names one, the end, status and reason on its head,
-// the headline on a line under it, and the full result in a fold under that, closed until it is opened. A click on the
-// head opens the step's page through calls.openStep when the event names its epic and the reader holds epic calls.
-// waiting, when set, dims the card and labels it, as a waiting card does.
+// ReturnLoad is a step's full return as its fold holds it: the return once it loads, failed when it did not load, and
+// null until the fold is first opened.
+type ReturnLoad = { result: string } | "failed" | null;
+
+// StepCard draws a step's end as a card: its head with the agent when the event names one, then the end and the
+// status, then each line of the brief as a line of text. With epic calls it holds a return fold under the brief, closed
+// until it is opened. The first time the fold is opened, the step's full return is read through calls.stepResult. It
+// draws pretty-printed when it is JSON, and a read that fails draws a fixed line. A click on the head opens the step's
+// page through calls.openStep when the event names its epic and the reader holds epic calls. waiting, when set, dims
+// the card and labels it, as a waiting card does.
 export function StepCard({
   event,
   calls,
@@ -210,10 +201,22 @@ export function StepCard({
   calls?: EpicCalls;
   waiting?: string;
 }): JSX.Element {
+  const [loaded, setLoaded] = useState<ReturnLoad>(null);
+  const asked = useRef(false);
   const onClick = () => {
     if (calls !== undefined && event.epic !== "") {
       calls.openStep(event.epic, event.step);
     }
+  };
+  const openReturn = (details: HTMLDetailsElement) => {
+    if (calls === undefined || asked.current || !details.open) {
+      return;
+    }
+    asked.current = true;
+    calls.stepResult(event.step).then(
+      (result) => setLoaded({ result }),
+      () => setLoaded("failed"),
+    );
   };
   return (
     <div class={waiting === "" ? "step-card" : "step-card waiting"}>
@@ -221,13 +224,17 @@ export function StepCard({
         {event.agent !== "" && <b class="step-agent">{event.agent}</b>}
         <span class="step-end">end {event.end}</span>
         <span class="step-status">status {event.status}</span>
-        {event.reason !== "" && <span class="step-reason">reason {event.reason}</span>}
       </button>
-      {event.headline !== "" && <p class="step-summary">{event.headline}</p>}
-      {event.result !== "" && (
-        <details class="step-return">
+      {event.brief.map((line, index) => (
+        <p key={index} class="step-summary">
+          {line}
+        </p>
+      ))}
+      {calls !== undefined && (
+        <details class="step-return" onToggle={(toggled) => openReturn(toggled.currentTarget)}>
           <summary>return</summary>
-          <pre>{returnBody(event.result)}</pre>
+          {loaded === "failed" && <p class="error">return could not be loaded</p>}
+          {loaded !== null && loaded !== "failed" && <pre>{returnBody(loaded.result)}</pre>}
         </details>
       )}
       {waiting !== "" && <small class="wait-label">{waiting}</small>}
@@ -246,10 +253,9 @@ export function WaitingCard({ event, calls }: { event: PendingEvent; calls?: Epi
       agent: event.agent,
       end: event.end,
       status: event.status,
-      reason: event.reason,
       epic: event.epic,
-      headline: event.summary,
-      result: event.result,
+      task: "",
+      brief: event.summary === "" ? [] : [event.summary],
     };
     return <StepCard event={step} calls={calls} waiting={label} />;
   }
