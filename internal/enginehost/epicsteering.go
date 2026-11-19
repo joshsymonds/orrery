@@ -1,0 +1,76 @@
+package enginehost
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+
+	"github.com/joshsymonds/orrery/internal/store"
+)
+
+// steeringInstruction is the first line of a steering session's first prompt. It says what the session does for the
+// epic and that it changes nothing in the repository.
+const steeringInstruction = "orreryd builds this epic; this session steers it by answering its questions and events, " +
+	"and changes nothing in the repository."
+
+// steeringSessions reads the engine row of a session by id. *store.Store and the Manager's Store satisfy it.
+type steeringSessions interface {
+	EngineSession(ctx context.Context, id string) (store.EngineRow, error)
+}
+
+// EpicSteeringConfig configures EpicSteering. Manager starts and stops the steering sessions. Sessions reads the row
+// of a session once it is started, so Start can tell a session whose spawn failed. Render returns the contract and log
+// lines of an epic, which Start puts in the session's first prompt.
+type EpicSteeringConfig struct {
+	Manager  *Manager
+	Sessions steeringSessions
+	Render   func(store.EpicRow) ([]string, error)
+}
+
+// EpicSteering starts and stops the steering session of an epic: the one headless session that answers the epic's
+// questions and events and changes nothing in its repository.
+type EpicSteering struct {
+	manager  *Manager
+	sessions steeringSessions
+	render   func(store.EpicRow) ([]string, error)
+}
+
+// NewEpicSteering returns the EpicSteering that cfg configures.
+func NewEpicSteering(cfg EpicSteeringConfig) *EpicSteering {
+	return &EpicSteering{manager: cfg.Manager, sessions: cfg.Sessions, render: cfg.Render}
+}
+
+// Start starts the steering session of the epic row in the row's repository and returns its id. The first prompt is the
+// instruction line, the line "Epic: " followed by the row's id, then the lines Render returns for the row, joined by
+// newlines. A Render error is returned and starts nothing. A start refused by the session cap returns an error that
+// names the cap and wraps ErrCapReached. A session whose spawn fails returns an error that names the session and the
+// reason it failed, and no id.
+func (s *EpicSteering) Start(ctx context.Context, row store.EpicRow) (string, error) {
+	lines, err := s.render(row)
+	if err != nil {
+		return "", fmt.Errorf("render steering prompt of epic %s: %w", row.ID, err)
+	}
+	prompt := strings.Join(append([]string{steeringInstruction, "Epic: " + row.ID}, lines...), "\n")
+	id, err := s.manager.Start(ctx, StartRequest{Dir: row.Repository, Prompt: prompt})
+	if errors.Is(err, ErrCapReached) {
+		return "", fmt.Errorf("start steering session of epic %s: the session cap of %d is full: %w",
+			row.ID, s.manager.limit, err)
+	}
+	if err != nil {
+		return "", fmt.Errorf("start steering session of epic %s: %w", row.ID, err)
+	}
+	started, err := s.sessions.EngineSession(ctx, id)
+	if err != nil {
+		return "", fmt.Errorf("read steering session %s: %w", id, err)
+	}
+	if started.State == stateFailed {
+		return "", fmt.Errorf("steering session %s failed: %s", id, started.Reason)
+	}
+	return id, nil
+}
+
+// Stop stops the steering session id through the Manager, as Manager.Stop does.
+func (s *EpicSteering) Stop(ctx context.Context, id string) error {
+	return s.manager.Stop(ctx, id)
+}
