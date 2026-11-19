@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
+import { readdirSync } from "node:fs";
+import { sep } from "node:path";
 import { type TestContext, test } from "node:test";
+import { fileURLToPath } from "node:url";
 
 import { type VNode, render } from "preact";
 import { act } from "preact/test-utils";
 
 import { App } from "../app.stories";
 import { createFixtureTransport } from "../fixtures/transport";
+import * as main from "../main";
 import type { Address } from "../router";
 import { mockTimers } from "../testclock";
 import { installTestDom, removeTestDom, teardownOnce } from "../testdom";
@@ -112,6 +116,37 @@ test("StoryCoverage: the component files componentModules does not import are ex
   for (const [file, reason] of Object.entries(storyExemptions)) {
     assert.notEqual(reason.trim(), "", `${file} has no reason`);
   }
+});
+
+test("StoryCoverage: componentFiles lists exactly the .tsx files on disk under web/src that are not tests, not stories and not under catalog/", () => {
+  // This file is bundled to web/build/catalog, so web/src is two directories up.
+  const srcDir = fileURLToPath(new URL("../../src/", import.meta.url));
+  const onDisk = readdirSync(srcDir, { encoding: "utf8", recursive: true })
+    .map((entry) => entry.replaceAll(sep, "/"))
+    .filter(
+      (file) =>
+        file.endsWith(".tsx") &&
+        !file.endsWith(".test.tsx") &&
+        !file.endsWith(".stories.tsx") &&
+        !file.startsWith("catalog/"),
+    )
+    .sort();
+  assert.deepEqual(onDisk, [...componentFiles].sort());
+  assert.ok(onDisk.includes("app.tsx"), "app.tsx is not on disk under web/src, so the directory is wrong");
+  assert.ok(onDisk.includes("main.tsx"), "main.tsx is not on disk under web/src, so the directory is wrong");
+});
+
+test("StoryCoverage: each storyExemptions file exports no component", () => {
+  const exemptModules = { "main.tsx": main };
+  assert.deepEqual(Object.keys(exemptModules).sort(), Object.keys(storyExemptions).sort());
+  assert.deepEqual(
+    missingStories(exemptModules, {}),
+    [],
+    "with no stories module, missingStories reports every component export, so an empty list shows each exempt file exports none",
+  );
+  assert.deepEqual(missingStories({ "main.tsx": { ...main, Widget: () => null } }, {}), [
+    "main.tsx export Widget has no story in main.stories.tsx",
+  ]);
 });
 
 test("StoryCoverage: missingStories reports a component export with no story, when its stories module is missing and when that module lacks it", () => {
