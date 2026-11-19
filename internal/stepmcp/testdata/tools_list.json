@@ -143,7 +143,7 @@
   },
   {
     "name": "epic_get",
-    "description": "Return a stored epic by id: its contract, the workflow it pins with its name, text and sha256, phase, timestamps, decisions, whether it is paused and why it is parked, and its planner turns, tasks and questions.",
+    "description": "Return a stored epic by id as a one-screen text summary: its id, title and phase, whether it is paused or why it is parked, its open questions, its task counts by status, and each part of the stored epic with its item count and byte size.",
     "inputSchema": {
       "type": "object",
       "properties": {

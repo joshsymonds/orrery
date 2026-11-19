@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -12,7 +13,6 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
-	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
@@ -581,8 +581,8 @@ func TestEpicCreateNamesTheWorkflowThroughTheMCPTool(t *testing.T) {
 	}
 }
 
-// TestEpicGetPrintsTheEpicWorkflow checks that `orrery epic get` prints the name, text and sha256 of the workflow the
-// epic pinned.
+// TestEpicGetPrintsTheEpicWorkflow checks that `orrery epic get` prints the workflow part of the epic the summary gives:
+// one item, and the byte length of the workflow's text.
 func TestEpicGetPrintsTheEpicWorkflow(t *testing.T) {
 	t.Parallel()
 	fake := newRecordingEpics()
@@ -593,11 +593,8 @@ func TestEpicGetPrintsTheEpicWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("epicCommand(get) = %v, want nil", err)
 	}
-	var got v1.StoredEpic
-	if err := protojson.Unmarshal([]byte(stdout), &got); err != nil {
-		t.Fatalf("stdout is not a stored epic: %v\n%s", err, stdout)
-	}
-	if !proto.Equal(got.GetWorkflow(), want) {
-		t.Fatalf("printed workflow = %v, want %v", got.GetWorkflow(), want)
+	line := fmt.Sprintf("\n  workflow: 1 items, %d bytes\n", len(want.GetText()))
+	if !strings.Contains(stdout, line) {
+		t.Fatalf("stdout has no workflow part line %q:\n%s", line, stdout)
 	}
 }

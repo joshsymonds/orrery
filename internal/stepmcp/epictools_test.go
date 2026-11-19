@@ -572,13 +572,16 @@ func TestEpicGetSendsIDAndReturnsStoredEpic(t *testing.T) {
 		t.Fatalf("epic_get returned an error: %s", outcome.text)
 	}
 	calls := fake.calls().gets
-	if len(calls) != 1 || calls[0].GetId() != testEpicID {
-		t.Fatalf("GetEpic requests = %v, want one for %s", calls, testEpicID)
+	if len(calls) != 1 || calls[0].GetId() != testEpicID || !calls[0].GetHistory() {
+		t.Fatalf("GetEpic requests = %v, want one for %s with history", calls, testEpicID)
 	}
-	var got v1.StoredEpic
-	unmarshalResult(t, outcome.text, &got)
-	if !proto.Equal(&got, storedEpicOf(fullContract())) {
-		t.Fatalf("epic_get result = %s, want the stored epic", outcome.text)
+	wantHead := "epic demo-0a1b2c3/epic-login: Login with passkeys\nphase: accepted\npaused: no\n" +
+		"open questions: 0\ntasks: 0\nparts:\n"
+	if !strings.HasPrefix(outcome.text, wantHead) {
+		t.Fatalf("epic_get text = %q, want a summary that starts %q", outcome.text, wantHead)
+	}
+	if !strings.Contains(outcome.text, "\n  decisions: 2 items, ") {
+		t.Fatalf("epic_get text = %q, want the decisions part with two items", outcome.text)
 	}
 }
 

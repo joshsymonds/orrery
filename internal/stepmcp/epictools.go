@@ -145,9 +145,9 @@ func epicRecordTools(epics enginev1connect.EpicsClient, in epicInputs) []Tool {
 		},
 		{
 			Name: "epic_get",
-			Description: "Return a stored epic by id: its contract, the workflow it pins with its name, text and " +
-				"sha256, phase, timestamps, decisions, whether it is paused and why it is parked, and its planner " +
-				"turns, tasks and questions.",
+			Description: "Return a stored epic by id as a one-screen text summary: its id, title and phase, whether " +
+				"it is paused or why it is parked, its open questions, its task counts by status, and each part " +
+				"of the stored epic with its item count and byte size.",
 			InputSchema: in.id,
 			Handler:     epicGetHandler(epics),
 		},
@@ -307,17 +307,23 @@ func epicCreateHandler(epics enginev1connect.EpicsClient) ToolHandler {
 	}
 }
 
+// epicGetHandler answers epic_get with the one-screen summary of the epic. Only id is accepted, and the request asks for
+// the epic's history, which the summary's history part counts.
 func epicGetHandler(epics enginev1connect.EpicsClient) ToolHandler {
 	return func(ctx context.Context, call Call) (ToolResult, error) {
-		var req v1.GetEpicRequest
-		if err := decodeProto(call.Arguments, &req); err != nil {
+		var args idArgs
+		if err := decodeArguments(call.Arguments, &args); err != nil {
 			return ToolResult{}, err
 		}
-		got, err := epics.GetEpic(ctx, connect.NewRequest(&req))
+		got, err := epics.GetEpic(ctx, connect.NewRequest(&v1.GetEpicRequest{Id: args.ID, History: true}))
 		if err != nil {
 			return toolFailure(err), nil
 		}
-		return protoResult(got.Msg.GetEpic())
+		summary, err := epicSummary(got.Msg.GetEpic())
+		if err != nil {
+			return ToolResult{}, err
+		}
+		return ToolResult{Content: []Content{{Type: textContentType, Text: summary}}}, nil
 	}
 }
 
