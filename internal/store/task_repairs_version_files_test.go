@@ -156,6 +156,7 @@ func TestTaskRepairsVersionFilesSettleRefusesAFileAnotherOpenTaskNowOwns(t *test
 		t.Fatalf("GrantTaskFiles of task 3: %v", err)
 	}
 
+	before := versionFileState(t, raw)
 	err = s.SettleTaskVersion(ctx, buildEpic, 1, openBuildOf(), openBuildOf(), store.TaskVersionSettle{
 		Version: 2, State: store.VersionApplied, RedRun: checkingRedRun,
 	}, time.Unix(1700000900, 0))
@@ -163,12 +164,11 @@ func TestTaskRepairsVersionFilesSettleRefusesAFileAnotherOpenTaskNowOwns(t *test
 	if !errors.As(err, &owned) || owned != (store.FileOwnedError{File: "c.go", Task: 3}) {
 		t.Fatalf("SettleTaskVersion err = %v, want c.go owned by T3", err)
 	}
-
-	task := buildTaskOf(ctx, t, s)
-	if want := []string{"a.go"}; !reflect.DeepEqual(task.Files, want) {
-		t.Errorf("Files = %v after the refused settle, want the task's files unchanged %v", task.Files, want)
+	if !reflect.DeepEqual(before, versionFileState(t, raw)) {
+		t.Errorf("a settle refused for an owned file changed the store")
 	}
-	if checking, ok := task.Checking(); !ok || checking.Version != 2 {
+
+	if checking, ok := buildTaskOf(ctx, t, s).Checking(); !ok || checking.Version != 2 {
 		t.Errorf("Checking() = %+v, %t, want version 2 still checking", checking, ok)
 	}
 }

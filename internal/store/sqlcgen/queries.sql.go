@@ -1546,41 +1546,6 @@ func (q *Queries) GetEpicTask(ctx context.Context, arg GetEpicTaskParams) (EpicT
 	return i, err
 }
 
-const getEpicTaskVersion = `-- name: GetEpicTaskVersion :one
-SELECT epic, task, version, source, decision, step, reason, deliverable, files, test_changes, gate, evidence, state, red_run, refusal, created, settled FROM epic_task_versions WHERE epic = ? AND task = ? AND version = ?
-`
-
-type GetEpicTaskVersionParams struct {
-	Epic    string
-	Task    int64
-	Version int64
-}
-
-func (q *Queries) GetEpicTaskVersion(ctx context.Context, arg GetEpicTaskVersionParams) (EpicTaskVersion, error) {
-	row := q.db.QueryRowContext(ctx, getEpicTaskVersion, arg.Epic, arg.Task, arg.Version)
-	var i EpicTaskVersion
-	err := row.Scan(
-		&i.Epic,
-		&i.Task,
-		&i.Version,
-		&i.Source,
-		&i.Decision,
-		&i.Step,
-		&i.Reason,
-		&i.Deliverable,
-		&i.Files,
-		&i.TestChanges,
-		&i.Gate,
-		&i.Evidence,
-		&i.State,
-		&i.RedRun,
-		&i.Refusal,
-		&i.Created,
-		&i.Settled,
-	)
-	return i, err
-}
-
 const getEpicTurnStop = `-- name: GetEpicTurnStop :one
 SELECT stop FROM epic_turns WHERE epic = ? AND seq = ?
 `

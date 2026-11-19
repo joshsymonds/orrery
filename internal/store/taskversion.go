@@ -254,20 +254,23 @@ func applyTaskFiles(ctx context.Context, queries *sqlcgen.Queries, epic string, 
 // is a FileOwnedError, as grantFiles refuses it, and writes nothing. Otherwise the files the task owns and the list
 // lacks are deleted, and the files the list adds are appended in its order.
 func settleTaskFiles(ctx context.Context, queries *sqlcgen.Queries, epic string, seq, number int64) error {
-	stored, err := queries.GetEpicTaskVersion(ctx, sqlcgen.GetEpicTaskVersionParams{
-		Epic: epic, Task: seq, Version: number,
-	})
+	rows, err := queries.ListEpicTaskVersions(ctx, epic)
 	if err != nil {
-		return fmt.Errorf("read version %d of task %d of epic %s: %w", number, seq, epic, err)
+		return fmt.Errorf("read versions of epic %s: %w", epic, err)
 	}
-	version, err := taskVersionOf(stored)
+	byTask, err := taskVersionsOf(rows)
 	if err != nil {
-		return fmt.Errorf("version %d of task %d of epic %s: %w", number, seq, epic, err)
+		return fmt.Errorf("read versions of epic %s: %w", epic, err)
 	}
-	if version.Files == nil {
+	index := slices.IndexFunc(byTask[seq], func(version TaskVersion) bool { return version.Version == number })
+	if index < 0 {
+		return fmt.Errorf("version %d of task %d of epic %s is not stored", number, seq, epic)
+	}
+	stored := byTask[seq][index].Files
+	if stored == nil {
 		return nil
 	}
-	whole := *version.Files
+	whole := *stored
 	owned, err := ownedFiles(ctx, queries, epic, seq)
 	if err != nil {
 		return err

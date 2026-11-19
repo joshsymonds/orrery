@@ -1019,9 +1019,6 @@ WHERE epic = ? AND task = ? AND version = ? AND state = 'checking';
 -- name: ListEpicTaskVersions :many
 SELECT * FROM epic_task_versions WHERE epic = ? ORDER BY task, version;
 
--- name: GetEpicTaskVersion :one
-SELECT * FROM epic_task_versions WHERE epic = ? AND task = ? AND version = ?;
-
 -- name: MaxEpicTaskVersion :one
 SELECT CAST(COALESCE(MAX(version), 1) AS INTEGER) FROM epic_task_versions WHERE epic = ? AND task = ?;
 
