@@ -329,10 +329,10 @@ private fun PromptBlock(text: String) {
             .height(IntrinsicSize.Min)
             .clip(
                 RoundedCornerShape(
-                    topStart = 0.dp,
+                    topStart = OrreryTokens.Radius.one,
                     topEnd = OrreryTokens.Radius.two,
                     bottomEnd = OrreryTokens.Radius.two,
-                    bottomStart = 0.dp,
+                    bottomStart = OrreryTokens.Radius.one,
                 ),
             )
             .background(OrreryTokens.Surface.raised),
@@ -382,10 +382,10 @@ private fun WaitingRow(item: WaitingItem, expanded: Set<String>, onToggle: (Stri
             .pointerInput(id) { detectTapGestures(onTap = { onToggle(id) }) }
             .clip(
                 RoundedCornerShape(
-                    topStart = 0.dp,
+                    topStart = OrreryTokens.Radius.one,
                     topEnd = OrreryTokens.Radius.two,
                     bottomEnd = OrreryTokens.Radius.two,
-                    bottomStart = 0.dp,
+                    bottomStart = OrreryTokens.Radius.one,
                 ),
             )
             .background(OrreryTokens.Surface.raised),

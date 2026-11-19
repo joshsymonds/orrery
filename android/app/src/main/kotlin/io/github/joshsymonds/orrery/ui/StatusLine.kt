@@ -35,7 +35,7 @@ fun StatusLine(pane: Pane, nowSeconds: Long, modifier: Modifier = Modifier) {
             .testTag("status-line")
             .fillMaxWidth()
             .clip(RoundedCornerShape(OrreryTokens.Radius.two))
-            .background(status.fill ?: Color.Transparent)
+            .background(if (status.tinted) status.colour.copy(alpha = OrreryTokens.Alpha.tintFill) else Color.Transparent)
             .padding(
                 horizontal = OrreryTokens.Space.eight + OrreryTokens.Space.two,
                 vertical = OrreryTokens.Space.four + OrreryTokens.Space.two,
@@ -72,7 +72,7 @@ private class StatusText(
     val label: String,
     val colour: Color,
     val time: String,
-    val fill: Color?,
+    val tinted: Boolean,
     val tool: String = "",
     val labelColour: Color = colour,
 )
@@ -87,20 +87,20 @@ private fun statusOf(pane: Pane, nowSeconds: Long): StatusText? = when (pane.sta
             labelColour = if (words.background) OrreryTokens.Ink.three else OrreryTokens.State.working,
             tool = words.text,
             time = clock(nowSeconds - (tool?.start ?: pane.changed)),
-            fill = OrreryTokens.Role.liveFill,
+            tinted = true,
         )
     }
     "waiting" -> StatusText(
         label = "waiting for you",
         colour = OrreryTokens.State.waiting,
         time = age(nowSeconds - pane.changed),
-        fill = OrreryTokens.Role.attentionFill,
+        tinted = true,
     )
     "done" -> StatusText(
         label = "done",
         colour = OrreryTokens.State.done,
         time = "${age(nowSeconds - pane.changed)} ago",
-        fill = null,
+        tinted = false,
     )
     else -> null
 }
