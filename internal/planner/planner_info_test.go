@@ -69,7 +69,12 @@ func TestPlannerInfoStillRefusesAnUnknownContribution(t *testing.T) {
 	t.Parallel()
 	epic := store.EpicRow{Requirements: []store.EpicRequirement{{ID: "R1"}}}
 	check := returnCheck(context.Background(), epic, store.Review{}, testResolver{})
-	plan := strings.Replace(claimPlan("work", "R1"), `"requirements":["R1"]`, `"requirements":["R1"],"contributes":["R9"]`, 1)
+	plan := strings.Replace(
+		claimPlan("work", "R1"),
+		`"requirements":["R1"]`,
+		`"requirements":["R1"],"contributes":["R9"]`,
+		1,
+	)
 	want := []string{`tasks[0] "Touch a" contributes[0]: not a Requirement of the epic`}
 	if got := check(json.RawMessage(plan)); !reflect.DeepEqual(got, want) {
 		t.Errorf("returnCheck of a contribution to R9 = %q, want %q", got, want)

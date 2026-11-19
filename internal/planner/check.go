@@ -183,16 +183,8 @@ func checkTask(i int, task Task, known, taken, named map[string]bool, gate, judg
 		}
 	}
 	refusals = append(refusals, testChangeRefusals(prefix, task)...)
-	for k, id := range task.Requirements {
-		if !known[id] {
-			refusals = append(refusals, fmt.Sprintf("%s requirements[%d]: %s", prefix, k, reasonRequirement))
-		}
-	}
-	for k, id := range task.Contributes {
-		if !known[id] {
-			refusals = append(refusals, fmt.Sprintf("%s contributes[%d]: %s", prefix, k, reasonRequirement))
-		}
-	}
+	refusals = append(refusals, unknownRequirements(prefix+" requirements", task.Requirements, known)...)
+	refusals = append(refusals, unknownRequirements(prefix+" contributes", task.Contributes, known)...)
 	if strings.TrimSpace(task.Gate) == "" {
 		refusals = append(refusals, prefix+" gate: "+reasonEmpty)
 	}
@@ -525,4 +517,15 @@ func stringSet(items []string) map[string]bool {
 		set[item] = true
 	}
 	return set
+}
+
+// unknownRequirements returns one refusal for each id among ids that known does not hold, named field[k].
+func unknownRequirements(field string, ids []string, known map[string]bool) []string {
+	var refusals []string
+	for k, id := range ids {
+		if !known[id] {
+			refusals = append(refusals, fmt.Sprintf("%s[%d]: %s", field, k, reasonRequirement))
+		}
+	}
+	return refusals
 }
