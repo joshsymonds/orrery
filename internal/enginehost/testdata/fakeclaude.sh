@@ -48,6 +48,10 @@
 # the prompt's text for that prompt, and the file is removed, so a test can choose what a later prompt, such as a
 # resume, plays.
 #
+# BGHANG starts a background task, streams a text block and holds its turn open until an interrupt, as HANG does,
+# reading stdin while the turn runs (see bghang). The task stays listed for the whole turn, so a turn runs with a task
+# listed.
+#
 # MIDTURN opens a turn with a Bash tool call, reads the next line from stdin while the turn runs, then ends the tool
 # call with its result, which takes that line in, and streams one text block (see tool_fold).
 #
@@ -369,6 +373,15 @@ background() {
 	printf '%s\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"task_fake_1","task_type":"local_bash","description":"fake sleep"}],"session_id":"session_1","uuid":"uuid_t1"}'
 	text_block 0 "fake background $n" "fake background $n"
 	turn_close
+}
+
+# bghang starts a background task, streams a text block and holds the turn open with await_interrupt, so the task stays
+# listed while the turn runs, and the turn reads stdin as hang does.
+bghang() {
+	turn_open
+	printf '%s\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"task_fake_1","task_type":"local_bash","description":"fake sleep"}],"session_id":"session_1","uuid":"uuid_t1"}'
+	text_block 0 "fake bghang $n" "fake bghang $n"
+	await_interrupt
 }
 
 # bgend reports that the background task has ended, then answers as any other prompt does.
@@ -731,6 +744,7 @@ while next; do
 				*TASKS*) mode=tasks ;;
 				*ASK*) mode=ask ;;
 				*PERMIT*) mode=permit ;;
+				*BGHANG*) mode=bghang ;;
 				*HANG*) mode=hang ;;
 				*FLOOD*) mode=flood ;;
 				*TRICKLEHELD*) mode=trickleheld ;;
@@ -770,6 +784,7 @@ while next; do
 				tasks) tasks ;;
 				ask) ask ;;
 				permit) permit ;;
+				bghang) bghang ;;
 				hang) hang ;;
 				flood) flood ;;
 				trickleheld) trickle held ;;
