@@ -596,7 +596,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		views:       newDoneViews(),
 	})
 	router := hub.router
-	pageNotices := enginehost.NewPageNotices(pages, router, time.Now)
+	pageNotices := enginehost.NewPageNotices(pages, router, router, time.Now)
 	observe := func(transition daemon.Transition) { hub.observe(ctx, transition) }
 	// callerWake holds the caller-event wake once startSessions has returned the host, so the pane observer does nothing
 	// until then.
@@ -2242,13 +2242,7 @@ func (r *relay) pushNotification(ctx context.Context, transition daemon.Transiti
 	if err != nil {
 		return push.Notification{}, fmt.Errorf("read notification text: %w", err)
 	}
-	return push.Notification{
-		Project:  filepath.Base(transition.Frame.Cwd),
-		State:    transition.To,
-		Summary:  text.summary,
-		Label:    text.label,
-		Question: text.question,
-	}, nil
+	return paneNotification(transition, text), nil
 }
 
 // wait returns once every summary run has finished. It runs after Serve returns, so no observer can start more work.

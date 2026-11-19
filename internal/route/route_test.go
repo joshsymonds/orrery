@@ -3,6 +3,7 @@ package route_test
 import (
 	"context"
 	"errors"
+	"reflect"
 	"slices"
 	"sync"
 	"testing"
@@ -265,7 +266,7 @@ func (f *fake) check(t *testing.T, lines []route.Line, posts []deskstream.Notice
 		}
 		got = append(got, p.note)
 	}
-	if !slices.Equal(got, pushes) {
+	if !slices.EqualFunc(got, pushes, func(a, b push.Notification) bool { return reflect.DeepEqual(a, b) }) {
 		t.Errorf("phone pushes = %+v, want %+v", got, pushes)
 	}
 }

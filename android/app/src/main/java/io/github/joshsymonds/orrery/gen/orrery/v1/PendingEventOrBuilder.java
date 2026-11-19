@@ -215,4 +215,23 @@ public interface PendingEventOrBuilder extends
    */
   com.google.protobuf.ByteString
       getWaitsBytes();
+
+  /**
+   * <pre>
+   * The facts of the step, for a step_end.
+   * </pre>
+   *
+   * <code>.orrery.v1.StepFacts step_facts = 13 [json_name = "stepFacts"];</code>
+   * @return Whether the stepFacts field is set.
+   */
+  boolean hasStepFacts();
+  /**
+   * <pre>
+   * The facts of the step, for a step_end.
+   * </pre>
+   *
+   * <code>.orrery.v1.StepFacts step_facts = 13 [json_name = "stepFacts"];</code>
+   * @return The stepFacts.
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.StepFacts getStepFacts();
 }

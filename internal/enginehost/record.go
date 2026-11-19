@@ -364,6 +364,51 @@ func requestQuestion(ev session.Request) string {
 	}
 }
 
+// requestChoices returns the option labels an open headless request offers and the id it is answered by: allow and
+// deny for a permission request, and the labels of the only question of a question request that is not multiSelect.
+// Any other event, a refused or answered request, and a request of another shape offers none, and so does a question
+// with no options. The shapes mirror the ones the server answers by.
+func requestChoices(event session.Event) (options []string, request string) {
+	ev, ok := event.(session.Request)
+	if !ok || ev.Refused || ev.Answered {
+		return nil, ""
+	}
+	switch ev.Kind {
+	case session.RequestPermission:
+		return []string{"allow", "deny"}, ev.RequestID
+	case session.RequestQuestion:
+		options = singleChoiceLabels(ev.Input)
+		if len(options) == 0 {
+			return nil, ""
+		}
+		return options, ev.RequestID
+	default:
+		return nil, ""
+	}
+}
+
+// singleChoiceLabels returns the option labels, in order, of an AskUserQuestion input that has exactly one question
+// and that question is not multiSelect. Any other input, or one that does not decode, has none.
+func singleChoiceLabels(input json.RawMessage) []string {
+	var fields struct {
+		Questions []struct {
+			MultiSelect bool `json:"multiSelect"`
+			Options     []struct {
+				Label string `json:"label"`
+			} `json:"options"`
+		} `json:"questions"`
+	}
+	if err := json.Unmarshal(input, &fields); err != nil || len(fields.Questions) != 1 ||
+		fields.Questions[0].MultiSelect {
+		return nil
+	}
+	var labels []string
+	for _, option := range fields.Questions[0].Options {
+		labels = append(labels, option.Label)
+	}
+	return labels
+}
+
 // eventNotice returns the state and body of the notice event sends the owner, and whether it sends one. reply is the
 // text of the turn's last finished main-conversation text block, and interrupted reports that the turn was interrupted
 // through Interrupt, so its end sends nothing.

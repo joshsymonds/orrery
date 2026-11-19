@@ -140,7 +140,8 @@ type Config struct {
 	Rebuild    map[string]Rebuild
 }
 
-// Router decides where each notice goes and writes one Line per ping or silence.
+// Router decides where each notice goes and writes one Line per ping or silence. Each notice it delivers to the desk is
+// also kept in the notice history of the store Attach was given, and Seen and ReadAll mark those rows read.
 type Router struct {
 	cfg Config
 
@@ -157,6 +158,10 @@ type Router struct {
 	putRow    func(store.NoticeRow) error
 	deleteRow func(int64) error
 	rowID     int64
+	// history is the store the notice history is kept in, and unread the keys that have an unread history row, as far
+	// as the Router knows. Both are set by Attach: history is nil until then, and so is unread.
+	history Rows
+	unread  map[notice.Key]bool
 	// rowPuts are the entries whose last row write failed, and rowDeletes the ids whose delete failed, each with the
 	// key it is logged under. A later row write, the retry RowRetry after a failure, or Close retries them.
 	rowPuts    map[int64]*entry
@@ -250,7 +255,7 @@ func (r *Router) Changed(key notice.Key) {
 }
 
 // Seen forwards seen to the phone. It ends the pending notice for key when that notice was recorded at or before
-// seen.
+// seen. When key has an unread history row, it marks read the rows of key's history at or before seen.
 func (r *Router) Seen(ctx context.Context, key notice.Key, seen int64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -258,6 +263,7 @@ func (r *Router) Seen(ctx context.Context, key notice.Key, seen int64) {
 	if ent := r.pending[key]; ent != nil && seen >= ent.at {
 		r.endLocked(ent, None, reasonSeen)
 	}
+	r.markHistoryLocked(ctx, key, seen)
 }
 
 // Wait returns once no routing decision is running. Notices that are held or waiting on a timer are not decisions
@@ -431,6 +437,7 @@ func (r *Router) atDesk(ctx context.Context, ent *entry, dn deskstream.Notice, c
 	ent.phase, ent.due = phaseDesk, r.dueIn(Escalation)
 	r.rowLocked(ent)
 	r.cfg.Desk.Post(dn)
+	r.recordHistoryLocked(ctx, ent, dn)
 	if r.cfg.Pages != nil {
 		r.cfg.Pages.Show(ent.n.Key, dn)
 		ent.shown = true
@@ -452,6 +459,7 @@ func (r *Router) deliver(ctx context.Context, ent *entry, dn deskstream.Notice, 
 	onDesk := false
 	if built {
 		r.cfg.Desk.Post(dn)
+		r.recordHistoryLocked(ctx, ent, dn)
 		onDesk = true
 	} else {
 		reason += "; " + reasonDeskFailed

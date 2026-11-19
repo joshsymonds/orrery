@@ -1012,7 +1012,7 @@ class PaneScreenTest {
             )
             setClockedScreen(server)
 
-            composeRule.awaitExactlyOne(hasText("not delivered"))
+            composeRule.awaitExactlyOne(hasText("NOT DELIVERED"))
             composeRule.onNodeWithText("synthetic dropped message").assertIsDisplayed()
         }
     }

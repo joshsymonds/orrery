@@ -2,10 +2,11 @@ package io.github.joshsymonds.orrery.ui.theme
 
 import android.content.Context
 import android.provider.Settings
+import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Easing
-import androidx.compose.animation.core.SnapSpec
 import androidx.compose.animation.core.TweenSpec
+import androidx.compose.animation.core.VectorConverter
 import androidx.test.core.app.ApplicationProvider
 import io.github.joshsymonds.orrery.mainThreadComposeRule
 import org.junit.Assert.assertEquals
@@ -46,13 +47,46 @@ class MotionTest {
     }
 
     @Test
-    fun animatedSpecsTweenEachMoveAndUnanimatedSpecsSnap() {
+    fun animatedSpecsTweenEachMoveAndUnanimatedSpecsTakeOneReducedLinearStep() {
         Move.entries.forEach { move ->
             val tween = move.spec<Float>(animated = true) as? TweenSpec<*>
             assertEquals("${move.name} duration", move.millis, tween?.durationMillis)
             assertSame("${move.name} easing", move.easing, tween?.easing)
-            assertTrue("${move.name} snaps when not animated", move.spec<Float>(animated = false) is SnapSpec<*>)
+            val reduced = move.spec<Float>(animated = false) as? TweenSpec<*>
+            assertEquals("${move.name} reduced duration", OrreryTokens.Motion.Reduced.millis, reduced?.durationMillis)
+            assertSame("${move.name} reduced easing", OrreryTokens.Motion.Ease.linear, reduced?.easing)
         }
+    }
+
+    @Test
+    fun movesReadTheMotionTokens() {
+        val timings = mapOf(
+            Move.PRESS to OrreryTokens.Motion.Move.press,
+            Move.STATE to OrreryTokens.Motion.Move.state,
+            Move.LAYOUT to OrreryTokens.Motion.Move.layout,
+            Move.DRILL to OrreryTokens.Motion.Move.drill,
+            Move.LEAVE to OrreryTokens.Motion.Move.leave,
+        )
+        timings.forEach { (move, timing) ->
+            assertEquals("${move.name} millis", timing.millis, move.millis)
+            assertSame("${move.name} easing", timing.easing, move.easing)
+        }
+    }
+
+    @Test
+    fun pulseSpecIsHalfThePulseEachWayReversedOnTheLinearEase() {
+        val pulse = pulseSpec().vectorize(Float.VectorConverter)
+        fun valueAt(millis: Int): Float = pulse.getValueFromNanos(
+            millis.toLong() * 1_000_000L,
+            AnimationVector1D(0f),
+            AnimationVector1D(1f),
+            AnimationVector1D(0f),
+        ).value
+        val half = OrreryTokens.Motion.Loop.pulse / 2
+        assertEquals(0f, valueAt(0), 0f)
+        assertEquals("one half pulse reaches the target", 1f, valueAt(half), 0f)
+        assertEquals("a quarter pulse is halfway on the linear ease", 0.5f, valueAt(half / 2), 0.001f)
+        assertEquals("a whole pulse returns to the start", 0f, valueAt(OrreryTokens.Motion.Loop.pulse), 0f)
     }
 
     @Test

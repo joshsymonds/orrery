@@ -3,7 +3,6 @@ package io.github.joshsymonds.orrery.ui
 import android.util.Log
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateIntAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -54,6 +53,9 @@ import io.github.joshsymonds.orrery.api.HostStat
 import io.github.joshsymonds.orrery.api.OrreryCallException
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Pane
+import io.github.joshsymonds.orrery.ui.theme.Move
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
+import io.github.joshsymonds.orrery.ui.theme.spec
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -72,16 +74,14 @@ private const val STREAM_RECONNECT_MILLIS = 1_000L
  * UNAVAILABLE does not count.
  */
 private const val STREAM_FAILURES_BEFORE_POLL = 3
-private const val HEADER_SLIDE_MILLIS = 220
-private const val QUICK_KEYS_FOLD_MILLIS = 180
-private val BODY_GAP_BELOW_HEADER = 6.dp
-private val GOAL_STATUS_GAP = 2.dp
+private val BODY_GAP_BELOW_HEADER = OrreryTokens.Space.four + OrreryTokens.Space.two
+private val GOAL_STATUS_GAP = OrreryTokens.Space.two
 
 /** The draft field never takes more than this share of the screen above the keyboard. */
 private const val COMPOSE_MAX_SHARE = 1f / 3f
 
 /** Nor less than this, so a very short screen still shows a line or two of the draft. */
-private val COMPOSE_MIN_CAP = 48.dp
+private val COMPOSE_MIN_CAP = OrreryTokens.Size.controlTouch
 
 /** One tick's pane reads. `conversation` is null when the pane has none. */
 private class Snapshot(val pane: Pane?, val conversation: Conversation?)
@@ -256,7 +256,7 @@ fun PaneScreen(
     var headerMeasured by remember { mutableStateOf(false) }
     val headerShift by animateIntAsState(
         targetValue = if (headerRule.visible) 0 else -headerHeightPx,
-        animationSpec = tween(HEADER_SLIDE_MILLIS),
+        animationSpec = Move.STATE.spec(animated = true),
         label = "header-shift",
     )
     val bodyTop = with(density) { headerHeightPx.toDp() } + BODY_GAP_BELOW_HEADER
@@ -328,7 +328,11 @@ fun PaneScreen(
                             .testTag("no-conversation")
                             .weight(1f)
                             .fillMaxWidth()
-                            .padding(start = 14.dp, end = 14.dp, top = bodyTop),
+                            .padding(
+                                start = OrreryTokens.Space.twelve + OrreryTokens.Space.two,
+                                end = OrreryTokens.Space.twelve + OrreryTokens.Space.two,
+                                top = bodyTop,
+                            ),
                     )
                     if (question != null) {
                         QuestionCard(question, client, onRefresh = refresh)
@@ -378,8 +382,8 @@ fun PaneScreen(
         )
         AnimatedVisibility(
             visible = !draftPresent,
-            enter = expandVertically(tween(QUICK_KEYS_FOLD_MILLIS)) + fadeIn(tween(QUICK_KEYS_FOLD_MILLIS)),
-            exit = shrinkVertically(tween(QUICK_KEYS_FOLD_MILLIS)) + fadeOut(tween(QUICK_KEYS_FOLD_MILLIS)),
+            enter = expandVertically(Move.LAYOUT.spec(animated = true)) + fadeIn(Move.LAYOUT.spec(animated = true)),
+            exit = shrinkVertically(Move.LAYOUT.spec(animated = true)) + fadeOut(Move.LAYOUT.spec(animated = true)),
             label = "quick-keys",
         ) {
             QuickKeys(paneId, client, state = current?.state.orEmpty(), changed = current?.changed ?: 0L)

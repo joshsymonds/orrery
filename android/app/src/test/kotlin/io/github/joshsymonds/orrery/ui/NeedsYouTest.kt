@@ -28,7 +28,7 @@ import org.robolectric.annotation.Config
 
 private const val ALPHA_ID = "repo-a/alpha"
 private const val BETA_ID = "repo-a/beta"
-private const val HEADING = "Needs you"
+private const val HEADING = "NEEDS YOU"
 private const val NEEDS_TAG = "needs-you"
 private const val WHY_TAG = "need-why"
 private const val ANSWER_TAG = "blocker-answer"

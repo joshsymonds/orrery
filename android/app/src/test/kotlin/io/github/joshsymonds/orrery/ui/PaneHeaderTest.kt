@@ -20,7 +20,7 @@ import io.github.joshsymonds.orrery.api.ConversationContext
 import io.github.joshsymonds.orrery.api.HostStat
 import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.mainThreadComposeRule
-import io.github.joshsymonds.orrery.ui.theme.Mocha
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -184,38 +184,38 @@ class PaneHeaderTest {
     }
 
     @Test
-    fun contextMeterAtZeroPercentShowsEmptyBlocksInGreen() {
-        assertMeter(tokens = 1L, text = "▱▱▱▱▱ 0%", color = Mocha.Green)
+    fun contextMeterAtZeroPercentShowsEmptyBlocksAtOk() {
+        assertMeter(tokens = 1L, text = "▱▱▱▱▱ 0%", color = OrreryTokens.Level.ok)
     }
 
     @Test
-    fun contextMeterAt39PercentIsGreen() {
-        assertMeter(tokens = 390_000L, text = "▰▰▱▱▱ 39%", color = Mocha.Green)
+    fun contextMeterAt59PercentIsOk() {
+        assertMeter(tokens = 590_000L, text = "▰▰▰▱▱ 59%", color = OrreryTokens.Level.ok)
     }
 
     @Test
-    fun contextMeterAt40PercentIsYellow() {
-        assertMeter(tokens = 400_000L, text = "▰▰▱▱▱ 40%", color = Mocha.Yellow)
+    fun contextMeterAt60PercentIsWarn() {
+        assertMeter(tokens = 600_000L, text = "▰▰▰▱▱ 60%", color = OrreryTokens.Level.warn)
     }
 
     @Test
-    fun contextMeterAt79PercentIsPeach() {
-        assertMeter(tokens = 790_000L, text = "▰▰▰▰▱ 79%", color = Mocha.Peach)
+    fun contextMeterAt79PercentIsWarn() {
+        assertMeter(tokens = 790_000L, text = "▰▰▰▰▱ 79%", color = OrreryTokens.Level.warn)
     }
 
     @Test
-    fun contextMeterAt80PercentIsRed() {
-        assertMeter(tokens = 800_000L, text = "▰▰▰▰▱ 80%", color = Mocha.Red)
+    fun contextMeterAt80PercentIsCrit() {
+        assertMeter(tokens = 800_000L, text = "▰▰▰▰▱ 80%", color = OrreryTokens.Level.crit)
     }
 
     @Test
-    fun contextMeterAt100PercentIsFullAndRed() {
-        assertMeter(tokens = METER_WINDOW, text = "▰▰▰▰▰ 100%", color = Mocha.Red)
+    fun contextMeterAt100PercentIsFullAndCrit() {
+        assertMeter(tokens = METER_WINDOW, text = "▰▰▰▰▰ 100%", color = OrreryTokens.Level.crit)
     }
 
     @Test
     fun contextMeterAboveWindowReadsOneHundredPercent() {
-        assertMeter(tokens = METER_WINDOW + 500_000L, text = "▰▰▰▰▰ 100%", color = Mocha.Red)
+        assertMeter(tokens = METER_WINDOW + 500_000L, text = "▰▰▰▰▰ 100%", color = OrreryTokens.Level.crit)
     }
 
     @Test

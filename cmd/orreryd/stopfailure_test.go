@@ -2,6 +2,7 @@ package main
 
 import (
 	"log/slog"
+	"reflect"
 	"testing"
 
 	"github.com/joshsymonds/orrery/internal/protocol"
@@ -39,7 +40,7 @@ func checkDoneText(t *testing.T, incoming route.Notice, judged bool, text string
 	}
 	want := expectedPush(protocol.StateDone)
 	want.Summary = text
-	if note != want {
+	if !reflect.DeepEqual(note, want) {
 		t.Errorf("push notification = %+v, want %+v", note, want)
 	}
 }

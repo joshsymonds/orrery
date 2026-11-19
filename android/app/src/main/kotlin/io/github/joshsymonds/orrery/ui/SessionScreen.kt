@@ -20,10 +20,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import io.github.joshsymonds.orrery.api.OrreryClient
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -161,7 +161,7 @@ fun SessionScreen(sessionId: String, client: OrreryClient, onBack: () -> Unit = 
 
     Column(modifier = Modifier.fillMaxSize()) {
         if (refreshFailed) {
-            Text(REFRESH_FAILED, modifier = Modifier.padding(horizontal = 14.dp))
+            Text(REFRESH_FAILED, modifier = Modifier.padding(horizontal = OrreryTokens.Space.twelve + OrreryTokens.Space.two))
         }
         pane?.let { shown ->
             PaneHeader(
@@ -192,7 +192,7 @@ fun SessionScreen(sessionId: String, client: OrreryClient, onBack: () -> Unit = 
                 )
             }
         }
-        Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp)) {
+        Box(modifier = Modifier.fillMaxWidth().padding(horizontal = OrreryTokens.Space.twelve + OrreryTokens.Space.two)) {
             if (step != null) {
                 StepActions(stepCalls, step.held)
             } else {
@@ -206,7 +206,7 @@ fun SessionScreen(sessionId: String, client: OrreryClient, onBack: () -> Unit = 
             }
         }
         if (step == null && interruptTaken && pane != null && state !in LIVE_STATES) {
-            Text(RESULT_TEXT, modifier = Modifier.testTag(RESULT_TAG).padding(horizontal = 14.dp))
+            Text(RESULT_TEXT, modifier = Modifier.testTag(RESULT_TAG).padding(horizontal = OrreryTokens.Space.twelve + OrreryTokens.Space.two), color = OrreryTokens.Role.halt)
         }
         // The compose key is the session's id; its sends go through the session sender, or a step's nudge.
         ComposeBox(

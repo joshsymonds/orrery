@@ -2,6 +2,7 @@ package planner
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
@@ -145,7 +146,7 @@ func TestAttentionSendsOneNoticeForTheQuestionsOfATurn(t *testing.T) {
 	if len(router.notices) != 1 {
 		t.Fatalf("notices after one pass = %d, want exactly one", len(router.notices))
 	}
-	if got := shownOf(t, router.notices[0]); got != want {
+	if got := shownOf(t, router.notices[0]); !reflect.DeepEqual(got, want) {
 		t.Errorf("notice = %+v, want %+v", got, want)
 	}
 
@@ -300,7 +301,7 @@ func TestRestoreNoticeRebuildsTheNoticeAttentionSent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RestoreNotice: %v", err)
 	}
-	if got, want := shownOf(t, restored), shownOf(t, sent); got != want {
+	if got, want := shownOf(t, restored), shownOf(t, sent); !reflect.DeepEqual(got, want) {
 		t.Errorf("restored notice = %+v, want the sent notice %+v", got, want)
 	}
 }

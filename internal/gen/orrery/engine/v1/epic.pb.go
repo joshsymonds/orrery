@@ -401,7 +401,8 @@ type EpicReviewer struct {
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	// Whether the reviewer runs. A disabled reviewer stays in the list and runs at no stage.
 	Enabled *bool `protobuf:"varint,2,opt,name=enabled,proto3,oneof" json:"enabled,omitempty"`
-	// The stages the reviewer runs at: task, epic, or both.
+	// The stages the reviewer runs at: any of task, epic and release. The release stage runs once before the release's
+	// first step, on the candidate.
 	Stage []string `protobuf:"bytes,3,rep,name=stage,proto3" json:"stage,omitempty"`
 	// The statements the reviewer's return must show hold.
 	Must []string `protobuf:"bytes,4,rep,name=must,proto3" json:"must,omitempty"`

@@ -219,7 +219,7 @@ func (s *paneSinks) check(t *testing.T, lines []route.Line, posts []deskstream.N
 	if !slices.Equal(s.posts, posts) {
 		t.Errorf("desk posts = %+v, want %+v", s.posts, posts)
 	}
-	if !slices.Equal(s.pushes, pushes) {
+	if !slices.EqualFunc(s.pushes, pushes, func(a, b push.Notification) bool { return reflect.DeepEqual(a, b) }) {
 		t.Errorf("phone pushes = %+v, want %+v", s.pushes, pushes)
 	}
 }

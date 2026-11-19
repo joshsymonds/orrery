@@ -2,12 +2,8 @@ package io.github.joshsymonds.orrery.ui
 
 import android.graphics.BlurMaskFilter
 import android.graphics.Paint
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.runtime.Composable
@@ -34,11 +30,12 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
-import io.github.joshsymonds.orrery.ui.theme.Mocha
-import io.github.joshsymonds.orrery.ui.theme.OrreryMono
+import androidx.compose.ui.unit.TextUnit
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import io.github.joshsymonds.orrery.ui.theme.animationsOn
+import io.github.joshsymonds.orrery.ui.theme.inLabelCase
+import io.github.joshsymonds.orrery.ui.theme.pulseSpec
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.min
@@ -59,11 +56,8 @@ private const val ARC_OUTER = 192f
 private const val ARC_MID = (ARC_INNER + ARC_OUTER) / 2
 private const val ID_RADIUS = 200f
 
-// The glow breathes between GLOW_LOW and GLOW_HIGH, GLOW_MS each way, and holds at GLOW_STILL when animations are off.
-private const val GLOW_HIGH = 0.8f
-private const val GLOW_LOW = 0.2f
-private const val GLOW_STILL = 0.5f
-private const val GLOW_MS = 900
+// The glow breathes between the pulse's full and its quarter, each way for half of motion.loop.pulse. It holds at full
+// when animations are off.
 private const val GLOW_STROKE = 4f
 private const val GLOW_BLUR = 5.5f
 
@@ -77,11 +71,8 @@ private const val COUNT_OF_DROP = 16f
 // The rim's name, then each phase's, from the rim inward.
 private val RING_NAMES = listOf("planned") + Phase.entries.map { it.word }
 
-// Unreached cells are Surface1 at 60% over the ground.
-private val TRACK: Color = lerp(Mocha.Base, Mocha.Surface1, 0.6f)
-
-// The now slice of an accepted wedge. Mocha names no teal, so this is Catppuccin Mocha's own, as the launcher icon uses.
-private val TEAL = Color(0xFF94E2D5)
+// Unreached cells are the firm line at 60% over the page.
+private val TRACK: Color = lerp(OrreryTokens.Surface.page, OrreryTokens.Line.firm, 0.6f)
 
 /**
  * The epic's orrery: a wedge per task, a ring of cells per phase inward from the planned rim, the requirement arcs around
@@ -123,15 +114,33 @@ fun Orrery(
             },
     ) {
         val unit = min(size.width, size.height) / BOX
-        drawRect(Mocha.Base)
+        drawRect(OrreryTokens.Surface.page)
         translate(left = size.width / 2 - CENTRE.x * unit, top = size.height / 2 - CENTRE.y * unit) {
             drawCells(wedges, unit)
             drawGlow(glowPath(wedges, unit), unit, glow.value)
             drawArcStrokes(arcs, wedges.size, unit)
             drawArcIds(measurer, arcs, wedges.size, unit)
             drawRingNames(measurer, unit)
-            paintCentred(measurer, readout, COUNT_SIZE, CENTRE.x, CENTRE.y, unit, Mocha.Text, bold = true)
-            paintCentred(measurer, "integrated", COUNT_OF_SIZE, CENTRE.x, CENTRE.y + COUNT_OF_DROP, unit, Mocha.Overlay0)
+            paintCentred(
+                measurer,
+                readout,
+                OrreryTokens.Type.display,
+                COUNT_SIZE,
+                CENTRE.x,
+                CENTRE.y,
+                unit,
+                OrreryTokens.Ink.one,
+            )
+            paintCentred(
+                measurer,
+                "integrated",
+                OrreryTokens.Type.small,
+                COUNT_OF_SIZE,
+                CENTRE.x,
+                CENTRE.y + COUNT_OF_DROP,
+                unit,
+                OrreryTokens.Ink.four,
+            )
         }
     }
 }
@@ -201,7 +210,7 @@ private fun ringOf(phase: Phase): Int = phase.ordinal + 1
 // Each wedge's rim cell, then its four phase cells. The rim is track while its wedge is planned and passed once placed.
 private fun DrawScope.drawCells(wedges: List<Wedge>, unit: Float) {
     wedges.forEachIndexed { index, wedge ->
-        val rim = if (wedge.place == WedgePlace.PLANNED) TRACK else Mocha.Green
+        val rim = if (wedge.place == WedgePlace.PLANNED) TRACK else OrreryTokens.Role.ok
         drawPath(cellPath(wedges.size, index, RIM, unit), rim)
         wedge.slices.forEach { slice ->
             drawPath(cellPath(wedges.size, index, ringOf(slice.phase), unit), sliceColour(slice.state, wedge.tone))
@@ -210,7 +219,7 @@ private fun DrawScope.drawCells(wedges: List<Wedge>, unit: Float) {
 }
 
 private fun sliceColour(state: SliceState, tone: WedgeTone): Color = when (state) {
-    SliceState.PASSED -> Mocha.Green
+    SliceState.PASSED -> OrreryTokens.Role.ok
     SliceState.NOW -> nowColour(tone)
     SliceState.AHEAD -> TRACK
 }
@@ -219,11 +228,11 @@ private fun sliceColour(state: SliceState, tone: WedgeTone): Color = when (state
 // integrated green. A planned wedge has no now slice, so its colour is the track's.
 private fun nowColour(tone: WedgeTone): Color = when (tone) {
     WedgeTone.PLAN -> TRACK
-    WedgeTone.RUN -> Mocha.Yellow
-    WedgeTone.MINE -> Mocha.Peach
-    WedgeTone.BAD -> Mocha.Red
-    WedgeTone.ACC -> TEAL
-    WedgeTone.OK -> Mocha.Green
+    WedgeTone.RUN -> OrreryTokens.Tone.run
+    WedgeTone.MINE -> OrreryTokens.Tone.mine
+    WedgeTone.BAD -> OrreryTokens.Tone.bad
+    WedgeTone.ACC -> OrreryTokens.Tone.acc
+    WedgeTone.OK -> OrreryTokens.Tone.ok
 }
 
 // The glowing cells as one path.
@@ -238,7 +247,7 @@ private fun DrawScope.drawArcStrokes(arcs: List<RequirementArc>, count: Int, uni
     arcs.forEach { arc ->
         val (from, to) = arcAnglesOf(arc, count)
         drawArc(
-            color = if (arc.proven) Mocha.Green else Mocha.Overlay0,
+            color = if (arc.proven) OrreryTokens.Role.ok else OrreryTokens.Line.glyph,
             startAngle = from - 90f,
             sweepAngle = to - from,
             useCenter = false,
@@ -254,7 +263,7 @@ private fun DrawScope.drawArcIds(measurer: TextMeasurer, arcs: List<RequirementA
     arcs.forEach { arc ->
         val (from, to) = arcAnglesOf(arc, count)
         val at = point(ID_RADIUS, radiansOf((from + to) / 2))
-        paintCentred(measurer, arc.id, ARC_ID_SIZE, at.x, at.y, unit, Mocha.Overlay1)
+        paintCentred(measurer, arc.id, OrreryTokens.Type.small, ARC_ID_SIZE, at.x, at.y, unit, OrreryTokens.Ink.three)
     }
 }
 
@@ -269,18 +278,28 @@ private fun arcAnglesOf(arc: RequirementArc, count: Int): Pair<Float, Float> {
 private fun DrawScope.drawRingNames(measurer: TextMeasurer, unit: Float) {
     RING_NAMES.forEachIndexed { ring, name ->
         val at = point(ringRadius(ring), 0f)
-        paintCentred(measurer, name, RING_NAME_SIZE, at.x, at.y, unit, Mocha.Overlay0, bold = true)
+        paintCentred(
+            measurer,
+            name.inLabelCase(),
+            OrreryTokens.Type.label,
+            RING_NAME_SIZE,
+            at.x,
+            at.y,
+            unit,
+            OrreryTokens.Ink.four,
+        )
     }
 }
 
-// The glow's opacity. It breathes between GLOW_HIGH and GLOW_LOW while animations run, and holds at GLOW_STILL when they don't.
+// The glow's opacity. It breathes from the pulse's full to its quarter while animations run, and holds at full when
+// they don't.
 @Composable
 private fun glowAlpha(): State<Float> {
-    if (!animationsOn()) return remember { mutableStateOf(GLOW_STILL) }
+    if (!animationsOn()) return remember { mutableStateOf(OrreryTokens.Motion.Loop.pulseFrom) }
     return rememberInfiniteTransition(label = "glow").animateFloat(
-        initialValue = GLOW_HIGH,
-        targetValue = GLOW_LOW,
-        animationSpec = infiniteRepeatable(tween(GLOW_MS, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        initialValue = OrreryTokens.Motion.Loop.pulseFrom,
+        targetValue = OrreryTokens.Motion.Loop.pulseTo,
+        animationSpec = pulseSpec(),
         label = "glow",
     )
 }
@@ -288,7 +307,7 @@ private fun glowAlpha(): State<Float> {
 // The glow: the glowing cells filled and stroked in yellow with round joins, blurred, at [alpha].
 private fun glowPaint(unit: Float, alpha: Float): Paint = Paint().apply {
     style = Paint.Style.FILL_AND_STROKE
-    color = Mocha.Yellow.copy(alpha = alpha).toArgb()
+    color = OrreryTokens.Role.live.copy(alpha = alpha).toArgb()
     strokeWidth = GLOW_STROKE * unit
     strokeJoin = Paint.Join.ROUND
     maskFilter = BlurMaskFilter(GLOW_BLUR * unit, BlurMaskFilter.Blur.NORMAL)
@@ -299,25 +318,21 @@ private fun DrawScope.drawGlow(cells: Path, unit: Float, alpha: Float) {
     drawContext.canvas.nativeCanvas.drawPath(cells.asAndroidPath(), glowPaint(unit, alpha))
 }
 
-// Paints [text] centred on (x, y) units, both ways.
+// Paints [text] in [face] centred on (x, y) units, both ways. The face sets the family and weight; its size is
+// sizeUnits of the chart, so the text scales with it, and its line height is the text's own.
 private fun DrawScope.paintCentred(
     measurer: TextMeasurer,
     text: String,
+    face: TextStyle,
     sizeUnits: Float,
     x: Float,
     y: Float,
     unit: Float,
     colour: Color,
-    bold: Boolean = false,
 ) {
     val layout = measurer.measure(
         text,
-        TextStyle(
-            fontFamily = OrreryMono,
-            fontSize = (sizeUnits * unit).toSp(),
-            fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
-            color = colour,
-        ),
+        face.copy(fontSize = (sizeUnits * unit).toSp(), lineHeight = TextUnit.Unspecified, color = colour),
     )
     drawText(layout, topLeft = Offset(x * unit - layout.size.width / 2f, y * unit - layout.size.height / 2f))
 }

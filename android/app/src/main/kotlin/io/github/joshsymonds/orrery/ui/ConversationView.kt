@@ -46,14 +46,12 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.em
-import androidx.compose.ui.unit.sp
 import io.github.joshsymonds.orrery.api.WaitingItem
-import io.github.joshsymonds.orrery.ui.theme.Mocha
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
+import io.github.joshsymonds.orrery.ui.theme.inLabelCase
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -73,17 +71,14 @@ private const val WAITING_KEY_PREFIX = "waiting:"
 private const val WAITING_MORE_KEY = "waiting-more"
 // At most this many waiting rows draw; the rest are counted on one "+N more" row after them.
 private const val WAITING_SHOWN = 3
-private const val WAITING_ALPHA = 0.6f
 // The divider and the tint on the rows from it on, both in the lavender of the palette.
 private const val NEW_LABEL = "new"
-private const val NEW_DIVIDER_ALPHA = 0.5f
-private const val NEW_TINT_ALPHA = 0.06f
 // How long an entry must stay on screen, enough of it, to count as read.
 private const val READ_DWELL_MS = 1_000L
 
 private enum class CallMark(val symbol: String, val colour: Color) {
-    Done("✓", Mocha.Green),
-    Failed("✗", Mocha.Red),
+    Done("✓", OrreryTokens.Role.ok),
+    Failed("✗", OrreryTokens.Role.bad),
 }
 
 /**
@@ -213,7 +208,7 @@ fun ConversationView(
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 14.dp)
+            .padding(horizontal = OrreryTokens.Space.twelve + OrreryTokens.Space.two)
             .testTag("conversation-list"),
         state = listState,
         contentPadding = contentPadding,
@@ -231,7 +226,7 @@ fun ConversationView(
                             if (tinted) {
                                 Modifier
                                     .semantics { stateDescription = NEW_LABEL }
-                                    .background(Mocha.Lavender.copy(alpha = NEW_TINT_ALPHA))
+                                    .background(OrreryTokens.Role.newFill)
                             } else {
                                 Modifier
                             },
@@ -284,9 +279,9 @@ private fun TimeLabel(seconds: Long, now: Long) {
         text = timeLabel(seconds, now),
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 10.dp, bottom = 2.dp),
-        color = Mocha.Overlay0,
-        fontSize = 11.sp,
+            .padding(top = OrreryTokens.Space.eight + OrreryTokens.Space.two, bottom = OrreryTokens.Space.two),
+        color = OrreryTokens.Ink.four,
+        style = OrreryTokens.Type.small,
         textAlign = TextAlign.Center,
     )
 }
@@ -298,27 +293,29 @@ private fun NewDivider() {
         modifier = Modifier
             .testTag("new-divider")
             .fillMaxWidth()
-            .padding(top = 6.dp, bottom = 6.dp),
+            .padding(
+                top = OrreryTokens.Space.four + OrreryTokens.Space.two,
+                bottom = OrreryTokens.Space.four + OrreryTokens.Space.two,
+            ),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
     ) {
         Box(
             modifier = Modifier
                 .weight(1f)
-                .height(1.dp)
-                .background(Mocha.Lavender.copy(alpha = NEW_DIVIDER_ALPHA)),
+                .height(OrreryTokens.Size.hairline)
+                .background(OrreryTokens.Role.newLine),
         )
         Text(
-            text = NEW_LABEL,
-            color = Mocha.Lavender,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
+            text = NEW_LABEL.inLabelCase(),
+            color = OrreryTokens.Role.new,
+            style = OrreryTokens.Type.label,
         )
         Box(
             modifier = Modifier
                 .weight(1f)
-                .height(1.dp)
-                .background(Mocha.Lavender.copy(alpha = NEW_DIVIDER_ALPHA)),
+                .height(OrreryTokens.Size.hairline)
+                .background(OrreryTokens.Role.newLine),
         )
     }
 }
@@ -328,28 +325,31 @@ private fun PromptBlock(text: String) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 10.dp, bottom = 12.dp)
+            .padding(top = OrreryTokens.Space.eight + OrreryTokens.Space.two, bottom = OrreryTokens.Space.twelve)
             .height(IntrinsicSize.Min)
-            .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 12.dp, bottomEnd = 12.dp, bottomStart = 4.dp))
-            .background(Mocha.Surface0),
+            .clip(RoundedCornerShape(topEnd = OrreryTokens.Radius.two, bottomEnd = OrreryTokens.Radius.two))
+            .background(OrreryTokens.Surface.raised),
     ) {
         Box(
             modifier = Modifier
-                .width(3.dp)
+                .width(OrreryTokens.Size.rail)
                 .fillMaxHeight()
-                .background(Mocha.Mauve),
+                .background(OrreryTokens.Role.you),
         )
         Column(
-            modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 9.dp, bottom = 10.dp),
+            modifier = Modifier.padding(
+                start = OrreryTokens.Space.twelve,
+                end = OrreryTokens.Space.twelve,
+                top = OrreryTokens.Space.eight,
+                bottom = OrreryTokens.Space.eight,
+            ),
         ) {
             Text(
-                text = "YOU",
-                color = Mocha.Mauve,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 0.1.em,
+                text = "YOU".inLabelCase(),
+                color = OrreryTokens.Role.you,
+                style = OrreryTokens.Type.label,
             )
-            Text(text = text, color = Mocha.Text, fontSize = 14.sp)
+            Text(text = text, color = OrreryTokens.Ink.one, style = OrreryTokens.Type.body)
         }
     }
 }
@@ -369,33 +369,36 @@ private fun WaitingRow(item: WaitingItem, expanded: Set<String>, onToggle: (Stri
         modifier = Modifier
             .testTag("waiting-row")
             .fillMaxWidth()
-            .padding(top = 10.dp, bottom = 12.dp)
+            .padding(top = OrreryTokens.Space.eight + OrreryTokens.Space.two, bottom = OrreryTokens.Space.twelve)
             .height(IntrinsicSize.Min)
             .semantics { onClick(action = { onToggle(id); true }) }
             .pointerInput(id) { detectTapGestures(onTap = { onToggle(id) }) }
-            .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 12.dp, bottomEnd = 12.dp, bottomStart = 4.dp))
-            .background(Mocha.Surface0.copy(alpha = WAITING_ALPHA)),
+            .clip(RoundedCornerShape(topEnd = OrreryTokens.Radius.two, bottomEnd = OrreryTokens.Radius.two))
+            .background(OrreryTokens.Surface.raised),
     ) {
         Box(
             modifier = Modifier
-                .width(3.dp)
+                .width(OrreryTokens.Size.rail)
                 .fillMaxHeight()
-                .background(Mocha.Mauve.copy(alpha = WAITING_ALPHA)),
+                .background(OrreryTokens.Ink.three),
         )
         Column(
-            modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 9.dp, bottom = 10.dp),
+            modifier = Modifier.padding(
+                start = OrreryTokens.Space.twelve,
+                end = OrreryTokens.Space.twelve,
+                top = OrreryTokens.Space.eight,
+                bottom = OrreryTokens.Space.eight,
+            ),
         ) {
             Text(
-                text = if (item.canceled) "not delivered" else "waiting",
-                color = Mocha.Overlay1,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 0.1.em,
+                text = (if (item.canceled) "not delivered" else "waiting").inLabelCase(),
+                color = OrreryTokens.Ink.three,
+                style = OrreryTokens.Type.label,
             )
             Text(
                 text = item.text,
-                color = Mocha.Subtext0,
-                fontSize = 14.sp,
+                color = OrreryTokens.Ink.three,
+                style = OrreryTokens.Type.body,
                 maxLines = if (isOpen) Int.MAX_VALUE else 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -411,9 +414,13 @@ private fun WaitingMore(count: Int) {
         modifier = Modifier
             .testTag("waiting-more")
             .fillMaxWidth()
-            .padding(start = 15.dp, top = 10.dp, bottom = 12.dp),
-        color = Mocha.Overlay1,
-        fontSize = 12.sp,
+            .padding(
+                start = OrreryTokens.Space.sixteen,
+                top = OrreryTokens.Space.eight + OrreryTokens.Space.two,
+                bottom = OrreryTokens.Space.twelve,
+            ),
+        color = OrreryTokens.Ink.three,
+        style = OrreryTokens.Type.small,
     )
 }
 
@@ -423,40 +430,39 @@ private fun ReplyText(text: String, cache: MarkdownCache) {
     val blocks = remember(text) { cache.blocks(text) }
     MarkdownBody(
         blocks = blocks,
-        modifier = Modifier.padding(vertical = 12.dp),
-        color = Mocha.Text,
-        fontSize = 14.sp,
+        modifier = Modifier.padding(vertical = OrreryTokens.Space.twelve),
+        color = OrreryTokens.Ink.one,
+        fontSize = OrreryTokens.Type.body.fontSize,
     )
 }
 
 @Composable
 private fun ToolRow(call: ToolCall, expanded: Set<String>, onToggle: (String) -> Unit) {
     val isOpen = call.id in expanded
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = OrreryTokens.Space.four)) {
         Row(
             modifier = Modifier
                 .testTag("tool-row:${call.id}")
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(8.dp))
-                .background(Mocha.Mantle)
+                .clip(RoundedCornerShape(OrreryTokens.Radius.two))
+                .background(OrreryTokens.Surface.well)
                 .clickable { onToggle(call.id) }
-                .padding(horizontal = 10.dp, vertical = 7.dp),
+                .padding(horizontal = OrreryTokens.Space.eight + OrreryTokens.Space.two, vertical = OrreryTokens.Space.eight),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
         ) {
             Caret(isOpen)
             Text(
                 text = call.name,
-                color = Mocha.Blue,
-                fontWeight = FontWeight.Bold,
-                fontSize = 12.5.sp,
+                color = OrreryTokens.Role.ref,
+                style = OrreryTokens.Type.small.copy(fontWeight = OrreryTokens.Font.Weight.bold),
                 maxLines = 1,
             )
             Text(
                 text = call.input,
                 modifier = Modifier.weight(1f),
-                color = Mocha.Subtext0,
-                fontSize = 12.5.sp,
+                color = OrreryTokens.Ink.two,
+                style = OrreryTokens.Type.small,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -470,31 +476,30 @@ private fun ToolRow(call: ToolCall, expanded: Set<String>, onToggle: (String) ->
 private fun GroupRow(calls: List<ToolCall>, expanded: Set<String>, onToggle: (String) -> Unit) {
     val firstId = calls.first().id
     val isOpen = firstId in expanded
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = OrreryTokens.Space.four)) {
         Row(
             modifier = Modifier
                 .testTag("group-row:$firstId")
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(8.dp))
-                .background(Mocha.Mantle)
+                .clip(RoundedCornerShape(OrreryTokens.Radius.two))
+                .background(OrreryTokens.Surface.well)
                 .clickable { onToggle(firstId) }
-                .padding(horizontal = 10.dp, vertical = 7.dp),
+                .padding(horizontal = OrreryTokens.Space.eight + OrreryTokens.Space.two, vertical = OrreryTokens.Space.eight),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
         ) {
             Caret(isOpen)
             Text(
                 text = "${calls.size} tool calls",
-                color = Mocha.Subtext1,
-                fontWeight = FontWeight.Bold,
-                fontSize = 12.5.sp,
+                color = OrreryTokens.Ink.two,
+                style = OrreryTokens.Type.small.copy(fontWeight = OrreryTokens.Font.Weight.bold),
                 maxLines = 1,
             )
             Text(
                 text = groupSummary(calls),
                 modifier = Modifier.weight(1f),
-                color = Mocha.Subtext0,
-                fontSize = 12.5.sp,
+                color = OrreryTokens.Ink.two,
+                style = OrreryTokens.Type.small,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -504,15 +509,15 @@ private fun GroupRow(calls: List<ToolCall>, expanded: Set<String>, onToggle: (St
             Row(
                 modifier = Modifier
                     .height(IntrinsicSize.Min)
-                    .padding(start = 10.dp, top = 2.dp),
+                    .padding(start = OrreryTokens.Space.eight + OrreryTokens.Space.two, top = OrreryTokens.Space.two),
             ) {
                 Box(
                     modifier = Modifier
-                        .width(1.dp)
+                        .width(OrreryTokens.Size.hairline)
                         .fillMaxHeight()
-                        .background(Mocha.Surface0),
+                        .background(OrreryTokens.Line.soft),
                 )
-                Column(modifier = Modifier.weight(1f).padding(start = 8.dp)) {
+                Column(modifier = Modifier.weight(1f).padding(start = OrreryTokens.Space.eight)) {
                     calls.forEach { call -> ToolRow(call, expanded, onToggle) }
                 }
             }
@@ -551,27 +556,27 @@ private fun CompactionRow(
                 .testTag("compaction-bar:$key")
                 .fillMaxWidth()
                 .clickable { onToggle(key) }
-                .padding(top = 10.dp, bottom = 2.dp),
+                .padding(top = OrreryTokens.Space.eight + OrreryTokens.Space.two, bottom = OrreryTokens.Space.two),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
         ) {
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .height(1.dp)
-                    .background(Mocha.Surface0),
+                    .height(OrreryTokens.Size.hairline)
+                    .background(OrreryTokens.Line.soft),
             )
             Text(
                 text = compactionLabel(entry),
-                color = Mocha.Overlay0,
-                fontSize = 11.sp,
+                color = OrreryTokens.Ink.four,
+                style = OrreryTokens.Type.small,
                 maxLines = 1,
             )
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .height(1.dp)
-                    .background(Mocha.Surface0),
+                    .height(OrreryTokens.Size.hairline)
+                    .background(OrreryTokens.Line.soft),
             )
         }
         if (isOpen) ReplyText(entry.text, cache)
@@ -585,30 +590,32 @@ private fun CompactionRow(
  */
 @Composable
 private fun NoticeRow(notice: ConvoEntry.Notice) {
-    val accent = if (notice.error) Mocha.Red else Mocha.Overlay1
+    val accent = if (notice.error) OrreryTokens.Role.bad else OrreryTokens.Ink.three
     Row(
         modifier = Modifier
             .testTag("notice:${notice.sort}")
             .fillMaxWidth()
-            .padding(start = 4.dp, end = 4.dp, top = 5.dp, bottom = 5.dp),
+            .padding(
+                start = OrreryTokens.Space.four,
+                end = OrreryTokens.Space.four,
+                top = OrreryTokens.Space.four,
+                bottom = OrreryTokens.Space.four,
+            ),
         verticalAlignment = Alignment.Top,
-        horizontalArrangement = Arrangement.spacedBy(7.dp),
+        horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
     ) {
         NoticeDot(accent)
         Text(
             text = noticeLabel(notice.sort),
             color = accent,
-            fontWeight = FontWeight.Bold,
-            fontSize = NOTICE_TEXT_SIZE,
-            lineHeight = NOTICE_LINE_HEIGHT,
+            style = OrreryTokens.Type.small.copy(fontWeight = OrreryTokens.Font.Weight.bold),
             maxLines = 1,
         )
         Text(
             text = notice.text,
             modifier = Modifier.weight(1f),
-            color = if (notice.error) Mocha.Red.copy(alpha = NOTICE_ERROR_TEXT_ALPHA) else Mocha.Overlay1,
-            fontSize = NOTICE_TEXT_SIZE,
-            lineHeight = NOTICE_LINE_HEIGHT,
+            color = if (notice.error) OrreryTokens.Role.bad else OrreryTokens.Ink.three,
+            style = OrreryTokens.Type.small,
             maxLines = noticeMaxLines(notice.sort),
             overflow = TextOverflow.Ellipsis,
         )
@@ -623,16 +630,12 @@ private fun NoticeDot(accent: Color) {
             .padding(top = NOTICE_DOT_TOP)
             .size(NOTICE_DOT)
             .clip(CircleShape)
-            .background(accent.copy(alpha = NOTICE_DOT_ALPHA)),
+            .background(accent),
     )
 }
 
-private val NOTICE_DOT = 5.dp
-private val NOTICE_DOT_TOP = 6.dp
-private const val NOTICE_DOT_ALPHA = 0.7f
-private const val NOTICE_ERROR_TEXT_ALPHA = 0.8f
-private val NOTICE_TEXT_SIZE = 12.sp
-private val NOTICE_LINE_HEIGHT = 17.sp
+private val NOTICE_DOT = OrreryTokens.Size.dot
+private val NOTICE_DOT_TOP = OrreryTokens.Space.four + OrreryTokens.Space.two
 
 /** The label a notice of [sort] shows before its text. */
 fun noticeLabel(sort: String): String = when (sort) {
@@ -652,10 +655,10 @@ private fun Caret(isOpen: Boolean) {
     Text(
         text = "›",
         modifier = Modifier
-            .width(9.dp)
+            .width(OrreryTokens.Space.eight)
             .graphicsLayer { rotationZ = if (isOpen) 90f else 0f },
-        color = Mocha.Overlay0,
-        fontSize = 12.5.sp,
+        color = OrreryTokens.Ink.four,
+        style = OrreryTokens.Type.small,
         maxLines = 1,
     )
 }
@@ -666,7 +669,7 @@ private fun MarkText(mark: CallMark?) {
         Text(
             text = it.symbol,
             color = it.colour,
-            fontSize = 11.5.sp,
+            style = OrreryTokens.Type.small,
             maxLines = 1,
         )
     }
@@ -680,17 +683,16 @@ private fun ResultBox(call: ToolCall) {
         modifier = Modifier
             .testTag("tool-result:${call.id}")
             .fillMaxWidth()
-            .padding(bottom = 6.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(Mocha.Crust)
+            .padding(bottom = OrreryTokens.Space.four + OrreryTokens.Space.two)
+            .clip(RoundedCornerShape(OrreryTokens.Radius.two))
+            .background(OrreryTokens.Surface.side)
             .horizontalScroll(scroll)
-            .padding(horizontal = 10.dp, vertical = 8.dp),
+            .padding(horizontal = OrreryTokens.Space.eight + OrreryTokens.Space.two, vertical = OrreryTokens.Space.eight),
     ) {
         Text(
             text = call.result.orEmpty(),
-            color = Mocha.Subtext1,
-            fontSize = 11.5.sp,
-            lineHeight = 17.sp,
+            color = OrreryTokens.Ink.two,
+            style = OrreryTokens.Type.small,
             softWrap = false,
         )
     }

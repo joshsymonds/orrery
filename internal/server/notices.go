@@ -67,6 +67,45 @@ func (n noticesServer) Seen(
 	return connect.NewResponse(&orreryv1.NoticesSeenResponse{}), nil
 }
 
+// List forwards to the engine's Notices.List under the control timeout, and answers engine errors as Seen does. The
+// notices keep the engine's order.
+func (n noticesServer) List(
+	ctx context.Context,
+	_ *connect.Request[orreryv1.NoticesListRequest],
+) (*connect.Response[orreryv1.NoticesListResponse], error) {
+	if n.engine == nil {
+		return nil, listError(connect.CodeUnavailable, controlUnavailable)
+	}
+	ctx, cancel := context.WithTimeout(ctx, n.timeout)
+	defer cancel()
+	res, err := n.engine.List(ctx, connect.NewRequest(&enginev1.NoticesListRequest{}))
+	if err != nil {
+		return nil, translateError(wrapEngine("notices list", err))
+	}
+	notices := make([]*orreryv1.ListedNotice, 0, len(res.Msg.GetNotices()))
+	for _, notice := range res.Msg.GetNotices() {
+		notices = append(notices, listedNoticeMessage(notice))
+	}
+	return connect.NewResponse(&orreryv1.NoticesListResponse{Notices: notices}), nil
+}
+
+// ReadAll forwards to the engine's Notices.ReadAll under the control timeout, and answers engine errors as Seen does.
+// It answers success only once the engine has marked the history read.
+func (n noticesServer) ReadAll(
+	ctx context.Context,
+	_ *connect.Request[orreryv1.NoticesReadAllRequest],
+) (*connect.Response[orreryv1.NoticesReadAllResponse], error) {
+	if n.engine == nil {
+		return nil, listError(connect.CodeUnavailable, controlUnavailable)
+	}
+	ctx, cancel := context.WithTimeout(ctx, n.timeout)
+	defer cancel()
+	if _, err := n.engine.ReadAll(ctx, connect.NewRequest(&enginev1.NoticesReadAllRequest{})); err != nil {
+		return nil, translateError(wrapEngine("notices read all", err))
+	}
+	return connect.NewResponse(&orreryv1.NoticesReadAllResponse{}), nil
+}
+
 // watch runs Watch's relay and returns why it ended. The engine call runs on a context that ends when the page's does
 // or when shutdown closes, so a call still waiting for its first message ends at shutdown too. Canceling that context
 // on return ends the engine call and its connection.
@@ -132,6 +171,19 @@ func inAppNoticeMessage(notice *enginev1.InAppNotice) *orreryv1.InAppNotice {
 		Title: notice.GetTitle(),
 		Body:  notice.GetBody(),
 		Block: noticeBlockMessage(notice.GetBlock()),
+	}
+}
+
+// listedNoticeMessage returns the orrery.v1 twin of one engine listed notice, field for field.
+func listedNoticeMessage(notice *enginev1.ListedNotice) *orreryv1.ListedNotice {
+	return &orreryv1.ListedNotice{
+		Key:   noticeKeyMessage(notice.GetKey()),
+		State: notice.GetState(),
+		Title: notice.GetTitle(),
+		Body:  notice.GetBody(),
+		Block: noticeBlockMessage(notice.GetBlock()),
+		Time:  notice.GetTime(),
+		Read:  notice.GetRead(),
 	}
 }
 

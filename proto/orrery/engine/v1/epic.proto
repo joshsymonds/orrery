@@ -181,7 +181,8 @@ message EpicReviewer {
   // Whether the reviewer runs. A disabled reviewer stays in the list and runs at no stage.
   optional bool enabled = 2;
 
-  // The stages the reviewer runs at: task, epic, or both.
+  // The stages the reviewer runs at: any of task, epic and release. The release stage runs once before the release's
+  // first step, on the candidate.
   repeated string stage = 3;
 
   // The statements the reviewer's return must show hold.

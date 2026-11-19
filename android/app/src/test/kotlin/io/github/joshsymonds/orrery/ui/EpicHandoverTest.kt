@@ -417,7 +417,7 @@ class EpicHandoverTest {
 
         assertEquals(
             listOf(
-                "phase ended_with_gaps",
+                "PHASE ENDED_WITH_GAPS",
                 "REVIEW",
                 "example-reviewer",
                 "gap",
@@ -472,7 +472,7 @@ class EpicHandoverTest {
 
         assertEquals(
             listOf(
-                "phase released",
+                "PHASE RELEASED",
                 "RELEASE",
                 "example-tag",
                 "example-tag-v1",

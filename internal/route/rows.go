@@ -33,19 +33,27 @@ const (
 // reasonResent is the reason the line of a restored sending row's push, sent again at Attach, gives.
 const reasonResent = "resent after restart"
 
-// Rows is the store the Router keeps one row per sourced pending notice in. *store.Store satisfies it.
+// Rows is the store the Router keeps one row per sourced pending notice in, and the notice history it keeps one row per
+// delivered notice in. *store.Store satisfies it.
 type Rows interface {
 	PutNotice(context.Context, store.NoticeRow) error
 	DeleteNotice(context.Context, int64) error
 	Notices(context.Context) ([]store.NoticeRow, error)
 	NoticeIDFloor(context.Context) (int64, error)
+	RecordNoticeHistory(context.Context, store.NoticeHistoryRow) error
+	MarkNoticeHistoryRead(context.Context, store.NoticeHistoryKey, int64) (bool, error)
+	ReadAllNoticeHistory(context.Context) error
+	NoticeHistory(context.Context, int64) ([]store.NoticeHistoryRow, error)
+	UnreadNoticeHistoryKeys(context.Context) ([]store.NoticeHistoryKey, error)
 }
 
-// Attach keeps rows in rows from now on. Each notice with a source that is already pending gets its row at once,
-// with an id above the store's id floor. Then each stored row is restored in ascending id: a row whose key saw a
-// Notify before Attach, or that a later row for its key replaces, ends `changed`; a row that cannot be restored ends
-// `not restored`; a sending row has its push sent to the phone again; and the others resume from their phase. A failed
-// floor read is logged and leaves the Router without a store. A failed read of the rows is logged and restores nothing.
+// Attach keeps rows in rows from now on, as the store of the notice history too. Each notice with a source that is
+// already pending gets its row at once, with an id above the store's id floor. Then each stored row is restored in
+// ascending id: a row whose key saw a Notify before Attach, or that a later row for its key replaces, ends `changed`; a
+// row that cannot be restored ends `not restored`; a sending row has its push sent to the phone again; and the others
+// resume from their phase. The keys with an unread history row are tracked as unread. A failed floor read is logged and
+// leaves the Router without a store, so no history is kept and none is marked read. A failed read of the rows is logged
+// and restores nothing. A failed read of the unread keys is logged and tracks none as unread.
 func (r *Router) Attach(ctx context.Context, rows Rows) {
 	floorCtx, done := r.armed(context.WithoutCancel(ctx))
 	floor, err := rows.NoticeIDFloor(floorCtx)
@@ -66,6 +74,7 @@ func (r *Router) Attach(ctx context.Context, rows Rows) {
 	r.deleteRow = func(id int64) error {
 		return r.bounded(base, func(ctx context.Context) error { return rows.DeleteNotice(ctx, id) })
 	}
+	r.attachHistoryLocked(base, rows)
 	r.rowID = floor
 	for _, ent := range r.sortedPendingLocked() {
 		r.rowLocked(ent)

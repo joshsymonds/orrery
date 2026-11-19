@@ -41,7 +41,7 @@ func epicReviewerTestNamed(t *testing.T, rs []reviewers.Reviewer, name string) r
 }
 
 // TestEpicReviewersDefaultsAlone asserts a repository with no project file and a contract with no reviewers runs
-// orrery's five defaults, with the contract's exclusion generated into conformance.
+// orrery's six defaults, with the contract's exclusion generated into conformance.
 func TestEpicReviewersDefaultsAlone(t *testing.T) {
 	t.Parallel()
 	repo := stepGitTestRepo(t)
@@ -50,7 +50,7 @@ func TestEpicReviewersDefaultsAlone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("epicReviewers refused the defaults: %v", err)
 	}
-	want := []string{"floor", "conformance", "integration", "security", "test_parsimony"}
+	want := []string{"floor", "conformance", "integration", "security", "test_parsimony", "release"}
 	if got := epicReviewerTestNames(rs); !slices.Equal(got, want) {
 		t.Fatalf("reviewers = %v, want %v", got, want)
 	}
@@ -58,6 +58,38 @@ func TestEpicReviewersDefaultsAlone(t *testing.T) {
 	const generated = "The change does what this entry rules out: Synthetic exclusion."
 	if !slices.Contains(conformance.MustNot, generated) {
 		t.Fatalf("conformance must_not = %q, want it to hold %q", conformance.MustNot, generated)
+	}
+}
+
+// TestReleaseReviewerIsADefaultOfEveryEpic asserts a repository with no project file and a contract with no reviewers
+// runs the release reviewer at the release stage, read-only, and that a contract that disables it leaves no reviewer at
+// that stage.
+func TestReleaseReviewerIsADefaultOfEveryEpic(t *testing.T) {
+	t.Parallel()
+	repo := stepGitTestRepo(t)
+	rs, err := epicReviewers(t.Context(), epicReviewerTestContract(repo, nil, nil), epicTestGetenv)
+	if err != nil {
+		t.Fatalf("epicReviewers refused the defaults: %v", err)
+	}
+	release := epicReviewerTestNamed(t, rs, "release")
+	if !slices.Equal(release.Stage, []string{reviewers.StageRelease}) ||
+		!slices.Equal(release.Tools, []string{"Read", "Bash"}) {
+		t.Fatalf(
+			"release = stage %q tools %q, want the release stage and the read-only tools",
+			release.Stage,
+			release.Tools,
+		)
+	}
+	disabled := []*v1.EpicReviewer{{Name: "release", Enabled: new(false)}}
+	rs, err = epicReviewers(t.Context(), epicReviewerTestContract(repo, disabled, nil), epicTestGetenv)
+	if err != nil {
+		t.Fatalf("epicReviewers refused the contract's disabled release reviewer: %v", err)
+	}
+	if got := reviewers.ForStage(rs, reviewers.StageRelease); len(got) != 0 {
+		t.Fatalf(
+			"release-stage reviewers = %v, want none once the contract disables release",
+			epicReviewerTestNames(got),
+		)
 	}
 }
 

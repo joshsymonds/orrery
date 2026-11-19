@@ -45,7 +45,7 @@ func (s sessionsServer) Older(
 // older returns the newest limit main-thread items of the session with a seq below before, oldest first, the seq of the
 // oldest of them, and whether items older than them remain. It reads the events backward in pages of eventPageSize. It
 // stops at the first item past limit, which tells it that more remain. It leaves out each item that withholds reports,
-// as the stream does (see readPrompts).
+// as the stream does (see readPrompts), and its items carry their step facts (see withStepFacts).
 func (w *sessionWatch) older(
 	ctx context.Context,
 	before int64,
@@ -73,8 +73,7 @@ func (w *sessionWatch) older(
 				continue
 			}
 			if len(newest) == limit {
-				items, oldest := olderItems(newest)
-				return items, oldest, true, nil
+				return olderAnswer(ctx, w.reader, newest, true)
 			}
 			newest = append(newest, keptItem{seq: event.Seq, item: item})
 		}
@@ -83,8 +82,22 @@ func (w *sessionWatch) older(
 		}
 		cursor = page.Events[len(page.Events)-1].Seq
 	}
+	return olderAnswer(ctx, w.reader, newest, false)
+}
+
+// olderAnswer returns the page of newest (see olderItems) with more as its more flag, after withStepFacts has set the
+// step facts of its items. A failed facts read is answered as a failed session read is.
+func olderAnswer(
+	ctx context.Context,
+	reader stepFactsReader,
+	newest []keptItem,
+	more bool,
+) ([]*v1.ConversationItem, int64, bool, error) {
 	items, oldest := olderItems(newest)
-	return items, oldest, false, nil
+	if err := withStepFacts(ctx, reader, items); err != nil {
+		return nil, 0, false, sessionReadError(err)
+	}
+	return items, oldest, more, nil
 }
 
 // olderItems returns the items of newest, which are newest first, oldest first, and the seq of the oldest of them, or 0

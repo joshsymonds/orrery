@@ -3,7 +3,6 @@ package server_test
 import (
 	"path/filepath"
 	"testing"
-	"time"
 
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -15,14 +14,6 @@ const (
 	// interruptingLaterAt is the unix second of the events that follow the interrupt, after interruptingSinceAt.
 	interruptingLaterAt = eventAt + 60
 )
-
-// applyEngineOpsAt applies ops to the store in one write, stamped at the unix second at.
-func applyEngineOpsAt(t *testing.T, s *store.Store, at int64, ops ...store.EngineOp) {
-	t.Helper()
-	if err := s.ApplyEngine(t.Context(), ops, time.Unix(at, 0)); err != nil {
-		t.Fatalf("ApplyEngine at %d: %v", at, err)
-	}
-}
 
 // TestSessionWatchInterruptingSinceServesInterruptTime records an owner interrupt at interruptingSinceAt that found a
 // turn running, on a session that is working. The first delta carries the mark with the interrupt's time.

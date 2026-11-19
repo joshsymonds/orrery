@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -22,13 +23,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.connectrpc.Code
 import io.github.joshsymonds.orrery.api.OrreryCallException
 import io.github.joshsymonds.orrery.api.OrreryClient
-import io.github.joshsymonds.orrery.ui.theme.Mocha
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
+import io.github.joshsymonds.orrery.ui.theme.inLabelCase
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -112,20 +111,20 @@ fun SessionRequestCard(
     val scope = rememberCoroutineScope()
     var outcome by remember(requestId) { mutableStateOf<ControlOutcome?>(null) }
     val shown = if (options.isEmpty()) ControlOutcome.NotAnswerable else outcome
-    val cardShape = RoundedCornerShape(14.dp)
-    val buttonShape = RoundedCornerShape(10.dp)
+    val cardShape = RoundedCornerShape(OrreryTokens.Radius.three)
+    val buttonShape = RoundedCornerShape(OrreryTokens.Radius.two)
 
     Column(
         modifier = Modifier
             .testTag("session-request")
             .fillMaxWidth()
             .clip(cardShape)
-            .background(Mocha.Peach.copy(alpha = 0.06f))
-            .border(1.dp, Mocha.Peach, cardShape)
-            .padding(12.dp),
+            .background(OrreryTokens.Role.attentionFill)
+            .border(OrreryTokens.Size.hairline, OrreryTokens.Role.attention, cardShape)
+            .padding(OrreryTokens.Space.twelve),
     ) {
-        Text("CLAUDE IS ASKING", color = Mocha.Peach, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-        Text(question, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 2.dp))
+        Text("CLAUDE IS ASKING".inLabelCase(), color = OrreryTokens.Role.attention, style = OrreryTokens.Type.label)
+        Text(question, style = OrreryTokens.Type.body.copy(fontWeight = OrreryTokens.Font.Weight.bold), modifier = Modifier.padding(top = OrreryTokens.Space.two))
         options.forEach { label ->
             Button(
                 onClick = {
@@ -137,17 +136,17 @@ fun SessionRequestCard(
                         if (result == ControlOutcome.Sent) onAnswered()
                     }
                 },
-                modifier = Modifier.testTag("session-option:$label").fillMaxWidth().padding(top = 8.dp),
+                modifier = Modifier.testTag("session-option:$label").fillMaxWidth().padding(top = OrreryTokens.Space.eight),
                 shape = buttonShape,
-                colors = ButtonDefaults.buttonColors(containerColor = Mocha.Surface0, contentColor = Mocha.Text),
-                border = BorderStroke(1.dp, Mocha.Surface1),
+                colors = ButtonDefaults.buttonColors(containerColor = OrreryTokens.Surface.raised, contentColor = OrreryTokens.Ink.one),
+                border = BorderStroke(OrreryTokens.Size.hairline, OrreryTokens.Line.firm),
                 elevation = null,
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                contentPadding = PaddingValues(horizontal = OrreryTokens.Space.twelve, vertical = OrreryTokens.Space.eight + OrreryTokens.Space.two),
             ) {
                 Text(label)
             }
         }
-        shown?.label()?.takeIf { it.isNotEmpty() }?.let { Text(it, modifier = Modifier.padding(top = 4.dp)) }
+        shown?.label()?.takeIf { it.isNotEmpty() }?.let { Text(it, modifier = Modifier.padding(top = OrreryTokens.Space.four)) }
     }
 }
 
@@ -186,7 +185,7 @@ fun SessionActions(
     }
 
     Column(modifier = Modifier.fillMaxWidth()) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight)) {
             if (state == RESUMABLE_STATE) {
                 ControlButton("Resume", "session-resume", resumeFeedback) {
                     post(LiveCall.RESUME) { resumeOutcome(client, sessionId) }
@@ -206,7 +205,7 @@ fun SessionActions(
                 }
             }
         }
-        outcome?.label()?.takeIf { it.isNotEmpty() }?.let { Text(it, modifier = Modifier.padding(top = 4.dp)) }
+        outcome?.label()?.takeIf { it.isNotEmpty() }?.let { Text(it, modifier = Modifier.padding(top = OrreryTokens.Space.four)) }
     }
 }
 
@@ -217,16 +216,16 @@ private fun ControlButton(label: String, tag: String, feedback: TapFeedback, onC
             feedback.tap()
             onClick()
         },
-        modifier = Modifier.testTag(tag).tapFeedback(feedback),
-        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier.testTag(tag).tapFeedback(feedback).height(OrreryTokens.Size.gauge),
+        shape = RoundedCornerShape(OrreryTokens.Radius.two),
         colors = if (feedback.flashing) {
             tapFeedbackColors(feedback)
         } else {
-            ButtonDefaults.buttonColors(containerColor = Mocha.Surface0, contentColor = Mocha.Text)
+            ButtonDefaults.buttonColors(containerColor = OrreryTokens.Surface.raised, contentColor = OrreryTokens.Ink.one)
         },
-        border = BorderStroke(1.dp, Mocha.Surface1),
+        border = BorderStroke(OrreryTokens.Size.hairline, OrreryTokens.Line.firm),
         elevation = null,
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+        contentPadding = PaddingValues(horizontal = OrreryTokens.Space.twelve, vertical = OrreryTokens.Space.two),
     ) {
         Text(label)
     }
