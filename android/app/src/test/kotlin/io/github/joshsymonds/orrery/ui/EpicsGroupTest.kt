@@ -16,7 +16,7 @@ import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.EvidenceRunRow
 import io.github.joshsymonds.orrery.api.StepRow
 import io.github.joshsymonds.orrery.mainThreadComposeRule
-import io.github.joshsymonds.orrery.ui.theme.Mocha
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -380,7 +380,7 @@ class EpicsGroupTest {
 
         val colours = composeRule.onNodeWithTag("blocker:$LIVE_ID", useUnmergedTree = true)
             .fetchSemanticsNode().config[SemanticsProperties.Text].single().spanStyles.map { it.item.color }
-        assertEquals(listOf(Mocha.Peach), colours)
+        assertEquals(listOf(OrreryTokens.Role.attention), colours)
     }
 
     @Test
@@ -401,7 +401,7 @@ class EpicsGroupTest {
             ),
         )
 
-        composeRule.onNodeWithText("Just ended").assertIsDisplayed()
+        composeRule.onNodeWithText("JUST ENDED").assertIsDisplayed()
         composeRule.onNodeWithText("ended-epic").assertIsDisplayed()
         composeRule.onNodeWithText("released · 12 min ago").assertIsDisplayed()
         assertEquals(0, countNodes(hasTestTag("epics-folded")))
@@ -456,7 +456,7 @@ class EpicsGroupTest {
         )
 
         composeRule.onNodeWithText("1 folded").assertIsDisplayed()
-        assertEquals(0, countNodes(hasText("Just ended")))
+        assertEquals(0, countNodes(hasText("JUST ENDED")))
         assertEquals(0, countNodes(hasTestTag("epics-ended-earlier")))
     }
 }

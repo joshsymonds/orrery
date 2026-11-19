@@ -463,10 +463,10 @@ class EpicProofTest {
     fun eachSectionIsHeadedByItsName() {
         setSections(listOf(requirement("R1", "example requirement one")), contract = contract(emptyList()))
 
-        assertEquals(1, countIn("proof:red", hasText("Red proof")))
-        assertEquals(1, countIn("proof:green", hasText("Green proof")))
-        assertEquals(1, countIn("proof:release", hasText("Release proof")))
-        assertEquals(1, countIn("proof:report", hasText("Report")))
+        assertEquals(1, countIn("proof:red", hasText("RED PROOF")))
+        assertEquals(1, countIn("proof:green", hasText("GREEN PROOF")))
+        assertEquals(1, countIn("proof:release", hasText("RELEASE PROOF")))
+        assertEquals(1, countIn("proof:report", hasText("REPORT")))
     }
 
     @Test
