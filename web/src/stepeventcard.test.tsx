@@ -77,22 +77,32 @@ class FakeSessions {
 }
 
 // Openers records what the cards' epic calls open: each epic a call opens, and the epic and step of each step a call
-// opens. The calls make no epic call of their own; a step card opens a page and reads nothing.
+// opens, and each step whose return a card's fold reads. The calls make no epic call of their own.
 interface Openers {
   calls: EpicCalls;
   epics: string[];
   steps: string[][];
+  returned: string[];
 }
+
+// fullReturns are the full returns the steps' stepResult answers with, by step id. Each has a blank line, so a return
+// cut short would not match.
+const fullReturns: Record<string, string> = {
+  s1: "Added the index.\n\nRan the suite: 12 passed.\n",
+  s2: "Refreshed the cache.\nNo change needed.",
+};
 
 function openersOf(): Openers {
   const epics: string[] = [];
   const steps: string[][] = [];
+  const returned: string[] = [];
   const unused = async (): Promise<never> => {
     throw new Error("a step card makes no epic call");
   };
   return {
     epics,
     steps,
+    returned,
     calls: {
       get: unused,
       pause: unused,
@@ -103,6 +113,10 @@ function openersOf(): Openers {
       },
       openStep: (epicId, step) => {
         steps.push([epicId, step]);
+      },
+      stepResult: async (id) => {
+        returned.push(id);
+        return fullReturns[id] ?? "";
       },
       epics: noEpics,
     },
@@ -155,29 +169,31 @@ function settle(t: TestContext, check: () => boolean, what: string): Promise<voi
   return until(t.signal, check, what, { step: () => act(turn) });
 }
 
-// StepFields are the fields of a step's end as its body and its pending event name them.
+// StepFields are the fields of a step's end as its block names them. An agent or an epic is named only when the field
+// is given.
 interface StepFields {
   step: string;
   agent?: string;
   epic?: string;
   end: string;
   status: string;
-  reason: string;
-  summary: string;
+  brief: string[];
 }
 
-// stepBlock is the block a step's end carries, as enginehost's CallerEventBlock and stepEndBody write it. An agent or an
-// epic line is written only when the field is given, as an older body has no agent line.
+// stepBlock is the block a step's end carries, as enginehost's CallerEventBlock writes it: the step's agent, end,
+// status and epic as attributes of the opening tag, then its brief on lines of its own, then the line that points to
+// the full return.
 function stepBlock(fields: StepFields): string {
-  const lines = [`Step ${fields.step} ended: end ${fields.end}, status ${fields.status}, reason ${fields.reason}.`];
+  const attributes = [`kind="step_end"`, `id="step:${fields.step}"`];
   if (fields.agent !== undefined) {
-    lines.push(`Agent: ${fields.agent}`);
+    attributes.push(`agent="${fields.agent}"`);
   }
+  attributes.push(`end="${fields.end}"`, `status="${fields.status}"`);
   if (fields.epic !== undefined) {
-    lines.push(`Epic: ${fields.epic}`);
+    attributes.push(`epic="${fields.epic}"`);
   }
-  lines.push(`Summary: ${fields.summary}`, "step_status gives the full result.");
-  return `<orrery-event kind="step_end" id="step:${fields.step}">\n${lines.join("\n")}\n</orrery-event>`;
+  const lines = [...fields.brief, "More: step_status gives the full result."];
+  return `<orrery-event ${attributes.join(" ")}>\n${lines.join("\n")}\n</orrery-event>`;
 }
 
 // eventPrompt is the prompt a caller event is delivered as: sent by an event, under the event's id.
@@ -185,18 +201,27 @@ function eventPrompt(step: string, text: string, time: number) {
   return { kind: "prompt", time: String(time), text, sender: "event", promptId: `step:${step}` };
 }
 
+// PendingStepFields are the fields of a step's end the session holds, as the server lists it: its brief is the lines a
+// waiting card draws, ending with the More line.
+interface PendingStepFields {
+  step: string;
+  agent: string;
+  end: string;
+  status: string;
+  brief: string;
+}
+
 // pendingStep is a step's end the session holds and has not taken, as the server lists it.
-function pendingStep(fields: StepFields, waits: string) {
+function pendingStep(fields: PendingStepFields, waits: string) {
   return {
     id: `step:${fields.step}`,
     kind: "step_end",
     step: fields.step,
-    agent: fields.agent ?? "",
+    agent: fields.agent,
     end: fields.end,
     status: fields.status,
-    reason: fields.reason,
-    summary: fields.summary,
-    epic: fields.epic ?? "",
+    brief: fields.brief,
+    epic: "",
     title: "",
     waits,
   };
@@ -211,8 +236,7 @@ function pendingEpic(kind: string, waits: string) {
     agent: "",
     end: "",
     status: "",
-    reason: "",
-    summary: "",
+    brief: "",
     epic,
     title: epicTitle,
     waits,
@@ -242,6 +266,15 @@ function headOf(card: HTMLElement): HTMLElement {
   return head;
 }
 
+// summaryOf is the summary of the card's return fold, the control that opens it.
+function summaryOf(card: HTMLElement): HTMLElement {
+  const summary = card.querySelector<HTMLElement>("details > summary");
+  if (summary === null) {
+    throw new Error("the card draws its return fold");
+  }
+  return summary;
+}
+
 function textsOf(root: ParentNode, selector: string): string[] {
   return [...root.querySelectorAll(selector)].map((element) => element.textContent ?? "");
 }
@@ -263,11 +296,10 @@ const doneStep: StepFields = {
   epic,
   end: "done",
   status: "done",
-  reason: "tests pass",
-  summary: "Added the index.\nRan the suite.",
+  brief: ["Added the index.", "Ran the suite."],
 };
 
-test("StepEventCard: a step_end prompt draws a card with its agent, end, status and summary line, and no EVENT block", async (t) => {
+test("StepEventCard: a step_end prompt draws a card with its agent, end, status and brief lines, and no EVENT block", async (t) => {
   await withPage(t, async ({ container, fake }) => {
     const body = stepBlock({ ...doneStep, epic: undefined });
     fake.emit(delta([eventPrompt("s1", body, 100)], { seq: 2, reset: true }));
@@ -276,14 +308,13 @@ test("StepEventCard: a step_end prompt draws a card with its agent, end, status 
     assert.deepEqual(textsOf(card, ".step-agent"), ["builder"]);
     assert.deepEqual(textsOf(card, ".step-end"), ["end done"]);
     assert.deepEqual(textsOf(card, ".step-status"), ["status done"]);
-    assert.deepEqual(textsOf(card, ".step-reason"), ["reason tests pass"]);
-    assert.deepEqual(textsOf(card, ".step-summary"), ["Added the index."], "the card draws the summary's first line");
+    assert.deepEqual(textsOf(card, ".step-summary"), ["Added the index.", "Ran the suite."], "the card draws its brief");
     assert.equal(countOf(container, ".event"), 0, "no EVENT block is drawn");
     assert.equal(container.textContent?.includes("EVENT"), false, "no EVENT label is drawn");
   });
 });
 
-test("StepEventCard: an older step_end body with no Agent line draws its card with no agent", async (t) => {
+test("StepEventCard: a step_end block with no agent attribute draws its card with no agent", async (t) => {
   await withPage(t, async ({ container, fake }) => {
     const body = stepBlock({ ...doneStep, agent: undefined, epic: undefined });
     fake.emit(delta([eventPrompt("s1", body, 100)], { seq: 2, reset: true }));
@@ -293,7 +324,7 @@ test("StepEventCard: an older step_end body with no Agent line draws its card wi
   });
 });
 
-test("StepEventCard: a step whose event names an epic opens its page through openStep, and one with no epic expands in place to its summary", async (t) => {
+test("StepEventCard: a step whose event names an epic opens its page through openStep, and one with no epic opens nothing", async (t) => {
   await withPage(t, async ({ container, fake, opened }) => {
     const withEpicBody = stepBlock(doneStep);
     const withoutEpicBody = stepBlock({
@@ -301,8 +332,7 @@ test("StepEventCard: a step whose event names an epic opens its page through ope
       agent: "reviewer",
       end: "returned",
       status: "gap",
-      reason: "the cache is stale",
-      summary: "Refreshed the cache.\nNo change needed.",
+      brief: ["Refreshed the cache.", "No change needed."],
     });
     fake.emit(
       delta([eventPrompt("s1", withEpicBody, 100), eventPrompt("s2", withoutEpicBody, 101)], { seq: 2, reset: true }),
@@ -313,17 +343,21 @@ test("StepEventCard: a step whose event names an epic opens its page through ope
     await click(headOf(withEpic));
     assert.deepEqual(opened.steps, [[epic, "s1"]], "the click opens the step's page through openStep");
     assert.deepEqual(opened.epics, [], "the click opens no epic page of its own");
-    assert.deepEqual(textsOf(withEpic, ".step-summary"), ["Added the index."], "the card does not expand");
+    assert.deepEqual(
+      textsOf(withEpic, ".step-summary"),
+      ["Added the index.", "Ran the suite."],
+      "the card still draws its brief",
+    );
 
     await click(headOf(withoutEpic));
     assert.deepEqual(opened.steps, [[epic, "s1"]], "a card with no epic opens nothing");
-    assert.deepEqual(textsOf(withoutEpic, ".step-summary"), ["Refreshed the cache."], "the card draws the headline");
+    assert.deepEqual(opened.returned, [], "a click on the head reads no return");
     assert.equal(withoutEpic.querySelector("details")?.open, false, "a click on the head leaves the return folded");
-    assert.deepEqual(
-      textsOf(withoutEpic, ".step-return pre"),
-      ["Refreshed the cache.\nNo change needed."],
-      "the return's fold holds the whole return",
-    );
+
+    await click(summaryOf(withoutEpic));
+    await settle(t, () => textsOf(withoutEpic, ".step-return pre").length === 1, "the opened fold draws the return");
+    assert.deepEqual(opened.returned, ["s2"], "opening the fold reads the step's return once");
+    assert.deepEqual(textsOf(withoutEpic, ".step-return pre"), [fullReturns.s2], "the fold holds the whole return");
   });
 });
 
@@ -332,7 +366,7 @@ test("StepEventCard: two step_end prompts delivered one after another draw two c
     const first = stepBlock({ ...doneStep, epic: undefined });
     fake.emit(delta([eventPrompt("s1", first, 100)], { seq: 2, reset: true }));
     await settle(t, () => cardsOf(container).length === 1, "the first step card is drawn");
-    const second = stepBlock({ step: "s2", agent: "reviewer", end: "done", status: "done", reason: "", summary: "Ok." });
+    const second = stepBlock({ step: "s2", agent: "reviewer", end: "done", status: "done", brief: ["Ok."] });
     fake.emit(delta([eventPrompt("s2", second, 101)], { seq: 3 }));
     await settle(t, () => cardsOf(container).length === 2, "the second step card is drawn");
     assert.deepEqual(
@@ -346,7 +380,13 @@ test("StepEventCard: two step_end prompts delivered one after another draw two c
 
 test("StepEventCard: a pending event draws a waiting card labelled for speak and for free", async (t) => {
   await withPage(t, async ({ container, fake }) => {
-    const waiting: StepFields = { step: "s3", agent: "builder", end: "done", status: "done", reason: "", summary: "Done." };
+    const waiting: PendingStepFields = {
+      step: "s3",
+      agent: "builder",
+      end: "done",
+      status: "done",
+      brief: "Done.\nMore: step_result id s3",
+    };
     const pending = [pendingStep(waiting, "speak"), pendingEpic("release", "free")];
     fake.emit(delta([], { seq: 2, reset: true, pending }));
     await settle(t, () => countOf(container, ".waiting") === 2, "both waiting cards are drawn");
@@ -355,13 +395,21 @@ test("StepEventCard: a pending event draws a waiting card labelled for speak and
     assert.equal(countOf(container, ".event-ring.waiting"), 1, "the epic's event draws as its line");
     assert.deepEqual(textsOf(container, ".ring-sentence"), [epicTitle], "the epic line names the epic's title");
     assert.deepEqual(textsOf(container, ".step-agent"), ["builder"], "the step's card names its agent");
+    assert.deepEqual(textsOf(container, ".step-summary"), ["Done."], "the step's card draws its summary");
   });
 });
 
 test("StepEventCard: a waiting card gives way to an ordinary card once its prompt arrives", async (t) => {
   await withPage(t, async ({ container, fake }) => {
-    const step: StepFields = { step: "s4", agent: "builder", end: "done", status: "done", reason: "", summary: "Done." };
-    const pending = [pendingStep(step, "speak")];
+    const step: StepFields = { step: "s4", agent: "builder", end: "done", status: "done", brief: ["Done."] };
+    const waiting: PendingStepFields = {
+      step: "s4",
+      agent: "builder",
+      end: "done",
+      status: "done",
+      brief: "Done.\nMore: step_result id s4",
+    };
+    const pending = [pendingStep(waiting, "speak")];
     fake.emit(delta([], { seq: 2, reset: true, pending }));
     await settle(t, () => countOf(container, ".step-card.waiting") === 1, "the waiting card is drawn");
     assert.deepEqual(textsOf(container, ".wait-label"), [speakLabel]);

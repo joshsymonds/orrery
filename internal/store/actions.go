@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -17,12 +18,13 @@ import (
 // The kinds of planner action. Each is carried out by the control of the same name, with the action's fields as given.
 // amend_evidence is AmendEvidence by the planner, whose action stays pending until its amendment is settled.
 const (
-	ActionRetryNode     = "retry_node"
-	ActionRetryEpic     = "retry_epic"
-	ActionFailTask      = "fail_task"
-	ActionResumeRelease = "resume_release"
-	ActionCloseEpic     = "close_epic"
-	ActionAmendEvidence = "amend_evidence"
+	ActionRetryNode      = "retry_node"
+	ActionRetryEpic      = "retry_epic"
+	ActionFailTask       = "fail_task"
+	ActionResumeRelease  = "resume_release"
+	ActionCloseEpic      = "close_epic"
+	ActionAmendEvidence  = "amend_evidence"
+	ActionChangeApproach = "change_approach"
 )
 
 // The states a planner action leaves its pending state in, once: taken, or refused. The state is stored as text, so
@@ -35,8 +37,9 @@ const (
 // errActionSettled reports that an action is no longer pending, so the write that found it so changes nothing.
 var errActionSettled = errors.New("action is not pending")
 
-// EpicActionInput is one action of a planner return: its kind, the node, task, close kind, replacing epic, Requirement and
-// evidence item it names where its kind uses them, the undo-none positions it names, and the planner's reason.
+// EpicActionInput is one action of a planner return: its kind, the node, task, close kind, replacing epic, Requirement,
+// evidence item and deliverable it names where its kind uses them, the undo-none positions it names, and the planner's
+// reason.
 type EpicActionInput struct {
 	Kind        string
 	Node        string
@@ -45,6 +48,7 @@ type EpicActionInput struct {
 	By          string
 	Requirement string
 	Item        evidence.Item
+	Deliverable string
 	UndoNone    []int64
 	Reason      string
 }
@@ -83,7 +87,7 @@ func plannerActionOf(row sqlcgen.PlannerAction) (PlannerAction, error) {
 		Epic: row.Epic, Turn: row.Turn, Position: row.Position,
 		EpicActionInput: EpicActionInput{
 			Kind: row.Kind, Node: row.Node, Task: row.Task, Close: row.CloseKind, By: row.ByEpic,
-			Requirement: row.Requirement, Item: item, UndoNone: undo, Reason: row.Reason,
+			Requirement: row.Requirement, Item: item, Deliverable: row.Deliverable, UndoNone: undo, Reason: row.Reason,
 		},
 	}, nil
 }
@@ -91,11 +95,13 @@ func plannerActionOf(row sqlcgen.PlannerAction) (PlannerAction, error) {
 // CarryOutAction carries out action, a pending planner action, and returns the ids of the steps the runner must stop.
 // The control of its kind runs with the action's fields as given, in one write that also marks the action taken and
 // appends an epic decision naming the action and holding its reason. retry_node is RetryNode, retry_epic is RetryEpic,
-// fail_task is FailTask on the task's stored build with the reason as the failure, resume_release is the planner's
-// resume of a stopped release, and close_epic is CloseEpic by the planner.
+// fail_task climbs the task one rung off its stored build with the reason as the cause, as failPlannedTask does,
+// resume_release is the planner's resume of a stopped release, close_epic is CloseEpic by the planner, and
+// change_approach stores the task's change-of-approach version from the action's deliverable and evidence item, as
+// changeApproach does.
 //
 // A close returns the step of the turn it ended and each step of the epic with no end. A fail_task returns the open
-// steps of the failed task. Every other action returns none.
+// steps of the task it climbs off. Every other action returns none.
 //
 // amend_evidence is not carried out in this write. Its amendment starts checking, as AmendEvidence starts one by the
 // planner, and the action stays pending until SettleAmendment takes or refuses it with its amendment; while it is pending
@@ -194,13 +200,53 @@ func carryOutAction(
 		return nil, resumeReleaseByPlanner(ctx, queries, action.Epic, action.UndoNone, at)
 	case ActionCloseEpic:
 		return closePlannedEpic(ctx, queries, action, at)
+	case ActionChangeApproach:
+		return nil, changeApproach(ctx, queries, action, at)
 	}
 	return nil, RefusalError(fmt.Sprintf("%q is not a planner action", action.Kind))
 }
 
-// failPlannedTask fails the task action names, as FailTask does from the build the task stores, with the planner's reason
-// as its failure. It returns the ids of the task's steps with no end. A task that does not exist, or is not open, is a
-// RefusalError.
+// changeApproach stores the change-of-approach version of the task action names: its deliverable is the action's, and
+// its evidence item is the action's when the item sets any field, which makes the version checking. A task that does not
+// exist, a task that is not open, a task that is not on ApproachRung, and a task that already has a version from
+// SourceApproach are each a RefusalError, and writes nothing.
+func changeApproach(ctx context.Context, queries *sqlcgen.Queries, action PlannerAction, at time.Time) error {
+	task, err := queries.GetEpicTask(ctx, sqlcgen.GetEpicTaskParams{Epic: action.Epic, Seq: action.Task})
+	if errors.Is(err, sql.ErrNoRows) {
+		return RefusalError(fmt.Sprintf("task %d of epic %s does not exist", action.Task, action.Epic))
+	}
+	if err != nil {
+		return fmt.Errorf("read task %d of epic %s: %w", action.Task, action.Epic, err)
+	}
+	if task.Status != "open" {
+		return RefusalError(fmt.Sprintf("task %d of epic %s is not open", action.Task, action.Epic))
+	}
+	if rung := buildOf(task).Attempt; rung != ApproachRung {
+		return RefusalError(fmt.Sprintf("task %d of epic %s is on rung %d, not rung %d",
+			action.Task, action.Epic, rung, ApproachRung))
+	}
+	versions, err := queries.ListEpicTaskVersions(ctx, action.Epic)
+	if err != nil {
+		return fmt.Errorf("list versions of epic %s: %w", action.Epic, err)
+	}
+	for _, version := range versions {
+		if version.Task == action.Task && version.Source == SourceApproach {
+			return RefusalError(fmt.Sprintf("task %d of epic %s already has a change of approach",
+				action.Task, action.Epic))
+		}
+	}
+	in := TaskVersionInput{Source: SourceApproach, Reason: action.Reason, Deliverable: &action.Deliverable}
+	if !reflect.ValueOf(action.Item).IsZero() {
+		in.Evidence = &action.Item
+	}
+	return appendTaskVersion(ctx, queries, action.Epic, action.Task, actionDecisionID(action), in, at)
+}
+
+// failPlannedTask climbs the task action names one rung off the build the task stores, with the planner's reason as the
+// cause, as ClimbTask does: the rung it climbs to is the one after its own, and from LastRung it is GapRung, which ends
+// the task as a gap. The climb moves by fail_task and records the build's step. It returns the ids of the task's steps
+// with no end. A task that does not exist, or is not open, is a RefusalError, and so is a stored build that moved under
+// the climb.
 func failPlannedTask(
 	ctx context.Context, queries *sqlcgen.Queries, action PlannerAction, at time.Time,
 ) ([]string, error) {
@@ -211,7 +257,18 @@ func failPlannedTask(
 	if err != nil {
 		return nil, fmt.Errorf("read task %d of epic %s: %w", action.Task, action.Epic, err)
 	}
-	err = failTask(ctx, queries, action.Epic, action.Task, buildOf(task), capTurnText(action.Reason), nil, at)
+	if task.Status != taskOpen {
+		return nil, RefusalError(fmt.Sprintf("task %d of epic %s is not open", action.Task, action.Epic))
+	}
+	from := buildOf(task)
+	cause := capTurnText(action.Reason)
+	to := ClimbedBuild(from, min(RungOf(from)+1, GapRung), cause)
+	move := RungMove{MovedBy: MovedByFailTask, Cause: cause, Step: from.Step}
+	err = checkClimb(action.Epic, action.Task, from, to, move)
+	if err != nil {
+		return nil, err
+	}
+	err = climbTask(ctx, queries, action.Epic, action.Task, from, to, move, nil, nil, at)
 	if errors.Is(err, ErrTaskMoved) {
 		return nil, RefusalError(fmt.Sprintf("task %d of epic %s is not open", action.Task, action.Epic))
 	}
@@ -363,6 +420,8 @@ func actionSummary(action PlannerAction) string {
 		return fmt.Sprintf("close epic as %s by %s", action.Close, action.By)
 	case ActionAmendEvidence:
 		return "amend evidence of " + action.Requirement
+	case ActionChangeApproach:
+		return fmt.Sprintf("change approach of task %d", action.Task)
 	}
 	return strings.ReplaceAll(action.Kind, "_", " ")
 }
@@ -388,7 +447,7 @@ func insertActions(
 		return queries.InsertPlannerAction(ctx, sqlcgen.InsertPlannerActionParams{
 			Epic: epic, Turn: turn, Position: position, Kind: action.Kind, Node: action.Node, Task: action.Task,
 			CloseKind: action.Close, ByEpic: action.By, UndoNone: string(encoded), Reason: action.Reason,
-			Requirement: action.Requirement, Item: item,
+			Requirement: action.Requirement, Item: item, Deliverable: action.Deliverable,
 		})
 	})
 }

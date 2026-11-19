@@ -32,8 +32,8 @@ The nixpkgs revision is written as a literal in both `devenv.yaml` and `flake.ni
 
 ### Gate
 
-- `just check` is the full gate. It runs, in order: `reap-test-tmux`, `pin-check`, `doc-cites`, `lint`, `proto-lint`, `proto-breaking`, `cover`, `sqlc-diff`, `gen-diff`, `web-check`, `web-page`, `alert-check`, `gate-remote-test`, `test-deadline-test` and `test-budget-test`. Run it when you want the whole gate; nothing runs it on push. CI runs it.
-- `just check-changed [BASE]` is the fast gate for work in progress. It runs only what the changes since `BASE` can affect. `BASE` defaults to the merge base of `HEAD` and `origin/main`. Go lint and race tests run on the packages that changed and on every package that imports them. A change to `go.mod`, `go.sum`, `sqlc.yaml`, `internal/store` SQL or `proto/` selects every package. The whole run has a 240-second budget, and each tested package's CPU time is checked against its baseline. See [Test time budgets](#test-time-budgets). `sqlc-diff`, the proto checks, `gen-diff`, the web checks, `alert-check`, `android-test` (when `android/` or `proto/` changed) and the three script self-tests run when their inputs changed. `pin-check` always runs. It does not measure coverage.
+- `just check` is the full gate. It runs, in order: `reap-test-tmux`, `pin-check`, `doc-cites`, `lint`, `proto-lint`, `proto-breaking`, `cover`, `sqlc-diff`, `gen-diff`, `web-check`, `web-page`, `alert-check`, `gate-remote-test`, `box-cache-test`, `test-deadline-test` and `test-budget-test`. Run it when you want the whole gate; nothing runs it on push. CI runs it.
+- `just check-changed [BASE]` is the fast gate for work in progress. It runs only what the changes since `BASE` can affect. `BASE` defaults to the merge base of `HEAD` and `origin/main`. Go lint and race tests run on the packages that changed and on every package that imports them. A change to `go.mod`, `go.sum`, `sqlc.yaml`, `internal/store` SQL or `proto/` selects every package. The whole run has a 240-second budget, and each tested package's CPU time is checked against its baseline. See [Test time budgets](#test-time-budgets). `sqlc-diff`, the proto checks, `gen-diff`, the web checks, `alert-check`, `android-test` (when `android/` changed) and the four script self-tests run when their inputs changed. `pin-check` always runs. It does not measure coverage.
 - `just lint` runs `golangci-lint run` on the whole tree. See [Lint and coverage](#lint-and-coverage).
 - `just cover` runs the tests with the race detector and fails below 80% total coverage. See [Lint and coverage](#lint-and-coverage).
 - `just proto-lint` runs `buf lint` in `proto/`.
@@ -45,7 +45,7 @@ The nixpkgs revision is written as a literal in both `devenv.yaml` and `flake.ni
 - `just web-check` typechecks `web/` with `tsc`, bundles every `*.test.ts` and `*.test.tsx` under `web/src` with esbuild, and runs the bundles with `node --test`. Each test has a 5-second limit and the whole run a 120-second budget. See [Test time budgets](#test-time-budgets). It runs offline, using the `web/node_modules` that the shell links from nix.
 - `just web-page` bundles the web page into `web/build/page`, the directory the flake package embeds. `scripts/build-web.sh` holds the bundle command, and the flake calls it too.
 - `just alert-check` runs `promtool test rules` on `observability/orrery-rules.test.yml`.
-- `just gate-remote-test` tests `scripts/gate-remote.sh` against a fake box, with no AWS and no network. `just test-deadline-test` tests `scripts/test-deadline.sh`, and `just test-budget-test` tests `scripts/test-budget.sh` with synthetic numbers.
+- `just gate-remote-test` tests `scripts/gate-remote.sh` against a fake box, with no AWS and no network. `just box-cache-test` tests `scripts/box-cache.sh` against a fixture checkout with stub `go`, `nix` and `nix-store`, and no Nix store. `just test-deadline-test` tests `scripts/test-deadline.sh`, and `just test-budget-test` tests `scripts/test-budget.sh` with synthetic numbers.
 - `just reap-test-tmux` stops tmux servers that tests started and outlived. `check` and `check-changed` run it first. See [Test conventions](#test-conventions).
 
 ### Generation and setup
@@ -120,7 +120,7 @@ The tests run under four limits. Three are wall-clock limits that end a hang wit
 
 `cover` and `check-changed` run each Go test binary through `scripts/test-deadline.sh`. The binary's `-test.timeout` ends 10 seconds before the budget, so a package still running then panics and names its running tests. A `cover` test run that passes its budget fails with exit 124 and `tests exceeded 360s budget`.
 
-The `check-changed` budget counts from the start of the run and covers every check it runs: `pin-check`, lint, the Go tests, and whichever of the web, proto, SQL, alert, script and Android checks the change selects. Each check runs under `timeout` with what is left of the budget. A check still running when the budget ends, or one that fails past it, ends the run with exit 124 and `check-changed: exceeded 240s budget (<check> was running)`. A passing run ends with `check-changed: OK after <n>s of its 240s budget`. `android-test`, which a change to `android/` or `proto/` selects, counts against the same budget. Give such a run a larger `CHECK_CHANGED_BUDGET` when it needs one.
+The `check-changed` budget counts from the start of the run and covers every check it runs: `pin-check`, lint, the Go tests, and whichever of the web, proto, SQL, alert, script and Android checks the change selects. Each check runs under `timeout` with what is left of the budget. A check still running when the budget ends, or one that fails past it, ends the run with exit 124 and `check-changed: exceeded 240s budget (<check> was running)`. A passing run ends with `check-changed: OK after <n>s of its 240s budget`. `android-test`, which a change to `android/` selects, counts against the same budget. A `proto/` change that reaches the Android client regenerates its code under `android/`, which `gen-diff` keeps committed, so it selects `android-test` too. Give such a run a larger `CHECK_CHANGED_BUDGET` when it needs one.
 
 `web-check` runs `node --test --test-timeout=5000` under `timeout 120`. A test still running after 5 seconds fails with its name. A suite still running after 120 seconds is ended, and the recipe fails with exit 124 and `web-check: the web suite exceeded 120s budget`. A test that needs a timeout to fire uses a short one: the child runs in `web/src/main.test.tsx` and `web/src/testwait.test.ts` set their own `--test-timeout` of a few hundred milliseconds.
 
@@ -188,6 +188,7 @@ What a run sends and where it runs:
 - It syncs the work tree with rsync. Files that are not git-ignored are sent, whether or not they are committed, and `.git` and `.worktrees/` are not. The box's checkout gets `HEAD` as its index, plus your staged changes.
 - It holds a slot before the command starts. `just check`, `just android-test` and `just cover` share the full-check slots, whose default count is the box's CPU count divided by 20, at least 1. Every other command shares the light-check slots, whose default count is the CPU count divided by 8, at least 1. A run waits in a queue when every slot of its class is held.
 - The run lives on the box apart from its ssh connections. When a connection drops while the box stays up, the script reconnects and shows the rest of the output from where it stopped, then the run's own exit status, so a dropped connection costs no run.
+- On a box that mounts the fleet S3 cache at `~/.cache/fleet` (the `orrery-gate` class's `cache = true`), the command runs under `scripts/box-cache.sh run ~/.cache/fleet/box`, so a fresh box starts from what an earlier box built. It restores the Go module and build caches before the command, keyed by `go.mod`, `go.sum` and the Go version, and saves them after a command that exits 0 when the restore missed. `just android-test` adds Gradle's caches (keyed by `flake.lock` and the `android/` build files) and the `.#android` shell's Nix store paths, the unfree Android SDK no public cache holds (keyed by `flake.nix` and `flake.lock`), through `scripts/box-cache.sh android`. Entries are content-keyed tars that are never replaced, and a cache step that fails only warns: the cache never fails a gate. `ORRERY_BOX_CACHE_ROOT` on the box names another cache root, and empty runs without one.
 - The command's exit status is the run's. Exit 75 is an environment result: the box went away (a spot interruption), the connections stayed down for `ORRERY_GATE_COLLECT_SECS` seconds (default 120), or the run was killed on the box. It is never a test failure. Run again.
 
 Finding the box: when `ORRERY_GATE_DEST` is set, it is the destination, and a run whose destination does not answer runs locally without a wake. Otherwise the destination is the one line of the host file, `ORRERY_GATE_HOST_FILE`, which defaults to `orrery/gate-host` under `XDG_CONFIG_HOME` (or `~/.config`). When the host file's box does not answer, `scripts/gate-remote.sh wake` finds a running box or launches one with `ec2 up orrery-gate --spot-only`.
@@ -217,7 +218,9 @@ A story draws one state of a web component. The story catalog shows every story,
 
 A component's stories go in `<file>.stories.tsx` beside its `.tsx`: the stories of `inboxrow.tsx` are in `inboxrow.stories.tsx`. The file exports one `Stories` record (the type in `web/src/catalog/story.ts`) per exported component, named exactly as the component's export, so `export const InboxRow: Stories` holds the states of `InboxRow`. Each key of the record is a state in kebab case, and each value is a function that returns the element for that state.
 
-A story's name is `component/state`. The component part is its export's name in kebab case, so the `waiting` state of `InboxRow` is `inbox-row/waiting`. `kebab` and `storyName` build the name, and `catalogStories` throws when an export is not a record of functions, when a state is not kebab case, or when two stories share a name.
+A story's name is `component/state`. The component part is its export's name in kebab case, so the `working` state of `InboxRow` is `inbox-row/working`. `kebab` and `storyName` build the name, and `catalogStories` throws when an export is not a record of functions, when a state is not kebab case, or when two stories share a name.
+
+Round 6 is the reference the catalog's names follow, so a story's name takes a round-6 name. It is either the kebab form of a `Component` and `State` in `web/src/catalog/round6.json`, so `InboxRow/WaitingQuestion` is `inbox-row/waiting-question`, or `page/<round-6 scenario id>`. A story whose state round 6 has no name for is listed in `web/src/catalog/unnamed.ts`, with its round-6 replacement and the frontend epic (F1 to F6) that draws it. A component whose stories export takes its round-6 name, so the composer's and the step box's stories export `Dock`; its coverage is kept through the table in `web/src/catalog/coverage.ts`. After editing round 6, run `just round6-names` to rewrite `round6.json`.
 
 `app.stories.tsx` exports two records. `App` holds the routes, named `app/<route>`, and `Page` holds the scenarios, named `page/<scenario>`. Each of its stories is drawn by `PageStory` (`web/src/catalog/pagestory.tsx`) at the address the story gives, over the in-memory fixture transport. `PageStory` reads the rows, epics and host the way `main.tsx` does.
 
@@ -269,10 +272,10 @@ The index lists every story by name, each name a link to its hash. The hash sele
 - A story that draws its failure element, raises a page error, or has not settled within 10 seconds fails the run with exit 1.
 - An unknown name, or a bad width, exits 1 with a message, and writes no screenshot.
 
-For example, this writes four screenshots: the `waiting` and `answered` states at 1600 and at 412 wide.
+For example, this writes four screenshots: the `waiting-question` and `answered` states at 1600 and at 412 wide.
 
 ```bash
-just shoot inbox-row/waiting inbox-row/answered --width 1600 --width 412
+just shoot inbox-row/waiting-question inbox-row/answered --width 1600 --width 412
 ```
 
 ## Fixtures

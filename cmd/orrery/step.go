@@ -38,9 +38,9 @@ type stepCommand struct {
 }
 
 // runStep runs `orrery step resume ID` or `orrery step status ID` through orreryd's Steps service on the session socket
-// beside the daemon socket. Resume writes nothing. Status writes the step as one line of JSON on stdout, the step object
-// step_status returns. A refusal by orreryd, or orreryd unreachable, writes the reason to stderr and exits 1. Each call
-// orreryd answers Unavailable, or a restart cuts, is retried.
+// beside the daemon socket. Resume writes nothing. Status writes the step's state as one line of JSON on stdout, the
+// state-only step object step_status returns. A refusal by orreryd, or orreryd unreachable, writes the reason to stderr
+// and exits 1. Each call orreryd answers Unavailable, or a restart cuts, is retried.
 func runStep(
 	ctx context.Context,
 	opts globals,
@@ -144,7 +144,7 @@ func statusStep(
 	return writeStep(stdout, status.Msg.GetStep())
 }
 
-// writeStep writes step to stdout as its step object, as step_status reports it, on one line.
+// writeStep writes step to stdout as its state-only step object, as step_status reports it, on one line.
 func writeStep(stdout io.Writer, step *v1.Step) error {
 	text, err := stepmcp.StepObject(step)
 	if err != nil {

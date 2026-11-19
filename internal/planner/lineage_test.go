@@ -2,8 +2,10 @@ package planner
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -223,8 +225,10 @@ func TestPromptListsTheSpentLines(t *testing.T) {
 }
 
 // failRunnerTask stores the planner's return for the runner epic's claimed turn turn, one task on R1 that touches
-// internal/planner/runner.go, and fails that task seq as its build would.
-func failRunnerTask(t *testing.T, s *store.Store, turn, seq int64) {
+// internal/planner/runner.go, and fails that task seq as a build did before the task ladder: its status failed with
+// its failure, and the pending trigger T<seq>-failed. No store write fails a task now, since every failure climbs it,
+// so the failed task is written to the store file at path directly, as a task stored failed before the ladder reads.
+func failRunnerTask(t *testing.T, s *store.Store, path string, turn, seq int64) {
 	t.Helper()
 	ctx := context.Background()
 	if err := s.CompleteTurn(ctx, runnerEpicID, turn, store.EpicPlan{
@@ -236,9 +240,24 @@ func failRunnerTask(t *testing.T, s *store.Store, turn, seq int64) {
 	}, claimedAt()); err != nil {
 		t.Fatalf("CompleteTurn %d: %v", turn, err)
 	}
-	if err := s.FailTask(ctx, runnerEpicID, seq, store.TaskBuild{}, "confirmed: F1 the same finding", nil,
-		claimedAt()); err != nil {
-		t.Fatalf("FailTask %d: %v", seq, err)
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("open %s: %v", path, err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("close %s: %v", path, err)
+		}
+	}()
+	const failure = "confirmed: F1 the same finding"
+	if _, err = db.ExecContext(ctx, `UPDATE epic_tasks SET status = 'failed', failure = ? WHERE epic = ? AND seq = ?`,
+		failure, runnerEpicID, seq); err != nil {
+		t.Fatalf("fail task %d: %v", seq, err)
+	}
+	if _, err = db.ExecContext(ctx, `INSERT INTO epic_triggers (epic, id, cause, state, turn, created)
+		VALUES (?, ?, ?, 'pending', 0, ?)`, runnerEpicID, fmt.Sprintf("T%d-failed", seq),
+		fmt.Sprintf("task T%d failed: %s", seq, failure), claimedAt().Unix()); err != nil {
+		t.Fatalf("insert failure trigger of task %d: %v", seq, err)
 	}
 }
 
@@ -248,13 +267,13 @@ func failRunnerTask(t *testing.T, s *store.Store, turn, seq int64) {
 func TestReadoptCheckRefusesAThirdTryOfASpentLine(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s := openRunnerStore(t)
+	s, path := openControlsStore(t)
 	createRunnerEpic(t, s)
 	for turn := int64(1); turn <= 2; turn++ {
 		if _, err := s.ClaimTurn(ctx, runnerEpicID, claimedAt()); err != nil {
 			t.Fatalf("ClaimTurn %d: %v", turn, err)
 		}
-		failRunnerTask(t, s, turn, turn)
+		failRunnerTask(t, s, path, turn, turn)
 	}
 	turn, err := s.ClaimTurn(ctx, runnerEpicID, claimedAt())
 	if err != nil {

@@ -207,24 +207,34 @@ func TestEvidenceListWithNoRunsEmitsAnEmptyArray(t *testing.T) {
 }
 
 func TestEvidenceGetSendsRunAndNameAndReturnsArtifact(t *testing.T) {
+	const hash = "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae"
 	artifact := &v1.GetEvidenceArtifactResponse{
 		Data: []byte("roundtrip ok\n"),
-		Hash: "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+		Hash: hash,
 	}
 	cases := []struct {
 		name      string
 		arguments string
 		want      *v1.GetEvidenceArtifactRequest
+		text      string
 	}{
 		{
 			name:      "named artifact",
 			arguments: `{"run":"run-1","name":"out/roundtrip.log"}`,
 			want:      &v1.GetEvidenceArtifactRequest{Run: "run-1", Name: "out/roundtrip.log"},
+			text:      "artifact out/roundtrip.log (13 bytes, sha256 " + hash + "): 1 of 1 lines\n1: roundtrip ok",
 		},
 		{
 			name:      "name omitted asks for the run's log",
 			arguments: `{"run":"run-1"}`,
 			want:      &v1.GetEvidenceArtifactRequest{Run: "run-1"},
+			text:      "log (13 bytes, sha256 " + hash + "): 1 of 1 lines\n1: roundtrip ok",
+		},
+		{
+			name:      "stderr asks for the run's stderr log",
+			arguments: `{"run":"run-1","stderr":true}`,
+			want:      &v1.GetEvidenceArtifactRequest{Run: "run-1", Stderr: true},
+			text:      "stderr (13 bytes, sha256 " + hash + "): 1 of 1 lines\n1: roundtrip ok",
 		},
 	}
 	for _, tc := range cases {
@@ -241,17 +251,15 @@ func TestEvidenceGetSendsRunAndNameAndReturnsArtifact(t *testing.T) {
 			if len(calls) != 1 || !proto.Equal(calls[0], tc.want) {
 				t.Fatalf("GetEvidenceArtifact requests = %v, want %v", calls, tc.want)
 			}
-			var got v1.GetEvidenceArtifactResponse
-			unmarshalResult(t, outcome.text, &got)
-			if !proto.Equal(&got, artifact) {
-				t.Fatalf("evidence_get result = %s, want the artifact", outcome.text)
+			if outcome.text != tc.text {
+				t.Fatalf("evidence_get text = %q, want %q", outcome.text, tc.text)
 			}
 		})
 	}
 }
 
 func TestEvidenceGetWritesBytesAsBase64(t *testing.T) {
-	fake := &fakeEvidence{getReply: &v1.GetEvidenceArtifactResponse{Data: []byte("hi"), Hash: "h"}}
+	fake := &fakeEvidence{getReply: &v1.GetEvidenceArtifactResponse{Data: []byte{0xff, 0xfe}, Hash: "h"}}
 	p := newPeerWithEvidence(t, nil, nil, fake)
 
 	outcome := p.tool("evidence_get", `{"run":"run-1","name":"out/a"}`)
@@ -259,9 +267,9 @@ func TestEvidenceGetWritesBytesAsBase64(t *testing.T) {
 	if outcome.isError {
 		t.Fatalf("evidence_get returned an error: %s", outcome.text)
 	}
-	object := decodeObject(t, outcome.text)
-	if object["data"] != "aGk=" {
-		t.Fatalf("evidence_get data = %v, want the base64 of the bytes aGk=", object["data"])
+	want := "artifact out/a (2 bytes, sha256 h): not UTF-8, base64 follows\n//4="
+	if outcome.text != want {
+		t.Fatalf("evidence_get text = %q, want %q", outcome.text, want)
 	}
 }
 

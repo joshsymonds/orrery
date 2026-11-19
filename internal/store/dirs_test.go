@@ -103,7 +103,7 @@ func TestDirsOmitsWorktreesPaneSessionsAndEmptyDirs(t *testing.T) {
 		t.Fatalf("SyncServer: %v", err)
 	}
 	// Pane sessions never get a dir from the writer; set one so the kind filter is what excludes this row.
-	if _, err := s.db.ExecContext(ctx, `UPDATE sessions SET dir = '/pane' WHERE id = 'orrery-1'`); err != nil {
+	if _, err := s.fixtureExec(ctx, `UPDATE sessions SET dir = '/pane' WHERE id = 'orrery-1'`); err != nil {
 		t.Fatalf("set pane dir: %v", err)
 	}
 

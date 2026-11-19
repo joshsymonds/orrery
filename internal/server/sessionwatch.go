@@ -290,18 +290,16 @@ func (w *sessionWatch) pendingEvents(
 	pending := make([]*orreryv1.PendingEvent, 0, len(events))
 	for _, event := range events {
 		pending = append(pending, &orreryv1.PendingEvent{
-			Id:      event.ID,
-			Kind:    event.Kind,
-			Step:    event.Step,
-			Agent:   event.Agent,
-			End:     event.End,
-			Status:  event.Status,
-			Reason:  event.Reason,
-			Summary: event.Summary,
-			Result:  event.Result,
-			Epic:    event.Epic,
-			Title:   event.Title,
-			Waits:   waits,
+			Id:     event.ID,
+			Kind:   event.Kind,
+			Step:   event.Step,
+			Agent:  event.Agent,
+			End:    event.End,
+			Status: event.Status,
+			Brief:  event.Brief,
+			Epic:   event.Epic,
+			Title:  event.Title,
+			Waits:  waits,
 		})
 	}
 	return pending, nil

@@ -2,8 +2,11 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"testing"
+
+	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
 // retryBoundCheck is the node the retry-bound tests park and retry.
@@ -69,6 +72,19 @@ func carryOutPending(t *testing.T, s *Store) {
 		if _, err := s.CarryOutAction(context.Background(), action, closeAt()); err != nil {
 			t.Fatalf("CarryOutAction of action %d of turn %d: %v", action.Position, action.Turn, err)
 		}
+	}
+}
+
+// retryBoundFailedTrigger adds the pending trigger T<seq>-failed of claimEpic with the cause a failed task had, at the
+// closeAt time the action was carried out. A fail_task climbs the task and adds no trigger, so this stands in for the
+// one ReplacedEpicTask reads, which the turn that plans the replacing task consumes.
+func retryBoundFailedTrigger(t *testing.T, s *Store, seq int64, reason string) {
+	t.Helper()
+	if err := s.fixtureQueries().InsertEpicTrigger(context.Background(), sqlcgen.InsertEpicTriggerParams{
+		Epic: claimEpic, ID: fmt.Sprintf("T%d-failed", seq), Cause: fmt.Sprintf("task T%d failed: %s", seq, reason),
+		State: triggerPending, Turn: 0, Created: closeAt().Unix(),
+	}); err != nil {
+		t.Fatalf("insert failure trigger of task %d: %v", seq, err)
 	}
 }
 
@@ -202,6 +218,7 @@ func TestOrchestratorRetryBoundReplacedTaskParkContinuesItsPredecessorCount(t *t
 		Kind: ActionFailTask, Task: 1, Reason: "the build cannot reach the store",
 	}}})
 	carryOutPending(t, s)
+	retryBoundFailedTrigger(t, s, 1, "the build cannot reach the store")
 	completePlannerTurn(t, s, EpicPlan{Tasks: []EpicTaskInput{retryBoundTask("write the store again")}})
 	parkTaskBuild(t, s, 2, "the build of T2 parked")
 	if got, want := pendingCauses(t, s), []string{"the build of T2 parked"}; !reflect.DeepEqual(got, want) {
@@ -211,6 +228,7 @@ func TestOrchestratorRetryBoundReplacedTaskParkContinuesItsPredecessorCount(t *t
 		Kind: ActionFailTask, Task: 2, Reason: "the build cannot reach the store again",
 	}}})
 	carryOutPending(t, s)
+	retryBoundFailedTrigger(t, s, 2, "the build cannot reach the store again")
 	completePlannerTurn(t, s, EpicPlan{Tasks: []EpicTaskInput{retryBoundTask("write the store a third time")}})
 	const third = "the build of T3 parked"
 	parkTaskBuild(t, s, 3, third)

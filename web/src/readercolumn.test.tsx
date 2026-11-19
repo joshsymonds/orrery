@@ -32,6 +32,7 @@ const epicCalls: EpicCalls = {
   answer: () => new Promise(() => {}),
   openEpic: () => {},
   openStep: () => {},
+  stepResult: () => new Promise(() => {}),
   epics: noEpics,
 };
 

@@ -4,14 +4,13 @@ import (
 	"strings"
 	"testing"
 
-	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 )
 
 // TestEpicKickSendsTheIDAndTheTextInOneCall checks that `orrery epic kick ID TEXT` makes one KickEpic call carrying the
-// id and the text as given, and prints the kicked epic on stdout with nothing on stderr.
+// id and the text as given, and prints the kick's acknowledgement on stdout with nothing on stderr.
 func TestEpicKickSendsTheIDAndTheTextInOneCall(t *testing.T) {
 	t.Parallel()
 	const text = `Try the "sqlite" plan, not JSON.`
@@ -29,12 +28,9 @@ func TestEpicKickSendsTheIDAndTheTextInOneCall(t *testing.T) {
 	if got, ok := requests[0].(*v1.KickEpicRequest); !ok || !proto.Equal(got, want) {
 		t.Fatalf("KickEpic request = %v, want %v", requests[0], want)
 	}
-	var printed v1.StoredEpic
-	if err = protojson.Unmarshal([]byte(strings.TrimSpace(stdout)), &printed); err != nil {
-		t.Fatalf("stdout %q is not the kicked epic: %v", stdout, err)
-	}
-	if !proto.Equal(&printed, cliFake.epic) {
-		t.Errorf("printed epic = %v, want %v", &printed, cliFake.epic)
+	wantOut := "epic " + epicTestID + ": phase plan\nkicked; the planner reads the words at its next plan run\n"
+	if stdout != wantOut {
+		t.Errorf("stdout = %q, want the acknowledgement %q", stdout, wantOut)
 	}
 	if stderr != "" {
 		t.Errorf("stderr = %q, want empty", stderr)

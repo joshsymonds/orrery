@@ -264,10 +264,11 @@ func TestOrchestratorActionRetryOnAnOwnerParkIsRefusedAndKeepsThePark(t *testing
 	}
 }
 
-// TestOrchestratorActionFailTaskFailsTheOpenTaskWithItsPendingTrigger checks that a fail_task action fails the open task
-// its turn planned, with the planner's reason as the failure, adds the pending trigger T1-failed that wakes a new turn, and
-// returns the open steps of that task, and no others, to stop.
-func TestOrchestratorActionFailTaskFailsTheOpenTaskWithItsPendingTrigger(t *testing.T) {
+// TestOrchestratorActionFailTaskClimbsTheOpenTask checks that a fail_task action climbs the open task its turn planned
+// one rung, with the planner's reason as the cause: the task stays open on the rung after the one it was on, the rung it
+// left ends failed with the reason, and the rung it climbs to is moved by fail_task. No T1-failed trigger is added. The
+// open steps of that task, and no others, are returned to stop.
+func TestOrchestratorActionFailTaskClimbsTheOpenTask(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
@@ -276,8 +277,9 @@ func TestOrchestratorActionFailTaskFailsTheOpenTaskWithItsPendingTrigger(t *test
 	if err != nil {
 		t.Fatalf("ClaimTurn: %v", err)
 	}
+	const reason = "the build cannot reach the store"
 	plan := plannedTurn()
-	plan.Actions = []EpicActionInput{{Kind: ActionFailTask, Task: 1, Reason: "the build cannot reach the store"}}
+	plan.Actions = []EpicActionInput{{Kind: ActionFailTask, Task: 1, Reason: reason}}
 	if err = s.CompleteTurn(ctx, claimEpic, turn.Seq, plan, completedAt()); err != nil {
 		t.Fatalf("CompleteTurn: %v", err)
 	}
@@ -292,6 +294,8 @@ func TestOrchestratorActionFailTaskFailsTheOpenTaskWithItsPendingTrigger(t *test
 		}
 	}
 	action := pendingActionsOf(t, s, claimEpic)[0]
+	before := closeRow(t, s, claimEpic).Tasks[0].Build
+	rung := RungOf(before)
 
 	stop, err := s.CarryOutAction(ctx, action, closeAt())
 	if err != nil {
@@ -300,12 +304,27 @@ func TestOrchestratorActionFailTaskFailsTheOpenTaskWithItsPendingTrigger(t *test
 	if want := []string{"build-step"}; !reflect.DeepEqual(stop, want) {
 		t.Errorf("steps to stop = %v, want %v", stop, want)
 	}
-	if status := closeRow(t, s, claimEpic).Tasks[0].Status; status != "failed" {
-		t.Errorf("status of task 1 = %q, want failed", status)
+	task := closeRow(t, s, claimEpic).Tasks[0]
+	if task.Status != "open" || task.Build.Attempt != rung+1 {
+		t.Errorf("task 1 after fail_task = status %q attempt %d, want open at attempt %d",
+			task.Status, task.Build.Attempt, rung+1)
 	}
-	if state, cause := triggerRow(t, s, claimEpic, "T1-failed"); state != "pending" ||
-		cause != "task T1 failed: the build cannot reach the store" {
-		t.Errorf("trigger T1-failed = state %q cause %q, want pending with the reason", state, cause)
+	if len(task.Rungs) != 2 {
+		t.Fatalf("rungs of task 1 = %+v, want the rung left and the rung climbed to", task.Rungs)
+	}
+	if left := task.Rungs[0]; left.Rung != rung || left.Outcome != RungFailed || left.Reason != reason {
+		t.Errorf("left rung = %+v, want rung %d ended failed with the reason", left, rung)
+	}
+	if climbed := task.Rungs[1]; climbed.Rung != rung+1 || climbed.MovedBy != MovedByFailTask {
+		t.Errorf("climbed rung = %+v, want rung %d moved by fail_task", climbed, rung+1)
+	}
+	var failed int64
+	if err = s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM epic_triggers WHERE epic = ? AND id = 'T1-failed'`, claimEpic).Scan(&failed); err != nil {
+		t.Fatalf("count T1-failed triggers: %v", err)
+	}
+	if failed != 0 {
+		t.Errorf("T1-failed triggers = %d, want none: a climb adds no failure trigger", failed)
 	}
 	if got, want := decisionNamed(t, s, claimEpic, "action-1-1").Text,
 		"planner fail task 1: the build cannot reach the store"; got != want {
@@ -437,7 +456,7 @@ func TestOrchestratorActionRerunsFailedIntegrateBehindAnEmptyPass(t *testing.T) 
 	failIntegrateRun(t, s, retryEarlierBatch, "id-s1", "rev-1", "lint failed")
 	startIntegrateRuns(t, s,
 		NodeRun{Path: retryLatestBatch, ID: "id-s2", Node: "integrate", Kind: "integrate", Attempt: 1})
-	if err := s.EndBatch(ctx, integrateEpic, retryLatestBatch, 1, "passed", "", nil,
+	if err := s.EndBatch(ctx, integrateEpic, BatchEnd{Path: retryLatestBatch, Attempt: 1, Outcome: "passed"}, nil,
 		integrateEndedAt()); err != nil {
 		t.Fatalf("EndBatch passed: %v", err)
 	}

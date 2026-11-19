@@ -340,11 +340,15 @@ func followLines(follows []store.LabelFollow) []string {
 	return lines
 }
 
+// taskGap is the status of a task that ended its ladder as a gap. A gap task still holds its claims, so Coverage counts
+// it as it counts a task that is not failed, and it is followed by failedLines as a failed task is.
+const taskGap = "gap"
+
 // taskLines returns each task as `- Tseq [status] title`, then the lines taskspec.Lines gives for its spec version,
-// each indented two spaces, when the task's current version is past version 1, then its deliverable, files,
-// requirements, contributes, test_changes, gate, and its evidence item as compact JSON, then the guard's last refusal
-// of its build when there is one, then the gate-needed changes its implementers declared when there are any. A failed
-// task is followed by failedLines.
+// each indented two spaces, when the task's current version is past version 1, then one rungLine for each rung of its
+// ladder in rung order, then its deliverable, files, requirements, contributes, test_changes, gate, and its evidence
+// item as compact JSON, then the guard's last refusal of its build when there is one, then the gate-needed changes its
+// implementers declared when there are any. A failed or gapped task is followed by failedLines.
 func taskLines(tasks []store.EpicTask) ([]string, error) {
 	lines := make([]string, 0, 8*len(tasks))
 	for _, task := range tasks {
@@ -355,6 +359,9 @@ func taskLines(tasks []store.EpicTask) ([]string, error) {
 		lines = append(lines, fmt.Sprintf("- T%d [%s] %s", task.Seq, task.Status, task.Title))
 		for _, line := range taskspec.Lines(task) {
 			lines = append(lines, "  "+line)
+		}
+		for _, rung := range task.Rungs {
+			lines = append(lines, rungLine(rung))
 		}
 		lines = append(lines,
 			"  deliverable: "+task.Deliverable,
@@ -371,11 +378,31 @@ func taskLines(tasks []store.EpicTask) ([]string, error) {
 		if len(task.GateChanges) > 0 {
 			lines = append(lines, "  gate-needed changes declared: "+gateChangeText(task.GateChanges))
 		}
-		if task.Status == taskFailed {
+		if task.Status == taskFailed || task.Status == taskGap {
 			lines = append(lines, failedLines(task)...)
 		}
 	}
 	return lines, nil
+}
+
+// rungLine returns rung as `  rung n kind`, then ` moved by moved_by: cause` when a failure moved the task onto it,
+// then ` (gate gate: assertion)` when it has a gate, then ` -> outcome` when it has an outcome and `: reason` when it
+// has a reason.
+func rungLine(rung store.TaskRung) string {
+	line := fmt.Sprintf("  rung %d %s", rung.Rung, rung.Kind)
+	if rung.MovedBy != "" {
+		line += fmt.Sprintf(" moved by %s: %s", rung.MovedBy, rung.Cause)
+	}
+	if rung.Gate != "" {
+		line += fmt.Sprintf(" (gate %s: %s)", rung.Gate, rung.Assertion)
+	}
+	if rung.Outcome != "" {
+		line += " -> " + rung.Outcome
+	}
+	if rung.Reason != "" {
+		line += ": " + rung.Reason
+	}
+	return line
 }
 
 // gateChangeText returns the gate-needed changes a task's implementers declared, each as `<path> (<reason>)`, joined
@@ -388,8 +415,8 @@ func gateChangeText(changes []store.GateChange) string {
 	return strings.Join(texts, "; ")
 }
 
-// failedLines returns the failure of a failed task as `  failure: reason`, where the reason is the implementer's
-// return or the check that failed, then `  files the next task may need: ` with the paths its implementer named
+// failedLines returns the failure of a failed or gapped task as `  failure: reason`, where the reason is the
+// implementer's return or the check that failed, then `  files the next task may need: ` with the paths its implementer named
 // as needed beyond its owned list, joined by commas, or None. when it named none.
 func failedLines(task store.EpicTask) []string {
 	return []string{

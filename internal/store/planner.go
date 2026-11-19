@@ -84,6 +84,8 @@ type EpicTask struct {
 	Version int64
 	// Versions are every version stored for the task, applied, checking or refused, in version order.
 	Versions []TaskVersion
+	// Rungs are the task's ladder rows in rung order, nil for a task that never climbed.
+	Rungs []TaskRung
 }
 
 // EpicQuestion is one question a planner turn asked, with its state. Turn is the seq of the turn that asked it. Label,
@@ -248,9 +250,16 @@ func loadPlanSections(ctx context.Context, queries *sqlcgen.Queries, row *EpicRo
 	if err != nil {
 		return fmt.Errorf("task versions: %w", err)
 	}
+	rungs, err := queries.ListEpicTaskRungs(ctx, row.ID)
+	if err != nil {
+		return fmt.Errorf("list task rungs: %w", err)
+	}
+	rungsOf := taskRungsOf(rungs)
 	row.Tasks, err = convertInOrder(tasks, func(task sqlcgen.EpicTask) (EpicTask, error) {
-		return taskOf(ctx, queries, task, pathsOf[task.Seq], requirementsOf[task.Seq], contributesOf[task.Seq],
-			testChangesOf[task.Seq], reviewsOf[task.Seq], versionsOf[task.Seq])
+		epicTask, taskErr := taskOf(ctx, queries, task, pathsOf[task.Seq], requirementsOf[task.Seq],
+			contributesOf[task.Seq], testChangesOf[task.Seq], reviewsOf[task.Seq], versionsOf[task.Seq])
+		epicTask.Rungs = rungsOf[task.Seq]
+		return epicTask, taskErr
 	})
 	if err != nil {
 		return fmt.Errorf("tasks: %w", err)
@@ -950,19 +959,34 @@ func parkEpicAs(
 	reason string,
 	at time.Time,
 ) error {
+	_, err := parkEpicQuestion(ctx, queries, epic, class, subject, reason, at)
+	return err
+}
+
+// parkEpicQuestion parks epic as parkEpicAs does, in the caller's write, and returns the seq of the park question it
+// opens: an owner class's question, or the retry_bound question of a planner park at the bound of its chain. It
+// returns 0 when the park opens none, which wakes the planner instead.
+func parkEpicQuestion(
+	ctx context.Context,
+	queries *sqlcgen.Queries,
+	epic string,
+	class ParkClass,
+	subject string,
+	reason string,
+	at time.Time,
+) (int64, error) {
 	park := capTurnText(reason)
 	question, err := setParked(ctx, queries, epic, class, subject, park, at)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	switch {
-	case class.OwnerHeld():
-		return insertQuestionTell(ctx, queries, epic, park, question, at)
-	case question == 0:
-		return insertParkTrigger(ctx, queries, epic, park, at)
-	default:
-		return nil
+	if class.OwnerHeld() {
+		return question, insertQuestionTell(ctx, queries, epic, park, question, at)
 	}
+	if question == 0 {
+		return 0, insertParkTrigger(ctx, queries, epic, park, at)
+	}
+	return question, nil
 }
 
 // insertParkTrigger adds to epic the pending trigger of a planner park with reason as its cause, in the caller's write.

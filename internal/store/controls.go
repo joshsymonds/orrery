@@ -169,6 +169,10 @@ func retryEpicIn(ctx context.Context, queries *sqlcgen.Queries, epic string) err
 	if err != nil {
 		return err
 	}
+	err = rerunOpenParkRuns(ctx, queries, epic)
+	if err != nil {
+		return err
+	}
 	err = closeParkQuestions(ctx, queries, epic)
 	if err != nil {
 		return err
@@ -192,12 +196,44 @@ func rerunMetAtBaseRuns(ctx context.Context, queries *sqlcgen.Queries, epic stri
 		case err != nil:
 			return fmt.Errorf("read park question %d of epic %s: %w", question.Seq, epic, err)
 		}
-		err = rerunParkedRun(ctx, queries, epic, met.Path)
+		_, err = rerunParkedRun(ctx, queries, epic, met.Path)
 		if err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// rerunOpenParkRuns turns each parked node run that an open park question of epic names running at its next attempt,
+// in the caller's write. A park question that names no run changes nothing.
+func rerunOpenParkRuns(ctx context.Context, queries *sqlcgen.Queries, epic string) error {
+	open, err := queries.ListOpenEpicParkQuestions(ctx, epic)
+	if err != nil {
+		return fmt.Errorf("read open park questions of epic %s: %w", epic, err)
+	}
+	for _, question := range open {
+		err = rerunParkQuestionRun(ctx, queries, epic, question.Seq)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// rerunParkQuestionRun turns the parked node run that the park question with seq question of epic names running at its
+// next attempt, in the caller's write. A question that names no run changes nothing.
+func rerunParkQuestionRun(ctx context.Context, queries *sqlcgen.Queries, epic string, question int64) error {
+	path, err := queries.GetEpicParkQuestionRun(
+		ctx, sqlcgen.GetEpicParkQuestionRunParams{Epic: epic, Question: question},
+	)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return nil
+	case err != nil:
+		return fmt.Errorf("read the run of park question %d of epic %s: %w", question, epic, err)
+	}
+	_, err = rerunParkedRun(ctx, queries, epic, path)
+	return err
 }
 
 // endPark ends the park of epic in the caller's write: the failed turns up to the epic's highest turn seq stop counting

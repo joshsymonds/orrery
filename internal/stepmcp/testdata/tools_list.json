@@ -1,7 +1,7 @@
 [
   {
     "name": "step_start",
-    "description": "Start a step: an agent working in a workspace. Returns the step id.",
+    "description": "Start a step: an agent working in a workspace. Returns the step id and next. The step's end arrives in this conversation as an orrery-event of kind step_end.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -55,7 +55,7 @@
   },
   {
     "name": "step_status",
-    "description": "Report a step's current state by id.",
+    "description": "Report a step's current state by id. It returns the state only: no return and no check output.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -66,6 +66,90 @@
       "required": [
         "id"
       ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "step_result",
+    "description": "Read one part of a step's return by id. With only id it returns the outline: each top-level field with its type and size, no values. With field it returns that field's value, a string as text and anything else as compact JSON; with field and item, one element of that array field, by its id property or 0-based index. A value is cut at limit runes (default and most 4000) and the result names the offset to continue from.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "field": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "item": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "step_check",
+    "description": "Read one check of a step by id and check name: its round, whether it passed, its detail (at most 4000 runes), and a slice of its gate output from the log orrery kept, or from the stored tails when none was kept. The slice is the last lines lines (default 40, at most 80, each cut at 150 runes) before line before, keeping only lines containing match when given; the result names the before to continue from. round defaults to the check's last round. An unknown check is an error naming the step's checks.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "before": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "check": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "lines": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "match": {
+          "type": "string"
+        },
+        "round": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        }
+      },
+      "required": [
+        "id",
+        "check"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "step_list",
+    "description": "List the steps this session started, one line each: id, agent, epic, task, end (running while the step runs) and status. It lists each running step and the 20 most recently ended, oldest first, only one epic's when epic is given. The text is at most 4000 bytes; when steps are cut, the earliest go and a first line counts them. Read one step with step_status, step_result or step_check.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "epic": {
+          "type": "string"
+        }
+      },
+      "required": [],
       "additionalProperties": false
     }
   },
@@ -103,7 +187,7 @@
   },
   {
     "name": "epic_create",
-    "description": "Create an epic from an accepted contract. decisions seeds the epic's recorded decisions. workflow names the workflow the epic pins, epic by default. Returns the stored epic. A refusal names the field that failed.",
+    "description": "Create an epic from an accepted contract. decisions seeds the epic's recorded decisions. workflow names the workflow the epic pins, epic by default. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. A refusal names the field that failed.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -143,11 +227,32 @@
   },
   {
     "name": "epic_get",
-    "description": "Return a stored epic by id: its contract, the workflow it pins with its name, text and sha256, phase, timestamps, decisions, whether it is paused and why it is parked, and its planner turns, tasks and questions.",
+    "description": "Return a stored epic by id. Without part, it returns the one-screen text summary: its id, title and phase, whether it is paused or why it is parked, its open questions, its task counts by status, and each part with its item count and byte size. With part, it returns that part, one of tasks, turns, decisions, questions, history, contract, workflow, report, task and question. tasks, turns, decisions, questions and history give one line per item, 50 from offset by default, and an offset <n> continues line when items remain past them. task, with task such as T3, and question, with question such as Q2, return that item whole as protobuf JSON. contract, workflow, report, task and question return limit runes from offset, 8000 by default, and name the offset that continues when text remains past them.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "id": {
+          "description": "the id of the stored epic",
+          "type": "string"
+        },
+        "limit": {
+          "description": "the most items of a list part, or runes of a text part or an item, to read: 50 items or 8000 runes when omitted or 0; needs a part",
+          "type": "integer"
+        },
+        "offset": {
+          "description": "the first item of a list part, or the first rune of a text part or an item, to read: 0 when omitted; needs a part",
+          "type": "integer"
+        },
+        "part": {
+          "description": "the part of the epic to read: tasks, turns, decisions, questions or history, one line per item; contract, workflow or report, its text; or task or question, one item. Omit it for the one-screen summary",
+          "type": "string"
+        },
+        "question": {
+          "description": "the id of the question to read, such as Q2: required with part question, and refused with any other part",
+          "type": "string"
+        },
+        "task": {
+          "description": "the id of the task to read, such as T3: required with part task, and refused with any other part",
           "type": "string"
         }
       },
@@ -169,7 +274,7 @@
   },
   {
     "name": "epic_answer",
-    "description": "Record a decision on an epic. question names the Q\u003cn\u003e the decision answers, and choice names the choice it gives: a declared choice's id, or other, which needs text. A decision with no question is a note, which takes no choice and returns a warning naming the questions still open. A decision id already recorded with the same text returns the stored decision; other text under that id is refused. Returns the decision and the warning.",
+    "description": "Record a decision on an epic. question names the Q\u003cn\u003e the decision answers, and choice names the choice it gives: a declared choice's id, or other, which needs text. A decision with no question is a note, which takes no choice and returns a warning naming the questions still open. A decision id already recorded with the same text returns the stored decision; other text under that id is refused. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. A note's warning is the acknowledgement's warning line.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -211,7 +316,7 @@
   },
   {
     "name": "epic_pause",
-    "description": "Pause an epic by id, so the planner starts no turn for it and no limit reset resumes it. Returns the stored epic. An epic the owner paused, or paused with no recorded source, is refused; an epic a usage limit paused is accepted and stays paused past the reset.",
+    "description": "Pause an epic by id, so the planner starts no turn for it and no limit reset resumes it. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. An epic the owner paused, or paused with no recorded source, is refused; an epic a usage limit paused is accepted and stays paused past the reset.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -227,7 +332,7 @@
   },
   {
     "name": "epic_resume",
-    "description": "Clear the pause of an epic by id, if it is paused, and resume its limited task steps. Returns the stored epic, the ids of the steps resumed, and the ids of the steps a full step cap left limited. An epic that is not paused and holds no limited task step is refused. A park stays; epic_retry ends a park.",
+    "description": "Clear the pause of an epic by id, if it is paused, and resume its limited task steps. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. An epic that is not paused and holds no limited task step is refused. A park stays; epic_retry ends a park.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -243,7 +348,7 @@
   },
   {
     "name": "epic_stop",
-    "description": "Pause an epic by id and stop the step of its running turn. Returns the stored epic. An epic with no running turn is refused, and nothing is stopped, unless it holds its repository's release slot: then the slot is freed, its open release step is stopped if one runs, and the epic is not paused. epic_release resumes a stopped release.",
+    "description": "Pause an epic by id and stop the step of its running turn. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. An epic with no running turn is refused, and nothing is stopped, unless it holds its repository's release slot: then the slot is freed, its open release step is stopped if one runs, and the epic is not paused. epic_release resumes a stopped release.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -259,7 +364,7 @@
   },
   {
     "name": "epic_retry",
-    "description": "End the park of an epic by id, so the planner starts its turns again. With node, rerun the parked workflow node of that id under its next attempt instead, which also ends the park. Returns the stored epic. Without node, an epic that is not parked is refused; with node, a node that is not parked is refused.",
+    "description": "End the park of an epic by id, so the planner starts its turns again. With node, rerun the parked workflow node of that id under its next attempt instead, which also ends the park. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. Without node, an epic that is not parked is refused; with node, a node that is not parked is refused.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -279,7 +384,7 @@
   },
   {
     "name": "epic_kick",
-    "description": "Kick an epic by id: record text as the owner's decision and wake the epic's planner with it at the epic's next plan run. Refused for a paused epic, for a parked epic (epic_retry ends the park first), and for an epic in an ended phase, which takes no kick. Returns the stored epic.",
+    "description": "Kick an epic by id: record text as the owner's decision and wake the epic's planner with it at the epic's next plan run. Refused for a paused epic, for a parked epic (epic_retry ends the park first), and for an epic in an ended phase, which takes no kick. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -300,7 +405,7 @@
   },
   {
     "name": "epic_release",
-    "description": "Release an epic by id. A stopped release resumes at its first unfinished step, and undoNone names the 1-based positions of undo-none release steps to run again. An epic that ended with gaps is released on the owner's word, logged as the owner's decision, so undoNone must be empty for it. Returns the stored epic. Refused unless the release is stopped or the epic ended with gaps, and each position is undo-none.",
+    "description": "Release an epic by id. A stopped release resumes at its first unfinished step, and undoNone names the 1-based positions of undo-none release steps to run again. An epic that ended with gaps is released on the owner's word, logged as the owner's decision, so undoNone must be empty for it. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. Refused unless the release is stopped or the epic ended with gaps, and each position is undo-none.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -323,7 +428,7 @@
   },
   {
     "name": "epic_close",
-    "description": "Close an epic by id as superseded, shipped by hand or abandoned, which ends it. kind names the close; superseded requires by, the epic that replaces it. The close answers the epic's open questions, ends its running turn, node runs and steps, and frees its release slot. Returns the stored epic. Refused for a superseded close without by.",
+    "description": "Close an epic by id as superseded, shipped by hand or abandoned, which ends it. kind names the close; superseded requires by, the epic that replaces it. The close answers the epic's open questions, ends its running turn, node runs and steps, and frees its release slot. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. Refused for a superseded close without by.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -348,7 +453,7 @@
   },
   {
     "name": "epic_amend",
-    "description": "Amend the evidence item of a Requirement of an epic by id: requirement names it and item is the whole item it should hold, which must pass the shape check a created epic's items pass. The amendment starts checking: orreryd runs the new item's red at the epic's base and applies the item only when that red is judged not to hold there; a red that holds refuses it and the old item stays. The owner may change the conclusion. Returns the stored amendment and the stored epic.",
+    "description": "Amend the evidence item of a Requirement of an epic by id: requirement names it and item is the whole item it should hold, which must pass the shape check a created epic's items pass. The amendment starts checking: orreryd runs the new item's red at the epic's base and applies the item only when that red is judged not to hold there; a red that holds refuses it and the old item stays. The owner may change the conclusion. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -422,16 +527,33 @@
   },
   {
     "name": "evidence_get",
-    "description": "Return one artifact of an evidence run by its path, or the run's log when name is omitted. The bytes are base64 in the result.",
+    "description": "Return one artifact of an evidence run by its path, or the run's stdout log when name is omitted, or its stderr log with stderr. UTF-8 bytes come back as numbered text lines: the last lines lines, 40 by default; before pages backward to lines numbered below it; match keeps only lines that contain it. Other bytes come back as base64.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "run": {
-          "type": "string"
+          "type": "string",
+          "description": "the id of the evidence run"
         },
         "name": {
           "type": "string",
           "description": "the artifact's repository-relative path; omitted for the run's log"
+        },
+        "stderr": {
+          "type": "boolean",
+          "description": "read the run's stderr log instead of its stdout log; only without name"
+        },
+        "lines": {
+          "type": "integer",
+          "description": "how many lines to return, 40 by default"
+        },
+        "before": {
+          "type": "integer",
+          "description": "return only lines numbered below this one, to page backward"
+        },
+        "match": {
+          "type": "string",
+          "description": "return only lines that contain this text"
         }
       },
       "required": [

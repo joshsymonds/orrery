@@ -60,6 +60,9 @@ service Steps {
 
   // Stop ends the step's loop.
   rpc Stop(StepsStopRequest) returns (StepsStopResponse);
+
+  // Result returns the step's full result, as its latest return carried it, whether the step is labelled or not.
+  rpc Result(StepsResultRequest) returns (StepsResultResponse);
 }
 
 // Evidence reads the artifacts evidence runs kept.
@@ -1276,3 +1279,15 @@ message StepsStopRequest {
 
 // StepsStopResponse confirms a stopped step.
 message StepsStopResponse {}
+
+// StepsResultRequest names the step whose result to read.
+message StepsResultRequest {
+  // The step's id.
+  string id = 1;
+}
+
+// StepsResultResponse carries the step's full result.
+message StepsResultResponse {
+  // The step's latest result, as its return carried it. Empty when the step has none.
+  string result = 1;
+}

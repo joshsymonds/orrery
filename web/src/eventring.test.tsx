@@ -91,6 +91,7 @@ class FakeEpics {
         this.opened.push(id);
       },
       openStep: () => {},
+      stepResult: () => Promise.resolve(""),
       epics,
     };
   }
@@ -153,11 +154,12 @@ test("EventRing: epicEventOf reads a block's kind, epic, event tail and first se
     tail: "released",
     sentence: `${title} is released.`,
   });
-  assert.equal(
-    epicEventOf(`<orrery-event kind="step_end" id="step:step-1">\nThe step ended.\n</orrery-event>`),
-    null,
-    "a step's event is not an epic's",
-  );
+  const stepEnd = [
+    '<orrery-event kind="step_end" id="step:step-1" end="done" status="done">',
+    "The step ended.",
+    "</orrery-event>",
+  ].join("\n");
+  assert.equal(epicEventOf(stepEnd), null, "a step's event is not an epic's");
   assert.equal(epicEventOf(eventBlock("exploded", "Q1", "a body")), null, "an unknown kind is not an epic's event");
   assert.equal(epicEventOf("Plain prompt text"), null, "a prompt that is no block is not an epic's event");
 });
@@ -305,4 +307,86 @@ test("EventRing: a question event whose epic cannot be read draws neither the fo
     assertNone(container.querySelector(".settled"), "an unreadable epic draws no settled line");
     assert.equal(container.querySelectorAll(".ring-line").length, 1, "the ring line stays");
   });
+});
+
+// collapsedChoices are the thirty choices the question declares: the two the planner lists, then the rest it counts.
+const collapsedChoices = [
+  ...threeChoices.slice(0, 2),
+  ...Array.from({ length: 28 }, (_, index) => ({ id: `choice-${index + 3}`, does: `Choice ${index + 3} does its part.` })),
+];
+const collapsedQuestion: MessageInitShape<typeof EpicQuestionSchema> = { ...openQuestion, choices: collapsedChoices };
+const questionLine = "epic_get with part question and question Q1 reads it whole; epic_answer answers it.";
+const reportLine = "epic_get with part report reads its report.";
+
+// plannedBlocks are the four kinds' blocks as the planner writes them: the question with its choices collapsed to two
+// listed and a count of the rest, the park with its one choice, and the release and end with their report line.
+const plannedBlocks = [
+  {
+    kind: "question",
+    tail: "Q1",
+    body: [
+      `${title} asks a question.`,
+      "Q1 which-index: Which index should it add?",
+      "  composite: Add a composite index on keeper and shift.",
+      "  partial: Add a partial index on open shifts only.",
+      "  and 28 more choices",
+      "  other: answer in your own words",
+      "  recommended: composite (high): open shifts are the only rows the backfill scans",
+      questionLine,
+    ].join("\n"),
+    sentence: `${title} asks a question.`,
+  },
+  {
+    kind: "park",
+    tail: "Q1",
+    body: [
+      `${title} is parked.`,
+      "Q1 park:",
+      "  retry: end the park and start a turn on the waiting triggers, as orrery epic retry does",
+      "  other: answer in your own words",
+      "  recommended: retry (low): no model judges a park; retry runs the epic again on its waiting triggers",
+      "parked: the reason",
+      questionLine,
+    ].join("\n"),
+    sentence: `${title} is parked.`,
+  },
+  {
+    kind: "release",
+    tail: "released",
+    body: [`${title} is released.`, reportLine].join("\n"),
+    sentence: `${title} is released.`,
+  },
+  {
+    kind: "end",
+    tail: "done",
+    body: [`${title} is done.`, reportLine].join("\n"),
+    sentence: `${title} is done.`,
+  },
+];
+
+test("EventRing: the planner's bounded question, park, release and end bodies each draw their card, a question whose choices collapsed among them", async (t) => {
+  for (const planned of plannedBlocks) {
+    const event = eventOf(eventBlock(planned.kind, planned.tail, planned.body));
+    assert.deepEqual(
+      event,
+      { kind: planned.kind, epic: ringEpic, tail: planned.tail, sentence: planned.sentence },
+      `${planned.kind} block reads its kind, epic, tail and epic line`,
+    );
+    const fake = new FakeEpics(epicReading([collapsedQuestion]));
+    await withRing(event, fake.calls(), async (container) => {
+      assert.equal(container.querySelectorAll(".ring-line").length, 1, `${planned.kind} draws one ringed line`);
+      assert.equal(container.querySelector(".ring-sentence")?.textContent, planned.sentence, `${planned.kind} draws its epic line`);
+      assert.equal(container.querySelector(".ring-icon")?.classList.contains(planned.kind), true, `${planned.kind} draws its icon`);
+      assert.equal(container.querySelector(".ring-slug")?.textContent, "planner-runner", `${planned.kind} draws the epic's slug`);
+      if (planned.kind === "question") {
+        await settle(t, () => container.querySelector("form.answer") !== null, "the question's form is drawn");
+        const drawn = cards(container).map((card) => card.querySelector("b")?.textContent);
+        assert.deepEqual(
+          drawn,
+          [...collapsedChoices.map((choice) => choice.id), "Something else"],
+          "the form draws all 30 choices from the epic reading, then Something else",
+        );
+      }
+    });
+  }
 });

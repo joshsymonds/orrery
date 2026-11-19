@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -12,7 +13,6 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
-	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
@@ -350,11 +350,17 @@ func TestEpicVerbsSendTheMCPToolsRequest(t *testing.T) {
 			}
 
 			got, want := cliFake.recorded(), mcpFake.recorded()
-			if len(got) != 1 || len(want) != 1 {
-				t.Fatalf("requests: cli %d, mcp %d; want 1 each", len(got), len(want))
+			wantCalls := 1
+			if tc.tool == "epic_answer" {
+				wantCalls = 2 // the answer's phase read: AnswerEpic, then GetEpic
 			}
-			if !proto.Equal(got[0], want[0]) {
-				t.Errorf("epicCommand(%v) sent %v, want the MCP tool's request %v", tc.args, got[0], want[0])
+			if len(want) != wantCalls || len(got) != len(want) {
+				t.Fatalf("requests: cli %d, mcp %d; want %d each", len(got), len(want), wantCalls)
+			}
+			for i := range want {
+				if !proto.Equal(got[i], want[i]) {
+					t.Errorf("epicCommand(%v) request %d sent %v, want %v", tc.args, i, got[i], want[i])
+				}
 			}
 			if wantOut := result.Content[0].Text + "\n"; stdout != wantOut {
 				t.Errorf("stdout = %q, want %q", stdout, wantOut)
@@ -581,8 +587,8 @@ func TestEpicCreateNamesTheWorkflowThroughTheMCPTool(t *testing.T) {
 	}
 }
 
-// TestEpicGetPrintsTheEpicWorkflow checks that `orrery epic get` prints the name, text and sha256 of the workflow the
-// epic pinned.
+// TestEpicGetPrintsTheEpicWorkflow checks that `orrery epic get` prints the workflow part of the epic the summary gives:
+// one item, and the byte length of the workflow's text.
 func TestEpicGetPrintsTheEpicWorkflow(t *testing.T) {
 	t.Parallel()
 	fake := newRecordingEpics()
@@ -593,11 +599,8 @@ func TestEpicGetPrintsTheEpicWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("epicCommand(get) = %v, want nil", err)
 	}
-	var got v1.StoredEpic
-	if err := protojson.Unmarshal([]byte(stdout), &got); err != nil {
-		t.Fatalf("stdout is not a stored epic: %v\n%s", err, stdout)
-	}
-	if !proto.Equal(got.GetWorkflow(), want) {
-		t.Fatalf("printed workflow = %v, want %v", got.GetWorkflow(), want)
+	line := fmt.Sprintf("\n  workflow: 1 items, %d bytes\n", len(want.GetText()))
+	if !strings.Contains(stdout, line) {
+		t.Fatalf("stdout has no workflow part line %q:\n%s", line, stdout)
 	}
 }

@@ -115,10 +115,6 @@ func TestDecideGreenEnvironmentExit(t *testing.T) {
 		Stage: StageReview, Base: "base", Attempt: 1, Revision: "rev", RedRun: "red-run",
 		GreenRun: RunID(decideEpic, 3, StageGreen, 1, 1),
 	}
-	spent := store.TaskBuild{
-		Stage: StageImplement, Base: "base", Attempt: 2, RedRun: "red-run",
-		Failure: "green not met: exit 1, verdict fails",
-	}
 	const reason = "T3 green capture scripts/check exited 75 in 3 runs in a row: an environment result, not a verdict"
 	passing := envRun(StageGreen, 1, 1, 0, "")
 	passing.Verdict = evidence.VerdictHolds
@@ -155,7 +151,7 @@ func TestDecideGreenEnvironmentExit(t *testing.T) {
 		{
 			name: "exit 1 spends the first attempt at once",
 			view: View{Epic: decideEpic, Task: store.EpicTask{Seq: 3, Build: green, Evidence: capture}, Run: failing},
-			want: Action{Kind: ActMove, Next: spent},
+			want: Action{Kind: ActFail, Reason: "green not met: exit 1, verdict fails"},
 		},
 	})
 }

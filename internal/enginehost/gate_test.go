@@ -151,22 +151,60 @@ func TestGateEnvironDropsTmuxMarkers(t *testing.T) {
 	}
 }
 
-func TestGateKillsItsGroupAtLimit(t *testing.T) {
+// gateLimitFIFO makes a FIFO in a fresh temporary directory for a gate's limit signal, and returns its path. The gate's
+// limit is reached when a process opens the FIFO for writing: see gateSignalLimit.
+func gateLimitFIFO(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "limit")
+	if err := syscall.Mkfifo(path, 0o600); err != nil {
+		t.Fatalf("make limit FIFO %s: %v", path, err)
+	}
+	return path
+}
+
+// gateSignalLimit reaches the limit of the gate whose limit signal is fifo, by opening it for writing. The open waits
+// for the gate's holder to open the FIFO for reading, which the holder does as it starts the gate, so a test calls it
+// once the gate runs: the gate's pids file is written by then.
+func gateSignalLimit(t *testing.T, fifo string) {
+	t.Helper()
+	signal, err := os.OpenFile(fifo, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatalf("open limit FIFO %s for writing: %v", fifo, err)
+	}
+	if err = signal.Close(); err != nil {
+		t.Fatalf("close limit FIFO %s: %v", fifo, err)
+	}
+}
+
+func TestGateLimitClockKillsItsGroup(t *testing.T) {
 	t.Parallel()
 	pids := filepath.Join(t.TempDir(), "pids")
-	result, err := runGrantedGate(t.Context(), &fakeGatePools{}, gateGrantRequest(), gateRun{
-		Argv:    []string{"/bin/sh", "-c", `sleep 60 & echo "$$ $!" > "$PIDS"; sleep 60`},
-		Dir:     t.TempDir(),
-		Limit:   time.Second,
-		Environ: gateEnv("PIDS=" + pids),
-	})
-	if err != nil {
-		t.Fatalf("runGrantedGate: %v", err)
+	limit := gateLimitFIFO(t)
+	type outcome struct {
+		result gateResult
+		err    error
 	}
-	if !result.TimedOut {
+	done := make(chan outcome, 1)
+	go func() {
+		result, err := runGrantedGate(t.Context(), &fakeGatePools{}, gateGrantRequest(), gateRun{
+			Argv:        []string{"/bin/sh", "-c", `sleep 60 & echo "$$ $!" > "$PIDS"; sleep 60`},
+			Dir:         t.TempDir(),
+			Limit:       time.Hour,
+			limitSignal: limit,
+			Environ:     gateEnv("PIDS=" + pids),
+		})
+		done <- outcome{result, err}
+	}()
+	ended, doneResult := waittest.Closed(done)
+	group, child := gateParsePids(t, pids, ended)
+	gateSignalLimit(t, limit)
+	got := <-doneResult
+	if got.err != nil {
+		t.Fatalf("runGrantedGate: %v", got.err)
+	}
+	if !got.result.TimedOut {
 		t.Fatal("TimedOut = false for a gate killed at its limit")
 	}
-	group, child := gateParsePids(t, pids, gateReturned())
 	gateWaitGone(t, group, child)
 }
 
@@ -238,20 +276,33 @@ func gateKillDetachedAtCleanup(t *testing.T, path string, ended <-chan struct{})
 	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
 }
 
-func TestGateReturnsAtLimitPastDetachedChild(t *testing.T) {
+func TestGateLimitClockReturnsPastDetachedChild(t *testing.T) {
 	t.Parallel()
 	pids := filepath.Join(t.TempDir(), "pids")
-	result, err := runGrantedGate(t.Context(), &fakeGatePools{}, gateGrantRequest(), gateRun{
-		Argv:    []string{"/bin/sh", "-c", `setsid sleep 20 & echo "$!" > "$PIDS"; sleep 20`},
-		Dir:     t.TempDir(),
-		Limit:   time.Second,
-		Environ: gateEnv("PIDS=" + pids),
-	})
-	gateKillDetachedAtCleanup(t, pids, gateReturned())
-	if err != nil {
-		t.Fatalf("runGrantedGate: %v", err)
+	limit := gateLimitFIFO(t)
+	type outcome struct {
+		result gateResult
+		err    error
 	}
-	if !result.TimedOut {
+	done := make(chan outcome, 1)
+	go func() {
+		result, err := runGrantedGate(t.Context(), &fakeGatePools{}, gateGrantRequest(), gateRun{
+			Argv:        []string{"/bin/sh", "-c", `setsid sleep 20 & echo "$!" > "$PIDS"; sleep 20`},
+			Dir:         t.TempDir(),
+			Limit:       time.Hour,
+			limitSignal: limit,
+			Environ:     gateEnv("PIDS=" + pids),
+		})
+		done <- outcome{result, err}
+	}()
+	ended, doneResult := waittest.Closed(done)
+	gateKillDetachedAtCleanup(t, pids, ended)
+	gateSignalLimit(t, limit)
+	got := <-doneResult
+	if got.err != nil {
+		t.Fatalf("runGrantedGate: %v", got.err)
+	}
+	if !got.result.TimedOut {
 		t.Fatal("TimedOut = false for a gate killed at its limit")
 	}
 }

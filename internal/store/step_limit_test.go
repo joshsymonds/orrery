@@ -164,7 +164,7 @@ func TestStepRowWrittenBeforeLimitColumnsReadsUnlimited(t *testing.T) {
 	ctx := context.Background()
 	s := openSyncStore(t)
 	// This insert names no limit column, the way a row written before migration 00017 was written.
-	if _, err := s.db.ExecContext(ctx, `INSERT INTO steps (id, agent, prompt, output_schema, workspace, revision,
+	if _, err := s.fixtureExec(ctx, `INSERT INTO steps (id, agent, prompt, output_schema, workspace, revision,
 		worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason,
 		ended) VALUES ('old', 'implementer', 'do it', '{}', '/ws/old', 'abc123', '/wt/old', 'DONE', 1, '[]', '[]', 0,
 		0, '[]', '', '', '', '', 0)`); err != nil {

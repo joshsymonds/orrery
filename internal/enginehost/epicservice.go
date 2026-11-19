@@ -37,6 +37,7 @@ type EpicCommands interface {
 	EpicFlow(ctx context.Context, id string) (store.EpicFlow, error)
 	EpicHistory(ctx context.Context, id string) (store.EpicHistory, error)
 	Epics(ctx context.Context) ([]store.EpicRow, error)
+	EpicListings(ctx context.Context) ([]store.EpicRow, error)
 	AnswerEpic(ctx context.Context, epic, id, text string, at time.Time) (store.EpicDecision, error)
 	AnswerQuestion(
 		ctx context.Context, epic, id, text string, question int64, choice string, at time.Time,
@@ -195,7 +196,7 @@ func (s *epicService) ListEpics(
 	if err := s.ready(); err != nil {
 		return nil, err
 	}
-	rows, err := s.epics.Epics(ctx)
+	rows, err := s.epics.EpicListings(ctx)
 	if err != nil {
 		return nil, epicStoreError(err)
 	}
@@ -1158,8 +1159,8 @@ func taskMessages(tasks []store.EpicTask) ([]*v1.EpicTask, error) {
 }
 
 // taskMessage returns the EpicTask message of task, its id T<seq>: its status, its build, its reviews in order, the
-// evidence runs its build names as red and green, its current version and the source that wrote it, and the versions
-// stored after the planner's. It fails when one of those runs fails to convert.
+// evidence runs its build names as red and green, its current version and the source that wrote it, the versions
+// stored after the planner's, and its ladder rungs in rung order. It fails when one of those runs fails to convert.
 func taskMessage(task store.EpicTask) (*v1.EpicTask, error) {
 	message := &v1.EpicTask{
 		Id:           fmt.Sprintf("T%d", task.Seq),
@@ -1186,6 +1187,7 @@ func taskMessage(task store.EpicTask) (*v1.EpicTask, error) {
 		Version:      task.Version,
 		Versions:     epicMap(task.Versions, taskVersionMessage),
 		Source:       task.Source(),
+		Rungs:        epicMap(task.Rungs, taskRungMessage),
 	}
 	if task.Red != nil {
 		red, err := evidenceServiceRunMessage(*task.Red)
@@ -1237,6 +1239,24 @@ func taskVersionMessage(version store.TaskVersion) *v1.EpicTaskVersion {
 		message.Evidence = evidenceItemMessage(*version.Evidence)
 	}
 	return message
+}
+
+// taskRungMessage returns the EpicTaskRung message of rung: its number, kind, the failure that moved the task onto it,
+// the review gate and claim of that finding, its step, when it was written, and its outcome, reason and end time.
+func taskRungMessage(rung store.TaskRung) *v1.EpicTaskRung {
+	return &v1.EpicTaskRung{
+		Rung:      rung.Rung,
+		Kind:      rung.Kind,
+		MovedBy:   rung.MovedBy,
+		Cause:     rung.Cause,
+		Gate:      rung.Gate,
+		Assertion: rung.Assertion,
+		Step:      rung.Step,
+		Created:   rung.Created.Unix(),
+		Outcome:   rung.Outcome,
+		Reason:    rung.Reason,
+		Ended:     unixOrZero(rung.Ended),
+	}
 }
 
 // taskReviewMessage returns the EpicTaskReview message of review: its attempt, gate, step, verdict and findings in

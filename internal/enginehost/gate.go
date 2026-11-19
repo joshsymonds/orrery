@@ -51,6 +51,9 @@ type gateRun struct {
 	// launched is a test seam: when set, it runs once Launch has attached the gate's holder, just before the gate is
 	// watched, so a test acts on the watched gate. Production leaves it nil.
 	launched func()
+	// limitSignal is a test seam: when set, it is the FIFO whose opening for writing reaches the gate's limit, in place
+	// of Limit passing on the clock, and the gate's holder watches it. Production leaves it empty.
+	limitSignal string
 }
 
 // gateResult is how a gate ended: its exit status, whether Limit killed it, how many of its processes its scope's memory
@@ -288,9 +291,12 @@ func gateHeld(
 		ScopeMemory: run.ScopeMemory,
 		StateDir:    plan.stateDir,
 		Session:     plan.session,
-		Child:       proc.Config{Path: plan.program, Args: run.Argv[1:], Dir: run.Dir, Env: gateEnviron(run.Environ)},
-		GateLimit:   run.Limit,
-		GateTail:    plan.tail,
+		Child: proc.Config{
+			Path: plan.program, Args: run.Argv[1:], Dir: run.Dir, Env: gateEnviron(run.Environ),
+		},
+		GateLimit:       run.Limit,
+		GateLimitSignal: run.limitSignal,
+		GateTail:        plan.tail,
 	})
 	if err != nil {
 		exit, ended := gateLaunchExit(plan.dir)

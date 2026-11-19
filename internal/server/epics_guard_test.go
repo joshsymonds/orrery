@@ -20,7 +20,8 @@ import (
 )
 
 // epicsStepsProcedures lists the Connect procedures of the Epics service and the Steps service that serve mounts: the
-// two record reads and the three calls on one labeled step. None of them is a start.
+// two record reads, the three calls on one labeled step, and the read of a step's result, which an unlabeled step also
+// answers. None of them is a start.
 func epicsStepsProcedures() []string {
 	return []string{
 		orreryv1connect.EpicsListProcedure,
@@ -28,6 +29,7 @@ func epicsStepsProcedures() []string {
 		orreryv1connect.StepsHoldProcedure,
 		orreryv1connect.StepsNudgeProcedure,
 		orreryv1connect.StepsStopProcedure,
+		orreryv1connect.StepsResultProcedure,
 	}
 }
 

@@ -27,16 +27,9 @@ func TestDecideGreenReproduction(t *testing.T) {
 	}
 	lostRerun := build
 	lostRerun.Rerun = 3
-	firstAttemptSpent := store.TaskBuild{
-		Stage: StageImplement, Base: reproBase, Attempt: 2, RedRun: "red-run",
-		Failure: "green not captured: reproduction did not run: no workdir",
-	}
 	disagreement := "green not met: the judge and the exit disagree: red was judged fails at the base repro-base, " +
 		"but its reproduction with the commit's tests exited 0, so those tests pass at the base without the rest of " +
 		"the commit"
-	firstAttemptDisagreed := store.TaskBuild{
-		Stage: StageImplement, Base: reproBase, Attempt: 2, RedRun: "red-run", Failure: disagreement,
-	}
 	ended := func(exit int, timedOut bool, notRun string) *store.NodeCheck {
 		return &store.NodeCheck{
 			ID: RunID(decideEpic, 3, unitRepro, 1, 2), State: store.NodeEnded,
@@ -92,7 +85,7 @@ func TestDecideGreenReproduction(t *testing.T) {
 			view: View{
 				Epic: decideEpic, Repro: ended(0, false, "no workdir"), Task: reproTask,
 			},
-			want: Action{Kind: ActMove, Next: firstAttemptSpent},
+			want: Action{Kind: ActFail, Reason: "green not captured: reproduction did not run: no workdir"},
 		},
 		{
 			name: "reproduction not run on the second attempt fails",
@@ -114,7 +107,7 @@ func TestDecideGreenReproduction(t *testing.T) {
 			view: View{
 				Epic: decideEpic, Repro: ended(0, false, ""), Task: reproTask,
 			},
-			want: Action{Kind: ActMove, Next: firstAttemptDisagreed},
+			want: Action{Kind: ActFail, Reason: disagreement},
 		},
 		{
 			name: "reproduction exit 0 on the second attempt fails",

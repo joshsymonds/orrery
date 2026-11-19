@@ -137,6 +137,8 @@ interface FakeServe {
   counts: Counts;
   streams: Streams;
   revisions: Map<string, bigint>;
+  // build is the page build Host.Status names, which a test moves as a deploy of serve would.
+  build: { served: string };
   // The unary calls answering now. The page's work after a step is done once none has been in flight for calmTurns.
   inFlight: () => number;
   feed: EventFeed;
@@ -146,6 +148,7 @@ function fakeServe(): FakeServe {
   const counts = noCounts();
   const streams: Streams = { events: 0, notices: 0, eventsOpened: 0, noticesOpened: 0 };
   const revisions = new Map(liveIds.map((id) => [id, 1n]));
+  const build = { served: "" };
   const feed = new EventFeed();
   let inFlight = 0;
   // counted counts one call under name, and holds it in flight across one promise turn, as a real answer would be.
@@ -204,7 +207,7 @@ function fakeServe(): FakeServe {
       history: () => ({ entries: [], next: "" }),
     });
     router.service(Host, {
-      status: () => counted("hostStatus", () => ({ host: "den", stats: [] })),
+      status: () => counted("hostStatus", () => ({ host: "den", stats: [], pageBuild: build.served })),
     });
     router.service(Notices, {
       watch: async function* (_request, context) {
@@ -220,7 +223,7 @@ function fakeServe(): FakeServe {
     router.service(Presence, { report: () => ({}) });
     router.service(Control, { seen: () => ({}) });
   });
-  return { clients: createClients(transport), counts, streams, revisions, inFlight: () => inFlight, feed };
+  return { clients: createClients(transport), counts, streams, revisions, build, inFlight: () => inFlight, feed };
 }
 
 // FakeVisibility is the window the page reads its visibility from: visible or hidden as the test sets it, with a
@@ -461,5 +464,134 @@ test("RefreshLoad: a tick asks Epics.Get for exactly the live epic whose revisio
     assert.deepEqual(minus(serve.counts, settled), counts(1, 0, 0, 1), "the tick after, with no revision moved");
   } finally {
     await teardown();
+  }
+});
+
+// The live shape orreryd's metrics showed: the running steps of live epics change state many times a minute, and each
+// such event lists the epics again. An epic whose listed message is unchanged is never asked for, however many lists
+// its steps' events cause, so the events cost one Epics.List each and no Epics.Get.
+test("RefreshLoad: step-session events list the epics again and ask Epics.Get for no unchanged epic", async (t) => {
+  mockTimers(t, ["setTimeout", "setInterval", "Date"]);
+  const window = installTestDom();
+  const root = document.createElement("div");
+  const serve = fakeServe();
+  const visibility = fakeVisibility();
+  let stop: () => void = () => {};
+  const teardown = teardownOnce(t.signal, async () => {
+    stop();
+    await removeTestDom(window);
+  });
+  try {
+    stop = start(root, serve.clients, pollMs, 600_000, visibility.win);
+    await until(t.signal, () => root.querySelector('[data-key="epic:repo-a/e1"]') !== null, "the epics", {
+      step: () => act(turn),
+    });
+    await calm(t, serve);
+    const before = { ...serve.counts };
+    // Forty step-state events, one every 250 ms across ten seconds, each from the running step of a live epic.
+    let seq = 8n;
+    for (let event = 0; event < 40; event++) {
+      const step = `${liveIds[event % liveIds.length]}-step`;
+      serve.feed.push({ seq, sessionId: step, event: { case: "engineChanged", value: { state: "working" } } });
+      seq++;
+      await calm(t, serve);
+      t.mock.timers.tick(250);
+      await calm(t, serve);
+    }
+    // Each event lists the epics once after its 100 ms wait, and each of the two 5 s ticks lists them once more.
+    assert.deepEqual(minus(serve.counts, before), counts(42, 0, 0, 2), "the ten seconds of step events");
+  } finally {
+    await teardown();
+  }
+});
+
+// typeInto sets box's text as the owner typing would, with the input event that bubbles to the page's root.
+function typeInto(box: HTMLTextAreaElement, text: string): void {
+  box.value = text;
+  box.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+// openOnAgent starts the page on the agent's session, whose reader holds a composer, with page as its build and
+// reload, and waits until its first loads have settled. It returns the composer's text box.
+async function openOnAgent(
+  t: TestContext,
+  serve: FakeServe,
+  visibility: FakeVisibility,
+  root: HTMLElement,
+  page: { build: string; reload: () => void },
+): Promise<{ stop: () => void; box: HTMLTextAreaElement }> {
+  window.history.replaceState(null, "", `#/attention/session/${agentId}`);
+  const stop = start(root, serve.clients, pollMs, 600_000, visibility.win, page);
+  await until(t.signal, () => root.querySelector("textarea") !== null, "the composer", { step: () => act(turn) });
+  await calm(t, serve);
+  const box = root.querySelector("textarea");
+  assert.ok(box !== null, "the composer's text box");
+  return { stop, box };
+}
+
+// A deploy of serve moves the page build Host.Status names. The page that an earlier serve sent waits while the owner
+// can see it, and while its composer holds a draft, and reloads once at the first moment it is hidden with no draft.
+test("RefreshLoad: a page whose build is not serve's reloads once it is hidden and holds no draft", async (t) => {
+  mockTimers(t, ["setTimeout", "setInterval", "Date"]);
+  const window = installTestDom();
+  const root = document.createElement("div");
+  const serve = fakeServe();
+  const visibility = fakeVisibility();
+  let reloads = 0;
+  let stop: () => void = () => {};
+  const teardown = teardownOnce(t.signal, async () => {
+    stop();
+    await removeTestDom(window);
+  });
+  try {
+    serve.build.served = "build-b";
+    let box: HTMLTextAreaElement;
+    ({ stop, box } = await openOnAgent(t, serve, visibility, root, { build: "build-a", reload: () => reloads++ }));
+    assert.equal(reloads, 0, "a visible page that learned it is stale");
+    await act(() => typeInto(box, "a draft"));
+    visibility.set("hidden");
+    t.mock.timers.tick(pollMs);
+    await calm(t, serve);
+    assert.equal(reloads, 0, "a hidden page holding a draft, through a tick");
+    await act(() => typeInto(box, ""));
+    assert.equal(reloads, 1, "the draft cleared while hidden");
+    visibility.set("visible");
+    visibility.set("hidden");
+    t.mock.timers.tick(pollMs);
+    await calm(t, serve);
+    assert.equal(reloads, 1, "a page reloads once");
+  } finally {
+    await teardown();
+  }
+});
+
+test("RefreshLoad: a page whose build is serve's, or that serve names no build for, never reloads", async (t) => {
+  for (const served of ["build-a", ""]) {
+    await t.test(`serve names ${JSON.stringify(served)}`, async (t) => {
+      mockTimers(t, ["setTimeout", "setInterval", "Date"]);
+      const window = installTestDom();
+      const root = document.createElement("div");
+      const serve = fakeServe();
+      const visibility = fakeVisibility();
+      let reloads = 0;
+      let stop: () => void = () => {};
+      const teardown = teardownOnce(t.signal, async () => {
+        stop();
+        await removeTestDom(window);
+      });
+      try {
+        serve.build.served = served;
+        ({ stop } = await openOnAgent(t, serve, visibility, root, { build: "build-a", reload: () => reloads++ }));
+        visibility.set("hidden");
+        t.mock.timers.tick(pollMs);
+        await calm(t, serve);
+        visibility.set("visible");
+        await calm(t, serve);
+        visibility.set("hidden");
+        assert.equal(reloads, 0);
+      } finally {
+        await teardown();
+      }
+    });
   }
 });

@@ -101,7 +101,7 @@ func TestOpenCreatesPrivateStoreAndMigrates(t *testing.T) {
 		}
 	}
 
-	if _, err := s.db.ExecContext(ctx, `INSERT INTO sessions (id, server, pane) VALUES ('s1', '', '%1')`); err != nil {
+	if _, err := s.fixtureExec(ctx, `INSERT INTO sessions (id, server, pane) VALUES ('s1', '', '%1')`); err != nil {
 		t.Fatalf("insert session: %v", err)
 	}
 	for _, suffix := range []string{"-wal", "-shm"} {

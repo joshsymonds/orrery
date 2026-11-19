@@ -98,6 +98,14 @@ func (d *heldDaemon) AnswerEpic(
 	return connect.NewResponse(&v1.AnswerEpicResponse{}), nil
 }
 
+// GetEpic answers at once: epic_answer reads the epic's phase with it after AnswerEpic returns, and no test holds
+// a read.
+func (d *heldDaemon) GetEpic(
+	_ context.Context, _ *connect.Request[v1.GetEpicRequest],
+) (*connect.Response[v1.GetEpicResponse], error) {
+	return connect.NewResponse(&v1.GetEpicResponse{Epic: &v1.StoredEpic{}}), nil
+}
+
 func (d *heldDaemon) PauseEpic(
 	ctx context.Context, _ *connect.Request[v1.PauseEpicRequest],
 ) (*connect.Response[v1.PauseEpicResponse], error) {

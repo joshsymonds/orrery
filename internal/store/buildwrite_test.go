@@ -6,7 +6,6 @@ import (
 	"errors"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 
@@ -176,41 +175,6 @@ func storedState(t *testing.T, raw *sql.DB) map[string][][]any {
 	}
 }
 
-func TestFailTaskStoresFailedStatusCutFailureAndPendingTrigger(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, raw := openBuildStore(ctx, t)
-
-	// The reason's 1024th byte is the first byte of the two-byte é, so the cut stops before the é.
-	cut := strings.Repeat("a", store.TurnReasonMax-1)
-	reason := cut + "é" + "tail"
-	if err := s.FailTask(ctx, buildEpic, 1, store.TaskBuild{}, reason, nil, writtenAt()); err != nil {
-		t.Fatalf("FailTask: %v", err)
-	}
-
-	task := buildTaskOf(ctx, t, s)
-	if task.Status != "failed" {
-		t.Errorf("task status = %q, want failed", task.Status)
-	}
-	if task.Build.Failure != cut {
-		t.Errorf("task failure is %d bytes, want the %d-byte cut", len(task.Build.Failure), len(cut))
-	}
-
-	want := [][]any{{buildEpic, "T1-failed", "task T1 failed: " + cut, "pending", int64(0), writtenAt().Unix()}}
-	got := rawRows(t, raw, `SELECT * FROM epic_triggers WHERE epic = ? AND id = ?`, buildEpic, "T1-failed")
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("trigger rows = %v, want %v", got, want)
-	}
-
-	states, err := s.PlanStates(ctx)
-	if err != nil {
-		t.Fatalf("PlanStates: %v", err)
-	}
-	if len(states) != 1 || states[0].Epic != buildEpic || states[0].Pending != 1 {
-		t.Errorf("PlanStates = %+v, want one epic with one pending trigger", states)
-	}
-}
-
 func TestAcceptTaskStoresDoneAndTheReview(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -372,8 +336,10 @@ type movedWrite struct {
 func movedWrites() []movedWrite {
 	ctx := context.Background()
 	return []movedWrite{
-		{name: "FailTask", run: func(s *store.Store, from store.TaskBuild) error {
-			return s.FailTask(ctx, buildEpic, 1, from, "late failure", nil, writtenAt())
+		{name: "ClimbTask", run: func(s *store.Store, from store.TaskBuild) error {
+			to := store.ClimbedBuild(from, store.RungOf(from)+1, "late failure")
+			return s.ClimbTask(ctx, buildEpic, 1, from, to,
+				store.RungMove{MovedBy: store.MovedByUnit, Cause: "late failure"}, nil, nil, writtenAt())
 		}},
 		{name: "AcceptTask", run: func(s *store.Store, from store.TaskBuild) error {
 			return s.AcceptTask(ctx, buildEpic, 1, from, "reviewed")
@@ -417,18 +383,19 @@ func TestTaskWritesOnADoneOrFailedTaskReturnErrTaskMovedAndWriteNothing(t *testi
 	ctx := context.Background()
 	closers := []struct {
 		name  string
-		close func(t *testing.T, s *store.Store)
+		close func(t *testing.T, s *store.Store, raw *sql.DB)
 	}{
-		{name: "done", close: func(t *testing.T, s *store.Store) {
+		{name: "done", close: func(t *testing.T, s *store.Store, _ *sql.DB) {
 			t.Helper()
 			if err := s.AcceptTask(ctx, buildEpic, 1, openBuildOf(), "reviewed"); err != nil {
 				t.Fatalf("AcceptTask: %v", err)
 			}
 		}},
-		{name: "failed", close: func(t *testing.T, s *store.Store) {
+		{name: "failed", close: func(t *testing.T, _ *store.Store, raw *sql.DB) {
 			t.Helper()
-			if err := s.FailTask(ctx, buildEpic, 1, openBuildOf(), "red failed", nil, writtenAt()); err != nil {
-				t.Fatalf("FailTask: %v", err)
+			if _, err := raw.ExecContext(ctx,
+				`UPDATE epic_tasks SET status = 'failed' WHERE epic = ? AND seq = 1`, buildEpic); err != nil {
+				t.Fatalf("set task 1 failed: %v", err)
 			}
 		}},
 	}
@@ -440,7 +407,7 @@ func TestTaskWritesOnADoneOrFailedTaskReturnErrTaskMovedAndWriteNothing(t *testi
 				if err := s.SetTaskBuild(ctx, buildEpic, 1, store.TaskBuild{}, openBuildOf()); err != nil {
 					t.Fatalf("SetTaskBuild: %v", err)
 				}
-				closer.close(t, s)
+				closer.close(t, s, raw)
 				// The stored build is the one the task closed with, so only its status can refuse the write.
 				from := buildTaskOf(ctx, t, s).Build
 				before := storedState(t, raw)

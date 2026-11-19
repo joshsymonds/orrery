@@ -489,6 +489,16 @@ func (g crashGit) MoveWorktree(ctx context.Context, path, wip, to string) error 
 	})
 }
 
+func (g crashGit) KeepWork(ctx context.Context, path, wip, ref string) (string, error) {
+	var commit string
+	err := g.w.act("keep work", func() error {
+		var keepErr error
+		commit, keepErr = KeepWork(ctx, path, wip, ref)
+		return wrapErr("keep work", keepErr)
+	})
+	return commit, err
+}
+
 func (g crashGit) RemoveWorktrees(ctx context.Context, repo, dir string) error {
 	return g.w.act("git worktree remove", func() error {
 		return wrapErr("remove worktrees", RemoveWorktrees(ctx, repo, dir))
@@ -647,11 +657,12 @@ func (s crashStore) SetTaskBuildGateChanges(
 	})
 }
 
-func (s crashStore) FailTask(
-	ctx context.Context, epic string, seq int64, from store.TaskBuild, reason string, needsFiles []string, at time.Time,
+func (s crashStore) ClimbTask(
+	ctx context.Context, epic string, seq int64, from, to store.TaskBuild, move store.RungMove,
+	version *store.TaskVersionInput, decision *store.TaskDecision, at time.Time,
 ) error {
-	return s.w.act("FailTask", func() error {
-		return wrapErr("fail task", s.Store.FailTask(ctx, epic, seq, from, reason, needsFiles, at))
+	return s.w.act("ClimbTask", func() error {
+		return wrapErr("climb task", s.Store.ClimbTask(ctx, epic, seq, from, to, move, version, decision, at))
 	})
 }
 
@@ -661,15 +672,6 @@ func (s crashStore) GrantTaskFiles(
 ) error {
 	return s.w.act("GrantTaskFiles", func() error {
 		return wrapErr("grant files", s.Store.GrantTaskFiles(ctx, epic, seq, from, to, grant, at))
-	})
-}
-
-func (s crashStore) FailTaskDecided(
-	ctx context.Context, epic string, seq int64, from store.TaskBuild, reason string, needsFiles []string,
-	decision store.TaskDecision, at time.Time,
-) error {
-	return s.w.act("FailTaskDecided", func() error {
-		return wrapErr("fail task", s.Store.FailTaskDecided(ctx, epic, seq, from, reason, needsFiles, decision, at))
 	})
 }
 

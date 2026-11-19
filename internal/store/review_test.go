@@ -113,7 +113,7 @@ func TestEpicReviewReadsStoredRows(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openIntegrateStore(t)
-	queries := sqlcgen.New(s.db)
+	queries := s.fixtureQueries()
 	if err := queries.InsertEpicReview(ctx, sqlcgen.InsertEpicReviewParams{
 		Epic: integrateEpic, Frozen: "rev-7",
 	}); err != nil {

@@ -81,7 +81,7 @@ func (s *Store) CheckNodeRefs(
 }
 
 // parkCheckedRun parks the running run at path of epic at attempt, parks epic with park and adds park as a tell, then
-// adds each of tells, in the caller's write.
+// adds each of tells, in the caller's write. The park question it opens names the run.
 func parkCheckedRun(
 	ctx context.Context, queries *sqlcgen.Queries, epic, path string, attempt int64, park string, tells []string,
 	at time.Time,
@@ -92,7 +92,12 @@ func parkCheckedRun(
 	}); err != nil {
 		return fmt.Errorf("park node run %s of epic %s: %w", path, epic, err)
 	}
-	if err := parkEpicAs(ctx, queries, epic, ParkClassRefMove, path, park, at); err != nil {
+	question, err := parkEpicQuestion(ctx, queries, epic, ParkClassRefMove, path, park, at)
+	if err != nil {
+		return err
+	}
+	err = insertParkQuestionRun(ctx, queries, epic, question, path)
+	if err != nil {
 		return err
 	}
 	return insertTells(ctx, queries, epic, tells, at)
@@ -112,7 +117,8 @@ func (s *Store) ParkNode(
 }
 
 // parkNodeRun parks the running run at path of epic at attempt with outcome and output, and parks epic with reason as
-// class, in the caller's write.
+// class, in the caller's write. When the park opens a park question, as an owner class does and a planner park at the
+// bound of its chain does, the question names the run.
 func parkNodeRun(
 	ctx context.Context, queries *sqlcgen.Queries, epic, path string, attempt int64, outcome, output string,
 	class ParkClass, reason string, at time.Time,
@@ -121,7 +127,24 @@ func parkNodeRun(
 	if err != nil || !parked {
 		return err
 	}
-	return parkEpicAs(ctx, queries, epic, class, path, reason, at)
+	question, err := parkEpicQuestion(ctx, queries, epic, class, path, reason, at)
+	if err != nil || question == 0 {
+		return err
+	}
+	return insertParkQuestionRun(ctx, queries, epic, question, path)
+}
+
+// insertParkQuestionRun stores that the park question with seq question of epic names the run at path, in the caller's
+// write.
+func insertParkQuestionRun(
+	ctx context.Context, queries *sqlcgen.Queries, epic string, question int64, path string,
+) error {
+	if err := queries.InsertEpicParkQuestionRun(ctx, sqlcgen.InsertEpicParkQuestionRunParams{
+		Epic: epic, Question: question, Path: path,
+	}); err != nil {
+		return fmt.Errorf("store the run of park question %d of epic %s: %w", question, epic, err)
+	}
+	return nil
 }
 
 // parkRunningRun parks the running run at path of epic at attempt with outcome and output, in the caller's write, and
@@ -139,13 +162,14 @@ func parkRunningRun(
 }
 
 // rerunParkedRun turns the parked run at path of epic running at its next attempt, in the caller's write, with its work
-// cleared as retryParkedNode clears it. A top-level node's path is its node id, which RetryEpicNode names. A run that is
-// not parked changes nothing.
-func rerunParkedRun(ctx context.Context, queries *sqlcgen.Queries, epic, path string) error {
-	if _, err := queries.RetryEpicNode(ctx, sqlcgen.RetryEpicNodeParams{Epic: epic, Node: path}); err != nil {
-		return fmt.Errorf("rerun node run %s of epic %s: %w", path, epic, err)
+// cleared as retryParkedNode clears it. It reports whether it reran a run: a run that is not parked, and a loop, which
+// RetryEpic grants a round instead, change nothing.
+func rerunParkedRun(ctx context.Context, queries *sqlcgen.Queries, epic, path string) (bool, error) {
+	rerun, err := queries.RetryEpicNodeRun(ctx, sqlcgen.RetryEpicNodeRunParams{Epic: epic, Path: path})
+	if err != nil {
+		return false, fmt.Errorf("rerun node run %s of epic %s: %w", path, epic, err)
 	}
-	return nil
+	return rerun != 0, nil
 }
 
 // EndNodesWaking ends each running node run of epic at the path of ends with its outcome and output, and adds trigger
@@ -173,31 +197,41 @@ const (
 	nodePassedOutcome = "passed"
 )
 
-// RetryNode reruns node of epic under its next attempt and unparks epic, in one write. Each parked run of node turns
-// running with its outcome, output, revision, refs, refs checked, result and end cleared. When node has no parked run
-// and its latest integrate run ended failed, that run turns running with its outcome, output, refs checked and end
-// cleared, keeping its revision and result, so its work decides again on the same candidate. The latest integrate run
-// is the one in the newest settle walk of the plan (latestIntegrateRun). The park ends as RetryEpic ends it, and each
-// open park question of epic is answered retry. A node with nothing to rerun is a RefusalError, and so is an epic
-// parked for good, which changes nothing. So is the release node, which only ReleaseEpic resumes: retried here, it would
-// run while the phase stays stopped and wait for good.
+// RetryNode reruns node of epic under its next attempt and unparks epic, in one write. node names either a run, by the
+// path a park reason gives it, or a node, by its id. A parked run whose path is node turns running on its own.
+// Otherwise each parked run of node turns running with its outcome, output, revision, refs, refs checked, result and
+// end cleared. When node has no parked run and its latest integrate run ended failed, that run turns running with its
+// outcome, output, refs checked and end cleared, keeping its revision and result, so its work decides again on the same
+// candidate. The latest integrate run is the one in the newest settle walk of the plan (latestIntegrateRun). The park
+// ends as RetryEpic ends it, and each open park question of epic is answered retry. A node with nothing to rerun is a
+// RefusalError, and so is an epic parked for good, which changes nothing. So is the release node, which only
+// ReleaseEpic resumes: retried here, it would run while the phase stays stopped and wait for good.
 func (s *Store) RetryNode(ctx context.Context, epic, node string) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		return rerunNodeIn(ctx, queries, epic, node)
 	})
 }
 
-// rerunNodeIn reruns node of epic in the caller's write, as RetryNode does.
+// rerunNodeIn reruns node of epic in the caller's write, as RetryNode does. The parked run whose path is node is rerun
+// alone when there is one. Otherwise node is a node id, and its parked runs, or its latest failed integrate run, are
+// rerun.
 func rerunNodeIn(ctx context.Context, queries *sqlcgen.Queries, epic, node string) error {
 	runs, err := readNodeRuns(ctx, queries, epic)
 	if err != nil {
 		return err
 	}
 	for _, run := range runs {
-		if run.Node == node && run.Kind == releaseKind {
+		if run.Kind == releaseKind && (run.Node == node || run.Path == node) {
 			return RefusalError(fmt.Sprintf(
 				"node %s of epic %s is the release; resume it with orrery epic release %s", node, epic, epic))
 		}
+	}
+	rerun, err := rerunParkedRun(ctx, queries, epic, node)
+	if err != nil {
+		return err
+	}
+	if rerun {
+		return unparkRetried(ctx, queries, epic)
 	}
 	parked, err := retryParkedNode(ctx, queries, epic, node)
 	if err != nil || parked {

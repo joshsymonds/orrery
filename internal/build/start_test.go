@@ -672,7 +672,7 @@ func TestStartImplementerLaterAttemptKeepsTheEarlierWork(t *testing.T) {
 	}
 	worktree := ImplementWorktree(setup.stateDir, setup.epic.ID, task.Seq)
 	earlier := buildCommit(t, worktree)
-	task.Build.Attempt = lastAttempt
+	task.Build.Attempt = 2
 	second := StepID(setup.epic.ID, task.Seq, StageImplement, task.Build.Attempt, task.Build.Rerun, 0, 0)
 	if _, err := runner.startStep(context.Background(), setup.epic, View{Task: task},
 		Action{Kind: ActStartStep, Unit: StageImplement, ID: second}); err != nil {

@@ -13,7 +13,7 @@ import (
 // insertPendingTrigger stores a pending trigger with id and cause on epic, as a later planner trigger would.
 func insertPendingTrigger(t *testing.T, s *Store, epic, id, cause string) {
 	t.Helper()
-	if err := sqlcgen.New(s.db).InsertEpicTrigger(context.Background(), sqlcgen.InsertEpicTriggerParams{
+	if err := s.fixtureQueries().InsertEpicTrigger(context.Background(), sqlcgen.InsertEpicTriggerParams{
 		Epic: epic, ID: id, Cause: cause, State: "pending", Turn: 0, Created: epicCreated().Unix(),
 	}); err != nil {
 		t.Fatalf("insert trigger %s of %s: %v", id, epic, err)

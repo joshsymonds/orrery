@@ -419,15 +419,19 @@ func TestGateReadoptOfGateKilledAtItsLimitReturnsTimedOut(t *testing.T) {
 	stateDir := gateShortStateDir(t)
 	counter := filepath.Join(t.TempDir(), "counter")
 	pools := &fakeGatePools{}
+	limit := gateLimitFIFO(t)
 	run := gateRun{
-		Argv:     []string{"/bin/sh", "-c", `echo 1 > "$COUNTER"; sleep 60`},
-		Dir:      t.TempDir(),
-		Limit:    time.Second,
-		Name:     "limited",
-		StateDir: stateDir,
-		Environ:  gateEnv("COUNTER=" + counter),
+		Argv:        []string{"/bin/sh", "-c", `echo 1 > "$COUNTER"; sleep 60`},
+		Dir:         t.TempDir(),
+		Limit:       time.Hour,
+		limitSignal: limit,
+		Name:        "limited",
+		StateDir:    stateDir,
+		Environ:     gateEnv("COUNTER=" + counter),
 	}
 	gateDetachedRun(t, pools, run, counter)
+	// The gate is detached and its holder still runs, so the signal reaches the limit it is watching.
+	gateSignalLimit(t, limit)
 	dir := filepath.Join(stateDir, "holders", "limited")
 	ended := gateWaitExit(t, dir)
 	gateWaitLockFree(t, dir)

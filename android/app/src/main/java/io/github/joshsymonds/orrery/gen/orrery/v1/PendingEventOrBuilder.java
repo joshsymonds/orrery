@@ -132,45 +132,25 @@ public interface PendingEventOrBuilder extends
 
   /**
    * <pre>
-   * The step's reason, for a step_end.
+   * The step's brief, for a step_end: its lines joined by newlines, exactly the body of its step_end block before
+   * escaping, at most 1000 bytes. It ends with the More line that names step_result.
    * </pre>
    *
-   * <code>string reason = 7 [json_name = "reason"];</code>
-   * @return The reason.
+   * <code>string brief = 8 [json_name = "brief"];</code>
+   * @return The brief.
    */
-  java.lang.String getReason();
+  java.lang.String getBrief();
   /**
    * <pre>
-   * The step's reason, for a step_end.
+   * The step's brief, for a step_end: its lines joined by newlines, exactly the body of its step_end block before
+   * escaping, at most 1000 bytes. It ends with the More line that names step_result.
    * </pre>
    *
-   * <code>string reason = 7 [json_name = "reason"];</code>
-   * @return The bytes for reason.
+   * <code>string brief = 8 [json_name = "brief"];</code>
+   * @return The bytes for brief.
    */
   com.google.protobuf.ByteString
-      getReasonBytes();
-
-  /**
-   * <pre>
-   * The headline of the step's result, for a step_end: its answer, summary or verdict string field when the result is a
-   * JSON object that has one, in that order, else the result's first line.
-   * </pre>
-   *
-   * <code>string summary = 8 [json_name = "summary"];</code>
-   * @return The summary.
-   */
-  java.lang.String getSummary();
-  /**
-   * <pre>
-   * The headline of the step's result, for a step_end: its answer, summary or verdict string field when the result is a
-   * JSON object that has one, in that order, else the result's first line.
-   * </pre>
-   *
-   * <code>string summary = 8 [json_name = "summary"];</code>
-   * @return The bytes for summary.
-   */
-  com.google.protobuf.ByteString
-      getSummaryBytes();
+      getBriefBytes();
 
   /**
    * <pre>
@@ -235,24 +215,4 @@ public interface PendingEventOrBuilder extends
    */
   com.google.protobuf.ByteString
       getWaitsBytes();
-
-  /**
-   * <pre>
-   * The step's full result, for a step_end.
-   * </pre>
-   *
-   * <code>string result = 12 [json_name = "result"];</code>
-   * @return The result.
-   */
-  java.lang.String getResult();
-  /**
-   * <pre>
-   * The step's full result, for a step_end.
-   * </pre>
-   *
-   * <code>string result = 12 [json_name = "result"];</code>
-   * @return The bytes for result.
-   */
-  com.google.protobuf.ByteString
-      getResultBytes();
 }

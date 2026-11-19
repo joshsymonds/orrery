@@ -50,11 +50,17 @@ func TestOrchestratorActionIsCarriedOutByTheNextPass(t *testing.T) {
 	if err = runner.complete(ctx, runnerEpicID, turn.Seq, failTaskPlan); err != nil {
 		t.Fatalf("complete turn 1: %v", err)
 	}
+	before := epicOf(t, s).Tasks[0].Build
 	runner.Pass(ctx)
 
 	epic := epicOf(t, s)
-	if status := epic.Tasks[0].Status; status != taskFailed {
-		t.Errorf("status of task 1 after the pass = %q, want %q", status, taskFailed)
+	task := epic.Tasks[0]
+	if task.Status != "open" || task.Build.Attempt != store.RungOf(before)+1 {
+		t.Errorf("task 1 after the pass = status %q attempt %d, want open at attempt %d",
+			task.Status, task.Build.Attempt, store.RungOf(before)+1)
+	}
+	if n := len(task.Rungs); n == 0 || task.Rungs[n-1].MovedBy != store.MovedByFailTask {
+		t.Errorf("rungs of task 1 after the pass = %+v, want a rung moved by fail_task", task.Rungs)
 	}
 	want := []store.EpicDecision{{
 		Seq: 1, ID: "action-1-1", Text: "planner fail task 1: the build cannot reach the store", Time: claimedAt(),

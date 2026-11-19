@@ -6,8 +6,6 @@ import (
 	"errors"
 	"testing"
 	"time"
-
-	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
 // closeNext is the epic a superseded close names as the epic that replaces the closed one.
@@ -159,7 +157,7 @@ func TestCloseEpicFreesTheHeldReleaseSlot(t *testing.T) {
 	if _, err := s.TakeReleaseSlot(ctx, claimEpic, claimedAt()); err != nil {
 		t.Fatalf("TakeReleaseSlot: %v", err)
 	}
-	holder, err := sqlcgen.New(s.db).GetEpicReleaseSlotHolder(ctx, row.Repository)
+	holder, err := s.fixtureQueries().GetEpicReleaseSlotHolder(ctx, row.Repository)
 	if err != nil || holder != claimEpic {
 		t.Fatalf("slot holder before the close = %q, %v; want %s", holder, err, claimEpic)
 	}
@@ -167,7 +165,7 @@ func TestCloseEpicFreesTheHeldReleaseSlot(t *testing.T) {
 	if _, err = s.CloseEpic(ctx, claimEpic, "abandoned", "", CloserOwner, closeAt()); err != nil {
 		t.Fatalf("CloseEpic: %v", err)
 	}
-	if _, err = sqlcgen.New(s.db).GetEpicReleaseSlotHolder(ctx, row.Repository); !errors.Is(err, sql.ErrNoRows) {
+	if _, err = s.fixtureQueries().GetEpicReleaseSlotHolder(ctx, row.Repository); !errors.Is(err, sql.ErrNoRows) {
 		t.Errorf("slot holder after the close: err %v, want no holder", err)
 	}
 }
@@ -248,7 +246,7 @@ func epicIDsOf(rows []EpicRow) []string {
 // lastTellText returns the text of the newest tell of epic.
 func lastTellText(t *testing.T, s *Store, epic string) string {
 	t.Helper()
-	tells, err := sqlcgen.New(s.db).ListEpicTells(context.Background(), epic)
+	tells, err := s.fixtureQueries().ListEpicTells(context.Background(), epic)
 	if err != nil || len(tells) == 0 {
 		t.Fatalf("tells of %s = %v, %v; want at least one", epic, tells, err)
 	}

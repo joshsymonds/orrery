@@ -152,7 +152,7 @@ func TestSecondCompleteTurnContinuesTaskAndQuestionSeqs(t *testing.T) {
 		t.Fatalf("first CompleteTurn: %v", err)
 	}
 
-	if err := sqlcgen.New(s.db).InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
+	if err := s.fixtureQueries().InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
 		Epic: id, ID: "t3", Cause: "later trigger", State: "pending", Turn: 0, Created: epicCreated().Unix(),
 	}); err != nil {
 		t.Fatalf("insert trigger t3: %v", err)
@@ -273,7 +273,7 @@ func TestFailedCompleteTurnLeavesNoTaskQuestionOrConsumedTrigger(t *testing.T) {
 	}
 	// A decision already stored at position 2 makes the second decision of the return collide with it.
 	const storedFirst = `INSERT INTO epic_turn_decisions (epic, turn, position, text) VALUES (?, 1, 2, 'stored first')`
-	if _, err := s.db.Exec(storedFirst, id); err != nil {
+	if _, err := s.fixtureExec(context.Background(), storedFirst, id); err != nil {
 		t.Fatalf("insert colliding decision: %v", err)
 	}
 	before := planRowsOf(t, s)

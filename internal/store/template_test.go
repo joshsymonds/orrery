@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/pressly/goose/v3"
+	"modernc.org/sqlite"
 )
 
 // storeImages are the store files the tests start from, each made once per test binary on first use. Migrating a
@@ -140,12 +141,27 @@ func migrationProvider(t *testing.T, db *sql.DB) *goose.Provider {
 // migration of its own: the test moves it with the provider. Its database is closed at the end of the test.
 func storeAtVersion(t *testing.T, version int64) (*Store, *goose.Provider) {
 	t.Helper()
-	db := openStoreAtVersion(t, filepath.Join(t.TempDir(), "orrery.db"), version)
+	path := filepath.Join(t.TempDir(), "orrery.db")
+	if err := openStoreAtVersion(t, path, version).Close(); err != nil {
+		t.Fatalf("close fixture at version %d: %v", version, err)
+	}
+	// The store runs over the store's own connector, so its writes run as Open's do, but reads no epic tables: the
+	// schema at version may hold no epic_revisions, so its writes move no revision.
+	inner, err := sqlite.NewConnector(path + "?_synchronous=OFF")
+	if err != nil {
+		t.Fatalf("open store at version %d: %v", version, err)
+	}
+	connector := &trackedConnector{inner: inner}
+	db := sql.OpenDB(connector)
+	db.SetMaxOpenConns(1)
 	t.Cleanup(func() {
 		if err := db.Close(); err != nil {
 			t.Errorf("close store at version %d: %v", version, err)
 		}
 	})
-	s := &Store{db: &pool{DB: db, slow: &slowCalls{now: time.Now, logger: slog.New(slog.DiscardHandler)}}}
+	s := &Store{
+		db:        &pool{DB: db, slow: &slowCalls{now: time.Now, logger: slog.New(slog.DiscardHandler)}},
+		connector: connector,
+	}
 	return s, migrationProvider(t, db)
 }

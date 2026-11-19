@@ -292,7 +292,7 @@ func assertionsDownAndUp() migrationCheck {
 					[]any{id, captured}},
 			}
 			for _, seed := range seeds {
-				if _, err := s.db.ExecContext(ctx, seed.stmt, seed.args...); err != nil {
+				if _, err := s.fixtureExec(ctx, seed.stmt, seed.args...); err != nil {
 					t.Fatalf("seed version 37: %v", err)
 				}
 			}

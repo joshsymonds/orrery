@@ -59,7 +59,7 @@ func dueRowCount(t *testing.T, s *Store) int {
 // pauseSourceOf returns the pause source of claimEpic as the store reads it.
 func pauseSourceOf(t *testing.T, s *Store) string {
 	t.Helper()
-	head, err := sqlcgen.New(s.db).GetEpic(context.Background(), claimEpic)
+	head, err := s.fixtureQueries().GetEpic(context.Background(), claimEpic)
 	if err != nil {
 		t.Fatalf("GetEpic %s: %v", claimEpic, err)
 	}
@@ -99,7 +99,7 @@ func TestLimitedTurnWithAKnownResetPausesWithSourceLimitAndStoresTheEpicDueRow(t
 	if got := dueIDs(t, s); !reflect.DeepEqual(got, []string{dueEpicA}) {
 		t.Fatalf("due rows after a limit with a known reset = %v, want [%s]", got, dueEpicA)
 	}
-	row, err := sqlcgen.New(s.db).GetDueResume(context.Background(), dueEpicA)
+	row, err := s.fixtureQueries().GetDueResume(context.Background(), dueEpicA)
 	if err != nil {
 		t.Fatalf("GetDueResume: %v", err)
 	}
@@ -203,7 +203,7 @@ func TestEmptySourcePauseMadeWhileTurnRunsWinsOverALimitWithAKnownReset(t *testi
 	createEpic(t, s, fullEpic(claimEpic))
 	turn := claimTurnOf(t, s)
 	// A pause stored before pause sources were recorded has an empty source.
-	if err := sqlcgen.New(s.db).PauseEpic(context.Background(), claimEpic); err != nil {
+	if err := s.fixtureQueries().PauseEpic(context.Background(), claimEpic); err != nil {
 		t.Fatalf("PauseEpic query: %v", err)
 	}
 	freeLimitOf(t, s, turn, time.Unix(dueResetA, 0))

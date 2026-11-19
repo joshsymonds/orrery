@@ -52,96 +52,85 @@ func claimBatchTasks(ctx context.Context, queries *sqlcgen.Queries, epic, path s
 	return nil
 }
 
-// EndBatch ends the running run at path of epic at attempt with outcome and output, and settles the epic's bases by the
-// run's revision and result, in one write. A passed batch moves the stored base to its revision and clears the
-// candidate. A failed batch that composed a task sets the candidate to its revision, unless the revision is the stored
-// base (settleBatchBase). A non-nil trigger is added pending unless its id is stored. A run at another attempt and a
-// run that is not running change nothing, so a repeat adds no trigger.
-func (s *Store) EndBatch(
-	ctx context.Context, epic, path string, attempt int64, outcome, output string, trigger *NodeTrigger, at time.Time,
-) error {
+// BatchEnd is the end of an integrate run: the running run at Path, at Attempt, ends with Outcome and Output.
+// Candidate is the epic's candidate once the batch has ended, which the caller worked out with git: a commit that holds
+// Over, the stored base the caller read, and builds on it. For a passed batch Over is the run's revision, the stored
+// base it moves to, and an empty Candidate leaves the epic with none. For a failed batch Over is the stored base the
+// epic held, and an empty Candidate leaves the epic's candidate as it is.
+type BatchEnd struct {
+	Path      string
+	Attempt   int64
+	Outcome   string
+	Output    string
+	Candidate string
+	Over      string
+}
+
+// EndBatch ends the running run end names, and settles the epic's bases by the run's revision and end's candidate, in
+// one write (settleBatchBase). A non-nil trigger is added pending unless its id is stored. A run at another attempt and
+// a run that is not running change nothing, so a repeat adds no trigger.
+func (s *Store) EndBatch(ctx context.Context, epic string, end BatchEnd, trigger *NodeTrigger, at time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		ended, err := queries.EndEpicNodeRunAttempt(ctx, sqlcgen.EndEpicNodeRunAttemptParams{
-			Outcome: outcome, Ended: at.Unix(), Output: capNodeOutput(output), Epic: epic, Path: path, Attempt: attempt,
+			Outcome: end.Outcome, Ended: at.Unix(), Output: capNodeOutput(end.Output), Epic: epic, Path: end.Path,
+			Attempt: end.Attempt,
 		})
 		if err != nil {
-			return fmt.Errorf("end node run %s of epic %s: %w", path, epic, err)
+			return fmt.Errorf("end node run %s of epic %s: %w", end.Path, epic, err)
 		}
 		if ended == 0 {
 			return nil
 		}
-		run, err := queries.GetEpicNodeRun(ctx, sqlcgen.GetEpicNodeRunParams{Epic: epic, Path: path})
+		run, err := queries.GetEpicNodeRun(ctx, sqlcgen.GetEpicNodeRunParams{Epic: epic, Path: end.Path})
 		if err != nil {
-			return fmt.Errorf("read node run %s of epic %s: %w", path, epic, err)
+			return fmt.Errorf("read node run %s of epic %s: %w", end.Path, epic, err)
 		}
-		return settleEndedBatch(ctx, queries, epic, outcome, run, trigger, at)
+		if settleErr := settleBatchBase(ctx, queries, epic, end, run); settleErr != nil {
+			return settleErr
+		}
+		if trigger == nil {
+			return nil
+		}
+		return insertNodeTrigger(ctx, queries, epic, *trigger, at)
 	})
 }
 
-// settleEndedBatch settles the bases of epic for run, an integrate run that ended with outcome (settleBatchBase), then
-// adds trigger pending when it is not nil, in the caller's write.
-func settleEndedBatch(
-	ctx context.Context, queries *sqlcgen.Queries, epic, outcome string, run sqlcgen.EpicNodeRun, trigger *NodeTrigger,
-	at time.Time,
-) error {
-	if err := settleBatchBase(ctx, queries, epic, outcome, run); err != nil {
-		return err
-	}
-	if trigger == nil {
-		return nil
-	}
-	return insertNodeTrigger(ctx, queries, epic, *trigger, at)
-}
-
-// batchComposed is what settleBatchBase reads of the result an integrate run claims its batch with: the tasks compose
-// made into commits.
-type batchComposed struct {
-	Composed []json.RawMessage `json:"composed"`
-}
-
-// composedAny reports whether result, the result an integrate run claimed its batch with, names a task compose made
-// into a commit. A result that is not a JSON object names none.
-func composedAny(result string) bool {
-	var batch batchComposed
-	return json.Unmarshal([]byte(result), &batch) == nil && len(batch.Composed) > 0
-}
-
-// settleBatchBase moves the bases of epic for run, an integrate run that ended with outcome, in the caller's write. A
-// passed run moves the stored base to its revision and clears the candidate. A failed run sets the candidate to its
-// revision when it composed a task and the revision is not the stored base. A run that composed none has its batch
-// base as its revision, which is the candidate already or a stored base the epic has held: a sync of origin's main may
-// have moved the stored base past it since, and its retry ends failed again at once, so a candidate set to it would
-// hold the epic behind its stored base, where the next batch composes on it and its advance does not build on the
-// branch. A run with no revision moves nothing.
+// settleBatchBase moves the bases of epic for run, the integrate run end ends, in the caller's write. A passed run moves
+// the stored base to its revision and clears the candidate. The candidate is then set to end's candidate when there is
+// one and end's Over is the stored base the epic holds after the end: the caller checked with git that the candidate
+// holds and builds on that commit, so a candidate checked against a stored base the epic no longer holds is never
+// stored, and the candidate always builds on the stored base. A failed run moves nothing else, and a candidate that is
+// the stored base itself is no candidate. A run with no revision, an empty batch, moves nothing.
 func settleBatchBase(
-	ctx context.Context, queries *sqlcgen.Queries, epic, outcome string, run sqlcgen.EpicNodeRun,
+	ctx context.Context, queries *sqlcgen.Queries, epic string, end BatchEnd, run sqlcgen.EpicNodeRun,
 ) error {
 	if run.Revision == "" {
 		return nil
 	}
-	switch outcome {
+	head, err := epicHead(ctx, queries, epic)
+	if err != nil {
+		return err
+	}
+	storedBase := head.StoredBase
+	switch end.Outcome {
 	case "passed":
-		if err := queries.MoveEpicStoredBase(ctx, sqlcgen.MoveEpicStoredBaseParams{
+		if err = queries.MoveEpicStoredBase(ctx, sqlcgen.MoveEpicStoredBaseParams{
 			StoredBase: run.Revision, ID: epic,
 		}); err != nil {
 			return fmt.Errorf("move stored base of epic %s: %w", epic, err)
 		}
+		storedBase = run.Revision
 	case "failed":
-		if !composedAny(run.Result) {
-			return nil
-		}
-		head, err := epicHead(ctx, queries, epic)
-		if err != nil {
-			return err
-		}
-		if run.Revision == head.StoredBase {
-			return nil
-		}
-		if err = queries.SetEpicCandidate(ctx, sqlcgen.SetEpicCandidateParams{
-			Candidate: run.Revision, ID: epic,
-		}); err != nil {
-			return fmt.Errorf("set candidate of epic %s: %w", epic, err)
-		}
+	default:
+		return nil
+	}
+	if end.Candidate == "" || end.Over != storedBase || end.Candidate == storedBase {
+		return nil
+	}
+	if err = queries.SetEpicCandidate(ctx, sqlcgen.SetEpicCandidateParams{
+		Candidate: end.Candidate, ID: epic,
+	}); err != nil {
+		return fmt.Errorf("set candidate of epic %s: %w", epic, err)
 	}
 	return nil
 }

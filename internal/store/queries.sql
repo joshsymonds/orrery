@@ -360,6 +360,18 @@ ORDER BY steps.ended, steps.id;
 -- name: ListRunningCallerSteps :many
 SELECT * FROM steps WHERE end_value = '' AND caller = ? ORDER BY started, id;
 
+-- name: ListCallerStepListings :many
+SELECT * FROM step_listings
+WHERE step_listings.caller = sqlc.arg(caller)
+  AND (CAST(sqlc.arg(epic) AS TEXT) = '' OR step_listings.epic = CAST(sqlc.arg(epic) AS TEXT))
+  AND (step_listings.end_value = '' OR step_listings.id IN (
+      SELECT recent.id FROM step_listings AS recent
+      WHERE recent.caller = sqlc.arg(caller) AND recent.end_value <> ''
+        AND (CAST(sqlc.arg(epic) AS TEXT) = '' OR recent.epic = CAST(sqlc.arg(epic) AS TEXT))
+      ORDER BY recent.ended DESC, recent.id DESC
+      LIMIT 20))
+ORDER BY started, id;
+
 -- name: UpdateStepReturn :exec
 UPDATE steps
 SET result = ?, checks = ?,
@@ -516,7 +528,17 @@ SELECT COUNT(*) FROM epics WHERE id = ?;
 SELECT * FROM epics WHERE id = ?;
 
 -- name: ListEpics :many
-SELECT * FROM epics ORDER BY id;
+SELECT sqlc.embed(epics), CAST(COALESCE(epic_revisions.revision, 0) AS INTEGER) AS revision
+FROM epics LEFT JOIN epic_revisions ON epic_revisions.epic = epics.id
+ORDER BY epics.id;
+
+-- name: ListEpicListings :many
+SELECT epics.id, epics.repository, epics.title, epics.phase, epics.phase_at, epics.created, epics.changed,
+    CAST(COALESCE(epic_revisions.revision, 0) AS INTEGER) AS revision, epic_seen.at AS seen_at
+FROM epics
+LEFT JOIN epic_revisions ON epic_revisions.epic = epics.id
+LEFT JOIN epic_seen ON epic_seen.epic = epics.id
+ORDER BY epics.id;
 
 -- name: ListBuildEpics :many
 SELECT epics.id FROM epics
@@ -525,8 +547,15 @@ WHERE epics.base <> '' AND epics.phase NOT IN ('met_at_base', 'clean', 'ended_wi
   AND EXISTS (SELECT 1 FROM epic_tasks WHERE epic_tasks.epic = epics.id AND epic_tasks.status = 'open')
 ORDER BY epics.id;
 
--- name: ResetEpicRevision :exec
-UPDATE epics SET revision = 0 WHERE id = ?;
+-- name: MoveEpicRevision :exec
+INSERT INTO epic_revisions (epic, revision) VALUES (?, 1)
+ON CONFLICT (epic) DO UPDATE SET revision = epic_revisions.revision + 1;
+
+-- name: ListEvidenceRunEpics :many
+SELECT DISTINCT epic FROM evidence_runs WHERE id IN (sqlc.slice(runs));
+
+-- name: GetEpicRevision :one
+SELECT revision FROM epic_revisions WHERE epic = ?;
 
 -- name: UpdateEpicChanged :exec
 UPDATE epics SET changed = ? WHERE id = ?;
@@ -752,6 +781,11 @@ SELECT CAST(COUNT(*) AS INTEGER) FROM epic_node_runs WHERE epic = ? AND path = ?
 UPDATE epic_node_runs SET state = 'running', attempt = attempt + 1, outcome = '', output = '', revision = '',
     refs = '', refs_checked = 0, result = '', ended = 0
 WHERE epic = ? AND node = ? AND kind <> 'loop' AND state = 'parked';
+
+-- name: RetryEpicNodeRun :execrows
+UPDATE epic_node_runs SET state = 'running', attempt = attempt + 1, outcome = '', output = '', revision = '',
+    refs = '', refs_checked = 0, result = '', ended = 0
+WHERE epic = ? AND path = ? AND kind <> 'loop' AND state = 'parked';
 
 -- name: NextEpicNodeRunAttempt :execrows
 UPDATE epic_node_runs SET attempt = attempt + 1, outcome = '', output = '', revision = '', refs = '', refs_checked = 0,
@@ -998,6 +1032,25 @@ SELECT * FROM epic_task_versions WHERE epic = ? ORDER BY task, version;
 -- name: MaxEpicTaskVersion :one
 SELECT CAST(COALESCE(MAX(version), 1) AS INTEGER) FROM epic_task_versions WHERE epic = ? AND task = ?;
 
+-- name: InsertEpicTaskRung :execrows
+INSERT INTO epic_task_rungs (epic, task, rung, kind, moved_by, cause, gate, assertion, step, created)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (epic, task, rung) DO NOTHING;
+
+-- name: InsertEpicTaskRungOutcome :execrows
+INSERT INTO epic_task_rung_outcomes (epic, task, rung, outcome, reason, ended)
+VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT (epic, task, rung) DO NOTHING;
+
+-- name: ListEpicTaskRungs :many
+SELECT rungs.epic, rungs.task, rungs.rung, rungs.kind, rungs.moved_by, rungs.cause, rungs.gate, rungs.assertion,
+       rungs.step, rungs.created, outcomes.outcome, outcomes.reason, outcomes.ended
+FROM epic_task_rungs AS rungs
+LEFT JOIN epic_task_rung_outcomes AS outcomes
+    ON outcomes.epic = rungs.epic AND outcomes.task = rungs.task AND outcomes.rung = rungs.rung
+WHERE rungs.epic = ?
+ORDER BY rungs.task, rungs.rung;
+
 -- name: MaxEpicTellSeq :one
 SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_tells WHERE epic = ?;
 
@@ -1027,6 +1080,12 @@ INSERT INTO epic_met_at_base (epic, question, path, attempt, requirements) VALUE
 
 -- name: GetEpicMetAtBase :one
 SELECT * FROM epic_met_at_base WHERE epic = ? AND question = ?;
+
+-- name: InsertEpicParkQuestionRun :exec
+INSERT INTO epic_park_question_runs (epic, question, path) VALUES (?, ?, ?);
+
+-- name: GetEpicParkQuestionRun :one
+SELECT path FROM epic_park_question_runs WHERE epic = ? AND question = ?;
 
 -- name: SetEpicQuestionAnswered :exec
 UPDATE epic_questions SET state = 'answered', choice = ? WHERE epic = ? AND seq = ?;
@@ -1304,9 +1363,10 @@ SELECT epic, at FROM epic_seen;
 
 -- name: InsertPlannerAction :exec
 INSERT INTO planner_actions (
-    epic, turn, position, kind, node, task, close_kind, by_epic, undo_none, reason, state, refusal, requirement, item
+    epic, turn, position, kind, node, task, close_kind, by_epic, undo_none, reason, state, refusal, requirement, item,
+    deliverable
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?, ?);
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?, ?, ?);
 
 -- name: ListPendingPlannerActions :many
 SELECT * FROM planner_actions WHERE state = 'pending' ORDER BY epic, turn, position;
@@ -1459,10 +1519,35 @@ WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq) AND state = 'checking';
 UPDATE epic_amendments SET state = 'applied', settled = CASE WHEN settled = 0 THEN sqlc.arg(settled) ELSE settled END
 WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq) AND state IN ('checking', 'capturing');
 
+-- CountWorkingEvidenceNodeRuns counts the running node runs of an epic that capture its Requirements under ids of their
+-- own: an evidence, integrate or sync run with a revision, and a release run of a releasing epic whose release
+-- integrator's latest round that passed at the run's attempt made a merge not yet recorded as a candidate of that
+-- attempt, since the release walks that merge's Done gates and captures until it records the merge as its candidate.
+-- A release run that is doing anything else, such as waiting on the plan its replan started, captures nothing.
 -- name: CountWorkingEvidenceNodeRuns :one
-SELECT COUNT(*) FROM epic_node_runs
-WHERE epic = ? AND state = 'running'
-  AND ((kind IN ('evidence', 'integrate', 'sync') AND revision != '') OR kind = 'release');
+SELECT COUNT(*) FROM epic_node_runs AS run
+WHERE run.epic = sqlc.arg(epic) AND run.state = 'running'
+  AND (
+    (run.kind IN ('evidence', 'integrate', 'sync') AND run.revision != '')
+    OR (
+      run.kind = 'release'
+      AND EXISTS (SELECT 1 FROM epics WHERE epics.id = run.epic AND epics.phase = 'releasing')
+      AND EXISTS (
+        SELECT 1 FROM epic_release_runs AS merged
+        WHERE merged.epic = run.epic AND merged.part = 'integrator' AND merged.attempt = run.attempt AND merged.passed
+          AND NOT EXISTS (
+            SELECT 1 FROM epic_release_runs AS later
+            WHERE later.epic = run.epic AND later.part = 'integrator' AND later.attempt = run.attempt AND later.passed
+              AND later.position > merged.position
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM epic_release_runs AS candidate
+            WHERE candidate.epic = run.epic AND candidate.part = 'candidate' AND candidate.attempt = run.attempt
+              AND candidate.passed AND candidate.head = merged.head
+          )
+      )
+    )
+  );
 
 -- name: CountPendingAmendActions :one
 SELECT COUNT(*) FROM planner_actions WHERE epic = ? AND kind = 'amend_evidence' AND state = 'pending';

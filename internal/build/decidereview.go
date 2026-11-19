@@ -340,17 +340,26 @@ func verifiedAction(view View, stepID, result, reason string) Action {
 	return Action{Kind: ActFinding, Finding: finding, Next: build}
 }
 
-// settledFindings returns the action once every finding of the review is verified: a confirmed finding spends the
-// attempt with the claims it confirmed, and otherwise the build moves to the next gate.
+// settledFindings returns the action once every finding of the review is verified: a confirmed finding climbs the task
+// with the claims it confirmed, moved by the finding at its gate, and otherwise the build moves to the next gate.
 func settledFindings(view View, findings []store.TaskFinding) Action {
-	var confirmed []string
+	var confirmed, assertions []string
 	for _, f := range findings {
 		if f.Result == resultConfirmed {
 			confirmed = append(confirmed, fmt.Sprintf("confirmed: %s %s", f.ID, f.Claim))
+			assertions = append(assertions, f.ID+" "+f.Claim)
 		}
 	}
 	if len(confirmed) > 0 {
-		return spend(view, strings.Join(confirmed, "; "))
+		gate := ""
+		if pos := view.Task.Build.GatePos; pos >= 0 && pos < int64(len(view.ReviewGates)) {
+			gate = view.ReviewGates[pos]
+		}
+		action := spend(view, strings.Join(confirmed, "; "))
+		action.Move = store.RungMove{
+			MovedBy: store.MovedByFinding, Gate: gate, Assertion: strings.Join(assertions, "; "),
+		}
+		return action
 	}
 	build := view.Task.Build
 	build.Stage = StageReview

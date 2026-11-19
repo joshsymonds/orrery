@@ -1,8 +1,9 @@
 # Round 5: proposed 2026-11-17, waiting on the owner
 
 Round 5 is a proposal drawn from the owner's six asks. Nothing below is decided until he says so.
-Round 5 is the reference for the web client's look until the design system replaces it. The web view changed; the phone
-pages (`phone.html`) are as round 4 left them, apart from sharing the new data.
+Round 5 was the reference for the web client's look. Round 6 replaced it as the reference, adopted with the epic
+`orrery-round6-yardstick`. The web view changed; the phone pages (`phone.html`) are as round 4 left them, apart from
+sharing the new data.
 
 Open `index.html#go=<route>`. Screenshots of every state below are in `shots/`, at 1600 and 1000 wide; `shoot.mjs`
 retakes them and says what it needs.

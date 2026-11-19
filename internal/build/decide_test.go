@@ -389,10 +389,7 @@ func TestDecideImplement(t *testing.T) {
 				Epic: decideEpic, Step: implementStep("checks_failed", "", "", "gate: lint failed"),
 				Task: store.EpicTask{Seq: 3, Build: implement},
 			},
-			want: Action{Kind: ActMove, Next: store.TaskBuild{
-				Stage: StageImplement, Base: decideBranch, Attempt: 2, RedRun: "red-run",
-				Failure: "checks_failed: gate: lint failed",
-			}},
+			want: Action{Kind: ActFail, Reason: "checks_failed: gate: lint failed"},
 		},
 		{
 			name: "checks failed on the second attempt fails",
@@ -408,10 +405,7 @@ func TestDecideImplement(t *testing.T) {
 				Epic: decideEpic, Step: implementStep("overtime", "", "", "wall time limit reached"),
 				Task: store.EpicTask{Seq: 3, Build: implement},
 			},
-			want: Action{Kind: ActMove, Next: store.TaskBuild{
-				Stage: StageImplement, Base: decideBranch, Attempt: 2, RedRun: "red-run",
-				Failure: "overtime: wall time limit reached",
-			}},
+			want: Action{Kind: ActFail, Reason: "overtime: wall time limit reached"},
 		},
 	})
 }
@@ -471,10 +465,7 @@ func TestDecideStartError(t *testing.T) {
 		{
 			name: "green that did not start on the first attempt spends it",
 			view: withStage(store.TaskBuild{Stage: StageGreen, Base: decideBranch, Attempt: 1, RedRun: "red-run"}),
-			want: Action{Kind: ActMove, Next: store.TaskBuild{
-				Stage: StageImplement, Base: decideBranch, Attempt: 2, RedRun: "red-run",
-				Failure: "green not captured: boom",
-			}},
+			want: Action{Kind: ActFail, Reason: "green not captured: boom"},
 		},
 		{
 			name: "green that did not start on the second attempt fails",

@@ -587,7 +587,9 @@ func integrateBatchOnAnOlderBaseNeverMovesTheBranchBack(images *worldImages) fun
 		if err := w.s.PrepareNode(ctx, runEpic, overtaking, 1, newer, ""); err != nil {
 			t.Fatalf("PrepareNode: %v", err)
 		}
-		if err := w.s.EndBatch(ctx, runEpic, overtaking, 1, outcomePassed, "", nil, runClock()); err != nil {
+		if err := w.s.EndBatch(ctx, runEpic, store.BatchEnd{
+			Path: overtaking, Attempt: 1, Outcome: outcomePassed, Over: newer,
+		}, nil, runClock()); err != nil {
 			t.Fatalf("EndBatch: %v", err)
 		}
 		w.git("update-ref", integrateBranch, newer)

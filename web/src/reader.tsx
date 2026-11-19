@@ -558,6 +558,7 @@ function callsAt(latest: { current: EpicCalls | undefined }, made: EpicCalls): E
     answer: (id, question, choice, text) => current().answer(id, question, choice, text),
     openEpic: (id) => current().openEpic(id),
     openStep: (epic, step) => current().openStep(epic, step),
+    stepResult: (id) => current().stepResult(id),
     epics: made.epics,
   };
 }

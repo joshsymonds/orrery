@@ -15,9 +15,9 @@ import (
 // deliverNowSummary is the summary of the step end the DeliverNow tests send, as addEndedCallerStep stores it.
 const deliverNowSummary = "the work is in"
 
-// stepEndText is the first line of the step end the DeliverNow tests send. The fake claude's stdin carries it once the
-// step end is written.
-const stepEndText = "Step " + callerStepID + " ended"
+// stepEndText is the More line of the step end the DeliverNow tests send. The block's body carries it as a line of its
+// own, and the fake claude's stdin carries that line once the step end is written.
+const stepEndText = "More: step_result id " + callerStepID
 
 // stepEndPrompt is the engine_prompt the step end of the DeliverNow tests is stored as, sent by the event sender.
 func stepEndPrompt() deliveredPrompt {

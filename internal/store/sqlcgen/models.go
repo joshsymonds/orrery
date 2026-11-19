@@ -101,7 +101,6 @@ type Epic struct {
 	OriginReadCommit string
 	OriginReadState  string
 	OriginReadAt     int64
-	Revision         int64
 }
 
 type EpicAddition struct {
@@ -274,6 +273,12 @@ type EpicPark struct {
 	Created int64
 }
 
+type EpicParkQuestionRun struct {
+	Epic     string
+	Question int64
+	Path     string
+}
+
 type EpicPremise struct {
 	Epic     string
 	Position int64
@@ -383,6 +388,11 @@ type EpicReviewer struct {
 	Verify       int64
 }
 
+type EpicRevision struct {
+	Epic     string
+	Revision int64
+}
+
 type EpicSeen struct {
 	Epic string
 	At   int64
@@ -476,6 +486,28 @@ type EpicTaskReview struct {
 	Gate     string
 	Step     string
 	Verdict  string
+}
+
+type EpicTaskRung struct {
+	Epic      string
+	Task      int64
+	Rung      int64
+	Kind      string
+	MovedBy   string
+	Cause     string
+	Gate      string
+	Assertion string
+	Step      string
+	Created   int64
+}
+
+type EpicTaskRungOutcome struct {
+	Epic    string
+	Task    int64
+	Rung    int64
+	Outcome string
+	Reason  string
+	Ended   int64
 }
 
 type EpicTaskTestChange struct {
@@ -662,6 +694,7 @@ type PlannerAction struct {
 	Park        int64
 	Requirement string
 	Item        string
+	Deliverable string
 }
 
 type PromptState struct {

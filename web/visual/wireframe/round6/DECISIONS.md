@@ -1,8 +1,8 @@
-# Round 6: proposed 2026-11-17, waiting on the owner
+# Round 6: adopted as the reference
 
 Round 6 is one design language drawn for three clients: the web at the desk, the web under 760 px, and the Android app.
-Nothing below is decided until the owner says so. Round 4 and `map.json` are untouched and stay the yardstick for the
-parity epics until the owner does.
+Round 6 was adopted as the reference with the epic `orrery-round6-yardstick`: the web catalog's names and fixtures follow
+it, and the frontend epics are judged by it.
 
 Open `index.html` (the board lists every scenario), `desk.html#<id>`, `phone.html#<id>` and `catalog.html`. Left and right
 arrows page through the scenarios. `shoot.mjs` shoots every desk scenario at 1600 and 1000 wide and every phone
@@ -471,5 +471,5 @@ Drawn, and not available from the server today.
 
 ## Open for the owner
 
-1. **After acceptance.** Round 6 needs its own `map.json` and scenario fixtures before a parity epic can be judged by
-   it. The scenario ids here are meant to become that list, and the catalogue's `Component/State` names the story names.
+1. **After acceptance.** Answered: `web/src/catalog/round6.json` and the fixtures under `web/src/fixtures` now carry round 6's
+   names and world. The scenario ids here became that list, and the catalogue's `Component/State` names the story names.

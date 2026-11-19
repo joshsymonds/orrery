@@ -113,11 +113,11 @@ type Return struct {
 }
 
 // EngineAction is one action the planner asks the engine to carry out: its kind, the node, task, close, replacing epic,
-// Requirement and evidence item its kind uses, the undo-none positions it names, and the planner's reason. check.go lists
-// the fields each kind uses. The return carries the fields a kind uses as args, a JSON object written as a string, so
-// that the schema the model is held to stays one small fixed shape however many kinds there are; Parse reads args into
-// these fields. ArgsError is why args did not read, and Unknown lists the keys of args that no kind uses; check.go
-// refuses either.
+// Requirement, evidence item and deliverable its kind uses, the undo-none positions it names, and the planner's reason.
+// check.go lists the fields each kind uses. The return carries the fields a kind uses as args, a JSON object written as
+// a string, so that the schema the model is held to stays one small fixed shape however many kinds there are; Parse
+// reads args into these fields. ArgsError is why args did not read, and Unknown lists the keys of args that no kind uses;
+// check.go refuses either.
 type EngineAction struct {
 	Kind        string        `json:"kind"`
 	Node        string        `json:"-"`
@@ -126,6 +126,7 @@ type EngineAction struct {
 	By          string        `json:"-"`
 	Requirement string        `json:"-"`
 	Item        evidence.Item `json:"-"`
+	Deliverable string        `json:"-"`
 	UndoNone    []int64       `json:"-"`
 	Reason      string        `json:"reason"`
 	ArgsError   string        `json:"-"`
@@ -140,12 +141,13 @@ const (
 	argBy          = "by"
 	argRequirement = "requirement"
 	argItem        = "item"
+	argDeliverable = "deliverable"
 	argUndoNone    = "undo_none"
 )
 
 // readArgs fills action's fields from args, a JSON object written as a string. Blank args reads as no fields. args that is
 // not a JSON object, or holds a key whose value is not of its field's type, leaves the fields empty and sets ArgsError; an
-// item with a key an evidence item does not have is such a value. Keys outside the seven above are listed in Unknown.
+// item with a key an evidence item does not have is such a value. Keys outside the eight above are listed in Unknown.
 func readArgs(action *EngineAction, args string) {
 	if strings.TrimSpace(args) == "" {
 		return
@@ -158,7 +160,8 @@ func readArgs(action *EngineAction, args string) {
 	var read EngineAction
 	fields := map[string]any{
 		argNode: &read.Node, argTask: &read.Task, argClose: &read.Close, argBy: &read.By,
-		argRequirement: &read.Requirement, argItem: &read.Item, argUndoNone: &read.UndoNone,
+		argRequirement: &read.Requirement, argItem: &read.Item, argDeliverable: &read.Deliverable,
+		argUndoNone: &read.UndoNone,
 	}
 	for key, value := range keys {
 		field, known := fields[key]
@@ -176,7 +179,7 @@ func readArgs(action *EngineAction, args string) {
 	slices.Sort(action.Unknown)
 	action.Node, action.Task, action.Close, action.By, action.UndoNone =
 		read.Node, read.Task, read.Close, read.By, read.UndoNone
-	action.Requirement, action.Item = read.Requirement, read.Item
+	action.Requirement, action.Item, action.Deliverable = read.Requirement, read.Item, read.Deliverable
 }
 
 // Question is one question the planner asks the owner: its label, its text, the choices it declares, the choice it

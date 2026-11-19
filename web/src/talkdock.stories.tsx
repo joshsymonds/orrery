@@ -1,5 +1,6 @@
-// The stories of TalkDock: the dock beside an epic page that follows the conversation Talk opened. Each state names the
-// target it follows; the fixture stream answers that target, and a state whose stream is quiet draws its loading line.
+// The stories of Dock, drawn by TalkDock: the dock beside an epic page that follows the conversation Talk opened. Each
+// state names the target it follows; the fixture stream answers that target, and a state whose stream is quiet draws its
+// loading line.
 
 import type { ComponentProps } from "preact";
 
@@ -53,13 +54,18 @@ const dock: Omit<DockProps, "target"> = {
   epics: noEpics,
 };
 
-export const TalkDock: Stories = {
-  pane: () => <talkdock.TalkDock {...dock} target={{ kind: "pane", id: "%11", label: "lamp-telemetry" }} />,
+export const Dock: Stories = {
+  pane: () => (
+    <talkdock.TalkDock
+      {...dock}
+      target={{ kind: "pane", id: "%11", label: "Retry backoff and jitter for the telemetry uploader" }}
+    />
+  ),
   "session-worker": () => <talkdock.TalkDock {...dock} target={{ kind: "session", id: workerId, label: "T2" }} />,
-  "session-interrupted": () => (
+  "cut-off": () => (
     <talkdock.TalkDock {...dock} clients={interrupted} target={{ kind: "session", id: workerId, label: "T2" }} />
   ),
   "session-loading": () => (
-    <talkdock.TalkDock {...dock} target={{ kind: "session", id: headlessId, label: "ephemeris-import" }} />
+    <talkdock.TalkDock {...dock} target={{ kind: "session", id: headlessId, label: "The 2027 ephemeris import" }} />
   ),
 };

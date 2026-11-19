@@ -21,8 +21,9 @@ const stepNotFound = "step not found"
 // stepsUnavailable is the fixed message for a Steps call when serve has no step client.
 const stepsUnavailable = "step service unavailable"
 
-// stepsServer answers orrery.v1.Steps by forwarding Hold, Nudge and Stop to steps. Each call first asks StepStatus, and
-// forwards only a step whose row carries an epic label. A nil steps answers unavailable.
+// stepsServer answers orrery.v1.Steps by forwarding Hold, Nudge and Stop to steps. Each of them first asks StepStatus,
+// and forwards only a step whose row carries an epic label. Result answers the row's result, labeled or not. A nil
+// steps answers unavailable.
 type stepsServer struct {
 	steps   StepClient
 	timeout time.Duration
@@ -103,8 +104,37 @@ func (s stepsServer) forward(
 }
 
 // labeled returns nil when StepStatus finds id with an epic label. not_found, and a row with no label, answer not_found
-// "step not found". Any other StepStatus error answers as translateError does. An unavailable answer is retried.
+// "step not found". Any other StepStatus error answers as translateError does.
 func (s stepsServer) labeled(ctx context.Context, id string) error {
+	step, err := s.status(ctx, id)
+	if err != nil {
+		return err
+	}
+	if step.GetEpic() == "" {
+		return listError(connect.CodeNotFound, stepNotFound)
+	}
+	return nil
+}
+
+// Result answers the full result of a step, labeled or not. It asks StepStatus for the row and answers its result. It
+// does not require an epic label, so a waiting step card may read the return of an unlabeled step.
+func (s stepsServer) Result(
+	ctx context.Context,
+	req *connect.Request[orreryv1.StepsResultRequest],
+) (*connect.Response[orreryv1.StepsResultResponse], error) {
+	if s.steps == nil {
+		return nil, listError(connect.CodeUnavailable, stepsUnavailable)
+	}
+	step, err := s.status(ctx, req.Msg.GetId())
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&orreryv1.StepsResultResponse{Result: step.GetResult()}), nil
+}
+
+// status returns the row StepStatus finds for id. It retries an unavailable answer. not_found answers not_found
+// "step not found", and any other StepStatus error answers as translateError does.
+func (s stepsServer) status(ctx context.Context, id string) (*enginev1.Step, error) {
 	var resp *connect.Response[enginev1.StepStatusResponse]
 	err := retryUnder(ctx, s.clock, s.timeout, rpcretry.Unavailable, func(ctx context.Context) error {
 		var err error
@@ -117,13 +147,11 @@ func (s stepsServer) labeled(ctx context.Context, id string) error {
 	var connectErr *connect.Error
 	switch {
 	case err != nil && errors.As(err, &connectErr) && connectErr.Code() == connect.CodeNotFound:
-		return listError(connect.CodeNotFound, stepNotFound)
+		return nil, listError(connect.CodeNotFound, stepNotFound)
 	case err != nil:
-		return translateError(err)
-	case resp.Msg.GetStep().GetEpic() == "":
-		return listError(connect.CodeNotFound, stepNotFound)
+		return nil, translateError(err)
 	}
-	return nil
+	return resp.Msg.GetStep(), nil
 }
 
 // retryUnder runs attempt under timeout, and while retryable accepts its error and rpcretry.Window has not passed on

@@ -138,13 +138,19 @@ func TestPassOnlyCarriesOutTheActionsOfAnEpicItDoesNotDecide(t *testing.T) {
 	if err = runner.complete(ctx, runnerEpicID, turn.Seq, failTaskPlan); err != nil {
 		t.Fatalf("complete turn 1: %v", err)
 	}
+	before := storedEpicOf(t, s, runnerEpicID).Tasks[0].Build
 
 	runner.PassOnly(ctx, func(string) bool { return false })
 	runner.WaitTurns()
 
 	epic := storedEpicOf(t, s, runnerEpicID)
-	if status := epic.Tasks[0].Status; status != taskFailed {
-		t.Errorf("status of task 1 = %q, want %q: the pending action is carried out", status, taskFailed)
+	task := epic.Tasks[0]
+	if task.Status != "open" || task.Build.Attempt != store.RungOf(before)+1 {
+		t.Errorf("task 1 = status %q attempt %d, want open at attempt %d: the pending action is carried out",
+			task.Status, task.Build.Attempt, store.RungOf(before)+1)
+	}
+	if n := len(task.Rungs); n == 0 || task.Rungs[n-1].MovedBy != store.MovedByFailTask {
+		t.Errorf("rungs of task 1 = %+v, want a rung moved by fail_task", task.Rungs)
 	}
 	if len(epic.Turns) != 1 || len(steps.started()) != 0 {
 		t.Errorf("turns = %d and steps started = %d, want 1 and 0: an epic the pass does not decide gets no turn",

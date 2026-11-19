@@ -12,7 +12,7 @@ import (
 func closureEndFindings(t *testing.T, s *Store) {
 	t.Helper()
 	ctx := context.Background()
-	queries := sqlcgen.New(s.db)
+	queries := s.fixtureQueries()
 	if err := queries.InsertEpicReview(ctx, sqlcgen.InsertEpicReviewParams{
 		Epic: integrateEpic, Frozen: "rev-7",
 	}); err != nil {

@@ -85,14 +85,13 @@ func (w *releaseWorld) releasedEpic(id string) {
 	}
 }
 
-// TestPassReadsNoEpicAtRest counts the EpicFlow reads of the passes over a store of many released epics, one an owner
-// ended met at base with its run parked, one ended with gaps whose release run waits for the owner, one closed, and one
-// clean epic with no release steps. Every pass reads the node run states of the open epics once. The first pass reads
-// only the clean epic, which it ends done and whose release run it ends; the second reads none, since every epic is
-// then at rest. Before the rest check, each pass read every epic that is not closed at least once: with nothing to
-// decide, 27 reads a pass for this store.
-func TestPassReadsNoEpicAtRest(t *testing.T) {
-	t.Parallel()
+// restClean is the one epic of restWorld that is not at rest before the first pass: clean, with no release steps.
+const restClean = "orrery-1a2b3c4/epic-clean"
+
+// restWorld returns a world whose store holds many released epics, one an owner ended met at base with its run parked,
+// one ended with gaps whose release run waits for the owner, one closed, and restClean, which the first pass ends done.
+func restWorld(t *testing.T) *releaseWorld {
+	t.Helper()
 	w := newReleaseWorldIn(t, nil, filepath.Join(t.TempDir(), "no-repository"))
 	w.runner.ending = w.s
 	const released = 24
@@ -106,10 +105,21 @@ func TestPassReadsNoEpicAtRest(t *testing.T) {
 	const gaps = "orrery-1a2b3c4/epic-gaps"
 	w.createEpic(gaps, "ended_with_gaps")
 	w.startRelease(gaps)
-	const closed = "orrery-1a2b3c4/epic-closed"
-	w.createEpic(closed, store.PhaseClosedShipped)
-	const clean = "orrery-1a2b3c4/epic-clean"
-	w.createEpic(clean, store.PhaseClean)
+	w.createEpic("orrery-1a2b3c4/epic-closed", store.PhaseClosedShipped)
+	w.createEpic(restClean, store.PhaseClean)
+	return w
+}
+
+// TestPassReadsNoEpicAtRest counts the EpicFlow reads of the passes over a store of many released epics, one an owner
+// ended met at base with its run parked, one ended with gaps whose release run waits for the owner, one closed, and one
+// clean epic with no release steps. Every pass reads the node run states of the open epics once. The first pass reads
+// only the clean epic, which it ends done and whose release run it ends; the second reads none, since every epic is
+// then at rest. Before the rest check, each pass read every epic that is not closed at least once: with nothing to
+// decide, 27 reads a pass for this store.
+func TestPassReadsNoEpicAtRest(t *testing.T) {
+	t.Parallel()
+	w := restWorld(t)
+	const clean = restClean
 	reads := w.countReads()
 
 	w.pass()
@@ -303,6 +313,45 @@ func TestRestsAgreesWithDecide(t *testing.T) {
 		}
 		if acts := Decide(pinned.Workflow, rows, reg); tc.rests && len(acts) != 0 {
 			t.Errorf("%s: Decide = %+v where Rests holds, want no action", tc.name, acts)
+		}
+	}
+}
+
+// revisionsOf returns the revision of each epic w's store holds, by id.
+func revisionsOf(t *testing.T, w *releaseWorld) map[string]int64 {
+	t.Helper()
+	epics, err := w.s.Epics(t.Context())
+	if err != nil {
+		t.Fatalf("Epics: %v", err)
+	}
+	revisions := make(map[string]int64, len(epics))
+	for _, epic := range epics {
+		revisions[epic.ID] = epic.Revision
+	}
+	return revisions
+}
+
+// TestInterpreterPassAtRestMovesNoRevision runs passes over restWorld's store once every epic is at rest. An epic's
+// revision counts every write to its row and its parts, a write that stores the values a row already holds among them,
+// so a pass that leaves every revision where it was wrote no row of any epic. The first pass ends the clean epic done
+// and so moves its revision, which shows the count moves at all.
+func TestInterpreterPassAtRestMovesNoRevision(t *testing.T) {
+	t.Parallel()
+	w := restWorld(t)
+	before := revisionsOf(t, w)
+	w.pass()
+	rested := revisionsOf(t, w)
+	if rested[restClean] <= before[restClean] {
+		t.Fatalf("first pass left the clean epic at revision %d, want it past %d as the pass ends it done",
+			rested[restClean], before[restClean])
+	}
+	for pass := 2; pass <= 3; pass++ {
+		w.pass()
+		after := revisionsOf(t, w)
+		for id, revision := range rested {
+			if after[id] != revision {
+				t.Errorf("pass %d moved the revision of %s, at rest, from %d to %d", pass, id, revision, after[id])
+			}
 		}
 	}
 }

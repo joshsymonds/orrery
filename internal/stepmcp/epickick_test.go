@@ -3,13 +3,11 @@ package stepmcp
 import (
 	"testing"
 
-	"google.golang.org/protobuf/proto"
-
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 )
 
 // TestEpicKickCallReachesTheKickWithItsIDAndText checks that epic_kick makes one KickEpic call carrying the id and the
-// text it names, and returns the stored epic.
+// text it names, and returns the acknowledgement of the kicked epic.
 func TestEpicKickCallReachesTheKickWithItsIDAndText(t *testing.T) {
 	t.Parallel()
 	stored := storedEpicOf(fullContract())
@@ -31,9 +29,8 @@ func TestEpicKickCallReachesTheKickWithItsIDAndText(t *testing.T) {
 	if got := calls.kicks[0]; got.GetId() != testEpicID || got.GetText() != "Try the sqlite plan first." {
 		t.Fatalf("KickEpic request = %v, want the epic id and the text", got)
 	}
-	var got v1.StoredEpic
-	unmarshalResult(t, outcome.text, &got)
-	if !proto.Equal(&got, stored) {
-		t.Fatalf("epic_kick result = %s, want the stored epic", outcome.text)
+	want := "epic " + testEpicID + ": phase accepted\nkicked; the planner reads the words at its next plan run"
+	if outcome.text != want {
+		t.Fatalf("epic_kick text = %q, want %q", outcome.text, want)
 	}
 }

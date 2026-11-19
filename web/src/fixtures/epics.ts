@@ -109,6 +109,10 @@ const rotaR3Green = run("ev-rota-r3-green", "ok  \tlighthouse/internal/rota\t1.9
   phase: "green", exit: 0, verdict: "holds", passed: true, revision: commit.rotaCsv,
   created: at("@14:11:00"), ended: at("@14:11:30"),
 });
+// The green run of R4 is still capturing, so it has no verdict and has not passed.
+const rotaR4Green = run("ev-rota-r4-green", "", {
+  phase: "green", state: "capturing", passed: false, revision: commit.rotaRetry, created: at("@14:38"),
+});
 
 const rotaRequirements: RequirementInit[] = [
   {
@@ -133,7 +137,7 @@ const rotaRequirements: RequirementInit[] = [
     id: "R4", kind: "check", text: "Export refuses to overwrite an existing file.",
     evidence: "go test ./cli/ -run TestExportRefusesOverwrite",
     conclusion: "TestExportRefusesOverwrite passes: Export returns ErrExists for a path that exists.",
-    runs: [rotaR4Red],
+    runs: [rotaR4Red, rotaR4Green],
   },
   {
     id: "R5", kind: "check", text: "Fixtures cover every port zone.",
@@ -142,7 +146,7 @@ const rotaRequirements: RequirementInit[] = [
     runs: [rotaR5Red],
   },
   {
-    id: "R6", kind: "review", text: "Every export is written to the audit log, and the docs say so.",
+    id: "R6", kind: "review", text: "Every export is written to the audit log.",
     evidence: "review of cli/export.go and README.md", conclusion: "", runs: [],
   },
 ];
@@ -232,11 +236,12 @@ const rotaT2Review: StepInit = {
 
 const rotaSteps: StepInit[] = [rotaT5Try1, rotaT4Impl, rotaT5Try2, rotaT2Impl, rotaT3Impl, rotaT1Impl, rotaT3Review];
 
+// The seven tasks of the rota-export plan, by task id. T6 is the readme and T7 the audit-log task, both for R6.
 const rotaTasks: TaskInit[] = [
-  { id: "T1", title: "Fixtures cover every port zone.", status: "open", stage: "implement", requirements: ["R5"], red: rotaR5Red },
+  { id: "T1", title: "tz-fixtures", status: "open", stage: "implement", requirements: ["R5"], red: rotaR5Red },
   {
-    id: "T2", title: "Export refuses to overwrite an existing file.", status: "open", stage: "implement",
-    requirements: ["R4"], red: rotaR4Red,
+    id: "T2", title: "export-cli", status: "open", stage: "implement",
+    requirements: ["R4"], red: rotaR4Red, green: rotaR4Green,
     reviews: [{
       attempt: 1n, gate: "review", step: "st-rota-t2-review", verdict: "fails",
       findings: [{
@@ -247,22 +252,22 @@ const rotaTasks: TaskInit[] = [
     }],
   },
   {
-    id: "T3", title: "The rota endpoint serves one week of shifts.", status: "open", stage: "verify",
+    id: "T3", title: "rota-endpoint", status: "done", stage: "verify",
     requirements: ["R2"], red: rotaR2Red, green: rotaR2Green,
     reviews: [{ attempt: 1n, gate: "review", step: "st-rota-t3-review", verdict: "holds", findings: [] }],
   },
   {
-    id: "T4", title: "Shifts are stored per keeper and week.", status: "done", stage: "verify",
+    id: "T4", title: "shift-store", status: "done", stage: "verify",
     requirements: ["R1"], red: rotaR1Red, green: rotaR1Green,
     reviews: [{ attempt: 1n, gate: "review", step: "", verdict: "holds", findings: [] }],
   },
   {
-    id: "T5", title: "A week exports as CSV, one row per shift.", status: "done", stage: "verify",
+    id: "T5", title: "csv-writer", status: "open", stage: "verify",
     requirements: ["R3"], red: rotaR3Red, green: rotaR3Green,
     reviews: [{ attempt: 2n, gate: "review", step: "", verdict: "holds", findings: [] }],
   },
-  { id: "T6", title: "The README documents the export command and its audit line.", status: "open", stage: "", requirements: ["R6"] },
-  { id: "T7", title: "Every export writes one line to the audit log.", status: "open", stage: "", requirements: ["R6"] },
+  { id: "T6", title: "readme", status: "open", stage: "", requirements: ["R6"] },
+  { id: "T7", title: "audit-log", status: "open", stage: "", requirements: ["R6"] },
 ];
 
 const rotaSlices: SliceInit[] = [
@@ -306,7 +311,7 @@ const rotaContract: ContractInit = {
 };
 
 const rotaEpic: EpicInit = {
-  id: "lighthouse/rota-export", repository: "lighthouse", slug: "rota-export", outcome: "", changed: at("@14:40"),
+  id: "lighthouse/rota-export", repository: "lighthouse", slug: "rota-export", outcome: "accepted", changed: at("@14:40"),
   live: true, runningSteps: [rotaT2Impl, rotaT1Impl], endedSteps: 5, problem: "", source: "orreryd",
   outcomeDetail: "", waiting: false, phaseAt: at("@13:52"), seen: 0n,
 };
@@ -319,8 +324,8 @@ const rotaHistory: HistoryInit[] = [
       case: "turn",
       value: {
         seq: 1n, step: "st-rota-plan-1", state: "succeeded", reason: "",
-        outline: "rota-store, csv-writer, rota-handler, export-cli, tz-fixtures",
-        outcome: "Outlined 5 units and started rota-store and csv-writer, because the others build on them.",
+        outline: "shift-store, rota-endpoint, csv-writer, export-cli, tz-fixtures",
+        outcome: "Outlined 5 units and started shift-store and csv-writer, because the others build on them.",
         decisions: [], started: at("@13:52"), ended: at("@13:52:35"),
       },
     },
@@ -334,7 +339,7 @@ const rotaHistory: HistoryInit[] = [
       case: "turn",
       value: {
         seq: 3n, state: "succeeded",
-        outcome: "Outlined 2 more units, export-docs and rota-audit: 5 to 7. The audit requirement needed its own unit.",
+        outcome: "Outlined 2 more units, readme and audit-log: 5 to 7. The audit requirement needed its own unit.",
         started: at("@14:10"), ended: at("@14:10:50"),
       },
     },
@@ -354,7 +359,7 @@ const rotaHistory: HistoryInit[] = [
       },
     },
   },
-  { time: at("@14:40"), cursor: "c12", item: { case: "tell", value: { seq: 3n, text: "rota-handler: the engine started merging it onto the epic branch.", at: at("@14:40"), told: true } } },
+  { time: at("@14:40"), cursor: "c12", item: { case: "tell", value: { seq: 3n, text: "rota-endpoint: the engine started merging it onto the epic branch.", at: at("@14:40"), told: true } } },
 ];
 
 const rotaSummary =
@@ -368,8 +373,8 @@ const rotaGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
   summary: rotaSummary,
   questions: [{ id: "Q1", text: "Bump the embedded tz database? The pinned database lacks the 2026 Lisbon rule, so one fixture cannot pass. A bump changes go.mod, which is outside this unit’s owned files, and the contract says no dependency changes.", turn: 4n, asked: at("@14:39") } satisfies QuestionInit],
   sessions: [
-    { id: "sess-rotaplan", pane: "%14", label: "rota-planning", call: "epic_get", at: at("@13:50") } satisfies SessionInit,
-    { id: "sess-lamp", pane: "%11", label: "lamp-telemetry", call: "epic_get", at: at("@14:12") } satisfies SessionInit,
+    { id: "sess-rotaplan", pane: "%14", label: "Planned the rota export, and steers its epic", call: "epic_get", at: at("@13:50") } satisfies SessionInit,
+    { id: "sess-lamp", pane: "%11", label: "Retry backoff and jitter for the telemetry uploader", call: "epic_get", at: at("@14:12") } satisfies SessionInit,
   ],
   contract: rotaContract,
   requirements: rotaRequirements,
@@ -417,7 +422,7 @@ const followupsT2Review: StepInit = {
 
 const followupsGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
   epic: {
-    id: "orrery/orrery-followups", repository: "orrery", slug: "orrery-followups", outcome: "",
+    id: "orrery/orrery-followups", repository: "orrery", slug: "orrery-followups", outcome: "accepted",
     changed: at("@14:40"), live: true, runningSteps: [followupsT1Impl, followupsT2Review], endedSteps: 1,
     problem: "", source: "orreryd", outcomeDetail: "", waiting: false, phaseAt: at("@14:21"), seen: 0n,
   },
@@ -511,13 +516,13 @@ const holderGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
   summary:
     "Each holder runs in its own systemd scope, so a runaway one is killed alone and the terminal memory cap covers it. " +
     "orreryd starts as Type=notify with a 900 s ceiling, and the devspaces doc no longer names an orrery version.",
-  sessions: [{ id: "sess-holdplan", pane: "", label: "holder-planning", call: "epic_create", at: at("@08:04") }],
+  sessions: [{ id: "sess-holdplan", pane: "", label: "Planned holder scopes", call: "epic_create", at: at("@08:04") }],
   reviews: [{ position: 1n, reviewer: "final review", step: "st-holder-final-review", verdict: "holds", reason: "0 findings." }],
   report: {
     outcome: "released",
     shipped: ["R1", "R2", "R3", "R4"],
     notShipped: [],
-    why: "All four requirements shipped. It ran 1 h 48 min, from acceptance at 08:04 to v0.45.0 running on vermissian at 09:52.",
+    why: "All four requirements shipped. It ran 1 h 48 min, from acceptance at 08:04 to v0.45.0 running on halyard at 09:52.",
   },
   contract: {
     title: "holder-scopes",
@@ -531,7 +536,7 @@ const holderGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
     additions: [],
     premises: [
       { id: "P1", text: "Every holder is started by orreryd, never by hand.", ifWrong: "A hand-started holder runs outside the cap." },
-      { id: "P2", text: "systemd on vermissian is 255 or newer.", ifWrong: "Scopes need the older property names." },
+      { id: "P2", text: "systemd on halyard is 255 or newer.", ifWrong: "Scopes need the older property names." },
     ],
     exclusions: ["No change to how terminals are spawned."],
     approach: "Start each holder in a transient systemd scope under orrery.slice, and switch orreryd to Type=notify.",
@@ -543,9 +548,9 @@ const holderGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
     releaseSteps: [
       { step: holderReleaseStep1, target: "github, tag v0.45.0", undo: "none once someone has fetched the tag" },
       { step: "CI green on the tag", target: "github actions", undo: "rerun" },
-      { step: "vermissian runs v0.45.0", target: "vermissian", undo: "switch to the previous generation" },
+      { step: "halyard runs v0.45.0", target: "halyard", undo: "switch to the previous generation" },
     ],
-    releaseThen: "Then vermissian runs v0.45.0 and every holder is scoped.",
+    releaseThen: "Then halyard runs v0.45.0 and every holder is scoped.",
     checks: "just check; a red and a green run for R1-R3; a review for R4.",
     base: commit.holderBase,
     accepted: at("@08:04"),
@@ -601,7 +606,7 @@ const holderGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
   releaseSteps: [
     { position: 1n, step: holderReleaseStep1, target: "github, tag v0.45.0", undo: "none once someone has fetched the tag", state: "passed", evidence: "github · 09:44 · signature good", reason: "The signed tag v0.45.0 is on github.", attempt: 1n, at: at("@09:44") } satisfies ProofInit,
     { position: 2n, step: "CI green on the tag", target: "github actions", undo: "rerun", state: "passed", evidence: "run 5490 · 09:51", reason: "CI is green on the tag.", attempt: 1n, at: at("@09:51") } satisfies ProofInit,
-    { position: 3n, step: "vermissian runs v0.45.0", target: "vermissian", undo: "switch to the previous generation", state: "passed", evidence: "orrery --version: orrery 0.45.0", reason: "vermissian runs v0.45.0.", attempt: 1n, at: at("@09:52") } satisfies ProofInit,
+    { position: 3n, step: "halyard runs v0.45.0", target: "halyard", undo: "switch to the previous generation", state: "passed", evidence: "orrery --version: orrery 0.45.0", reason: "halyard runs v0.45.0.", attempt: 1n, at: at("@09:52") } satisfies ProofInit,
   ],
 });
 
@@ -611,7 +616,7 @@ const holderHistory: HistoryInit[] = [
   { time: at("@09:38"), cursor: "c3", item: { case: "tell", value: { seq: 3n, text: "Final review of the epic branch: 0 findings.", at: at("@09:38"), told: true } } },
   { time: at("@09:39"), cursor: "c4", item: { case: "tell", value: { seq: 4n, text: "orrery started the release by itself, because the epic is clean.", at: at("@09:39"), told: true } } },
   { time: at("@09:44"), cursor: "c5", item: { case: "tell", value: { seq: 5n, text: "Tagged v0.45.0 and pushed. CI went green on the tag.", at: at("@09:44"), told: true } } },
-  { time: at("@09:52"), cursor: "c6", item: { case: "tell", value: { seq: 6n, text: "Released v0.45.0. vermissian runs it.", at: at("@09:52"), told: true } } },
+  { time: at("@09:52"), cursor: "c6", item: { case: "tell", value: { seq: 6n, text: "Released v0.45.0. halyard runs it.", at: at("@09:52"), told: true } } },
 ];
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -631,7 +636,7 @@ const tideGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
     `A text the evening before any tide forecast above 4.5${nbsp}m at the harbour, so the boat can be moved before the ` +
     "slipway floods. The number comes from config only, each tide sends one alert, and last year’s tables replay with " +
     "none missed. A dry-run flag logs instead of sending, if you keep it.",
-  sessions: [{ id: "sess-tideplan", pane: "", label: "tide-planning", call: "epic_create", at: at("@14:15") }],
+  sessions: [{ id: "sess-tideplan", pane: "", label: "Wrote the tide-alerts contract", call: "epic_create", at: at("@14:15") }],
   requirements: [
     { id: "R1", kind: "check", text: "A text goes out the evening before a tide above 4.5 m.", evidence: "go test ./alerts/ -run TestR1", conclusion: "", runs: [] },
     { id: "R2", kind: "check", text: "Last year’s tide tables replay with no alert missed.", evidence: "go test ./alerts/ -run TestR2", conclusion: "", runs: [] },
@@ -656,7 +661,7 @@ const tideGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
       { id: "P3", text: "4.5 m is measured above chart datum.", ifWrong: "The threshold is off by the datum offset." },
     ],
     exclusions: ["No alerts by email or push.", "No alerts for any harbour but the home port."],
-    approach: "A timer on tarn reads tomorrow’s forecast every evening at 18:00 and sends one text per tide above 4.5 m through the SMS gateway, keyed by tide id.",
+    approach: "A timer on halyard reads tomorrow’s forecast every evening at 18:00 and sends one text per tide above 4.5 m through the SMS gateway, keyed by tide id.",
     alternatives: [
       {
         alternative: "Subscribe to the harbour authority’s own alerts",
@@ -667,16 +672,16 @@ const tideGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
     ],
     releaseSteps: [
       { step: "Send texts through the SMS gateway", target: "SMS gateway, the number in config", undo: "none, a sent text stays sent" },
-      { step: "Deploy the alert job to tarn", target: "tarn", undo: "disable the timer" },
+      { step: "Deploy the alert job to halyard", target: "halyard", undo: "disable the timer" },
     ],
-    releaseThen: "Then tarn texts you the evening before each tide above 4.5 m.",
+    releaseThen: "Then halyard texts you the evening before each tide above 4.5 m.",
     checks: "just check on every return; a replay of last year’s tables as the evidence for R2.",
     base: "",
     accepted: 0n,
   },
   releaseSteps: [
     { position: 1n, step: "Send texts through the SMS gateway", target: "SMS gateway, the number in config", undo: "none, a sent text stays sent", state: "waiting" } satisfies ProofInit,
-    { position: 2n, step: "Deploy the alert job to tarn", target: "tarn", undo: "disable the timer", state: "waiting" } satisfies ProofInit,
+    { position: 2n, step: "Deploy the alert job to halyard", target: "halyard", undo: "disable the timer", state: "waiting" } satisfies ProofInit,
   ],
 });
 
@@ -753,15 +758,144 @@ const orbitGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
 });
 
 // ---------------------------------------------------------------------------------------------------------------------
-// tidepool/tide-cache-drop-tables-older-than-a-week
+// orrery/notices-usable
+// ---------------------------------------------------------------------------------------------------------------------
+
+// noticesR5Red is R5's red run as the engine ran it at the epic's base: the check passed there, so the requirement is
+// already met and its red is not proven.
+const noticesR5Red = run("ev-notices-r5-red", "", { phase: "red", exit: 0, verdict: "holds", passed: false, created: at("@-1d 09:41") });
+
+const noticesGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
+  epic: {
+    id: "orrery/notices-usable", repository: "orrery", slug: "notices-usable", outcome: "accepted",
+    changed: at("@-1d 09:41"), live: true, runningSteps: [], endedSteps: 0, problem: "", source: "orreryd",
+    outcomeDetail: "", waiting: false, phaseAt: at("@-1d 09:41"), seen: 0n,
+  },
+  repository: "/home/owner/Personal/orrery",
+  summary:
+    "Notices name a directory and what its session is doing, never an id; they stack three deep and count the rest; a click " +
+    "goes to the thing the notice is about.",
+  parked: "R5 is already met at the epic’s base",
+  questions: [{
+    id: "Q1",
+    text: "Requirement R5 is already met before any change. Its red check ran at the epic’s base and passed, so there is nothing to prove red. Run the check again with a fresh judge, drop R5 as already met, or end the epic.",
+    turn: 2n, asked: at("@-1d 09:41"),
+    choices: [
+      { id: "retry", does: "Run R5’s red check again with a fresh judge." },
+      { id: "drop", does: "Record R5 as already met, as your decision, and go on without its red." },
+      { id: "end", does: "Stop here. The epic ends as “already met”." },
+    ],
+    recommendation: { choice: "retry", why: "The first judge may have read stale output.", confidence: "medium" },
+  } satisfies QuestionInit],
+  contract: {
+    title: "notices-usable",
+    approved: "Approved: notices name a directory and what its session is doing, and stack three deep.",
+    intent: "A notice should say what it is about, in words, so the owner can act on it without an id.",
+    care: "limited",
+    approach: "Name the directory and the session’s state in each notice, stack three deep and count the rest, and open the thing a click names.",
+    checks: "just check on every return.",
+    accepted: at("@-1d 09:12"),
+  },
+  requirements: [
+    { id: "R1", kind: "check", text: "A notice names its directory and what its session is doing, never an id.", evidence: "go test ./internal/notices/ -run TestNamesNeverIDs", conclusion: "", runs: [] },
+    { id: "R2", kind: "check", text: "Notices stack three deep and count the rest.", evidence: "go test ./internal/notices/ -run TestStackThreeDeep", conclusion: "", runs: [] },
+    { id: "R3", kind: "check", text: "A click on a notice goes to the thing it is about.", evidence: "go test ./internal/notices/ -run TestClickOpensSubject", conclusion: "", runs: [] },
+    { id: "R4", kind: "check", text: "A notice about an epic draws the epic’s gauge.", evidence: "go test ./internal/notices/ -run TestEpicNoticeDrawsGauge", conclusion: "", runs: [] },
+    { id: "R5", kind: "check", text: "Each notice says when it happened.", evidence: "go test ./internal/notices/ -run TestNoticeWhen", conclusion: "", runs: [noticesR5Red] },
+  ],
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// orrery/harbour-map
+// ---------------------------------------------------------------------------------------------------------------------
+
+const harbourR1Green = greenRun("ev-harbour-r1-green", false);
+const harbourR2Green = greenRun("ev-harbour-r2-green", false);
+
+const harbourTask = (
+  id: string,
+  title: string,
+  status: string,
+  stage: string,
+  requirements: string[],
+): TaskInit => ({ id, title, status, stage, requirements });
+
+const harbourGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
+  epic: {
+    id: "orrery/harbour-map", repository: "orrery", slug: "harbour-map", outcome: "accepted",
+    changed: at("@11:41"), live: true, runningSteps: [], endedSteps: 0, problem: "", source: "orreryd",
+    outcomeDetail: "", waiting: false, phaseAt: at("@11:41"), seen: 0n,
+  },
+  repository: "/home/owner/Personal/orrery",
+  paused: true,
+  contract: {
+    title: "harbour-map",
+    approved: "Approved: a map of the harbour that draws each berth with its depth at the tide.",
+    intent: "A map of the harbour the owner can read from one page.",
+    care: "limited",
+    approach: "Draw each berth with its depth from the day’s tide table, and read the table when the page opens.",
+    checks: "just check on every return.",
+    accepted: at("@-1d 16:20"),
+  },
+  requirements: [
+    { id: "R1", kind: "check", text: "Each berth is drawn with its depth at the tide.", evidence: "go test ./internal/harbour/ -run TestBerthDepth", conclusion: "", runs: [harbourR1Green] },
+    { id: "R2", kind: "check", text: "The depth follows the tide table for the day.", evidence: "go test ./internal/harbour/ -run TestTideTableDay", conclusion: "", runs: [harbourR2Green] },
+    { id: "R3", kind: "check", text: "The map pans and zooms.", evidence: "go test ./internal/harbour/ -run TestPanZoom", conclusion: "", runs: [] },
+    { id: "R4", kind: "check", text: "The map keeps working with no network.", evidence: "go test ./internal/harbour/ -run TestNoNetwork", conclusion: "", runs: [] },
+  ],
+  buildTasks: [
+    harbourTask("T1", "Each berth is drawn with its depth", "done", "", ["R1"]),
+    harbourTask("T2", "A berth’s depth is read at the tide", "done", "", ["R1"]),
+    harbourTask("T3", "The day’s tide table is read on open", "done", "", ["R2"]),
+    harbourTask("T4", "The depth follows the day’s table", "done", "", ["R2"]),
+    harbourTask("T5", "A stale table is marked on the map", "done", "", ["R2"]),
+    harbourTask("T6", "The map pans with a drag", "open", "implement", ["R3"]),
+    harbourTask("T7", "The map zooms with the wheel", "open", "", ["R3"]),
+    harbourTask("T8", "The map keeps its last table with no network", "open", "", ["R4"]),
+    harbourTask("T9", "The map says how old its table is with no network", "open", "", ["R4"]),
+  ],
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// tidepool/buoy-feeds
+// ---------------------------------------------------------------------------------------------------------------------
+
+const buoyGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
+  epic: {
+    id: "tidepool/buoy-feeds", repository: "tidepool", slug: "buoy-feeds", outcome: "accepted",
+    changed: at("@14:38"), live: true, runningSteps: [], endedSteps: 0, problem: "", source: "orreryd",
+    outcomeDetail: "", waiting: false, phaseAt: at("@14:38"), seen: 0n,
+  },
+  repository: "/home/owner/code/tidepool",
+  summary:
+    "Each buoy’s feed is read once a minute, gaps over five minutes are flagged, and the harbour page shows the newest " +
+    "reading with its age.",
+  contract: {
+    title: "buoy-feeds",
+    approved: "Approved: each buoy’s feed read once a minute, with gaps over five minutes flagged on the harbour page.",
+    intent: "The harbour page should show each buoy’s newest reading and how old it is.",
+    care: "limited",
+    approach: "Read each buoy’s feed once a minute, flag a gap over five minutes, and show the newest reading with its age.",
+    checks: "just check on every return.",
+    accepted: at("@14:38"),
+  },
+  requirements: [
+    { id: "R1", kind: "check", text: "Each buoy’s feed is read once a minute.", evidence: "go test ./internal/feeds/ -run TestReadOnceAMinute", conclusion: "", runs: [] },
+    { id: "R2", kind: "check", text: "A gap over five minutes in a feed is flagged.", evidence: "go test ./internal/feeds/ -run TestFlagsGap", conclusion: "", runs: [] },
+    { id: "R3", kind: "check", text: "The harbour page shows each buoy’s newest reading.", evidence: "go test ./internal/feeds/ -run TestNewestReading", conclusion: "", runs: [] },
+    { id: "R4", kind: "check", text: "The harbour page shows the age of each reading.", evidence: "go test ./internal/feeds/ -run TestReadingAge", conclusion: "", runs: [] },
+  ],
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// tidepool/tide-cache
 // ---------------------------------------------------------------------------------------------------------------------
 
 const tidecacheGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
   epic: {
-    id: "tidepool/tide-cache-drop-tables-older-than-a-week", repository: "tidepool",
-    slug: "tide-cache-drop-tables-older-than-a-week", outcome: "stopped", changed: at("@09:12"), live: false,
-    runningSteps: [], endedSteps: 2, problem: "", source: "orreryd", outcomeDetail: "", waiting: false,
-    phaseAt: at("@09:12"), seen: 0n,
+    id: "tidepool/tide-cache", repository: "tidepool", slug: "tide-cache", outcome: "closed_superseded",
+    changed: at("@-4d 09:12"), live: false, runningSteps: [], endedSteps: 2, problem: "", source: "orreryd",
+    outcomeDetail: "", waiting: false, phaseAt: at("@-4d 09:12"), seen: at("@-4d 09:30"),
   },
   repository: "/home/owner/code/tidepool",
   requirements: [
@@ -776,22 +910,22 @@ const tidecacheGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
     { id: "T3", title: "The docs describe the cache.", status: "open", stage: "", requirements: ["R3"] },
   ],
   report: {
-    outcome: "stopped",
+    outcome: "closed_superseded",
     shipped: [],
     notShipped: ["R1", "R2", "R3"],
-    why: "You stopped it at 09:12, because offline-tables covers the same ground. Two unit branches are kept, unmerged.",
+    why: "You ended it, superseded by offline-tables, which covers the same ground. Two unit branches are kept, unmerged.",
   },
 });
 
 // The Epics.List rows, in order.
 const epicRows: EpicInit[] = [
   {
-    id: "orrery/orrery-followups", repository: "orrery", slug: "orrery-followups", outcome: "", changed: at("@14:40"),
+    id: "orrery/orrery-followups", repository: "orrery", slug: "orrery-followups", outcome: "accepted", changed: at("@14:40"),
     live: true, runningSteps: [followupsT1Impl, followupsT2Review], endedSteps: 1, problem: "", source: "orreryd",
     outcomeDetail: "", waiting: false, phaseAt: at("@14:21"), seen: 0n,
   },
   {
-    id: "lighthouse/rota-export", repository: "lighthouse", slug: "rota-export", outcome: "", changed: at("@14:40"),
+    id: "lighthouse/rota-export", repository: "lighthouse", slug: "rota-export", outcome: "accepted", changed: at("@14:40"),
     live: true, runningSteps: [rotaT2Impl, rotaT1Impl], endedSteps: 5, problem: "", source: "orreryd",
     outcomeDetail: "", waiting: false, phaseAt: at("@13:52"), seen: 0n,
   },
@@ -811,15 +945,29 @@ const epicRows: EpicInit[] = [
     phaseAt: at("@14:37"), seen: 0n,
   },
   {
+    id: "orrery/notices-usable", repository: "orrery", slug: "notices-usable", outcome: "accepted", changed: at("@-1d 09:41"),
+    live: true, runningSteps: [], endedSteps: 0, problem: "", source: "orreryd", outcomeDetail: "", waiting: false,
+    phaseAt: at("@-1d 09:41"), seen: 0n,
+  },
+  {
+    id: "orrery/harbour-map", repository: "orrery", slug: "harbour-map", outcome: "accepted", changed: at("@11:41"),
+    live: true, runningSteps: [], endedSteps: 0, problem: "", source: "orreryd", outcomeDetail: "", waiting: false,
+    phaseAt: at("@11:41"), seen: 0n,
+  },
+  {
+    id: "tidepool/buoy-feeds", repository: "tidepool", slug: "buoy-feeds", outcome: "accepted", changed: at("@14:38"),
+    live: true, runningSteps: [], endedSteps: 0, problem: "", source: "orreryd", outcomeDetail: "", waiting: false,
+    phaseAt: at("@14:38"), seen: 0n,
+  },
+  {
     id: "orrery/holder-scopes", repository: "orrery", slug: "holder-scopes", outcome: "released", changed: at("@09:52"),
     live: false, runningSteps: [], endedSteps: 4, problem: "", source: "orreryd", outcomeDetail: "", waiting: false,
     phaseAt: at("@09:52"), seen: at("@09:55"),
   },
   {
-    id: "tidepool/tide-cache-drop-tables-older-than-a-week", repository: "tidepool",
-    slug: "tide-cache-drop-tables-older-than-a-week", outcome: "stopped", changed: at("@09:12"), live: false,
-    runningSteps: [], endedSteps: 2, problem: "", source: "orreryd", outcomeDetail: "", waiting: false,
-    phaseAt: at("@09:12"), seen: 0n,
+    id: "tidepool/tide-cache", repository: "tidepool", slug: "tide-cache", outcome: "closed_superseded",
+    changed: at("@-4d 09:12"), live: false, runningSteps: [], endedSteps: 2, problem: "", source: "orreryd",
+    outcomeDetail: "", waiting: false, phaseAt: at("@-4d 09:12"), seen: at("@-4d 09:30"),
   },
 ];
 
@@ -833,8 +981,11 @@ export const gets = new Map<string, EpicsGetResponse>([
   ["tidepool/tide-alerts", tideGet],
   ["tidepool/offline-tables", offlineGet],
   ["orrery/orbit-labels", orbitGet],
+  ["orrery/notices-usable", noticesGet],
+  ["orrery/harbour-map", harbourGet],
+  ["tidepool/buoy-feeds", buoyGet],
   ["orrery/holder-scopes", holderGet],
-  ["tidepool/tide-cache-drop-tables-older-than-a-week", tidecacheGet],
+  ["tidepool/tide-cache", tidecacheGet],
 ]);
 
 // histories holds the Epics.History answer of each epic that has one, by epic id.

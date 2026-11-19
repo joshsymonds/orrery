@@ -60,7 +60,7 @@ func assertEngineEvents(t *testing.T, s *Store, at time.Time, want []wantEngineE
 
 func engineRowOf(t *testing.T, s *Store, id string) sqlcgen.Session {
 	t.Helper()
-	row, err := sqlcgen.New(s.db).GetEngineSession(context.Background(), id)
+	row, err := s.fixtureQueries().GetEngineSession(context.Background(), id)
 	if err != nil {
 		t.Fatalf("GetEngineSession %s: %v", id, err)
 	}
@@ -124,14 +124,14 @@ func TestApplyEngineWritesEveryOpForTwoSessions(t *testing.T) {
 			"claudeSession": "c-2", "reason": "x"}}},
 	})
 
-	rows, err := sqlcgen.New(s.db).ListEngineText(ctx, "e1")
+	rows, err := s.fixtureQueries().ListEngineText(ctx, "e1")
 	if err != nil {
 		t.Fatalf("ListEngineText e1: %v", err)
 	}
 	if len(rows) != 0 {
 		t.Fatalf("e1 unfinished text after EngineTextDone: got %+v, want none", rows)
 	}
-	rows, err = sqlcgen.New(s.db).ListEngineText(ctx, "e2")
+	rows, err = s.fixtureQueries().ListEngineText(ctx, "e2")
 	if err != nil {
 		t.Fatalf("ListEngineText e2: %v", err)
 	}
@@ -192,7 +192,7 @@ func TestApplyEngineTextOverwritesTheSameBlock(t *testing.T) {
 	if err := s.ApplyEngine(ctx, ops, engineNowAt()); err != nil {
 		t.Fatalf("ApplyEngine: %v", err)
 	}
-	rows, err := sqlcgen.New(s.db).ListEngineText(ctx, "e1")
+	rows, err := s.fixtureQueries().ListEngineText(ctx, "e1")
 	if err != nil {
 		t.Fatalf("ListEngineText: %v", err)
 	}
@@ -216,7 +216,7 @@ func TestApplyEngineTextDoneInSameBatchLeavesNoRow(t *testing.T) {
 	if err := s.ApplyEngine(ctx, ops, engineNowAt()); err != nil {
 		t.Fatalf("ApplyEngine: %v", err)
 	}
-	rows, err := sqlcgen.New(s.db).ListEngineText(ctx, "e1")
+	rows, err := s.fixtureQueries().ListEngineText(ctx, "e1")
 	if err != nil {
 		t.Fatalf("ListEngineText: %v", err)
 	}
@@ -242,7 +242,7 @@ func TestApplyEngineCapsBlockAndTextAtUTF8Boundary(t *testing.T) {
 		t.Fatalf("ApplyEngine: %v", err)
 	}
 
-	rows, err := sqlcgen.New(s.db).ListEngineText(ctx, "e1")
+	rows, err := s.fixtureQueries().ListEngineText(ctx, "e1")
 	if err != nil {
 		t.Fatalf("ListEngineText: %v", err)
 	}
@@ -305,7 +305,7 @@ func TestApplyEngineRollsBackTheWholeBatchOnError(t *testing.T) {
 	if err == nil {
 		t.Fatal("ApplyEngine with an unknown session: want error, got nil")
 	}
-	if _, err := sqlcgen.New(s.db).GetEngineSession(ctx, "e1"); !errors.Is(err, sql.ErrNoRows) {
+	if _, err := s.fixtureQueries().GetEngineSession(ctx, "e1"); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("e1 after failed batch: got %v, want sql.ErrNoRows", err)
 	}
 	if events := eventsOf(t, s); len(events) != 0 {
@@ -356,7 +356,7 @@ func TestApplyEngineReturnsErrorWhileStoreIsWriteLocked(t *testing.T) {
 	if !Busy(err) {
 		t.Fatalf("ApplyEngine while write-locked = %v, want an error Busy reports", err)
 	}
-	if _, err := sqlcgen.New(s.db).GetEngineSession(ctx, "e1"); !errors.Is(err, sql.ErrNoRows) {
+	if _, err := s.fixtureQueries().GetEngineSession(ctx, "e1"); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("engine row written while locked: got %v, want sql.ErrNoRows", err)
 	}
 	if events := eventsOf(t, s); len(events) != 0 {

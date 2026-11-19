@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"connectrpc.com/connect"
@@ -13,6 +14,7 @@ import (
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
 	"github.com/joshsymonds/orrery/internal/hoststatus"
+	"github.com/joshsymonds/orrery/internal/server"
 )
 
 // hostFixtureOutput is the host status command output of the parity fixture: one stat with a percent and one
@@ -93,6 +95,44 @@ func TestHostStatusErrorParity(t *testing.T) {
 
 			_, err := hostClient(t, handler).Status(t.Context(), connect.NewRequest(&orreryv1.HostStatusRequest{}))
 			assertRPCError(t, "Host.Status", err, tc.code, tc.message)
+		})
+	}
+}
+
+// TestHostStatusNamesThePageBuild answers Host.Status over a page whose build.txt names its build, trimmed, and over
+// the same page without one, which names no build, so a page never takes a missing build for a changed one.
+func TestHostStatusNamesThePageBuild(t *testing.T) {
+	t.Parallel()
+	withBuild := pageFS()
+	withBuild["build.txt"] = &fstest.MapFile{Data: []byte("synthetic-build-1\n")}
+	for _, tc := range []struct {
+		name string
+		web  fstest.MapFS
+		want string
+	}{
+		{name: "build.txt names the build", web: withBuild, want: "synthetic-build-1"},
+		{name: "no build.txt", web: pageFS(), want: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			handler, err := server.New(server.Config{
+				Logins:     []string{allowedLogin},
+				Tmux:       newTmuxClient(t),
+				Push:       newPushStore(t),
+				HostStatus: hoststatus.New(writeHostStatusScript(t, hostFixtureOutput, 0), time.Now),
+				Web:        tc.web,
+			})
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			got, err := hostClient(t, handler).Status(t.Context(),
+				connect.NewRequest(&orreryv1.HostStatusRequest{}))
+			if err != nil {
+				t.Fatalf("Host.Status: %v", err)
+			}
+			if got.Msg.GetPageBuild() != tc.want {
+				t.Errorf("page_build = %q, want %q", got.Msg.GetPageBuild(), tc.want)
+			}
 		})
 	}
 }
