@@ -166,6 +166,38 @@ func TestPushOptionsRestoredPushMatchesNotify(t *testing.T) {
 	}
 }
 
+func TestPushOptionsRestoredPermitPushMatchesNotify(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	event, _ := sessionNoticeAndPush(t, "PERMIT")
+	router := &fakeRouter{}
+	NewNotifier(NotifierConfig{Route: router}).Notify(ctx, event)
+	if len(router.notices) != 1 {
+		t.Fatalf("Notify calls = %d, want 1", len(router.notices))
+	}
+	built, err := router.notices[0].Push(ctx)
+	if err != nil {
+		t.Fatalf("Push of the notified permission notice: %v", err)
+	}
+	restored, err := RestoreNotice(ctx, router.notices[0].Source.Data, 0)
+	if err != nil {
+		t.Fatalf("RestoreNotice: %v", err)
+	}
+	pushed, err := restored.Push(ctx)
+	if err != nil {
+		t.Fatalf("Push of the restored permission notice: %v", err)
+	}
+
+	want := []string{"allow", "deny"}
+	if !slices.Equal(built.Options, want) || built.Request != "permit-1" {
+		t.Fatalf("notified push options = %q and request = %q, want %q and permit-1",
+			built.Options, built.Request, want)
+	}
+	if !reflect.DeepEqual(pushed, built) {
+		t.Fatalf("restored push = %+v, want the notified push %+v", pushed, built)
+	}
+}
+
 func TestPushOptionsOldRowRestoresWithNoOptionsOrRequest(t *testing.T) {
 	t.Parallel()
 	old := []byte(`{"session":"0123456789abcdef0123456789abcdef","dir":"/x/proj",` +
