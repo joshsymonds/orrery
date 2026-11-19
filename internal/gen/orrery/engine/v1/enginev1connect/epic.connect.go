@@ -67,6 +67,10 @@ const (
 	EpicsArchiveRowProcedure = "/orrery.engine.v1.Epics/ArchiveRow"
 	// EpicsUnarchiveRowProcedure is the fully-qualified name of the Epics's UnarchiveRow RPC.
 	EpicsUnarchiveRowProcedure = "/orrery.engine.v1.Epics/UnarchiveRow"
+	// EpicsMoveEpicProcedure is the fully-qualified name of the Epics's MoveEpic RPC.
+	EpicsMoveEpicProcedure = "/orrery.engine.v1.Epics/MoveEpic"
+	// EpicsContinueEpicProcedure is the fully-qualified name of the Epics's ContinueEpic RPC.
+	EpicsContinueEpicProcedure = "/orrery.engine.v1.Epics/ContinueEpic"
 	// EvidenceRunEvidenceProcedure is the fully-qualified name of the Evidence's RunEvidence RPC.
 	EvidenceRunEvidenceProcedure = "/orrery.engine.v1.Evidence/RunEvidence"
 	// EvidenceListEvidenceProcedure is the fully-qualified name of the Evidence's ListEvidence RPC.
@@ -121,6 +125,12 @@ type EpicsClient interface {
 	// UnarchiveRow clears the archive mark of the list row of kind and id, and answers an empty reply. The refusals are
 	// those of ArchiveRow.
 	UnarchiveRow(context.Context, *connect.Request[v1.UnarchiveRowRequest]) (*connect.Response[v1.UnarchiveRowResponse], error)
+	// MoveEpic moves a stored epic's steering to the session the request names, or to the calling conversation when the
+	// session is empty, and returns the stored epic.
+	MoveEpic(context.Context, *connect.Request[v1.MoveEpicRequest]) (*connect.Response[v1.MoveEpicResponse], error)
+	// ContinueEpic starts a steering session for a stored epic, moves the epic's steering to it as its owner, and returns
+	// the stored epic with the session's id.
+	ContinueEpic(context.Context, *connect.Request[v1.ContinueEpicRequest]) (*connect.Response[v1.ContinueEpicResponse], error)
 }
 
 // NewEpicsClient constructs a client for the orrery.engine.v1.Epics service. By default, it uses
@@ -230,6 +240,18 @@ func NewEpicsClient(httpClient connect.HTTPClient, baseURL string, opts ...conne
 			connect.WithSchema(epicsMethods.ByName("UnarchiveRow")),
 			connect.WithClientOptions(opts...),
 		),
+		moveEpic: connect.NewClient[v1.MoveEpicRequest, v1.MoveEpicResponse](
+			httpClient,
+			baseURL+EpicsMoveEpicProcedure,
+			connect.WithSchema(epicsMethods.ByName("MoveEpic")),
+			connect.WithClientOptions(opts...),
+		),
+		continueEpic: connect.NewClient[v1.ContinueEpicRequest, v1.ContinueEpicResponse](
+			httpClient,
+			baseURL+EpicsContinueEpicProcedure,
+			connect.WithSchema(epicsMethods.ByName("ContinueEpic")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -251,6 +273,8 @@ type epicsClient struct {
 	seeEpic       *connect.Client[v1.SeeEpicRequest, v1.SeeEpicResponse]
 	archiveRow    *connect.Client[v1.ArchiveRowRequest, v1.ArchiveRowResponse]
 	unarchiveRow  *connect.Client[v1.UnarchiveRowRequest, v1.UnarchiveRowResponse]
+	moveEpic      *connect.Client[v1.MoveEpicRequest, v1.MoveEpicResponse]
+	continueEpic  *connect.Client[v1.ContinueEpicRequest, v1.ContinueEpicResponse]
 }
 
 // CreateEpic calls orrery.engine.v1.Epics.CreateEpic.
@@ -333,6 +357,16 @@ func (c *epicsClient) UnarchiveRow(ctx context.Context, req *connect.Request[v1.
 	return c.unarchiveRow.CallUnary(ctx, req)
 }
 
+// MoveEpic calls orrery.engine.v1.Epics.MoveEpic.
+func (c *epicsClient) MoveEpic(ctx context.Context, req *connect.Request[v1.MoveEpicRequest]) (*connect.Response[v1.MoveEpicResponse], error) {
+	return c.moveEpic.CallUnary(ctx, req)
+}
+
+// ContinueEpic calls orrery.engine.v1.Epics.ContinueEpic.
+func (c *epicsClient) ContinueEpic(ctx context.Context, req *connect.Request[v1.ContinueEpicRequest]) (*connect.Response[v1.ContinueEpicResponse], error) {
+	return c.continueEpic.CallUnary(ctx, req)
+}
+
 // EpicsHandler is an implementation of the orrery.engine.v1.Epics service.
 type EpicsHandler interface {
 	// CreateEpic stores an accepted contract with its seed decisions and returns the stored epic.
@@ -378,6 +412,12 @@ type EpicsHandler interface {
 	// UnarchiveRow clears the archive mark of the list row of kind and id, and answers an empty reply. The refusals are
 	// those of ArchiveRow.
 	UnarchiveRow(context.Context, *connect.Request[v1.UnarchiveRowRequest]) (*connect.Response[v1.UnarchiveRowResponse], error)
+	// MoveEpic moves a stored epic's steering to the session the request names, or to the calling conversation when the
+	// session is empty, and returns the stored epic.
+	MoveEpic(context.Context, *connect.Request[v1.MoveEpicRequest]) (*connect.Response[v1.MoveEpicResponse], error)
+	// ContinueEpic starts a steering session for a stored epic, moves the epic's steering to it as its owner, and returns
+	// the stored epic with the session's id.
+	ContinueEpic(context.Context, *connect.Request[v1.ContinueEpicRequest]) (*connect.Response[v1.ContinueEpicResponse], error)
 }
 
 // NewEpicsHandler builds an HTTP handler from the service implementation. It returns the path on
@@ -483,6 +523,18 @@ func NewEpicsHandler(svc EpicsHandler, opts ...connect.HandlerOption) (string, h
 		connect.WithSchema(epicsMethods.ByName("UnarchiveRow")),
 		connect.WithHandlerOptions(opts...),
 	)
+	epicsMoveEpicHandler := connect.NewUnaryHandler(
+		EpicsMoveEpicProcedure,
+		svc.MoveEpic,
+		connect.WithSchema(epicsMethods.ByName("MoveEpic")),
+		connect.WithHandlerOptions(opts...),
+	)
+	epicsContinueEpicHandler := connect.NewUnaryHandler(
+		EpicsContinueEpicProcedure,
+		svc.ContinueEpic,
+		connect.WithSchema(epicsMethods.ByName("ContinueEpic")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orrery.engine.v1.Epics/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case EpicsCreateEpicProcedure:
@@ -517,6 +569,10 @@ func NewEpicsHandler(svc EpicsHandler, opts ...connect.HandlerOption) (string, h
 			epicsArchiveRowHandler.ServeHTTP(w, r)
 		case EpicsUnarchiveRowProcedure:
 			epicsUnarchiveRowHandler.ServeHTTP(w, r)
+		case EpicsMoveEpicProcedure:
+			epicsMoveEpicHandler.ServeHTTP(w, r)
+		case EpicsContinueEpicProcedure:
+			epicsContinueEpicHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -588,6 +644,14 @@ func (UnimplementedEpicsHandler) ArchiveRow(context.Context, *connect.Request[v1
 
 func (UnimplementedEpicsHandler) UnarchiveRow(context.Context, *connect.Request[v1.UnarchiveRowRequest]) (*connect.Response[v1.UnarchiveRowResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Epics.UnarchiveRow is not implemented"))
+}
+
+func (UnimplementedEpicsHandler) MoveEpic(context.Context, *connect.Request[v1.MoveEpicRequest]) (*connect.Response[v1.MoveEpicResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Epics.MoveEpic is not implemented"))
+}
+
+func (UnimplementedEpicsHandler) ContinueEpic(context.Context, *connect.Request[v1.ContinueEpicRequest]) (*connect.Response[v1.ContinueEpicResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Epics.ContinueEpic is not implemented"))
 }
 
 // EvidenceClient is a client for the orrery.engine.v1.Evidence service.

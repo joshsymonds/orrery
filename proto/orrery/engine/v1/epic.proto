@@ -62,6 +62,14 @@ service Epics {
   // UnarchiveRow clears the archive mark of the list row of kind and id, and answers an empty reply. The refusals are
   // those of ArchiveRow.
   rpc UnarchiveRow(UnarchiveRowRequest) returns (UnarchiveRowResponse);
+
+  // MoveEpic moves a stored epic's steering to the session the request names, or to the calling conversation when the
+  // session is empty, and returns the stored epic.
+  rpc MoveEpic(MoveEpicRequest) returns (MoveEpicResponse);
+
+  // ContinueEpic starts a steering session for a stored epic, moves the epic's steering to it as its owner, and returns
+  // the stored epic with the session's id.
+  rpc ContinueEpic(ContinueEpicRequest) returns (ContinueEpicResponse);
 }
 
 // Evidence runs an item's evidence, lists an epic's evidence runs and reads the artifacts a run kept.
@@ -1089,6 +1097,33 @@ message StoredEpic {
 
   // Why the orreryd epic is paused, 'owner' or 'limit' while it is paused, empty otherwise.
   string pause_source = 32;
+
+  // The epic's steering actions in seq order. Only a GetEpic that asks for history fills them.
+  repeated EpicAction actions = 33;
+}
+
+// EpicAction is one action taken on an epic's steering or controls, such as a move.
+message EpicAction {
+  // The action's position on the epic, counted from 1.
+  int64 seq = 1;
+
+  // What the action did, such as move.
+  string kind = 2;
+
+  // When the action was taken, in unix seconds.
+  int64 time = 3;
+
+  // Who took the action, as the store records its maker.
+  string by = 4;
+
+  // The session that took the action, empty when none did.
+  string session = 5;
+
+  // The session the action moved the epic from, empty when none.
+  string from = 6;
+
+  // The session the action moved the epic to, empty when none.
+  string to = 7;
 }
 
 // EpicReleaseRun is one release run of an epic: the candidate it starts from, a release step, a named step, or the judge.
@@ -1292,6 +1327,36 @@ message AnswerEpicResponse {
 
   // A warning set when a note is recorded while questions are open; empty otherwise.
   string warning = 2;
+}
+
+// MoveEpicRequest names the epic to move and the session to move it to.
+message MoveEpicRequest {
+  // The epic's id.
+  string id = 1;
+
+  // The session to move the epic's steering to. Empty names the calling conversation.
+  string session = 2;
+}
+
+// MoveEpicResponse carries the moved epic.
+message MoveEpicResponse {
+  // The stored epic.
+  StoredEpic epic = 1;
+}
+
+// ContinueEpicRequest names the epic to continue.
+message ContinueEpicRequest {
+  // The epic's id.
+  string id = 1;
+}
+
+// ContinueEpicResponse carries the continued epic and the steering session started for it.
+message ContinueEpicResponse {
+  // The stored epic.
+  StoredEpic epic = 1;
+
+  // The id of the steering session started for the epic.
+  string session = 2;
 }
 
 // PauseEpicRequest names the epic to pause.

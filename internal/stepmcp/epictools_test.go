@@ -28,6 +28,7 @@ type fakeEpics struct {
 	lists        []*v1.ListEpicsRequest
 	answers      []*v1.AnswerEpicRequest
 	pauses       []*v1.PauseEpicRequest
+	moves        []*v1.MoveEpicRequest
 	resumes      []*v1.ResumeEpicRequest
 	stops        []*v1.StopEpicRequest
 	retries      []*v1.RetryEpicRequest
@@ -41,6 +42,7 @@ type fakeEpics struct {
 	listReply    *v1.ListEpicsResponse
 	answerReply  *v1.AnswerEpicResponse
 	pauseReply   *v1.PauseEpicResponse
+	moveReply    *v1.MoveEpicResponse
 	resumeReply  *v1.ResumeEpicResponse
 	stopReply    *v1.StopEpicResponse
 	retryReply   *v1.RetryEpicResponse
@@ -115,6 +117,26 @@ func (f *fakeEpics) PauseEpic(
 		return nil, f.err
 	}
 	return connect.NewResponse(f.pauseReply), nil
+}
+
+func (f *fakeEpics) MoveEpic(
+	_ context.Context,
+	req *connect.Request[v1.MoveEpicRequest],
+) (*connect.Response[v1.MoveEpicResponse], error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.moves = append(f.moves, req.Msg)
+	if f.err != nil {
+		return nil, f.err
+	}
+	return connect.NewResponse(f.moveReply), nil
+}
+
+func (f *fakeEpics) ContinueEpic(
+	_ context.Context,
+	_ *connect.Request[v1.ContinueEpicRequest],
+) (*connect.Response[v1.ContinueEpicResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("no epic tool continues an epic"))
 }
 
 func (f *fakeEpics) ResumeEpic(

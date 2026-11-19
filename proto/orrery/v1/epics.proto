@@ -48,6 +48,13 @@ service Epics {
   // Close closes the named orreryd epic as superseded, shipped by hand or abandoned, and records the owner as its
   // closer.
   rpc Close(EpicsCloseRequest) returns (EpicsCloseResponse);
+
+  // Move moves the steering of the named orreryd epic to the session the request names, as the owner.
+  rpc Move(EpicsMoveRequest) returns (EpicsMoveResponse);
+
+  // Continue starts a steering session for the named orreryd epic, moves its steering to that session as the owner, and
+  // answers the session's id.
+  rpc Continue(EpicsContinueRequest) returns (EpicsContinueResponse);
 }
 
 // Steps carries the owner's calls on one labelled step. It has no call that starts a step.
@@ -390,7 +397,34 @@ message EpicHistoryEntry {
 
     // A tell: what the owner was told.
     EpicTell tell = 8;
+
+    // An action taken on the epic's steering or controls.
+    EpicAction action = 9;
   }
+}
+
+// EpicAction is one action taken on an orreryd epic's steering or controls, such as a move.
+message EpicAction {
+  // The action's position on the epic, counted from 1.
+  int64 seq = 1;
+
+  // What the action did, such as move.
+  string kind = 2;
+
+  // When the action was taken, in unix seconds.
+  int64 time = 3;
+
+  // Who took the action, as the store records its maker.
+  string by = 4;
+
+  // The session that took the action, empty when none did.
+  string session = 5;
+
+  // The session the action moved the epic from, empty when none.
+  string from = 6;
+
+  // The session the action moved the epic to, empty when none.
+  string to = 7;
 }
 
 // EpicTurn is one planner turn of an orreryd epic.
@@ -478,6 +512,30 @@ message EpicTell {
 
   // Whether the owner has been told it.
   bool told = 4;
+}
+
+// EpicsMoveRequest names the orreryd epic to move and the session to move it to.
+message EpicsMoveRequest {
+  // The epic's id.
+  string id = 1;
+
+  // The session to move the epic's steering to.
+  string session = 2;
+}
+
+// EpicsMoveResponse is the reply to a Move. It has no fields.
+message EpicsMoveResponse {}
+
+// EpicsContinueRequest names the orreryd epic to continue.
+message EpicsContinueRequest {
+  // The epic's id.
+  string id = 1;
+}
+
+// EpicsContinueResponse answers the steering session started for the epic.
+message EpicsContinueResponse {
+  // The id of the steering session started for the epic.
+  string session = 1;
 }
 
 // EpicsPauseRequest names the orreryd epic to pause.
