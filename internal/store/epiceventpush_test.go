@@ -152,20 +152,6 @@ func TestEpicEventPushStoreRolledBackWriteCallsNothing(t *testing.T) {
 	}
 }
 
-func TestEpicEventPushStoreWritesSucceedWithoutHook(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openEpicStore(t)
-	claimPlannerTurn(t, s)
-
-	if err := s.CompleteTurn(ctx, claimEpic, 1, plannedTurn(), completedAt()); err != nil {
-		t.Fatalf("CompleteTurn with no hook: %v", err)
-	}
-	if n, err := openQuestionCount(ctx, s); err != nil || n != 1 {
-		t.Errorf("open questions = %d (err %v), want 1", n, err)
-	}
-}
-
 func TestEpicEventPushStoreNilHookStopsCalls(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

@@ -175,7 +175,9 @@ func TestStepEventCardPendingListsOwedStepEndsAndEpicEvents(t *testing.T) {
 	}
 }
 
-func TestStepEventCardPendingDropsReadAndMarkedEvents(t *testing.T) {
+// TestEndComesBackPendingDropsMarkedEvents: a step's end, and each epic event, stays listed for its caller until its
+// event is marked under the caller's row id, and is listed no more after.
+func TestEndComesBackPendingDropsMarkedEvents(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, path := openPendingStore(t)
