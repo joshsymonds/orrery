@@ -8,9 +8,6 @@ set script-interpreter := ["scripts/in-devenv", "-euo", "pipefail"]
 # performance target. Override on the CLI: just TEST_BUDGET=60 check
 TEST_BUDGET := "360"
 
-# Wall-clock budget (seconds) for check-changed's Go tests. Override: just CHECK_CHANGED_BUDGET=600 check-changed
-CHECK_CHANGED_BUDGET := "240"
-
 # Wall-clock budget (seconds) for web-check's node run, the whole web suite. Override: just WEB_TEST_BUDGET=300 web-check
 WEB_TEST_BUDGET := "120"
 
@@ -85,8 +82,8 @@ cover:
     fi
     echo "coverage: ${pct}% (>= 80% OK)"
 
-    # One line per package over its CPU budget; exit 3 when one is over twice its baseline. The lines go to
-    # test-artifacts/test-budget.lines too, which check prints again as its last output.
+    # One line per package over its CPU budget. The check is advisory and exits 0 whatever the lines say. The lines go
+    # to test-artifacts/test-budget.lines too, which check prints again as its last output.
     scripts/test-budget.sh check --lines "$artifacts/test-budget.lines" "$record"
 
 # Lint the protobuf contract in proto/.
@@ -275,7 +272,7 @@ reap-test-tmux:
 # The fast gate for a task in progress: run only the checks the changes since BASE can affect (BASE defaults to the
 # merge base of HEAD and origin/main). Integration, review and release keep the full `check` and `android-test`.
 check-changed BASE="": reap-test-tmux
-    CHECK_CHANGED_BUDGET={{CHECK_CHANGED_BUDGET}} scripts/check-changed.sh {{BASE}}
+    scripts/check-changed.sh {{BASE}}
 
 # Run a gate command on the orrery-gate EC2 box. When the box is gone it waits for the one its wake brings up, and runs
 # here through /tmp/claude-1000/heavy only when no box can come up; see scripts/gate-remote.sh for the steps, the

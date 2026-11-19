@@ -99,8 +99,10 @@ func TestTaskLadderFailuresClimbOneRung(t *testing.T) {
 	})))
 	wantDecided := Action{
 		Kind: ActFail, Reason: "the approach cannot meet the gate", NeedsFiles: []string{"b.go"},
-		Decision: &store.TaskDecision{ID: "T3-request-3", Text: "T3 fail: the gate is unmeetable"},
-		Move:     store.RungMove{MovedBy: store.MovedByFailDecision},
+		Decision: &store.TaskDecision{
+			ID: "T3-request-3", Text: "T3 fail: the gate is unmeetable", Refused: []string{"b.go"},
+		},
+		Move: store.RungMove{MovedBy: store.MovedByFailDecision},
 	}
 	if got := Decide(decided); !reflect.DeepEqual(got, wantDecided) {
 		t.Errorf("fail decision = %+v, want %+v", got, wantDecided)

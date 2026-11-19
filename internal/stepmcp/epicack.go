@@ -24,13 +24,15 @@ func ackResult(text string) ToolResult {
 	return ToolResult{Content: []Content{{Type: textContentType, Text: text}}}
 }
 
-// ackText returns the acknowledgement of a write: head, then change cut to ackChangeCap runes, then, when warning is
-// not empty, a line `warning: ` and the warning cut to ackWarningCap runes, its newlines joined to spaces first. The
-// text is cut to ackBytesCap bytes.
-func ackText(head, change, warning string) string {
+// ackText returns the acknowledgement of a write: head, then change cut to ackChangeCap runes, then a line `warning: `
+// for each warning that is not empty, its text cut to ackWarningCap runes, its newlines joined to spaces first. The text
+// is cut to ackBytesCap bytes.
+func ackText(head, change string, warnings ...string) string {
 	lines := []string{head, capRunes(change, ackChangeCap)}
-	if warning != "" {
-		lines = append(lines, "warning: "+capRunes(strings.ReplaceAll(warning, "\n", " "), ackWarningCap))
+	for _, warning := range warnings {
+		if warning != "" {
+			lines = append(lines, "warning: "+capRunes(strings.ReplaceAll(warning, "\n", " "), ackWarningCap))
+		}
 	}
 	return capBytes(strings.Join(lines, "\n"), ackBytesCap)
 }
@@ -40,14 +42,14 @@ func ackHead(id, status string) string {
 	return fmt.Sprintf("epic %s: %s", capRunes(id, ackIDCap), status)
 }
 
-// epicAck returns the acknowledgement of a write whose response carries epic. The epic's id is its contract's id, or
-// requestID when the response carries no epic, and its phase is the epic's phase.
-func epicAck(epic *v1.StoredEpic, requestID, change string) ToolResult {
+// epicAck returns the acknowledgement of a write whose response carries epic, with a warning line for each of warnings.
+// The epic's id is its contract's id, or requestID when the response carries no epic, and its phase is the epic's phase.
+func epicAck(epic *v1.StoredEpic, requestID, change string, warnings ...string) ToolResult {
 	id := requestID
 	if epic != nil {
 		id = epic.GetContract().GetId()
 	}
-	return ackResult(ackText(ackHead(id, "phase "+epic.GetPhase()), change, ""))
+	return ackResult(ackText(ackHead(id, "phase "+epic.GetPhase()), change, warnings...))
 }
 
 // answerPhase returns the status of an answer's first line: the phase of the epic that its GetEpic read returned, or

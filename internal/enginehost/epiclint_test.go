@@ -6,7 +6,10 @@ import (
 	"slices"
 	"testing"
 
+	"connectrpc.com/connect"
+
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
+	"github.com/joshsymonds/orrery/internal/store"
 )
 
 // TestContractLintArgvRefusesElements asserts that an argv element holding white space outside a line after -c, or a
@@ -124,6 +127,43 @@ func TestContractLintArgvSplitsShellWords(t *testing.T) {
 	}
 }
 
+// epicWarningCase is one mutation of the valid contract and the warnings the lint gives it, in order.
+type epicWarningCase struct {
+	name   string
+	mutate func(req *v1.CreateEpicRequest)
+	want   []string
+}
+
+// epicWarnings returns the warnings of req. checkEpic must accept req first, since the lint warns only a contract that
+// stores. It fails the test when checkEpic refuses req or the lint returns an error.
+func epicWarnings(t *testing.T, req *v1.CreateEpicRequest) []string {
+	t.Helper()
+	if err := checkEpic(t.Context(), req, epicTestGetenv); err != nil {
+		t.Fatalf("checkEpic refused the contract: %v", err)
+	}
+	warnings, err := contractLintWarnings(t.Context(), req.GetContract())
+	if err != nil {
+		t.Fatalf("contractLintWarnings: %v", err)
+	}
+	return warnings
+}
+
+// runEpicWarnings runs each case on a fresh valid contract for repo and asserts that its warnings are exactly the
+// case's.
+func runEpicWarnings(t *testing.T, repo string, cases []epicWarningCase) {
+	t.Helper()
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			req := epicTestRequest(repo)
+			tc.mutate(req)
+			if got := epicWarnings(t, req); !slices.Equal(got, tc.want) {
+				t.Fatalf("warnings = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 // contractLintRunRepo returns a synthetic repository whose base declares TestX in pkg, the test the go test captures
 // of the ContractLintRun tests name.
 func contractLintRunRepo(t *testing.T) string {
@@ -135,19 +175,19 @@ func contractLintRunRepo(t *testing.T) string {
 	return repo
 }
 
-// contractLintRunRefusal is the refusal of a capture's go test whose -run pattern matches TestX in ./pkg.
-func contractLintRunRefusal(pattern string) string {
+// contractLintRunWarning is the warning of a capture's go test whose -run pattern matches TestX in ./pkg.
+func contractLintRunWarning(pattern string) string {
 	return fmt.Sprintf("requirements[0].item.capture: -run pattern %q matches TestX in ./pkg at the base: "+
 		"name a new top-level test", pattern)
 }
 
-// TestContractLintRunRefusesGoTestAtBase asserts that a go test whose -run pattern matches a Test function present at
-// the base in the packages it names is refused under the capture's field. It holds whether the go test is in the argv
-// or in a line after -c, and whether the packages are named or are ./....
-func TestContractLintRunRefusesGoTestAtBase(t *testing.T) {
+// TestContractLintRunWarnsGoTestAtBase asserts that a go test whose -run pattern matches a Test function present at
+// the base in the packages it names gets a warning under the capture's field. It holds whether the go test is in the
+// argv or in a line after -c, and whether the packages are named or are ./....
+func TestContractLintRunWarnsGoTestAtBase(t *testing.T) {
 	t.Parallel()
 	repo := contractLintRunRepo(t)
-	runEpicRefusals(t, repo, []epicRefusal{
+	runEpicWarnings(t, repo, []epicWarningCase{
 		{
 			name: "env runs go test in argv",
 			mutate: func(req *v1.CreateEpicRequest) {
@@ -155,7 +195,7 @@ func TestContractLintRunRefusesGoTestAtBase(t *testing.T) {
 					"/usr/bin/env", "go", "test", "-run", "X", "./pkg/",
 				}
 			},
-			want: contractLintRunRefusal("X"),
+			want: []string{contractLintRunWarning("X")},
 		},
 		{
 			name: "shell line runs go test after -c",
@@ -164,14 +204,14 @@ func TestContractLintRunRefusesGoTestAtBase(t *testing.T) {
 					"scripts/in-devenv", "-c", "go test -race -count=1 -v -run X ./pkg/",
 				}
 			},
-			want: contractLintRunRefusal("X"),
+			want: []string{contractLintRunWarning("X")},
 		},
 		{
 			name: "-run=X joined to its value",
 			mutate: func(req *v1.CreateEpicRequest) {
 				req.Contract.Requirements[0].Item.Capture = []string{"/usr/bin/env", "go", "test", "-run=X", "./pkg/"}
 			},
-			want: contractLintRunRefusal("X"),
+			want: []string{contractLintRunWarning("X")},
 		},
 		{
 			name: "--run X with two dashes",
@@ -180,14 +220,14 @@ func TestContractLintRunRefusesGoTestAtBase(t *testing.T) {
 					"/usr/bin/env", "go", "test", "--run", "X", "./pkg/",
 				}
 			},
-			want: contractLintRunRefusal("X"),
+			want: []string{contractLintRunWarning("X")},
 		},
 		{
 			name: "./... names every package",
 			mutate: func(req *v1.CreateEpicRequest) {
 				req.Contract.Requirements[0].Item.Capture = []string{"/usr/bin/env", "go", "test", "-run", "X", "./..."}
 			},
-			want: contractLintRunRefusal("X"),
+			want: []string{contractLintRunWarning("X")},
 		},
 		{
 			name: "subtest of a matching top-level test",
@@ -196,13 +236,13 @@ func TestContractLintRunRefusesGoTestAtBase(t *testing.T) {
 					"/usr/bin/env", "go", "test", "-run", "X/Sub", "./pkg/",
 				}
 			},
-			want: contractLintRunRefusal("X/Sub"),
+			want: []string{contractLintRunWarning("X/Sub")},
 		},
 	})
 }
 
-// TestContractLintRunAcceptsCaptures asserts that a go test is not refused when its -run pattern matches no test at the
-// base, or when the pattern is not literal or its top-level element does not compile.
+// TestContractLintRunAcceptsCaptures asserts that a go test gets no warning when its -run pattern matches no test at
+// the base, or when the pattern is not literal or its top-level element does not compile.
 func TestContractLintRunAcceptsCaptures(t *testing.T) {
 	t.Parallel()
 	repo := contractLintRunRepo(t)
@@ -222,17 +262,16 @@ func TestContractLintRunAcceptsCaptures(t *testing.T) {
 			t.Parallel()
 			req := epicTestRequest(repo)
 			req.Contract.Requirements[0].Item.Capture = tc.capture
-			if err := checkEpic(t.Context(), req, epicTestGetenv); err != nil {
-				t.Fatalf("checkEpic refused %q: %v", tc.capture, err)
+			if got := epicWarnings(t, req); len(got) != 0 {
+				t.Fatalf("warnings = %q, want none for capture %q", got, tc.capture)
 			}
-			t.Logf("checkEpic accepted capture %q", tc.capture)
 		})
 	}
 }
 
-// TestContractLintRunAcceptsNonLiteralPackages asserts that a go test is not refused when a package word is not
+// TestContractLintRunAcceptsNonLiteralPackages asserts that a go test gets no warning when a package word is not
 // literal: it holds a shell expansion, or it neither starts with ./ nor is a bare dot. The directories the words name
-// hold TestX at the base, so each capture would be refused if its word were read as written.
+// hold TestX at the base, so each capture would be warned if its word were read as written.
 func TestContractLintRunAcceptsNonLiteralPackages(t *testing.T) {
 	t.Parallel()
 	repo := contractLintRunRepo(t)
@@ -250,28 +289,27 @@ func TestContractLintRunAcceptsNonLiteralPackages(t *testing.T) {
 			t.Parallel()
 			req := epicTestRequest(repo)
 			req.Contract.Requirements[0].Item.Capture = tc.capture
-			if err := checkEpic(t.Context(), req, epicTestGetenv); err != nil {
-				t.Fatalf("checkEpic refused %q: %v", tc.capture, err)
+			if got := epicWarnings(t, req); len(got) != 0 {
+				t.Fatalf("warnings = %q, want none for capture %q", got, tc.capture)
 			}
-			t.Logf("checkEpic accepted capture %q", tc.capture)
 		})
 	}
 }
 
-// TestContractLintRunReturnsGitFailure asserts that a go test whose package git grep cannot read is not accepted: the
-// failure is returned, and it is not a refusal of the field.
+// TestContractLintRunReturnsGitFailure asserts that a go test whose package git grep cannot read is not passed over:
+// the failure is returned, and it is not a warning of the field.
 func TestContractLintRunReturnsGitFailure(t *testing.T) {
 	t.Parallel()
 	repo := contractLintRunRepo(t)
 	req := epicTestRequest(repo)
 	req.Contract.Requirements[0].Item.Capture = []string{"/usr/bin/env", "go", "test", "-run", "X", "./../outside/"}
-	err := checkEpic(t.Context(), req, epicTestGetenv)
+	_, err := contractLintWarnings(t.Context(), req.GetContract())
 	if err == nil {
-		t.Fatal("checkEpic accepted a go test whose package git grep cannot read")
+		t.Fatal("contractLintWarnings passed a go test whose package git grep cannot read")
 	}
 	var fieldErr *epicFieldError
 	if errors.As(err, &fieldErr) {
-		t.Fatalf("checkEpic = %q, want git's failure, not a field refusal", err)
+		t.Fatalf("contractLintWarnings = %q, want git's failure, not a warning of the field", err)
 	}
 }
 
@@ -286,7 +324,7 @@ const contractLintReleaseTag = "Create a signed annotated tag at that main commi
 	"nix-config can pin it; do not wait for CI."
 
 // contractLintReleaseSteps returns the release steps a lint test gives its contract: the contract's first step, which
-// passes, then one step holding text. A refusal of that second step names release_steps[1].step.
+// passes, then one step holding text. A warning of that second step names release_steps[1].step.
 func contractLintReleaseSteps(text string) []*v1.EpicReleaseStep {
 	return []*v1.EpicReleaseStep{
 		{Step: contractLintReleaseFast, Target: "origin", Undo: "Synthetic undo."},
@@ -294,18 +332,18 @@ func contractLintReleaseSteps(text string) []*v1.EpicReleaseStep {
 	}
 }
 
-// contractLintReleaseRefusal is the refusal of the second release step, whose reason is reason.
-func contractLintReleaseRefusal(reason string) string {
+// contractLintReleaseWarning is the warning of the second release step, whose reason is reason.
+func contractLintReleaseWarning(reason string) string {
 	return "release_steps[1].step: " + reason
 }
 
-// TestContractLintReleaseRefusesSteps asserts that a release step whose text says merge, names a fixed version or waits
-// on CI is refused under its field, with the reason that gives the accepted wording. Each refused step is the second,
-// so the field is release_steps[1].step. Where a step breaks two rules, the earlier rule gives the reason.
-func TestContractLintReleaseRefusesSteps(t *testing.T) {
+// TestContractLintReleaseWarnsSteps asserts that a release step whose text says merge, names a fixed version or waits
+// on CI gets a warning under its field, with the reason that gives the accepted wording. Each warned step is the
+// second, so the field is release_steps[1].step. Where a step breaks two rules, the earlier rule gives the reason.
+func TestContractLintReleaseWarnsSteps(t *testing.T) {
 	t.Parallel()
 	repo := stepGitTestRepo(t)
-	runEpicRefusals(t, repo, []epicRefusal{
+	runEpicWarnings(t, repo, []epicWarningCase{
 		{
 			name: "lowercase merge",
 			mutate: func(req *v1.CreateEpicRequest) {
@@ -313,24 +351,24 @@ func TestContractLintReleaseRefusesSteps(t *testing.T) {
 					"Push main to origin, then merge the release branch.",
 				)
 			},
-			want: contractLintReleaseRefusal(
-				"says merge: a release step fast-forwards main to the release candidate; write fast-forward"),
+			want: []string{contractLintReleaseWarning(
+				"says merge: a release step fast-forwards main to the release candidate; write fast-forward")},
 		},
 		{
 			name: "capitalised Merge",
 			mutate: func(req *v1.CreateEpicRequest) {
 				req.Contract.ReleaseSteps = contractLintReleaseSteps("Merge the release candidate into main.")
 			},
-			want: contractLintReleaseRefusal(
-				"says merge: a release step fast-forwards main to the release candidate; write fast-forward"),
+			want: []string{contractLintReleaseWarning(
+				"says merge: a release step fast-forwards main to the release candidate; write fast-forward")},
 		},
 		{
 			name: "negated merge",
 			mutate: func(req *v1.CreateEpicRequest) {
 				req.Contract.ReleaseSteps = contractLintReleaseSteps("Fast-forward main; do not merge.")
 			},
-			want: contractLintReleaseRefusal(
-				"says merge: a release step fast-forwards main to the release candidate; write fast-forward"),
+			want: []string{contractLintReleaseWarning(
+				"says merge: a release step fast-forwards main to the release candidate; write fast-forward")},
 		},
 		{
 			name: "fixed version v0.86.3",
@@ -339,49 +377,63 @@ func TestContractLintReleaseRefusesSteps(t *testing.T) {
 					"Tag v0.86.3 at the release candidate, then push it.",
 				)
 			},
-			want: contractLintReleaseRefusal(
+			want: []string{contractLintReleaseWarning(
 				"names the fixed version v0.86.3: a release step's tag is chosen when the step runs; " +
-					"name the next version above the newest tag instead"),
+					"name the next version above the newest tag instead")},
 		},
 		{
 			name: "versioned path rel/v0.86.2",
 			mutate: func(req *v1.CreateEpicRequest) {
 				req.Contract.ReleaseSteps = contractLintReleaseSteps("Push rel/v0.86.2 to origin.")
 			},
-			want: contractLintReleaseRefusal(
+			want: []string{contractLintReleaseWarning(
 				"names the fixed version v0.86.2: a release step's tag is chosen when the step runs; " +
-					"name the next version above the newest tag instead"),
+					"name the next version above the newest tag instead")},
 		},
 		{
 			name: "so CI runs",
 			mutate: func(req *v1.CreateEpicRequest) {
 				req.Contract.ReleaseSteps = contractLintReleaseSteps("Push main to origin, so CI runs.")
 			},
-			want: contractLintReleaseRefusal(
-				`a release does not wait for CI; write "do not wait for CI"`),
+			want: []string{contractLintReleaseWarning(
+				`a release does not wait for CI; write "do not wait for CI"`)},
 		},
 		{
 			name: "Merge, v0.86.3 and so CI runs",
 			mutate: func(req *v1.CreateEpicRequest) {
 				req.Contract.ReleaseSteps = contractLintReleaseSteps("Merge v0.86.3 into main, so CI runs.")
 			},
-			want: contractLintReleaseRefusal(
-				"says merge: a release step fast-forwards main to the release candidate; write fast-forward"),
+			want: []string{contractLintReleaseWarning(
+				"says merge: a release step fast-forwards main to the release candidate; write fast-forward")},
 		},
 		{
 			name: "tag v0.86.3 and so CI runs",
 			mutate: func(req *v1.CreateEpicRequest) {
 				req.Contract.ReleaseSteps = contractLintReleaseSteps("Tag v0.86.3, so CI runs.")
 			},
-			want: contractLintReleaseRefusal(
+			want: []string{contractLintReleaseWarning(
 				"names the fixed version v0.86.3: a release step's tag is chosen when the step runs; " +
-					"name the next version above the newest tag instead"),
+					"name the next version above the newest tag instead")},
+		},
+		{
+			name: "two steps each warned",
+			mutate: func(req *v1.CreateEpicRequest) {
+				req.Contract.ReleaseSteps = []*v1.EpicReleaseStep{
+					{Step: "Merge the release candidate into main.", Target: "origin", Undo: "Synthetic undo."},
+					{Step: "Push main to origin, so CI runs.", Target: "origin", Undo: "Synthetic undo."},
+				}
+			},
+			want: []string{
+				"release_steps[0].step: says merge: a release step fast-forwards main to the release candidate; " +
+					"write fast-forward",
+				`release_steps[1].step: a release does not wait for CI; write "do not wait for CI"`,
+			},
 		},
 	})
 }
 
-// TestContractLintReleaseAcceptsSteps asserts that the contract's own two release steps, verbatim, pass. It also
-// asserts that the rules leave alone merged, merges and merging, a ci inside a path, and the phrase in capitals.
+// TestContractLintReleaseAcceptsSteps asserts that the contract's own two release steps, verbatim, get no warning. It
+// also asserts that the rules leave alone merged, merges and merging, a ci inside a path, and the phrase in capitals.
 func TestContractLintReleaseAcceptsSteps(t *testing.T) {
 	t.Parallel()
 	repo := stepGitTestRepo(t)
@@ -403,10 +455,99 @@ func TestContractLintReleaseAcceptsSteps(t *testing.T) {
 			req.Contract.ReleaseSteps = []*v1.EpicReleaseStep{
 				{Step: tc.step, Target: "origin", Undo: "Synthetic undo."},
 			}
-			if err := checkEpic(t.Context(), req, epicTestGetenv); err != nil {
-				t.Fatalf("checkEpic refused release step %q: %v", tc.step, err)
+			if got := epicWarnings(t, req); len(got) != 0 {
+				t.Fatalf("warnings = %q, want none for release step %q", got, tc.step)
 			}
-			t.Logf("checkEpic accepted release step %q", tc.step)
 		})
+	}
+}
+
+// TestEpicCreateReleaseContinueStoresRunPatternWarning asserts that CreateEpic stores a contract whose capture's go test
+// has a -run pattern that matches a test at the base, and returns the finding as a warning under the capture's field.
+func TestEpicCreateReleaseContinueStoresRunPatternWarning(t *testing.T) {
+	t.Parallel()
+	st := epicTestStore(t)
+	client := newEpicsClient(t, startEpicServer(t, st))
+	req := fullEpicRequest(contractLintRunRepo(t), epicServiceID)
+	capture := []string{"/usr/bin/env", "go", "test", "-run", "X", "./pkg/"}
+	req.Contract.Requirements[0].Item.Capture = capture
+
+	created, err := client.CreateEpic(t.Context(), connect.NewRequest(req))
+	if err != nil {
+		t.Fatalf("CreateEpic: %v", err)
+	}
+	if got, want := created.Msg.GetWarnings(), []string{contractLintRunWarning("X")}; !slices.Equal(got, want) {
+		t.Fatalf("CreateEpic warnings = %q, want %q", got, want)
+	}
+	stored := getEpicOK(t, client).GetContract().GetRequirements()[0].GetItem().GetCapture()
+	if !slices.Equal(stored, capture) {
+		t.Fatalf("stored capture = %q, want %q", stored, capture)
+	}
+}
+
+// TestEpicCreateReleaseContinueStoresReleaseStepWarning asserts that CreateEpic stores a contract whose release step
+// says merge, names a fixed version, or waits on CI without "do not wait for CI", and returns the finding as a warning
+// under the step's field.
+func TestEpicCreateReleaseContinueStoresReleaseStepWarning(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, step, want string
+	}{
+		{
+			name: "says merge",
+			step: "Merge the release candidate into main.",
+			want: "release_steps[0].step: says merge: a release step fast-forwards main to the release candidate; " +
+				"write fast-forward",
+		},
+		{
+			name: "names a fixed version",
+			step: "Tag v0.86.3 at the release candidate, then push it.",
+			want: "release_steps[0].step: names the fixed version v0.86.3: a release step's tag is chosen when the " +
+				"step runs; name the next version above the newest tag instead",
+		},
+		{
+			name: "waits on CI",
+			step: "Push main to origin, so CI runs.",
+			want: `release_steps[0].step: a release does not wait for CI; write "do not wait for CI"`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			st := epicTestStore(t)
+			client := newEpicsClient(t, startEpicServer(t, st))
+			req := fullEpicRequest(stepGitTestRepo(t), epicServiceID)
+			req.Contract.ReleaseSteps = []*v1.EpicReleaseStep{
+				{Step: tc.step, Target: "origin", Undo: "Synthetic undo."},
+			}
+
+			created, err := client.CreateEpic(t.Context(), connect.NewRequest(req))
+			if err != nil {
+				t.Fatalf("CreateEpic: %v", err)
+			}
+			if got := created.Msg.GetWarnings(); !slices.Equal(got, []string{tc.want}) {
+				t.Fatalf("CreateEpic warnings = %q, want %q", got, tc.want)
+			}
+			if got := getEpicOK(t, client).GetContract().GetReleaseSteps()[0].GetStep(); got != tc.step {
+				t.Fatalf("stored release step = %q, want %q", got, tc.step)
+			}
+		})
+	}
+}
+
+// TestEpicCreateReleaseContinueRefusesBadArgv asserts that CreateEpic still refuses a capture whose argv element holds
+// white space outside a line after -c, and stores nothing.
+func TestEpicCreateReleaseContinueRefusesBadArgv(t *testing.T) {
+	t.Parallel()
+	st := epicTestStore(t)
+	client := newEpicsClient(t, startEpicServer(t, st))
+	req := fullEpicRequest(stepGitTestRepo(t), epicServiceID)
+	req.Contract.Requirements[0].Item.Capture = []string{"scripts/in-devenv", "go test -run X ./pkg/"}
+
+	_, err := client.CreateEpic(t.Context(), connect.NewRequest(req))
+	wantConnectError(t, err, connect.CodeInvalidArgument,
+		"requirements[0].item.capture[1]: holds white space: split the element into argv elements, "+
+			"or pass the line to a shell after -c")
+	if _, err := st.Epic(t.Context(), epicServiceID); !errors.Is(err, store.ErrNoEpic) {
+		t.Fatalf("store Epic after a refusal: %v, want store.ErrNoEpic", err)
 	}
 }

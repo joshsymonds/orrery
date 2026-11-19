@@ -10,8 +10,8 @@ import (
 )
 
 // EngineRow is one headless engine session row, copied from its sessions columns. Tracked is set when the row's
-// consumed offset is not NULL, that is, when an EngineLaunch has tracked it. Consumed, ReplayFrom, Background and
-// TurnOutput are the re-adoption state the row holds.
+// consumed offset is not NULL, that is, when an EngineLaunch has tracked it. Consumed, ReplayFrom, Background, Awaited
+// and TurnOutput are the re-adoption state the row holds.
 type EngineRow struct {
 	ID            string
 	Dir           string
@@ -24,6 +24,7 @@ type EngineRow struct {
 	Consumed      int64
 	ReplayFrom    int64
 	Background    bool
+	Awaited       bool
 	TurnOutput    string
 }
 
@@ -119,6 +120,6 @@ func toEngineRow(row sqlcgen.Session) EngineRow {
 		ID: row.ID, Dir: row.Dir, State: row.State, Question: row.Question,
 		ClaudeSession: row.ClaudeSession, Reason: row.Reason, Kind: row.Kind,
 		Tracked: row.Consumed.Valid, Consumed: row.Consumed.Int64, ReplayFrom: row.ReplayFrom,
-		Background: row.Background, TurnOutput: row.TurnOutput,
+		Background: row.Background, Awaited: row.Awaited, TurnOutput: row.TurnOutput,
 	}
 }

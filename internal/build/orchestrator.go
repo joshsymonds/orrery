@@ -829,16 +829,18 @@ func decideOrchestrate(view View) Action {
 	return requestFallback(view)
 }
 
-// carry returns the action that carries out ret, an orchestrator's done return, on the task of view. The state its
-// rerun or grant names is checked again against the peers now, and a refusal settles the request as fallback does, with
-// the refusal added to its reason. Every decision counts one more decision on the build and records an epic decision
+// carry returns the action that carries out ret, an orchestrator's done return, on the task of view. The state its rerun
+// or grant names is checked again against the peers now, and a refusal settles the request as fallback does, with the
+// refusal added to its reason. Every decision counts one more decision on the build and records an epic decision
 // (decisionText). A rerun or grant moves the build to implement at its next rerun, with no step and the failure
-// fallbackText gives, held waiting when it names tasks to wait for, and stores the version it returns (versionInput). A
-// rerun that changes the evidence moves the build to red at that rerun instead, so the new evidence is judged at the
-// base before the implementer runs again, and keeps its attempt. A fail climbs the task off its failure and
-// needs_files, moved by a fail decision. A cannot_meet climbs it the same way, moved by a cannot_meet decision, to
-// rescue when the task is below rescue and one rung up otherwise. An ask holds the build until the owner answers its
-// question.
+// fallbackText gives, which on a needs_context request also says what the version granted (grantedText), held waiting
+// when it names tasks to wait for, and stores the version it returns (versionInput). A rerun, grant or fail of a
+// needs_context request refuses the files it named that the task does not own and the version does not add
+// (requestRefusals), and the decision records them. A rerun that changes the evidence moves the build to red at that
+// rerun instead, so the new evidence is judged at the base before the implementer runs again, and keeps its attempt. A
+// fail climbs the task off its failure and needs_files, moved by a fail decision. A cannot_meet climbs it the same way,
+// moved by a cannot_meet decision, to rescue when the task is below rescue and one rung up otherwise. An ask holds the
+// build until the owner answers its question.
 func carry(view View, ret orchestratorReturn, fallback Action) Action {
 	if refusals := stateRefusals(ret, view.Task, view.Peers, true); len(refusals) > 0 {
 		return refused(fallback, ret.Decision, refusals)
@@ -851,6 +853,7 @@ func carry(view View, ret orchestratorReturn, fallback Action) Action {
 	}
 	switch ret.Decision {
 	case decisionFail:
+		decision.Refused = requestRefusals(view, fallback, nil)
 		return Action{
 			Kind: ActFail, Reason: ret.Failure, NeedsFiles: ret.NeedsFiles, Decision: decision,
 			Move: store.RungMove{MovedBy: store.MovedByFailDecision},
@@ -884,6 +887,10 @@ func carry(view View, ret orchestratorReturn, fallback Action) Action {
 	next.NoVerdict = 0
 	next.Step = ""
 	next.Failure = fallbackText(fallback)
+	if requestsContext(view) {
+		next.Failure += "; " + grantedText(ret.Version.Files)
+	}
+	decision.Refused = requestRefusals(view, fallback, ret.Version.Files)
 	if len(ret.AfterTasks) > 0 {
 		next.Held = HeldWaiting
 		next.After = afterText(ret.AfterTasks)
@@ -901,6 +908,38 @@ func fallbackText(fallback Action) string {
 		return fallback.Next.Failure
 	}
 	return fallback.Reason
+}
+
+// requestsContext reports whether the implementer step an orchestrate unit decides ended returned with needs_context,
+// so the files it names are the files its request asked for.
+func requestsContext(view View) bool {
+	return view.Returned != nil && view.Returned.End == endReturned && view.Returned.Status == statusNeedsContext
+}
+
+// grantedText returns what the implementer of a needs_context request is told of an orchestrator's rerun or grant: the
+// files its version granted, or that none were. It names no other file.
+func grantedText(granted []string) string {
+	if len(granted) == 0 {
+		return "the orchestrator granted none"
+	}
+	return "the orchestrator granted " + strings.Join(granted, ", ")
+}
+
+// requestRefusals returns the files a rerun, grant or fail of a needs_context request refuses: the files fallback's
+// request named that the task of view does not own and the decision's version, added, does not add. A request that is
+// not needs_context refuses none.
+func requestRefusals(view View, fallback Action, added []string) []string {
+	if !requestsContext(view) {
+		return nil
+	}
+	var refused []string
+	for _, file := range fallback.NeedsFiles {
+		if slices.Contains(view.Task.Files, file) || slices.Contains(added, file) || slices.Contains(refused, file) {
+			continue
+		}
+		refused = append(refused, file)
+	}
+	return refused
 }
 
 // versionInput returns the version ret stores on the task of view: the step the orchestrator ran, ret's reason and
