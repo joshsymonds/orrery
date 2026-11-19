@@ -158,13 +158,17 @@ func (s *stepService) ReadStepCheck(
 }
 
 // ListSteps answers the listings of the labeled steps the request narrows to, each with no result. A request for the
-// running steps reads only those, and the count of each epic's ended steps.
+// running steps reads only those, and the count of each epic's ended steps. A caller request answers the steps the
+// call's caller session started instead, labeled or not.
 func (s *stepService) ListSteps(
 	ctx context.Context,
 	req *connect.Request[v1.ListStepsRequest],
 ) (*connect.Response[v1.ListStepsResponse], error) {
 	if err := s.ready(); err != nil {
 		return nil, err
+	}
+	if req.Msg.GetCaller() {
+		return s.listCallerSteps(ctx, req)
 	}
 	var listings []store.StepListing
 	var ended map[string]int
@@ -177,20 +181,61 @@ func (s *stepService) ListSteps(
 	if err != nil {
 		return nil, stepCommandError(err)
 	}
-	resp := &v1.ListStepsResponse{Steps: make([]*v1.Step, 0, len(listings))}
-	for _, listing := range listings {
-		var step *v1.Step
-		if step, err = listingMessage(listing, s.steps.Held(listing.ID)); err != nil {
-			return nil, stepCommandError(err)
-		}
-		resp.Steps = append(resp.Steps, step)
+	steps, err := s.listedSteps(listings)
+	if err != nil {
+		return nil, stepCommandError(err)
 	}
+	resp := &v1.ListStepsResponse{Steps: steps}
 	if req.Msg.GetRunning() {
 		if resp.Ended, err = endedCounts(ended); err != nil {
 			return nil, stepCommandError(err)
 		}
 	}
 	return connect.NewResponse(resp), nil
+}
+
+// listCallerSteps answers a caller listing: the steps the call's caller session started, narrowed to the request's
+// epic, each with no result and no ended counts. It cannot be combined with running or task, and the call must carry
+// caller headers that name the session.
+func (s *stepService) listCallerSteps(
+	ctx context.Context,
+	req *connect.Request[v1.ListStepsRequest],
+) (*connect.Response[v1.ListStepsResponse], error) {
+	if req.Msg.GetRunning() || req.Msg.GetTask() != "" {
+		return nil, errors.Join(connect.NewError(
+			connect.CodeInvalidArgument, errors.New("caller cannot be combined with running or task")))
+	}
+	caller, ok := epicCallerOf(req.Header())
+	if !ok {
+		return nil, stepCommandError(fmt.Errorf("%w: the call carries no caller headers", ErrNoCaller))
+	}
+	callers, ok := s.steps.(callerListings)
+	if !ok {
+		return nil, errors.Join(connect.NewError(
+			connect.CodeUnimplemented, errors.New("step store cannot list a caller's steps")))
+	}
+	listings, err := callers.CallerListings(ctx, caller, req.Msg.GetEpic())
+	if err != nil {
+		return nil, stepCommandError(err)
+	}
+	steps, err := s.listedSteps(listings)
+	if err != nil {
+		return nil, stepCommandError(err)
+	}
+	return connect.NewResponse(&v1.ListStepsResponse{Steps: steps}), nil
+}
+
+// listedSteps returns the Step message of each listing, with the held flag its id has and no result.
+func (s *stepService) listedSteps(listings []store.StepListing) ([]*v1.Step, error) {
+	steps := make([]*v1.Step, 0, len(listings))
+	for _, listing := range listings {
+		step, err := listingMessage(listing, s.steps.Held(listing.ID))
+		if err != nil {
+			return nil, err
+		}
+		steps = append(steps, step)
+	}
+	return steps, nil
 }
 
 // endedCounts returns ended, the count of each epic's ended steps, as the reply carries it. A count outside int32 is an

@@ -1182,7 +1182,11 @@ type ListStepsRequest struct {
 	Task string `protobuf:"bytes,2,opt,name=task,proto3" json:"task,omitempty"`
 	// Only steps that have not ended, held ones among them. The answer then counts the matching steps that have ended in
 	// ended.
-	Running       bool `protobuf:"varint,3,opt,name=running,proto3" json:"running,omitempty"`
+	Running bool `protobuf:"varint,3,opt,name=running,proto3" json:"running,omitempty"`
+	// When set, the answer lists only the steps whose caller is the session the call's caller headers name, labelled or
+	// not. That is each step still running plus the 20 most recently ended, oldest first, narrowed to epic when epic is
+	// set. It cannot be combined with running or task.
+	Caller        bool `protobuf:"varint,4,opt,name=caller,proto3" json:"caller,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1234,6 +1238,13 @@ func (x *ListStepsRequest) GetTask() string {
 func (x *ListStepsRequest) GetRunning() bool {
 	if x != nil {
 		return x.Running
+	}
+	return false
+}
+
+func (x *ListStepsRequest) GetCaller() bool {
+	if x != nil {
+		return x.Caller
 	}
 	return false
 }
@@ -1828,11 +1839,12 @@ const file_orrery_engine_v1_step_proto_rawDesc = "" +
 	"first_line\x18\a \x01(\rR\tfirstLine\x12\x14\n" +
 	"\x05total\x18\b \x01(\rR\x05total\x12\x1f\n" +
 	"\vnext_before\x18\t \x01(\rR\n" +
-	"nextBefore\"T\n" +
+	"nextBefore\"l\n" +
 	"\x10ListStepsRequest\x12\x12\n" +
 	"\x04epic\x18\x01 \x01(\tR\x04epic\x12\x12\n" +
 	"\x04task\x18\x02 \x01(\tR\x04task\x12\x18\n" +
-	"\arunning\x18\x03 \x01(\bR\arunning\"\xc1\x01\n" +
+	"\arunning\x18\x03 \x01(\bR\arunning\x12\x16\n" +
+	"\x06caller\x18\x04 \x01(\bR\x06caller\"\xc1\x01\n" +
 	"\x11ListStepsResponse\x12,\n" +
 	"\x05steps\x18\x01 \x03(\v2\x16.orrery.engine.v1.StepR\x05steps\x12D\n" +
 	"\x05ended\x18\x02 \x03(\v2..orrery.engine.v1.ListStepsResponse.EndedEntryR\x05ended\x1a8\n" +

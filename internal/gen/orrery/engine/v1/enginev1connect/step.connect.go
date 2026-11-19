@@ -72,9 +72,9 @@ type StepsClient interface {
 	// stored stdout and stderr when no log was kept: at most 80 lines, each cut to 150 runes, and the detail is cut to
 	// 4000 runes.
 	ReadStepCheck(context.Context, *connect.Request[v1.ReadStepCheckRequest]) (*connect.Response[v1.ReadStepCheckResponse], error)
-	// ListSteps lists the labelled steps, oldest first. An unlabelled step is never listed. A listed step carries no
-	// result: its summary, red_evidence and green_evidence carry what a list reads of it. A list of the running steps also
-	// counts, by epic, the matching steps that have ended, without reading them.
+	// ListSteps lists the labelled steps, oldest first. An unlabelled step is listed only by a caller listing. A listed
+	// step carries no result: its summary, red_evidence and green_evidence carry what a list reads of it. A list of the
+	// running steps also counts, by epic, the matching steps that have ended, without reading them.
 	ListSteps(context.Context, *connect.Request[v1.ListStepsRequest]) (*connect.Response[v1.ListStepsResponse], error)
 	// HoldStep interrupts the step's running turn and holds the step until a nudge or a stop. The interrupted turn is no
 	// round. A step with no turn running, one already held, or one running its gate refuses with failed_precondition.
@@ -234,9 +234,9 @@ type StepsHandler interface {
 	// stored stdout and stderr when no log was kept: at most 80 lines, each cut to 150 runes, and the detail is cut to
 	// 4000 runes.
 	ReadStepCheck(context.Context, *connect.Request[v1.ReadStepCheckRequest]) (*connect.Response[v1.ReadStepCheckResponse], error)
-	// ListSteps lists the labelled steps, oldest first. An unlabelled step is never listed. A listed step carries no
-	// result: its summary, red_evidence and green_evidence carry what a list reads of it. A list of the running steps also
-	// counts, by epic, the matching steps that have ended, without reading them.
+	// ListSteps lists the labelled steps, oldest first. An unlabelled step is listed only by a caller listing. A listed
+	// step carries no result: its summary, red_evidence and green_evidence carry what a list reads of it. A list of the
+	// running steps also counts, by epic, the matching steps that have ended, without reading them.
 	ListSteps(context.Context, *connect.Request[v1.ListStepsRequest]) (*connect.Response[v1.ListStepsResponse], error)
 	// HoldStep interrupts the step's running turn and holds the step until a nudge or a stop. The interrupted turn is no
 	// round. A step with no turn running, one already held, or one running its gate refuses with failed_precondition.
