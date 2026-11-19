@@ -5,15 +5,16 @@ import { App } from "./app";
 import { createClients, createTransport } from "./client";
 import { type EpicsView, epicsView, noEpics } from "./epics";
 import type { InAppNotice } from "./gen/orrery/v1/notice_pb";
-import type { HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
+import type { HostStatusResponse, WatchResponse } from "./gen/orrery/v1/orrery_pb";
 import { listHolds } from "./listholds";
-import { type HeldEpic, loadEpics } from "./loadepics";
+import { changedOnly, type HeldEpic, loadEpics, type Refetch } from "./loadepics";
 import { loadRows } from "./load";
 import { watchNotices } from "./notices";
 import { type Viewing, watchPresence } from "./presence";
+import { type Affects, affectsOf, stepSessions } from "./refresh";
 import { type Address, type Entry, formatAddress, parseAddress } from "./router";
 import type { Row } from "./rows";
-import type { SeenClock } from "./seen";
+import type { SeenClock, SeenWindow } from "./seen";
 
 const defaultIntervalMs = 5000;
 
@@ -32,6 +33,9 @@ const realClock: SeenClock = {
   setTimeout: (fn, ms) => setTimeout(fn, ms),
   clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
 };
+
+// What an event that has waited for its reload asks for before any event has come.
+const noAffects: Affects = { rows: false, epics: false };
 
 interface Loaded {
   rows: Row[];
@@ -58,44 +62,88 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
-// start renders App into root and reloads the rows and the epics. Each load that reports a seq above 0 opens
-// Events.Watch from it, and every event schedules one reload. While the stream is open each poll tick loads the epics
-// and moves the age labels to the current time, and the rows wait for the stream's events. A stream that fails
-// unavailable reopens from the last seq it delivered after retryMs. Once the stream ends or fails any other way, the
-// poll reloads the rows, and the next successful load reopens the stream. A tick or event that lands while a reload is
-// in flight never starts a second one: an event waits for the reload in flight, then reloads again. The epics load has
-// its own guard: an event that lands while it is in flight is left to the next tick, and a tick that lands while it is
-// in flight is remembered, so the next epics load fetches every live epic. An epics load keeps the held detail of each
-// live epic whose listed message is unchanged, so an event reload fetches only the rest. The host's status is read at
-// start and on each tick, under its own guard, and a refused read hands App null. The page also reports its input:
-// watchPresence sends each Presence.Report request, its input age and the view App shows, and a failed report is
-// dropped. The returned function stops reloading, aborts the stream, stops the presence watch, aborts the notices watch
-// and unmounts App. The page also watches the in-app notices its banner shows until each ends; a notices stream that
-// fails reopens after retryMs. The page's address is bound to the URL hash: a loaded hash is given to App once the list
-// its entry is in has answered, and falls back to its order when that list lacks the entry. App's reports are written
-// to the history, and a popstate applies the address Back or Forward lands on.
+// coalesced makes the call that runs run, one at a time. A call while a run is in flight starts none. A queued call
+// marks one more run, which starts when the one in flight ends, however many queued calls landed meanwhile; any other
+// call is dropped. Nothing runs once stopped holds.
+function coalesced(run: () => Promise<void>, stopped: () => boolean): (queued: boolean) => void {
+  let flying = false;
+  let again = false;
+  const go = (queued: boolean): void => {
+    if (stopped()) {
+      return;
+    }
+    if (flying) {
+      again ||= queued;
+      return;
+    }
+    flying = true;
+    void run().finally(() => {
+      flying = false;
+      if (again) {
+        again = false;
+        go(true);
+      }
+    });
+  };
+  return go;
+}
+
+// joinRefetch is the refetch that names every epic either names.
+function joinRefetch(held: Refetch | null, next: Refetch): Refetch {
+  return held === null ? next : new Set([...held, ...next]);
+}
+
+// start renders App into root and loads the rows and the epics. Each rows load that reports a seq above 0 opens
+// Events.Watch from it. An event reloads only what it can change (affectsOf): the rows, the epics, both or neither, so
+// the streaming text of an agent's reply reloads nothing. The events of a burst share one reload after eventReloadMs.
+// The rows load and the epics load each run one at a time: a reload asked for while one is in flight runs once that
+// one ends, however many were asked for meanwhile, except that a tick's rows reload is dropped. An epics load lists the epics and asks Epics.Get only for each live
+// epic it holds no detail for, whose listed message changed, or that it names. Each poll tick loads the epics and names
+// the epic the page shows, so a change only Epics.Get carries reaches an open epic page within a tick; moving the view
+// onto a live epic loads the epics naming it at once. A tick also reads the host's status and moves the age labels to the current time, and
+// while the stream is down it reloads the rows too. A stream that fails unavailable reopens from the last seq it
+// delivered after retryMs. Once the stream ends or fails any other way, the poll reloads the rows, and the next
+// successful rows load reopens the stream.
+//
+// While win's document is hidden the page fetches nothing and holds no stream: hiding it closes Events.Watch and
+// Notices.Watch and marks the page stale, a tick does nothing, a rows load that lands opens no stream, and a page hidden
+// at start opens neither. When it becomes visible a stale page reopens the notices watch, reads the host, and reloads
+// the rows, whose load reopens Events.Watch, and the epics, asking Epics.Get for each live epic whose listed message
+// changed and for the epic the page shows. An epic's listed message carries its revision, which every write to the
+// epic but its steps' moves, so nothing an Epics.Get answers changes unseen. The host's status is read under its own
+// guard, and a refused read hands App null. The page also reports its input: watchPresence sends each Presence.Report request, its input age and
+// the view App shows, and a failed report is dropped. The returned function stops reloading, aborts the stream, stops
+// the presence watch, aborts the notices watch and unmounts App. The page also watches the in-app notices its banner
+// shows until each ends; a notices stream that fails reopens after retryMs. The page's address is bound to the URL
+// hash: a loaded hash is given to App once the list its entry is in has answered, and falls back to its order when that
+// list lacks the entry. App's reports are written to the history, and a popstate applies the address Back or Forward
+// lands on.
 export function start(
   root: HTMLElement,
   clients: ReturnType<typeof createClients>,
   intervalMs = defaultIntervalMs,
   retryMs = defaultRetryMs,
+  win: SeenWindow = window,
 ): () => void {
   let loaded: Loaded = { rows: [], error: "", epics: noEpics, epicsError: "" };
   let notices: InAppNotice[] = [];
   let host: HostStatusResponse | null = null;
   let now = 0;
   let stopped = false;
-  let loading = false;
-  let epicsLoading = false;
   // The held epic details, each with the Epics.List message it was fetched against, kept across epics loads.
   let held: ReadonlyMap<string, HeldEpic> = new Map();
-  // Whether a poll tick has landed since the last epics load started. A tick that lands while an epics load is in
-  // flight stays set for the next one.
-  let tickPending = false;
+  // The ids of the step sessions the loaded epics hold, which tell a step's events from a row's.
+  let steps: ReadonlySet<string> = new Set();
+  // The epics the next epics load asks Epics.Get for whatever their listed message, joined from every ask since the
+  // last load started, or null when nothing was asked.
+  let refetch: Refetch | null = null;
   let hostLoading = false;
-  let rerun = false;
+  // What the events waiting for their reload can change, joined across the burst.
+  let eventAffects: Affects = noAffects;
   let eventTimer: ReturnType<typeof setTimeout> | undefined;
   let stream: AbortController | null = null;
+  // Whether a tick or an event asked for a load while the page was hidden.
+  let stale = false;
   // The address App is given, which is undefined until one applies, so App opens nothing before then. holding is the
   // address with an entry that waits on its list's first answer. rowsAnswered and epicsAnswered are whether the rows,
   // which a session or a pane is held by, and the epics, which a step or an epic is held by, have answered their first
@@ -104,6 +152,9 @@ export function start(
   let holding: Held | null = null;
   let rowsAnswered = false;
   let epicsAnswered = false;
+
+  const hidden = () => win.document.visibilityState === "hidden";
+  const isStopped = () => stopped;
 
   const draw = () => {
     const error = [loaded.error, loaded.epicsError].filter((text) => text !== "").join("; ");
@@ -197,72 +248,87 @@ export function start(
     }
   };
 
-  const loadEpicsView = async () => {
-    if (epicsLoading) {
+  // runEpics runs one epics load at a time, each taking the refetch asked for since the last one started.
+  const runEpics = coalesced(async () => {
+    const asked = refetch ?? changedOnly;
+    refetch = null;
+    const next = await loadEpics(clients, held, asked);
+    if (stopped) {
       return;
     }
-    epicsLoading = true;
-    const tick = tickPending;
-    tickPending = false;
-    try {
-      const next = await loadEpics(clients, held, tick);
-      if (stopped) {
-        return;
-      }
-      held = next.held;
-      loaded = { ...loaded, epics: epicsView(next.epics, next.details), epicsError: next.error };
-      epicsAnswered = true;
-      settleAddress();
-      now = Math.floor(Date.now() / 1000);
-      draw();
-    } finally {
-      epicsLoading = false;
-    }
+    held = next.held;
+    steps = stepSessions(next.epics, next.details);
+    loaded = { ...loaded, epics: epicsView(next.epics, next.details), epicsError: next.error };
+    epicsAnswered = true;
+    settleAddress();
+    now = Math.floor(Date.now() / 1000);
+    draw();
+  }, isStopped);
+
+  // reloadEpics asks for an epics load that also asks Epics.Get for the epics also names. One asked for while a load is
+  // in flight runs once that load ends.
+  const reloadEpics = (also: Refetch) => {
+    refetch = joinRefetch(refetch, also);
+    runEpics(true);
   };
 
-  const reload = async () => {
-    if (loading) {
+  // runRows runs one rows load at a time. A rows load that reports a seq opens the stream when none is open.
+  const runRows = coalesced(async () => {
+    const next = await loadRows(clients);
+    if (stopped) {
       return;
     }
-    loading = true;
-    void loadEpicsView();
-    try {
-      const next = await loadRows(clients);
-      if (stopped) {
-        return;
-      }
-      loaded = { ...loaded, rows: next.rows, error: next.error };
-      rowsAnswered = true;
-      settleAddress();
-      now = Math.floor(Date.now() / 1000);
-      draw();
-      // A seq of 0 is a failed Sessions.List or an empty store; a stream from 0 would replay every stored event, so
-      // the poll carries on until a load reports a seq.
-      if (stream === null && next.seq > 0n) {
-        void watchEvents(next.seq);
-      }
-    } finally {
-      loading = false;
-      if (rerun && !stopped) {
-        rerun = false;
-        void reload();
-      }
+    loaded = { ...loaded, rows: next.rows, error: next.error };
+    rowsAnswered = true;
+    settleAddress();
+    now = Math.floor(Date.now() / 1000);
+    draw();
+    // A seq of 0 is a failed Sessions.List or an empty store; a stream from 0 would replay every stored event, so
+    // the poll carries on until a load reports a seq. A hidden page holds no stream; showing it reloads the rows.
+    if (stream === null && next.seq > 0n && !hidden()) {
+      void watchEvents(next.seq);
     }
-  };
+  }, isStopped);
+  // reloadRows asks for a rows load that runs once a load in flight ends, as an event's does.
+  const reloadRows = () => runRows(true);
+  // pollRows asks for a rows load that is dropped while one is in flight, as a tick's is: the load in flight is as new
+  // as the tick, and the next tick polls again.
+  const pollRows = () => runRows(false);
 
-  const onEvent = () => {
+  // shownEpic is the refetch that names the epic the page shows, or names none when it shows no epic.
+  const shownEpic = (): Refetch => (viewing.case === "viewingEpic" ? new Set([viewing.value]) : changedOnly);
+
+  // onEvent reloads what event can change, after eventReloadMs, joined with the burst it lands in. While the page is
+  // hidden it only marks the page stale.
+  const onEvent = (event: WatchResponse) => {
+    const affects = affectsOf(event, steps);
+    if (!affects.rows && !affects.epics) {
+      return;
+    }
+    if (hidden()) {
+      stale = true;
+      return;
+    }
+    eventAffects = { rows: eventAffects.rows || affects.rows, epics: eventAffects.epics || affects.epics };
     if (eventTimer !== undefined) {
       return;
     }
     eventTimer = setTimeout(() => {
       eventTimer = undefined;
+      const due = eventAffects;
+      eventAffects = noAffects;
       if (stopped) {
         return;
       }
-      if (loading) {
-        rerun = true;
-      } else {
-        void reload();
+      if (hidden()) {
+        stale = true;
+        return;
+      }
+      if (due.rows) {
+        reloadRows();
+      }
+      if (due.epics) {
+        reloadEpics(changedOnly);
       }
     }, eventReloadMs);
   };
@@ -282,7 +348,7 @@ export function start(
               return;
             }
             seq = event.seq;
-            onEvent();
+            onEvent(event);
           }
           return;
         } catch (error) {
@@ -299,11 +365,12 @@ export function start(
     }
   };
 
-  // The view App shows is kept for the presence watch, which reads it at each report. A change of it sends at once
-  // while the page is visible and focused. The watch is made before the first draw, so onViewing never meets no watch.
+  // The view App shows is kept for the presence watch, which reads it at each report, and for the epics loads, which
+  // name the epic it shows. A change of it sends at once while the page is visible and focused, and a move onto an epic
+  // loads the epics naming it. The watch is made before the first draw, so onViewing never meets no watch.
   let viewing: Viewing = { case: undefined };
   const presence = watchPresence(
-    window,
+    win,
     (request) => {
       // A failed report is dropped without a page error; the next input sends again.
       void clients.presence.report(request).catch(() => undefined);
@@ -312,8 +379,65 @@ export function start(
     () => viewing,
   );
   const onViewing = (next: Viewing) => {
+    // Only a live epic is ever asked for, so a move onto an ended one loads nothing.
+    const moved =
+      next.case === "viewingEpic" &&
+      (viewing.case !== "viewingEpic" || viewing.value !== next.value) &&
+      loaded.epics.listed.get(next.value)?.live === true;
     viewing = next;
     presence.viewChanged();
+    if (moved && !hidden()) {
+      reloadEpics(shownEpic());
+    }
+  };
+
+  // The notices watch, aborted while the page is hidden and made again when it shows. Null while none is open.
+  let noticesWatch: AbortController | null = null;
+  const openNotices = () => {
+    const controller = new AbortController();
+    noticesWatch = controller;
+    void watchNotices(
+      clients,
+      (list) => {
+        notices = list;
+        draw();
+      },
+      retryMs,
+      controller.signal,
+    );
+  };
+
+  // closeStreams ends Events.Watch and Notices.Watch. The stream slot is freed at once, so the rows load that showing
+  // the page starts reopens Events.Watch even before the aborted stream has wound down.
+  const closeStreams = () => {
+    stream?.abort();
+    stream = null;
+    noticesWatch?.abort();
+    noticesWatch = null;
+  };
+
+  // onVisibility closes the streams of a page that is hidden and marks it stale, and reloads a stale page as it becomes
+  // visible: the notices watch, the host, the rows, which reopen Events.Watch, and the epics that changed or that the
+  // page shows.
+  const onVisibility = () => {
+    if (stopped) {
+      return;
+    }
+    if (hidden()) {
+      closeStreams();
+      stale = true;
+      return;
+    }
+    if (!stale) {
+      return;
+    }
+    stale = false;
+    if (noticesWatch === null) {
+      openNotices();
+    }
+    void loadHostStatus();
+    reloadRows();
+    reloadEpics(shownEpic());
   };
 
   // A page loaded with a hash is given that address, and an empty hash gives App none, so a bare load opens nothing and
@@ -323,42 +447,41 @@ export function start(
     takeAddress(parseAddress(loadedHash));
   }
   window.addEventListener("popstate", onPopState);
+  win.document.addEventListener("visibilitychange", onVisibility);
   draw();
-  void reload();
-  void loadHostStatus();
-  const timer = setInterval(() => {
-    // The tick is marked before any load starts, so the epics load it reaches, or the next one if it is in flight,
-    // refetches every live epic whether the stream is open or down.
-    tickPending = true;
+  if (hidden()) {
+    stale = true;
+  } else {
+    reloadRows();
+    reloadEpics(changedOnly);
     void loadHostStatus();
-    if (stream === null) {
-      void reload();
+  }
+  const timer = setInterval(() => {
+    if (hidden()) {
+      stale = true;
       return;
     }
-    void loadEpicsView();
+    void loadHostStatus();
+    reloadEpics(shownEpic());
+    if (stream === null) {
+      pollRows();
+    }
     now = Math.floor(Date.now() / 1000);
     draw();
   }, intervalMs);
 
-  const noticesWatch = new AbortController();
-  void watchNotices(
-    clients,
-    (list) => {
-      notices = list;
-      draw();
-    },
-    retryMs,
-    noticesWatch.signal,
-  );
+  if (!hidden()) {
+    openNotices();
+  }
 
   return () => {
     stopped = true;
     window.removeEventListener("popstate", onPopState);
+    win.document.removeEventListener("visibilitychange", onVisibility);
     presence.stop();
     clearInterval(timer);
     clearTimeout(eventTimer);
-    stream?.abort();
-    noticesWatch.abort();
+    closeStreams();
     render(null, root);
   };
 }

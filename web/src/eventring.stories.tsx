@@ -6,6 +6,7 @@ import { create } from "@bufbuild/protobuf";
 
 import type { Stories } from "./catalog/story";
 import { type EpicCalls, epicCallsOf } from "./card";
+import { noEpics } from "./epics";
 import * as eventring from "./eventring";
 import type { EpicEvent, StepEvent } from "./eventring";
 import { createFixtureTransport } from "./fixtures/transport";
@@ -13,7 +14,8 @@ import { PendingEventSchema } from "./gen/orrery/v1/orrery_pb";
 
 const noop = () => {};
 const fixture = createFixtureTransport();
-const calls: EpicCalls = epicCallsOf(fixture.clients, noop, noop, 0);
+// The calls hold none of the poll's epics, so each ring reads its question's epic through the fixture.
+const calls: EpicCalls = epicCallsOf(fixture.clients, noop, noop, noEpics);
 
 const rota = "lighthouse/rota-export";
 

@@ -1,9 +1,7 @@
 import type { JSX } from "preact";
-import { useEffect, useRef, useState } from "preact/hooks";
 
 import { QuestionCard } from "./blocker";
-import type { EpicCalls } from "./card";
-import type { EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
+import { type EpicCalls, useEpicReading } from "./card";
 import type { PendingEvent } from "./gen/orrery/v1/orrery_pb";
 
 // The kinds an epic's event names, as its orrery-event block gives them.
@@ -269,39 +267,12 @@ export function WaitingCard({ event, calls }: { event: PendingEvent; calls?: Epi
   );
 }
 
-// The reading of the question's epic: the detail it read, or failed when it could not be read or holds no epic. Null
-// until the first read settles.
-type Reading = { detail: EpicsGetResponse } | "failed" | null;
-
-// QuestionReading reads the question's epic on mount and each time calls.tick changes, keeping the last reading while the
-// next is in flight. While the epic is unread or cannot be read it draws nothing. While the question is open it draws the
-// answer form the epic page draws, with no number keys, and an answer goes to epic answer for the epic and question. Once
-// the question is no longer open it draws a line saying so.
+// QuestionReading draws the question's epic as useEpicReading reads it. While the epic is unread or cannot be read it
+// draws nothing. While the question is open it draws the answer form the epic page draws, with no number keys, and an
+// answer goes to epic answer for the epic and question; an answer that lands reads the epic once more. Once the question
+// is no longer open it draws a line saying so.
 function QuestionReading({ epic, question, calls }: { epic: string; question: string; calls: EpicCalls }) {
-  const [reading, setReading] = useState<Reading>(null);
-  // The effect below runs only when the epic or the tick changes, and reads the calls as they are then. A new calls
-  // object on each render of the reader does not read the epic again.
-  const latest = useRef(calls);
-  latest.current = calls;
-  const { tick } = calls;
-  useEffect(() => {
-    let current = true;
-    latest.current.get(epic).then(
-      (detail) => {
-        if (current) {
-          setReading(detail.epic === undefined ? "failed" : { detail });
-        }
-      },
-      () => {
-        if (current) {
-          setReading("failed");
-        }
-      },
-    );
-    return () => {
-      current = false;
-    };
-  }, [epic, tick]);
+  const { reading, reread } = useEpicReading(epic, calls);
 
   if (reading === null || reading === "failed") {
     return null;
@@ -316,7 +287,14 @@ function QuestionReading({ epic, question, calls }: { epic: string; question: st
       <QuestionCard
         question={open}
         numberKeys={false}
-        onAnswer={(questionId, choice, text) => calls.answer(epic, questionId, choice, text)}
+        onAnswer={(questionId, choice, text) =>
+          calls.answer(epic, questionId, choice, text).then((failure) => {
+            if (failure === "") {
+              reread();
+            }
+            return failure;
+          })
+        }
       />
     </div>
   );

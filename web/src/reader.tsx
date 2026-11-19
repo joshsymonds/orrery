@@ -134,15 +134,15 @@ export function Reader({
   toggle.current = onToggleOpen;
   const toggleOpen = useCallback(() => toggle.current?.(), []);
   const rowToggle = onToggleOpen === undefined ? undefined : toggleOpen;
-  // The rows reach the epic calls through rowCalls, which carries the tick of the caller's calls and passes each call to
-  // the calls of the latest render. It is made again only when the tick changes or the calls come or go, so a caller's
-  // new calls object at the same tick does not make a card or ring row draw again, while a new tick does, and the card
-  // reads its epic then.
+  // The rows reach the epic calls through rowCalls, which carries the epics of the caller's calls and passes each call
+  // to the calls of the latest render. It is made again only when the epics change or the calls come or go, so a
+  // caller's new calls object over the same epics does not make a card or ring row draw again, while a new epics load
+  // does, and the card draws what it holds then.
   const latestCalls = useRef(epicCalls);
   latestCalls.current = epicCalls;
   const rowCalls = useMemo(
     () => (epicCalls === undefined ? undefined : callsAt(latestCalls, epicCalls)),
-    [epicCalls?.tick],
+    [epicCalls?.epics],
   );
   // A background row's link asks for its Agent call to be revealed. Each click makes a new request, so a click on the same
   // call again is acted on, and the call's row ends the request once it has acted on it.
@@ -547,8 +547,8 @@ function readsEpicCalls(item: ConversationItem): boolean {
   return (item.kind === "tool" || item.kind === "question") && item.epic !== "";
 }
 
-// callsAt makes epic calls at the tick of made that pass each call to the calls latest holds when the call is made, or to
-// made once latest holds none. A row holding them reaches the caller's latest calls without drawing again.
+// callsAt makes epic calls over the epics of made that pass each call to the calls latest holds when the call is made,
+// or to made once latest holds none. A row holding them reaches the caller's latest calls without drawing again.
 function callsAt(latest: { current: EpicCalls | undefined }, made: EpicCalls): EpicCalls {
   const current = (): EpicCalls => latest.current ?? made;
   return {
@@ -558,7 +558,7 @@ function callsAt(latest: { current: EpicCalls | undefined }, made: EpicCalls): E
     answer: (id, question, choice, text) => current().answer(id, question, choice, text),
     openEpic: (id) => current().openEpic(id),
     openStep: (epic, step) => current().openStep(epic, step),
-    tick: made.tick,
+    epics: made.epics,
   };
 }
 

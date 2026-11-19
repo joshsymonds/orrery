@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { createClients, createTransport } from "./client";
-import { type HeldEpic, loadEpics } from "./loadepics";
+import { changedOnly, type HeldEpic, loadEpics, type Refetch } from "./loadepics";
 
 const listPath = "/orrery.v1.Epics/List";
 const getPath = "/orrery.v1.Epics/Get";
@@ -74,7 +74,7 @@ test("two live epics and one folded: each live epic is asked for by id, the fold
     fakeEpics({ status: 200, body: { epics: listed } }, { [liveAlpha.id]: ok(detailOf(liveAlpha)), [liveGamma.id]: ok(detailOf(liveGamma)) }, calls),
   );
 
-  const result = await loadEpics(clients, new Map(), false);
+  const result = await loadEpics(clients, new Map(), changedOnly);
 
   assert.equal(calls[0]?.path, listPath, "Epics.List is called before any Get");
   assert.deepEqual(
@@ -102,7 +102,7 @@ test("one Get fails: the other epic's detail is kept, the failed epic is left ou
     ),
   );
 
-  const result = await loadEpics(clients, new Map(), false);
+  const result = await loadEpics(clients, new Map(), changedOnly);
 
   assert.deepEqual(
     calls.map((call) => call.path),
@@ -121,7 +121,7 @@ test("Epics.List fails: no epics, no details, the fixed error without server tex
   const calls: Call[] = [];
   const clients = clientsFor(fakeEpics(serverError, {}, calls));
 
-  const result = await loadEpics(clients, new Map(), false);
+  const result = await loadEpics(clients, new Map(), changedOnly);
 
   assert.deepEqual(
     calls.map((call) => call.path),
@@ -137,7 +137,7 @@ test("an empty List: no epics, no details, no error, and no Get is asked", async
   const calls: Call[] = [];
   const clients = clientsFor(fakeEpics({ status: 200, body: { epics: [] } }, {}, calls));
 
-  const result = await loadEpics(clients, new Map(), false);
+  const result = await loadEpics(clients, new Map(), changedOnly);
 
   assert.deepEqual(
     calls.map((call) => call.path),
@@ -169,7 +169,7 @@ test("the live Gets are in flight at once: the first Get waits until the second 
     return respond(notFound);
   };
 
-  const result = await loadEpics(clientsFor(fakeFetch), new Map(), false);
+  const result = await loadEpics(clientsFor(fakeFetch), new Map(), changedOnly);
 
   assert.equal(result.error, "");
   assert.deepEqual([...result.details.keys()].sort(), [liveAlpha.id, liveGamma.id].sort());
@@ -180,18 +180,18 @@ function loadAgainst(
   epics: unknown[],
   gets: Partial<Record<string, Answer>>,
   held: ReadonlyMap<string, HeldEpic>,
-  tick: boolean,
+  refetch: Refetch,
   calls: Call[],
 ) {
-  return loadEpics(clientsFor(fakeEpics({ status: 200, body: { epics } }, gets, calls)), held, tick);
+  return loadEpics(clientsFor(fakeEpics({ status: 200, body: { epics } }, gets, calls)), held, refetch);
 }
 
 test("ChangedEpicsOnly: an identical listed epic makes no Get on an event reload", async () => {
   const gets = { [liveAlpha.id]: ok(detailOf(liveAlpha)), [liveGamma.id]: ok(detailOf(liveGamma)) };
-  const first = await loadAgainst(listed, gets, new Map(), false, []);
+  const first = await loadAgainst(listed, gets, new Map(), changedOnly, []);
   const calls: Call[] = [];
 
-  const second = await loadAgainst(listed, {}, first.held, false, calls);
+  const second = await loadAgainst(listed, {}, first.held, changedOnly, calls);
 
   assert.deepEqual(
     calls.map((call) => call.path),
@@ -203,14 +203,14 @@ test("ChangedEpicsOnly: an identical listed epic makes no Get on an event reload
 });
 
 test("ChangedEpicsOnly: a changed running step with the same changed is fetched", async () => {
-  const first = await loadAgainst([steppedAlpha], { [liveAlpha.id]: ok(detailOf(steppedAlpha)) }, new Map(), false, []);
+  const first = await loadAgainst([steppedAlpha], { [liveAlpha.id]: ok(detailOf(steppedAlpha)) }, new Map(), changedOnly, []);
   const calls: Call[] = [];
 
   const second = await loadAgainst(
     [retaskedAlpha],
     { [liveAlpha.id]: ok(detailOf(retaskedAlpha)) },
     first.held,
-    false,
+    changedOnly,
     calls,
   );
 
@@ -219,14 +219,14 @@ test("ChangedEpicsOnly: a changed running step with the same changed is fetched"
 });
 
 test("ChangedEpicsOnly: an epic seen for the first time is fetched", async () => {
-  const first = await loadAgainst([liveGamma], { [liveGamma.id]: ok(detailOf(liveGamma)) }, new Map(), false, []);
+  const first = await loadAgainst([liveGamma], { [liveGamma.id]: ok(detailOf(liveGamma)) }, new Map(), changedOnly, []);
   const calls: Call[] = [];
 
   const second = await loadAgainst(
     listed,
     { [liveAlpha.id]: ok(detailOf(liveAlpha)), [liveGamma.id]: ok(detailOf(liveGamma)) },
     first.held,
-    false,
+    changedOnly,
     calls,
   );
 
@@ -234,20 +234,30 @@ test("ChangedEpicsOnly: an epic seen for the first time is fetched", async () =>
   assert.deepEqual([...second.details.keys()].sort(), [liveAlpha.id, liveGamma.id].sort());
 });
 
-test("ChangedEpicsOnly: a tick fetches every live epic", async () => {
+test("ChangedEpicsOnly: a load that names an unchanged live epic fetches it and no other unchanged one", async () => {
   const gets = { [liveAlpha.id]: ok(detailOf(liveAlpha)), [liveGamma.id]: ok(detailOf(liveGamma)) };
-  const first = await loadAgainst(listed, gets, new Map(), false, []);
+  const first = await loadAgainst(listed, gets, new Map(), changedOnly, []);
   const calls: Call[] = [];
 
-  await loadAgainst(listed, gets, first.held, true, calls);
+  const second = await loadAgainst(listed, gets, first.held, new Set([liveGamma.id]), calls);
+
+  assert.deepEqual(idsOf(calls, getPath), [liveGamma.id]);
+  assert.equal(second.details.get(liveAlpha.id), first.details.get(liveAlpha.id), "the unnamed alpha was not kept");
+  assert.notEqual(second.details.get(liveGamma.id), first.details.get(liveGamma.id), "the named gamma was not refetched");
+});
+
+test("ChangedEpicsOnly: a load that names a folded epic does not ask for it", async () => {
+  const calls: Call[] = [];
+
+  await loadAgainst(listed, { [liveAlpha.id]: ok(detailOf(liveAlpha)), [liveGamma.id]: ok(detailOf(liveGamma)) }, new Map(), new Set([foldedBeta.id]), calls);
 
   assert.deepEqual(idsOf(calls, getPath), [liveAlpha.id, liveGamma.id].sort());
 });
 
 test("ChangedEpicsOnly: a failed Get keeps the previous detail", async () => {
-  const first = await loadAgainst([steppedAlpha], { [liveAlpha.id]: ok(detailOf(steppedAlpha)) }, new Map(), false, []);
+  const first = await loadAgainst([steppedAlpha], { [liveAlpha.id]: ok(detailOf(steppedAlpha)) }, new Map(), changedOnly, []);
 
-  const failed = await loadAgainst([retaskedAlpha], { [liveAlpha.id]: serverError }, first.held, false, []);
+  const failed = await loadAgainst([retaskedAlpha], { [liveAlpha.id]: serverError }, first.held, changedOnly, []);
 
   assert.equal(failed.error, "");
   assert.equal(failed.details.get(liveAlpha.id), first.details.get(liveAlpha.id), "the held detail was dropped");
@@ -263,7 +273,7 @@ test("ChangedEpicsOnly: a failed Get keeps the previous detail", async () => {
     [retaskedAlpha],
     { [liveAlpha.id]: ok(detailOf(retaskedAlpha)) },
     failed.held,
-    false,
+    changedOnly,
     calls,
   );
   assert.deepEqual(idsOf(calls, getPath), [liveAlpha.id]);

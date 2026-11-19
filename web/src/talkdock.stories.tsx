@@ -4,7 +4,7 @@
 import type { ComponentProps } from "preact";
 
 import type { Stories } from "./catalog/story";
-import { liveEpoch } from "./fixtures/clock";
+import { noEpics } from "./epics";
 import { panes } from "./fixtures/panes";
 import { headless, sessions, sessionStreams } from "./fixtures/sessions";
 import { shippedSlices } from "./fixtures/slices";
@@ -15,7 +15,6 @@ import * as talkdock from "./talkdock";
 
 type DockProps = ComponentProps<typeof talkdock.TalkDock>;
 
-const now = Date.parse(liveEpoch) / 1000;
 const noop = () => {};
 const workerId = "st-rota-t2-impl";
 const headlessId = "4be0c6d2-8f3a-4c71-9e25-ephemeris001";
@@ -51,7 +50,7 @@ const dock: Omit<DockProps, "target"> = {
   onClose: noop,
   openEpic: noop,
   openStep: noop,
-  tick: now,
+  epics: noEpics,
 };
 
 export const TalkDock: Stories = {

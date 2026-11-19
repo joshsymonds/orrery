@@ -6,8 +6,8 @@ import { type Epic, EpicSchema, type EpicsGetResponse } from "./gen/orrery/v1/ep
 // The fixed message shown when Epics.List fails. It never carries server text.
 const epicsUnavailable = "epics unavailable";
 
-// A held detail with the Epics.List message it was fetched against. A later event reload asks for the epic again only
-// when that listed message has changed.
+// A held detail with the Epics.List message it was fetched against. A later load asks for the epic again only when that
+// listed message has changed, or when the load's refetch names the epic.
 export interface HeldEpic {
   detail: EpicsGetResponse;
   listed: Epic;
@@ -20,15 +20,22 @@ interface EpicsLoad {
   error: string;
 }
 
-// loadEpics reads the epic list, then the detail of each live epic it needs, all at once. A tick needs every live epic.
-// An event reload needs a live epic only when it holds no detail for it or its listed message differs, in any field,
-// from the one held with it. A failed Epics.List resolves no epics, asks for no detail and keeps held. A failed
-// Epics.Get keeps that epic's held detail and listed message, or leaves the epic out of details when it held none. A
-// folded epic stays in epics but is never asked for or held.
+// Refetch names the live epics a load asks for whatever their listed message.
+export type Refetch = ReadonlySet<string>;
+
+// changedOnly names no live epic, so a load asks only for the ones it holds no detail for or whose listed message
+// changed.
+export const changedOnly: Refetch = new Set<string>();
+
+// loadEpics reads the epic list, then the detail of each live epic it needs, all at once. A load needs a live epic when
+// it holds no detail for it, when its listed message differs, in any field, from the one held with it, or when refetch
+// names it. A failed Epics.List resolves no epics, asks for no detail and keeps held. A failed Epics.Get keeps that
+// epic's held detail and listed message, or leaves the epic out of details when it held none. A folded epic stays in
+// epics but is never asked for or held, whatever refetch names.
 export async function loadEpics(
   clients: ReturnType<typeof createClients>,
   held: ReadonlyMap<string, HeldEpic>,
-  tick: boolean,
+  refetch: Refetch,
 ): Promise<EpicsLoad> {
   let epics: Epic[];
   try {
@@ -38,7 +45,9 @@ export async function loadEpics(
   }
 
   const live = epics.filter((epic) => epic.live);
-  const asked = live.filter((epic) => tick || !unchanged(held.get(epic.id), epic));
+  const asked = live.filter(
+    (epic) => refetch.has(epic.id) || !unchanged(held.get(epic.id), epic),
+  );
   const answers = await Promise.allSettled(asked.map((epic) => clients.epics.get({ id: epic.id })));
   const fetched = new Map<string, HeldEpic>();
   answers.forEach((answer, index) => {
