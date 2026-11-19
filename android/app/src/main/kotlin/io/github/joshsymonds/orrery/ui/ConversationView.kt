@@ -327,14 +327,7 @@ private fun PromptBlock(text: String) {
             .fillMaxWidth()
             .padding(top = OrreryTokens.Space.eight + OrreryTokens.Space.two, bottom = OrreryTokens.Space.twelve)
             .height(IntrinsicSize.Min)
-            .clip(
-                RoundedCornerShape(
-                    topStart = OrreryTokens.Radius.one,
-                    topEnd = OrreryTokens.Radius.two,
-                    bottomEnd = OrreryTokens.Radius.two,
-                    bottomStart = OrreryTokens.Radius.one,
-                ),
-            )
+            .clip(RoundedCornerShape(topEnd = OrreryTokens.Radius.two, bottomEnd = OrreryTokens.Radius.two))
             .background(OrreryTokens.Surface.raised),
     ) {
         Box(
@@ -380,14 +373,7 @@ private fun WaitingRow(item: WaitingItem, expanded: Set<String>, onToggle: (Stri
             .height(IntrinsicSize.Min)
             .semantics { onClick(action = { onToggle(id); true }) }
             .pointerInput(id) { detectTapGestures(onTap = { onToggle(id) }) }
-            .clip(
-                RoundedCornerShape(
-                    topStart = OrreryTokens.Radius.one,
-                    topEnd = OrreryTokens.Radius.two,
-                    bottomEnd = OrreryTokens.Radius.two,
-                    bottomStart = OrreryTokens.Radius.one,
-                ),
-            )
+            .clip(RoundedCornerShape(topEnd = OrreryTokens.Radius.two, bottomEnd = OrreryTokens.Radius.two))
             .background(OrreryTokens.Surface.raised),
     ) {
         Box(

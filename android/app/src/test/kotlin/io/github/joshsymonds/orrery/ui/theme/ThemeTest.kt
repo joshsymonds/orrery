@@ -1,13 +1,22 @@
 package io.github.joshsymonds.orrery.ui.theme
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
 import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.test.assertHeightIsEqualTo
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import io.github.joshsymonds.orrery.R
 import io.github.joshsymonds.orrery.mainThreadComposeRule
 import org.junit.Assert.assertEquals
@@ -58,6 +67,25 @@ class ThemeTest {
         }
         composeRule.waitForIdle()
         assertSame(OrreryColorScheme, provided)
+    }
+
+    @Test
+    fun orreryThemeDrawsAMaterialButtonControlTouchHigh() {
+        var minimum: Dp? = null
+        composeRule.setContent {
+            OrreryTheme {
+                // Measures the slot (touch target) the theme's minimum interactive size gives the Button, which draws its own surface at 40 dp inside that slot.
+                Box(Modifier.testTag("control")) {
+                    Button(onClick = {}) {
+                        Box(Modifier.size(OrreryTokens.Size.icon))
+                    }
+                }
+                minimum = LocalMinimumInteractiveComponentSize.current
+            }
+        }
+        composeRule.waitForIdle()
+        assertEquals(OrreryTokens.Size.controlTouch, minimum)
+        composeRule.onNodeWithTag("control").assertHeightIsEqualTo(OrreryTokens.Size.controlTouch)
     }
 
     @Test
