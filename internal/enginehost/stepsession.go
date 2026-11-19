@@ -27,7 +27,8 @@ type StepObserver interface {
 
 // StepSession is one step session: its id, its directory, the prompt it starts with, the claude agent it runs, the JSON
 // object of inline agent definitions claude is started with, the JSON schema its result must match, the engine ops
-// written with its row, and the observer of its hand-offs. A nil Observer receives nothing.
+// written with its row, the epic it is started for, and the observer of its hand-offs. A nil Observer receives nothing.
+// An empty Epic is never recorded as refused by the step cap (see reserveStep).
 type StepSession struct {
 	ID       string
 	Dir      string
@@ -36,6 +37,7 @@ type StepSession struct {
 	Agents   string
 	Schema   string
 	Ops      []store.EngineOp
+	Epic     string
 	Observer StepObserver
 }
 
@@ -69,7 +71,7 @@ func (m *Manager) StartStep(ctx context.Context, step StepSession) error {
 	if err := m.resolveStepAgent(step); err != nil {
 		return stepRefusedError{err}
 	}
-	if err := m.reserveStep(step.ID); err != nil {
+	if err := m.reserveStep(step.ID, step.Epic); err != nil {
 		return stepRefusedError{err}
 	}
 	add := store.EngineAdd{ID: step.ID, Dir: step.Dir, State: string(protocol.StateWorking), Kind: store.KindStep}
@@ -196,8 +198,9 @@ func inlineAgents(agents string) (map[string]json.RawMessage, error) {
 
 // reserveStep takes one step slot for the step id under StepCap. A step drained at its hand-off keeps its slot (see
 // retireLocked), which id takes back as it is, with no cap check. It refuses when the manager is closed or the step cap is
-// full.
-func (m *Manager) reserveStep(id string) error {
+// full. A refusal for a full step cap records a non-empty epic, the epic the step is started for, in capRefused, so the
+// next free of a step slot hands that epic on (see stepFreedLocked). The refusal and the free share the manager's lock.
+func (m *Manager) reserveStep(id, epic string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.closed {
@@ -208,6 +211,9 @@ func (m *Manager) reserveStep(id string) error {
 		return nil
 	}
 	if m.stepsRunning >= m.stepLimit {
+		if epic != "" {
+			m.capRefused[epic] = true
+		}
 		return fmt.Errorf("%w: %d live steps, step cap %d", ErrCapReached, m.stepsRunning, m.stepLimit)
 	}
 	m.stepsRunning++
@@ -218,6 +224,7 @@ func (m *Manager) reserveStep(id string) error {
 func (m *Manager) releaseStep() {
 	m.mu.Lock()
 	m.stepsRunning--
+	m.stepFreedLocked()
 	m.mu.Unlock()
 }
 

@@ -157,6 +157,8 @@ type StepStore interface {
 // that names no agent or not the row's gate, leaves the row unregistered, and so does an error.
 // Stored, when set, is called once after each end or hold a subscription is handed, once the row is stored, so a caller
 // can wake to deliver it. A nil Stored does nothing.
+// EpicWake, when set, is called with the epic of each stored end or hold whose step has an epic, after Stored, so a caller
+// can wake that epic's flow. A nil EpicWake does nothing.
 type StepsConfig struct {
 	Sessions        stepSessions
 	Store           StepStore
@@ -174,6 +176,7 @@ type StepsConfig struct {
 	ReadoptCheck    func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error)
 	ReadoptGate     func(ctx context.Context, row store.StepRow) (*gates.Gate, error)
 	Stored          func()
+	EpicWake        func(epic string)
 }
 
 // StepAdopter is what Readopt registers each open step with, and what Reconcile asks whether the step is live. Manager
@@ -188,7 +191,8 @@ type StepAdopter interface {
 // by step id. idle is broadcast whenever a loop is removed from loops. adopter is what Readopt registered the steps with,
 // and adopted holds the run Readopt rebuilt for each open row until Reconcile starts or settles it. starting holds the
 // caller-given id of each start in flight, so a second start under that id is refused until the first returns. stored is
-// the StepsConfig Stored callback, and subs holds each subscription Subscribe registered and Close has not removed.
+// the StepsConfig Stored callback, epicWake is the StepsConfig EpicWake callback, and subs holds each subscription Subscribe
+// registered and Close has not removed.
 type Steps struct {
 	sessions        stepSessions
 	store           StepStore
@@ -206,6 +210,7 @@ type Steps struct {
 	readoptCheck    func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error)
 	readoptGate     func(ctx context.Context, row store.StepRow) (*gates.Gate, error)
 	stored          func()
+	epicWake        func(epic string)
 
 	mu       sync.Mutex
 	loops    map[string]context.CancelFunc
@@ -250,6 +255,7 @@ func NewSteps(cfg StepsConfig) (*Steps, error) {
 		readoptCheck:    cfg.ReadoptCheck,
 		readoptGate:     cfg.ReadoptGate,
 		stored:          cfg.Stored,
+		epicWake:        cfg.EpicWake,
 		loops:           map[string]context.CancelFunc{},
 		causes:          map[string]context.CancelCauseFunc{},
 		runs:            map[string]*stepRun{},
@@ -330,7 +336,7 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 	}
 	step := StepSession{
 		ID: id, Dir: start.Workspace, Prompt: start.Prompt, Agent: start.Agent, Agents: start.Agents,
-		Schema: start.Schema,
+		Schema: start.Schema, Epic: start.Epic,
 	}
 	if start.ReadOnly {
 		if err = s.addReadOnlyStep(ctx, start, id, commit, &add, &cfg); err != nil {
