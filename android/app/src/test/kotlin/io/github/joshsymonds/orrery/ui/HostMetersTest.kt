@@ -12,7 +12,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import io.github.joshsymonds.orrery.api.HostStat
 import io.github.joshsymonds.orrery.mainThreadAndroidComposeRule
-import io.github.joshsymonds.orrery.ui.theme.Mocha
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import kotlin.math.abs
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -74,7 +74,7 @@ class HostMetersTest {
     }
 
     @Test
-    fun fillColourFollowsLevel() {
+    fun fillColourFollowsSeriesThenLevel() {
         composeRule.setContent {
             HostMeters(
                 listOf(
@@ -90,9 +90,9 @@ class HostMetersTest {
         val bitmap = Bitmap.createBitmap(decor.width, decor.height, Bitmap.Config.ARGB_8888)
         decor.draw(Canvas(bitmap))
 
-        assertFillColour(bitmap, "cpu", Mocha.Lavender)
-        assertFillColour(bitmap, "disk", Mocha.Peach)
-        assertFillColour(bitmap, "temp", Mocha.Red)
+        assertFillColour(bitmap, "cpu", OrreryTokens.Series.one)
+        assertFillColour(bitmap, "disk", OrreryTokens.Level.warn)
+        assertFillColour(bitmap, "temp", OrreryTokens.Level.crit)
     }
 
     private fun assertFillColour(bitmap: Bitmap, label: String, expected: Color) {
