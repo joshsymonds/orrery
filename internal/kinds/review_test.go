@@ -405,8 +405,12 @@ func TestReviewVerdicts(t *testing.T) {
 				{ID: workID("reviewer 1"), End: "gate_failed", Result: reviewFailsBesideUndetermined, Reason: "mixed"},
 			}},
 			Action{
-				Kind: ActEnd, Outcome: outcomePassed, Output: "perf: fails",
-				Verdicts: []store.ReviewVerdict{{Position: 1, Reviewer: "perf", Step: workID("reviewer 1"), Verdict: "fails"}},
+				Kind:    ActEnd,
+				Outcome: outcomePassed,
+				Output:  "perf: fails",
+				Verdicts: []store.ReviewVerdict{
+					{Position: 1, Reviewer: "perf", Step: workID("reviewer 1"), Verdict: "fails"},
+				},
 				Ledger: []store.LedgerFinding{{
 					ID: "perf-1", Position: 1, Reviewer: "perf", Finding: "f1", Claim: "claim 1",
 					Citation: "file1.go:1", Location: "file1.go", Evidence: "seen 1", VerifyBy: "read 1",
