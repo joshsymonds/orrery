@@ -235,20 +235,25 @@ func TestGuardFactsCommitsPassTheGuard(t *testing.T) {
 		commit func(t *testing.T, dir string) string
 	}{
 		{name: "assertion lowered", commit: func(t *testing.T, dir string) string {
+			t.Helper()
 			return guardCommitIn(t, dir, guardOneAssert)
 		}},
 		{name: "test removed", commit: func(t *testing.T, dir string) string {
+			t.Helper()
 			return guardCommitIn(t, dir, otherTestOnly)
 		}},
 		{name: "skip added", commit: func(t *testing.T, dir string) string {
+			t.Helper()
 			return guardCommitIn(t, dir, skipped)
 		}},
 		{name: "guarded file deleted", commit: func(t *testing.T, dir string) string {
+			t.Helper()
 			buildRun(t, dir, "rm", "-q", guardTestFile)
 			buildRun(t, dir, "commit", "-q", "-m", "change")
 			return buildHead(t, dir)
 		}},
 		{name: "test file unreadable", commit: func(t *testing.T, dir string) string {
+			t.Helper()
 			return guardCommitIn(t, dir, unreadable)
 		}},
 	}

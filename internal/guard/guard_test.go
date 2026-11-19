@@ -86,7 +86,9 @@ func TestJudge(t *testing.T) {
 			name:    "test removed",
 			set:     Set{Guarded: []string{"a_test.go"}},
 			changes: []Change{mod("a_test.go", goFile(testA1, testB1), goFile(testA1))},
-			want:    []Refusal{{File: "a_test.go", Test: "TestB", Rule: "test present at the base removed", Fact: true}},
+			want: []Refusal{
+				{File: "a_test.go", Test: "TestB", Rule: "test present at the base removed", Fact: true},
+			},
 		},
 		{
 			name:    "assertions lowered",
@@ -363,7 +365,10 @@ func TestGuardFactsPassTheGuard(t *testing.T) {
 	}
 	t.Run("test unreadable", func(t *testing.T) {
 		t.Parallel()
-		judgments := Judge(Set{Guarded: []string{"a_test.go"}}, []Change{mod("a_test.go", goFile(testA1), "package x\nfunc {")})
+		judgments := Judge(
+			Set{Guarded: []string{"a_test.go"}},
+			[]Change{mod("a_test.go", goFile(testA1), "package x\nfunc {")},
+		)
 		facts := FactLines(judgments)
 		if refusals := Refusals(judgments); refusals != nil || len(facts) != 1 ||
 			!strings.HasPrefix(facts[0], "a_test.go: "+unreadRule) {

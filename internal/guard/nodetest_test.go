@@ -222,7 +222,9 @@ test("b", () => {
 			path: "web/src/a.test.ts",
 			base: pair,
 			head: onlyA,
-			want: []Refusal{{File: "web/src/a.test.ts", Test: "b", Rule: "test present at the base removed", Fact: true}},
+			want: []Refusal{
+				{File: "web/src/a.test.ts", Test: "b", Rule: "test present at the base removed", Fact: true},
+			},
 		},
 		{
 			name: "lowered assertions in a guarded test file",
@@ -243,14 +245,18 @@ test("b", () => {
 			path: "web/src/a.test.tsx",
 			base: pair,
 			head: onlyA,
-			want: []Refusal{{File: "web/src/a.test.tsx", Test: "b", Rule: "test present at the base removed", Fact: true}},
+			want: []Refusal{
+				{File: "web/src/a.test.tsx", Test: "b", Rule: "test present at the base removed", Fact: true},
+			},
 		},
 		{
 			name: "removed test in a guarded js test file",
 			path: "web/src/a.test.js",
 			base: pair,
 			head: onlyA,
-			want: []Refusal{{File: "web/src/a.test.js", Test: "b", Rule: "test present at the base removed", Fact: true}},
+			want: []Refusal{
+				{File: "web/src/a.test.js", Test: "b", Rule: "test present at the base removed", Fact: true},
+			},
 		},
 		{
 			name: "guarded source that is not a test file has no rules",
