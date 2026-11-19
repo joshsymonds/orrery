@@ -1038,6 +1038,16 @@ LEFT JOIN epic_task_rung_outcomes AS outcomes
 WHERE rungs.epic = ?
 ORDER BY rungs.task, rungs.rung;
 
+-- name: InsertEpicTaskRefused :exec
+INSERT INTO epic_task_refused (epic, task, path, decision, created) VALUES (?, ?, ?, ?, ?)
+ON CONFLICT (epic, task, path) DO NOTHING;
+
+-- name: DeleteEpicTaskRefused :exec
+DELETE FROM epic_task_refused WHERE epic = ? AND task = ? AND path = ?;
+
+-- name: ListEpicTaskRefused :many
+SELECT * FROM epic_task_refused WHERE epic = ? ORDER BY task, created, path;
+
 -- name: MaxEpicTellSeq :one
 SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_tells WHERE epic = ?;
 

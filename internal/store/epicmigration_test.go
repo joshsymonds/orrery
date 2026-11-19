@@ -82,6 +82,8 @@ func epicTableColumns() map[string][]string {
 			"epic", "task", "rung", "kind", "moved_by", "cause", "gate", "assertion", "step", "created",
 		},
 		"epic_task_rung_outcomes": {"epic", "task", "rung", "outcome", "reason", "ended"},
+		// The files orchestrator decisions refused per task, from 00073_task_repairs.sql.
+		"epic_task_refused": {"epic", "task", "path", "decision", "created"},
 		"epic_reviewers": {
 			"epic", "position", "name", "enabled", "stage", "must", "must_not", "prompt", "agent", "model", "tools",
 			"effort", "limit_seconds", "verify",
@@ -543,8 +545,9 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00072_epic_revisions_table.sql is the newest. The
-	// newest was 00071_park_question_runs.sql before the revisions table added 00072, 00070_task_ladder.sql before the
+	// Open applies 00014_epics.sql and every migration after it: 00073_task_repairs.sql is the newest. The newest was
+	// 00072_epic_revisions_table.sql before the task repairs added 00073, 00071_park_question_runs.sql before the
+	// revisions table added 00072, 00070_task_ladder.sql before the
 	// park question runs added 00071, 00069_epic_revisions.sql before the task ladder added 00070,
 	// 00068_step_listings.sql before the epic revisions added 00069, 00067_drop_caller_read.sql before the step listings
 	// added 00068, 00066_put_off_questions.sql before
@@ -552,8 +555,8 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 	// 00064_step_indexes.sql before the gate changes added 00065, 00063_task_versions.sql before the step indexes added
 	// 00064, 00062_drop_engine_held.sql before the task versions added 00063, 00061_prompt_states.sql before the drop of
 	// engine_held added 00062, and 00060_cron_jobs.sql before the prompt states added 00061.
-	if version != 72 {
-		t.Fatalf("store version after Open = %d, want 72", version)
+	if version != 73 {
+		t.Fatalf("store version after Open = %d, want 73", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and

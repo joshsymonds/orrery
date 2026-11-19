@@ -581,6 +581,21 @@ func (q *Queries) DeleteEngineText(ctx context.Context, arg DeleteEngineTextPara
 	return err
 }
 
+const deleteEpicTaskRefused = `-- name: DeleteEpicTaskRefused :exec
+DELETE FROM epic_task_refused WHERE epic = ? AND task = ? AND path = ?
+`
+
+type DeleteEpicTaskRefusedParams struct {
+	Epic string
+	Task int64
+	Path string
+}
+
+func (q *Queries) DeleteEpicTaskRefused(ctx context.Context, arg DeleteEpicTaskRefusedParams) error {
+	_, err := q.db.ExecContext(ctx, deleteEpicTaskRefused, arg.Epic, arg.Task, arg.Path)
+	return err
+}
+
 const deleteGrant = `-- name: DeleteGrant :exec
 DELETE FROM grants WHERE id = ?
 `
@@ -2985,6 +3000,30 @@ func (q *Queries) InsertEpicTaskFinding(ctx context.Context, arg InsertEpicTaskF
 		arg.Result,
 		arg.Reason,
 		arg.Unverified,
+	)
+	return err
+}
+
+const insertEpicTaskRefused = `-- name: InsertEpicTaskRefused :exec
+INSERT INTO epic_task_refused (epic, task, path, decision, created) VALUES (?, ?, ?, ?, ?)
+ON CONFLICT (epic, task, path) DO NOTHING
+`
+
+type InsertEpicTaskRefusedParams struct {
+	Epic     string
+	Task     int64
+	Path     string
+	Decision string
+	Created  int64
+}
+
+func (q *Queries) InsertEpicTaskRefused(ctx context.Context, arg InsertEpicTaskRefusedParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicTaskRefused,
+		arg.Epic,
+		arg.Task,
+		arg.Path,
+		arg.Decision,
+		arg.Created,
 	)
 	return err
 }
@@ -5585,6 +5624,39 @@ func (q *Queries) ListEpicTaskFindings(ctx context.Context, epic string) ([]Epic
 			&i.Result,
 			&i.Reason,
 			&i.Unverified,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEpicTaskRefused = `-- name: ListEpicTaskRefused :many
+SELECT epic, task, path, decision, created FROM epic_task_refused WHERE epic = ? ORDER BY task, created, path
+`
+
+func (q *Queries) ListEpicTaskRefused(ctx context.Context, epic string) ([]EpicTaskRefused, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicTaskRefused, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicTaskRefused
+	for rows.Next() {
+		var i EpicTaskRefused
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Task,
+			&i.Path,
+			&i.Decision,
+			&i.Created,
 		); err != nil {
 			return nil, err
 		}

@@ -59,7 +59,8 @@ type EpicTurn struct {
 // its build names, nil when it names none or when the run is not current with Evidence. Batch is the path of the
 // integrate run that claimed the task, "" while none has. NeedsFiles are the paths beyond its owned Files that its
 // implementer named when it failed, in the order it named them. GateChanges are the gate-needed changes its
-// implementers declared with a commit the guard passed, one per file in the order first declared.
+// implementers declared with a commit the guard passed, one per file in the order first declared. Refused are the paths
+// an orchestrator decision refused on the task, which no rule grant gives the task again until a decision adds them.
 type EpicTask struct {
 	Seq          int64
 	Turn         int64
@@ -79,6 +80,7 @@ type EpicTask struct {
 	Batch        string
 	NeedsFiles   []string
 	GateChanges  []GateChange
+	Refused      []string
 	// Version is the number of the task's current version: its highest applied version, or 1 when none is applied. The
 	// Deliverable, TestChanges, Gate and Evidence above are the current version's.
 	Version int64
@@ -250,14 +252,14 @@ func loadPlanSections(ctx context.Context, queries *sqlcgen.Queries, row *EpicRo
 	if err != nil {
 		return fmt.Errorf("task versions: %w", err)
 	}
-	rungs, err := queries.ListEpicTaskRungs(ctx, row.ID)
+	rungsOf, refusedOf, err := taskLadderOf(ctx, queries, row.ID)
 	if err != nil {
-		return fmt.Errorf("list task rungs: %w", err)
+		return err
 	}
-	rungsOf := taskRungsOf(rungs)
 	row.Tasks, err = convertInOrder(tasks, func(task sqlcgen.EpicTask) (EpicTask, error) {
 		epicTask, taskErr := taskOf(ctx, queries, task, pathsOf[task.Seq], requirementsOf[task.Seq],
-			contributesOf[task.Seq], testChangesOf[task.Seq], reviewsOf[task.Seq], versionsOf[task.Seq])
+			contributesOf[task.Seq], testChangesOf[task.Seq], refusedOf[task.Seq], reviewsOf[task.Seq],
+			versionsOf[task.Seq])
 		epicTask.Rungs = rungsOf[task.Seq]
 		return epicTask, taskErr
 	})
@@ -266,6 +268,26 @@ func loadPlanSections(ctx context.Context, queries *sqlcgen.Queries, row *EpicRo
 	}
 
 	return loadQuestions(ctx, queries, row)
+}
+
+// taskLadderOf returns the rungs each task of epic holds, and the files orchestrator decisions refused on each, keyed
+// by task.
+func taskLadderOf(
+	ctx context.Context,
+	queries *sqlcgen.Queries,
+	epic string,
+) (map[int64][]TaskRung, map[int64][]string, error) {
+	rungs, err := queries.ListEpicTaskRungs(ctx, epic)
+	if err != nil {
+		return nil, nil, fmt.Errorf("list task rungs: %w", err)
+	}
+	refused, err := queries.ListEpicTaskRefused(ctx, epic)
+	if err != nil {
+		return nil, nil, fmt.Errorf("list task refused files: %w", err)
+	}
+	refusedOf := groupByTask(refused, func(file sqlcgen.EpicTaskRefused) int64 { return file.Task },
+		func(file sqlcgen.EpicTaskRefused) string { return file.Path })
+	return taskRungsOf(rungs), refusedOf, nil
 }
 
 // loadQuestions fills the questions of row from the rows stored under row.ID, in seq order.
@@ -299,7 +321,7 @@ func taskOf(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
 	stored sqlcgen.EpicTask,
-	files, requirements, contributes, testChanges []string,
+	files, requirements, contributes, testChanges, refused []string,
 	reviews []TaskReview,
 	versions []TaskVersion,
 ) (EpicTask, error) {
@@ -320,7 +342,7 @@ func taskOf(
 		Files: files, Requirements: requirements, Contributes: contributes, TestChanges: testChanges,
 		Gate: stored.Gate, Evidence: item,
 		Status: stored.Status, Build: buildOf(stored), Reviews: reviews, Batch: stored.Batch,
-		NeedsFiles: needsFiles, GateChanges: gateChanges, Version: 1, Versions: versions,
+		NeedsFiles: needsFiles, GateChanges: gateChanges, Refused: refused, Version: 1, Versions: versions,
 	}
 	overlayVersions(&task)
 	if task.Build.RedRun != "" {
