@@ -266,9 +266,62 @@ func TestReleaseStepDoneWithListedCommitRecordsPassedBeforeNextStep(t *testing.T
 	}
 }
 
+// TestReleaseContinueWhenListedCommitsDifferFromAdded: a release step that ends done and added commits, but lists none
+// of them or lists a commit it did not add, is recorded as passed, since the judge checks the postconditions itself.
+// The release continues and the next step starts.
+func TestReleaseContinueWhenListedCommitsDifferFromAdded(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		do   func(t *testing.T, wt, start string) []string
+	}{
+		{
+			name: "commit added, none listed",
+			do: func(t *testing.T, wt, _ string) []string {
+				t.Helper()
+				commitIn(t, wt, "extra.txt")
+				return []string{}
+			},
+		},
+		{
+			name: "commit added, a commit it did not add listed",
+			do: func(t *testing.T, wt, start string) []string {
+				t.Helper()
+				commitIn(t, wt, "extra.txt")
+				return []string{start}
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			w := newReleaseWorld(t, &recordingEnding{})
+			mergeRemote(t, w.repo)
+			nodeEpicBranch(t, w.repo, "epic.txt")
+			w.createEpic(runEpic, store.PhaseClean, tagStep(), publishStep())
+			w.pass()
+			start := runAt(t, w.s, releaseNodePath).Revision
+			id := w.stepID(1)
+			listed := tc.do(t, w.stepWorktree(id), start)
+			w.endStep(id, "done", "done", map[string]any{
+				"status": "done", "commits": listed, "evidence": "evidence",
+			})
+			w.pass()
+
+			runs := releaseRunsOf(w.flowOf(runEpic).Releases, store.ReleasePartStep)
+			if len(runs) != 1 || !runs[0].Passed {
+				t.Errorf("step runs = %+v, want one passed run", runs)
+			}
+			if got := len(w.fakes.steps.calls); got != 2 {
+				t.Errorf("step starts = %d, want the second step started", got)
+			}
+		})
+	}
+}
+
 // TestReleaseStepFailureStopsReleaseNamingIt: a release step whose end is not done, whose HEAD does not descend from
-// its start, whose commits list does not match the commits it added, or that added a merge, is recorded as failed with
-// the reason named. The release stops there and the next step does not start.
+// its start, or that added a merge, is recorded as failed with the reason named. The release stops there and the next
+// step does not start.
 func TestReleaseStepFailureStopsReleaseNamingIt(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -291,22 +344,6 @@ func TestReleaseStepFailureStopsReleaseNamingIt(t *testing.T) {
 				return []string{}
 			},
 			reason: "does not descend from the step's start",
-		},
-		{
-			name: "commit added but not listed", end: "done", status: "done",
-			do: func(t *testing.T, wt, _ string) []string {
-				t.Helper()
-				commitIn(t, wt, "extra.txt")
-				return []string{}
-			},
-			reason: "not the commits it added",
-		},
-		{
-			name: "commit listed but not added", end: "done", status: "done",
-			do: func(_ *testing.T, _, start string) []string {
-				return []string{start}
-			},
-			reason: "not the commits it added",
 		},
 		{
 			name: "merge commit added", end: "done", status: "done",
@@ -478,7 +515,7 @@ func TestReleaseStepWithoutStateDirIsNotStarted(t *testing.T) {
 
 // TestReleaseJudgeStartsReadOnlyWithEvidence: once the release's steps have passed, the judge starts read-only at the
 // candidate, in the repository, with the release promise and the commits and evidence of each passed step in its
-// prompt.
+// prompt. Its prompt tells it it may run read-only commands to check the postconditions, and forbids none.
 func TestReleaseJudgeStartsReadOnlyWithEvidence(t *testing.T) {
 	t.Parallel()
 	w := newReleaseWorld(t, &recordingEnding{})
@@ -500,10 +537,13 @@ func TestReleaseJudgeStartsReadOnlyWithEvidence(t *testing.T) {
 	if !got.ReadOnly || got.Workspace != w.repo || got.Revision != candidate {
 		t.Errorf("judge start = %+v, want read-only in the repository at candidate %s", got, candidate)
 	}
-	for _, want := range []string{releaseThen, commit, "tagged main"} {
+	for _, want := range []string{releaseThen, commit, "tagged main", "read-only commands"} {
 		if !strings.Contains(got.Prompt, want) {
 			t.Errorf("judge prompt = %q, want it to hold %q", got.Prompt, want)
 		}
+	}
+	if strings.Contains(got.Prompt, "Run no command") {
+		t.Errorf("judge prompt = %q, want it to forbid no command", got.Prompt)
 	}
 }
 
