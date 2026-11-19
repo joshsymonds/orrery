@@ -63,3 +63,38 @@ func (f *passFixture) carryPendingSendBack() {
 	}
 	f.t.Fatal("no pending send_back action to carry out")
 }
+
+// TestSendBackReopenedImplementStartsInAFreshWorktree covers E2-R1: an open task sent back while its implement worktree
+// still holds a commit starts its next implementer in a new worktree at the reopened build's base, so the work the
+// send_back dropped is not under it.
+func TestSendBackReopenedImplementStartsInAFreshWorktree(t *testing.T) {
+	t.Parallel()
+	plan := passPlan()
+	plan.Actions = []store.EpicActionInput{{Kind: store.ActionSendBack, Task: 1, Reason: sendBackReason}}
+	f := newPlanFixture(t, plan)
+	f.pass()
+	f.addRun(f.lastRun().id, evidence.PhaseRed, f.base, 1, evidence.VerdictFails)
+	f.pass()
+	old := f.lastStart()
+	buildRun(t, old.Workspace, "commit", "-q", "--allow-empty", "-m", "dropped work")
+	dropped := strings.TrimSpace(buildRun(t, old.Workspace, "rev-parse", "HEAD"))
+	f.carryPendingSendBack()
+
+	before := len(f.steps.starts)
+	f.pass()
+	if got := len(f.steps.starts) - before; got != 1 {
+		t.Fatalf("Start calls after the send_back = %d, want one new implement step", got)
+	}
+	start := f.steps.starts[before]
+	if start.Workspace == old.Workspace {
+		t.Fatalf("reopened implementer runs in %s, the worktree that holds the dropped commit", start.Workspace)
+	}
+	if want := ImplementWorktree(f.stateDir, passEpic, f.task()); start.Workspace != want {
+		t.Errorf("reopened implementer workspace = %s, want %s", start.Workspace, want)
+	}
+	head := strings.TrimSpace(buildRun(t, start.Workspace, "rev-parse", "HEAD"))
+	if head == dropped || head != f.task().Build.Base {
+		t.Errorf("reopened worktree HEAD = %s, want the reopened base %s, not the dropped commit %s",
+			head, f.task().Build.Base, dropped)
+	}
+}

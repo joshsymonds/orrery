@@ -193,7 +193,7 @@ func (r *Runner) carry(
 	if newBase == "" || newBase == from.Base {
 		return next, nil, true
 	}
-	path, wip := ImplementWorktree(r.stateDir, epic.ID, seq), WipRef(epic.ID, seq)
+	path, wip := ImplementWorktree(r.stateDir, epic.ID, view.Task), WipRef(epic.ID, seq)
 	moveErr := r.git.MoveWorktree(ctx, path, wip, newBase)
 	if moveErr == nil {
 		next.Base = newBase
@@ -274,7 +274,7 @@ func (r *Runner) ask(ctx context.Context, epic store.EpicRow, view View, action 
 // fail then tries the carry onto that base, and when git refuses it again, keeps the work with a carry version.
 func (r *Runner) resume(ctx context.Context, epic store.EpicRow, view View, action Action) bool {
 	seq, from := view.Task.Seq, view.Task.Build
-	path := ImplementWorktree(r.stateDir, epic.ID, seq)
+	path := ImplementWorktree(r.stateDir, epic.ID, view.Task)
 	if err := r.git.MoveWorktree(ctx, path, WipRef(epic.ID, seq), action.Revision); err != nil {
 		reason := fmt.Sprintf("%s could not move onto the new base %s: %v", taskLabel(seq), action.Revision, err)
 		return r.fail(ctx, epic, view, Action{Kind: ActFail, Reason: reason})
