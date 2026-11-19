@@ -740,6 +740,11 @@ UPDATE epic_node_runs SET state = 'running', attempt = attempt + 1, outcome = ''
     refs = '', refs_checked = 0, result = '', ended = 0
 WHERE epic = ? AND node = ? AND kind <> 'loop' AND state = 'parked';
 
+-- name: RetryEpicNodeRun :execrows
+UPDATE epic_node_runs SET state = 'running', attempt = attempt + 1, outcome = '', output = '', revision = '',
+    refs = '', refs_checked = 0, result = '', ended = 0
+WHERE epic = ? AND path = ? AND kind <> 'loop' AND state = 'parked';
+
 -- name: NextEpicNodeRunAttempt :execrows
 UPDATE epic_node_runs SET attempt = attempt + 1, outcome = '', output = '', revision = '', refs = '', refs_checked = 0,
     result = '', ended = 0
@@ -1033,6 +1038,12 @@ INSERT INTO epic_met_at_base (epic, question, path, attempt, requirements) VALUE
 
 -- name: GetEpicMetAtBase :one
 SELECT * FROM epic_met_at_base WHERE epic = ? AND question = ?;
+
+-- name: InsertEpicParkQuestionRun :exec
+INSERT INTO epic_park_question_runs (epic, question, path) VALUES (?, ?, ?);
+
+-- name: GetEpicParkQuestionRun :one
+SELECT path FROM epic_park_question_runs WHERE epic = ? AND question = ?;
 
 -- name: SetEpicQuestionAnswered :exec
 UPDATE epic_questions SET state = 'answered', choice = ? WHERE epic = ? AND seq = ?;

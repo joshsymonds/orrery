@@ -274,6 +274,12 @@ type EpicPark struct {
 	Created int64
 }
 
+type EpicParkQuestionRun struct {
+	Epic     string
+	Question int64
+	Path     string
+}
+
 type EpicPremise struct {
 	Epic     string
 	Position int64

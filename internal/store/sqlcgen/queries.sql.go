@@ -1355,6 +1355,22 @@ func (q *Queries) GetEpicNodeRun(ctx context.Context, arg GetEpicNodeRunParams) 
 	return i, err
 }
 
+const getEpicParkQuestionRun = `-- name: GetEpicParkQuestionRun :one
+SELECT path FROM epic_park_question_runs WHERE epic = ? AND question = ?
+`
+
+type GetEpicParkQuestionRunParams struct {
+	Epic     string
+	Question int64
+}
+
+func (q *Queries) GetEpicParkQuestionRun(ctx context.Context, arg GetEpicParkQuestionRunParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, getEpicParkQuestionRun, arg.Epic, arg.Question)
+	var path string
+	err := row.Scan(&path)
+	return path, err
+}
+
 const getEpicQuestion = `-- name: GetEpicQuestion :one
 SELECT epic, seq, turn, text, state, label, choices, recommended, why, confidence, replaces, replaced_by, choice FROM epic_questions WHERE epic = ? AND seq = ?
 `
@@ -2493,6 +2509,21 @@ func (q *Queries) InsertEpicPark(ctx context.Context, arg InsertEpicParkParams) 
 		arg.Reason,
 		arg.Created,
 	)
+	return err
+}
+
+const insertEpicParkQuestionRun = `-- name: InsertEpicParkQuestionRun :exec
+INSERT INTO epic_park_question_runs (epic, question, path) VALUES (?, ?, ?)
+`
+
+type InsertEpicParkQuestionRunParams struct {
+	Epic     string
+	Question int64
+	Path     string
+}
+
+func (q *Queries) InsertEpicParkQuestionRun(ctx context.Context, arg InsertEpicParkQuestionRunParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicParkQuestionRun, arg.Epic, arg.Question, arg.Path)
 	return err
 }
 
@@ -8988,6 +9019,25 @@ type RetryEpicNodeParams struct {
 
 func (q *Queries) RetryEpicNode(ctx context.Context, arg RetryEpicNodeParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, retryEpicNode, arg.Epic, arg.Node)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const retryEpicNodeRun = `-- name: RetryEpicNodeRun :execrows
+UPDATE epic_node_runs SET state = 'running', attempt = attempt + 1, outcome = '', output = '', revision = '',
+    refs = '', refs_checked = 0, result = '', ended = 0
+WHERE epic = ? AND path = ? AND kind <> 'loop' AND state = 'parked'
+`
+
+type RetryEpicNodeRunParams struct {
+	Epic string
+	Path string
+}
+
+func (q *Queries) RetryEpicNodeRun(ctx context.Context, arg RetryEpicNodeRunParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, retryEpicNodeRun, arg.Epic, arg.Path)
 	if err != nil {
 		return 0, err
 	}

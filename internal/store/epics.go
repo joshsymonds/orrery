@@ -811,7 +811,7 @@ func recordQuestionAnswer(
 	if err != nil {
 		return EpicDecision{}, err
 	}
-	err = endParkByAnswer(ctx, queries, epic, answered)
+	err = endParkByAnswer(ctx, queries, epic, answered, choice)
 	if err != nil {
 		return EpicDecision{}, err
 	}
@@ -841,7 +841,8 @@ func answerMetAtBase(
 	}
 	switch choice {
 	case ChoiceRetry:
-		return rerunParkedRun(ctx, queries, epic, met.Path)
+		_, err = rerunParkedRun(ctx, queries, epic, met.Path)
+		return err
 	case ChoiceDrop:
 		return dropMetAtBase(ctx, queries, epic, met, decision)
 	case ChoiceEnd:
@@ -867,14 +868,24 @@ func dropMetAtBase(
 			return fmt.Errorf("drop requirement %s of epic %s: %w", id, epic, err)
 		}
 	}
-	return rerunParkedRun(ctx, queries, epic, met.Path)
+	_, err = rerunParkedRun(ctx, queries, epic, met.Path)
+	return err
 }
 
 // endParkByAnswer ends the park of epic in the caller's write when answered, the question an answer has just closed, is
-// a park question and epic is not met_at_base. An epic in met_at_base is left parked, as an end leaves it.
-func endParkByAnswer(ctx context.Context, queries *sqlcgen.Queries, epic string, answered sqlcgen.EpicQuestion) error {
+// a park question and epic is not met_at_base. A retry answer first reruns the parked node run that the question names,
+// when it names one, and an answer of any other choice reruns nothing. An epic in met_at_base is left parked, as an end
+// leaves it.
+func endParkByAnswer(
+	ctx context.Context, queries *sqlcgen.Queries, epic string, answered sqlcgen.EpicQuestion, choice string,
+) error {
 	if answered.Turn != 0 || answered.Label != ParkLabel {
 		return nil
+	}
+	if choice == ChoiceRetry {
+		if err := rerunParkQuestionRun(ctx, queries, epic, answered.Seq); err != nil {
+			return err
+		}
 	}
 	head, err := epicHead(ctx, queries, epic)
 	if err != nil {

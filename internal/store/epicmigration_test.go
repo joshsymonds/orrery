@@ -117,6 +117,8 @@ func epicTableColumns() map[string][]string {
 		"epic_seen":          {"epic", "at"},
 		// R4: the parked run and the Requirements found met under a met-at-base park question, from 00044.
 		"epic_met_at_base": {"epic", "question", "path", "attempt", "requirements"},
+		// The node run each park question names, from 00071_park_question_runs.sql.
+		"epic_park_question_runs": {"epic", "question", "path"},
 		// R2: the actions a planner turn returned, from 00049_planner_actions.sql. park, the planner park an action
 		// answers, is 00051_park_bound.sql. requirement and item, what an amend_evidence action asks for, are
 		// 00052_evidence_amendments.sql. deliverable, what a change_approach action asks for, is 00070_task_ladder.sql.
@@ -540,15 +542,16 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00070_task_ladder.sql is the newest. The newest was
-	// 00069_epic_revisions.sql before the task ladder added 00070, 00068_step_listings.sql before the epic revisions
-	// added 00069, 00067_drop_caller_read.sql before the step listings added 00068, 00066_put_off_questions.sql before
+	// Open applies 00014_epics.sql and every migration after it: 00071_park_question_runs.sql is the newest. The
+	// newest was 00070_task_ladder.sql before the park question runs added 00071, 00069_epic_revisions.sql before the
+	// task ladder added 00070, 00068_step_listings.sql before the epic revisions added 00069,
+	// 00067_drop_caller_read.sql before the step listings added 00068, 00066_put_off_questions.sql before
 	// the drop of caller_read added 00067, 00065_task_gate_changes.sql before the put-off marks added 00066,
 	// 00064_step_indexes.sql before the gate changes added 00065, 00063_task_versions.sql before the step indexes added
 	// 00064, 00062_drop_engine_held.sql before the task versions added 00063, 00061_prompt_states.sql before the drop of
 	// engine_held added 00062, and 00060_cron_jobs.sql before the prompt states added 00061.
-	if version != 70 {
-		t.Fatalf("store version after Open = %d, want 70", version)
+	if version != 71 {
+		t.Fatalf("store version after Open = %d, want 71", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and
