@@ -12,10 +12,14 @@ import io.github.joshsymonds.orrery.R
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.ACTION_KEY
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.ACTION_REPLY
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.CHANNEL_ID
+import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_ANSWER
+import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_DIR
+import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_EPIC
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_KEY
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_NOTIFICATION_ID
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_PANE
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_QUESTION_HASH
+import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_REQUEST
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_SESSION
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.REMOTE_INPUT_KEY
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.SILENT_CHANNEL_ID
@@ -72,6 +76,8 @@ class PushNotifierTest {
         return intent
     }
 
+    private fun titlesOf(actions: Array<out Notification.Action>): List<String> = actions.map { it.title.toString() }
+
     private fun titleOf(notification: Notification): String =
         notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString()
 
@@ -119,10 +125,139 @@ class PushNotifierTest {
     }
 
     @Test
-    fun sessionQuestionPostsNoActions() {
+    fun sessionQuestionWithoutOptionsOffersOpenThenReply() {
         notifier.show(questionEvent.copy(pane = "", session = "sess-1"))
 
-        assertTrue(posted(notificationId(host, "sess-1")).actions.isNullOrEmpty())
+        val actions = posted(notificationId(host, "sess-1")).actions.orEmpty()
+        assertEquals(listOf("Open", "Reply"), titlesOf(actions))
+        assertEquals("sess-1", intentOf(actions[0].actionIntent).getStringExtra(EXTRA_SESSION))
+        assertEquals(REMOTE_INPUT_KEY, actions[1].remoteInputs[0].resultKey)
+    }
+
+    @Test
+    fun paneOptionsAreTitledByLabelWithKeyNAndThenReply() {
+        notifier.show(questionEvent.copy(options = listOf("Yes, once", "Always")))
+
+        val actions = posted(notificationId(host, pane)).actions.orEmpty()
+        assertEquals(listOf("Yes, once", "Always", "Reply"), titlesOf(actions))
+        listOf("1", "2").forEachIndexed { index, key ->
+            val pending = actions[index].actionIntent
+            val intent = intentOf(pending)
+            assertEquals(ACTION_KEY, intent.action)
+            assertEquals(context.packageName, intent.`package`)
+            assertEquals(pane, intent.getStringExtra(EXTRA_PANE))
+            assertEquals(key, intent.getStringExtra(EXTRA_KEY))
+            assertEquals(questionEvent.questionHash, intent.getStringExtra(EXTRA_QUESTION_HASH))
+            assertEquals(notificationId(host, pane), intent.getIntExtra(EXTRA_NOTIFICATION_ID, -1))
+            assertEquals(questionEvent.project, intent.getStringExtra(EXTRA_DIR))
+            assertTrue(shadowOf(pending).flags and PendingIntent.FLAG_IMMUTABLE != 0)
+        }
+        assertEquals(REMOTE_INPUT_KEY, actions[2].remoteInputs[0].resultKey)
+    }
+
+    @Test
+    fun threeOptionsOfferNoReply() {
+        notifier.show(questionEvent.copy(options = listOf("One", "Two", "Three")))
+
+        val actions = posted(notificationId(host, pane)).actions.orEmpty()
+        assertEquals(listOf("One", "Two", "Three"), titlesOf(actions))
+        assertTrue(actions.all { it.remoteInputs.isNullOrEmpty() })
+    }
+
+    @Test
+    fun moreThanThreeOptionsOfferOpenThenReply() {
+        notifier.show(questionEvent.copy(options = listOf("One", "Two", "Three", "Four")))
+
+        val actions = posted(notificationId(host, pane)).actions.orEmpty()
+        assertEquals(listOf("Open", "Reply"), titlesOf(actions))
+        val open = intentOf(actions[0].actionIntent)
+        assertEquals(MainActivity::class.java.name, open.component?.className)
+        assertEquals(pane, open.getStringExtra(EXTRA_PANE))
+        assertEquals(notificationId(host, pane), open.getIntExtra(EXTRA_NOTIFICATION_ID, -1))
+        assertEquals(questionEvent.project, open.getStringExtra(EXTRA_DIR))
+    }
+
+    @Test
+    fun sessionOptionsCarryRequestAndTheirLabelAsAnswer() {
+        notifier.show(idleEvent.copy(pane = "", session = "sess-1", options = listOf("Allow", "Deny"), request = "req-synthetic"))
+
+        val actions = posted(notificationId(host, "sess-1")).actions.orEmpty()
+        assertEquals(listOf("Allow", "Deny", "Reply"), titlesOf(actions))
+        listOf("Allow", "Deny").forEachIndexed { index, label ->
+            val pending = actions[index].actionIntent
+            val intent = intentOf(pending)
+            assertEquals(ACTION_KEY, intent.action)
+            assertEquals(context.packageName, intent.`package`)
+            assertEquals("sess-1", intent.getStringExtra(EXTRA_SESSION))
+            assertEquals("req-synthetic", intent.getStringExtra(EXTRA_REQUEST))
+            assertEquals(label, intent.getStringExtra(EXTRA_ANSWER))
+            assertEquals(notificationId(host, "sess-1"), intent.getIntExtra(EXTRA_NOTIFICATION_ID, -1))
+            assertEquals(idleEvent.project, intent.getStringExtra(EXTRA_DIR))
+            assertFalse(intent.hasExtra(EXTRA_PANE))
+            assertTrue(shadowOf(pending).flags and PendingIntent.FLAG_IMMUTABLE != 0)
+        }
+        val reply = intentOf(actions[2].actionIntent)
+        assertEquals(ACTION_REPLY, reply.action)
+    }
+
+    @Test
+    fun sessionReplyCarriesTheSessionNotThePane() {
+        notifier.show(idleEvent.copy(pane = "", session = "sess-1", state = "done"))
+
+        val actions = posted(notificationId(host, "sess-1")).actions.orEmpty()
+        assertEquals(listOf("Reply"), titlesOf(actions))
+        val intent = intentOf(actions[0].actionIntent)
+        assertEquals(ACTION_REPLY, intent.action)
+        assertEquals("sess-1", intent.getStringExtra(EXTRA_SESSION))
+        assertFalse(intent.hasExtra(EXTRA_PANE))
+    }
+
+    @Test
+    fun donePaneOffersReplyCarryingThePane() {
+        notifier.show(idleEvent.copy(state = "done"))
+
+        val actions = posted(notificationId(host, pane)).actions.orEmpty()
+        assertEquals(listOf("Reply"), titlesOf(actions))
+        val intent = intentOf(actions[0].actionIntent)
+        assertEquals(ACTION_REPLY, intent.action)
+        assertEquals(pane, intent.getStringExtra(EXTRA_PANE))
+        assertEquals(idleEvent.project, intent.getStringExtra(EXTRA_DIR))
+        assertFalse(intent.hasExtra(EXTRA_SESSION))
+    }
+
+    @Test
+    fun donePaneWithOptionsStillOffersOnlyReplyCarryingThePane() {
+        notifier.show(idleEvent.copy(state = "done", options = listOf("A")))
+
+        val actions = posted(notificationId(host, pane)).actions.orEmpty()
+        assertEquals(listOf("Reply"), titlesOf(actions))
+        val intent = intentOf(actions[0].actionIntent)
+        assertEquals(ACTION_REPLY, intent.action)
+        assertEquals(pane, intent.getStringExtra(EXTRA_PANE))
+        assertEquals(idleEvent.project, intent.getStringExtra(EXTRA_DIR))
+        assertFalse(intent.hasExtra(EXTRA_SESSION))
+    }
+
+    @Test
+    fun epicNoticeOffersOnlyOpen() {
+        notifier.show(idleEvent.copy(pane = "", project = "Work board", epic = "work/rota-export", block = "question"))
+
+        val actions = posted(notificationId(host, "work/rota-export")).actions.orEmpty()
+        assertEquals(listOf("Open"), titlesOf(actions))
+        val intent = intentOf(actions[0].actionIntent)
+        assertEquals(MainActivity::class.java.name, intent.component?.className)
+        assertEquals("work/rota-export", intent.getStringExtra(EXTRA_EPIC))
+        assertEquals(notificationId(host, "work/rota-export"), intent.getIntExtra(EXTRA_NOTIFICATION_ID, -1))
+        assertEquals("Work board", intent.getStringExtra(EXTRA_DIR))
+    }
+
+    @Test
+    fun limitAndAlertNoticesOfferNoActions() {
+        notifier.show(idleEvent.copy(pane = "", project = "Weekly usage limit reached", limit = "weekly"))
+        notifier.show(idleEvent.copy(pane = "", project = "tide-alerts", state = "done", alert = "severe"))
+
+        assertTrue(posted(notificationId(host, "weekly")).actions.isNullOrEmpty())
+        assertTrue(posted(notificationId(host, "alert:severe")).actions.isNullOrEmpty())
     }
 
     @Test
@@ -140,6 +275,7 @@ class PushNotifierTest {
             assertEquals(key, intent.getStringExtra(EXTRA_KEY))
             assertEquals(questionEvent.questionHash, intent.getStringExtra(EXTRA_QUESTION_HASH))
             assertEquals(notificationId(host, pane), intent.getIntExtra(EXTRA_NOTIFICATION_ID, -1))
+            assertEquals(questionEvent.project, intent.getStringExtra(EXTRA_DIR))
             assertTrue(shadowOf(pending).flags and PendingIntent.FLAG_IMMUTABLE != 0)
         }
         assertEquals(1, actions[3].remoteInputs.size)
@@ -159,6 +295,7 @@ class PushNotifierTest {
         assertEquals(context.packageName, intent.`package`)
         assertEquals(pane, intent.getStringExtra(EXTRA_PANE))
         assertEquals(notificationId(host, pane), intent.getIntExtra(EXTRA_NOTIFICATION_ID, -1))
+        assertEquals(idleEvent.project, intent.getStringExtra(EXTRA_DIR))
         assertTrue(shadowOf(pending).flags and PendingIntent.FLAG_MUTABLE != 0)
     }
 

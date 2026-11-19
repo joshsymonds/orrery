@@ -35,6 +35,8 @@ data class PushEvent(
     val label: String,
     val question: String,
     val questionHash: String,
+    val options: List<String> = emptyList(),
+    val request: String = "",
     val session: String = "",
     val epic: String = "",
     val limit: String = "",
@@ -62,15 +64,10 @@ class PushNotifier(private val context: Context) {
             .setSmallIcon(SMALL_ICON)
             .setContentTitle(notice.title)
             .setContentText(notice.text)
-            .setContentIntent(contentIntent(event, tag))
+            .setContentIntent(contentIntent(event, tag, id))
             .setOnlyAlertOnce(replacedChannelId == channelId && event.state !in ALERTING_STATES)
             .setExtras(timeExtras(event.time))
-        if (event.session.isEmpty() && event.pane.isNotEmpty()) {
-            if (event.question.isNotEmpty()) {
-                KEYS.forEach { key -> builder.addAction(keyAction(event, tag, key, id)) }
-            }
-            builder.addAction(replyAction(event, tag, id))
-        }
+        actionsOf(event, tag, id).forEach { builder.addAction(it) }
         manager.notify(id, builder.build())
     }
 
@@ -170,8 +167,34 @@ class PushNotifier(private val context: Context) {
         else -> ""
     }
 
-    private fun contentIntent(event: PushEvent, tag: String): PendingIntent {
+    private fun actionsOf(event: PushEvent, tag: String, id: Int): List<Notification.Action> = when {
+        event.epic.isNotEmpty() -> listOf(openAction(event, tag, id))
+        event.limit.isNotEmpty() || event.alert.isNotEmpty() -> emptyList()
+        event.session.isEmpty() && event.pane.isEmpty() -> emptyList()
+        else -> paneOrSessionActions(event, tag, id)
+    }
+
+    private fun paneOrSessionActions(event: PushEvent, tag: String, id: Int): List<Notification.Action> {
+        val reply = replyAction(event, tag, id)
+        val options = event.options
+        val waiting = event.state == "waiting"
+        return when {
+            waiting && options.size in 1..MAX_ANSWER_ACTIONS -> {
+                val answers = options.mapIndexed { index, label -> answerAction(event, tag, id, index, label) }
+                if (options.size < MAX_ANSWER_ACTIONS) answers + reply else answers
+            }
+            waiting && (options.size > MAX_ANSWER_ACTIONS || event.session.isNotEmpty()) ->
+                listOf(openAction(event, tag, id), reply)
+            waiting && event.question.isNotEmpty() ->
+                KEYS.mapIndexed { index, key -> answerAction(event, tag, id, index, key) } + reply
+            else -> listOf(reply)
+        }
+    }
+
+    private fun contentIntent(event: PushEvent, tag: String, id: Int): PendingIntent {
         val intent = Intent(context, MainActivity::class.java)
+            .putExtra(EXTRA_NOTIFICATION_ID, id)
+            .putExtra(EXTRA_DIR, event.project)
         when {
             event.epic.isNotEmpty() -> {
                 intent.putExtra(EXTRA_EPIC, event.epic)
@@ -189,27 +212,45 @@ class PushNotifier(private val context: Context) {
         )
     }
 
-    private fun keyAction(event: PushEvent, tag: String, key: String, id: Int): Notification.Action {
+    private fun openAction(event: PushEvent, tag: String, id: Int): Notification.Action =
+        Notification.Action.Builder(Icon.createWithResource(context, SMALL_ICON), "Open", contentIntent(event, tag, id))
+            .build()
+
+    // A pane's option n sends key n of its question; a session's option sends its label as the answer to its request.
+    private fun answerAction(event: PushEvent, tag: String, id: Int, index: Int, label: String): Notification.Action {
+        val number = (index + 1).toString()
         val intent = Intent(ACTION_KEY)
             .setPackage(context.packageName)
-            .putExtra(EXTRA_PANE, event.pane)
-            .putExtra(EXTRA_KEY, key)
-            .putExtra(EXTRA_QUESTION_HASH, event.questionHash)
             .putExtra(EXTRA_NOTIFICATION_ID, id)
+            .putExtra(EXTRA_DIR, event.project)
+        if (event.session.isNotEmpty()) {
+            intent.putExtra(EXTRA_SESSION, event.session)
+                .putExtra(EXTRA_REQUEST, event.request)
+                .putExtra(EXTRA_ANSWER, label)
+        } else {
+            intent.putExtra(EXTRA_PANE, event.pane)
+                .putExtra(EXTRA_KEY, number)
+                .putExtra(EXTRA_QUESTION_HASH, event.questionHash)
+        }
         val pending = PendingIntent.getBroadcast(
             context,
-            requestCode(event.host, tag, key),
+            requestCode(event.host, tag, "answer$number"),
             intent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        return Notification.Action.Builder(Icon.createWithResource(context, SMALL_ICON), key, pending).build()
+        return Notification.Action.Builder(Icon.createWithResource(context, SMALL_ICON), label, pending).build()
     }
 
     private fun replyAction(event: PushEvent, tag: String, id: Int): Notification.Action {
         val intent = Intent(ACTION_REPLY)
             .setPackage(context.packageName)
-            .putExtra(EXTRA_PANE, event.pane)
             .putExtra(EXTRA_NOTIFICATION_ID, id)
+            .putExtra(EXTRA_DIR, event.project)
+        if (event.session.isNotEmpty()) {
+            intent.putExtra(EXTRA_SESSION, event.session)
+        } else {
+            intent.putExtra(EXTRA_PANE, event.pane)
+        }
         val pending = PendingIntent.getBroadcast(
             context,
             requestCode(event.host, tag, "reply"),
@@ -243,9 +284,13 @@ class PushNotifier(private val context: Context) {
         const val EXTRA_QUESTION_HASH = "io.github.joshsymonds.orrery.extra.QUESTION_HASH"
         const val EXTRA_NOTIFICATION_ID = "io.github.joshsymonds.orrery.extra.NOTIFICATION_ID"
         const val EXTRA_TIME = "io.github.joshsymonds.orrery.extra.TIME"
+        const val EXTRA_DIR = "io.github.joshsymonds.orrery.extra.DIR"
+        const val EXTRA_REQUEST = "io.github.joshsymonds.orrery.extra.REQUEST"
+        const val EXTRA_ANSWER = "io.github.joshsymonds.orrery.extra.ANSWER"
         const val REMOTE_INPUT_KEY = "reply"
         private const val ALERT_TAG_PREFIX = "alert:"
         private val KEYS = listOf("1", "2", "3")
+        private const val MAX_ANSWER_ACTIONS = 3
         private val ALERTING_STATES = setOf("waiting", "failed")
         private val SMALL_ICON = R.drawable.ic_notification
 

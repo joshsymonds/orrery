@@ -74,6 +74,9 @@ class OrreryPushService : PushService() {
                 label = json.getString("label"),
                 question = json.getString("question"),
                 questionHash = json.getString("question_hash"),
+                options = json.optJSONArray("options")?.let { array -> List(array.length()) { array.optString(it) } }
+                    .orEmpty(),
+                request = json.optString("request"),
                 session = json.optString("session"),
                 epic = json.optString("epic"),
                 limit = json.optString("limit"),
