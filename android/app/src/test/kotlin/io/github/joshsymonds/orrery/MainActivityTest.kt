@@ -427,6 +427,33 @@ class MainActivityTest {
     }
 
     @Test
+    fun settingsTitleBackReturnsToTheListWithoutSaving() {
+        launch()
+        awaitNode(hasTestTag("pane-row:%1"))
+        composeRule.onNodeWithText("Settings").performClick()
+        awaitNode(hasTestTag("server-address"))
+
+        composeRule.onNodeWithTag("title-back").performClick()
+
+        awaitNode(hasTestTag("pane-row:%1"))
+    }
+
+    @Test
+    fun settingsFontLicenceBackReturnsToSettingsNotTheList() {
+        val controller = launch()
+        awaitNode(hasTestTag("pane-row:%1"))
+        composeRule.onNodeWithText("Settings").performClick()
+        awaitNode(hasTestTag("server-address"))
+        composeRule.onNodeWithText("Font licence").performClick()
+        awaitNode(hasText("Copyright (c) 2022, subframe7536", substring = true))
+
+        controller.get().onBackPressedDispatcher.onBackPressed()
+
+        awaitNode(hasTestTag("server-address"))
+        assertAbsent(hasTestTag("pane-row:%1"))
+    }
+
+    @Test
     fun settingsSaveReloadsTheListFromTheNewAddress() {
         val second = FakeOrreryServer()
         try {

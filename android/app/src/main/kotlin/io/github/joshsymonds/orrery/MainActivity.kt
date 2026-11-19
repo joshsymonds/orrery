@@ -243,6 +243,7 @@ class MainActivity : ComponentActivity() {
                                         }
                                         SettingsScreen(
                                             settings = settings,
+                                            onBack = { screen = Screen.Panes },
                                             onSaved = {
                                                 client = OrreryClient(settings.serverUrl)
                                                 if (hasServer || screen == Screen.Settings) {
