@@ -230,7 +230,7 @@ func ReviewPrompt(
 		[]string{change},
 	)
 	if reviewer == reviewers.TestParsimony {
-		lines = append(lines, reviewers.TestCost(gate.Stdout, gate.Stderr)...)
+		lines = append(lines, reviewers.TestCost(nil, gate.Stdout, gate.Stderr)...)
 	}
 	return strings.Join(lines, "\n")
 }

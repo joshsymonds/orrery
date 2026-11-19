@@ -59,7 +59,7 @@ func (EpicReviewers) Start(
 	gate := rev.Gate()
 	prompt := epicStageReviewPrompt(epic, base, revision)
 	if name == reviewers.TestParsimony {
-		prompt += "\n" + strings.Join(reviewers.TestCost(checkOutputs(doneGates)...), "\n")
+		prompt += "\n" + strings.Join(reviewers.TestCost(nil, checkOutputs(doneGates)...), "\n")
 	}
 	if rev.Agent != "" && rev.Prompt != "" {
 		prompt = rev.Prompt + "\n\n" + prompt
