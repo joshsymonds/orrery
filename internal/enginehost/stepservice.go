@@ -133,6 +133,30 @@ func (s *stepService) ReadStepResult(
 	return connect.NewResponse(resp), nil
 }
 
+// ReadStepCheck answers one check of a step's latest round, or of the round the request names: its detail, and a slice of
+// its kept output.
+func (s *stepService) ReadStepCheck(
+	ctx context.Context,
+	req *connect.Request[v1.ReadStepCheckRequest],
+) (*connect.Response[v1.ReadStepCheckResponse], error) {
+	if err := s.ready(); err != nil {
+		return nil, err
+	}
+	row, err := s.steps.Status(ctx, req.Msg.GetId())
+	if err != nil {
+		return nil, stepCommandError(err)
+	}
+	var logs keptGateLogs
+	if kept, ok := s.steps.(keptGateLogs); ok {
+		logs = kept
+	}
+	resp, err := readStepCheck(row, req.Msg, logs)
+	if err != nil {
+		return nil, stepCommandError(err)
+	}
+	return connect.NewResponse(resp), nil
+}
+
 // ListSteps answers the listings of the labeled steps the request narrows to, each with no result. A request for the
 // running steps reads only those, and the count of each epic's ended steps.
 func (s *stepService) ListSteps(
@@ -313,7 +337,8 @@ func stepCommandError(err error) error {
 		code = connect.CodeFailedPrecondition
 	case errors.Is(err, ErrEmptyPrompt), errors.Is(err, ErrBadSchema), errors.Is(err, ErrBadAgent),
 		errors.Is(err, ErrBadDir), errors.Is(err, ErrBadOwned), errors.Is(err, ErrBadGate),
-		errors.Is(err, ErrBadResultRead), errors.Is(err, ErrNotGit), errors.Is(err, ErrMainWorktree),
+		errors.Is(err, ErrBadResultRead), errors.Is(err, ErrBadCheckRead), errors.Is(err, ErrNotGit),
+		errors.Is(err, ErrMainWorktree),
 		errors.Is(err, agents.ErrUnresolved):
 		code = connect.CodeInvalidArgument
 	}
