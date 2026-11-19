@@ -198,11 +198,12 @@ const plainShellChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ012
 // ReviewPrompt renders the prompt of reviewer's review gate step for task T<seq> of epic: the task, the lines naming
 // its spec version when it is past version 1 (taskspec.Lines), its files, its test changes, the gate-needed changes its
 // implementer declared under the heading that says when each is in scope, its Requirements, and the range the change
-// under review spans from base to revision. The test_parsimony reviewer's prompt ends with the Test
-// cost section (reviewers.TestCost) of gate, the gate check the implementer's commit passed, which is the zero check
-// when the task has none.
+// under review spans from base to revision. The floor reviewer's prompt ends the change with the notes the task's build
+// holds and the guard's facts of the commit, facts, when they have any. The test_parsimony reviewer's prompt ends with
+// the Test cost section (reviewers.TestCost) of gate, the gate check the implementer's commit passed, which is the zero
+// check when the task has none.
 func ReviewPrompt(
-	epic store.EpicRow, task store.EpicTask, reviewer, base, revision string, gate store.StepCheck,
+	epic store.EpicRow, task store.EpicTask, reviewer, base, revision string, gate store.StepCheck, facts ...string,
 ) string {
 	change := fmt.Sprintf(
 		"The change under review is %s..%s; this worktree is checked out at %s. Inspect it with `git diff %s %s`.",
@@ -227,10 +228,36 @@ func ReviewPrompt(
 		reviewEvidenceLines(task),
 		[]string{change},
 	)
+	if reviewer == reviewFloor {
+		lines = append(lines, floorSections(task.Notes, facts)...)
+	}
 	if reviewer == reviewers.TestParsimony {
 		lines = append(lines, reviewers.TestCost(gate.Stdout, gate.Stderr)...)
 	}
 	return strings.Join(lines, "\n")
+}
+
+// The headings of the floor reviewer's prompt's notes and guard facts.
+const (
+	floorNotesHeading = "Notes the task's build recorded. Each is an outcome that did not gate the build, such as a red " +
+		"run whose conclusion held at the base or a reproduction that passed; weigh it as evidence about the tests:"
+	floorFactsHeading = "Guard facts of the commit. Each is a change to a guarded test file that the guard does not " +
+		"refuse; judge each as the mechanical floor asks:"
+)
+
+// floorSections returns the floor reviewer's prompt's sections of the notes the task's build holds and the guard's
+// facts of the commit, each under its heading and only when it has items.
+func floorSections(notes, facts []string) []string {
+	var lines []string
+	if len(notes) > 0 {
+		lines = append(lines, floorNotesHeading)
+		lines = append(lines, bullets(notes)...)
+	}
+	if len(facts) > 0 {
+		lines = append(lines, floorFactsHeading)
+		lines = append(lines, bullets(facts)...)
+	}
+	return lines
 }
 
 // GateChangeItems returns each declared gate-needed change as `<path>: <reason>`, in order.

@@ -7,9 +7,10 @@ import (
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
-// AddTaskReview stores review, with its findings as given, for task seq of epic and stores to as the task's build, in
-// one write, when the stored build is from. A task that is not open, or whose stored build is not from, is ErrTaskMoved
-// and writes nothing. A verdict other than holds or fails is refused by the store and writes nothing.
+// AddTaskReview stores review, with its reason and findings as given, for task seq of epic and stores to as the task's
+// build, in one write, when the stored build is from. A task that is not open, or whose stored build is not from, is
+// ErrTaskMoved and writes nothing. A verdict other than holds, fails or undetermined is refused by the store and writes
+// nothing.
 func (s *Store) AddTaskReview(
 	ctx context.Context,
 	epic string,
@@ -26,6 +27,11 @@ func (s *Store) AddTaskReview(
 			Gate: review.Gate, Step: review.Step, Verdict: review.Verdict,
 		}); err != nil {
 			return fmt.Errorf("insert review %d of task %d of epic %s: %w", review.Position, seq, epic, err)
+		}
+		if err := queries.SetEpicTaskReviewReason(ctx, sqlcgen.SetEpicTaskReviewReasonParams{
+			Reason: review.Reason, Epic: epic, Task: seq, Attempt: review.Attempt, Position: review.Position,
+		}); err != nil {
+			return fmt.Errorf("set reason of review %d of task %d of epic %s: %w", review.Position, seq, epic, err)
 		}
 		for _, finding := range review.Findings {
 			if err := queries.InsertEpicTaskFinding(ctx, sqlcgen.InsertEpicTaskFindingParams{
