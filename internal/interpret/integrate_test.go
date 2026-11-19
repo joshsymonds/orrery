@@ -485,9 +485,10 @@ func TestIntegrateOverlapLeavesTaskOutAndTellsThePlanner(t *testing.T) {
 }
 
 // TestBuiltInEpicReachesBuiltThenWaitsAtReview: a database epic pinned to the built-in epic, with one Requirement naming
-// an evidence item, runs red at base first: its capture is judged not met, so red passes and the plan starts. The one
-// task is planned, built and accepted, and its batch integrates green, so the plan ends built and review starts. Review
-// waits: after further passes it is still running, the epic is not parked, and no node after it has started.
+// an evidence item, runs red at base first: its capture is judged not met, so red passes and its cost check at base
+// ends, and then the plan starts. The one task is planned, built and accepted, and its batch integrates green, so the
+// plan ends built and review starts. Review waits: after further passes it is still running, the epic is not parked,
+// and no node after it has started.
 func TestBuiltInEpicReachesBuiltThenWaitsAtReview(t *testing.T) {
 	t.Parallel()
 	w := newIntegrateWorld(t, pinnedTo(builtinPin(t)), viaRunnerPass())
@@ -505,8 +506,10 @@ func TestBuiltInEpicReachesBuiltThenWaitsAtReview(t *testing.T) {
 	if !reflect.DeepEqual(w.fakes.evidence.calls, wantEvidence) {
 		t.Fatalf("evidence runs = %+v, want %+v", w.fakes.evidence.calls, wantEvidence)
 	}
+	endCost(t, s)
+	w.pass()
 	if plan := runAt(t, s, "plan"); plan.State != store.NodeRunning {
-		t.Fatalf("plan = %+v, want running once red passed", plan)
+		t.Fatalf("plan = %+v, want running once red and the cost check passed", plan)
 	}
 
 	completeTurn(t, s, store.EpicPlan{

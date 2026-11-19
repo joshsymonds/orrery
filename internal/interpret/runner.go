@@ -205,7 +205,7 @@ func New(cfg Config) *Runner {
 		readLimit: syncReadLimit, fetchLimit: syncFetchLimit,
 		kinds: map[string]kinds.Kind{
 			kindPlan: kinds.Plan{}, kindBuild: kinds.Build{}, kindGate: kinds.Gate{}, kindCommand: kinds.Command{},
-			kindEvidence: kinds.Evidence{}, kindOwned: kinds.Owned{}, kindAgent: kinds.Agent{},
+			kindEvidence: kinds.Evidence{}, kindOwned: kinds.Owned{}, kindAgent: kinds.Agent{}, kindCost: kinds.Cost{},
 			kindIntegrate: kinds.Integrate{}, kindRelease: kinds.Release{}, kindSync: kinds.Sync{},
 		},
 	}

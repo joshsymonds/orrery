@@ -14,6 +14,9 @@ nodes:
   - id: red
     kind: evidence
     at: base
+  - id: cost
+    kind: cost
+    at: base
   - id: plan
     kind: plan
     body:
@@ -44,7 +47,7 @@ nodes:
     kind: release
 `
 
-const epicDigest = "635c8150d032f47b09ad509c244e39db5d3c098f1dd18b379cc1eb3cb4c6b7ba"
+const epicDigest = "ec649e4f4618ccbe17fb357a46b1a0ca957a9957db6f2bcc92a62772629b3864"
 
 // repoPath is the repository path Load reads a workflow name from.
 func repoPath(name string) string {
@@ -124,6 +127,7 @@ func TestLoadBuiltInEpic(t *testing.T) {
 	}
 	want := []Node{
 		{ID: "red", Kind: "evidence", Settings: &Settings{At: "base"}},
+		{ID: "cost", Kind: "cost", Settings: &Settings{At: "base"}},
 		{ID: "plan", Kind: "plan", Body: []Node{{ID: "build", Kind: "build"}, {ID: "integrate", Kind: "integrate"}}},
 		{ID: "review", Kind: "review"},
 		{
@@ -144,6 +148,21 @@ func TestLoadBuiltInEpic(t *testing.T) {
 			"and release", got.Workflow.Nodes)
 	}
 	checkPin(t, got, "built-in epic")
+}
+
+func TestEpicWorkflowMeasuresCostAfterRed(t *testing.T) {
+	t.Parallel()
+	got, err := Load("epic", repo(nil))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(got.Workflow.Nodes) < 2 {
+		t.Fatalf("nodes = %+v, want red followed by cost at the top level", got.Workflow.Nodes)
+	}
+	cost := got.Workflow.Nodes[1]
+	if cost.ID != "cost" || cost.Kind != "cost" || cost.Settings == nil || cost.Settings.At != "base" {
+		t.Fatalf("second node = %+v, want cost of kind cost at base", cost)
+	}
 }
 
 func TestLoadRepositoryFileReplacesBuiltIn(t *testing.T) {
@@ -178,6 +197,7 @@ func TestLoadExpandsIncludesInPlace(t *testing.T) {
 		"  - id: first", "    kind: plan", "    body:", "      - id: one", "        kind: build",
 		"  - id: second", "    kind: plan", "    body:", "      - id: two", "        kind: build",
 		"  - id: red", "    kind: evidence", "    at: base",
+		"  - id: cost", "    kind: cost", "    at: base",
 		"  - id: plan", "    kind: plan", "    body:", "      - id: build", "        kind: build",
 		"      - id: integrate", "        kind: integrate",
 		"  - id: review", "    kind: review",

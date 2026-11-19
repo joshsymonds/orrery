@@ -82,6 +82,7 @@ const (
 	kindBuild     = "build"
 	kindIntegrate = "integrate"
 	kindGate      = "gate"
+	kindCost      = "cost"
 	kindEvidence  = "evidence"
 	kindOwned     = "owned"
 	kindCommand   = "command"
@@ -154,11 +155,12 @@ type settingsReader func(here site, pairs []pair) (*Settings, error)
 // kinds is the table of registered kinds. A plan sits at the top level and in a loop body, holds a build and an
 // integrate and reports complete. A build sits only in a plan body and takes no settings and reports no outcome. An
 // integrate sits only in a plan body, takes no settings and no body, and reports passed or failed. A check kind sits
-// anywhere, takes the settings its reader reads and reports passed or failed. The epic kinds take no settings and no
-// body: a review, a conclude and a release sit at the top level, and a closure sits in a loop body. A review and a
-// conclude report passed, and a closure and a release report passed or failed. The interpreter always registers the
-// release kind, and registers the review, closure and conclude kinds when it has reviewers and an ending; without them
-// a node of one of those waits.
+// anywhere, takes the settings its reader reads and reports passed or failed. A cost sits anywhere, takes the setting
+// its reader reads and reports passed only, since it measures the base and never judges it. The epic kinds take no
+// settings and no body: a review, a conclude and a release sit at the top level, and a closure sits in a loop body. A
+// review and a conclude report passed, and a closure and a release report passed or failed. The interpreter always
+// registers the release kind, and registers the review, closure and conclude kinds when it has reviewers and an ending;
+// without them a node of one of those waits.
 func kinds() map[string]kindSpec {
 	checkOutcomes := []string{outcomePassed, outcomeFailed}
 	passed := []string{outcomePassed}
@@ -172,6 +174,7 @@ func kinds() map[string]kindSpec {
 		kindEvidence: {
 			sits: anywhere(), outcomes: checkOutcomes, keys: []string{keyAt}, read: readEvidenceSettings,
 		},
+		kindCost: {sits: anywhere(), outcomes: passed, keys: []string{keyAt}, read: readEvidenceSettings},
 		kindOwned: {
 			sits: anywhere(), outcomes: checkOutcomes, keys: []string{keyPaths}, read: readOwnedSettings,
 		},
