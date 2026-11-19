@@ -126,7 +126,7 @@ func runnerSeams() []runnerSeam {
 func runnerReviewRunner(s Store, reviewers Reviewers, ending Ending) *Runner {
 	return New(Config{
 		Store: s, Planner: &fakePlanner{}, Builder: &fakeBuilder{}, Reviewers: reviewers, Ending: ending,
-		Tick: time.Hour, Now: runClock,
+		Now: runClock,
 	})
 }
 

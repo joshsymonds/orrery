@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
@@ -133,12 +134,13 @@ type Reviewers interface {
 	) (enginehost.StepStart, error)
 }
 
-// Config configures a Runner. A Tick that is not positive means five seconds, a nil Now means time.Now and a nil Getenv
-// means os.Getenv. A nil Logger discards. Checks, Evidence and Steps carry out the work of check node runs, so a Runner
-// that runs an epic with such nodes needs each of them. Reviewers and Ending carry the end-of-epic review: with both set,
-// its review and closure kinds run, and without both an epic waits at its review node. Ending also ends the epics whose
+// Config configures a Runner. A nil Now means time.Now, a nil NewTimer means time.NewTimer and a nil Getenv means
+// os.Getenv. A nil Logger discards. Checks, Evidence and Steps carry out the work of check node runs, so a Runner that
+// runs an epic with such nodes needs each of them. Reviewers and Ending carry the end-of-epic review: with both set, its
+// review and closure kinds run, and without both an epic waits at its review node. Ending also ends the epics whose
 // release is decided, so a Runner that runs a release needs it. StateDir is the state directory release steps'
-// worktrees live under, so a Runner that runs a release step needs it.
+// worktrees live under, so a Runner that runs a release step needs it. NewTimer arms the one timer a Runner keeps for
+// the origin-read deadlines, which Run waits on.
 type Config struct {
 	Store     Store
 	Planner   Planner
@@ -150,12 +152,12 @@ type Config struct {
 	Ending    Ending
 	StateDir  string
 	Getenv    func(string) string
-	Tick      time.Duration
-	// Ticks is a test seam: when set, Run passes at start and then once at each value it receives, in place of a ticker
-	// every Tick. Production leaves it nil.
-	Ticks  <-chan time.Time
-	Now    func() time.Time
-	Logger *slog.Logger
+	// Ticks is a test seam: when set, Run passes at start and then once at each value it receives, and wakes and
+	// deadlines pass nothing. Production leaves it nil.
+	Ticks    <-chan time.Time
+	Now      func() time.Time
+	NewTimer func(d time.Duration) (<-chan time.Time, func() bool)
+	Logger   *slog.Logger
 	// Passed is a test seam: when set, Run calls it after each pass. Production leaves it nil.
 	Passed func()
 }
@@ -164,6 +166,10 @@ type Config struct {
 // hands build runs to the builder and passes the planner for the epics whose plan run is running. readLimit bounds each
 // git ls-remote a sync runs against origin, syncReadLimit unless a test sets it, and fetchLimit a sync's fetch of
 // origin's main, syncFetchLimit unless a test sets it.
+//
+// The fields from signal down are the wakes Run passes on: mu guards them, and Wake, which any goroutine may call, sets
+// them under mu only. signal is a one-slot channel Wake fills, woken the epics to pass next, waiters the epics that
+// waited on each holder of a release slot, and deadlines the moment each epic's origin read goes stale.
 type Runner struct {
 	store      Store
 	planner    Planner
@@ -175,18 +181,21 @@ type Runner struct {
 	ending     Ending
 	stateDir   string
 	getenv     func(string) string
-	tick       time.Duration
 	ticks      <-chan time.Time
 	now        func() time.Time
+	newTimer   func(d time.Duration) (<-chan time.Time, func() bool)
 	logger     *slog.Logger
 	passed     func()
 	kinds      map[string]kinds.Kind
 	readLimit  time.Duration
 	fetchLimit time.Duration
-}
 
-// defaultTick is how often a Runner passes when its Config names no positive tick.
-const defaultTick = 5 * time.Second
+	mu        sync.Mutex
+	signal    chan struct{}
+	woken     map[string]struct{}
+	waiters   map[string]map[string]struct{}
+	deadlines map[string]time.Time
+}
 
 // maxSteps is how many structural actions one pass carries out for an epic before the next pass continues from the
 // rows the store then holds.
@@ -201,24 +210,28 @@ func New(cfg Config) *Runner {
 	runner := &Runner{
 		store: cfg.Store, planner: cfg.Planner, builder: cfg.Builder, checks: cfg.Checks, evidence: cfg.Evidence,
 		steps: cfg.Steps, reviewers: cfg.Reviewers, ending: cfg.Ending, stateDir: cfg.StateDir, getenv: cfg.Getenv,
-		tick: cfg.Tick, now: cfg.Now, logger: cfg.Logger, ticks: cfg.Ticks, passed: cfg.Passed,
+		now: cfg.Now, newTimer: cfg.NewTimer, logger: cfg.Logger, ticks: cfg.Ticks, passed: cfg.Passed,
 		readLimit: syncReadLimit, fetchLimit: syncFetchLimit,
 		kinds: map[string]kinds.Kind{
 			kindPlan: kinds.Plan{}, kindBuild: kinds.Build{}, kindGate: kinds.Gate{}, kindCommand: kinds.Command{},
 			kindEvidence: kinds.Evidence{}, kindOwned: kinds.Owned{}, kindAgent: kinds.Agent{},
 			kindIntegrate: kinds.Integrate{}, kindRelease: kinds.Release{}, kindSync: kinds.Sync{},
 		},
+		signal:    make(chan struct{}, 1),
+		woken:     make(map[string]struct{}),
+		waiters:   make(map[string]map[string]struct{}),
+		deadlines: make(map[string]time.Time),
 	}
 	if cfg.Reviewers != nil && cfg.Ending != nil {
 		runner.kinds[reviewNodeKind] = kinds.Review{}
 		runner.kinds[closureNodeKind] = kinds.Closure{}
 		runner.kinds[concludeNodeKind] = kinds.Conclude{}
 	}
-	if runner.tick <= 0 {
-		runner.tick = defaultTick
-	}
 	if runner.now == nil {
 		runner.now = time.Now
+	}
+	if runner.newTimer == nil {
+		runner.newTimer = stdTimer
 	}
 	if runner.getenv == nil {
 		runner.getenv = os.Getenv
@@ -229,42 +242,112 @@ func New(cfg Config) *Runner {
 	return runner
 }
 
-// Run recovers the planner's turns a previous orreryd left running, then passes at once, then once per tick, until ctx
-// ends. It then waits for the planner's turns and returns. With Config.Ticks set, the ticks are the values it receives,
-// and Config.Passed is called after each pass.
+// Run recovers the planner's turns a previous orreryd left running, then passes every open epic at once. With
+// Config.Ticks set, it then passes every open epic once per value it receives. Without it, it passes the epics a Wake
+// named since its last pass, each once in sorted order, and the epics whose origin-read deadline has come, and nothing
+// on a clock of its own, until ctx ends. Config.Passed is called after each pass. Run then waits for the planner's turns
+// and returns.
 func (r *Runner) Run(ctx context.Context) {
-	ticks := r.ticks
-	if ticks == nil {
-		ticker := time.NewTicker(r.tick)
-		defer ticker.Stop()
-		ticks = ticker.C
-	}
 	r.planner.Recover(ctx)
+	// The pass below reads every open epic, so a wake that came before it is covered by it.
+	r.takeWoken()
+	r.Pass(ctx)
+	r.passDone()
+	if r.ticks != nil {
+		r.runTicks(ctx)
+		return
+	}
+	r.runWakes(ctx)
+}
+
+// runTicks passes every open epic once per value Config.Ticks sends, until ctx ends, and then waits for the planner's
+// turns.
+func (r *Runner) runTicks(ctx context.Context) {
 	for {
-		r.Pass(ctx)
-		if r.passed != nil {
-			r.passed()
-		}
 		select {
 		case <-ctx.Done():
 			r.planner.WaitTurns()
 			return
-		case <-ticks:
+		case <-r.ticks:
 		}
+		r.Pass(ctx)
+		r.passDone()
+	}
+}
+
+// runWakes passes the epics woken since its last pass, each once, until ctx ends, and then waits for the planner's turns.
+// It waits on a wake, on the deadline timer and on ctx. A wake that arrives during a pass is passed after it, since the
+// signal it leaves is taken on the next turn of the loop. A pass never starts once ctx has ended.
+func (r *Runner) runWakes(ctx context.Context) {
+	timer := &deadlineTimer{}
+	r.armDeadline(timer)
+	for {
+		select {
+		case <-ctx.Done():
+		case <-r.signal:
+		case <-timer.fire:
+			timer.fired()
+			r.wakeDue(r.now())
+		}
+		if ctx.Err() != nil {
+			r.planner.WaitTurns()
+			return
+		}
+		if woken := r.takeWoken(); len(woken) > 0 {
+			if open := r.openWoken(ctx, woken); len(open) > 0 {
+				r.passEpics(ctx, open)
+				r.passDone()
+			}
+		}
+		r.armDeadline(timer)
+	}
+}
+
+// passDone calls Config.Passed, when it is set, after a pass.
+func (r *Runner) passDone() {
+	if r.passed != nil {
+		r.passed()
 	}
 }
 
 // Pass drives each open evidence amendment once (see passAmendments), runs each epic's flow once, and then passes the
-// planner once for the epics whose plan run was given its turn. An epic whose flow does not load is parked once, if it
-// is not parked already. The node runs of every open epic are read first, in one query, and an epic at rest (Rests) is
-// not read again: an ended epic whose workflow has run to its end, or waits on its owner, has nothing to decide. When
-// that read fails, every epic's flow is run.
+// planner once for the epics whose plan run was given its turn. Every open epic is passed. An epic whose flow does not
+// load is parked once, if it is not parked already. The node runs of every open epic are read first, in one query, and
+// an epic at rest (Rests) is not read again: an ended epic whose workflow has run to its end, or waits on its owner, has
+// nothing to decide. When that read fails, every epic's flow is run.
 func (r *Runner) Pass(ctx context.Context) {
 	epics, err := r.store.Epics(ctx)
 	if err != nil {
 		r.logger.ErrorContext(ctx, "list epics", "err", err)
 		return
 	}
+	r.passEpics(ctx, epics)
+}
+
+// openWoken returns the epics woken names that are open, in the order woken gives them. An id that names no epic, or a
+// closed one, is skipped, and a list that fails is logged and returns none.
+func (r *Runner) openWoken(ctx context.Context, woken []string) []store.EpicRow {
+	epics, err := r.store.Epics(ctx)
+	if err != nil {
+		r.logger.ErrorContext(ctx, "list epics", "err", err)
+		return nil
+	}
+	byID := make(map[string]store.EpicRow, len(epics))
+	for _, epic := range epics {
+		byID[epic.ID] = epic
+	}
+	open := make([]store.EpicRow, 0, len(woken))
+	for _, id := range woken {
+		if epic, ok := byID[id]; ok && !store.IsClosedPhase(epic.Phase) {
+			open = append(open, epic)
+		}
+	}
+	return open
+}
+
+// passEpics runs one pass over epics: their amendments, then their flows, then the planner for those given a plan turn
+// or planner-parked. Pass passes every listed epic, and a wake passes the open epics it names.
+func (r *Runner) passEpics(ctx context.Context, epics []store.EpicRow) {
 	r.passAmendments(ctx, epics)
 	states, statesErr := r.store.OpenNodeRunStates(ctx)
 	if statesErr != nil {
@@ -333,7 +416,8 @@ func (r *Runner) passFlow(ctx context.Context, epic store.EpicRow, flow workflow
 }
 
 // decide reads the rows of epic in one read. It returns the epic as read, which the actions are carried out for, and
-// the actions flow asks for on the rows, decided at the runner's clock.
+// the actions flow asks for on the rows, decided at the runner's clock. The read also records the wakes it leaves for
+// epic (noteRead).
 func (r *Runner) decide(ctx context.Context, epic string, flow workflow.Workflow) (store.EpicRow, []Action, error) {
 	read, err := r.store.EpicFlow(ctx, epic)
 	if err != nil {
@@ -344,6 +428,7 @@ func (r *Runner) decide(ctx context.Context, epic string, flow workflow.Workflow
 	if r.reviewers != nil {
 		rows.Reviewers = r.reviewers.Epic(read.Epic)
 	}
+	r.noteRead(epic, read, rows.Now)
 	return read.Epic, Decide(flow, rows, r.kinds), nil
 }
 
