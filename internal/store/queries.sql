@@ -360,6 +360,10 @@ ORDER BY steps.ended, steps.id;
 -- name: ListRunningCallerSteps :many
 SELECT * FROM steps WHERE end_value = '' AND caller = ? ORDER BY started, id;
 
+-- name: ListStepFacts :many
+SELECT id, loop_round, started, ended, lines_counted, lines_files, lines_added, lines_removed
+FROM steps WHERE id IN (sqlc.slice(ids)) ORDER BY id;
+
 -- name: ListCallerStepListings :many
 SELECT * FROM step_listings
 WHERE step_listings.caller = sqlc.arg(caller)
@@ -414,6 +418,9 @@ UPDATE steps SET verdicts = ?, doing = ? WHERE id = ?;
 
 -- name: UpdateStepEnd :exec
 UPDATE steps SET end_value = ?, status = ?, reason = ?, ended = ? WHERE id = ?;
+
+-- name: UpdateStepLines :exec
+UPDATE steps SET lines_counted = ?, lines_files = ?, lines_added = ?, lines_removed = ? WHERE id = ?;
 
 -- name: InsertGrant :exec
 INSERT INTO grants (id, project, client_pid, client_start, pools, command, granted, holder)

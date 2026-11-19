@@ -809,6 +809,10 @@ type Step struct {
 	Agents          string
 	Unowned         int64
 	Caller          string
+	LinesCounted    int64
+	LinesFiles      int64
+	LinesAdded      int64
+	LinesRemoved    int64
 }
 
 type StepListing struct {

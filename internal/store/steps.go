@@ -95,12 +95,23 @@ type StepWatch struct {
 	Doing   string
 }
 
+// StepLines is a step's line counts: whether a done return of an owned writing step was counted, and that count's
+// files, added and removed lines. An uncounted step holds zeros.
+type StepLines struct {
+	Counted bool
+	Files   int64
+	Added   int64
+	Removed int64
+}
+
 // StepReturn sets a step's latest result and appends its checks to the ones already recorded. It also sets its loop
-// seq to the newest event seq of its session and clears its gate, in the same write.
+// seq to the newest event seq of its session and clears its gate, in the same write. A non-nil Lines sets the step's
+// line counts in that write too, and a nil Lines leaves them as they are. An uncounted Lines stores zeros.
 type StepReturn struct {
 	ID     string
 	Result string
 	Checks []StepCheck
+	Lines  *StepLines
 }
 
 // StepEnd sets a step's end, status and reason, and its ended time now.
@@ -167,6 +178,7 @@ type StepBlock struct {
 // StepRow is a step row. Ended is zero while End is empty, LoopLimitResets is zero when the limit's reset is unknown,
 // LoopGateFrom is zero unless an agent gate step was resumed from a usage limit, and LoopStageFrom is zero when the
 // stage was stored with no start. Caller is the id of the sessions row that started the step, "" when none resolved.
+// Lines is the step's line counts, zero when no count was taken.
 type StepRow struct {
 	ID              string
 	Agent           string
@@ -217,6 +229,7 @@ type StepRow struct {
 	LoopStage       string
 	LoopStageFrom   time.Time
 	Caller          string
+	Lines           StepLines
 }
 
 func (op StepAdd) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now time.Time) error {
@@ -268,6 +281,19 @@ func (op StepReturn) applyEngine(ctx context.Context, queries *sqlcgen.Queries, 
 		Result: op.Result, Checks: string(encoded), ID: op.ID,
 	}); err != nil {
 		return fmt.Errorf("update return of step %s: %w", op.ID, err)
+	}
+	if op.Lines == nil {
+		return nil
+	}
+	lines := *op.Lines
+	if !lines.Counted {
+		lines = StepLines{}
+	}
+	if err = queries.UpdateStepLines(ctx, sqlcgen.UpdateStepLinesParams{
+		LinesCounted: boolInt(lines.Counted), LinesFiles: lines.Files, LinesAdded: lines.Added,
+		LinesRemoved: lines.Removed, ID: op.ID,
+	}); err != nil {
+		return fmt.Errorf("update lines of step %s: %w", op.ID, err)
 	}
 	return nil
 }
@@ -570,6 +596,9 @@ func toStepRow(row sqlcgen.Step) (StepRow, error) {
 		LoopStage:       row.LoopStage,
 		LoopStageFrom:   stageFrom,
 		Caller:          row.Caller,
+		Lines: StepLines{
+			Counted: row.LinesCounted != 0, Files: row.LinesFiles, Added: row.LinesAdded, Removed: row.LinesRemoved,
+		},
 	}, nil
 }
 
