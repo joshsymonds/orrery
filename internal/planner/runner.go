@@ -290,7 +290,11 @@ func (r *Runner) startStep(ctx context.Context, epic string, turn store.EpicTurn
 	if err != nil {
 		return "", fmt.Errorf("read advice follows: %w", err)
 	}
-	prompt, err := Prompt(row, turn.Seq, triggers, follows)
+	spent, err := spentLines(ctx, r.store, row, triggers)
+	if err != nil {
+		return "", fmt.Errorf("read the spent lines of turn %d of epic %s: %w", turn.Seq, epic, err)
+	}
+	prompt, err := Prompt(row, turn.Seq, triggers, follows, spent)
 	if err != nil {
 		return "", fmt.Errorf("render prompt of turn %d of epic %s: %w", turn.Seq, epic, err)
 	}
@@ -302,7 +306,7 @@ func (r *Runner) startStep(ctx context.Context, epic string, turn store.EpicTurn
 		Workspace:   row.Repository,
 		ReadOnly:    true,
 		Epic:        row.ID,
-		ReturnCheck: returnCheck(ctx, row, review, r.resolve),
+		ReturnCheck: returnCheck(ctx, row, review, r.resolve, spent),
 	})
 	if id != "" {
 		if setErr := r.store.SetTurnStep(ctx, epic, turn.Seq, id); setErr != nil {
@@ -656,12 +660,13 @@ func questionInputOf(question Question) store.EpicQuestionInput {
 // Any other return gets the refusals of Check, against the epic's Requirement ids, the files of its open tasks, and the
 // gates and judges that resolve answers for epic, then the refusals of Coverage against the epic's tasks, then those of
 // checkAmendKeeps against the epic's Requirements, then those of checkClosureTasks against the epic's phase, then those
-// of checkCloses against the epic's phase and the findings of review that the next closure round checks. When epic
-// holds a planner-class park, a return with no action and no question gets one more line from checkPark, which names
-// the park reason. An owner park is not checked, since the owner answers it. The gate resolves under ctx without its
-// cancellation, so the turn that started the step ending does not refuse its return.
+// of checkCloses against the epic's phase and the findings of review that the next closure round checks, then those of
+// checkSpentLines against spent, the lines of failed tasks the turn may not try again. When epic holds a planner-class
+// park, a return with no action and no question gets one more line from checkPark, which names the park reason. An
+// owner park is not checked, since the owner answers it. The gate resolves under ctx without its cancellation, so the
+// turn that started the step ending does not refuse its return.
 func returnCheck(
-	ctx context.Context, epic store.EpicRow, review store.Review, resolve Resolver,
+	ctx context.Context, epic store.EpicRow, review store.Review, resolve Resolver, spent []SpentLine,
 ) func(value json.RawMessage) []string {
 	requirements := make([]string, 0, len(epic.Requirements))
 	for _, requirement := range epic.Requirements {
@@ -689,6 +694,7 @@ func returnCheck(
 		refusals = append(refusals, checkAmendKeeps(ret, epic.Requirements)...)
 		refusals = append(refusals, checkClosureTasks(ret, epic.Phase)...)
 		refusals = append(refusals, checkCloses(ret, epic.Phase, open)...)
+		refusals = append(refusals, checkSpentLines(ret, spent, epic.Tasks)...)
 		return append(refusals, checkPark(ret, park)...)
 	}
 }

@@ -6,6 +6,8 @@ You are a read-only verifier. The prompt gives you one finding a review raised a
 
 Independently gather fresh evidence for the claim. Read the cited code, and trace the callers and invariants needed to establish or disprove it. Confirm only when the change fails that assertion; a true observation that fails no assertion is dropped.
 
+A change the prompt lists as a declared gate-needed change is in scope when the gate or evidence it names could not pass without it and it is no larger than that need. So a finding that such a change is work the task or the contract did not ask for is dropped when fresh evidence shows that need, and confirmed when it shows the change is not needed or is larger than the need. A change outside what was asked that the prompt does not list is judged as any other change.
+
 When the verify-by step needs something this worktree cannot supply, the result is undetermined.
 
 ## Results

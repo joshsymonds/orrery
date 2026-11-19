@@ -1370,7 +1370,7 @@ func (q *Queries) GetEpicSeen(ctx context.Context, epic string) (int64, error) {
 }
 
 const getEpicTask = `-- name: GetEpicTask :one
-SELECT epic, seq, turn, title, deliverable, status, gate, evidence, stage, base, attempt, rerun, no_verdict, held, step, red_run, green_run, revision, failure, review, refs, gate_pos, finding_pos, batch, guard, needs_files, decisions, after_tasks, question FROM epic_tasks WHERE epic = ? AND seq = ?
+SELECT epic, seq, turn, title, deliverable, status, gate, evidence, stage, base, attempt, rerun, no_verdict, held, step, red_run, green_run, revision, failure, review, refs, gate_pos, finding_pos, batch, guard, needs_files, decisions, after_tasks, question, gate_changes FROM epic_tasks WHERE epic = ? AND seq = ?
 `
 
 type GetEpicTaskParams struct {
@@ -1411,6 +1411,7 @@ func (q *Queries) GetEpicTask(ctx context.Context, arg GetEpicTaskParams) (EpicT
 		&i.Decisions,
 		&i.AfterTasks,
 		&i.Question,
+		&i.GateChanges,
 	)
 	return i, err
 }
@@ -5438,7 +5439,7 @@ func (q *Queries) ListEpicTaskVersions(ctx context.Context, epic string) ([]Epic
 }
 
 const listEpicTasks = `-- name: ListEpicTasks :many
-SELECT epic, seq, turn, title, deliverable, status, gate, evidence, stage, base, attempt, rerun, no_verdict, held, step, red_run, green_run, revision, failure, review, refs, gate_pos, finding_pos, batch, guard, needs_files, decisions, after_tasks, question FROM epic_tasks WHERE epic = ? ORDER BY seq
+SELECT epic, seq, turn, title, deliverable, status, gate, evidence, stage, base, attempt, rerun, no_verdict, held, step, red_run, green_run, revision, failure, review, refs, gate_pos, finding_pos, batch, guard, needs_files, decisions, after_tasks, question, gate_changes FROM epic_tasks WHERE epic = ? ORDER BY seq
 `
 
 func (q *Queries) ListEpicTasks(ctx context.Context, epic string) ([]EpicTask, error) {
@@ -5480,6 +5481,7 @@ func (q *Queries) ListEpicTasks(ctx context.Context, epic string) ([]EpicTask, e
 			&i.Decisions,
 			&i.AfterTasks,
 			&i.Question,
+			&i.GateChanges,
 		); err != nil {
 			return nil, err
 		}
@@ -8901,6 +8903,21 @@ func (q *Queries) SetEpicTaskFindingResult(ctx context.Context, arg SetEpicTaskF
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const setEpicTaskGateChanges = `-- name: SetEpicTaskGateChanges :exec
+UPDATE epic_tasks SET gate_changes = ?1 WHERE epic = ?2 AND seq = ?3
+`
+
+type SetEpicTaskGateChangesParams struct {
+	GateChanges string
+	Epic        string
+	Seq         int64
+}
+
+func (q *Queries) SetEpicTaskGateChanges(ctx context.Context, arg SetEpicTaskGateChangesParams) error {
+	_, err := q.db.ExecContext(ctx, setEpicTaskGateChanges, arg.GateChanges, arg.Epic, arg.Seq)
+	return err
 }
 
 const setEpicTaskNeedsFiles = `-- name: SetEpicTaskNeedsFiles :exec

@@ -425,6 +425,7 @@ type EpicTask struct {
 	Decisions   int64
 	AfterTasks  string
 	Question    int64
+	GateChanges string
 }
 
 type EpicTaskContribute struct {

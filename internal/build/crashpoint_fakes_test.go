@@ -610,6 +610,15 @@ func (s crashStore) SetTaskBuild(ctx context.Context, epic string, seq int64, fr
 	})
 }
 
+func (s crashStore) SetTaskBuildGateChanges(
+	ctx context.Context, epic string, seq int64, from, to store.TaskBuild, changes []store.GateChange,
+) error {
+	return s.w.act("SetTaskBuildGateChanges", func() error {
+		return wrapErr("set build declaring gate changes",
+			s.Store.SetTaskBuildGateChanges(ctx, epic, seq, from, to, changes))
+	})
+}
+
 func (s crashStore) FailTask(
 	ctx context.Context, epic string, seq int64, from store.TaskBuild, reason string, needsFiles []string, at time.Time,
 ) error {

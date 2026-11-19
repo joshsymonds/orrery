@@ -42,7 +42,7 @@ func TestCheckClosureEvidenceKind(t *testing.T) {
 				`"files":["internal/x/x_test.go"],"requirements":["R1"],"gate":"check",` +
 				`"evidence":{"kind":"closure","conclusion":"c"}}],"outline":"o","questions":[],"outcome":"work"}`
 			epic := store.EpicRow{Phase: "accepted", Requirements: []store.EpicRequirement{{ID: "R1"}}}
-			got := returnCheck(context.Background(), epic, store.Review{}, testResolver{})(json.RawMessage(plan))
+			got := returnCheck(context.Background(), epic, store.Review{}, testResolver{}, nil)(json.RawMessage(plan))
 			if want := []string{line}; !reflect.DeepEqual(got, want) {
 				t.Errorf("returnCheck() = %q, want %q", got, want)
 			}
@@ -67,7 +67,7 @@ func TestCheckClosureEvidenceKind(t *testing.T) {
 				`"requirements":["R1"],"gate":"check","evidence":{"kind":"closure","conclusion":"c"}}],` +
 				`"outline":"o","questions":[],"outcome":"work"}`
 			epic := store.EpicRow{Phase: phaseCorrecting, Requirements: []store.EpicRequirement{{ID: "R1"}}}
-			got := returnCheck(context.Background(), epic, store.Review{}, testResolver{})(json.RawMessage(plan))
+			got := returnCheck(context.Background(), epic, store.Review{}, testResolver{}, nil)(json.RawMessage(plan))
 			if want := []string{first, third}; !reflect.DeepEqual(got, want) {
 				t.Errorf("returnCheck() = %q, want %q", got, want)
 			}
