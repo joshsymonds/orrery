@@ -23,15 +23,15 @@ func ladderClimbBefore(f *passFixture, attempt int64) store.TaskBuild {
 	return build
 }
 
-// ladderClimbCheck fails the test unless task 1 of f's epic, read after a pass that climbed it off rung left, has the
-// status wantStatus and holds the rung after left: its build is on that rung, rung left ended failed with the task's
-// failure as its reason, and the rung after left was moved by movedBy.
-func ladderClimbCheck(f *passFixture, left int64, wantStatus, movedBy string) {
+// ladderClimbCheck fails the test unless task 1 of f's epic, read after a pass that climbed it off rung left, is open and
+// holds the rung after left: its build is on that rung, rung left ended failed with the task's failure as its reason,
+// and the rung after left was moved by movedBy.
+func ladderClimbCheck(f *passFixture, left int64, movedBy string) {
 	f.t.Helper()
 	task := f.task()
-	if task.Status != wantStatus || task.Build.Attempt != left+1 {
+	if task.Status != taskOpen || task.Build.Attempt != left+1 {
 		f.t.Errorf("task status %q attempt %d, want %q on rung %d",
-			task.Status, task.Build.Attempt, wantStatus, left+1)
+			task.Status, task.Build.Attempt, taskOpen, left+1)
 	}
 	var ended, moved bool
 	for _, rung := range task.Rungs {
@@ -212,7 +212,7 @@ func TestTaskLadderExecuteClimbs(t *testing.T) {
 		worktree := f.addTaskWorktree("implement")
 		ladderClimbBefore(f, 1)
 		ladderClimbExecute(f, Action{Kind: ActFail, Reason: "returned blocked: the gate is broken"})
-		ladderClimbCheck(f, 1, taskOpen, store.MovedByUnit)
+		ladderClimbCheck(f, 1, store.MovedByUnit)
 		ladderClimbKeepsWorktrees(f, worktree)
 	})
 }

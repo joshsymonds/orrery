@@ -210,7 +210,7 @@ func TestOrchestratePassFailKeepsTheLongerFailureAndRecordsTheDecision(t *testin
 	if task.Build.Failure != failure[:store.TaskDecisionMax] {
 		t.Fatalf("task failure of %d bytes, want the first %d bytes", len(task.Build.Failure), store.TaskDecisionMax)
 	}
-	ladderClimbCheck(f, store.RungOf(before), taskOpen, store.MovedByFailDecision)
+	ladderClimbCheck(f, store.RungOf(before), store.MovedByFailDecision)
 	if want := []string{"internal/other/a.go"}; !reflect.DeepEqual(task.NeedsFiles, want) {
 		t.Errorf("NeedsFiles = %v, want %v", task.NeedsFiles, want)
 	}
@@ -270,7 +270,7 @@ func TestOrchestratePassBlockedReturnClimbsAsBefore(t *testing.T) {
 	if task := f.task(); task.Build.Failure != "returned blocked: the spec does not say which field" {
 		t.Fatalf("task failure %q, want the blocked return as before", task.Build.Failure)
 	}
-	ladderClimbCheck(f, store.RungOf(before), taskOpen, store.MovedByUnit)
+	ladderClimbCheck(f, store.RungOf(before), store.MovedByUnit)
 }
 
 // TestOrchestratePassBoundsDecisionsAtThree: a task whose implementer keeps returning is decided three times, and its
@@ -295,7 +295,7 @@ func TestOrchestratePassBoundsDecisionsAtThree(t *testing.T) {
 		t.Fatalf("task failure %q decisions %d, want the blocked return kept after three decisions",
 			task.Build.Failure, task.Build.Decisions)
 	}
-	ladderClimbCheck(f, store.RungOf(before), taskOpen, store.MovedByUnit)
+	ladderClimbCheck(f, store.RungOf(before), store.MovedByUnit)
 	if n := f.startCount(orchID(3, 3)); n != 0 {
 		t.Errorf("a fourth orchestrator started %d times, want none", n)
 	}
@@ -392,7 +392,7 @@ func TestOrchestratePassGrantRefusedByTheStoreSettlesAsBefore(t *testing.T) {
 	if task := f.task(); task.Build.Failure != want {
 		t.Fatalf("task failure %q, want %q", task.Build.Failure, want)
 	}
-	ladderClimbCheck(f, store.RungOf(before), taskOpen, store.MovedByUnit)
+	ladderClimbCheck(f, store.RungOf(before), store.MovedByUnit)
 }
 
 // integrateTask accepts open task seq of the fixture's epic and ends a passed integrate batch that composed it as
@@ -525,5 +525,5 @@ func TestOrchestratePassWaitingTaskWhoseMoveFailsClimbsWithTheReason(t *testing.
 	if !strings.HasPrefix(task.Build.Failure, "T1 could not move onto the new base "+newBase+": ") {
 		t.Fatalf("task failure %q, want the move's failure naming the base", task.Build.Failure)
 	}
-	ladderClimbCheck(f, store.RungOf(before), taskOpen, store.MovedByUnit)
+	ladderClimbCheck(f, store.RungOf(before), store.MovedByUnit)
 }

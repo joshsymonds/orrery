@@ -176,7 +176,7 @@ func TestGuardRefusalOnSecondAttemptClimbsTask(t *testing.T) {
 	if task := f.task(); task.Build.Failure != guardRefusal {
 		t.Errorf("task failure %q, want %q", task.Build.Failure, guardRefusal)
 	}
-	ladderClimbCheck(f, store.RungOf(before), taskOpen, store.MovedByUnit)
+	ladderClimbCheck(f, store.RungOf(before), store.MovedByUnit)
 	if got := guardGreenRuns(f); got != 0 {
 		t.Errorf("green runs started = %d, want none", got)
 	}

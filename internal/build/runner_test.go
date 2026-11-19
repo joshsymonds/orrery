@@ -564,7 +564,7 @@ func TestPassRedHoldingAtBaseClimbsTask(t *testing.T) {
 	if task := f.task(); task.Build.Failure != reason {
 		t.Errorf("task failure %q, want %q", task.Build.Failure, reason)
 	}
-	ladderClimbCheck(f, store.RungOf(before), taskOpen, store.MovedByUnit)
+	ladderClimbCheck(f, store.RungOf(before), store.MovedByUnit)
 	if got := f.pendingTriggers(); len(got) != 0 {
 		t.Errorf("pending triggers = %v, want none: a climb to rung 2 adds no trigger", got)
 	}
@@ -928,12 +928,13 @@ func TestPassSecondAttemptGreenNotMetClimbsTaskAndKeepsWorktrees(t *testing.T) {
 	f.setGreen(2, evidence.VerdictFails)
 	worktree := f.addTaskWorktree(passStep(StageImplement, 2, 0))
 	before := ladderClimbBefore(f, 2)
+	f.writeRoles("planner = \"claude-planner\"\n")
 	f.pass()
 	const failure = "green not met: exit 0, verdict fails"
 	if task := f.task(); task.Build.Failure != failure {
 		t.Errorf("task failure %q, want %q", task.Build.Failure, failure)
 	}
-	ladderClimbCheck(f, store.RungOf(before), taskOpen, store.MovedByUnit)
+	ladderClimbCheck(f, store.RungOf(before), store.MovedByUnit)
 	if got := f.pendingTriggers(); len(got) != 0 {
 		t.Errorf("pending triggers = %v, want none: a climb to the rescue rung adds no trigger", got)
 	}
@@ -1042,17 +1043,18 @@ func TestPassRoleErrorParksTaskHeldParked(t *testing.T) {
 }
 
 // TestPassRefusedRedStartClimbsTask: an evidence run the evidence refuses climbs a red unit with the refusal. The
-// refusal repeats on each rung the pass reaches, so the task climbs rung by rung within the pass and ends as a gap
-// on the gap rung, with the refusal as its failure.
+// refusal repeats on each rung the pass reaches, so the task climbs rung by rung within the pass to the rescue rung,
+// where the rescue starts, with the refusal as its failure.
 func TestPassRefusedRedStartClimbsTask(t *testing.T) {
 	t.Parallel()
 	f := newPassFixture(t)
 	f.evidence.err = fmt.Errorf("refused: %w", enginehost.ErrEvidenceRefused)
 	ladderClimbBefore(f, 0)
+	f.writeRoles("planner = \"claude-planner\"\n")
 	f.pass()
 	want := "red not captured: " + f.evidence.err.Error()
 	if task := f.task(); task.Build.Failure != want {
 		t.Errorf("task failure %q, want %q", task.Build.Failure, want)
 	}
-	ladderClimbCheck(f, store.LastRung, store.TaskGap, store.MovedByUnit)
+	ladderClimbCheck(f, 2, store.MovedByUnit)
 }

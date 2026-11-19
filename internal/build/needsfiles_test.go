@@ -222,7 +222,7 @@ func TestNeedsFilesPassStoresThePathsWithTheClimb(t *testing.T) {
 	if task.Build.Failure != want {
 		t.Errorf("task failure %q, want %q", task.Build.Failure, want)
 	}
-	ladderClimbCheck(f, store.RungOf(before), taskOpen, store.MovedByUnit)
+	ladderClimbCheck(f, store.RungOf(before), store.MovedByUnit)
 	if want := []string{"internal/other/a.go"}; !reflect.DeepEqual(task.NeedsFiles, want) {
 		t.Errorf("NeedsFiles = %v, want %v", task.NeedsFiles, want)
 	}
@@ -243,7 +243,7 @@ func TestNeedsFilesPassStoresNoPathsForABlockedReturn(t *testing.T) {
 	}
 	before := ladderClimbBefore(f, 1)
 	f.pass()
-	ladderClimbCheck(f, store.RungOf(before), taskOpen, store.MovedByUnit)
+	ladderClimbCheck(f, store.RungOf(before), store.MovedByUnit)
 	if task := f.task(); len(task.NeedsFiles) != 0 {
 		t.Errorf("NeedsFiles = %v, want none", task.NeedsFiles)
 	}

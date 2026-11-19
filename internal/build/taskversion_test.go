@@ -414,5 +414,5 @@ func TestTaskVersionRefusedDecisionKeepsOrrerydsText(t *testing.T) {
 	if !strings.Contains(task.Build.Failure, "orreryd refused the orchestrator's grant") {
 		t.Errorf("task failure %q, want orreryd's refusal", task.Build.Failure)
 	}
-	ladderClimbCheck(f, store.RungOf(before), taskOpen, store.MovedByUnit)
+	ladderClimbCheck(f, store.RungOf(before), store.MovedByUnit)
 }
