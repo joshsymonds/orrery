@@ -80,7 +80,7 @@ func decideGreen(view View) Action {
 		}
 		return Action{
 			Kind: ActStartRun, Phase: StageGreen, Revision: build.Revision,
-			ID: RunID(view.Epic, view.Task.Seq, StageGreen, build.Attempt, build.Rerun),
+			ID: RunID(unitScope(view.Epic, view.Task), view.Task.Seq, StageGreen, build.Attempt, build.Rerun),
 		}
 	}
 	if run.Ended.IsZero() {
@@ -128,7 +128,7 @@ func decideRepro(view View) (Action, bool) {
 	if repro == nil {
 		return Action{
 			Kind: ActRepro, Revision: build.Revision,
-			ID: RunID(view.Epic, view.Task.Seq, unitRepro, build.Attempt, build.Rerun),
+			ID: RunID(unitScope(view.Epic, view.Task), view.Task.Seq, unitRepro, build.Attempt, build.Rerun),
 		}, true
 	}
 	if repro.State != store.NodeEnded {
@@ -182,7 +182,15 @@ func decideReview(view View) Action {
 		}
 		return Action{
 			Kind: ActStartStep, Unit: StageReview,
-			ID: StepID(view.Epic, view.Task.Seq, StageReview, build.Attempt, build.Rerun, build.GatePos, 0),
+			ID: StepID(
+				unitScope(view.Epic, view.Task),
+				view.Task.Seq,
+				StageReview,
+				build.Attempt,
+				build.Rerun,
+				build.GatePos,
+				0,
+			),
 		}
 	}
 	switch step.End {
@@ -251,7 +259,7 @@ func decideVerify(view View) Action {
 			Kind: ActStartStep,
 			Unit: StageVerify,
 			ID: StepID(
-				view.Epic,
+				unitScope(view.Epic, view.Task),
 				view.Task.Seq,
 				StageVerify,
 				build.Attempt,

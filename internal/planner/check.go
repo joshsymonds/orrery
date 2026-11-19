@@ -275,7 +275,7 @@ const (
 func actionKinds() []string {
 	return []string{
 		store.ActionRetryNode, store.ActionRetryEpic, store.ActionFailTask, store.ActionResumeRelease,
-		store.ActionCloseEpic, store.ActionAmendEvidence, store.ActionChangeApproach,
+		store.ActionCloseEpic, store.ActionAmendEvidence, store.ActionChangeApproach, store.ActionSendBack,
 	}
 }
 
@@ -298,6 +298,8 @@ func actionFields(kind string) ([]string, bool) {
 		return []string{argRequirement, argItem}, true
 	case store.ActionChangeApproach:
 		return []string{argTask, argDeliverable, argItem, argFiles, argRemove}, true
+	case store.ActionSendBack:
+		return []string{argTask}, true
 	}
 	return nil, false
 }
@@ -333,8 +335,8 @@ func checkAction(i int, action EngineAction) []string {
 
 // checkNeededFields calls refuse for each field action's kind needs that is missing or wrong: a retry_node names a node,
 // a fail_task names a task above 0, a close_epic names a close of superseded or abandoned and, when superseded, a by,
-// and a change_approach names a task above 0 and a deliverable. An amend_evidence action's fields are checkAmendAction's,
-// and a change_approach action's item is checkApproachAction's.
+// a change_approach names a task above 0 and a deliverable, and a send_back names a task above 0. An amend_evidence
+// action's fields are checkAmendAction's, and a change_approach action's item is checkApproachAction's.
 func checkNeededFields(action EngineAction, refuse func(field, reason string)) {
 	switch action.Kind {
 	case store.ActionRetryNode:
@@ -358,6 +360,10 @@ func checkNeededFields(action EngineAction, refuse func(field, reason string)) {
 		}
 		if strings.TrimSpace(action.Deliverable) == "" {
 			refuse(argDeliverable, reasonEmpty)
+		}
+	case store.ActionSendBack:
+		if action.Task <= 0 {
+			refuse(argTask, reasonAboveZero)
 		}
 	}
 }

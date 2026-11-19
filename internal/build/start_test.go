@@ -187,7 +187,7 @@ func TestStartImplementerWorktreeIsDetachedAtBaseUnderTaskDir(t *testing.T) {
 	); err != nil {
 		t.Fatalf("startStep(implement) = %v, want nil", err)
 	}
-	want := ImplementWorktree(setup.stateDir, setup.epic.ID, task.Seq)
+	want := ImplementWorktree(setup.stateDir, setup.epic.ID, store.EpicTask{Seq: task.Seq})
 	start := onlyStart(t, steps)
 	if start.Workspace != want {
 		t.Fatalf("start Workspace = %s, want %s", start.Workspace, want)
@@ -670,7 +670,7 @@ func TestStartImplementerLaterAttemptKeepsTheEarlierWork(t *testing.T) {
 		Action{Kind: ActStartStep, Unit: StageImplement, ID: first}); err != nil {
 		t.Fatalf("startStep(first attempt) = %v, want nil", err)
 	}
-	worktree := ImplementWorktree(setup.stateDir, setup.epic.ID, task.Seq)
+	worktree := ImplementWorktree(setup.stateDir, setup.epic.ID, store.EpicTask{Seq: task.Seq})
 	earlier := buildCommit(t, worktree)
 	task.Build.Attempt = 2
 	second := StepID(setup.epic.ID, task.Seq, StageImplement, task.Build.Attempt, task.Build.Rerun, 0, 0)

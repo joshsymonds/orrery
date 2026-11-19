@@ -64,7 +64,11 @@ func TestTaskLadderOrchestratorAttemptRunsOrchestratorAgent(t *testing.T) {
 	if start.CommandGate == nil || start.CommandGate.Name != task.Gate {
 		t.Errorf("attempt 3 start CommandGate = %+v, want the task's gate %s", start.CommandGate, task.Gate)
 	}
-	if want := ImplementWorktree(setup.stateDir, setup.epic.ID, task.Seq); start.Workspace != want {
+	if want := ImplementWorktree(
+		setup.stateDir,
+		setup.epic.ID,
+		store.EpicTask{Seq: task.Seq},
+	); start.Workspace != want {
 		t.Errorf("attempt 3 start Workspace = %s, want the task's implement worktree %s", start.Workspace, want)
 	}
 }

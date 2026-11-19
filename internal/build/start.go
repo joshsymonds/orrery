@@ -95,7 +95,7 @@ func (r *Runner) implementerStart(
 	if gate.Agent != "" {
 		return enginehost.StepStart{}, fmt.Errorf("gate %s is an agent gate, not a command gate", task.Gate)
 	}
-	path := ImplementWorktree(r.stateDir, epic.ID, task.Seq)
+	path := ImplementWorktree(r.stateDir, epic.ID, task)
 	err = r.git.AddWorktree(ctx, epic.Repository, path, task.Build.Base)
 	if err != nil {
 		return enginehost.StepStart{}, fmt.Errorf("prepare worktree: %w", err)

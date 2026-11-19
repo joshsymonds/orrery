@@ -1,16 +1,13 @@
 package build
 
 import (
-	"slices"
-
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// hasApproach reports whether task has a version the planner's change of approach wrote, in any state.
+// hasApproach reports whether task has a change of approach the planner wrote that stands, in any state: one a send_back
+// since has not reopened the task's ladder from before (store.ApproachStands).
 func hasApproach(task store.EpicTask) bool {
-	return slices.ContainsFunc(task.Versions, func(version store.TaskVersion) bool {
-		return version.Source == store.SourceApproach
-	})
+	return store.ApproachStands(task.Versions)
 }
 
 // rungUnstarted reports whether the rung view's build is on has no unit started: the build is in implement with no step

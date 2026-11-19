@@ -604,7 +604,7 @@ func TestPassRedFailingAtBaseSnapshotsRefsAndStartsImplementer(t *testing.T) {
 	if start.CommandGate == nil || start.CommandGate.Name != "check" {
 		t.Errorf("start CommandGate = %+v, want the check gate", start.CommandGate)
 	}
-	if want := ImplementWorktree(f.stateDir, passEpic, 1); start.Workspace != want {
+	if want := ImplementWorktree(f.stateDir, passEpic, store.EpicTask{Seq: 1}); start.Workspace != want {
 		t.Errorf("start Workspace = %s, want %s", start.Workspace, want)
 	}
 }
@@ -664,7 +664,7 @@ func TestPassImplementerDoneWithoutCommitGreenAtWorktreeHead(t *testing.T) {
 	t.Parallel()
 	f := newImplementerFixture(t)
 	id := passStep(StageImplement, 1, 0)
-	head := buildCommit(t, ImplementWorktree(f.stateDir, passEpic, 1))
+	head := buildCommit(t, ImplementWorktree(f.stateDir, passEpic, store.EpicTask{Seq: 1}))
 	f.setStep(id, "done", `{"summary":"done"}`)
 	f.pass()
 	f.expectGreenAt(head)

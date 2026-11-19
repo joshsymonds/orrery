@@ -1716,3 +1716,12 @@ UPDATE epic_tasks SET notes = sqlc.arg(notes) WHERE epic = sqlc.arg(epic) AND se
 -- name: SetEpicTaskReviewReason :exec
 UPDATE epic_task_reviews SET reason = sqlc.arg(reason)
 WHERE epic = sqlc.arg(epic) AND task = sqlc.arg(task) AND attempt = sqlc.arg(attempt) AND position = sqlc.arg(position);
+
+-- name: ClearEpicTaskBatch :exec
+UPDATE epic_tasks SET batch = '' WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq);
+
+-- name: DeleteEpicTaskRungOutcomes :exec
+DELETE FROM epic_task_rung_outcomes WHERE epic = sqlc.arg(epic) AND task = sqlc.arg(task);
+
+-- name: DeleteEpicTaskRungs :exec
+DELETE FROM epic_task_rungs WHERE epic = sqlc.arg(epic) AND task = sqlc.arg(task);
