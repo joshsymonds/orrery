@@ -123,7 +123,7 @@ Q1 which-store: which store?
   second: Synthetic second choice.
   other: answer in your own words
   recommended: first (medium): Synthetic reason.
-epic_answer answers it.
+epic_get with part question and question Q1 reads it whole; epic_answer answers it.
 </orrery-event>`
 
 func TestCallerEventEpicKindsReachTheCreatorOnce(t *testing.T) {
@@ -149,7 +149,7 @@ Q1 park:
   other: answer in your own words
   recommended: retry (low): no model judges a park; retry runs the epic again on its waiting triggers
 parked: the reason
-epic_answer answers it.
+epic_get with part question and question Q1 reads it whole; epic_answer answers it.
 </orrery-event>`,
 		},
 		{
@@ -167,7 +167,8 @@ epic_answer answers it.
 			},
 			event: "epic:" + runnerEpicID + ":released",
 			block: `<orrery-event kind="release" id="epic:orrery-1a2b3c4/planner-runner:released">
-Epic orrery-1a2b3c4/planner-runner (Plan the runner) is released. epic_get gives its report.
+Epic orrery-1a2b3c4/planner-runner (Plan the runner) is released.
+epic_get with part report reads its report.
 </orrery-event>`,
 		},
 		{
@@ -178,7 +179,8 @@ Epic orrery-1a2b3c4/planner-runner (Plan the runner) is released. epic_get gives
 			},
 			event: "epic:" + runnerEpicID + ":done",
 			block: `<orrery-event kind="end" id="epic:orrery-1a2b3c4/planner-runner:done">
-Epic orrery-1a2b3c4/planner-runner (Plan the runner) is done. epic_get gives its report.
+Epic orrery-1a2b3c4/planner-runner (Plan the runner) is done.
+epic_get with part report reads its report.
 </orrery-event>`,
 		},
 	}
