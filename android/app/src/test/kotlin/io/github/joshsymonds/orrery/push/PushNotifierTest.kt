@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import androidx.test.core.app.ApplicationProvider
 import io.github.joshsymonds.orrery.MainActivity
+import io.github.joshsymonds.orrery.R
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.ACTION_KEY
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.ACTION_REPLY
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.CHANNEL_ID
@@ -71,12 +72,18 @@ class PushNotifierTest {
         return intent
     }
 
+    private fun titleOf(notification: Notification): String =
+        notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString()
+
+    private fun textOf(notification: Notification): String =
+        notification.extras.getCharSequence(Notification.EXTRA_TEXT).toString()
+
     @Test
     fun postsOneNotificationUnderPaneIdWithTitleAndText() {
         notifier.show(idleEvent)
 
         val notification = posted(notificationId(host, pane))
-        assertEquals("orrery-demo · waiting", notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
+        assertEquals("orrery-demo asks you a question", notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
         assertEquals("Build finished", notification.extras.getCharSequence(Notification.EXTRA_TEXT).toString())
         assertEquals(1, shadowOf(manager).allNotifications.size)
         assertNotNull(manager.getNotificationChannel(CHANNEL_ID))
@@ -186,7 +193,7 @@ class PushNotifierTest {
 
         val notification = posted(notificationId(host, pane))
         assertEquals("Answered: 2", notification.extras.getCharSequence(Notification.EXTRA_TEXT).toString())
-        assertEquals("orrery-demo · waiting", notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
+        assertEquals("orrery-demo asks you a question", notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
         assertEquals(MainActivity::class.java.name, intentOf(notification.contentIntent).component?.className)
         assertTrue(notification.actions.isNullOrEmpty())
         assertEquals(1, shadowOf(manager).allNotifications.size)
@@ -208,17 +215,6 @@ class PushNotifierTest {
         notifier.show(idleEvent.copy(state = "done", summary = "Second"))
 
         assertTrue(posted(notificationId(host, pane)).flags and Notification.FLAG_ONLY_ALERT_ONCE != 0)
-    }
-
-    @Test
-    fun noisyDoneReplacingSilentDoneAlerts() {
-        notifier.show(idleEvent.copy(state = "done", silent = true))
-
-        notifier.show(idleEvent.copy(state = "done", summary = "Needed", silent = false))
-
-        val notification = posted(notificationId(host, pane))
-        assertEquals(CHANNEL_ID, notification.channelId)
-        assertEquals(0, notification.flags and Notification.FLAG_ONLY_ALERT_ONCE)
     }
 
     @Test
@@ -249,10 +245,148 @@ class PushNotifierTest {
     }
 
     @Test
-    fun doneEventWithoutSilentPostsOnAlertingChannel() {
+    fun doneEventWithoutSilentPostsOnSilentChannel() {
         notifier.show(idleEvent.copy(state = "done"))
 
-        assertEquals(CHANNEL_ID, posted(notificationId(host, pane)).channelId)
+        assertEquals(SILENT_CHANNEL_ID, posted(notificationId(host, pane)).channelId)
+    }
+
+    @Test
+    fun pushMarkedSilentPostsOnSilentChannel() {
+        notifier.show(idleEvent.copy(silent = true))
+
+        assertEquals(SILENT_CHANNEL_ID, posted(notificationId(host, pane)).channelId)
+    }
+
+    @Test
+    fun paneQuestionTitleCarriesItsQuestionAndPostsOnAlertingChannel() {
+        val stored = """{"questions":[{"question":"Which fix should I make?","options":[{"label":"One query per week"}]}]}"""
+        notifier.show(idleEvent.copy(question = stored, questionHash = "qh-synthetic-1"))
+
+        val notification = posted(notificationId(host, pane))
+        assertEquals("orrery-demo asks: Which fix should I make?", titleOf(notification))
+        assertEquals(CHANNEL_ID, notification.channelId)
+    }
+
+    @Test
+    fun paneToolPermissionTitleNamesTheTool() {
+        val stored = """{"tool":"Bash","input":{"command":"ls"}}"""
+        notifier.show(idleEvent.copy(question = stored, questionHash = "qh-synthetic-1"))
+
+        assertEquals("orrery-demo asks to run Bash", titleOf(posted(notificationId(host, pane))))
+    }
+
+    @Test
+    fun paneUnreadableQuestionTitleSaysItIsAQuestion() {
+        notifier.show(questionEvent)
+
+        assertEquals("orrery-demo asks you a question", titleOf(posted(notificationId(host, pane))))
+    }
+
+    @Test
+    fun sessionQuestionTitleCarriesItsPlainTextQuestion() {
+        notifier.show(idleEvent.copy(pane = "", session = "sess-1", question = "Which fix should I make?"))
+
+        val notification = posted(notificationId(host, "sess-1"))
+        assertEquals("orrery-demo asks: Which fix should I make?", titleOf(notification))
+        assertEquals(CHANNEL_ID, notification.channelId)
+    }
+
+    @Test
+    fun sessionWithoutQuestionTitleSaysItIsAQuestion() {
+        notifier.show(idleEvent.copy(pane = "", session = "sess-1"))
+
+        assertEquals("orrery-demo asks you a question", titleOf(posted(notificationId(host, "sess-1"))))
+    }
+
+    @Test
+    fun failedTitleSaysFailedAndPostsOnAlertingChannel() {
+        notifier.show(idleEvent.copy(state = "failed"))
+
+        val notification = posted(notificationId(host, pane))
+        assertEquals("orrery-demo · failed", titleOf(notification))
+        assertEquals(CHANNEL_ID, notification.channelId)
+    }
+
+    @Test
+    fun interruptedTitleSaysCutOffAndPostsOnAlertingChannel() {
+        notifier.show(idleEvent.copy(state = "interrupted"))
+
+        val notification = posted(notificationId(host, pane))
+        assertEquals("orrery-demo · cut off", titleOf(notification))
+        assertEquals(CHANNEL_ID, notification.channelId)
+    }
+
+    @Test
+    fun otherStateTitleNamesTheStateOnSilentChannel() {
+        notifier.show(idleEvent.copy(state = "running"))
+
+        val notification = posted(notificationId(host, pane))
+        assertEquals("orrery-demo · running", titleOf(notification))
+        assertEquals(SILENT_CHANNEL_ID, notification.channelId)
+    }
+
+    @Test
+    fun epicNoticesAreWordedBySlugAndBlockOnTheirChannel() {
+        val cases = listOf(
+            EpicCase("rota-export", "question", "rota-export asks you a question", CHANNEL_ID),
+            EpicCase("offline-tables", "release_step", "offline-tables: release step 2 failed", CHANNEL_ID),
+            EpicCase("tide-alerts", "", "tide-alerts needs you", CHANNEL_ID),
+            EpicCase("lighthouse", "contract", "lighthouse: a contract is ready to read", SILENT_CHANNEL_ID),
+            EpicCase("holder-scopes", "report", "holder-scopes: its report is ready", SILENT_CHANNEL_ID),
+        )
+        cases.forEach { case ->
+            notifier.show(
+                idleEvent.copy(
+                    pane = "",
+                    project = "Work board",
+                    epic = "work/${case.slug}",
+                    block = case.block,
+                    blockRef = "2",
+                    summary = "Summary for ${case.slug}",
+                ),
+            )
+
+            val notification = posted(notificationId(host, "work/${case.slug}"))
+            assertEquals(case.title, titleOf(notification))
+            assertEquals("Summary for ${case.slug}", textOf(notification))
+            assertEquals(case.channelId, notification.channelId)
+        }
+    }
+
+    @Test
+    fun limitNoticeIsTitledByProjectOnSilentChannel() {
+        notifier.show(idleEvent.copy(pane = "", project = "Weekly usage limit reached", summary = "Resets 15:10.", limit = "weekly"))
+
+        val notification = posted(notificationId(host, "weekly"))
+        assertEquals("Weekly usage limit reached", titleOf(notification))
+        assertEquals("Resets 15:10.", textOf(notification))
+        assertEquals(SILENT_CHANNEL_ID, notification.channelId)
+    }
+
+    @Test
+    fun alertNoticeIsTitledByProjectOnAlertingChannel() {
+        notifier.show(idleEvent.copy(pane = "", project = "tide-alerts", summary = "Severe care", state = "done", alert = "severe"))
+
+        val notification = posted(notificationId(host, "alert:severe"))
+        assertEquals("tide-alerts", titleOf(notification))
+        assertEquals(CHANNEL_ID, notification.channelId)
+    }
+
+    @Test
+    fun channelsAreNamedQuestionsAndFailuresAndEverythingElse() {
+        notifier.show(idleEvent)
+        notifier.show(idleEvent.copy(pane = "", session = "sess-1", state = "done"))
+
+        assertEquals("Questions and failures", manager.getNotificationChannel(CHANNEL_ID).name.toString())
+        assertEquals("Everything else", manager.getNotificationChannel(SILENT_CHANNEL_ID).name.toString())
+    }
+
+    @Test
+    fun smallIconIsTheOrreryMark() {
+        notifier.show(idleEvent)
+
+        assertEquals(R.drawable.ic_notification, posted(notificationId(host, pane)).smallIcon.resId)
     }
 
     @Test
@@ -358,3 +492,5 @@ class PushNotifierTest {
         assertNull(shadowOf(manager).getNotification(null, notificationId(host, pane)))
     }
 }
+
+private data class EpicCase(val slug: String, val block: String, val title: String, val channelId: String)

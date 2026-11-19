@@ -208,7 +208,7 @@ class OrreryPushServiceTest {
 
         val notification = posted()
         assertEquals(
-            "synthetic-project · waiting",
+            "synthetic-project asks you a question",
             notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString(),
         )
         assertEquals(
@@ -366,7 +366,7 @@ class OrreryPushServiceTest {
         val notification = postedLimit()
         assertEquals(1, shadowOf(manager).allNotifications.size)
         assertEquals(
-            "usage limit · limited",
+            "usage limit",
             notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString(),
         )
         assertEquals(
@@ -429,7 +429,7 @@ class OrreryPushServiceTest {
         val notification = checkNotNull(postedAlert()) { "expected a notification for alert $syntheticAlert" }
         assertEquals(1, shadowOf(manager).allNotifications.size)
         assertEquals(
-            "synthetic-alert · firing",
+            "synthetic-alert",
             notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString(),
         )
         assertEquals(

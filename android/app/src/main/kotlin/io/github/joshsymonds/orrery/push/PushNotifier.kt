@@ -12,6 +12,7 @@ import android.content.pm.PackageManager
 import android.graphics.drawable.Icon
 import android.os.Bundle
 import io.github.joshsymonds.orrery.MainActivity
+import io.github.joshsymonds.orrery.R
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.ACTION_KEY
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.ACTION_REPLY
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.CHANNEL_ID
@@ -22,6 +23,8 @@ import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_QUESTION_H
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_TIME
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.REMOTE_INPUT_KEY
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.notificationId
+import org.json.JSONException
+import org.json.JSONObject
 
 data class PushEvent(
     val pane: String,
@@ -42,6 +45,8 @@ data class PushEvent(
     val silent: Boolean = false,
 )
 
+private class PushNotice(val title: String, val text: String, val channelId: String)
+
 class PushNotifier(private val context: Context) {
     private val manager = context.getSystemService(NotificationManager::class.java)
 
@@ -51,11 +56,12 @@ class PushNotifier(private val context: Context) {
         val tag = tagOf(event.epic, event.session, event.pane, event.limit, event.alert)
         val id = notificationId(event.host, tag)
         val replacedChannelId = manager.activeNotifications.firstOrNull { it.id == id }?.notification?.channelId
-        val channelId = if (event.silent) SILENT_CHANNEL_ID else CHANNEL_ID
+        val notice = noticeOf(event)
+        val channelId = if (event.silent) SILENT_CHANNEL_ID else notice.channelId
         val builder = Notification.Builder(context, channelId)
             .setSmallIcon(SMALL_ICON)
-            .setContentTitle("${event.project} · ${event.state}")
-            .setContentText(event.summary.ifEmpty { event.label })
+            .setContentTitle(notice.title)
+            .setContentText(notice.text)
             .setContentIntent(contentIntent(event, tag))
             .setOnlyAlertOnce(replacedChannelId == channelId && event.state !in ALERTING_STATES)
             .setExtras(timeExtras(event.time))
@@ -97,13 +103,62 @@ class PushNotifier(private val context: Context) {
         if (notice.notification.extras.getLong(EXTRA_TIME) <= seen) manager.cancel(id)
     }
 
-    private fun ensureChannels() {
+    internal fun ensureChannels() {
         manager.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "Panes", NotificationManager.IMPORTANCE_DEFAULT),
+            NotificationChannel(CHANNEL_ID, QUESTIONS_CHANNEL_NAME, NotificationManager.IMPORTANCE_DEFAULT),
         )
         manager.createNotificationChannel(
-            NotificationChannel(SILENT_CHANNEL_ID, "Panes (silent)", NotificationManager.IMPORTANCE_LOW),
+            NotificationChannel(SILENT_CHANNEL_ID, REST_CHANNEL_NAME, NotificationManager.IMPORTANCE_LOW),
         )
+    }
+
+    private fun noticeOf(event: PushEvent): PushNotice = when {
+        event.epic.isNotEmpty() -> epicNotice(event)
+        event.limit.isNotEmpty() -> PushNotice(event.project, event.summary, SILENT_CHANNEL_ID)
+        event.alert.isNotEmpty() -> PushNotice(event.project, event.summary, CHANNEL_ID)
+        else -> paneNotice(event)
+    }
+
+    private fun epicNotice(event: PushEvent): PushNotice {
+        val slug = event.epic.substringAfterLast("/")
+        return when (event.block) {
+            "question" -> PushNotice("$slug asks you a question", event.summary, CHANNEL_ID)
+            "release_step" -> PushNotice("$slug: release step ${event.blockRef} failed", event.summary, CHANNEL_ID)
+            "contract" -> PushNotice("$slug: a contract is ready to read", event.summary, SILENT_CHANNEL_ID)
+            "report" -> PushNotice("$slug: its report is ready", event.summary, SILENT_CHANNEL_ID)
+            else -> PushNotice("$slug needs you", event.summary, CHANNEL_ID)
+        }
+    }
+
+    private fun paneNotice(event: PushEvent): PushNotice {
+        val text = event.summary.ifEmpty { event.label }
+        val dir = event.project
+        return when (event.state) {
+            "waiting" -> PushNotice("$dir ${askOf(event)}", text, CHANNEL_ID)
+            "failed" -> PushNotice("$dir · failed", text, CHANNEL_ID)
+            "interrupted" -> PushNotice("$dir · cut off", text, CHANNEL_ID)
+            "done" -> PushNotice("$dir · done", text, SILENT_CHANNEL_ID)
+            else -> PushNotice("$dir · ${event.state}", text, SILENT_CHANNEL_ID)
+        }
+    }
+
+    private fun askOf(event: PushEvent): String {
+        if (event.session.isNotEmpty()) {
+            return if (event.question.isEmpty()) UNREADABLE_ASK else "asks: ${event.question}"
+        }
+        return paneAsk(event.question) ?: UNREADABLE_ASK
+    }
+
+    // paneAsk reads a pane's stored question the way QuestionCard does: its first question's text, else its tool.
+    private fun paneAsk(stored: String): String? {
+        val json = try {
+            JSONObject(stored)
+        } catch (e: JSONException) {
+            return null
+        }
+        val question = json.optJSONArray("questions")?.optJSONObject(0)?.optString("question").orEmpty()
+        if (question.isNotEmpty()) return "asks: $question"
+        return json.optString("tool").takeIf { it.isNotEmpty() }?.let { "asks to run $it" }
     }
 
     private fun tagOf(epic: String, session: String, pane: String, limit: String, alert: String): String = when {
@@ -174,6 +229,9 @@ class PushNotifier(private val context: Context) {
     companion object {
         const val CHANNEL_ID = "panes"
         const val SILENT_CHANNEL_ID = "panes-silent"
+        const val QUESTIONS_CHANNEL_NAME = "Questions and failures"
+        const val REST_CHANNEL_NAME = "Everything else"
+        private const val UNREADABLE_ASK = "asks you a question"
         const val ACTION_KEY = "io.github.joshsymonds.orrery.action.KEY"
         const val ACTION_REPLY = "io.github.joshsymonds.orrery.action.REPLY"
         const val EXTRA_PANE = "io.github.joshsymonds.orrery.extra.PANE"
@@ -189,7 +247,7 @@ class PushNotifier(private val context: Context) {
         private const val ALERT_TAG_PREFIX = "alert:"
         private val KEYS = listOf("1", "2", "3")
         private val ALERTING_STATES = setOf("waiting", "failed")
-        private val SMALL_ICON = android.R.drawable.ic_dialog_info
+        private val SMALL_ICON = R.drawable.ic_notification
 
         fun notificationId(host: String, key: String): Int = "$host|$key".hashCode()
     }
