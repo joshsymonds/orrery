@@ -5,13 +5,15 @@ import (
 	"fmt"
 	"slices"
 	"testing"
+
+	"github.com/joshsymonds/orrery/internal/store"
 )
 
 // detachStep checks out the implementer's worktree of the test task at commit, as the implementer leaves it when it makes
 // commit, so commit is one of the step's commits.
 func detachStep(t *testing.T, f *passFixture, commit string) {
 	t.Helper()
-	buildRun(t, ImplementWorktree(f.stateDir, passEpic, 1), "checkout", "-q", "--detach", commit)
+	buildRun(t, ImplementWorktree(f.stateDir, passEpic, store.EpicTask{Seq: 1}), "checkout", "-q", "--detach", commit)
 }
 
 // TestRefMovesScopeImplementerUnrelatedBranchTellsNothing covers E2-R2: a branch another session moves during an

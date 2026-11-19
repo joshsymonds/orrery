@@ -199,7 +199,7 @@ func (w *crashWorld) implementerCommit(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	worktree := ImplementWorktree(w.stateDir, crashEpic, 1)
+	worktree := ImplementWorktree(w.stateDir, crashEpic, store.EpicTask{Seq: 1})
 	if _, err = runGit(ctx, worktree, "checkout", "-q", "--detach", commit); err != nil {
 		return "", err
 	}
