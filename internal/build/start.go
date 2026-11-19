@@ -64,11 +64,21 @@ func (r *Runner) startStep(ctx context.Context, epic store.EpicRow, view View, a
 // implementer agent in the task's implement worktree (ImplementWorktree), added detached at the task's base when it does
 // not exist and kept as it is when it does, so a later attempt or rerun continues from the earlier work. The step is
 // checked from the task's base, with the brief, the task's files, and the command gate the epic names for the task. A
-// gate that is an agent gate is an error.
+// gate that is an agent gate is an error. Rung 4 (store.OrchestratorRung) is the orchestrator's own writing attempt under
+// the task's files, gate and reviews, so it runs the orchestrator's agent, or the planner's when the role file has no
+// orchestrator key; no other rung changes the agent.
 func (r *Runner) implementerStart(
 	ctx context.Context, epic store.EpicRow, task store.EpicTask, id string,
 ) (enginehost.StepStart, error) {
-	agent, err := roles.Agent(r.getenv, roleImplementer)
+	var (
+		agent string
+		err   error
+	)
+	if task.Build.Attempt == store.OrchestratorRung {
+		agent, err = roles.AgentOr(r.getenv, roleOrchestrator, rolePlanner)
+	} else {
+		agent, err = roles.Agent(r.getenv, roleImplementer)
+	}
 	if err != nil {
 		return enginehost.StepStart{}, RoleError{Err: err}
 	}
