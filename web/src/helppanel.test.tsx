@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import { type JSX, render } from "preact";
 
-import { HelpPanel } from "./helppanel";
+import { KeyList } from "./helppanel";
 import { installTestDom, removeTestDom } from "./testdom";
 
 // Each test's name carries the token AppSplit: the help panel renders on its own, outside App.
@@ -27,7 +27,7 @@ function keysOf(container: HTMLElement, text: string): string[] | null {
 }
 
 test("AppSplit: HelpPanel draws the keys section outside App, with each entry's keys and what they do", () =>
-  withPanel(<HelpPanel />, (container) => {
+  withPanel(<KeyList />, (container) => {
     assert.equal(container.querySelector("section.keys")?.getAttribute("aria-label"), "keys");
     assert.deepEqual(keysOf(container, "move the cursor one row up or down"), ["j", "k", "↓", "↑"]);
     assert.deepEqual(keysOf(container, "mark the cursor's row seen; Enter also opens the row into its reply box"), [

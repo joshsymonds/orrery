@@ -29,8 +29,8 @@ const helpEntries: [string[], string][] = [
   [["Esc"], "close this help"],
 ];
 
-// HelpPanel draws the keys section App shows while help is open: each entry's keys, and what they do.
-export function HelpPanel() {
+// KeyList draws the keys section App shows while help is open: each entry's keys, and what they do.
+export function KeyList() {
   return (
     <section class="keys" aria-label="keys">
       <dl>

@@ -28,7 +28,7 @@ import type { EpicHistoryEntry, EpicsGetResponse, EpicStep } from "./gen/orrery/
 import type { InAppNotice, NoticeKey } from "./gen/orrery/v1/notice_pb";
 import type { HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
 import { Handover } from "./handover";
-import { HelpPanel } from "./helppanel";
+import { KeyList } from "./helppanel";
 import { type Answer, InboxRow, isLinkClick, optionText, readerQuestion, stateWaiting } from "./inboxrow";
 import {
   type BoxOpen,
@@ -48,7 +48,7 @@ import { NoticeBanner } from "./notices";
 import { PhaseOutputPage } from "./phaseoutput";
 import { phaseOutputOf } from "./phaserows";
 import type { Phase } from "./phases";
-import { PickerPalette } from "./picker";
+import { NewPanel } from "./picker";
 import { type Viewing, viewingOf } from "./presence";
 import type { ReaderHandle } from "./reader";
 import { type Address, type Entry, formatAddress, type PageView } from "./router";
@@ -1646,7 +1646,7 @@ export function App({
         </section>
       </div>
       {pickerOpen && (
-        <PickerPalette
+        <NewPanel
           clients={clients}
           rows={rows}
           onRun={(pane) => {
@@ -1660,7 +1660,7 @@ export function App({
           onClose={() => setPickerOpen(false)}
         />
       )}
-      {helpOpen && <HelpPanel />}
+      {helpOpen && <KeyList />}
     </main>
   );
 }

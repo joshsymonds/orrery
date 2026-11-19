@@ -19,12 +19,12 @@ function pickerTitle(row: PickerRow, rows: Row[]): { dir: string; line: string }
   return listed ? listedTitle(rows, "pane", row.pane, row.label) : { dir: row.dir, line: row.label };
 }
 
-// PickerPalette is the palette over the page. Enter in its text box sends the words, as typed, to Picker.Ask, and the
+// NewPanel is the palette over the page. Enter in its text box sends the words, as typed, to Picker.Ask, and the
 // rows that come back are listed with their title, drawn through TitleParts from the listed rows, and their note. Choosing
 // a row that is not a folder sends its token to Picker.Run and reports the pane the run answered to onRun. Choosing a
-// folder row opens PickerStartForm in place of the list, and the session the form starts is reported to onStart. Escape
+// folder row opens StartForm in place of the list, and the session the form starts is reported to onStart. Escape
 // closes the palette through onClose.
-export function PickerPalette({
+export function NewPanel({
   clients,
   rows,
   onRun,
@@ -94,7 +94,7 @@ export function PickerPalette({
         </p>
       )}
       {folder !== null ? (
-        <PickerStartForm key={folder.token} clients={clients} folder={folder} asked={asked} onStarted={onStart} />
+        <StartForm key={folder.token} clients={clients} folder={folder} asked={asked} onStarted={onStart} />
       ) : (
         <div class="picker-rows">
           {found.map((row) => {
@@ -114,12 +114,12 @@ export function PickerPalette({
   );
 }
 
-// PickerStartForm is the start form a folder row opens. It names the row's folder and holds a message box, which a
+// StartForm is the start form a folder row opens. It names the row's folder and holds a message box, which a
 // prompt row's box starts with the asked words and any other starts empty. Its start id is made once, when the form
 // opens, so every Start it sends, a retry after a failure or an edit included, names the same session. Start sends the
 // folder, the message and that id to Control.Start, and onStarted receives the session it started. A refused or failed
 // Start keeps the form and the message as typed and shows the fixed line.
-export function PickerStartForm({
+function StartForm({
   clients,
   folder,
   asked,

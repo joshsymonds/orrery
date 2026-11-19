@@ -6,7 +6,7 @@ import { act } from "preact/test-utils";
 
 import { createClients, createTransport } from "./client";
 import type { Row } from "./rows";
-import { PickerPalette } from "./picker";
+import { NewPanel } from "./picker";
 import { assertNone, installTestDom, removeTestDom, teardownOnce } from "./testdom";
 import { turn, until } from "./testwait";
 
@@ -147,7 +147,7 @@ async function mountPalette(
 ): Promise<void> {
   await act(() => {
     render(
-      <PickerPalette clients={server.clients} rows={rows} onRun={onRun} onStart={onStart} onClose={onClose} />,
+      <NewPanel clients={server.clients} rows={rows} onRun={onRun} onStart={onStart} onClose={onClose} />,
       container,
     );
   });
