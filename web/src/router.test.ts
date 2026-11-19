@@ -20,6 +20,38 @@ test("HashRoute round-trips a session entry", () => {
   assertRoundTrip({ order: "project", entry: { kind: "session", id: "S-1" } });
 });
 
+test("SidePanel: round-trips a session entry with the agents panel open", () => {
+  assertRoundTrip({ order: "project", entry: { kind: "session", id: "S-1", panel: "agents" } });
+});
+
+test("SidePanel: round-trips a session entry with the running panel open", () => {
+  assertRoundTrip({ order: "project", entry: { kind: "session", id: "S-1", panel: "running" } });
+});
+
+test("SidePanel: writes the open panel as the last segment of the session hash", () => {
+  assert.equal(
+    formatAddress({ order: "project", entry: { kind: "session", id: "S-1", panel: "running" } }),
+    "#/project/session/S-1/running",
+  );
+});
+
+test("SidePanel: parses a session hash with any other third segment to the attention inbox with no entry", () => {
+  for (const segment of ["Agents", "running ", "sessions", "extra", ""]) {
+    assert.deepEqual(
+      parseAddress(`#/project/session/S-1/${segment}`),
+      { order: "attention", entry: null },
+      `segment ${JSON.stringify(segment)}`,
+    );
+  }
+});
+
+test("SidePanel: a session entry with no panel still round-trips with no panel key", () => {
+  const parsed = parseAddress("#/project/session/S-1");
+  assert.deepEqual(parsed, { order: "project", entry: { kind: "session", id: "S-1" } });
+  assert.equal(parsed.entry !== null && "panel" in parsed.entry, false);
+  assertRoundTrip({ order: "project", entry: { kind: "session", id: "S-1" } });
+});
+
 test("HashRoute round-trips a pane entry", () => {
   assertRoundTrip({ order: "attention", entry: { kind: "pane", host: "laptop", pane: "pane-2" } });
 });
