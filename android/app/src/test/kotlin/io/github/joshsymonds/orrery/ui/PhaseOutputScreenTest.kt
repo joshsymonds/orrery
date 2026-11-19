@@ -162,8 +162,8 @@ class PhaseOutputScreenTest {
 
         showBody(epic, Phase.CHECKING, task = TASK)
 
-        composeRule.onNodeWithText("round 1").assertExists()
-        composeRule.onNodeWithText("round 2").assertExists()
+        composeRule.onNodeWithText("ROUND 1").assertExists()
+        composeRule.onNodeWithText("ROUND 2").assertExists()
         composeRule.onNodeWithText("ran checks, gate").assertExists()
         composeRule.onNodeWithText("ran checks, gate, judge").assertExists()
         composeRule.onNodeWithText("✗ fmt").assertExists()
@@ -333,9 +333,9 @@ class PhaseOutputScreenTest {
 
         showBody(epic, Phase.IMPLEMENTING)
 
-        composeRule.onNodeWithText("red").assertExists()
-        composeRule.onNodeWithText("green").assertExists()
-        composeRule.onNodeWithText("returned").assertExists()
+        composeRule.onNodeWithText("RED").assertExists()
+        composeRule.onNodeWithText("GREEN").assertExists()
+        composeRule.onNodeWithText("RETURNED").assertExists()
         composeRule.onNodeWithText("synthetic return reason").assertExists()
         // The running step's doing also shows as its phase row's summary, so the check looks inside the body alone.
         val inBody = hasAnyAncestor(hasTestTag("phase-body:implementing"))
@@ -377,7 +377,7 @@ class PhaseOutputScreenTest {
 
         showBody(epic, Phase.REVIEWING)
 
-        composeRule.onNodeWithText("attempt 2").assertExists()
+        composeRule.onNodeWithText("ATTEMPT 2").assertExists()
         composeRule.onNodeWithText("gate review").assertExists()
         composeRule.onNodeWithText("verdict holds").assertExists()
         composeRule.onNodeWithText("synthetic claim").assertExists()

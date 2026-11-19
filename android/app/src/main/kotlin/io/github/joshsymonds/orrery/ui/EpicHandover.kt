@@ -3,19 +3,18 @@ package io.github.joshsymonds.orrery.ui
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.unit.dp
 import io.github.joshsymonds.orrery.api.EpicClosureRow
 import io.github.joshsymonds.orrery.api.EpicHandoverRow
 import io.github.joshsymonds.orrery.api.EpicLedgerFindingRow
 import io.github.joshsymonds.orrery.api.EpicReleaseRunRow
 import io.github.joshsymonds.orrery.api.EpicReleaseStepRow
 import io.github.joshsymonds.orrery.api.EpicReviewVerdictRow
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
+import io.github.joshsymonds.orrery.ui.theme.inLabelCase
 
 /** The part of a release run that runs a contract release step; its position is the step it ran. */
 private const val RELEASE_PART = "release"
@@ -31,19 +30,19 @@ internal fun EpicHandover(handover: EpicHandoverRow) {
         modifier = Modifier
             .fillMaxWidth()
             .testTag("handover")
-            .padding(horizontal = 16.dp, vertical = 6.dp),
+            .padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.four + OrreryTokens.Space.two),
     ) {
-        Text("phase ${handover.phase}", style = MaterialTheme.typography.titleSmall)
+        Text("phase ${handover.phase}".inLabelCase(), style = OrreryTokens.Type.label)
         if (handover.reviews.isNotEmpty()) {
-            Text("REVIEW", style = MaterialTheme.typography.labelLarge)
+            Text("REVIEW".inLabelCase(), style = OrreryTokens.Type.label)
             handover.reviews.forEachIndexed { index, verdict -> ReviewVerdict(index, verdict) }
         }
         if (handover.ledger.isNotEmpty()) {
-            Text("LEDGER", style = MaterialTheme.typography.labelLarge)
+            Text("LEDGER".inLabelCase(), style = OrreryTokens.Type.label)
             handover.ledger.forEachIndexed { index, finding -> LedgerFinding(index, finding) }
         }
         if (handover.releases.isNotEmpty()) {
-            Text("RELEASE", style = MaterialTheme.typography.labelLarge)
+            Text("RELEASE".inLabelCase(), style = OrreryTokens.Type.label)
             ReleaseRuns(handover.releaseSteps, handover.releases)
         }
     }
@@ -53,13 +52,13 @@ internal fun EpicHandover(handover: EpicHandoverRow) {
 @Composable
 private fun ReviewVerdict(index: Int, verdict: EpicReviewVerdictRow) {
     Column(modifier = Modifier.fillMaxWidth().testTag("verdict:$index")) {
-        Text(verdict.reviewer, style = MaterialTheme.typography.bodyMedium)
-        Text(verdict.verdict, style = MaterialTheme.typography.labelMedium)
+        Text(verdict.reviewer, style = OrreryTokens.Type.body)
+        Text(verdict.verdict, style = OrreryTokens.Type.small)
         if (verdict.reason.isNotEmpty()) {
-            Text(verdict.reason, style = MaterialTheme.typography.bodySmall)
+            Text(verdict.reason, style = OrreryTokens.Type.small)
         }
         if (verdict.step.isNotEmpty()) {
-            Text("step ${verdict.step}", style = MaterialTheme.typography.labelSmall)
+            Text("step ${verdict.step}", style = OrreryTokens.Type.small.copy(fontWeight = OrreryTokens.Font.Weight.bold))
         }
     }
 }
@@ -71,20 +70,20 @@ private fun ReviewVerdict(index: Int, verdict: EpicReviewVerdictRow) {
 @Composable
 private fun LedgerFinding(index: Int, finding: EpicLedgerFindingRow) {
     Column(modifier = Modifier.fillMaxWidth().testTag("finding:$index")) {
-        Text(finding.id, style = MaterialTheme.typography.bodyMedium)
-        Text(finding.reviewer, style = MaterialTheme.typography.labelMedium)
+        Text(finding.id, style = OrreryTokens.Type.body)
+        Text(finding.reviewer, style = OrreryTokens.Type.small)
         Text(
             if (finding.unverified) "unverified" else finding.result,
-            style = MaterialTheme.typography.labelMedium,
+            style = OrreryTokens.Type.small,
         )
-        Text(finding.claim, style = MaterialTheme.typography.bodySmall)
+        Text(finding.claim, style = OrreryTokens.Type.small)
         if (finding.location.isNotEmpty()) {
-            Text(finding.location, style = MaterialTheme.typography.labelSmall)
+            Text(finding.location, style = OrreryTokens.Type.small.copy(fontWeight = OrreryTokens.Font.Weight.bold))
         }
         if (finding.reason.isNotEmpty()) {
-            Text(finding.reason, style = MaterialTheme.typography.bodySmall)
+            Text(finding.reason, style = OrreryTokens.Type.small)
         }
-        finding.closures.forEach { Text(closureLine(it), style = MaterialTheme.typography.labelSmall) }
+        finding.closures.forEach { Text(closureLine(it), style = OrreryTokens.Type.small.copy(fontWeight = OrreryTokens.Font.Weight.bold)) }
     }
 }
 
@@ -116,9 +115,9 @@ private fun ReleaseRuns(steps: List<EpicReleaseStepRow>, releases: List<EpicRele
 @Composable
 private fun ReleaseStep(number: Int, step: EpicReleaseStepRow) {
     Column(modifier = Modifier.fillMaxWidth().testTag("release-step:$number")) {
-        Text(step.step, style = MaterialTheme.typography.bodyMedium)
-        Text(step.target, style = MaterialTheme.typography.labelMedium)
-        Text("undo ${step.undo}", style = MaterialTheme.typography.bodySmall)
+        Text(step.step, style = OrreryTokens.Type.body)
+        Text(step.target, style = OrreryTokens.Type.small)
+        Text("undo ${step.undo}", style = OrreryTokens.Type.small)
     }
 }
 
@@ -129,20 +128,20 @@ private fun ReleaseStep(number: Int, step: EpicReleaseStepRow) {
 @Composable
 private fun ReleaseRun(index: Int, run: EpicReleaseRunRow) {
     Column(modifier = Modifier.fillMaxWidth().testTag("release-run:${run.part}:$index")) {
-        Text("attempt ${run.attempt}", style = MaterialTheme.typography.labelMedium)
+        Text("attempt ${run.attempt}", style = OrreryTokens.Type.small)
         if (run.end.isNotEmpty()) {
-            Text(run.end, style = MaterialTheme.typography.labelMedium)
+            Text(run.end, style = OrreryTokens.Type.small)
         }
-        Text(if (run.passed) "passed" else "failed", style = MaterialTheme.typography.labelMedium)
+        Text(if (run.passed) "passed" else "failed", style = OrreryTokens.Type.small)
         if (run.head.isNotEmpty()) {
-            Text("head ${run.head}", style = MaterialTheme.typography.labelSmall)
+            Text("head ${run.head}", style = OrreryTokens.Type.small.copy(fontWeight = OrreryTokens.Font.Weight.bold))
         }
-        run.commits.forEach { Text("commit $it", style = MaterialTheme.typography.labelSmall) }
+        run.commits.forEach { Text("commit $it", style = OrreryTokens.Type.small.copy(fontWeight = OrreryTokens.Font.Weight.bold)) }
         if (run.reason.isNotEmpty()) {
-            Text(run.reason, style = MaterialTheme.typography.bodySmall)
+            Text(run.reason, style = OrreryTokens.Type.small)
         }
         if (run.evidence.isNotEmpty()) {
-            Text(run.evidence, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+            Text(run.evidence, fontFamily = OrreryTokens.Type.small.fontFamily, style = OrreryTokens.Type.small)
         }
     }
 }

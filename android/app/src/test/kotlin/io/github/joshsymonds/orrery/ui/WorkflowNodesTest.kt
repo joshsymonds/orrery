@@ -158,7 +158,7 @@ class WorkflowNodesTest {
             setScreen(server)
             awaitLoaded()
 
-            assertEquals(0, countNodes(hasText("Workflow")))
+            assertEquals(0, countNodes(hasText("WORKFLOW")))
             assertEquals(0, countNodes(hasTestTag("node-row:0")))
         }
     }
@@ -179,7 +179,7 @@ class WorkflowNodesTest {
             setScreen(server)
             awaitLoaded()
 
-            assertEquals(1, countNodes(hasText("Workflow")))
+            assertEquals(1, countNodes(hasText("WORKFLOW")))
             val tops = nodes.mapIndexed { index, node ->
                 val row = "node-row:$index"
                 assertEquals(1, countNodes(hasTestTag(row)))
@@ -192,7 +192,7 @@ class WorkflowNodesTest {
             }
             assertEquals(0, countNodes(hasTestTag("node-row:${nodes.size}")))
             assertTrue(
-                composeRule.onNodeWithText("Workflow", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot.top <
+                composeRule.onNodeWithText("WORKFLOW", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot.top <
                     tops.first(),
             )
             assertTrue(tops.zipWithNext().all { (above, below) -> above < below })

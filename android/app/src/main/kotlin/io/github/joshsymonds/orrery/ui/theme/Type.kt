@@ -13,22 +13,26 @@ val OrreryMono = FontFamily(
     Font(R.font.orrery_mono_italic, FontWeight.Normal, FontStyle.Italic),
 )
 
-private val MaterialDefaults = Typography()
+// Lazy because OrreryTokens.Type reads OrreryMono from this file: built eagerly, the typography could read Type before Type has finished initialising.
+val OrreryTypography: Typography by lazy {
+    Typography(
+        displayLarge = OrreryTokens.Type.display,
+        displayMedium = OrreryTokens.Type.display,
+        displaySmall = OrreryTokens.Type.display,
+        headlineLarge = OrreryTokens.Type.title,
+        headlineMedium = OrreryTokens.Type.title,
+        headlineSmall = OrreryTokens.Type.title,
+        titleLarge = OrreryTokens.Type.title,
+        titleMedium = OrreryTokens.Type.title,
+        titleSmall = OrreryTokens.Type.body,
+        bodyLarge = OrreryTokens.Type.body,
+        bodyMedium = OrreryTokens.Type.body,
+        bodySmall = OrreryTokens.Type.small,
+        labelLarge = OrreryTokens.Type.small,
+        labelMedium = OrreryTokens.Type.small,
+        labelSmall = OrreryTokens.Type.label,
+    )
+}
 
-val OrreryTypography = Typography(
-    displayLarge = MaterialDefaults.displayLarge.copy(fontFamily = OrreryMono),
-    displayMedium = MaterialDefaults.displayMedium.copy(fontFamily = OrreryMono),
-    displaySmall = MaterialDefaults.displaySmall.copy(fontFamily = OrreryMono),
-    headlineLarge = MaterialDefaults.headlineLarge.copy(fontFamily = OrreryMono),
-    headlineMedium = MaterialDefaults.headlineMedium.copy(fontFamily = OrreryMono),
-    headlineSmall = MaterialDefaults.headlineSmall.copy(fontFamily = OrreryMono),
-    titleLarge = MaterialDefaults.titleLarge.copy(fontFamily = OrreryMono),
-    titleMedium = MaterialDefaults.titleMedium.copy(fontFamily = OrreryMono),
-    titleSmall = MaterialDefaults.titleSmall.copy(fontFamily = OrreryMono),
-    bodyLarge = MaterialDefaults.bodyLarge.copy(fontFamily = OrreryMono),
-    bodyMedium = MaterialDefaults.bodyMedium.copy(fontFamily = OrreryMono),
-    bodySmall = MaterialDefaults.bodySmall.copy(fontFamily = OrreryMono),
-    labelLarge = MaterialDefaults.labelLarge.copy(fontFamily = OrreryMono),
-    labelMedium = MaterialDefaults.labelMedium.copy(fontFamily = OrreryMono),
-    labelSmall = MaterialDefaults.labelSmall.copy(fontFamily = OrreryMono),
-)
+// Compose's TextStyle has no caps, so text drawn in type.label is cased here.
+fun String.inLabelCase(): String = if (OrreryTokens.Type.labelCaps) uppercase() else this

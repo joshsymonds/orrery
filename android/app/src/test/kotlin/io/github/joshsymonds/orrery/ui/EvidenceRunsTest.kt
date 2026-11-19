@@ -10,7 +10,6 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.text.TextLayoutResult
-import androidx.compose.ui.text.font.FontFamily
 import com.google.protobuf.ByteString
 import io.github.joshsymonds.orrery.api.EvidenceArtifactFile
 import io.github.joshsymonds.orrery.api.EvidenceArtifactRow
@@ -27,6 +26,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceArtifactRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceArtifactResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun
 import io.github.joshsymonds.orrery.mainThreadComposeRule
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -188,7 +188,7 @@ class EvidenceRunsTest {
         setRuns(runs, Loader(emptyMap()))
 
         val first = "evidence-run:$REQUIREMENT:0"
-        assertEquals(1, countIn(first, hasText("red")))
+        assertEquals(1, countIn(first, hasText("RED")))
         assertEquals(1, countIn(first, hasText("fails")))
         assertEquals(1, countIn(first, hasText("passed")))
         assertEquals(1, countIn(first, hasText("exit 3")))
@@ -197,7 +197,7 @@ class EvidenceRunsTest {
         assertEquals(0, countIn(first, hasText("running")))
 
         val second = "evidence-run:$REQUIREMENT:1"
-        assertEquals(1, countIn(second, hasText("green")))
+        assertEquals(1, countIn(second, hasText("GREEN")))
         assertEquals(1, countIn(second, hasText("agent-supplied")))
         assertEquals(1, countIn(second, hasText("no verdict")))
         assertEquals(1, countIn(second, hasText("example judge reason")))
@@ -220,7 +220,7 @@ class EvidenceRunsTest {
         awaitAll(hasText("example log line two", substring = true))
         assertEquals(listOf(Triple("example-run-1", "", false)), loader.calls.toList())
         assertFalse(loader.onMainThread.get())
-        assertEquals(FontFamily.Monospace, textLayoutOf(hasText("example log line two", substring = true)).layoutInput.style.fontFamily)
+        assertEquals(OrreryTokens.Type.small.fontFamily, textLayoutOf(hasText("example log line two", substring = true)).layoutInput.style.fontFamily)
     }
 
     @Test

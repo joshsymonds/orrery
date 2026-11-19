@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -29,20 +28,20 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.StepRow
-import io.github.joshsymonds.orrery.ui.theme.Mocha
 import io.github.joshsymonds.orrery.ui.theme.Move
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import io.github.joshsymonds.orrery.ui.theme.animationsOn
+import io.github.joshsymonds.orrery.ui.theme.inLabelCase
 import io.github.joshsymonds.orrery.ui.theme.spec
 
 /** Most running step rows one epic shows; the rest fold into one "more" line. */
 private const val MAX_STEP_ROWS = 4
 
 /** The side of a live epic's small orrery on its line. */
-private val MINI_SIZE: Dp = 40.dp
+private val MINI_SIZE: Dp = OrreryTokens.Space.thirtyTwo + OrreryTokens.Space.eight
 
 /**
  * Home's Epics group. Each live epic's line shows its small orrery when it has [details], its slug, its
@@ -73,11 +72,11 @@ fun EpicsGroup(
     val folded = epics.filter { !it.live && !it.isEnded() }
     val justEnded = epics.filter { it.isEnded() && it.seen < it.phaseAt }.sortedByDescending { it.phaseAt }
     val endedEarlier = epics.filter { it.isEnded() && it.seen >= it.phaseAt }.sortedByDescending { it.phaseAt }
-    Column(modifier = modifier.fillMaxWidth().testTag("epics-group").padding(vertical = 4.dp)) {
+    Column(modifier = modifier.fillMaxWidth().testTag("epics-group").padding(vertical = OrreryTokens.Space.four)) {
         Text(
-            "Epics",
-            style = MaterialTheme.typography.titleSmall,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            "Epics".inLabelCase(),
+            style = OrreryTokens.Type.label,
+            modifier = Modifier.padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.four),
         )
         for (epic in live) {
             LiveEpic(epic, details[epic.id], now, onOpenEpic)
@@ -86,7 +85,7 @@ fun EpicsGroup(
             FoldLine("${waiting.size} accepted, waiting to start", "epics-waiting") { waitingOpen = !waitingOpen }
             if (waitingOpen) {
                 for (epic in waiting) {
-                    EpicLine(epic, onOpenEpic, start = 24.dp)
+                    EpicLine(epic, onOpenEpic, start = OrreryTokens.Space.twentyFour)
                 }
             }
         }
@@ -94,20 +93,20 @@ fun EpicsGroup(
             FoldLine("${folded.size} folded", "epics-folded") { foldedOpen = !foldedOpen }
             if (foldedOpen) {
                 for (epic in folded) {
-                    EpicLine(epic, onOpenEpic, start = 24.dp)
+                    EpicLine(epic, onOpenEpic, start = OrreryTokens.Space.twentyFour)
                 }
             }
         }
         if (justEnded.isNotEmpty() || endedEarlier.isNotEmpty()) {
             Text(
-                "Just ended",
-                style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                "Just ended".inLabelCase(),
+                style = OrreryTokens.Type.label,
+                modifier = Modifier.padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.four),
             )
             for (epic in justEnded) {
                 key(epic.id) {
                     EnteringRow(animated) {
-                        EpicLine(epic, onOpenEpic, start = 16.dp, words = endedWordsOf(epic, now))
+                        EpicLine(epic, onOpenEpic, start = OrreryTokens.Space.sixteen, words = endedWordsOf(epic, now))
                     }
                 }
             }
@@ -115,7 +114,7 @@ fun EpicsGroup(
                 FoldLine("${endedEarlier.size} ended earlier ›", "epics-ended-earlier") { endedOpen = !endedOpen }
                 if (endedOpen) {
                     for (epic in endedEarlier) {
-                        EpicLine(epic, onOpenEpic, start = 24.dp, words = endedWordsOf(epic, now))
+                        EpicLine(epic, onOpenEpic, start = OrreryTokens.Space.twentyFour, words = endedWordsOf(epic, now))
                     }
                 }
             }
@@ -138,9 +137,9 @@ private fun FoldLine(text: String, tag: String, onToggle: () -> Unit) {
             .fillMaxWidth()
             .testTag(tag)
             .clickable(onClick = onToggle)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.eight),
     ) {
-        Text(text, style = MaterialTheme.typography.labelMedium)
+        Text(text, style = OrreryTokens.Type.small)
     }
 }
 
@@ -148,7 +147,7 @@ private fun FoldLine(text: String, tag: String, onToggle: () -> Unit) {
 private fun LiveEpic(epic: EpicRow, detail: EpicDetail?, now: Long, onOpenEpic: (String) -> Unit) {
     val shown = epic.runningSteps.take(MAX_STEP_ROWS)
     val more = epic.runningSteps.size - shown.size
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.four)) {
         LiveEpicLine(epic, detail, now, onOpenEpic)
         for (step in shown) {
             StepLine(epic.id, step, onOpenEpic)
@@ -159,16 +158,16 @@ private fun LiveEpic(epic: EpicRow, detail: EpicDetail?, now: Long, onOpenEpic: 
                     .fillMaxWidth()
                     .testTag("epic-more:${epic.id}")
                     .clickable { onOpenEpic(epic.id) }
-                    .padding(start = 24.dp, top = 4.dp, bottom = 4.dp),
+                    .padding(start = OrreryTokens.Space.twentyFour, top = OrreryTokens.Space.four, bottom = OrreryTokens.Space.four),
             ) {
-                Text("$more more", style = MaterialTheme.typography.labelSmall)
+                Text("$more more", style = OrreryTokens.Type.small.copy(fontWeight = OrreryTokens.Font.Weight.bold))
             }
         }
         if (epic.endedSteps > 0) {
             Text(
                 "${epic.endedSteps} ended",
-                style = MaterialTheme.typography.labelSmall,
-                modifier = Modifier.padding(start = 24.dp, top = 4.dp),
+                style = OrreryTokens.Type.small.copy(fontWeight = OrreryTokens.Font.Weight.bold),
+                modifier = Modifier.padding(start = OrreryTokens.Space.twentyFour, top = OrreryTokens.Space.four),
             )
         }
     }
@@ -185,8 +184,8 @@ private fun LiveEpicLine(epic: EpicRow, detail: EpicDetail?, now: Long, onOpenEp
             .fillMaxWidth()
             .testTag("epic:${epic.id}")
             .clickable { onOpenEpic(epic.id) }
-            .padding(top = 4.dp, bottom = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+            .padding(top = OrreryTokens.Space.four, bottom = OrreryTokens.Space.four),
+        horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (detail != null) {
@@ -196,21 +195,21 @@ private fun LiveEpicLine(epic: EpicRow, detail: EpicDetail?, now: Long, onOpenEp
         }
         Column(modifier = Modifier.weight(1f)) {
             // Its words wrap whole onto the next line when the width runs out, rather than squeezing the last ones.
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
-                Text(epic.slug, style = MaterialTheme.typography.bodyLarge)
-                Text(epic.repository, style = MaterialTheme.typography.labelSmall)
-                Text(words.count, style = MaterialTheme.typography.labelSmall)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight), itemVerticalAlignment = Alignment.CenterVertically) {
+                Text(epic.slug, style = OrreryTokens.Type.body)
+                Text(epic.repository, style = OrreryTokens.Type.small.copy(fontWeight = OrreryTokens.Font.Weight.bold))
+                Text(words.count, style = OrreryTokens.Type.small.copy(fontWeight = OrreryTokens.Font.Weight.bold))
             }
             ChangingPhrase(words.state, animated) { shown ->
                 if (shown.isNotEmpty()) {
-                    Text(shown, style = MaterialTheme.typography.labelSmall)
+                    Text(shown, style = OrreryTokens.Type.small.copy(fontWeight = OrreryTokens.Font.Weight.bold))
                 }
             }
             ChangingPhrase(words.blocker, animated) { shown ->
                 if (shown.isNotEmpty()) {
                     Text(
-                        AnnotatedString(shown, SpanStyle(color = Mocha.Peach)),
-                        style = MaterialTheme.typography.labelSmall,
+                        AnnotatedString(shown, SpanStyle(color = OrreryTokens.Role.attention)),
+                        style = OrreryTokens.Type.small.copy(fontWeight = OrreryTokens.Font.Weight.bold),
                         modifier = Modifier.testTag("blocker:${epic.id}"),
                     )
                 }
@@ -258,14 +257,14 @@ private fun EpicLine(epic: EpicRow, onOpenEpic: (String) -> Unit, start: Dp, wor
             .fillMaxWidth()
             .testTag("epic:${epic.id}")
             .clickable { onOpenEpic(epic.id) }
-            .padding(start = start, top = 4.dp, bottom = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+            .padding(start = start, top = OrreryTokens.Space.four, bottom = OrreryTokens.Space.four),
+        horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
         itemVerticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(epic.slug, style = MaterialTheme.typography.bodyLarge)
-        Text(epic.repository, style = MaterialTheme.typography.labelSmall)
+        Text(epic.slug, style = OrreryTokens.Type.body)
+        Text(epic.repository, style = OrreryTokens.Type.small.copy(fontWeight = OrreryTokens.Font.Weight.bold))
         if (words.isNotEmpty()) {
-            Text(words, style = MaterialTheme.typography.labelSmall)
+            Text(words, style = OrreryTokens.Type.small.copy(fontWeight = OrreryTokens.Font.Weight.bold))
         }
     }
 }
@@ -277,19 +276,19 @@ private fun StepLine(epicId: String, step: StepRow, onOpenEpic: (String) -> Unit
             .fillMaxWidth()
             .testTag("step:${step.id}")
             .clickable { onOpenEpic(epicId) }
-            .padding(start = 24.dp, top = 4.dp, bottom = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+            .padding(start = OrreryTokens.Space.twentyFour, top = OrreryTokens.Space.four, bottom = OrreryTokens.Space.four),
+        horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
         verticalAlignment = Alignment.Top,
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            Text(step.agent, style = MaterialTheme.typography.bodySmall)
-            Text(step.task, style = MaterialTheme.typography.labelSmall)
-            Text(step.doing, style = MaterialTheme.typography.bodySmall)
+            Text(step.agent, style = OrreryTokens.Type.small)
+            Text(step.task, style = OrreryTokens.Type.small.copy(fontWeight = OrreryTokens.Font.Weight.bold))
+            Text(step.doing, style = OrreryTokens.Type.small)
         }
         if (step.held) {
             Text(
                 "held",
-                style = MaterialTheme.typography.labelMedium,
+                style = OrreryTokens.Type.small,
                 modifier = Modifier.testTag("held:${step.id}"),
             )
         }
