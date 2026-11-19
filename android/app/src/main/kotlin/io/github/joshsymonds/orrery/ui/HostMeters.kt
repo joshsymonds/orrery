@@ -34,8 +34,9 @@ private val seriesColours = listOf(
 
 /**
  * The host's stats as meters, spread across the width. Each shows its uppercase label over its
- * value. A stat with a percent also gets a thin bar filled to that percent: in its series colour
- * at ok, and in the level's colour at warn or crit.
+ * value, and the value takes the level's colour at warn or crit. A stat with a percent also gets a
+ * thin bar filled to that percent: in its series colour at ok, and in the level's colour at warn
+ * or crit.
  */
 @Composable
 fun HostMeters(stats: List<HostStat>, modifier: Modifier = Modifier) {
@@ -59,7 +60,7 @@ fun HostMeters(stats: List<HostStat>, modifier: Modifier = Modifier) {
                 Text(
                     text = stat.value,
                     style = OrreryTokens.Type.small,
-                    color = OrreryTokens.Ink.one,
+                    color = valueColour(stat.level),
                     maxLines = 1,
                 )
                 stat.percent?.let { percent ->
@@ -91,4 +92,11 @@ private fun fillColour(index: Int, level: String): Color = when (level) {
     "warn" -> OrreryTokens.Level.warn
     "crit" -> OrreryTokens.Level.crit
     else -> seriesColours[index % seriesColours.size]
+}
+
+// A warn or crit level takes the value; any other level, which the server says is ok, keeps the ink.
+private fun valueColour(level: String): Color = when (level) {
+    "warn" -> OrreryTokens.Level.warn
+    "crit" -> OrreryTokens.Level.crit
+    else -> OrreryTokens.Ink.one
 }

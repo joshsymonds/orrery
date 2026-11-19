@@ -1,10 +1,12 @@
 package io.github.joshsymonds.orrery.ui.theme
 
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 
 val OrreryColorScheme = darkColorScheme(
     background = OrreryTokens.Surface.page,
@@ -45,6 +47,10 @@ fun OrreryTheme(content: @Composable () -> Unit) {
         colorScheme = OrreryColorScheme,
         typography = OrreryTypography,
         shapes = OrreryShapes,
-        content = content,
+        content = {
+            CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides OrreryTokens.Size.controlTouch) {
+                content()
+            }
+        },
     )
 }

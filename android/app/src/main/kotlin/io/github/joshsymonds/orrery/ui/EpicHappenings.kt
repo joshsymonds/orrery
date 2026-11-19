@@ -154,7 +154,7 @@ private fun CheckTails(tag: String, check: StepCheckRow) {
         }
         if (check.stderr.isNotEmpty()) {
             Text("stderr".inLabelCase(), style = OrreryTokens.Type.label)
-            Text(check.stderr, style = OrreryTokens.Type.small, color = OrreryTokens.Role.halt)
+            Text(check.stderr, style = OrreryTokens.Type.small)
         }
     }
 }

@@ -274,7 +274,7 @@ private fun ComposeDraft(
                 ),
                 color = when (reason) {
                     SendFailure.NOT_SENT -> OrreryTokens.Role.bad
-                    SendFailure.NO_ANSWER -> OrreryTokens.Role.attention
+                    SendFailure.NO_ANSWER -> OrreryTokens.Role.halt
                 },
                 style = OrreryTokens.Type.small,
             )
