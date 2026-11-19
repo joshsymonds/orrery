@@ -7,6 +7,7 @@ import { act } from "preact/test-utils";
 
 import type { EpicCalls } from "./card";
 import type { Conversation } from "./conversation";
+import { type EpicsView, epicsView, noEpics } from "./epics";
 import { type EpicsGetResponse, EpicSchema, EpicsGetResponseSchema } from "./gen/orrery/v1/epics_pb";
 import { type ConversationItem, ConversationItemSchema, ConversationStateSchema } from "./gen/orrery/v1/orrery_pb";
 import { Reader } from "./reader";
@@ -72,19 +73,20 @@ function orreryd(
 }
 
 // FakeEpics answers the card's reads with its detail, or refuses them when given an error, and records each call the
-// card makes. calls makes the epic calls over it at a tick.
+// card makes. A test may change the answer between reads. calls makes the epic calls over it, with the poll's epics,
+// which hold none by default.
 class FakeEpics {
   readonly reads: string[] = [];
   readonly pauses: string[] = [];
   readonly resumes: string[] = [];
   readonly opened: string[] = [];
-  private readonly answer: EpicsGetResponse | Error;
+  answer: EpicsGetResponse | Error;
 
   constructor(answer: EpicsGetResponse | Error) {
     this.answer = answer;
   }
 
-  calls(tick = 1): EpicCalls {
+  calls(epics: EpicsView = noEpics): EpicCalls {
     return {
       get: async (id) => {
         this.reads.push(id);
@@ -104,9 +106,28 @@ class FakeEpics {
         this.opened.push(id);
       },
       openStep: () => {},
-      tick,
+      epics,
     };
   }
+}
+
+// polledView is the poll's epics when it holds detail of the card's epic, listed as detail's epic.
+function polledView(detail: EpicsGetResponse): EpicsView {
+  const epic = detail.epic;
+  if (epic === undefined) {
+    throw new Error("the detail holds no epic");
+  }
+  return epicsView([epic], new Map([[epicId, detail]]));
+}
+
+// listedView is the poll's epics when it lists the card's epic as listed and holds no detail of it, as for an epic that
+// has ended.
+function listedView(listed: EpicsGetResponse): EpicsView {
+  const epic = listed.epic;
+  if (epic === undefined) {
+    throw new Error("the detail holds no epic");
+  }
+  return epicsView([epic], new Map());
 }
 
 // settle waits until check holds, each round running inside act, so the renders a read or a command causes are applied
@@ -391,34 +412,113 @@ test("EpicWidget: an epic_create call between other tool calls draws its card ou
   });
 });
 
-test("EpicWidget: the card reads its epic again only when the tick changes", async (t) => {
-  const fake = new FakeEpics(orreryd("accepted"));
+// withRedraws draws the reader over the create call and its result, and gives check the function that draws it again
+// with other epic calls, as each render of the page's reader does.
+async function withRedraws(
+  first: EpicCalls,
+  check: (container: HTMLElement, redraw: (calls: EpicCalls) => Promise<void>) => Promise<void>,
+): Promise<void> {
   const items = [createCall(), resultItem(createId, "created")];
   const window = installTestDom();
   const container = document.createElement("div");
-  const draw = (epicCalls: EpicCalls) => (
-    <Reader conversation={conversationOf(items)} seenAt={seenAt} open={false} epicCalls={epicCalls} />
-  );
+  const redraw = (epicCalls: EpicCalls) =>
+    act(() => {
+      render(
+        <Reader conversation={conversationOf(items)} seenAt={seenAt} open={false} epicCalls={epicCalls} />,
+        container,
+      );
+    });
   try {
-    await act(() => {
-      render(draw(fake.calls(1)), container);
-    });
-    await drawn(t, container);
-    assert.deepEqual(fake.reads, [epicId]);
-    await act(() => {
-      render(draw(fake.calls(1)), container);
-    });
-    await act(turn);
-    assert.deepEqual(fake.reads, [epicId], "a new calls object at the same tick reads nothing");
-    await act(() => {
-      render(draw(fake.calls(2)), container);
-    });
-    await settle(t, () => fake.reads.length === 2, "the card reads its epic at the new tick");
-    assert.deepEqual(fake.reads, [epicId, epicId]);
+    await redraw(first);
+    await check(container, redraw);
   } finally {
     await act(() => {
       render(null, container);
     });
     await removeTestDom(window);
   }
+}
+
+test("EpicWidget: a card whose epic the poll holds draws the poll's detail, reads nothing, and draws the poll's next detail", async (t) => {
+  const fake = new FakeEpics(orreryd("accepted"));
+  await withRedraws(fake.calls(polledView(orreryd("accepted"))), async (container, redraw) => {
+    await drawn(t, container);
+    assert.equal(textOf(container, ".pill"), "planning");
+    await redraw(fake.calls(polledView(orreryd("accepted"))));
+    await act(turn);
+    await redraw(fake.calls(polledView(orreryd("releasing"))));
+    await settle(t, () => textOf(container, ".pill") === "releasing", "the poll's next detail draws");
+    await act(turn);
+    assert.deepEqual(fake.reads, [], "a card over a polled epic read it");
+  });
+});
+
+test("EpicWidget: a card whose epic the poll does not hold reads it on mount, and again only when its listed message changes", async (t) => {
+  const ended = orreryd("released", {}, false);
+  const fake = new FakeEpics(ended);
+  await withRedraws(fake.calls(listedView(ended)), async (container, redraw) => {
+    await drawn(t, container);
+    assert.deepEqual(fake.reads, [epicId]);
+    // A later poll lists the same message in a new view, as each epics load does.
+    await redraw(fake.calls(listedView(orreryd("released", {}, false))));
+    await act(turn);
+    await act(turn);
+    assert.deepEqual(fake.reads, [epicId], "a new view over the same listed message read the epic");
+    const reseen = orreryd("released", {}, false);
+    if (reseen.epic !== undefined) {
+      reseen.epic.seen = 500n;
+    }
+    await redraw(fake.calls(listedView(reseen)));
+    await settle(t, () => fake.reads.length === 2, "the card reads its epic when its listed message changes");
+    await act(turn);
+    assert.deepEqual(fake.reads, [epicId, epicId]);
+  });
+});
+
+test("EpicWidget: a card whose epic is not listed at all reads it once on mount", async (t) => {
+  const fake = new FakeEpics(orreryd("accepted"));
+  await withRedraws(fake.calls(), async (container, redraw) => {
+    await drawn(t, container);
+    await redraw(fake.calls());
+    await act(turn);
+    await act(turn);
+    assert.deepEqual(fake.reads, [epicId]);
+  });
+});
+
+test("EpicWidget: a Pause that lands reads the epic once more, and its reading draws until the poll's detail changes", async (t) => {
+  const fake = new FakeEpics(orreryd("accepted", { paused: true }));
+  const polled = polledView(orreryd("accepted"));
+  await withRedraws(fake.calls(polled), async (container, redraw) => {
+    await drawn(t, container);
+    assert.equal(textOf(container, ".pill"), "planning");
+    await click(buttonNamed(container, "Pause"));
+    await settle(t, () => textOf(container, ".pill") === "paused", "the reread draws the paused epic");
+    assert.deepEqual(fake.pauses, [epicId]);
+    assert.deepEqual(fake.reads, [epicId], "the landed pause did not read the epic once");
+    // The same poll detail drawn again keeps the reread's answer.
+    await redraw(fake.calls(polled));
+    await act(turn);
+    assert.equal(textOf(container, ".pill"), "paused", "the poll's unchanged detail replaced the reread");
+    await redraw(fake.calls(polledView(orreryd("releasing"))));
+    await settle(t, () => textOf(container, ".pill") === "releasing", "the poll's next detail draws");
+    assert.deepEqual(fake.reads, [epicId]);
+  });
+});
+
+test("EpicWidget: a refused pause reads nothing more", async (t) => {
+  const fake = new FakeEpics(orreryd("accepted"));
+  const calls: EpicCalls = {
+    ...fake.calls(polledView(orreryd("accepted"))),
+    pause: async () => {
+      throw new Error("the epic refused the pause");
+    },
+  };
+  await withRedraws(calls, async (container) => {
+    await drawn(t, container);
+    await click(buttonNamed(container, "Pause"));
+    await settle(t, () => container.querySelector(".error") !== null, "the refused pause draws its line");
+    await act(turn);
+    assert.deepEqual(fake.reads, []);
+  });
 });

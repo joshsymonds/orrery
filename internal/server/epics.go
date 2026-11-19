@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -58,7 +57,8 @@ type epicsServer struct {
 
 // List answers every epic under the record root and every epic orreryd's database holds, live or folded, sorted by id.
 // An epic in both is answered once, with the database's fields and the record's problem. It asks ListEpics and ListSteps
-// once each, and again only to retry an unavailable answer. It reads the archive marks once, and sets each epic's
+// once each, and again only to retry an unavailable answer. ListSteps is asked for the running steps alone, with the
+// count of each epic's ended steps, so no ended step is read. It reads the archive marks once, and sets each epic's
 // archived field by them and the aging rule (see archivedRow).
 func (e epicsServer) List(
 	ctx context.Context,
@@ -72,7 +72,7 @@ func (e epicsServer) List(
 	if err != nil {
 		return nil, err
 	}
-	steps, err := e.listSteps(ctx, "")
+	listed, err := e.listSteps(ctx, &enginev1.ListStepsRequest{Running: true})
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +80,8 @@ func (e epicsServer) List(
 	if err != nil {
 		return nil, err
 	}
-	byEpic := stepsByEpic(steps)
+	byEpic := stepsByEpic(listed.GetSteps())
+	ended := listed.GetEnded()
 	now := e.now()
 	storedByID := make(map[string]*enginev1.EpicSummary, len(stored))
 	for _, summary := range stored {
@@ -93,20 +94,16 @@ func (e epicsServer) List(
 			return nil, listError(connect.CodeInternal, epicsFailed)
 		}
 		summary, shared := storedByID[rec.ID]
+		counts := runningCounts(byEpic[rec.ID], ended[rec.ID])
 		if !shared {
-			epics = append(epics, epicMessage(rec, tasks, taskProblems, byEpic[rec.ID], now))
+			epics = append(epics, epicMessage(rec, tasks, taskProblems, counts, now))
 			continue
 		}
-		epics = append(epics, storedEpicMessage(
-			rec.ID, summary.GetPhase(), summary.GetPhaseAt(), summary.GetChanged(), summary.GetSeen(),
-			recordProblems(rec, taskProblems), byEpic[rec.ID],
-		))
+		epics = append(epics, storedEpicMessage(rec.ID, summary, recordProblems(rec, taskProblems), counts))
 		delete(storedByID, rec.ID)
 	}
 	for id, summary := range storedByID {
-		epics = append(epics, storedEpicMessage(
-			id, summary.GetPhase(), summary.GetPhaseAt(), summary.GetChanged(), summary.GetSeen(), nil, byEpic[id],
-		))
+		epics = append(epics, storedEpicMessage(id, summary, nil, runningCounts(byEpic[id], ended[id])))
 	}
 	markEpics(epics, marks, now)
 	sort.Slice(epics, func(i, j int) bool { return epics[i].GetId() < epics[j].GetId() })
@@ -138,7 +135,7 @@ func (e epicsServer) Get(
 	if !inStore && !found {
 		return nil, listError(connect.CodeNotFound, epicNotFound)
 	}
-	steps, err := e.listSteps(ctx, id)
+	listed, err := e.listSteps(ctx, &enginev1.ListStepsRequest{Epic: id})
 	if err != nil {
 		return nil, err
 	}
@@ -154,7 +151,8 @@ func (e epicsServer) Get(
 	if err != nil {
 		return nil, listError(connect.CodeInternal, epicsFailed)
 	}
-	labeled := stepsByEpic(steps)[id]
+	labeled := stepsByEpic(listed.GetSteps())[id]
+	counts := epicSteps(labeled)
 	repository := stored.GetContract().GetRepository()
 	if repository == "" {
 		repository = rec.Workspace
@@ -167,10 +165,7 @@ func (e epicsServer) Get(
 		Sessions:   e.listSessions(ctx, id),
 	}
 	if inStore {
-		resp.Epic = storedEpicMessage(
-			id, stored.GetPhase(), stored.GetPhaseAt(), stored.GetChanged(), stored.GetSeen(),
-			recordProblems(rec, taskProblems), labeled,
-		)
+		resp.Epic = storedEpicMessage(id, stored, recordProblems(rec, taskProblems), counts)
 		runs := e.listEvidence(ctx, id)
 		roles := storedStepRoles(stored, runs)
 		applyStoredRoles(resp.GetSteps(), roles)
@@ -189,22 +184,26 @@ func (e epicsServer) Get(
 		resp.Paused = stored.GetPaused()
 		resp.Parked = stored.GetParked()
 		resp.PlannerParked = stored.GetParked() != "" && !store.ParkClass(stored.GetParkClass()).OwnerHeld()
+		resp.SupersededBy = stored.GetSupersededBy()
 	} else {
-		resp.Epic = epicMessage(rec, tasks, taskProblems, labeled, e.now())
+		resp.Epic = epicMessage(rec, tasks, taskProblems, counts, e.now())
 	}
 	return connect.NewResponse(resp), nil
 }
 
-// listSteps asks the step client for the labeled steps, narrowed to epic when epic is not empty. A nil client, or a
+// listSteps asks the step client for the labeled steps req narrows to, and answers its reply. A nil client, or a
 // ListSteps that still fails after its unavailable retries, answers unavailable.
-func (e epicsServer) listSteps(ctx context.Context, epic string) ([]*enginev1.Step, error) {
+func (e epicsServer) listSteps(
+	ctx context.Context,
+	req *enginev1.ListStepsRequest,
+) (*enginev1.ListStepsResponse, error) {
 	if e.steps == nil {
 		return nil, listError(connect.CodeUnavailable, stepsUnavailable)
 	}
 	var resp *connect.Response[enginev1.ListStepsResponse]
 	err := retryUnder(ctx, e.clock, e.timeout, rpcretry.Unavailable, func(ctx context.Context) error {
 		var err error
-		resp, err = e.steps.ListSteps(ctx, connect.NewRequest(&enginev1.ListStepsRequest{Epic: epic}))
+		resp, err = e.steps.ListSteps(ctx, connect.NewRequest(req))
 		if err != nil {
 			return fmt.Errorf("server: list steps: %w", err)
 		}
@@ -213,7 +212,7 @@ func (e epicsServer) listSteps(ctx context.Context, epic string) ([]*enginev1.St
 	if err != nil {
 		return nil, listError(connect.CodeUnavailable, stepsUnavailable)
 	}
-	return resp.Msg.GetSteps(), nil
+	return resp.Msg, nil
 }
 
 // listEvidence asks the evidence client for the runs of epic, in the order it lists them. A nil client, or a
@@ -328,16 +327,16 @@ func stepsByEpic(steps []*enginev1.Step) map[string][]*enginev1.Step {
 }
 
 // epicMessage returns the Epic for rec, an epic the records alone hold, with the tasks its efforts hold. Its problem is
-// recordProblems. Its running steps are the labeled steps that have not ended, held ones included, and the rest count as
-// ended. It is waiting when it is live, has no outcome, no running step and no task: accepted and yet to start.
+// recordProblems. Its running steps and its count of ended steps are counts'. It is waiting when it is live, has no
+// outcome, no running step and no task: accepted and yet to start.
 func epicMessage(
 	rec epicRecord,
 	tasks []taskRecord,
 	taskProblems []string,
-	labeled []*enginev1.Step,
+	counts epicStepCounts,
 	now time.Time,
 ) *orreryv1.Epic {
-	running, ended := epicSteps(labeled)
+	running := counts.running
 	live := epicLive(rec, now, len(running) > 0)
 	return &orreryv1.Epic{
 		Id:            rec.ID,
@@ -349,36 +348,41 @@ func epicMessage(
 		Live:          live,
 		Waiting:       live && rec.Outcome == "" && len(running) == 0 && len(tasks) == 0,
 		RunningSteps:  running,
-		EndedSteps:    ended,
+		EndedSteps:    counts.ended,
 		Problem:       strings.Join(recordProblems(rec, taskProblems), "; "),
 		Source:        epicSourceRecord,
 	}
 }
 
-// storedEpicMessage returns the Epic of an epic orreryd's database holds: its outcome is the phase, which for a closed
-// epic is the closed phase of its kind, its phase time is phaseAt, its changed time is the database's, its seen time is
-// seen, and it is live unless the phase is released or done, which end an epic, or a closed phase, which a close ends
-// it in; ended_with_gaps and stopped stay live. Its problem joins problems, which are the record's when a record of the
-// id exists and none otherwise. Its steps are the labeled steps, as epicMessage's are.
-func storedEpicMessage(
-	id, phase string,
-	phaseAt, changed, seen int64,
-	problems []string,
-	labeled []*enginev1.Step,
-) *orreryv1.Epic {
-	running, ended := epicSteps(labeled)
+// storedHead is the head of an epic orreryd's database holds, as ListEpics and GetEpic answer it.
+type storedHead interface {
+	GetPhase() string
+	GetPhaseAt() int64
+	GetChanged() int64
+	GetSeen() int64
+	GetRevision() int64
+}
+
+// storedEpicMessage returns the Epic of an epic orreryd's database holds, from its head: its outcome is the phase,
+// which for a closed epic is the closed phase of its kind, its phase time, changed time, seen time and revision are the
+// database's, and it is live unless the phase is released or done, which end an epic, or a closed phase, which a close
+// ends it in; ended_with_gaps and stopped stay live. Its problem joins problems, which are the record's when a record of
+// the id exists and none otherwise. Its running steps and its count of ended steps are counts', as epicMessage's are.
+func storedEpicMessage(id string, head storedHead, problems []string, counts epicStepCounts) *orreryv1.Epic {
+	phase := head.GetPhase()
 	repository, slug, _ := strings.Cut(id, "/")
 	return &orreryv1.Epic{
 		Id:           id,
 		Repository:   repository,
 		Slug:         slug,
 		Outcome:      phase,
-		PhaseAt:      phaseAt,
-		Changed:      changed,
-		Seen:         seen,
+		PhaseAt:      head.GetPhaseAt(),
+		Changed:      head.GetChanged(),
+		Seen:         head.GetSeen(),
+		Revision:     head.GetRevision(),
 		Live:         phase != "released" && phase != "done" && !store.IsClosedPhase(phase),
-		RunningSteps: running,
-		EndedSteps:   ended,
+		RunningSteps: counts.running,
+		EndedSteps:   counts.ended,
 		Problem:      strings.Join(problems, "; "),
 		Source:       epicSourceOrreryd,
 	}
@@ -393,18 +397,33 @@ func recordProblems(rec epicRecord, taskProblems []string) []string {
 	return append(problems, taskProblems...)
 }
 
-// epicSteps splits labeled into the running steps, which have not ended and include held ones, and a count of the rest.
-func epicSteps(labeled []*enginev1.Step) ([]*orreryv1.EpicStep, int32) {
-	var running []*orreryv1.EpicStep
-	var ended int32
+// epicStepCounts is what an Epic carries of its labeled steps: the EpicStep of each running step, which has not ended
+// and may be held, and how many have ended.
+type epicStepCounts struct {
+	running []*orreryv1.EpicStep
+	ended   int32
+}
+
+// epicSteps splits labeled, every labeled step of one epic, into its running steps and a count of the rest.
+func epicSteps(labeled []*enginev1.Step) epicStepCounts {
+	var counts epicStepCounts
 	for _, step := range labeled {
 		if step.GetEnd() == "" {
-			running = append(running, epicStepMessage(step))
+			counts.running = append(counts.running, epicStepMessage(step))
 		} else {
-			ended++
+			counts.ended++
 		}
 	}
-	return running, ended
+	return counts
+}
+
+// runningCounts returns the counts of one epic from a ListSteps of the running steps: running, the epic's running
+// steps, and ended, the count of its ended steps the answer gave. A listed step that has ended, which such an answer
+// does not hold, counts as ended too.
+func runningCounts(running []*enginev1.Step, ended int32) epicStepCounts {
+	counts := epicSteps(running)
+	counts.ended += ended
+	return counts
 }
 
 // epicRequirementMessages converts each requirement of a contract to its EpicRequirement, in order. A requirement with
@@ -726,7 +745,7 @@ func epicStepMessage(step *enginev1.Step) *orreryv1.EpicStep {
 		LimitResets:  step.GetLimitResets(),
 		ReadOnly:     step.GetReadOnly(),
 		Role:         role,
-		Summary:      redact.Text(stepResultSummary(step.GetResult())),
+		Summary:      redact.Text(step.GetSummary()),
 		Verdicts:     epicStepVerdictMessages(step.GetVerdicts()),
 	}
 }
@@ -827,9 +846,8 @@ func epicSlices(steps []*enginev1.Step) []*orreryv1.EpicSlice {
 // running or held step's at is the ring it is working toward, and it has no error. An ended step has no at and no held,
 // and errors at the ring its end names, or at the first ring not reached when the end names none.
 func epicSliceMessage(label string, step *enginev1.Step) *orreryv1.EpicSlice {
-	fields := stepResultFields(step.GetResult())
-	redTest := stepResultEvidence(fields, "red_evidence")
-	testsPass := stepResultEvidence(fields, "green_evidence")
+	redTest := step.GetRedEvidence()
+	testsPass := step.GetGreenEvidence()
 	checks := epicChecksPass(step.GetChecks())
 	gateAccepted := step.GetEnd() == epicEndDone
 	slice := &orreryv1.EpicSlice{
@@ -887,45 +905,6 @@ func epicFirstOpenRing(redTest, testsPass, checks, gateAccepted bool) int32 {
 		}
 	}
 	return 0
-}
-
-// stepResultFields parses a step's result as a JSON object. A result that does not parse, or is not an object, has no
-// fields.
-func stepResultFields(result string) map[string]json.RawMessage {
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(result), &fields); err != nil {
-		return nil
-	}
-	return fields
-}
-
-// stepResultSummary returns the string summary of a step's result. A result with no summary, or one whose summary is not
-// a string, has none.
-func stepResultSummary(result string) string {
-	raw, ok := stepResultFields(result)["summary"]
-	if !ok {
-		return ""
-	}
-	var summary string
-	if err := json.Unmarshal(raw, &summary); err != nil {
-		return ""
-	}
-	return summary
-}
-
-// stepResultEvidence reports whether fields holds key as a string that, trimmed, is non-empty and does not start with
-// NOT RUN in any case. A value that is not a string is no evidence.
-func stepResultEvidence(fields map[string]json.RawMessage, key string) bool {
-	raw, ok := fields[key]
-	if !ok {
-		return false
-	}
-	var text string
-	if err := json.Unmarshal(raw, &text); err != nil {
-		return false
-	}
-	text = strings.TrimSpace(text)
-	return text != "" && !strings.HasPrefix(strings.ToUpper(text), "NOT RUN")
 }
 
 // epicChecksPass reports whether every check of the highest round is ok and one of them is the gate. No checks is

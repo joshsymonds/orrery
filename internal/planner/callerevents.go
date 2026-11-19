@@ -2,10 +2,9 @@ package planner
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -19,14 +18,11 @@ type EpicCallerStore interface {
 	CallerEventMarked(ctx context.Context, event, session string) (bool, error)
 }
 
-// EpicCallerEventsConfig configures an EpicCallerEvents. A Tick that is not positive means defaultTick. Ticks, when not
-// nil, is where Run takes its ticks in place of a ticker every Tick. A nil Logger discards.
+// EpicCallerEventsConfig configures an EpicCallerEvents. Store lists the epics and their marks, and Sender sends their
+// events.
 type EpicCallerEventsConfig struct {
 	Store  EpicCallerStore
 	Sender *enginehost.CallerSender
-	Tick   time.Duration
-	Ticks  <-chan time.Time
-	Logger *slog.Logger
 }
 
 // EpicCallerEvents tells the session that created each epic, once, when the epic parks, asks a question, releases or
@@ -34,93 +30,69 @@ type EpicCallerEventsConfig struct {
 type EpicCallerEvents struct {
 	store  EpicCallerStore
 	sender *enginehost.CallerSender
-	tick   time.Duration
-	ticks  <-chan time.Time
-	logger *slog.Logger
 }
 
 // NewEpicCallerEvents returns an EpicCallerEvents for cfg.
 func NewEpicCallerEvents(cfg EpicCallerEventsConfig) *EpicCallerEvents {
-	events := &EpicCallerEvents{
-		store: cfg.Store, sender: cfg.Sender, tick: cfg.Tick, ticks: cfg.Ticks, logger: cfg.Logger,
-	}
-	if events.tick <= 0 {
-		events.tick = defaultTick
-	}
-	if events.logger == nil {
-		events.logger = slog.New(slog.DiscardHandler)
-	}
-	return events
+	return &EpicCallerEvents{store: cfg.Store, sender: cfg.Sender}
 }
 
-// Run passes at once, then once per tick, until ctx ends.
-func (e *EpicCallerEvents) Run(ctx context.Context) {
-	ticks := e.ticks
-	if ticks == nil {
-		ticker := time.NewTicker(e.tick)
-		defer ticker.Stop()
-		ticks = ticker.C
-	}
-	for {
-		e.Pass(ctx)
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticks:
-		}
-	}
-}
-
-// Pass sends the events of each epic that Store.Attention lists to its creator, as Run does on each tick. An epic with
-// no creator sends nothing. A send that fails is logged, and the pass goes on to the next event.
-func (e *EpicCallerEvents) Pass(ctx context.Context) {
+// Pass sends the events of each epic that Store.Attention lists to its creator. An epic with no creator sends nothing.
+// It returns the read error of the epics, or else the errors of the reads and sends that failed, joined. A failure does
+// not stop the pass: it goes on to the next event.
+func (e *EpicCallerEvents) Pass(ctx context.Context) error {
 	entries, err := e.store.Attention(ctx)
 	if err != nil {
-		e.logger.ErrorContext(ctx, "list attention for caller events", "err", err)
-		return
+		return fmt.Errorf("read attention for caller events: %w", err)
 	}
+	errs := make([]error, 0, len(entries))
 	for _, entry := range entries {
-		e.attend(ctx, entry)
+		errs = append(errs, e.attend(ctx, entry))
 	}
+	return errors.Join(errs...)
 }
 
-// attend sends the events of one epic to its creator: each open question in seq order, then the end of its phase.
-func (e *EpicCallerEvents) attend(ctx context.Context, entry store.EpicAttention) {
+// attend sends the events of one epic to its creator: each open question in seq order, then the end of its phase. It
+// returns the errors of the creator read and of the sends, joined.
+func (e *EpicCallerEvents) attend(ctx context.Context, entry store.EpicAttention) error {
 	creator, ok, err := e.store.EpicCreator(ctx, entry.Epic)
 	if err != nil {
-		e.logger.ErrorContext(ctx, "read creator of epic", "epic", entry.Epic, "err", err)
-		return
+		return fmt.Errorf("read creator of epic %s: %w", entry.Epic, err)
 	}
 	if !ok {
-		return
+		return nil
 	}
+	errs := make([]error, 0, len(entry.Open)+1)
 	for _, question := range entry.Open {
 		kind, body := questionEventOf(entry, question)
-		e.send(ctx, entry.Epic, creator, store.EpicQuestionEvent(entry.Epic, question.Seq), kind, body)
+		event := store.EpicQuestionEvent(entry.Epic, question.Seq)
+		errs = append(errs, e.send(ctx, entry.Epic, creator, event, kind, body))
 	}
 	if kind, sends := store.EpicPhaseEventKind(entry.Phase); sends {
-		e.send(ctx, entry.Epic, creator, store.EpicPhaseEvent(entry.Epic, entry.Phase), kind, phaseEventBody(entry))
+		event := store.EpicPhaseEvent(entry.Epic, entry.Phase)
+		errs = append(errs, e.send(ctx, entry.Epic, creator, event, kind, phaseEventBody(entry)))
 	}
+	return errors.Join(errs...)
 }
 
 // send sends the event with id event, of kind and body, to creator, unless the creator's mark shows it was sent. The
 // CallerSender marks the event once it is finished, and holds it while the creator is busy or stopped, so a later pass
-// sends it.
+// sends it. It returns the error of the mark read or of the send.
 func (e *EpicCallerEvents) send(
 	ctx context.Context, epic string, creator store.CallerSession, event, kind, body string,
-) {
+) error {
 	marked, err := e.store.CallerEventMarked(ctx, event, creator.ID)
 	if err != nil {
-		e.logger.ErrorContext(ctx, "read caller event mark", "epic", epic, "event", event, "err", err)
-		return
+		return fmt.Errorf("read caller event mark of %s: %w", event, err)
 	}
 	if marked {
-		return
+		return nil
 	}
 	text := enginehost.CallerEventBlock(kind, event, body)
 	if _, err = e.sender.Send(ctx, creator, event, text); err != nil {
-		e.logger.ErrorContext(ctx, "send epic event", "epic", epic, "event", event, "caller", creator.ID, "err", err)
+		return fmt.Errorf("send epic event %s of epic %s to caller %s: %w", event, epic, creator.ID, err)
 	}
+	return nil
 }
 
 // questionEventOf returns the kind and body of the event of open question of entry. A park question's body is the

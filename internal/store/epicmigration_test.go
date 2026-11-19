@@ -33,6 +33,8 @@ func epicTableColumns() map[string][]string {
 			"synced",
 			// The epic's last read of origin's main, which a sync starts from, is 00054_origin_read.sql.
 			"origin_read_base", "origin_read_commit", "origin_read_state", "origin_read_at",
+			// revision, which counts the writes to the epic and its parts, is 00069_epic_revisions.sql.
+			"revision",
 		},
 		"epic_failures":  {"epic", "position", "id", "text", "rating", "response"},
 		"epic_additions": {"epic", "position", "location", "what", "why", "cost"},
@@ -533,13 +535,14 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00066_put_off_questions.sql is the newest. The newest
-	// was 00065_task_gate_changes.sql before the put-off marks added 00066, 00064_step_indexes.sql before the gate
-	// changes added 00065, 00063_task_versions.sql before the step indexes added 00064, 00062_drop_engine_held.sql
-	// before the task versions added 00063, 00061_prompt_states.sql before the drop of engine_held added 00062, and
-	// 00060_cron_jobs.sql before the prompt states added 00061.
-	if version != 66 {
-		t.Fatalf("store version after Open = %d, want 66", version)
+	// Open applies 00014_epics.sql and every migration after it: 00069_epic_revisions.sql is the newest. The newest was
+	// 00068_step_listings.sql before the epic revisions added 00069, 00067_drop_caller_read.sql before the step listings added 00068, 00066_put_off_questions.sql before the drop of
+	// caller_read added 00067, 00065_task_gate_changes.sql before the put-off marks added 00066,
+	// 00064_step_indexes.sql before the gate changes added 00065, 00063_task_versions.sql before the step indexes added
+	// 00064, 00062_drop_engine_held.sql before the task versions added 00063, 00061_prompt_states.sql before the drop of
+	// engine_held added 00062, and 00060_cron_jobs.sql before the prompt states added 00061.
+	if version != 69 {
+		t.Fatalf("store version after Open = %d, want 69", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and
@@ -1180,6 +1183,8 @@ func TestPlannerControlsDefaultOnRowsStoredAtVersion16(t *testing.T) {
 			"",
 			"",
 			"",
+			int64(0),
+			// revision, which 00069_epic_revisions.sql adds at 0; its triggers count no write made before them.
 			int64(0),
 		},
 		"epic_turns":      {int64(0), int64(0), int64(0)},

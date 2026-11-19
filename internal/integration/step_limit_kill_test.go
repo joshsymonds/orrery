@@ -90,7 +90,7 @@ func TestStepLimitSigkillKeepsLimitedStepAndResumesDone(t *testing.T) {
 // startLimitKillStep starts the rig's writing step with the LIMIT prompt and returns its id.
 func (r *stepReadoptRig) startLimitKillStep(t *testing.T) string {
 	t.Helper()
-	resp, err := r.steps().StartStep(t.Context(), connect.NewRequest(&v1.StartStepRequest{
+	resp, err := r.steps().StartStep(t.Context(), r.startRequest(t, &v1.StartStepRequest{
 		Agent:      stepReadoptAgent,
 		Prompt:     limitKillPrompt,
 		Schema:     stepReadoptSchema,

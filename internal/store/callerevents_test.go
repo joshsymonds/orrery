@@ -149,60 +149,6 @@ func TestCallerEventStoreEpicCreatorReturnsPaneRowUntilItIsGone(t *testing.T) {
 	}
 }
 
-func TestCallerEventStoreMarkStepReadMarksOwnEndedStep(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, _ := openEpicCallStore(t)
-	addCallerEngines(t, s, "engine-1")
-	startCallerStep(t, s, "step-1", store.EpicCaller{Session: "engine-1"})
-	endCallerStep(t, s, "step-1", callerLater())
-
-	if got := callerStepIDs(listCallerSteps(t, s)); !reflect.DeepEqual(got, []string{"step-1"}) {
-		t.Fatalf("CallerSteps before the read = %v, want [step-1]", got)
-	}
-	marked, err := s.MarkStepRead(ctx, "step-1", store.EpicCaller{Session: "engine-1"})
-	if err != nil {
-		t.Fatalf("MarkStepRead: %v", err)
-	}
-	if !marked {
-		t.Fatalf("MarkStepRead by the step's caller = false, want true")
-	}
-	if got := listCallerSteps(t, s); len(got) != 0 {
-		t.Fatalf("CallerSteps after the read = %v, want none", callerStepIDs(got))
-	}
-}
-
-func TestCallerEventStoreMarkStepReadRefusesOtherCallerAndUnendedStep(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, _ := openEpicCallStore(t)
-	addCallerEngines(t, s, "engine-1", "engine-2")
-	startCallerStep(t, s, "step-1", store.EpicCaller{Session: "engine-1"})
-	endCallerStep(t, s, "step-1", callerLater())
-	startCallerStep(t, s, "step-2", store.EpicCaller{Session: "engine-1"})
-
-	marked, err := s.MarkStepRead(ctx, "step-1", store.EpicCaller{Session: "engine-2"})
-	if err != nil {
-		t.Fatalf("MarkStepRead by another caller: %v", err)
-	}
-	if marked {
-		t.Fatalf("MarkStepRead by another caller = true, want false")
-	}
-	marked, err = s.MarkStepRead(ctx, "step-2", store.EpicCaller{Session: "engine-1"})
-	if err != nil {
-		t.Fatalf("MarkStepRead of an unended step: %v", err)
-	}
-	if marked {
-		t.Fatalf("MarkStepRead of an unended step = true, want false")
-	}
-
-	// Ending step-2 afterwards shows that its refused read wrote nothing: both steps are still unread.
-	endCallerStep(t, s, "step-2", callerLater().Add(time.Second))
-	if got := callerStepIDs(listCallerSteps(t, s)); !reflect.DeepEqual(got, []string{"step-1", "step-2"}) {
-		t.Fatalf("CallerSteps after the refused reads = %v, want [step-1 step-2]", got)
-	}
-}
-
 func TestCallerEventStoreCallerStepsListsUnreadStepWithItsCaller(t *testing.T) {
 	t.Parallel()
 	s, _ := openEpicCallStore(t)
@@ -236,14 +182,11 @@ func TestCallerEventStoreCallerStepsDropsReadAndMarkedSteps(t *testing.T) {
 	s, _ := openEpicCallStore(t)
 	addCallerEngines(t, s, "engine-1", "engine-2")
 	caller := store.EpicCaller{Session: "engine-1"}
-	for _, id := range []string{"step-read", "step-marked", "step-kept"} {
+	for _, id := range []string{"step-marked", "step-kept"} {
 		startCallerStep(t, s, id, caller)
 		endCallerStep(t, s, id, callerLater())
 	}
 
-	if _, err := s.MarkStepRead(ctx, "step-read", caller); err != nil {
-		t.Fatalf("MarkStepRead: %v", err)
-	}
 	if err := s.MarkCallerEvent(ctx, "step:step-marked", "engine-1", callerLater()); err != nil {
 		t.Fatalf("MarkCallerEvent: %v", err)
 	}

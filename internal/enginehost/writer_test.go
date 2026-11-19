@@ -23,9 +23,6 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// waitTimeout bounds every wait on a channel in these tests. It is a hang guard, never a timing assumption.
-const waitTimeout = 10 * time.Second
-
 // recordingApplier forwards to a real store and records every ApplyEngine call, failed ones included.
 type recordingApplier struct {
 	store  *store.Store

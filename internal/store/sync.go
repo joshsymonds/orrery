@@ -240,6 +240,9 @@ func appendEvent(ctx context.Context, queries *sqlcgen.Queries, sessionID, kind,
 // BusyTimeout) bounds the wait for it, and a write that waits it out fails with an error Busy reports. A failed fn or commit rolls back, so a failed write leaves no rows behind.
 //
 // The write is one timed store call (see WithLogger), from the wait for the connection until it is free again.
+//
+// A write that commits after one of its statements ran with a context from withEpicEvent calls the hook OnCallerEvent
+// set, once, after the connection is free again, so the hook may read the store.
 func (s *Store) write(ctx context.Context, fn func(queries *sqlcgen.Queries) error) error {
 	ctx, timer := s.db.slow.begin(ctx, endByCaller, "")
 	conn, err := s.db.Conn(ctx)
@@ -247,24 +250,42 @@ func (s *Store) write(ctx context.Context, fn func(queries *sqlcgen.Queries) err
 		timer.finish(ctx)
 		return fmt.Errorf("open store connection: %w", err)
 	}
-	err = errors.Join(runWrite(ctx, conn, fn), conn.Close())
+	epicEvent, runErr := runWrite(ctx, conn, fn)
+	err = errors.Join(runErr, conn.Close())
 	timer.finish(ctx)
+	if runErr == nil && epicEvent {
+		s.fireCallerEvent()
+	}
 	return err
 }
 
-func runWrite(ctx context.Context, conn *sql.Conn, fn func(queries *sqlcgen.Queries) error) (err error) {
+// runWrite runs fn in the write transaction on conn and commits it. It reports whether a statement of the write ran
+// with a context from withEpicEvent and succeeded, which is set only when runWrite returns nil.
+func runWrite(
+	ctx context.Context, conn *sql.Conn, fn func(queries *sqlcgen.Queries) error,
+) (epicEvent bool, err error) {
 	if _, err = conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
-		return fmt.Errorf("begin store write: %w", err)
+		return false, fmt.Errorf("begin store write: %w", err)
 	}
 	statements := &writeConn{conn: conn}
 	defer func() { err = errors.Join(err, statements.close()) }()
 	if err = fn(sqlcgen.New(statements)); err != nil {
-		return errors.Join(err, rollback(ctx, conn))
+		return false, errors.Join(err, rollback(ctx, conn))
 	}
 	if _, err = conn.ExecContext(ctx, "COMMIT"); err != nil {
-		return errors.Join(fmt.Errorf("commit store write: %w", err), rollback(ctx, conn))
+		return false, errors.Join(fmt.Errorf("commit store write: %w", err), rollback(ctx, conn))
 	}
-	return nil
+	return statements.epicEvent, nil
+}
+
+// epicEventKey is the context key withEpicEvent sets.
+type epicEventKey struct{}
+
+// withEpicEvent returns ctx marked for a statement that creates an epic caller event: an epic question, an epic phase,
+// or a stopped release. The write's writeConn records the mark when such a statement runs and succeeds, so the write
+// calls the hook once it commits. A helper passes the marked context to its own statement only.
+func withEpicEvent(ctx context.Context) context.Context {
+	return context.WithValue(ctx, epicEventKey{}, true)
 }
 
 // writeConn runs the statements of one store write on its connection, preparing each query once. A write's ops run the
@@ -273,6 +294,8 @@ func runWrite(ctx context.Context, conn *sql.Conn, fn func(queries *sqlcgen.Quer
 type writeConn struct {
 	conn       *sql.Conn
 	statements map[string]writeStatement
+	// epicEvent is set once a statement run with a context from withEpicEvent succeeds in this write.
+	epicEvent bool
 }
 
 // writeStatement is a statement a writeConn prepared. The writeConn owns it, and its close closes the statement.
@@ -305,6 +328,9 @@ func (w *writeConn) ExecContext(ctx context.Context, query string, args ...any) 
 	result, err := st.stmt.ExecContext(ctx, args...)
 	if err != nil {
 		return nil, fmt.Errorf("%w", err)
+	}
+	if _, marked := ctx.Value(epicEventKey{}).(bool); marked {
+		w.epicEvent = true
 	}
 	return result, nil
 }

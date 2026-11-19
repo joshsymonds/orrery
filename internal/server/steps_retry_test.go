@@ -214,8 +214,8 @@ func TestEpicsListRetriesListStepsAfterOneUnavailable(t *testing.T) {
 	if len(epics) != 1 || len(epics[0].GetRunningSteps()) != 1 {
 		t.Fatalf("epics = %v, want the epic with its one running step", epics)
 	}
-	if inner.listCalls != 1 {
-		t.Fatalf("ListSteps calls = %d, want the one call that reached the client after the failure", inner.listCalls)
+	if calls := inner.calls(); calls != 1 {
+		t.Fatalf("ListSteps calls = %d, want the one call that reached the client after the failure", calls)
 	}
 }
 

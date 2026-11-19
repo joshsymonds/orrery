@@ -69,8 +69,8 @@ func TestEpicStepMessageRedactsNewFreeText(t *testing.T) {
 	t.Parallel()
 	const credential = "sk-EXAMPLEKEY0123456789abcd"
 	step := &enginev1.Step{
-		Id:     "s1",
-		Result: `{"status":"done","summary":"synthetic summary ` + credential + `"}`,
+		Id:      "s1",
+		Summary: "synthetic summary " + credential,
 		Checks: []*enginev1.StepCheck{
 			{
 				Round: 1, Name: "gate", Ok: true,
@@ -106,15 +106,29 @@ func TestEpicStepMessageRedactsNewFreeText(t *testing.T) {
 	}
 }
 
+// TestEpicStepMessageSummaryIsTheResultsStringSummary serves steps through Get: a step's summary is the string summary
+// of its result, as orreryd lists it, and a result whose summary is not a string, or that is not JSON, has none.
+// epicStepMessage itself reads the listed summary and never the result.
 func TestEpicStepMessageSummaryIsTheResultsStringSummary(t *testing.T) {
 	t.Parallel()
-	withSummary := epicStepMessage(&enginev1.Step{Id: "s1", Result: `{"summary":"synthetic summary"}`})
-	if withSummary.GetSummary() != "synthetic summary" {
-		t.Errorf("summary = %q, want %q", withSummary.GetSummary(), "synthetic summary")
+	root := t.TempDir()
+	writeHead(t, root, "repo", "epic", `{"outcome":"shipped"}`, epicsNow())
+	client := epicsServe(t, root, &epicsFake{steps: []*enginev1.Step{
+		{Id: "s1", Epic: "repo/epic", Result: `{"summary":"synthetic summary"}`, Started: epicsAgo(3 * time.Hour)},
+		{Id: "s2", Epic: "repo/epic", Result: `{"summary":3}`, Started: epicsAgo(2 * time.Hour)},
+		{Id: "s3", Epic: "repo/epic", Result: `synthetic {"summary":"x"`, Started: epicsAgo(time.Hour)},
+	}})
+	steps := epicsGet(t, client, "repo/epic").GetSteps()
+	got := make(map[string]string, len(steps))
+	for _, step := range steps {
+		got[step.GetId()] = step.GetSummary()
 	}
-	nonString := epicStepMessage(&enginev1.Step{Id: "s2", Result: `{"summary":3}`})
-	if nonString.GetSummary() != "" {
-		t.Errorf("summary of a non-string summary = %q, want empty", nonString.GetSummary())
+	if want := map[string]string{"s1": "synthetic summary", "s2": "", "s3": ""}; !reflect.DeepEqual(got, want) {
+		t.Errorf("summaries = %v, want %v", got, want)
+	}
+	unread := epicStepMessage(&enginev1.Step{Id: "s4", Result: `{"summary":"synthetic summary"}`})
+	if unread.GetSummary() != "" {
+		t.Errorf("summary of a step listed with a result and no summary = %q, want empty", unread.GetSummary())
 	}
 }
 

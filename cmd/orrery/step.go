@@ -3,12 +3,9 @@ package main
 import (
 	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
-	"slices"
 	"strings"
-	"time"
 
 	"connectrpc.com/connect"
 
@@ -29,26 +26,21 @@ const notLimitedMessage = "step is not limited"
 const (
 	verbResume = "resume"
 	verbStatus = "status"
-	verbWait   = "wait"
 )
 
-// waitTimeout is the wait each call of `orrery step wait` asks orreryd for: stepmcp.MaxWait, in whole seconds.
-const waitTimeout = uint32(stepmcp.MaxWait / time.Second)
-
 // stepUsage is the argument list of `orrery step`, as a usage error names it.
-const stepUsage = "step: want resume ID, status ID or wait [--all] ID..."
+const stepUsage = "step: want resume ID or status ID"
 
 // stepCommand is a parsed `orrery step` command line.
 type stepCommand struct {
-	verb string   // verbResume, verbStatus or verbWait
-	all  bool     // wait: whether every ID must end, not the first
+	verb string   // verbResume or verbStatus
 	ids  []string // the step ids the command names
 }
 
-// runStep runs `orrery step resume ID`, `orrery step status ID` or `orrery step wait [--all] ID...` through orreryd's
-// Steps service on the session socket beside the daemon socket. Resume writes nothing. Status and wait write each step
-// as one line of JSON on stdout, the step object step_status returns. A refusal by orreryd, or orreryd unreachable,
-// writes the reason to stderr and exits 1. Each call orreryd answers Unavailable, or a restart cuts, is retried.
+// runStep runs `orrery step resume ID` or `orrery step status ID` through orreryd's Steps service on the session socket
+// beside the daemon socket. Resume writes nothing. Status writes the step as one line of JSON on stdout, the step object
+// step_status returns. A refusal by orreryd, or orreryd unreachable, writes the reason to stderr and exits 1. Each call
+// orreryd answers Unavailable, or a restart cuts, is retried.
 func runStep(
 	ctx context.Context,
 	opts globals,
@@ -83,8 +75,6 @@ func runStepWith(
 		err = resumeStep(ctx, clock, steps, cmd.ids[0])
 	case verbStatus:
 		err = statusStep(ctx, clock, steps, cmd.ids[0], stdout)
-	case verbWait:
-		err = waitForSteps(ctx, clock, steps, cmd.ids, cmd.all, stdout)
 	}
 	if err != nil {
 		return refuseStep(stderr, err)
@@ -92,8 +82,8 @@ func runStepWith(
 	return nil
 }
 
-// parseStep parses the arguments after `orrery step`. Each form takes its ids exactly as its usage names them, and a
-// wait takes --all before its ids. Any other line is a usage error.
+// parseStep parses the arguments after `orrery step`. Each form takes exactly the one id its usage names. Any other line
+// is a usage error.
 func parseStep(args []string) (stepCommand, error) {
 	if len(args) == 0 {
 		return stepCommand{}, usagef("%s", stepUsage)
@@ -105,17 +95,6 @@ func parseStep(args []string) (stepCommand, error) {
 			return stepCommand{}, usagef("step: want %s ID", verb)
 		}
 		return stepCommand{verb: verb, ids: rest}, nil
-	case verbWait:
-		flags := flag.NewFlagSet("orrery step wait", flag.ContinueOnError)
-		flags.SetOutput(io.Discard)
-		all := flags.Bool("all", false, "wait until every ID has ended")
-		if err := flags.Parse(rest); err != nil {
-			return stepCommand{}, usagef("step: wait: %v", err)
-		}
-		if flags.NArg() == 0 {
-			return stepCommand{}, usagef("step: want wait [--all] ID...")
-		}
-		return stepCommand{verb: verbWait, all: *all, ids: flags.Args()}, nil
 	default:
 		return stepCommand{}, usagef("%s", stepUsage)
 	}
@@ -163,41 +142,6 @@ func statusStep(
 		return errors.Join(err)
 	}
 	return writeStep(stdout, status.Msg.GetStep())
-}
-
-// waitForSteps calls Steps.WaitSteps for ids until a step ends, and writes each step that ends to stdout. Without all it
-// returns once the first named step has ended. With all it names only the steps still running in each call, and returns
-// once every named step has ended. A WaitSteps answer that names no ended step asks again.
-func waitForSteps(
-	ctx context.Context,
-	clock rpcretry.Clock,
-	steps enginev1connect.StepsClient,
-	ids []string,
-	all bool,
-	stdout io.Writer,
-) error {
-	pending := ids
-	for len(pending) > 0 {
-		waited, err := stepmcp.WaitSteps(ctx, steps, clock, pending, waitTimeout)
-		if err != nil {
-			return errors.Join(err)
-		}
-		ended := waited.Msg.GetEnded()
-		if ended == nil {
-			continue
-		}
-		if !slices.Contains(pending, ended.GetId()) {
-			return fmt.Errorf("wait: orreryd reported step %s ended, which was not named", ended.GetId())
-		}
-		if err := writeStep(stdout, ended); err != nil {
-			return err
-		}
-		if !all {
-			return nil
-		}
-		pending = slices.DeleteFunc(slices.Clone(pending), func(id string) bool { return id == ended.GetId() })
-	}
-	return nil
 }
 
 // writeStep writes step to stdout as its step object, as step_status reports it, on one line.

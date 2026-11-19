@@ -316,7 +316,8 @@ func (w *crashWorld) result(t *testing.T) crashResult {
 
 // endRows returns the end rows of the run as text, with the paths and commit ids that differ between runs replaced: the
 // epic with its turns and tasks, the due rows, the notice rows, the step rows, and the attention each epic's tells and
-// turns hold.
+// turns hold. The epic's revision is left out: it counts the writes the run made, not what they left, and a restart
+// makes again the writes a kill cut short.
 func (w *crashWorld) endRows(t *testing.T) string {
 	t.Helper()
 	ctx := context.Background()
@@ -324,6 +325,7 @@ func (w *crashWorld) endRows(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("Epic: %v", err)
 	}
+	epic.Revision = 0
 	runs := make([]string, 0, len(epic.Tasks))
 	for i := range epic.Tasks {
 		runs = append(runs, fmt.Sprintf("T%d red=%s green=%s", epic.Tasks[i].Seq,

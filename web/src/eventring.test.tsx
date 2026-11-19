@@ -6,6 +6,7 @@ import { render } from "preact";
 import { act } from "preact/test-utils";
 
 import type { EpicCalls } from "./card";
+import { type EpicsView, epicsView, noEpics } from "./epics";
 import { type EpicEvent, EventRing, epicEventOf } from "./eventring";
 import { EpicQuestionSchema, EpicSchema, type EpicsGetResponse, EpicsGetResponseSchema } from "./gen/orrery/v1/epics_pb";
 import { assertNone, installTestDom, removeTestDom } from "./testdom";
@@ -59,18 +60,19 @@ const openQuestion: MessageInitShape<typeof EpicQuestionSchema> = {
 };
 
 // FakeEpics answers the ring's reads with its reading, or refuses them when given an error, and records each call the
-// ring makes. calls makes the epic calls over it at a tick.
+// ring makes. A test may change the reading between reads. calls makes the epic calls over it, with the poll's epics,
+// which hold none by default.
 class FakeEpics {
   readonly reads: string[] = [];
   readonly answers: string[][] = [];
   readonly opened: string[] = [];
-  private readonly reading: EpicsGetResponse | Error;
+  reading: EpicsGetResponse | Error;
 
   constructor(reading: EpicsGetResponse | Error) {
     this.reading = reading;
   }
 
-  calls(tick = 1): EpicCalls {
+  calls(epics: EpicsView = noEpics): EpicCalls {
     return {
       get: async (id) => {
         this.reads.push(id);
@@ -89,9 +91,18 @@ class FakeEpics {
         this.opened.push(id);
       },
       openStep: () => {},
-      tick,
+      epics,
     };
   }
+}
+
+// polledView is the poll's epics when it holds reading as the ring epic's detail.
+function polledView(reading: EpicsGetResponse): EpicsView {
+  const epic = reading.epic;
+  if (epic === undefined) {
+    throw new Error("the reading holds no epic");
+  }
+  return epicsView([epic], new Map([[ringEpic, reading]]));
 }
 
 // withRing draws the ring of event with calls into a fresh container, runs check on it, then removes it.
@@ -206,19 +217,42 @@ test("EventRing: each kind draws one ringed line with its icon, first sentence a
   }
 });
 
-test("EventRing: a question event reads its epic on mount and again each time the tick changes", async (t) => {
+test("EventRing: a question event whose epic the poll does not hold reads it on mount, and not again on a later render", async (t) => {
   const fake = new FakeEpics(epicReading([openQuestion]));
-  await withRing(questionEvent, fake.calls(1), async (container) => {
+  await withRing(questionEvent, fake.calls(), async (container) => {
     await settle(t, () => fake.reads.length === 1, "the ring reads its epic on mount");
     await act(() => {
-      render(<EventRing event={questionEvent} calls={fake.calls(1)} />, container);
+      render(<EventRing event={questionEvent} calls={fake.calls()} />, container);
     });
     await act(turn);
-    assert.equal(fake.reads.length, 1, "a render at the same tick does not read the epic again");
+    await act(turn);
+    assert.equal(fake.reads.length, 1, "a later render read the epic again");
+  });
+});
+
+test("EventRing: a question event whose epic the poll holds draws the poll's question and reads nothing", async (t) => {
+  const fake = new FakeEpics(epicReading([openQuestion]));
+  await withRing(questionEvent, fake.calls(polledView(epicReading([openQuestion]))), async (container) => {
+    await settle(t, () => container.querySelector("form.answer") !== null, "the open question's form is drawn");
     await act(() => {
-      render(<EventRing event={questionEvent} calls={fake.calls(2)} />, container);
+      render(<EventRing event={questionEvent} calls={fake.calls(polledView(epicReading([])))} />, container);
     });
-    await settle(t, () => fake.reads.length === 2, "the ring reads its epic again when the tick changes");
+    await settle(t, () => container.querySelector(".settled") !== null, "the poll's next detail settles the question");
+    assert.deepEqual(fake.reads, [], "a ring over a polled epic read it");
+  });
+});
+
+test("EventRing: an answer that lands reads the epic once more, and the settled question draws its line", async (t) => {
+  const fake = new FakeEpics(epicReading([openQuestion]));
+  await withRing(questionEvent, fake.calls(polledView(epicReading([openQuestion]))), async (container) => {
+    await settle(t, () => container.querySelector("form.answer") !== null, "the open question's form is drawn");
+    fake.reading = epicReading([]);
+    const confirm = container.querySelector<HTMLButtonElement>("form.answer .act.primary");
+    assert.ok(confirm !== null, "the confirm button is drawn");
+    await click(confirm);
+    await settle(t, () => container.querySelector(".settled") !== null, "the reread settles the question");
+    assert.equal(fake.answers.length, 1);
+    assert.deepEqual(fake.reads, [ringEpic], "the landed answer did not read the epic once");
   });
 });
 

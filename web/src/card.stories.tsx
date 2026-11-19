@@ -3,14 +3,16 @@
 
 import type { Stories } from "./catalog/story";
 import { EpicWidget as Card, epicCallsOf } from "./card";
+import { noEpics } from "./epics";
 import { createFixtureTransport } from "./fixtures/transport";
 
 const clients = createFixtureTransport().clients;
 
 const noop = () => {};
 
-// calls are the epic calls the card makes over the clients, with no-op openers and the first poll tick.
-const calls = epicCallsOf(clients, noop, noop, 0);
+// calls are the epic calls the card makes over the clients, with no-op openers and none of the poll's epics, so each
+// card reads its epic through the fixture.
+const calls = epicCallsOf(clients, noop, noop, noEpics);
 
 export const EpicWidget: Stories = {
   // working is an epic that is building, with its steps running.

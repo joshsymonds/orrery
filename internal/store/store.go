@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pressly/goose/v3"
@@ -36,6 +37,9 @@ type Store struct {
 
 	liveMu     sync.Mutex
 	engineLive func() []string
+
+	// callerEvent is the hook OnCallerEvent sets, nil when none is set.
+	callerEvent atomic.Pointer[func()]
 }
 
 // SetEngineLive sets the function that SyncServer's prune calls, once per run, for the ids of the engine
@@ -58,6 +62,25 @@ func (s *Store) engineLiveIDs() []string {
 		ids = append(ids, live()...)
 	}
 	return ids
+}
+
+// OnCallerEvent sets fn as the hook that a store write creating an epic caller event calls. Such a write inserts an
+// epic question, sets an epic's phase, or stops a release, and it calls the hook once, synchronously, right after it
+// commits. A write that rolls back or fails to commit calls nothing. A nil fn clears the hook. It is safe to call while
+// writes run.
+func (s *Store) OnCallerEvent(fn func()) {
+	if fn == nil {
+		s.callerEvent.Store(nil)
+		return
+	}
+	s.callerEvent.Store(&fn)
+}
+
+// fireCallerEvent calls the hook OnCallerEvent set, when one is set. It takes no store lock.
+func (s *Store) fireCallerEvent() {
+	if fn := s.callerEvent.Load(); fn != nil {
+		(*fn)()
+	}
 }
 
 // Path resolves the store file: $XDG_STATE_HOME/orrery/orrery.db when XDG_STATE_HOME is set,

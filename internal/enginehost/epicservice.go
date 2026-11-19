@@ -821,32 +821,35 @@ func epicGateOf(gate *v1.EpicGate) store.EpicGate {
 
 // storedEpicMessage returns the StoredEpic message of row: its contract, summary, phase, times, decisions in order, its
 // merged reviewers in order, its paused and parked state with its turns, tasks and questions in order, its branch state,
-// its pinned workflow, its phase time, its seen mark, its report and its evidence amendments in order. It fails when a task's messages fail.
+// its pinned workflow, its phase time, its seen mark, its report, its evidence amendments in order and the epic its
+// close named as its replacement, as stored, with no kind filter. It fails when a task's messages fail.
 func storedEpicMessage(row store.EpicRow) (*v1.StoredEpic, error) {
 	tasks, err := taskMessages(row.Tasks)
 	if err != nil {
 		return nil, err
 	}
 	return &v1.StoredEpic{
-		Contract:   contractMessage(row),
-		Summary:    row.Summary,
-		Phase:      row.Phase,
-		Created:    row.Created.Unix(),
-		Changed:    row.Changed.Unix(),
-		PhaseAt:    row.PhaseAt.Unix(),
-		Seen:       unixOrZero(row.Seen),
-		Decisions:  epicMap(row.Decisions, decisionMessage),
-		Reviewers:  epicMap(row.Reviewers, epicReviewerMessage),
-		Paused:     row.Paused,
-		Parked:     row.Parked,
-		ParkClass:  string(row.ParkClass),
-		Turns:      epicMap(row.Turns, turnMessage),
-		Tasks:      tasks,
-		Questions:  epicMap(row.Questions, questionMessage),
-		Branch:     row.Branch,
-		Workflow:   workflowMessage(row.Workflow),
-		Report:     reportMessage(row.Report),
-		Amendments: epicMap(row.Amendments, amendmentMessage),
+		Contract:     contractMessage(row),
+		Summary:      row.Summary,
+		Phase:        row.Phase,
+		Created:      row.Created.Unix(),
+		Changed:      row.Changed.Unix(),
+		PhaseAt:      row.PhaseAt.Unix(),
+		Seen:         unixOrZero(row.Seen),
+		Revision:     row.Revision,
+		Decisions:    epicMap(row.Decisions, decisionMessage),
+		Reviewers:    epicMap(row.Reviewers, epicReviewerMessage),
+		Paused:       row.Paused,
+		Parked:       row.Parked,
+		ParkClass:    string(row.ParkClass),
+		Turns:        epicMap(row.Turns, turnMessage),
+		Tasks:        tasks,
+		Questions:    epicMap(row.Questions, questionMessage),
+		Branch:       row.Branch,
+		Workflow:     workflowMessage(row.Workflow),
+		Report:       reportMessage(row.Report),
+		Amendments:   epicMap(row.Amendments, amendmentMessage),
+		SupersededBy: row.SupersededBy,
 	}, nil
 }
 
@@ -1359,8 +1362,8 @@ func unixOrZero(t time.Time) int64 {
 	return t.Unix()
 }
 
-// summaryMessage returns the EpicSummary message of row: its head fields, its phase time and its seen mark, with no
-// sections.
+// summaryMessage returns the EpicSummary message of row: its head fields, its phase time, its seen mark and its
+// revision, with no sections.
 func summaryMessage(row store.EpicRow) *v1.EpicSummary {
 	return &v1.EpicSummary{
 		Id:         row.ID,
@@ -1371,6 +1374,7 @@ func summaryMessage(row store.EpicRow) *v1.EpicSummary {
 		Seen:       unixOrZero(row.Seen),
 		Created:    row.Created.Unix(),
 		Changed:    row.Changed.Unix(),
+		Revision:   row.Revision,
 	}
 }
 

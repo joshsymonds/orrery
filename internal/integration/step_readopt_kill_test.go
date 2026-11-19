@@ -18,6 +18,7 @@ import (
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/holder"
+	"github.com/joshsymonds/orrery/internal/protocol"
 )
 
 // The tests in this file SIGKILL orreryd while a writing step runs, then restart it on the same store and state
@@ -58,6 +59,8 @@ type stepReadoptRig struct {
 	turnRelease string
 	gateRuns    string
 	gateRelease string
+	// caller is the headless session the rig's steps are started under, started by callerSession.
+	caller string
 }
 
 // newStepReadoptRig builds the rig under the fixture's root. The repository ignores the fake claude's files, so the
@@ -175,10 +178,36 @@ func gateRunCount(t *testing.T, path string) int {
 	return strings.Count(string(raw), "\n")
 }
 
+// callerSession returns the id of the headless session the rig's steps are started under. The first call starts it
+// through the session socket, so the daemon must be listening. A StartStep whose caller resolves to no sessions row is
+// refused, so every start the rig makes names this session.
+func (r *stepReadoptRig) callerSession(t *testing.T) string {
+	t.Helper()
+	if r.caller == "" {
+		engine := enginev1connect.NewEngineClient(r.f.client, cli.SessionBaseURL)
+		resp, err := engine.Start(t.Context(), connect.NewRequest(&v1.StartRequest{
+			Dir: r.f.sessionDir(t, "caller"), Prompt: "hello",
+		}))
+		if err != nil {
+			t.Fatalf("start caller session: %v", err)
+		}
+		r.caller = resp.Msg.GetId()
+	}
+	return r.caller
+}
+
+// startRequest returns the StartStep request for msg, with the caller header of the rig's caller session.
+func (r *stepReadoptRig) startRequest(t *testing.T, msg *v1.StartStepRequest) *connect.Request[v1.StartStepRequest] {
+	t.Helper()
+	req := connect.NewRequest(msg)
+	req.Header().Set(protocol.HeaderSession, r.callerSession(t))
+	return req
+}
+
 // startStep starts the rig's writing step through the Steps service on the session socket and returns its id.
 func (r *stepReadoptRig) startStep(t *testing.T) string {
 	t.Helper()
-	resp, err := r.steps().StartStep(t.Context(), connect.NewRequest(&v1.StartStepRequest{
+	resp, err := r.steps().StartStep(t.Context(), r.startRequest(t, &v1.StartStepRequest{
 		Agent:      stepReadoptAgent,
 		Prompt:     stepReadoptPrompt,
 		Schema:     stepReadoptSchema,

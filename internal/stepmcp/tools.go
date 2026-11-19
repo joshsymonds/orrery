@@ -7,10 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"reflect"
 	"slices"
-	"time"
 
 	"connectrpc.com/connect"
 	"github.com/google/jsonschema-go/jsonschema"
@@ -19,10 +17,6 @@ import (
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/rpcretry"
 )
-
-// MaxWait is the longest a step_wait call holds open. A longer wait is clamped to it, so
-// the call returns inside the time Claude Code allows a tool call and the caller asks again.
-const MaxWait = 25 * time.Minute
 
 // NewServer returns the MCP server "orrery" whose step tools call steps, whose epic tools call epics and whose evidence
 // tools call evidence.
@@ -75,13 +69,6 @@ func stepTools(steps enginev1connect.StepsClient, clock rpcretry.Clock) ([]Tool,
 	if err != nil {
 		return nil, err
 	}
-	waitInput, err := argumentSchema[waitArgs](func(root *jsonschema.Schema) {
-		root.Properties["ids"].MinItems = new(1)
-		root.Properties["timeoutSeconds"] = &jsonschema.Schema{Type: "integer", Minimum: new(0.0)}
-	})
-	if err != nil {
-		return nil, err
-	}
 	return []Tool{
 		{
 			Name:        "step_start",
@@ -107,13 +94,6 @@ func stepTools(steps enginev1connect.StepsClient, clock rpcretry.Clock) ([]Tool,
 			InputSchema: idInput,
 			Handler:     resumeHandler(steps, clock),
 		},
-		{
-			Name: "step_wait",
-			Description: "Wait until one of the given steps ends, or until timeoutSeconds passes " +
-				"(at most 1500 seconds). Returns the ended step, or null with every step's state at timeout.",
-			InputSchema: waitInput,
-			Handler:     waitHandler(steps, clock),
-		},
 	}, nil
 }
 
@@ -136,12 +116,6 @@ type startArgs struct {
 // idArgs is the arguments of a tool that takes one id, the step tools and the epic tools alike.
 type idArgs struct {
 	ID string `json:"id"`
-}
-
-// waitArgs is the arguments of step_wait. TimeoutSeconds is a pointer so that an omitted wait differs from a zero one.
-type waitArgs struct {
-	IDs            []string `json:"ids"`
-	TimeoutSeconds *float64 `json:"timeoutSeconds,omitempty"`
 }
 
 // decodeArguments decodes a tool's arguments, refusing unknown keys and mistyped values.
@@ -338,101 +312,6 @@ func resumeHandler(steps enginev1connect.StepsClient, clock rpcretry.Clock) Tool
 	})
 }
 
-// waitSeconds returns the requested wait in whole seconds, clamped to MaxWait. An omitted wait is MaxWait.
-func waitSeconds(requested *float64) (uint32, error) {
-	limit := uint32(MaxWait / time.Second)
-	if requested == nil {
-		return limit, nil
-	}
-	seconds := *requested
-	if seconds < 0 || seconds != math.Trunc(seconds) {
-		return 0, errors.New("timeoutSeconds must be a whole number of seconds, 0 or more")
-	}
-	if seconds >= float64(limit) {
-		return limit, nil
-	}
-	return uint32(seconds), nil
-}
-
-// waitResult is the step_wait reply. Ended is null when no step ended before the timeout.
-type waitResult struct {
-	Ended *stepJSON  `json:"ended"`
-	Steps []stepJSON `json:"steps"`
-}
-
-// WaitSteps waits on ids for timeout seconds from now. It returns the answer of Steps.WaitSteps, which names the step
-// that ended, if any. When orreryd is unavailable mid-wait, it waits again for the time the request has left, and gives
-// up only at the request's deadline. Each request asks for that time rounded up to whole seconds, so a retry never ends
-// before the deadline. step_wait and orrery step wait both wait through it.
-func WaitSteps(
-	ctx context.Context,
-	steps enginev1connect.StepsClient,
-	clock rpcretry.Clock,
-	ids []string,
-	timeout uint32,
-) (*connect.Response[v1.WaitStepsResponse], error) {
-	deadline := clock.Now().Add(time.Duration(timeout) * time.Second)
-	retryable := func(err error) bool {
-		return rpcretry.Unavailable(err) && clock.Now().Before(deadline)
-	}
-	var waited *connect.Response[v1.WaitStepsResponse]
-	call := func(callCtx context.Context) error {
-		var callErr error
-		waited, callErr = steps.WaitSteps(callCtx, connect.NewRequest(&v1.WaitStepsRequest{
-			Ids:            ids,
-			TimeoutSeconds: roundUpSeconds(deadline.Sub(clock.Now())),
-		}))
-		return errors.Join(callErr)
-	}
-	for {
-		// Do stops after its own window, so a wait that outlasts the window runs Do again until its deadline.
-		err := rpcretry.Do(ctx, clock, retryable, call)
-		if err == nil || !retryable(err) {
-			return waited, errors.Join(err)
-		}
-	}
-}
-
-// roundUpSeconds returns d in whole seconds, rounded up, and 0 when d has passed.
-func roundUpSeconds(d time.Duration) uint32 {
-	if d <= 0 {
-		return 0
-	}
-	return uint32(math.Ceil(d.Seconds()))
-}
-
-func waitHandler(steps enginev1connect.StepsClient, clock rpcretry.Clock) ToolHandler {
-	return func(ctx context.Context, call Call) (ToolResult, error) {
-		var args waitArgs
-		if err := decodeArguments(call.Arguments, &args); err != nil {
-			return ToolResult{}, err
-		}
-		if len(args.IDs) == 0 {
-			return ToolResult{}, errors.New("ids is required")
-		}
-		if slices.Contains(args.IDs, "") {
-			return ToolResult{}, errors.New("ids must not contain an empty id")
-		}
-		timeout, err := waitSeconds(args.TimeoutSeconds)
-		if err != nil {
-			return ToolResult{}, err
-		}
-		waited, err := WaitSteps(ctx, steps, clock, args.IDs, timeout)
-		if err != nil {
-			return toolFailure(err), nil
-		}
-		result := waitResult{Steps: make([]stepJSON, 0, len(waited.Msg.GetSteps()))}
-		if ended := waited.Msg.GetEnded(); ended != nil {
-			step := stepFromProto(ended)
-			result.Ended = &step
-		}
-		for _, step := range waited.Msg.GetSteps() {
-			result.Steps = append(result.Steps, stepFromProto(step))
-		}
-		return textResult(result)
-	}
-}
-
 // stepJSON is a step as the tools report it.
 type stepJSON struct {
 	ID          string      `json:"id"`
@@ -498,8 +377,8 @@ func stepFromProto(step *v1.Step) stepJSON {
 	}
 }
 
-// StepObject returns step as the step object that step_status and step_wait report it as, with no trailing newline.
-// orrery step status and orrery step wait print through it, so their output cannot drift from the tools'.
+// StepObject returns step as the step object that step_status reports it as, with no trailing newline.
+// orrery step status prints through it, so its output cannot drift from the tool's.
 func StepObject(step *v1.Step) ([]byte, error) {
 	text, err := json.Marshal(stepFromProto(step))
 	if err != nil {

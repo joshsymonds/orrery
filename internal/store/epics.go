@@ -70,7 +70,10 @@ type EpicRow struct {
 	Changed     time.Time
 	PhaseAt     time.Time
 	Seen        time.Time
-	Paused      bool
+	// Revision counts the writes to the epic's row and to the rows of its parts, its steps aside (see
+	// 00069_epic_revisions.sql), so a reader can tell that the epic changed in any part by comparing it alone.
+	Revision int64
+	Paused   bool
 	// Parked is the park reason, empty when the epic is not parked, and ParkClass is the class of that park, which says
 	// who answers it.
 	Parked    string
@@ -228,6 +231,10 @@ func (s *Store) CreateEpic(ctx context.Context, row EpicRow) error {
 			Created: row.Created.Unix(),
 		}); err != nil {
 			return fmt.Errorf("insert trigger of epic %s: %w", row.ID, err)
+		}
+		// The rows above each moved the revision; a created epic is at revision 0, and only later writes move it.
+		if err = queries.ResetEpicRevision(ctx, row.ID); err != nil {
+			return fmt.Errorf("reset revision of epic %s: %w", row.ID, err)
 		}
 		return nil
 	})
@@ -1049,6 +1056,7 @@ func epicHeadOf(head sqlcgen.Epic) EpicRow {
 		Created:      time.Unix(head.Created, 0),
 		Changed:      time.Unix(head.Changed, 0),
 		PhaseAt:      time.Unix(head.PhaseAt, 0),
+		Revision:     head.Revision,
 		Paused:       head.Paused != 0,
 		Parked:       head.Parked,
 		ParkClass:    ParkClass(head.ParkClass),

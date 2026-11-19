@@ -101,6 +101,7 @@ type Epic struct {
 	OriginReadCommit string
 	OriginReadState  string
 	OriginReadAt     int64
+	Revision         int64
 }
 
 type EpicAddition struct {
@@ -775,7 +776,36 @@ type Step struct {
 	Agents          string
 	Unowned         int64
 	Caller          string
-	CallerRead      int64
+}
+
+type StepListing struct {
+	ID              string
+	Agent           string
+	Workspace       string
+	Revision        string
+	Worktree        string
+	ReadOnly        bool
+	Started         int64
+	Checks          string
+	Doing           string
+	Verdicts        string
+	Status          string
+	EndValue        string
+	Reason          string
+	Ended           int64
+	Epic            string
+	Task            string
+	GateName        string
+	GateLimit       int64
+	LoopLimited     bool
+	LoopLimitKind   string
+	LoopLimitResets int64
+	LoopStage       string
+	LoopStageFrom   int64
+	Caller          string
+	Summary         string
+	RedEvidence     bool
+	GreenEvidence   bool
 }
 
 type ToldLimitStep struct {

@@ -6,6 +6,7 @@ import { options, render } from "preact";
 import { act } from "preact/test-utils";
 
 import type { EpicCalls } from "./card";
+import { noEpics } from "./epics";
 import { EpicSchema, EpicsGetResponseSchema, EpicStepSchema, type EpicStep } from "./gen/orrery/v1/epics_pb";
 import {
   ConversationItemSchema,
@@ -775,7 +776,7 @@ function ringCalls(): EpicCalls {
     answer: async () => "",
     openEpic: () => {},
     openStep: () => {},
-    tick: 1,
+    epics: noEpics,
   };
 }
 

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/gates"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -15,9 +14,6 @@ const stepStoppedEnd = "stopped"
 
 // stepRestartedEnd is the end Reconcile stores on each open step row.
 const stepRestartedEnd = "engine_restarted"
-
-// stepWaitPoll is how often Wait reads the rows it waits on.
-const stepWaitPoll = 20 * time.Millisecond
 
 // Stop ends the step with id as stopped. A running loop is canceled, which kills its gate, and Stop waits for the loop
 // to return before it reads the row, so the end is stored once. The step then ends through finish with a context that
@@ -51,70 +47,15 @@ func (s *Steps) Stop(ctx context.Context, id string) error {
 // rowRun returns a stepRun for an open step row with no loop, so Stop can end it through finish. Its cleanup removes the
 // row's worktree when the row has one.
 func (s *Steps) rowRun(row store.StepRow) *stepRun {
-	cfg := stepRunConfig{id: row.ID, sessions: s.sessions, writer: s.writer, logger: s.logger}
+	cfg := stepRunConfig{
+		id: row.ID, sessions: s.sessions, writer: s.writer, logger: s.logger, publish: s.publish, wake: s.stored,
+	}
 	if row.Worktree != "" {
 		cfg.cleanup = func(ctx context.Context) error {
 			return removeStepWorktree(ctx, row.Workspace, row.Worktree)
 		}
 	}
 	return newStepRun(cfg)
-}
-
-// Wait returns the first step among ids to end. It reads the row of every id first, and an id with no row returns an
-// error matching store.ErrNoStep. If a listed step has already ended, Wait returns the one that ended first at once.
-// Otherwise it reads the rows every stepWaitPoll until one ends. The rows returned are every listed row in the order of
-// ids. At timeout Wait returns no ended step and a nil error, and when ctx ends it returns ctx's error.
-func (s *Steps) Wait(
-	ctx context.Context, ids []string, timeout time.Duration,
-) (*store.StepRow, []store.StepRow, error) {
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-	ticker := time.NewTicker(stepWaitPoll)
-	defer ticker.Stop()
-	for {
-		rows, err := s.readSteps(ctx, ids)
-		if err != nil {
-			return nil, nil, err
-		}
-		if ended := earliestEnded(rows); ended != nil {
-			return ended, rows, nil
-		}
-		select {
-		case <-ctx.Done():
-			return nil, rows, fmt.Errorf("wait for steps: %w", ctx.Err())
-		case <-timer.C:
-			return nil, rows, nil
-		case <-ticker.C:
-		}
-	}
-}
-
-// readSteps returns the row of each id in ids, in order. An id with no row returns an error matching store.ErrNoStep.
-func (s *Steps) readSteps(ctx context.Context, ids []string) ([]store.StepRow, error) {
-	rows := make([]store.StepRow, 0, len(ids))
-	for _, id := range ids {
-		row, err := s.Status(ctx, id)
-		if err != nil {
-			return nil, err
-		}
-		rows = append(rows, row)
-	}
-	return rows, nil
-}
-
-// earliestEnded returns the ended row of rows with the earliest end, or nil when none has ended. A tie keeps the row
-// listed first.
-func earliestEnded(rows []store.StepRow) *store.StepRow {
-	var first *store.StepRow
-	for i := range rows {
-		if rows[i].End == "" {
-			continue
-		}
-		if first == nil || rows[i].Ended.Before(first.Ended) {
-			first = &rows[i]
-		}
-	}
-	return first
 }
 
 // Readopt registers each open step row with adopter before the manager's Reconcile runs, so the manager re-adopts the
@@ -201,6 +142,8 @@ func (s *Steps) readoptRun(ctx context.Context, row store.StepRow) (*stepRun, er
 		scopeMemory: s.gateScopeMemory,
 		restore:     &stepRestore{Row: row, Turn: turn, Found: found},
 		agentGate:   agent,
+		publish:     s.publish,
+		wake:        s.stored,
 	}
 	folder := row.Workspace
 	if row.ReadOnly {
@@ -311,11 +254,11 @@ func (s *Steps) Reconcile(ctx context.Context) error {
 }
 
 // endRestarted ends the open rows of steps with no live loop as a restart leaves them: engine_restarted, all stored in one
-// CommitAll so one ApplyEngine call carries every end. Then each row whose end was stored has its worktree removed, its gate
-// holder stopped and cleared, and its observer unregistered from the adopter when there is one. A row whose end is dropped
-// is not cleaned up, the other rows still are, and the first dropped end is returned. No notice is sent for any row, whether
-// or not it names an epic. A queueing failure returns its error with no cleanup. No session is stopped, since a restart
-// leaves no session to stop.
+// CommitAll so one ApplyEngine call carries every end. Then each row whose end was stored is published, has its worktree
+// removed, its gate holder stopped and cleared, and its observer unregistered from the adopter when there is one. A row
+// whose end is dropped is not cleaned up, the other rows still are, and the first dropped end is returned. No notice is
+// sent for any row, whether or not it names an epic. A queueing failure returns its error with no cleanup. No session is
+// stopped, since a restart leaves no session to stop.
 func (s *Steps) endRestarted(ctx context.Context, rows []store.StepRow) error {
 	groups := make([]SessionOps, 0, len(rows))
 	for _, row := range rows {
@@ -339,6 +282,7 @@ func (s *Steps) endRestarted(ctx context.Context, rows []store.StepRow) error {
 			}
 			continue
 		}
+		s.publish(ctx, row.ID)
 		s.cleanRestartedStep(ctx, row, adopter)
 	}
 	return first

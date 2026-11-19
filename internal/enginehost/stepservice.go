@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"net/http"
 	"time"
 
 	"connectrpc.com/connect"
@@ -23,54 +22,18 @@ type StepCommands interface {
 	Start(ctx context.Context, start StepStart) (string, error)
 	Stop(ctx context.Context, id string) error
 	Status(ctx context.Context, id string) (store.StepRow, error)
-	Wait(ctx context.Context, ids []string, timeout time.Duration) (*store.StepRow, []store.StepRow, error)
 	List(ctx context.Context, epic, task string) ([]store.StepRow, error)
+	Listings(ctx context.Context, epic, task string) ([]store.StepListing, error)
+	RunningListings(ctx context.Context, epic, task string) ([]store.StepListing, map[string]int, error)
 	Hold(ctx context.Context, id string) error
 	Held(id string) bool
 	Nudge(ctx context.Context, id, text string) error
 	Resume(ctx context.Context, id string) error
 }
 
-// stepReadMarker is what a status or wait call marks an ended step read through, when its caller headers name the
-// step's caller. Steps satisfies it. A StepCommands without it marks nothing.
-type stepReadMarker interface {
-	MarkRead(ctx context.Context, id string, caller store.EpicCaller)
-}
-
 // stepService implements the Steps RPCs over steps.
-// stoppingMessage is why a WaitSteps still waiting when the session socket shuts down fails.
-const stoppingMessage = "orreryd is stopping"
-
 type stepService struct {
 	steps StepCommands
-	// stopping ends when Serve begins its shutdown. A WaitSteps still waiting then fails at once as unavailable, since
-	// this orreryd's steps, the producers of every end it waits for, are stopping with it; its caller waits again on the
-	// next orreryd, as it does for any unavailable orreryd.
-	stopping <-chan struct{}
-}
-
-// markRead marks the ended step row read by the caller that header names, when the steps can mark reads and the header
-// names a caller. A call with no caller headers marks nothing.
-func (s *stepService) markRead(ctx context.Context, row store.StepRow, header http.Header) {
-	marker, ok := s.steps.(stepReadMarker)
-	if !ok || row.End == "" {
-		return
-	}
-	caller, named := epicCallerOf(header)
-	if !named {
-		return
-	}
-	marker.MarkRead(ctx, row.ID, caller)
-}
-
-// isStopping reports whether Serve has begun its shutdown.
-func (s *stepService) isStopping() bool {
-	select {
-	case <-s.stopping:
-		return true
-	default:
-		return false
-	}
 }
 
 // ready returns the refusal every step RPC gets when there is no step store.
@@ -92,8 +55,11 @@ func (s *stepService) StartStep(
 		return nil, stepCommandError(fmt.Errorf(
 			"%w: a step names its gate with gate_name and gates_file, not gate or gate_limit_seconds", ErrBadGate))
 	}
-	// A call with no caller header has the zero caller, which resolves to no row.
-	caller, _ := epicCallerOf(req.Header())
+	// A step's end goes back to its caller, so a call that names no caller is refused before anything is started.
+	caller, ok := epicCallerOf(req.Header())
+	if !ok {
+		return nil, stepCommandError(fmt.Errorf("%w: the call carries no caller headers", ErrNoCaller))
+	}
 	id, err := s.steps.Start(ctx, StepStart{
 		Agent:      req.Msg.GetAgent(),
 		Prompt:     req.Msg.GetPrompt(),
@@ -144,55 +110,11 @@ func (s *stepService) StepStatus(
 	if err != nil {
 		return nil, stepCommandError(err)
 	}
-	s.markRead(ctx, row, req.Header())
 	return connect.NewResponse(&v1.StepStatusResponse{Step: step}), nil
 }
 
-func (s *stepService) WaitSteps(
-	ctx context.Context,
-	req *connect.Request[v1.WaitStepsRequest],
-) (*connect.Response[v1.WaitStepsResponse], error) {
-	if err := s.ready(); err != nil {
-		return nil, err
-	}
-	timeout := time.Duration(req.Msg.GetTimeoutSeconds()) * time.Second
-	waitCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	go func() {
-		select {
-		case <-s.stopping:
-			cancel()
-		case <-waitCtx.Done():
-		}
-	}()
-	ended, rows, err := s.steps.Wait(waitCtx, req.Msg.GetIds(), timeout)
-	if err != nil && ctx.Err() == nil && s.isStopping() {
-		return nil, errors.Join(connect.NewError(connect.CodeUnavailable, errors.New(stoppingMessage)))
-	}
-	if err != nil {
-		return nil, stepCommandError(err)
-	}
-	resp := &v1.WaitStepsResponse{Steps: make([]*v1.Step, 0, len(rows))}
-	if ended != nil {
-		if resp.Ended, err = stepMessage(*ended, s.steps.Held(ended.ID)); err != nil {
-			return nil, stepCommandError(err)
-		}
-	}
-	for _, row := range rows {
-		var step *v1.Step
-		if step, err = stepMessage(row, s.steps.Held(row.ID)); err != nil {
-			return nil, stepCommandError(err)
-		}
-		resp.Steps = append(resp.Steps, step)
-	}
-	// The ended step is one of rows, so marking every ended row marks it too. The marks follow the last message, so a
-	// call that fails answers its caller with no end and marks none.
-	for _, row := range rows {
-		s.markRead(ctx, row, req.Header())
-	}
-	return connect.NewResponse(resp), nil
-}
-
+// ListSteps answers the listings of the labeled steps the request narrows to, each with no result. A request for the
+// running steps reads only those, and the count of each epic's ended steps.
 func (s *stepService) ListSteps(
 	ctx context.Context,
 	req *connect.Request[v1.ListStepsRequest],
@@ -200,19 +122,44 @@ func (s *stepService) ListSteps(
 	if err := s.ready(); err != nil {
 		return nil, err
 	}
-	rows, err := s.steps.List(ctx, req.Msg.GetEpic(), req.Msg.GetTask())
+	var listings []store.StepListing
+	var ended map[string]int
+	var err error
+	if req.Msg.GetRunning() {
+		listings, ended, err = s.steps.RunningListings(ctx, req.Msg.GetEpic(), req.Msg.GetTask())
+	} else {
+		listings, err = s.steps.Listings(ctx, req.Msg.GetEpic(), req.Msg.GetTask())
+	}
 	if err != nil {
 		return nil, stepCommandError(err)
 	}
-	resp := &v1.ListStepsResponse{Steps: make([]*v1.Step, 0, len(rows))}
-	for _, row := range rows {
+	resp := &v1.ListStepsResponse{Steps: make([]*v1.Step, 0, len(listings))}
+	for _, listing := range listings {
 		var step *v1.Step
-		if step, err = stepMessage(row, s.steps.Held(row.ID)); err != nil {
+		if step, err = listingMessage(listing, s.steps.Held(listing.ID)); err != nil {
 			return nil, stepCommandError(err)
 		}
 		resp.Steps = append(resp.Steps, step)
 	}
+	if req.Msg.GetRunning() {
+		if resp.Ended, err = endedCounts(ended); err != nil {
+			return nil, stepCommandError(err)
+		}
+	}
 	return connect.NewResponse(resp), nil
+}
+
+// endedCounts returns ended, the count of each epic's ended steps, as the reply carries it. A count outside int32 is an
+// error, since the reply cannot carry it.
+func endedCounts(ended map[string]int) (map[string]int32, error) {
+	out := make(map[string]int32, len(ended))
+	for epic, count := range ended {
+		if count < 0 || count > math.MaxInt32 {
+			return nil, fmt.Errorf("epic %s ended step count %d is outside int32", epic, count)
+		}
+		out[epic] = int32(count)
+	}
+	return out, nil
 }
 
 func (s *stepService) HoldStep(
@@ -254,9 +201,19 @@ func (s *stepService) ResumeStep(
 	return connect.NewResponse(&v1.ResumeStepResponse{}), nil
 }
 
-// stepMessage returns the Step message of row, with held as its held flag. Ended is zero while the step runs. A check
-// or verdict round outside uint32 is an error, since the reply cannot carry it.
+// stepMessage returns the Step message of row, with held as its held flag: the message of its listing, with its result.
 func stepMessage(row store.StepRow, held bool) (*v1.Step, error) {
+	step, err := listingMessage(row.Listing(), held)
+	if err != nil {
+		return nil, err
+	}
+	step.Result = row.Result
+	return step, nil
+}
+
+// listingMessage returns the Step message of row, a step's listing, with held as its held flag and no result. Ended is
+// zero while the step runs. A check or verdict round outside uint32 is an error, since the reply cannot carry it.
+func listingMessage(row store.StepListing, held bool) (*v1.Step, error) {
 	checks := make([]*v1.StepCheck, 0, len(row.Checks))
 	for _, check := range row.Checks {
 		if int64(check.Round) < 0 || int64(check.Round) > math.MaxUint32 {
@@ -296,7 +253,6 @@ func stepMessage(row store.StepRow, held bool) (*v1.Step, error) {
 		Worktree:         row.Worktree,
 		End:              row.End,
 		Status:           row.Status,
-		Result:           row.Result,
 		Checks:           checks,
 		Doing:            row.Doing,
 		Reason:           row.Reason,
@@ -308,6 +264,9 @@ func stepMessage(row store.StepRow, held bool) (*v1.Step, error) {
 		GateLimitSeconds: int64(row.GateLimit / time.Second),
 		Verdicts:         verdicts,
 		Caller:           row.Caller,
+		Summary:          row.Summary,
+		RedEvidence:      row.RedEvidence,
+		GreenEvidence:    row.GreenEvidence,
 	}
 	if !row.Ended.IsZero() {
 		step.Ended = row.Ended.Unix()
@@ -330,7 +289,7 @@ func stepCommandError(err error) error {
 	case errors.Is(err, store.ErrNoStep):
 		code = connect.CodeNotFound
 	case errors.Is(err, ErrStepNoTurn), errors.Is(err, ErrStepHeld), errors.Is(err, ErrStepGating),
-		errors.Is(err, ErrStepNotRunning), errors.Is(err, ErrStepNotLimited):
+		errors.Is(err, ErrStepNotRunning), errors.Is(err, ErrStepNotLimited), errors.Is(err, ErrNoCaller):
 		code = connect.CodeFailedPrecondition
 	case errors.Is(err, ErrEmptyPrompt), errors.Is(err, ErrBadSchema), errors.Is(err, ErrBadAgent),
 		errors.Is(err, ErrBadDir), errors.Is(err, ErrBadOwned), errors.Is(err, ErrBadGate),

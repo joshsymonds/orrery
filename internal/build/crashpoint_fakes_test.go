@@ -49,6 +49,7 @@ type crashWorld struct {
 	starts  map[string]int
 	sends   map[string]int
 	routed  map[string]int
+	subs    map[string][]*enginehost.StepSubscription
 }
 
 // wrapErr wraps err with what, or returns nil when err is nil. A store error that a fake returns is wrapped through it.
@@ -298,30 +299,57 @@ func (s crashPlanSteps) Status(ctx context.Context, id string) (store.StepRow, e
 	return s.w.stepRow(ctx, id)
 }
 
-// Wait returns the step's row once it has ended. A limited step's row comes back as open, so the runner stops it. A
-// step that is open and not limited never occurs in these runs, and Wait says so rather than spin.
-func (s crashPlanSteps) Wait(
-	ctx context.Context, ids []string, _ time.Duration,
-) (*store.StepRow, []store.StepRow, error) {
-	row, err := s.w.stepRow(ctx, ids[0])
-	if err != nil {
-		return nil, nil, err
+// subscribe registers sub to the rows of step id that publishStep offers.
+func (w *crashWorld) subscribe(id string, sub *enginehost.StepSubscription) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.subs == nil {
+		w.subs = map[string][]*enginehost.StepSubscription{}
 	}
-	switch {
-	case row.End != "":
-		return &row, nil, nil
-	case row.LoopLimited:
-		return nil, []store.StepRow{row}, nil
-	}
-	return nil, nil, fmt.Errorf("step %s is open and not limited", ids[0])
+	w.subs[id] = append(w.subs[id], sub)
 }
 
-// Stop ends step id as stopped, one action.
+// publishStep offers the row of step id, as the store now holds it, to the subscriptions registered on the step. It is
+// called once a write that ends or holds the step is stored, as the engine's Steps publishes it.
+func (w *crashWorld) publishStep(ctx context.Context, id string) error {
+	row, err := w.stepRow(ctx, id)
+	if err != nil {
+		return err
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for _, sub := range w.subs[id] {
+		sub.Offer(row)
+	}
+	return nil
+}
+
+// Subscribe returns a subscription offered the step's row as it stands: its end, or its hold while it is limited. A
+// limited step's hold is offered, so the runner stops it, and the Stop offers the end. A step that is open and not
+// limited never occurs in these runs, and Subscribe says so rather than return a subscription that is never offered an
+// end.
+func (s crashPlanSteps) Subscribe(ctx context.Context, ids []string) (*enginehost.StepSubscription, error) {
+	sub := enginehost.NewStepSubscription(ids)
+	s.w.subscribe(ids[0], sub)
+	row, err := s.w.stepRow(ctx, ids[0])
+	if err != nil {
+		return nil, err
+	}
+	if row.End == "" && !row.LoopLimited {
+		return nil, fmt.Errorf("step %s is open and not limited", ids[0])
+	}
+	sub.Offer(row)
+	return sub, nil
+}
+
+// Stop ends step id as stopped, one action, and offers the end to the step's subscriptions.
 func (s crashPlanSteps) Stop(ctx context.Context, id string) error {
 	return s.w.act("planner step stop", func() error {
-		return wrapErr("stop step "+id, s.w.store.ApplyEngine(ctx, []store.EngineOp{
-			store.StepEnd{ID: id, End: endStopped},
-		}, s.w.now()))
+		err := s.w.store.ApplyEngine(ctx, []store.EngineOp{store.StepEnd{ID: id, End: endStopped}}, s.w.now())
+		if err != nil {
+			return wrapErr("stop step "+id, err)
+		}
+		return s.w.publishStep(ctx, id)
 	})
 }
 

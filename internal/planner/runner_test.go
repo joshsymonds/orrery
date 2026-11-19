@@ -121,7 +121,9 @@ const unknownJudgePlan = `{"status":"done","decisions":[],` +
 	`"questions":[],"outcome":"work"}`
 
 // fakeSteps is a Steps whose steps end when the test ends them. It records each start and each Stop. The first
-// stopFailures Stops fail, and a Stop that succeeds ends its step as stopped, as the engine's Stop does.
+// stopFailures Stops fail, and a Stop that succeeds ends its step as stopped, as the engine's Stop does. The row a step
+// last stored is kept in ended, a channel that holds one row: Subscribe offers that row, so a row stored before the
+// runner subscribes is not lost, and end offers each later row to the subscriptions open on its step.
 type fakeSteps struct {
 	mu           sync.Mutex
 	starts       []enginehost.StepStart
@@ -129,10 +131,11 @@ type fakeSteps struct {
 	stops        []string
 	stopFailures int
 	ended        map[string]chan store.StepRow
+	subs         map[string][]*enginehost.StepSubscription
 }
 
 func newFakeSteps() *fakeSteps {
-	return &fakeSteps{ended: map[string]chan store.StepRow{}}
+	return &fakeSteps{ended: map[string]chan store.StepRow{}, subs: map[string][]*enginehost.StepSubscription{}}
 }
 
 func (f *fakeSteps) Start(_ context.Context, start enginehost.StepStart) (string, error) {
@@ -142,28 +145,44 @@ func (f *fakeSteps) Start(_ context.Context, start enginehost.StepStart) (string
 		return "", f.startErr
 	}
 	f.starts = append(f.starts, start)
-	id := fmt.Sprintf("step-%d", len(f.starts))
-	f.ended[id] = make(chan store.StepRow, 1)
-	return id, nil
+	return fmt.Sprintf("step-%d", len(f.starts)), nil
 }
 
 func (f *fakeSteps) Status(_ context.Context, _ string) (store.StepRow, error) {
 	return store.StepRow{}, errors.New("fakeSteps.Status is not used by the runner")
 }
 
-func (f *fakeSteps) Wait(
-	ctx context.Context, ids []string, timeout time.Duration,
-) (*store.StepRow, []store.StepRow, error) {
+// Subscribe returns a subscription to each id, offered the row each id last stored, as the engine's Subscribe reads it.
+func (f *fakeSteps) Subscribe(_ context.Context, ids []string) (*enginehost.StepSubscription, error) {
 	f.mu.Lock()
-	ch := f.ended[ids[0]]
-	f.mu.Unlock()
+	defer f.mu.Unlock()
+	sub := enginehost.NewStepSubscription(ids)
+	for _, id := range ids {
+		f.subs[id] = append(f.subs[id], sub)
+		if row, ok := f.stored(id); ok {
+			sub.Offer(row)
+		}
+	}
+	return sub, nil
+}
+
+// subscribed reports whether the runner has subscribed to step id.
+func (f *fakeSteps) subscribed(id string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.subs[id]) > 0
+}
+
+// stored returns the row last stored for step id, and whether there is one, leaving the row stored. It is called under
+// f.mu.
+func (f *fakeSteps) stored(id string) (store.StepRow, bool) {
+	box := f.ended[id]
 	select {
-	case row := <-ch:
-		return &row, []store.StepRow{row}, nil
-	case <-ctx.Done():
-		return nil, nil, ctx.Err()
-	case <-time.After(timeout):
-		return nil, nil, nil
+	case row := <-box:
+		box <- row
+		return row, true
+	default:
+		return store.StepRow{}, false
 	}
 }
 
@@ -181,13 +200,76 @@ func (f *fakeSteps) Stop(_ context.Context, id string) error {
 	return nil
 }
 
-// end ends step id with row, which the runner's Wait returns.
+// end stores row as the row of step id and offers it to the subscriptions open on the step. A row that ends the step is
+// the step's end; a row that holds it is the hold a usage limit began.
 func (f *fakeSteps) end(id string, row store.StepRow) {
 	f.mu.Lock()
-	ch := f.ended[id]
-	f.mu.Unlock()
+	defer f.mu.Unlock()
 	row.ID = id
-	ch <- row
+	box, ok := f.ended[id]
+	if !ok {
+		box = make(chan store.StepRow, 1)
+		f.ended[id] = box
+	}
+	select {
+	case <-box:
+	default:
+	}
+	box <- row
+	for _, sub := range f.subs[id] {
+		sub.Offer(row)
+	}
+}
+
+// handTimers is the NewTimer of a Runner a test drives by hand. Each timer it arms is recorded in the order it was armed,
+// and fires only when the test calls fire with its index, so no test waits on a real clock.
+type handTimers struct {
+	mu     sync.Mutex
+	timers []*handTimer
+}
+
+// handTimer is a timer a handTimers armed: the channel it fires on, and whether the test has fired it.
+type handTimer struct {
+	ch    chan time.Time
+	fired bool
+}
+
+func newHandTimers() *handTimers {
+	return &handTimers{}
+}
+
+// newTimer arms a timer. Its stop reports whether the timer had not fired.
+func (h *handTimers) newTimer(time.Duration) (<-chan time.Time, func() bool) {
+	timer := &handTimer{ch: make(chan time.Time, 1)}
+	h.mu.Lock()
+	h.timers = append(h.timers, timer)
+	h.mu.Unlock()
+	return timer.ch, func() bool {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		return !timer.fired
+	}
+}
+
+// count returns how many timers have been armed.
+func (h *handTimers) count() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.timers)
+}
+
+// fire fires the timer with index i, the i-th armed, at claimedAt. A timer fires once.
+func (h *handTimers) fire(t *testing.T, i int) {
+	t.Helper()
+	h.mu.Lock()
+	if i >= len(h.timers) || h.timers[i].fired {
+		h.mu.Unlock()
+		t.Fatalf("fire timer %d: it is not armed, or it has fired", i)
+	}
+	timer := h.timers[i]
+	timer.fired = true
+	h.mu.Unlock()
+	timer.ch <- claimedAt()
 }
 
 // started returns the starts recorded so far, in order.

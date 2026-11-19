@@ -76,6 +76,8 @@ export interface EpicsView {
   // The archived epics, live or not, in input order.
   archived: EpicItem[];
   details: Map<string, EpicsGetResponse>;
+  // The Epics.List message of each listed epic, live or not, by id.
+  listed: Map<string, Epic>;
 }
 
 export interface EpicSection {
@@ -109,6 +111,7 @@ export const noEpics: EpicsView = {
   endedEarlier: [],
   archived: [],
   details: new Map(),
+  listed: new Map(),
 };
 
 // Blocks every live epic that is not waiting, busy ones first and each group in input order, and collects the live
@@ -156,6 +159,7 @@ export function epicsView(epics: Epic[], details: Map<string, EpicsGetResponse>)
     endedEarlier: newestFirst(endedEarlier),
     archived,
     details,
+    listed: new Map(epics.map((epic) => [epic.id, epic])),
   };
 }
 
