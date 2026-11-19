@@ -218,6 +218,9 @@ func TestEpicByPartReadsOneTaskAndOneQuestionWhole(t *testing.T) {
 }
 
 func TestEpicByPartCutsTextAtLimit(t *testing.T) {
+	// lastLine returns the last line of text, the line that names the offset a cut continues from.
+	lastLine := func(text string) string { return text[strings.LastIndex(text, "\n")+1:] }
+
 	t.Run("contract", func(t *testing.T) {
 		// Each é is two bytes, so a limit counted in bytes would cut the text at a different rune than a limit of runes.
 		contract := &v1.EpicContract{Id: testEpicID, Title: "Login with passkeys", Intent: strings.Repeat("é", 9000)}
@@ -251,6 +254,27 @@ func TestEpicByPartCutsTextAtLimit(t *testing.T) {
 
 		checkText(t, readPart(t, p, `{"id":"`+testEpicID+`","part":"workflow"}`), workflow.GetText())
 
+		// Each é is two bytes, so a limit counted in bytes would cut the text at a different rune than a limit of runes.
+		long := &v1.EpicWorkflow{Name: "epic", Text: strings.Repeat("é", 9000), Sha256: "0f0f"}
+		runes := []rune(long.GetText())
+		total := len(runes)
+		cut := newPeer(t, nil, &fakeEpics{getReply: &v1.GetEpicResponse{Epic: &v1.StoredEpic{Workflow: long}}})
+
+		got := readPart(t, cut, `{"id":"`+testEpicID+`","part":"workflow"}`)
+		checkText(t, got, string(runes[:8000])+fmt.Sprintf("\n… cut at rune 8000 of %d; offset 8000 continues", total))
+		t.Logf("workflow: %s", lastLine(got))
+		checkText(t, readPart(t, cut, `{"id":"`+testEpicID+`","part":"workflow","offset":8000}`), string(runes[8000:]))
+		got = readPart(t, cut, `{"id":"`+testEpicID+`","part":"workflow","limit":100}`)
+		checkText(t, got, string(runes[:100])+fmt.Sprintf("\n… cut at rune 100 of %d; offset 100 continues", total))
+		t.Logf("workflow: %s", lastLine(got))
+		got = readPart(t, cut, `{"id":"`+testEpicID+`","part":"workflow","offset":8000,"limit":100}`)
+		checkText(
+			t,
+			got,
+			string(runes[8000:8100])+fmt.Sprintf("\n… cut at rune 8100 of %d; offset 8100 continues", total),
+		)
+		t.Logf("workflow: %s", lastLine(got))
+
 		unset := newPeer(t, nil, &fakeEpics{getReply: &v1.GetEpicResponse{Epic: &v1.StoredEpic{}}})
 		checkPage(t, readPart(t, unset, `{"id":"`+testEpicID+`","part":"workflow"}`), "workflow: none")
 	})
@@ -264,6 +288,33 @@ func TestEpicByPartCutsTextAtLimit(t *testing.T) {
 		p := newPeer(t, nil, &fakeEpics{getReply: &v1.GetEpicResponse{Epic: &v1.StoredEpic{Report: report}}})
 
 		checkText(t, readPart(t, p, `{"id":"`+testEpicID+`","part":"report"}`), want)
+
+		long := &v1.EpicReport{Outcome: "shipped", Shipped: []string{"R1"}, Why: strings.Repeat("é", 9000)}
+		full, err := reportText(long)
+		if err != nil {
+			t.Fatalf("reportText: %v", err)
+		}
+		runes := []rune(full)
+		total := len(runes)
+		if total <= 8000 {
+			t.Fatalf("report text is %d runes, want more than 8000", total)
+		}
+		cut := newPeer(t, nil, &fakeEpics{getReply: &v1.GetEpicResponse{Epic: &v1.StoredEpic{Report: long}}})
+
+		got := readPart(t, cut, `{"id":"`+testEpicID+`","part":"report"}`)
+		checkText(t, got, string(runes[:8000])+fmt.Sprintf("\n… cut at rune 8000 of %d; offset 8000 continues", total))
+		t.Logf("report: %s", lastLine(got))
+		checkText(t, readPart(t, cut, `{"id":"`+testEpicID+`","part":"report","offset":8000}`), string(runes[8000:]))
+		got = readPart(t, cut, `{"id":"`+testEpicID+`","part":"report","limit":100}`)
+		checkText(t, got, string(runes[:100])+fmt.Sprintf("\n… cut at rune 100 of %d; offset 100 continues", total))
+		t.Logf("report: %s", lastLine(got))
+		got = readPart(t, cut, `{"id":"`+testEpicID+`","part":"report","offset":8000,"limit":100}`)
+		checkText(
+			t,
+			got,
+			string(runes[8000:8100])+fmt.Sprintf("\n… cut at rune 8100 of %d; offset 8100 continues", total),
+		)
+		t.Logf("report: %s", lastLine(got))
 
 		unset := newPeer(t, nil, &fakeEpics{getReply: &v1.GetEpicResponse{Epic: &v1.StoredEpic{}}})
 		checkPage(t, readPart(t, unset, `{"id":"`+testEpicID+`","part":"report"}`), "report: none")
