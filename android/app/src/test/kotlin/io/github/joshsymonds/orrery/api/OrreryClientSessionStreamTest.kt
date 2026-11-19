@@ -6,10 +6,17 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationItem as Conversati
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState as ConversationStateProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EngineText
 import io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession as HeadlessSessionProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.InterruptResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.OpenRequest as OpenRequestProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.PendingEvent
+import io.github.joshsymonds.orrery.gen.orrery.v1.PullQueuedRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.PullQueuedResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage
 import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.WaitingMessage
+import io.github.joshsymonds.orrery.gen.orrery.v1.WithdrawRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.WithdrawResponse
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelAndJoin
@@ -34,6 +41,7 @@ class OrreryClientSessionStreamTest {
         .setSummary("Example summary.")
         .setQuestion("Example question?")
         .setNewestReply(4102444950L)
+        .setPutOff(true)
         .build()
 
     private val expectedPane = Pane(
@@ -53,6 +61,7 @@ class OrreryClientSessionStreamTest {
         questionHash = "",
         newestReply = 4102444950L,
         headless = true,
+        putOff = true,
     )
 
     private val exampleRequest = OpenRequestProto.newBuilder()
@@ -61,6 +70,7 @@ class OrreryClientSessionStreamTest {
         .setQuestion("Example question?")
         .addOptions("Yes")
         .addOptions("No")
+        .setPutOff(true)
         .build()
 
     private val expectedRequest = SessionRequest(
@@ -68,6 +78,7 @@ class OrreryClientSessionStreamTest {
         kind = "question",
         question = "Example question?",
         options = listOf("Yes", "No"),
+        putOff = true,
     )
 
     private val firstDeltaProto = SessionsWatchConversationResponse.newBuilder()
@@ -83,6 +94,7 @@ class OrreryClientSessionStreamTest {
                 .setTrigger("auto")
                 .setTokens(611000L),
         )
+        .addItems(ConversationItemProto.newBuilder().setKind("interrupted").setTime(1700000400L))
         .setState(
             ConversationStateProto.newBuilder()
                 .setOrigin("Example opening prompt.")
@@ -91,7 +103,26 @@ class OrreryClientSessionStreamTest {
                 .addWaiting(WaitingMessage.newBuilder().setText("Example cancelled.").setTime(1700000310L).setCanceled(true))
                 .setContext(ConversationContextProto.newBuilder().setTokens(1200L).setWindow(200000L))
                 .setSession(exampleSession)
-                .setRequest(exampleRequest),
+                .setRequest(exampleRequest)
+                .setInterrupting(true)
+                .setInterruptingSince(1700000400L)
+                .setTurnSince(1700000390L)
+                .addPending(PendingEvent.newBuilder().setId("event-1").setKind("step_end").setWaits("speak"))
+                .addPending(PendingEvent.newBuilder().setId("event-2").setKind("question").setWaits("request")),
+        )
+        .addQueued(
+            QueuedMessage.newBuilder()
+                .setPromptId("prompt-1")
+                .setText("Example queued prompt.")
+                .setState("queued")
+                .setWaits("turn"),
+        )
+        .addQueued(
+            QueuedMessage.newBuilder()
+                .setPromptId("prompt-2")
+                .setText("Example canceled prompt.")
+                .setState("canceled")
+                .setWaits("start"),
         )
         .addUnfinished(
             EngineText.newBuilder()
@@ -128,6 +159,15 @@ class OrreryClientSessionStreamTest {
                 trigger = "auto",
                 tokens = 611000L,
             ),
+            ConversationItem(
+                kind = "interrupted",
+                time = 1700000400L,
+                text = "",
+                tool = "",
+                input = "",
+                id = "",
+                error = false,
+            ),
         ),
         state = ConversationState(
             origin = "Example opening prompt.",
@@ -139,6 +179,17 @@ class OrreryClientSessionStreamTest {
             context = ConversationContext(tokens = 1200L, window = 200000L),
             pane = expectedPane,
             request = expectedRequest,
+            interrupting = true,
+            interruptingSince = 1700000400L,
+            turnSince = 1700000390L,
+            pending = listOf(
+                PendingItem(id = "event-1", kind = "step_end", waits = "speak"),
+                PendingItem(id = "event-2", kind = "question", waits = "request"),
+            ),
+        ),
+        queued = listOf(
+            QueuedItem(promptId = "prompt-1", text = "Example queued prompt.", state = "queued", waits = "turn"),
+            QueuedItem(promptId = "prompt-2", text = "Example canceled prompt.", state = "canceled", waits = "start"),
         ),
         unfinished = listOf(
             UnfinishedText(messageId = "msg_example", index = 0, parentToolUseId = "", kind = "text", text = "Example partial reply."),
@@ -356,6 +407,46 @@ class OrreryClientSessionStreamTest {
         assertFalse(error is OrreryCallException)
     }
 
+    @Test
+    fun interruptReturnsTheTextsTheServerAnswersInSendOrder() {
+        FakeOrreryServer().use { server ->
+            server.respond(
+                CONTROL_INTERRUPT,
+                InterruptResponse.newBuilder().addTexts("Example first text.").addTexts("Example second text.").build(),
+            )
+
+            val texts = OrreryClient(server.baseUrl).interrupt(SESSION_ID)
+
+            assertEquals(listOf("Example first text.", "Example second text."), texts)
+        }
+    }
+
+    @Test
+    fun withdrawSendsTheSessionAndPromptIdAndReturnsTheTexts() {
+        FakeOrreryServer().use { server ->
+            server.respond(CONTROL_WITHDRAW, WithdrawResponse.newBuilder().addTexts("Example withdrawn text.").build())
+
+            val texts = OrreryClient(server.baseUrl).withdraw(SESSION_ID, "prompt-1")
+
+            val sent = WithdrawRequest.parseFrom(server.requests.single().body)
+            assertEquals(SESSION_ID, sent.id)
+            assertEquals("prompt-1", sent.promptId)
+            assertEquals(listOf("Example withdrawn text."), texts)
+        }
+    }
+
+    @Test
+    fun pullQueuedSendsThePaneAndReturnsTheText() {
+        FakeOrreryServer().use { server ->
+            server.respond(PANES_PULL_QUEUED, PullQueuedResponse.newBuilder().setText("Example pulled text.").build())
+
+            val text = OrreryClient(server.baseUrl).pullQueued("pane-1")
+
+            assertEquals("pane-1", PullQueuedRequest.parseFrom(server.requests.single().body).pane)
+            assertEquals("Example pulled text.", text)
+        }
+    }
+
     /** The payload of one Connect envelope: a zero flag byte, the big-endian length, then the message. */
     private fun decodeEnvelope(body: ByteArray): ByteArray {
         assertEquals(0, body[0].toInt())
@@ -367,5 +458,8 @@ class OrreryClientSessionStreamTest {
     private companion object {
         const val SESSION_ID = "0123456789abcdef0123456789abcdef"
         const val SESSION_WATCH_CONVERSATION = "/orrery.v1.Sessions/WatchConversation"
+        const val CONTROL_INTERRUPT = "/orrery.v1.Control/Interrupt"
+        const val CONTROL_WITHDRAW = "/orrery.v1.Control/Withdraw"
+        const val PANES_PULL_QUEUED = "/orrery.v1.Panes/PullQueued"
     }
 }
