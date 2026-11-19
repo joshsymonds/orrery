@@ -25,12 +25,12 @@ import (
 )
 
 // openFrameStore opens a store at a fresh path under t.TempDir and a second connection to the same file for
-// reads and for holding the write lock.
-func openFrameStore(t *testing.T) (*store.Store, *sql.DB) {
+// reads and for holding the write lock. The store opens with opts after storetest.NoSync.
+func openFrameStore(t *testing.T, opts ...store.Option) (*store.Store, *sql.DB) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	storetest.Seed(t, path)
-	st, err := store.Open(t.Context(), path, storetest.NoSync())
+	st, err := store.Open(t.Context(), path, append([]store.Option{storetest.NoSync()}, opts...)...)
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}
@@ -271,7 +271,8 @@ func TestFrameSyncObserversReceiveEachTransitionOnce(t *testing.T) {
 
 func TestFrameSyncStoreWriteLockedStillReachesTmuxAndObserver(t *testing.T) {
 	srv := startServer(t)
-	st, db := openFrameStore(t)
+	// A busy timeout of 0 fails the locked sync at once, so the frame waits out no timeout.
+	st, db := openFrameStore(t, store.WithBusyTimeout(0))
 	ctx := context.Background()
 
 	conn, err := db.Conn(ctx)
@@ -291,13 +292,16 @@ func TestFrameSyncStoreWriteLockedStillReachesTmuxAndObserver(t *testing.T) {
 	})
 
 	observed := make(chan time.Time, 1)
+	mirror := daemon.NewMirror(st, time.Now, nil)
 	socket := serve(t, daemon.Config{
 		Server: srv.server,
-		Mirror: daemon.NewMirror(st, time.Now, nil),
+		Mirror: mirror,
 		Observers: []daemon.Observer{func(daemon.Transition) {
 			observed <- time.Now()
 		}},
 	})
+	// The locked sync is deferred for the drain, which Wait ends, with the lock still held, before the store closes.
+	t.Cleanup(mirror.Wait)
 
 	sendFrame(t, socket, frameFor(permissionHook, srv.pane, srv.socket))
 
@@ -341,7 +345,8 @@ func sendFrameErr(socketPath string, frame protocol.HookFrame) error {
 
 func TestFrameSyncLockedStoreBurstStillReachesObserversInTime(t *testing.T) {
 	srv := startServer(t)
-	st, db := openFrameStore(t)
+	// A busy timeout of 0 fails each locked sync at once, so the frames wait out no timeout.
+	st, db := openFrameStore(t, store.WithBusyTimeout(0))
 	ctx := context.Background()
 
 	panes := []string{srv.pane}
@@ -370,13 +375,16 @@ func TestFrameSyncLockedStoreBurstStillReachesObserversInTime(t *testing.T) {
 	})
 
 	observed := make(chan time.Time, burstPanes)
+	mirror := daemon.NewMirror(st, time.Now, nil)
 	socket := serve(t, daemon.Config{
 		Server: srv.server,
-		Mirror: daemon.NewMirror(st, time.Now, nil),
+		Mirror: mirror,
 		Observers: []daemon.Observer{func(daemon.Transition) {
 			observed <- time.Now()
 		}},
 	})
+	// The locked syncs are deferred for the drain, which Wait ends, with the lock still held, before the store closes.
+	t.Cleanup(mirror.Wait)
 
 	errs := make(chan error, burstPanes)
 	for _, pane := range panes {

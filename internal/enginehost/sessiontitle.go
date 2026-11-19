@@ -36,10 +36,12 @@ type SessionTitlesConfig struct {
 }
 
 // SessionTitles writes a title for each headless session that has none, from its first prompt. It keeps the ids it has
-// tried since it started, so each session gets at most one call per start.
+// tried since it started, so each session gets at most one call per start, and the titles whose write the store
+// refused, which each later pass writes again.
 type SessionTitles struct {
-	cfg   SessionTitlesConfig
-	tried map[string]bool
+	cfg      SessionTitlesConfig
+	tried    map[string]bool
+	unstored unstoredWrites[string]
 }
 
 // NewSessionTitles returns a SessionTitles for cfg.
@@ -47,7 +49,7 @@ func NewSessionTitles(cfg SessionTitlesConfig) *SessionTitles {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.DiscardHandler)
 	}
-	return &SessionTitles{cfg: cfg, tried: make(map[string]bool)}
+	return &SessionTitles{cfg: cfg, tried: make(map[string]bool), unstored: unstoredWrites[string]{}}
 }
 
 // Run writes the titles at start and at each tick until ctx ends.
@@ -65,9 +67,13 @@ func (t *SessionTitles) Run(ctx context.Context) {
 	}
 }
 
-// pass titles each untitled session that this start has not tried, one call at a time, in id order. A failed read is
-// logged and the pass does nothing else; the next pass reads again.
+// pass writes again the titles whose write the store refused, then titles each untitled session that this start has
+// not tried, one call at a time, in id order. A failed read is logged and the pass does nothing else; the next pass
+// reads again.
 func (t *SessionTitles) pass(ctx context.Context) {
+	if n := t.unstored.retry(context.WithoutCancel(ctx), t.cfg.Store.SetSessionTitle); n > 0 {
+		t.cfg.Logger.InfoContext(ctx, "session titles stored after a retry", "titles", n)
+	}
 	rows, err := t.cfg.Store.UntitledSessions(ctx)
 	if err != nil {
 		t.cfg.Logger.ErrorContext(ctx, "read untitled sessions", "error", err)
@@ -87,7 +93,7 @@ func (t *SessionTitles) pass(ctx context.Context) {
 
 // title calls Haiku for the title of row and stores it when the reply has a non-blank title. A failed call or reply is
 // logged and leaves the title empty. The write ignores ctx's cancellation, so a stop that lands after a reply still
-// stores it.
+// stores it, and a write the store refuses is logged and kept for the next pass to write again.
 func (t *SessionTitles) title(ctx context.Context, row store.UntitledSession) {
 	raw, err := t.cfg.Haiku.Call(ctx, sessionTitleSchema, sessionTitleInstruction+"\n\n"+row.FirstPrompt)
 	if err != nil {
@@ -100,7 +106,8 @@ func (t *SessionTitles) title(ctx context.Context, row store.UntitledSession) {
 		return
 	}
 	if err = t.cfg.Store.SetSessionTitle(context.WithoutCancel(ctx), row.ID, title); err != nil {
-		t.cfg.Logger.ErrorContext(ctx, "store session title", "session", row.ID, "error", err)
+		t.cfg.Logger.ErrorContext(ctx, "store session title; kept for the next pass", "session", row.ID, "error", err)
+		t.unstored[row.ID] = title
 	}
 }
 

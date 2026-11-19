@@ -30,7 +30,8 @@ type NodeCheckStore interface {
 
 // NodeChecksConfig configures a NodeChecks. Store records the checks, and Pools, Environ, GateStateDir, GateScope and
 // GateScopeMemory run each check's command as an evidence capture runs its gate. StateDir holds the check worktrees. A nil Now is time.Now, and a
-// nil Logger discards.
+// nil Logger discards. After returns the channel a failed write of a check's end waits on before it is tried again, and
+// nil is time.After.
 type NodeChecksConfig struct {
 	Store           NodeCheckStore
 	Pools           PoolCommands
@@ -41,6 +42,7 @@ type NodeChecksConfig struct {
 	GateScopeMemory int64
 	Now             func() time.Time
 	Logger          *slog.Logger
+	After           func(time.Duration) <-chan time.Time
 }
 
 // NodeChecks runs gate and command checks. Each check is stored once under its id, then driven in the background by a
@@ -55,6 +57,7 @@ type NodeChecks struct {
 	gateScopeMemory int64
 	now             func() time.Time
 	logger          *slog.Logger
+	after           func(time.Duration) <-chan time.Time
 
 	mu      sync.Mutex
 	closed  bool
@@ -74,6 +77,10 @@ func NewNodeChecks(cfg NodeChecksConfig) *NodeChecks {
 	if now == nil {
 		now = time.Now
 	}
+	after := cfg.After
+	if after == nil {
+		after = time.After
+	}
 	return &NodeChecks{
 		store:           cfg.Store,
 		pools:           cfg.Pools,
@@ -84,6 +91,7 @@ func NewNodeChecks(cfg NodeChecksConfig) *NodeChecks {
 		gateScopeMemory: cfg.GateScopeMemory,
 		now:             now,
 		logger:          logger,
+		after:           after,
 		cancels:         map[string]context.CancelCauseFunc{},
 	}
 }
@@ -154,16 +162,27 @@ func (n *NodeChecks) finish(id string) {
 	delete(n.cancels, id)
 }
 
-// drive runs check to its end and records it, even when ctx has ended. A run that detaches records nothing, and neither does
-// one cut short before its gate launched, so a restart runs the check again.
+// drive runs check to its end and records it (see record), even when ctx has ended. A run that detaches records nothing,
+// and neither does one cut short before its gate launched, so a restart runs the check again.
 func (n *NodeChecks) drive(ctx context.Context, repo string, check store.NodeCheck) {
 	end, err := n.run(ctx, repo, check)
 	if err != nil {
 		n.logger.InfoContext(ctx, "node check left for a restart", "check", check.ID, "err", err)
 		return
 	}
-	if err = n.store.EndNodeCheck(context.WithoutCancel(ctx), check.ID, end, n.now()); err != nil {
-		n.logger.ErrorContext(ctx, "end node check", "check", check.ID, "err", err)
+	n.record(ctx, check.ID, end)
+}
+
+// record stores end as the end of the check with id, retrying a write the store refuses until it lands (see
+// retryStore), since nothing drives a check the store keeps running. Only the end of ctx, which Close cancels, stops the
+// retries. A check whose end is still unstored then stays running for a restart's Resume, which ends it lost at a
+// restart, as it ends any check whose gate it cannot readopt, and a check lost at a restart runs again.
+func (n *NodeChecks) record(ctx context.Context, id string, end store.NodeCheckEnd) {
+	at := n.now()
+	err := n.retry(ctx, "node check end", id,
+		func(storeCtx context.Context) error { return n.store.EndNodeCheck(storeCtx, id, end, at) })
+	if err != nil {
+		n.logger.ErrorContext(ctx, "node check end unstored at close, left for a restart", "check", id, "err", err)
 	}
 }
 
@@ -183,7 +202,11 @@ func (n *NodeChecks) run(ctx context.Context, repo string, check store.NodeCheck
 	// did not finish, where one that never launched did not start.
 	launched := false
 	gate := n.gate(worktree, check, func(gateCtx context.Context, grant, holder string) error {
-		if recordErr := n.store.SetNodeCheckGrant(gateCtx, check.ID, grant, holder); recordErr != nil {
+		// A refused record is tried again until it lands, since a gate whose grant is unrecorded does not launch. Each try
+		// runs on gateCtx, so a cut ends the record unmade and the check is left for a restart.
+		if recordErr := n.retry(gateCtx, "node check grant", check.ID,
+			func(context.Context) error { return n.store.SetNodeCheckGrant(gateCtx, check.ID, grant, holder) },
+		); recordErr != nil {
 			return fmt.Errorf("record grant of node check %s: %w", check.ID, recordErr)
 		}
 		launched = true

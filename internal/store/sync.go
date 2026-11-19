@@ -236,8 +236,8 @@ func appendEvent(ctx context.Context, queries *sqlcgen.Queries, sessionID, kind,
 	return nil
 }
 
-// write runs fn in one write transaction. BEGIN IMMEDIATE takes the write lock up front, so the 200 ms busy
-// timeout bounds the wait for it. A failed fn or commit rolls back, so a failed write leaves no rows behind.
+// write runs fn in one write transaction. BEGIN IMMEDIATE takes the write lock up front, so the busy timeout (see
+// BusyTimeout) bounds the wait for it, and a write that waits it out fails with an error Busy reports. A failed fn or commit rolls back, so a failed write leaves no rows behind.
 //
 // The write is one timed store call (see WithLogger), from the wait for the connection until it is free again.
 func (s *Store) write(ctx context.Context, fn func(queries *sqlcgen.Queries) error) error {

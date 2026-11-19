@@ -83,17 +83,15 @@ func (n *NodeChecks) readoptUnlaunched(ctx context.Context, repo string, check s
 	n.drive(ctx, repo, check)
 }
 
-// readoptGranted readopts the gate of check under its stored grant, and records its end as drive does. A gate that
-// detaches again records nothing, so the next restart readopts it.
+// readoptGranted readopts the gate of check under its stored grant, and records its end as drive does (see record). A
+// gate that detaches again records nothing, so the next restart readopts it.
 func (n *NodeChecks) readoptGranted(ctx context.Context, repo string, check store.NodeCheck) {
 	end, err := n.readoptEnd(ctx, repo, check)
 	if err != nil {
 		n.logger.InfoContext(ctx, "node check left for a restart", "check", check.ID, "err", err)
 		return
 	}
-	if err = n.store.EndNodeCheck(context.WithoutCancel(ctx), check.ID, end, n.now()); err != nil {
-		n.logger.ErrorContext(ctx, "end node check", "check", check.ID, "err", err)
-	}
+	n.record(ctx, check.ID, end)
 }
 
 // readoptEnd readopts the gate of check under its stored grant and returns how the check ended. A gate that cannot be

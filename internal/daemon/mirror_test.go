@@ -139,12 +139,13 @@ func setMirrorValues(t *testing.T, ms mirrorServer) {
 	}
 }
 
-// openMirrorStore opens a store in a fresh temporary directory and returns it with its file path.
-func openMirrorStore(t *testing.T) (*store.Store, string) {
+// openMirrorStore opens a store in a fresh temporary directory, with opts after storetest.NoSync, and returns it with
+// its file path.
+func openMirrorStore(t *testing.T, opts ...store.Option) (*store.Store, string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	storetest.Seed(t, path)
-	st, err := store.Open(t.Context(), path, storetest.NoSync())
+	st, err := store.Open(t.Context(), path, append([]store.Option{storetest.NoSync()}, opts...)...)
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}
@@ -353,51 +354,5 @@ func TestMirrorDefersSyncPastTheLockWaitAndSyncsOnceTheLockFrees(t *testing.T) {
 	m.Wait()
 	if rows := mirrorRows(t, db); len(rows) != 1 || rows[0].State != mirrorValues()[protocol.OptionState] {
 		t.Fatalf("rows after the lock was freed = %+v, want the pane's one row", rows)
-	}
-}
-
-func TestMirrorDropsSyncWhenStoreWriteLocked(t *testing.T) {
-	ms := startMirrorServer(t)
-	setMirrorValues(t, ms)
-	st, path := openMirrorStore(t)
-	db := openMirrorDB(t, path)
-	ctx := t.Context()
-
-	conn, err := db.Conn(ctx)
-	if err != nil {
-		t.Fatalf("db.Conn: %v", err)
-	}
-	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
-		t.Fatalf("hold store write lock: %v", err)
-	}
-	logs := &bytes.Buffer{}
-	m := NewMirror(st, mirrorNow, slog.New(slog.NewTextHandler(logs, nil)))
-
-	m.SyncPane(ctx, ms.server, ms.pane)
-
-	if _, err := conn.ExecContext(ctx, "ROLLBACK"); err != nil {
-		t.Fatalf("release store write lock: %v", err)
-	}
-	if err := conn.Close(); err != nil {
-		t.Fatalf("close lock connection: %v", err)
-	}
-
-	if logs.Len() == 0 {
-		t.Fatal("dropped sync was not logged")
-	}
-	if id := mirrorOption(t, ms, protocol.OptionID); id != "" {
-		t.Fatalf("%s = %q after a failed store write, want unset", protocol.OptionID, id)
-	}
-	if got := mirrorOption(t, ms, protocol.OptionState); got != mirrorValues()[protocol.OptionState] {
-		t.Fatalf("%s = %q after a failed store write, want unchanged %q", protocol.OptionState, got,
-			mirrorValues()[protocol.OptionState])
-	}
-	if rows := mirrorRows(t, db); len(rows) != 0 {
-		t.Fatalf("rows after a failed store write = %+v, want none", rows)
-	}
-
-	m.SyncPane(ctx, ms.server, ms.pane)
-	if rows := mirrorRows(t, db); len(rows) != 1 {
-		t.Fatalf("rows after the write lock was released = %+v, want one", rows)
 	}
 }

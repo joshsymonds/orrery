@@ -91,8 +91,7 @@ func (e *Evidence) readoptCapture(ctx context.Context, repo string, run store.Ev
 		e.logger.InfoContext(ctx, "evidence capture left for a restart", "run", run.ID, "err", err)
 		return
 	}
-	if err = e.store.RecordEvidenceCapture(context.WithoutCancel(ctx), run.ID, capture); err != nil {
-		e.logger.ErrorContext(ctx, "record evidence capture", "run", run.ID, "err", err)
+	if !e.recordCapture(ctx, run.ID, capture) {
 		return
 	}
 	if capture.NotCaptured != "" || ctx.Err() != nil {
@@ -145,8 +144,8 @@ func (e *Evidence) readoptJudgeStep(ctx context.Context, run store.EvidenceRun) 
 	if err != nil {
 		return "", 0, fmt.Errorf("judge step of evidence run %s: %w", run.ID, err)
 	}
-	if err = e.store.SetEvidenceJudge(ctx, run.ID, next); err != nil {
-		return "", 0, fmt.Errorf("record judge of evidence run %s: %w", run.ID, err)
+	if recordErr := e.recordJudge(ctx, run.ID, next); recordErr != nil {
+		return "", 0, recordErr
 	}
 	return next, run.Judges + 1, nil
 }
