@@ -39,20 +39,27 @@ func (ts *retryTimers) arm(d time.Duration, f func()) func() bool {
 	}
 }
 
-// fire runs the one retry that is armed and still pending, which must have the store retry's delay. It fails the test
-// unless exactly one such retry is pending.
+// fire runs the store retry: the one retry armed after storeRetry that is still pending. It fails the test unless
+// exactly one such retry is pending.
 func (ts *retryTimers) fire(t *testing.T) {
+	t.Helper()
+	ts.fireAfter(t, storeRetry)
+}
+
+// fireAfter runs the one retry armed after d that is still pending. It fails the test unless exactly one such retry is
+// pending.
+func (ts *retryTimers) fireAfter(t *testing.T, d time.Duration) {
 	t.Helper()
 	ts.mu.Lock()
 	var pending []*retryArm
 	for _, a := range ts.arms {
-		if a.pending {
+		if a.pending && a.d == d {
 			pending = append(pending, a)
 		}
 	}
-	if len(pending) != 1 || pending[0].d != storeRetry {
+	if len(pending) != 1 {
 		ts.mu.Unlock()
-		t.Fatalf("%d retries pending, want one armed after %v", len(pending), storeRetry)
+		t.Fatalf("%d retries pending after %v, want one", len(pending), d)
 	}
 	a := pending[0]
 	a.pending = false
