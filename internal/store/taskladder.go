@@ -37,6 +37,9 @@ const (
 // TaskGap is the status of a task that ended as a gap.
 const TaskGap = "gap"
 
+// taskOpen is the status of a task that is open, the only status a planner's fail_task acts on.
+const taskOpen = "open"
+
 // RescueRung is rung 3, the rung of kind RungRescue.
 const RescueRung = 3
 
@@ -182,34 +185,53 @@ func (s *Store) ClimbTask(
 	if err := checkClimb(epic, seq, from, to, move); err != nil {
 		return err
 	}
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		return climbTask(ctx, queries, epic, seq, from, to, move, version, decision, at)
+	})
+}
+
+// climbTask writes the climb ClimbTask describes for task seq of epic in the caller's write, so a planner action climbs
+// its task in the write that carries it out. It does not run checkClimb, which the caller runs first. The stored build
+// moves from from to to before anything else is written, so a task that is not open, or whose stored build is not from,
+// is ErrTaskMoved, and the caller's write carries that error out with nothing stored. The rest is as ClimbTask gives
+// it: move's needs files, the rungs of the climb, what the climb onto to ends, and version and decision when not nil.
+func climbTask(
+	ctx context.Context,
+	queries *sqlcgen.Queries,
+	epic string,
+	seq int64,
+	from, to TaskBuild,
+	move RungMove,
+	version *TaskVersionInput,
+	decision *TaskDecision,
+	at time.Time,
+) error {
+	if err := moveTask(ctx, queries, epic, seq, from, to); err != nil {
+		return err
+	}
+	if err := setTaskNeedsFiles(ctx, queries, epic, seq, move.NeedsFiles); err != nil {
+		return err
+	}
+	if err := insertClimbRungs(ctx, queries, epic, seq, RungOf(from), to.Attempt, move, at); err != nil {
+		return err
+	}
+	if err := insertClimbEnd(ctx, queries, epic, seq, to.Attempt, move.Cause, at); err != nil {
+		return err
+	}
 	decisionID := ""
 	if decision != nil {
 		decisionID = decision.ID
 	}
-	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		if err := moveTask(ctx, queries, epic, seq, from, to); err != nil {
+	if version != nil {
+		if err := appendTaskVersion(ctx, queries, epic, seq, decisionID, *version, at); err != nil {
 			return err
 		}
-		if err := setTaskNeedsFiles(ctx, queries, epic, seq, move.NeedsFiles); err != nil {
-			return err
-		}
-		if err := insertClimbRungs(ctx, queries, epic, seq, RungOf(from), to.Attempt, move, at); err != nil {
-			return err
-		}
-		if err := insertClimbEnd(ctx, queries, epic, seq, to.Attempt, move.Cause, at); err != nil {
-			return err
-		}
-		if version != nil {
-			if err := appendTaskVersion(ctx, queries, epic, seq, decisionID, *version, at); err != nil {
-				return err
-			}
-		}
-		if decision == nil {
-			return nil
-		}
-		_, err := appendDecision(ctx, queries, epic, decision.ID, decision.Text, 0, at)
-		return err
-	})
+	}
+	if decision == nil {
+		return nil
+	}
+	_, err := appendDecision(ctx, queries, epic, decision.ID, decision.Text, 0, at)
+	return err
 }
 
 // checkClimb returns an error when a climb from from with move cannot land as it names: when its target rung is not

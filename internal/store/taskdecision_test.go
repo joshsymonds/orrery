@@ -103,19 +103,23 @@ func TestRerunTaskOfAMovedBuildWritesNothing(t *testing.T) {
 	}
 }
 
-func TestFailTaskDecidedKeepsTheLongerFailureAndRecordsTheDecision(t *testing.T) {
+func TestClimbTaskKeepsTheLongerFailureAndRecordsTheDecision(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openRequestStore(ctx, t)
 	failure := strings.Repeat("é", store.TaskDecisionMax)
-	err := s.FailTaskDecided(ctx, buildEpic, 1, openBuildOf(), failure, []string{"b.go"}, requestDecision(),
-		writtenAt())
+	from := openBuildOf()
+	cause := store.ClimbCause(failure, true)
+	move := store.RungMove{MovedBy: store.MovedByFailDecision, Cause: cause, NeedsFiles: []string{"b.go"}}
+	decision := requestDecision()
+	err := s.ClimbTask(ctx, buildEpic, 1, from, store.ClimbedBuild(from, store.RungOf(from)+1, cause), move,
+		nil, &decision, writtenAt())
 	if err != nil {
-		t.Fatalf("FailTaskDecided: %v", err)
+		t.Fatalf("ClimbTask: %v", err)
 	}
 	task := buildTaskOf(ctx, t, s)
-	if task.Status != "failed" || task.Build.Failure != failure[:store.TaskDecisionMax] {
-		t.Fatalf("task %q failure of %d bytes, want failed with %d bytes cut at a character", task.Status,
+	if task.Status != "open" || task.Build.Failure != failure[:store.TaskDecisionMax] {
+		t.Fatalf("task %q failure of %d bytes, want open with %d bytes cut at a character", task.Status,
 			len(task.Build.Failure), store.TaskDecisionMax)
 	}
 	if !reflect.DeepEqual(task.NeedsFiles, []string{"b.go"}) {

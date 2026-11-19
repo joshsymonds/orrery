@@ -95,12 +95,13 @@ func plannerActionOf(row sqlcgen.PlannerAction) (PlannerAction, error) {
 // CarryOutAction carries out action, a pending planner action, and returns the ids of the steps the runner must stop.
 // The control of its kind runs with the action's fields as given, in one write that also marks the action taken and
 // appends an epic decision naming the action and holding its reason. retry_node is RetryNode, retry_epic is RetryEpic,
-// fail_task is FailTask on the task's stored build with the reason as the failure, resume_release is the planner's
-// resume of a stopped release, close_epic is CloseEpic by the planner, and change_approach stores the task's
-// change-of-approach version from the action's deliverable and evidence item, as changeApproach does.
+// fail_task climbs the task one rung off its stored build with the reason as the cause, as failPlannedTask does,
+// resume_release is the planner's resume of a stopped release, close_epic is CloseEpic by the planner, and
+// change_approach stores the task's change-of-approach version from the action's deliverable and evidence item, as
+// changeApproach does.
 //
 // A close returns the step of the turn it ended and each step of the epic with no end. A fail_task returns the open
-// steps of the failed task. Every other action returns none.
+// steps of the task it climbs off. Every other action returns none.
 //
 // amend_evidence is not carried out in this write. Its amendment starts checking, as AmendEvidence starts one by the
 // planner, and the action stays pending until SettleAmendment takes or refuses it with its amendment; while it is pending
@@ -241,9 +242,11 @@ func changeApproach(ctx context.Context, queries *sqlcgen.Queries, action Planne
 	return appendTaskVersion(ctx, queries, action.Epic, action.Task, actionDecisionID(action), in, at)
 }
 
-// failPlannedTask fails the task action names, as FailTask does from the build the task stores, with the planner's reason
-// as its failure. It returns the ids of the task's steps with no end. A task that does not exist, or is not open, is a
-// RefusalError.
+// failPlannedTask climbs the task action names one rung off the build the task stores, with the planner's reason as the
+// cause, as ClimbTask does: the rung it climbs to is the one after its own, and from LastRung it is GapRung, which ends
+// the task as a gap. The climb moves by fail_task and records the build's step. It returns the ids of the task's steps
+// with no end. A task that does not exist, or is not open, is a RefusalError, and so is a stored build that moved under
+// the climb.
 func failPlannedTask(
 	ctx context.Context, queries *sqlcgen.Queries, action PlannerAction, at time.Time,
 ) ([]string, error) {
@@ -254,7 +257,18 @@ func failPlannedTask(
 	if err != nil {
 		return nil, fmt.Errorf("read task %d of epic %s: %w", action.Task, action.Epic, err)
 	}
-	err = failTask(ctx, queries, action.Epic, action.Task, buildOf(task), capTurnText(action.Reason), nil, at)
+	if task.Status != taskOpen {
+		return nil, RefusalError(fmt.Sprintf("task %d of epic %s is not open", action.Task, action.Epic))
+	}
+	from := buildOf(task)
+	cause := capTurnText(action.Reason)
+	to := ClimbedBuild(from, min(RungOf(from)+1, GapRung), cause)
+	move := RungMove{MovedBy: MovedByFailTask, Cause: cause, Step: from.Step}
+	err = checkClimb(action.Epic, action.Task, from, to, move)
+	if err != nil {
+		return nil, err
+	}
+	err = climbTask(ctx, queries, action.Epic, action.Task, from, to, move, nil, nil, at)
 	if errors.Is(err, ErrTaskMoved) {
 		return nil, RefusalError(fmt.Sprintf("task %d of epic %s is not open", action.Task, action.Epic))
 	}
