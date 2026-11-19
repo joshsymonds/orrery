@@ -9,10 +9,12 @@ import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performImeAction
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
+import io.github.joshsymonds.orrery.api.NoAnswerException
 import io.github.joshsymonds.orrery.api.OrreryClient
 import com.connectrpc.Code
 import io.github.joshsymonds.orrery.api.RecordedRequest
@@ -20,6 +22,8 @@ import io.github.joshsymonds.orrery.api.Reply
 import io.github.joshsymonds.orrery.awaitUntil
 import io.github.joshsymonds.orrery.gen.orrery.v1.AskRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.AskResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.ListHeadlessResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.PickerRow
 import io.github.joshsymonds.orrery.gen.orrery.v1.RunRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.RunResponse
@@ -35,6 +39,8 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.io.IOException
+import java.net.SocketTimeoutException
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
@@ -46,12 +52,24 @@ class PickerPanelTest {
         const val ASK_PATH = "/orrery.v1.Picker/Ask"
         const val RUN_PATH = "/orrery.v1.Picker/Run"
         const val START_PATH = "/orrery.v1.Control/Start"
+        const val PANES_LIST = "/orrery.v1.Panes/List"
+        const val LIST_HEADLESS = "/orrery.v1.Sessions/ListHeadless"
         const val FULL_FOLDER = "/home/user/projects/synthetic-workspace/nested/deeper/folder-that-is-long"
         const val OTHER_FOLDER = "/home/user/projects/synthetic-workspace/another-folder"
         const val ANSWERED_ID = "fedcba9876543210fedcba9876543210"
         const val PLACEHOLDER = "A directory, a session, or what you want to start"
         const val HINT = "Name a directory to start a session there, or say a few words about a session to find it."
         const val CHIP = "starts with your words"
+        const val ASK_NINETY = "The search did not finish: the server did not answer in 90 seconds."
+        const val ASK_UNAVAILABLE = "The search did not finish: the server could not answer."
+        const val ASK_NOT_SET_UP = "New is not set up on this server."
+        const val ASK_FAILED = "The search did not finish."
+        const val RUN_STALE = "That result has gone stale. Ask again."
+        const val RUN_EXPIRED = "It did not open: the result expired, or tmux is not running on the server."
+        const val RUN_UNAVAILABLE = "It did not open: the server could not run it."
+        const val RUN_FAILED = "It did not open."
+        const val START_FAILED = "The session did not start."
+        const val NOTHING_FOUND = "Nothing found for “fix the test”. Try a directory name."
         val ID_FORM = Regex("^[0-9a-f]{32}$")
     }
 
@@ -190,6 +208,12 @@ class PickerPanelTest {
         composeRule.onNodeWithTag(tag).performSemanticsAction(SemanticsActions.OnClick)
     }
 
+    /** Goes back from the start form to the rows it replaced. */
+    private fun otherResults() {
+        tap("start-back")
+        composeRule.awaitUntil { countTagged("start-form") == 0 }
+    }
+
     private fun dismissSheet() {
         composeRule.onNode(SemanticsMatcher.keyIsDefined(SemanticsActions.Dismiss))
             .performSemanticsAction(SemanticsActions.Dismiss)
@@ -213,6 +237,36 @@ class PickerPanelTest {
     private fun errorShown(): Boolean =
         composeRule.onAllNodesWithTag("picker-error").fetchSemanticsNodes().isNotEmpty()
 
+    /** Asks with [code] failing and checks the sheet shows [sentence] and never the server's text. */
+    private fun askFailingWith(code: Code, sentence: String) {
+        FakeOrreryServer().use { server ->
+            server.fail(ASK_PATH, code, "server text")
+            setPanel(server)
+
+            submit("fix the test")
+            composeRule.awaitUntil { errorShown() }
+            composeRule.onNodeWithTag("picker-error").assertTextEquals(sentence)
+        }
+    }
+
+    /** Runs a row with [code] failing and checks the sheet shows [sentence], the rows stay, and nothing opens. */
+    private fun runFailingWith(code: Code, sentence: String) {
+        FakeOrreryServer().use { server ->
+            server.respond(ASK_PATH, rowsResponse())
+            server.fail(RUN_PATH, code, "server text")
+            setPanel(server)
+
+            submit("fix the test")
+            composeRule.awaitUntil { rowExists(0) }
+            tap("picker-row:0")
+            composeRule.awaitUntil { errorShown() }
+
+            composeRule.onNodeWithTag("picker-error").assertTextEquals(sentence)
+            assertTrue(rowExists(0))
+            assertEquals(null, opened.get())
+        }
+    }
+
     @Test
     fun sheetIsTitledNewSessionWithTheFieldPlaceholderAndHintAndNoAskOrCancelButton() {
         FakeOrreryServer().use { server ->
@@ -223,6 +277,28 @@ class PickerPanelTest {
             composeRule.onNodeWithTag("picker-hint").assertTextEquals(HINT)
             assertEquals(0, countTagged("picker-ask"))
             assertEquals(0, countTagged("picker-cancel"))
+        }
+    }
+
+    @Test
+    fun newInPaneListScreensHeadOpensTheSheet() {
+        FakeOrreryServer().use { server ->
+            server.respond(PANES_LIST, PanesListResponse.getDefaultInstance())
+            server.respond(LIST_HEADLESS, ListHeadlessResponse.getDefaultInstance())
+            composeRule.setContent {
+                PaneListScreen(
+                    client = OrreryClient(server.baseUrl),
+                    onOpenPane = {},
+                    onOpenPaneId = {},
+                    onStartedSession = {},
+                    onOpenSettings = {},
+                )
+            }
+
+            composeRule.onNodeWithTag("picker-new").performClick()
+
+            composeRule.onNodeWithTag("picker-title").assertTextEquals("New session")
+            composeRule.onNodeWithTag("picker-text").assertExists()
         }
     }
 
@@ -294,6 +370,51 @@ class PickerPanelTest {
     }
 
     @Test
+    fun anAskThatFindsNothingSaysSoWithItsWords() {
+        FakeOrreryServer().use { server ->
+            server.respond(ASK_PATH, AskResponse.getDefaultInstance())
+            setPanel(server)
+
+            submit("fix the test")
+            composeRule.awaitUntil { countTagged("picker-none") == 1 }
+
+            composeRule.onNodeWithTag("picker-none").assertTextEquals(NOTHING_FOUND)
+            assertEquals(0, countTagged("picker-hint"))
+            assertEquals(0, countTagged("picker-row:0"))
+        }
+    }
+
+    @Test
+    fun anAskThatTimesOutShowsTheNinetySecondSentenceAndNeverTheServersText() {
+        askFailingWith(Code.DEADLINE_EXCEEDED, ASK_NINETY)
+    }
+
+    @Test
+    fun anAskTheServerCannotAnswerShowsItsSentence() {
+        askFailingWith(Code.UNAVAILABLE, ASK_UNAVAILABLE)
+    }
+
+    @Test
+    fun anAskWhenNewIsNotSetUpShowsItsSentence() {
+        askFailingWith(Code.NOT_FOUND, ASK_NOT_SET_UP)
+    }
+
+    @Test
+    fun anAskWithAnotherCodeShowsTheGenericSentence() {
+        askFailingWith(Code.UNKNOWN, ASK_FAILED)
+    }
+
+    @Test
+    fun aSocketTimeoutNoAnswerToAnAskShowsTheNinetySecondSentence() {
+        assertEquals(ASK_NINETY, askSentence(NoAnswerException(SocketTimeoutException("read timed out"))))
+    }
+
+    @Test
+    fun anotherNoAnswerToAnAskShowsTheGenericSentence() {
+        assertEquals(ASK_FAILED, askSentence(NoAnswerException(IOException("connection reset"))))
+    }
+
+    @Test
     fun tappingSecondRowRunsItsTokenAndReportsItsPane() {
         FakeOrreryServer().use { server ->
             server.respond(ASK_PATH, rowsResponse())
@@ -313,15 +434,16 @@ class PickerPanelTest {
     }
 
     @Test
-    fun askFailureShowsItsReasonAndTheTextCanBeResubmitted() {
+    fun askFailureKeepsTheTextSoItCanBeResubmitted() {
         FakeOrreryServer().use { server ->
-            server.fail(ASK_PATH, Code.UNAVAILABLE, "no answer from the host")
+            server.fail(ASK_PATH, Code.UNAVAILABLE, "server text")
             setPanel(server)
 
             submit("fix the test")
             composeRule.awaitUntil { errorShown() }
-            composeRule.onNodeWithTag("picker-error").assertTextEquals("no answer from the host")
+            composeRule.onNodeWithTag("picker-error").assertTextEquals(ASK_UNAVAILABLE)
             assertFalse(rowExists(0))
+            assertEquals("fix the test", fieldText("picker-text"))
 
             server.respond(ASK_PATH, rowsResponse())
             composeRule.onNodeWithTag("picker-text").performImeAction()
@@ -333,22 +455,23 @@ class PickerPanelTest {
     }
 
     @Test
-    fun runFailureShowsItsReasonAndTheRowsStay() {
-        FakeOrreryServer().use { server ->
-            server.respond(ASK_PATH, rowsResponse())
-            server.fail(RUN_PATH, Code.FAILED_PRECONDITION, "the session is gone")
-            setPanel(server)
+    fun runFailureShowsItsSentenceAndTheRowsStay() {
+        runFailingWith(Code.FAILED_PRECONDITION, RUN_EXPIRED)
+    }
 
-            submit("fix the test")
-            composeRule.awaitUntil { rowExists(0) }
-            tap("picker-row:0")
-            composeRule.awaitUntil { errorShown() }
+    @Test
+    fun aRunOfAStaleRowShowsItsSentence() {
+        runFailingWith(Code.NOT_FOUND, RUN_STALE)
+    }
 
-            composeRule.onNodeWithTag("picker-error").assertTextEquals("the session is gone")
-            assertTrue(rowExists(0))
-            assertTrue(rowExists(1))
-            assertEquals(null, opened.get())
-        }
+    @Test
+    fun aRunTheServerCannotMakeShowsItsSentence() {
+        runFailingWith(Code.UNAVAILABLE, RUN_UNAVAILABLE)
+    }
+
+    @Test
+    fun aRunWithAnotherCodeShowsTheGenericSentence() {
+        runFailingWith(Code.UNKNOWN, RUN_FAILED)
     }
 
     @Test
@@ -387,6 +510,7 @@ class PickerPanelTest {
             composeRule.onNodeWithTag("start-dir").assertTextEquals(FULL_FOLDER)
             assertEquals("", fieldText("start-message"))
 
+            otherResults()
             tap("picker-row:1")
             composeRule.waitForIdle()
 
@@ -402,10 +526,60 @@ class PickerPanelTest {
             openStartForm(server, row = 2)
             assertEquals("fix the test", fieldText("start-message"))
 
+            otherResults()
             tap("picker-row:1")
             composeRule.waitForIdle()
 
             assertEquals("", fieldText("start-message"))
+        }
+    }
+
+    @Test
+    fun theFormShowsItsDirectoryFirstMessageOtherResultsAndStartInPlaceOfTheRows() {
+        FakeOrreryServer().use { server ->
+            openStartForm(server, row = 1)
+
+            composeRule.onNodeWithText("Directory").assertExists()
+            composeRule.onNodeWithTag("start-dir").assertTextEquals(FULL_FOLDER)
+            composeRule.onNodeWithText("First message").assertExists()
+            composeRule.onNodeWithText("Other results").assertExists()
+            composeRule.onNodeWithText("Start the session").assertExists()
+            assertEquals(0, countTagged("picker-row:0"))
+        }
+    }
+
+    @Test
+    fun otherResultsReturnsToTheRowsAsTheyWere() {
+        FakeOrreryServer().use { server ->
+            openStartForm(server, row = 1)
+
+            otherResults()
+
+            composeRule.onNodeWithTag("picker-row:0").assertExists()
+            assertTrue(rowText(2).contains(FULL_FOLDER))
+            assertEquals(0, countTagged("start-form"))
+        }
+    }
+
+    @Test
+    fun startingShowsWhileAStartRuns() {
+        FakeOrreryServer().use { server ->
+            openStartForm(server, row = 1)
+            val release = CountDownLatch(1)
+            server.route(START_PATH) {
+                release.await()
+                Reply.Message(StartResponse.newBuilder().setId(ANSWERED_ID).build(), 0L)
+            }
+            composeRule.onNodeWithTag("start-message").performTextInput("start it")
+
+            tap("start-submit")
+            composeRule.onNodeWithTag("start-starting").assertTextEquals("starting…")
+            composeRule.onNodeWithTag("start-submit").assertIsNotEnabled()
+            composeRule.onNodeWithTag("start-back").assertIsNotEnabled()
+
+            release.countDown()
+            composeRule.awaitUntil { started.get() != null }
+            assertEquals(0, countTagged("start-starting"))
         }
     }
 
@@ -444,16 +618,16 @@ class PickerPanelTest {
     }
 
     @Test
-    fun aRefusedStartShowsItsReasonAndKeepsTheMessage() {
+    fun aRefusedStartShowsItsSentenceAndKeepsTheMessage() {
         FakeOrreryServer().use { server ->
             openStartForm(server, row = 1)
-            server.fail(START_PATH, Code.FAILED_PRECONDITION, "the folder is not stamped")
+            server.fail(START_PATH, Code.FAILED_PRECONDITION, "server text")
             composeRule.onNodeWithTag("start-message").performTextInput("start it")
 
             tap("start-submit")
             composeRule.awaitUntil { errorShown() }
 
-            composeRule.onNodeWithTag("picker-error").assertTextEquals("the folder is not stamped")
+            composeRule.onNodeWithTag("picker-error").assertTextEquals(START_FAILED)
             assertEquals("start it", fieldText("start-message"))
             assertEquals(null, started.get())
         }
@@ -504,7 +678,7 @@ class PickerPanelTest {
     }
 
     @Test
-    fun aStartAfterAnEditedMessagePostsANewId() {
+    fun aStartAfterAnEditedMessageKeepsTheFormsId() {
         FakeOrreryServer().use { server ->
             openStartForm(server, row = 1)
             server.fail(START_PATH, Code.FAILED_PRECONDITION, "the folder is not stamped")
@@ -519,12 +693,12 @@ class PickerPanelTest {
             val starts = postsTo(server, START_PATH).map { StartRequest.parseFrom(it.body) }
             assertEquals("start it now", starts[1].prompt)
             assertTrue(ID_FORM.matches(starts[1].id))
-            assertNotEquals(starts[0].id, starts[1].id)
+            assertEquals(starts[0].id, starts[1].id)
         }
     }
 
     @Test
-    fun aStartAfterAnAnsweredStartForTheSameFolderAndMessageReusesItsId() {
+    fun aNewFormForTheSameFolderAndMessageGetsANewId() {
         FakeOrreryServer().use { server ->
             openStartForm(server, row = 1)
             server.respond(START_PATH, StartResponse.newBuilder().setId(ANSWERED_ID).build())
@@ -542,7 +716,8 @@ class PickerPanelTest {
 
             val ids = startIds(server)
             assertTrue(ID_FORM.matches(ids[0]))
-            assertEquals(ids[0], ids[1])
+            assertTrue(ID_FORM.matches(ids[1]))
+            assertNotEquals(ids[0], ids[1])
         }
     }
 
@@ -569,6 +744,7 @@ class PickerPanelTest {
             tap("start-submit")
             composeRule.awaitUntil { errorShown() }
 
+            otherResults()
             tap("picker-row:1")
             composeRule.waitForIdle()
             composeRule.onNodeWithTag("start-dir").assertTextEquals(OTHER_FOLDER)
