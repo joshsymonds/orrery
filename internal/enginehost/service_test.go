@@ -26,15 +26,16 @@ var _ Commands = (*Manager)(nil)
 
 // call is one Commands method invocation with the arguments it received.
 type call struct {
-	method    string
-	dir       string
-	prompt    string
-	model     string
-	id        string
-	requestID string
-	text      string
-	promptID  string
-	answer    string
+	method       string
+	dir          string
+	prompt       string
+	model        string
+	id           string
+	requestID    string
+	text         string
+	promptID     string
+	answer       string
+	questionHash string
 }
 
 // fakeCommands records every call and returns startID from Start, interruptTexts from OwnerInterrupt and err from every
@@ -88,6 +89,17 @@ func (f *fakeCommands) OwnerInterrupt(_ context.Context, id string) ([]string, e
 		return nil, err
 	}
 	return f.interruptTexts, nil
+}
+
+func (f *fakeCommands) Decline(_ context.Context, id, requestID string) ([]string, error) {
+	if err := f.record(call{method: "Decline", id: id, requestID: requestID}); err != nil {
+		return nil, err
+	}
+	return f.interruptTexts, nil
+}
+
+func (f *fakeCommands) DeclinePane(_ context.Context, pane, questionHash string) error {
+	return f.record(call{method: "DeclinePane", id: pane, questionHash: questionHash})
 }
 
 func (f *fakeCommands) Stop(_ context.Context, id string) error {

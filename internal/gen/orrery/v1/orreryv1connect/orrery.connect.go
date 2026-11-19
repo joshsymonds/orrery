@@ -68,6 +68,8 @@ const (
 	ControlAnswerProcedure = "/orrery.v1.Control/Answer"
 	// ControlInterruptProcedure is the fully-qualified name of the Control's Interrupt RPC.
 	ControlInterruptProcedure = "/orrery.v1.Control/Interrupt"
+	// ControlDeclineProcedure is the fully-qualified name of the Control's Decline RPC.
+	ControlDeclineProcedure = "/orrery.v1.Control/Decline"
 	// ControlStopProcedure is the fully-qualified name of the Control's Stop RPC.
 	ControlStopProcedure = "/orrery.v1.Control/Stop"
 	// ControlSeenProcedure is the fully-qualified name of the Control's Seen RPC.
@@ -358,6 +360,11 @@ type ControlClient interface {
 	Answer(context.Context, *connect.Request[v1.AnswerRequest]) (*connect.Response[v1.AnswerResponse], error)
 	// Interrupt interrupts the turn a headless session is running.
 	Interrupt(context.Context, *connect.Request[v1.InterruptRequest]) (*connect.Response[v1.InterruptResponse], error)
+	// Decline denies an open question or permission request and ends its turn, as Interrupt does. A headless session's
+	// request is declined by its request_id, and is refused unless the request is open. A pane's question is declined by
+	// a guarded Escape to the pane, refused unless the question is open and the pane is in no tmux mode, and its response
+	// holds no texts.
+	Decline(context.Context, *connect.Request[v1.DeclineRequest]) (*connect.Response[v1.DeclineResponse], error)
 	// Stop stops a headless session.
 	Stop(context.Context, *connect.Request[v1.StopRequest]) (*connect.Response[v1.StopResponse], error)
 	// Seen records that the user has seen a headless session.
@@ -410,6 +417,12 @@ func NewControlClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 			connect.WithSchema(controlMethods.ByName("Interrupt")),
 			connect.WithClientOptions(opts...),
 		),
+		decline: connect.NewClient[v1.DeclineRequest, v1.DeclineResponse](
+			httpClient,
+			baseURL+ControlDeclineProcedure,
+			connect.WithSchema(controlMethods.ByName("Decline")),
+			connect.WithClientOptions(opts...),
+		),
 		stop: connect.NewClient[v1.StopRequest, v1.StopResponse](
 			httpClient,
 			baseURL+ControlStopProcedure,
@@ -455,6 +468,7 @@ type controlClient struct {
 	say       *connect.Client[v1.SayRequest, v1.SayResponse]
 	answer    *connect.Client[v1.AnswerRequest, v1.AnswerResponse]
 	interrupt *connect.Client[v1.InterruptRequest, v1.InterruptResponse]
+	decline   *connect.Client[v1.DeclineRequest, v1.DeclineResponse]
 	stop      *connect.Client[v1.StopRequest, v1.StopResponse]
 	seen      *connect.Client[v1.SeenRequest, v1.SeenResponse]
 	resume    *connect.Client[v1.ResumeRequest, v1.ResumeResponse]
@@ -481,6 +495,11 @@ func (c *controlClient) Answer(ctx context.Context, req *connect.Request[v1.Answ
 // Interrupt calls orrery.v1.Control.Interrupt.
 func (c *controlClient) Interrupt(ctx context.Context, req *connect.Request[v1.InterruptRequest]) (*connect.Response[v1.InterruptResponse], error) {
 	return c.interrupt.CallUnary(ctx, req)
+}
+
+// Decline calls orrery.v1.Control.Decline.
+func (c *controlClient) Decline(ctx context.Context, req *connect.Request[v1.DeclineRequest]) (*connect.Response[v1.DeclineResponse], error) {
+	return c.decline.CallUnary(ctx, req)
 }
 
 // Stop calls orrery.v1.Control.Stop.
@@ -523,6 +542,11 @@ type ControlHandler interface {
 	Answer(context.Context, *connect.Request[v1.AnswerRequest]) (*connect.Response[v1.AnswerResponse], error)
 	// Interrupt interrupts the turn a headless session is running.
 	Interrupt(context.Context, *connect.Request[v1.InterruptRequest]) (*connect.Response[v1.InterruptResponse], error)
+	// Decline denies an open question or permission request and ends its turn, as Interrupt does. A headless session's
+	// request is declined by its request_id, and is refused unless the request is open. A pane's question is declined by
+	// a guarded Escape to the pane, refused unless the question is open and the pane is in no tmux mode, and its response
+	// holds no texts.
+	Decline(context.Context, *connect.Request[v1.DeclineRequest]) (*connect.Response[v1.DeclineResponse], error)
 	// Stop stops a headless session.
 	Stop(context.Context, *connect.Request[v1.StopRequest]) (*connect.Response[v1.StopResponse], error)
 	// Seen records that the user has seen a headless session.
@@ -571,6 +595,12 @@ func NewControlHandler(svc ControlHandler, opts ...connect.HandlerOption) (strin
 		connect.WithSchema(controlMethods.ByName("Interrupt")),
 		connect.WithHandlerOptions(opts...),
 	)
+	controlDeclineHandler := connect.NewUnaryHandler(
+		ControlDeclineProcedure,
+		svc.Decline,
+		connect.WithSchema(controlMethods.ByName("Decline")),
+		connect.WithHandlerOptions(opts...),
+	)
 	controlStopHandler := connect.NewUnaryHandler(
 		ControlStopProcedure,
 		svc.Stop,
@@ -617,6 +647,8 @@ func NewControlHandler(svc ControlHandler, opts ...connect.HandlerOption) (strin
 			controlAnswerHandler.ServeHTTP(w, r)
 		case ControlInterruptProcedure:
 			controlInterruptHandler.ServeHTTP(w, r)
+		case ControlDeclineProcedure:
+			controlDeclineHandler.ServeHTTP(w, r)
 		case ControlStopProcedure:
 			controlStopHandler.ServeHTTP(w, r)
 		case ControlSeenProcedure:
@@ -652,6 +684,10 @@ func (UnimplementedControlHandler) Answer(context.Context, *connect.Request[v1.A
 
 func (UnimplementedControlHandler) Interrupt(context.Context, *connect.Request[v1.InterruptRequest]) (*connect.Response[v1.InterruptResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Control.Interrupt is not implemented"))
+}
+
+func (UnimplementedControlHandler) Decline(context.Context, *connect.Request[v1.DeclineRequest]) (*connect.Response[v1.DeclineResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Control.Decline is not implemented"))
 }
 
 func (UnimplementedControlHandler) Stop(context.Context, *connect.Request[v1.StopRequest]) (*connect.Response[v1.StopResponse], error) {

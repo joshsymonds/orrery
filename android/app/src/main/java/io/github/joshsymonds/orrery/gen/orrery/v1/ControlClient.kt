@@ -78,6 +78,24 @@ public class ControlClient(
 
 
   /**
+   *  Decline denies an open question or permission request and ends its turn, as Interrupt does. A headless session's
+   *  request is declined by its request_id, and is refused unless the request is open. A pane's question is declined by
+   *  a guarded Escape to the pane, refused unless the question is open and the pane is in no tmux mode, and its response
+   *  holds no texts.
+   */
+  override suspend fun decline(request: DeclineRequest, headers: Headers): ResponseMessage<DeclineResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "orrery.v1.Control/Decline",
+      io.github.joshsymonds.orrery.gen.orrery.v1.DeclineRequest::class,
+      io.github.joshsymonds.orrery.gen.orrery.v1.DeclineResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
    *  Stop stops a headless session.
    */
   override suspend fun stop(request: StopRequest, headers: Headers): ResponseMessage<StopResponse> = client.unary(

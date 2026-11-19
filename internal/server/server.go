@@ -403,8 +403,8 @@ func checkConfig(cfg Config) (map[string]struct{}, error) {
 
 // listPanes returns the panes cli.List writes for tmux, each carrying the question_hash of its question, the
 // newest_reply of its transcript, as paneNewestReply gives it, and the last_turn_end of its @orrery_id session, as
-// paneTurnEnd gives it. Working panes whose transcripts show an interruption after their turn started are ended
-// first, by endInterruptedTurns, so the listing shows them as done. newest keeps each transcript's newest time across
+// paneTurnEnd gives it. Working and waiting panes whose transcripts show an interruption after their turn started are
+// ended first, by endInterruptedTurns, so the listing shows them as done. newest keeps each transcript's newest time across
 // requests, and reader is the store the turn ends are read from once per listing. With no running server the listing
 // is empty. Any failure is a routeError with status 500.
 func listPanes(
@@ -495,8 +495,8 @@ func paneObjects(panes []listedPane) []map[string]json.RawMessage {
 	return objects
 }
 
-// endInterruptedTurns passes each working pane of panes whose transcript shows an interruption after the pane's turn
-// started to state.EndInterruptedTurn, with that interruption's time and now. The turn started at the later of the
+// endInterruptedTurns passes each working or waiting pane of panes whose transcript shows an interruption after the
+// pane's turn started to state.EndInterruptedTurn, with that interruption's time and now. The turn started at the later of the
 // listed changed time and turn start, so an interruption that is not later than that is left alone. A transcript file
 // that does not exist is skipped, and any other error is returned. It reports whether any pane's turn ended.
 func endInterruptedTurns(
@@ -509,7 +509,8 @@ func endInterruptedTurns(
 	ended := false
 	for _, pane := range panes {
 		id := pane.listed.ID
-		if pane.listed.State != protocol.StateWorking || pane.listed.Transcript == "" {
+		live := pane.listed.State == protocol.StateWorking || pane.listed.State == protocol.StateWaiting
+		if !live || pane.listed.Transcript == "" {
 			continue
 		}
 		interrupted, err := newest.Interrupted(pane.listed.Transcript)

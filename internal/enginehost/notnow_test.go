@@ -25,17 +25,39 @@ import (
 )
 
 // fakePanes is a PaneQuestions over the panes in panes, by id. A pane it does not hold is one tmux lists no pane with.
-// The manager calls PaneSeen on its own goroutine, so the calls are locked.
+// DeclinePane returns declineErr. The manager calls PaneSeen on its own goroutine, so the calls are locked.
 type fakePanes struct {
-	panes map[string]PaneQuestion
-	mu    sync.Mutex
-	seens []paneSeen
+	panes      map[string]PaneQuestion
+	declineErr error
+	mu         sync.Mutex
+	seens      []paneSeen
+	declines   []paneDecline
 }
 
 // paneSeen is one PaneSeen call a fakePanes received.
 type paneSeen struct {
 	pane string
 	seen time.Time
+}
+
+// paneDecline is one DeclinePane call a fakePanes received.
+type paneDecline struct {
+	pane, questionHash string
+}
+
+// DeclinePane records the call and returns declineErr.
+func (f *fakePanes) DeclinePane(_ context.Context, pane, questionHash string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.declines = append(f.declines, paneDecline{pane: pane, questionHash: questionHash})
+	return f.declineErr
+}
+
+// declineCalls returns a copy of the DeclinePane calls received so far.
+func (f *fakePanes) declineCalls() []paneDecline {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.declines)
 }
 
 func (f *fakePanes) PaneQuestion(_ context.Context, pane string) (PaneQuestion, error) {

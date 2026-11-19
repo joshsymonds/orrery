@@ -32,6 +32,8 @@ type Commands interface {
 	Say(ctx context.Context, req SayRequest) error
 	Answer(ctx context.Context, id, requestID, answer string) error
 	OwnerInterrupt(ctx context.Context, id string) ([]string, error)
+	Decline(ctx context.Context, id, requestID string) ([]string, error)
+	DeclinePane(ctx context.Context, pane, questionHash string) error
 	Stop(ctx context.Context, id string) error
 	Seen(ctx context.Context, id string) error
 	Resume(ctx context.Context, id string) error
@@ -58,8 +60,8 @@ func Listen(socketPath string) (net.Listener, error) {
 // unavailable, a nil notices refuses every notices RPC as unavailable, and a nil crons refuses every cron call as
 // unavailable. The crons service answers each call for the session in the Orrery-Session header, and refuses a call
 // with no such header as InvalidArgument. With steps served, the engine refuses Say, Answer, Interrupt, Stop and Resume
-// on a step id, and NotNow and BringBack on a headless step id, since a step is driven only through the Steps service.
-// opts apply to each of the seven handlers.
+// on a step id, Decline on a headless step id, and NotNow and BringBack on a headless step id, since a step is driven
+// only through the Steps service. opts apply to each of the seven handlers.
 func Serve(
 	ctx context.Context,
 	ln net.Listener,
@@ -221,6 +223,39 @@ func (s *service) Interrupt(
 	return connect.NewResponse(&v1.InterruptResponse{Texts: texts}), nil
 }
 
+// Decline routes by kind. A pane is declined by its question_hash with no step check, since a step is never a pane, and
+// answers no texts. A headless call, or one with an empty kind, is refused on a step id and otherwise declined by its
+// request_id. Any other kind is an InvalidArgument.
+func (s *service) Decline(
+	ctx context.Context,
+	req *connect.Request[v1.DeclineRequest],
+) (*connect.Response[v1.DeclineResponse], error) {
+	if err := s.ready(); err != nil {
+		return nil, err
+	}
+	switch kind := req.Msg.GetKind(); kind {
+	case store.PutOffPane:
+		if err := s.commands.DeclinePane(ctx, req.Msg.GetId(), req.Msg.GetQuestionHash()); err != nil {
+			return nil, commandError(err)
+		}
+		return connect.NewResponse(&v1.DeclineResponse{}), nil
+	case "", store.PutOffHeadless:
+		if err := s.refuseStep(ctx, req.Msg.GetId()); err != nil {
+			return nil, err
+		}
+		texts, err := s.commands.Decline(ctx, req.Msg.GetId(), req.Msg.GetRequestId())
+		if err != nil {
+			return nil, commandError(err)
+		}
+		return connect.NewResponse(&v1.DeclineResponse{Texts: texts}), nil
+	default:
+		return nil, errors.Join(connect.NewError(
+			connect.CodeInvalidArgument,
+			fmt.Errorf("decline kind %q is neither %s nor %s", kind, store.PutOffHeadless, store.PutOffPane),
+		))
+	}
+}
+
 func (s *service) Stop(
 	ctx context.Context,
 	req *connect.Request[v1.StopRequest],
@@ -347,7 +382,8 @@ func commandError(err error) error {
 		errors.Is(err, ErrBadID), errors.Is(err, ErrBadAnswer), errors.Is(err, session.ErrUnverifiedAnswer),
 		errors.Is(err, ErrBadPutOff):
 		code = connect.CodeInvalidArgument
-	case errors.Is(err, ErrNotResumable), errors.Is(err, ErrUnknownPrompt), errors.Is(err, ErrQuestionNotOpen):
+	case errors.Is(err, ErrNotResumable), errors.Is(err, ErrUnknownPrompt), errors.Is(err, ErrQuestionNotOpen),
+		errors.Is(err, ErrPaneInMode):
 		code = connect.CodeFailedPrecondition
 	case errors.Is(err, ErrNoPane):
 		code = connect.CodeNotFound

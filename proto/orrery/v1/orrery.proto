@@ -39,6 +39,12 @@ service Control {
   // Interrupt interrupts the turn a headless session is running.
   rpc Interrupt(InterruptRequest) returns (InterruptResponse);
 
+  // Decline denies an open question or permission request and ends its turn, as Interrupt does. A headless session's
+  // request is declined by its request_id, and is refused unless the request is open. A pane's question is declined by
+  // a guarded Escape to the pane, refused unless the question is open and the pane is in no tmux mode, and its response
+  // holds no texts.
+  rpc Decline(DeclineRequest) returns (DeclineResponse);
+
   // Stop stops a headless session.
   rpc Stop(StopRequest) returns (StopResponse);
 
@@ -444,6 +450,28 @@ message InterruptRequest {
 message InterruptResponse {
   // The texts of the owner's messages that Claude cancelled from its queue at the interrupt, in send order. A caller
   // event's text is never among them.
+  repeated string texts = 1;
+}
+
+// DeclineRequest asks a session or a pane to deny one open question or permission request and end its turn.
+message DeclineRequest {
+  // The headless session's id, or the pane's Pane.id.
+  string id = 1;
+
+  // The open question or permission request being declined, by its OpenRequest.id. Empty for a pane.
+  string request_id = 2;
+
+  // The question's kind: "headless" or "pane". Empty means headless.
+  string kind = 3;
+
+  // The pane's Pane.question_hash. Empty for headless.
+  string question_hash = 4;
+}
+
+// DeclineResponse is the reply to a Decline.
+message DeclineResponse {
+  // The texts of the owner's messages that Claude cancelled from its queue at the decline, in send order. A caller
+  // event's text is never among them. A pane's response holds no texts.
   repeated string texts = 1;
 }
 

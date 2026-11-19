@@ -437,6 +437,127 @@ func (x *InterruptResponse) GetTexts() []string {
 	return nil
 }
 
+// DeclineRequest asks a session or a pane to deny one open question or permission request and end its turn.
+type DeclineRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The session's id, or the pane's Pane.id.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// The id of the question or permission request being declined. Empty for a pane.
+	RequestId string `protobuf:"bytes,2,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	// The question's kind: "headless" or "pane". Empty means headless.
+	Kind string `protobuf:"bytes,3,opt,name=kind,proto3" json:"kind,omitempty"`
+	// The pane's Pane.question_hash. Empty for headless.
+	QuestionHash  string `protobuf:"bytes,4,opt,name=question_hash,json=questionHash,proto3" json:"question_hash,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeclineRequest) Reset() {
+	*x = DeclineRequest{}
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeclineRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeclineRequest) ProtoMessage() {}
+
+func (x *DeclineRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeclineRequest.ProtoReflect.Descriptor instead.
+func (*DeclineRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_engine_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *DeclineRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *DeclineRequest) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *DeclineRequest) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *DeclineRequest) GetQuestionHash() string {
+	if x != nil {
+		return x.QuestionHash
+	}
+	return ""
+}
+
+// DeclineResponse carries the texts of the owner's queued messages that Claude cancelled at the decline. A pane's
+// response holds no texts.
+type DeclineResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The texts of the owner's messages that Claude cancelled from its queue at the decline, in send order. A caller
+	// event's text is never among them.
+	Texts         []string `protobuf:"bytes,1,rep,name=texts,proto3" json:"texts,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeclineResponse) Reset() {
+	*x = DeclineResponse{}
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeclineResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeclineResponse) ProtoMessage() {}
+
+func (x *DeclineResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeclineResponse.ProtoReflect.Descriptor instead.
+func (*DeclineResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_engine_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *DeclineResponse) GetTexts() []string {
+	if x != nil {
+		return x.Texts
+	}
+	return nil
+}
+
 // StopRequest asks for a session's process to end.
 type StopRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -448,7 +569,7 @@ type StopRequest struct {
 
 func (x *StopRequest) Reset() {
 	*x = StopRequest{}
-	mi := &file_orrery_engine_v1_engine_proto_msgTypes[8]
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -460,7 +581,7 @@ func (x *StopRequest) String() string {
 func (*StopRequest) ProtoMessage() {}
 
 func (x *StopRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_engine_proto_msgTypes[8]
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -473,7 +594,7 @@ func (x *StopRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopRequest.ProtoReflect.Descriptor instead.
 func (*StopRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_engine_proto_rawDescGZIP(), []int{8}
+	return file_orrery_engine_v1_engine_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *StopRequest) GetId() string {
@@ -492,7 +613,7 @@ type StopResponse struct {
 
 func (x *StopResponse) Reset() {
 	*x = StopResponse{}
-	mi := &file_orrery_engine_v1_engine_proto_msgTypes[9]
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -504,7 +625,7 @@ func (x *StopResponse) String() string {
 func (*StopResponse) ProtoMessage() {}
 
 func (x *StopResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_engine_proto_msgTypes[9]
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -517,7 +638,7 @@ func (x *StopResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopResponse.ProtoReflect.Descriptor instead.
 func (*StopResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_engine_proto_rawDescGZIP(), []int{9}
+	return file_orrery_engine_v1_engine_proto_rawDescGZIP(), []int{11}
 }
 
 // SeenRequest marks a session's conversation as read.
@@ -531,7 +652,7 @@ type SeenRequest struct {
 
 func (x *SeenRequest) Reset() {
 	*x = SeenRequest{}
-	mi := &file_orrery_engine_v1_engine_proto_msgTypes[10]
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -543,7 +664,7 @@ func (x *SeenRequest) String() string {
 func (*SeenRequest) ProtoMessage() {}
 
 func (x *SeenRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_engine_proto_msgTypes[10]
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -556,7 +677,7 @@ func (x *SeenRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SeenRequest.ProtoReflect.Descriptor instead.
 func (*SeenRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_engine_proto_rawDescGZIP(), []int{10}
+	return file_orrery_engine_v1_engine_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *SeenRequest) GetId() string {
@@ -575,7 +696,7 @@ type SeenResponse struct {
 
 func (x *SeenResponse) Reset() {
 	*x = SeenResponse{}
-	mi := &file_orrery_engine_v1_engine_proto_msgTypes[11]
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -587,7 +708,7 @@ func (x *SeenResponse) String() string {
 func (*SeenResponse) ProtoMessage() {}
 
 func (x *SeenResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_engine_proto_msgTypes[11]
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -600,7 +721,7 @@ func (x *SeenResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SeenResponse.ProtoReflect.Descriptor instead.
 func (*SeenResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_engine_proto_rawDescGZIP(), []int{11}
+	return file_orrery_engine_v1_engine_proto_rawDescGZIP(), []int{13}
 }
 
 // ResumeRequest asks for an interrupted session's turn to resume.
@@ -614,7 +735,7 @@ type ResumeRequest struct {
 
 func (x *ResumeRequest) Reset() {
 	*x = ResumeRequest{}
-	mi := &file_orrery_engine_v1_engine_proto_msgTypes[12]
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -626,7 +747,7 @@ func (x *ResumeRequest) String() string {
 func (*ResumeRequest) ProtoMessage() {}
 
 func (x *ResumeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_engine_proto_msgTypes[12]
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -639,7 +760,7 @@ func (x *ResumeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResumeRequest.ProtoReflect.Descriptor instead.
 func (*ResumeRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_engine_proto_rawDescGZIP(), []int{12}
+	return file_orrery_engine_v1_engine_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ResumeRequest) GetId() string {
@@ -658,7 +779,7 @@ type ResumeResponse struct {
 
 func (x *ResumeResponse) Reset() {
 	*x = ResumeResponse{}
-	mi := &file_orrery_engine_v1_engine_proto_msgTypes[13]
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -670,7 +791,7 @@ func (x *ResumeResponse) String() string {
 func (*ResumeResponse) ProtoMessage() {}
 
 func (x *ResumeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_engine_proto_msgTypes[13]
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -683,7 +804,7 @@ func (x *ResumeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResumeResponse.ProtoReflect.Descriptor instead.
 func (*ResumeResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_engine_proto_rawDescGZIP(), []int{13}
+	return file_orrery_engine_v1_engine_proto_rawDescGZIP(), []int{15}
 }
 
 // WithdrawRequest asks Claude to cancel one queued owner message of a session.
@@ -699,7 +820,7 @@ type WithdrawRequest struct {
 
 func (x *WithdrawRequest) Reset() {
 	*x = WithdrawRequest{}
-	mi := &file_orrery_engine_v1_engine_proto_msgTypes[14]
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -711,7 +832,7 @@ func (x *WithdrawRequest) String() string {
 func (*WithdrawRequest) ProtoMessage() {}
 
 func (x *WithdrawRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_engine_proto_msgTypes[14]
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -724,7 +845,7 @@ func (x *WithdrawRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WithdrawRequest.ProtoReflect.Descriptor instead.
 func (*WithdrawRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_engine_proto_rawDescGZIP(), []int{14}
+	return file_orrery_engine_v1_engine_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *WithdrawRequest) GetId() string {
@@ -753,7 +874,7 @@ type WithdrawResponse struct {
 
 func (x *WithdrawResponse) Reset() {
 	*x = WithdrawResponse{}
-	mi := &file_orrery_engine_v1_engine_proto_msgTypes[15]
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -765,7 +886,7 @@ func (x *WithdrawResponse) String() string {
 func (*WithdrawResponse) ProtoMessage() {}
 
 func (x *WithdrawResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_engine_proto_msgTypes[15]
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -778,7 +899,7 @@ func (x *WithdrawResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WithdrawResponse.ProtoReflect.Descriptor instead.
 func (*WithdrawResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_engine_proto_rawDescGZIP(), []int{15}
+	return file_orrery_engine_v1_engine_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *WithdrawResponse) GetTexts() []string {
@@ -807,7 +928,7 @@ type NotNowRequest struct {
 
 func (x *NotNowRequest) Reset() {
 	*x = NotNowRequest{}
-	mi := &file_orrery_engine_v1_engine_proto_msgTypes[16]
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -819,7 +940,7 @@ func (x *NotNowRequest) String() string {
 func (*NotNowRequest) ProtoMessage() {}
 
 func (x *NotNowRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_engine_proto_msgTypes[16]
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -832,7 +953,7 @@ func (x *NotNowRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NotNowRequest.ProtoReflect.Descriptor instead.
 func (*NotNowRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_engine_proto_rawDescGZIP(), []int{16}
+	return file_orrery_engine_v1_engine_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *NotNowRequest) GetKind() string {
@@ -879,7 +1000,7 @@ type NotNowResponse struct {
 
 func (x *NotNowResponse) Reset() {
 	*x = NotNowResponse{}
-	mi := &file_orrery_engine_v1_engine_proto_msgTypes[17]
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -891,7 +1012,7 @@ func (x *NotNowResponse) String() string {
 func (*NotNowResponse) ProtoMessage() {}
 
 func (x *NotNowResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_engine_proto_msgTypes[17]
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -904,7 +1025,7 @@ func (x *NotNowResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NotNowResponse.ProtoReflect.Descriptor instead.
 func (*NotNowResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_engine_proto_rawDescGZIP(), []int{17}
+	return file_orrery_engine_v1_engine_proto_rawDescGZIP(), []int{19}
 }
 
 // BringBackRequest names one open question to put back on the owner's list.
@@ -926,7 +1047,7 @@ type BringBackRequest struct {
 
 func (x *BringBackRequest) Reset() {
 	*x = BringBackRequest{}
-	mi := &file_orrery_engine_v1_engine_proto_msgTypes[18]
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -938,7 +1059,7 @@ func (x *BringBackRequest) String() string {
 func (*BringBackRequest) ProtoMessage() {}
 
 func (x *BringBackRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_engine_proto_msgTypes[18]
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -951,7 +1072,7 @@ func (x *BringBackRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BringBackRequest.ProtoReflect.Descriptor instead.
 func (*BringBackRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_engine_proto_rawDescGZIP(), []int{18}
+	return file_orrery_engine_v1_engine_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *BringBackRequest) GetKind() string {
@@ -998,7 +1119,7 @@ type BringBackResponse struct {
 
 func (x *BringBackResponse) Reset() {
 	*x = BringBackResponse{}
-	mi := &file_orrery_engine_v1_engine_proto_msgTypes[19]
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1010,7 +1131,7 @@ func (x *BringBackResponse) String() string {
 func (*BringBackResponse) ProtoMessage() {}
 
 func (x *BringBackResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_engine_proto_msgTypes[19]
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1023,7 +1144,7 @@ func (x *BringBackResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BringBackResponse.ProtoReflect.Descriptor instead.
 func (*BringBackResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_engine_proto_rawDescGZIP(), []int{19}
+	return file_orrery_engine_v1_engine_proto_rawDescGZIP(), []int{21}
 }
 
 var File_orrery_engine_v1_engine_proto protoreflect.FileDescriptor
@@ -1053,6 +1174,14 @@ const file_orrery_engine_v1_engine_proto_rawDesc = "" +
 	"\x10InterruptRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\")\n" +
 	"\x11InterruptResponse\x12\x14\n" +
+	"\x05texts\x18\x01 \x03(\tR\x05texts\"x\n" +
+	"\x0eDeclineRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x02 \x01(\tR\trequestId\x12\x12\n" +
+	"\x04kind\x18\x03 \x01(\tR\x04kind\x12#\n" +
+	"\rquestion_hash\x18\x04 \x01(\tR\fquestionHash\"'\n" +
+	"\x0fDeclineResponse\x12\x14\n" +
 	"\x05texts\x18\x01 \x03(\tR\x05texts\"\x1d\n" +
 	"\vStopRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"\x0e\n" +
@@ -1083,12 +1212,13 @@ const file_orrery_engine_v1_engine_proto_rawDesc = "" +
 	"request_id\x18\x03 \x01(\tR\trequestId\x12#\n" +
 	"\rquestion_hash\x18\x04 \x01(\tR\fquestionHash\x12\x18\n" +
 	"\achanged\x18\x05 \x01(\x03R\achanged\"\x13\n" +
-	"\x11BringBackResponse2\x8a\x06\n" +
+	"\x11BringBackResponse2\xda\x06\n" +
 	"\x06Engine\x12H\n" +
 	"\x05Start\x12\x1e.orrery.engine.v1.StartRequest\x1a\x1f.orrery.engine.v1.StartResponse\x12B\n" +
 	"\x03Say\x12\x1c.orrery.engine.v1.SayRequest\x1a\x1d.orrery.engine.v1.SayResponse\x12K\n" +
 	"\x06Answer\x12\x1f.orrery.engine.v1.AnswerRequest\x1a .orrery.engine.v1.AnswerResponse\x12T\n" +
-	"\tInterrupt\x12\".orrery.engine.v1.InterruptRequest\x1a#.orrery.engine.v1.InterruptResponse\x12E\n" +
+	"\tInterrupt\x12\".orrery.engine.v1.InterruptRequest\x1a#.orrery.engine.v1.InterruptResponse\x12N\n" +
+	"\aDecline\x12 .orrery.engine.v1.DeclineRequest\x1a!.orrery.engine.v1.DeclineResponse\x12E\n" +
 	"\x04Stop\x12\x1d.orrery.engine.v1.StopRequest\x1a\x1e.orrery.engine.v1.StopResponse\x12E\n" +
 	"\x04Seen\x12\x1d.orrery.engine.v1.SeenRequest\x1a\x1e.orrery.engine.v1.SeenResponse\x12K\n" +
 	"\x06Resume\x12\x1f.orrery.engine.v1.ResumeRequest\x1a .orrery.engine.v1.ResumeResponse\x12Q\n" +
@@ -1109,7 +1239,7 @@ func file_orrery_engine_v1_engine_proto_rawDescGZIP() []byte {
 	return file_orrery_engine_v1_engine_proto_rawDescData
 }
 
-var file_orrery_engine_v1_engine_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
+var file_orrery_engine_v1_engine_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
 var file_orrery_engine_v1_engine_proto_goTypes = []any{
 	(*StartRequest)(nil),      // 0: orrery.engine.v1.StartRequest
 	(*StartResponse)(nil),     // 1: orrery.engine.v1.StartResponse
@@ -1119,42 +1249,46 @@ var file_orrery_engine_v1_engine_proto_goTypes = []any{
 	(*AnswerResponse)(nil),    // 5: orrery.engine.v1.AnswerResponse
 	(*InterruptRequest)(nil),  // 6: orrery.engine.v1.InterruptRequest
 	(*InterruptResponse)(nil), // 7: orrery.engine.v1.InterruptResponse
-	(*StopRequest)(nil),       // 8: orrery.engine.v1.StopRequest
-	(*StopResponse)(nil),      // 9: orrery.engine.v1.StopResponse
-	(*SeenRequest)(nil),       // 10: orrery.engine.v1.SeenRequest
-	(*SeenResponse)(nil),      // 11: orrery.engine.v1.SeenResponse
-	(*ResumeRequest)(nil),     // 12: orrery.engine.v1.ResumeRequest
-	(*ResumeResponse)(nil),    // 13: orrery.engine.v1.ResumeResponse
-	(*WithdrawRequest)(nil),   // 14: orrery.engine.v1.WithdrawRequest
-	(*WithdrawResponse)(nil),  // 15: orrery.engine.v1.WithdrawResponse
-	(*NotNowRequest)(nil),     // 16: orrery.engine.v1.NotNowRequest
-	(*NotNowResponse)(nil),    // 17: orrery.engine.v1.NotNowResponse
-	(*BringBackRequest)(nil),  // 18: orrery.engine.v1.BringBackRequest
-	(*BringBackResponse)(nil), // 19: orrery.engine.v1.BringBackResponse
+	(*DeclineRequest)(nil),    // 8: orrery.engine.v1.DeclineRequest
+	(*DeclineResponse)(nil),   // 9: orrery.engine.v1.DeclineResponse
+	(*StopRequest)(nil),       // 10: orrery.engine.v1.StopRequest
+	(*StopResponse)(nil),      // 11: orrery.engine.v1.StopResponse
+	(*SeenRequest)(nil),       // 12: orrery.engine.v1.SeenRequest
+	(*SeenResponse)(nil),      // 13: orrery.engine.v1.SeenResponse
+	(*ResumeRequest)(nil),     // 14: orrery.engine.v1.ResumeRequest
+	(*ResumeResponse)(nil),    // 15: orrery.engine.v1.ResumeResponse
+	(*WithdrawRequest)(nil),   // 16: orrery.engine.v1.WithdrawRequest
+	(*WithdrawResponse)(nil),  // 17: orrery.engine.v1.WithdrawResponse
+	(*NotNowRequest)(nil),     // 18: orrery.engine.v1.NotNowRequest
+	(*NotNowResponse)(nil),    // 19: orrery.engine.v1.NotNowResponse
+	(*BringBackRequest)(nil),  // 20: orrery.engine.v1.BringBackRequest
+	(*BringBackResponse)(nil), // 21: orrery.engine.v1.BringBackResponse
 }
 var file_orrery_engine_v1_engine_proto_depIdxs = []int32{
 	0,  // 0: orrery.engine.v1.Engine.Start:input_type -> orrery.engine.v1.StartRequest
 	2,  // 1: orrery.engine.v1.Engine.Say:input_type -> orrery.engine.v1.SayRequest
 	4,  // 2: orrery.engine.v1.Engine.Answer:input_type -> orrery.engine.v1.AnswerRequest
 	6,  // 3: orrery.engine.v1.Engine.Interrupt:input_type -> orrery.engine.v1.InterruptRequest
-	8,  // 4: orrery.engine.v1.Engine.Stop:input_type -> orrery.engine.v1.StopRequest
-	10, // 5: orrery.engine.v1.Engine.Seen:input_type -> orrery.engine.v1.SeenRequest
-	12, // 6: orrery.engine.v1.Engine.Resume:input_type -> orrery.engine.v1.ResumeRequest
-	14, // 7: orrery.engine.v1.Engine.Withdraw:input_type -> orrery.engine.v1.WithdrawRequest
-	16, // 8: orrery.engine.v1.Engine.NotNow:input_type -> orrery.engine.v1.NotNowRequest
-	18, // 9: orrery.engine.v1.Engine.BringBack:input_type -> orrery.engine.v1.BringBackRequest
-	1,  // 10: orrery.engine.v1.Engine.Start:output_type -> orrery.engine.v1.StartResponse
-	3,  // 11: orrery.engine.v1.Engine.Say:output_type -> orrery.engine.v1.SayResponse
-	5,  // 12: orrery.engine.v1.Engine.Answer:output_type -> orrery.engine.v1.AnswerResponse
-	7,  // 13: orrery.engine.v1.Engine.Interrupt:output_type -> orrery.engine.v1.InterruptResponse
-	9,  // 14: orrery.engine.v1.Engine.Stop:output_type -> orrery.engine.v1.StopResponse
-	11, // 15: orrery.engine.v1.Engine.Seen:output_type -> orrery.engine.v1.SeenResponse
-	13, // 16: orrery.engine.v1.Engine.Resume:output_type -> orrery.engine.v1.ResumeResponse
-	15, // 17: orrery.engine.v1.Engine.Withdraw:output_type -> orrery.engine.v1.WithdrawResponse
-	17, // 18: orrery.engine.v1.Engine.NotNow:output_type -> orrery.engine.v1.NotNowResponse
-	19, // 19: orrery.engine.v1.Engine.BringBack:output_type -> orrery.engine.v1.BringBackResponse
-	10, // [10:20] is the sub-list for method output_type
-	0,  // [0:10] is the sub-list for method input_type
+	8,  // 4: orrery.engine.v1.Engine.Decline:input_type -> orrery.engine.v1.DeclineRequest
+	10, // 5: orrery.engine.v1.Engine.Stop:input_type -> orrery.engine.v1.StopRequest
+	12, // 6: orrery.engine.v1.Engine.Seen:input_type -> orrery.engine.v1.SeenRequest
+	14, // 7: orrery.engine.v1.Engine.Resume:input_type -> orrery.engine.v1.ResumeRequest
+	16, // 8: orrery.engine.v1.Engine.Withdraw:input_type -> orrery.engine.v1.WithdrawRequest
+	18, // 9: orrery.engine.v1.Engine.NotNow:input_type -> orrery.engine.v1.NotNowRequest
+	20, // 10: orrery.engine.v1.Engine.BringBack:input_type -> orrery.engine.v1.BringBackRequest
+	1,  // 11: orrery.engine.v1.Engine.Start:output_type -> orrery.engine.v1.StartResponse
+	3,  // 12: orrery.engine.v1.Engine.Say:output_type -> orrery.engine.v1.SayResponse
+	5,  // 13: orrery.engine.v1.Engine.Answer:output_type -> orrery.engine.v1.AnswerResponse
+	7,  // 14: orrery.engine.v1.Engine.Interrupt:output_type -> orrery.engine.v1.InterruptResponse
+	9,  // 15: orrery.engine.v1.Engine.Decline:output_type -> orrery.engine.v1.DeclineResponse
+	11, // 16: orrery.engine.v1.Engine.Stop:output_type -> orrery.engine.v1.StopResponse
+	13, // 17: orrery.engine.v1.Engine.Seen:output_type -> orrery.engine.v1.SeenResponse
+	15, // 18: orrery.engine.v1.Engine.Resume:output_type -> orrery.engine.v1.ResumeResponse
+	17, // 19: orrery.engine.v1.Engine.Withdraw:output_type -> orrery.engine.v1.WithdrawResponse
+	19, // 20: orrery.engine.v1.Engine.NotNow:output_type -> orrery.engine.v1.NotNowResponse
+	21, // 21: orrery.engine.v1.Engine.BringBack:output_type -> orrery.engine.v1.BringBackResponse
+	11, // [11:22] is the sub-list for method output_type
+	0,  // [0:11] is the sub-list for method input_type
 	0,  // [0:0] is the sub-list for extension type_name
 	0,  // [0:0] is the sub-list for extension extendee
 	0,  // [0:0] is the sub-list for field type_name
@@ -1171,7 +1305,7 @@ func file_orrery_engine_v1_engine_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orrery_engine_v1_engine_proto_rawDesc), len(file_orrery_engine_v1_engine_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   20,
+			NumMessages:   22,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -120,6 +120,16 @@ func (f *fakeEngine) Interrupt(
 	return connect.NewResponse(&enginev1.InterruptResponse{Texts: fakeInterruptedTexts()}), nil
 }
 
+func (f *fakeEngine) Decline(
+	ctx context.Context,
+	req *connect.Request[enginev1.DeclineRequest],
+) (*connect.Response[enginev1.DeclineResponse], error) {
+	if err := f.answer(ctx, req.Msg); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&enginev1.DeclineResponse{Texts: fakeInterruptedTexts()}), nil
+}
+
 func (f *fakeEngine) Resume(
 	ctx context.Context,
 	req *connect.Request[enginev1.ResumeRequest],

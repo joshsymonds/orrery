@@ -152,12 +152,12 @@ func planEvent(
 	return transition, writes, nil
 }
 
-// EndInterruptedTurn ends a working pane's turn when the transcript shows an interruption after the turn
+// EndInterruptedTurn ends a working or waiting pane's turn when the transcript shows an interruption after the turn
 // started. interrupted is the unix seconds of the newest interruption line, 0 when there is none. The turn
-// started at the later of @orrery_changed and the newest prompt's @orrery_turn_start. When the pane is working
-// and interrupted is later than that, the pane becomes done as a Stop leaves it, and the call returns true.
-// Otherwise nothing is written and the call returns false. It reads the pane in one tmux invocation and writes it in
-// one more.
+// started at the later of @orrery_changed and the newest prompt's @orrery_turn_start. When the pane is working or
+// waiting and interrupted is later than that, the pane becomes done as a Stop leaves it, with its question unset, and
+// the call returns true. Otherwise nothing is written and the call returns false. Done panes are left alone. It reads
+// the pane in one tmux invocation and writes it in one more.
 func EndInterruptedTurn(
 	ctx context.Context,
 	client *tmuxctl.Client,
@@ -169,7 +169,7 @@ func EndInterruptedTurn(
 	if err != nil {
 		return false, err
 	}
-	if pane.state != protocol.StateWorking {
+	if pane.state != protocol.StateWorking && pane.state != protocol.StateWaiting {
 		return false, nil
 	}
 	changed, _, err := optionSecond(protocol.OptionChanged, pane.changed)
