@@ -102,6 +102,44 @@
     }
   },
   {
+    "name": "step_check",
+    "description": "Read one check of a step by id and check name: its round, whether it passed, its detail (at most 4000 runes), and a slice of its gate output from the log orrery kept, or from the stored tails when none was kept. The slice is the last lines lines (default 40, at most 80, each cut at 150 runes) before line before, keeping only lines containing match when given; the result names the before to continue from. round defaults to the check's last round. An unknown check is an error naming the step's checks.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "before": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "check": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "lines": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "match": {
+          "type": "string"
+        },
+        "round": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        }
+      },
+      "required": [
+        "id",
+        "check"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
     "name": "step_stop",
     "description": "Stop a running step by id.",
     "inputSchema": {

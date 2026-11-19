@@ -74,6 +74,10 @@ func stepTools(steps enginev1connect.StepsClient, clock rpcretry.Clock) ([]Tool,
 	if err != nil {
 		return nil, err
 	}
+	checkInput, err := argumentSchema[stepCheckArgs](nil)
+	if err != nil {
+		return nil, err
+	}
 	return []Tool{
 		{
 			Name: "step_start",
@@ -98,6 +102,17 @@ func stepTools(steps enginev1connect.StepsClient, clock rpcretry.Clock) ([]Tool,
 				"the offset to continue from.",
 			InputSchema: resultInput,
 			Handler:     stepResultHandler(steps, clock),
+		},
+		{
+			Name: "step_check",
+			Description: "Read one check of a step by id and check name: its round, whether it passed, its detail " +
+				"(at most 4000 runes), and a slice of its gate output from the log orrery kept, or from the stored " +
+				"tails when none was kept. The slice is the last lines lines (default 40, at most 80, each cut at " +
+				"150 runes) before line before, keeping only lines containing match when given; the result names " +
+				"the before to continue from. round defaults to the check's last round. An unknown check is an " +
+				"error naming the step's checks.",
+			InputSchema: checkInput,
+			Handler:     stepCheckHandler(steps, clock),
 		},
 		{
 			Name:        "step_stop",

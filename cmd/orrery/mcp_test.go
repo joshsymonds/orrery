@@ -268,6 +268,7 @@ func TestMCPServesStepToolsOverDaemon(t *testing.T) {
 		"evidence_get",
 		"evidence_list",
 		"evidence_run",
+		"step_check",
 		"step_result",
 		"step_resume",
 		"step_start",
