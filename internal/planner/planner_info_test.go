@@ -63,6 +63,19 @@ func TestPlannerInfoStillRefusesAnUnknownRequirementAndAnOpenTasksFile(t *testin
 	}
 }
 
+// TestPlannerInfoStillRefusesAnUnknownContribution checks that an id check stays a refusal: a task contributing to a
+// Requirement the epic does not hold is refused, as one claiming it is.
+func TestPlannerInfoStillRefusesAnUnknownContribution(t *testing.T) {
+	t.Parallel()
+	epic := store.EpicRow{Requirements: []store.EpicRequirement{{ID: "R1"}}}
+	check := returnCheck(context.Background(), epic, store.Review{}, testResolver{})
+	plan := strings.Replace(claimPlan("work", "R1"), `"requirements":["R1"]`, `"requirements":["R1"],"contributes":["R9"]`, 1)
+	want := []string{`tasks[0] "Touch a" contributes[0]: not a Requirement of the epic`}
+	if got := check(json.RawMessage(plan)); !reflect.DeepEqual(got, want) {
+		t.Errorf("returnCheck of a contribution to R9 = %q, want %q", got, want)
+	}
+}
+
 func TestPlannerInfoRoleAsksForOneSentenceConclusionsAndSaysRedIsANote(t *testing.T) {
 	t.Parallel()
 	for _, want := range []string{

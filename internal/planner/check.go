@@ -188,6 +188,11 @@ func checkTask(i int, task Task, known, taken, named map[string]bool, gate, judg
 			refusals = append(refusals, fmt.Sprintf("%s requirements[%d]: %s", prefix, k, reasonRequirement))
 		}
 	}
+	for k, id := range task.Contributes {
+		if !known[id] {
+			refusals = append(refusals, fmt.Sprintf("%s contributes[%d]: %s", prefix, k, reasonRequirement))
+		}
+	}
 	if strings.TrimSpace(task.Gate) == "" {
 		refusals = append(refusals, prefix+" gate: "+reasonEmpty)
 	}
