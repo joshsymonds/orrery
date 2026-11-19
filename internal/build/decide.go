@@ -31,8 +31,10 @@ type implementerReturn struct {
 
 // Decide returns the next action for an open task from its view. A stopped or parked build waits until the owner
 // releases it, a waiting build until the tasks it waits for are integrated (decideWait), and an asked build until its
-// question is answered (decideAsked). A task due its rescue (rescueDue) moves to the rescue's orchestrate unit first.
-// Every other build is decided by its stage (decideStage).
+// question is answered (decideAsked). A task due its rescue (rescueDue) moves to the rescue's orchestrate unit first. A
+// task on ApproachRung waits for its change of approach before its first unit (approachAwaited), and a task whose
+// change of approach is checking moves to red before its implementer (approachDue). Every other build is decided by its
+// stage (decideStage).
 func Decide(view View) Action {
 	build := view.Task.Build
 	switch build.Held {
@@ -54,6 +56,15 @@ func Decide(view View) Action {
 	}
 	if rescueDue(view) {
 		build.Stage = StageOrchestrate
+		build.Step = ""
+		build.NoVerdict = 0
+		return Action{Kind: ActMove, Next: build}
+	}
+	if approachAwaited(view) {
+		return Action{Kind: ActNone}
+	}
+	if approachDue(view) {
+		build.Stage = StageRed
 		build.Step = ""
 		build.NoVerdict = 0
 		return Action{Kind: ActMove, Next: build}

@@ -150,6 +150,14 @@ func rescueDue(view View) bool {
 	if store.RungOf(build) != store.RescueRung || hasRescue(view.Task) {
 		return false
 	}
+	return rungUnstarted(view)
+}
+
+// rungUnstarted reports whether the rung view's build is on has no unit started: the build is in implement with no step
+// and no refs snapshot, or in red with no run. A rung's first unit is due on that state, which is why a rescue
+// (rescueDue) and the wait for a change of approach (approachAwaited) both read it.
+func rungUnstarted(view View) bool {
+	build := view.Task.Build
 	switch build.Stage {
 	case StageImplement:
 		return view.Step == nil && build.Refs == ""
