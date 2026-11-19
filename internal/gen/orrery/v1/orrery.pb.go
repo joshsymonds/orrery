@@ -4821,7 +4821,9 @@ type PendingEvent struct {
 	Epic string `protobuf:"bytes,9,opt,name=epic,proto3" json:"epic,omitempty"`
 	// The epic's title, for an epic event.
 	Title string `protobuf:"bytes,10,opt,name=title,proto3" json:"title,omitempty"`
-	// How the event waits: speak when the owner's interrupt keeps the session quiet, and free otherwise.
+	// How the event waits, one of three values. speak when the owner's interrupt is newer than the owner's last prompt,
+	// even while a request is open, or when the session is stopped. request when the session waits on an open request
+	// and no speak applies. free otherwise.
 	Waits         string `protobuf:"bytes,11,opt,name=waits,proto3" json:"waits,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

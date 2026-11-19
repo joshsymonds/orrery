@@ -64,6 +64,20 @@ func taskKind(taskType, subagentType string) string {
 	return "shell"
 }
 
+// awaitedTaskType reports whether a background task of taskType runs a model: an agent, a workflow or a teammate. A
+// step waits for such a task, since its end starts a turn of claude's own whose return is the one that counts. A shell
+// task, which a Monitor's watch is too, is not waited for: a step whose turn returns while only shell tasks are listed has
+// returned, and its stop ends them.
+func awaitedTaskType(taskType string) bool {
+	return strings.HasSuffix(taskType, "agent") || strings.HasSuffix(taskType, "workflow") ||
+		strings.HasSuffix(taskType, "teammate")
+}
+
+// awaitsTask reports whether tasks lists a task that runs a model (see awaitedTaskType).
+func awaitsTask(tasks []session.BackgroundTask) bool {
+	return slices.ContainsFunc(tasks, func(task session.BackgroundTask) bool { return awaitedTaskType(task.TaskType) })
+}
+
 // taskEndStatus is the status an engine task records when its message reports the terminal status the wire gives.
 func taskEndStatus(status string) string {
 	switch status {
@@ -387,7 +401,8 @@ func mainText(event session.Event) (string, bool) {
 
 // consumedOf returns the EngineConsumed that stores the offset of line for session id, and whether line holds a
 // TurnEnded. The offset is the line's End. A line holding a TurnEnded also stores that End as the replay-from and the
-// turn's structured output, and a line holding BackgroundTasks stores whether its last report lists a task.
+// turn's structured output, and a line holding BackgroundTasks stores whether its last report lists a task and whether it
+// lists one that runs a model (see awaitsTask).
 func consumedOf(id string, line session.Line) (store.EngineConsumed, bool) {
 	consumed := store.EngineConsumed{ID: id, Consumed: line.End}
 	ended := false
@@ -400,8 +415,8 @@ func consumedOf(id string, line session.Line) (store.EngineConsumed, bool) {
 			consumed.Output = &output
 			ended = true
 		case session.BackgroundTasks:
-			background := len(ev.Tasks) > 0
-			consumed.Background = &background
+			background, awaited := len(ev.Tasks) > 0, awaitsTask(ev.Tasks)
+			consumed.Background, consumed.Awaited = &background, &awaited
 		}
 	}
 	return consumed, ended

@@ -757,6 +757,7 @@ type Session struct {
 	Title         string
 	Headline      string
 	HeadlineAt    int64
+	Awaited       bool
 }
 
 type Step struct {

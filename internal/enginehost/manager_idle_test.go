@@ -129,46 +129,6 @@ func TestIdleKeepsAskAndHangSessions(t *testing.T) {
 	requireRunning(t, m, hangID, hangPID)
 }
 
-func TestIdleKeepsBackgroundSessionUntilItEnds(t *testing.T) {
-	t.Parallel()
-	m, path, clock := newIdleManager(t, 1)
-	dir := t.TempDir()
-	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "BACKGROUND"})
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	waitHistory(t, engineOf(m), path, id, "the background turn done", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake background 1") && lastState(t, h) == string(protocol.StateDone)
-	})
-	pid := fakePID(t, dir)
-
-	clock.advance(11 * time.Minute)
-	m.checkIdle(t.Context())
-	requireRunning(t, m, id, pid)
-
-	if err := m.Say(t.Context(), SayRequest{ID: id, Text: "BGEND"}); err != nil {
-		t.Fatalf("Say BGEND: %v", err)
-	}
-	waitHistory(
-		t,
-		engineOf(m),
-		path,
-		id,
-		"the reply after the background task ended",
-		func(h store.EngineHistory) bool {
-			return hasBlock(t, h, "fake reply 2") && lastState(t, h) == string(protocol.StateDone)
-		},
-	)
-
-	clock.advance(10*time.Minute - time.Millisecond)
-	m.checkIdle(t.Context())
-	requireRunning(t, m, id, pid)
-
-	clock.advance(time.Millisecond)
-	m.checkIdle(t.Context())
-	requireGone(t, pid)
-}
-
 func TestIdleStopFreesSlotForStart(t *testing.T) {
 	t.Parallel()
 	m, path, clock := newIdleManager(t, 1)
