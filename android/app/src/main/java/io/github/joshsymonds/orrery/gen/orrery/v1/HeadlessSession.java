@@ -667,6 +667,47 @@ public  final class HeadlessSession extends
 
   }
 
+  public static final int PUT_OFF_FIELD_NUMBER = 12;
+  private boolean putOff_;
+  /**
+   * <pre>
+   * true while the owner has put this question off with Control.NotNow and not brought it back; a mark covers one
+   * question, so a new request or a pane that starts waiting again reads false.
+   * </pre>
+   *
+   * <code>bool put_off = 12 [json_name = "putOff"];</code>
+   * @return The putOff.
+   */
+  @java.lang.Override
+  public boolean getPutOff() {
+    return putOff_;
+  }
+  /**
+   * <pre>
+   * true while the owner has put this question off with Control.NotNow and not brought it back; a mark covers one
+   * question, so a new request or a pane that starts waiting again reads false.
+   * </pre>
+   *
+   * <code>bool put_off = 12 [json_name = "putOff"];</code>
+   * @param value The putOff to set.
+   */
+  private void setPutOff(boolean value) {
+    
+    putOff_ = value;
+  }
+  /**
+   * <pre>
+   * true while the owner has put this question off with Control.NotNow and not brought it back; a mark covers one
+   * question, so a new request or a pane that starts waiting again reads false.
+   * </pre>
+   *
+   * <code>bool put_off = 12 [json_name = "putOff"];</code>
+   */
+  private void clearPutOff() {
+
+    putOff_ = false;
+  }
+
   public static io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -1430,6 +1471,49 @@ public  final class HeadlessSession extends
       return this;
     }
 
+    /**
+     * <pre>
+     * true while the owner has put this question off with Control.NotNow and not brought it back; a mark covers one
+     * question, so a new request or a pane that starts waiting again reads false.
+     * </pre>
+     *
+     * <code>bool put_off = 12 [json_name = "putOff"];</code>
+     * @return The putOff.
+     */
+    @java.lang.Override
+    public boolean getPutOff() {
+      return instance.getPutOff();
+    }
+    /**
+     * <pre>
+     * true while the owner has put this question off with Control.NotNow and not brought it back; a mark covers one
+     * question, so a new request or a pane that starts waiting again reads false.
+     * </pre>
+     *
+     * <code>bool put_off = 12 [json_name = "putOff"];</code>
+     * @param value The putOff to set.
+     * @return This builder for chaining.
+     */
+    public Builder setPutOff(boolean value) {
+      copyOnWrite();
+      instance.setPutOff(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * true while the owner has put this question off with Control.NotNow and not brought it back; a mark covers one
+     * question, so a new request or a pane that starts waiting again reads false.
+     * </pre>
+     *
+     * <code>bool put_off = 12 [json_name = "putOff"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearPutOff() {
+      copyOnWrite();
+      instance.clearPutOff();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.HeadlessSession)
   }
   @java.lang.Override
@@ -1457,11 +1541,12 @@ public  final class HeadlessSession extends
             "newestReply_",
             "archived_",
             "headline_",
+            "putOff_",
           };
           java.lang.String info =
-              "\u0000\u000b\u0000\u0000\u0001\u000b\u000b\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
-              "\u0003\u0208\u0004\u0208\u0005\u0002\u0006\u0002\u0007\u0208\b\u0208\t\u0002\n\u0007" +
-              "\u000b\u0208";
+              "\u0000\f\u0000\u0000\u0001\f\f\u0000\u0000\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
+              "\u0004\u0208\u0005\u0002\u0006\u0002\u0007\u0208\b\u0208\t\u0002\n\u0007\u000b\u0208" +
+              "\f\u0007";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

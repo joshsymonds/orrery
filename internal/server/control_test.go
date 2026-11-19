@@ -160,6 +160,26 @@ func (f *fakeEngine) Withdraw(
 	return connect.NewResponse(&enginev1.WithdrawResponse{Texts: fakeWithdrawnTexts()}), nil
 }
 
+func (f *fakeEngine) NotNow(
+	ctx context.Context,
+	req *connect.Request[enginev1.NotNowRequest],
+) (*connect.Response[enginev1.NotNowResponse], error) {
+	if err := f.answer(ctx, req.Msg); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&enginev1.NotNowResponse{}), nil
+}
+
+func (f *fakeEngine) BringBack(
+	ctx context.Context,
+	req *connect.Request[enginev1.BringBackRequest],
+) (*connect.Response[enginev1.BringBackResponse], error) {
+	if err := f.answer(ctx, req.Msg); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&enginev1.BringBackResponse{}), nil
+}
+
 // newFakeOrreryd serves fake as orreryd's Engine on a loopback test server and returns a client for it.
 func newFakeOrreryd(t *testing.T, fake *fakeEngine) enginev1connect.EngineClient {
 	t.Helper()

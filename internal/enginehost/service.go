@@ -113,6 +113,9 @@ func Serve(
 
 // service implements the Engine RPCs over commands. steps, when set, names the step ids the engine refuses.
 type service struct {
+	// NotNow and BringBack answer unimplemented until the session manager serves them.
+	enginev1connect.UnimplementedEngineHandler
+
 	commands Commands
 	steps    StepCommands
 }
