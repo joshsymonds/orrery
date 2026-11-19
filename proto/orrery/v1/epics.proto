@@ -457,6 +457,12 @@ message EpicDecision {
 
   // The question, Q<n>, the decision answers; empty for a note.
   string question = 5;
+
+  // Who recorded the decision: 'owner', 'conversation' or 'orreryd'; empty for a decision stored before this release.
+  string by = 6;
+
+  // The conversation's session id when by is 'conversation', empty otherwise.
+  string session = 7;
 }
 
 // EpicTell is one thing an orreryd epic told its owner.
@@ -672,6 +678,25 @@ message Epic {
   // records hold. It only grows, so an epic whose revision moved has changed in some part Get answers that this
   // message does not carry, such as its questions, its park, its nodes, its tasks or its ledger.
   int64 revision = 16;
+
+  // The id of the session that steers the orreryd epic; empty when it has none or for a record epic. It may name a
+  // session whose row is gone.
+  string steering = 17;
+
+  // The absolute path of the orreryd epic's repository; empty for a record epic.
+  string path = 18;
+
+  // Whether the orreryd epic is paused. A paused epic starts no planner turn until it is resumed.
+  bool paused = 19;
+
+  // Why the orreryd epic is paused, 'owner' or 'limit' while it is paused, empty otherwise.
+  string pause_source = 20;
+
+  // Why the epic is parked, empty when it is not parked.
+  string parked = 21;
+
+  // How many of the epic's questions are open.
+  int32 open_questions = 22;
 }
 
 // EpicTask is one task from an effort's state.json.

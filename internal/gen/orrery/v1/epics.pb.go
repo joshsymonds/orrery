@@ -1710,7 +1710,11 @@ type EpicDecision struct {
 	// When the decision was recorded, in unix seconds.
 	Time int64 `protobuf:"varint,4,opt,name=time,proto3" json:"time,omitempty"`
 	// The question, Q<n>, the decision answers; empty for a note.
-	Question      string `protobuf:"bytes,5,opt,name=question,proto3" json:"question,omitempty"`
+	Question string `protobuf:"bytes,5,opt,name=question,proto3" json:"question,omitempty"`
+	// Who recorded the decision: 'owner', 'conversation' or 'orreryd'; empty for a decision stored before this release.
+	By string `protobuf:"bytes,6,opt,name=by,proto3" json:"by,omitempty"`
+	// The conversation's session id when by is 'conversation', empty otherwise.
+	Session       string `protobuf:"bytes,7,opt,name=session,proto3" json:"session,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1776,6 +1780,20 @@ func (x *EpicDecision) GetTime() int64 {
 func (x *EpicDecision) GetQuestion() string {
 	if x != nil {
 		return x.Question
+	}
+	return ""
+}
+
+func (x *EpicDecision) GetBy() string {
+	if x != nil {
+		return x.By
+	}
+	return ""
+}
+
+func (x *EpicDecision) GetSession() string {
+	if x != nil {
+		return x.Session
 	}
 	return ""
 }
@@ -2940,7 +2958,20 @@ type Epic struct {
 	// How many writes have changed the database epic's row or a row of its parts, its steps aside; 0 for an epic only the
 	// records hold. It only grows, so an epic whose revision moved has changed in some part Get answers that this
 	// message does not carry, such as its questions, its park, its nodes, its tasks or its ledger.
-	Revision      int64 `protobuf:"varint,16,opt,name=revision,proto3" json:"revision,omitempty"`
+	Revision int64 `protobuf:"varint,16,opt,name=revision,proto3" json:"revision,omitempty"`
+	// The id of the session that steers the orreryd epic; empty when it has none or for a record epic. It may name a
+	// session whose row is gone.
+	Steering string `protobuf:"bytes,17,opt,name=steering,proto3" json:"steering,omitempty"`
+	// The absolute path of the orreryd epic's repository; empty for a record epic.
+	Path string `protobuf:"bytes,18,opt,name=path,proto3" json:"path,omitempty"`
+	// Whether the orreryd epic is paused. A paused epic starts no planner turn until it is resumed.
+	Paused bool `protobuf:"varint,19,opt,name=paused,proto3" json:"paused,omitempty"`
+	// Why the orreryd epic is paused, 'owner' or 'limit' while it is paused, empty otherwise.
+	PauseSource string `protobuf:"bytes,20,opt,name=pause_source,json=pauseSource,proto3" json:"pause_source,omitempty"`
+	// Why the epic is parked, empty when it is not parked.
+	Parked string `protobuf:"bytes,21,opt,name=parked,proto3" json:"parked,omitempty"`
+	// How many of the epic's questions are open.
+	OpenQuestions int32 `protobuf:"varint,22,opt,name=open_questions,json=openQuestions,proto3" json:"open_questions,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3083,6 +3114,48 @@ func (x *Epic) GetArchived() bool {
 func (x *Epic) GetRevision() int64 {
 	if x != nil {
 		return x.Revision
+	}
+	return 0
+}
+
+func (x *Epic) GetSteering() string {
+	if x != nil {
+		return x.Steering
+	}
+	return ""
+}
+
+func (x *Epic) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *Epic) GetPaused() bool {
+	if x != nil {
+		return x.Paused
+	}
+	return false
+}
+
+func (x *Epic) GetPauseSource() string {
+	if x != nil {
+		return x.PauseSource
+	}
+	return ""
+}
+
+func (x *Epic) GetParked() string {
+	if x != nil {
+		return x.Parked
+	}
+	return ""
+}
+
+func (x *Epic) GetOpenQuestions() int32 {
+	if x != nil {
+		return x.OpenQuestions
 	}
 	return 0
 }
@@ -5858,13 +5931,15 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\x05cause\x18\x02 \x01(\tR\x05cause\x12\x14\n" +
 	"\x05state\x18\x03 \x01(\tR\x05state\x12\x12\n" +
 	"\x04turn\x18\x04 \x01(\x03R\x04turn\x12\x18\n" +
-	"\acreated\x18\x05 \x01(\x03R\acreated\"t\n" +
+	"\acreated\x18\x05 \x01(\x03R\acreated\"\x9e\x01\n" +
 	"\fEpicDecision\x12\x10\n" +
 	"\x03seq\x18\x01 \x01(\x03R\x03seq\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x12\n" +
 	"\x04text\x18\x03 \x01(\tR\x04text\x12\x12\n" +
 	"\x04time\x18\x04 \x01(\x03R\x04time\x12\x1a\n" +
-	"\bquestion\x18\x05 \x01(\tR\bquestion\"T\n" +
+	"\bquestion\x18\x05 \x01(\tR\bquestion\x12\x0e\n" +
+	"\x02by\x18\x06 \x01(\tR\x02by\x12\x18\n" +
+	"\asession\x18\a \x01(\tR\asession\"T\n" +
 	"\bEpicTell\x12\x10\n" +
 	"\x03seq\x18\x01 \x01(\x03R\x03seq\x12\x12\n" +
 	"\x04text\x18\x02 \x01(\tR\x04text\x12\x0e\n" +
@@ -5917,7 +5992,7 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x0e\n" +
 	"\x02by\x18\x03 \x01(\tR\x02by\"\x14\n" +
-	"\x12EpicsCloseResponse\"\xc7\x03\n" +
+	"\x12EpicsCloseResponse\"\xf1\x04\n" +
 	"\x04Epic\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1e\n" +
 	"\n" +
@@ -5938,7 +6013,13 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\bphase_at\x18\r \x01(\x03R\aphaseAt\x12\x12\n" +
 	"\x04seen\x18\x0e \x01(\x03R\x04seen\x12\x1a\n" +
 	"\barchived\x18\x0f \x01(\bR\barchived\x12\x1a\n" +
-	"\brevision\x18\x10 \x01(\x03R\brevision\"\x8c\x01\n" +
+	"\brevision\x18\x10 \x01(\x03R\brevision\x12\x1a\n" +
+	"\bsteering\x18\x11 \x01(\tR\bsteering\x12\x12\n" +
+	"\x04path\x18\x12 \x01(\tR\x04path\x12\x16\n" +
+	"\x06paused\x18\x13 \x01(\bR\x06paused\x12!\n" +
+	"\fpause_source\x18\x14 \x01(\tR\vpauseSource\x12\x16\n" +
+	"\x06parked\x18\x15 \x01(\tR\x06parked\x12%\n" +
+	"\x0eopen_questions\x18\x16 \x01(\x05R\ropenQuestions\"\x8c\x01\n" +
 	"\bEpicTask\x12\x16\n" +
 	"\x06effort\x18\x01 \x01(\x05R\x06effort\x12\x12\n" +
 	"\x04slug\x18\x02 \x01(\tR\x04slug\x12\x18\n" +

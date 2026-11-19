@@ -89,4 +89,44 @@ public interface EpicDecisionOrBuilder extends
    */
   com.google.protobuf.ByteString
       getQuestionBytes();
+
+  /**
+   * <pre>
+   * Who recorded the decision: 'owner', 'conversation' or 'orreryd'; empty for a decision stored before this release.
+   * </pre>
+   *
+   * <code>string by = 6 [json_name = "by"];</code>
+   * @return The by.
+   */
+  java.lang.String getBy();
+  /**
+   * <pre>
+   * Who recorded the decision: 'owner', 'conversation' or 'orreryd'; empty for a decision stored before this release.
+   * </pre>
+   *
+   * <code>string by = 6 [json_name = "by"];</code>
+   * @return The bytes for by.
+   */
+  com.google.protobuf.ByteString
+      getByBytes();
+
+  /**
+   * <pre>
+   * The conversation's session id when by is 'conversation', empty otherwise.
+   * </pre>
+   *
+   * <code>string session = 7 [json_name = "session"];</code>
+   * @return The session.
+   */
+  java.lang.String getSession();
+  /**
+   * <pre>
+   * The conversation's session id when by is 'conversation', empty otherwise.
+   * </pre>
+   *
+   * <code>string session = 7 [json_name = "session"];</code>
+   * @return The bytes for session.
+   */
+  com.google.protobuf.ByteString
+      getSessionBytes();
 }

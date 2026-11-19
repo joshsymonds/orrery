@@ -448,6 +448,12 @@ message EpicDecision {
 
   // The question, Q<n>, the decision answers; empty for a note.
   string question = 5;
+
+  // Who recorded the decision: 'owner', 'conversation' or 'orreryd'; empty for a decision stored before this release.
+  string by = 6;
+
+  // The conversation's session id when by is 'conversation', empty otherwise.
+  string session = 7;
 }
 
 // EpicTurn is one planner turn on an epic, in the order it started.
@@ -1076,6 +1082,12 @@ message StoredEpic {
 
   // How many writes have changed the epic's row or a row of its parts, its steps aside, as EpicSummary.revision counts.
   int64 revision = 30;
+
+  // The id of the session that steers the orreryd epic, empty when it has none.
+  string steerer = 31;
+
+  // Why the orreryd epic is paused, 'owner' or 'limit' while it is paused, empty otherwise.
+  string pause_source = 32;
 }
 
 // EpicReleaseRun is one release run of an epic: the candidate it starts from, a release step, a named step, or the judge.
@@ -1191,6 +1203,21 @@ message EpicSummary {
   // How many writes have changed the epic's row or a row of its parts, its steps aside. It only grows, so an epic whose
   // revision moved has changed in some part that GetEpic answers.
   int64 revision = 9;
+
+  // The id of the session that steers the orreryd epic, empty when it has none or for a record epic.
+  string steerer = 10;
+
+  // Whether the epic is paused. A paused epic starts no planner turn until it is resumed.
+  bool paused = 11;
+
+  // Why the epic is paused, 'owner' or 'limit' while it is paused, empty otherwise.
+  string pause_source = 12;
+
+  // Why the epic is parked, empty when it is not parked.
+  string parked = 13;
+
+  // How many of the epic's questions are open.
+  int32 open_questions = 14;
 }
 
 // CreateEpicRequest asks for a new epic.
