@@ -227,4 +227,14 @@ public interface ConversationStateOrBuilder extends
    * @return The interruptingSince.
    */
   long getInterruptingSince();
+
+  /**
+   * <pre>
+   * The unix seconds the running turn started while the session is working, and 0 otherwise. Pane streams never set it.
+   * </pre>
+   *
+   * <code>int64 turn_since = 12 [json_name = "turnSince"];</code>
+   * @return The turnSince.
+   */
+  long getTurnSince();
 }

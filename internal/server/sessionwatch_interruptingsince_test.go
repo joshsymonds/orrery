@@ -42,6 +42,7 @@ func TestSessionWatchInterruptingSinceServesInterruptTime(t *testing.T) {
 		Reset_:     true,
 		State: &orreryv1.ConversationState{
 			Session: engineSession("working"), Interrupting: true, InterruptingSince: interruptingSinceAt,
+			TurnSince: eventAt,
 		},
 	})
 }
@@ -63,7 +64,7 @@ func TestSessionWatchInterruptingSinceClearsAtTurnEnd(t *testing.T) {
 	wantStreamMessage(t, stream.nextDelta(t), &orreryv1.SessionsWatchConversationResponse{
 		Transcript: eventEngine,
 		Seq:        4,
-		State:      &orreryv1.ConversationState{Session: engineSession("working")},
+		State:      &orreryv1.ConversationState{Session: engineSession("working"), TurnSince: eventAt},
 	})
 }
 
@@ -106,6 +107,6 @@ func TestSessionWatchInterruptingSinceZeroWhenNeverInterrupted(t *testing.T) {
 		Transcript: eventEngine,
 		Seq:        2,
 		Reset_:     true,
-		State:      &orreryv1.ConversationState{Session: engineSession("working")},
+		State:      &orreryv1.ConversationState{Session: engineSession("working"), TurnSince: eventAt},
 	})
 }

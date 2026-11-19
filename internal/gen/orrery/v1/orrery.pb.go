@@ -4697,8 +4697,10 @@ type ConversationState struct {
 	// The unix seconds of the engine_interrupt that makes interrupting true, and 0 when interrupting is false. Pane
 	// streams never set it.
 	InterruptingSince int64 `protobuf:"varint,11,opt,name=interrupting_since,json=interruptingSince,proto3" json:"interrupting_since,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// The unix seconds the running turn started while the session is working, and 0 otherwise. Pane streams never set it.
+	TurnSince     int64 `protobuf:"varint,12,opt,name=turn_since,json=turnSince,proto3" json:"turn_since,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ConversationState) Reset() {
@@ -4804,6 +4806,13 @@ func (x *ConversationState) GetBackground() []*BackgroundTask {
 func (x *ConversationState) GetInterruptingSince() int64 {
 	if x != nil {
 		return x.InterruptingSince
+	}
+	return 0
+}
+
+func (x *ConversationState) GetTurnSince() int64 {
+	if x != nil {
+		return x.TurnSince
 	}
 	return 0
 }
@@ -7205,7 +7214,7 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\rOlderResponse\x121\n" +
 	"\x05items\x18\x01 \x03(\v2\x1b.orrery.v1.ConversationItemR\x05items\x12\x16\n" +
 	"\x06oldest\x18\x02 \x01(\x03R\x06oldest\x12\x12\n" +
-	"\x04more\x18\x03 \x01(\bR\x04more\"\xfc\x03\n" +
+	"\x04more\x18\x03 \x01(\bR\x04more\"\x9b\x04\n" +
 	"\x11ConversationState\x12\x16\n" +
 	"\x06origin\x18\x01 \x01(\tR\x06origin\x12\x12\n" +
 	"\x04goal\x18\x02 \x01(\tR\x04goal\x123\n" +
@@ -7220,7 +7229,9 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"background\x18\n" +
 	" \x03(\v2\x19.orrery.v1.BackgroundTaskR\n" +
 	"background\x12-\n" +
-	"\x12interrupting_since\x18\v \x01(\x03R\x11interruptingSince\"\x81\x02\n" +
+	"\x12interrupting_since\x18\v \x01(\x03R\x11interruptingSince\x12\x1d\n" +
+	"\n" +
+	"turn_since\x18\f \x01(\x03R\tturnSince\"\x81\x02\n" +
 	"\fPendingEvent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x12\n" +

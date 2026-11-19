@@ -1137,6 +1137,9 @@ message ConversationState {
   // The unix seconds of the engine_interrupt that makes interrupting true, and 0 when interrupting is false. Pane
   // streams never set it.
   int64 interrupting_since = 11;
+
+  // The unix seconds the running turn started while the session is working, and 0 otherwise. Pane streams never set it.
+  int64 turn_since = 12;
 }
 
 // PendingEvent is a caller event held for a headless session: one that the session has not yet taken, or that waits

@@ -929,6 +929,44 @@ public  final class ConversationState extends
     interruptingSince_ = 0L;
   }
 
+  public static final int TURN_SINCE_FIELD_NUMBER = 12;
+  private long turnSince_;
+  /**
+   * <pre>
+   * The unix seconds the running turn started while the session is working, and 0 otherwise. Pane streams never set it.
+   * </pre>
+   *
+   * <code>int64 turn_since = 12 [json_name = "turnSince"];</code>
+   * @return The turnSince.
+   */
+  @java.lang.Override
+  public long getTurnSince() {
+    return turnSince_;
+  }
+  /**
+   * <pre>
+   * The unix seconds the running turn started while the session is working, and 0 otherwise. Pane streams never set it.
+   * </pre>
+   *
+   * <code>int64 turn_since = 12 [json_name = "turnSince"];</code>
+   * @param value The turnSince to set.
+   */
+  private void setTurnSince(long value) {
+    
+    turnSince_ = value;
+  }
+  /**
+   * <pre>
+   * The unix seconds the running turn started while the session is working, and 0 otherwise. Pane streams never set it.
+   * </pre>
+   *
+   * <code>int64 turn_since = 12 [json_name = "turnSince"];</code>
+   */
+  private void clearTurnSince() {
+
+    turnSince_ = 0L;
+  }
+
   public static io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -1994,6 +2032,46 @@ public  final class ConversationState extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The unix seconds the running turn started while the session is working, and 0 otherwise. Pane streams never set it.
+     * </pre>
+     *
+     * <code>int64 turn_since = 12 [json_name = "turnSince"];</code>
+     * @return The turnSince.
+     */
+    @java.lang.Override
+    public long getTurnSince() {
+      return instance.getTurnSince();
+    }
+    /**
+     * <pre>
+     * The unix seconds the running turn started while the session is working, and 0 otherwise. Pane streams never set it.
+     * </pre>
+     *
+     * <code>int64 turn_since = 12 [json_name = "turnSince"];</code>
+     * @param value The turnSince to set.
+     * @return This builder for chaining.
+     */
+    public Builder setTurnSince(long value) {
+      copyOnWrite();
+      instance.setTurnSince(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The unix seconds the running turn started while the session is working, and 0 otherwise. Pane streams never set it.
+     * </pre>
+     *
+     * <code>int64 turn_since = 12 [json_name = "turnSince"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearTurnSince() {
+      copyOnWrite();
+      instance.clearTurnSince();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.ConversationState)
   }
   @java.lang.Override
@@ -2025,11 +2103,12 @@ public  final class ConversationState extends
             "background_",
             io.github.joshsymonds.orrery.gen.orrery.v1.BackgroundTask.class,
             "interruptingSince_",
+            "turnSince_",
           };
           java.lang.String info =
-              "\u0000\u000b\u0000\u0001\u0001\u000b\u000b\u0000\u0003\u0000\u0001\u0208\u0002\u0208" +
-              "\u0003\u001b\u0004\u1009\u0000\u0005\u1009\u0001\u0006\u1009\u0002\u0007\u1009\u0003" +
-              "\b\u0007\t\u001b\n\u001b\u000b\u0002";
+              "\u0000\f\u0000\u0001\u0001\f\f\u0000\u0003\u0000\u0001\u0208\u0002\u0208\u0003\u001b" +
+              "\u0004\u1009\u0000\u0005\u1009\u0001\u0006\u1009\u0002\u0007\u1009\u0003\b\u0007" +
+              "\t\u001b\n\u001b\u000b\u0002\f\u0002";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {
