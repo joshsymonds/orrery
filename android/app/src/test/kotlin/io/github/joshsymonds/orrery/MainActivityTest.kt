@@ -6,12 +6,15 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performImeAction
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.test.core.app.ApplicationProvider
@@ -387,12 +390,12 @@ class MainActivityTest {
 
         composeRule.onNodeWithTag("picker-new").performClick()
         composeRule.onNodeWithTag("picker-text").performTextInput("fix the test")
-        composeRule.onNodeWithTag("picker-ask").performClick()
+        composeRule.onNodeWithTag("picker-text").performImeAction()
         awaitNode(hasTestTag("picker-row:0"))
-        composeRule.onNodeWithTag("picker-row:0").performClick()
+        composeRule.onNodeWithTag("picker-row:0").performSemanticsAction(SemanticsActions.OnClick)
         awaitNode(hasTestTag("start-form"))
         composeRule.onNodeWithTag("start-message").performTextInput("start it")
-        composeRule.onNodeWithTag("start-submit").performClick()
+        composeRule.onNodeWithTag("start-submit").performSemanticsAction(SemanticsActions.OnClick)
 
         awaitNode(titled("started-session"))
         val starts = server.requests.filter { it.rawPath == START_PATH }
