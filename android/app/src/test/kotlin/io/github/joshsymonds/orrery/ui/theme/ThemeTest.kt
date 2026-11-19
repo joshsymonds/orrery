@@ -35,6 +35,20 @@ class ThemeTest {
     }
 
     @Test
+    fun colorSchemeSurfaceRolesAreTheSurfaceTokens() {
+        assertEquals(OrreryTokens.Surface.side, OrreryColorScheme.surfaceDim)
+        assertEquals(OrreryTokens.Surface.pressed, OrreryColorScheme.surfaceBright)
+        assertEquals(OrreryTokens.Surface.side, OrreryColorScheme.surfaceContainerLowest)
+        assertEquals(OrreryTokens.Surface.well, OrreryColorScheme.surfaceContainerLow)
+        assertEquals(OrreryTokens.Surface.overlay, OrreryColorScheme.surfaceContainer)
+        assertEquals(OrreryTokens.Surface.raised, OrreryColorScheme.surfaceContainerHigh)
+        assertEquals(OrreryTokens.Surface.pressed, OrreryColorScheme.surfaceContainerHighest)
+        assertEquals(OrreryTokens.Surface.raised, OrreryColorScheme.surfaceTint)
+        assertEquals(OrreryTokens.Ink.one, OrreryColorScheme.inverseSurface)
+        assertEquals(OrreryTokens.Surface.page, OrreryColorScheme.inverseOnSurface)
+    }
+
+    @Test
     fun orreryThemeProvidesTokenSchemeToContent() {
         var provided: ColorScheme? = null
         composeRule.setContent {
