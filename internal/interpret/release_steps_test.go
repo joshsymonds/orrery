@@ -651,12 +651,12 @@ func TestReleasePostconditionsShown(t *testing.T) {
 			t.Errorf("prompt = %q, want it to hold %q", prompt, want)
 		}
 	})
-	t.Run("a release step's prompt says its judge reads only the step's evidence", func(t *testing.T) {
+	t.Run("a release step's prompt says its judge reads the step's evidence and checks of its own", func(t *testing.T) {
 		t.Parallel()
 		const judgeParagraph = "A judge then decides whether the release met its postconditions from the evidence " +
-			"its steps return and nothing else, and it runs no command. So the evidence this step returns must show " +
-			"each postcondition this step affects, with the output that proves it, such as the command this step ran " +
-			"and that command's output."
+			"its steps return and read-only checks of its own. So the evidence this step returns should show each " +
+			"postcondition this step affects, with the output that proves it, such as the command this step ran and " +
+			"that command's output."
 		prompt := releaseStepPrompt(tagStep(), "0123abcd", releaseThen)
 		if !strings.Contains(prompt, judgeParagraph) {
 			t.Errorf("prompt = %q, want it to hold %q", prompt, judgeParagraph)

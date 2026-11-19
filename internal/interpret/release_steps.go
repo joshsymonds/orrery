@@ -170,13 +170,13 @@ func releaseStepPrompt(step store.EpicReleaseStep, start, then string) string {
 		"Return evidence showing the effect of the step: what changed and where it can be seen. If you cannot "+
 		"carry out the step, return status blocked with evidence of why.\n\n"+
 		"A judge then decides whether the release met its postconditions from the evidence its steps return and "+
-		"nothing else, and it runs no command. So the evidence this step returns must show each postcondition this "+
-		"step affects, with the output that proves it, such as the command this step ran and that command's output.",
+		"read-only checks of its own. So the evidence this step returns should show each postcondition this step "+
+		"affects, with the output that proves it, such as the command this step ran and that command's output.",
 		step.Step, step.Target, step.Undo, then, start, start)
 }
 
 // recordReleaseStep records the release step act names once its end is stored. The step passes only when it ended done,
-// HEAD descends from its start, the commits it listed are exactly the commits it added and it added no merge. Otherwise
+// HEAD descends from its start and it added no merge. Otherwise
 // it is recorded failed with the reason named. Its worktree is removed once the run is recorded.
 func (r *Runner) recordReleaseStep(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	position, ok := releaseStepPosition(act.Items[0])
