@@ -75,6 +75,46 @@ func TestUnreportedEpicsListsEndedEpicsWithoutAReportInIDOrder(t *testing.T) {
 	}
 }
 
+// TestUnreportedEpicReadsAnEndedEpicWithoutAReportAsEpicReads checks that UnreportedEpic reads an ended epic with no
+// report as Epic reads it and says it is listed, and says an epic is not listed when it is live, when its report is for
+// its ending, and when no epic has its id.
+func TestUnreportedEpicReadsAnEndedEpicWithoutAReportAsEpicReads(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openEpicStore(t)
+	const live = "orrery-5d6e7f8/epic-live"
+	createEpic(t, s, endedEpic(epicReportID, "released"))
+	createEpic(t, s, endedEpic(live, "accepted"))
+
+	row, listed, err := s.UnreportedEpic(ctx, epicReportID)
+	if err != nil {
+		t.Fatalf("UnreportedEpic: %v", err)
+	}
+	if !listed {
+		t.Fatal("UnreportedEpic of an ended epic with no report: listed = false, want true")
+	}
+	want, err := s.Epic(ctx, epicReportID)
+	if err != nil {
+		t.Fatalf("Epic: %v", err)
+	}
+	if !reflect.DeepEqual(row, want) {
+		t.Errorf("UnreportedEpic row = %+v, want the row Epic reads %+v", row, want)
+	}
+	if _, listed, err = s.UnreportedEpic(ctx, live); err != nil || listed {
+		t.Errorf("UnreportedEpic of a live epic = listed %v, err %v, want not listed and no error", listed, err)
+	}
+	if _, listed, err = s.UnreportedEpic(ctx, "orrery-5d6e7f8/missing"); err != nil || listed {
+		t.Errorf("UnreportedEpic of an unknown epic = listed %v, err %v, want not listed and no error", listed, err)
+	}
+
+	if err = s.SetEpicReport(ctx, epicReportID, syntheticReport("released")); err != nil {
+		t.Fatalf("SetEpicReport: %v", err)
+	}
+	if _, listed, err = s.UnreportedEpic(ctx, epicReportID); err != nil || listed {
+		t.Errorf("UnreportedEpic after its report = listed %v, err %v, want not listed and no error", listed, err)
+	}
+}
+
 func TestSetEpicReportStoresTheReportThatEpicAndEpicFlowRead(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

@@ -99,10 +99,10 @@ func storedReportOf(t *testing.T, st *store.Store, id string) store.EpicReport {
 
 // reportLoop is an EpicReports started over a store, and the channels a test drives it with.
 type reportLoop struct {
-	ticks  chan time.Time
-	passes chan struct{}
-	done   chan struct{}
-	cancel context.CancelFunc
+	reports *EpicReports
+	passes  chan struct{}
+	done    chan struct{}
+	cancel  context.CancelFunc
 }
 
 // startReportLoop starts an EpicReports over st whose Haiku runs the fake claude at claude, and returns once its start
@@ -120,16 +120,15 @@ func startReportLoop(t *testing.T, st *store.Store, claude string) *reportLoop {
 // caller stops it.
 func runReportLoop(t *testing.T, st *store.Store, haiku haikuCaller) *reportLoop {
 	t.Helper()
-	ticks := make(chan time.Time)
 	passes := make(chan struct{}, 16)
 	ctx, cancel := context.WithCancel(t.Context())
-	loop := &reportLoop{ticks: ticks, passes: passes, done: make(chan struct{}), cancel: cancel}
 	reports := NewEpicReports(EpicReportsConfig{
-		Store:  st,
-		Haiku:  haiku,
-		Tick:   ticks,
-		Passed: func() { passes <- struct{}{} },
+		Store:    st,
+		Haiku:    haiku,
+		NewTimer: unfiredTimer,
+		Passed:   func() { passes <- struct{}{} },
 	})
+	loop := &reportLoop{reports: reports, passes: passes, done: make(chan struct{}), cancel: cancel}
 	go func() {
 		defer close(loop.done)
 		reports.Run(ctx)
@@ -143,15 +142,16 @@ func (l *reportLoop) stop() {
 	<-l.done
 }
 
-// tick has the loop pass once more and waits until that pass is done.
-func (l *reportLoop) tick() {
-	l.ticks <- time.Time{}
+// wake has the loop report the ending of reportEpicA, as a store hook would after it ended the epic, and waits until
+// that pass is done.
+func (l *reportLoop) wake() {
+	l.reports.Wake(reportEpicA)
 	<-l.passes
 }
 
 // TestEpicReportWritesOneReportOfAnEndedEpic covers R3: an ended epic gets one report whose shipped and not-shipped ids
 // are the Requirements its stored evidence verdicts say shipped and did not. The why comes from the call, and later
-// ticks make no further call.
+// wakes make no further call.
 func TestEpicReportWritesOneReportOfAnEndedEpic(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -185,15 +185,15 @@ func TestEpicReportWritesOneReportOfAnEndedEpic(t *testing.T) {
 	if report.Why == "" {
 		t.Fatal("why after a valid call is empty")
 	}
-	loop.tick()
-	loop.tick()
+	loop.wake()
+	loop.wake()
 	if got := haikuRuns(t, dir); got != 1 {
-		t.Fatalf("calls after two ticks = %d, want still 1", got)
+		t.Fatalf("calls after two wakes = %d, want still 1", got)
 	}
 }
 
 // TestEpicReportFailedOrBlankCallLeavesTheReportEmptyForTheStart covers R3: a failed call or a blank why stores no
-// report, and no later tick of the same start calls for the epic again.
+// report, and no later wake of the same start calls for the epic again.
 func TestEpicReportFailedOrBlankCallLeavesTheReportEmptyForTheStart(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -223,16 +223,16 @@ func TestEpicReportFailedOrBlankCallLeavesTheReportEmptyForTheStart(t *testing.T
 			if report.Phase != "" || report.Why != "" || len(report.Shipped) > 0 || len(report.NotShipped) > 0 {
 				t.Fatalf("report after a failed call = %+v, want empty", report)
 			}
-			loop.tick()
+			loop.wake()
 			if got := haikuRuns(t, dir); got != 1 {
-				t.Fatalf("calls after a tick = %d, want still 1", got)
+				t.Fatalf("calls after a wake = %d, want still 1", got)
 			}
 		})
 	}
 }
 
 // TestEpicReportSecondStartRetriesAnUnreportedEpicOnce covers R3: a start retries an epic whose failed call left it
-// unreported, and a tick of that start calls for it no more.
+// unreported, and a wake of that start calls for it no more.
 func TestEpicReportSecondStartRetriesAnUnreportedEpicOnce(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -241,7 +241,7 @@ func TestEpicReportSecondStartRetriesAnUnreportedEpicOnce(t *testing.T) {
 	createReportEpic(t, st, reportEpicA, "released")
 
 	first := startReportLoop(t, st, claude)
-	first.tick()
+	first.wake()
 	first.stop()
 	if got := haikuRuns(t, dir); got != 1 {
 		t.Fatalf("calls of the first start = %d, want 1", got)
@@ -255,9 +255,9 @@ func TestEpicReportSecondStartRetriesAnUnreportedEpicOnce(t *testing.T) {
 	if got := storedReportOf(t, st, reportEpicA).Phase; got != "released" {
 		t.Fatalf("report phase after the second start = %q, want released", got)
 	}
-	second.tick()
+	second.wake()
 	if got := haikuRuns(t, dir); got != 2 {
-		t.Fatalf("calls after a tick of the second start = %d, want still 2", got)
+		t.Fatalf("calls after a wake of the second start = %d, want still 2", got)
 	}
 }
 
@@ -278,7 +278,7 @@ func TestEpicReportSecondEndingInOneStartGetsItsOwnReport(t *testing.T) {
 		time.Unix(reportStamp+60, 0)); err != nil {
 		t.Fatalf("EndEpic released: %v", err)
 	}
-	loop.tick()
+	loop.wake()
 	if got := haikuRuns(t, dir); got != 2 {
 		t.Fatalf("calls after the second ending = %d, want 2", got)
 	}
@@ -362,7 +362,7 @@ func TestEpicReportLiveEpicGetsNoCall(t *testing.T) {
 	createReportEpic(t, st, reportEpicA, "accepted")
 
 	loop := startReportLoop(t, st, claude)
-	loop.tick()
+	loop.wake()
 	if got := haikuRuns(t, dir); got != 0 {
 		t.Fatalf("calls for a live epic = %d, want 0", got)
 	}

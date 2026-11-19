@@ -98,8 +98,7 @@ const (
 	silentBackground = "background work"
 	// brokerTick is how often the grants broker ticks. Each tick ends the grants of gone clients and polls each member.
 	brokerTick = 60 * time.Second
-	// limitTick is how often the due pass, the epic summaries, the session titles, the session headlines and the epic
-	// reports run.
+	// limitTick is how often the due pass, the session titles and the session headlines run.
 	limitTick = 5 * time.Second
 	// storeOpenRetry is how long openStore waits before it tries a busy store open again.
 	storeOpenRetry = 2 * time.Second
@@ -895,11 +894,10 @@ func newSessionHost(logger *slog.Logger) *sessionHost {
 // starts. The flow then runs over the store until stop, with the planner and the build runner as its planner and
 // builder, and its attention loop routes its epic notices through router when router is not nil. The limit notices tell
 // router which steps a usage limit holds, at start and on each stored hold or resume until stop; the due pass resumes
-// each due row whose reset has passed, every limitTick until stop; the epic summaries write each stored epic's missing
-// summary through haiku, every limitTick until stop; the session titles write each headless session's missing title
-// through haiku, every limitTick until stop; the session headlines refresh each headless session's headline once its
-// turns have ended, through haiku, every limitTick until stop; the manager stops idle sessions, until stop; and the
-// caller-event delivery tells each
+// each due row whose reset has passed, every limitTick until stop; the session titles write each headless session's
+// missing title through haiku, every limitTick until stop; the session headlines refresh each headless session's
+// headline once its turns have ended, through haiku, every limitTick until stop; the manager stops idle sessions, until
+// stop; and the caller-event delivery tells each
 // step's caller when the step ends, and each epic's creator of its events, on its start, on each wake, and once more
 // after a failed round, until stop (startCallerEvents);
 // and the cron scheduler fires each cron job of a headless session when it is due, through the manager's DeliverCron,
@@ -1558,26 +1556,24 @@ func (h *sessionHost) startDue(ctx context.Context, st *store.Store, now func() 
 	}()
 }
 
-// startSummaries writes the summary of each stored epic that has none, through haiku, checking st every limitTick until
-// stop. The first check runs at start.
+// startSummaries writes the summary of each stored epic that has none, through haiku. It checks every epic at start,
+// then each epic the store stores, on the store's OnEpicStored hook, until stop.
 func (h *sessionHost) startSummaries(
 	ctx context.Context,
 	st *store.Store,
 	haiku *enginehost.Haiku,
 	logger *slog.Logger,
 ) {
-	ticker := time.NewTicker(limitTick)
 	summaries := enginehost.NewEpicSummaries(enginehost.EpicSummariesConfig{
 		Store:  st,
 		Haiku:  haiku,
-		Tick:   ticker.C,
 		Logger: logger,
 	})
+	st.OnEpicStored(summaries.Wake)
 	var summariesCtx context.Context
 	summariesCtx, h.stopSummaries = context.WithCancel(ctx)
 	go func() {
 		defer close(h.summariesDone)
-		defer ticker.Stop()
 		summaries.Run(summariesCtx)
 	}()
 }
@@ -1633,26 +1629,24 @@ func (h *sessionHost) startHeadlines(
 	}()
 }
 
-// startReports writes the report of each ended epic that has none, through haiku, checking st every limitTick until
-// stop. The first check runs at start.
+// startReports writes the report of each ended epic that has none, through haiku. It checks every ended epic at start,
+// then each epic the store ends, on the store's OnEpicEnded hook, until stop.
 func (h *sessionHost) startReports(
 	ctx context.Context,
 	st *store.Store,
 	haiku *enginehost.Haiku,
 	logger *slog.Logger,
 ) {
-	ticker := time.NewTicker(limitTick)
 	reports := enginehost.NewEpicReports(enginehost.EpicReportsConfig{
 		Store:  st,
 		Haiku:  haiku,
-		Tick:   ticker.C,
 		Logger: logger,
 	})
+	st.OnEpicEnded(reports.Wake)
 	var reportsCtx context.Context
 	reportsCtx, h.stopReports = context.WithCancel(ctx)
 	go func() {
 		defer close(h.reportsDone)
-		defer ticker.Stop()
 		reports.Run(reportsCtx)
 	}()
 }

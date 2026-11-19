@@ -1914,6 +1914,59 @@ func (q *Queries) GetStepTurnEnd(ctx context.Context, id string) (GetStepTurnEnd
 	return i, err
 }
 
+const getUnreportedEpic = `-- name: GetUnreportedEpic :one
+SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source, stored_base, candidate, summary, phase_at, report_phase, report_shipped, report_not_shipped, report_why, closed_by, superseded_by, park_class, synced, origin_read_base, origin_read_commit, origin_read_state, origin_read_at FROM epics
+WHERE (phase IN ('released', 'done', 'ended_with_gaps')
+       OR (phase IN ('closed_superseded', 'closed_shipped', 'closed_abandoned') AND closed_by = 'planner'))
+  AND report_phase <> phase
+  AND id = ?
+`
+
+func (q *Queries) GetUnreportedEpic(ctx context.Context, id string) (Epic, error) {
+	row := q.db.QueryRowContext(ctx, getUnreportedEpic, id)
+	var i Epic
+	err := row.Scan(
+		&i.ID,
+		&i.Repository,
+		&i.Title,
+		&i.Approved,
+		&i.Intent,
+		&i.Care,
+		&i.Approach,
+		&i.ReleaseThen,
+		&i.Checks,
+		&i.Phase,
+		&i.Created,
+		&i.Changed,
+		&i.Paused,
+		&i.Parked,
+		&i.Retried,
+		&i.Base,
+		&i.Branch,
+		&i.Workflow,
+		&i.WorkflowText,
+		&i.WorkflowSha256,
+		&i.PauseSource,
+		&i.StoredBase,
+		&i.Candidate,
+		&i.Summary,
+		&i.PhaseAt,
+		&i.ReportPhase,
+		&i.ReportShipped,
+		&i.ReportNotShipped,
+		&i.ReportWhy,
+		&i.ClosedBy,
+		&i.SupersededBy,
+		&i.ParkClass,
+		&i.Synced,
+		&i.OriginReadBase,
+		&i.OriginReadCommit,
+		&i.OriginReadState,
+		&i.OriginReadAt,
+	)
+	return i, err
+}
+
 const grantEpicParkedLoops = `-- name: GrantEpicParkedLoops :exec
 UPDATE epic_node_runs SET state = 'running', granted = granted + 1
 WHERE epic = ? AND kind = 'loop' AND state = 'parked'

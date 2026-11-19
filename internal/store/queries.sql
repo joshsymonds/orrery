@@ -579,6 +579,13 @@ WHERE (phase IN ('released', 'done', 'ended_with_gaps')
   AND report_phase <> phase
 ORDER BY id;
 
+-- name: GetUnreportedEpic :one
+SELECT * FROM epics
+WHERE (phase IN ('released', 'done', 'ended_with_gaps')
+       OR (phase IN ('closed_superseded', 'closed_shipped', 'closed_abandoned') AND closed_by = 'planner'))
+  AND report_phase <> phase
+  AND id = ?;
+
 -- name: SetEpicReport :exec
 UPDATE epics
 SET report_phase = sqlc.arg(report_phase), report_shipped = sqlc.arg(shipped),
