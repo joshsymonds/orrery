@@ -23,6 +23,8 @@ const (
 		reviewFindingOne + `]}`
 	reviewUndeterminedReturn = `{"status":"done","results":[{"result":"undetermined"}],"findings":[` +
 		reviewFindingOne + `]}`
+	reviewFailsBesideUndetermined = `{"status":"done","results":[{"result":"fails"},{"result":"undetermined"}],"findings":[` +
+		reviewFindingOne + `]}`
 	reviewUndeterminedAlone = `{"status":"done","results":[{"result":"undetermined"}],"findings":[]}`
 	reviewBlockedReturn     = `{"status":"blocked","results":[{"result":"holds"}],"findings":[` +
 		reviewFindingOne + `]}`
@@ -373,7 +375,7 @@ func TestReviewVerdicts(t *testing.T) {
 			},
 		},
 		{
-			"undetermined assertion beside a finding is undetermined with the step's reason",
+			"undetermined assertion beside a finding is undetermined with the step's reason, and its finding is settled",
 			node,
 			Rows{Reviewers: []Reviewer{{Name: "perf"}}, Steps: []store.StepRow{
 				{ID: workID("reviewer 1"), End: "gate_failed", Result: reviewUndeterminedReturn, Reason: "undecided"},
@@ -389,6 +391,27 @@ func TestReviewVerdicts(t *testing.T) {
 						Reason:   "undecided",
 					},
 				},
+				Ledger: []store.LedgerFinding{{
+					ID: "perf-1", Position: 1, Reviewer: "perf", Finding: "f1", Claim: "claim 1",
+					Citation: "file1.go:1", Location: "file1.go", Evidence: "seen 1", VerifyBy: "read 1",
+					Result: "confirmed", Reason: "unverified: reviewer perf has verify off", Unverified: true,
+				}},
+			},
+		},
+		{
+			"fails beside an undetermined assertion fails, and its finding is settled",
+			node,
+			Rows{Reviewers: []Reviewer{{Name: "perf"}}, Steps: []store.StepRow{
+				{ID: workID("reviewer 1"), End: "gate_failed", Result: reviewFailsBesideUndetermined, Reason: "mixed"},
+			}},
+			Action{
+				Kind: ActEnd, Outcome: outcomePassed, Output: "perf: fails",
+				Verdicts: []store.ReviewVerdict{{Position: 1, Reviewer: "perf", Step: workID("reviewer 1"), Verdict: "fails"}},
+				Ledger: []store.LedgerFinding{{
+					ID: "perf-1", Position: 1, Reviewer: "perf", Finding: "f1", Claim: "claim 1",
+					Citation: "file1.go:1", Location: "file1.go", Evidence: "seen 1", VerifyBy: "read 1",
+					Result: "confirmed", Reason: "unverified: reviewer perf has verify off", Unverified: true,
+				}},
 			},
 		},
 		{

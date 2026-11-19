@@ -28,6 +28,7 @@ const (
 	reviewResultConfirmed     = "confirmed"
 	reviewResultDropped       = "dropped"
 	reviewResultUndetermined  = "undetermined"
+	reviewResultFails         = "fails"
 )
 
 // reviewGapEnds is the number of costly step ends at which a part of a review run is a gap.
@@ -118,10 +119,17 @@ func reviewFailedFindings(result string) ([]map[string]string, bool) {
 	if ret.Status != reviewStatusDone || len(ret.Findings) == 0 {
 		return nil, false
 	}
+	fails, undetermined := false, false
 	for _, assertion := range ret.Results {
-		if assertion.Result == reviewResultUndetermined {
-			return nil, false
+		switch assertion.Result {
+		case reviewResultFails:
+			fails = true
+		case reviewResultUndetermined:
+			undetermined = true
 		}
+	}
+	if undetermined && !fails {
+		return nil, false
 	}
 	return ret.Findings, true
 }
@@ -134,12 +142,25 @@ func reviewUndetermined(result string) bool {
 	if err := json.Unmarshal([]byte(result), &ret); err != nil || ret.Status != reviewStatusDone {
 		return false
 	}
+	undetermined := false
 	for _, assertion := range ret.Results {
-		if assertion.Result == reviewResultUndetermined {
-			return true
+		switch assertion.Result {
+		case reviewResultFails:
+			return false
+		case reviewResultUndetermined:
+			undetermined = true
 		}
 	}
-	return false
+	return undetermined
+}
+
+// reviewRaisedFindings returns the findings a done return raised, whatever its results say, or nil when it does not read.
+func reviewRaisedFindings(result string) []map[string]string {
+	var ret reviewGateReturn
+	if err := json.Unmarshal([]byte(result), &ret); err != nil || ret.Status != reviewStatusDone {
+		return nil
+	}
+	return ret.Findings
 }
 
 // reviewIsReviewerVerdict reports whether a reviewer step's end gives a verdict: a done step holds, and a gate_failed
@@ -243,6 +264,10 @@ func (p *reviewPass) settleReviewer(position int, reviewer Reviewer) {
 		p.addVerdict(position, reviewer, store.ReviewVerdict{
 			Step: chain.verdict.ID, Verdict: reviewVerdictUndetermined, Reason: chain.verdict.Reason,
 		})
+		// A finding raised beside an undetermined result is still a candidate defect: it is settled like any other.
+		for i, raised := range reviewRaisedFindings(chain.verdict.Result) {
+			p.settleFinding(position, reviewer, i+1, raised)
+		}
 	default:
 		// reviewIsReviewerVerdict has read this return as one with findings, so the findings are read without a second check.
 		findings, _ := reviewFailedFindings(chain.verdict.Result)
