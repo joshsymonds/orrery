@@ -1,0 +1,97 @@
+/* Round 6: the wireframe's own chrome. The bar, the board, the phone's bezel and the catalogue's grid.
+   None of this is part of the product. It may set its own lengths; lint-css.mjs still holds it to the tokens for colour. */
+
+html, body { height: 100%; }
+body { display: flex; flex-direction: column; background: var(--o-surface-side); }
+
+/* The bar across the top of every wireframe page. */
+.wf-bar { display: flex; align-items: center; gap: 16px; flex: none; height: 40px; padding: 0 16px; border-bottom: 1px solid var(--o-line-soft); background: var(--o-surface-side); color: var(--o-ink-3); font: var(--o-type-small); white-space: nowrap; }
+.wf-bar .wf-l { color: var(--o-role-new); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); }
+.wf-bar a { color: var(--o-ink-2); }
+.wf-bar a:hover { color: var(--o-ink-1); }
+.wf-bar a.on { color: var(--o-ink-1); font-weight: var(--o-font-weight-bold); }
+.wf-bar select { height: 28px; max-width: 520px; padding: 0 28px 0 8px; border-radius: 6px; background: var(--o-surface-raised); color: var(--o-ink-1); font: var(--o-type-small); }
+.wf-bar .wf-step { display: inline-flex; gap: 4px; }
+.wf-bar .wf-step a { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 6px; background: var(--o-surface-raised); }
+.wf-bar .wf-note { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--o-ink-3); }
+.wf-bar .wf-right { display: flex; gap: 16px; margin-left: auto; }
+body.bare .wf-bar { display: none; }
+
+/* Desk: the app fills what is left of the window. */
+.wf-desk { flex: 1 1 auto; min-height: 0; display: flex; background: var(--o-surface-page); }
+.wf-desk > * { flex: 1 1 auto; min-width: 0; }
+.wf-none { margin: auto; max-width: 60ch; padding: 24px; color: var(--o-ink-3); text-align: center; }
+.wf-none a { color: var(--o-role-ref); }
+
+/* Phone: one device, and beside it what the scenario shows and where the web under 760 differs from Android. */
+.wf-phone { flex: 1 1 auto; min-height: 0; display: flex; justify-content: center; gap: 48px; padding: 24px; overflow: auto; }
+.device { display: flex; flex-direction: column; flex: none; width: 412px; height: 892px; border-radius: 28px; outline: 8px solid var(--o-palette-crust); box-shadow: 0 0 0 9px var(--o-line-firm); background: var(--o-surface-page); overflow: hidden; }
+.device .statusbar { display: flex; align-items: center; justify-content: space-between; flex: none; height: 32px; padding: 0 20px; color: var(--o-ink-2); font: var(--o-type-small); }
+.device .statusbar .sys { display: inline-flex; align-items: center; gap: 6px; }
+.device .statusbar .sys i { display: block; width: 14px; height: 9px; border-radius: 2px; background: var(--o-ink-3); }
+.device .statusbar .sys i.dot { width: 9px; border-radius: 50%; }
+.device .screen { position: relative; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.device .screen > * { flex: 1 1 auto; min-height: 0; }
+.device .navbar { display: flex; justify-content: center; align-items: center; flex: none; height: 24px; }
+.device .navbar i { width: 120px; height: 4px; border-radius: 2px; background: var(--o-ink-3); }
+.wf-side { flex: 0 1 460px; min-width: 0; display: grid; align-content: start; gap: 12px; padding-top: 8px; color: var(--o-ink-2); font: var(--o-type-small); }
+.wf-side h1 { color: var(--o-ink-1); font: var(--o-type-title); }
+.wf-side h2 { margin-top: 12px; color: var(--o-ink-3); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+.wf-side p { max-width: 56ch; }
+.wf-side code { color: var(--o-role-ref); }
+.wf-side ul { display: grid; gap: 6px; padding-left: 16px; list-style: disc; }
+body.bare .wf-phone { padding: 0; gap: 0; }
+body.bare .wf-side { display: none; }
+body.bare .device { width: 100%; height: 100%; border-radius: 0; outline: 0; box-shadow: none; }
+
+/* The board: every scenario, as a list. */
+.wf-board { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 32px 40px 80px; background: var(--o-surface-page); }
+.wf-board .inner { max-width: 1280px; margin: 0 auto; display: grid; gap: 32px; }
+.wf-board h1 { font: var(--o-type-display); }
+.wf-board h2 { padding-bottom: 8px; border-bottom: 1px solid var(--o-line-soft); color: var(--o-ink-1); font: var(--o-type-title); }
+.wf-board .wf-lede { max-width: 88ch; color: var(--o-ink-2); }
+.wf-board .wf-lede a, .wf-board td a { color: var(--o-role-ref); }
+.wf-board table { width: 100%; border-collapse: collapse; }
+.wf-board th { padding: 6px 12px 6px 0; color: var(--o-ink-3); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-align: left; text-transform: uppercase; }
+.wf-board td { padding: 6px 12px 6px 0; border-top: 1px solid var(--o-line-soft); color: var(--o-ink-2); font: var(--o-type-small); vertical-align: top; }
+.wf-board td.id { color: var(--o-ink-1); white-space: nowrap; }
+.wf-board td.links { white-space: nowrap; }
+.wf-board td.links span { color: var(--o-ink-4); }
+.wf-board .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.wf-board .card { display: grid; gap: 4px; padding: 12px 16px; border-radius: 8px; background: var(--o-surface-well); color: var(--o-ink-2); font: var(--o-type-small); }
+.wf-board .card b { color: var(--o-ink-1); font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
+
+/* The catalogue: one cell per Component/State. */
+.wf-cat { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 32px 40px 80px; background: var(--o-surface-page); }
+.wf-cat .inner { max-width: 1480px; margin: 0 auto; display: grid; gap: 40px; }
+.wf-cat h1 { font: var(--o-type-display); }
+.wf-cat h2 { padding-bottom: 8px; border-bottom: 1px solid var(--o-line-soft); font: var(--o-type-title); }
+.wf-cat h3 { display: flex; align-items: baseline; gap: 12px; margin-bottom: 12px; color: var(--o-ink-1); font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
+.wf-cat h3 small { color: var(--o-ink-3); font: var(--o-type-small); }
+.wf-cat section { display: grid; gap: 32px; }
+.wf-cat .cells { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--cell, 300px), 1fr)); gap: 12px; align-items: start; }
+.wf-cat .cell { display: grid; gap: 8px; min-width: 0; }
+.wf-cat .cell > .name { color: var(--o-ink-3); font: var(--o-type-small); }
+.wf-cat .cell > .name b { color: var(--o-ink-2); }
+.wf-cat .cell > .cellbox { position: relative; min-width: 0; padding: 16px; border-radius: 8px; background: var(--o-surface-page); box-shadow: inset 0 0 0 1px var(--o-line-soft); }
+.wf-cat .cell > .cellbox.side { background: var(--o-surface-side); }
+.wf-cat .cell > .cellbox.flush { padding: 0; overflow: hidden; }
+.wf-cat .cell > .cellbox.row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.wf-cat .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
+.wf-cat .swatch { display: grid; gap: 2px; font: var(--o-type-small); color: var(--o-ink-3); }
+.wf-cat .swatch i { display: block; height: 40px; border-radius: 6px; box-shadow: inset 0 0 0 1px var(--o-line-soft); }
+.wf-cat .swatch b { color: var(--o-ink-1); }
+.wf-cat .specimen { display: grid; grid-template-columns: 110px 130px 1fr; gap: 6px 16px; align-items: baseline; }
+.wf-cat .specimen .k { color: var(--o-ink-3); font: var(--o-type-small); }
+.wf-cat .scale { display: flex; align-items: flex-end; gap: 16px; }
+.wf-cat .scale div { display: grid; gap: 4px; justify-items: center; color: var(--o-ink-3); font: var(--o-type-small); }
+.wf-cat .scale i { display: block; background: var(--o-role-primary); }
+
+/* Comparing type scales: the bar can set the round-5 sizes over the proposed ones, on every page. */
+html[data-scale="round5"] {
+  --o-type-label: var(--o-font-weight-bold) 11px/16px var(--o-font-mono);
+  --o-type-small: var(--o-font-weight-regular) 12px/18px var(--o-font-mono);
+  --o-type-body: var(--o-font-weight-regular) 14px/22px var(--o-font-mono);
+  --o-type-title: var(--o-font-weight-bold) 16px/24px var(--o-font-mono);
+  --o-type-display: var(--o-font-weight-bold) 22px/28px var(--o-font-mono);
+}
