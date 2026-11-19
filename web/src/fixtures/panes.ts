@@ -52,10 +52,12 @@ export const prompt = (time: bigint, sender: string, text: string, round = 0): I
 export const reply = (time: bigint, text: string): ItemInit => ({ kind: "reply", time, text });
 
 // donePane is a pane whose turn has ended: its state is done, and its summary is the line its row draws as its title.
-const donePane = (n: number, session: string, cwd: string, summary: string, changed: bigint, seen: bigint): PaneInit => ({
+const donePane = (
+  n: number, session: string, cwd: string, summary: string, changed: bigint, seen: bigint, orreryId = "",
+): PaneInit => ({
   id: `%${n}`, host: "halyard", session, pane: n, cwd, command: "claude", state: "done", summary, label: "",
   changed, seen, question: "", context: "", activity: changed, tool: "", claudeSession: claudeSession(n),
-  questionHash: "", newestReply: changed, lastTurnEnd: changed,
+  questionHash: "", newestReply: changed, lastTurnEnd: changed, orreryId,
 });
 
 const lampPrompt = "The uploader loses readings whenever the collector is unreachable. Make it retry, and spool to disk when retrying is not enough.";
@@ -208,26 +210,26 @@ const paneRota: PaneInit = {
   id: "%14", host: "halyard", session: "lighthouse", pane: 14, cwd: "/home/owner/code/lighthouse", command: "claude",
   state: "done", summary: "Planned the rota export, and steers its epic", label: "", changed: at("@14:28"), seen: at("@14:28:30"),
   question: "", context: "", activity: at("@14:28"), tool: "", claudeSession: claudeSession(14), questionHash: "",
-  newestReply: at("@13:51"), lastTurnEnd: at("@13:51"),
+  newestReply: at("@13:51"), lastTurnEnd: at("@13:51"), orreryId: "sess-rota-14",
 };
 const panePhase = donePane(15, "almanac", "/home/owner/code/almanac", "Phase endpoint returns ISO dates", at("@14:02"), at("@13:30"));
 const paneTide: PaneInit = {
   id: "%16", host: "halyard", session: "tidepool", pane: 16, cwd: "/home/owner/code/tidepool", command: "claude",
   state: "waiting", summary: "Wrote the tide-alerts contract", label: "", changed: at("@14:15"), seen: at("@14:15:30"),
   question: tideQuestion, context: "", activity: at("@14:15"), tool: "", claudeSession: claudeSession(16),
-  questionHash: "qh-tide-1", newestReply: at("@14:15"), lastTurnEnd: at("@14:15"),
+  questionHash: "qh-tide-1", newestReply: at("@14:15"), lastTurnEnd: at("@14:15"), orreryId: "sess-tide-16",
 };
-const paneOffline = donePane(17, "tidepool", "/home/owner/code/tidepool", "Planned offline tables", at("@12:41"), at("@12:42"));
+const paneOffline = donePane(17, "tidepool", "/home/owner/code/tidepool", "Planned offline tables", at("@12:41"), at("@12:42"), "sess-offline-17");
 const paneBuoy = donePane(18, "tidepool", "/home/owner/code/tidepool", "Started from the shell: buoy-feeds", at("@14:38"), at("@14:38:30"));
-const paneHolder = donePane(19, "tidepool", "/home/owner/code/tidepool", "Planned holder scopes", at("@09:52"), at("@09:53"));
-const paneCache = donePane(20, "tidepool", "/home/owner/code/tidepool", "Planned the tide cache", at("@-4d 14:41"), at("@-4d 14:42"));
+const paneHolder = donePane(19, "tidepool", "/home/owner/code/tidepool", "Planned holder scopes", at("@09:52"), at("@09:53"), "sess-holder-19");
+const paneCache = donePane(20, "tidepool", "/home/owner/code/tidepool", "Planned the tide cache", at("@-4d 14:41"), at("@-4d 14:42"), "sess-cache-20");
 const paneStale: PaneInit = {
   id: "%21", host: "halyard", session: "commonframe", pane: 21, cwd: "/home/owner/work/commonframe", command: "claude",
   state: "waiting", summary: "Merging main into the story-out client branch", label: "", changed: at("@-5d 14:41"),
   seen: at("@-5d 14:42"), question: staleQuestion, context: "", activity: at("@-5d 14:41"), tool: "",
   claudeSession: claudeSession(21), questionHash: "qh-stale-1", newestReply: at("@-5d 14:20"), lastTurnEnd: at("@-5d 14:20"),
 };
-const paneFollow = donePane(22, "orrery", "/home/owner/code/orrery", "Follow-ups from the round-5 review", at("@14:21"), at("@14:22"));
+const paneFollow = donePane(22, "orrery", "/home/owner/code/orrery", "Follow-ups from the round-5 review", at("@14:21"), at("@14:22"), "sess-follow-22");
 // A plain shell: a terminal pane with no Claude session, so it has no state and no conversation.
 const paneShell: PaneInit = {
   id: "%23", host: "halyard", session: "orrery", pane: 23, cwd: "/home/owner/code/orrery", command: "zsh",
