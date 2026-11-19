@@ -317,7 +317,8 @@ func TestApplyEngineReturnsErrorWhileStoreIsWriteLocked(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	seedMigrated(t, path)
-	s, err := Open(ctx, path, noSync())
+	// A busy timeout of 0 fails the locked write at once, so the test waits out no timeout.
+	s, err := Open(ctx, path, noSync(), WithBusyTimeout(0))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -351,6 +352,9 @@ func TestApplyEngineReturnsErrorWhileStoreIsWriteLocked(t *testing.T) {
 	err = s.ApplyEngine(ctx, ops, engineNowAt())
 	if err == nil {
 		t.Fatal("ApplyEngine while write-locked: want error, got nil")
+	}
+	if !Busy(err) {
+		t.Fatalf("ApplyEngine while write-locked = %v, want an error Busy reports", err)
 	}
 	if _, err := sqlcgen.New(s.db).GetEngineSession(ctx, "e1"); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("engine row written while locked: got %v, want sql.ErrNoRows", err)

@@ -9,6 +9,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/taskspec"
 )
 
 // Subject is what a verifier step checks a finding of: the epic, its task at task stage and nil at epic stage, and the
@@ -89,18 +90,24 @@ const VerifierSchema = `{
   }
 }`
 
-// VerifierPrompt renders the prompt of a verifier step for one finding of task T<seq> of epic: the role, the task and
-// its Requirements, the range the change spans from base to revision, and the finding with its citation, location,
-// evidence and verify-by step.
+// VerifierPrompt renders the prompt of a verifier step for one finding of task T<seq> of epic: the role, the task, the
+// lines naming its spec version when it is past version 1 (taskspec.Lines), its Deliverable, the gate-needed changes its
+// implementer declared under the heading that says when each is in scope, its Requirements, the range the change spans
+// from base to revision, and the finding with its citation, location, evidence and verify-by step.
 func VerifierPrompt(
 	epic store.EpicRow, task store.EpicTask, base, revision string, finding store.TaskFinding,
 ) string {
 	body := slices.Concat(
 		[]string{
 			fmt.Sprintf("Task T%d of epic %s (%s): %s", task.Seq, epic.ID, epic.Title, task.Title),
-			"Deliverable: " + task.Deliverable,
-			requirementsHeading,
 		},
+		taskspec.Lines(task),
+		[]string{
+			"Deliverable: " + task.Deliverable,
+			reviewDeclaredHeading,
+		},
+		bullets(GateChangeItems(task.GateChanges)),
+		[]string{requirementsHeading},
 		requirementLines(epic.Requirements, task.Requirements),
 		findingLines(base, revision, finding),
 	)
@@ -108,7 +115,8 @@ func VerifierPrompt(
 }
 
 // epicVerifierPrompt renders the prompt of a verifier step for one finding of epic: the role, the epic and every
-// Requirement it declares, the range the change spans from base to revision, and the finding.
+// Requirement it declares, the gate-needed changes its tasks declared under the heading that says when each is in
+// scope, the range the change spans from base to revision, and the finding.
 func epicVerifierPrompt(epic store.EpicRow, base, revision string, finding store.TaskFinding) string {
 	ids := make([]string, len(epic.Requirements))
 	for i, requirement := range epic.Requirements {
@@ -120,6 +128,8 @@ func epicVerifierPrompt(epic store.EpicRow, base, revision string, finding store
 			requirementsHeading,
 		},
 		requirementLines(epic.Requirements, ids),
+		[]string{EpicDeclaredHeading},
+		bullets(EpicGateChangeItems(epic.Tasks)),
 		findingLines(base, revision, finding),
 	)
 	return VerifierRole() + "\n" + strings.Join(body, "\n")

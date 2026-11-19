@@ -141,6 +141,28 @@ func TestRoleBriefCarriesTaskDecisionsInTheDeliverable(t *testing.T) {
 	)
 }
 
+// TestRoleDeliverableStatesOutcomesAndChecksRuntimeFacts asserts that the role text says a deliverable states outcomes,
+// and that a runtime fact it names is either checked, with the command or file:line that showed it at the base, or
+// marked unchecked in the deliverable's own words.
+func TestRoleDeliverableStatesOutcomesAndChecksRuntimeFacts(t *testing.T) {
+	t.Parallel()
+	t.Run(
+		"the planner role says a deliverable states outcomes and checks or marks its runtime facts",
+		func(t *testing.T) {
+			t.Parallel()
+			for _, want := range []string{
+				"a deliverable states outcomes",
+				"the command or file:line that showed it at the base",
+				"marked unchecked in the deliverable's own words",
+			} {
+				if !strings.Contains(role, want) {
+					t.Errorf("role text lacks %q", want)
+				}
+			}
+		},
+	)
+}
+
 // TestRoleEvidenceShown: the role text says how the evidence judge reads a capture, so a conclusion is a list of what
 // the output shows.
 func TestRoleEvidenceShown(t *testing.T) {
@@ -161,4 +183,28 @@ func TestRoleEvidenceShown(t *testing.T) {
 			t.Errorf("role text lacks %q", want)
 		}
 	})
+}
+
+// TestRoleTellsThePlannerWhatFailsATaskBeforeItsCodeDoes: the role text names the plan mistakes that fail a task whose
+// code is right: a conclusion that holds at the base, a test item for a change of tests only, a spent line tried again,
+// and a deliverable that forbids the change its gate needs.
+func TestRoleTellsThePlannerWhatFailsATaskBeforeItsCodeDoes(t *testing.T) {
+	t.Parallel()
+	for _, want := range []string{
+		"So each conclusion names at least one thing the base's output cannot show",
+		"Before you return a task, read the base and confirm its conclusion is false there.",
+		"So a task that only adds tests for behavior the base already has, rewrites a test, or fixes a flake takes " +
+			"kind capture with no tests. The check refuses kind test on a task whose files are all test files.",
+		"Plan no further try of a spent line. Ask the owner a catastrophe question instead",
+		"The check refuses a task that shares a claimed or contributed Requirement or a file with a spent line's " +
+			"tasks, and a return that neither asks a question, amends evidence nor closes the epic while a line is " +
+			"spent.",
+		"So a deliverable never forbids such a change.",
+		"its implementer declares its changes as gate-needed, and the epic's conformance review reads that " +
+			"declaration.",
+	} {
+		if !strings.Contains(role, want) {
+			t.Errorf("role text lacks %q", want)
+		}
+	}
 }

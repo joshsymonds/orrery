@@ -74,6 +74,24 @@ func (s *Store) NodeRuns(ctx context.Context, epic string) ([]NodeRun, error) {
 	return readNodeRuns(ctx, sqlcgen.New(s.db), epic)
 }
 
+// OpenNodeRunStates returns, keyed by epic, the node runs of every epic that is not in a closed phase (IsClosedPhase),
+// each epic's ordered by path, in one query. Each run holds only its Path, Kind, State, Outcome and Attempt: the
+// fields that say where an epic's workflow stands without its work, which the interpreter reads for every epic on
+// every pass. An epic with no node run has no entry.
+func (s *Store) OpenNodeRunStates(ctx context.Context) (map[string][]NodeRun, error) {
+	rows, err := sqlcgen.New(s.db).ListOpenEpicNodeRunStates(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list node run states: %w", err)
+	}
+	states := make(map[string][]NodeRun)
+	for _, row := range rows {
+		states[row.Epic] = append(states[row.Epic], NodeRun{
+			Path: row.Path, Kind: row.Kind, State: row.State, Outcome: row.Outcome, Attempt: row.Attempt,
+		})
+	}
+	return states, nil
+}
+
 // readNodeRuns returns the node runs of epic as queries read them, ordered by path.
 func readNodeRuns(ctx context.Context, queries *sqlcgen.Queries, epic string) ([]NodeRun, error) {
 	stored, err := queries.ListEpicNodeRuns(ctx, epic)

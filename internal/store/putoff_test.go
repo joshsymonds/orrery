@@ -35,7 +35,7 @@ func putOffTableExists(t *testing.T, s *Store) bool {
 func TestNotNowMigrationStepsDownAndUp(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, provider := storeAtVersion(t, 63)
+	s, provider := storeAtVersion(t, 66)
 	at := time.Unix(1700000000, 0)
 	if err := s.ApplyEngine(ctx, []EngineOp{
 		EngineAdd{ID: "e-1", Dir: "/d", State: "idle"},
@@ -60,7 +60,7 @@ func TestNotNowMigrationStepsDownAndUp(t *testing.T) {
 		before[table] = rows
 	}
 	if !putOffTableExists(t, s) {
-		t.Fatal("put_off_questions is missing at version 63")
+		t.Fatal("put_off_questions is missing at version 66")
 	}
 
 	if _, err := provider.Down(ctx); err != nil {

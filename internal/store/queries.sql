@@ -294,9 +294,14 @@ SELECT * FROM steps WHERE end_value = '' ORDER BY id;
 
 -- name: ListLabelledSteps :many
 SELECT * FROM steps
-WHERE epic <> '' AND (CAST(sqlc.arg(epic) AS TEXT) = '' OR epic = CAST(sqlc.arg(epic) AS TEXT))
-  AND (CAST(sqlc.arg(task) AS TEXT) = '' OR task = CAST(sqlc.arg(task) AS TEXT))
+WHERE epic <> '' AND (CAST(sqlc.arg(task) AS TEXT) = '' OR task = CAST(sqlc.arg(task) AS TEXT))
 ORDER BY started, id;
+
+-- name: ListEpicSteps :many
+SELECT * FROM steps WHERE epic = sqlc.arg(epic) ORDER BY started, id;
+
+-- name: ListEpicTaskSteps :many
+SELECT * FROM steps WHERE epic = sqlc.arg(epic) AND task IN (sqlc.slice(tasks)) ORDER BY started, id;
 
 -- name: ListLimitedSteps :many
 SELECT * FROM steps WHERE end_value = '' AND loop_limited = 1 ORDER BY started, id;
@@ -315,7 +320,7 @@ ORDER BY steps.ended, steps.id;
 
 -- name: ListPendingCallerSteps :many
 SELECT * FROM steps
-WHERE steps.end_value <> '' AND steps.caller = ? AND steps.caller_read = 0
+WHERE steps.end_value <> '' AND steps.caller <> '' AND steps.caller = ? AND steps.caller_read = 0
   AND NOT EXISTS (
       SELECT 1 FROM caller_events
       WHERE caller_events.event = 'step:' || steps.id AND caller_events.session = steps.caller
@@ -650,6 +655,9 @@ INSERT INTO epic_workflow_nodes (epic, position, id, parent, kind) VALUES (?, ?,
 -- name: ListEpicWorkflowNodes :many
 SELECT * FROM epic_workflow_nodes WHERE epic = ? ORDER BY position;
 
+-- name: ListAllEpicWorkflowNodes :many
+SELECT * FROM epic_workflow_nodes ORDER BY epic, position;
+
 -- name: InsertEpicNodeRun :exec
 INSERT INTO epic_node_runs (epic, path, id, node, kind, task, round, state, outcome, loop_round, granted, mark, started, ended, attempt)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -657,6 +665,14 @@ ON CONFLICT (epic, path) DO NOTHING;
 
 -- name: ListEpicNodeRuns :many
 SELECT * FROM epic_node_runs WHERE epic = ? ORDER BY path;
+
+-- name: ListOpenEpicNodeRunStates :many
+SELECT epic_node_runs.epic, epic_node_runs.path, epic_node_runs.kind, epic_node_runs.state, epic_node_runs.outcome,
+       epic_node_runs.attempt
+FROM epics
+CROSS JOIN epic_node_runs ON epic_node_runs.epic = epics.id
+WHERE epics.phase NOT IN ('closed_superseded', 'closed_shipped', 'closed_abandoned')
+ORDER BY epics.id, epic_node_runs.path;
 
 -- name: EndEpicNodeRun :exec
 UPDATE epic_node_runs SET state = 'ended', outcome = ?, ended = ?, output = ? WHERE epic = ? AND path = ? AND state = 'running';
@@ -830,6 +846,9 @@ UPDATE epic_tasks SET status = sqlc.arg(status) WHERE epic = sqlc.arg(epic) AND 
 -- name: SetEpicTaskNeedsFiles :exec
 UPDATE epic_tasks SET needs_files = sqlc.arg(needs_files) WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq);
 
+-- name: SetEpicTaskGateChanges :exec
+UPDATE epic_tasks SET gate_changes = sqlc.arg(gate_changes) WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq);
+
 -- name: ClaimEpicTaskBatch :exec
 UPDATE epic_tasks SET batch = sqlc.arg(batch)
 WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq) AND status = 'done' AND (batch = '' OR batch = sqlc.arg(batch));
@@ -929,6 +948,22 @@ SELECT * FROM epic_task_reviews WHERE epic = ? ORDER BY task, attempt, position;
 
 -- name: ListEpicTaskFindings :many
 SELECT * FROM epic_task_findings WHERE epic = ? ORDER BY task, attempt, review, position;
+
+-- name: InsertEpicTaskVersion :exec
+INSERT INTO epic_task_versions (
+    epic, task, version, source, decision, step, reason, deliverable, files, test_changes, gate, evidence,
+    state, created, settled
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: SettleEpicTaskVersion :execrows
+UPDATE epic_task_versions SET state = ?, red_run = ?, refusal = ?, settled = ?
+WHERE epic = ? AND task = ? AND version = ? AND state = 'checking';
+
+-- name: ListEpicTaskVersions :many
+SELECT * FROM epic_task_versions WHERE epic = ? ORDER BY task, version;
+
+-- name: MaxEpicTaskVersion :one
+SELECT CAST(COALESCE(MAX(version), 1) AS INTEGER) FROM epic_task_versions WHERE epic = ? AND task = ?;
 
 -- name: MaxEpicTellSeq :one
 SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_tells WHERE epic = ?;
@@ -1220,6 +1255,9 @@ ON CONFLICT (epic) DO UPDATE SET at = excluded.at;
 
 -- name: GetEpicSeen :one
 SELECT at FROM epic_seen WHERE epic = ?;
+
+-- name: ListEpicSeen :many
+SELECT epic, at FROM epic_seen;
 
 -- name: InsertPlannerAction :exec
 INSERT INTO planner_actions (

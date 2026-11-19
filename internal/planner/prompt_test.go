@@ -87,7 +87,7 @@ func syntheticTriggers() []store.EpicTrigger {
 // promptOf returns the prompt of turn of epic, and fails the test when it cannot be rendered.
 func promptOf(t *testing.T, epic store.EpicRow, turn int64, triggers []store.EpicTrigger) string {
 	t.Helper()
-	prompt, err := Prompt(epic, turn, triggers, nil)
+	prompt, err := Prompt(epic, turn, triggers, nil, nil)
 	if err != nil {
 		t.Fatalf("Prompt of turn %d: %v", turn, err)
 	}
@@ -180,6 +180,8 @@ func TestPromptOpensWithRoleThenEverySectionInOrder(t *testing.T) {
 		"## Triggers",
 		"- created: epic created",
 		"- answered-1: owner answered Q1",
+		"## Spent lines",
+		"None.",
 		"## Last failure",
 		"planner return refused",
 	)
@@ -205,6 +207,22 @@ func TestPromptRendersTestChangesAndTheGuardsLastRefusal(t *testing.T) {
 		"  contributes: ",
 		"  test_changes: store_test.go\n  gate: check\n",
 		"  guard refused: store_test.go: TestOld: test present at the base removed\n",
+	)
+}
+
+func TestPromptRendersTheGateChangesATaskDeclared(t *testing.T) {
+	t.Parallel()
+	epic := syntheticEpic()
+	epic.Tasks[0].GateChanges = []store.GateChange{
+		{Path: "internal/enginehost/record.go", Reason: "check_changed fails on a -race report"},
+		{Path: "web/src/app.test.tsx", Reason: "the History read races the assertion"},
+	}
+	prompt := promptOf(t, epic, 2, syntheticTriggers())
+	inOrder(t, prompt,
+		"  evidence: ",
+		"  gate-needed changes declared: internal/enginehost/record.go (check_changed fails on a -race report); "+
+			"web/src/app.test.tsx (the History read races the assertion)\n",
+		"## Evidence amendments",
 	)
 }
 
@@ -306,7 +324,7 @@ func TestPromptShowsQuestionAdviceAnswerChoicesAndFollowCounts(t *testing.T) {
 		{Label: "cache-ttl", Answered: 2, Followed: 1},
 		{Label: "which-store", Answered: 3, Followed: 2},
 	}
-	prompt, err := Prompt(adviceEpic(), 2, syntheticTriggers(), follows)
+	prompt, err := Prompt(adviceEpic(), 2, syntheticTriggers(), follows, nil)
 	if err != nil {
 		t.Fatalf("Prompt: %v", err)
 	}

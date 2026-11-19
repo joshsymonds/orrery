@@ -104,6 +104,8 @@ func TestEpicVerifierPromptNamesTheEpicRangeAndEveryFindingField(t *testing.T) {
 		"Requirements:",
 		"- R1: one",
 		"- R2: two",
+		rvDeclared,
+		"- none",
 		"The change is base111..frozen222; this worktree is checked out at frozen222.",
 		"Finding correctness-2: the brief drops a Requirement",
 		"Citation: R2",

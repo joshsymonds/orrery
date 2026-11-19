@@ -65,21 +65,38 @@ type ReleaseResult struct {
 // frees the slot it holds and otherwise ends passed, a clean epic ends done or takes the slot, a releasing epic goes on
 // with its candidate, its release steps and its judge, a stopped epic whose run a retry turned running is sent back to
 // planning (replanAction), a correcting epic resumes its release once its replan has ended (resumeAction), and any other
-// phase gives none.
+// phase gives none (Idle).
 func (Release) Decide(node Node, rows Rows) Action {
-	switch rows.Epic.Phase {
-	case phaseReleased, phaseDone:
-		return releaseEnded(rows)
-	case store.PhaseClean:
-		return releaseClean(rows)
-	case store.PhaseReleasing:
-		return releaseRun(node.Run, rows)
-	case store.PhaseStopped:
-		return replanAction(node.Run, rows)
-	case phaseCorrecting:
-		return resumeAction(node.Run, rows)
-	default:
+	decide, ok := releaseDecision(rows.Epic.Phase)
+	if !ok {
 		return Action{Kind: ActNone}
+	}
+	return decide(node.Run, rows)
+}
+
+// Idle reports whether a release run of an epic in phase waits for the phase to move on: Decide gives it no action,
+// whatever the epic's other rows hold. An ended_with_gaps epic's release run waits so, until the owner's release moves
+// the epic to clean.
+func (Release) Idle(phase string) bool {
+	_, ok := releaseDecision(phase)
+	return !ok
+}
+
+// releaseDecision returns how a release run of an epic in phase is decided, and false for a phase that gives it none.
+func releaseDecision(phase string) (func(store.NodeRun, Rows) Action, bool) {
+	switch phase {
+	case phaseReleased, phaseDone:
+		return func(_ store.NodeRun, rows Rows) Action { return releaseEnded(rows) }, true
+	case store.PhaseClean:
+		return func(_ store.NodeRun, rows Rows) Action { return releaseClean(rows) }, true
+	case store.PhaseReleasing:
+		return releaseRun, true
+	case store.PhaseStopped:
+		return replanAction, true
+	case phaseCorrecting:
+		return resumeAction, true
+	default:
+		return nil, false
 	}
 }
 
@@ -116,9 +133,12 @@ func releaseEnded(rows Rows) Action {
 	return Action{Kind: ActEnd, Outcome: outcomePassed}
 }
 
-// endingAction ends the epic in the phase outcome names, with the body that names the gaps its review holds.
+// endingAction ends the epic in the phase outcome names, with the body that names the gaps its review holds and the
+// findings an owner's answer closed.
 func endingAction(outcome string, rows Rows) Action {
-	return Action{Kind: ActEnding, Outcome: outcome, Output: EndingBody(outcome, Gaps(rows.Review))}
+	return Action{
+		Kind: ActEnding, Outcome: outcome, Output: EndingBody(outcome, Gaps(rows.Review), Decided(rows.Review)),
+	}
 }
 
 // releaseClean ends a clean epic with no release steps done, gives none while another epic holds the release slot, and

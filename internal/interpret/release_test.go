@@ -176,7 +176,7 @@ func TestReleaseCleanEpicWithoutStepsEndsDone(t *testing.T) {
 	w.createEpic(runEpic, store.PhaseClean)
 	w.pass()
 
-	want := endedEpic{epic: runEpic, phase: "done", body: kinds.EndingBody("done", nil), at: runClock()}
+	want := endedEpic{epic: runEpic, phase: "done", body: kinds.EndingBody("done", nil, nil), at: runClock()}
 	if len(ending.calls) == 0 {
 		t.Fatalf("EndEpic calls = none, want %+v", want)
 	}
@@ -392,7 +392,7 @@ func TestReleaseEndedWithGapsReleasesOnOwnersWordAndNamesGaps(t *testing.T) {
 
 	want := endedEpic{
 		epic: runEpic, phase: "done",
-		body: kinds.EndingBody("done", []string{"reviewer security: the tag is not signed"}), at: runClock(),
+		body: kinds.EndingBody("done", []string{"reviewer security: the tag is not signed"}, nil), at: runClock(),
 	}
 	if len(ending.calls) == 0 {
 		t.Fatalf("EndEpic calls = none, want %+v", want)

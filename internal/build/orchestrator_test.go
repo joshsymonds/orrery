@@ -2,6 +2,7 @@ package build
 
 import (
 	"encoding/json"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -63,11 +64,34 @@ func acceptedPeer(seq int64, changed ...string) Peer {
 	return Peer{Task: store.EpicTask{Seq: seq, Status: taskDone, Files: changed}, State: Pending, Changed: changed}
 }
 
+// emptyVersion returns the version of a return that changes nothing: every field the schema requires, empty.
+func emptyVersion() map[string]any {
+	return map[string]any{
+		"changed": []string{}, "deliverable": "", "files": []string{}, "test_changes": []string{}, "gate": "",
+		"evidence": map[string]any{
+			"capture": []string{}, "limit": 0, "artifacts": []string{}, "supplied": []string{}, "conclusion": "",
+			"judge": "", "kind": "", "tests": []string{},
+		},
+	}
+}
+
+// versionWith returns the version emptyVersion gives, with the fields given set.
+func versionWith(fields map[string]any) map[string]any {
+	version := emptyVersion()
+	maps.Copy(version, fields)
+	return version
+}
+
+// filesVersion returns a version that adds files to the task: it changes files, and names them.
+func filesVersion(files ...string) map[string]any {
+	return versionWith(map[string]any{"changed": []string{"files"}, "files": files})
+}
+
 // orchReturn renders an orchestrator return with every field the schema requires, from the fields given.
 func orchReturn(t *testing.T, fields map[string]any) string {
 	t.Helper()
 	ret := map[string]any{
-		"status": "done", "evidence": "a.go:3 calls b", "decision": "", "note": "", "files": []string{},
+		"status": "done", "evidence": "a.go:3 calls b", "decision": "", "version": emptyVersion(),
 		"after_tasks": []int64{}, "failure": "", "needs_files": []string{}, "reason": "the code says so",
 		"question": map[string]any{
 			"label": "", "text": "", "choices": []any{}, "recommended": "", "why": "", "confidence": "",
@@ -105,8 +129,11 @@ func TestOrchestratorSchemaAcceptsEachDecisionAndUsesTheEngineSubset(t *testing.
 		t.Fatalf("resolve: %v", err)
 	}
 	for _, ret := range []string{
-		orchReturn(t, map[string]any{"decision": "rerun", "note": "n", "after_tasks": []int64{2}}),
-		orchReturn(t, map[string]any{"decision": "grant", "note": "n", "files": []string{"b.go"}}),
+		orchReturn(t, map[string]any{
+			"decision": "rerun", "after_tasks": []int64{2},
+			"version": versionWith(map[string]any{"changed": []string{"gate"}, "gate": "check"}),
+		}),
+		orchReturn(t, map[string]any{"decision": "grant", "version": filesVersion("b.go")}),
 		orchReturn(t, map[string]any{"decision": "fail", "failure": "f", "needs_files": []string{"b.go"}}),
 		orchReturn(t, map[string]any{"decision": "ask", "question": askQuestion()}),
 		orchReturn(t, map[string]any{"status": "blocked"}),
@@ -134,26 +161,31 @@ func TestOrchestratorCheckShape(t *testing.T) {
 		want []string
 	}{
 		{
-			"a rerun with a note and a reason passes",
-			orchReturn(t, map[string]any{"decision": "rerun", "note": "n"}),
+			"a rerun changing its deliverable and a reason passes",
+			orchReturn(t, map[string]any{"decision": "rerun", "version": versionWith(map[string]any{
+				"changed": []string{"deliverable"}, "deliverable": "d",
+			})}),
 			nil,
 		},
 		{
-			"a rerun with no note, files and a failure is refused per field",
-			orchReturn(t, map[string]any{"decision": "rerun", "files": []string{"b.go"}, "failure": "f"}),
-			[]string{"note: empty", "files: not empty on rerun", "failure: not empty on rerun"},
+			"a rerun naming files and a failure is refused per field",
+			orchReturn(t, map[string]any{"decision": "rerun", "version": filesVersion("b.go"), "failure": "f"}),
+			[]string{"version.changed: files named on a rerun", "failure: not empty on rerun"},
 		},
 		{
-			"a grant with no files is refused",
-			orchReturn(t, map[string]any{"decision": "grant", "note": "n"}),
-			[]string{"files: empty on a grant"},
+			"a rerun adding files its changed list does not name is refused",
+			orchReturn(t, map[string]any{"decision": "rerun", "version": versionWith(map[string]any{
+				"files": []string{"b.go"},
+			})}),
+			[]string{"version.files: not empty when changed does not name it"},
 		},
 		{
-			"a fail with a note and after_tasks is refused",
+			"a fail with a version and after_tasks is refused",
 			orchReturn(t, map[string]any{
-				"decision": "fail", "failure": "f", "note": "n", "after_tasks": []int64{2},
+				"decision": "fail", "failure": "f", "after_tasks": []int64{2},
+				"version": versionWith(map[string]any{"changed": []string{"gate"}, "gate": "check"}),
 			}),
-			[]string{"note: not empty on fail", "after_tasks: not empty on fail"},
+			[]string{"version: not empty on fail", "after_tasks: not empty on fail"},
 		},
 		{
 			"a fail with no failure is refused",
@@ -188,7 +220,7 @@ func TestOrchestratorCheckShape(t *testing.T) {
 		},
 		{
 			"a blocked return naming a decision is refused",
-			orchReturn(t, map[string]any{"status": "blocked", "decision": "rerun", "note": "n"}),
+			orchReturn(t, map[string]any{"status": "blocked", "decision": "rerun"}),
 			[]string{"decision: not empty on a blocked return"},
 		},
 		{"a blocked return with evidence passes", orchReturn(t, map[string]any{"status": "blocked"}), nil},
@@ -231,7 +263,7 @@ func TestOrchestratorCheckRefusesStateTheEngineCannotCarryOut(t *testing.T) {
 	}{
 		{
 			"after_tasks naming this task, no task, a failed, an integrated task and one twice",
-			map[string]any{"decision": "rerun", "note": "n", "after_tasks": []int64{3, 42, 6, 7, 4, 4}},
+			map[string]any{"decision": "rerun", "after_tasks": []int64{3, 42, 6, 7, 4, 4}},
 			[]string{
 				"after_tasks[0]: T3 is this task",
 				"after_tasks[1]: T42 is not a task of this epic",
@@ -242,36 +274,36 @@ func TestOrchestratorCheckRefusesStateTheEngineCannotCarryOut(t *testing.T) {
 		},
 		{
 			"after_tasks that wait on this task directly or through another are a cycle",
-			map[string]any{"decision": "rerun", "note": "n", "after_tasks": []int64{8, 9}},
+			map[string]any{"decision": "rerun", "after_tasks": []int64{8, 9}},
 			[]string{"after_tasks[0]: T8 waits on this task", "after_tasks[1]: T9 waits on this task"},
 		},
 		{
 			"a task that once waited on this task but waits no longer is no cycle",
-			map[string]any{"decision": "rerun", "note": "n", "after_tasks": []int64{10}},
+			map[string]any{"decision": "rerun", "after_tasks": []int64{10}},
 			nil,
 		},
 		{
 			"open and accepted pending tasks may be waited for",
-			map[string]any{"decision": "rerun", "note": "n", "after_tasks": []int64{4, 5}},
+			map[string]any{"decision": "rerun", "after_tasks": []int64{4, 5}},
 			nil,
 		},
 		{
 			"a grant of a refused path, the task's own file, a held file and one named twice",
-			map[string]any{"decision": "grant", "note": "n", "files": []string{
+			map[string]any{"decision": "grant", "version": filesVersion(
 				".git/config", "a.go", "owned.go", "changed.go", "free.go", "free.go",
-			}},
+			)},
 			[]string{
-				"files[0]: .git/config is refused: inside a .git directory",
-				"files[1]: a.go is already one of the task's files",
-				"files[2]: owned.go is owned by open T4 (implement), and after_tasks does not name T4",
-				"files[3]: changed.go is changed by accepted T5, not yet integrated, and after_tasks does not name T5",
-				"files[5]: free.go is named twice",
+				"version.files[0]: .git/config is refused: inside a .git directory",
+				"version.files[1]: a.go is already one of the task's files",
+				"version.files[2]: owned.go is owned by open T4 (implement), and after_tasks does not name T4",
+				"version.files[3]: changed.go is changed by accepted T5, not yet integrated, and after_tasks does not name T5",
+				"version.files[5]: free.go is named twice",
 			},
 		},
 		{
 			"a grant of held files behind their holders passes",
 			map[string]any{
-				"decision": "grant", "note": "n", "files": []string{"owned.go", "changed.go", "free.go"},
+				"decision": "grant", "version": filesVersion("owned.go", "changed.go", "free.go"),
 				"after_tasks": []int64{4, 5},
 			},
 			nil,
@@ -355,7 +387,7 @@ func TestDecideOrchestrate(t *testing.T) {
 	t.Parallel()
 	rerun := orchBuild(0)
 	rerun.Stage, rerun.Rerun, rerun.Step, rerun.Decisions = StageImplement, 3, "", 1
-	rerun.Failure = "your work is kept; b.go:3 is the caller"
+	rerun.Failure = "returned needs_context: the spec is short"
 	waiting := rerun
 	waiting.Held, waiting.After = HeldWaiting, "4,5"
 	waitingOnFour := rerun
@@ -366,18 +398,24 @@ func TestDecideOrchestrate(t *testing.T) {
 	restarted.Rerun = 3
 	stopped := orchBuild(1)
 	stopped.Held = HeldStopped
-	rerunRet := orchReturn(t, map[string]any{"decision": "rerun", "note": "your work is kept; b.go:3 is the caller"})
-	waitRet := orchReturn(t, map[string]any{
-		"decision": "rerun", "note": "your work is kept; b.go:3 is the caller", "after_tasks": []int64{4, 5},
-	})
-	grantRet := orchReturn(t, map[string]any{
-		"decision": "grant", "note": "your work is kept; b.go:3 is the caller", "files": []string{"b.go"},
-	})
+	deliverable := "The thing holds: thing.go:3 names the field."
+	rerunRet := orchReturn(t, map[string]any{"decision": "rerun", "version": versionWith(map[string]any{
+		"changed": []string{"deliverable"}, "deliverable": deliverable,
+	})})
+	waitRet := orchReturn(t, map[string]any{"decision": "rerun", "after_tasks": []int64{4, 5}})
+	grantRet := orchReturn(t, map[string]any{"decision": "grant", "version": filesVersion("b.go")})
+	nothing := store.TaskVersionInput{
+		Source: store.SourceOrchestrator, Step: "orch-step", Reason: "the code says so", Files: []string{},
+	}
+	redone := nothing
+	redone.Deliverable = &deliverable
+	granted := nothing
+	granted.Files = []string{"b.go"}
 	failRet := orchReturn(t, map[string]any{
 		"decision": "fail", "failure": "The task's files cannot hold its deliverable.", "needs_files": []string{"b.go"},
 	})
 	askRet := orchReturn(t, map[string]any{"decision": "ask", "question": askQuestion()})
-	cycleRet := orchReturn(t, map[string]any{"decision": "rerun", "note": "n", "after_tasks": []int64{8}})
+	cycleRet := orchReturn(t, map[string]any{"decision": "rerun", "after_tasks": []int64{8}})
 	waiter := openPeer(8)
 	waiter.Task.Build.Held, waiter.Task.Build.After = HeldWaiting, "3"
 	fallback := orchFail()
@@ -411,10 +449,10 @@ func TestDecideOrchestrate(t *testing.T) {
 			want: Action{Kind: ActNone},
 		},
 		{
-			name: "rerun moves to implement at the next rerun with the note, counting the decision",
+			name: "rerun moves to implement at the next rerun with its version, counting the decision",
 			view: orchView(0, orchDone(rerunRet)),
 			want: Action{
-				Kind: ActDecide, Next: rerun, Fallback: &fallback, NeedsFiles: []string{}, Behind: []int64{},
+				Kind: ActDecide, Next: rerun, Fallback: &fallback, Behind: []int64{}, Version: redone,
 				Decision: &store.TaskDecision{ID: "T3-request-1", Text: "T3 rerun: the code says so"},
 			},
 		},
@@ -422,7 +460,7 @@ func TestDecideOrchestrate(t *testing.T) {
 			name: "rerun after open tasks holds the build waiting on them",
 			view: orchView(0, orchDone(waitRet), openPeer(4), acceptedPeer(5)),
 			want: Action{
-				Kind: ActDecide, Next: waiting, Behind: []int64{4, 5}, Fallback: &fallback, NeedsFiles: []string{},
+				Kind: ActDecide, Next: waiting, Behind: []int64{4, 5}, Fallback: &fallback, Version: nothing,
 				Decision: &store.TaskDecision{ID: "T3-request-1", Text: "T3 rerun after T4, T5: the code says so"},
 			},
 		},
@@ -430,7 +468,7 @@ func TestDecideOrchestrate(t *testing.T) {
 			name: "grant carries its files",
 			view: orchView(0, orchDone(grantRet)),
 			want: Action{
-				Kind: ActDecide, Next: rerun, NeedsFiles: []string{"b.go"}, Fallback: &grantFallback, Behind: []int64{},
+				Kind: ActDecide, Next: rerun, Version: granted, Fallback: &grantFallback, Behind: []int64{},
 				Decision: &store.TaskDecision{ID: "T3-request-1", Text: "T3 grant b.go: the code says so"},
 			},
 		},
@@ -469,17 +507,17 @@ func TestDecideOrchestrate(t *testing.T) {
 		{
 			name: "a wait for a task integrated while the step ran is carried out, and resolves on the next pass",
 			view: orchView(0, orchDone(orchReturn(t, map[string]any{
-				"decision": "rerun", "note": "your work is kept; b.go:3 is the caller", "after_tasks": []int64{4},
+				"decision": "rerun", "after_tasks": []int64{4},
 			})), Peer{Task: store.EpicTask{Seq: 4, Status: taskDone}, State: Integrated, Composed: "c4"}),
 			want: Action{
-				Kind: ActDecide, Next: waitingOnFour, Behind: []int64{4}, Fallback: &fallback, NeedsFiles: []string{},
+				Kind: ActDecide, Next: waitingOnFour, Behind: []int64{4}, Fallback: &fallback, Version: nothing,
 				Decision: &store.TaskDecision{ID: "T3-request-1", Text: "T3 rerun after T4: the code says so"},
 			},
 		},
 		{
 			name: "a wait for a task that failed while the step ran settles as before, naming the refusal",
 			view: orchView(0, orchDone(orchReturn(t, map[string]any{
-				"decision": "rerun", "note": "n", "after_tasks": []int64{4},
+				"decision": "rerun", "after_tasks": []int64{4},
 			})), Peer{Task: store.EpicTask{Seq: 4, Status: taskFailed}, State: Lost, Why: "failed"}),
 			want: Action{
 				Kind: ActFail, NeedsFiles: []string{"b.go"},
@@ -673,10 +711,10 @@ func TestOrchestratorCheckNeedsEveryHolderOfAFileInAfterTasks(t *testing.T) {
 	check := OrchestratorCheck(task, peers)
 	grant := func(after ...int64) []string {
 		return check(json.RawMessage(orchReturn(t, map[string]any{
-			"decision": "grant", "note": "n", "files": []string{"shared.go"}, "after_tasks": after,
+			"decision": "grant", "version": filesVersion("shared.go"), "after_tasks": after,
 		})))
 	}
-	want := []string{"files[0]: shared.go is owned by open T1 (implement, waiting) and owned by open T2 " +
+	want := []string{"version.files[0]: shared.go is owned by open T1 (implement, waiting) and owned by open T2 " +
 		"(implement), and after_tasks does not name T1"}
 	if got := grant(2); !slices.Equal(got, want) {
 		t.Errorf("grant behind T2 only = %q, want %q", got, want)

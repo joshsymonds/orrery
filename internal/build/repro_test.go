@@ -199,7 +199,8 @@ func TestGreenReproductionExitZeroSpendsAttemptAsDisagreement(t *testing.T) {
 	f.pass()
 	build := f.task().Build
 	failure := "green not met: the judge and the exit disagree: red was judged fails at the base " + f.base +
-		", but its reproduction with the commit's tests exited 0"
+		", but its reproduction with the commit's tests exited 0, so those tests pass at the base without the rest of " +
+		"the commit"
 	if build.Stage != StageImplement || build.Attempt != 2 || build.Failure != failure {
 		t.Errorf("build stage %q attempt %d failure %q, want implement at attempt 2 with failure %q",
 			build.Stage, build.Attempt, build.Failure, failure)

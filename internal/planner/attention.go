@@ -459,13 +459,13 @@ func adviceHead(question store.EpicQuestion) string {
 	return fmt.Sprintf("Q%d %s:", question.Seq, question.Label)
 }
 
-// adviceLines returns the advice question gives the owner, one line each: each declared choice as `  id: does`, then
+// adviceLines returns the advice question gives the owner, one line each: each declared choice as its choiceLine, then
 // other, which orrery offers on every question, then the recommendation as `  recommended: id (confidence): why` when
 // it recommends one.
 func adviceLines(question store.EpicQuestion) []string {
 	lines := make([]string, 0, len(question.Choices)+2)
 	for _, choice := range question.Choices {
-		lines = append(lines, fmt.Sprintf("  %s: %s", choice.ID, choice.Does))
+		lines = append(lines, choiceLine(choice))
 	}
 	lines = append(lines, fmt.Sprintf("  %s: answer in your own words", store.ChoiceOther))
 	if question.Recommended != "" {

@@ -114,6 +114,39 @@ func checkClosureTasks(ret Return, phase string) []string {
 	return refusals
 }
 
+// checkCloses returns the refusals of the findings the choices of ret's questions close, for an epic in phase whose
+// next closure round checks the findings open. A choice closes findings only in a correction round, so outside
+// phaseCorrecting each choice that closes any gets one line. In it, each id that is not an open finding gets one line,
+// which lists the open findings, so a choice never names a finding that no closure round would close.
+func checkCloses(ret Return, phase string, open []string) []string {
+	var refusals []string
+	for i, question := range ret.Questions {
+		for j, choice := range question.Choices {
+			closes := closesOf(choice.Closes)
+			if len(closes) == 0 {
+				continue
+			}
+			prefix := fmt.Sprintf(`questions[%d] "%s" choices[%d].closes`, i, question.Label, j)
+			if phase != phaseCorrecting {
+				refusals = append(refusals, fmt.Sprintf(
+					"%s: a choice closes findings only in a correction round; this epic is in phase %s", prefix, phase))
+				continue
+			}
+			listed := "no finding is open"
+			if len(open) > 0 {
+				listed = "open: " + strings.Join(open, ", ")
+			}
+			for k, finding := range closes {
+				if finding != "" && !slices.Contains(open, finding) {
+					refusals = append(refusals, fmt.Sprintf("%s[%d]: %s is not an open finding of the ledger (%s)",
+						prefix, k, finding, listed))
+				}
+			}
+		}
+	}
+	return refusals
+}
+
 // checkPark returns the refusal of a return that answers no park: one with no action and no question. park is the
 // reason of the planner-class park the epic holds, or "" when it holds none, and then every return passes. The line names
 // the actions field and the reason, so the planner sees which park its return must answer.
@@ -158,6 +191,9 @@ func checkTask(i int, task Task, known, taken, named map[string]bool, gate, judg
 	for _, line := range evidence.CheckTask(task.Evidence) {
 		refusals = append(refusals, prefix+" evidence."+line)
 	}
+	if testItemOfTestsOnly(task) {
+		refusals = append(refusals, prefix+" evidence.kind: "+reasonTestsOnly)
+	}
 	if strings.TrimSpace(task.Gate) != "" {
 		if err := gate(task.Gate); err != nil {
 			refusals = append(refusals, prefix+" gate: "+err.Error())
@@ -169,6 +205,19 @@ func checkTask(i int, task Task, known, taken, named map[string]bool, gate, judg
 		}
 	}
 	return refusals
+}
+
+// reasonTestsOnly is why a test item is refused on a task whose files are all test files.
+const reasonTestsOnly = "test, but every file of the task is a test file. A test item's green first runs its tests at " +
+	"the base with the rest of the commit left out, and they must fail there; with no other file in the change " +
+	"that run is the commit itself, so it passes as green does and the task can never be met. Give a task that " +
+	"only adds, rewrites or fixes tests kind capture with no tests, and a conclusion its base output cannot show"
+
+// testItemOfTestsOnly reports whether task's evidence is a test item while every one of its files is a test file
+// (evidence.TestFile). Its reproduction overlays its tests on the base, so the change it would leave out is empty.
+func testItemOfTestsOnly(task Task) bool {
+	return task.Evidence.Kind == evidence.KindTest && len(task.Files) > 0 && !slices.ContainsFunc(task.Files,
+		func(file string) bool { return !evidence.TestFile(file) })
 }
 
 // testChangeRefusals returns one refusal per test_changes element of task that is not one of the task's files.
