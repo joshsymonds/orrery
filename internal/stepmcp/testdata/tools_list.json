@@ -70,6 +70,38 @@
     }
   },
   {
+    "name": "step_result",
+    "description": "Read one part of a step's return by id. With only id it returns the outline: each top-level field with its type and size, no values. With field it returns that field's value, a string as text and anything else as compact JSON; with field and item, one element of that array field, by its id property or 0-based index. A value is cut at limit runes (default and most 4000) and the result names the offset to continue from.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "field": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "item": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
     "name": "step_stop",
     "description": "Stop a running step by id.",
     "inputSchema": {

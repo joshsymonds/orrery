@@ -70,6 +70,10 @@ func stepTools(steps enginev1connect.StepsClient, clock rpcretry.Clock) ([]Tool,
 	if err != nil {
 		return nil, err
 	}
+	resultInput, err := argumentSchema[stepResultArgs](nil)
+	if err != nil {
+		return nil, err
+	}
 	return []Tool{
 		{
 			Name: "step_start",
@@ -84,6 +88,16 @@ func stepTools(steps enginev1connect.StepsClient, clock rpcretry.Clock) ([]Tool,
 				"no return and no check output.",
 			InputSchema: idInput,
 			Handler:     statusHandler(steps, clock),
+		},
+		{
+			Name: "step_result",
+			Description: "Read one part of a step's return by id. With only id it returns the outline: each top-level " +
+				"field with its type and size, no values. With field it returns that field's value, a string as text " +
+				"and anything else as compact JSON; with field and item, one element of that array field, by its id " +
+				"property or 0-based index. A value is cut at limit runes (default and most 4000) and the result names " +
+				"the offset to continue from.",
+			InputSchema: resultInput,
+			Handler:     stepResultHandler(steps, clock),
 		},
 		{
 			Name:        "step_stop",
