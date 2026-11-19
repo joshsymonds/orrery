@@ -30,9 +30,8 @@ func (e RoleError) Unwrap() error { return e.Err }
 // startStep starts the step of action, under the id it carries, for the task of view in epic, and returns the id the
 // engine started it under. An implement step runs the implementer's agent in its own worktree; a review step runs the
 // task-stage reviewer its review gate names, read-only; a verify step runs the verifier's agent read-only on one
-// finding; an orchestrate step runs the orchestrator's agent read-only on the implementer's request, and a rescuing
-// build's orchestrate step runs the rescue's agent read-only (rescueStart). An error the engine returns on start is
-// wrapped, so errors.Is still matches it.
+// finding; an orchestrate step runs the orchestrator's agent read-only on the implementer's request. An error the engine
+// returns on start is wrapped, so errors.Is still matches it.
 func (r *Runner) startStep(ctx context.Context, epic store.EpicRow, view View, action Action) (string, error) {
 	var (
 		start enginehost.StepStart
@@ -46,11 +45,7 @@ func (r *Runner) startStep(ctx context.Context, epic store.EpicRow, view View, a
 	case StageVerify:
 		start, err = r.verifierStart(epic, view, action.ID)
 	case StageOrchestrate:
-		if rescuing(view) {
-			start, err = r.rescueStart(ctx, epic, view, action.ID)
-		} else {
-			start, err = r.orchestratorStart(ctx, epic, view, action.ID)
-		}
+		start, err = r.orchestratorStart(ctx, epic, view, action.ID)
 	default:
 		return "", fmt.Errorf("unit %q has no step to start", action.Unit)
 	}
@@ -70,7 +65,7 @@ func (r *Runner) startStep(ctx context.Context, epic store.EpicRow, view View, a
 // implementer agent in the task's implement worktree (ImplementWorktree), added detached at the task's base when it does
 // not exist and kept as it is when it does, so a later attempt or rerun continues from the earlier work. The step is
 // checked from the task's base, with the brief, the task's files, and the command gate the epic names for the task. A
-// gate that is an agent gate is an error. Rung 4 (store.OrchestratorRung) is the orchestrator's own writing attempt under
+// gate that is an agent gate is an error. Rung 3 (store.OrchestratorRung) is the orchestrator's own writing attempt under
 // the task's files, gate and reviews, so it runs the orchestrator's agent, or the planner's when the role file has no
 // orchestrator key; no other rung changes the agent.
 func (r *Runner) implementerStart(

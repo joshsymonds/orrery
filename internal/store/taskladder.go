@@ -9,10 +9,10 @@ import (
 )
 
 // The kinds a rung of a task's ladder can be. A rung is the task build's Attempt number: rungs 1 and 2 are RungAttempt,
-// 3 is RungRescue, 4 is RungOrchestrator, 5 and 6 are RungApproach, and 7 is RungGap.
+// 3 is RungOrchestrator, 4 and 5 are RungApproach, and 6 is RungGap. A rung of kind rescue, the kind the ladder had
+// before its rung 3 became the orchestrator's attempt, is still read from its stored row.
 const (
 	RungAttempt      = "attempt"
-	RungRescue       = "rescue"
 	RungOrchestrator = "orchestrator"
 	RungApproach     = "approach"
 	RungGap          = "gap"
@@ -37,23 +37,24 @@ const (
 // TaskGap is the status of a task that ended as a gap.
 const TaskGap = "gap"
 
-// taskOpen is the status of a task that is open, the only status a planner's fail_task acts on.
-const taskOpen = "open"
+// The statuses of a task that is open, the only status a planner's fail_task acts on, and of a task that is accepted.
+const (
+	taskOpen = "open"
+	taskDone = "done"
+)
 
-// RescueRung is rung 3, the rung of kind RungRescue.
-const RescueRung = 3
+// OrchestratorRung is rung 3, the rung of kind RungOrchestrator: the orchestrator's own writing attempt.
+const OrchestratorRung = 3
 
-// OrchestratorRung is rung 4, the rung of kind RungOrchestrator.
-const OrchestratorRung = 4
+// ApproachRung is rung 4, the first rung of kind RungApproach: a task that climbs onto it needs a change of approach,
+// the recarve the planner writes, and runs its attempt under that version.
+const ApproachRung = 4
 
-// ApproachRung is rung 5, the first rung of kind RungApproach: a task that climbs onto it needs a change of approach.
-const ApproachRung = 5
+// LastRung is rung 5, the highest rung a task builds on: a climb past it ends the task as a gap.
+const LastRung = 5
 
-// LastRung is rung 6, the highest rung a task builds on: a climb past it ends the task as a gap.
-const LastRung = 6
-
-// GapRung is rung 7, the rung of kind RungGap, which a task ends on as a gap.
-const GapRung = 7
+// GapRung is rung 6, the rung of kind RungGap, which a task ends on as a gap.
+const GapRung = 6
 
 // RungMove is the failure that moves a task off its rung: MovedBy is the kind of failure, Cause its text, and Step the
 // step it came from. To is the rung to move to, and 0 means the next rung. Gate and Assertion are the review gate and
@@ -124,14 +125,12 @@ func ClimbCause(cause string, decided bool) string {
 	return capTurnText(cause)
 }
 
-// RungKind returns the kind of rung: RungAttempt for rungs 1 and 2, RungRescue for RescueRung, RungOrchestrator for
+// RungKind returns the kind of rung: RungAttempt for the rungs before OrchestratorRung, RungOrchestrator for
 // OrchestratorRung, RungApproach for the rungs up to LastRung, and RungGap for GapRung and above.
 func RungKind(rung int64) string {
 	switch {
-	case rung < RescueRung:
+	case rung < OrchestratorRung:
 		return RungAttempt
-	case rung == RescueRung:
-		return RungRescue
 	case rung == OrchestratorRung:
 		return RungOrchestrator
 	case rung <= LastRung:

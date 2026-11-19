@@ -35,10 +35,9 @@ type implementerReturn struct {
 
 // Decide returns the next action for an open task from its view. A stopped or parked build waits until the owner
 // releases it, a waiting build until the tasks it waits for are integrated (decideWait), and an asked build until its
-// question is answered (decideAsked). A task due its rescue (rescueDue) moves to the rescue's orchestrate unit first. A
-// task on ApproachRung waits for its change of approach before its first unit (approachAwaited), and a task whose
-// change of approach is checking moves to red before its implementer (approachDue). Every other build is decided by its
-// stage (decideStage).
+// question is answered (decideAsked). A task on ApproachRung waits for its change of approach before its first unit
+// (approachAwaited), and a task whose change of approach is checking moves to red before its implementer (approachDue).
+// Every other build is decided by its stage (decideStage).
 func Decide(view View) Action {
 	build := view.Task.Build
 	switch build.Held {
@@ -58,12 +57,6 @@ func Decide(view View) Action {
 		build.NoVerdict = 0
 		return releaseHold(build)
 	}
-	if rescueDue(view) {
-		build.Stage = StageOrchestrate
-		build.Step = ""
-		build.NoVerdict = 0
-		return Action{Kind: ActMove, Next: build}
-	}
 	if approachAwaited(view) {
 		return Action{Kind: ActNone}
 	}
@@ -76,9 +69,8 @@ func Decide(view View) Action {
 	return decideStage(view)
 }
 
-// decideStage returns the action for a build that no hold or rescue move decides, by its stage. A fresh task starts at
-// red, or at implement when it is closure-kind, since a closure-kind task runs no red and no green. The orchestrate
-// unit is decided as its rescue while the build is rescuing (rescuing), and as its request otherwise.
+// decideStage returns the action for a build that no hold or approach move decides, by its stage. A fresh task starts at
+// red, or at implement when it is closure-kind, since a closure-kind task runs no red and no green.
 func decideStage(view View) Action {
 	switch view.Task.Build.Stage {
 	case "":
@@ -88,9 +80,6 @@ func decideStage(view View) Action {
 	case StageImplement:
 		return decideImplement(view)
 	case StageOrchestrate:
-		if rescuing(view) {
-			return decideRescue(view)
-		}
 		return decideOrchestrate(view)
 	case StageGreen:
 		return decideGreen(view)
@@ -104,8 +93,7 @@ func decideStage(view View) Action {
 
 // DecideStartError returns the action for a unit whose start the engine refused with err. A red unit climbs the task,
 // a green unit spends its attempt as a capture that failed does, an orchestrate unit settles its request as it was
-// settled before the orchestrator (requestFallback), and any other unit climbs the task. A rescue that did not start
-// climbs the task, since it has no request to settle.
+// settled before the orchestrator (requestFallback), and any other unit climbs the task.
 func DecideStartError(view View, err error) Action {
 	switch view.Task.Build.Stage {
 	case StageRed:
@@ -113,9 +101,6 @@ func DecideStartError(view View, err error) Action {
 	case StageGreen:
 		return spend(view, fmt.Sprintf("green not captured: %v", err))
 	case StageOrchestrate:
-		if rescuing(view) {
-			return Action{Kind: ActFail, Reason: fmt.Sprintf("rescue did not start: %v", err)}
-		}
 		return withNote(requestFallback(view), fmt.Sprintf("orchestrate did not start: %v", err))
 	}
 	return Action{Kind: ActFail, Reason: fmt.Sprintf("%s did not start: %v", view.Task.Build.Stage, err)}

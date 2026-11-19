@@ -45,6 +45,7 @@ func Check(ret Return, requirements []string, owned []string, gate, judge func(n
 		refusals = append(refusals, checkAction(i, action)...)
 		refusals = append(refusals, checkAmendAction(i, action, known, judge)...)
 		refusals = append(refusals, checkApproachAction(i, action, judge)...)
+		refusals = append(refusals, checkApproachFiles(i, action)...)
 	}
 	if len(refusals) == 0 {
 		return nil
@@ -296,7 +297,7 @@ func actionFields(kind string) ([]string, bool) {
 	case store.ActionAmendEvidence:
 		return []string{argRequirement, argItem}, true
 	case store.ActionChangeApproach:
-		return []string{argTask, argDeliverable, argItem}, true
+		return []string{argTask, argDeliverable, argItem, argFiles, argRemove}, true
 	}
 	return nil, false
 }
@@ -395,6 +396,22 @@ func checkApproachAction(i int, action EngineAction, judge func(name string) err
 	return checkItemLines(fmt.Sprintf(`actions[%d] "%s"`, i, action.Kind), action.Item, judge)
 }
 
+// checkApproachFiles returns one refusal for each file a change_approach action at position i adds that FileRefusal
+// refuses, named as checkAction names its lines. The files a change of approach removes are the task's own, which the
+// store checks. An action of another kind, and one whose args did not read, get none.
+func checkApproachFiles(i int, action EngineAction) []string {
+	if action.Kind != store.ActionChangeApproach || action.ArgsError != "" {
+		return nil
+	}
+	var refusals []string
+	for j, file := range action.Files {
+		if reason := FileRefusal(file); reason != "" {
+			refusals = append(refusals, fmt.Sprintf(`actions[%d] "%s" files[%d]: %s`, i, action.Kind, j, reason))
+		}
+	}
+	return refusals
+}
+
 // checkItemLines returns the refusals of item as the item field of the action named by prefix: each line evidence.Check
 // gives, as item.<line>, and an item.judge line when judge does not resolve item's judge.
 func checkItemLines(prefix string, item evidence.Item, judge func(name string) error) []string {
@@ -424,6 +441,8 @@ func checkUnusedFields(action EngineAction, used []string, refuse func(field, re
 		{argItem, itemSet(action.Item)},
 		{argUndoNone, len(action.UndoNone) > 0},
 		{argDeliverable, action.Deliverable != ""},
+		{argFiles, len(action.Files) > 0},
+		{argRemove, len(action.Remove) > 0},
 	}
 	for _, field := range fields {
 		if field.set && !slices.Contains(used, field.name) {

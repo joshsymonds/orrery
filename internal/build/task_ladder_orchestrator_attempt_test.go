@@ -9,7 +9,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// The agents the role files of the rung 4 tests name. They are invented, and each role names its own agent.
+// The agents the role files of the rung 3 tests name. They are invented, and each role names its own agent.
 const (
 	orchAttemptImplementer  = "rung-implementer"
 	orchAttemptOrchestrator = "rung-orchestrator"
@@ -46,7 +46,7 @@ func TestTaskLadderOrchestratorAttemptRunsOrchestratorAgent(t *testing.T) {
 	t.Parallel()
 	setup := orchAttemptSetup(t,
 		"orchestrator = \""+orchAttemptOrchestrator+"\"\nplanner = \""+orchAttemptPlanner+"\"\n")
-	for _, attempt := range []int64{3, 5} {
+	for _, attempt := range []int64{1, 2, 4, 5} {
 		if got := orchAttemptStart(t, setup, attempt).Agent; got != orchAttemptImplementer {
 			t.Errorf("attempt %d start Agent = %q, want the implementer's agent %q",
 				attempt, got, orchAttemptImplementer)
@@ -54,18 +54,18 @@ func TestTaskLadderOrchestratorAttemptRunsOrchestratorAgent(t *testing.T) {
 	}
 	start := orchAttemptStart(t, setup, store.OrchestratorRung)
 	if start.Agent != orchAttemptOrchestrator {
-		t.Errorf("attempt 4 start Agent = %q, want the orchestrator's agent %q",
+		t.Errorf("attempt 3 start Agent = %q, want the orchestrator's agent %q",
 			start.Agent, orchAttemptOrchestrator)
 	}
 	task := startTask(setup.base)
 	if !slices.Equal(start.Owned, task.Files) {
-		t.Errorf("attempt 4 start Owned = %v, want the task's files %v", start.Owned, task.Files)
+		t.Errorf("attempt 3 start Owned = %v, want the task's files %v", start.Owned, task.Files)
 	}
 	if start.CommandGate == nil || start.CommandGate.Name != task.Gate {
-		t.Errorf("attempt 4 start CommandGate = %+v, want the task's gate %s", start.CommandGate, task.Gate)
+		t.Errorf("attempt 3 start CommandGate = %+v, want the task's gate %s", start.CommandGate, task.Gate)
 	}
 	if want := ImplementWorktree(setup.stateDir, setup.epic.ID, task.Seq); start.Workspace != want {
-		t.Errorf("attempt 4 start Workspace = %s, want the task's implement worktree %s", start.Workspace, want)
+		t.Errorf("attempt 3 start Workspace = %s, want the task's implement worktree %s", start.Workspace, want)
 	}
 }
 
@@ -73,7 +73,7 @@ func TestTaskLadderOrchestratorAttemptFallsBackToPlanner(t *testing.T) {
 	t.Parallel()
 	setup := orchAttemptSetup(t, "planner = \""+orchAttemptPlanner+"\"\n")
 	if got := orchAttemptStart(t, setup, store.OrchestratorRung).Agent; got != orchAttemptPlanner {
-		t.Errorf("attempt 4 start Agent = %q, want the planner's agent %q when the role file has no orchestrator key",
+		t.Errorf("attempt 3 start Agent = %q, want the planner's agent %q when the role file has no orchestrator key",
 			got, orchAttemptPlanner)
 	}
 }

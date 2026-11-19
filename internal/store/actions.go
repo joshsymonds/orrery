@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -49,6 +50,8 @@ type EpicActionInput struct {
 	Requirement string
 	Item        evidence.Item
 	Deliverable string
+	Files       []string
+	Remove      []string
 	UndoNone    []int64
 	Reason      string
 }
@@ -83,11 +86,22 @@ func plannerActionOf(row sqlcgen.PlannerAction) (PlannerAction, error) {
 		return PlannerAction{}, fmt.Errorf("item of action %d of turn %d of epic %s: %w",
 			row.Position, row.Turn, row.Epic, err)
 	}
+	files, err := decodeList[string](row.Files)
+	if err != nil {
+		return PlannerAction{}, fmt.Errorf("files of action %d of turn %d of epic %s: %w",
+			row.Position, row.Turn, row.Epic, err)
+	}
+	remove, err := decodeList[string](row.RemoveFiles)
+	if err != nil {
+		return PlannerAction{}, fmt.Errorf("remove files of action %d of turn %d of epic %s: %w",
+			row.Position, row.Turn, row.Epic, err)
+	}
 	return PlannerAction{
 		Epic: row.Epic, Turn: row.Turn, Position: row.Position,
 		EpicActionInput: EpicActionInput{
 			Kind: row.Kind, Node: row.Node, Task: row.Task, Close: row.CloseKind, By: row.ByEpic,
-			Requirement: row.Requirement, Item: item, Deliverable: row.Deliverable, UndoNone: undo, Reason: row.Reason,
+			Requirement: row.Requirement, Item: item, Deliverable: row.Deliverable, Files: files, Remove: remove,
+			UndoNone: undo, Reason: row.Reason,
 		},
 	}, nil
 }
@@ -206,10 +220,11 @@ func carryOutAction(
 	return nil, RefusalError(fmt.Sprintf("%q is not a planner action", action.Kind))
 }
 
-// changeApproach stores the change-of-approach version of the task action names: its deliverable is the action's, and
-// its evidence item is the action's when the item sets any field, which makes the version checking. A task that does not
-// exist, a task that is not open, a task that is not on ApproachRung, and a task that already has a version from
-// SourceApproach are each a RefusalError, and writes nothing.
+// changeApproach stores the change-of-approach version of the task action names: its deliverable is the action's, its
+// evidence item is the action's when the item sets any field, which makes the version checking, and its files are the
+// action's Files added and Remove removed. A task that does not exist, a task that is not open, a task that is not on
+// ApproachRung, a task that already has a version from SourceApproach, and a file the version refuses (refuseApproachFiles)
+// are each a RefusalError, and writes nothing.
 func changeApproach(ctx context.Context, queries *sqlcgen.Queries, action PlannerAction, at time.Time) error {
 	task, err := queries.GetEpicTask(ctx, sqlcgen.GetEpicTaskParams{Epic: action.Epic, Seq: action.Task})
 	if errors.Is(err, sql.ErrNoRows) {
@@ -235,11 +250,102 @@ func changeApproach(ctx context.Context, queries *sqlcgen.Queries, action Planne
 				action.Task, action.Epic))
 		}
 	}
-	in := TaskVersionInput{Source: SourceApproach, Reason: action.Reason, Deliverable: &action.Deliverable}
+	err = refuseApproachFiles(ctx, queries, action)
+	if err != nil {
+		return err
+	}
+	in := TaskVersionInput{
+		Source: SourceApproach, Reason: action.Reason, Deliverable: &action.Deliverable,
+		Files: action.Files, Remove: action.Remove,
+	}
 	if !reflect.ValueOf(action.Item).IsZero() {
 		in.Evidence = &action.Item
 	}
 	return appendTaskVersion(ctx, queries, action.Epic, action.Task, actionDecisionID(action), in, at)
+}
+
+// refuseApproachFiles returns a RefusalError for the files of a change of approach that the task of action cannot have:
+// a file it adds that it already owns, a file it adds that another open task owns, or one an accepted task owns that the
+// epic has not integrated, which the holder names; a file it removes that it does not own; a file both added and
+// removed, or named twice; and a change that would leave the task no files.
+func refuseApproachFiles(ctx context.Context, queries *sqlcgen.Queries, action PlannerAction) error {
+	owned, err := ownedFiles(ctx, queries, action.Epic, action.Task)
+	if err != nil {
+		return err
+	}
+	seen := map[string]bool{}
+	for _, file := range slices.Concat(action.Files, action.Remove) {
+		if seen[file] {
+			return RefusalError(fmt.Sprintf("file %s is named twice", file))
+		}
+		seen[file] = true
+	}
+	for _, file := range action.Remove {
+		if !slices.Contains(owned, file) {
+			return RefusalError(fmt.Sprintf("%s is not one of task %d's files", file, action.Task))
+		}
+	}
+	for _, file := range action.Files {
+		if slices.Contains(owned, file) {
+			return RefusalError(fmt.Sprintf("%s is already one of task %d's files", file, action.Task))
+		}
+	}
+	err = refuseHeldFiles(ctx, queries, action.Epic, action.Task, action.Files)
+	if err != nil {
+		return err
+	}
+	if len(action.Files)+len(action.Remove) > 0 && len(withoutPaths(owned, action.Remove))+len(action.Files) == 0 {
+		return RefusalError(fmt.Sprintf("task %d of epic %s would be left no files", action.Task, action.Epic))
+	}
+	return nil
+}
+
+// refuseHeldFiles returns a RefusalError naming the holder of each of files that another task of the epic holds: an
+// open task that owns it, or an accepted task that owns it and has not been integrated. An accepted task has not been
+// integrated while no integrate batch has claimed it, or while the batch that claimed it has not ended.
+func refuseHeldFiles(ctx context.Context, queries *sqlcgen.Queries, epic string, seq int64, files []string) error {
+	if len(files) == 0 {
+		return nil
+	}
+	tasks, err := queries.ListEpicTasks(ctx, epic)
+	if err != nil {
+		return fmt.Errorf("read tasks of epic %s: %w", epic, err)
+	}
+	rows, err := queries.ListEpicTaskFiles(ctx, epic)
+	if err != nil {
+		return fmt.Errorf("read task files of epic %s: %w", epic, err)
+	}
+	runs, err := readNodeRuns(ctx, queries, epic)
+	if err != nil {
+		return err
+	}
+	for _, row := range rows {
+		if row.Task == seq || !slices.Contains(files, row.Path) {
+			continue
+		}
+		i := slices.IndexFunc(tasks, func(task sqlcgen.EpicTask) bool { return task.Seq == row.Task })
+		if i < 0 {
+			continue
+		}
+		task := tasks[i]
+		switch {
+		case task.Status == taskOpen:
+			return RefusalError(fmt.Sprintf("%s is owned by open T%d", row.Path, row.Task))
+		case task.Status == taskDone && !batchEnded(task.Batch, runs):
+			return RefusalError(fmt.Sprintf("%s is owned by accepted T%d, not yet integrated", row.Path, row.Task))
+		}
+	}
+	return nil
+}
+
+// batchEnded reports whether the integrate batch at path has ended, so the task it claimed is composed or left out. A
+// task no batch claimed has an empty path, and a batch whose run is not among runs has not ended.
+func batchEnded(path string, runs []NodeRun) bool {
+	if path == "" {
+		return false
+	}
+	i := slices.IndexFunc(runs, func(run NodeRun) bool { return run.Path == path })
+	return i >= 0 && runs[i].State == NodeEnded
 }
 
 // failPlannedTask climbs the task action names one rung off the build the task stores, with the planner's reason as the
@@ -444,10 +550,19 @@ func insertActions(
 		if err != nil {
 			return fmt.Errorf("item of action %d of turn %d of epic %s: %w", position, turn, epic, err)
 		}
+		files, err := encodeList(action.Files)
+		if err != nil {
+			return fmt.Errorf("files of action %d of turn %d of epic %s: %w", position, turn, epic, err)
+		}
+		remove, err := encodeList(action.Remove)
+		if err != nil {
+			return fmt.Errorf("remove files of action %d of turn %d of epic %s: %w", position, turn, epic, err)
+		}
 		return queries.InsertPlannerAction(ctx, sqlcgen.InsertPlannerActionParams{
 			Epic: epic, Turn: turn, Position: position, Kind: action.Kind, Node: action.Node, Task: action.Task,
 			CloseKind: action.Close, ByEpic: action.By, UndoNone: string(encoded), Reason: action.Reason,
-			Requirement: action.Requirement, Item: item, Deliverable: action.Deliverable,
+			Requirement: action.Requirement, Item: item, Deliverable: action.Deliverable, Files: files,
+			RemoveFiles: remove,
 		})
 	})
 }

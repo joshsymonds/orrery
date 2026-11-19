@@ -53,7 +53,7 @@ func TestTaskLadderRungsRead(t *testing.T) {
 	}
 	// The rung written last is inserted first, so the read is the one that orders the rows.
 	insertLadder(t, s, []sqlcgen.InsertEpicTaskRungParams{
-		{Epic: id, Task: 1, Rung: 3, Kind: RungRescue, MovedBy: MovedByFinding, Cause: "the claim failed",
+		{Epic: id, Task: 1, Rung: 3, Kind: "rescue", MovedBy: MovedByFinding, Cause: "the claim failed",
 			Gate: "review", Assertion: "the claim", Step: "step-6", Created: 1700000300},
 		{Epic: id, Task: 1, Rung: 1, Kind: RungAttempt, Created: 1700000100},
 		{Epic: id, Task: 1, Rung: 2, Kind: RungAttempt, MovedBy: MovedByUnit, Cause: "the build exited 1",
@@ -73,7 +73,7 @@ func TestTaskLadderRungsRead(t *testing.T) {
 			Ended: time.Unix(1700000250, 0),
 		},
 		{
-			Rung: 3, Kind: RungRescue, MovedBy: MovedByFinding, Cause: "the claim failed", Gate: "review",
+			Rung: 3, Kind: "rescue", MovedBy: MovedByFinding, Cause: "the claim failed", Gate: "review",
 			Assertion: "the claim", Step: "step-6", Created: time.Unix(1700000300, 0),
 		},
 	}

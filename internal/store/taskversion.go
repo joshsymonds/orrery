@@ -13,13 +13,13 @@ import (
 )
 
 // The sources a task spec version can come from. SourcePlanner is the source of version 1, the planner's epic_tasks row,
-// which is never stored as a version row. SourceOrchestrator and SourceGrant are the sources this epic writes; the
-// other three are reserved for a later epic.
+// which is never stored as a version row. SourceOrchestrator writes a rerun, grant or re-brief, SourceGrant a rule's
+// grant of files, SourceApproach the planner's recarve, and SourceCarry the work a climb could not carry onto its base.
+// A version of source rescue is still read from its stored row, though no version is written with that source.
 const (
 	SourcePlanner      = "planner"
 	SourceOrchestrator = "orchestrator"
 	SourceGrant        = "grant"
-	SourceRescue       = "rescue"
 	SourceApproach     = "approach"
 	SourceCarry        = "carry"
 )

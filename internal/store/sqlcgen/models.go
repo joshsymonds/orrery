@@ -437,6 +437,7 @@ type EpicTask struct {
 	AfterTasks  string
 	Question    int64
 	GateChanges string
+	Rebriefs    string
 }
 
 type EpicTaskContribute struct {
@@ -703,6 +704,8 @@ type PlannerAction struct {
 	Requirement string
 	Item        string
 	Deliverable string
+	Files       string
+	RemoveFiles string
 }
 
 type PromptState struct {
