@@ -51,7 +51,9 @@ var memberNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 // HolderAlive reports whether the holder directory dir lives, for the holders of kept grants, and nil means no holder
 // lives. WatchClient watches the client of a detached grant or a requeued request, a process with pid that started at
 // start: exited closes once that process is gone, and stop ends the watch. WatchHolder watches the holder directory dir
-// the same way. A nil WatchClient or WatchHolder means the process or holder is watched through the OS.
+// the same way. A nil WatchClient or WatchHolder means the process or holder is watched through the OS. AfterFunc arms
+// the retry of store writes the store refused, to run its function after the given delay, and nil means
+// time.AfterFunc. Its stop ends an armed retry, as time.Timer.Stop does.
 type Config struct {
 	Host        string
 	Store       *store.Store
@@ -62,7 +64,11 @@ type Config struct {
 	HolderAlive func(dir string) bool
 	WatchClient func(pid int, start int64) (exited <-chan struct{}, stop func())
 	WatchHolder func(dir string) (exited <-chan struct{}, stop func())
+	AfterFunc   func(d time.Duration, f func()) (stop func() bool)
 }
+
+// storeRetry is how long the broker waits before it settles again after the store refused a write.
+const storeRetry = 5 * time.Second
 
 // Request asks for members of pools for Project. Pools holds the pool definitions the client's merged files give,
 // and every needed pool must be among them. ClientPID is the process the grant lasts with. Holder is the absolute
@@ -108,6 +114,8 @@ type Broker struct {
 	// watchClient and watchHolder start the exit watches of detached grants and requeued requests, and are never nil.
 	watchClient func(pid int, start int64) (exited <-chan struct{}, stop func())
 	watchHolder func(dir string) (exited <-chan struct{}, stop func())
+	// afterFunc arms the retry of refused store writes, and is never nil.
+	afterFunc func(d time.Duration, f func()) (stop func() bool)
 
 	// commands counts the member commands in flight, which Close waits for.
 	commands sync.WaitGroup
@@ -136,6 +144,9 @@ type Broker struct {
 	// granted, in whichever pool in use it belongs to, and a hold on a member of no pool in use applies once that pool
 	// comes into use.
 	holds map[string]time.Time
+	// retryArmed is set while the retry of refused store writes is armed, and retryStop stops that retry.
+	retryArmed bool
+	retryStop  func() bool
 	// cancels holds the cancel of each member command in flight, by command id.
 	cancels map[uint64]context.CancelFunc
 }
@@ -235,13 +246,14 @@ func NewBroker(cfg Config) *Broker {
 	broker := &Broker{
 		host: cfg.Host, store: cfg.Store, environ: cfg.Environ, now: cfg.Now, logger: cfg.Logger, alive: cfg.Alive,
 		holderAlive: cfg.HolderAlive, watchClient: cfg.WatchClient, watchHolder: cfg.WatchHolder,
-		done:     make(chan struct{}),
-		pools:    make(map[string]*poolUse),
-		attached: make(map[string]*waiter),
-		detached: make(map[string]*waiter),
-		ending:   make(map[string]*Grant),
-		holds:    make(map[string]time.Time),
-		cancels:  make(map[uint64]context.CancelFunc),
+		afterFunc: cfg.AfterFunc,
+		done:      make(chan struct{}),
+		pools:     make(map[string]*poolUse),
+		attached:  make(map[string]*waiter),
+		detached:  make(map[string]*waiter),
+		ending:    make(map[string]*Grant),
+		holds:     make(map[string]time.Time),
+		cancels:   make(map[uint64]context.CancelFunc),
 	}
 	if broker.now == nil {
 		broker.now = time.Now
@@ -263,6 +275,11 @@ func NewBroker(cfg Config) *Broker {
 	if broker.watchHolder == nil {
 		broker.watchHolder = func(dir string) (<-chan struct{}, func()) {
 			return holderExitWatch(broker.logger, dir)
+		}
+	}
+	if broker.afterFunc == nil {
+		broker.afterFunc = func(d time.Duration, f func()) func() bool {
+			return time.AfterFunc(d, f).Stop
 		}
 	}
 	return broker
@@ -450,7 +467,8 @@ func (b *Broker) endIfDeadLocked(ctx context.Context, entry *waiter) bool {
 // grant's pools come back into use and its members are held again, and the grant waits detached until its client
 // reclaims it by id and pid, or its holder by id and holder. A grant with a held member is stopping, so its reclaim is
 // sent the stop. A detached grant is watched until its client reclaims it or the grant ends, and it ends once neither
-// its client nor its holder keeps it alive.
+// its client nor its holder keeps it alive. Restore starts no member command: a member's status runs once a request
+// waits on its pool.
 func (b *Broker) Restore(ctx context.Context) error {
 	holds, err := b.store.Holds(ctx)
 	if err != nil {
@@ -464,6 +482,7 @@ func (b *Broker) Restore(ctx context.Context) error {
 	storeCtx := context.WithoutCancel(ctx)
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	defer b.armEndingRetryLocked()
 	for _, hold := range holds {
 		b.holds[hold.Member] = hold.Since
 	}
@@ -491,7 +510,7 @@ func (b *Broker) restoreDeadLocked(ctx context.Context, row store.GrantRow) erro
 	}
 	b.logger.WarnContext(ctx, "end grant of dead client; members held until it is removed", "grant", row.ID,
 		"client", row.ClientPID, "err", endErr)
-	kept, _, err := b.holdRowLocked(ctx, row)
+	kept, _, err := b.holdRowLocked(row)
 	if err != nil {
 		return err
 	}
@@ -502,7 +521,7 @@ func (b *Broker) restoreDeadLocked(ctx context.Context, row store.GrantRow) erro
 // restoreLocked keeps a stored grant whose client is alive: it brings each pool the grant names into use, marks each of
 // its members granted, and records the grant as detached.
 func (b *Broker) restoreLocked(ctx context.Context, row store.GrantRow) error {
-	kept, defs, err := b.holdRowLocked(ctx, row)
+	kept, defs, err := b.holdRowLocked(row)
 	if err != nil {
 		return err
 	}
@@ -531,13 +550,13 @@ func (b *Broker) restoreLocked(ctx context.Context, row store.GrantRow) error {
 
 // holdRowLocked brings each pool a stored grant names into use and marks each of its members granted to it. It returns
 // the grant and the pool definitions the row records.
-func (b *Broker) holdRowLocked(ctx context.Context, row store.GrantRow) (*Grant, []pools.Pool, error) {
+func (b *Broker) holdRowLocked(row store.GrantRow) (*Grant, []pools.Pool, error) {
 	defs, err := decodePools(row.Pools)
 	if err != nil {
 		return nil, nil, fmt.Errorf("grant %s: %w", row.ID, err)
 	}
 	for _, def := range defs {
-		b.useLocked(ctx, def)
+		b.useLocked(def)
 	}
 	kept := &Grant{ID: row.ID}
 	for _, stored := range row.Members {
@@ -801,7 +820,8 @@ func (b *Broker) Free(ctx context.Context, member string) error {
 }
 
 // Close stops the broker: calls still blocked return ErrClosed, stored grants stay for the next broker, the exit
-// watches of detached grants and requeued requests stop, and Close waits for the member commands in flight to end.
+// watches of detached grants and requeued requests stop, an armed store retry stops, and Close waits for the member
+// commands in flight to end.
 func (b *Broker) Close() {
 	b.mu.Lock()
 	if b.closed {
@@ -810,6 +830,10 @@ func (b *Broker) Close() {
 	}
 	b.closed = true
 	close(b.done)
+	if b.retryArmed {
+		b.retryStop()
+		b.retryArmed = false
+	}
 	for _, cancel := range b.cancels {
 		cancel()
 	}
@@ -840,7 +864,7 @@ func (b *Broker) enqueue(ctx context.Context, req Request) (*waiter, int, error)
 		return nil, 0, err
 	}
 	for _, def := range needed {
-		b.useLocked(ctx, def)
+		b.useLocked(def)
 	}
 	b.seq++
 	queued := &waiter{
@@ -925,29 +949,29 @@ func (b *Broker) refuseLocked(def pools.Pool) error {
 	return nil
 }
 
-// useLocked brings def's pool into use if it is not already, and starts the status of each member, which is how a
-// member's state is first learned.
-func (b *Broker) useLocked(ctx context.Context, def pools.Pool) {
+// useLocked brings def's pool into use if it is not already. Its members start Unknown, and no command runs for them
+// until a request waits on the pool (see startStatusesLocked).
+func (b *Broker) useLocked(def pools.Pool) {
 	if _, ok := b.pools[def.Name]; ok {
 		return
 	}
 	use := &poolUse{def: def, members: make(map[string]*memberRec, len(def.Members))}
 	b.pools[def.Name] = use
 	for _, name := range def.Members {
-		member := &memberRec{name: name}
-		use.members[name] = member
-		b.startLocked(ctx, use, member, opStatus, def.Status, def.StatusLimit)
+		use.members[name] = &memberRec{name: name}
 	}
 }
 
-// settleLocked runs after every change to the broker: it removes the ended grants the store still holds, then grants the
-// requests Plan grants, prepares the members Plan reserves, and forgets the pools nothing uses. It does nothing once the
-// broker is closed.
+// settleLocked runs after every change to the broker: it removes the ended grants the store still holds, starts the
+// statuses that waiting requests need, then grants the requests Plan grants, prepares the members Plan reserves, and
+// forgets the pools nothing uses. It arms a retry when a grant is left ending. It does nothing once the broker is
+// closed.
 func (b *Broker) settleLocked(ctx context.Context) {
 	if b.closed {
 		return
 	}
 	b.endPendingLocked(ctx)
+	b.startStatusesLocked(ctx)
 	decision := Plan(b.poolViewsLocked(), b.waitingViewsLocked())
 	for _, assignment := range decision.Grants {
 		b.grantLocked(ctx, assignment)
@@ -956,6 +980,55 @@ func (b *Broker) settleLocked(ctx context.Context) {
 		b.prepareLocked(ctx, reserved)
 	}
 	b.forgetLocked()
+	b.armEndingRetryLocked()
+}
+
+// startStatusesLocked starts the status of each member of each pool a queued request needs, when the member is free,
+// no command runs for it, and its state is still Unknown. Plan never reserves an Unknown member, so a request that
+// queues on a pool learns its members' states this way. A status ends in a settle, which sets the member's state, so
+// no settle starts a second status of a member whose state is known.
+func (b *Broker) startStatusesLocked(ctx context.Context) {
+	for name, use := range b.pools {
+		if !b.queuedNeedLocked(name) {
+			continue
+		}
+		for _, memberName := range use.def.Members {
+			member := use.members[memberName]
+			if member.busy || member.grant != "" || member.state != Unknown {
+				continue
+			}
+			b.startLocked(ctx, use, member, opStatus, use.def.Status, use.def.StatusLimit)
+		}
+	}
+}
+
+// armEndingRetryLocked arms the retry when a grant is left ending, that is, when the store refused to remove its row.
+func (b *Broker) armEndingRetryLocked() {
+	if len(b.ending) > 0 {
+		b.armRetryLocked()
+	}
+}
+
+// armRetryLocked arms the one retry of refused store writes, after storeRetry, unless one is armed or the broker is
+// closed. The retry settles the broker again: see retryStore.
+func (b *Broker) armRetryLocked() {
+	if b.retryArmed || b.closed {
+		return
+	}
+	b.retryArmed = true
+	b.retryStop = b.afterFunc(storeRetry, b.retryStore)
+}
+
+// retryStore runs when the armed retry fires. It clears the armed flag and settles the broker, which removes the rows the
+// store takes now and grants the requests it takes now. It does nothing once the broker is closed.
+func (b *Broker) retryStore() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.retryArmed = false
+	if b.closed {
+		return
+	}
+	b.settleLocked(context.Background())
 }
 
 // poolViewsLocked returns the pools in use as Plan reads them, each with its members in declared order. A held member
@@ -1012,8 +1085,8 @@ func (b *Broker) prepareLocked(ctx context.Context, reserved Member) {
 }
 
 // grantLocked grants the members of assignment to the queued request it names. The grant is stored before the request
-// is granted. A store that refuses the grant as busy leaves the request queued and its members free, for a later settle
-// to grant again, and any other store error fails the request and leaves its members free.
+// is granted. A store that refuses the grant as busy leaves the request queued and its members free, and arms the retry
+// that grants it again, and any other store error fails the request and leaves its members free.
 func (b *Broker) grantLocked(ctx context.Context, assignment Assignment) {
 	queued := b.queuedLocked(assignment.Request)
 	id := rand.Text()
@@ -1038,6 +1111,7 @@ func (b *Broker) grantLocked(ctx context.Context, assignment Assignment) {
 		if store.Busy(err) {
 			b.logger.WarnContext(ctx, "store grant refused busy; request kept queued", "grant", id,
 				"project", queued.req.Project, "err", err)
+			b.armRetryLocked()
 			return
 		}
 		b.failLocked(queued, fmt.Errorf("store grant %s: %w", id, err))
