@@ -42,6 +42,8 @@ type Store struct {
 	callerEvent atomic.Pointer[func()]
 	// epicsChanged is the hook OnEpicsChanged sets, nil when none is set.
 	epicsChanged atomic.Pointer[func(epics []string)]
+	// sessionEvents is the hook OnSessionEvents sets, nil when none is set.
+	sessionEvents atomic.Pointer[func(seq int64, sessions []string)]
 }
 
 // SetEngineLive sets the function that SyncServer's prune calls, once per run, for the ids of the engine
