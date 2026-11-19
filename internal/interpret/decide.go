@@ -811,8 +811,9 @@ func (p pass) work(def workflow.Node, run store.NodeRun, act kinds.Action) Actio
 }
 
 // loop decides a running loop by its current round. The round's body walks first, and the round ends once every node
-// of the body has ended. The loop then ends when its until node ended with the until outcome, moves to the next round
-// while rounds remain, and otherwise ends when spent is continue and parks when it is park.
+// of the body has ended. The loop then ends when its until node ended with the until outcome. A loop that names no max
+// moves to the next round while the round's plan planned a task, and otherwise ends with no outcome. A loop with a max
+// moves to the next round while rounds remain, and otherwise ends when spent is continue and parks when it is park.
 func (p pass) loop(def workflow.Node, run store.NodeRun) []Action {
 	body := scope{prefix: fmt.Sprintf("%s@%d/", run.Path, run.LoopRound), round: run.LoopRound, where: loopBody}
 	acts, done := p.walk(def.Body, body)
@@ -821,6 +822,12 @@ func (p pass) loop(def workflow.Node, run store.NodeRun) []Action {
 	}
 	until := def.Loop.Until
 	if p.byPath[body.prefix+until.Node].Outcome == until.Name {
+		return []Action{{Kind: ActEnd, Ends: p.endsUnder(run.Path, "", "")}}
+	}
+	if def.Loop.Max == 0 {
+		if p.planned(body.prefix, def.Body) {
+			return []Action{{Kind: ActRound, Path: run.Path, Round: run.LoopRound}}
+		}
 		return []Action{{Kind: ActEnd, Ends: p.endsUnder(run.Path, "", "")}}
 	}
 	rounds := int64(def.Loop.Max) + run.Granted
@@ -832,6 +839,21 @@ func (p pass) loop(def workflow.Node, run store.NodeRun) []Action {
 	}
 	reason := fmt.Sprintf("loop %s spent its %d rounds without %s.%s", def.ID, rounds, until.Node, until.Name)
 	return []Action{{Kind: ActPark, Path: run.Path, Round: run.LoopRound, Reason: reason}}
+}
+
+// planned reports whether a plan node of a loop body planned a task in the round at prefix: its run holds a task of a
+// turn above the mark it started at. A plan node with no run in the round planned none.
+func (p pass) planned(prefix string, body []workflow.Node) bool {
+	for _, node := range body {
+		run, ran := p.byPath[prefix+node.ID]
+		if node.Kind != kindPlan || !ran {
+			continue
+		}
+		if slices.ContainsFunc(p.rows.Epic.Tasks, func(task store.EpicTask) bool { return task.Turn > run.Mark }) {
+			return true
+		}
+	}
+	return false
 }
 
 // endsUnder returns the end of the run at path with outcome and output, followed by an end with no outcome for each
