@@ -213,8 +213,8 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 .b-row .title-dir { flex: none; font: var(--o-type-small); }
 .b-row .title-line { min-width: 0; overflow: hidden; text-overflow: ellipsis; font: var(--o-type-body); color: var(--o-ink-2); }
 .b-row[data-unseen] .title-line { font-weight: var(--o-font-weight-bold); color: var(--o-ink-1); }
-/* A dock head's title: its directory in mauve, then its line in regular weight. */
-.head h1 .title-line { font-weight: var(--o-font-weight-regular); }
+/* A dock head's title: its directory in the place colour, then its line in regular weight, in type.body. */
+.head h1 .title-line { font: var(--o-type-body); }
 .b-row .age { flex: none; margin-left: auto; font: var(--o-type-small); color: var(--o-ink-3); }
 .b-row[data-unseen] .age { color: var(--o-role-new); }
 /* A list line's ⋯ sits at the line's end, dim until its row is hovered or under the cursor. Its menu hangs under it, right
