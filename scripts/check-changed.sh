@@ -152,7 +152,7 @@ fi
 
 if has '^internal/store/.*\.sql$' || has '^sqlc\.yaml$'; then within sqlc-diff just sqlc-diff; fi
 if has '^proto/'; then within "proto checks" just proto-lint proto-breaking gen-diff; fi
-if printf '%s\n' "$changed" | grep -E '^web/' | grep -vqE '^web/build/'; then within "web checks" just web-check web-page; fi
+if printf '%s\n' "$changed" | grep -E '^(web/|android/app/src/main/kotlin/io/github/joshsymonds/orrery/ui/)' | grep -vqE '^web/build/'; then within "web checks" just web-check web-page; fi
 if has '^observability/'; then within alert-check just alert-check; fi
 if has '^scripts/gate-remote(-test)?\.sh$'; then within gate-remote-test just gate-remote-test; fi
 if has '^scripts/test-deadline(-test)?\.sh$'; then within test-deadline-test just test-deadline-test; fi
