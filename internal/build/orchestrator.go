@@ -31,12 +31,14 @@ const (
 // was before the orchestrator: the task climbs a rung off the request's failure.
 const decisionLimit = 3
 
-// The decisions an orchestrator's return makes.
+// The decisions an orchestrator's return makes. A cannot_meet decision confirms that the task's spec cannot be met as
+// written, and climbs the task straight to rescue, as carry gives it; a fail climbs the task off its failure.
 const (
-	decisionRerun = "rerun"
-	decisionGrant = "grant"
-	decisionFail  = "fail"
-	decisionAsk   = "ask"
+	decisionRerun      = "rerun"
+	decisionGrant      = "grant"
+	decisionCannotMeet = "cannot_meet"
+	decisionFail       = "fail"
+	decisionAsk        = "ask"
 )
 
 // The end of an implementer step whose return failed a check a fourth time, and the check that fails a commit changing a
@@ -88,7 +90,7 @@ const OrchestratorSchema = `{
     "status": {"type": "string", "enum": ["done", "blocked"]},
     "evidence": {"type": "string",
       "description": "What the request comes down to, each fact as file:line or the exact command and its output."},
-    "decision": {"type": "string", "enum": ["", "rerun", "grant", "fail", "ask"]},
+    "decision": {"type": "string", "enum": ["", "rerun", "grant", "cannot_meet", "fail", "ask"]},
     "version": {
       "type": "object",
       "additionalProperties": false,
@@ -119,7 +121,7 @@ const OrchestratorSchema = `{
     },
     "after_tasks": {"type": "array", "items": {"type": "integer"}},
     "failure": {"type": "string",
-      "description": "The task's failure as the planner reads it; cause in the first sentence."},
+      "description": "The task's failure as the planner reads it, for fail and cannot_meet; cause in the first sentence."},
     "needs_files": {"type": "array", "items": {"type": "string"}},
     "question": {
       "type": "object",
@@ -505,8 +507,9 @@ func OrchestratorCheck(task store.EpicTask, peers []Peer) func(json.RawMessage) 
 
 // shapeRefusals returns one `field: reason` line for each rule of its decision's shape that ret breaks. A blocked
 // return names no decision and gives evidence. A done return names a decision and gives a reason. A rerun or grant
-// gives a version under versionShape and leaves failure, needs_files and question empty. A fail gives a failure and
-// leaves version, after_tasks and question empty. An ask gives every question field and leaves the rest empty.
+// gives a version under versionShape and leaves failure, needs_files and question empty. A fail or a cannot_meet gives
+// a failure and leaves version, after_tasks and question empty, with needs_files allowed. An ask gives every question
+// field and leaves the rest empty.
 func shapeRefusals(ret orchestratorReturn) []string {
 	if ret.Status == statusBlocked {
 		var refusals []string
@@ -525,7 +528,7 @@ func shapeRefusals(ret orchestratorReturn) []string {
 	switch ret.Decision {
 	case decisionRerun, decisionGrant:
 		refusals = append(refusals, rerunShape(ret)...)
-	case decisionFail:
+	case decisionFail, decisionCannotMeet:
 		refusals = append(refusals, nonEmpty("failure", ret.Failure)...)
 		refusals = append(refusals, emptyFields(ret.Decision,
 			field{keyVersion, !ret.Version.empty()}, field{keyAfterTasks, len(ret.AfterTasks) > 0},
@@ -833,7 +836,9 @@ func decideOrchestrate(view View) Action {
 // fallbackText gives, held waiting when it names tasks to wait for, and stores the version it returns (versionInput). A
 // rerun that changes the evidence moves the build to red at that rerun instead, so the new evidence is judged at the
 // base before the implementer runs again, and keeps its attempt. A fail climbs the task off its failure and
-// needs_files, moved by a fail decision. An ask holds the build until the owner answers its question.
+// needs_files, moved by a fail decision. A cannot_meet climbs it the same way, moved by a cannot_meet decision, to
+// rescue when the task is below rescue and one rung up otherwise. An ask holds the build until the owner answers its
+// question.
 func carry(view View, ret orchestratorReturn, fallback Action) Action {
 	if refusals := stateRefusals(ret, view.Task, view.Peers, true); len(refusals) > 0 {
 		return refused(fallback, ret.Decision, refusals)
@@ -849,6 +854,15 @@ func carry(view View, ret orchestratorReturn, fallback Action) Action {
 		return Action{
 			Kind: ActFail, Reason: ret.Failure, NeedsFiles: ret.NeedsFiles, Decision: decision,
 			Move: store.RungMove{MovedBy: store.MovedByFailDecision},
+		}
+	case decisionCannotMeet:
+		var to int64
+		if store.RungOf(view.Task.Build) < store.RescueRung {
+			to = store.RescueRung
+		}
+		return Action{
+			Kind: ActFail, Reason: ret.Failure, NeedsFiles: ret.NeedsFiles, Decision: decision,
+			Move: store.RungMove{MovedBy: store.MovedByCannotMeet, To: to},
 		}
 	case decisionAsk:
 		next.Held = HeldAsked
