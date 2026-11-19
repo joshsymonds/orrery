@@ -88,13 +88,18 @@ func refMoveParks(t *testing.T, s *Store, park string) {
 	}
 }
 
-// failedTurnsPark fails three planner turns of a new claimEpic in a row, which parks it.
-func failedTurnsPark(t *testing.T, s *Store, _ string) {
+// freeTurnParks frees the one turn of a new claimEpic with park, which parks the epic as the orchestrator class.
+func freeTurnParks(t *testing.T, s *Store, park string) {
 	t.Helper()
+	ctx := context.Background()
 	createEpic(t, s, fullEpic(claimEpic))
-	claimAndFail(t, s, "first failure")
-	claimAndFail(t, s, "second failure")
-	claimAndFail(t, s, "third failure")
+	turn, err := s.ClaimTurn(ctx, claimEpic, claimedAt())
+	if err != nil {
+		t.Fatalf("ClaimTurn: %v", err)
+	}
+	if err := s.FreeTurn(ctx, claimEpic, turn.Seq, TurnFree{Reason: park, Park: park}, failedAt()); err != nil {
+		t.Fatalf("FreeTurn: %v", err)
+	}
 }
 
 // TestCatastropheParkOpensItsOwnerQuestionAndRoutesItsNotice checks that each owner-class park of a catastrophe, driven
@@ -125,8 +130,8 @@ func TestCatastropheParkOpensItsOwnerQuestionAndRoutesItsNotice(t *testing.T) {
 			park: "refs/heads/main moved and no step explains the move", drive: refMoveParks,
 		},
 		{
-			name: "orchestrator", class: ParkClassOrchestrator, park: parkPrefix + "third failure",
-			drive: failedTurnsPark, turnEnded: true,
+			name: "orchestrator", class: ParkClassOrchestrator, park: "no role file",
+			drive: freeTurnParks, turnEnded: true,
 		},
 	}
 	for _, row := range rows {
@@ -160,8 +165,8 @@ func TestCatastropheParkOpensItsOwnerQuestionAndRoutesItsNotice(t *testing.T) {
 				if len(entry.Tells) != 0 {
 					t.Errorf("tells = %+v, want none: a park that ends a turn adds none", entry.Tells)
 				}
-				if entry.Latest.Seq != 3 || entry.Latest.State != "failed" || entry.Latest.Told {
-					t.Errorf("latest turn = %+v, want the third failed turn, untold", entry.Latest)
+				if entry.Latest.Seq != 1 || entry.Latest.State != "free" || entry.Latest.Told {
+					t.Errorf("latest turn = %+v, want the free turn that parked it, untold", entry.Latest)
 				}
 			} else if len(entry.Tells) != 1 || entry.Tells[0].Text != row.park || entry.Tells[0].Question == nil ||
 				entry.Tells[0].Question.Seq != entry.Open[0].Seq {

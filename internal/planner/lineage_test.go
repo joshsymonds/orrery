@@ -140,85 +140,15 @@ func TestSpentLinesReturnsATriggerReadError(t *testing.T) {
 	}
 }
 
-// spentTasks are the failed tasks of a spent line: T17 then T19, which contribute to R3 and touch the pane test.
-func spentTasks() []store.EpicTask {
-	wiring := []string{"cmd/orreryd/eventwake_wiring_test.go"}
-	return []store.EpicTask{
-		lineTask(17, 9, taskFailed, []string{"R3"}, wiring),
-		lineTask(19, 10, taskFailed, []string{"R3"}, wiring),
-	}
-}
-
-func TestCheckSpentLines(t *testing.T) {
-	t.Parallel()
-	lines := []SpentLine{{Failed: []int64{17, 19}}}
-	again := Task{Title: "the pane test again", Contributes: []string{"R3"}, Files: []string{"cmd/orreryd/other.go"}}
-	sameFile := Task{Title: "same file", Files: []string{"cmd/orreryd/eventwake_wiring_test.go"}}
-	other := Task{Title: "other work", Requirements: []string{"R1"}, Files: []string{"internal/x.go"}}
-	ask := Question{Label: "pane-test"}
-	const triesAgain = `: tries again the line of T19, which has failed 2 times (T17, T19); plan no further try: ` +
-		`ask the owner a catastrophe question, or amend_evidence when the failure is in a Requirement's evidence item`
-	const askOwner = "questions: the line of T19 has failed 2 times (T17, T19); ask the owner a catastrophe question " +
-		"about it, or amend_evidence when the failure is in a Requirement's evidence item"
-	cases := []struct {
-		name  string
-		ret   Return
-		lines []SpentLine
-		want  []string
-	}{
-		{name: "no spent line refuses nothing", ret: Return{Tasks: []Task{again}}},
-		{
-			name: "a task that shares a Requirement or a file with the line is refused, and the owner is asked",
-			ret:  Return{Tasks: []Task{other, again, sameFile}}, lines: lines,
-			want: []string{
-				`tasks[1] "the pane test again"` + triesAgain, `tasks[2] "same file"` + triesAgain, askOwner,
-			},
-		},
-		{
-			name: "a question settles the line, and other work may start beside it",
-			ret:  Return{Tasks: []Task{other}, Questions: []Question{ask}}, lines: lines,
-		},
-		{
-			name: "a question does not let the line be tried again in the same turn",
-			ret:  Return{Tasks: []Task{again}, Questions: []Question{ask}}, lines: lines,
-			want: []string{`tasks[0] "the pane test again"` + triesAgain},
-		},
-		{
-			name:  "amending a Requirement's evidence settles the line",
-			ret:   Return{Actions: []EngineAction{{Kind: store.ActionAmendEvidence, Requirement: "R3"}}},
-			lines: lines,
-		},
-		{
-			name:  "closing the epic settles the line",
-			ret:   Return{Actions: []EngineAction{{Kind: store.ActionCloseEpic, Close: "abandoned"}}},
-			lines: lines,
-		},
-		{
-			name:  "another action does not settle the line",
-			ret:   Return{Actions: []EngineAction{{Kind: store.ActionRetryEpic}}},
-			lines: lines,
-			want:  []string{askOwner},
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			if got := checkSpentLines(tc.ret, tc.lines, spentTasks()); !reflect.DeepEqual(got, tc.want) {
-				t.Errorf("checkSpentLines =\n%q\nwant\n%q", got, tc.want)
-			}
-		})
-	}
-}
-
-func TestPromptListsTheSpentLines(t *testing.T) {
+func TestPlannerInfoPromptListsTheSpentLines(t *testing.T) {
 	t.Parallel()
 	prompt, err := Prompt(syntheticEpic(), 2, syntheticTriggers(), nil, []SpentLine{{Failed: []int64{17, 19}}})
 	if err != nil {
 		t.Fatalf("Prompt: %v", err)
 	}
 	want := "## Spent lines\n- T19 failed after replacing a failed task, so its line has failed 2 times (T17, T19). " +
-		"Plan no further try of it: ask the owner a catastrophe question, or amend_evidence when the failure is in a " +
-		"Requirement's evidence item.\n\n## Last failure\n"
+		"A further try is your judgment: ask the owner a catastrophe question, or amend_evidence when the failure is " +
+		"in a Requirement's evidence item, or plan a try that changes what the failures point at.\n\n## Failed turns\n"
 	if !strings.Contains(prompt, want) {
 		t.Fatalf("prompt lacks %q; prompt:\n%s", want, prompt)
 	}
@@ -261,10 +191,10 @@ func failRunnerTask(t *testing.T, s *store.Store, path string, turn, seq int64) 
 	}
 }
 
-// TestReadoptCheckRefusesAThirdTryOfASpentLine: in the store, T1 fails, turn 2 replaces it with T2, which fails too, so
-// the check of turn 3, which claims T2-failed, refuses a third try and a return that does not ask the owner, and passes
-// one that asks.
-func TestReadoptCheckRefusesAThirdTryOfASpentLine(t *testing.T) {
+// TestPlannerInfoAcceptsAThirdTryOfASpentLine: in the store, T1 fails, turn 2 replaces it with T2, which fails too, so
+// the check of turn 3, which claims T2-failed, accepts a third try of the spent line: the spent line is information in
+// the prompt, and no check refuses a return for it.
+func TestPlannerInfoAcceptsAThirdTryOfASpentLine(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, path := openControlsStore(t)
@@ -287,15 +217,7 @@ func TestReadoptCheckRefusesAThirdTryOfASpentLine(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadoptCheck: %v", err)
 	}
-	want := []string{`tasks[0] "Build it": tries again the line of T2, which has failed 2 times (T1, T2); plan no ` +
-		`further try: ask the owner a catastrophe question, or amend_evidence when the failure is in a ` +
-		`Requirement's evidence item`}
-	if got := check(json.RawMessage(validPlan)); !reflect.DeepEqual(got, want) {
-		t.Errorf("check of a third try = %q, want %q", got, want)
-	}
-	asks := `{"status":"done","decisions":[],"tasks":[],"outline":"ask","questions":[` + storeQuestion +
-		`],"outcome":"wait"}`
-	if got := check(json.RawMessage(asks)); got != nil {
-		t.Errorf("check of a return that asks the owner = %q, want none", got)
+	if got := check(json.RawMessage(validPlan)); got != nil {
+		t.Errorf("check of a third try of a spent line = %q, want none", got)
 	}
 }

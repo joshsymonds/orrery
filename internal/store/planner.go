@@ -731,14 +731,8 @@ func (s *Store) SetTurnStep(ctx context.Context, epic string, turn int64, step s
 // TurnReasonMax is the most bytes a turn's reason and an epic's park reason keep.
 const TurnReasonMax = 1024
 
-// failuresToPark is how many of an epic's latest turns that are not free must all fail to park the epic.
-const failuresToPark = 3
-
 // parkTriggerPrefix starts the id of each pending trigger a planner park adds.
 const parkTriggerPrefix = "park:"
-
-// parkedAfterFailures opens the park reason of an epic whose three latest turns that are not free all failed.
-const parkedAfterFailures = "3 planner turns failed in a row: "
 
 // limitWithoutReset is the epic_turns.resets of a usage limit that names no reset time. A reset time is never negative,
 // so the stored value marks a limit, and it reads back with a zero Resets.
@@ -822,9 +816,9 @@ func pauseEpicAs(ctx context.Context, queries *sqlcgen.Queries, epic, source str
 	return nil
 }
 
-// FailTurn ends the running turn seq of epic as failed with reason, cut to TurnReasonMax bytes, in one write, and
-// returns the triggers it claimed to pending with turn 0. When the epic's three latest turns that are not free are all
-// failed, the same write parks the epic with parkedAfterFailures followed by the stored reason. A turn that is not
+// FailTurn ends the running turn seq of epic as failed with reason, cut to TurnReasonMax bytes, and returns the triggers
+// it claimed to pending with turn 0, in one write. The same write tells the owner the failure as `planner turn <seq>
+// failed: <reason>`. A failed turn parks nothing, so the epic's next turn is claimed as any turn is. A turn that is not
 // running, or does not exist, is ErrTurnNotRunning and writes nothing.
 func (s *Store) FailTurn(ctx context.Context, epic string, turn int64, reason string, at time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
@@ -832,15 +826,7 @@ func (s *Store) FailTurn(ctx context.Context, epic string, turn int64, reason st
 		if err := endTurn(ctx, queries, epic, turn, "failed", stored, at); err != nil {
 			return err
 		}
-		recent, err := queries.ListRecentEpicTurnStates(ctx, epic)
-		if err != nil {
-			return fmt.Errorf("read recent turns of epic %s: %w", epic, err)
-		}
-		if !failedInARow(recent) {
-			return nil
-		}
-		_, err = setParked(ctx, queries, epic, ParkClassOrchestrator, "", parkedAfterFailures+stored, at)
-		return err
+		return insertTell(ctx, queries, epic, fmt.Sprintf("planner turn %d failed: %s", turn, stored), at)
 	})
 }
 
@@ -849,8 +835,8 @@ func (s *Store) FailTurn(ctx context.Context, epic string, turn int64, reason st
 // reset time, and limitWithoutReset for a Limit that names none. Pause pauses the epic as pauseFreed records, and a
 // non-empty Park parks it with that reason, unless the park is void (parkVoided): the epic was retried after the turn
 // was claimed, or no longer holds the park free.DecidedUnder names. The retry prevails over a park decided before it, so
-// the turn ends free and the epic stays unparked. A free turn never counts toward the three failed turns that park an
-// epic. A turn that is not running, or does not exist, is ErrTurnNotRunning and writes nothing.
+// the turn ends free and the epic stays unparked. A turn that is not running, or does not exist, is ErrTurnNotRunning
+// and writes nothing.
 func (s *Store) FreeTurn(ctx context.Context, epic string, turn int64, free TurnFree, at time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		if err := endTurn(ctx, queries, epic, turn, "free", capTurnText(free.Reason), at); err != nil {
@@ -914,20 +900,6 @@ func endTurn(ctx context.Context, queries *sqlcgen.Queries, epic string, turn in
 		return fmt.Errorf("release triggers of turn %d of epic %s: %w", turn, epic, err)
 	}
 	return nil
-}
-
-// failedInARow reports whether states, the states of the latest turns that are not free, newest first, are three
-// failed turns.
-func failedInARow(states []string) bool {
-	if len(states) != failuresToPark {
-		return false
-	}
-	for _, state := range states {
-		if state != "failed" {
-			return false
-		}
-	}
-	return true
 }
 
 // setParked parks epic with reason, cut to TurnReasonMax bytes, as class of subject, in the caller's write. An owner class
