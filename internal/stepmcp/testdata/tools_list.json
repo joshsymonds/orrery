@@ -443,16 +443,33 @@
   },
   {
     "name": "evidence_get",
-    "description": "Return one artifact of an evidence run by its path, or the run's log when name is omitted. The bytes are base64 in the result.",
+    "description": "Return one artifact of an evidence run by its path, or the run's stdout log when name is omitted, or its stderr log with stderr. UTF-8 bytes come back as numbered text lines: the last lines lines, 40 by default; before pages backward to lines numbered below it; match keeps only lines that contain it. Other bytes come back as base64.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "run": {
-          "type": "string"
+          "type": "string",
+          "description": "the id of the evidence run"
         },
         "name": {
           "type": "string",
           "description": "the artifact's repository-relative path; omitted for the run's log"
+        },
+        "stderr": {
+          "type": "boolean",
+          "description": "read the run's stderr log instead of its stdout log; only without name"
+        },
+        "lines": {
+          "type": "integer",
+          "description": "how many lines to return, 40 by default"
+        },
+        "before": {
+          "type": "integer",
+          "description": "return only lines numbered below this one, to page backward"
+        },
+        "match": {
+          "type": "string",
+          "description": "return only lines that contain this text"
         }
       },
       "required": [
