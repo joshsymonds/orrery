@@ -6,6 +6,7 @@ import type { VNode } from "preact";
 import type { Stories } from "./catalog/story";
 import { liveEpoch } from "./fixtures/clock";
 import { shippedSlices } from "./fixtures/slices";
+import { inboxColumn } from "./inboxframe";
 import { InboxRow as InboxRowView, type RowMore } from "./inboxrow";
 import type { MenuEntry } from "./menu";
 import { type Row, rowsFrom } from "./rows";
@@ -37,9 +38,10 @@ function more(row: Row): RowMore {
   return { open: false, items, toggle: noop, close: noop };
 }
 
-// line draws row as one line of the inbox list. cursor, open and hover set the look the row's state takes.
+// line draws row as one line of the inbox list, in the inbox column. cursor, open and hover set the look the row's state
+// takes.
 function line(row: Row, look: { cursor?: boolean; open?: boolean; hover?: boolean } = {}): VNode {
-  return (
+  return inboxColumn(
     <InboxRowView
       row={row}
       now={now}
@@ -49,21 +51,23 @@ function line(row: Row, look: { cursor?: boolean; open?: boolean; hover?: boolea
       more={more(row)}
       onOpen={noop}
       onSeen={noop}
-    />
+    />,
   );
 }
 
+// Each state draws the fixture row round 6's catalogue draws for it: Unseen is the phase row, which is done and new,
+// Cursor is the waiting row, Hover is the done row, and Open and OpenAndCursor are the working row.
 export const InboxRow: Stories = {
   "waiting-question": () => line(rowOf("pane:halyard:%12")),
   working: () => line(rowOf("pane:halyard:%11")),
-  unseen: () => line(rowOf("pane:halyard:%13")),
+  unseen: () => line(rowOf("pane:halyard:%15")),
   done: () => line(rowOf("pane:halyard:%14")),
   failed: () => line(rowOf("pane:brine:%24")),
   idle: () => line(rowOf("pane:halyard:%23")),
   stopped: () => line(rowOf("session:9b5e1a47-2c0d-4e8f-8a31-6d7c0f5b2e90")),
   "cut-off": () => line(rowOf("session:4be0c6d2-8f3a-4c71-9e25-ephemeris001")),
-  cursor: () => line(rowOf("pane:halyard:%14"), { cursor: true }),
-  hover: () => line(rowOf("pane:halyard:%13"), { hover: true }),
-  open: () => line(rowOf("pane:halyard:%12"), { open: true }),
-  "open-and-cursor": () => line(rowOf("pane:halyard:%12"), { cursor: true, open: true }),
+  cursor: () => line(rowOf("pane:halyard:%12"), { cursor: true }),
+  hover: () => line(rowOf("pane:halyard:%14"), { hover: true }),
+  open: () => line(rowOf("pane:halyard:%11"), { open: true }),
+  "open-and-cursor": () => line(rowOf("pane:halyard:%11"), { cursor: true, open: true }),
 };

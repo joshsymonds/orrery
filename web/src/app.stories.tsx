@@ -123,6 +123,23 @@ async function searchFor(root: HTMLElement, words: string): Promise<void> {
   await typeInto(root, searchField, words);
 }
 
+// menuOpenedOn moves the cursor down the list by j, from its top, until the row with key holds it, and then opens that
+// row's More. A click on the row would open the row, so the cursor reaches it by the keyboard.
+async function menuOpenedOn(root: HTMLElement, key: string): Promise<void> {
+  press(document, "g");
+  press(document, "g");
+  const rowSelector = `[data-key="${key}"]`;
+  for (let step = 0; step < 100; step++) {
+    await nextRound();
+    if (root.querySelector(`${rowSelector}.cur`) !== null) {
+      await clickWhen(root, `${rowSelector} button.more`);
+      return;
+    }
+    press(document, "j");
+  }
+  throw new Error(`the cursor never reached ${key}`);
+}
+
 // shownDockBox is the textarea of the dock that is shown: one per column, and the cursor's column is section.read.
 const shownDockBox = "section.read .send > div:not([hidden]) textarea";
 
@@ -242,15 +259,18 @@ export const Page: Stories = {
   "inbox-new": () => <PageStory address={inbox} after={(root) => clickWhen(root, ".inbox-attn .fchip.new")} />,
   "inbox-search": () => <PageStory address={inbox} after={(root) => searchFor(root, "tide")} />,
   "inbox-search-none": () => <PageStory address={inbox} after={(root) => searchFor(root, "harbour-pilot")} />,
-  "inbox-row-menu": () => (
-    <PageStory address={inbox} after={(root) => clickWhen(root, '[data-key="pane:halyard:%12"] button.more')} />
-  ),
+  "inbox-row-menu": () => <PageStory address={inbox} after={(root) => menuOpenedOn(root, "pane:halyard:%12")} />,
   "inbox-folded": () => (
     <PageStory
       address={inbox}
       after={async (root) => {
         await clickWhen(root, 'button.fold[aria-label="Fold orrery"]');
         await clickWhen(root, 'section.dir[aria-label="tidepool"] button.fold-line');
+        await nextRound();
+        // At 1600 the inbox column scrolls inside itself. The ended line opened under tidepool is brought to the column's
+        // top, and orrery's folded card, which sits below it, is then brought into view, so both show.
+        (await drawnWhen(root, 'section.dir[aria-label="tidepool"] button.fold-line')).scrollIntoView({ block: "start" });
+        (await drawnWhen(root, 'section.dir[aria-label="orrery"]')).scrollIntoView({ block: "nearest" });
       }}
     />
   ),

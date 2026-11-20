@@ -6,9 +6,10 @@ import type { VNode } from "preact";
 
 import type { Stories } from "./catalog/story";
 import { ConvoRow as ConvoRowView } from "./convorow";
-import { InboxRow } from "./inboxrow";
 import { liveEpoch } from "./fixtures/clock";
 import { shippedSlices } from "./fixtures/slices";
+import { inboxColumn } from "./inboxframe";
+import { InboxRow } from "./inboxrow";
 import type { MenuEntry } from "./menu";
 import { type Row, rowsFrom } from "./rows";
 import { buildTree, type Convo } from "./tree";
@@ -56,9 +57,9 @@ function row(line: Row): VNode {
   );
 }
 
-// convo draws the conversation with key, and what it steers under it, with the cursor on no thing.
+// convo draws the conversation with key, and what it steers under it, in the inbox column, with the cursor on no thing.
 function convo(key: string): VNode {
-  return <ConvoRowView convo={convoOf(key)} now={now} cursorKey="" renderRow={row} onSelect={noop} />;
+  return inboxColumn(<ConvoRowView convo={convoOf(key)} now={now} cursorKey="" renderRow={row} onSelect={noop} />);
 }
 
 export const ConvoRow: Stories = {
