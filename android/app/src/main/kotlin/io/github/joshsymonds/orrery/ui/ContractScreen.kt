@@ -364,7 +364,7 @@ private fun ratingTone(rating: String): ChipTone = when (rating) {
 }
 
 @Composable
-private fun IdChip(id: String) {
+internal fun IdChip(id: String) {
     Chip(id, ChipTone.Neutral, modifier = Modifier.testTag("idc:$id").semantics { set(IdKindKey, id.take(1)) })
 }
 
@@ -482,9 +482,11 @@ private fun SectionHead(
 }
 
 /**
- * An epic's accepted contract as its own screen: the crumbs orrery, the epic's slug and contract, then [ContractBody]
- * for the epic's contract and requirements. The orrery crumb calls [onHome]; back and the slug crumb call [onBack]. The
- * epic is read off the main thread; a read that fails, or an epic with no contract, says so in the contract's place.
+ * A contract as its own screen: the crumbs orrery, the contract's slug and contract, then the contract's record when
+ * Contracts.Get has one, or else the epic's contract from Epics.Get as [ContractBody] draws it read-only. The orrery
+ * crumb calls [onHome]; back and the slug crumb call [onBack]. The contract is read off the main thread; a read that
+ * fails, or a contract that does not exist, says so in the contract's place. [live], [writer], [onAbout] and [onTalk]
+ * are the record's (see [ContractRecord]).
  */
 @Composable
 fun ContractScreen(
@@ -493,36 +495,55 @@ fun ContractScreen(
     onBack: () -> Unit,
     onHome: () -> Unit,
     modifier: Modifier = Modifier,
+    live: Boolean = false,
+    writer: (String) -> String = { it },
+    onAbout: ((RowAbout) -> Unit)? = null,
+    onTalk: (() -> Unit)? = null,
 ) {
     var load by remember(client, epicId) { mutableStateOf<ContractLoad>(ContractLoad.Loading) }
     LaunchedEffect(client, epicId) {
         load = try {
-            val detail = withContext(Dispatchers.IO) { client.epic(epicId) }
-            if (detail == null) ContractLoad.NotFound else ContractLoad.Loaded(detail)
+            withContext(Dispatchers.IO) { readContract(client, epicId) }
         } catch (error: IOException) {
             ContractLoad.Failed
         }
     }
 
-    val detail = (load as? ContractLoad.Loaded)?.detail
+    val current = load
+    val slug = when (current) {
+        is ContractLoad.Record -> contractSlug(epicId)
+        is ContractLoad.Epic -> current.detail.epic.slug
+        else -> null
+    }
     Column(modifier = modifier.fillMaxSize().testTag("contract-screen")) {
         TitleRow(
             crumbs = listOfNotNull(
                 Crumb("orrery", onHome),
-                detail?.let { Crumb(it.epic.slug, onBack) },
+                slug?.let { Crumb(it, onBack) },
                 Crumb("contract"),
             ),
             onBack = onBack,
         )
-        when (val current = load) {
+        when (current) {
             ContractLoad.Loading -> Text("Loading...", modifier = Modifier.padding(OrreryTokens.Space.sixteen))
             ContractLoad.Failed -> Text(
-                "could not load epic",
+                "contract unavailable",
                 color = OrreryTokens.Role.bad,
                 modifier = Modifier.padding(OrreryTokens.Space.sixteen),
             )
             ContractLoad.NotFound -> Text("epic not found", modifier = Modifier.padding(OrreryTokens.Space.sixteen))
-            is ContractLoad.Loaded -> {
+            is ContractLoad.Record -> ContractRecord(
+                client = client,
+                id = epicId,
+                loaded = current.loaded,
+                onLoaded = { load = ContractLoad.Record(it) },
+                live = live,
+                writer = writer,
+                onAbout = onAbout,
+                onTalk = onTalk,
+                modifier = Modifier.weight(1f),
+            )
+            is ContractLoad.Epic -> {
                 val contract = current.detail.contract
                 if (contract == null) {
                     Text("this epic has no contract", modifier = Modifier.padding(OrreryTokens.Space.sixteen))
@@ -538,9 +559,17 @@ fun ContractScreen(
     }
 }
 
+/** The contract [epicId] names: its record when Contracts.Get has one, else the epic's from Epics.Get. */
+private fun readContract(client: OrreryClient, epicId: String): ContractLoad {
+    readRecord(client, epicId)?.let { return ContractLoad.Record(it) }
+    val detail = client.epic(epicId) ?: return ContractLoad.NotFound
+    return ContractLoad.Epic(detail)
+}
+
 private sealed interface ContractLoad {
     data object Loading : ContractLoad
     data object Failed : ContractLoad
     data object NotFound : ContractLoad
-    data class Loaded(val detail: EpicDetail) : ContractLoad
+    data class Record(val loaded: LoadedRecord) : ContractLoad
+    data class Epic(val detail: EpicDetail) : ContractLoad
 }
