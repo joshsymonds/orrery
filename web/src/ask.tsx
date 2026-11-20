@@ -7,6 +7,7 @@ import { Icon } from "./glyphs";
 import { ageText } from "./inboxrow";
 import { Menu, type MenuEntry } from "./menu";
 import { Sheet } from "./sheet";
+import { ReplyText } from "./text";
 
 // AskPhase is where a session's or pane's answer stands: open, sent and waiting for the stream, or refused.
 export type AskPhase = "open" | "sending" | "error";
@@ -165,7 +166,9 @@ export function Ask(props: AskProps): JSX.Element {
           {more && !narrow && !epic && !sending && <Menu items={declineItems} />}
         </span>
       </div>
-      <p class="q">{model.question}</p>
+      <p class="q">
+        <ReplyText text={model.question} />
+      </p>
       {model.command !== null && (
         <figure class="cmd">
           <figcaption class="t-label">{model.command.tool}</figcaption>

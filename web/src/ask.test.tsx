@@ -191,6 +191,14 @@ function textOf(root: ParentNode, selector: string): string | null {
   return root.querySelector(selector)?.textContent ?? null;
 }
 
+test("AskAnswer: the question's web address is drawn as a link, as the reader draws a reply", () =>
+  withAsk({ model: sessionModel({ question: "Should I follow https://example.com/runbook first?" }) }, async (container) => {
+    const link = container.querySelector<HTMLAnchorElement>(".ask .q a");
+    assert.ok(link, "the address is not drawn as a link inside .ask .q");
+    assert.equal(link.getAttribute("href"), "https://example.com/runbook");
+    assert.equal(container.querySelector(".ask .q")?.textContent, "Should I follow https://example.com/runbook first?");
+  }));
+
 test("AskAnswer: a tap answers its own option once", () => {
   const answers: number[] = [];
   return withAsk(
