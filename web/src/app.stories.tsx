@@ -438,7 +438,7 @@ export const Page: Stories = {
     sendInShownDock(root, "Run it for January too."),
   ),
   "dock-cancelled": fixtureStory(pane17At, dockSlices["dock-cancelled"]),
-  "ask-later": fixtureStory(gatesAt, dockSlices["ask-later"]),
+  "ask-later": fixtureStory(gatesAt, askSlices["ask-later"]),
   keys: () => (
     <PageStory
       address={convoWorkingAt}

@@ -4,9 +4,22 @@
 
 import { create } from "@bufbuild/protobuf";
 
-import { type Pane, WatchConversationResponseSchema, type WatchConversationResponse } from "../gen/orrery/v1/orrery_pb";
+import {
+  ConversationItemSchema,
+  ConversationStateSchema,
+  HeadlessSessionSchema,
+  OpenRequestSchema,
+  PendingEventSchema,
+  SessionsWatchConversationResponseSchema,
+  type ListHeadlessResponse,
+  type Pane,
+  type SessionsWatchConversationResponse,
+  WatchConversationResponseSchema,
+  type WatchConversationResponse,
+} from "../gen/orrery/v1/orrery_pb";
 import { at } from "./clock";
-import { call } from "./panes";
+import { gatesSession } from "./dock";
+import { call, reply } from "./panes";
 import { type Slices, shippedSlices } from "./slices";
 
 const shipped = shippedSlices;
@@ -57,6 +70,10 @@ const manyOptions = [
   { label: "Leave it", description: "Forty shifts is rare. Close this out." },
 ];
 
+// The question commonframe's session asks, which round 6 gives in scenarios-convo.js for ask-stale and ask-later.
+const gatesQuestion =
+  "The AWS fleet won’t launch: the budget pace check puts November spend ahead of today’s line, so it refuses every gate box. How should the gates run?";
+
 // The stale question's options, asked by commonframe, which round 6 gives in scenarios-convo.js.
 const staleOptions = [
   { label: "Raise the budget line by $100 (Recommended)", description: "Wakes resume now; covers the remaining three gates." },
@@ -96,6 +113,55 @@ const answeredFrame = create(WatchConversationResponseSchema, {
   },
 });
 
+// askLater is ask-later's session: Merging main into the story-out client branch, whose question was asked five days ago and
+// is put off. The session takes no events until the question is answered.
+function askLater(): Slices {
+  const session = create(HeadlessSessionSchema, {
+    id: gatesSession,
+    dir: "/home/owner/code/commonframe",
+    label: "Merging main into the story-out client branch",
+    headline: "Merging main into the story-out client branch",
+    state: "waiting",
+    changed: at("@-5d 14:41"),
+    seen: at("@-5d 14:42"),
+    summary: "",
+    question: "",
+    newestReply: at("@-5d 14:41"),
+    putOff: true,
+  });
+  const headless: ListHeadlessResponse = {
+    ...shipped.headless,
+    sessions: [...shipped.headless.sessions, session],
+  };
+  const stream = create(SessionsWatchConversationResponseSchema, {
+    transcript: `${gatesSession}.jsonl`,
+    seq: 1n,
+    reset: true,
+    items: [
+      create(
+        ConversationItemSchema,
+        reply(at("@-5d 14:41"), "No fleet boxes are running at all, so the likely blocker is the budget pace check."),
+      ),
+    ],
+    state: create(ConversationStateSchema, {
+      session,
+      request: create(OpenRequestSchema, {
+        id: "req-gates",
+        kind: "question",
+        question: gatesQuestion,
+        options: ["Raise the budget line by $100 (Recommended)", "Run the gates locally"],
+        putOff: true,
+      }),
+      pending: [create(PendingEventSchema, { id: "ev-gates", kind: "question", waits: "request" })],
+    }),
+  });
+  return {
+    ...shipped,
+    headless,
+    sessionStreams: new Map<string, SessionsWatchConversationResponse>([...shipped.sessionStreams, [gatesSession, stream]]),
+  };
+}
+
 // askSlices holds each Ask page's slices, by its scenario id. ask-session is the shipped beacon, and ask-decline draws the
 // same question, so neither has slices of its own.
 export const askSlices = {
@@ -107,12 +173,12 @@ export const askSlices = {
   })),
   "ask-sending": { ...shipped, hold: new Set([sendKeys]) },
   "ask-error": { ...shipped, fail: new Set([sendKeys]) },
+  "ask-later": askLater(),
   "ask-stale": withPane("%21", (pane) => ({
     ...pane,
     orreryId: "sess-stale-21",
     question: askUser({
-      question:
-        "The AWS fleet won’t launch: the budget pace check puts November spend ahead of today’s line, so it refuses every gate box. How should the gates run?",
+      question: gatesQuestion,
       options: staleOptions,
     }),
   })),

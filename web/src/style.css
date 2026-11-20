@@ -327,7 +327,9 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
   .btn { height: var(--o-size-control-touch); padding: 0 var(--o-space-16); }
   .btn.icon-only { width: var(--o-size-control-touch); padding: 0; }
   .field { height: var(--o-size-control-touch); padding: 0 var(--o-space-12); }
-  .menu-item { height: var(--o-size-control-touch); font: var(--o-type-body); }
+  .menu-item { height: auto; min-height: var(--o-size-control-touch); font: var(--o-type-body); }
+  .menu-item .sub { min-width: 0; white-space: normal; text-align: right; }
+  .menu-item:has(> .sub) > span:not(.sub) { white-space: normal; overflow: visible; }
   .inbox .row { padding: var(--o-space-12) var(--o-space-8); }
   .inbox .row.step { min-height: var(--o-size-control-touch); }
   .dir-head, .fold-line { min-height: var(--o-size-control-touch); }
@@ -541,7 +543,7 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 /* A question you put off: quiet, still answerable, off your list. */
 .ask.later { border-left-color: var(--o-ink-3); background: var(--o-surface-well); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-soft); }
 .ask.later > .head .lbl { color: var(--o-ink-3); }
-.ask > .q { margin: 0; color: var(--o-ink-1); font: var(--o-type-body); font-weight: var(--o-font-weight-regular); overflow-wrap: anywhere; }
+.ask > .q { margin: 0; color: var(--o-ink-1); font: var(--o-type-body); font-weight: var(--o-font-weight-regular); white-space: pre-wrap; overflow-wrap: anywhere; }
 .ask .t-label { color: var(--o-ink-3); }
 .ask .cmd { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--o-space-4); min-width: 0; margin: 0; }
 .ask .cmd pre { margin: 0; padding: var(--o-space-4) var(--o-space-8); border-radius: var(--o-radius-1); background: var(--o-surface-well); color: var(--o-ink-2); font: var(--o-type-small); white-space: pre-wrap; overflow-wrap: anywhere; }

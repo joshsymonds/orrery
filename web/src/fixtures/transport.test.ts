@@ -706,6 +706,27 @@ test("FixtureTransport: page/ask-stale says the question has waited five days, a
   );
 });
 
+test("FixtureTransport: page/ask-later draws round 6's whole question under Put off, with Bring it back and its age five days", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  const question =
+    "The AWS fleet won’t launch: the budget pace check puts November spend ahead of today’s line, so it refuses every gate box. How should the gates run?";
+  return withStory(
+    t,
+    Page["ask-later"],
+    (root) => askText(root, ".lbl") === "Put off",
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(askText(root, ".q"), question, "the question is round 6's whole question");
+      assert.equal(askText(root, ".age"), "· 5d ago", "the age is five days");
+      assert.equal(
+        askOf(root)?.querySelector(".end")?.textContent.includes("Bring it back"),
+        true,
+        "Bring it back is drawn",
+      );
+    },
+  );
+});
+
 test("FixtureTransport: page/ask-decline opens More, and its menu holds Decline and end the turn", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(

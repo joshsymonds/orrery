@@ -92,7 +92,8 @@ function epicAsk(): AskModel {
     kind: "epic",
     who: "lighthouse · rota-export",
     asked: now - twoMinutes,
-    question: "Bump the embedded tz database?",
+    question:
+      "Bump the embedded tz database?\n\nThe pinned database lacks the 2026 Lisbon rule, so one fixture cannot pass. A bump changes go.mod, which is outside this task’s owned files, and the contract says no dependency changes.",
     command: null,
     options: epicOptions,
     putOff: false,
