@@ -163,26 +163,35 @@ class MainActivityNoticesTest {
         .setProblem("")
         .build()
 
-    /** Serves the epic's detail with its summary, its contract and its open question. */
-    private fun serveEpicDetail() {
+    private fun endedEpic(): Epic = Epic.newBuilder(liveEpic()).setLive(false).setOutcome("released").build()
+
+    /** The question the epic waits on, asked two minutes before [NOW]. */
+    private fun openQuestion(): EpicQuestion = EpicQuestion.newBuilder()
+        .setId("Q1")
+        .setText("Synthetic question text?")
+        .setTurn(1L)
+        .setAsked(NOW - 120L)
+        .build()
+
+    /** Serves the epic's detail with its summary, its contract, its [questions] and its [parked] reason, as [epic]. */
+    private fun serveEpicDetail(
+        epic: Epic = liveEpic(),
+        questions: List<EpicQuestion> = listOf(openQuestion()),
+        parked: String = "",
+    ) {
         val contract = EpicContract.newBuilder()
             .setTitle("Synthetic contract title")
             .setIntent("Synthetic intent text.")
             .build()
-        val question = EpicQuestion.newBuilder()
-            .setId("Q1")
-            .setText("Synthetic question text?")
-            .setTurn(1L)
-            .setAsked(NOW - 120L)
-            .build()
         server.respond(
             EPICS_GET_PATH,
             EpicsGetResponse.newBuilder()
-                .setEpic(liveEpic())
+                .setEpic(epic)
                 .addSteps(epicStep())
                 .setSummary(TALL_SUMMARY)
                 .setContract(contract)
-                .addQuestions(question)
+                .addAllQuestions(questions)
+                .setParked(parked)
                 .build(),
         )
     }
@@ -209,6 +218,13 @@ class MainActivityNoticesTest {
         NoticeKey.newBuilder().setLimit("five_hour@1700000000"),
         "limited",
         "Limit reached",
+        NOW - 100,
+    )
+
+    private fun alertNotice(): ListedNotice = notice(
+        NoticeKey.newBuilder().setAlert("DiskFilling"),
+        "firing",
+        "Disk filling",
         NOW - 100,
     )
 
@@ -369,12 +385,62 @@ class MainActivityNoticesTest {
     }
 
     @Test
+    fun aReportRowOpensTheEpicAtItsTopAndBackReturnsToNotices() {
+        serveEpicDetail(epic = endedEpic(), questions = emptyList())
+        serveNotices(epicNotice(block = "report"))
+        val controller = openNoticesFromHome()
+        awaitNode(hasText(EPIC_SLUG))
+
+        composeRule.onNodeWithText(EPIC_SLUG).performClick()
+        awaitShown("epic-summary")
+        awaitNone(hasTestTag(NOTICES_BACK))
+
+        controller.get().onBackPressedDispatcher.onBackPressed()
+
+        awaitNode(hasTestTag(NOTICES_BACK))
+        awaitNone(hasTestTag("epic-summary"))
+    }
+
+    @Test
+    fun aReleaseStepRowOpensTheEpicAtItsNowSectionAndBackReturnsToNotices() {
+        serveEpicDetail(questions = emptyList(), parked = "synthetic park")
+        serveNotices(epicNotice(block = "release_step"))
+        val controller = openNoticesFromHome()
+        awaitNode(hasText(EPIC_SLUG))
+
+        composeRule.onNodeWithText(EPIC_SLUG).performClick()
+        awaitShown("ask-option:1")
+        awaitShown("epic-park-stop")
+        awaitNone(hasTestTag(NOTICES_BACK))
+
+        controller.get().onBackPressedDispatcher.onBackPressed()
+
+        awaitNode(hasTestTag(NOTICES_BACK))
+        awaitNone(hasTestTag("epic-park-stop"))
+    }
+
+    @Test
     fun aLimitRowOpensNothing() {
         serveNotices(limitNotice())
         openNoticesFromHome()
         awaitNode(hasText("Limit reached"))
 
         composeRule.onNodeWithText("Limit reached").performClick()
+        composeRule.awaitUntil("the row is marked seen") { server.requests.count { it.rawPath == NOTICES_SEEN_PATH } == 1 }
+        settle()
+
+        assertTrue(isShown(NOTICES_BACK))
+        assertFalse(isShown("head-back"))
+        assertFalse(isShown("title-back"))
+    }
+
+    @Test
+    fun anAlertRowSendsSeenAndOpensNothing() {
+        serveNotices(alertNotice())
+        openNoticesFromHome()
+        awaitNode(hasText("Disk filling"))
+
+        composeRule.onNodeWithText("Disk filling").performClick()
         composeRule.awaitUntil("the row is marked seen") { server.requests.count { it.rawPath == NOTICES_SEEN_PATH } == 1 }
         settle()
 
