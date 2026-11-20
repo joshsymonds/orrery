@@ -1,8 +1,8 @@
-// Command orrery is the orrery CLI. It owns the command line: the global flags before the subcommand, the exit
-// codes, and the dispatch of each subcommand. It handles serve, desk, mcp, epic, run, gate, evidence, hold, step,
+// Command orrery is the orrery CLI. It owns the command line: the global flags before the subcommand, the exit codes,
+// and the dispatch of each subcommand. It handles serve, desk, mcp, epic, contract, run, gate, evidence, hold, step,
 // holder, help and tmux-conf itself, and the tmux commands open, debug, shell and tree, which act on the tmux server
-// the global flags name. hook runs internal/hook, and events, notices, session, list, seen and send run their
-// handlers in internal/cli.
+// the global flags name. hook runs internal/hook, and events, notices, session, list, seen and send run their handlers
+// in internal/cli.
 package main
 
 import (
@@ -138,6 +138,13 @@ subcommands:
   epic amend ID R<n> --item JSON [--reason TEXT]
                                                 amend R<n>'s evidence item to JSON; it applies only once the new
                                                 item's red at the epic's base is judged not to hold there
+  contract list                                 print the stored contracts as summaries
+  contract get ID                               print a stored contract with its versions and state changes
+  contract propose ID FILE WORDS                store the contract in FILE as version 1, proposed, with WORDS
+  contract revise ID FILE WORDS                 append the contract in FILE as a new version, with WORDS
+  contract accept ID [WORDS]                    accept a proposed contract, with WORDS
+  contract set-aside ID WORDS                   set a contract aside, with WORDS
+  contract reopen ID [WORDS]                    reopen a set-aside contract, with WORDS
   run --needs POOL=N [--needs POOL=N]... -- CMD [ARGS]
                                                 run CMD under a grant of pool members from orreryd
   run status                                    print the pools orreryd runs
@@ -278,6 +285,8 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 		return runMCP(ctx, opts, args, stdin, stdout, getenv)
 	case "epic":
 		return runEpic(ctx, opts, args, stdin, stdout, stderr, getenv)
+	case "contract":
+		return runContract(ctx, opts, args, stdout, getenv)
 	case "run", "gate", "evidence":
 		return orreryCommand(ctx, opts, name, args, stdin, stdout, stderr, getenv)
 	case "hold", "step":
@@ -548,6 +557,19 @@ func runEpic(ctx context.Context, opts globals, args []string, stdin io.Reader, 
 	epics := enginev1connect.NewEpicsClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL,
 		connect.WithInterceptors(stepmcp.CallerInterceptor(getenv)))
 	return epicCommand(ctx, epics, args, stdin, stdout, stderr)
+}
+
+// runContract runs `orrery contract`. It calls the contract tools on the session socket beside the daemon socket, as
+// runEpic does, so the command opens no listener and no store.
+func runContract(ctx context.Context, opts globals, args []string, stdout io.Writer, getenv func(string) string) error {
+	socket, err := protocol.SocketPath(opts.daemonSocket, getenv)
+	if err != nil {
+		return fmt.Errorf("contract: %w", err)
+	}
+	sessionSocket := protocol.SessionSocketPath(socket)
+	contracts := enginev1connect.NewContractsClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL,
+		connect.WithInterceptors(stepmcp.CallerInterceptor(getenv)))
+	return contractCommand(ctx, contracts, args, stdout)
 }
 
 // runServe runs `orrery serve`. It serves the HTTP API for the tmux server named by opts on the loopback address

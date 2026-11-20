@@ -417,7 +417,7 @@ Subcommands:
   - `contract list` makes the call `contract_list`, and `contract get ID` makes `contract_get`.
   - `contract propose ID FILE WORDS` makes `contract_propose`, and `contract revise ID FILE WORDS` makes `contract_revise`. `FILE` is the tool's `path`, read as the tool reads a contract file (see [Step and epic tools](engine-protocol.md#14-step-and-epic-tools)), and `WORDS` is its `words`.
   - `contract accept ID [WORDS]` makes `contract_accept`, `contract set-aside ID WORDS` makes `contract_set_aside`, and `contract reopen ID [WORDS]` makes `contract_reopen`.
-  - A wrong form, with a missing or extra argument, is a usage error that names the forms, and calls nothing.
+  - A wrong form is a usage error and calls nothing: a known verb with a missing or extra argument names that verb's form, and a missing or unknown verb names all seven (`cmd/orrery.contractCommand`, `cmd/orrery.contractForm`).
   - Exit statuses are those of `epic FORM`: `0` after the result is printed, `1` when the call is refused, with its text on stderr as `orrery: TEXT`, and `2` for a usage error.
 
 Exit codes:
