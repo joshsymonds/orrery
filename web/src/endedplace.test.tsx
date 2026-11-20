@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { create, type MessageInitShape } from "@bufbuild/protobuf";
+import { create, type MessageInitShape, toJson } from "@bufbuild/protobuf";
 import { render } from "preact";
 import { act } from "preact/test-utils";
 
@@ -18,6 +18,7 @@ import {
 import type { Address } from "./router";
 import type { Row } from "./rows";
 import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
+import { turn, until } from "./testwait";
 
 // Each test's name carries the token EndedBar: the bar that stands where a stopped or failed conversation's dock was, and
 // the bar in the middle beside an epic whose steerer has no listed row. The no-conversation line is drawn where the bar is
@@ -27,17 +28,20 @@ const now = 1000;
 const repository = "widgets-5d0c1a7";
 const dir = "/home/owner/code/widgets";
 
-// Probe records each path App calls, and holds the checks waiting for a call to be made.
+// Probe records each path App calls, and holds the checks waiting for a call to be made. read holds each epic read until
+// it is released with the epic it answers, and is null while the reads answer at once.
 interface Probe {
   calls: string[];
   waiting: { suffix: string; ready: () => void }[];
+  read: Promise<EpicsGetResponse> | null;
 }
 
 // Mount is what a check gets: the container App draws into, the probe, and rerender, which draws App again with the setup
-// given.
+// given, as the poll does when the epics list changes.
 interface Mount {
   container: HTMLElement;
   probe: Probe;
+  rerender: (setup: Setup) => Promise<void>;
 }
 
 interface Setup {
@@ -78,7 +82,22 @@ async function fakeFetch(probe: Probe, input: RequestInfo | URL, init?: RequestI
       headers: { "content-type": "application/connect+json" },
     });
   }
+  if (path.endsWith("/Get") && probe.read !== null) {
+    return new Response(JSON.stringify(toJson(EpicsGetResponseSchema, await probe.read)), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }
   return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+}
+
+// holdReads makes the probe's epic reads wait, and returns the release that answers the read in hand with reading.
+function holdReads(probe: Probe): (reading: EpicsGetResponse) => void {
+  let release: (reading: EpicsGetResponse) => void = () => undefined;
+  probe.read = new Promise<EpicsGetResponse>((settle) => {
+    release = settle;
+  });
+  return (reading) => release(reading);
 }
 
 function row(init: Partial<Row> & Pick<Row, "key">): Row {
@@ -102,13 +121,13 @@ function row(init: Partial<Row> & Pick<Row, "key">): Row {
   };
 }
 
-// headlessRow is the headless session sessionId in the epic's directory, in the given state.
-function headlessRow(sessionId: string, state: string): Row {
+// headlessRow is the headless session sessionId in the epic's directory, in the given state, under the label given.
+function headlessRow(sessionId: string, state: string, label = "Planned the rota export"): Row {
   return row({
     key: `session:${sessionId}`,
     id: sessionId,
     kind: "session",
-    label: "Planned the rota export",
+    label,
     host: "",
     state,
     archiveId: sessionId,
@@ -154,11 +173,11 @@ function rota(steering: string, init: MessageInitShape<typeof EpicSchema> = {}):
   return epicOf("rota", steering, init);
 }
 
-// draw renders App over the setup at the width it is given.
-function draw(container: HTMLElement, probe: Probe, setup: Setup): Promise<void> {
-  const clients = createClients(
-    createTransport({ baseUrl: "https://orrery.test", fetch: (input, init) => fakeFetch(probe, input, init) }),
-  );
+// Clients are the clients App is drawn with, which a check keeps across its rerenders.
+type Clients = ReturnType<typeof createClients>;
+
+// draw renders App over the setup into container, with the clients given.
+function draw(container: HTMLElement, clients: Clients, setup: Setup): Promise<void> {
   return act(() => {
     render(
       <App
@@ -188,7 +207,10 @@ async function withApp(
   window.innerWidth = width;
   const container = document.createElement("div");
   document.body.append(container);
-  const probe: Probe = { calls: [], waiting: [] };
+  const probe: Probe = { calls: [], waiting: [], read: null };
+  const clients = createClients(
+    createTransport({ baseUrl: "https://orrery.test", fetch: (input, init) => fakeFetch(probe, input, init) }),
+  );
   const teardown = teardownOnce(signal, async () => {
     await act(() => {
       render(null, container);
@@ -197,8 +219,8 @@ async function withApp(
     await removeTestDom(window);
   });
   try {
-    await draw(container, probe, setup);
-    await check({ container, probe });
+    await draw(container, clients, setup);
+    await check({ container, probe, rerender: (next) => draw(container, clients, next) });
   } finally {
     await teardown();
   }
@@ -334,4 +356,34 @@ test("EndedBar: an ended epic and a record epic with no steerer draw the no-conv
       assert.equal(middle.querySelectorAll("button").length, 0, "no control is drawn");
     });
   }
+});
+
+// readingNaming is the epic as Epics.Get answers it, steered by the session given.
+function readingNaming(steering: string): EpicsGetResponse {
+  return create(EpicsGetResponseSchema, { epic: rota(steering), summary: "Ship rota" });
+}
+
+test("EndedBar: Continue on a stopped conversation, with the epics list rerendered naming another steerer while the re-read is held, opens the epic's entry with the middle on the session the read names", (t) => {
+  const named = "sess-rota-next";
+  const rows = [headlessRow(endedSession, "stopped"), headlessRow(named, "running", "Checks the rota export")];
+  const address = sessionAddress(endedSession);
+  return withApp(t.signal, 1600, { rows, epics: view([rota(endedSession)]), address }, async ({ container, probe, rerender }) => {
+    const release = holdReads(probe);
+    const button = continueButton(shownReply(container) ?? container);
+    assert.ok(button !== null, "the bar's Continue button is drawn");
+    await press(button);
+    await called(probe, "/Get");
+    await rerender({ rows, epics: view([rota(named)]), address });
+    assert.equal(container.querySelector(".ended-bar"), null, "the bar is unmounted once the list names another steerer");
+
+    release(readingNaming(named));
+    await until(t.signal, () => container.querySelector(".b-row.epic.cur") !== null, "the cursor reaches the epic's entry", {
+      step: () => act(turn),
+    });
+
+    assert.equal(probe.calls.filter((path) => path.endsWith("/Continue")).length, 1, "Continue is called once");
+    assert.equal(probe.calls.filter((path) => path.endsWith("/Get")).length, 1, "the epic is read once");
+    const reader = container.querySelector<HTMLElement>('section[aria-label="reader"]');
+    assert.equal(reader?.textContent?.includes("Checks the rota export"), true, "the middle is the session the read names");
+  });
 });

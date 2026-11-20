@@ -32,7 +32,7 @@ export function useSteer(epic: string, calls: SteerCalls, onSteered: (session: s
   const [steering, setSteering] = useState<string | null>(null);
   // The state as the last set, so a choice made before the next render sees the call still in flight.
   const latest = useRef<SteerState>({ kind: "ready" });
-  // Whether the host is still mounted, so an answer that arrives after it unmounts changes nothing.
+  // Whether the host is still mounted, so an answer that arrives after it unmounts sets no state of the host's.
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -47,25 +47,24 @@ export function useSteer(epic: string, calls: SteerCalls, onSteered: (session: s
   };
 
   // readBack reads the epic after a call that answered, and steers to the session it names. When the read fails, it steers to
-  // the session the call chose, when that is not empty.
+  // the session the call chose, when that is not empty. The steering goes to onSteered even when the host has unmounted, as
+  // the caller's own state is what it moves; the unmounted host's state is left as it is.
   const readBack = (chosen: string) => {
     calls.get(epic).then(
       (detail) => {
-        if (!mounted.current) {
-          return;
-        }
         const named = detail.epic?.steering ?? "";
-        setSteering(named);
-        set({ kind: "ready" });
+        if (mounted.current) {
+          setSteering(named);
+          set({ kind: "ready" });
+        }
         if (named !== "") {
           onSteered(named);
         }
       },
       () => {
-        if (!mounted.current) {
-          return;
+        if (mounted.current) {
+          set({ kind: "ready" });
         }
-        set({ kind: "ready" });
         if (chosen !== "") {
           onSteered(chosen);
         }

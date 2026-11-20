@@ -422,7 +422,7 @@ test("SteerMenu: an unanswered move whose re-read also fails keeps the rows disa
     assert.deepEqual(steered, []);
   }));
 
-test("SteerMenu: an answer that arrives after the menu unmounts steers nothing", (t) =>
+test("SteerMenu: an answer that arrives after the menu unmounts reaches onSteered once with the session the read names", (t) =>
   withMenu(async (container) => {
     const calls = new FakeCalls();
     const steered: string[] = [];
@@ -435,10 +435,10 @@ test("SteerMenu: an answer that arrives after the menu unmounts steers nothing",
       render(null, container);
     });
     const readDone = settledFlag(calls.gets[0].answer.promise);
-    calls.gets[0].answer.resolve(readingOf("sess-lamp"));
+    calls.gets[0].answer.resolve(readingOf("sess-other"));
     await settle(t, readDone, "the read answers");
 
-    assert.deepEqual(steered, []);
+    assert.deepEqual(steered, ["sess-other"]);
   }));
 
 test("SteerMenu: Escape calls onClose and stops the key inside the menu", () =>
