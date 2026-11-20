@@ -29,18 +29,17 @@ export const storyRenames: Renames = {
   "backgroundrow.tsx": { BackgroundRow: "TaskLine" },
   "blocker.tsx": { QuestionCard: "Ask", AskFirst: "ConfirmButton" },
   "card.tsx": { EpicWidget: "WorkCard" },
-  "composer.tsx": { Composer: "Dock" },
   "eventring.tsx": { EventRing: "EpicEventBlock", StepCard: "StepEndBlock" },
   "evidence.tsx": { EvidenceRuns: "EvidenceRun" },
   "glyphs.tsx": { Icon: "Icons" },
+  "head.tsx": { Head: "Page" },
   "happenings.tsx": { JustHappened: "HappeningList" },
   "inbox.tsx": { Inbox: { module: "app.stories.tsx", story: "Page" } },
   "helppanel.tsx": { KeyList: { module: "app.stories.tsx", story: "Page" } },
   "notices.tsx": { NoticeBanner: "Notice" },
   "picker.tsx": { NewPanel: { module: "app.stories.tsx", story: "Page" } },
-  "stepbox.tsx": { StepBox: "Dock" },
+  "sidepanel.tsx": { SidePanel: "ListPanel" },
   "strip.tsx": { PaneStrip: "MeterStrip" },
-  "talkdock.tsx": { TalkDock: "Dock" },
 };
 
 // isComponent reports whether an export is a component: a function whose name starts with an uppercase letter.

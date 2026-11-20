@@ -18,8 +18,9 @@ const kickText = "Try the sqlite plan first"
 func TestEpicKickReturnsTheEpicWithTheDecisionAndItsPendingTrigger(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	client := newEpicsClient(t, startEpicServer(t, epicTestStore(t)))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	st := epicTestStore(t)
+	client := newEpicsClient(t, startEpicServer(t, st))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 	before := getEpicOK(t, client)
 	seq := int64(len(before.GetDecisions()) + 1)
 	id := fmt.Sprintf("owner-kick:%d", seq)
@@ -58,8 +59,9 @@ func TestEpicKickReturnsTheEpicWithTheDecisionAndItsPendingTrigger(t *testing.T)
 func TestEpicKickRefusesEmptyIDAndBlankTextBeforeTheStore(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	client := newEpicsClient(t, startEpicServer(t, epicTestStore(t)))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	st := epicTestStore(t)
+	client := newEpicsClient(t, startEpicServer(t, st))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 	want := getEpicOK(t, client)
 
 	_, err := client.KickEpic(ctx, connect.NewRequest(&v1.KickEpicRequest{Text: kickText}))
@@ -76,7 +78,7 @@ func TestEpicKickMapsEachStoreRefusalToItsCode(t *testing.T) {
 	ctx := t.Context()
 	st := epicTestStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 	kick := func(id string) error {
 		_, err := client.KickEpic(ctx, connect.NewRequest(&v1.KickEpicRequest{Id: id, Text: kickText}))
 		return err

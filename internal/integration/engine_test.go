@@ -10,9 +10,10 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/joshsymonds/orrery/internal/cli"
 	"github.com/joshsymonds/orrery/internal/holder"
@@ -247,13 +248,34 @@ func fakeClaudePID(t *testing.T, dir string) int {
 	return pid
 }
 
-// waitGone waits until the process pid has exited. It has no deadline of its own. Signal 0 reports a process that no
-// longer exists as ESRCH.
+// waitGone waits until the process pid has exited. Its pidfd turns readable when the process exits, so the wait blocks
+// in the kernel until then. A process already reaped has no pidfd to open (ESRCH), so it is gone at once. It has no
+// deadline of its own.
 func waitGone(t *testing.T, pid int) {
 	t.Helper()
-	for syscall.Kill(pid, 0) != syscall.ESRCH {
+	fd, err := unix.PidfdOpen(pid, 0)
+	if errors.Is(err, unix.ESRCH) {
+		return
+	}
+	if err != nil {
+		t.Fatalf("open pidfd of %d: %v", pid, err)
+	}
+	defer func() {
+		if closeErr := unix.Close(fd); closeErr != nil {
+			t.Errorf("close pidfd of %d: %v", pid, closeErr)
+		}
+	}()
+	fds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}
+	for {
 		stopIfFailed(t)
-		time.Sleep(pollEvery)
+		_, pollErr := unix.Poll(fds, -1)
+		if errors.Is(pollErr, unix.EINTR) {
+			continue
+		}
+		if pollErr != nil {
+			t.Fatalf("poll pidfd of %d: %v", pid, pollErr)
+		}
+		return
 	}
 }
 
@@ -266,10 +288,7 @@ func waitHolderEnded(t *testing.T, dir string) {
 	if err != nil {
 		t.Fatalf("read holder pids in %s: %v", dir, err)
 	}
-	for syscall.Kill(pids.Holder, 0) != syscall.ESRCH {
-		stopIfFailed(t)
-		time.Sleep(pollEvery)
-	}
+	waitGone(t, pids.Holder)
 }
 
 // turn is one message of a conversation rebuilt from stored events.

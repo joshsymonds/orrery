@@ -61,11 +61,11 @@ func TestMirrorAttachFrameBeforeOpenLandsAfterOpen(t *testing.T) {
 
 	// The deferred sync lands once the store is attached, with no further frame.
 	m.Attach(st)
-	awaitPaneRow(t, srv, db)
+	awaitPaneRow(t, m, srv, db)
 
 	sendFrame(t, socket, frameFor(permissionHook, srv.pane, srv.socket))
 	wantOption(t, srv, protocol.OptionState, "waiting")
-	awaitPaneRow(t, srv, db)
+	awaitPaneRow(t, m, srv, db)
 }
 
 func TestMirrorAttachWaitingSyncWritesRow(t *testing.T) {
@@ -148,5 +148,5 @@ func TestMirrorAttachTidyBeforeOpenWaitsThenLandsAfterOpen(t *testing.T) {
 
 	// The deferred tidy lands once the store is attached: it mints the pane's id and writes its row.
 	m.Attach(st)
-	awaitPaneRow(t, srv, db)
+	awaitPaneRow(t, m, srv, db)
 }

@@ -31,7 +31,8 @@ func TestRunnerWaitErrorKeepsTurnRunningUntilStepEnds(t *testing.T) {
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := &flakyWaitSteps{fakeSteps: newFakeSteps()}
-	timers := newHandTimers()
+	steps.watchStore(s)
+	timers := newHandTimers(&steps.changeNotice)
 	var reads atomic.Int64
 	runner := runRunner(t, Config{
 		Store: s, Steps: steps, Agent: agentReturning(runnerAgent, nil, &reads), Retry: runnerRetry, Now: claimedAt,
@@ -39,11 +40,11 @@ func TestRunnerWaitErrorKeepsTurnRunningUntilStepEnds(t *testing.T) {
 	})
 	// Each failed Subscribe arms a retry, which the test fires; the Subscribe after the last failure succeeds.
 	for n := 1; n <= waitFailures; n++ {
-		waitFor(t, "a retry timer to be armed", func() bool { return timers.count() == n })
+		waitFor(t, &steps.changeNotice, "a retry timer to be armed", func() bool { return timers.count() == n })
 		timers.fire(t, n-1)
 	}
-	waitFor(t, "a planner step to start", func() bool { return len(steps.started()) == 1 })
-	waitFor(t, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
+	waitFor(t, &steps.changeNotice, "a planner step to start", func() bool { return len(steps.started()) == 1 })
+	waitFor(t, &steps.changeNotice, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
 
 	// The turn must not end while its step is open, whatever the failed subscribes return.
 	if got := epicOf(t, s).Turns[0].State; got != "running" {
@@ -56,7 +57,12 @@ func TestRunnerWaitErrorKeepsTurnRunningUntilStepEnds(t *testing.T) {
 	}
 
 	steps.end("step-1", store.StepRow{End: "done", Result: validPlan})
-	waitFor(t, "turn 1 to succeed", func() bool { return epicOf(t, s).Turns[0].State == "succeeded" })
+	waitFor(
+		t,
+		&steps.changeNotice,
+		"turn 1 to succeed",
+		func() bool { return epicOf(t, s).Turns[0].State == "succeeded" },
+	)
 	epic := epicOf(t, s)
 	if want := "one task"; epic.Turns[0].Outline != want {
 		t.Errorf("turn 1 outline = %q, want %q", epic.Turns[0].Outline, want)

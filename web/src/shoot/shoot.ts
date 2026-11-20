@@ -1,10 +1,11 @@
 // The shoot driver of just shoot. It serves the catalog build from node:http on 127.0.0.1, opens the catalog's index in
 // Chromium to learn the story names, and writes a screenshot of each named story at each width under web/build/shots,
-// with motion frozen as the visual check froze its pages. It runs from the repository root as
+// with motion frozen as the visual check froze its pages. A run overwrites the shots it writes and keeps the others, so
+// shoots run one after another leave every shot they wrote. It runs from the repository root as
 // web/build/shoot-tool/shoot.mjs, with the catalog directory as its first argument and the arguments of just shoot after
 // it. Every failure is printed to stdout, and the run then exits 1.
 
-import { mkdir, readFile, rm } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { dirname, extname, join, resolve, sep } from "node:path";
@@ -276,7 +277,6 @@ async function run(argv: readonly string[]): Promise<number> {
         console.log(resolved.error);
         return 1;
       }
-      await rm(shotsDir, { recursive: true, force: true });
       for (const name of resolved.names) {
         for (const width of parsed.widths) {
           console.log(await capture(browser, served.origin, name, width));

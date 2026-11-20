@@ -1,9 +1,11 @@
+import { Code, ConnectError } from "@connectrpc/connect";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 
 import * as actions from "./actions";
 import type { Clients } from "./actions";
+import { askingWords, askLines, headBadges, ownAsks, steeredEpics } from "./asks";
 import { epicCallsOf } from "./card";
-import type { ComposerHandle } from "./composer";
+import type { DockHandle } from "./dock";
 import { ContractBody } from "./contract";
 import { type Conversation, shownConversation } from "./conversation";
 import { ConvoRow } from "./convorow";
@@ -17,6 +19,7 @@ import type { InAppNotice, NoticeKey } from "./gen/orrery/v1/notice_pb";
 import type { HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
 import { stateWord } from "./glyphs";
 import { Handover } from "./handover";
+import { type HeadStore, memoryHeadStore } from "./headfold";
 import { KeyList } from "./helppanel";
 import { Inbox } from "./inbox";
 import { ageText, InboxRow, type RowMore, stateWaiting } from "./inboxrow";
@@ -38,20 +41,23 @@ import type { Phase } from "./phases";
 import { NewPanel } from "./picker";
 import { type Viewing, viewingOf } from "./presence";
 import type { ReaderHandle } from "./reader";
-import { type Address, type Entry, formatAddress, type PageView, type View } from "./router";
+import { type Address, type Entry, formatAddress, type ListPanelKind, type PageView, type View } from "./router";
 import { type Row, splitArchived } from "./rows";
 import { realClock, type SeenClock, type SeenWindow, watchSeen } from "./seen";
 import { type SendKind, type Sending, type SentText, sendingEntry, unsentEntries, withoutTexts } from "./sending";
-import { type FindState, headState, ReaderColumn, stepCalls } from "./readercolumn";
+import { type ColumnHead, type FindState, headState, ReaderColumn, stepCalls } from "./readercolumn";
+import { Sheet } from "./sheet";
+import { ListPanel, listHead, SidePanel } from "./sidepanel";
 import { PaneStrip, type StripHost } from "./strip";
 import { Talk, type TalkTarget } from "./talk";
-import { TalkDock } from "./talkdock";
 import { lastPathElement } from "./titleparts";
 import { type InboxMark, TitleRow } from "./titlerow";
 import { Toast } from "./toast";
 import { buildTree, type Convo, type Project } from "./tree";
 import { countsOf, type Narrow, narrow as narrowTree, search as searchTree, waitOrder } from "./treefilter";
+import { type ListThing, type Thing, type WorkConversation, workOf } from "./work";
 import { WorkerSessionPage } from "./workersession";
+import { WorkRail } from "./workrail";
 
 // The inbox's state: pinned beside the page, docked beside it while no row has been opened, hidden once one has, or
 // popped out over the hidden page while the pointer is on the mark or a key has popped it out.
@@ -99,12 +105,6 @@ interface EpicHistory {
   entries: EpicHistoryEntry[];
 }
 
-// The conversation Talk docked beside the epic page, and the epic it opened on: showing another epic closes it.
-interface TalkDockState {
-  epic: string;
-  target: TalkTarget;
-}
-
 // A step a card opened: the epic that holds it and the step's id. The page opens on the step once the epic's detail holds
 // the step.
 interface SteppedTo {
@@ -125,16 +125,34 @@ interface PendingOpen {
   entry: Entry;
 }
 
+// A list panel open beside a session: the key of the session's row it is open on, and the list it shows.
+interface ListOpen {
+  key: string;
+  panel: ListPanelKind;
+}
+
+// What a panel held, which ] reopens once no panel is open: an epic by its id, or a session's list by its open state.
+type Held = { kind: "epic"; id: string } | { kind: "list"; open: ListOpen };
+
 // The row the palette answered: the pane Picker.Run answered, or the session Control.Start started, by its kind and id.
 interface PendingTarget {
   kind: Row["kind"];
   id: string;
 }
 
+// The note a page's More menu left under a row's title row, which names the row it is for.
+interface HeadNote {
+  key: string;
+  text: string;
+}
+
+const noHeadNote: HeadNote = { key: "", text: "" };
+
 const stateWorking = "working";
 // The block kind a notice names when it opens the contract page.
 const contractBlock = "contract";
 const epicUnavailableText = "epic unavailable";
+const noSteererText = "No conversation steers this epic.";
 const seenFailedText = "could not mark seen";
 const answerFailedText = "no answer was sent";
 const takeBackFailedText = "could not take the queued messages back";
@@ -142,6 +160,9 @@ const interruptFailedText = "could not interrupt";
 const commandFailedText = "epic command failed";
 const sessionUnavailableText = "session unavailable";
 const archiveFailedText = "could not change archive";
+const noAnswerText = "the server did not answer";
+// The codes a call's failure reads as the server not answering.
+const noAnswerCodes = new Set([Code.Unavailable, Code.DeadlineExceeded, Code.Unknown]);
 // How long the archive toast stays, in milliseconds on the App's clock, when Undo is not pressed first.
 const toastMs = 5000;
 // The most entries one page of an epic's history asks for.
@@ -150,6 +171,10 @@ const historyPageSize = 200;
 // The query of the wide layout, the same one style.css's wide block uses. Only that layout hides, pops out or pins the
 // inbox: a narrower window always shows it docked, as the stacked layout does.
 const wideQuery = "(min-width: 760px)";
+
+// The query of the layout at 1250px and under, where the epic panel lies over the conversation from the right, beside the
+// rail, rather than taking a track of its own.
+const overlayQuery = "(max-width: 1250px)";
 
 export function App({
   rows,
@@ -168,6 +193,7 @@ export function App({
   onViewing,
   address,
   onAddress,
+  headStore,
 }: {
   rows: Row[];
   // error is a note line the list shows above its rows, for a failure that is not a list's.
@@ -189,6 +215,7 @@ export function App({
   onViewing?: (viewing: Viewing) => void;
   address?: Address;
   onAddress?: (address: Address, mode: "push" | "replace") => void;
+  headStore?: HeadStore;
 }) {
   const [view, setView] = useState<View>("inbox");
   const [cursor, setCursor] = useState<Cursor>({ key: "", index: 0 });
@@ -224,6 +251,16 @@ export function App({
       query.removeEventListener("change", follow);
     };
   }, []);
+  // Whether the window is at 1250px or narrower, read at mount and followed on the query's change event.
+  const [overlay, setOverlay] = useState(() => window.matchMedia(overlayQuery).matches);
+  useEffect(() => {
+    const query = window.matchMedia(overlayQuery);
+    const sync = () => setOverlay(query.matches);
+    query.addEventListener("change", sync);
+    return () => {
+      query.removeEventListener("change", sync);
+    };
+  }, []);
   const listRef = useRef<HTMLDivElement>(null);
   // Whether the picker palette is open.
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -240,8 +277,8 @@ export function App({
   const composerInputs = useRef(new Map<string, HTMLTextAreaElement>());
   const stepInputs = useRef(new Map<string, HTMLTextAreaElement>());
   // The handles of the cursor's and the pinned row's composers, by row key, which an Escape calls.
-  const composerHandles = useRef(new Map<string, ComposerHandle>());
-  const pinnedHandles = useRef(new Map<string, ComposerHandle>());
+  const composerHandles = useRef(new Map<string, DockHandle>());
+  const pinnedHandles = useRef(new Map<string, DockHandle>());
   // The handles of the cursor's and the pinned column's readers. An empty reply box's Page Up and Page Down page them.
   const cursorReader = useRef<ReaderHandle | null>(null);
   const pinnedReader = useRef<ReaderHandle | null>(null);
@@ -272,13 +309,20 @@ export function App({
   const [answerError, setAnswerError] = useState("");
   // The fixed line an Escape leaves when taking queued messages back or interrupting a row fails.
   const [escapeError, setEscapeError] = useState("");
-  // The headless session rows the owner has interrupted, by row key. A marked row reads interrupting in its head's pill
-  // while the list still says it is working, and the mark clears once that state leaves working.
-  const [interrupts, setInterrupts] = useState<Set<string>>(() => new Set());
+  // The headless session rows the owner has interrupted, by row key, each with the turn_since its stream held at the press
+  // (0 when no stream held one). A marked row reads interrupting on its dock's line while the list still says it is
+  // working. The mark clears once the row's stream reports interrupting or a turn other than the one held, or once the
+  // list no longer says working.
+  const [interrupts, setInterrupts] = useState<Map<string, number>>(() => new Map());
   const [archiveError, setArchiveError] = useState("");
   // The row an archive under 760px just archived, which the toast names and Undo unarchives. Each archive makes its own
   // object, so a later archive replaces the toast and restarts its lifetime.
   const [toast, setToast] = useState<{ row: Row } | null>(null);
+  // The per-device store the hidden header is kept in, read once, and whether the header is hidden now. The note a More
+  // menu's archive left is under the title row of the row it names.
+  const [keptHead] = useState<HeadStore>(() => headStore ?? memoryHeadStore());
+  const [headHidden, setHeadHidden] = useState(() => keptHead.hidden());
+  const [headNote, setHeadNote] = useState<HeadNote>(noHeadNote);
   // The key of the entry whose ⋯ menu is open, if any: one menu is open at a time. It counts as open only while the entry
   // is drawn.
   const [menuKey, setMenuKey] = useState<string | null>(null);
@@ -306,8 +350,9 @@ export function App({
   const [opened, setOpened] = useState<OpenedEpic | null>(null);
   // The worker session the page shows, held under the step it belongs to.
   const [sessionStream, setSessionStream] = useState<Stream | null>(null);
-  // The conversation Talk docked beside the epic page, with the epic it opened on.
-  const [talkDock, setTalkDock] = useState<TalkDockState | null>(null);
+  // The list panel open beside a session, and the thing a panel held last, which ] reopens.
+  const [listPanel, setListPanel] = useState<ListOpen | null>(null);
+  const [held, setHeld] = useState<Held | null>(null);
   // The epic page section, and the scroll place a back restores once the page it returns to is drawn.
   const pageRef = useRef<HTMLElement>(null);
   const restorePageScroll = useRef<number | null>(null);
@@ -450,12 +495,16 @@ export function App({
   // The cursor's step, whose reader follows its session and whose step box it shows. An epic entry is no step.
   const cursorStep = cursorItem?.kind === "step" ? cursorItem : null;
   const cursorStepKey = cursorStep?.key ?? "";
-  // The entry the reader follows: the cursor's row or step. Its stream is kept under this key, so a stream never
-  // shows under another entry.
-  const readerKey = cursorRowKey !== "" ? cursorRowKey : cursorStepKey;
-  // The cursor's epic entry, which the epic page draws beside the list. A step entry is no epic entry: its reader shows
-  // alone.
+  // The cursor's epic entry, which the epic panel draws beside the conversation. A step entry is no epic entry: its reader
+  // shows alone.
   const epicEntry = cursorItem?.kind === "epic" ? cursorItem : null;
+  // The epic's steerer: the row of the session that steers it, as the rail names it. The middle row is the row the
+  // reader column draws: the cursor's row, or for an epic entry its steerer's row. The entry the reader follows is the
+  // middle row, or else the cursor's step. Its stream is kept under this key, so a stream never shows under another entry.
+  const steererRow = epicEntry === null ? null : steererOf(rows, epics.listed.get(epicEntry.id)?.steering ?? "");
+  const middleRow = cursorRow ?? steererRow;
+  const middleKey = middleRow?.key ?? "";
+  const readerKey = middleKey !== "" ? middleKey : cursorStepKey;
   // The cursor's epic entry while its ending reads unseen: the seen watch rests on it, and its write marks it seen.
   const restedEpic =
     epicEntry !== null && unseenEnding(epicEntry, epics.listed.get(epicEntry.id), seenEpics) ? epicEntry : null;
@@ -471,9 +520,6 @@ export function App({
   // the epic's detail holds, so a step the detail lacks opens no stream.
   const openStep = !epicPage.closed && epicPage.page.kind === "session" ? epicPage.page.step : "";
   const shownSession = epicDetail?.steps.some((step) => step.id === openStep) === true ? openStep : "";
-  // The dock shows only on the epic it opened on.
-  const docked = talkDock !== null && epicEntry !== null && talkDock.epic === epicEntry.id ? talkDock : null;
-  const epicId = epicEntry?.id ?? "";
   // The epic entry the cursor rests on, when the poll did not load its detail, is asked for once with Epics.Get. A
   // failed answer leaves the page at its unavailable line.
   const askedId = epicEntry?.id ?? "";
@@ -482,9 +528,11 @@ export function App({
   // cursor. So a render that moves the cursor reads the open page, and the page the cursor left is shown only once that
   // reset has run.
   const shownPage = pageCursor.current === cursorKey ? epicPage : openEpicPage;
+  // The list panel the cursor's session row shows: a list is open only while the cursor rests on the row it is open on.
+  const listShown: ListPanelKind | null = listPanel !== null && listPanel.key === cursorRowKey ? listPanel.panel : null;
   // Under 760px the cursor's entry is the address only once it is opened, so the inbox's address names no row.
   const pageDrawn = wide || rowOpened;
-  const shownAddress: Address = { view, entry: pageDrawn ? shownEntry(cursorItem, shownPage) : null };
+  const shownAddress: Address = { view, entry: pageDrawn ? shownEntry(cursorItem, shownPage, listShown) : null };
   const shownForm = formatAddress(shownAddress);
 
   // The held cursor follows the entry shown, so a first render or a clamp does not leave it on a stale key.
@@ -494,19 +542,22 @@ export function App({
     }
   }, [cursor, cursorKey, shownIndex]);
 
-  // The cursor's row or step is followed while the cursor rests on it: a move to another entry, or an unmount, stops the
-  // stream. A step is followed as its session, by its id.
+  // The middle row, or the cursor's step, is followed while the cursor rests on it: a move to another entry, or an unmount,
+  // stops the stream. A step is followed as its session, by its id.
   useEffect(() => {
     let target: Followed | null = null;
-    if (cursorRow !== null) {
-      target = { kind: cursorRow.kind, id: cursorRow.id };
+    if (middleRow !== null) {
+      target = { kind: middleRow.kind, id: middleRow.id };
     } else if (cursorStep !== null) {
       target = { kind: "session", id: cursorStep.id };
     }
     if (target === null) {
       return undefined;
     }
-    const followed = follow(clients, target, (conversation) => setStream({ key: readerKey, conversation }));
+    const followed = follow(clients, target, (conversation) => {
+      setStream({ key: readerKey, conversation });
+      setInterrupts((previous) => withoutTakenOver(previous, readerKey, conversation));
+    });
     cursorOlder.current = followed.older;
     return followed.stop;
   }, [readerKey, clients]);
@@ -525,8 +576,8 @@ export function App({
   }, [shownSession, clients]);
 
   useEffect(() => {
-    setVisited((previous) => keepEntries(previous, rows, cursorRow));
-  }, [rows, cursorRowKey]);
+    setVisited((previous) => keepEntries(previous, rows, middleRow));
+  }, [rows, middleKey]);
 
   useEffect(() => {
     setVisitedSteps((previous) => keepEntries(previous, stepEntries, cursorStep));
@@ -551,9 +602,10 @@ export function App({
     if (pinned === null) {
       return undefined;
     }
-    const followed = follow(clients, { kind: pinned.kind, id: pinned.id }, (conversation) =>
-      setPinStream({ key: pinned.key, conversation }),
-    );
+    const followed = follow(clients, { kind: pinned.kind, id: pinned.id }, (conversation) => {
+      setPinStream({ key: pinned.key, conversation });
+      setInterrupts((previous) => withoutTakenOver(previous, pinned.key, conversation));
+    });
     pinnedOlder.current = followed.older;
     return followed.stop;
   }, [pinnedKey, clients]);
@@ -567,18 +619,20 @@ export function App({
   // mark, as a pinned row keeps its last shape.
   useEffect(() => {
     setInterrupts((previous) => {
-      const kept = [...previous].filter((key) => {
-        const row = rows.find((item) => item.key === key);
-        return row === undefined || row.state === stateWorking;
-      });
-      return kept.length === previous.size ? previous : new Set(kept);
+      const kept = new Map(
+        [...previous].filter(([key]) => {
+          const row = rows.find((item) => item.key === key);
+          return row === undefined || row.state === stateWorking;
+        }),
+      );
+      return kept.size === previous.size ? previous : kept;
     });
   }, [rows]);
 
   // A find bar closes when its column's row changes: the cursor moves to another entry, or the pin closes or moves.
   useEffect(() => {
-    setCursorFind((previous) => (previous !== null && previous.key !== cursorRowKey ? null : previous));
-  }, [cursorRowKey]);
+    setCursorFind((previous) => (previous !== null && previous.key !== middleKey ? null : previous));
+  }, [middleKey]);
   useEffect(() => {
     setPinnedFind((previous) => (previous !== null && previous.key !== pinnedKey ? null : previous));
   }, [pinnedKey]);
@@ -625,19 +679,17 @@ export function App({
     setEpicPage(openEpicPage);
   }, [cursorKey]);
 
+  // A move of the cursor shuts a list panel, unless the cursor moved onto the row the panel is open on.
+  useLayoutEffect(() => {
+    setListPanel((previous) => (previous?.key === cursorKey ? previous : null));
+  }, [cursorKey]);
+
   // onViewing reports the viewing key of the cursor's entry each time that entry's kind or id changes, so the page's
   // presence reports name what it shows.
   const viewed = cursorItem !== null && cursorItem.kind !== "contract" ? cursorItem : null;
   useEffect(() => {
     onViewing?.(viewingOf(viewed));
   }, [viewed?.kind, viewed?.id]);
-
-  // Showing another epic closes the dock. A row or step shows no epic, so the dock is kept across it.
-  useLayoutEffect(() => {
-    if (epicId !== "") {
-      setTalkDock((previous) => (previous?.epic === epicId ? previous : null));
-    }
-  }, [epicId]);
 
   // A back restores the scroll place of the page it returns to before that page is painted.
   useLayoutEffect(() => {
@@ -737,6 +789,23 @@ export function App({
     setArchive(toast.row, false);
   };
 
+  // archiveFromHead archives the row a page's More menu names, through Epics.Archive with the row's archive kind and id. A
+  // landed call marks the row archived, as the list's archive does. A failed one puts its reason under the title row of
+  // that row, and changes nothing.
+  const archiveFromHead = (row: Row) => {
+    if (row.archiveKind === "none") {
+      return;
+    }
+    void clients.epics.archive({ kind: row.archiveKind, id: row.archiveId }).then(
+      () => {
+        setRowMarks((previous) => new Map(previous).set(row.key, true));
+        setHeadNote((previous) => (previous.key === row.key ? noHeadNote : previous));
+      },
+      (error: unknown) =>
+        setHeadNote({ key: row.key, text: `Could not archive this session: ${failureReason(error)}. Nothing changed.` }),
+    );
+  };
+
   // A menu whose entry leaves the list closes, so it does not reopen when the entry returns. While a menu is open, a
   // pointerdown anywhere closes it: the ⋯ and the menu stop their own pointerdowns, so only a press outside reaches here.
   useEffect(() => {
@@ -753,13 +822,14 @@ export function App({
     return () => document.removeEventListener("pointerdown", close);
   }, [menuKey]);
 
-  // answerCursor sends the choice to the cursor's row's waiting question through actions.answer, with the conversation
-  // the reader holds for that row only. A false result or a rejection shows a fixed line; nothing is retried.
+  // answerCursor sends the choice to the middle row's waiting question through actions.answer, with the conversation
+  // the reader holds for that row only. A false result or a rejection shows a fixed line; nothing is retried. While an
+  // epic is open in the panel its question's cards take the digits, so none answers the steering conversation beside it.
   const answerCursor = (choice: 1 | 2 | 3) => {
-    if (cursorRow === null) {
+    if (middleRow === null || (epicEntry !== null && !epicPage.closed)) {
       return;
     }
-    const row = cursorRow;
+    const row = middleRow;
     const conversation = stream !== null && stream.key === row.key ? stream.conversation : null;
     void actions
       .answer(clients, row, conversation, choice)
@@ -827,7 +897,7 @@ export function App({
         label: "Open in a new window",
         icon: "open",
         onSelect: () => {
-          window.open(formatAddress({ view, entry: shownEntry(row, openEpicPage) }), "_blank");
+          window.open(formatAddress({ view, entry: shownEntry(row, openEpicPage, null) }), "_blank");
         },
       },
       ...(row.unseen
@@ -853,7 +923,7 @@ export function App({
   const sessionShown = useMemo(() => shownConversation(sessionStream?.conversation ?? null), [sessionStream]);
   // A column's find bar shows only while its row is the column's. Its matches are the query's over the column's
   // conversation, and its current match is clamped to them where it is read.
-  const cursorFinding = cursorFind !== null && cursorFind.key === cursorRowKey ? cursorFind : null;
+  const cursorFinding = cursorFind !== null && cursorFind.key === middleKey ? cursorFind : null;
   const cursorMatches = useMemo(
     () => findMatches(cursorShown?.items ?? [], cursorFinding?.query ?? ""),
     [cursorShown, cursorFinding?.query],
@@ -867,18 +937,18 @@ export function App({
   const pinnedCurrent = pinnedFinding === null ? -1 : findCurrent(pinnedFinding.current, pinnedMatches.length);
   // The messages each reader shows as sending: its row's entries the conversation it holds has not sent yet.
   const cursorSending =
-    cursorRow === null ? [] : unsentEntries(sendingByRow.get(cursorRow.key) ?? [], cursorConversation, cursorRow.kind);
+    middleRow === null ? [] : unsentEntries(sendingByRow.get(middleRow.key) ?? [], cursorConversation, middleRow.kind);
   const pinnedSending =
     pinned === null ? [] : unsentEntries(sendingByRow.get(pinned.key) ?? [], pinnedConversation, pinned.kind);
   // A stored prompt that a reader's stream holds ends its entry, so the entry leaves the page.
   useEffect(() => {
     setSendingByRow((previous) =>
       pruneSent(previous, [
-        { key: cursorRowKey, kind: cursorRow?.kind ?? "session", conversation: cursorConversation },
+        { key: middleKey, kind: middleRow?.kind ?? "session", conversation: cursorConversation },
         { key: pinnedKey, kind: pinned?.kind ?? "session", conversation: pinnedConversation },
       ]),
     );
-  }, [cursorConversation, pinnedConversation, cursorRowKey, pinnedKey]);
+  }, [cursorConversation, pinnedConversation, middleKey, pinnedKey]);
   // addSending records a message a row's composer sent as it starts. held is the conversation on screen for that row,
   // which anchors a pane's match, or null when the row's stream is not held.
   const addSending = (rowKey: string, sent: SentText, held: Conversation | null) =>
@@ -909,6 +979,13 @@ export function App({
       (column === "pinned" ? pinnedHandles : composerHandles).current.get(row.key)?.append(texts);
     }
   };
+  // markAtPress sets a row's interrupt mark at the press, holding the turn_since its stream holds: the cursor's or the
+  // pin's, whichever streams the row, and 0 when neither does.
+  const markAtPress = (key: string) => {
+    const conversation = key === cursorRowKey ? cursorConversation : key === pinnedKey ? pinnedConversation : null;
+    const turn = Number(conversation?.state?.turnSince ?? 0n);
+    setInterrupts((previous) => new Map(previous).set(key, turn));
+  };
   // escapeRow takes back a row's queued messages and interrupts it when it was working at the press. A pane pulls its
   // queued input back, then gets the Escape key. A session takes back nothing by itself: its interrupt answers the
   // texts of the queued messages Claude cancelled, and those are taken back. A session that is not working is not
@@ -922,7 +999,7 @@ export function App({
     const marked = interrupting && row.kind === "session";
     const failures: string[] = [];
     if (marked) {
-      setInterrupts((previous) => new Set(previous).add(row.key));
+      markAtPress(row.key);
     }
     let texts: string[] = [];
     if (row.kind === "pane") {
@@ -950,8 +1027,28 @@ export function App({
       box.blur();
     }
   };
+  // interruptRow is Send now's interrupt on a session row: the row's interrupt mark is set at once, as Escape sets it, and
+  // cleared when the interrupt is refused. It resolves the texts the interrupt cancelled.
+  const interruptRow = async (row: Row): Promise<string[]> => {
+    markAtPress(row.key);
+    try {
+      return await actions.interrupt(clients, row);
+    } catch (failure) {
+      setInterrupts((previous) => withoutKey(previous, row.key));
+      throw failure;
+    }
+  };
   const toggleOpen = () => setOpen((value) => !value);
   const toggleStrips = () => setStripsShown((value) => !value);
+  // hideHeader hides the phone header until it is opened, and the setting is kept on the device. showHeader opens it.
+  const hideHeader = () => {
+    keptHead.setHidden(true);
+    setHeadHidden(true);
+  };
+  const showHeader = () => {
+    keptHead.setHidden(false);
+    setHeadHidden(false);
+  };
   // drill opens a page over the open one. The open page's scroll place is kept for the back that returns to it, and the
   // new page opens at its top.
   const drill = (next: PageView) => {
@@ -1239,6 +1336,7 @@ export function App({
       if (listHolds(pending, rows, marked)) {
         openEpic(entry.id);
         setOpened({ entry });
+        setRowOpened(true);
         adopt();
         return;
       }
@@ -1246,6 +1344,9 @@ export function App({
       const item = flat.find((candidate) => candidate.key === addressKey(entry));
       if (item !== undefined) {
         selectItem(item);
+        setListPanel(
+          entry.kind === "session" && entry.panel !== undefined ? { key: item.key, panel: entry.panel } : null,
+        );
         setRowOpened(true);
         adopt();
         return;
@@ -1320,8 +1421,8 @@ export function App({
   };
 
   // pageStrip is the strip a page draws under its title row: the host part stripHost names for the row the page shows,
-  // and the context of a pane row's conversation, which the stream holds. A page with no row names the serving host.
-  // m hides every strip, and then a page draws none.
+  // and the context of a pane row's conversation, which the stream holds. A page with no row names the serving host. m
+  // hides every strip, and then a page draws none.
   const pageStrip = (row: Row | null, conversation: Conversation | null) =>
     stripsShown ? (
       <PaneStrip
@@ -1329,6 +1430,42 @@ export function App({
         context={row?.kind === "pane" ? conversation?.state?.context : undefined}
       />
     ) : undefined;
+
+  // headOf is what a row's head draws: the strip's host, the asks its conversation draws, the note the More menu's archive
+  // left for it, and the More menu's items for it. The asks are the epics steered by the row's id, and the row's own
+  // question asks while the row waits and its pane or session is not put off. Under 760px the middle conversation's head
+  // also draws its groups as tiles, since the desk's rail that draws them is not drawn; only the middle column's head
+  // does, since the tiles act on the middle conversation.
+  const headOf = (row: Row, conversation: Conversation | null, middle = false): ColumnHead => {
+    const steering = steeredEpics(row.archiveId, marked.listed.values());
+    const lines = askLines(steering, epics.details);
+    const ownName = ownAsks(row, conversation) ? lastPathElement(row.project) || row.label : null;
+    return {
+      host: stripHost(row, host),
+      showStrip: stripsShown,
+      lines,
+      askingWords: askingWords(ownName, lines),
+      badges: headBadges(steering, lines, conversation?.state?.background ?? []),
+      here: middle && panelOpen && epicEntry !== null ? epicEntry.id : undefined,
+      work:
+        middle && !wide
+          ? { groups: workOf(workConversation(row, conversation), railEpics, now), lit, onOpen: openThing }
+          : undefined,
+      note: headNote.key === row.key ? headNote.text : "",
+      menu: {
+        stripsShown,
+        toggleStrips,
+        markSeen: () => void writeSeen(row),
+        archive: row.archived || row.archiveKind === "none" ? null : () => archiveFromHead(row),
+        keys: () => setHelpOpen((open) => !open),
+      },
+    };
+  };
+
+  // The note under a row's title row is cleared once the row it names leaves both reader columns.
+  useEffect(() => {
+    setHeadNote((previous) => (previous.key === cursorRowKey || previous.key === pinnedKey ? previous : noHeadNote));
+  }, [cursorRowKey, pinnedKey]);
 
   // focusCursorRow moves focus to the list's current row, the row the cursor rests on. A hidden inbox holds that row in
   // the list the page hides, so it is popped out by key first, and the focus waits for the layout effect after the
@@ -1356,15 +1493,137 @@ export function App({
   };
 
   // replyBoxTarget is the row whose reply box is focused, when it is the cursor's or the pinned row's, with the row's
-  // state at the press. A step's box, the talk dock's box and any other box are none.
+  // state at the press. A step's box and any other box are none.
   const replyBoxTarget = (box: HTMLElement): EscapeTarget | null => {
-    if (cursorRow !== null && composerInputs.current.get(cursorRow.key) === box) {
-      return { row: cursorRow, column: "cursor", state: headState(cursorRow, cursorConversation?.state?.pane) };
+    if (middleRow !== null && composerInputs.current.get(middleRow.key) === box) {
+      return { row: middleRow, column: "cursor", state: headState(middleRow, cursorConversation) };
     }
     if (pinned !== null && pinnedInputs.current.get(pinned.key) === box) {
-      return { row: pinned, column: "pinned", state: headState(pinned, pinnedConversation?.state?.pane) };
+      return { row: pinned, column: "pinned", state: headState(pinned, pinnedConversation) };
     }
     return null;
+  };
+
+  // The rail's conversation is the middle row, with its session, whether it is a pane, and the background tasks its stream
+  // holds. Its groups are what it steers, from the epics the list shows, read as the landed seen writes leave them, with
+  // the cursor's epic kept among the just ended so its tile stays while the cursor rests on it.
+  const railEpics = railEpicsOf(marked, seenEpics, epicEntry?.id ?? "");
+  const railConversation: WorkConversation | null =
+    middleRow === null ? null : workConversation(middleRow, cursorConversation);
+  const railGroups = workOf(railConversation, railEpics, now);
+  // The epic panel is open while the cursor rests on an epic entry, its page is not closed, and the page is drawn: under
+  // 760px only once the entry has been opened. Its tile is the rail's tile of that epic, which is lit while the panel is
+  // open, and whose tone the card takes. An epic no conversation steers has no tile, so no tile is lit and the card takes
+  // the quiet tone.
+  const panelOpen = pageDrawn && epicEntry !== null && !epicPage.closed;
+  // Under 760px an open epic is the page in the conversation's place: the conversation is not drawn, and the page's
+  // foot bar opens the steering conversation. At the desk the epic panel lies beside the conversation.
+  const epicPageShown = !wide && panelOpen;
+  const panelThing =
+    epicEntry === null
+      ? undefined
+      : railGroups.flatMap((group) => group.things).find((thing) => thing.key === epicEntry.key);
+  const lit = panelOpen && panelThing !== undefined ? panelThing.key : (listShown ?? "");
+  const panelTone = panelThing?.tone ?? "quiet";
+  // The one panel open beside the conversation is an epic's or a list's. A list's card takes its tile's tone, and its
+  // rows are the tile's tasks, which are empty once the tile is gone.
+  const panelShown = panelOpen || listShown !== null;
+  const listThing = railGroups
+    .flatMap((group) => group.things)
+    .find((thing): thing is ListThing => thing.kind !== "epic" && thing.key === listShown);
+  const listTone = listThing?.tone ?? "quiet";
+  const listTasks = listThing?.tasks ?? [];
+  // What the panel holds while it is open: ] reopens it once it shuts. An epic is held while its panel is open, and a
+  // list while its panel is open on its row.
+  const openHeld: Held | null =
+    panelOpen && epicEntry !== null
+      ? { kind: "epic", id: epicEntry.id }
+      : listShown === null
+        ? null
+        : { kind: "list", open: { key: cursorRowKey, panel: listShown } };
+  const heldKey =
+    openHeld === null
+      ? ""
+      : openHeld.kind === "epic"
+        ? `epic:${openHeld.id}`
+        : `list:${openHeld.open.key}:${openHeld.open.panel}`;
+  useEffect(() => {
+    if (openHeld !== null) {
+      setHeld(openHeld);
+    }
+  }, [heldKey]);
+  // closePanel shuts the epic panel, from its lit tile or its Close. It moves the cursor to the steerer's row, as an open,
+  // when the list shows that row; with no such row in the list, it closes the epic page instead, which under 760px
+  // returns to the inbox.
+  const closePanel = navigated(() => {
+    const target = flat.findIndex((item) => item.key === middleKey);
+    if (middleRow !== null && target >= 0) {
+      moveTo(target);
+    } else {
+      setEpicPage(closedEpicPage);
+      if (!wide) {
+        backToInbox();
+      }
+    }
+  });
+  // openList opens a list panel on the session row it names, moving the cursor onto that row, which holds the panel
+  // open. A row the list does not show opens nothing.
+  const openList = (key: string, panel: ListPanelKind) => {
+    const target = flat.findIndex((item) => item.key === key);
+    if (target < 0) {
+      return;
+    }
+    moveTo(target);
+    setListPanel({ key, panel });
+  };
+  // closeList shuts the list panel, from its lit tile or its Close. The cursor stays on the session's row, so the
+  // address is the session's own.
+  const closeList = navigated(() => setListPanel(null));
+  // openThing is a press on a rail tile. The lit tile shuts its panel, whether it is an epic's or a list's. Another
+  // epic's tile opens that epic as an open, and a list's tile opens the list on the session row the rail reads.
+  const openThing = (thing: Thing) => {
+    if (thing.key === lit) {
+      if (thing.kind === "epic") {
+        closePanel();
+      } else {
+        closeList();
+      }
+      return;
+    }
+    if (thing.kind === "epic") {
+      navigated(openEpic)(thing.id);
+      return;
+    }
+    navigated(openList)(middleKey, thing.kind);
+  };
+  // togglePanel is ]: it shuts the open panel, or with none open reopens the thing the panel held last, as long as the
+  // list still holds it.
+  const togglePanel = () => {
+    if (panelOpen) {
+      closePanel();
+      return;
+    }
+    if (listShown !== null) {
+      closeList();
+      return;
+    }
+    if (held === null) {
+      return;
+    }
+    if (held.kind === "epic") {
+      if (!listsEpic(marked, held.id)) {
+        return;
+      }
+      // An epic shut with no conversation to go to keeps the cursor, so its page is opened again where it is: under
+      // 760px drawn alone.
+      if (cursorKey === `epic:${held.id}`) {
+        navigated(() => (wide ? setEpicPage(openEpicPage) : openPageAlone()))();
+      } else {
+        navigated(openEpic)(held.id);
+      }
+      return;
+    }
+    navigated(openList)(held.open.key, held.open.panel);
   };
 
   // The keys read this render's state and call this render's actions, so the document listener runs the latest context.
@@ -1383,7 +1642,7 @@ export function App({
     cursorRowKey,
     cursorStep,
     cursorStepKey,
-    cursorPane: cursorConversation?.state?.pane,
+    cursorConversation,
     pinned,
     inputRef,
     composerInputs,
@@ -1408,6 +1667,7 @@ export function App({
     closePin,
     togglePin,
     toggleStrips,
+    togglePanel,
     setPickerOpen,
     setMenuKey,
     setFilter: openSearchField,
@@ -1431,6 +1691,13 @@ export function App({
   // poll's detail of its epic, or reads an epic the poll holds no detail of when its listed message changes, and opens
   // the epic through openEpic; a step card opens its step through openEpicStep.
   const epicCalls = epicCallsOf(clients, navigated(openEpic), navigated(openEpicStep), epics);
+
+  // epicPageSection draws the epic section over the epic's detail, or the line that the detail did not load.
+  const epicPageSection = (entry: EpicItem, detail: EpicsGetResponse | undefined) => (
+    <section class={pageClasses(epicPage.move)} aria-label="epic" ref={pageRef}>
+      {detail === undefined ? <p class="side-note">{epicUnavailableText}</p> : pageNode(entry, detail)}
+    </section>
+  );
 
   // pageNode draws the page the section holds over the epic's detail: the epic page, or the contract, the phase output
   // or the worker session the page has moved to.
@@ -1480,6 +1747,7 @@ export function App({
       return (
         <WorkerSessionPage
           conversation={sessionStream !== null && sessionStream.key === page.step ? sessionShown : null}
+          now={now}
           step={step}
           epic={detail.epic?.slug ?? ""}
           task={page.task}
@@ -1495,7 +1763,7 @@ export function App({
         />
       );
     }
-    const openTalk = (target: TalkTarget) => setTalkDock({ epic: entry.id, target });
+    const openTalk = (target: TalkTarget) => setPending({ kind: target.kind, id: target.id });
     return (
       <EpicPage
         detail={detail}
@@ -1567,16 +1835,20 @@ export function App({
     ));
 
   // Under 760px one page draws at a time. The reader and the epic page draw only once an entry has been opened, so the
-  // inbox is the home page until then. The list hides while the opened row's, step's or epic's page draws alone. At
-  // 760px and wider the list and the page sit abreast as before.
-  const readerRow = pageDrawn ? cursorRow : null;
+  // inbox is the home page until then. The list hides while the opened row's, step's or epic's page draws alone, and an
+  // open epic's page takes the conversation's place. At 760px and wider the list, the conversation and the panel or rail
+  // sit abreast.
+  const readerRow = pageDrawn && !epicPageShown ? middleRow : null;
   const readerStep = pageDrawn ? cursorStep : null;
-  const epicShown = pageDrawn && epicEntry !== null && !epicPage.closed;
-  const listHides = !wide && ((rowOpened && (cursorRow !== null || cursorStep !== null)) || epicShown);
+  const listHides = !wide && ((rowOpened && (cursorRow !== null || cursorStep !== null)) || panelOpen);
 
   return (
     <main class="app">
-      <div class={pinned !== null ? "panes split" : "panes"} data-inbox={inboxState}>
+      <div
+        class={`panes${pinned !== null ? " split" : ""}${overlay ? " overlay" : ""}`}
+        data-inbox={inboxState}
+        data-side={panelShown ? "panel" : "rail"}
+      >
         {notices.length > 0 && <NoticeBanner notices={notices} onOpen={openNotice} onDismiss={markNoticeSeen} />}
         <div class="list" ref={listRef} onMouseLeave={() => setPopout("none")} hidden={listHides}>
           <Inbox
@@ -1612,6 +1884,12 @@ export function App({
           interrupts={interrupts}
           mark={inboxMark}
           pageStrip={pageStrip}
+          head={(row, conversation) => headOf(row, conversation, true)}
+          narrow={!wide}
+          hidden={headHidden}
+          onHide={hideHeader}
+          onShow={showHeader}
+          onOpenEpic={navigated(openEpic)}
           onBack={navigated(wide ? focusCursorRow : backToInbox)}
           finding={cursorFinding}
           matches={cursorMatches}
@@ -1628,10 +1906,19 @@ export function App({
           open={open}
           onToggleOpen={toggleOpen}
           onAnswer={answerCursor}
+          onInterrupt={(row) =>
+            void escapeRow({ row, column: "cursor", state: headState(row, cursorConversation) }, null)
+          }
+          interrupt={interruptRow}
           step={readerStep}
           steps={visitedSteps}
           stepInputs={stepInputs}
         />
+        {pageDrawn && epicEntry !== null && steererRow === null && !epicPageShown && (
+          <section class="read" aria-label="no conversation">
+            <p class="side-note">{noSteererText}</p>
+          </section>
+        )}
         <ReaderColumn
           column="pinned"
           clients={clients}
@@ -1642,6 +1929,12 @@ export function App({
           interrupts={interrupts}
           mark={inboxMark}
           pageStrip={pageStrip}
+          head={headOf}
+          narrow={!wide}
+          hidden={headHidden}
+          onHide={hideHeader}
+          onShow={showHeader}
+          onOpenEpic={navigated(openEpic)}
           onBack={closePin}
           finding={pinnedFinding}
           matches={pinnedMatches}
@@ -1656,31 +1949,41 @@ export function App({
           addSending={addSending}
           retractSending={retractSending}
           open={false}
+          interrupt={interruptRow}
+          onInterrupt={(row) =>
+            void escapeRow({ row, column: "pinned", state: headState(row, pinnedConversation) }, null)
+          }
         />
-        <section
-          class={pageClasses(epicPage.move, docked !== null)}
-          aria-label="epic"
-          hidden={!epicShown}
-          ref={pageRef}
-        >
-          {epicEntry !== null &&
-            (epicDetail === undefined ? (
-              <p class="side-note">{epicUnavailableText}</p>
-            ) : (
-              pageNode(epicEntry, epicDetail)
-            ))}
-          {docked !== null && (
-            <TalkDock
-              clients={clients}
-              rows={rows}
-              target={docked.target}
-              onClose={() => setTalkDock(null)}
-              openEpic={openEpic}
-              openStep={openEpicStep}
-              epics={epics}
-            />
-          )}
-        </section>
+        {epicEntry !== null && panelOpen && wide && (
+          <SidePanel label="epic" tone={panelTone} href={shownForm} onClose={closePanel}>
+            {epicPageSection(epicEntry, epicDetail)}
+          </SidePanel>
+        )}
+        {epicEntry !== null && panelOpen && !wide && (
+          <div class="epic-read">
+            {epicPageSection(epicEntry, epicDetail)}
+            <div class="epic-foot">
+              {steererRow === null ? (
+                <p class="side-note">{noSteererText}</p>
+              ) : (
+                <button type="button" class="act" onClick={closePanel}>
+                  Talk to the session that steers it
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+        {listShown !== null && wide && (
+          <SidePanel label={listHead(listShown)} tone={listTone} href={shownForm} onClose={closeList}>
+            <ListPanel kind={listShown} tasks={listTasks} now={now} />
+          </SidePanel>
+        )}
+        {listShown !== null && !wide && (
+          <Sheet title={listHead(listShown)} onClose={closeList}>
+            <ListPanel kind={listShown} tasks={listTasks} now={now} headless />
+          </Sheet>
+        )}
+        {wide && <WorkRail groups={railGroups} lit={lit} layout="rail" onOpen={openThing} />}
       </div>
       {toast !== null && !wide && (
         <Toast text={`Archived “${toast.row.label}”.`} action="Undo" onAction={undoToast} />
@@ -1714,6 +2017,21 @@ function newestEnding(a: EpicItem, b: EpicItem): number {
 // endingKey names one ending of an ended epic: its line's key and the time it ended. A later ending has a new key.
 function endingKey(epic: EpicItem): string {
   return `${epic.key}@${epic.phaseAt}`;
+}
+
+// railEpicsOf is the epics view the rail reads: each just-ended epic whose ending a seen write landed for moves to the
+// ended earlier, as the next poll will read it, and the epic under the cursor stays among the just ended, or joins them
+// from the ended earlier, while the cursor rests on it. Both lists stay newest ending first.
+function railEpicsOf(view: EpicsView, written: Set<string>, cursorEpic: string): EpicsView {
+  const readSeen = (epic: EpicItem) => epic.id !== cursorEpic && written.has(endingKey(epic));
+  const kept = (epic: EpicItem) => epic.id === cursorEpic;
+  return {
+    ...view,
+    justEnded: [...view.justEnded.filter((epic) => !readSeen(epic)), ...view.endedEarlier.filter(kept)].sort(newestEnding),
+    endedEarlier: [...view.endedEarlier.filter((epic) => !kept(epic)), ...view.justEnded.filter(readSeen)].sort(
+      newestEnding,
+    ),
+  };
 }
 
 // unseenEnding says whether an epic's ending reads unseen: the epic is listed as not live, is not archived, was seen
@@ -1825,16 +2143,39 @@ function stripHost(row: Row | null, host: HostStatusResponse | null): StripHost 
     return null;
   }
   if (row !== null && row.kind === "pane" && row.host !== "" && row.host !== host.host) {
-    return { host: row.host, stats: [] };
+    return { host: row.host, stats: [], other: true };
   }
   return host;
 }
 
-// withoutKey is a copy of keys without key.
-function withoutKey(keys: Set<string>, key: string): Set<string> {
-  const next = new Set(keys);
+// failureReason is why a call failed, as a page's note says it: that the server did not answer, for a call that never
+// reached it or failed unavailable, past its deadline or unknown, and the error's own message otherwise.
+function failureReason(error: unknown): string {
+  const failure = ConnectError.from(error);
+  return noAnswerCodes.has(failure.code) ? noAnswerText : failure.rawMessage;
+}
+
+// withoutKey is a copy of marks without key.
+function withoutKey(marks: Map<string, number>, key: string): Map<string, number> {
+  const next = new Map(marks);
   next.delete(key);
   return next;
+}
+
+// withoutTakenOver drops key's interrupt mark once conversation, the stream the page holds for that row, takes over from
+// it: the stream reports interrupting, or a turn other than the one the mark held at the press. A stream with no state
+// yet keeps the mark, and marks comes back as it is when key holds none.
+function withoutTakenOver(
+  marks: Map<string, number>,
+  key: string,
+  conversation: Conversation | null,
+): Map<string, number> {
+  const held = marks.get(key);
+  const state = conversation?.state;
+  if (held === undefined || state === undefined || (!state.interrupting && Number(state.turnSince) === held)) {
+    return marks;
+  }
+  return withoutKey(marks, key);
 }
 
 // pruneSent drops the sent entries of each row whose conversation is held, and returns previous itself when none is sent.
@@ -1890,6 +2231,15 @@ function phaseOfStep(detail: EpicsGetResponse, step: EpicStep): Phase {
   return row?.phase ?? (step.readOnly ? "reviewing" : "implementing");
 }
 
+// steererOf is the row of the session that steers an epic: the row whose archive id is that session, which a row with no
+// archive kind does not carry. An epic no session steers, or whose steerer the rows do not hold, has no row.
+function steererOf(rows: Row[], session: string): Row | null {
+  if (session === "") {
+    return null;
+  }
+  return rows.find((row) => row.archiveKind !== "none" && row.archiveId === session) ?? null;
+}
+
 // resolveIndex finds the cursor's entry, or the index it sat at, clamped into the entries; -1 when there are none.
 function resolveIndex(items: Item[], cursor: Cursor): number {
   if (items.length === 0) {
@@ -1912,15 +2262,26 @@ function noticeEntry(items: Item[], key: NoticeKey | undefined): Item | undefine
   });
 }
 
-// shownEntry is the entry App's address names for the cursor's entry: a row or step by its id, and an epic by its id
-// and its open sub-page. An epic whose page is closed has no entry, and neither has a cursor on nothing.
-function shownEntry(item: Item | null, epicPage: EpicPageState): Entry | null {
+// workConversation is what a row's groups are drawn from: its session, whether it is a pane, and the background tasks
+// its stream holds.
+function workConversation(row: Row, conversation: Conversation | null): WorkConversation {
+  return {
+    session: row.archiveKind === "none" ? "" : row.archiveId,
+    pane: row.kind === "pane",
+    background: conversation?.state?.background ?? [],
+  };
+}
+
+// shownEntry is the entry App's address names for the cursor's entry: a row or step by its id, a session by its id and
+// the list panel open on it, and an epic by its id and its open sub-page. An epic whose page is closed has no entry,
+// and neither has a cursor on nothing.
+function shownEntry(item: Item | null, epicPage: EpicPageState, list: ListPanelKind | null): Entry | null {
   if (item === null) {
     return null;
   }
   switch (item.kind) {
     case "session":
-      return { kind: "session", id: item.id };
+      return list === null ? { kind: "session", id: item.id } : { kind: "session", id: item.id, panel: list };
     case "pane":
       return { kind: "pane", host: item.host, pane: item.id };
     case "step":
@@ -2042,7 +2403,7 @@ function withMember(previous: Set<string>, key: string, member: boolean): Set<st
   return next;
 }
 
-// pageClasses are the classes of the epic page section: its move, and docked while a conversation docks beside it.
-function pageClasses(move: EpicPageState["move"], docked: boolean): string {
-  return ["page", move, docked ? "docked" : ""].filter((name) => name !== "").join(" ");
+// pageClasses are the classes of the epic page section: its move.
+function pageClasses(move: EpicPageState["move"]): string {
+  return ["page", move].filter((name) => name !== "").join(" ");
 }

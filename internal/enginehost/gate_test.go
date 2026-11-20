@@ -59,12 +59,13 @@ func gateProcessGone(pid int) bool {
 	return found && (strings.HasPrefix(after, "Z") || strings.HasPrefix(after, "X"))
 }
 
-// gateWaitGone polls until every pid in pids has exited.
+// gateWaitGone blocks until every pid in pids has exited. Each wait is the kernel's signal of the exit (see
+// gateWaitPidExit), not a poll.
 func gateWaitGone(t *testing.T, pids ...int) {
 	t.Helper()
 	for _, pid := range pids {
-		for !gateProcessGone(pid) {
-			time.Sleep(20 * time.Millisecond)
+		if err := gateWaitPidExit(pid); err != nil {
+			t.Fatalf("wait for process %d to exit: %v", pid, err)
 		}
 	}
 }

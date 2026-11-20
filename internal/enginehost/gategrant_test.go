@@ -25,7 +25,8 @@ import (
 // the granted call send a stop, and a value sent to drop makes the granted call return that error. onEnd runs when the
 // granted call's ctx ends, before the call returns. queue, when not nil, holds each Acquire until it is closed or its ctx
 // ends. err, when not nil, is what Acquire returns without queuing. firstRequest, when not nil, is closed once the first
-// Acquire has recorded its request, before it queues or returns.
+// Acquire has recorded its request, before it queues or returns. watchRequests gives a waiter the channel that takes a
+// notice after each Acquire records its request.
 type fakeGatePools struct {
 	queue        chan struct{}
 	err          error
@@ -33,6 +34,8 @@ type fakeGatePools struct {
 	drop         chan error
 	onEnd        func()
 	firstRequest chan struct{}
+	// asked is the channel watchRequests creates, nil until its first call.
+	asked chan struct{}
 
 	mu       sync.Mutex
 	requests []grants.Request
@@ -46,6 +49,12 @@ func (f *fakeGatePools) Acquire(ctx context.Context, req grants.Request, send fu
 	f.requests = append(f.requests, req)
 	if len(f.requests) == 1 && f.firstRequest != nil {
 		close(f.firstRequest)
+	}
+	if f.asked != nil {
+		select {
+		case f.asked <- struct{}{}:
+		default:
+		}
 	}
 	id := req.GrantID
 	if id == "" {
@@ -107,6 +116,18 @@ func (f *fakeGatePools) Free(context.Context, string) error {
 // stopGrant makes the granted call send its stop, and waits until the call takes it.
 func (f *fakeGatePools) stopGrant() {
 	f.stop <- struct{}{}
+}
+
+// watchRequests returns the channel a waiter takes a notice from after each Acquire records its request. The first call
+// creates it under mu, so a request recorded before that call is counted by the waiter's first check of requested. A
+// notice is sent without blocking, so the channel holds one at a time, and a waiter that takes one counts again.
+func (f *fakeGatePools) watchRequests() <-chan struct{} {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.asked == nil {
+		f.asked = make(chan struct{}, 1)
+	}
+	return f.asked
 }
 
 // requested returns the requests Acquire has been called with, in order.

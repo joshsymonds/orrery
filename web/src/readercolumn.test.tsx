@@ -12,7 +12,7 @@ import type { Conversation } from "./conversation";
 import { noEpics, type StepItem } from "./epics";
 import { EpicStepSchema } from "./gen/orrery/v1/epics_pb";
 import { ConversationItemSchema, ConversationStateSchema, type ConversationItem } from "./gen/orrery/v1/orrery_pb";
-import { ReaderColumn, type ReaderColumnProps } from "./readercolumn";
+import { type ColumnHead, ReaderColumn, type ReaderColumnProps } from "./readercolumn";
 import type { Row } from "./rows";
 import { assertNone, installTestDom, removeTestDom } from "./testdom";
 import type { InboxMark } from "./titlerow";
@@ -37,6 +37,16 @@ const epicCalls: EpicCalls = {
 };
 
 const quietMark: InboxMark = { needs: 0, enter: () => {}, leave: () => {}, pin: () => {} };
+// bareHead is a column's head with no strip, asks, badges or note, and a More menu that does nothing.
+const bareHead: ColumnHead = {
+  host: null,
+  showStrip: false,
+  lines: [],
+  askingWords: "",
+  badges: [],
+  note: "",
+  menu: { stripsShown: false, toggleStrips: () => {}, markSeen: () => {}, archive: null, keys: () => {} },
+};
 
 function item(init: MessageInitShape<typeof ConversationItemSchema>): ConversationItem {
   return create(ConversationItemSchema, init);
@@ -110,6 +120,12 @@ function columnProps(init: Pick<ReaderColumnProps, "column"> & Partial<ReaderCol
     interrupts: new Set(),
     mark: quietMark,
     pageStrip: () => undefined,
+    head: () => bareHead,
+    narrow: false,
+    hidden: false,
+    onHide: () => {},
+    onShow: () => {},
+    onOpenEpic: () => {},
     onBack: () => {},
     finding: null,
     matches: [],
@@ -203,7 +219,7 @@ test("AppSplit: the pinned column draws the pinned reader section, with its repl
   });
 });
 
-test("AppSplit: a step in the cursor column draws its title-row crumbs and its step box", async () => {
+test("AppSplit: a step in the cursor column draws its title-row crumbs and its step dock", async () => {
   const cursorStep = step();
   const props = columnProps({
     column: "cursor",
@@ -220,7 +236,10 @@ test("AppSplit: a step in the cursor column draws its title-row crumbs and its s
     assert.deepEqual(crumbs, ["orrery-web › builder · step · round 2", "builder · T4"]);
 
     const box = section.querySelector(".send > .reply textarea");
-    assert.ok(box, "the step box is drawn under the reply class");
-    assert.equal(box.getAttribute("placeholder"), "Nudge builder · T4: it interrupts the turn, then prompts");
+    assert.ok(box, "the step dock is drawn under the reply class");
+    assert.equal(
+      box.getAttribute("placeholder"),
+      "Nudge builder · T4. It interrupts the turn, then gives it your words",
+    );
   });
 });

@@ -6,7 +6,7 @@ import { EvidenceRuns, type LoadArtifact } from "./evidence";
 import type { EpicTaskReview, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 import { type Attempt, type CheckRound, type PhaseOutput, type PhaseRow, phaseOutputOf } from "./phaserows";
 import { durationText, type Phase } from "./phases";
-import { outcomeOf } from "./stepbox";
+import { outcomeOf } from "./refusal";
 import { type Crumb, type InboxMark, TitleRow } from "./titlerow";
 
 // PhaseOutputPage is one task's phase output: a title row with Hold and Stop… while a step runs, the task's title and

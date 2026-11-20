@@ -396,10 +396,12 @@ func fullContract() *v1.EpicContract {
 	}
 }
 
-// fullCreateRequest is a create request whose contract and seed decisions set every field.
+// fullCreateRequest is a create request that names fullContract by its id and base, with seed decisions that set every
+// field.
 func fullCreateRequest() *v1.CreateEpicRequest {
 	return &v1.CreateEpicRequest{
-		Contract: fullContract(),
+		Id:   fullContract().GetId(),
+		Base: fullContract().GetBase(),
 		Decisions: []*v1.EpicDecisionInput{
 			{Id: "D1", Text: "Build passkey login."},
 			{Id: "D2", Text: "Keep password login."},
@@ -518,7 +520,7 @@ func TestToolsListNamesTheTenEpicTools(t *testing.T) {
 	}
 }
 
-func TestEpicCreateSendsEveryContractFieldAndSeedDecision(t *testing.T) {
+func TestContractEpicCreateSendsIDBaseDecisionsAndWorkflow(t *testing.T) {
 	want := fullCreateRequest()
 	assertFullyPopulated(t, want.ProtoReflect(), "CreateEpicRequest")
 	fake := &fakeEpics{createReply: &v1.CreateEpicResponse{Epic: storedEpicOf(fullContract())}}
@@ -546,8 +548,8 @@ func TestEpicCreateWithoutDecisionsSendsNoSeedDecisions(t *testing.T) {
 	fake := &fakeEpics{createReply: &v1.CreateEpicResponse{Epic: storedEpicOf(fullContract())}}
 	p := newPeer(t, nil, fake)
 
-	contract := marshalProto(t, &v1.CreateEpicRequest{Contract: fullContract()})
-	outcome := p.tool("epic_create", contract)
+	request := marshalProto(t, &v1.CreateEpicRequest{Id: fullContract().GetId()})
+	outcome := p.tool("epic_create", request)
 
 	if outcome.isError {
 		t.Fatalf("epic_create returned an error: %s", outcome.text)
@@ -555,6 +557,20 @@ func TestEpicCreateWithoutDecisionsSendsNoSeedDecisions(t *testing.T) {
 	calls := fake.calls().creates
 	if len(calls) != 1 || len(calls[0].GetDecisions()) != 0 {
 		t.Fatalf("CreateEpic requests = %v, want one with no decisions", calls)
+	}
+}
+
+func TestContractEpicCreateRefusesAContractKey(t *testing.T) {
+	fake := &fakeEpics{createReply: &v1.CreateEpicResponse{Epic: storedEpicOf(fullContract())}}
+	p := newPeer(t, nil, fake)
+
+	outcome := p.tool("epic_create", `{"id":"`+testEpicID+`","contract":{"id":"`+testEpicID+`"}}`)
+
+	if !outcome.isError {
+		t.Fatalf("epic_create with a contract key = %q, want a refusal", outcome.text)
+	}
+	if calls := fake.calls().creates; len(calls) != 0 {
+		t.Fatalf("CreateEpic calls = %d for a refused contract key, want 0", len(calls))
 	}
 }
 
@@ -566,7 +582,7 @@ func TestEpicCreatePrintsEachWarningLine(t *testing.T) {
 	fake := &fakeEpics{createReply: &v1.CreateEpicResponse{Epic: storedEpicOf(fullContract()), Warnings: warnings}}
 	p := newPeer(t, nil, fake)
 
-	outcome := p.tool("epic_create", `{"contract":{"id":"`+testEpicID+`"}}`)
+	outcome := p.tool("epic_create", `{"id":"`+testEpicID+`"}`)
 
 	if outcome.isError {
 		t.Fatalf("epic_create returned an error: %s", outcome.text)
@@ -583,7 +599,7 @@ func TestEpicCreateRefusalNamesTheField(t *testing.T) {
 		errors.New("release_steps[0].undo: empty"))}
 	p := newPeer(t, nil, fake)
 
-	outcome := p.tool("epic_create", `{"contract":{"id":"`+testEpicID+`"}}`)
+	outcome := p.tool("epic_create", `{"id":"`+testEpicID+`"}`)
 
 	if !outcome.isError {
 		t.Fatalf("epic_create returned %q without isError", outcome.text)
@@ -599,7 +615,7 @@ func TestEpicCreateAlreadyExistsNamesTheID(t *testing.T) {
 		fmt.Errorf("id: %s is already in the database", testEpicID))}
 	p := newPeer(t, nil, fake)
 
-	outcome := p.tool("epic_create", `{"contract":{"id":"`+testEpicID+`"}}`)
+	outcome := p.tool("epic_create", `{"id":"`+testEpicID+`"}`)
 
 	if !outcome.isError {
 		t.Fatalf("epic_create returned %q without isError", outcome.text)
@@ -876,19 +892,19 @@ func TestEpicToolsRefuseUnknownKeysBeforeAnyCall(t *testing.T) {
 		args string
 	}{
 		{
-			name: "create unknown contract key",
+			name: "create unknown id key",
 			tool: "epic_create",
-			args: `{"contract":{"id":"` + testEpicID + `","bogus":"x"}}`,
+			args: `{"id":"` + testEpicID + `","bogus":"x"}`,
 		},
 		{
 			name: "create unknown top-level key",
 			tool: "epic_create",
-			args: `{"contract":{"id":"` + testEpicID + `"},"bogus":1}`,
+			args: `{"id":"` + testEpicID + `","bogus":1}`,
 		},
 		{
 			name: "create unknown decision key",
 			tool: "epic_create",
-			args: `{"contract":{"id":"` + testEpicID + `"},"decisions":[{"id":"D1","text":"t","bogus":1}]}`,
+			args: `{"id":"` + testEpicID + `","decisions":[{"id":"D1","text":"t","bogus":1}]}`,
 		},
 		{name: "get unknown key", tool: "epic_get", args: `{"id":"` + testEpicID + `","bogus":1}`},
 		{name: "list unknown key", tool: "epic_list", args: `{"bogus":1}`},

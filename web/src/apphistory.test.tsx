@@ -502,6 +502,8 @@ test("HashRoute: an applied address with no entry, on the order already shown, r
     assert.deepEqual(reports, [["#/inbox/session/s1", "push"]]);
   }));
 
+// At 760px and wider an epic's address hides the inbox, so a list key would pop it out; under 760px the opened page
+// draws alone and the list's keys still move the cursor, as this test's j needs.
 test("HashRoute: an applied contract address lands its page and records nothing, and the next j pushes", (t) =>
   withApp(
     t,
@@ -509,6 +511,7 @@ test("HashRoute: an applied contract address lands its page and records nothing,
       rows: historyRows(),
       epics: contractEpic(),
       address: { view: "inbox", entry: { kind: "epic", id: widgetsFirst, page: { kind: "contract" } } },
+      width: narrowWidth,
     },
     async ({ container, reports }) => {
       assert.equal(container.querySelector('section.page[aria-label="epic"] article.contract') !== null, true);

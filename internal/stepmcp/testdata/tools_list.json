@@ -187,13 +187,17 @@
   },
   {
     "name": "epic_create",
-    "description": "Create an epic from an accepted contract. decisions seeds the epic's recorded decisions. workflow names the workflow the epic pins, epic by default. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. Lint findings come back as warnings: a warning line for each, naming its field and reason, and the epic is still stored. A refusal names the field that failed.",
+    "description": "Create an epic from an accepted contract, named by id; the epic takes that id and the accepted version's words. base is the commit the epic starts from. decisions seeds the epic's recorded decisions. workflow names the workflow the epic pins, epic by default. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. Lint findings come back as warnings: a warning line for each, naming its field and reason, and the epic is still stored. A refusal names the field that failed.",
     "inputSchema": {
       "type": "object",
       "properties": {
-        "contract": {
-          "type": "object",
-          "description": "the accepted contract in protobuf JSON field names: id, repository, title, approved, intent, failures, care, additions, requirements, premises, exclusions, approach, alternatives, releaseSteps, releaseThen, checks, base, gates, doneGates, reviewers. A requirement carries item, its evidence: capture, limit, artifacts, supplied, conclusion, judge, kind and tests. Each entry of reviewers carries name, enabled, stage, must, mustNot, prompt, agent, model, tools, effort, limit and verify."
+        "id": {
+          "description": "the id of the accepted contract the epic is made from; the epic takes the same id",
+          "type": "string"
+        },
+        "base": {
+          "description": "the commit the epic starts from, in the contract's repository",
+          "type": "string"
         },
         "decisions": {
           "type": "array",
@@ -216,11 +220,12 @@
         },
         "workflow": {
           "type": "string",
-          "description": "the workflow the epic pins, read at the contract's base: a repository file .orrery/workflows/\u003cname\u003e.yaml, else the built-in of that name; omit it to pin epic"
+          "description": "the workflow the epic pins, read at base: a repository file .orrery/workflows/\u003cname\u003e.yaml, else the built-in of that name; omit it to pin epic"
         }
       },
       "required": [
-        "contract"
+        "id",
+        "base"
       ],
       "additionalProperties": false
     }
@@ -719,6 +724,33 @@
       "required": [
         "id",
         "words"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "cron_list",
+    "description": "List this session's orrery cron jobs: the jobs CronCreate scheduled through orrery.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    }
+  },
+  {
+    "name": "cron_delete",
+    "description": "Cancel one of this session's orrery cron jobs by id. Use it instead of CronDelete, which never reaches orrery.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "the id of the cron job to cancel",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
       ],
       "type": "object"
     }

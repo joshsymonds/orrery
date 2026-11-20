@@ -4107,12 +4107,15 @@ type ConversationItem struct {
 	// The client-chosen prompt id of a headless session's prompt item, or empty when the prompt has none or the item is
 	// not a headless prompt.
 	PromptId string `protobuf:"bytes,13,opt,name=prompt_id,json=promptId,proto3" json:"prompt_id,omitempty"`
-	// The id of the epic a tool item's call creates: the contract id of an epic_create call, or empty when the item is
-	// not an epic_create call or its contract names no id.
+	// The id of the epic a tool item's call creates: the id input of an epic_create call, or the id of its inline contract
+	// for a call made before epic_create took an id; empty when the item is not an epic_create call or names no id.
 	Epic string `protobuf:"bytes,14,opt,name=epic,proto3" json:"epic,omitempty"`
 	// The facts of the step a prompt item is for, set on a prompt item whose prompt_id is step:<id>, read from that
 	// step's row.
-	StepFacts     *StepFacts `protobuf:"bytes,15,opt,name=step_facts,json=stepFacts,proto3" json:"step_facts,omitempty"`
+	StepFacts *StepFacts `protobuf:"bytes,15,opt,name=step_facts,json=stepFacts,proto3" json:"step_facts,omitempty"`
+	// The id of the contract a tool item's call writes: the id input of a contract_propose or contract_revise call; empty
+	// when the item is not one of those calls or its input names no id.
+	Contract      string `protobuf:"bytes,16,opt,name=contract,proto3" json:"contract,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4250,6 +4253,13 @@ func (x *ConversationItem) GetStepFacts() *StepFacts {
 		return x.StepFacts
 	}
 	return nil
+}
+
+func (x *ConversationItem) GetContract() string {
+	if x != nil {
+		return x.Contract
+	}
+	return ""
 }
 
 // ConversationContext is the context figure of a conversation: its tokens out of the window they are measured
@@ -7285,7 +7295,7 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\x05items\x18\x02 \x03(\v2\x1b.orrery.v1.ConversationItemR\x05items\x12\x12\n" +
 	"\x04goal\x18\x03 \x01(\tR\x04goal\x123\n" +
 	"\awaiting\x18\x04 \x03(\v2\x19.orrery.v1.WaitingMessageR\awaiting\x128\n" +
-	"\acontext\x18\x05 \x01(\v2\x1e.orrery.v1.ConversationContextR\acontext\"\xfc\x02\n" +
+	"\acontext\x18\x05 \x01(\v2\x1e.orrery.v1.ConversationContextR\acontext\"\x98\x03\n" +
 	"\x10ConversationItem\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x12\n" +
 	"\x04time\x18\x02 \x01(\x03R\x04time\x12\x12\n" +
@@ -7303,7 +7313,8 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\tprompt_id\x18\r \x01(\tR\bpromptId\x12\x12\n" +
 	"\x04epic\x18\x0e \x01(\tR\x04epic\x123\n" +
 	"\n" +
-	"step_facts\x18\x0f \x01(\v2\x14.orrery.v1.StepFactsR\tstepFacts\"E\n" +
+	"step_facts\x18\x0f \x01(\v2\x14.orrery.v1.StepFactsR\tstepFacts\x12\x1a\n" +
+	"\bcontract\x18\x10 \x01(\tR\bcontract\"E\n" +
 	"\x13ConversationContext\x12\x16\n" +
 	"\x06tokens\x18\x01 \x01(\x03R\x06tokens\x12\x16\n" +
 	"\x06window\x18\x02 \x01(\x03R\x06window\"T\n" +

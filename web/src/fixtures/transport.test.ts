@@ -16,6 +16,8 @@ import {
   AskResponseSchema,
   HostStatusResponseSchema,
   PanesListResponseSchema,
+  SayResponseSchema,
+  SessionsWatchConversationResponseSchema,
   WatchConversationResponseSchema,
 } from "../gen/orrery/v1/orrery_pb";
 import { mockTimers } from "../testclock";
@@ -25,9 +27,13 @@ import { at } from "./clock";
 import { shippedSlices } from "./slices";
 import { createFixtureTransport } from "./transport";
 
-// wideWidth is the window width the stories draw at. It is past the 760px the wide layout starts at, so the inbox is
-// docked or hidden as its state has it, not stacked under the page.
+// wideWidth is the window width the stories draw at unless one names its own. It is past the 760px the wide layout starts
+// at, so the inbox is docked or hidden as its state has it, not stacked under the page.
 const wideWidth = 1280;
+
+// overlayWidth is the width the epic panel lies over the conversation at: the 1000px round 6 draws epic-talk at, which
+// is at 1250px or narrower.
+const overlayWidth = 1000;
 
 const inbox: Address = { view: "inbox", entry: null };
 
@@ -56,11 +62,10 @@ function inboxState(root: HTMLElement): string | null {
 const beaconPrompt = "Why is the roster page slow for weeks with more than forty shifts?";
 const lampFragment = "Full jitter is in";
 
-// The open decision of the rota-export epic, and the planning conversation the talk dock draws beside the epic page.
-// The Talk menu and the dock are drawn on the epic page only in the talk states, so the epic's own state checks neither.
+// The open decision of the rota-export epic, and the planning conversation Talk's first line opens in the reader. The
+// Talk menu is drawn on the epic page only in the talk states, so the epic's own state checks neither.
 const rotaQuestion = "Bump the embedded tz database?";
 const rotaPrompt = "Plan the rota export as an epic.";
-const talkDock = 'aside.dock[aria-label="talk"]';
 
 // inboxHome is Page/inbox-home: the inbox rows, with the inbox docked beside the cursor's reader on pane %12.
 function inboxHome(root: HTMLElement): boolean {
@@ -77,23 +82,78 @@ function askSession(root: HTMLElement): boolean {
   return inboxState(root) === "hidden" && (root.textContent ?? "").includes(beaconPrompt);
 }
 
-// epicQuestion is Page/epic-question: Q1 is drawn in the now block, with no Talk menu and no talk dock drawn.
+// epicQuestion is Page/epic-question: Q1 is drawn in the now block, with no Talk menu drawn, and the epic panel beside the
+// conversation rather than over it, which is epic-talk's layout.
 function epicQuestion(root: HTMLElement): boolean {
   return (
     root.querySelector(".now-block .answer .question")?.textContent.includes(rotaQuestion) === true &&
     root.querySelector("ul.talk") === null &&
-    root.querySelector(talkDock) === null
+    root.querySelector(".panes.overlay") === null
   );
 }
 
-// epicHandover is Page/epic-handover: the Talk menu is drawn open, with no talk dock beside the epic page.
+// epicHandover is Page/epic-handover: the Talk menu is drawn open.
 function epicHandover(root: HTMLElement): boolean {
-  return root.querySelector("ul.talk") !== null && root.querySelector(talkDock) === null;
+  return root.querySelector("ul.talk") !== null;
 }
 
-// epicTalk is Page/epic-talk: the talk dock is drawn with the planning conversation in it.
+// epicTalk is Page/epic-talk: under 1250px the epic panel lies over the conversation, and the conversation's reader holds
+// the planning prompt beneath it.
 function epicTalk(root: HTMLElement): boolean {
-  return root.querySelector(talkDock)?.textContent.includes(rotaPrompt) === true;
+  return (
+    root.querySelector(".panes.overlay aside.rpanel") !== null &&
+    root.querySelector('section[aria-label="reader"]')?.textContent.includes(rotaPrompt) === true
+  );
+}
+
+// railKinds is the kind of each group the right rail draws, in order: epic, agents or running.
+function railKinds(root: HTMLElement): string[] {
+  return [...root.querySelectorAll(".rail .rgroup")].map((group) => group.classList[1]);
+}
+
+// workRail is Page/work-rail: the buoy session's rail draws its three groups, epic, agents and running, and no panel is open.
+function workRail(root: HTMLElement): boolean {
+  const kinds = railKinds(root);
+  return (
+    kinds.length === 3 &&
+    kinds[0] === "epic" &&
+    kinds[1] === "agents" &&
+    kinds[2] === "running" &&
+    root.querySelector("aside.rpanel") === null
+  );
+}
+
+// workRailGroup is Page/work-rail-group: pane %22's rail has its dots tile pressed, so its picker is open with four rows.
+function workRailGroup(root: HTMLElement): boolean {
+  return root.querySelectorAll(".rail .rpick .rpick-row").length === 4;
+}
+
+// orchardTitle is pane %13's line, which its reader draws once the fixture world has loaded.
+const orchardTitle = "Parser tests for nested scion grafting";
+
+// workEmpty is Page/work-empty: pane %13's conversation is drawn, and its rail with no tile in it.
+function workEmpty(root: HTMLElement): boolean {
+  return (
+    root.querySelector('section[aria-label="reader"]')?.textContent.includes(orchardTitle) === true &&
+    root.querySelector("aside.rail") !== null &&
+    root.querySelectorAll(".rail .tile-w").length === 0
+  );
+}
+
+// dockRunning is Page/dock-running: the Sub-agents panel is open beside the buoy session, with a row for each agent.
+function dockRunning(root: HTMLElement): boolean {
+  return (
+    root.querySelector("aside.rpanel")?.getAttribute("aria-label") === "Sub-agents" &&
+    root.querySelectorAll(".rpanel .plist li.row.live").length === 2
+  );
+}
+
+// dockBackground is Page/dock-background: the Left running panel is open beside the buoy session, with its grey rows.
+function dockBackground(root: HTMLElement): boolean {
+  return (
+    root.querySelector("aside.rpanel")?.getAttribute("aria-label") === "Left running" &&
+    root.querySelectorAll(".rpanel .plist li.row.quiet").length === 1
+  );
 }
 
 // The words of the New session stories, which a prompt row's start form takes as its first message, and the ask
@@ -121,17 +181,18 @@ function settle(signal: AbortSignal, check: () => boolean, what: string): Promis
   return until(signal, check, what, { step: () => act(turn) });
 }
 
-// withPage mounts story into a fresh DOM at the wide width, waits until drawn holds on its root, then runs check. The
-// story is unmounted and its DOM removed when the test ends, or as soon as the test's signal aborts. The test must call
-// mockTimers first.
+// withPage mounts story into a fresh DOM at width, the wide width when none is given, waits until drawn holds on its root,
+// then runs check. The story is unmounted and its DOM removed when the test ends, or as soon as the test's signal aborts.
+// The test must call mockTimers first.
 async function withPage(
   t: TestContext,
   story: () => ComponentChild,
   drawn: (root: HTMLElement) => boolean,
   check: (root: HTMLElement) => void,
+  width = wideWidth,
 ): Promise<void> {
   const window = installTestDom();
-  window.innerWidth = wideWidth;
+  window.innerWidth = width;
   const root = document.createElement("div");
   document.body.append(root);
   const teardown = teardownOnce(t.signal, async () => {
@@ -159,8 +220,9 @@ function withStory(
   story: () => ComponentChild,
   drawn: (root: HTMLElement) => boolean,
   check: (root: HTMLElement) => void,
+  width = wideWidth,
 ): Promise<void> {
-  return withPage(t, story, (root) => root.querySelector("[data-loaded]") !== null && drawn(root), check);
+  return withPage(t, story, (root) => root.querySelector("[data-loaded]") !== null && drawn(root), check, width);
 }
 
 test("FixtureTransport answers Epics.List, Epics.Get, Panes.List and Host.Status from the slices", async () => {
@@ -189,6 +251,29 @@ test("FixtureTransport absorbs Epics.Pause: it answers an empty message, and rec
   const answer = await fixture.clients.epics.pause({ id: "lighthouse/rota-export" });
   assert.deepEqual(toJson(EpicsPauseResponseSchema, answer), {}, "the answer is empty");
   assert.deepEqual([...fixture.unserved], [], "the write is not recorded");
+});
+
+test("FixtureTransport absorbs Control.Say when the slices set no say: it answers an empty message, and records no call", async () => {
+  const fixture = createFixtureTransport();
+  const answer = await fixture.clients.control.say({ id: "fixture-new-session", text: "hello" });
+  assert.deepEqual(toJson(SayResponseSchema, answer), {}, "the answer is empty");
+  assert.deepEqual([...fixture.unserved], [], "the write is not recorded");
+});
+
+test("FixtureTransport refuses Control.Say with FailedPrecondition when the slices say refused, and records no call", async () => {
+  const fixture = createFixtureTransport({ ...shippedSlices, say: "refused" });
+  const error = await refusal(fixture.clients.control.say({ id: "fixture-new-session", text: "hello" }));
+  assert.equal(error.code, Code.FailedPrecondition);
+  assert.equal(error.rawMessage, "the session is not taking messages");
+  assert.deepEqual([...fixture.unserved], [], "a refused write is no unserved call");
+});
+
+test("FixtureTransport fails Control.Say with Unavailable when the slices say unanswered, and records no call", async () => {
+  const fixture = createFixtureTransport({ ...shippedSlices, say: "unanswered" });
+  const error = await refusal(fixture.clients.control.say({ id: "fixture-new-session", text: "hello" }));
+  assert.equal(error.code, Code.Unavailable);
+  assert.equal(error.rawMessage, "no answer");
+  assert.deepEqual([...fixture.unserved], [], "an unanswered write is no unserved call");
 });
 
 test("FixtureTransport records an unserved Picker call, tells each listener until it unregisters, and fails Unimplemented", async () => {
@@ -302,6 +387,55 @@ test("FixtureTransport: a pane stream sends its frame and holds open, a reconnec
   assert.equal(await after.then(() => "ended", () => "aborted"), "aborted", "the abort ends the wait");
   reconnect.abort();
   assert.equal(await reconnected.then(() => "ended", () => "aborted"), "aborted", "the reconnect's abort ends its wait");
+});
+
+test("FixtureTransport answers Control.Interrupt with the texts the slices give, in order, and records no call", async () => {
+  const fixture = createFixtureTransport({ ...shippedSlices, interrupt: { texts: ["first", "second"] } });
+  const answer = await fixture.clients.control.interrupt({ id: "st-rota-t2-impl" });
+  assert.deepEqual(answer.texts, ["first", "second"], "the texts come back in order");
+  assert.deepEqual([...fixture.unserved], [], "the interrupt is not recorded as unserved");
+});
+
+test("FixtureTransport absorbs Control.Interrupt when the slices set no interrupt: it answers no texts, and an open session stream sends no more", async () => {
+  const fixture = createFixtureTransport();
+  const stream = new AbortController();
+  const frames = fixture.clients.sessions
+    .watchConversation({ id: "st-rota-t2-impl" }, { signal: stream.signal })
+    [Symbol.asyncIterator]();
+  const frame = await frames.next();
+  assert.ok(!frame.done, "the stream sends its frame");
+  const after = frames.next();
+  const answer = await fixture.clients.control.interrupt({ id: "st-rota-t2-impl" });
+  assert.deepEqual(answer.texts, [], "the interrupt answers no texts");
+  assert.equal(await Promise.race([after.then(() => "sent"), turn().then(() => "held")]), "held", "the stream sends no more");
+  assert.deepEqual([...fixture.unserved], [], "the interrupt is not recorded as unserved");
+
+  stream.abort();
+  assert.equal(await after.then(() => "ended", () => "aborted"), "aborted", "the abort ends the wait");
+});
+
+test("FixtureTransport: an open session stream sends the interrupt's then frame once Interrupt is called, and an abort still ends it", async () => {
+  const then = create(SessionsWatchConversationResponseSchema, { transcript: "st-rota-t2-impl.jsonl", seq: 2n });
+  const fixture = createFixtureTransport({ ...shippedSlices, interrupt: { texts: [], then } });
+  const stream = new AbortController();
+  const frames = fixture.clients.sessions
+    .watchConversation({ id: "st-rota-t2-impl" }, { signal: stream.signal })
+    [Symbol.asyncIterator]();
+  const frame = await frames.next();
+  assert.ok(!frame.done, "the stream sends its frame");
+  const wanted = shippedSlices.sessionStreams.get("st-rota-t2-impl");
+  assert.ok(wanted !== undefined && equals(SessionsWatchConversationResponseSchema, frame.value, wanted), "the frame is the session's");
+
+  const next = frames.next();
+  assert.equal(await Promise.race([next.then(() => "sent"), turn().then(() => "held")]), "held", "the stream sends nothing before the interrupt");
+  await fixture.clients.control.interrupt({ id: "st-rota-t2-impl" });
+  const sent = await next;
+  assert.ok(!sent.done && equals(SessionsWatchConversationResponseSchema, sent.value, then), "the interrupt sends the then frame");
+
+  const after = frames.next();
+  assert.equal(await Promise.race([after.then(() => "sent"), turn().then(() => "held")]), "held", "the stream sends no more");
+  stream.abort();
+  assert.equal(await after.then(() => "ended", () => "aborted"), "aborted", "the abort ends the wait");
 });
 
 test("FixtureTransport: app/inbox draws the inbox rows, with the fixture's proposed contract on its epic", (t) => {
@@ -453,7 +587,7 @@ test("FixtureTransport: page/epic-question draws the open decision on the epic p
     epicQuestion,
     (root) => {
       assertNoFailure(root);
-      assert.ok(epicQuestion(root), "Q1 is drawn, with no Talk menu or talk dock");
+      assert.ok(epicQuestion(root), "Q1 is drawn, with no Talk menu");
     },
   );
 });
@@ -523,7 +657,7 @@ test("FixtureTransport: page/worker-running draws the worker session", (t) => {
   );
 });
 
-test("FixtureTransport: page/epic-talk draws the planning conversation docked beside the epic page", (t) => {
+test("FixtureTransport: page/epic-talk draws the epic panel over the planning conversation, under 1250px wide", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(
     t,
@@ -531,7 +665,73 @@ test("FixtureTransport: page/epic-talk draws the planning conversation docked be
     epicTalk,
     (root) => {
       assertNoFailure(root);
-      assert.ok(epicTalk(root), "the planning conversation is docked");
+      assert.ok(epicTalk(root), "the epic panel lies over the planning conversation");
+    },
+    overlayWidth,
+  );
+});
+
+test("FixtureTransport: page/work-rail draws the buoy session's rail with its three groups and no panel", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["work-rail"],
+    workRail,
+    (root) => {
+      assertNoFailure(root);
+      assert.ok(workRail(root), "the rail draws epic, agents and running, with no panel open");
+    },
+  );
+});
+
+test("FixtureTransport: page/work-rail-group draws pane %22's picker of four, opened by its dots tile", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["work-rail-group"],
+    workRailGroup,
+    (root) => {
+      assertNoFailure(root);
+      assert.ok(workRailGroup(root), "the picker is open with four rows");
+    },
+  );
+});
+
+test("FixtureTransport: page/work-empty draws pane %13's rail with no tile", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["work-empty"],
+    workEmpty,
+    (root) => {
+      assertNoFailure(root);
+      assert.ok(workEmpty(root), "the rail is drawn with no tile");
+    },
+  );
+});
+
+test("FixtureTransport: page/dock-running draws the Sub-agents panel with a row for each agent", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["dock-running"],
+    dockRunning,
+    (root) => {
+      assertNoFailure(root);
+      assert.ok(dockRunning(root), "the Sub-agents panel has its two rows");
+    },
+  );
+});
+
+test("FixtureTransport: page/dock-background draws the Left running panel with its grey rows", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["dock-background"],
+    dockBackground,
+    (root) => {
+      assertNoFailure(root);
+      assert.ok(dockBackground(root), "the Left running panel has its one grey row");
     },
   );
 });
@@ -544,34 +744,58 @@ test("FixtureTransport: page/epic-handover draws the Talk menu", (t) => {
     epicHandover,
     (root) => {
       assertNoFailure(root);
-      assert.ok(epicHandover(root), "the Talk menu is open, with no talk dock");
+      assert.ok(epicHandover(root), "the Talk menu is open");
     },
   );
 });
 
 test("FixtureTransport: page/epic-question, page/epic-handover and page/epic-talk each draw their own state, and fail the other two predicates", async (t) => {
   mockTimers(t, ["setTimeout"]);
+  // Each state is drawn at the width round 6 draws it at: epic-talk over the conversation, the others beside it.
   const predicates = [
-    ["epic-question", epicQuestion],
-    ["epic-handover", epicHandover],
-    ["epic-talk", epicTalk],
+    ["epic-question", epicQuestion, wideWidth],
+    ["epic-handover", epicHandover, wideWidth],
+    ["epic-talk", epicTalk, overlayWidth],
   ] as const;
-  for (const [state, own] of predicates) {
-    await withStory(t, Page[state], own, (root) => {
-      assertNoFailure(root);
-      for (const [other, predicate] of predicates) {
-        assert.equal(predicate(root), other === state, `${state}: the ${other} predicate`);
-      }
-    });
+  for (const [state, own, width] of predicates) {
+    await withStory(
+      t,
+      Page[state],
+      own,
+      (root) => {
+        assertNoFailure(root);
+        for (const [other, predicate] of predicates) {
+          assert.equal(predicate(root), other === state, `${state}: the ${other} predicate`);
+        }
+      },
+      width,
+    );
   }
 });
 
-test("FixtureTransport: page's keys are exactly the 28 catalog names of its scenario states", () => {
+test("FixtureTransport: page's keys are exactly the 48 catalog names of its scenario states", () => {
   assert.deepEqual(Object.keys(Page).map((state) => storyName("Page", state)).sort(), [
+    "page/ask-later",
     "page/ask-session",
     "page/contract-accepted",
     "page/contract-to-accept",
     "page/convo-working",
+    "page/dock-background",
+    "page/dock-cancelled",
+    "page/dock-cut-off",
+    "page/dock-draft",
+    "page/dock-failed",
+    "page/dock-idle",
+    "page/dock-interrupt-queue",
+    "page/dock-interrupted",
+    "page/dock-interrupting",
+    "page/dock-pane-queue",
+    "page/dock-queued",
+    "page/dock-running",
+    "page/dock-send-error",
+    "page/dock-send-unknown",
+    "page/dock-stopped",
+    "page/dock-waiting",
     "page/epic-handover",
     "page/epic-question",
     "page/epic-shipped",
@@ -595,6 +819,9 @@ test("FixtureTransport: page's keys are exactly the 28 catalog names of its scen
     "page/new-results",
     "page/new-working",
     "page/phase-implement",
+    "page/work-empty",
+    "page/work-rail",
+    "page/work-rail-group",
     "page/worker-running",
   ]);
 });

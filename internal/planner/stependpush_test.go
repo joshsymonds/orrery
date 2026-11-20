@@ -18,15 +18,21 @@ func TestStepEndPushPlannerSettlesWhenStepEndIsOffered(t *testing.T) {
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newFakeSteps()
+	steps.watchStore(s)
 	var reads atomic.Int64
 	cfg := runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads))
-	cfg.NewTimer = newHandTimers().newTimer
+	cfg.NewTimer = newHandTimers(&steps.changeNotice).newTimer
 	runRunner(t, cfg)
 	waitForStarts(t, steps, 1)
-	waitFor(t, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
+	waitFor(t, &steps.changeNotice, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
 
 	steps.end("step-1", store.StepRow{End: "done", Result: validPlan})
-	waitFor(t, "turn 1 to succeed", func() bool { return epicOf(t, s).Turns[0].State == "succeeded" })
+	waitFor(
+		t,
+		&steps.changeNotice,
+		"turn 1 to succeed",
+		func() bool { return epicOf(t, s).Turns[0].State == "succeeded" },
+	)
 	epic := epicOf(t, s)
 	if want := "one task"; epic.Turns[0].Outline != want {
 		t.Errorf("turn 1 outline = %q, want %q", epic.Turns[0].Outline, want)
@@ -44,15 +50,16 @@ func TestStepEndPushPlannerStopsHeldStepOnceAtHold(t *testing.T) {
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newLimitedSteps()
+	steps.watchStore(s)
 	var reads atomic.Int64
 	cfg := limitRunnerConfig(s, steps, &reads)
-	cfg.NewTimer = newHandTimers().newTimer
+	cfg.NewTimer = newHandTimers(&steps.changeNotice).newTimer
 	runRunner(t, cfg)
 	waitForStarts(t, steps.fakeSteps, 1)
-	waitFor(t, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
+	waitFor(t, &steps.changeNotice, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
 
 	steps.hold()
-	waitFor(t, "the epic to be paused", func() bool { return epicOf(t, s).Paused })
+	waitFor(t, &steps.changeNotice, "the epic to be paused", func() bool { return epicOf(t, s).Paused })
 
 	if want := []string{"step-1"}; !reflect.DeepEqual(steps.stopCalls(), want) {
 		t.Errorf("Stop calls = %q, want %q: a held step is stopped once, at the hold", steps.stopCalls(), want)
@@ -69,26 +76,32 @@ func TestStepEndPushPlannerRetriesFailedStopOnlyWhenTimerFires(t *testing.T) {
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newLimitedSteps()
+	steps.watchStore(s)
 	steps.stopFailures = 1
-	timers := newHandTimers()
+	timers := newHandTimers(&steps.changeNotice)
 	var reads atomic.Int64
 	cfg := limitRunnerConfig(s, steps, &reads)
 	cfg.NewTimer = timers.newTimer
 	runRunner(t, cfg)
 	waitForStarts(t, steps.fakeSteps, 1)
-	waitFor(t, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
+	waitFor(t, &steps.changeNotice, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
 
 	// The failed Stop arms the one retry timer, and the runner then waits for that timer alone: nothing else in the await
 	// stops the step, so the Stop calls recorded when the timer is armed are the ones before the timer fires.
 	steps.hold()
-	waitFor(t, "the retry timer of the failed stop to be armed", func() bool { return timers.count() == 1 })
+	waitFor(
+		t,
+		&steps.changeNotice,
+		"the retry timer of the failed stop to be armed",
+		func() bool { return timers.count() == 1 },
+	)
 	if want := []string{"step-1"}; !reflect.DeepEqual(steps.stopCalls(), want) {
 		t.Fatalf("Stop calls before the timer fires = %q, want %q: a failed stop is not tried again",
 			steps.stopCalls(), want)
 	}
 
 	timers.fire(t, 0)
-	waitFor(t, "the epic to be paused", func() bool { return epicOf(t, s).Paused })
+	waitFor(t, &steps.changeNotice, "the epic to be paused", func() bool { return epicOf(t, s).Paused })
 	if want := []string{"step-1", "step-1"}; !reflect.DeepEqual(steps.stopCalls(), want) {
 		t.Errorf("Stop calls = %q, want %q: the timer's retry stops the held step", steps.stopCalls(), want)
 	}
@@ -104,24 +117,40 @@ func TestStepEndPushPlannerRetriesFailedSubscribeWhenTimerFires(t *testing.T) {
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := &flakyWaitSteps{fakeSteps: newFakeSteps()}
-	timers := newHandTimers()
+	steps.watchStore(s)
+	timers := newHandTimers(&steps.changeNotice)
 	var reads atomic.Int64
 	cfg := runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads))
 	cfg.NewTimer = timers.newTimer
 	runRunner(t, cfg)
 
 	for n := 1; n <= waitFailures; n++ {
-		waitFor(t, "the retry timer of a failed subscribe to be armed", func() bool { return timers.count() == n })
+		waitFor(
+			t,
+			&steps.changeNotice,
+			"the retry timer of a failed subscribe to be armed",
+			func() bool { return timers.count() == n },
+		)
 		if got := steps.subscribes.Load(); got != int64(n) {
 			t.Fatalf("Subscribe calls before timer %d fires = %d, want %d: a failed subscribe waits for its timer",
 				n, got, n)
 		}
 		timers.fire(t, n-1)
 	}
-	waitFor(t, "the subscribe that succeeds", func() bool { return steps.subscribes.Load() == waitFailures+1 })
+	waitFor(
+		t,
+		&steps.changeNotice,
+		"the subscribe that succeeds",
+		func() bool { return steps.subscribes.Load() == waitFailures+1 },
+	)
 	waitForStarts(t, steps.fakeSteps, 1)
-	waitFor(t, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
+	waitFor(t, &steps.changeNotice, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
 
 	steps.end("step-1", store.StepRow{End: "done", Result: validPlan})
-	waitFor(t, "turn 1 to succeed", func() bool { return epicOf(t, s).Turns[0].State == "succeeded" })
+	waitFor(
+		t,
+		&steps.changeNotice,
+		"turn 1 to succeed",
+		func() bool { return epicOf(t, s).Turns[0].State == "succeeded" },
+	)
 }

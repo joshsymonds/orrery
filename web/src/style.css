@@ -43,9 +43,9 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
   position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--o-space-16); align-items: start;
   padding-left: max(var(--o-space-16), env(safe-area-inset-left, 0)); padding-right: max(var(--o-space-16), env(safe-area-inset-right, 0));
 }
-.list, .read, section.page { min-width: 0; }
+.list, .read, .rpanel { min-width: 0; }
 .read { display: flex; flex-direction: column; gap: var(--o-space-8); }
-.read[hidden], section.page[hidden] { display: none; }
+.read[hidden] { display: none; }
 /* The line the epic page shows when its epic's detail did not load. */
 .side-note { margin: 0; color: var(--o-ink-3); overflow-wrap: anywhere; }
 .reply { min-width: 0; }
@@ -83,37 +83,47 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
      mark, which sits just outside them. */
   body { background: var(--o-surface-page); height: 100vh; height: 100dvh; overflow: hidden; }
   #app { height: 100%; }
+  /* A page story is drawn inside the catalog's #story and its own wrapper, which take the window's height as #app does. */
+  #story, [data-page-story] { height: 100%; }
   .app { height: 100%; display: flex; flex-direction: column; }
+  /* The columns are the list, the conversation, the pinned reader with a pin, the epic panel with one open, and the rail at
+     the right. Each keeps its own track, so none moves as the others come and go. The panel takes 1.4 shares to the
+     conversation's 1, and the rail its own width. Every column sits in the one row. */
   .panes {
     flex: 1 1 auto; min-height: 0; align-items: stretch; grid-template-rows: minmax(0, 1fr); padding: 0; gap: 0;
-    grid-template-columns: var(--o-layout-inbox-width) minmax(0, 1fr) calc(var(--o-layout-inbox-width) + var(--o-space-32) + var(--o-space-8));
+    --inbox-track: var(--o-layout-inbox-width);
+    grid-template-columns: var(--inbox-track) minmax(0, 1fr) var(--o-layout-rail-width);
   }
-  /* Each column keeps its own track, and the epic page takes the reader's. Every column sits in the one row, so a column
-     placed in an earlier track than the one before it never opens a second row. */
-  .panes > .list, .panes > .read, .panes > section.page { grid-row: 1; }
+  .panes > .list, .panes > .read, .panes > .rpanel, .panes > .rail { grid-row: 1; }
   .panes > .list { grid-column: 1; }
   .panes > .read { grid-column: 2; }
-  /* With no pin the reader and the epic page take every track right of the list: no track is left empty. */
-  .panes:not(.split) > .read, .panes > section.page { grid-column: 2 / -1; }
-  .panes > .read.pinned { grid-column: 3; }
-  .panes.split { grid-template-columns: var(--o-layout-inbox-width) minmax(0, 1fr) minmax(0, 1fr); }
-  /* With a pin the epic page keeps the reader's track, and the pinned reader the third. */
-  .panes.split > section.page { grid-column: 2; }
-  /* The inbox hidden, or popped out over the page, takes no track: the reader and the epic page take the first track,
-     and a pin the second. The flyout lies over the page under the title row and above it, and is out of the grid. */
-  .panes[data-inbox="hidden"], .panes[data-inbox="flyout"] { grid-template-columns: minmax(0, 1fr); }
-  .panes[data-inbox="hidden"].split, .panes[data-inbox="flyout"].split {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  .panes > .read.pinned, .panes > .rpanel { grid-column: 3; }
+  .panes > .rail { grid-column: -2 / -1; }
+  .panes.split { grid-template-columns: var(--inbox-track) minmax(0, 1fr) minmax(0, 1fr) var(--o-layout-rail-width); }
+  .panes.split > .rpanel { grid-column: 4; }
+  .panes[data-side="panel"] { grid-template-columns: var(--inbox-track) minmax(0, 1fr) minmax(0, 1.4fr) var(--o-layout-rail-width); }
+  .panes.split[data-side="panel"] {
+    grid-template-columns: var(--inbox-track) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr) var(--o-layout-rail-width);
   }
+  /* At 1250px and under the list's track narrows to 316px, and the panel lies over the conversation from the right, beside
+     the rail, so it takes no track of its own. Its left edge sits one rail width past the list's track, so a rail width of
+     the conversation stays in the page beside it. */
+  .panes.overlay { --inbox-track: var(--o-layout-inbox-width-narrow); }
+  .panes.overlay[data-side="panel"] { grid-template-columns: var(--inbox-track) minmax(0, 1fr) var(--o-layout-rail-width); }
+  .panes.split.overlay[data-side="panel"] { grid-template-columns: var(--inbox-track) minmax(0, 1fr) minmax(0, 1fr) var(--o-layout-rail-width); }
+  .panes.overlay > .rpanel {
+    grid-column: 1 / -1; position: absolute; top: 0; bottom: 0; left: calc(var(--inbox-track) + var(--o-layout-rail-width)); right: var(--o-layout-rail-width);
+    z-index: var(--o-z-flyout); box-shadow: var(--o-elevation-side-end);
+  }
+  /* The inbox hidden, or popped out over the page, takes no track: the list's track is nothing wide, and the conversation
+     takes the room beside it. The flyout lies over the page under the title row and above it, and is out of the grid. */
+  .panes[data-inbox="hidden"], .panes[data-inbox="flyout"] { --inbox-track: calc(var(--o-space-4) * 0); }
   .panes[data-inbox="hidden"] > .list { display: none; }
-  .panes[data-inbox="hidden"] > .read, .panes[data-inbox="hidden"] > section.page,
-  .panes[data-inbox="flyout"] > .read, .panes[data-inbox="flyout"] > section.page { grid-column: 1; }
-  .panes[data-inbox="hidden"] > .read.pinned, .panes[data-inbox="flyout"] > .read.pinned { grid-column: 2; }
   .panes[data-inbox="flyout"] > .list {
     display: grid; position: absolute; top: calc(var(--o-space-48) + var(--o-space-4)); bottom: 0; left: 0; width: var(--o-layout-inbox-width); z-index: var(--o-z-flyout);
     box-shadow: var(--o-elevation-side);
   }
-  .list, .read, section.page { min-height: 0; }
+  .list, .read, .rpanel { min-height: 0; }
   .list {
     display: grid; grid-template-rows: auto minmax(0, 1fr); background: var(--o-surface-side);
     border-right: var(--o-size-hairline) solid var(--o-line-soft);
@@ -122,31 +132,14 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
   .read { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 0; }
   .read.pinned { border-left: var(--o-size-hairline) solid var(--o-line-soft); }
   .read > .reader { min-height: 0; overflow-y: auto; padding: var(--o-space-16) var(--o-space-24) var(--o-space-8); }
-  .head, .read > .title-row { padding: var(--o-space-12) var(--o-space-24) var(--o-space-12); }
+  .head, .convo-head > .title-row { padding: var(--o-space-12) var(--o-space-24) var(--o-space-12); }
   .send { min-width: 0; padding: 0 var(--o-space-24) var(--o-space-12); }
-  section.page { overflow-y: auto; padding: var(--o-space-16) var(--o-space-24) var(--o-space-8); border-left: var(--o-size-hairline) solid var(--o-line-soft); }
-  /* A docked conversation takes a track beside the epic page, and the dock scrolls on its own. Narrower than this frame,
-     the dock stacks under the page. */
-  .page.docked { display: grid; grid-template-columns: minmax(0, 1fr) minmax(calc(var(--o-space-32) * 8 + var(--o-space-24)), calc(var(--o-layout-inbox-width) + var(--o-space-32) + var(--o-space-8))); grid-template-rows: minmax(0, 1fr); }
-  .dock { min-height: 0; overflow-y: auto; border-left: var(--o-size-hairline) solid var(--o-line-soft); }
+  .rcard > section.page { min-height: 0; flex: 1 1 auto; overflow-y: auto; padding: var(--o-space-16) var(--o-space-24) var(--o-space-8); }
 }
 
-@media (width > 1250px) and (max-width: 1500px) {
-  .panes { grid-template-columns: var(--o-layout-inbox-width) minmax(0, 1fr) var(--o-layout-inbox-width); }
-  .panes.split { grid-template-columns: var(--o-layout-inbox-width) minmax(0, 1fr) minmax(0, 1fr); }
-}
-
-/* At 1250px and under the inbox track narrows to 316px, and its flyout with it. */
+/* The flyout over the page is the narrow list at 1250px and under. */
 @media (min-width: 760px) and (max-width: 1250px) {
-  .panes { grid-template-columns: var(--o-layout-inbox-width-narrow) minmax(0, 1fr) var(--o-layout-inbox-width); }
-  .panes.split { grid-template-columns: var(--o-layout-inbox-width-narrow) minmax(0, 1fr) minmax(0, 1fr); }
   .panes[data-inbox="flyout"] > .list { width: var(--o-layout-inbox-width-narrow); }
-}
-
-/* From 760px to 1100px the inbox narrows to 316px, and the epic page takes the reader's track beside it. */
-@media (min-width: 760px) and (max-width: 1100px) {
-  .panes { grid-template-columns: var(--o-layout-inbox-width-narrow) minmax(0, 1fr); }
-  .panes.split { grid-template-columns: var(--o-layout-inbox-width-narrow) minmax(0, 1fr) minmax(0, 1fr); }
 }
 
 .rows { min-width: 0; }
@@ -344,16 +337,6 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 .reply a { color: var(--o-role-ref); }
 
 
-/* A stat's bar is a 4px fill in its series colour; at level-warn and level-crit it takes its level's colour. */
-.bar { display: block; height: var(--o-size-meter-bar-height); background: var(--o-series-1); }
-.bar.series-1 { background: var(--o-series-1); }
-.bar.series-2 { background: var(--o-series-2); }
-.bar.series-3 { background: var(--o-series-3); }
-.bar.series-4 { background: var(--o-series-4); }
-.bar.series-5 { background: var(--o-series-5); }
-.bar.level-warn { background: var(--o-level-warn); }
-.bar.level-crit { background: var(--o-level-crit); }
-
 /* New session and the key list. Both are a panel over the page, dimmed under it, and New is a sheet from the foot of the
    window below 760px. The start form and the key groups are the panel's own parts. */
 .scrim {
@@ -458,23 +441,16 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 .head .where { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font: var(--o-type-small); color: var(--o-ink-3); }
 /* A row's conversation opens on the shared title row in the head's place: its back, crumbs and state are mono throughout,
    and its padding comes from the wide block with the head's. */
-.read > .title-row { font: var(--o-type-small); }
-/* The pill names the reader's state. Its tone sets the text, the tint and the outline; idle is ink.3 on surface.raised. */
+.convo-head > .title-row { font: var(--o-type-small); }
+.convo-head .phone-ctx { display: none; }
+/* The epic card's status pill: its tone sets the text, the tint and the outline; idle is ink.3 on surface.raised. */
 .pill {
   display: inline-flex; flex: none; align-items: center; gap: var(--o-space-8); padding: var(--o-space-2) var(--o-space-8); border-radius: var(--o-radius-round);
   font: var(--o-type-small); color: var(--tone);
   background: var(--tone-fill); box-shadow: 0 0 0 var(--o-size-hairline) var(--tone-line);
 }
-.pill .g { flex: none; width: var(--o-size-glyph); height: var(--o-size-glyph); margin: 0; border-radius: var(--o-radius-round); }
-.pill .tool { color: var(--o-role-ref); }
-.pill .g-working { animation: rot var(--o-loop-spin) linear infinite; }
 .pill.tone-working { --tone: var(--o-role-live); --tone-fill: var(--o-role-live-fill); --tone-line: var(--o-role-live-line); }
-.pill.tone-waiting, .pill.tone-held { --tone: var(--o-role-attention); --tone-fill: var(--o-role-attention-fill); --tone-line: var(--o-role-attention-line); }
-.pill.tone-done { --tone: var(--o-role-ok); --tone-fill: var(--o-role-ok-fill); --tone-line: var(--o-role-ok-line); }
-.pill.tone-interrupted { --tone: var(--o-role-halt); --tone-fill: var(--o-role-halt-fill); --tone-line: var(--o-role-halt-line); }
-.pill.tone-interrupting { --tone: var(--o-role-halt); --tone-fill: var(--o-role-halt-fill); --tone-line: var(--o-role-halt-line); }
-.pill.tone-ended { --tone: var(--o-role-bad); --tone-fill: var(--o-role-bad-fill); --tone-line: var(--o-role-bad-line); }
-.pill.tone-stopped { color: var(--o-ink-3); background: var(--o-surface-raised); box-shadow: 0 0 0 var(--o-size-hairline) var(--o-line-firm); }
+.pill.tone-waiting { --tone: var(--o-role-attention); --tone-fill: var(--o-role-attention-fill); --tone-line: var(--o-role-attention-line); }
 .pill.tone-idle { color: var(--o-ink-3); background: var(--o-surface-raised); box-shadow: 0 0 0 var(--o-size-hairline) var(--o-line-firm); }
 .reader { min-width: 0; padding: var(--o-space-4) 0 var(--o-space-8); }
 .reader-loading { margin: 0; color: var(--o-ink-3); }
@@ -670,10 +646,6 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
   margin: var(--o-space-4) 0 0; padding: var(--o-space-8); border-radius: var(--o-radius-2); background: var(--o-surface-well); color: var(--o-ink-2);
   font: var(--o-type-small); white-space: pre-wrap; overflow-wrap: anywhere;
 }
-/* A caller event the session holds and has not taken draws in a lower ink, until its prompt arrives or the session takes it. */
-.reader .step-card.waiting, .reader .event-ring.waiting { --o-ink-1: var(--o-ink-3); --o-ink-2: var(--o-ink-3); }
-.reader .event-ring.waiting .ring-line { cursor: default; }
-.reader .wait-label { display: block; font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; color: var(--o-ink-3); }
 /* A background task's row: its type, its description and latest activity on the line, and its status once it has ended,
    red when it failed. The type is blue only on an agent task's row, which is a button reset to the line and opens its Agent call. */
 .reader .background-row { display: flex; gap: var(--o-space-8); min-width: 0; padding: var(--o-space-2) var(--o-space-8); font: var(--o-type-small); color: var(--o-ink-3); }
@@ -684,29 +656,6 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 .reader .background-row .bg-status { flex: none; color: var(--o-ink-3); }
 .reader .background-row .bg-status.failed { color: var(--o-role-bad); }
 .reader button.background-row { width: 100%; min-height: var(--o-space-24); margin: 0; border: 0; background: none; text-align: left; cursor: pointer; appearance: none; -webkit-appearance: none; }
-
-/* The send foot's queue docks onto the composer under it: the queue's top corners and the composer's bottom corners are
-   rounded, so the two read as one box. The head counts the rows quietly. A queued message is a ghost of the owner's
-   turn: a dashed edge in the owner's colour, dim text, and its line breaks kept. */
-.compose .queue { min-width: 0; margin: 0; padding: 0; list-style: none; border-radius: var(--o-radius-3) var(--o-radius-3) 0 0; background: var(--o-surface-well); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm); }
-.compose .queue + .composer { border-radius: 0 0 var(--o-radius-3) var(--o-radius-3); }
-.compose .queue-head { display: block; min-width: 0; padding: var(--o-space-4) var(--o-space-12) 0; font: var(--o-type-small); color: var(--o-ink-3); }
-.compose .queued { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; padding: var(--o-space-4) var(--o-space-12); border-left: var(--o-size-rail) dashed var(--o-role-you); }
-.compose .queued > .tag { display: block; font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; color: var(--o-ink-3); }
-.compose .queued > .text { min-width: 0; color: var(--o-ink-3); font: var(--o-type-body); white-space: pre-wrap; overflow-wrap: anywhere; }
-.compose .queued.canceled > .text { color: var(--o-ink-3); text-decoration: line-through; }
-.compose .queued.canceled > .tag { color: var(--o-role-halt); }
-/* A session's queued message says what Claude does with it, and carries a withdraw that takes it back into the box. A
-   discarded message never reached Claude: its halt edge and tag mark it, and its control puts it back in the box. */
-.compose .queued > .note { display: block; min-width: 0; font: var(--o-type-small); color: var(--o-ink-3); }
-.compose .queued > .withdraw, .compose .undelivered > .put-back {
-  justify-self: start; min-height: var(--o-space-24); margin-top: var(--o-space-4); padding: 0 var(--o-space-8); border: 0; border-radius: var(--o-radius-2); cursor: pointer;
-  background: var(--o-surface-raised); font: var(--o-type-small); color: var(--o-ink-2);
-  appearance: none; -webkit-appearance: none;
-}
-.compose .undelivered { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; padding: var(--o-space-4) var(--o-space-12); border-left: var(--o-size-rail) solid var(--o-role-halt); }
-.compose .undelivered > .tag { display: block; font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; color: var(--o-role-halt); }
-.compose .undelivered > .text { min-width: 0; color: var(--o-ink-2); font: var(--o-type-body); white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* The find bar is a well field over the transcript, its query in mono and its count in ink.3 at the right. It takes
    the focus ring while it has focus, as the composer does. */
@@ -719,59 +668,100 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 .reader mark { padding: 0 var(--o-space-2); border-radius: var(--o-radius-1); background: var(--o-role-mark-line); color: inherit; }
 .reader mark.current { background: var(--o-role-mark); color: var(--o-ink-on-accent); }
 
-.composer {
-  position: relative; display: flex; flex: 1 1 auto; align-items: center; gap: var(--o-space-8); min-width: 0; padding: var(--o-space-8) var(--o-space-8) var(--o-space-8) var(--o-space-12);
-  border-radius: var(--o-radius-3); overflow: hidden;
-  background: var(--o-surface-well); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm);
-}
-/* The composer's left edge names its conversation's state: live while working, attention when waiting or held, and no edge
-   when idle. The focus ring stays in the focus role, and a focused composer keeps its edge under the ring. */
-.composer.edge-working { box-shadow: inset var(--o-size-rail) 0 0 var(--o-role-live), inset 0 0 0 var(--o-size-hairline) var(--o-line-firm); }
-.composer.edge-waiting, .composer.edge-held { box-shadow: inset var(--o-size-rail) 0 0 var(--o-role-attention), inset 0 0 0 var(--o-size-hairline) var(--o-line-firm); }
-.composer:focus-within { box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-role-focus); }
-.composer.edge-working:focus-within { box-shadow: inset var(--o-size-rail) 0 0 var(--o-role-live), inset 0 0 0 var(--o-size-hairline) var(--o-role-focus); }
-.composer.edge-waiting:focus-within, .composer.edge-held:focus-within { box-shadow: inset var(--o-size-rail) 0 0 var(--o-role-attention), inset 0 0 0 var(--o-size-hairline) var(--o-role-focus); }
-.composer textarea {
-  flex: 1 1 auto; min-width: 0; padding: 0; resize: vertical;
-  background: none; border: 0; outline: 0; font: var(--o-type-body);
+/* The dock: one box at the foot of a conversation, after round 6. The state's rail is its left edge. Top to bottom, each part
+   only when it has rows: the state bar, the waits line, the trays, the quote and the input. The notes sit under the box. */
+.dock { flex: none; padding: 0 var(--o-layout-page-pad-desk) var(--o-space-16); }
+.dock-box { --state: var(--o-line-firm); display: grid; min-width: 0; border-left: var(--o-size-rail) solid var(--state); border-radius: var(--o-radius-3); background: var(--o-surface-well); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm); overflow: hidden; }
+.dock-box[data-state="working"] { --state: var(--o-state-working); }
+.dock-box[data-state="waiting"] { --state: var(--o-state-waiting); }
+.dock-box[data-state="held"] { --state: var(--o-state-held); }
+.dock-box[data-state="done"] { --state: var(--o-state-done); }
+.dock-box[data-state="interrupted"], .dock-box[data-state="interrupting"] { --state: var(--o-state-interrupted); }
+.dock-box[data-state="failed"] { --state: var(--o-state-failed); }
+.dock-box[data-state="stopped"], .dock-box[data-state="idle"] { --state: var(--o-line-firm); }
+.dock-box:focus-within, .dock-box.focused { box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-role-focus); }
+.dock-box > * + * { border-top: var(--o-size-hairline) solid var(--o-line-soft); }
+
+/* The state bar: the state, once, beside the controls that change it. */
+.statebar { display: flex; align-items: center; gap: var(--o-space-8); min-width: 0; min-height: var(--o-size-control-desk); padding: var(--o-space-4) var(--o-space-4) var(--o-space-4) var(--o-space-12); font: var(--o-type-small); color: var(--o-ink-2); }
+.statebar .word { flex: none; color: var(--state); font-weight: var(--o-font-weight-bold); }
+.dock-box[data-state="done"] .statebar .word, .dock-box[data-state="idle"] .statebar .word, .dock-box[data-state="stopped"] .statebar .word { color: var(--o-ink-2); font-weight: var(--o-font-weight-regular); }
+.statebar .what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.statebar .what .name { color: var(--o-role-ref); }
+.statebar .clock { flex: none; color: var(--state); }
+.statebar .end { display: inline-flex; align-items: center; gap: var(--o-space-4); margin-left: auto; flex: none; }
+.statebar .g-working { color: var(--state); animation: rot var(--o-loop-spin) linear infinite; }
+
+/* The waits line: what the session waits on, under the state bar. */
+.dock-waits { display: flex; align-items: center; gap: var(--o-space-8); padding: var(--o-space-4) var(--o-space-12); border-top: var(--o-size-hairline) solid var(--o-line-soft); color: var(--o-role-engine); font: var(--o-type-small); }
+
+/* Ctl: a control inside a line of the dock or a tray. It is the height of the line's text, the same at the desk and on
+   touch; its touch target is the line it sits in. Its key hint is drawn at the desk only. */
+.ctl { display: inline-flex; align-items: center; gap: var(--o-space-4); flex: none; height: var(--o-space-24); min-height: 0; padding: 0 var(--o-space-8); border: 0; border-radius: var(--o-radius-1); background: none; cursor: pointer; color: var(--o-ink-2); font: var(--o-type-small); white-space: nowrap; appearance: none; -webkit-appearance: none; }
+.ctl:hover, .ctl.hover { background: var(--o-surface-raised); color: var(--o-ink-1); }
+.ctl.bad .icon { color: var(--o-role-bad); }
+.ctl.go .icon { color: var(--o-role-ok); }
+.ctl:disabled { color: var(--o-ink-4); }
+.ctl.only { padding: 0 var(--o-space-4); }
+/* The Stop question under a step's dock: its words, then Stop {label} and Keep it running, in round 6's confirm. */
+.dock .confirm { display: inline-flex; align-items: center; gap: var(--o-space-8); font: var(--o-type-small); color: var(--o-ink-2); }
+
+/* The icon: stroked in the current colour unless a part is filled. */
+.icon { width: var(--o-size-icon); height: var(--o-size-icon); fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+
+/* The quote: what a message is about, above the input. */
+.quote { display: flex; align-items: center; gap: var(--o-space-8); min-width: 0; padding: var(--o-space-4) var(--o-space-8) var(--o-space-4) var(--o-space-12); color: var(--o-ink-2); font: var(--o-type-small); }
+.quote .text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* An id chip: an item's id, tinted by its kind's first letter (R requirement, F failure, P premise, A addition). */
+.idc { display: inline-flex; align-items: center; flex: none; padding: 0 var(--o-space-4); border-radius: var(--o-radius-1); background: var(--o-surface-raised); color: var(--o-ink-2); font: var(--o-type-small); font-weight: var(--o-font-weight-bold); white-space: nowrap; }
+.idc[data-k="R"] { background: var(--o-series-4-fill); color: var(--o-series-4); }
+.idc[data-k="F"] { background: var(--o-series-3-fill); color: var(--o-series-3); }
+.idc[data-k="P"] { background: var(--o-series-1-fill); color: var(--o-series-1); }
+.idc[data-k="A"] { background: var(--o-series-2-fill); color: var(--o-series-2); }
+
+/* The trays: rows that have not happened yet. Each row's rail is dashed, in the tone of who it belongs to. */
+.tray { display: grid; padding: var(--o-space-4) 0; }
+.tray-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--o-space-8); padding: var(--o-space-2) var(--o-space-12); font: var(--o-type-small); color: var(--o-ink-3); }
+.tray-head .lbl { flex: none; font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+.tray-head .why { flex: 1 1 auto; min-width: 0; }
+.tray-head .end { display: inline-flex; align-items: center; gap: var(--o-space-8); margin-left: auto; flex: none; }
+.tray-row { --rail: var(--o-line-firm); display: flex; align-items: center; gap: var(--o-space-8); min-width: 0; margin-left: var(--o-space-12); padding: var(--o-space-2) var(--o-space-12) var(--o-space-2) var(--o-space-8); border-left: var(--o-size-rail) dashed var(--rail); font: var(--o-type-small); color: var(--o-ink-2); }
+.tray-row.you { --rail: var(--o-role-you); color: var(--o-ink-1); font: var(--o-type-body); }
+.tray-row.cancelled { --rail: var(--o-role-halt); color: var(--o-ink-3); text-decoration: line-through; }
+.tray-row .lbl { display: inline-block; flex: none; color: var(--rail); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; text-decoration: none; }
+.tray-row .text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tray-row .text.wrap { white-space: pre-wrap; }
+.tray-row .note { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-ink-3); }
+.tray-row .end { display: inline-flex; align-items: center; gap: var(--o-space-4); margin-left: auto; flex: none; color: var(--o-ink-3); font: var(--o-type-small); }
+.tray-more { margin-left: var(--o-space-12); padding: var(--o-space-2) var(--o-space-12); font: var(--o-type-small); color: var(--o-ink-3); }
+
+/* The notes under the box: what happened to a send, a take-back or a resume, in red when it failed. */
+.dock .inote { display: flex; align-items: center; gap: var(--o-space-8); margin: var(--o-space-4) 0 0; font: var(--o-type-small); color: var(--o-ink-3); }
+.dock .inote.error { color: var(--o-role-bad); }
+
+/* The input: what you type, and Send. The placeholder says what a send will do in this state. */
+.dock-input { display: flex; align-items: flex-end; gap: var(--o-space-8); padding: var(--o-space-8) var(--o-space-8) var(--o-space-8) var(--o-space-12); }
+.dock-input textarea {
+  flex: 1 1 auto; min-width: 0; min-height: var(--o-size-control-desk); padding: var(--o-space-4) 0; resize: none;
+  border: 0; outline: 0; background: none; color: var(--o-ink-1); font: var(--o-type-body);
   field-sizing: content; max-height: calc(8 * var(--o-type-body-line)); overflow-y: auto;
 }
-.composer textarea::placeholder { color: var(--o-ink-4); }
-.composer .go {
-  flex: none; width: var(--o-size-control-desk); height: var(--o-size-control-desk); padding: 0; border: 0; border-radius: var(--o-radius-2); cursor: pointer;
-  background: var(--o-role-primary); color: var(--o-ink-on-accent); font: var(--o-type-small); font-weight: var(--o-font-weight-bold); text-align: center;
+.dock-input textarea::placeholder { color: var(--o-ink-4); }
+.dock-input button.go {
+  flex: none; display: inline-flex; align-items: center; justify-content: center; width: var(--o-size-control-desk); height: var(--o-size-control-desk); padding: 0; border: 0; border-radius: var(--o-radius-2); cursor: pointer;
+  background: var(--o-role-primary); color: var(--o-ink-on-accent);
   appearance: none; -webkit-appearance: none;
-}
-.composer-error {
-  margin: 0 0 var(--o-space-8); padding: var(--o-space-4) var(--o-space-8); border-radius: var(--o-radius-2); color: var(--o-role-bad);
-  overflow-wrap: anywhere;
 }
 
-/* The step foot under a step's reader: Interrupt, the nudge input beside it, and the more button. The more button opens
-   the menu, where Stop asks first, and the outcome line sits under both. */
-.stepbox .line { display: flex; gap: var(--o-space-8); }
-.stepbox .interrupt {
-  flex: none; display: inline-flex; align-items: center; gap: var(--o-space-8); padding: 0 var(--o-space-12); border: 0; border-radius: var(--o-radius-2); cursor: pointer;
-  background: var(--o-surface-raised); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm);
-  font: var(--o-type-small); font-weight: var(--o-font-weight-bold); color: var(--o-ink-2);
-  appearance: none; -webkit-appearance: none;
+/* On a phone the dock takes the screen's edges, its input takes the touch height, and a Ctl's key hint is not drawn. */
+@media (width < 760px) {
+  .dock { padding: 0 var(--o-space-8) var(--o-space-8); }
+  .dock-input textarea { min-height: var(--o-size-control-touch); padding: var(--o-space-12) 0; }
+  .ctl kbd { display: none; }
 }
-.stepbox .interrupt::before { content: ""; width: var(--o-size-dot); height: var(--o-size-dot); border-radius: var(--o-radius-1); background: var(--o-ink-2); }
-.stepbox .more {
-  flex: none; width: calc(var(--o-space-32) + var(--o-space-4)); padding: 0; border: 0; border-radius: var(--o-radius-2); cursor: pointer; text-align: center;
-  background: var(--o-surface-raised); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm);
-  font: var(--o-type-small); color: var(--o-ink-3);
-  appearance: none; -webkit-appearance: none;
+@media (prefers-reduced-motion: reduce) {
+  .statebar .g-working { animation: none; }
 }
-.stepbox-menu { display: flex; flex-wrap: wrap; gap: var(--o-space-8); margin: var(--o-space-8) 0 0; }
-.stepbox-menu button {
-  padding: var(--o-space-4) var(--o-space-12); border: 0; border-radius: var(--o-radius-2); cursor: pointer;
-  background: var(--o-surface-raised); color: var(--o-ink-1); font: var(--o-type-small);
-  appearance: none; -webkit-appearance: none;
-}
-.stepbox-menu button.stop-confirm { background: var(--o-surface-raised); color: var(--o-ink-1); }
-.stepbox-notice { margin: var(--o-space-8) 0 0; padding: var(--o-space-4) var(--o-space-8); border-radius: var(--o-radius-2); color: var(--o-ink-2); overflow-wrap: anywhere; }
-.stepbox-notice.err { color: var(--o-role-bad); }
 
 /* The live line's caret, after the wireframe. */
 @keyframes blink { 0%, 55% { opacity: 1; } 56%, 100% { opacity: 0; } }
@@ -794,33 +784,104 @@ section.page.leave { animation: move-leave var(--o-move-leave); }
 .title-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-8); min-width: 0; padding-bottom: var(--o-space-8); border-bottom: var(--o-size-hairline) solid var(--o-line-soft); white-space: nowrap; }
 .title-row .crumbs { min-width: 0; overflow: hidden; text-overflow: ellipsis; font: var(--o-type-small); color: var(--o-ink-3); }
 .title-row .sep { color: var(--o-ink-4); }
+.title-row .crumb.place { color: var(--o-role-place); }
 .title-row .crumb.here { font: var(--o-type-title); color: var(--o-ink-1); }
 .title-row .state { flex: none; font: var(--o-type-small); font-weight: var(--o-font-weight-bold); color: var(--o-ink-2); transition: color var(--o-move-state); }
 .title-row .blocker { min-width: 0; overflow: hidden; text-overflow: ellipsis; font: var(--o-type-small); color: var(--o-role-attention); transition: color var(--o-move-state); }
-.title-row .acts { display: flex; flex: none; align-items: center; gap: var(--o-space-4); margin-left: auto; }
+.title-row .acts { position: relative; display: flex; flex: none; align-items: center; gap: var(--o-space-4); margin-left: auto; }
+/* The find and More controls are square icon buttons, quiet until they are hovered or their menu is open. */
+.title-row .icon { flex: none; width: var(--o-size-control-desk); height: var(--o-size-control-desk); min-height: var(--o-size-control-desk); padding: 0; border: 0; border-radius: var(--o-radius-2); background: none; color: var(--o-ink-2); font: var(--o-type-body); cursor: pointer; appearance: none; -webkit-appearance: none; }
+.title-row .icon:hover, .title-row .icon[aria-expanded="true"] { background: var(--o-surface-raised); color: var(--o-ink-1); }
+.title-row .icon svg { display: block; width: var(--o-size-icon); height: var(--o-size-icon); margin: auto; }
+/* The More menu hangs under the controls, right edge to the More control. Each item has its key at its end. */
+.title-row .head-menu { position: absolute; top: calc(100% + var(--o-space-4)); right: 0; z-index: var(--o-z-menu); display: grid; min-width: calc(var(--o-space-48) * 4); padding: var(--o-space-4); border-radius: var(--o-radius-3); background: var(--o-surface-overlay); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm), var(--o-elevation-overlay); }
+.title-row .head-menu button { display: flex; align-items: center; gap: var(--o-space-12); height: var(--o-size-control-desk); padding: 0 var(--o-space-12); border: 0; border-radius: var(--o-radius-2); background: none; color: var(--o-ink-1); font: var(--o-type-small); white-space: nowrap; text-align: left; cursor: pointer; appearance: none; -webkit-appearance: none; }
+.title-row .head-menu button:hover { background: var(--o-surface-raised); }
+.title-row .head-menu kbd { margin-left: auto; }
+/* A command's error under the title row: an alert in the bad role's tint. */
+.page-note { margin: 0; padding: var(--o-space-4) var(--o-space-24); border-bottom: var(--o-size-hairline) solid var(--o-line-soft); background: var(--o-role-bad-fill); color: var(--o-role-bad); font: var(--o-type-small); overflow-wrap: anywhere; }
 /* The mark is the title row's first crumb: the orrery drawing, with the count of what needs you beside it when any does. */
 .title-row .mark-crumb { flex: none; display: inline-flex; align-items: center; gap: var(--o-space-4); min-height: var(--o-space-24); padding: 0; border: 0; background: none; cursor: pointer; appearance: none; -webkit-appearance: none; }
 .title-row .mark-crumb .mark { flex: none; width: calc(var(--o-space-16) + var(--o-space-2)); height: calc(var(--o-space-16) + var(--o-space-2)); }
 .title-row .mark-crumb .needs { font: var(--o-type-small); font-weight: var(--o-font-weight-bold); color: var(--o-ink-1); }
-/* The pane strip is the title row's own line under its controls: the host's name with each stat, and a pane
-   conversation's context. A stat is a fixed cell, its label and value on one line and its bar across the cell below, so
-   a bar at a percent is that share of the cell. */
-.title-row .pane-strip { flex: 0 0 100%; display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--o-space-4) var(--o-space-16); min-width: 0; font: var(--o-type-small); color: var(--o-ink-3); }
-.pane-strip-host { font-weight: var(--o-font-weight-bold); color: var(--o-ink-2); }
-.pane-strip-stat { display: grid; grid-template-columns: minmax(0, auto) minmax(0, auto); column-gap: var(--o-space-4); align-items: baseline; width: calc(var(--o-space-48) * 2 + var(--o-space-8)); min-width: 0; }
-.pane-strip-label { overflow: hidden; text-overflow: ellipsis; color: var(--o-ink-3); }
-.pane-strip-value { justify-self: end; overflow: hidden; text-overflow: ellipsis; color: var(--o-ink-2); }
-.pane-strip-stat:has(> .bar.level-warn) > .pane-strip-value { color: var(--o-level-warn); }
-.pane-strip-stat:has(> .bar.level-crit) > .pane-strip-value { color: var(--o-level-crit); }
-.pane-strip-stat > .bar { grid-column: 1 / -1; margin-top: var(--o-space-2); }
-.pane-strip-context { display: inline-flex; align-items: center; gap: var(--o-space-4); }
-.ctx-blocks { display: inline-flex; gap: var(--o-space-2); }
-.ctx-blocks i { width: var(--o-size-context-block); height: var(--o-size-context-block); border-radius: var(--o-radius-1); background: var(--o-line-soft); }
-.ctx-blocks i.on { background: currentColor; }
-.ctx-pct { font-weight: var(--o-font-weight-bold); }
-.pane-strip-context.band-ok { color: var(--o-level-ok); }
-.pane-strip-context.band-warn { color: var(--o-level-warn); }
-.pane-strip-context.band-crit { color: var(--o-level-crit); }
+/* The strip is the title row's own line under its controls: the host's name, each meter, then the context. A meter is its
+   name, a bar at its percent and its value, in its series colour; at warn and crit all three take the level's colour. */
+.pane-strip { display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-4) var(--o-space-16); min-width: 0; font: var(--o-type-small); color: var(--o-ink-3); }
+.title-row .pane-strip { flex: 0 0 100%; }
+.pane-strip-host { flex: none; font-weight: var(--o-font-weight-bold); color: var(--o-ink-2); }
+.pane-strip .other { color: var(--o-ink-4); }
+.meter { --hue: var(--o-series-1); display: inline-flex; align-items: center; gap: var(--o-space-8); flex: none; font: var(--o-type-small); white-space: nowrap; }
+.meter.series-2 { --hue: var(--o-series-2); }
+.meter.series-3 { --hue: var(--o-series-3); }
+.meter.series-4 { --hue: var(--o-series-4); }
+.meter.series-5 { --hue: var(--o-series-5); }
+.meter.level-warn { --hue: var(--o-level-warn); }
+.meter.level-crit { --hue: var(--o-level-crit); }
+.meter .name { font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; color: var(--hue); }
+.meter .bar { width: var(--o-size-meter-bar-width); height: var(--o-size-meter-bar-height); border-radius: var(--o-radius-round); background: var(--o-line-soft); overflow: hidden; }
+.meter .bar i { display: block; height: 100%; border-radius: var(--o-radius-round); background: var(--hue); }
+.meter .value { color: var(--o-ink-1); }
+.meter.level-warn .value { color: var(--o-level-warn); }
+.meter.level-crit .value { color: var(--o-level-crit); font-weight: var(--o-font-weight-bold); }
+/* The context: five blocks in its level's colour, the filled ones on, then its percent. */
+.ctx { display: inline-flex; align-items: center; gap: var(--o-space-8); flex: none; font: var(--o-type-small); color: var(--o-ink-3); white-space: nowrap; }
+.ctx .name { font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+.ctx .blocks { display: inline-flex; gap: var(--o-space-2); color: var(--o-level-ok); }
+.ctx .blocks i { width: var(--o-size-context-block); height: var(--o-size-context-block); background: var(--o-line-soft); }
+.ctx .blocks i.on { background: currentColor; }
+.ctx .pct { color: var(--o-level-ok); font-weight: var(--o-font-weight-bold); }
+.ctx[data-level="warn"] .blocks, .ctx[data-level="warn"] .pct { color: var(--o-level-warn); }
+.ctx[data-level="crit"] .blocks, .ctx[data-level="crit"] .pct { color: var(--o-level-crit); }
+.pane-strip .ctx { margin-left: auto; }
+/* The band: the conversation's goal, then one line for each thing it steers that waits on you. Peach marks an ask; the
+   goal's line ends in the control that hides the header. */
+.subject { display: grid; flex: none; border-bottom: var(--o-size-hairline) solid var(--o-line-soft); background: var(--o-surface-well); }
+.subj { display: flex; align-items: center; gap: var(--o-space-8); width: 100%; min-width: 0; min-height: var(--o-size-control-desk); margin: 0; padding: var(--o-space-4) var(--o-space-16); border: 0; border-left: var(--o-size-rail) solid var(--subj, var(--o-role-live)); border-radius: 0; background: none; color: var(--o-ink-2); font: var(--o-type-small); text-align: left; }
+button.subj { cursor: pointer; appearance: none; -webkit-appearance: none; }
+button.subj:hover { background: var(--o-surface-raised); }
+.subj + .subj { border-top: var(--o-size-hairline) solid var(--o-line-soft); }
+.subj.attention { --subj: var(--o-role-attention); }
+.subj.goal { --subj: var(--o-series-2); }
+.subj.goal .st { color: var(--o-ink-1); white-space: normal; }
+.subj.more { --subj: var(--o-ink-3); }
+.subj .what { flex: none; color: var(--o-ink-1); }
+.subj.more .what { color: var(--o-ink-2); }
+.subj .st { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--subj); text-overflow: ellipsis; white-space: nowrap; }
+.subj .end { display: inline-flex; align-items: center; gap: var(--o-space-4); flex: none; color: var(--o-role-ref); }
+.fold-head { display: grid; place-items: center; flex: none; align-self: center; width: var(--o-size-control-touch); height: var(--o-size-control-touch); margin-left: auto; padding: 0; border: 0; border-radius: var(--o-radius-2); background: none; color: var(--o-ink-3); font: var(--o-type-body); cursor: pointer; appearance: none; -webkit-appearance: none; }
+.fold-head:hover { background: var(--o-surface-well); color: var(--o-ink-1); }
+/* The header folded to one line: what asks, then the badges. Peach when something asks you. */
+.compact { display: flex; align-items: center; gap: var(--o-space-8); overflow: hidden; flex: none; width: 100%; min-height: var(--o-size-control-touch); margin: 0; padding: 0 var(--o-layout-page-pad-phone); border: 0; border-bottom: var(--o-size-hairline) solid var(--o-line-soft); border-left: var(--o-size-rail) solid transparent; border-radius: 0; background: var(--o-surface-side); color: var(--o-ink-2); font: var(--o-type-small); text-align: left; cursor: pointer; appearance: none; -webkit-appearance: none; }
+.compact.attention { border-left-color: var(--o-role-attention); }
+.compact .cask { flex: none; white-space: nowrap; color: var(--o-role-attention); font-weight: var(--o-font-weight-bold); }
+.compact .cb { display: inline-flex; flex: none; align-items: center; gap: var(--o-space-4); white-space: nowrap; }
+.compact .cb.attention { color: var(--o-role-attention); font-weight: var(--o-font-weight-bold); }
+.compact .end { display: inline-flex; align-items: center; gap: var(--o-space-8); margin-left: auto; color: var(--o-ink-3); }
+@media (width < 760px) {
+  .title-row .icon { width: var(--o-size-control-touch); height: var(--o-size-control-touch); min-height: var(--o-size-control-touch); }
+  .subj { flex-wrap: wrap; min-height: var(--o-size-control-touch); }
+  .subj .st { white-space: normal; }
+  .page-note { padding: var(--o-space-4) 0; }
+  /* The head sticks to the top of its column while the page scrolls under it, so the folded line stays in view. */
+  .convo-head { position: sticky; top: 0; z-index: var(--o-z-sticky); background: var(--o-surface-page); }
+  .convo-head > .title-row .crumbs { display: grid; flex: 1 1 0; grid-template-columns: minmax(0, 1fr); }
+  .convo-head > .title-row .mark-crumb, .convo-head > .title-row .sep { display: none; }
+  .convo-head > .title-row .crumb.place { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .convo-head > .title-row .crumb.here { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; min-width: 0; overflow: hidden; white-space: normal; font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
+  .convo-head .pane-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--o-space-8) var(--o-space-12); }
+  /* Each meter stacks as round 6's touch meter does: its name, its value, then its bar across the cell. */
+  .convo-head .pane-strip .meter { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--o-space-2); white-space: nowrap; }
+  .convo-head .pane-strip .meter .name, .convo-head .pane-strip .meter .value { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .convo-head .pane-strip .meter .value { order: 2; }
+  .convo-head .pane-strip .meter .bar { order: 3; width: 100%; }
+  /* As round 6's touch title row: the host follows the directory ("tidepool · on halyard"), the context sits bare in
+     the title row beside More, find is in More, and the strip holds only the meters (or the other host's words). */
+  .convo-head > .title-row .crumb.place[data-host]::after { content: " · on " attr(data-host); }
+  .convo-head > .title-row .icon.find { display: none; }
+  .convo-head .phone-ctx { display: inline-flex; flex: none; align-items: center; }
+  .convo-head .pane-strip-host, .convo-head .pane-strip .ctx { display: none; }
+  .convo-head .pane-strip .other { grid-column: 1 / -1; }
+}
 /* The buttons press in the press move: a pressed button shrinks a little and darkens to surface1. */
 button.act, .back, .crumb { transition: transform var(--o-move-press), background-color var(--o-move-press); }
 button.act {
@@ -1042,11 +1103,103 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 /* A control that carries .flash shows a focus ring for a moment after a use; flash.ts adds and removes the class. */
 .flash { outline: var(--o-size-hairline) solid var(--o-role-focus); outline-offset: var(--o-space-2); }
 
+/* The right rail: what a conversation steers, in named groups of tiles, each tile a thing's state at a glance. A tile is lit
+   while its panel is open, and its edge and its panel's top edge take the thing's tone; a shell left running is quiet,
+   grey, never live. */
+.rail.end { display: flex; flex: none; flex-direction: column; align-items: center; gap: 0; width: var(--o-layout-rail-width); min-height: 0; padding: var(--o-space-8) 0; border-left: var(--o-size-hairline) solid var(--o-line-soft); background: var(--o-surface-side); }
+.rgroup { position: relative; display: grid; justify-items: center; gap: var(--o-space-4); width: 100%; padding: var(--o-space-4) 0 var(--o-space-8); }
+.rgroup + .rgroup { padding-top: var(--o-space-8); border-top: var(--o-size-hairline) solid var(--o-line-soft); }
+.rlabel { max-width: 100%; overflow: hidden; color: var(--o-ink-3); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+.tile { position: relative; display: grid; place-items: center; flex: none; width: calc(var(--o-space-32) + var(--o-space-8)); height: calc(var(--o-space-32) + var(--o-space-8)); border-radius: var(--o-radius-2); background: var(--o-surface-well); color: var(--o-ink-2); font: var(--o-type-small); font-weight: var(--o-font-weight-bold); }
+.tile.cur { background: var(--o-surface-raised); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-role-focus); }
+.tile.attention { color: var(--o-role-attention); }
+.tile.live { color: var(--o-role-live); }
+.tile.quiet { color: var(--o-ink-3); }
+.tile .n { position: absolute; top: 0; right: 0; display: grid; place-items: center; min-width: var(--o-space-16); height: var(--o-space-16); padding: 0 var(--o-space-4); border-radius: var(--o-radius-round); background: var(--o-role-attention); color: var(--o-ink-on-accent); font: var(--o-type-label); }
+.tile .n.live { background: var(--o-role-live); }
+.tile .n.quiet { background: var(--o-surface-pressed); color: var(--o-ink-1); }
+.tile-w { position: relative; display: grid; justify-items: center; gap: var(--o-space-2); flex: none; width: calc(var(--o-layout-rail-width) - var(--o-space-8)); min-height: 0; padding: 0; border: 0; background: none; color: var(--o-ink-3); cursor: pointer; }
+.tile-w:hover .tile { background: var(--o-surface-raised); }
+.tile-w .cap { max-width: 100%; overflow: hidden; color: var(--o-ink-2); font: var(--o-type-label); text-overflow: ellipsis; white-space: nowrap; }
+.rail.end .tile-w.on::before { content: ""; position: absolute; top: var(--o-space-8); left: calc(var(--o-space-4) * -1); width: var(--o-size-rail); height: var(--o-space-24); border-radius: var(--o-radius-round); }
+.rail.end .tile-w.on.attention::before { background: var(--o-role-attention); }
+.rail.end .tile-w.on.live::before { background: var(--o-role-live); }
+.rail.end .tile-w.on.quiet::before { background: var(--o-ink-3); }
+.dotgrid { display: grid; grid-template-columns: repeat(3, var(--o-space-8)); gap: var(--o-space-4); }
+.dotgrid i { width: var(--o-space-8); height: var(--o-space-8); border-radius: var(--o-radius-round); background: var(--o-ink-4); }
+.dotgrid i.attention { background: var(--o-role-attention); }
+.dotgrid i.live { background: var(--o-role-live); }
+/* The rail's gauge, on a tile or a picker's row, is drawn at the rail's stroke. The inbox's epic rows draw the gauge of
+   glyphs.tsx under the .gauge rules above, so these rules name the rail's places. */
+.tile .gauge, .rpick-row .gauge { stroke-width: var(--o-size-rail); color: var(--o-ink-3); }
+/* The started arc is the gauge's colour as a tint's outline, never dimmed with opacity (SYSTEM.md: nothing is dimmed with
+   opacity; a tint is outlined at alpha.tintLine): an asking or live tile's role line, else the glyph line. */
+.tile .gauge .started, .rpick-row .gauge .started { stroke: var(--gauge-started, var(--o-line-glyph)); stroke-opacity: 1; }
+.tile.attention .gauge { --gauge-started: var(--o-role-attention-line); }
+.tile.live .gauge { --gauge-started: var(--o-role-live-line); }
+/* A tile's gauge takes the tile's tone, so an asking, live or quiet epic reads on its ring. */
+.tile .gauge { color: inherit; }
+/* A list tile's icon is drawn at the icon size, stroked in the tile's tone as round 6's icon is. */
+.tile > .icon { width: var(--o-size-icon); height: var(--o-size-icon); fill: none; stroke: currentColor; stroke-width: var(--o-size-hairline); stroke-linecap: round; stroke-linejoin: round; }
+.rpick { position: absolute; top: 0; right: calc(100% + var(--o-space-4)); z-index: var(--o-z-menu); display: grid; width: calc(var(--o-space-32) * 10); padding: var(--o-space-4); border-radius: var(--o-radius-2); background: var(--o-surface-overlay); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm), var(--o-elevation-overlay); }
+.menu-head { padding: var(--o-space-4) var(--o-space-12); color: var(--o-ink-3); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+.rpick-row { display: grid; grid-template-columns: var(--o-size-gauge) minmax(0, 1fr); align-items: center; gap: 0 var(--o-space-12); width: 100%; min-height: 0; padding: var(--o-space-8); border: 0; border-radius: var(--o-radius-2); background: none; text-align: left; cursor: pointer; }
+.rpick-row:hover { background: var(--o-surface-raised); }
+.rpick-row > .gauge { grid-column: 1; grid-row: 1 / span 2; }
+.rpick-row .t { grid-column: 2; color: var(--o-ink-1); font: var(--o-type-small); font-weight: var(--o-font-weight-bold); }
+.rpick-row .s { grid-column: 2; color: var(--o-ink-3); font: var(--o-type-small); }
+.tilestrip { display: flex; align-items: flex-start; gap: var(--o-space-16); flex: none; overflow-x: auto; padding: var(--o-space-8) var(--o-layout-page-pad-phone); border-bottom: var(--o-size-hairline) solid var(--o-line-soft); background: var(--o-surface-side); }
+.tilestrip .rgroup { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--o-space-4) var(--o-space-8); width: auto; padding: 0; }
+.tilestrip .rgroup + .rgroup { padding: 0; border: 0; }
+.tilestrip .rlabel { flex-basis: 100%; }
+/* Under 760px an open epic is the page in the conversation's place, and its foot bar opens the steering conversation. */
+.epic-read { display: flex; flex-direction: column; gap: var(--o-space-8); min-width: 0; }
+.epic-foot { display: flex; justify-content: center; padding-block: var(--o-space-8) var(--o-space-4); border-top: var(--o-size-hairline) solid var(--o-line-soft); }
+.epic-foot .side-note { text-align: center; }
+/* A sheet covers the window, so it lies over the page wherever the page is scrolled; its rules are the row sheet's, above.
+   A picker drawn in it lies flat in the sheet. */
+.sheet .rpick { position: static; width: auto; padding: 0; background: none; box-shadow: none; }
+.rpanel { display: flex; flex-direction: column; min-height: 0; padding-top: var(--o-space-8); background: var(--o-surface-side); }
+.rcard { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; margin: 0 var(--o-space-8) var(--o-space-8); overflow-y: auto; border: var(--o-size-hairline) solid var(--o-line-firm); border-radius: var(--o-radius-3); background: var(--o-surface-page); }
+.rcard.attention { border-top: var(--o-size-rail) solid var(--o-role-attention); }
+.rcard.live { border-top: var(--o-size-rail) solid var(--o-role-live); }
+.rcard.quiet { border-top: var(--o-size-rail) solid var(--o-ink-3); }
+/* Open in a new window and Close sit at the right end of the card's title row, as round 6's record title draws them. */
+.rcard { position: relative; }
+.panel-ctl { position: absolute; top: var(--o-space-8); right: var(--o-space-8); z-index: var(--o-z-sticky); display: flex; gap: var(--o-space-4); }
+.rcard .title-row, .rcard .plist > h2 { padding-right: calc(var(--o-space-24) * 2 + var(--o-space-12)); }
+.rcard .plist > h2 { padding-bottom: var(--o-space-8); border-bottom: var(--o-size-hairline) solid var(--o-line-soft); }
+.panel-ctl a, .panel-ctl button { display: grid; place-items: center; width: var(--o-space-24); height: var(--o-space-24); min-height: var(--o-space-24); padding: 0; border: 0; border-radius: var(--o-radius-2); background: none; color: var(--o-ink-3); font: var(--o-type-small); text-decoration: none; }
+.panel-ctl a:hover, .panel-ctl button:hover { background: var(--o-surface-well); color: var(--o-ink-1); }
+.plist { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--o-space-4); padding: var(--o-space-8) var(--o-space-16) var(--o-space-16); }
+.plist h2 { margin: 0; color: var(--o-ink-1); font: var(--o-type-title); }
+.inote { display: flex; align-items: center; gap: var(--o-space-8); margin: 0; color: var(--o-ink-3); font: var(--o-type-small); }
+.plist > .inote { margin-bottom: var(--o-space-8); }
+.plist ul { display: grid; gap: var(--o-space-4); margin: 0; padding: 0; list-style: none; }
+.plist li.row { --rail: var(--o-line-firm); position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--o-space-8); align-items: baseline; min-width: 0; padding: var(--o-space-8) var(--o-space-12); border-left: var(--o-size-rail) solid var(--rail); border-radius: 0 var(--o-radius-2) var(--o-radius-2) 0; background: var(--o-surface-well); }
+.plist li.row.live { --rail: var(--o-role-live); }
+.plist li.row.quiet { --rail: var(--o-ink-3); }
+.plist li.row .title { min-width: 0; overflow: hidden; color: var(--o-ink-1); font: var(--o-type-body); text-overflow: ellipsis; white-space: nowrap; }
+.plist li.row .age { color: var(--o-ink-3); font: var(--o-type-small); white-space: nowrap; }
+.plist li.row .l2 { grid-column: 1 / -1; min-width: 0; overflow: hidden; color: var(--o-ink-3); font: var(--o-type-small); text-overflow: ellipsis; white-space: nowrap; }
+.plist li.row .name { color: var(--o-role-ref); }
+.plist li.row.quiet .title, .plist li.row.quiet .name { color: var(--o-ink-3); }
+.subj { display: flex; align-items: center; gap: var(--o-space-8); width: 100%; min-width: 0; min-height: var(--o-size-control-desk); margin: 0; padding: var(--o-space-4) var(--o-space-16); border: 0; border-left: var(--o-size-rail) solid var(--subj); background: none; color: var(--o-ink-2); font: var(--o-type-small); text-align: left; }
+.subj + .subj { border-top: var(--o-size-hairline) solid var(--o-line-soft); }
+.subj.attention { --subj: var(--o-role-attention); }
+.subj .what { flex: none; color: var(--o-ink-1); }
+.subj .st { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--subj); text-overflow: ellipsis; white-space: nowrap; }
+.subj .end { display: inline-flex; align-items: center; gap: var(--o-space-4); flex: none; color: var(--o-role-ref); }
+button.subj { cursor: pointer; }
+button.subj:hover { background: var(--o-surface-raised); }
+.subj.here { background: var(--o-surface-raised); }
+.subj.here .end { color: var(--o-ink-3); }
+
 /* Reduced motion comes last, so it wins over the rules above: each move is one 100 ms linear step, a page drills and
    leaves by a fade, and the loops hold still. */
 @media (prefers-reduced-motion: reduce) {
   section.page.drill { animation: move-fade var(--o-move-drill); }
   section.page.leave { animation: move-fade var(--o-move-leave); }
-  .pill .g-working, .glyph[data-state="working"] .arc, .glyph[data-state="interrupting"], .pips i[data-tone="run"] { animation: none; }
+  .glyph[data-state="working"] .arc, .glyph[data-state="interrupting"], .pips i[data-tone="run"] { animation: none; }
   .orrery .glow { animation: none; }
 }

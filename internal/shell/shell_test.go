@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -14,7 +15,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
-	"time"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/shell"
@@ -23,8 +25,9 @@ import (
 )
 
 const (
-	noConfig  = "/dev/null"
-	pollEvery = 50 * time.Millisecond
+	noConfig = "/dev/null"
+	// popupEnv names the file a popup job appends to once it has started. Only TestPopupJob reads it.
+	popupEnv = "ORRERY_SHELL_POPUP"
 )
 
 // fixture is a private tmux server holding a base session, with two clients attached to it through
@@ -35,6 +38,8 @@ type fixture struct {
 	client   *tmuxctl.Client
 	invoking string
 	other    string
+	// events is the directory the server's hooks append to on each change that a wait reads.
+	events string
 }
 
 // clientInfo is one attached client as list-clients reports it.
@@ -52,6 +57,9 @@ func newFixture(t *testing.T) *fixture {
 		t.Fatalf("random server name: %v", err)
 	}
 	name := fmt.Sprintf("orrery-shell-test-%d-%x", os.Getpid(), suffix)
+	// The events directory is made before the server, so that its cleanup runs after the server is killed: a client's
+	// detach, which the hooks append for, can happen until then.
+	events := t.TempDir()
 	client, err := tmuxctl.New(tmuxctl.Server{Name: name})
 	if err != nil {
 		t.Fatalf("New(Name=%q): %v", name, err)
@@ -61,8 +69,14 @@ func newFixture(t *testing.T) *fixture {
 			t.Errorf("kill-server: %v", err)
 		}
 	})
-	f := &fixture{t: t, client: client}
+	f := &fixture{t: t, client: client, events: events}
 	f.run("-f", noConfig, "new-session", "-d", "-s", "base", "-c", t.TempDir(), "sleep 300")
+	// Each hook appends to the changes file the waits watch, after the change it names has happened.
+	changes := fmt.Sprintf("run-shell -b 'printf . >> %s'", filepath.Join(f.events, "changes"))
+	for _, hook := range []string{"after-new-session", "client-attached", "client-detached", "client-resized",
+		"client-session-changed"} {
+		f.run("set-hook", "-g", hook, changes)
+	}
 	f.invoking = f.attach(80, 24)
 	f.other = f.attach(200, 60)
 	return f
@@ -109,7 +123,7 @@ func (f *fixture) attach(cols, rows int) string {
 	})
 
 	var tty string
-	waitFor(f.t, "client attached to base", func() error {
+	f.waitFor("client attached to base", func() error {
 		infos, err := f.clients()
 		if err != nil {
 			return err
@@ -220,11 +234,74 @@ func (f *fixture) panePathErr(name, dir string) error {
 	return nil
 }
 
-func waitFor(t *testing.T, _ string, cond func() error) {
-	t.Helper()
-	for cond() != nil {
-		time.Sleep(pollEvery)
+// waitFor checks cond, then blocks until the server's hooks append to the changes file, and checks again after each
+// append. The watch is added before the first check, so a change made after a check is an event the next read returns.
+// It has no deadline of its own: the test binary's timeout ends a wait that never ends.
+func (f *fixture) waitFor(what string, cond func() error) {
+	f.t.Helper()
+	fd, err := unix.InotifyInit1(unix.IN_NONBLOCK | unix.IN_CLOEXEC)
+	if err != nil {
+		f.t.Fatalf("waiting for %s: inotify: %v", what, err)
 	}
+	// The descriptor is non-blocking, so the runtime poller serves each read and Close ends a read that is waiting.
+	inotify := os.NewFile(uintptr(fd), "wait watch")
+	defer func() {
+		if err := inotify.Close(); err != nil {
+			f.t.Errorf("close wait watch: %v", err)
+		}
+	}()
+	const mask = unix.IN_CREATE | unix.IN_MODIFY | unix.IN_CLOSE_WRITE | unix.IN_MOVED_TO
+	if _, err := unix.InotifyAddWatch(fd, f.events, mask); err != nil {
+		f.t.Fatalf("waiting for %s: watch %s: %v", what, f.events, err)
+	}
+	buf := make([]byte, 4096)
+	for cond() != nil {
+		if _, err := inotify.Read(buf); err != nil {
+			f.t.Fatalf("waiting for %s: read watch events: %v", what, err)
+		}
+	}
+}
+
+// popupJob returns the command a popup runs in place of the tree, and the command line popupJobs matches for it. The
+// command runs the test binary as TestPopupJob, with tag as its argument, so each job's command line is its own.
+// popupEnv names the file the job appends to in the events directory once it has exec'd.
+func (f *fixture) popupJob(t *testing.T, tag string) (command, cmdline string) {
+	t.Helper()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatalf("test binary: %v", err)
+	}
+	cmdline = fmt.Sprintf("%s -test.run=^TestPopupJob$ %s", exe, tag)
+	command = fmt.Sprintf("env %s=%s %s", popupEnv, filepath.Join(f.events, tag), cmdline)
+	return command, cmdline
+}
+
+// TestPopupJob is the job a popup runs in place of the tree. The popup runs the test binary with only this test selected
+// and popupEnv set; without popupEnv the test does nothing.
+func TestPopupJob(t *testing.T) {
+	announce := os.Getenv(popupEnv)
+	if announce == "" {
+		t.Skip("runs only as a popup job")
+	}
+	// The announcement comes after the exec, so the command line a wait matches is the job's own argv.
+	if err := announceJob(announce); err != nil {
+		t.Fatalf("announce job: %v", err)
+	}
+	// The job holds the popup open on its stdin and catches no signal, so the SIGHUP tmux sends when the popup closes
+	// ends it, as it ended the sleep this stood in for.
+	if _, err := io.Copy(io.Discard, os.Stdin); err != nil {
+		t.Fatalf("hold the popup open: %v", err)
+	}
+}
+
+// announceJob appends to the file at path, which the fixture's waits watch in the events directory.
+func announceJob(path string) error {
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	_, err = file.WriteString(".")
+	return errors.Join(err, file.Close())
 }
 
 func TestNameIsPrefixAndHashOfCleanDir(t *testing.T) {
@@ -267,13 +344,13 @@ func TestOpenCreatesSessionForAwkwardDirectories(t *testing.T) {
 			if err := shell.Open(t.Context(), f.client, dir, f.invoking); err != nil {
 				t.Fatalf("Open(%q): %v", dir, err)
 			}
-			waitFor(t, "session "+name+" starts in dir", func() error { return f.panePathErr(name, dir) })
+			f.waitFor("session "+name+" starts in dir", func() error { return f.panePathErr(name, dir) })
 			if got := f.run("display-message", "-p", "-t", "="+name+":", "#{@orrery_dir}"); got != dir {
 				t.Fatalf("@orrery_dir = %q, want %q", got, dir)
 			}
 			// The session's directory is the name as written, and only an expansion of its formats would run the job, so
 			// the exact @orrery_dir is the proof; the marker is checked as it stands.
-			waitFor(t, "popup attaches "+name+" on invoking client", func() error { return f.popupErr(name) })
+			f.waitFor("popup attaches "+name+" on invoking client", func() error { return f.popupErr(name) })
 			if _, err := os.Stat(marker); !os.IsNotExist(err) {
 				t.Fatalf("command in directory name ran: stat %s = %v", marker, err)
 			}
@@ -288,7 +365,7 @@ func TestOpenTwiceCreatesOneSession(t *testing.T) {
 	if err := shell.Open(t.Context(), f.client, dir, f.invoking); err != nil {
 		t.Fatalf("first Open: %v", err)
 	}
-	waitFor(t, "session "+name+" exists", func() error {
+	f.waitFor("session "+name+" exists", func() error {
 		_, err := f.client.Run(t.Context(), "has-session", "-t", "="+name)
 		return err
 	})
@@ -305,28 +382,28 @@ func TestOpenWhilePopupShownOnInvokingClient(t *testing.T) {
 	f := newFixture(t)
 	dir := t.TempDir()
 	name := shell.Name(dir)
-	const tree = "sleep 31841" // stands in for the tree, shown in a popup on the invoking client
-	f.showPopup(f.invoking, tree)
+	command, tree := f.popupJob(t, "invoking") // stands in for the tree, shown in a popup on the invoking client
+	f.showPopup(f.invoking, command)
 	socket := f.run("display-message", "-p", "#{socket_path}")
-	waitFor(t, "popup running on invoking client", func() error { return running(socket, tree) })
+	f.waitFor("popup running on invoking client", func() error { return running(socket, tree) })
 	if err := shell.Open(t.Context(), f.client, dir, f.invoking); err != nil {
 		t.Fatalf("Open(%q): %v", dir, err)
 	}
-	waitFor(t, "popup attaches "+name+" on invoking client", func() error { return f.popupErr(name) })
+	f.waitFor("popup attaches "+name+" on invoking client", func() error { return f.popupErr(name) })
 }
 
 func TestOpenLeavesPopupOnOtherClientOpen(t *testing.T) {
 	f := newFixture(t)
 	dir := t.TempDir()
 	name := shell.Name(dir)
-	const tree = "sleep 31842" // stands in for the tree, shown in a popup on the other client
-	f.showPopup(f.other, tree)
+	command, tree := f.popupJob(t, "other") // stands in for the tree, shown in a popup on the other client
+	f.showPopup(f.other, command)
 	socket := f.run("display-message", "-p", "#{socket_path}")
-	waitFor(t, "popup running on other client", func() error { return running(socket, tree) })
+	f.waitFor("popup running on other client", func() error { return running(socket, tree) })
 	if err := shell.Open(t.Context(), f.client, dir, f.invoking); err != nil {
 		t.Fatalf("Open(%q): %v", dir, err)
 	}
-	waitFor(t, "popup attaches "+name+" on invoking client", func() error { return f.popupErr(name) })
+	f.waitFor("popup attaches "+name+" on invoking client", func() error { return f.popupErr(name) })
 	// Open's tmux commands have all run by now, and a popup tmux closes has its job signaled as it closes. So the job
 	// still runs with no termination signal pending only if its popup was left open.
 	if err := runningUnsignaled(socket, tree); err != nil {

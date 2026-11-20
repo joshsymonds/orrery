@@ -111,3 +111,43 @@ test("FixtureWorld: \"Why the roster page is slow past forty shifts\" changed fo
   const instant = Date.parse(liveEpoch) / 1000;
   assert.equal(instant - titled("Why the roster page is slow past forty shifts").changed, 240);
 });
+
+// buoyFeedsSession is the headless session that steers tidepool/buoy-feeds.
+const buoyFeedsSession = "6c2f9e14-3a7b-4d58-9b0e-2f7a1c8d4e55";
+
+// steering is each epic and the session that steers it. The session is a row of the fixtures by its archive id.
+const steering: [epic: string, session: string][] = [
+  ["lighthouse/rota-export", "sess-rota-14"],
+  ["orrery/orrery-followups", "sess-follow-22"],
+  ["orrery/orbit-labels", "sess-follow-22"],
+  ["orrery/notices-usable", "sess-follow-22"],
+  ["orrery/harbour-map", "sess-follow-22"],
+  ["tidepool/tide-alerts", "sess-tide-16"],
+  ["tidepool/offline-tables", "sess-offline-17"],
+  ["orrery/holder-scopes", "sess-holder-19"],
+  ["tidepool/tide-cache", "sess-cache-20"],
+  ["tidepool/buoy-feeds", buoyFeedsSession],
+];
+
+for (const [epic, session] of steering) {
+  test(`FixtureWorld: ${epic} is steered by ${session}, which is a row of the fixtures`, () => {
+    const listed = shippedSlices.epics.epics.find((candidate) => candidate.id === epic);
+    assert.ok(listed !== undefined, `the fixtures list ${epic}`);
+    assert.equal(listed.steering, session, `the list row of ${epic}`);
+    const detail = shippedSlices.gets.get(epic);
+    assert.ok(detail !== undefined, `the fixtures hold the Epics.Get answer of ${epic}`);
+    assert.equal(detail.epic?.steering, session, `the detail of ${epic}`);
+    assert.ok(rows.some((row) => row.archiveId === session), `a row of the fixtures has the archive id ${session}`);
+  });
+}
+
+test("FixtureWorld: the headless session Steering buoy-feeds runs two agents and one shell", () => {
+  const stream = shippedSlices.sessionStreams.get(buoyFeedsSession);
+  assert.ok(stream !== undefined, "the fixtures hold the conversation of Steering buoy-feeds");
+  const running = (stream.state?.background ?? []).filter((task) => task.status === "running");
+  assert.deepEqual(running.map((task) => [task.type, task.description]), [
+    ["agent", "Map the buoy feed formats"],
+    ["agent", "Check the station list against NOAA's"],
+    ["shell", "just serve --port 8710"],
+  ]);
+});

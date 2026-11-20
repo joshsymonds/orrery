@@ -1,8 +1,8 @@
 import type { Dispatch, StateUpdater } from "preact/hooks";
 
+import type { Conversation } from "./conversation";
 import type { EpicItem, StepItem } from "./epics";
 import type { ContractItem } from "./tree";
-import type { Pane } from "./gen/orrery/v1/orrery_pb";
 import { headState } from "./readercolumn";
 import type { Row } from "./rows";
 import type { View } from "./router";
@@ -57,8 +57,8 @@ export interface KeyContext {
   cursorRowKey: string;
   cursorStep: StepItem | null;
   cursorStepKey: string;
-  // The pane the cursor's conversation holds, which headState reads with the cursor's row.
-  cursorPane: Pane | undefined;
+  // The conversation the cursor's row shows, which headState reads with the cursor's row.
+  cursorConversation: Conversation | null;
   // The row the pinned column shows.
   pinned: Row | null;
   // The filter input, the composer and step reply boxes by row or step key, and the g that a key before this one left
@@ -86,6 +86,8 @@ export interface KeyContext {
   closePin: () => void;
   togglePin: () => void;
   toggleStrips: () => void;
+  // Shuts the open panel, or with none open reopens the thing it held last.
+  togglePanel: () => void;
   setPickerOpen: Dispatch<StateUpdater<boolean>>;
   setMenuKey: Dispatch<StateUpdater<string | null>>;
   // setFilter sets the search text, which opens the search field; null shuts it.
@@ -117,7 +119,7 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
     cursorRowKey,
     cursorStep,
     cursorStepKey,
-    cursorPane,
+    cursorConversation,
     pinned,
     inputRef,
     composerInputs,
@@ -138,6 +140,7 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
     closePin,
     togglePin,
     toggleStrips,
+    togglePanel,
     setPickerOpen,
     setMenuKey,
     setFilter,
@@ -342,6 +345,9 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
     case "m":
       toggleStrips();
       break;
+    case "]":
+      togglePanel();
+      break;
     case "?":
       setHelpOpen((open) => !open);
       break;
@@ -353,7 +359,7 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
         return;
       }
       if (!helpOpen && cursorRow !== null) {
-        void escapeRow({ row: cursorRow, column: "cursor", state: headState(cursorRow, cursorPane) }, null);
+        void escapeRow({ row: cursorRow, column: "cursor", state: headState(cursorRow, cursorConversation) }, null);
       }
       setHelpOpen(false);
       return;

@@ -154,6 +154,12 @@ function newestFirst(items: EpicItem[]): EpicItem[] {
   return items.sort((a, b) => b.phaseAt - a.phaseAt);
 }
 
+// An ended epic's words: its outcome, then the time since it ended, never below zero when the browser's clock is behind
+// the server's stamp. At phaseAt 0 there is no time to read, so the outcome stands alone.
+export function endedWords(item: EpicItem, now: number): string {
+  return item.phaseAt > 0 ? `${item.outcome} · ${durationText(Math.max(0, now - item.phaseAt))} ago` : item.outcome;
+}
+
 export function blockOf(epic: Epic, detail: EpicsGetResponse | undefined): EpicBlock {
   const slices = detail?.slices ?? [];
   const item = itemOf(epic, detail);

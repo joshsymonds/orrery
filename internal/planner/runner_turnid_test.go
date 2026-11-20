@@ -43,10 +43,11 @@ func TestRunnerStartsPlannerStepUnderIDOfEpicAndTurnSeq(t *testing.T) {
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newFakeSteps()
+	steps.watchStore(s)
 	var reads atomic.Int64
 	runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
 
-	waitFor(t, "a planner step to start", func() bool { return len(steps.started()) == 1 })
+	waitFor(t, &steps.changeNotice, "a planner step to start", func() bool { return len(steps.started()) == 1 })
 	if got := steps.started()[0].ID; got != runnerTurnStepID {
 		t.Errorf("step id = %q, want %q", got, runnerTurnStepID)
 	}
@@ -58,10 +59,16 @@ func TestRecoveryRecordsStepStoredUnderDerivedIDAndCompletesTurnByItsDoneEnd(t *
 	createRunnerEpic(t, s)
 	claimTurnKilledBeforeRecord(t, s, runnerTurnStepID, validPlan, "done")
 	steps := newFakeSteps()
+	steps.watchStore(s)
 	var reads atomic.Int64
 	runner := runRunner(t, recoverConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
 
-	waitFor(t, "turn 1 to succeed", func() bool { return epicOf(t, s).Turns[0].State == "succeeded" })
+	waitFor(
+		t,
+		&steps.changeNotice,
+		"turn 1 to succeed",
+		func() bool { return epicOf(t, s).Turns[0].State == "succeeded" },
+	)
 	if got := epicOf(t, s).Turns[0].Step; got != runnerTurnStepID {
 		t.Errorf("turn 1 step = %q, want %q recorded by recovery", got, runnerTurnStepID)
 	}
@@ -80,11 +87,17 @@ func TestRecoveryWaitsForOpenStepStoredUnderDerivedIDAndSettlesTurnWhenItEnds(t 
 	createRunnerEpic(t, s)
 	claimTurnKilledBeforeRecord(t, s, runnerTurnStepID, "", "")
 	steps := newFakeSteps()
+	steps.watchStore(s)
 	steps.ended[runnerTurnStepID] = make(chan store.StepRow, 1)
 	var reads atomic.Int64
 	runner := runRunner(t, recoverConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
 
-	waitFor(t, "step recorded on turn 1", func() bool { return epicOf(t, s).Turns[0].Step == runnerTurnStepID })
+	waitFor(
+		t,
+		&steps.changeNotice,
+		"step recorded on turn 1",
+		func() bool { return epicOf(t, s).Turns[0].Step == runnerTurnStepID },
+	)
 	passRunner(t, runner, 3)
 	if n := len(steps.started()); n != 0 {
 		t.Errorf("steps started while the open step runs = %d, want 0", n)
@@ -97,7 +110,7 @@ func TestRecoveryWaitsForOpenStepStoredUnderDerivedIDAndSettlesTurnWhenItEnds(t 
 	}
 
 	steps.end(runnerTurnStepID, store.StepRow{End: "done", Result: validPlan})
-	waitFor(t, "turn 1 to succeed once its step ends", func() bool {
+	waitFor(t, &steps.changeNotice, "turn 1 to succeed once its step ends", func() bool {
 		return epicOf(t, s).Turns[0].State == "succeeded"
 	})
 }
@@ -116,11 +129,12 @@ func TestRecoveryStopsOpenStepStoredUnderDerivedIDWhenTurnWasFlaggedBeforeRecord
 		t.Fatalf("StopEpic step = %q, want none: turn 1 has no recorded step", step)
 	}
 	steps := newFakeSteps()
+	steps.watchStore(s)
 	steps.ended[runnerTurnStepID] = make(chan store.StepRow, 1)
 	var reads atomic.Int64
 	runRunner(t, recoverConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
 
-	waitFor(t, "turn 1 to end", func() bool { return epicOf(t, s).Turns[0].State == "free" })
+	waitFor(t, &steps.changeNotice, "turn 1 to end", func() bool { return epicOf(t, s).Turns[0].State == "free" })
 	if got, want := steps.stopCalls(), []string{runnerTurnStepID}; !reflect.DeepEqual(got, want) {
 		t.Errorf("steps stopped = %q, want %q", got, want)
 	}
@@ -142,6 +156,7 @@ func TestRecoveryStartsStepUnderDerivedIDWhenStoredStepHasAnotherID(t *testing.T
 	createRunnerEpic(t, s)
 	claimTurnKilledBeforeRecord(t, s, "old-step-1", validPlan, "done")
 	steps := newFakeSteps()
+	steps.watchStore(s)
 	var reads atomic.Int64
 	runRunner(t, recoverConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
 
@@ -149,5 +164,10 @@ func TestRecoveryStartsStepUnderDerivedIDWhenStoredStepHasAnotherID(t *testing.T
 	if got := steps.started()[0].ID; got != runnerTurnStepID {
 		t.Errorf("step id = %q, want %q: the step stored under another id is not turn 1's", got, runnerTurnStepID)
 	}
-	waitFor(t, "step-1 recorded on turn 1", func() bool { return epicOf(t, s).Turns[0].Step == "step-1" })
+	waitFor(
+		t,
+		&steps.changeNotice,
+		"step-1 recorded on turn 1",
+		func() bool { return epicOf(t, s).Turns[0].Step == "step-1" },
+	)
 }

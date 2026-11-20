@@ -380,13 +380,14 @@ async function clickRow(container: HTMLElement, key: string): Promise<void> {
 
 // composer is the cursor row's reply box, the one that is drawn.
 function composer(container: HTMLElement): HTMLTextAreaElement {
-  const box = container.querySelector<HTMLTextAreaElement>(".reply:not([hidden]) .composer textarea");
+  const box = container.querySelector<HTMLTextAreaElement>(".reply:not([hidden]) textarea");
   assert.ok(box, "the cursor's row has a reply box");
   return box;
 }
 
+// findBar is the find bar, a div: the head's find button also has the class find.
 function findBar(container: HTMLElement): Element | null {
-  return container.querySelector(".find");
+  return container.querySelector("div.find");
 }
 
 function findInput(container: HTMLElement): HTMLInputElement {

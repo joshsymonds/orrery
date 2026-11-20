@@ -20,6 +20,31 @@ test("HashRoute round-trips a session entry", () => {
   assertRoundTrip({ view: "inbox", entry: { kind: "session", id: "S-1" } });
 });
 
+test("SidePanel: round-trips a session entry with the agents panel open", () => {
+  assertRoundTrip({ view: "inbox", entry: { kind: "session", id: "S-1", panel: "agents" } });
+});
+
+test("SidePanel: round-trips a session entry with the running panel open", () => {
+  assertRoundTrip({ view: "inbox", entry: { kind: "session", id: "S-1", panel: "running" } });
+});
+
+test("SidePanel: writes the open panel as the last segment of the session hash", () => {
+  assert.equal(
+    formatAddress({ view: "inbox", entry: { kind: "session", id: "S-1", panel: "running" } }),
+    "#/inbox/session/S-1/running",
+  );
+});
+
+test("SidePanel: parses a session hash with any other third segment to the inbox with no entry", () => {
+  for (const segment of ["Agents", "running ", "sessions", "extra", ""]) {
+    assert.deepEqual(
+      parseAddress(`#/inbox/session/S-1/${segment}`),
+      { view: "inbox", entry: null },
+      `segment ${JSON.stringify(segment)}`,
+    );
+  }
+});
+
 test("HashRoute round-trips a pane entry", () => {
   assertRoundTrip({ view: "inbox", entry: { kind: "pane", host: "laptop", pane: "pane-2" } });
 });

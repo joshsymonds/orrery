@@ -5,7 +5,7 @@ import { BackgroundRow } from "./backgroundrow";
 import { type EpicCalls, EpicWidget } from "./card";
 import type { Conversation } from "./conversation";
 import type { Match } from "./find";
-import { EventRing, epicEventOf, StepCard, stepEventOf, WaitingCard } from "./eventring";
+import { EventRing, epicEventOf, StepCard, stepEventOf } from "./eventring";
 import { useFlash } from "./flash";
 import type { EpicStep, EpicStepCheck } from "./gen/orrery/v1/epics_pb";
 import type { ConversationItem, EngineText } from "./gen/orrery/v1/orrery_pb";
@@ -13,8 +13,6 @@ import { Markdown } from "./markdown";
 import type { ParsedQuestion } from "./question";
 import type { Sending } from "./sending";
 import { MarkedText, ReplyText } from "./text";
-import { TitleParts } from "./titleparts";
-import { type InboxMark, TitleRow } from "./titlerow";
 
 const tokensPerThousand = 1000;
 const secondsToMillis = 1000;
@@ -26,7 +24,7 @@ const toolRunMinimum = 3;
 const pageOverlapPixels = 40;
 // pagingQuery is the width from which a reader pages by its handle. Under it the reader does not scroll on its own, and
 // the keys that page it are left to the browser.
-const pagingQuery = "(min-width: 760px)";
+export const pagingQuery = "(min-width: 760px)";
 
 // ReaderHandle is what the page calls on a reader to page its transcript by a screen. page moves the reader one screen
 // up or down, less pageOverlapPixels, clamped to its top and bottom, and returns true. Where the reader does not scroll
@@ -66,14 +64,14 @@ interface CallReveal {
 // conversation has older items, it calls onOlder, which loads the page before its oldest item. The page pages it a
 // screen at a time through the handle register gets.
 // With find, every case-insensitive occurrence of its query is a mark in what the reader draws of a reply, a prompt, a
-// call's input and result, and a notice. Compaction, check cards, epic cards, event rings, step cards, waiting cards,
+// call's input and result, and a notice. Compaction, check cards, epic cards, event rings, step cards,
 // background rows, live text, thinking, the question card, sending rows, event lines, cron rows and agent-finished
 // lines are not searched. The current match, find.current's index in find.matches, is the mark with class current: it
 // is scrolled into view as it arrives, and the fold, call or run that holds it opens. A fold opens when the current
 // match moves into it, and the owner can close it; it opens again only when the current match moves into it once more.
-// After the items and live text, the reader draws a waiting card for each caller event the conversation holds pending,
-// oldest first, except one whose id an event prompt already drawn holds. Then it draws a row for each background task
-// the conversation's state holds, in the state's order. The sending entries draw after them, each as a dimmed prompt
+// After the items and live text, the reader draws a row for each background task the conversation's state holds, in the
+// state's order. A caller event the conversation holds pending is not drawn: it draws as its card once its prompt
+// arrives. The sending entries draw after them, each as a dimmed prompt
 // row marked sending. They are not items: they keep no key and no place in the scroll place, and a reader
 // at its bottom keeps it as a new row arrives.
 export function Reader({
@@ -85,6 +83,7 @@ export function Reader({
   onAnswer,
   onToggleOpen,
   onOlder,
+  onNewest,
   register,
   sending = [],
   find,
@@ -98,6 +97,7 @@ export function Reader({
   onAnswer?: (choice: 1 | 2 | 3) => void;
   onToggleOpen?: () => void;
   onOlder?: () => void;
+  onNewest?: (atNewest: boolean) => void; // told each time the owner's scroll or a page changes whether the reader is pinned
   register?: (handle: ReaderHandle | null) => void; // gets the handle while mounted, and null once unmounted
   sending?: Sending[];
   find?: { query: string; matches: Match[]; current: number };
@@ -176,7 +176,11 @@ export function Reader({
   const followScroll = (): void => {
     const reader = root.current;
     if (reader !== null) {
+      const wasPinned = pinned.current;
       pinned.current = distanceFromBottom(reader) <= nearBottomPixels;
+      if (pinned.current !== wasPinned) {
+        onNewest?.(pinned.current);
+      }
     }
     askOlder();
   };
@@ -205,6 +209,7 @@ export function Reader({
     // A conversation that opens starts pinned at its bottom, whatever the owner did to the one shown before it.
     if (opening) {
       pinned.current = true;
+      onNewest?.(true);
     }
     // A render that draws items above the first row shown before keeps that row where it was: the reader moves by
     // how much its content grew above it.
@@ -244,6 +249,23 @@ export function Reader({
     register?.({ page });
     return () => register?.(null);
   });
+  // Under pagingQuery the page scrolls as a whole, not the reader, so the owner's scroll is the window's: it reports
+  // whether the page sits at its end, as the reader's own scroll reports its bottom. At pagingQuery and wider the reader
+  // scrolls on its own, and the window's scroll changes nothing.
+  useLayoutEffect(() => {
+    const followWindow = (): void => {
+      if (window.matchMedia(pagingQuery).matches) {
+        return;
+      }
+      const wasPinned = pinned.current;
+      pinned.current = distanceFromBottom(document.documentElement) <= nearBottomPixels;
+      if (pinned.current !== wasPinned) {
+        onNewest?.(pinned.current);
+      }
+    };
+    window.addEventListener("scroll", followWindow);
+    return () => window.removeEventListener("scroll", followWindow);
+  }, [onNewest]);
   const sendingRows = sending.map((entry) => <SendingRow key={entry.promptId} text={entry.text} />);
   if (conversation === null) {
     return (
@@ -294,21 +316,6 @@ export function Reader({
   });
   const questionCard = question === null ? null : <QuestionCard question={question} onAnswer={onAnswer} />;
   const live = liveBlocks.map((block) => <LiveRow key={`${block.messageId}/${block.index}`} block={block} />);
-  // A pending event whose prompt is drawn is an ordinary card now, so it draws no waiting card, even before the next
-  // poll takes it out of the pending list.
-  const drawnEvents = new Set(
-    items.filter((item) => item.kind === "prompt" && item.sender === "event").map((item) => item.promptId),
-  );
-  const waiting = (conversation.state?.pending ?? [])
-    .filter((event) => !drawnEvents.has(event.id))
-    .map((event) => (
-      <div key={`waiting/${event.id}`} class="t waiting-row">
-        <span class="gut" />
-        <div class="body">
-          <WaitingCard event={event} calls={rowCalls} />
-        </div>
-      </div>
-    ));
   const background = (conversation.state?.background ?? []).map((task) => (
     <BackgroundRow key={task.id} task={task} onOpen={openCall} />
   ));
@@ -317,7 +324,6 @@ export function Reader({
       {rows}
       {questionCard}
       {live}
-      {waiting}
       {background}
       {sendingRows}
     </div>
@@ -341,39 +347,6 @@ export function ReaderHead({
       {where !== "" && <span class="where">{where}</span>}
       {children}
     </header>
-  );
-}
-
-// ConversationHead heads a row's conversation with the shared title row: the back button, the mark, the row's title,
-// which TitleParts draws from its directory and line, as the page, and the row's state in the state slot. The children,
-// the pill the app passes in, draw after the state. The strip, when given, draws under the row.
-export function ConversationHead({
-  dir,
-  line,
-  state,
-  onBack,
-  mark,
-  strip,
-  children,
-}: {
-  dir: string;
-  line: string;
-  state: string;
-  onBack: () => void;
-  mark?: InboxMark;
-  strip?: ComponentChildren;
-  children?: ComponentChildren;
-}): JSX.Element {
-  return (
-    <TitleRow
-      crumbs={[{ label: <TitleParts dir={dir} line={line} /> }]}
-      onBack={onBack}
-      state={state}
-      mark={mark}
-      strip={strip}
-    >
-      {children}
-    </TitleRow>
   );
 }
 

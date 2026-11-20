@@ -139,7 +139,7 @@ class MainActivityTest {
         panesOf(*panes.map { (id, label) -> paneProto(id, label) }.toTypedArray())
 
     /** The header of the open pane, by its label. */
-    private fun titled(label: String): SemanticsMatcher = hasTestTag("pane-title").and(hasText(label))
+    private fun titled(label: String): SemanticsMatcher = hasTestTag("head-text").and(hasText(label))
 
     /** A headless session as the list and the watch stream report it. */
     private fun headlessSession(id: String, label: String, state: String = "working"): HeadlessSession =
@@ -241,7 +241,7 @@ class MainActivityTest {
         controller.get().onBackPressedDispatcher.onBackPressed()
 
         awaitNode(hasTestTag("convo:pane:example-host:%2"))
-        assertAbsent(hasTestTag("pane-title"))
+        assertAbsent(hasTestTag("head-text"))
     }
 
     @Test
@@ -249,12 +249,12 @@ class MainActivityTest {
         launch()
         awaitNode(hasTestTag("convo:pane:example-host:%1"))
         composeRule.onNodeWithTag("convo:pane:example-host:%1").performClick()
-        awaitNode(hasTestTag("pane-back"))
+        awaitNode(hasTestTag("head-back"))
 
-        composeRule.onNodeWithTag("pane-back").performClick()
+        composeRule.onNodeWithTag("head-back").performClick()
 
         awaitNode(hasTestTag("convo:pane:example-host:%2"))
-        assertAbsent(hasTestTag("pane-title"))
+        assertAbsent(hasTestTag("head-text"))
     }
 
     @Test
@@ -503,7 +503,7 @@ class MainActivityTest {
         controller.get().onBackPressedDispatcher.onBackPressed()
 
         awaitNode(hasTestTag("convo:pane:example-host:%1"))
-        assertAbsent(hasTestTag("pane-title"))
+        assertAbsent(hasTestTag("head-text"))
     }
 
     @Test

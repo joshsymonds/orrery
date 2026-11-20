@@ -14,6 +14,7 @@ import (
 // through. *store.Store satisfies it.
 type EpicCallerStore interface {
 	ActionEvents(ctx context.Context) ([]store.ActionEvent, error)
+	ContractEvents(ctx context.Context) ([]store.ContractEvent, error)
 	Attention(ctx context.Context) ([]store.EpicAttention, error)
 	Epic(ctx context.Context, id string) (store.EpicRow, error)
 	EpicSteerer(ctx context.Context, epic string) (store.CallerSession, bool, error)
@@ -28,7 +29,8 @@ type EpicCallerEventsConfig struct {
 }
 
 // EpicCallerEvents tells the session that steers each epic, once, of each move and owner action on it, and when the epic
-// parks, asks a question, releases or ends.
+// parks, asks a question, releases or ends. It tells the conversation that made each contract, once, of each change
+// another made to the contract's state: an accept, a set aside or a reopen.
 type EpicCallerEvents struct {
 	store  EpicCallerStore
 	sender *enginehost.CallerSender
@@ -39,7 +41,8 @@ func NewEpicCallerEvents(cfg EpicCallerEventsConfig) *EpicCallerEvents {
 	return &EpicCallerEvents{store: cfg.Store, sender: cfg.Sender}
 }
 
-// Pass sends the action events that Store.ActionEvents lists, each to its recipient, then the events of each epic that
+// Pass sends the action events that Store.ActionEvents lists, each to its recipient, then the contract events that
+// Store.ContractEvents lists, each to the conversation that made its contract, then the events of each epic that
 // Store.Attention lists to its steerer. An epic with no steerer sends nothing. It returns the errors of the reads and
 // sends that failed, joined. A failure does not stop the pass: it goes on to the next event.
 func (e *EpicCallerEvents) Pass(ctx context.Context) error {
@@ -50,6 +53,13 @@ func (e *EpicCallerEvents) Pass(ctx context.Context) error {
 	}
 	for _, event := range actions {
 		errs = append(errs, e.sendAction(ctx, event))
+	}
+	contracts, err := e.store.ContractEvents(ctx)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("read contract events for caller events: %w", err))
+	}
+	for _, event := range contracts {
+		errs = append(errs, e.sendContract(ctx, event))
 	}
 	entries, err := e.store.Attention(ctx)
 	if err != nil {
@@ -74,6 +84,50 @@ func (e *EpicCallerEvents) sendAction(ctx context.Context, event store.ActionEve
 			event.ID, event.Epic, event.Recipient.ID, err)
 	}
 	return nil
+}
+
+// sendContract sends one contract event to its recipient, the conversation that made the contract. ContractEvents lists
+// only the events no mark holds under their recipient, and the CallerSender marks each one it finishes, so a sent event
+// is not sent again.
+func (e *EpicCallerEvents) sendContract(ctx context.Context, event store.ContractEvent) error {
+	text := store.CallerEventBlock(store.CallerKindAction, event.ID, nil, contractBody(event))
+	if _, err := e.sender.Send(ctx, event.Recipient, event.ID, text); err != nil {
+		return fmt.Errorf("send contract event %s of contract %s to session %s: %w",
+			event.ID, event.Contract, event.Recipient.ID, err)
+	}
+	return nil
+}
+
+// contractBody returns the body of a contract event. Its first line names the contract, its title, who made the change
+// and what it did at its version. Its words follow, cut to decisionTextRunes, when the change gave any. An accept's last
+// line says that epic_create makes its epic.
+func contractBody(event store.ContractEvent) string {
+	who := "the owner"
+	if event.Session != "" {
+		who = "session " + event.Session
+	}
+	lines := []string{fmt.Sprintf("Contract %s (%s): %s %s at version %d.",
+		event.Contract, event.Title, who, contractChangePhrase(event.State), event.Version)}
+	if event.Words != "" {
+		lines = append(lines, "words: "+cutRunes(event.Words, decisionTextRunes))
+	}
+	if event.State == store.ContractAccepted {
+		lines = append(lines, "epic_create with its id and a base makes its epic.")
+	}
+	return strings.Join(lines, "\n")
+}
+
+// contractChangePhrase returns what a change to a contract's state did, after its maker: accepted it, set it aside, or
+// reopened it. ContractEvents lists no other change than these three, and a reopen enters the proposed state.
+func contractChangePhrase(state string) string {
+	switch state {
+	case store.ContractAccepted:
+		return "accepted it"
+	case store.ContractSetAside:
+		return "set it aside"
+	default:
+		return "reopened it"
+	}
 }
 
 // actionBody returns the body of an action event. The session that takes an epic is sent the steering prompt of the

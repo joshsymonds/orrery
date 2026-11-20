@@ -142,7 +142,7 @@ async function clickRow(container: HTMLElement, key: string): Promise<void> {
 
 // replyBox is the cursor's visible reply box. A missing box fails the test.
 function replyBox(container: HTMLElement): HTMLTextAreaElement {
-  const box = container.querySelector<HTMLTextAreaElement>(".reply:not([hidden]) .composer textarea");
+  const box = container.querySelector<HTMLTextAreaElement>(".reply:not([hidden]) textarea");
   if (box === null) {
     assert.fail("the cursor's reply box is drawn");
   }

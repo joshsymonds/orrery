@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"golang.org/x/sys/unix"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/joshsymonds/orrery/internal/cli"
@@ -38,7 +39,7 @@ const (
 	runSocketEnv = "ORRERY_RUN_TEST_SOCKET"
 	// testRetry is the reconnect interval every run test uses, so a broken stream is reclaimed quickly.
 	testRetry = 10 * time.Millisecond
-	// pollInterval is how often a wait checks whether a process has exited.
+	// pollInterval is how often receiveUntil checks whether what feeds its channel has ended.
 	pollInterval = 10 * time.Millisecond
 	// helperExitStatus is the status the exit helper ends with.
 	helperExitStatus = 3
@@ -77,7 +78,11 @@ func runHelper(mode string) int {
 		return 0
 	case "sleep":
 		fmt.Fprintf(os.Stdout, "ready %d\n", os.Getpid())
-		time.Sleep(time.Hour)
+		// The command runs until the test closes its stdin, or until a signal ends it.
+		if _, err := io.Copy(io.Discard, os.Stdin); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
 		return 0
 	case "stop":
 		return helperStop()
@@ -127,6 +132,7 @@ func helperClient() int {
 		Request: testRequest(),
 		Argv:    argv,
 		Environ: []string{runHelperEnv + "=sleep"},
+		Stdin:   os.Stdin,
 		Stdout:  os.Stdout,
 		Stderr:  os.Stderr,
 	})
@@ -165,6 +171,8 @@ type poolsFake struct {
 
 	mu       sync.Mutex
 	requests []*v1.AcquireRequest
+	// notice is notified after each request is recorded, so a wait for requests checks again.
+	notice changeNotice
 }
 
 // newPoolsFake returns a fake whose every Acquire behaves as one step: fail, events, hold.
@@ -195,6 +203,7 @@ func (f *poolsFake) Acquire(
 	step := f.steps[min(len(f.requests), len(f.steps)-1)]
 	f.requests = append(f.requests, req.Msg)
 	f.mu.Unlock()
+	f.notice.notify()
 	if step.gate != nil {
 		select {
 		case <-step.gate:
@@ -245,23 +254,57 @@ func refusedAfter(gate <-chan struct{}, code connect.Code) acquireStep {
 // run whose result arrives on status has returned without them (see awaitRunRequests).
 func awaitRequests(t *testing.T, fake *poolsFake, n int, status <-chan int) {
 	t.Helper()
-	awaitRunRequests(t, status, func() int { return len(fake.received()) }, n)
+	awaitRunRequests(t, &fake.notice, status, func() int { return len(fake.received()) }, n)
 }
 
-// awaitRunRequests waits until received reports want requests. It has no deadline of its own. It fails the test once
-// the run whose result arrives on status has returned and received still reports fewer: a fake records each request
-// before it answers it, so a run that has returned sends no more. It reads whether the run has returned from the
-// channel's length, so the status stays on the channel for the test to read.
-func awaitRunRequests(t *testing.T, status <-chan int, received func() int, want int) {
+// changeNotice tells a waiter that what it waits for may have changed. wait returns a channel that closes at the next
+// notify, so a waiter takes the channel before it checks its condition, and blocks on the channel only when the check
+// fails. The zero value is ready to use.
+type changeNotice struct {
+	mu sync.Mutex
+	ch chan struct{}
+}
+
+// wait returns the channel that the next notify closes.
+func (n *changeNotice) wait() <-chan struct{} {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.ch == nil {
+		n.ch = make(chan struct{})
+	}
+	return n.ch
+}
+
+// notify closes the channel wait returned, if any, so the next wait returns a new one.
+func (n *changeNotice) notify() {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.ch != nil {
+		close(n.ch)
+		n.ch = nil
+	}
+}
+
+// awaitRunRequests waits until received reports want requests. It has no deadline of its own. Each request a fake
+// records notifies changes, so the wait checks again then. It fails the test once the run whose result arrives on
+// status has returned and received still reports fewer: a fake records each request before it answers it, so a run that
+// has returned sends no more. It reads whether the run has returned from the channel's length, so the status stays on
+// the channel for the test to read. A run that returns without a further request notifies nothing, so such a wait
+// hangs until the test binary's timeout ends it.
+func awaitRunRequests(t *testing.T, changes *changeNotice, status <-chan int, received func() int, want int) {
 	t.Helper()
-	for received() < want {
+	for {
+		changed := changes.wait()
+		if received() >= want {
+			return
+		}
 		if len(status) > 0 {
 			if had := received(); had < want {
 				t.Fatalf("RunWithGrant returned after %d requests, want %d first", had, want)
 			}
 			return
 		}
-		time.Sleep(pollInterval)
+		<-changed
 	}
 }
 
@@ -310,7 +353,7 @@ func runConfig(t *testing.T, socket, mode string, stdout, stderr io.Writer) cli.
 	if err != nil {
 		t.Fatal(err)
 	}
-	return cli.RunConfig{
+	cfg := cli.RunConfig{
 		Pools:   enginev1connect.NewPoolsClient(cli.SessionHTTPClient(socket), cli.SessionBaseURL),
 		Request: testRequest(),
 		Argv:    argv,
@@ -319,6 +362,11 @@ func runConfig(t *testing.T, socket, mode string, stdout, stderr io.Writer) cli.
 		Stderr:  stderr,
 		Retry:   testRetry,
 	}
+	if mode == "sleep" {
+		// The sleep helper runs until its stdin closes, and the test holds the write end open until the test ends.
+		cfg.Stdin = stdinPipe(t)
+	}
+	return cfg
 }
 
 // queuedAt returns a queued event at position.
@@ -416,11 +464,33 @@ func readyPID(t *testing.T, ready string) int {
 	return pid
 }
 
-// waitGone fails the test unless the process pid exits within runTimeout.
+// waitGone waits until the process pid exits. Its pidfd becomes readable when the process exits, whether or not
+// anything has reaped it, so the wait blocks on the kernel rather than on a clock. It has no deadline of its own: the
+// test binary's timeout ends a wait that never ends.
 func waitGone(t *testing.T, pid int) {
 	t.Helper()
-	for !processExited(t, pid) {
-		<-time.After(pollInterval)
+	fd, err := unix.PidfdOpen(pid, 0)
+	if errors.Is(err, syscall.ESRCH) {
+		return
+	}
+	if err != nil {
+		t.Fatalf("pidfd_open %d: %v", pid, err)
+	}
+	defer func() {
+		if err := unix.Close(fd); err != nil {
+			t.Errorf("close pidfd %d: %v", pid, err)
+		}
+	}()
+	fds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}
+	for {
+		_, err := unix.Poll(fds, -1)
+		if errors.Is(err, syscall.EINTR) {
+			continue
+		}
+		if err != nil {
+			t.Fatalf("poll pidfd %d: %v", pid, err)
+		}
+		return
 	}
 }
 
@@ -714,6 +784,8 @@ func TestRunWithGrantDiesWithItsClient(t *testing.T) {
 	ready, w := stdoutPipe(t)
 	client := exec.Command(argv[0], argv[1:]...)
 	client.Env = append(os.Environ(), runHelperEnv+"=client", runSocketEnv+"="+socket)
+	// The command the client runs waits on its stdin, which the test holds open until the test ends.
+	client.Stdin = stdinPipe(t)
 	client.Stdout = w
 	client.Stderr = os.Stderr
 	if err := client.Start(); err != nil {

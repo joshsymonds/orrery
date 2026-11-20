@@ -16,8 +16,6 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   // EpicPage draws an epic's page in each state the fixtures hold: a rota decision, a released holder, a contract with tide
   // alerts, a stopped epic offline, and paused follow-ups.
   "epic-page": { replacement: "epic-building", epic: "F4" },
-  // WaitingCard draws a pending event that waits for you to speak or for the session to be free.
-  "waiting-card": { replacement: "Dock", epic: "F3" },
   // NowRows and NextRows draw the in-flight and planned wedges of an epic, with or without a phase that opens.
   "now-rows": { replacement: "epic-building", epic: "F4" },
   "next-rows": { replacement: "epic-building", epic: "F4" },
@@ -45,10 +43,8 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   reader: { replacement: "convo-shell", epic: "F3" },
   // ReaderColumn draws a row's column: its head, reader and send box, or the cursor's step, a held step, a loading session.
   "reader-column": { replacement: "convo-shell", epic: "F3" },
-  // ReaderHead draws a conversation's head, titled, or with where and the pill.
+  // ReaderHead draws a conversation's head, titled, or with where.
   "reader-head": { replacement: "TitleRow", epic: "F3" },
-  // ConversationHead draws the head over a conversation: a working or waiting pane, an interrupted session, a strip, a count.
-  "conversation-head": { replacement: "TitleRow", epic: "F3" },
   // Talk draws the epic's Talk command, shut and open, with and without sessions or a repository.
   talk: { replacement: "epic-talk", epic: "F4" },
   // TitleParts draws a title's directory and line, with either alone, and a line that holds a link.
@@ -72,17 +68,10 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   // WorkCard draws an epic's card on a project's page when the epic has released, and when the fixtures hold no detail for it.
   "work-card/released": { replacement: "WorkCard", epic: "F2" },
   "work-card/unavailable": { replacement: "WorkCard", epic: "F2" },
-  // Dock draws the composer over a queue whose message was cancelled while the session worked, the talk dock following a pane,
-  // and the talk dock following a worker session, and one loading.
-  "dock/canceled-queued": { replacement: "Dock", epic: "F3" },
-  "dock/pane": { replacement: "Dock", epic: "F3" },
-  "dock/session-worker": { replacement: "Dock", epic: "F3" },
-  "dock/session-loading": { replacement: "Dock", epic: "F3" },
   // EpicEventBlock draws an epic's question event whose epic holds no open question, so the event reads it as settled.
   "epic-event-block/question-settled": { replacement: "EpicEventBlock", epic: "F3" },
-  // StepEndBlock draws a step that ended with no agent named and a looping reason, and a step's end that waits to be spoken.
+  // StepEndBlock draws a step that ended with no agent named and a looping reason.
   "step-end-block/without-agent": { replacement: "StepEndBlock", epic: "F3" },
-  "step-end-block/waiting": { replacement: "StepEndBlock", epic: "F3" },
   // EvidenceRun draws a requirement's captured red and green runs as one list, and a run still going, which draws no exit.
   "evidence-run/captured-red-and-green": { replacement: "EvidenceRun", epic: "F4" },
   "evidence-run/running": { replacement: "EvidenceRun", epic: "F4" },
@@ -97,18 +86,8 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   "notice/over-the-limit": { replacement: "Notice", epic: "F5" },
   // Orrery draws the rota export with its phase cells open to a click.
   "orrery/opens-phase": { replacement: "Orrery", epic: "F4" },
-  // Pill draws a working row's pill with no tool, with a tool and its clock, an interrupting row, a failed session, and a held step.
-  "pill/working-tool": { replacement: "Pill", epic: "F3" },
-  "pill/working-no-tool": { replacement: "Pill", epic: "F3" },
-  "pill/interrupting": { replacement: "Pill", epic: "F3" },
-  "pill/failed": { replacement: "Pill", epic: "F3" },
-  "pill/step-held": { replacement: "Pill", epic: "F3" },
-  // MeterStrip draws a context alone, green and red, with no host.
-  "meter-strip/context-green": { replacement: "MeterStrip", epic: "F3" },
-  "meter-strip/context-red": { replacement: "MeterStrip", epic: "F3" },
-  // TitleRow draws a crumb and a state, a blocker, a page's commands, and a session's title as its last crumb.
+  // TitleRow draws a crumb and a state, a blocker, and a page's commands.
   "title-row/crumbs-and-state": { replacement: "TitleRow", epic: "F3" },
   "title-row/blocker": { replacement: "TitleRow", epic: "F3" },
   "title-row/with-commands": { replacement: "TitleRow", epic: "F3" },
-  "title-row/session-title": { replacement: "TitleRow", epic: "F3" },
 };

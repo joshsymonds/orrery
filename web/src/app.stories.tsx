@@ -6,18 +6,23 @@ import { Code } from "@connectrpc/connect";
 
 import { PageStory } from "./catalog/pagestory";
 import type { Stories } from "./catalog/story";
-import { type AskAnswer, emptySlices, type PickerRowInit, shippedSlices } from "./fixtures/slices";
+import { dockSlices, gatesSession, warmupSession } from "./fixtures/dock";
+import { type AskAnswer, emptySlices, type PickerRowInit, type Slices, shippedSlices } from "./fixtures/slices";
 import { createFixtureTransport, type FixtureTransport } from "./fixtures/transport";
-import type { Address, PageView } from "./router";
+import type { Address, ListPanelKind, PageView } from "./router";
 
 const rota = "lighthouse/rota-export";
 const tide = "tidepool/tide-alerts";
 const holder = "orrery/holder-scopes";
 const headlessSession = "4be0c6d2-8f3a-4c71-9e25-ephemeris001";
+// The headless session that steers tidepool/buoy-feeds, which runs two sub-agents and one shell.
+const buoySession = "6c2f9e14-3a7b-4d58-9b0e-2f7a1c8d4e55";
 const workerStep = "st-rota-t2-impl";
 // panesList is the procedure the inbox's rows wait on: held, it leaves the inbox loading; failed, it leaves the inbox
 // saying the server did not answer.
 const panesList = "orrery.v1.Panes/List";
+// phoneWidth is the width under which the layout is the phone's: the groups are a strip and the epic is a page.
+const phoneWidth = 760;
 
 const inbox: Address = { view: "inbox", entry: null };
 
@@ -26,14 +31,37 @@ function epicAt(id: string, page: PageView): Address {
   return { view: "inbox", entry: { kind: "epic", id, page } };
 }
 
+// sessionAt is the address of a headless session, with the list panel open on it when panel names one.
+function sessionAt(id: string, panel?: ListPanelKind): Address {
+  return { view: "inbox", entry: panel === undefined ? { kind: "session", id } : { kind: "session", id, panel } };
+}
+
+// paneAt is the address of a terminal pane on halyard.
+function paneAt(pane: string): Address {
+  return { view: "inbox", entry: { kind: "pane", host: "halyard", pane } };
+}
+
 // immediate is the process's own setImmediate, where there is one, taken when this module loads. A test's act holds the
 // page's renders until its turn ends, and that turn is a setImmediate turn, so a round that waits for one sees them.
 const immediate = (globalThis as { setImmediate?: (callback: () => void) => unknown }).setImmediate;
 
-// nextRound lets the page draw what it has queued before the story looks again. A browser draws in a microtask, which
-// is all the round needs there.
+// macrotask resolves after one macrotask turn: a message posted on a MessageChannel is delivered after the promise jobs
+// queued before it, so the effects a page runs after its draw have run too. It arms no timer.
+function macrotask(): Promise<void> {
+  return new Promise((resolve) => {
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => {
+      channel.port1.close();
+      resolve();
+    };
+    channel.port2.postMessage(null);
+  });
+}
+
+// nextRound lets the page draw what it has queued, and run the effects that follow a draw, before the story looks
+// again: one setImmediate turn where the process has one, else one macrotask turn, which a stream's first frame needs.
 function nextRound(): Promise<void> {
-  return immediate === undefined ? Promise.resolve() : new Promise((resolve) => immediate(resolve));
+  return immediate === undefined ? macrotask() : new Promise((resolve) => immediate(resolve));
 }
 
 // whenDrawn calls act with the first element of root that matches selector and, with text, includes it, and resolves
@@ -94,6 +122,44 @@ async function searchFor(root: HTMLElement, words: string): Promise<void> {
   await clickWhen(root, searchButton);
   await typeInto(root, searchField, words);
 }
+
+// shownDockBox is the textarea of the dock that is shown: one per column, and the cursor's column is section.read.
+const shownDockBox = "section.read .send > div:not([hidden]) textarea";
+
+// warmupReply is a line of the warm-up's transcript, which is drawn once the conversation's first frame is. A dock the
+// frame has not yet drawn is redrawn by it, and what was typed into the dock is lost.
+const warmupReply = "The cache is warm for all 14 ports";
+
+// typeInShownDock types text into the shown dock once the conversation's first frame is drawn, and focuses it.
+async function typeInShownDock(root: HTMLElement, text: string): Promise<void> {
+  await drawnWhen(root, "section.read", warmupReply);
+  const box = await typeInto(root, shownDockBox, text);
+  box.focus();
+}
+
+// pressInShownDock focuses the shown dock's textarea, once the conversation's first frame is drawn, and presses key in it.
+async function pressInShownDock(root: HTMLElement, key: string): Promise<void> {
+  await drawnWhen(root, "section.read", warmupReply);
+  const box = await drawnWhen(root, shownDockBox);
+  box.focus();
+  press(box, key);
+}
+
+// sendInShownDock types text into the shown dock and presses Enter once the typing has drawn.
+async function sendInShownDock(root: HTMLElement, text: string): Promise<void> {
+  await typeInShownDock(root, text);
+  await pressInShownDock(root, "Enter");
+}
+
+// dockStory draws App at address over one dock scenario's slices, and runs after, when given, once it has drawn.
+const dockStory =
+  (address: Address, slices: Slices, after?: (root: HTMLElement) => Promise<void>) => () => (
+    <PageStory address={address} fixture={createFixtureTransport(slices)} after={after} />
+  );
+
+const warmupAt: Address = { view: "inbox", entry: { kind: "session", id: warmupSession } };
+const gatesAt: Address = { view: "inbox", entry: { kind: "session", id: gatesSession } };
+const pane17At: Address = { view: "inbox", entry: { kind: "pane", host: "halyard", pane: "%17" } };
 
 // newField is New session's one field.
 const newField = 'input[aria-label="New session"]';
@@ -210,11 +276,20 @@ export const Page: Stories = {
     <PageStory
       address={epicAt(rota, { kind: "epic" })}
       after={async (root) => {
-        await openTalk(root);
-        await clickWhen(root, "ul.talk li:first-child button");
+        // Under the phone's width the epic is a page, and its foot bar opens the conversation that steers it.
+        if (window.innerWidth < phoneWidth) {
+          await clickWhen(root, ".epic-foot button", "Talk to the session");
+        }
       }}
     />
   ),
+  "work-rail": () => <PageStory address={sessionAt(buoySession)} />,
+  "work-rail-group": () => (
+    <PageStory address={paneAt("%22")} after={(root) => clickWhen(root, "button.tile-w.group")} />
+  ),
+  "work-empty": () => <PageStory address={paneAt("%13")} />,
+  "dock-running": () => <PageStory address={sessionAt(buoySession, "agents")} />,
+  "dock-background": () => <PageStory address={sessionAt(buoySession, "running")} />,
   "epic-handover": () => <PageStory address={epicAt(rota, { kind: "epic" })} after={openTalk} />,
   "convo-working": () => <PageStory address={convoWorkingAt} />,
   "ask-session": () => (
@@ -275,6 +350,29 @@ export const Page: Stories = {
       }}
     />
   ),
+  "dock-idle": dockStory(warmupAt, dockSlices["dock-idle"]),
+  "dock-queued": dockStory(warmupAt, dockSlices["dock-queued"]),
+  "dock-draft": dockStory(warmupAt, dockSlices["dock-draft"], (root) =>
+    typeInShownDock(root, "And skip ports that are already warm."),
+  ),
+  "dock-interrupting": dockStory(warmupAt, dockSlices["dock-interrupting"], (root) =>
+    pressInShownDock(root, "Escape"),
+  ),
+  "dock-interrupted": dockStory(warmupAt, dockSlices["dock-interrupted"]),
+  "dock-interrupt-queue": dockStory(warmupAt, dockSlices["dock-interrupt-queue"]),
+  "dock-cut-off": dockStory({ view: "inbox", entry: { kind: "session", id: headlessSession } }, dockSlices["dock-cut-off"]),
+  "dock-pane-queue": dockStory(pane17At, dockSlices["dock-pane-queue"]),
+  "dock-waiting": dockStory(warmupAt, dockSlices["dock-waiting"]),
+  "dock-failed": dockStory(warmupAt, dockSlices["dock-failed"]),
+  "dock-stopped": dockStory(warmupAt, dockSlices["dock-stopped"]),
+  "dock-send-error": dockStory(warmupAt, dockSlices["dock-send-error"], (root) =>
+    sendInShownDock(root, "Run it for January too."),
+  ),
+  "dock-send-unknown": dockStory(warmupAt, dockSlices["dock-send-unknown"], (root) =>
+    sendInShownDock(root, "Run it for January too."),
+  ),
+  "dock-cancelled": dockStory(pane17At, dockSlices["dock-cancelled"]),
+  "ask-later": dockStory(gatesAt, dockSlices["ask-later"]),
   keys: () => (
     <PageStory
       address={convoWorkingAt}

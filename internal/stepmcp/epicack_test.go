@@ -81,7 +81,7 @@ func TestEpicByPartWritesReturnAnAcknowledgement(t *testing.T) {
 		epic := largeEpic()
 		p := newPeer(t, nil, &fakeEpics{createReply: &v1.CreateEpicResponse{Epic: epic}})
 
-		outcome := p.tool("epic_create", `{"contract":{"id":"`+testEpicID+`"}}`)
+		outcome := p.tool("epic_create", `{"id":"`+testEpicID+`"}`)
 
 		assertAcknowledgement(t, "epic_create", outcome, head+"created with 0 requirements and 300 decisions", epic)
 	})

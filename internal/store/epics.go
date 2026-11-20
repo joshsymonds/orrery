@@ -214,36 +214,67 @@ type EpicDecision struct {
 // and Time. An id already stored is ErrEpicExists and changes nothing.
 func (s *Store) CreateEpic(ctx context.Context, row EpicRow) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		stored, err := queries.CountEpic(ctx, row.ID)
-		if err != nil {
-			return fmt.Errorf("count epic %s: %w", row.ID, err)
-		}
-		if stored > 0 {
-			return fmt.Errorf("epic %s: %w", row.ID, ErrEpicExists)
-		}
-		if err = queries.InsertEpic(withHousekeepMark(ctx, hookEpicStored, row.ID), sqlcgen.InsertEpicParams{
-			ID: row.ID, Repository: row.Repository, Base: row.Base, StoredBase: row.Base, Title: row.Title,
-			Approved: row.Approved, Intent: row.Intent, Care: row.Care, Approach: row.Approach,
-			ReleaseThen: row.ReleaseThen, Checks: row.Checks, Phase: row.Phase, Created: row.Created.Unix(),
-			Changed: row.Changed.Unix(), Workflow: row.Workflow.Name, WorkflowText: row.Workflow.Text,
-			WorkflowSha256: row.Workflow.SHA256, PhaseAt: row.Created.Unix(), Steerer: row.Steerer,
-		}); err != nil {
-			return fmt.Errorf("insert epic %s: %w", row.ID, err)
-		}
-		if err = insertEpicSections(ctx, queries, row); err != nil {
-			return fmt.Errorf("insert sections of epic %s: %w", row.ID, err)
-		}
-		if err = insertWorkflowNodes(ctx, queries, row); err != nil {
-			return fmt.Errorf("insert workflow nodes of epic %s: %w", row.ID, err)
-		}
-		if err = queries.InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
-			Epic: row.ID, ID: createdTriggerID, Cause: createdTriggerCause, State: "pending", Turn: 0,
-			Created: row.Created.Unix(),
-		}); err != nil {
-			return fmt.Errorf("insert trigger of epic %s: %w", row.ID, err)
-		}
-		return nil
+		return insertEpic(ctx, queries, row)
 	})
+}
+
+// CreateContractEpic stores row as CreateEpic does, in one write that first reads the contract holding row's id: that
+// contract's newest state must be accepted and its newest version must be version. Otherwise it returns an error that
+// matches ErrNoContract or ErrContractState and stores nothing. An id an epic holds is ErrEpicExists, as CreateEpic
+// gives it.
+func (s *Store) CreateContractEpic(ctx context.Context, row EpicRow, version int64) error {
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		listing, err := readContractListing(ctx, queries, row.ID)
+		if err != nil {
+			return err
+		}
+		if listing.State != ContractAccepted {
+			return fmt.Errorf("contract %s is %s: %w", row.ID, listing.State, ErrContractState)
+		}
+		if listing.Version != version {
+			return fmt.Errorf(
+				"contract %s has version %d, not %d: %w",
+				row.ID,
+				listing.Version,
+				version,
+				ErrContractState,
+			)
+		}
+		return insertEpic(ctx, queries, row)
+	})
+}
+
+// insertEpic stores row with queries, as CreateEpic stores it. An id already stored is ErrEpicExists.
+func insertEpic(ctx context.Context, queries *sqlcgen.Queries, row EpicRow) error {
+	stored, err := queries.CountEpic(ctx, row.ID)
+	if err != nil {
+		return fmt.Errorf("count epic %s: %w", row.ID, err)
+	}
+	if stored > 0 {
+		return fmt.Errorf("epic %s: %w", row.ID, ErrEpicExists)
+	}
+	if err = queries.InsertEpic(withHousekeepMark(ctx, hookEpicStored, row.ID), sqlcgen.InsertEpicParams{
+		ID: row.ID, Repository: row.Repository, Base: row.Base, StoredBase: row.Base, Title: row.Title,
+		Approved: row.Approved, Intent: row.Intent, Care: row.Care, Approach: row.Approach,
+		ReleaseThen: row.ReleaseThen, Checks: row.Checks, Phase: row.Phase, Created: row.Created.Unix(),
+		Changed: row.Changed.Unix(), Workflow: row.Workflow.Name, WorkflowText: row.Workflow.Text,
+		WorkflowSha256: row.Workflow.SHA256, PhaseAt: row.Created.Unix(), Steerer: row.Steerer,
+	}); err != nil {
+		return fmt.Errorf("insert epic %s: %w", row.ID, err)
+	}
+	if err = insertEpicSections(ctx, queries, row); err != nil {
+		return fmt.Errorf("insert sections of epic %s: %w", row.ID, err)
+	}
+	if err = insertWorkflowNodes(ctx, queries, row); err != nil {
+		return fmt.Errorf("insert workflow nodes of epic %s: %w", row.ID, err)
+	}
+	if err = queries.InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
+		Epic: row.ID, ID: createdTriggerID, Cause: createdTriggerCause, State: "pending", Turn: 0,
+		Created: row.Created.Unix(),
+	}); err != nil {
+		return fmt.Errorf("insert trigger of epic %s: %w", row.ID, err)
+	}
+	return nil
 }
 
 // The trigger a created epic starts with: id `created` for cause `epic created`.

@@ -186,6 +186,18 @@ func TestStepsResumeOfEndedStepIsNotRunning(t *testing.T) {
 	}
 }
 
+// waitStepSlotsFree waits until rig's manager holds no step slot. A limited step's process can exit before the manager
+// has read it to the end and freed its slot, so a test that starts another step under a full step cap waits for that
+// release first, or the start races it and is refused at the cap.
+func waitStepSlotsFree(t *testing.T, rig stepsRig) {
+	t.Helper()
+	waitUntil(t, engineOf(rig.manager, rig.steps), "the limited step's slot freed", func() bool {
+		rig.manager.mu.Lock()
+		defer rig.manager.mu.Unlock()
+		return rig.manager.stepsRunning == 0
+	})
+}
+
 // TestStepsResumeWithStepCapFullLeavesStepLimited covers R2: with the step cap full by another live step, Resume
 // returns ErrCapReached and the step stays limited, and a later Resume once the slot frees succeeds.
 func TestStepsResumeWithStepCapFullLeavesStepLimited(t *testing.T) {
@@ -204,6 +216,7 @@ func TestStepsResumeWithStepCapFullLeavesStepLimited(t *testing.T) {
 	)
 	// The loop stores the limit before it releases the process, so the slot is free only once the release finishes.
 	requireGone(t, pid)
+	waitStepSlotsFree(t, rig)
 	writeResumeFiles(t, dir)
 	holder := startLimitProbe(t, rig, repo, revision, "READDONE")
 

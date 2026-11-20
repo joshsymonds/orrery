@@ -14,6 +14,7 @@ import {
   type EpicStep,
 } from "./gen/orrery/v1/epics_pb";
 import {
+  endedWords,
   epicLine,
   epicsView,
   noEpics,
@@ -740,3 +741,21 @@ function lineOf(epic: Epic, detail: EpicsGetResponse | undefined): EpicLine {
   const item = [...view.blocks.map((block) => block.epic), ...view.waiting, ...view.justEnded, ...view.endedEarlier][0];
   return epicLine(item, lineNow);
 }
+
+test("endedWords reads the outcome, then the time since the epic ended", () => {
+  const [item] = epicsView([endedOf("first", 99280n, 0n)], new Map()).justEnded;
+
+  assert.equal(endedWords(item, lineNow), "released · 12 min ago");
+});
+
+test("endedWords reads the outcome alone when the epic has no phaseAt", () => {
+  const [item] = epicsView([endedOf("first", 0n, 0n)], new Map()).endedEarlier;
+
+  assert.equal(endedWords(item, lineNow), "released");
+});
+
+test("endedWords reads zero seconds when the clock is behind the epic's end", () => {
+  const [item] = epicsView([endedOf("first", 100500n, 0n)], new Map()).justEnded;
+
+  assert.equal(endedWords(item, lineNow), "released · 0 s ago");
+});

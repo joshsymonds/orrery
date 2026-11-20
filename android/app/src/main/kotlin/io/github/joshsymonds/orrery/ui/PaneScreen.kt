@@ -2,12 +2,11 @@ package io.github.joshsymonds.orrery.ui
 
 import android.util.Log
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -15,7 +14,6 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.ime
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material3.Text
@@ -30,21 +28,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.connectrpc.Code
@@ -75,7 +66,9 @@ private const val STREAM_RECONNECT_MILLIS = 1_000L
  */
 private const val STREAM_FAILURES_BEFORE_POLL = 3
 private val BODY_GAP_BELOW_HEADER = OrreryTokens.Space.four + OrreryTokens.Space.two
-private val GOAL_STATUS_GAP = OrreryTokens.Space.two
+
+/** The note a conversation's screen draws when a refresh fails: under the head, or alone when there is no pane. */
+internal const val REFRESH_FAILED = "could not refresh"
 
 /** The draft field never takes more than this share of the screen above the keyboard. */
 private const val COMPOSE_MAX_SHARE = 1f / 3f
@@ -86,8 +79,8 @@ private val COMPOSE_MIN_CAP = OrreryTokens.Size.controlTouch
 /** One tick's pane reads. `conversation` is null when the pane has none. */
 private class Snapshot(val pane: Pane?, val conversation: Conversation?)
 
-/** A `Host.Status` read. `stats` is null when the host answers not_found, which clears the meters. */
-private class HostRead(val stats: List<HostStat>?)
+/** A `Host.Status` read: the serving host's name, and its stats, which are null when the host answers not_found. */
+internal class HostRead(val host: String, val stats: List<HostStat>?)
 
 /**
  * One tick's pane reads: the pane list, then the conversation when the pane's state is non-empty.
@@ -105,30 +98,40 @@ private suspend fun fetchSnapshot(client: OrreryClient, paneId: String): Snapsho
     }
 
 /** One `Host.Status` read. Null when the call fails, so the meters keep their last stats. */
-private suspend fun fetchHost(client: OrreryClient): HostRead? =
+internal suspend fun fetchHost(client: OrreryClient): HostRead? =
     withContext(Dispatchers.IO) {
         try {
-            HostRead(client.host()?.stats)
+            val status = client.host()
+            HostRead(status?.host.orEmpty(), status?.stats)
         } catch (e: IOException) {
             null
         }
     }
 
+/** The last element of a pane's cwd, which the head names as its directory; "/" for the root. */
+internal fun lastPathElement(path: String): String = path.trimEnd('/').substringAfterLast('/').ifEmpty { "/" }
+
+/**
+ * The host a conversation is on when that is not the serving host, else null. A serving host not yet read counts as
+ * no other host, so a conversation is never called remote before its host is known.
+ */
+internal fun otherHostOf(paneHost: String, servingHost: String): String? =
+    paneHost.takeIf { it.isNotEmpty() && servingHost.isNotEmpty() && it != servingHost }
+
 /**
  * A pane, followed while the screen is at least started: its conversation stream delivers each change,
- * and once that stream gives up for this start, the pane is read every second instead. A pane with a conversation
- * shows it, with the question card after the last item; a pane without one shows a line saying so,
- * with the card below it. A pane with a conversation shows its status line at the top of the
- * composer band, always in view, with the pane's active goal, when it has one, on a line just
- * above it. Each newer read time the conversation reports is sent to the server as the pane's
- * read-up-to time.
+ * and once that stream gives up for this start, the pane is read every second instead. Each poll also reads the
+ * epics the pane steers and the host. A pane with a conversation shows it, with the question card after the last
+ * item; a pane without one shows a line saying so, with the card below it. The pane's dock sits at the foot of the
+ * screen, always in view, and says the pane's state. Each newer read time the conversation reports is sent to the
+ * server as the pane's read-up-to time.
  *
- * The header overlays the body, clipped to the body's bounds, and slides away while the reader
- * scrolls towards newer content; it returns on a short scroll back, and always shows at the top
- * and the newest end. While the software keyboard is up the header folds away entirely, and the
- * draft field is capped at a third of the screen above the keyboard, so the conversation keeps the
- * room between them. The quick keys hide while the draft has text, so a reply in progress is one
- * row above the keyboard.
+ * The head overlays the body, clipped to the body's bounds. It opens at the newest line, folds to its one line
+ * while the reader is away from the newest line, and stays folded when the owner hides it until the owner taps
+ * the folded line. Open, it draws the rail strip of the epics the pane steers under the band (a tile of an epic calls
+ * [onOpenEpic] with its id). While the software keyboard is up the head folds away entirely, and the draft field is capped
+ * at a third of the screen above the keyboard, so the conversation keeps the room between them. The quick keys
+ * hide while the draft has text, so a reply in progress is one row above the keyboard.
  */
 @Composable
 fun PaneScreen(
@@ -136,12 +139,17 @@ fun PaneScreen(
     client: OrreryClient,
     modifier: Modifier = Modifier,
     onBack: () -> Unit = {},
+    onOpenEpic: (String) -> Unit = {},
     clock: () -> Long = { System.currentTimeMillis() / 1000 },
 ) {
     var pane by remember(paneId) { mutableStateOf<Pane?>(null) }
     var conversation by remember(paneId) { mutableStateOf<Conversation?>(null) }
+    var servingHost by remember(paneId) { mutableStateOf("") }
     var stats by remember(paneId) { mutableStateOf<List<HostStat>?>(null) }
+    var headEpics by remember(paneId) { mutableStateOf(HeadEpics(emptyList(), emptyMap())) }
     var nowSeconds by remember(paneId) { mutableLongStateOf(0L) }
+    // Whether the strip under the band has tiles: then it, not the band, carries the control that hides the header.
+    var stripTiles by remember(paneId) { mutableStateOf(false) }
     var refreshFailed by remember(paneId) { mutableStateOf(false) }
     var seenAtOpen by remember(paneId) { mutableStateOf<Long?>(null) }
     // What the stream holds, kept across starts so the next start resumes from its transcript and seq.
@@ -205,6 +213,8 @@ fun PaneScreen(
                                     // Read before the snapshot's conversation is shown, so its time rows
                                     // never see the zero clock the state starts with.
                                     nowSeconds = clock()
+                                    // The epics read is before the host read, which stays the read's last call.
+                                    val epics = fetchHeadEpics(client, pane?.orreryId.orEmpty())
                                     val host = fetchHost(client)
                                     if (polled) {
                                         if (snapshot == null) {
@@ -218,7 +228,11 @@ fun PaneScreen(
                                             refreshFailed = false
                                         }
                                     }
-                                    host?.let { stats = it.stats }
+                                    epics?.let { headEpics = it }
+                                    host?.let {
+                                        servingHost = it.host
+                                        stats = it.stats
+                                    }
                                     withTimeoutOrNull(POLL_INTERVAL_MILLIS) { refreshRequests.receive() }
                                 }
                             }
@@ -245,21 +259,13 @@ fun PaneScreen(
     val entries = remember(conversation) { foldConversation(conversation?.items.orEmpty()) }
 
     val density = LocalDensity.current
-    val headerRule = remember(paneId) {
-        with(density) { HeaderScrollRule(HEADER_HIDE_AFTER_DP.dp.toPx(), HEADER_SHOW_AFTER_DP.dp.toPx()) }
-    }
     val showingConversation = conversation != null
     // Keyed by pane, so a pane switch starts at the newest line instead of where another pane was left.
     val listState = remember(paneId) { LazyListState() }
     var endRequests by remember(paneId) { mutableIntStateOf(0) }
-    var headerHeightPx by remember { mutableIntStateOf(0) }
-    var headerMeasured by remember { mutableStateOf(false) }
-    val headerShift by animateIntAsState(
-        targetValue = if (headerRule.visible) 0 else -headerHeightPx,
-        animationSpec = Move.STATE.spec(animated = true),
-        label = "header-shift",
-    )
-    val bodyTop = with(density) { headerHeightPx.toDp() } + BODY_GAP_BELOW_HEADER
+    var headHeightPx by remember { mutableIntStateOf(0) }
+    var headMeasured by remember { mutableStateOf(false) }
+    val bodyTop = with(density) { headHeightPx.toDp() } + BODY_GAP_BELOW_HEADER
     val ime = WindowInsets.ime
     val keyboardUp by remember(ime, density) { derivedStateOf { ime.getBottom(density) > 0 } }
     var screenHeightPx by remember { mutableIntStateOf(0) }
@@ -269,32 +275,27 @@ fun PaneScreen(
     } else {
         Dp.Unspecified
     }
-    val bodyReady = current == null || headerMeasured
-    val headerScroll = remember(headerRule, listState) {
-        object : NestedScrollConnection {
-            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-                headerRule.onScroll(
-                    deltaPx = -consumed.y,
-                    atTop = !listState.canScrollBackward,
-                    atBottom = !listState.canScrollForward,
-                )
-                return Offset.Zero
-            }
-        }
-    }
-    LaunchedEffect(headerRule, listState) {
-        snapshotFlow { listState.canScrollBackward to listState.canScrollForward }.collect { (canBack, canForward) ->
-            if (!canBack || !canForward) headerRule.onScroll(0f, atTop = !canBack, atBottom = !canForward)
-        }
-    }
+    val bodyReady = current == null || headMeasured
+
+    val headHidden = rememberHeadHidden()
+    var tapped by remember(paneId) { mutableStateOf(false) }
+    // Whether the reader is at the newest line, as the conversation view follows it.
+    var atNewest by remember(paneId) { mutableStateOf(true) }
+    // A tap on the folded line holds only until the reader next moves between the newest line and the rest.
+    LaunchedEffect(atNewest) { tapped = false }
+    val fold = headFold(hidden = headHidden.value, atNewest = atNewest, tapped = tapped)
+    val steered = headEpics.steered
+    val lines = askLines(steered, headEpics.details)
+    val asking = askingWords(ownName = current?.takeIf { ownAsks(it) }?.let { lastPathElement(it.cwd) }, lines = lines)
+    val otherHost = current?.let { otherHostOf(it.host, servingHost) }
 
     Column(modifier = modifier.fillMaxSize().onSizeChanged { screenHeightPx = it.height }) {
-        if (refreshFailed) {
-            Text("could not refresh")
+        if (refreshFailed && current == null) {
+            Text(REFRESH_FAILED)
         }
-        Box(modifier = Modifier.weight(1f).fillMaxWidth().clipToBounds().nestedScroll(headerScroll)) {
-            // The body waits for the header's height, so its first layout already clears the header.
-            // Later changes of the padding (the header folding for the keyboard) are followed by
+        Box(modifier = Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
+            // The body waits for the head's height, so its first layout already clears the head.
+            // Later changes of the padding (the head folding for the keyboard) are followed by
             // the conversation while the reader is at the newest end.
             if (bodyReady && showingConversation) {
                 val footer: (@Composable () -> Unit)? = question?.let { card ->
@@ -303,8 +304,8 @@ fun PaneScreen(
                 }
                 ConversationView(
                     entries,
-                    waiting = conversation?.waiting.orEmpty(),
                     listState = listState,
+                    onFollowing = { atNewest = it },
                     contentPadding = PaddingValues(top = bodyTop),
                     footer = footer,
                     endRequests = endRequests,
@@ -340,45 +341,80 @@ fun PaneScreen(
                 }
             }
             current?.let { shown ->
-                PaneHeader(
-                    pane = shown,
-                    origin = conversation?.origin,
-                    stats = stats,
-                    context = conversation?.context,
-                    onBack = onBack,
-                    compact = keyboardUp,
+                Column(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
+                        .fillMaxWidth()
                         .onSizeChanged {
-                            headerHeightPx = it.height
-                            headerMeasured = true
+                            headHeightPx = it.height
+                            headMeasured = true
+                        },
+                ) {
+                    AnimatedVisibility(
+                        visible = !keyboardUp,
+                        enter = expandVertically(Move.LAYOUT.spec(animated = true)) + fadeIn(Move.LAYOUT.spec(animated = true)),
+                        exit = shrinkVertically(Move.LAYOUT.spec(animated = true)) + fadeOut(Move.LAYOUT.spec(animated = true)),
+                        label = "head",
+                    ) {
+                        Column {
+                        Head(
+                            bandHides = !stripTiles,
+                            dir = lastPathElement(shown.cwd),
+                            host = shown.host.ifEmpty { servingHost },
+                            title = shown.label.ifEmpty { shown.command },
+                            context = conversation?.context,
+                            note = if (refreshFailed) REFRESH_FAILED else "",
+                            stats = if (otherHost == null) stats else null,
+                            otherHost = otherHost,
+                            goal = conversation?.goal.orEmpty(),
+                            lines = lines,
+                            asking = asking,
+                            badges = headBadges(steered, lines, conversation?.background.orEmpty()),
+                            fold = fold,
+                            onBack = onBack,
+                            onOpenEpic = onOpenEpic,
+                            onHide = { headHidden.value = true },
+                            onShow = {
+                                headHidden.value = false
+                                tapped = true
+                            },
+                            modifier = Modifier.fillMaxWidth().background(OrreryTokens.Surface.page),
+                        )
+                        if (fold == HeadFold.OPEN) {
+                            ConversationStrip(
+                                conversation = shown.orreryId,
+                                pane = true,
+                                background = emptyList(),
+                                now = nowSeconds,
+                                client = client,
+                                onOpenEpic = onOpenEpic,
+                                modifier = Modifier.background(OrreryTokens.Surface.page),
+                                onTiles = { stripTiles = it },
+                                end = { HideHeader { headHidden.value = true } },
+                            )
                         }
-                        .offset { IntOffset(0, headerShift) },
-                )
-            }
-        }
-        ComposeBox(
-            paneId,
-            client,
-            maxFieldHeight = composeCap,
-            edge = composeEdgeOf(current?.state.orEmpty()),
-            hint = when {
-                current == null -> ""
-                current.state.isEmpty() -> "Type a command…"
-                current.state == "working" -> "Queue for Claude…"
-                current.state == "waiting" -> "Answer Claude…"
-                else -> "Message Claude…"
-            },
-            onDraftPresent = { draftPresent = it },
-            onSend = { endRequests++ },
-            status = current?.takeIf { conversation != null }?.let { shown ->
-                {
-                    Column(verticalArrangement = Arrangement.spacedBy(GOAL_STATUS_GAP)) {
-                        GoalLine(conversation?.goal.orEmpty())
-                        StatusLine(shown, nowSeconds)
+                        }
                     }
                 }
-            },
+            }
+        }
+        val draft = rememberDockDraft(paneId)
+        Dock(
+            facts = dockFactsOf(
+                kind = if (current?.state.orEmpty().isEmpty()) DockKind.SHELL else DockKind.PANE,
+                name = current?.cwd.orEmpty().trimEnd('/').substringAfterLast('/'),
+                pane = current,
+                streamed = held,
+            ),
+            nowSeconds = nowSeconds,
+            client = client,
+            draft = draft,
+            send = { text -> client.sendComposed(paneId, text) },
+            paneId = paneId,
+            waiting = conversation?.waiting.orEmpty(),
+            maxFieldHeight = composeCap,
+            onDraftPresent = { draftPresent = it },
+            onSend = { endRequests++ },
         )
         AnimatedVisibility(
             visible = !draftPresent,

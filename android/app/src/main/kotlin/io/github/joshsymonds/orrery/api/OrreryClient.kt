@@ -12,6 +12,7 @@ import com.connectrpc.okhttp.ConnectOkHttpClient
 import com.connectrpc.protocols.NetworkProtocol
 import io.github.joshsymonds.orrery.gen.orrery.v1.AnswerRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.AskRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.BackgroundTask as BackgroundTaskProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.Contract as ContractProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsListRequest
@@ -76,6 +77,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.NoticesSeenRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.PendingEvent as PendingEventProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.PickerClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.PoolHold as PoolHoldProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.PoolHolder as PoolHolderProto
@@ -86,7 +88,9 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.PoolsClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.PoolsFreeRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.PoolsHoldRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.PoolsStatusRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.PullQueuedRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.PushClient
+import io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage as QueuedMessageProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.RegisterRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.ResumeRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.RunRequest
@@ -105,6 +109,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.StepsStopRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.StopRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.UnregisterRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.WaitingMessage
+import io.github.joshsymonds.orrery.gen.orrery.v1.WithdrawRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.WatchConversationRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.WatchConversationResponse
 import kotlinx.coroutines.channels.ReceiveChannel
@@ -152,10 +157,12 @@ data class Pane(
     val lastTurnEnd: Long = 0L,
     /** True for a headless session, whose [id] is the session's id; false for a tmux pane. */
     val headless: Boolean = false,
-    /** The pane's @orrery_id, the id its Session row carries; empty for a headless session and an unset pane. */
+    /** The pane's @orrery_id option, the id its session carries; "" when unset. A headless session's is its [id]. */
     val orreryId: String = "",
     /** True while a headless session is archived, by its own flag; a tmux pane's flag comes from Sessions.List. */
     val archived: Boolean = false,
+    /** True while the owner has put this question off and not brought it back. */
+    val putOff: Boolean = false,
 )
 
 data class PaneTool(val id: String, val name: String, val input: String, val start: Long)
@@ -189,18 +196,44 @@ data class ConversationItem(
     val trigger: String = "",
     /** A `compaction` item's context tokens before it compacted; 0 when its boundary was not read, on other kinds, or from an older server. */
     val tokens: Long = 0L,
+    /** A `prompt` item's client-chosen prompt id, which a headless session's queue names; "" on other kinds or when the prompt has none. */
+    val promptId: String = "",
 )
 
 /** A message Claude Code's queue holds for the pane. [canceled] is true when Claude Code cleared it on cancel. */
 data class WaitingItem(val text: String, val time: Long, val canceled: Boolean)
 
+/** An owner message a headless session has not started to Claude: its [state] and what it [waits] on. */
+data class QueuedItem(val promptId: String, val text: String, val state: String, val waits: String)
+
+/** A caller event held for a headless session, with what it [waits] on: speak, request or free. */
+data class PendingItem(val id: String, val kind: String, val waits: String)
+
 /** The pane's context usage: [tokens] in use out of a [window] of tokens. */
 data class ConversationContext(val tokens: Long, val window: Long)
 
 /**
+ * A background task a headless session reported. [type] is "agent" or "shell"; [status] is "running", "done", "failed"
+ * or "stopped". [activity] is its latest activity, [subagentType] the sub-agent an agent task runs, and [started] and
+ * [ended] are unix seconds, [ended] 0 while it runs.
+ */
+data class BackgroundTask(
+    val id: String,
+    val type: String,
+    val status: String,
+    val description: String,
+    val toolUseId: String = "",
+    val subagentType: String = "",
+    val activity: String = "",
+    val started: Long = 0L,
+    val ended: Long = 0L,
+)
+
+/**
  * [goal] is the pane's active Claude Code goal, or "" when there is none. [waiting] is the
  * queued messages, oldest first, or empty when there are none. [context] is the pane's
- * context usage, or null when the server predates it.
+ * context usage, or null when the server predates it. [background] is the background tasks
+ * a headless session reported, or empty when there are none.
  */
 data class Conversation(
     val origin: String,
@@ -208,12 +241,16 @@ data class Conversation(
     val goal: String = "",
     val waiting: List<WaitingItem> = emptyList(),
     val context: ConversationContext? = null,
+    val background: List<BackgroundTask> = emptyList(),
 )
 
 /**
  * One conversation as a WatchConversation stream gives it. [state] is null when the message carried no state, and
  * [context] and [pane] are null when the state did not. [request] is the open request of a headless session, and
- * null when none is open or the stream is a pane's.
+ * null when none is open or the stream is a pane's. [interrupting] is true while the owner's interrupt is recorded and
+ * the session still works, and [interruptingSince] and [turnSince] are unix seconds, 0 when unknown. [pending] are the
+ * caller events held for the session, oldest first. [background] is the background tasks of a headless session, and
+ * empty when none are reported or the stream is a pane's.
  */
 data class ConversationState(
     val origin: String,
@@ -222,10 +259,24 @@ data class ConversationState(
     val context: ConversationContext?,
     val pane: Pane?,
     val request: SessionRequest? = null,
+    val interrupting: Boolean = false,
+    val interruptingSince: Long = 0L,
+    val turnSince: Long = 0L,
+    val pending: List<PendingItem> = emptyList(),
+    val background: List<BackgroundTask> = emptyList(),
 )
 
-/** The request a headless session waits on. [options] are the answers the phone may send, and may be empty. */
-data class SessionRequest(val id: String, val kind: String, val question: String, val options: List<String>)
+/**
+ * The request a headless session waits on. [options] are the answers the phone may send, and may be empty. [putOff] is
+ * true when the owner has put the request off.
+ */
+data class SessionRequest(
+    val id: String,
+    val kind: String,
+    val question: String,
+    val options: List<String>,
+    val putOff: Boolean = false,
+)
 
 /**
  * The text so far of one unfinished content block of a headless session. [parentToolUseId] is "" for the main
@@ -242,7 +293,7 @@ data class UnfinishedText(
 /**
  * One step of a WatchConversation stream: the [items] after [seq] in [transcript]. A [reset] delta replaces what the
  * client holds. [unfinished] is the text so far of each unfinished block of a headless session, and empty on a pane
- * stream.
+ * stream. [queued] is the whole queue of owner messages a headless session holds, and empty on a pane stream.
  */
 data class ConversationDelta(
     val transcript: String,
@@ -251,6 +302,7 @@ data class ConversationDelta(
     val items: List<ConversationItem>,
     val state: ConversationState?,
     val unfinished: List<UnfinishedText> = emptyList(),
+    val queued: List<QueuedItem> = emptyList(),
 )
 
 data class HostStat(val label: String, val value: String, val percent: Double?, val level: String)
@@ -1091,10 +1143,25 @@ class OrreryClient(
         call(write = true) { standard.control.answer(request, CLIENT_HEADERS) }
     }
 
-    /** Interrupts the turn a headless session is running. */
-    fun interrupt(sessionId: String) {
+    /** Interrupts the turn a headless session is running. Returns the texts the server answers, in send order. */
+    fun interrupt(sessionId: String): List<String> {
         val request = InterruptRequest.newBuilder().setId(sessionId).build()
-        call(write = true) { standard.control.interrupt(request, CLIENT_HEADERS) }
+        return call(write = true) { standard.control.interrupt(request, CLIENT_HEADERS) }.textsList.toList()
+    }
+
+    /**
+     * Cancels the queued owner message [promptId] of a headless session. Returns the texts the server answers, which
+     * are empty when Claude already took the message.
+     */
+    fun withdraw(sessionId: String, promptId: String): List<String> {
+        val request = WithdrawRequest.newBuilder().setId(sessionId).setPromptId(promptId).build()
+        return call(write = true) { standard.control.withdraw(request, CLIENT_HEADERS) }.textsList.toList()
+    }
+
+    /** Takes back the messages Claude Code's queue holds for the pane [paneId]. Returns the text the server answers. */
+    fun pullQueued(paneId: String): String {
+        val request = PullQueuedRequest.newBuilder().setPane(paneId).build()
+        return call(write = true) { standard.panes.pullQueued(request, CLIENT_HEADERS) }.text
     }
 
     /** Resumes an interrupted headless session's turn. A refused resume answers failed_precondition with the reason. */
@@ -1547,6 +1614,7 @@ class OrreryClient(
             newestReply = newestReply,
             lastTurnEnd = lastTurnEnd,
             orreryId = orreryId,
+            putOff = putOff,
         )
 
     /** A headless session as the pane list shows it: its id is the session's, and it has no tmux pane. */
@@ -1569,6 +1637,8 @@ class OrreryClient(
             newestReply = newestReply,
             headless = true,
             archived = archived,
+            orreryId = id,
+            putOff = putOff,
         )
 
     private fun ConversationItemProto.toConversationItem(): ConversationItem =
@@ -1583,13 +1653,33 @@ class OrreryClient(
             notice = notice,
             trigger = trigger,
             tokens = tokens,
+            promptId = promptId,
         )
 
     private fun WaitingMessage.toWaitingItem(): WaitingItem =
         WaitingItem(text = text, time = time, canceled = canceled)
 
+    private fun PendingEventProto.toPendingItem(): PendingItem =
+        PendingItem(id = id, kind = kind, waits = waits)
+
+    private fun QueuedMessageProto.toQueuedItem(): QueuedItem =
+        QueuedItem(promptId = promptId, text = text, state = state, waits = waits)
+
     private fun ConversationContextProto.toConversationContext(): ConversationContext =
         ConversationContext(tokens = tokens, window = window)
+
+    private fun BackgroundTaskProto.toBackgroundTask(): BackgroundTask =
+        BackgroundTask(
+            id = id,
+            type = type,
+            status = status,
+            description = description,
+            toolUseId = toolUseId,
+            subagentType = subagentType,
+            activity = activity,
+            started = started,
+            ended = ended,
+        )
 
     private fun ConversationStateProto.toConversationState(pane: Pane?, request: SessionRequest?): ConversationState =
         ConversationState(
@@ -1599,6 +1689,11 @@ class OrreryClient(
             context = if (hasContext()) context.toConversationContext() else null,
             pane = pane,
             request = request,
+            interrupting = interrupting,
+            interruptingSince = interruptingSince,
+            turnSince = turnSince,
+            pending = pendingList.map { it.toPendingItem() },
+            background = backgroundList.map { it.toBackgroundTask() },
         )
 
     private fun WatchConversationResponse.toConversationDelta(): ConversationDelta =
@@ -1632,10 +1727,11 @@ class OrreryClient(
                 null
             },
             unfinished = unfinishedList.map { it.toUnfinishedText() },
+            queued = queuedList.map { it.toQueuedItem() },
         )
 
     private fun OpenRequestProto.toSessionRequest(): SessionRequest =
-        SessionRequest(id = id, kind = kind, question = question, options = optionsList.toList())
+        SessionRequest(id = id, kind = kind, question = question, options = optionsList.toList(), putOff = putOff)
 
     private fun EngineTextProto.toUnfinishedText(): UnfinishedText =
         UnfinishedText(

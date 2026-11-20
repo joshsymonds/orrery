@@ -38,7 +38,7 @@ func TestEpicCreateStoresBaseAsFullCommit(t *testing.T) {
 	req.Contract.Base = "HEAD"
 	head := epicTestBase(repo)
 
-	stored := createEpicOK(t, client, req)
+	stored := createEpicOK(t, st, client, req)
 	if !regexp.MustCompile(`^[0-9a-f]{40}$`).MatchString(head) {
 		t.Fatalf("HEAD = %q, want a full 40-hex commit", head)
 	}
@@ -91,7 +91,7 @@ func TestEpicCreateStoresGatesListsAndItems(t *testing.T) {
 		requirement.State = "pending"
 	}
 
-	stored := createEpicOK(t, client, req)
+	stored := createEpicOK(t, st, client, req)
 	if !proto.Equal(stored.GetContract(), want) {
 		t.Fatalf("created contract = %v, want %v", stored.GetContract(), want)
 	}

@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/daemon"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
@@ -18,8 +17,10 @@ const (
 	noConfig = "/dev/null"
 	// testCommand keeps each test pane alive until its server is killed.
 	testCommand = "sleep 300"
-	// pollInterval spaces the checks made while waiting for tmux.
-	pollInterval = 20 * time.Millisecond
+	// attachedSignal is the wait-for channel the attach signals on the inner server, and typedSignal the one a typed key
+	// does.
+	attachedSignal = "attached"
+	typedSignal    = "typed"
 )
 
 // wiringFixture is a private server s1 whose window holds pane, with a client attached to s1. The client is a tmux
@@ -65,8 +66,14 @@ func newWiringFixture(t *testing.T) wiringFixture {
 		t.Fatalf("list-panes: %v", err)
 	}
 
+	// The hook runs on the inner server when the client attaches. The outer pane's command signals the same channel
+	// when the attach fails, so the wait below ends either way, and the list of clients decides which it was.
+	if _, err := innerClient.Run(ctx, "set-hook", "-g", "client-attached", "wait-for -S "+attachedSignal); err != nil {
+		t.Fatalf("set client-attached hook: %v", err)
+	}
 	_, outerClient := startServer(t, "outer")
-	attach := "env -u TMUX tmux -L " + inner.Name + " attach -t s1"
+	attach := "env -u TMUX tmux -L " + inner.Name + " attach -t s1 || env -u TMUX tmux -L " + inner.Name +
+		" wait-for -S " + attachedSignal
 	if _, err := outerClient.Run(ctx, "-f", noConfig, "new-session", "-d", "-s", "o1",
 		"-c", t.TempDir(), attach); err != nil {
 		t.Fatalf("outer new-session: %v", err)
@@ -76,38 +83,45 @@ func newWiringFixture(t *testing.T) wiringFixture {
 		t.Fatalf("outer list-panes: %v", err)
 	}
 
-	fx := wiringFixture{
+	if _, err := innerClient.Run(ctx, "wait-for", attachedSignal); err != nil {
+		t.Fatalf("wait for the client to attach to s1: %v", err)
+	}
+	out, err := innerClient.Run(ctx, "list-clients", "-F", "#{client_name}")
+	if err != nil {
+		t.Fatalf("list-clients: %v", err)
+	}
+	if strings.TrimSpace(out) == "" {
+		t.Fatalf("no client attached to s1: the attach in the outer pane failed")
+	}
+
+	return wiringFixture{
 		inner:     inner,
 		client:    innerClient,
 		pane:      strings.TrimSpace(pane),
 		outer:     outerClient,
 		outerPane: strings.TrimSpace(outerPane),
 	}
-	waitFor(t, "client attached to s1", func() (bool, error) {
-		// The client runs in the outer pane, so a gone outer pane means the client will never attach.
-		if _, err := outerClient.Run(ctx, "display-message", "-p", "-t", fx.outerPane, "#{pane_id}"); err != nil {
-			return false, fmt.Errorf("the outer pane that runs the client is gone: %w", err)
-		}
-		out, err := innerClient.Run(ctx, "list-clients", "-F", "#{client_name}")
-		return strings.TrimSpace(out) != "", err
-	})
-	return fx
 }
 
-// typeIntoClient types one key through outerPane and waits until tmux records the client's input. The wall clock must
-// first pass the client's newest activity from before the key, so the new activity falls in a different whole second.
+// typeIntoClient types one key through outerPane and waits until tmux has handled it. The inner server runs wait-for -S
+// for the key from its root table, which fires only after tmux has taken the client's input. The recheck then needs the
+// client's newest activity to be no older than before the key.
 func (fx wiringFixture) typeIntoClient(t *testing.T) {
 	t.Helper()
+	ctx := t.Context()
+	if _, err := fx.client.Run(ctx, "bind", "-n", "x", "wait-for", "-S", typedSignal); err != nil {
+		t.Fatalf("bind the typed key: %v", err)
+	}
 	before := newestActivity(t, fx.client)
-	waitFor(t, "wall clock to pass the client's last activity", func() (bool, error) {
-		return time.Now().Unix() > before, nil
-	})
-	if _, err := fx.outer.Run(t.Context(), "send-keys", "-t", fx.outerPane, "-l", "x"); err != nil {
+	if _, err := fx.outer.Run(ctx, "send-keys", "-t", fx.outerPane, "-l", "x"); err != nil {
 		t.Fatalf("send-keys to outer pane: %v", err)
 	}
-	waitFor(t, "client_activity to advance after typing", func() (bool, error) {
-		return newestActivity(t, fx.client) > before, nil
-	})
+	if _, err := fx.client.Run(ctx, "wait-for", typedSignal); err != nil {
+		t.Fatalf("wait for the typed key: %v", err)
+	}
+	if newest := newestActivity(t, fx.client); newest < before {
+		t.Fatalf("client_activity = %d after typing, want at least %d", newest, before)
+	}
 }
 
 // newestActivity returns the largest client_activity among the clients of client's server.
@@ -126,21 +140,6 @@ func newestActivity(t *testing.T, client *tmuxctl.Client) int64 {
 		newest = max(newest, activity)
 	}
 	return newest
-}
-
-// waitFor polls check until it reports true, failing the test on its error. It has no deadline of its own.
-func waitFor(t *testing.T, what string, check func() (bool, error)) {
-	t.Helper()
-	for {
-		ok, err := check()
-		if err != nil {
-			t.Fatalf("waiting for %s: %v", what, err)
-		}
-		if ok {
-			return
-		}
-		time.Sleep(pollInterval)
-	}
 }
 
 // TestRelayWatchingReportsPaneWithClientInput runs the relay's watching check for a pane that a client shows with

@@ -157,6 +157,8 @@ func tuiServer(t *testing.T) *tmuxctl.Client {
 type syncBuffer struct {
 	mu  sync.Mutex
 	buf bytes.Buffer
+	// wrote, when set, gets a non-blocking send after each write, so a reader can wait for output instead of polling.
+	wrote chan struct{}
 }
 
 func (b *syncBuffer) Write(p []byte) (int, error) {
@@ -165,6 +167,12 @@ func (b *syncBuffer) Write(p []byte) (int, error) {
 	n, err := b.buf.Write(p)
 	if err != nil {
 		return n, fmt.Errorf("buffer write: %w", err)
+	}
+	if b.wrote != nil {
+		select {
+		case b.wrote <- struct{}{}:
+		default:
+		}
 	}
 	return n, nil
 }
@@ -197,7 +205,7 @@ func TestRun(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	out := &syncBuffer{}
+	out := &syncBuffer{wrote: make(chan struct{}, 1)}
 	done := make(chan runOutcome, 1)
 	go func() {
 		res, runErr := Run(ctx, Options{
@@ -209,8 +217,9 @@ func TestRun(t *testing.T) {
 		done <- runOutcome{result: res, err: runErr}
 	}()
 
+	// Each write signals wrote after the output is in the buffer, so the check after a signal sees it.
 	for !strings.Contains(out.String(), preview) {
-		time.Sleep(50 * time.Millisecond)
+		<-out.wrote
 	}
 
 	cancel()

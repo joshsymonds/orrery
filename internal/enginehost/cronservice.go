@@ -158,7 +158,9 @@ func (c *CronAnswers) cancelJob(ctx context.Context, session, toolInput string) 
 	}
 	if !deleted {
 		return cronRefusal(fmt.Sprintf(
-			"orrery has no job %s in this session, so nothing was canceled. CronList lists this session's jobs.", in.ID,
+			"orrery has no job %s in this session, so nothing was canceled. "+
+				"The orrery MCP tool cron_list, or `orrery cron list`, lists this session's jobs.",
+			in.ID,
 		)), nil
 	}
 	c.changed()
@@ -202,8 +204,8 @@ func scheduledAnswer(job store.CronJob, loc *time.Location) string {
 	return fmt.Sprintf(
 		"orrery scheduled this job as %s. Cron %s, prompt %q, next run %s. %s orreryd fires it into this session, "+
 			"resuming the session if it is asleep. The job is scheduled; this is not an error, so do not call CronCreate "+
-			"again for it. Cancel it with CronDelete and id %s.",
-		job.ID, job.Cron, job.Prompt, cronTime(due, loc), fires, job.ID,
+			"again for it. Cancel it with the orrery MCP tool cron_delete and id %s, or with `orrery cron delete %s`.",
+		job.ID, job.Cron, job.Prompt, cronTime(due, loc), fires, job.ID, job.ID,
 	)
 }
 

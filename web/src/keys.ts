@@ -132,6 +132,11 @@ export const keyGroups: readonly KeyGroup[] = [
         text: "pin the row in a second column, or close the pin",
         acts: [{ chords: [{ key: "|" }], in: page }],
       },
+      {
+        caps: ["]"],
+        text: "shut the open panel, or reopen the last one",
+        acts: [{ chords: [{ key: "]" }], in: page }],
+      },
       { caps: ["m"], text: "hide or show the meters", acts: [{ chords: [{ key: "m" }], in: page }] },
       // The find bar's keys are written by hand: find.tsx handles them, and the sweep does not press them.
       { caps: ["⏎", "⇧ ⏎", "esc"], text: "in find: next match, previous match, close find", acts: [] },

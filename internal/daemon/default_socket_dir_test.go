@@ -27,22 +27,39 @@ const (
 	defaultSocketSkipMsg = "tmux default socket skipped"
 )
 
-// lockedBuffer collects log output from Serve's tidy goroutine while the test reads it.
+// lockedBuffer collects log output from Serve's tidy goroutine while the test reads it. Each Write closes the channel
+// changed returns, so a test waiting for output wakes to read it.
 type lockedBuffer struct {
-	mu  sync.Mutex
-	buf bytes.Buffer
+	mu      sync.Mutex
+	buf     bytes.Buffer
+	written chan struct{}
 }
 
 func (b *lockedBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.buf.Write(p)
+	n, err := b.buf.Write(p)
+	if b.written != nil {
+		close(b.written)
+		b.written = nil
+	}
+	return n, err
 }
 
 func (b *lockedBuffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.buf.String()
+}
+
+// changed returns a channel that closes at the next Write.
+func (b *lockedBuffer) changed() <-chan struct{} {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.written == nil {
+		b.written = make(chan struct{})
+	}
+	return b.written
 }
 
 // skipRecords returns the default socket skip records in logs.
@@ -64,14 +81,16 @@ func skipRecords(t *testing.T, logs *lockedBuffer) []map[string]any {
 	return matched
 }
 
-// waitSkipRecords waits until logs holds at least n skip records.
+// waitSkipRecords waits until logs holds at least n skip records. It checks the records again after each Write to logs,
+// and has no deadline of its own: the test binary's timeout ends a wait that never ends.
 func waitSkipRecords(t *testing.T, logs *lockedBuffer, n int) {
 	t.Helper()
 	for {
+		written := logs.changed()
 		if len(skipRecords(t, logs)) >= n {
 			return
 		}
-		time.Sleep(tidyPollInterval)
+		<-written
 	}
 }
 

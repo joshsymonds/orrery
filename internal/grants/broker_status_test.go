@@ -93,19 +93,22 @@ func lines(t *testing.T, path string) []string {
 	return strings.Fields(string(data))
 }
 
-// await polls cond until it holds. It has no deadline of its own.
-func await(t *testing.T, cond func() bool) {
+// await waits until cond holds, rechecking it after each time a member command of b ends and the broker settles. It has
+// no deadline of its own.
+func await(t *testing.T, b *Broker, cond func() bool) {
 	t.Helper()
+	ends := endSignals(b)
 	for !cond() {
-		time.Sleep(time.Millisecond)
+		<-ends
 	}
 }
 
 // awaitStatuses waits until n status runs have been logged and no member command of pool fleet runs. A status run logs
-// its member before anything else it does, so the count reaches n only once every run so far has started.
+// its member before anything else it does, and a run that has ended has logged, so once no command runs the count is
+// final.
 func awaitStatuses(t *testing.T, b *Broker, f fakes, n int) {
 	t.Helper()
-	await(t, func() bool {
+	await(t, b, func() bool {
 		return len(lines(t, f.runs)) == n && runningCommands(b, "fleet") == 0
 	})
 }
@@ -113,7 +116,7 @@ func awaitStatuses(t *testing.T, b *Broker, f fakes, n int) {
 // awaitIdle waits until no member command of pool fleet runs.
 func awaitIdle(t *testing.T, b *Broker) {
 	t.Helper()
-	await(t, func() bool { return runningCommands(b, "fleet") == 0 })
+	await(t, b, func() bool { return runningCommands(b, "fleet") == 0 })
 }
 
 // deadlineBroker returns a broker on a new store whose commands run with the files of f. Its status deadlines and store
@@ -337,7 +340,7 @@ func TestDeadlineStatusDoesNotDoubleAStatusStillRunning(t *testing.T) {
 	f.setMode(t, free, "gate")
 	first, cancelFirst := blocked(t, b, p)
 	timers.fireAfter(t, statusDeadline)
-	await(t, func() bool { return len(lines(t, f.runs)) == 3 })
+	awaitWrite(t, f.runs, func() bool { return len(lines(t, f.runs)) == 3 })
 	if n := runningCommands(b, "fleet"); n != 1 {
 		t.Fatalf("%d member commands run for fleet while the status is held, want one", n)
 	}
@@ -416,7 +419,7 @@ func TestRequestDoesNotPrepareMemberWhoseStatusRuns(t *testing.T) {
 	f.setMode(t, other, "gate")
 	blocker, cancel := blocked(t, b, p)
 	timers.fireAfter(t, statusDeadline)
-	await(t, func() bool { return len(lines(t, f.runs)) == 3 })
+	awaitWrite(t, f.runs, func() bool { return len(lines(t, f.runs)) == 3 })
 	unblock(t, blocker, cancel)
 	waiter := start(t.Context(), b, request("c", p, 1))
 	if e := waiter.next(t); e.Position != 1 {
