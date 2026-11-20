@@ -187,3 +187,24 @@ test("PhoneHead: headBadges draws no agents or running badge when no task runs",
     { key: "repo-a/rota-export", label: "rota", count: 0, asks: false },
   ]);
 });
+
+test("WaitsOnYou: ownAsks is false for an archived waiting row, so the Archived view's conversation adds no ask", () => {
+  const row = makeRow({ state: "waiting", archived: true });
+  assert.equal(ownAsks(row, makeConversation(create(ConversationStateSchema, {}))), false);
+});
+
+test("WaitsOnYou: ownAsks is false for a waiting row put off on the list", () => {
+  const row = makeRow({ state: "waiting", putOff: true });
+  assert.equal(ownAsks(row, makeConversation(create(ConversationStateSchema, {}))), false);
+});
+
+test("WaitsOnYou: ownAsks is true for a waiting row neither archived nor put off", () => {
+  const row = makeRow({ state: "waiting", archived: false, putOff: false });
+  assert.equal(ownAsks(row, makeConversation(create(ConversationStateSchema, {}))), true);
+});
+
+test("WaitsOnYou: askingWords leaves an archived row's own question out", () => {
+  const archived = makeRow({ state: "waiting", archived: true });
+  const own = ownAsks(archived, makeConversation(create(ConversationStateSchema, {}))) ? archived.label : null;
+  assert.equal(askingWords(own, []), "");
+});
