@@ -728,6 +728,8 @@ func TestSyncOnTheBuiltInEpicHoldsThePlannerAndEndsBuilt(t *testing.T) {
 	w.pass()
 	w.endRed()
 	w.pass()
+	endCost(t, s)
+	w.pass()
 	completeTurn(t, s, store.EpicPlan{
 		Decisions: []string{}, Tasks: []store.EpicTaskInput{runTask("only", "b.go")}, Outline: "one task",
 		Outcome: "complete",
@@ -1086,7 +1088,15 @@ type closingSyncStore struct {
 func (c *closingSyncStore) PrepareSync(
 	ctx context.Context, epic, path string, attempt int64, revision, result string, read store.OriginRead,
 ) error {
-	if _, err := c.closer.CloseEpic(ctx, epic, "abandoned", "", store.CloserOwner, runClock()); err != nil {
+	if _, err := c.closer.CloseEpic(
+		ctx,
+		epic,
+		"abandoned",
+		"",
+		store.CloserOwner,
+		store.Maker{By: store.MakerOwner},
+		runClock(),
+	); err != nil {
 		return fmt.Errorf("close epic %s: %w", epic, err)
 	}
 	return c.Store.PrepareSync(ctx, epic, path, attempt, revision, result, read)

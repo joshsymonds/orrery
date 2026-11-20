@@ -30,6 +30,14 @@ func (r *recordingEnding) EndEpic(
 	return nil
 }
 
+// EndEpicWithGaps records the call as EndEpic does, in ended_with_gaps. It does not record the question: a test that
+// needs the question gives the runner the store as its Ending.
+func (r *recordingEnding) EndEpicWithGaps(
+	ctx context.Context, epic, body string, _ store.GapsQuestion, ends []store.NodeEnd, at time.Time,
+) error {
+	return r.EndEpic(ctx, epic, "ended_with_gaps", body, ends, at)
+}
+
 // TestRecordingEndingRecordsThroughTheInterface drives the fake as an Ending, the way conclude and release will.
 func TestRecordingEndingRecordsThroughTheInterface(t *testing.T) {
 	t.Parallel()

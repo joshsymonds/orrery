@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
@@ -40,7 +39,7 @@ func startWaitsRun(t *testing.T, prompt string) waitsRun {
 
 	ctx, cancel := context.WithCancel(t.Context())
 	writer := enginehost.NewWriter(enginehost.WriterConfig{
-		Applier: s, Tick: 5 * time.Millisecond, Now: speakFixedClock,
+		Applier: s, Now: speakFixedClock,
 	})
 	writerDone := make(chan struct{})
 	go func() {
@@ -106,7 +105,7 @@ func (r waitsRun) addStepEnd(t *testing.T) {
 // openStream opens the session stream of speakSession on the store of r.
 func (r waitsRun) openStream(t *testing.T) *sessionStream {
 	t.Helper()
-	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(r.path), nil, 0))
+	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(r.path), r.s, nil, 0))
 	return openSessionStream(t, client, sessionReq(speakSession, 0, 0))
 }
 

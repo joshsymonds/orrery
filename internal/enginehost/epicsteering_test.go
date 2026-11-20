@@ -1,6 +1,7 @@
 package enginehost
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"syscall"
@@ -11,6 +12,17 @@ import (
 
 // errRender is the error the render test's Render returns.
 var errRender = errors.New("fake render failed")
+
+// errSessionRead is the error failingSessions returns.
+var errSessionRead = errors.New("fake session read failed")
+
+// failingSessions is a steeringSessions whose every read of a session row fails with errSessionRead.
+type failingSessions struct{}
+
+// EngineSession returns errSessionRead.
+func (failingSessions) EngineSession(context.Context, string) (store.EngineRow, error) {
+	return store.EngineRow{}, errSessionRead
+}
 
 // fakeRender is the Render the steering tests give every epic: a contract line and a log line.
 func fakeRender(store.EpicRow) ([]string, error) {
@@ -143,4 +155,36 @@ func TestEpicSteeringStopStopsStartedSession(t *testing.T) {
 		t.Fatalf("state after Stop = %q, want stopped", got)
 	}
 	requireGone(t, pid)
+}
+
+func TestEpicSteeringStartStopsSessionWhoseRowReadFails(t *testing.T) {
+	t.Parallel()
+	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	repo := t.TempDir()
+	steering := NewEpicSteering(EpicSteeringConfig{Manager: m, Sessions: failingSessions{}, Render: fakeRender})
+
+	id, err := steering.Start(t.Context(), store.EpicRow{ID: "orrery-epic", Repository: repo})
+	if !errors.Is(err, errSessionRead) {
+		t.Fatalf("Start error = %v, want the session read error", err)
+	}
+	if id != "" {
+		t.Fatalf("Start after a failed read returned id %q, want none", id)
+	}
+	rows, err := m.store.EngineSessions(t.Context())
+	if err != nil {
+		t.Fatalf("EngineSessions: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("engine sessions = %d, want the one started session", len(rows))
+	}
+	if got := historyOf(t, path, rows[0].ID).State; got != "stopped" {
+		t.Fatalf("state of the started session = %q, want stopped", got)
+	}
+	if live := m.Live(); len(live) != 0 {
+		t.Fatalf("live sessions = %v, want none", live)
+	}
+	// The stop freed the cap's one slot, so another session starts.
+	if _, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"}); err != nil {
+		t.Fatalf("Start after the stopped steering session: %v", err)
+	}
 }

@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package orrery.engine.v1;
+
+// Changes serves the change feed of sessions, so a subscriber hears of a change instead of polling for it. orreryd
+// serves it on the private sessions socket, and never on the public orrery serve API.
+service Changes {
+  // Watch streams the changes to sessions. The first message has opened set and nothing else, and is sent once the
+  // subscription is registered, so a subscriber that reads its sources after receiving it misses nothing. Each later
+  // message names the sessions whose events, unfinished text or owed state changed since the last message the
+  // subscriber took (owed state being caller events, put-off marks, prompt states, called steps and created epics),
+  // with the newest event seq among them, or 0 when no event was appended.
+  rpc Watch(ChangesWatchRequest) returns (stream ChangesWatchResponse);
+}
+
+// ChangesWatchRequest opens the change stream. It has no fields.
+message ChangesWatchRequest {}
+
+// ChangesWatchResponse is one message of the change stream: the opened message first, then one message per change.
+message ChangesWatchResponse {
+  // True only in the opened message, which is sent once the subscription is registered.
+  bool opened = 1;
+
+  // The newest event seq among the sessions, or 0 when no event was appended. Unset in the opened message.
+  int64 seq = 2;
+
+  // The sessions whose events, unfinished text or owed state changed (caller events, put-off marks, prompt states,
+  // called steps and created epics), sorted and distinct. Empty in the opened message.
+  repeated string sessions = 3;
+}

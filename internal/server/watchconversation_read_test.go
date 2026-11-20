@@ -47,9 +47,8 @@ func (r *watchReads) snapshot() []watchRead {
 	return slices.Clone(r.reads)
 }
 
-// newWatchReadHandler builds the guarded handler that admits allowedLogin and routes to tmux, polling each
-// conversation every convPoll and keeping it alive every convKeepalive. It dates reads at readFixtureAt and reports
-// each one to report.
+// newWatchReadHandler builds the guarded handler that admits allowedLogin and routes to tmux, keeping each conversation
+// alive every convKeepalive. It dates reads at readFixtureAt and reports each one to report.
 func newWatchReadHandler(t *testing.T, tmux *tmuxctl.Client, report server.ReadReporter) http.Handler {
 	t.Helper()
 	handler, err := server.New(server.Config{
@@ -58,7 +57,6 @@ func newWatchReadHandler(t *testing.T, tmux *tmuxctl.Client, report server.ReadR
 		Push:                  newPushStore(t),
 		Now:                   func() time.Time { return time.Unix(readFixtureAt, 0) },
 		ReportRead:            report,
-		ConversationPoll:      convPoll,
 		ConversationKeepalive: convKeepalive,
 	})
 	if err != nil {

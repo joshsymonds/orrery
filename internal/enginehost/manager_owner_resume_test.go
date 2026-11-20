@@ -33,7 +33,7 @@ func TestResumeSendsResumePromptToInterruptedSession(t *testing.T) {
 	dir := t.TempDir()
 	seedClaudeRow(t, s, "interrupted", dir, "interrupted", store.KindEngine)
 	stallNextPrompt(t, dir)
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	m := newReconcileManager(t, s, writer, &fakeSink{})
 
@@ -65,7 +65,7 @@ func TestResumeRefusesRowNotInterrupted(t *testing.T) {
 	s, path := openStore(t)
 	dir := t.TempDir()
 	seedClaudeRow(t, s, "done", dir, "done", store.KindEngine)
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	m := newReconcileManager(t, s, writer, &fakeSink{})
 
@@ -88,7 +88,7 @@ func TestResumeRefusesInterruptedRowWithoutClaudeSession(t *testing.T) {
 	}, time.Unix(1, 0)); err != nil {
 		t.Fatalf("seed engine row: %v", err)
 	}
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	m := newReconcileManager(t, s, writer, &fakeSink{})
 

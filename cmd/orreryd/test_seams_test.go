@@ -81,32 +81,35 @@ func TestDueAtFlag(t *testing.T) {
 	}
 }
 
-// TestWriteTickFlag checks the --write-tick test seam: without it the tick is zero, which the engine writer reads as
-// its own; a duration replaces it; a negative value is a usage error; and the usage text does not list the seam.
-func TestWriteTickFlag(t *testing.T) {
-	opts, err := parseFlags(nil, holderScopeGetenv)
-	if err != nil {
-		t.Fatalf("parseFlags: %v", err)
-	}
-	if opts.writeTick != 0 {
-		t.Errorf("writeTick without the flag = %v, want 0", opts.writeTick)
-	}
-
-	opts, err = parseFlags([]string{"--write-tick", "5ms"}, holderScopeGetenv)
-	if err != nil {
-		t.Fatalf("parseFlags(--write-tick 5ms): %v", err)
-	}
-	if opts.writeTick != 5*time.Millisecond {
-		t.Errorf("writeTick for 5ms = %v, want 5ms", opts.writeTick)
+// TestRelayAtFlag checks the --relay-at test seam: without it, or with zero, the relay's watching checks read the system
+// clock; with a unix second they read that second; a negative value is a usage error; and the usage text does not list
+// the seam.
+func TestRelayAtFlag(t *testing.T) {
+	for _, args := range [][]string{nil, {"--relay-at", "0"}} {
+		opts, err := parseFlags(args, holderScopeGetenv)
+		if err != nil {
+			t.Fatalf("parseFlags(%q): %v", args, err)
+		}
+		if opts.relayNow != nil {
+			t.Errorf("parseFlags(%q) relayNow is set, want nil, the system clock", args)
+		}
 	}
 
-	_, err = parseFlags([]string{"--write-tick", "-1ms"}, holderScopeGetenv)
+	opts, err := parseFlags([]string{"--relay-at", "1900000000"}, holderScopeGetenv)
+	if err != nil {
+		t.Fatalf("parseFlags(--relay-at 1900000000): %v", err)
+	}
+	if opts.relayNow == nil || !opts.relayNow().Equal(time.Unix(1900000000, 0)) {
+		t.Fatalf("relayNow for --relay-at 1900000000 does not read unix second 1900000000")
+	}
+
+	_, err = parseFlags([]string{"--relay-at", "-1"}, holderScopeGetenv)
 	var usage usageError
-	if !errors.As(err, &usage) || !strings.Contains(err.Error(), "--write-tick must not be negative") {
-		t.Errorf("parseFlags(--write-tick -1ms) error = %v, want the negative-value usage error", err)
+	if !errors.As(err, &usage) || !strings.Contains(err.Error(), "--relay-at must not be negative") {
+		t.Errorf("parseFlags(--relay-at -1) error = %v, want the negative-value usage error", err)
 	}
-	if strings.Contains(usageText, "write-tick") {
-		t.Errorf("usage text lists the --write-tick test seam:\n%s", usageText)
+	if strings.Contains(usageText, "relay-at") {
+		t.Errorf("usage text lists the --relay-at test seam:\n%s", usageText)
 	}
 }
 

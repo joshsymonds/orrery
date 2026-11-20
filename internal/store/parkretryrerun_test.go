@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 // The integrate run a refs move parks in the tests of this file, and the reason the move parks it with.
@@ -125,7 +126,12 @@ func TestParkRetryRerunRetryEpicRerunsTheParkedRunOfItsOpenQuestion(t *testing.T
 	s := openEpicStore(t)
 	refMoveRunParked(t, s)
 
-	if err := s.RetryEpic(context.Background(), claimEpic); err != nil {
+	if err := s.RetryEpic(
+		context.Background(),
+		claimEpic,
+		Maker{By: MakerOwner},
+		time.Unix(1700000000, 0),
+	); err != nil {
 		t.Fatalf("RetryEpic: %v", err)
 	}
 	if run := runAtPath(t, s, parkRetryRunPath); run.State != NodeRunning || run.Attempt != 2 {

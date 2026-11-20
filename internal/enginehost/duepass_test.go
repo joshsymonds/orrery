@@ -225,6 +225,7 @@ func TestDuePassKeepsStepRowDueWhileStepCapIsFull(t *testing.T) {
 		func() bool { return stepRowOf(t, rig.steps, id).LoopLimited },
 	)
 	requireGone(t, pid)
+	waitStepSlotsFree(t, rig)
 	writeResumeNext(t, dir)
 	holder := startLimitProbe(t, rig, repo, revision, "STEPDONE")
 	at := time.Unix(probeResetUnix, 0).Add(dueGrace)
@@ -357,7 +358,12 @@ func TestDuePassLeavesOwnerPausedEpicPausedPastItsReset(t *testing.T) {
 	st, _ := openStore(t)
 	createDuePassEpic(t, st)
 	turn := claimDuePassTurn(t, st)
-	if err := st.PauseEpic(t.Context(), duePassEpic); err != nil {
+	if err := st.PauseEpic(
+		t.Context(),
+		duePassEpic,
+		store.Maker{By: store.MakerOwner},
+		time.Unix(1700000000, 0),
+	); err != nil {
 		t.Fatalf("PauseEpic: %v", err)
 	}
 	reset := time.Unix(probeResetUnix, 0)
@@ -499,17 +505,16 @@ func TestDuePassRetriesAGatingStepOnTheNextPass(t *testing.T) {
 	}
 }
 
-// TestDuePassRunsAPassAtStartAndOnEachTick covers R1: Run passes once when it starts and once for each tick, until its
+// TestDuePassRunsAPassAtStartAndOnEachWake covers R1: Run passes once when it starts and once for each wake, until its
 // context ends.
-func TestDuePassRunsAPassAtStartAndOnEachTick(t *testing.T) {
+func TestDuePassRunsAPassAtStartAndOnEachWake(t *testing.T) {
 	t.Parallel()
 	st, _ := openStore(t)
 	passes := make(chan struct{}, 4)
-	tick := make(chan time.Time)
 	at := time.Unix(probeResetUnix, 0)
 	pass := NewDuePass(DuePassConfig{
 		Store: passCountingStore{Store: st, passes: passes}, Steps: &scriptedDueSteps{},
-		Now: func() time.Time { return at }, Tick: tick,
+		Now: func() time.Time { return at }, NewTimer: neverTimer,
 	})
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
@@ -523,8 +528,8 @@ func TestDuePassRunsAPassAtStartAndOnEachTick(t *testing.T) {
 	}()
 
 	awaitPass(t, passes, done, "the pass at start")
-	tick <- time.Time{}
-	awaitPass(t, passes, done, "the pass on the tick")
+	pass.Wake()
+	awaitPass(t, passes, done, "the pass on the wake")
 	cancel()
 	<-done
 	if got := len(passes); got != 0 {

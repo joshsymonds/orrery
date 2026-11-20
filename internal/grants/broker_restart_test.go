@@ -213,8 +213,9 @@ func TestReclaimNeedsStoredGrantIDAndItsClientPID(t *testing.T) {
 	}
 }
 
-// TestTickEndsKeptGrantWhoseClientDies checks that a grant a restart kept ends on the next tick once its client is no
-// longer alive: its store row is removed, its member is freed, and the request waiting for the member gets it.
+// TestTickEndsKeptGrantWhoseClientDies checks that a grant a restart kept ends once its client's watch signals and the
+// client is no longer alive: its store row is removed, its member is freed, and the request waiting for the member gets
+// it.
 func TestTickEndsKeptGrantWhoseClientDies(t *testing.T) {
 	s := openStore(t)
 	p := awakePool(t, "p", 1, "m1")
@@ -223,7 +224,8 @@ func TestTickEndsKeptGrantWhoseClientDies(t *testing.T) {
 	closeWithBlockedCalls(t, before, liveCall)
 
 	clients := &pidSet{live: map[int]bool{livePID: true}}
-	after := brokerOn(t, s, clients.alive)
+	exits := newExitFakes()
+	after := brokerWatched(t, s, clients.alive, nil, exits)
 	if err := after.Restore(t.Context()); err != nil {
 		t.Fatalf("Restore: %v", err)
 	}
@@ -236,8 +238,7 @@ func TestTickEndsKeptGrantWhoseClientDies(t *testing.T) {
 	}
 
 	clients.setAlive(livePID, false)
-	tick := runTicks(t, after)
-	tick.send(t)
+	exits.signal(t, clientKey(livePID))
 	granted := waiter.next(t).Grant
 	if granted == nil || !slices.Equal(granted.Members, []Member{{Pool: "p", Name: "m1"}}) {
 		t.Fatalf("waiter got %+v, want m1 once the dead client's grant ends", granted)
@@ -249,7 +250,7 @@ func TestTickEndsKeptGrantWhoseClientDies(t *testing.T) {
 
 // TestRestartEndsGrantWhosePidNowBelongsToAnotherProcess checks a restart against pid reuse. A stored grant whose client
 // pid a live, unrelated process now holds is not kept: the start time stored for the client differs from the process's,
-// so the client is gone. The grant ends at the restart, a tick leaves it ended, and its member is free for a request.
+// so the client is gone. The grant ends at the restart, and its member is free for a request.
 func TestRestartEndsGrantWhosePidNowBelongsToAnotherProcess(t *testing.T) {
 	s := openStore(t)
 	p := awakePool(t, "p", 1, "m1")
@@ -283,11 +284,6 @@ func TestRestartEndsGrantWhosePidNowBelongsToAnotherProcess(t *testing.T) {
 	if rows := storedGrants(t, s); len(rows) != 0 {
 		t.Fatalf("stored grants after Restore = %+v, want none: the pid belongs to another process", rows)
 	}
-	tick := runTicks(t, after)
-	tick.send(t)
-	if rows := storedGrants(t, s); len(rows) != 0 {
-		t.Fatalf("stored grants after a tick = %+v, want none", rows)
-	}
 	waiter := start(t.Context(), after, request("b", p, 1))
 	if e := waiter.next(t); e.Position != 1 {
 		t.Fatalf("waiter event = %+v, want position 1", e)
@@ -295,6 +291,9 @@ func TestRestartEndsGrantWhosePidNowBelongsToAnotherProcess(t *testing.T) {
 	granted := waiter.next(t).Grant
 	if granted == nil || !slices.Equal(granted.Members, []Member{{Pool: "p", Name: "m1"}}) {
 		t.Fatalf("waiter got %+v, want m1, free once the reused grant ends", granted)
+	}
+	if rows := storedGrants(t, s); len(rows) != 1 || rows[0].ID != granted.ID {
+		t.Fatalf("stored grants after the waiter's grant = %+v, want only grant %s", rows, granted.ID)
 	}
 }
 

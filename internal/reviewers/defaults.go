@@ -85,9 +85,10 @@ func Defaults() []Entry {
 				"The change adds an unjustified golden suite.",
 				"The change adds a test that asserts wall-clock timing.",
 				"The change adds a test that checks model output deterministically.",
-				"The change adds or changes tests that push a package over its test CPU budget (a test-budget line " +
-					"in Test cost), or a test whose own run is slow (seconds, not milliseconds), without a stated " +
-					"reason in the task.",
+				"The change adds or changes tests that push a package's test CPU cost over its base (a Test cost " +
+					"line marked over), or, for a package with no base measurement, over its budget (a test-budget " +
+					"line in Test cost), or a test whose own run is slow (seconds, not milliseconds), without a " +
+					"stated reason in the task.",
 			},
 			Prompt: new(testParsimonyRole), Model: new("sonnet"), Tools: readOnlyTools(), Verify: new(true),
 		},

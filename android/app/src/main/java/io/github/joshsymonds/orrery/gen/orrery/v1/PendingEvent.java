@@ -103,7 +103,7 @@ public  final class PendingEvent extends
   private java.lang.String kind_;
   /**
    * <pre>
-   * The event's kind: step_end, question, park, release or end.
+   * The event's kind: step_end, question, park, release, end, moved or action.
    * </pre>
    *
    * <code>string kind = 2 [json_name = "kind"];</code>
@@ -115,7 +115,7 @@ public  final class PendingEvent extends
   }
   /**
    * <pre>
-   * The event's kind: step_end, question, park, release or end.
+   * The event's kind: step_end, question, park, release, end, moved or action.
    * </pre>
    *
    * <code>string kind = 2 [json_name = "kind"];</code>
@@ -128,7 +128,7 @@ public  final class PendingEvent extends
   }
   /**
    * <pre>
-   * The event's kind: step_end, question, park, release or end.
+   * The event's kind: step_end, question, park, release, end, moved or action.
    * </pre>
    *
    * <code>string kind = 2 [json_name = "kind"];</code>
@@ -142,7 +142,7 @@ public  final class PendingEvent extends
   }
   /**
    * <pre>
-   * The event's kind: step_end, question, park, release or end.
+   * The event's kind: step_end, question, park, release, end, moved or action.
    * </pre>
    *
    * <code>string kind = 2 [json_name = "kind"];</code>
@@ -153,7 +153,7 @@ public  final class PendingEvent extends
   }
   /**
    * <pre>
-   * The event's kind: step_end, question, park, release or end.
+   * The event's kind: step_end, question, park, release, end, moved or action.
    * </pre>
    *
    * <code>string kind = 2 [json_name = "kind"];</code>
@@ -957,7 +957,7 @@ public  final class PendingEvent extends
 
     /**
      * <pre>
-     * The event's kind: step_end, question, park, release or end.
+     * The event's kind: step_end, question, park, release, end, moved or action.
      * </pre>
      *
      * <code>string kind = 2 [json_name = "kind"];</code>
@@ -969,7 +969,7 @@ public  final class PendingEvent extends
     }
     /**
      * <pre>
-     * The event's kind: step_end, question, park, release or end.
+     * The event's kind: step_end, question, park, release, end, moved or action.
      * </pre>
      *
      * <code>string kind = 2 [json_name = "kind"];</code>
@@ -982,7 +982,7 @@ public  final class PendingEvent extends
     }
     /**
      * <pre>
-     * The event's kind: step_end, question, park, release or end.
+     * The event's kind: step_end, question, park, release, end, moved or action.
      * </pre>
      *
      * <code>string kind = 2 [json_name = "kind"];</code>
@@ -997,7 +997,7 @@ public  final class PendingEvent extends
     }
     /**
      * <pre>
-     * The event's kind: step_end, question, park, release or end.
+     * The event's kind: step_end, question, park, release, end, moved or action.
      * </pre>
      *
      * <code>string kind = 2 [json_name = "kind"];</code>
@@ -1010,7 +1010,7 @@ public  final class PendingEvent extends
     }
     /**
      * <pre>
-     * The event's kind: step_end, question, park, release or end.
+     * The event's kind: step_end, question, park, release, end, moved or action.
      * </pre>
      *
      * <code>string kind = 2 [json_name = "kind"];</code>

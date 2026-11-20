@@ -143,10 +143,7 @@ func TestStepEndPushSubscribeReportsLaterEnd(t *testing.T) {
 func TestStepEndPushSubscribeReportsLimitHold(t *testing.T) {
 	t.Parallel()
 	f := newStepLimitFixture(t)
-	steps, err := NewSteps(StepsConfig{Store: f.store, Writer: f.writer, Logger: slog.New(slog.DiscardHandler)})
-	if err != nil {
-		t.Fatalf("NewSteps: %v", err)
-	}
+	steps := NewSteps(StepsConfig{Store: f.store, Writer: f.writer, Logger: slog.New(slog.DiscardHandler)})
 	f.run.publish = steps.publish
 	sub, err := steps.Subscribe(t.Context(), []string{stepLoopID})
 	if err != nil {

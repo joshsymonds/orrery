@@ -11,7 +11,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/agents"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -57,7 +56,7 @@ func newRefusalFixture(t *testing.T, stepCap int) *refusalFixture {
 	s, _ := openStore(t)
 	log := &refusalLog{}
 	logger := slog.New(slog.NewTextHandler(log, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond, Logger: logger})
+	writer := NewWriter(WriterConfig{Applier: s, Logger: logger})
 	startRun(t, writer)
 	home := t.TempDir()
 	writeStepAgents(t, home)
@@ -67,14 +66,11 @@ func newRefusalFixture(t *testing.T, stepCap int) *refusalFixture {
 	})
 	t.Cleanup(manager.Close)
 	worktrees := t.TempDir()
-	steps, err := NewSteps(StepsConfig{
+	steps := NewSteps(StepsConfig{
 		Sessions: manager, Store: s, Writer: writer,
 		Worktrees: worktrees, Environ: []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()}, Logger: logger,
 		GateStateDir: gateShortStateDir(t),
 	})
-	if err != nil {
-		t.Fatalf("NewSteps: %v", err)
-	}
 	t.Cleanup(func() {
 		steps.mu.Lock()
 		defer steps.mu.Unlock()

@@ -31,6 +31,7 @@ public  final class EpicHistoryEntry extends
     EVIDENCE(6),
     DECISION(7),
     TELL(8),
+    ACTION(9),
     ITEM_NOT_SET(0);
     private final int value;
     private ItemCase(int value) {
@@ -52,6 +53,7 @@ public  final class EpicHistoryEntry extends
         case 6: return EVIDENCE;
         case 7: return DECISION;
         case 8: return TELL;
+        case 9: return ACTION;
         case 0: return ITEM_NOT_SET;
         default: return null;
       }
@@ -596,6 +598,76 @@ public  final class EpicHistoryEntry extends
    */
   private void clearTell() {
     if (itemCase_ == 8) {
+      itemCase_ = 0;
+      item_ = null;
+    }
+  }
+
+  public static final int ACTION_FIELD_NUMBER = 9;
+  /**
+   * <pre>
+   * An action taken on the epic's steering or controls.
+   * </pre>
+   *
+   * <code>.orrery.v1.EpicAction action = 9 [json_name = "action"];</code>
+   */
+  @java.lang.Override
+  public boolean hasAction() {
+    return itemCase_ == 9;
+  }
+  /**
+   * <pre>
+   * An action taken on the epic's steering or controls.
+   * </pre>
+   *
+   * <code>.orrery.v1.EpicAction action = 9 [json_name = "action"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.EpicAction getAction() {
+    if (itemCase_ == 9) {
+       return (io.github.joshsymonds.orrery.gen.orrery.v1.EpicAction) item_;
+    }
+    return io.github.joshsymonds.orrery.gen.orrery.v1.EpicAction.getDefaultInstance();
+  }
+  /**
+   * <pre>
+   * An action taken on the epic's steering or controls.
+   * </pre>
+   *
+   * <code>.orrery.v1.EpicAction action = 9 [json_name = "action"];</code>
+   */
+  private void setAction(io.github.joshsymonds.orrery.gen.orrery.v1.EpicAction value) {
+    java.util.Objects.requireNonNull(value);
+    item_ = value;
+    itemCase_ = 9;
+  }
+  /**
+   * <pre>
+   * An action taken on the epic's steering or controls.
+   * </pre>
+   *
+   * <code>.orrery.v1.EpicAction action = 9 [json_name = "action"];</code>
+   */
+  private void mergeAction(io.github.joshsymonds.orrery.gen.orrery.v1.EpicAction value) {
+    java.util.Objects.requireNonNull(value);
+    if (itemCase_ == 9 &&
+        item_ != io.github.joshsymonds.orrery.gen.orrery.v1.EpicAction.getDefaultInstance()) {
+      item_ = io.github.joshsymonds.orrery.gen.orrery.v1.EpicAction.newBuilder((io.github.joshsymonds.orrery.gen.orrery.v1.EpicAction) item_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      item_ = value;
+    }
+    itemCase_ = 9;
+  }
+  /**
+   * <pre>
+   * An action taken on the epic's steering or controls.
+   * </pre>
+   *
+   * <code>.orrery.v1.EpicAction action = 9 [json_name = "action"];</code>
+   */
+  private void clearAction() {
+    if (itemCase_ == 9) {
       itemCase_ = 0;
       item_ = null;
     }
@@ -1258,6 +1330,78 @@ public  final class EpicHistoryEntry extends
       return this;
     }
 
+    /**
+     * <pre>
+     * An action taken on the epic's steering or controls.
+     * </pre>
+     *
+     * <code>.orrery.v1.EpicAction action = 9 [json_name = "action"];</code>
+     */
+    @java.lang.Override
+    public boolean hasAction() {
+      return instance.hasAction();
+    }
+    /**
+     * <pre>
+     * An action taken on the epic's steering or controls.
+     * </pre>
+     *
+     * <code>.orrery.v1.EpicAction action = 9 [json_name = "action"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.EpicAction getAction() {
+      return instance.getAction();
+    }
+    /**
+     * <pre>
+     * An action taken on the epic's steering or controls.
+     * </pre>
+     *
+     * <code>.orrery.v1.EpicAction action = 9 [json_name = "action"];</code>
+     */
+    public Builder setAction(io.github.joshsymonds.orrery.gen.orrery.v1.EpicAction value) {
+      copyOnWrite();
+      instance.setAction(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * An action taken on the epic's steering or controls.
+     * </pre>
+     *
+     * <code>.orrery.v1.EpicAction action = 9 [json_name = "action"];</code>
+     */
+    public Builder setAction(
+        io.github.joshsymonds.orrery.gen.orrery.v1.EpicAction.Builder builderForValue) {
+      copyOnWrite();
+      instance.setAction(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * An action taken on the epic's steering or controls.
+     * </pre>
+     *
+     * <code>.orrery.v1.EpicAction action = 9 [json_name = "action"];</code>
+     */
+    public Builder mergeAction(io.github.joshsymonds.orrery.gen.orrery.v1.EpicAction value) {
+      copyOnWrite();
+      instance.mergeAction(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * An action taken on the epic's steering or controls.
+     * </pre>
+     *
+     * <code>.orrery.v1.EpicAction action = 9 [json_name = "action"];</code>
+     */
+    public Builder clearAction() {
+      copyOnWrite();
+      instance.clearAction();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.EpicHistoryEntry)
   }
   @java.lang.Override
@@ -1284,10 +1428,11 @@ public  final class EpicHistoryEntry extends
             io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun.class,
             io.github.joshsymonds.orrery.gen.orrery.v1.EpicDecision.class,
             io.github.joshsymonds.orrery.gen.orrery.v1.EpicTell.class,
+            io.github.joshsymonds.orrery.gen.orrery.v1.EpicAction.class,
           };
           java.lang.String info =
-              "\u0000\b\u0001\u0000\u0001\b\b\u0000\u0000\u0000\u0001\u0002\u0002\u0208\u0003<\u0000" +
-              "\u0004<\u0000\u0005<\u0000\u0006<\u0000\u0007<\u0000\b<\u0000";
+              "\u0000\t\u0001\u0000\u0001\t\t\u0000\u0000\u0000\u0001\u0002\u0002\u0208\u0003<\u0000" +
+              "\u0004<\u0000\u0005<\u0000\u0006<\u0000\u0007<\u0000\b<\u0000\t<\u0000";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

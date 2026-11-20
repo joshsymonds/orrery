@@ -11,7 +11,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/engine/session"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -36,7 +35,7 @@ func newRecordingRig(t *testing.T) recordingRig {
 	}
 	s, path := openStore(t)
 	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
-	writer := NewWriter(WriterConfig{Applier: applier, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: applier})
 	startRun(t, writer)
 	sink := &fakeSink{}
 	m := NewManager(Config{

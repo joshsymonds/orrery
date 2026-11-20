@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
+	"github.com/joshsymonds/orrery/internal/guard"
 	"github.com/joshsymonds/orrery/internal/reviewers"
 	"github.com/joshsymonds/orrery/internal/roles"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -16,6 +17,10 @@ const (
 	roleImplementer = "implementer"
 	roleVerifier    = "verifier"
 )
+
+// reviewFloor is the task-stage reviewer whose prompt carries the notes its task's build holds and the guard's facts of
+// the commit it reviews.
+const reviewFloor = "floor"
 
 // RoleError is a role file error: the role file does not name the agent a step's role runs under. The Runner parks on
 // it.
@@ -90,7 +95,7 @@ func (r *Runner) implementerStart(
 	if gate.Agent != "" {
 		return enginehost.StepStart{}, fmt.Errorf("gate %s is an agent gate, not a command gate", task.Gate)
 	}
-	path := ImplementWorktree(r.stateDir, epic.ID, task.Seq)
+	path := ImplementWorktree(r.stateDir, epic.ID, task)
 	err = r.git.AddWorktree(ctx, epic.Repository, path, task.Build.Base)
 	if err != nil {
 		return enginehost.StepStart{}, fmt.Errorf("prepare worktree: %w", err)
@@ -141,7 +146,10 @@ func (r *Runner) redEvidence(ctx context.Context, task store.EpicTask) (store.Ev
 // reviewStart returns the start of the review step id for task of epic: the epic's task-stage reviewer named by the
 // review gate at the task's gate position, run read-only at the revision the task's build reached. A model reviewer
 // carries its inline agent, and an agent reviewer's prompt heads the review prompt. The test_parsimony reviewer's
-// prompt carries the output of the gate the implementer's commit passed (passedGate).
+// prompt carries the output of the gate the implementer's commit passed (passedGate), compared with the epic's base
+// measurement of test cost (readBaseCost). The floor reviewer's prompt carries the facts guard.Check gives the commit
+// between the task's base and revision, read now; a check that errs fails the start, as a git error does at any other
+// start.
 func (r *Runner) reviewStart(
 	ctx context.Context, epic store.EpicRow, task store.EpicTask, id string,
 ) (enginehost.StepStart, error) {
@@ -164,10 +172,20 @@ func (r *Runner) reviewStart(
 	gate := rev.Gate()
 	base, revision := task.Build.Base, task.Build.Revision
 	var gateRun store.StepCheck
+	var baseCost map[string]float64
 	if name == reviewers.TestParsimony {
 		gateRun = r.passedGate(ctx, epic.ID, task)
+		baseCost = r.readBaseCost(ctx, epic.ID)
 	}
-	prompt := ReviewPrompt(epic, task, name, base, revision, gateRun)
+	var facts []string
+	if name == reviewFloor {
+		judgments, factErr := guard.Check(ctx, epic.Repository, base, revision, guardSpec(epic, task))
+		if factErr != nil {
+			return enginehost.StepStart{}, fmt.Errorf("guard facts of %s: %w", taskLabel(task.Seq), factErr)
+		}
+		facts = guard.FactLines(judgments)
+	}
+	prompt := ReviewPrompt(epic, task, name, base, revision, gateRun, baseCost, facts...)
 	if rev.Agent != "" && rev.Prompt != "" {
 		prompt = rev.Prompt + "\n\n" + prompt
 	}
@@ -204,6 +222,22 @@ func (r *Runner) passedGate(ctx context.Context, epic string, task store.EpicTas
 		}
 	}
 	return store.StepCheck{}
+}
+
+// readBaseCost returns the CPU seconds of each package the epic's cost node measured at its base (reviewers.Costs of
+// its cost checks' kept stdout and stderr). A store read that fails is logged and returns nil, so the review carries
+// the gate's budget lines without a base to compare them with.
+func (r *Runner) readBaseCost(ctx context.Context, epic string) map[string]float64 {
+	checks, err := r.store.BaseCost(ctx, epic)
+	if err != nil {
+		r.logger.WarnContext(ctx, "read base cost", "epic", epic, "err", err)
+		return nil
+	}
+	var outputs []string
+	for _, check := range checks {
+		outputs = append(outputs, check.Stdout, check.Stderr)
+	}
+	return reviewers.Costs(outputs...)
 }
 
 // verifierStart returns the start of the verifier step id for the finding at the task's finding position in the

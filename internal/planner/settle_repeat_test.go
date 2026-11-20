@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -76,8 +77,8 @@ func TestSettledTurnCompletedAgainChangesNoRow(t *testing.T) {
 	}
 }
 
-// TestSettledTurnFailedAgainChangesNoRow covers R3: a failed turn settled again after the epic was parked by its later
-// failures is refused by the store, so the park keeps the reason it was given.
+// TestSettledTurnFailedAgainChangesNoRow covers R3: a failed turn settled again after its epic's later failures is
+// refused by the store, so the rows keep the reason the turn ended with.
 func TestSettledTurnFailedAgainChangesNoRow(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -92,8 +93,8 @@ func TestSettledTurnFailedAgainChangesNoRow(t *testing.T) {
 			t.Fatalf("FailTurn: %v", err)
 		}
 	}
-	if epic := epicOf(t, s); len(epic.Turns) != 3 || epic.Parked == "" {
-		t.Fatalf("turns = %d, parked = %q, want three failed turns and the epic parked", len(epic.Turns), epic.Parked)
+	if epic := epicOf(t, s); len(epic.Turns) != 3 || epic.Parked != "" {
+		t.Fatalf("turns = %d, parked = %q, want three failed turns and the epic unparked", len(epic.Turns), epic.Parked)
 	}
 	settled := settledRowsOf(t, s)
 
@@ -122,7 +123,7 @@ func TestSettledTurnFreedAgainChangesNoRow(t *testing.T) {
 	if !epicOf(t, s).Paused {
 		t.Fatal("epic Paused after the stopped turn = false, want true")
 	}
-	if err := s.ResumeEpic(ctx, runnerEpicID); err != nil {
+	if err := s.ResumeEpic(ctx, runnerEpicID, store.Maker{By: store.MakerOwner}, time.Unix(1700000000, 0)); err != nil {
 		t.Fatalf("ResumeEpic: %v", err)
 	}
 	settled := settledRowsOf(t, s)

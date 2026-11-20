@@ -5,6 +5,7 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+	"time"
 )
 
 // kickRows reads every row a kick may change: the epic, its turns, its triggers and its decisions.
@@ -86,7 +87,7 @@ func TestEpicKickRefusesPausedEpicAndWritesNothing(t *testing.T) {
 	ctx := context.Background()
 	s := openEpicStore(t)
 	createEpic(t, s, fullEpic(claimEpic))
-	if err := s.PauseEpic(ctx, claimEpic); err != nil {
+	if err := s.PauseEpic(ctx, claimEpic, Maker{By: MakerOwner}, time.Unix(1700000000, 0)); err != nil {
 		t.Fatalf("PauseEpic: %v", err)
 	}
 	before := kickRows(t, s)

@@ -43,6 +43,35 @@ type epicCommandsFake struct {
 
 	// closeSessions is the Orrery-Session header each CloseEpic call carried, in order.
 	closeSessions []string
+
+	// moveSessions is the Orrery-Session header each MoveEpic call carried, in order.
+	moveSessions []string
+
+	// continueSession is the session the fake's ContinueEpic answers.
+	continueSession string
+}
+
+func (f *epicCommandsFake) MoveEpic(
+	_ context.Context,
+	req *connect.Request[enginev1.MoveEpicRequest],
+) (*connect.Response[enginev1.MoveEpicResponse], error) {
+	f.mu.Lock()
+	f.moveSessions = append(f.moveSessions, req.Header().Get(protocol.HeaderSession))
+	f.mu.Unlock()
+	if err := f.record(req.Msg); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&enginev1.MoveEpicResponse{}), nil
+}
+
+func (f *epicCommandsFake) ContinueEpic(
+	_ context.Context,
+	req *connect.Request[enginev1.ContinueEpicRequest],
+) (*connect.Response[enginev1.ContinueEpicResponse], error) {
+	if err := f.record(req.Msg); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&enginev1.ContinueEpicResponse{Session: f.continueSession}), nil
 }
 
 func (f *epicCommandsFake) PauseEpic(
@@ -183,6 +212,13 @@ func (f *epicCommandsFake) recordedCloseSessions() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]string(nil), f.closeSessions...)
+}
+
+// recordedMoveSessions returns the Orrery-Session header of each MoveEpic call, in order.
+func (f *epicCommandsFake) recordedMoveSessions() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.moveSessions...)
 }
 
 // epicCommandServe serves newEpicsHandler over commands with the fixed clock, and returns a generated Epics client.
@@ -452,7 +488,7 @@ func serveEngineEpics(t *testing.T, st *store.Store) enginev1connect.EpicsClient
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
-	go func() { done <- enginehost.Serve(ctx, ln, nil, nil, st, nil, nil, nil, nil, nil) }()
+	go func() { done <- enginehost.Serve(ctx, ln, nil, nil, st, nil, nil, nil, nil, nil, nil, nil) }()
 	t.Cleanup(func() {
 		cancel()
 		if err := <-done; err != nil {

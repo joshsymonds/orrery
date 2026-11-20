@@ -5,7 +5,6 @@ import (
 	"slices"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -67,7 +66,7 @@ func TestStepEndPushManagerWakeResumeStoppedSession(t *testing.T) {
 	dir := t.TempDir()
 	seedClaudeRow(t, s, "interrupted", dir, "interrupted", store.KindEngine)
 	stallNextPrompt(t, dir)
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	m := newReconcileManager(t, s, writer, &fakeSink{})
 	wakes := countingWake(m)
@@ -153,7 +152,7 @@ func TestStepEndPushManagerWakeReadoptedSessionGoesLive(t *testing.T) {
 
 	rig.crash.refuse()
 	rig.manager.Close()
-	writer := NewWriter(WriterConfig{Applier: rig.store, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: rig.store})
 	startRun(t, writer)
 	restarted := newStateManager(t, rig.store, writer, &fakeSink{}, fakeSystemdRunPath(t), rig.root, nil)
 	wakes := countingWake(restarted)

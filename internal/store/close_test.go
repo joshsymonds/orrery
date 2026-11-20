@@ -65,7 +65,15 @@ func TestCloseEpicEachKindEndsAParkedEpicAndAnswersItsQuestion(t *testing.T) {
 			ctx := context.Background()
 			s := openEpicStore(t)
 			createParkedEpic(t, s, claimEpic)
-			if _, err := s.CloseEpic(ctx, claimEpic, tc.kind, tc.by, CloserOwner, closeAt()); err != nil {
+			if _, err := s.CloseEpic(
+				ctx,
+				claimEpic,
+				tc.kind,
+				tc.by,
+				CloserOwner,
+				Maker{By: MakerOwner},
+				closeAt(),
+			); err != nil {
 				t.Fatalf("CloseEpic as %s: %v", tc.kind, err)
 			}
 
@@ -122,7 +130,7 @@ func TestCloseEpicEndsTheRunningTurnNodeRunsAndTriggers(t *testing.T) {
 	}
 	addPendingTrigger(t, s)
 
-	step, err := s.CloseEpic(ctx, claimEpic, "abandoned", "", CloserOwner, closeAt())
+	step, err := s.CloseEpic(ctx, claimEpic, "abandoned", "", CloserOwner, Maker{By: MakerOwner}, closeAt())
 	if err != nil {
 		t.Fatalf("CloseEpic: %v", err)
 	}
@@ -162,7 +170,15 @@ func TestCloseEpicFreesTheHeldReleaseSlot(t *testing.T) {
 		t.Fatalf("slot holder before the close = %q, %v; want %s", holder, err, claimEpic)
 	}
 
-	if _, err = s.CloseEpic(ctx, claimEpic, "abandoned", "", CloserOwner, closeAt()); err != nil {
+	if _, err = s.CloseEpic(
+		ctx,
+		claimEpic,
+		"abandoned",
+		"",
+		CloserOwner,
+		Maker{By: MakerOwner},
+		closeAt(),
+	); err != nil {
 		t.Fatalf("CloseEpic: %v", err)
 	}
 	if _, err = s.fixtureQueries().GetEpicReleaseSlotHolder(ctx, row.Repository); !errors.Is(err, sql.ErrNoRows) {
@@ -190,7 +206,7 @@ func TestCloseEpicStopsItsBuildsAndItsNextTurn(t *testing.T) {
 		t.Fatalf("BuildEpics before the close = %v, %v; want %s", got, err, claimEpic)
 	}
 
-	if _, err = s.CloseEpic(ctx, claimEpic, "shipped", "", CloserOwner, closeAt()); err != nil {
+	if _, err = s.CloseEpic(ctx, claimEpic, "shipped", "", CloserOwner, Maker{By: MakerOwner}, closeAt()); err != nil {
 		t.Fatalf("CloseEpic: %v", err)
 	}
 	if got, err := s.BuildEpics(ctx); err != nil || len(got) != 0 {
@@ -212,10 +228,18 @@ func TestCloseEpicPlannerCloseRoutesTheReportAndOwnerCloseRoutesNone(t *testing.
 	createParkedEpic(t, s, claimEpic)
 	createParkedEpic(t, s, owned)
 
-	if _, err := s.CloseEpic(ctx, claimEpic, "superseded", closeNext, CloserPlanner, closeAt()); err != nil {
+	if _, err := s.CloseEpic(
+		ctx,
+		claimEpic,
+		"superseded",
+		closeNext,
+		CloserPlanner,
+		Maker{By: MakerOwner},
+		closeAt(),
+	); err != nil {
 		t.Fatalf("planner CloseEpic: %v", err)
 	}
-	if _, err := s.CloseEpic(ctx, owned, "shipped", "", CloserOwner, closeAt()); err != nil {
+	if _, err := s.CloseEpic(ctx, owned, "shipped", "", CloserOwner, Maker{By: MakerOwner}, closeAt()); err != nil {
 		t.Fatalf("owner CloseEpic: %v", err)
 	}
 
@@ -268,7 +292,7 @@ func TestCloseEpicRefusesSupersededWithoutByAndWritesNothing(t *testing.T) {
 		{name: "unknown kind", kind: "dropped"},
 	}
 	for _, tc := range cases {
-		_, err := s.CloseEpic(ctx, claimEpic, tc.kind, "", CloserOwner, closeAt())
+		_, err := s.CloseEpic(ctx, claimEpic, tc.kind, "", CloserOwner, Maker{By: MakerOwner}, closeAt())
 		if _, ok := errors.AsType[RefusalError](err); !ok {
 			t.Errorf("%s: CloseEpic(%s, %q) = %v, want a RefusalError", tc.name, claimEpic, tc.kind, err)
 		}
@@ -279,6 +303,7 @@ func TestCloseEpicRefusesSupersededWithoutByAndWritesNothing(t *testing.T) {
 		"shipped",
 		"",
 		CloserOwner,
+		Maker{By: MakerOwner},
 		closeAt(),
 	); !errors.Is(
 		err,

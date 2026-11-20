@@ -29,7 +29,7 @@ func amendR1(t *testing.T, s *store.Store, item evidence.Item) store.EvidenceAme
 	t.Helper()
 	amended, err := s.AmendEvidence(context.Background(), runEpic, store.Amendment{
 		Requirement: "R1", Item: item, Reason: "the test moved",
-	}, runClock())
+	}, store.Maker{By: store.MakerOwner}, runClock())
 	if err != nil {
 		t.Fatalf("AmendEvidence: %v", err)
 	}

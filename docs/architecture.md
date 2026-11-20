@@ -53,7 +53,7 @@ flowchart LR
   epic -- "rows" --> store
   serve -- "reads events and sessions" --> store
   serve -- "reads panes" --> opts
-  serve -- "forwards control steps epics pools notices" --> sess
+  serve -- "forwards control steps epics contracts pools notices" --> sess
   page -- "Connect" --> serve
   app -- "Connect" --> serve
   cli -- "Connect" --> serve
@@ -152,13 +152,13 @@ The services split by where their data lives:
 
 - Read from the store: `orrery.v1.Sessions` and `orrery.v1.Events`. `Events` is the stream that clients resume from a cursor.
 - Served from tmux, local files or the daemon socket: `orrery.v1.Panes` (tmux and transcripts), `orrery.v1.Host`, `orrery.v1.Picker`, `orrery.v1.Presence` (input reports, sent to the daemon) and `orrery.v1.Push` (subscriptions in `push.json`).
-- Forwarded to `orreryd` on `sessions.sock`: `orrery.v1.Control`, `orrery.v1.Steps`, `orrery.v1.Epics`, `orrery.v1.Evidence`, `orrery.v1.Pools` and `orrery.v1.Notices`. [`controlServer.Say`](../internal/server/control.go) is one example. It refuses a step id and forwards the call with a timeout.
+- Forwarded to `orreryd` on `sessions.sock`: `orrery.v1.Control`, `orrery.v1.Steps`, `orrery.v1.Epics`, `orrery.v1.Evidence`, `orrery.v1.Pools` and `orrery.v1.Notices`. `orrery.v1.Contracts` is split: its `List` and `Get` read the store, and its `Accept`, `SetAside` and `Reopen` are forwarded. [`controlServer.Say`](../internal/server/control.go) is one example. It refuses a step id and forwards the call with a timeout.
 
 The schema is in [`orrery.v1`](../proto/orrery/v1/orrery.proto), with [`epics.proto`](../proto/orrery/v1/epics.proto) and [`notice.proto`](../proto/orrery/v1/notice.proto) beside it. The engine's own services, which `orreryd` serves on its private socket, are in [`proto/orrery/engine/v1`](../proto/orrery/engine/v1/engine.proto). `just generate` writes the Go clients to `internal/gen`, the TypeScript clients to `web/src/gen` and the Kotlin clients to the Android source tree. `just gen-diff` fails when any of them drifts from the schema.
 
 ## Stream reconnect
 
-[`Events.Watch`](../internal/server/events.go) is the stream that tracks changes across the tree. Each stored change has a `seq`, and a client asks for everything after the last `seq` it wrote. [`eventsServer.watch`](../internal/server/events.go) reads up to 100 events per store read, sends each one, and polls for new events every 250 ms. After a read that is not full, it also sends an `EngineText` for each open block whose text changed since the stream last sent it. Each send has a 10-second deadline, and a stream that cannot send ends alone.
+[`Events.Watch`](../internal/server/events.go) is the stream that tracks changes across the tree. Each stored change has a `seq`, and a client asks for everything after the last `seq` it wrote. [`eventsServer.watch`](../internal/server/events.go) reads up to 100 events per store read, sends each one, and then waits until orreryd's change feed reports a change before it reads again. Each stream subscribes before its first read, and all streams of a `serve` share one `Changes.Watch` call. When that call ends or fails, it is reopened after one second, and each stream reads once more from its own cursor. After a read that is not full, it also sends an `EngineText` for each open block whose text changed since the stream last sent it. Each send has a 10-second deadline, and a stream that cannot send ends alone.
 
 Each store read is checked against the cursor before its events are sent. [`checkCursor`](../internal/server/events.go) answers `out_of_range` when the cursor is past the newest event, or when it is older than the log, which pruning makes possible after 14 days. When `serve` shuts down, each stream ends with `unavailable` and the message `serve is shutting down`, so a client knows to reconnect with its last `seq`.
 
@@ -218,7 +218,7 @@ A gate is a named check. [`gates.Resolve`](../internal/gates/resolve.go) finds t
 
 A pool is a named set of members that a machine offers to the projects on it. [`pools.Discover`](../internal/pools/discover.go) reads the machine file `pools.toml` and the project file `.orrery/project.toml`, and [`pools.Merge`](../internal/pools/config.go) joins them. Merge refuses a pool or a member that two files define. Each pool has a cap, the most members one project may hold at once, and commands that wake, check and admit each member.
 
-[`grants.Broker`](../internal/grants/broker.go) runs in `orreryd`. Its `Acquire` call queues a request for every pool the request needs, and it streams the request's place in line until the request is granted. The grant lasts while that response stream stays open. The broker polls each member's status command, and it stores its live grants and owner holds through the store, so [`Broker.Restore`](../internal/grants/broker.go) can bring them back after a restart. A hold on a member keeps it out of grants, and a hold on a granted member stops that grant. `orrery run`, `orrery gate`, `orrery run status` and `orrery hold` are the command-line forms. A granted command sees its members in `ORRERY_POOL_<NAME>`.
+[`grants.Broker`](../internal/grants/broker.go) runs in `orreryd`. Its `Acquire` call queues a request for every pool the request needs, and it streams the request's place in line until the request is granted. The grant lasts while that response stream stays open. A member's status command runs while a request waits on its pool, and the broker stores its live grants and owner holds through the store, so [`Broker.Restore`](../internal/grants/broker.go) can bring them back after a restart. A hold on a member keeps it out of grants, and a hold on a granted member stops that grant. `orrery run`, `orrery gate`, `orrery run status` and `orrery hold` are the command-line forms. A granted command sees its members in `ORRERY_POOL_<NAME>`.
 
 ## Notices and push
 
@@ -278,6 +278,7 @@ Every table lives in `orrery.db`. The migrations under `internal/store/migration
 | | `epic_gates`, `epic_gate_lists` | The gates an epic defines, with their argv, limit, needs and agent, and the done and review lists that name them. |
 | | `epic_release_runs`, `epic_release_slots` | Each release run's steps, and the repository's release slot. |
 | Evidence | `evidence_runs`, `evidence_artifacts` | Each evidence run and the artifacts it kept. The bytes are in blob files. |
+| Contracts | `contracts`, `contract_versions`, `contract_states` | The contract record: each contract, its saved versions and its state changes. Rows only append. |
 
 ### tmux options
 

@@ -19,11 +19,12 @@ const releaseKind = "release"
 // judgePart is the part of a release node run's work the judge ran under.
 const judgePart = "judge"
 
-// flowReviewKind and flowClosureKind are the kinds of the review and closure nodes, whose node runs label their steps
-// with their path. A release node run labels its release integrator's steps with its path too.
+// flowReviewKind, flowClosureKind and flowRerunKind are the kinds of the review, closure and rerun nodes, whose node
+// runs label their steps with their path. A release node run labels its release integrator's steps with its path too.
 const (
 	flowReviewKind  = "review"
 	flowClosureKind = "closure"
+	flowRerunKind   = "rerun"
 )
 
 // EpicFlow is one epic's rows as the interpreter decides from them: the epic as Epic returns it, its review as
@@ -31,6 +32,8 @@ const (
 // runs as EvidenceRuns returns them, less the runs whose kept spec is no longer current with the item now stored under
 // their Item, its steps, its release runs as ReleaseRuns returns them, the holder of its repository's release slot, how
 // many of its triggers and of its amend_evidence actions are pending, and how many of its planner actions are pending.
+// GapTurns, Unresolvable and Reruns hold its gap turns, its unresolvable gaps and its review reruns as GapTurns,
+// UnresolvableGaps and ReviewReruns return them.
 // Steps holds the steps its agent and release node runs ran under as Step returns them, for the runs that have them,
 // then every step labeled with the epic and the path of one of its review, closure or release node runs, in the order
 // of the runs.
@@ -48,6 +51,9 @@ type EpicFlow struct {
 	// action of the epic that is still pending, those among it.
 	AmendActions int
 	Actions      int
+	GapTurns     []GapTurn
+	Unresolvable []GapDeclaration
+	Reruns       []ReviewRerun
 }
 
 // EpicFlow returns the stored epic with id with its review, node runs, checks, evidence runs, steps, release runs,
@@ -120,10 +126,35 @@ func readEpicFlow(ctx context.Context, queries *sqlcgen.Queries, id string) (Epi
 	if err != nil {
 		return EpicFlow{}, fmt.Errorf("count pending planner actions of epic %s: %w", id, err)
 	}
+	gapTurns, unresolvable, reruns, err := readGapRecords(ctx, queries, id)
+	if err != nil {
+		return EpicFlow{}, err
+	}
 	return EpicFlow{
 		Epic: epic, Review: review, Runs: runs, Checks: checks, Evidence: currentRuns(stored, epic), Steps: steps,
 		Releases: releases, Slot: slot, Pending: int(pending), AmendActions: int(amends), Actions: int(actions),
+		GapTurns: gapTurns, Unresolvable: unresolvable, Reruns: reruns,
 	}, nil
+}
+
+// readGapRecords returns the gap turns, unresolvable gaps and review reruns of epic as queries read them, in one
+// read: the three helpers GapTurns, UnresolvableGaps and ReviewReruns read through.
+func readGapRecords(
+	ctx context.Context, queries *sqlcgen.Queries, id string,
+) ([]GapTurn, []GapDeclaration, []ReviewRerun, error) {
+	gapTurns, err := readGapTurns(ctx, queries, id)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	unresolvable, err := readUnresolvable(ctx, queries, id)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	reruns, err := readReviewReruns(ctx, queries, id)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return gapTurns, unresolvable, reruns, nil
 }
 
 // readEvidenceRuns returns the evidence runs of epic as queries read them, ordered by created, then id, each with its
@@ -203,13 +234,15 @@ func workParts(kind string, releaseSteps int) []string {
 }
 
 // readLabeledSteps returns, in the order of runs, the steps labeled with epic and the path of each review, closure or
-// release node run, each run's steps ordered by start time then id. They are read in one search of the steps by their
-// labels, and none is read when runs has no such run. Node run paths are unique to an epic, so each step is read once.
-// A release run's release steps and judge carry no path label, so only its release integrator's steps are read here.
+// release, closure or rerun node run, each run's steps ordered by start time then id. They are read in one search of
+// the steps by their labels, and none is read when runs has no such run. Node run paths are unique to an epic, so each
+// step is read once. A release run's release steps and judge carry no path label, so only its release integrator's
+// steps are read here.
 func readLabeledSteps(ctx context.Context, queries *sqlcgen.Queries, epic string, runs []NodeRun) ([]StepRow, error) {
 	var paths []string
 	for _, run := range runs {
-		if run.Kind == flowReviewKind || run.Kind == flowClosureKind || run.Kind == releaseKind {
+		if run.Kind == flowReviewKind || run.Kind == flowClosureKind || run.Kind == flowRerunKind ||
+			run.Kind == releaseKind {
 			paths = append(paths, run.Path)
 		}
 	}
@@ -218,7 +251,7 @@ func readLabeledSteps(ctx context.Context, queries *sqlcgen.Queries, epic string
 	}
 	rows, err := queries.ListEpicTaskSteps(ctx, sqlcgen.ListEpicTaskStepsParams{Epic: epic, Tasks: paths})
 	if err != nil {
-		return nil, fmt.Errorf("list steps of the review, closure and release runs of epic %s: %w", epic, err)
+		return nil, fmt.Errorf("list steps of the review, closure, rerun and release runs of epic %s: %w", epic, err)
 	}
 	byPath := make(map[string][]sqlcgen.Step, len(paths))
 	for _, row := range rows {

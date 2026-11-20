@@ -64,6 +64,9 @@ type epicNotice struct {
 // parkedPrefix heads the reason line of a park's notice body.
 const parkedPrefix = "parked: "
 
+// defaultTick is how often a Runner passes when its Config names no positive tick.
+const defaultTick = 5 * time.Second
+
 // AttentionStore is the store an Attention reads what each epic needs through, the notice rows it has stored, and
 // marks its turns and tells told in. *store.Store satisfies it.
 type AttentionStore interface {

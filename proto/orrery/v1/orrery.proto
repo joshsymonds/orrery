@@ -1161,7 +1161,7 @@ message PendingEvent {
   // The event's id, which names its delivery mark.
   string id = 1;
 
-  // The event's kind: step_end, question, park, release or end.
+  // The event's kind: step_end, question, park, release, end, moved or action.
   string kind = 2;
 
   // The step the event is about, for a step_end.

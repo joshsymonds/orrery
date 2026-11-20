@@ -32,20 +32,20 @@ func newGateLimitTestFixture(t *testing.T, caller haikuCaller, sessions *stepLoo
 	}, time.Unix(1, 0)); err != nil {
 		t.Fatalf("add step row: %v", err)
 	}
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	sessions.writer = writer
 	f := &watchLoopFixture{
 		store:    s,
 		sessions: sessions,
 		clock:    &watchLoopClock{at: watchEpoch()},
-		ticks:    make(chan time.Time),
+		timers:   &stepDeadlineTimers{},
 		done:     make(chan struct{}),
 	}
 	f.run = newStepRun(stepRunConfig{
 		id: stepLoopID, schema: stepLoopSchema, doneValue: stepLoopDone, sessions: sessions, store: s, writer: writer,
 		logger: slog.New(slog.DiscardHandler), now: f.clock.now, modelLimit: watchLoopModelLimit, haiku: caller,
-		ticks: f.ticks, agentGate: gate,
+		newTimer: f.timers.newTimer, agentGate: gate,
 	})
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
@@ -62,7 +62,7 @@ func gateLimitTestGate() *gates.Gate {
 }
 
 // gateLimitTestWantRunning asserts the run has not ended. The run serves a call only while it runs, after it has
-// handled every tick handed to it before.
+// handled every check its deadline fired before.
 func gateLimitTestWantRunning(t *testing.T, f *watchLoopFixture) {
 	t.Helper()
 	if err := f.run.do(t.Context(), func(context.Context) error { return nil }); err != nil {

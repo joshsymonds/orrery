@@ -83,4 +83,15 @@ public interface EpicsClientInterface {
    *  closer.
    */
   public suspend fun close(request: EpicsCloseRequest, headers: Headers = emptyMap()): ResponseMessage<EpicsCloseResponse>
+
+  /**
+   *  Move moves the steering of the named orreryd epic to the session the request names, as the owner.
+   */
+  public suspend fun move(request: EpicsMoveRequest, headers: Headers = emptyMap()): ResponseMessage<EpicsMoveResponse>
+
+  /**
+   *  Continue starts a steering session for the named orreryd epic, moves its steering to that session as the owner, and
+   *  answers the session's id.
+   */
+  public suspend fun `continue`(request: EpicsContinueRequest, headers: Headers = emptyMap()): ResponseMessage<EpicsContinueResponse>
 }

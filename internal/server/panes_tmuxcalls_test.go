@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/exectest"
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
@@ -36,7 +35,7 @@ type tmuxCallsFixture struct {
 }
 
 // newTmuxCallsFixture starts the three panes of tmuxCallsFixture on a fresh tmux server and returns them with a handler
-// that reads turn ends from a seeded store. Its conversations poll every hour, so a stream sends only its first delta.
+// that reads turn ends from a seeded store. Nothing changes after a stream opens, so a stream sends only its first delta.
 func newTmuxCallsFixture(t *testing.T) tmuxCallsFixture {
 	t.Helper()
 	tmux := newTmuxServer(t)
@@ -57,11 +56,10 @@ func newTmuxCallsFixture(t *testing.T) tmuxCallsFixture {
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	seedTurnEnds(t, path)
 	handler, err := server.New(server.Config{
-		Logins:           []string{allowedLogin},
-		Tmux:             tmux,
-		Push:             newPushStore(t),
-		Sessions:         store.NewReader(path),
-		ConversationPoll: time.Hour,
+		Logins:   []string{allowedLogin},
+		Tmux:     tmux,
+		Push:     newPushStore(t),
+		Sessions: store.NewReader(path),
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)

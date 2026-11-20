@@ -4,6 +4,7 @@ import (
 	"context"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
@@ -213,8 +214,8 @@ func TestMetAtBaseQuestionEndSetsPhaseAndStaysParked(t *testing.T) {
 		}
 	}
 	want := "epic " + claimEpic + " is parked for good: " + metAtBaseParkReason
-	requireRefusal(t, s.RetryEpic(ctx, claimEpic), want)
-	requireRefusal(t, s.RetryNode(ctx, claimEpic, "red"), want)
+	requireRefusal(t, s.RetryEpic(ctx, claimEpic, Maker{By: MakerOwner}, time.Unix(1700000000, 0)), want)
+	requireRefusal(t, s.RetryNode(ctx, claimEpic, "red", Maker{By: MakerOwner}, time.Unix(1700000000, 0)), want)
 }
 
 // TestMetAtBaseQuestionRetryEpicAndRetryNodeAreAcceptedAndRerunTheRun checks that RetryEpic and RetryNode on an epic
@@ -223,8 +224,12 @@ func TestMetAtBaseQuestionEndSetsPhaseAndStaysParked(t *testing.T) {
 func TestMetAtBaseQuestionRetryEpicAndRetryNodeAreAcceptedAndRerunTheRun(t *testing.T) {
 	t.Parallel()
 	retries := map[string]func(s *Store) error{
-		"RetryEpic": func(s *Store) error { return s.RetryEpic(context.Background(), claimEpic) },
-		"RetryNode": func(s *Store) error { return s.RetryNode(context.Background(), claimEpic, "red") },
+		"RetryEpic": func(s *Store) error {
+			return s.RetryEpic(context.Background(), claimEpic, Maker{By: MakerOwner}, time.Unix(1700000000, 0))
+		},
+		"RetryNode": func(s *Store) error {
+			return s.RetryNode(context.Background(), claimEpic, "red", Maker{By: MakerOwner}, time.Unix(1700000000, 0))
+		},
 	}
 	for name, retry := range retries {
 		t.Run(name, func(t *testing.T) {

@@ -19,7 +19,9 @@ android {
         minSdk = 34
         targetSdk = 36
         versionCode = 1
-        versionName = "0.1.0"
+        // The version Settings shows, given as `-Porrery.version=` (`just android-install` passes the newest tag). Unset,
+        // it is dev.
+        versionName = providers.gradleProperty("orrery.version").orElse("dev").get().trim()
         // The server address a fresh install starts with, given at build time so no address lives in the source:
         // `-Porrery.defaultServer=https://host:8490` (`just android-install` passes $ORRERY_DEFAULT_SERVER). Unset,
         // it is empty and the app asks for the server.

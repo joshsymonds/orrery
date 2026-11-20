@@ -434,7 +434,11 @@ func TestRetryNodeRefusesTheReleaseNode(t *testing.T) {
 	s, raw := stoppedRelease(t, releasedStep(1, true))
 	before := releaseRowsOf(t, raw)
 	want := "node release of epic " + resumeEpic + " is the release; resume it with orrery epic release " + resumeEpic
-	requireRefusalError(t, s.RetryNode(ctx, resumeEpic, "release"), want)
+	requireRefusalError(
+		t,
+		s.RetryNode(ctx, resumeEpic, "release", store.Maker{By: store.MakerOwner}, time.Unix(1700000000, 0)),
+		want,
+	)
 	if got := releaseRowsOf(t, raw); got != before {
 		t.Errorf("rows after refused RetryNode of %s = %s, want %s", resumeEpic, got, before)
 	}
@@ -498,7 +502,7 @@ func TestStopEpicReleaseFreesTheSlotAndReturnsTheOpenStep(t *testing.T) {
 				}
 			}
 
-			step, err := s.StopEpic(ctx, resumeEpic)
+			step, err := s.StopEpic(ctx, resumeEpic, store.Maker{By: store.MakerOwner}, time.Unix(1700000000, 0))
 			if err != nil {
 				t.Fatalf("StopEpic: %v", err)
 			}
@@ -535,7 +539,7 @@ func TestStopEpicReleaseRefusesAnEpicThatHoldsNoSlot(t *testing.T) {
 	}
 	before := releaseRowsOf(t, raw)
 
-	_, err := s.StopEpic(ctx, resumeOther)
+	_, err := s.StopEpic(ctx, resumeOther, store.Maker{By: store.MakerOwner}, time.Unix(1700000000, 0))
 	requireRefusalError(t, err, "epic "+resumeOther+" has no running turn")
 	if got := releaseRowsOf(t, raw); got != before {
 		t.Errorf("rows after refused StopEpic = %s, want %s", got, before)

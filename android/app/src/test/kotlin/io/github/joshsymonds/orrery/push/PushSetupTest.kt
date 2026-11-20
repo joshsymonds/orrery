@@ -11,6 +11,7 @@ import androidx.activity.ComponentActivity
 import androidx.test.core.app.ApplicationProvider
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -128,5 +129,25 @@ class PushSetupTest {
         pushSetup(activity).start()
 
         assertTrue(registerBroadcasts().isEmpty())
+    }
+
+    @Test
+    fun startRecordsNoDistributorWhenNoneAnswers() {
+        val activity = createdActivity()
+
+        pushSetup(activity).start()
+
+        assertTrue(PushPreferences(application).distributorMissing)
+    }
+
+    @Test
+    fun startClearsRecordedNoDistributorWhenOneAnswers() {
+        PushPreferences(application).distributorMissing = true
+        installFakeDistributor()
+        val activity = createdActivity()
+
+        pushSetup(activity).start()
+
+        assertFalse(PushPreferences(application).distributorMissing)
     }
 }

@@ -257,15 +257,17 @@ func TestConcludeNamesTheFindingsClosedByDecision(t *testing.T) {
 			"a finding closed by decision is no gap, and the clean ending names it",
 			node,
 			concludeRows(clean),
-			concludeEnd(phaseClean, "epic "+concludeEpicID+" ended clean at "+concludeBase+
-				"\nClosed by decision:\n- "+webCatalogFinding+" in round 2"),
+			concludeClean("epic " + concludeEpicID + " ended clean at " + concludeBase +
+				"\nClosed by decision:\n- " + webCatalogFinding + " in round 2"),
 		},
 		{
 			"an ending with gaps names the finding closed by decision after its gaps",
 			node,
-			concludeRows(gapped),
-			concludeEnd(phaseEndedWithGaps, "Ended with 1 gap:\n- security-1: open after 2 rounds"+
-				"\nClosed by decision:\n- "+webCatalogFinding+" in round 2"),
+			declare(concludeRows(gapped), "open:security-1"),
+			gapsEnd("Ended with 1 gap:\n- security-1: open after 2 rounds"+
+				"\nClosed by decision:\n- "+webCatalogFinding+" in round 2",
+				correctFor([]string{"security-1: open after 2 rounds (planner: the planner cannot resolve it)"},
+					"open:security-1")),
 		},
 	})
 }

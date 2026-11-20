@@ -363,10 +363,11 @@ android-test:
 
 # Build the debug APK and install it on the connected device. A fresh install
 # starts with $ORRERY_DEFAULT_SERVER as its server address (an install that
-# saved one in settings keeps it); unset, the app asks for the server.
+# saved one in settings keeps it); unset, the app asks for the server. The
+# build names itself by the newest tag, which Settings shows as the version.
 android-install:
     nix develop .#android -c bash -ceu '\
-        gradle -p android assembleDebug -Porrery.defaultServer="${ORRERY_DEFAULT_SERVER:-}"; \
+        gradle -p android assembleDebug -Porrery.defaultServer="${ORRERY_DEFAULT_SERVER:-}" -Porrery.version="$(git describe --tags --abbrev=0)"; \
         adb install -r android/app/build/outputs/apk/debug/app-debug.apk'
 
 # Regenerate the Orrery Mono subsets (Regular, Bold, Italic) of Maple Mono NF

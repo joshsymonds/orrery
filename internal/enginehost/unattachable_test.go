@@ -90,7 +90,7 @@ func TestReconcileStopsUnattachableHolderThenDrainsIt(t *testing.T) {
 	stallNextPrompt(t, dir)
 	spy := &textSpy{inner: rig.store}
 	ordered := &runningAtStore{t: t, inner: spy, pids: pids}
-	writer := NewWriter(WriterConfig{Applier: ordered, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: ordered})
 	startRun(t, writer)
 	sink := &fakeSink{}
 	restarted := newStateManager(t, rig.store, writer, sink, fakeSystemdRunPath(t), rig.root, nil)
