@@ -21,11 +21,12 @@ Epic orrery-1a2b3c4/planner-runner (Plan the runner) moved to session B, by the 
 </orrery-event>`
 }
 
-// requireMovedTakerBlock fails the test unless got is the moved event with id event, sent to session id, whose body is the
+// requireMovedTakerBlock fails the test unless got is the moved event with id event, sent to the taker B, whose body is the
 // steering prompt of the runner epic: its instruction first, then its contract, then the Log: line that the decisions
 // follow.
-func requireMovedTakerBlock(t *testing.T, got enginehost.DeliverRequest, id, event string) {
+func requireMovedTakerBlock(t *testing.T, got enginehost.DeliverRequest, event string) {
 	t.Helper()
+	const id = "B"
 	prefix := `<orrery-event kind="moved" id="` + event + `">` + "\n" + movedSteeringInstruction +
 		"\nEpic: " + runnerEpicID + "\nTitle: Plan the runner\n"
 	contractEnd := "\nRelease then: release it\nChecks: just check\nLog:\n"
@@ -63,7 +64,7 @@ func TestMovedEventsOneEachSideThenNoneOnLaterPasses(t *testing.T) {
 	if got := deliver.delivered[0]; got.ID != "A" || got.PromptID != event || got.Text != movedLeftBlock(event) {
 		t.Fatalf("left delivery = %+v, want the moved event naming B and the owner", got)
 	}
-	requireMovedTakerBlock(t, deliver.delivered[1], "B", event)
+	requireMovedTakerBlock(t, deliver.delivered[1], event)
 
 	passEpics(ctx, t, pass)
 	if len(deliver.delivered) != 2 {
@@ -98,7 +99,7 @@ func TestMovedEventsOpenQuestionGoesToTakerNotAgain(t *testing.T) {
 	if got := deliver.delivered[1]; got.ID != "A" || got.PromptID != event || got.Text != movedLeftBlock(event) {
 		t.Fatalf("second delivery = %+v, want the moved event to A", got)
 	}
-	requireMovedTakerBlock(t, deliver.delivered[2], "B", event)
+	requireMovedTakerBlock(t, deliver.delivered[2], event)
 	want := enginehost.DeliverRequest{ID: "B", Text: callerEpicQuestionBlock, PromptID: callerEpicQuestionEvent}
 	if !reflect.DeepEqual(deliver.delivered[3], want) {
 		t.Fatalf("fourth delivery = %+v, want the question to B only, %+v", deliver.delivered[3], want)
@@ -181,7 +182,7 @@ text: kick text
 		after[0].Text != movedLeftBlock(store.EpicActionEvent(runnerEpicID, action.Seq)) {
 		t.Fatalf("delivered after the move = %+v, want the moved event to A and the moved event to B only", after)
 	}
-	requireMovedTakerBlock(t, after[1], "B", store.EpicActionEvent(runnerEpicID, action.Seq))
+	requireMovedTakerBlock(t, after[1], store.EpicActionEvent(runnerEpicID, action.Seq))
 }
 
 func TestOwnerActionEventNoteTextCutToSixHundredRunes(t *testing.T) {
