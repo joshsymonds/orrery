@@ -11,7 +11,6 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
-import androidx.lifecycle.LifecycleRegistry
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Quiescence
@@ -96,12 +95,6 @@ class PaneListNoticesTest {
                 )
             }
         }
-    }
-
-    /** A lifecycle the test moves by hand, as the activity's would move. */
-    private class HandLifecycleOwner : LifecycleOwner {
-        private val registry = LifecycleRegistry(this)
-        override val lifecycle: LifecycleRegistry get() = registry
     }
 
     private fun countNodes(matcher: SemanticsMatcher): Int =

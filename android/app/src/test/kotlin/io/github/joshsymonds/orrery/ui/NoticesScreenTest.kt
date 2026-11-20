@@ -11,7 +11,6 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
-import androidx.lifecycle.LifecycleRegistry
 import com.connectrpc.Code
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.NoticeRow
@@ -170,12 +169,6 @@ class NoticesScreenTest {
                 )
             }
         }
-    }
-
-    /** A lifecycle the test moves by hand, as the activity's would move. */
-    private class HandLifecycleOwner : LifecycleOwner {
-        private val registry = LifecycleRegistry(this)
-        override val lifecycle: LifecycleRegistry get() = registry
     }
 
     private fun countNodes(matcher: SemanticsMatcher): Int =
