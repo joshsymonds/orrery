@@ -53,10 +53,11 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 .side-note.unread { color: var(--o-role-bad); }
 .reply { min-width: 0; }
 .pin-reply { min-width: 0; }
-/* The notice stack sits at the top right of .panes, the reading area, under the title row and never over it. The title
-   row's controls set its height, which its padding and hairline add to, and the stack starts a gap below that. */
+/* The notice stack sits at the right of .panes, the reading area, directly under the page's title row, strip included,
+   and never over it. NoticeStack measures that row and sets the top; this top is the fallback when no row is measured.
+   margin-top is the gap below the row. */
 .notices {
-  position: absolute; top: calc(var(--o-space-24) + var(--o-size-control-desk) + var(--o-size-hairline) + var(--o-space-8)); right: var(--o-space-16); z-index: var(--o-z-notices);
+  position: absolute; top: 0; margin-top: var(--o-space-8); right: var(--o-space-16); z-index: var(--o-z-notices);
   display: grid; gap: var(--o-space-4); width: min(52ch, calc(100% - var(--o-space-32)));
 }
 /* A stack row is a notice in two lines: its lead, its directory and words, and its age; then its body's first line and its
@@ -914,8 +915,7 @@ button.subj:hover { background: var(--o-surface-raised); }
   .subj { flex-wrap: wrap; min-height: var(--o-size-control-touch); }
   .subj .st { white-space: normal; }
   .page-note { padding: var(--o-space-4) 0; }
-  /* On a phone the title row is one control tall, with its own bottom padding, so the stack starts below that. */
-  .notices { top: calc(var(--o-space-8) + var(--o-size-control-touch) + var(--o-size-hairline) + var(--o-space-8)); right: var(--o-space-8); width: calc(100% - var(--o-space-16)); }
+  .notices { right: var(--o-space-8); width: calc(100% - var(--o-space-16)); }
   /* The head sticks to the top of its column while the page scrolls under it, so the folded line stays in view. */
   .convo-head { position: sticky; top: 0; z-index: var(--o-z-sticky); background: var(--o-surface-page); }
   .convo-head > .title-row .crumbs { display: grid; flex: 1 1 0; grid-template-columns: minmax(0, 1fr); }
@@ -1186,7 +1186,7 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 .worker-session { display: flex; flex-direction: column; height: 100%; min-width: 0; min-height: 0; }
 .worker-session > .reader { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 
-/* On a phone, a button, input or select takes the touch height. Controls inside a line keep their own 24 (.back, .notice-dismiss, the crumbs, the folds and the other in-line buttons): their class selectors outrank this element rule. */
+/* On a phone, a button, input or select takes the touch height. Controls inside a line keep their own 24 (.back, the crumbs, the folds and the other in-line buttons): their class selectors outrank this element rule. */
 @media (width < 760px) {
   button, input, select { min-height: var(--o-size-control-touch); }
 }

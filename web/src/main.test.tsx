@@ -18,6 +18,7 @@ const watchPath = "/orrery.v1.Events/Watch";
 const epicsListPath = "/orrery.v1.Epics/List";
 const epicsGetPath = "/orrery.v1.Epics/Get";
 const presencePath = "/orrery.v1.Presence/Report";
+const noticesListPath = "/orrery.v1.Notices/List";
 const noticesWatchPath = "/orrery.v1.Notices/Watch";
 const hostStatusPath = "/orrery.v1.Host/Status";
 const contractsListPath = "/orrery.v1.Contracts/List";
@@ -861,6 +862,7 @@ test("the page calls only the list, get and watch paths it reads", (t) =>
           epicsListPath,
           "/orrery.v1.Epics/History",
           hostStatusPath,
+          noticesListPath,
           noticesWatchPath,
           panesPath,
           sessionsPath,

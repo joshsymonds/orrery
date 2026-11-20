@@ -1,11 +1,10 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { test, type TestContext } from "node:test";
-import { fileURLToPath } from "node:url";
 import v8 from "node:v8";
 import vm from "node:vm";
 
 import { create } from "@bufbuild/protobuf";
+import type { JSX } from "preact";
 import { render } from "preact";
 import { act } from "preact/test-utils";
 
@@ -18,7 +17,7 @@ import {
   type NoticesWatchResponse,
   NoticesWatchResponseSchema,
 } from "./gen/orrery/v1/notice_pb";
-import { applyNotice, Notice, NoticeBanner, noticeLifetimeMillis, watchNotices } from "./notices";
+import { applyNotice, Notice, NoticeStack, noticeLifetimeMillis, watchNotices } from "./notices";
 import type { NoticeAct, NoticeHead } from "./noticewords";
 import { mockTimers } from "./testclock";
 import { installTestDom, removeTestDom } from "./testdom";
@@ -300,67 +299,79 @@ test("aborting while a failed stream waits to reopen stops the reopen", async (t
   assert.equal(lists.length, 1, "onChange ran after the abort");
 });
 
-test("a banner shows each notice's title and body as one button, and a click opens that notice", async (t) => {
-  const window = installTestDom();
-  const container = document.createElement("div");
-  document.body.append(container);
-  const opened: InAppNotice[] = [];
-  try {
-    await act(() => {
-      render(
-        <NoticeBanner
-          notices={[notice("%1", "one"), notice("%2", "two")]}
-          onOpen={(item) => opened.push(item)}
-          onDismiss={() => undefined}
-        />,
-        container,
-      );
-    });
-    const texts = buttonTexts(container);
-    assert.equal(texts.length, 2, "a button per notice");
-    assert.ok(texts[0].includes("one") && texts[0].includes("one body"), "the first button lacks its title or body");
-    assert.ok(texts[1].includes("two") && texts[1].includes("two body"), "the second button lacks its title or body");
-
-    await act(() => {
-      clickButton(container, 1);
-    });
-    assert.equal(opened.length, 1, "the click did not open exactly one notice");
-    assert.equal(opened[0].key?.pane, "%2", "the click opened a different notice");
-  } finally {
-    await act(() => {
-      render(null, container);
-    });
-    container.remove();
-    await removeTestDom(window);
-  }
-});
-
-// A row's open button is its .notice; its × is a separate button, so the open buttons are the ones read here.
-function buttonTexts(container: HTMLElement): string[] {
-  return Array.from(container.querySelectorAll("button.notice"), (button) => button.textContent ?? "");
+// stateNotice is the notice under pane, titled title, in state. Its controls follow from the state.
+function stateNotice(pane: string, title: string, state: string): InAppNotice {
+  return create(InAppNoticeSchema, { key: paneKey(pane), state, title, body: `${title} body` });
 }
 
-function clickButton(container: HTMLElement, index: number): void {
-  const button = container.querySelectorAll("button.notice")[index];
-  assert.ok(button !== undefined, `no button at index ${index}`);
+// limitNotice is a usage limit's notice, which has no open control.
+function limitNotice(title: string): InAppNotice {
+  return create(InAppNoticeSchema, {
+    key: create(NoticeKeySchema, { limit: "five-hour@1800000000" }),
+    state: "limited",
+    title,
+    body: `${title} body`,
+  });
+}
+
+// StackHandlers are the calls a stack makes that a test records.
+interface StackHandlers {
+  onOpen?: (notice: InAppNotice) => void;
+  onRead?: (notice: InAppNotice) => void;
+  onMore?: () => void;
+}
+
+// stackOf is a NoticeStack of notices. Each notice's lead is a bell and its words are its title, and every age is "2m".
+function stackOf(notices: InAppNotice[], handlers: StackHandlers = {}): JSX.Element {
+  return (
+    <NoticeStack
+      notices={notices}
+      head={(item) => ({ lead: { kind: "icon", icon: "bell" }, dir: "", what: item.title })}
+      age={() => "2m"}
+      onOpen={handlers.onOpen ?? (() => undefined)}
+      onRead={handlers.onRead ?? (() => undefined)}
+      onMore={handlers.onMore ?? (() => undefined)}
+    />
+  );
+}
+
+// drawStack renders the stack of notices into container, in the current act.
+function drawStack(container: HTMLElement, notices: InAppNotice[], handlers: StackHandlers = {}): void {
+  render(stackOf(notices, handlers), container);
+}
+
+// rowsOf reads the rows the stack draws, in order.
+function rowsOf(container: HTMLElement): HTMLElement[] {
+  return [...container.querySelectorAll<HTMLElement>(".notices > .notice")];
+}
+
+// rowTitles reads the title of each row the stack draws, in order.
+function rowTitles(container: HTMLElement): string[] {
+  return rowsOf(container).map((row) => row.querySelector(".t")?.textContent ?? "");
+}
+
+// moreLink is the "N more in Notices" link of the stack, or null when it draws none.
+function moreLink(container: HTMLElement): HTMLButtonElement | null {
+  return container.querySelector<HTMLButtonElement>(".notices > button.notices-more");
+}
+
+// clickRowAt clicks the row's control, its Answer or Open, or its quiet Mark read. The row must be drawn.
+function clickRowAt(container: HTMLElement, index: number, label: "primary" | "Mark read"): void {
+  const row = rowsOf(container)[index];
+  assert.ok(row, `no row at index ${index}`);
+  const button =
+    label === "Mark read"
+      ? [...row.querySelectorAll("button")].find((item) => item.textContent === "Mark read")
+      : row.querySelector<HTMLButtonElement>(".acts > button:not(.quiet)");
+  assert.ok(button, `no ${label} control on row ${index}`);
   button.dispatchEvent(new Event("click", { bubbles: true }));
 }
 
-interface BannerHandlers {
-  onOpen?: (notice: InAppNotice) => void;
-  onDismiss?: (notice: InAppNotice) => void;
-}
-
-// drawBanner renders the banner of notices into container, in the current act.
-function drawBanner(container: HTMLElement, notices: InAppNotice[], handlers: BannerHandlers = {}): void {
-  render(
-    <NoticeBanner
-      notices={notices}
-      onOpen={handlers.onOpen ?? (() => undefined)}
-      onDismiss={handlers.onDismiss ?? (() => undefined)}
-    />,
-    container,
-  );
+// advance moves the mocked clock forward by ms and flushes the renders its timers cause.
+async function advance(t: TestContext, ms: number): Promise<void> {
+  await act(() => {
+    t.mock.timers.tick(ms);
+  });
 }
 
 // withContainer runs check in a fresh DOM, and removes the DOM when check ends.
@@ -379,107 +390,120 @@ async function withContainer(check: (container: HTMLElement) => Promise<void>): 
   }
 }
 
-// rowTitles reads the titles of the rows the banner draws, in order.
-function rowTitles(container: HTMLElement): string[] {
-  return [...container.querySelectorAll(".notice-row .notice-title")].map((element) => element.textContent ?? "");
-}
-
-// moreLine reads the "+n more" line the banner draws, or an empty string when it draws none.
-function moreLine(container: HTMLElement): string {
-  return container.querySelector(".notices-more")?.textContent ?? "";
-}
-
-// advance moves the mocked clock forward by ms and flushes the renders its timers cause.
-async function advance(t: TestContext, ms: number): Promise<void> {
-  await act(() => {
-    t.mock.timers.tick(ms);
-  });
-}
-
-test("a row holds its title and its body as separate elements, with a separator between them", async (t) => {
-  mockTimers(t, ["setTimeout"]);
-  await withContainer(async (container) => {
-    await act(() => {
-      drawBanner(container, [notice("%1", "one")]);
-    });
-    const open = container.querySelector(".notice-row > button.notice");
-    assert.ok(open, "the row has no open button");
-    assert.deepEqual(
-      [...open.children].map((child) => child.className),
-      ["notice-title", "notice-separator", "notice-body"],
-      "the title, the separator and the body are not three elements in that order",
-    );
-    assert.equal(open.querySelector(".notice-title")?.textContent, "one");
-    assert.equal(open.querySelector(".notice-body")?.textContent, "one body");
-  });
-});
-
-test("the banner draws at most three rows, then a +n more line for the rest", async (t) => {
+test("NoticeStack: the first three notices draw as rows in the order given, and the rest are counted in a link", async (t) => {
   mockTimers(t, ["setTimeout"]);
   await withContainer(async (container) => {
     const five = ["one", "two", "three", "four", "five"].map((title, index) => notice(`%${index + 1}`, title));
     await act(() => {
-      drawBanner(container, five);
+      drawStack(container, five);
     });
     assert.deepEqual(rowTitles(container), ["one", "two", "three"], "the rows are not the first three notices");
-    assert.equal(moreLine(container), "+2 more");
-
-    await act(() => {
-      drawBanner(container, five.slice(0, 3));
-    });
-    assert.equal(moreLine(container), "", "a line for the rest drawn with none left over");
+    assert.equal(moreLink(container)?.textContent, "2 more in Notices", "the rest are not counted in the link");
   });
 });
 
-test("a × drops its row at once and calls onDismiss with its notice, and the other rows stay", async (t) => {
+test("NoticeStack: the more link calls onMore, and a stack of three or fewer draws none", async (t) => {
   mockTimers(t, ["setTimeout"]);
-  const dismissed: InAppNotice[] = [];
+  let more = 0;
+  await withContainer(async (container) => {
+    const four = ["one", "two", "three", "four"].map((title, index) => notice(`%${index + 1}`, title));
+    await act(() => {
+      drawStack(container, four, { onMore: () => (more += 1) });
+    });
+    await act(() => {
+      moreLink(container)?.dispatchEvent(new Event("click", { bubbles: true }));
+    });
+    assert.equal(more, 1, "the more link did not call onMore once");
+    await act(() => {
+      drawStack(container, four.slice(0, 3));
+    });
+    assert.equal(moreLink(container), null, "a link is drawn with no notice left over");
+  });
+});
+
+test("NoticeStack: Answer and Open call onOpen with their notice", async (t) => {
+  mockTimers(t, ["setTimeout"]);
+  const opened: string[] = [];
+  await withContainer(async (container) => {
+    await act(() => {
+      drawStack(container, [stateNotice("%1", "one", "waiting"), notice("%2", "two")], {
+        onOpen: (item) => opened.push(item.title),
+      });
+    });
+    assert.deepEqual(
+      rowsOf(container).map((row) => row.querySelector(".acts > button:not(.quiet)")?.textContent),
+      ["Answer", "Open"],
+      "the rows do not carry Answer and Open",
+    );
+    await act(() => {
+      clickRowAt(container, 0, "primary");
+    });
+    await act(() => {
+      clickRowAt(container, 1, "primary");
+    });
+    assert.deepEqual(opened, ["one", "two"], "Answer or Open did not call onOpen with its notice");
+  });
+});
+
+test("NoticeStack: Mark read takes its row off at once, calls onRead with its notice, and opens nothing", async (t) => {
+  mockTimers(t, ["setTimeout"]);
+  const read: string[] = [];
   const opened: InAppNotice[] = [];
   await withContainer(async (container) => {
     await act(() => {
-      drawBanner(container, [notice("%1", "one"), notice("%2", "two")], {
-        onDismiss: (item) => dismissed.push(item),
+      drawStack(container, [notice("%1", "one"), notice("%2", "two")], {
+        onRead: (item) => read.push(item.title),
         onOpen: (item) => opened.push(item),
       });
     });
-    const dismiss = container.querySelectorAll("button.notice-dismiss")[0];
-    assert.ok(dismiss, "the first row has no ×");
     await act(() => {
-      dismiss.dispatchEvent(new Event("click", { bubbles: true }));
+      clickRowAt(container, 0, "Mark read");
     });
-    assert.deepEqual(rowTitles(container), ["two"], "the × did not drop its row at once");
-    assert.deepEqual(
-      dismissed.map((item) => item.key?.pane),
-      ["%1"],
-      "onDismiss was not called once with the dismissed notice",
-    );
-    assert.deepEqual(opened, [], "the × opened its notice");
+    assert.deepEqual(rowTitles(container), ["two"], "Mark read did not take its row off at once");
+    assert.deepEqual(read, ["one"], "onRead was not called once with the notice");
+    assert.deepEqual(opened, [], "Mark read opened its notice");
   });
 });
 
-test("a row leaves the stack 8 seconds after it first shows, and nothing is told of it", async (t) => {
+test("NoticeStack: a limit notice has Mark read as its only control", async (t) => {
   mockTimers(t, ["setTimeout"]);
-  const dismissed: InAppNotice[] = [];
   await withContainer(async (container) => {
     await act(() => {
-      drawBanner(container, [notice("%1", "one")], { onDismiss: (item) => dismissed.push(item) });
+      drawStack(container, [limitNotice("limit reached")]);
+    });
+    assert.deepEqual(
+      [...rowsOf(container)[0].querySelectorAll("button")].map((button) => button.textContent),
+      ["Mark read"],
+      "a limit notice has an open control",
+    );
+  });
+});
+
+test("NoticeStack: a row leaves the stack 8 seconds after it first shows, and nothing is told of it", async (t) => {
+  mockTimers(t, ["setTimeout"]);
+  const read: InAppNotice[] = [];
+  const opened: InAppNotice[] = [];
+  await withContainer(async (container) => {
+    await act(() => {
+      drawStack(container, [notice("%1", "one")], { onRead: (item) => read.push(item), onOpen: (item) => opened.push(item) });
     });
     await advance(t, noticeLifetimeMillis - 1);
     assert.deepEqual(rowTitles(container), ["one"], "the row left before 8 seconds");
     await advance(t, 1);
     assert.deepEqual(rowTitles(container), [], "the row was still drawn at 8 seconds");
-    assert.deepEqual(dismissed, [], "onDismiss was called for the timed-out row");
+    assert.deepEqual(read, [], "onRead was called for the timed-out row");
+    assert.deepEqual(opened, [], "onOpen was called for the timed-out row");
   });
 });
 
-test("a fourth notice starts its own 8 seconds when it moves into the three rows", async (t) => {
+test("NoticeStack: a fourth notice starts its own 8 seconds when it moves into the three rows", async (t) => {
   mockTimers(t, ["setTimeout"]);
   await withContainer(async (container) => {
     const four = ["one", "two", "three", "four"].map((title, index) => notice(`%${index + 1}`, title));
     await act(() => {
-      drawBanner(container, four);
+      drawStack(container, four);
     });
-    assert.equal(moreLine(container), "+1 more");
+    assert.equal(moreLink(container)?.textContent, "1 more in Notices");
     await advance(t, noticeLifetimeMillis);
     assert.deepEqual(rowTitles(container), ["four"], "the fourth notice did not move into the rows");
     await advance(t, noticeLifetimeMillis - 1);
@@ -489,38 +513,36 @@ test("a fourth notice starts its own 8 seconds when it moves into the three rows
   });
 });
 
-test("a notice that leaves the list and is shown again under its key shows again", async (t) => {
+test("NoticeStack: a notice that leaves the list and is shown again under its key shows again", async (t) => {
   mockTimers(t, ["setTimeout"]);
   await withContainer(async (container) => {
     await act(() => {
-      drawBanner(container, [notice("%1", "one")], { onDismiss: () => undefined });
-    });
-    const dismiss = container.querySelector("button.notice-dismiss");
-    assert.ok(dismiss, "the row has no ×");
-    await act(() => {
-      dismiss.dispatchEvent(new Event("click", { bubbles: true }));
+      drawStack(container, [notice("%1", "one")]);
     });
     await act(() => {
-      drawBanner(container, [notice("%1", "one, changed")]);
-    });
-    assert.deepEqual(rowTitles(container), [], "the notice came back while still on the list after its ×");
-    await act(() => {
-      drawBanner(container, []);
+      clickRowAt(container, 0, "Mark read");
     });
     await act(() => {
-      drawBanner(container, [notice("%1", "one")]);
+      drawStack(container, [notice("%1", "one, changed")]);
+    });
+    assert.deepEqual(rowTitles(container), [], "the notice came back while still on the list after its Mark read");
+    await act(() => {
+      drawStack(container, []);
+    });
+    await act(() => {
+      drawStack(container, [notice("%1", "one")]);
     });
     assert.deepEqual(rowTitles(container), ["one"], "a notice shown again after it left the list did not show");
   });
 });
 
-test("unmounting clears the pending lifetime timer of each row", async (t) => {
+test("NoticeStack: unmounting clears the pending lifetime timer of each row", async (t) => {
   mockTimers(t, ["setTimeout"]);
   const scheduled = t.mock.method(globalThis, "setTimeout");
   const cleared = t.mock.method(globalThis, "clearTimeout");
   await withContainer(async (container) => {
     await act(() => {
-      drawBanner(container, [notice("%1", "one")]);
+      drawStack(container, [notice("%1", "one")]);
     });
     const lifetime = scheduled.mock.calls.find((call) => call.arguments[1] === noticeLifetimeMillis);
     assert.ok(lifetime, "a row's first draw schedules its lifetime timer");
@@ -529,8 +551,121 @@ test("unmounting clears the pending lifetime timer of each row", async (t) => {
     });
     assert.ok(
       cleared.mock.calls.some((call) => call.arguments[0] === lifetime.result),
-      "unmounting does not clear the lifetime timer, so the row's timer outlives the banner",
+      "unmounting does not clear the lifetime timer, so the row's timer outlives the stack",
     );
+  });
+});
+
+// placeRect makes the element report edges as its rectangle, so a placement reads the layout the test sets.
+function placeRect(element: Element, edges: { top: number; bottom: number; right: number }): void {
+  const rect = {
+    x: 0,
+    y: edges.top,
+    width: edges.right,
+    height: edges.bottom - edges.top,
+    top: edges.top,
+    bottom: edges.bottom,
+    left: 0,
+    right: edges.right,
+    toJSON: () => ({}),
+  };
+  Object.assign(element, { getBoundingClientRect: () => rect });
+}
+
+// drawPage renders a page the stack sits in, as App does: .panes holds the inbox's title row in .list, a hidden page's
+// title row, the page's title row with its strip, and the stack.
+function drawPage(container: HTMLElement, notices: InAppNotice[]): void {
+  render(
+    <div class="panes">
+      <div class="list">
+        <header class="title-row" />
+      </div>
+      <div class="read" hidden>
+        <header class="title-row" />
+      </div>
+      <header class="title-row">
+        <div class="pane-strip" />
+      </header>
+      {stackOf(notices)}
+    </div>,
+    container,
+  );
+}
+
+test("NoticeStack: the stack sits under the page's title row, its strip included, and not inside it", async (t) => {
+  mockTimers(t, ["setTimeout"]);
+  await withContainer(async (container) => {
+    await act(() => {
+      drawPage(container, [notice("%1", "one")]);
+    });
+    const panes = container.querySelector<HTMLElement>(".panes");
+    const page = container.querySelector<HTMLElement>(".panes > .title-row");
+    const stack = container.querySelector<HTMLElement>(".notices");
+    assert.ok(panes && page && stack, "the page draws no .panes, title row or stack");
+    placeRect(panes, { top: 100, bottom: 700, right: 1000 });
+    placeRect(page, { top: 100, bottom: 260, right: 1000 });
+    await act(() => {
+      drawPage(container, [notice("%1", "one")]);
+    });
+    assert.equal(stack.style.top, "160px", "the stack does not start at the title row's bottom, relative to .panes");
+    assert.equal(stack.parentElement, panes, "the stack is not a child of .panes");
+    assert.equal(page.contains(stack), false, "the stack is inside the title row");
+  });
+});
+
+test("NoticeStack: the stack sits under the visible title row furthest right, not one in the list or hidden", async (t) => {
+  mockTimers(t, ["setTimeout"]);
+  await withContainer(async (container) => {
+    await act(() => {
+      drawPage(container, [notice("%1", "one")]);
+    });
+    const panes = container.querySelector<HTMLElement>(".panes");
+    const listRow = container.querySelector<HTMLElement>(".list > .title-row");
+    const hiddenRow = container.querySelector<HTMLElement>(".read > .title-row");
+    const page = container.querySelector<HTMLElement>(".panes > .title-row");
+    assert.ok(panes && listRow && hiddenRow && page, "the page draws no title rows");
+    placeRect(panes, { top: 100, bottom: 700, right: 1000 });
+    placeRect(listRow, { top: 100, bottom: 500, right: 1200 });
+    placeRect(hiddenRow, { top: 100, bottom: 400, right: 1100 });
+    placeRect(page, { top: 100, bottom: 260, right: 900 });
+    await act(() => {
+      drawPage(container, [notice("%1", "one")]);
+    });
+    assert.equal(container.querySelector<HTMLElement>(".notices")?.style.top, "160px", "the stack is under another title row");
+  });
+});
+
+test("NoticeStack: the stack is placed again when the page resizes", async (t) => {
+  mockTimers(t, ["setTimeout"]);
+  const resized: (() => void)[] = [];
+  class FakeResizeObserver {
+    constructor(callback: () => void) {
+      resized.push(callback);
+    }
+    observe(): void {}
+    disconnect(): void {}
+    unobserve(): void {}
+  }
+  await withContainer(async (container) => {
+    const previous = globalThis.ResizeObserver;
+    globalThis.ResizeObserver = FakeResizeObserver as unknown as typeof ResizeObserver;
+    try {
+      await act(() => {
+        drawPage(container, [notice("%1", "one")]);
+      });
+      const panes = container.querySelector<HTMLElement>(".panes");
+      const page = container.querySelector<HTMLElement>(".panes > .title-row");
+      const stack = container.querySelector<HTMLElement>(".notices");
+      assert.ok(panes && page && stack, "the page draws no .panes, title row or stack");
+      placeRect(panes, { top: 100, bottom: 700, right: 1000 });
+      placeRect(page, { top: 100, bottom: 300, right: 900 });
+      for (const callback of resized) {
+        callback();
+      }
+      assert.equal(stack.style.top, "200px", "a resize did not place the stack under the title row");
+    } finally {
+      globalThis.ResizeObserver = previous;
+    }
   });
 });
 
@@ -786,26 +921,4 @@ test("NoticeStack: an unread flat notice is marked unread, and a read one is not
     });
     assert.equal(noticeRoot(container).classList.contains("unread"), false, "a read notice is marked unread");
   });
-});
-
-test("NoticeStack: the stack rule sits under the title row's band, at the right", () => {
-  // This file is bundled to web/build, so web/src is one directory up.
-  const css = readFileSync(fileURLToPath(new URL("../src/style.css", import.meta.url)), "utf8");
-  const rule = /^\.notices \{([^}]*)\}/m.exec(css);
-  assert.ok(rule, "style.css has no .notices rule");
-  const declarations = new Map(
-    rule[1]
-      .split(";")
-      .map((declaration) => declaration.trim())
-      .filter((declaration) => declaration !== "")
-      .map((declaration) => {
-        const colon = declaration.indexOf(":");
-        return [declaration.slice(0, colon).trim(), declaration.slice(colon + 1).trim()];
-      }),
-  );
-  assert.equal(declarations.get("right"), "var(--o-space-16)", "the stack is not at the right, in the page's gutter");
-  assert.ok(
-    declarations.get("top")?.includes("var(--o-size-control-desk)"),
-    "the stack's top does not clear the title row, whose height its controls set",
-  );
 });

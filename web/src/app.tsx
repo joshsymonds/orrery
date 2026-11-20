@@ -37,7 +37,9 @@ import {
 } from "./keymap";
 import { listHolds, listsEpic } from "./listholds";
 import { epicNeeds } from "./needs";
-import { NoticeBanner } from "./notices";
+import { useNoticeLog } from "./noticelog";
+import { NoticeStack } from "./notices";
+import { noticeAge, noticeHead, noticeKey } from "./noticewords";
 import { PhaseOutputPage } from "./phaseoutput";
 import { phaseOutputOf } from "./phaserows";
 import type { Phase } from "./phases";
@@ -205,6 +207,8 @@ const wideQuery = "(min-width: 760px)";
 const overlayQuery = "(max-width: 1250px)";
 // The contracts an App holds when none are given.
 const noContracts: readonly Contract[] = [];
+// The notices an App shows when none are given.
+const noNotices: InAppNotice[] = [];
 
 export function App({
   rows,
@@ -217,7 +221,7 @@ export function App({
   seenWindow,
   epics = noEpics,
   contracts = noContracts,
-  notices = [],
+  notices = noNotices,
   host = null,
   onViewing,
   address,
@@ -253,6 +257,8 @@ export function App({
   // The focus the search field takes once the render that draws it has run.
   const focusSearch = useRef(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  // Whether the notice centre is open. Its opener sets it; the centre is drawn from it.
+  const [noticesOpen, setNoticesOpen] = useState(false);
   const [open, setOpen] = useState(false);
   // Whether the strips under the title rows are drawn. m hides and shows every one of them.
   const [stripsShown, setStripsShown] = useState(true);
@@ -1297,8 +1303,10 @@ export function App({
   // App reports its address after each render, once, when the form it shows differs from the one it last reported or
   // applied. An address still pending, or an epic sub-page still landing, reports nothing and leaves its cause to the
   // render that settles it. This effect comes before the effects that set a cause or apply an address, so a cause they
-  // set reaches the next render's report, and an address they apply does not reach this one.
-  useEffect(() => {
+  // set reaches the next render's report, and an address they apply does not reach this one. It is a layout effect, so
+  // it reports in the commit of the render it reports: a passive effect could run after a key press has set a cause,
+  // and consume that cause against the render before it.
+  useLayoutEffect(() => {
     if (pendingOpen.current !== null || opened !== null) {
       return;
     }
@@ -1562,14 +1570,25 @@ export function App({
     renderAddress();
   }, [addressForm, flat, marked, answered, contracts]);
 
-  // markNoticeSeen sends the notice's key as seen. A failed report is dropped; the notice stays until it ends.
+  // The notice log: the page's history of notices, read again when the page shows, after each change of the notices
+  // showing, and after each Seen.
+  const noticeLog = useNoticeLog(clients, seenWindow ?? window, seenClock ?? realClock, notices);
+
+  // markNoticeSeen sends the notice's key as seen, then lists the log again, so its unread count follows the report. A
+  // failed report is dropped; the notice stays in the stack until it ends.
   const markNoticeSeen = (notice: InAppNotice) => {
-    void clients.notices.seen({ key: notice.key }).catch(() => undefined);
+    void clients.notices.seen({ key: notice.key }).catch(() => undefined).then(noticeLog.relist);
+  };
+
+  // noticeAgeOf is a notice's age from the log's newest row under its key, or "" when the log holds none.
+  const noticeAgeOf = (notice: InAppNotice) => {
+    const row = noticeLog.rows.find((listed) => noticeKey(listed.key) === noticeKey(notice.key));
+    return row === undefined ? "" : noticeAge(row.time, now);
   };
 
   // openNotice counts a notice seen, then lands on what it names. An epic moves the cursor to its entry, wherever the
   // list holds it, and lands its page on the block the notice names. A pane or a session moves the cursor to its row or
-  // step, when the list shows it. A failed report is dropped; the notice stays in the banner until it ends.
+  // step, when the list shows it. A failed report is dropped; the notice stays in the stack until it ends.
   const openNotice = navigated((notice: InAppNotice) => {
     markNoticeSeen(notice);
     const epic = notice.key?.epic ?? "";
@@ -2360,7 +2379,16 @@ export function App({
             onLeave={inboxLeave}
           />
         )}
-        {notices.length > 0 && <NoticeBanner notices={notices} onOpen={openNotice} onDismiss={markNoticeSeen} />}
+        {notices.length > 0 && (
+          <NoticeStack
+            notices={notices}
+            head={(notice) => noticeHead(notice, tree, shownRows, now)}
+            age={noticeAgeOf}
+            onOpen={openNotice}
+            onRead={markNoticeSeen}
+            onMore={() => setNoticesOpen(true)}
+          />
+        )}
         <div
           class="list"
           ref={listRef}

@@ -2,15 +2,9 @@ import type { JSX } from "preact";
 import { useLayoutEffect, useRef, useState } from "preact/hooks";
 
 import type { createClients } from "./client";
-import type { InAppNotice, NoticeKey, NoticesWatchResponse } from "./gen/orrery/v1/notice_pb";
+import type { InAppNotice, NoticesWatchResponse } from "./gen/orrery/v1/notice_pb";
 import { Gauge, Icon, StateGlyph } from "./glyphs";
-import type { NoticeAct, NoticeHead, NoticeLead } from "./noticewords";
-
-// noticeKey names a notice's key as one string over all five fields in order, so a key that sets a different field is
-// a different notice.
-function noticeKey(key: NoticeKey | undefined): string {
-  return JSON.stringify([key?.pane ?? "", key?.session ?? "", key?.epic ?? "", key?.limit ?? "", key?.alert ?? ""]);
-}
+import { type NoticeAct, type NoticeHead, noticeAct, noticeKey, type NoticeLead } from "./noticewords";
 
 // applyNotice applies one change to the notices showing. A shown notice replaces the one under its key in place, or
 // joins the end of the list in the order it was first shown. An ended notice leaves the list. The list it is given is
@@ -84,25 +78,50 @@ export async function watchNotices(
 // mark, so the notice stays unseen where the page lists what needs the owner.
 export const noticeLifetimeMillis = 8000;
 
-// noticeRowLimit is how many rows the stack draws. The notices past it are counted in its "+n more" line.
+// noticeRowLimit is how many rows the stack draws. The notices past it are counted in its "N more in Notices" link.
 const noticeRowLimit = 3;
 
-interface NoticeBannerProps {
-  notices: InAppNotice[];
-  onOpen: (notice: InAppNotice) => void;
-  onDismiss: (notice: InAppNotice) => void;
+// placeStack sets the stack's top to the bottom of the page's title row, measured from .panes. The page's title row is
+// the visible title row outside .list whose right edge is furthest right, and its bottom takes in its strip, which the row
+// draws. With no such row the stack keeps the top style.css gives it.
+function placeStack(stack: HTMLElement): void {
+  const panes = stack.closest<HTMLElement>(".panes");
+  if (panes === null) {
+    return;
+  }
+  let page: DOMRect | undefined;
+  for (const row of panes.querySelectorAll<HTMLElement>(".title-row")) {
+    if (row.closest(".list, [hidden]") !== null) {
+      continue;
+    }
+    const rect = row.getBoundingClientRect();
+    if (page === undefined || rect.right > page.right) {
+      page = rect;
+    }
+  }
+  stack.style.top = page === undefined ? "" : `${page.bottom - panes.getBoundingClientRect().top}px`;
 }
 
-// NoticeBanner shows the notices as a stack of one-line rows: the first three that are still on it, then a "+n more"
-// line for the rest. A row's title and body are one button, and a click calls onOpen with its notice. Its × calls
-// onDismiss and drops the row at once. A row also leaves the stack noticeLifetimeMillis after it first shows, and
-// nothing is told of that. Each row's clock starts when it is drawn, and a row that leaves the stack is forgotten, so a
-// notice that is shown again under its key shows again. The banner makes no sound.
-export function NoticeBanner({ notices, onOpen, onDismiss }: NoticeBannerProps): JSX.Element {
-  // gone holds the keys of the notices this page has taken off the stack, by a × or by the lifetime.
+interface NoticeStackProps {
+  notices: InAppNotice[];
+  head: (notice: InAppNotice) => NoticeHead;
+  age: (notice: InAppNotice) => string;
+  onOpen: (notice: InAppNotice) => void;
+  onRead: (notice: InAppNotice) => void;
+  onMore: () => void;
+}
+
+// NoticeStack shows the notices as a stack of two-line rows under the page's title row: the first three that are still on
+// it, then an "N more in Notices" link for the rest, which calls onMore. A row's Answer or Open calls onOpen with its
+// notice, and its Mark read calls onRead and drops the row at once. A row also leaves the stack noticeLifetimeMillis
+// after it first shows, and nothing is told of that. Each row's clock starts when it is drawn, and a row that leaves the
+// stack is forgotten, so a notice that is shown again under its key shows again. The stack makes no sound.
+export function NoticeStack({ notices, head, age, onOpen, onRead, onMore }: NoticeStackProps): JSX.Element {
+  // gone holds the keys of the notices this page has taken off the stack, by a Mark read or by the lifetime.
   const [gone, setGone] = useState<ReadonlySet<string>>(() => new Set());
   // lives holds the timer of each drawn row, by key, from the render that first draws it until the row leaves.
   const lives = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const stack = useRef<HTMLDivElement>(null);
 
   const keys = new Set(notices.map((notice) => noticeKey(notice.key)));
   const shown = notices.filter((notice) => !gone.has(noticeKey(notice.key)));
@@ -144,37 +163,58 @@ export function NoticeBanner({ notices, onOpen, onDismiss }: NoticeBannerProps):
     [],
   );
 
-  const dismiss = (notice: InAppNotice) => {
+  // The stack is placed after every commit, so it follows the title row as the page draws it.
+  useLayoutEffect(() => {
+    if (stack.current !== null) {
+      placeStack(stack.current);
+    }
+  });
+
+  // Resizing the reading area places the stack again: through a ResizeObserver where one is present, else on the window's
+  // resize.
+  useLayoutEffect(() => {
+    const element = stack.current;
+    const panes = element?.closest<HTMLElement>(".panes");
+    if (!element || !panes) {
+      return;
+    }
+    if (typeof ResizeObserver === "function") {
+      const observer = new ResizeObserver(() => placeStack(element));
+      observer.observe(panes);
+      return () => observer.disconnect();
+    }
+    const onResize = () => placeStack(element);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  const readNotice = (notice: InAppNotice) => {
     const key = noticeKey(notice.key);
     clearTimeout(lives.current.get(key));
     lives.current.delete(key);
     setGone((before) => new Set(before).add(key));
-    onDismiss(notice);
+    onRead(notice);
   };
 
   const more = shown.length - rows.length;
   return (
-    <div class="notices">
+    <div class="notices" ref={stack}>
       {rows.map((notice) => (
-        <div key={noticeKey(notice.key)} class="notice-row">
-          <button type="button" class="notice" onClick={() => onOpen(notice)}>
-            <span class="notice-title">{notice.title}</span>
-            <span class="notice-separator" aria-hidden="true">
-              {" · "}
-            </span>
-            <span class="notice-body">{notice.body}</span>
-          </button>
-          <button
-            type="button"
-            class="notice-dismiss"
-            aria-label={`Dismiss ${notice.title}`}
-            onClick={() => dismiss(notice)}
-          >
-            ×
-          </button>
-        </div>
+        <Notice
+          key={noticeKey(notice.key)}
+          head={head(notice)}
+          when={age(notice)}
+          body={notice.body}
+          act={noticeAct(notice)}
+          onAct={() => onOpen(notice)}
+          onRead={() => readNotice(notice)}
+        />
       ))}
-      {more > 0 && <p class="notices-more">{`+${more} more`}</p>}
+      {more > 0 && (
+        <button type="button" class="link notices-more" onClick={onMore}>
+          {`${more} more in Notices`}
+        </button>
+      )}
     </div>
   );
 }

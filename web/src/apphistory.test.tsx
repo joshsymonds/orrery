@@ -362,7 +362,7 @@ test("HashRoute: a notice pushes the address of its row, and the first cursor ke
       ],
     },
     async ({ container, reports }) => {
-      await click(container, ".notice");
+      await click(container, ".notice .acts .btn", "Open");
       assert.deepEqual(reports, [["#/inbox/session/s1", "push"]]);
       assert.deepEqual(await cursorModes(reports), cursorKeyModes);
     },
