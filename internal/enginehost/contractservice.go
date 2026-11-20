@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"time"
 
@@ -28,6 +29,10 @@ const (
 type ContractStore interface {
 	CallerSession(ctx context.Context, caller store.EpicCaller) (string, bool, error)
 	ProposeContract(ctx context.Context, id string, v store.ContractVersion) error
+	ReviseContract(ctx context.Context, id string, v store.ContractVersion) error
+	AcceptContract(ctx context.Context, id string, c store.ContractChange) error
+	SetAsideContract(ctx context.Context, id string, c store.ContractChange) error
+	ReopenContract(ctx context.Context, id string, c store.ContractChange) error
 	Contract(ctx context.Context, id string) (store.ContractRecord, error)
 	Contracts(ctx context.Context) ([]store.ContractListing, error)
 }
@@ -67,40 +72,17 @@ func (s *contractService) ProposeContract(
 	}
 	id := req.Msg.GetId()
 	contract := req.Msg.GetContract()
-	if id != contract.GetId() {
-		return nil, refuseEpic(connect.CodeInvalidArgument, "id: differs from the contract's id")
+	if err := s.checkContract(ctx, id, contract, req.Msg.GetDecisions()); err != nil {
+		return nil, err
 	}
-	getenv := s.contracts.Getenv
-	if getenv == nil {
-		getenv = os.Getenv
-	}
-	if err := checkContractBody(ctx, contract, getenv); err != nil {
-		return nil, refuseEpic(connect.CodeInvalidArgument, err.Error())
-	}
-	if err := checkContractDecisions(req.Msg.GetDecisions()); err != nil {
-		return nil, refuseEpic(connect.CodeInvalidArgument, err.Error())
-	}
-	caller, _ := epicCallerOf(req.Header())
-	writer, ok, err := s.contracts.Store.CallerSession(ctx, caller)
+	writer, err := s.contractWriter(ctx, req.Header())
 	if err != nil {
-		return nil, epicStoreError(err)
+		return nil, err
 	}
-	if !ok {
-		return nil, refuseEpic(connect.CodePermissionDenied, "caller: resolves to no session")
-	}
-	body, err := protojson.Marshal(contract)
+	version, err := contractVersionOf(
+		id, contract, req.Msg.GetDecisions(), req.Msg.GetWords(), writer, s.contracts.Now().Unix())
 	if err != nil {
-		return nil, epicStoreError(fmt.Errorf("encode contract %s: %w", id, err))
-	}
-	version := store.ContractVersion{
-		Repository: contract.GetRepository(),
-		Title:      contract.GetTitle(),
-		Care:       contract.GetCare(),
-		Body:       string(body),
-		Decisions:  storeDecisions(req.Msg.GetDecisions()),
-		Words:      req.Msg.GetWords(),
-		Writer:     writer,
-		At:         s.contracts.Now().Unix(),
+		return nil, err
 	}
 	if err = s.contracts.Store.ProposeContract(ctx, id, version); err != nil {
 		if errors.Is(err, store.ErrContractExists) {
@@ -116,6 +98,90 @@ func (s *contractService) ProposeContract(
 		return nil, err
 	}
 	return connect.NewResponse(&v1.ProposeContractResponse{Contract: stored}), nil
+}
+
+// checkContract refuses a contract whose id is not id, whose body fails the checks of a contract, or whose decisions are
+// malformed. Propose and revise both check their requests this way.
+func (s *contractService) checkContract(
+	ctx context.Context,
+	id string,
+	contract *v1.EpicContract,
+	decisions []*v1.ContractDecision,
+) error {
+	if id != contract.GetId() {
+		return refuseEpic(connect.CodeInvalidArgument, "id: differs from the contract's id")
+	}
+	getenv := s.contracts.Getenv
+	if getenv == nil {
+		getenv = os.Getenv
+	}
+	if err := checkContractBody(ctx, contract, getenv); err != nil {
+		return refuseEpic(connect.CodeInvalidArgument, err.Error())
+	}
+	if err := checkContractDecisions(decisions); err != nil {
+		return refuseEpic(connect.CodeInvalidArgument, err.Error())
+	}
+	return nil
+}
+
+// callerSession returns the sessions row the call's caller resolves to, and whether it resolves to one.
+func (s *contractService) callerSession(ctx context.Context, header http.Header) (string, bool, error) {
+	caller, _ := epicCallerOf(header)
+	session, ok, err := s.contracts.Store.CallerSession(ctx, caller)
+	if err != nil {
+		return "", false, epicStoreError(err)
+	}
+	return session, ok, nil
+}
+
+// contractWriter returns the sessions row a contract version is written by. A caller that resolves to no session is
+// refused, since only a session writes a version.
+func (s *contractService) contractWriter(ctx context.Context, header http.Header) (string, error) {
+	session, ok, err := s.callerSession(ctx, header)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", refuseEpic(connect.CodePermissionDenied, "caller: resolves to no session")
+	}
+	return session, nil
+}
+
+// changeSession returns the sessions row a state change is made by. A caller that resolves to no session is the owner,
+// whose change has the empty session.
+func (s *contractService) changeSession(ctx context.Context, header http.Header) (string, error) {
+	session, _, err := s.callerSession(ctx, header)
+	return session, err
+}
+
+// contractVersionOf returns the store version of the body of contract with its decisions, words, writer and time. Its
+// version number and changed rows and sections are the caller's to set.
+func contractVersionOf(
+	id string,
+	contract *v1.EpicContract,
+	decisions []*v1.ContractDecision,
+	words, writer string,
+	at int64,
+) (store.ContractVersion, error) {
+	body, err := protojson.Marshal(contract)
+	if err != nil {
+		return store.ContractVersion{}, epicStoreError(fmt.Errorf("encode contract %s: %w", id, err))
+	}
+	return store.ContractVersion{
+		Repository: contract.GetRepository(),
+		Title:      contract.GetTitle(),
+		Care:       contract.GetCare(),
+		Body:       string(body),
+		Decisions:  storeDecisions(decisions),
+		Words:      words,
+		Writer:     writer,
+		At:         at,
+	}, nil
+}
+
+// contractNotFound returns the refusal a contract no one holds gets.
+func contractNotFound(id string) error {
+	return refuseEpic(connect.CodeNotFound, fmt.Sprintf("contract %s not found", id))
 }
 
 // GetContract returns the contract with its versions and states.
@@ -155,7 +221,7 @@ func (s *contractService) ListContracts(
 func (s *contractService) read(ctx context.Context, id string) (*v1.StoredContract, error) {
 	record, err := s.contracts.Store.Contract(ctx, id)
 	if errors.Is(err, store.ErrNoContract) {
-		return nil, refuseEpic(connect.CodeNotFound, fmt.Sprintf("contract %s not found", id))
+		return nil, contractNotFound(id)
 	}
 	if err != nil {
 		return nil, epicStoreError(err)
