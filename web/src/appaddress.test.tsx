@@ -320,7 +320,7 @@ test("HashRoute: a contract address shows the contract page over the epic page",
     },
   ));
 
-test("HashRoute: a phase output address shows that phase's output over the epic page", (t) =>
+test("HashRoute: a phase output address shows that task's record over the epic page", (t) =>
   withApp(
     t.signal,
     {
@@ -334,8 +334,8 @@ test("HashRoute: a phase output address shows that phase's output over the epic 
     async (container) => {
       assert.equal(container.querySelector('section.page[aria-label="epic"] .phase-output') !== null, true);
       assert.equal(
-        container.querySelector('section.page[aria-label="epic"] .phase-row.open .phase-name')?.textContent,
-        "checking",
+        container.querySelector('section.page[aria-label="epic"] .phase-head[aria-expanded="true"] .nm')?.textContent,
+        "green",
       );
       await backFromPage(container);
       assert.equal(epicPageDrawn(container), true, "the epic page is under the phase output");

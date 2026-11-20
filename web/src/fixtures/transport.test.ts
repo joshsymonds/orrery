@@ -621,10 +621,13 @@ test("FixtureTransport: app/phase draws the phase output", (t) => {
   return withStory(
     t,
     App.phase,
-    (root) => root.querySelector(".phase-output .phase-row.open") !== null,
+    (root) => root.querySelector(".phase-output .phase-head[aria-expanded=\"true\"]") !== null,
     (root) => {
       assertNoFailure(root);
-      assert.ok(root.querySelector(".phase-output .phase-row.open") !== null, "the phase output's open row is drawn");
+      assert.ok(
+        root.querySelector(".phase-output .phase-head[aria-expanded=\"true\"]") !== null,
+        "the record's open stage is drawn",
+      );
     },
   );
 });
@@ -712,15 +715,15 @@ test("FixtureTransport: page/contract-accepted draws the tide-alerts contract", 
   );
 });
 
-test("FixtureTransport: page/phase-implement draws the checking phase's output", (t) => {
+test("FixtureTransport: page/phase-implement draws the task's record with its implement stage open", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(
     t,
     Page["phase-implement"],
-    (root) => root.querySelector(".phase-output .phase-row.open .phase-name")?.textContent === "checking",
+    (root) => root.querySelector(".phase-output .phase-head[aria-expanded=\"true\"] .nm") !== null,
     (root) => {
       assertNoFailure(root);
-      assert.equal(root.querySelector(".phase-output .phase-row.open .phase-name")?.textContent, "checking");
+      assert.equal(root.querySelector(".phase-output .phase-head[aria-expanded=\"true\"] .nm")?.textContent, "implement");
     },
   );
 });

@@ -19,8 +19,6 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   "marked-text": { replacement: "convo-find", epic: "F3" },
   // ReplyText draws reply text whose web links are links and whose other schemes stay text.
   "reply-text": { replacement: "Reply", epic: "F3" },
-  // PhaseOutputPage draws a task's phase output at each phase of the rota export.
-  "phase-output-page": { replacement: "phase-implement", epic: "F4" },
   // Reader draws one conversation: loading, a pane's conversation, a folded compaction, a question, find, a sending box, live
   // session text, and a session's step.
   reader: { replacement: "convo-shell", epic: "F3" },
