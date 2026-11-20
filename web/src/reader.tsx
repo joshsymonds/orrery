@@ -3,10 +3,12 @@ import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "preact/
 
 import { BackgroundRow } from "./backgroundrow";
 import { type EpicCalls, EpicWidget } from "./card";
+import { ContractBlock } from "./contractblock";
 import type { Conversation } from "./conversation";
 import type { Match } from "./find";
 import { EventRing, epicEventOf, StepCard, stepEventOf } from "./eventring";
 import { useFlash } from "./flash";
+import type { Contract } from "./gen/orrery/v1/contracts_pb";
 import type { EpicStep, EpicStepCheck } from "./gen/orrery/v1/epics_pb";
 import type { ConversationItem, EngineText } from "./gen/orrery/v1/orrery_pb";
 import { Markdown } from "./markdown";
@@ -40,6 +42,13 @@ interface CallReveal {
   done: () => void;
 }
 
+// ContractCalls are the calls a reader draws its contract lines through: the contracts the list holds, and onOpen,
+// which a press on a line calls with the contract's id.
+export interface ContractCalls {
+  contracts: readonly Contract[];
+  onOpen: (id: string) => void;
+}
+
 // Reader draws one conversation: its items, the "since you looked" rule before the first row newer than seenAt, the
 // pane's question with a button per answer, and the session's unfinished text and thinking. A result is never a row:
 // it folds under the call it answers, and a result whose call is not held is hidden. Three or more tool calls in a row
@@ -65,10 +74,11 @@ interface CallReveal {
 // screen at a time through the handle register gets.
 // With find, every case-insensitive occurrence of its query is a mark in what the reader draws of a reply, a prompt, a
 // call's input and result, and a notice. Compaction, check cards, epic cards, event rings, step cards,
-// background rows, live text, thinking, the question card, sending rows, event lines, cron rows and agent-finished
-// lines are not searched. The current match, find.current's index in find.matches, is the mark with class current: it
-// is scrolled into view as it arrives, and the fold, call or run that holds it opens. A fold opens when the current
-// match moves into it, and the owner can close it; it opens again only when the current match moves into it once more.
+// background rows, contract lines, live text, thinking, the question card, sending rows, event lines, cron rows and
+// agent-finished lines are not searched. The current match, find.current's index in find.matches, is the mark with
+// class current: it is scrolled into view as it arrives, and the fold, call or run that holds it opens. A fold opens
+// when the current match moves into it, and the owner can close it; it opens again only when the current match moves
+// into it once more.
 // After the items and live text, the reader draws a row for each background task the conversation's state holds, in the
 // state's order. A caller event the conversation holds pending is not drawn: it draws as its card once its prompt
 // arrives. The sending entries draw after them, each as a dimmed prompt
@@ -88,6 +98,7 @@ export function Reader({
   sending = [],
   find,
   epicCalls,
+  contractCalls,
 }: {
   conversation: Conversation | null;
   seenAt: number;
@@ -102,6 +113,7 @@ export function Reader({
   sending?: Sending[];
   find?: { query: string; matches: Match[]; current: number };
   epicCalls?: EpicCalls;
+  contractCalls?: ContractCalls;
 }): JSX.Element {
   const root = useRef<HTMLDivElement>(null);
   const drewConversation = useRef(false);
@@ -123,9 +135,12 @@ export function Reader({
         : conversationItems.findIndex((item) => item.kind !== "result" && Number(item.time) > seenAt),
     [conversationItems, seenAt],
   );
+  // A contract line draws in place of its call row, so while the reader holds contract calls the call is never folded
+  // into a run.
+  const contracted = contractCalls !== undefined;
   const groups = useMemo(
-    () => (conversationItems === undefined ? [] : groupRows(conversationItems, newIndex)),
-    [conversationItems, newIndex],
+    () => (conversationItems === undefined ? [] : groupRows(conversationItems, newIndex, results, contracted)),
+    [conversationItems, newIndex, results, contracted],
   );
   // The rows reach onToggleOpen through toggle, so the callback a row holds is the same function on every render, and a
   // caller's new callback does not make a row draw again. A row gets a toggle only when the caller passed one, since a
@@ -310,6 +325,7 @@ export function Reader({
         query={query}
         current={currentAt(first)}
         epicCalls={rowCalls}
+        contractCalls={contractCalls}
         reveal={revealOf(items[first], reveal)}
       />,
     );
@@ -450,6 +466,7 @@ interface ItemRowProps {
   query: string;
   current: number;
   epicCalls?: EpicCalls;
+  contractCalls?: ContractCalls;
   reveal?: CallReveal;
 }
 
@@ -463,6 +480,7 @@ function ItemRow({
   query,
   current,
   epicCalls,
+  contractCalls,
   reveal,
 }: ItemRowProps) {
   // Its row carries the owner-turn class, which sets the gap above it, unless the row is an epic's event ring.
@@ -481,6 +499,7 @@ function ItemRow({
           query={query}
           current={current}
           epicCalls={epicCalls}
+          contractCalls={contractCalls}
           reveal={reveal}
         />
       </div>
@@ -506,7 +525,8 @@ function sameItemRow(previous: ItemRowProps, next: ItemRowProps): boolean {
     previous.current === next.current &&
     previous.reveal === next.reveal &&
     sameStep(previous.step, next.step) &&
-    (previous.epicCalls === next.epicCalls || !readsEpicCalls(next.item))
+    (previous.epicCalls === next.epicCalls || !readsEpicCalls(next.item)) &&
+    (previous.contractCalls === next.contractCalls || !readsContractCalls(next.item))
   );
 }
 
@@ -518,6 +538,18 @@ function readsEpicCalls(item: ConversationItem): boolean {
     return epicEventOf(item.text) !== null || (item.sender === "event" && stepEventOf(item.text) !== null);
   }
   return (item.kind === "tool" || item.kind === "question") && item.epic !== "";
+}
+
+// readsContractCalls is whether a row of item draws from the contract calls: a tool call that writes a contract, which
+// draws its contract line in place of its call row when the result is not an error.
+function readsContractCalls(item: ConversationItem): boolean {
+  return item.kind === "tool" && item.contract !== "";
+}
+
+// drawsContractLine is whether a tool call draws its contract's line in place of its call row: it writes a contract and
+// its result is not an error. The reader draws the line only while it holds contract calls.
+function drawsContractLine(item: ConversationItem, result: ConversationItem | undefined): boolean {
+  return item.contract !== "" && result !== undefined && !result.error;
 }
 
 // callsAt makes epic calls over the epics of made that pass each call to the calls latest holds when the call is made,
@@ -575,6 +607,7 @@ function ItemBody({
   query,
   current,
   epicCalls,
+  contractCalls,
   reveal,
 }: {
   item: ConversationItem;
@@ -586,6 +619,7 @@ function ItemBody({
   query: string;
   current: number;
   epicCalls?: EpicCalls;
+  contractCalls?: ContractCalls;
   reveal?: CallReveal;
 }) {
   switch (item.kind) {
@@ -634,6 +668,17 @@ function ItemBody({
       // epic calls.
       if (item.epic !== "" && epicCalls !== undefined && result !== undefined && !result.error) {
         return <EpicWidget epic={item.epic} calls={epicCalls} />;
+      }
+      // A tool call that writes a contract draws the contract's line in place of its row, when the reader holds
+      // contract calls.
+      if (contractCalls !== undefined && drawsContractLine(item, result)) {
+        return (
+          <ContractBlock
+            id={item.contract}
+            contract={contractCalls.contracts.find((contract) => contract.id === item.contract)}
+            onOpen={contractCalls.onOpen}
+          />
+        );
       }
       return (
         <CallRow item={item} result={result} running={running} query={query} current={current} reveal={reveal} />
@@ -1150,7 +1195,13 @@ function resultsByCall(items: ConversationItem[]): Map<number, ConversationItem>
 // calls with only results between them is one row; every other item is a row of its own, and a result is in none. A
 // question or any other item ends a run, and so does the since-you-looked rule, which starts the row at newIndex. A
 // tool call that creates an epic is never in a run: it is a row of its own, and the calls either side of it fold apart.
-function groupRows(items: ConversationItem[], newIndex: number): number[][] {
+// A tool call whose contract line draws, when contracted, is never in a run either.
+function groupRows(
+  items: ConversationItem[],
+  newIndex: number,
+  results: Map<number, ConversationItem>,
+  contracted: boolean,
+): number[][] {
   const rows: number[][] = [];
   let run: number[] = [];
   const endRun = () => {
@@ -1161,15 +1212,16 @@ function groupRows(items: ConversationItem[], newIndex: number): number[][] {
     }
     run = [];
   };
-  const foldable = (item: ConversationItem) => item.kind === "tool" && item.epic === "";
+  const foldable = (item: ConversationItem, index: number) =>
+    item.kind === "tool" && item.epic === "" && !(contracted && drawsContractLine(item, results.get(index)));
   items.forEach((item, index) => {
     if (item.kind === "result") {
       return;
     }
-    if (index === newIndex || !foldable(item)) {
+    if (index === newIndex || !foldable(item, index)) {
       endRun();
     }
-    if (foldable(item)) {
+    if (foldable(item, index)) {
       run.push(index);
     } else {
       rows.push([index]);
