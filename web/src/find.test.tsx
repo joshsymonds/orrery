@@ -22,7 +22,7 @@ function itemsOf(items: ConversationItem[], query: string): number[] {
   return findMatches(items, query).map((match) => match.item);
 }
 
-test("TranscriptSearch: a query matches case-insensitively in drawn reply, prompt and tool-input text", () => {
+test("Find: a query matches case-insensitively in drawn reply, prompt and tool-input text", () => {
   const items = [
     item({ kind: "reply", text: "The **Build** passed." }),
     item({ kind: "prompt", sender: "owner", text: "rerun the BUILD" }),
@@ -35,7 +35,7 @@ test("TranscriptSearch: a query matches case-insensitively in drawn reply, promp
   ]);
 });
 
-test("TranscriptSearch: a query does not match Markdown syntax, only the text Markdown draws", () => {
+test("Find: a query does not match Markdown syntax, only the text Markdown draws", () => {
   const items = [item({ kind: "reply", text: "## Plan\n\nUse **bold**, `code` and [docs](https://example.test/guide)." })];
   assert.deepEqual(findMatches(items, "##"), []);
   assert.deepEqual(findMatches(items, "**"), []);
@@ -45,7 +45,7 @@ test("TranscriptSearch: a query does not match Markdown syntax, only the text Ma
   assert.equal(findMatches(items, "docs").length, 1);
 });
 
-test("TranscriptSearch: a match inside a call's result is counted under the call, and a result that answers no call is not", () => {
+test("Find: a match inside a call's result is counted under the call, and a result that answers no call is not", () => {
   const items = [
     item({ kind: "reply", text: "looking" }),
     item({ kind: "tool", tool: "Bash", input: "ls", id: "c1" }),
@@ -55,7 +55,7 @@ test("TranscriptSearch: a match inside a call's result is counted under the call
   assert.deepEqual(itemsOf(items, "needle"), [1]);
 });
 
-test("TranscriptSearch: compaction and check-card items are not searched", () => {
+test("Find: compaction and check-card items are not searched", () => {
   const items = [
     item({ kind: "compaction", text: "lint summary", trigger: "auto", tokens: 9000n }),
     item({ kind: "prompt", sender: "engine", round: 1, text: "lint failed" }),
@@ -64,7 +64,7 @@ test("TranscriptSearch: compaction and check-card items are not searched", () =>
   assert.deepEqual(itemsOf(items, "lint"), [2]);
 });
 
-test("TranscriptSearch: a prompt an event sent draws as an EVENT line and is not searched, while an owner's prompt with the same text matches", () => {
+test("Find: a prompt an event sent draws as an EVENT line and is not searched, while an owner's prompt with the same text matches", () => {
   const items = [
     item({ kind: "prompt", sender: "event", text: "build finished" }),
     item({ kind: "prompt", sender: "owner", text: "build finished" }),
@@ -72,7 +72,7 @@ test("TranscriptSearch: a prompt an event sent draws as an EVENT line and is not
   assert.deepEqual(findMatches(items, "build"), [{ item: 1, start: 0 }]);
 });
 
-test("TranscriptSearch: a prompt a cron job sent draws as a CRON row and is not searched, while an owner's prompt with the same text matches", () => {
+test("Find: a prompt a cron job sent draws as a CRON row and is not searched, while an owner's prompt with the same text matches", () => {
   const items = [
     item({ kind: "prompt", sender: "cron", text: "build finished" }),
     item({ kind: "prompt", sender: "owner", text: "build finished" }),
@@ -80,7 +80,7 @@ test("TranscriptSearch: a prompt a cron job sent draws as a CRON row and is not 
   assert.deepEqual(findMatches(items, "build"), [{ item: 1, start: 0 }]);
 });
 
-test("TranscriptSearch: an empty query matches nothing", () => {
+test("Find: an empty query matches nothing", () => {
   assert.deepEqual(findMatches([item({ kind: "reply", text: "anything" })], ""), []);
 });
 
@@ -146,17 +146,37 @@ function keysAtDocument(): string[] {
   return keys;
 }
 
-test("TranscriptSearch: the bar takes focus and shows the current match as 1 of N, or no count when none match", async () => {
+test("Find: the bar takes focus, draws the search icon and its field, and shows the current match as 1 of N", async () => {
   await withFindBar({}, async (input) => {
     assert.equal(document.activeElement, input);
+    assert.equal(input.placeholder, "Find in this conversation");
+    assert.ok(input.closest(".find")?.querySelector("svg.icon"), "the bar draws the search icon");
     assert.equal(input.closest(".find")?.querySelector(".count")?.textContent, "1 of 3");
   });
+});
+
+test("Find: a query with no match says no matches, and an empty query shows no count", async () => {
   await withFindBar({ matches: 0 }, (input) => {
+    assert.equal(input.closest(".find")?.querySelector(".count")?.textContent, "no matches");
+  });
+  await withFindBar({ query: "", matches: 0 }, (input) => {
     assert.equal(input.closest(".find")?.querySelector(".count"), null);
   });
 });
 
-test("TranscriptSearch: typing in the bar passes the field's text to onQuery", async () => {
+test("Find: the close button calls close, as Escape does", async () => {
+  let closed = 0;
+  await withFindBar({ onClose: () => (closed += 1) }, async (input) => {
+    const close = input.closest(".find")?.querySelector<HTMLButtonElement>('button[aria-label="Close find"]');
+    assert.ok(close, "the bar draws a Close find button");
+    await act(() => {
+      close.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
+    });
+    assert.equal(closed, 1);
+  });
+});
+
+test("Find: typing in the bar passes the field's text to onQuery", async () => {
   const typed: string[] = [];
   await withFindBar({ onQuery: (query) => typed.push(query) }, async (input) => {
     await act(() => {
@@ -167,7 +187,7 @@ test("TranscriptSearch: typing in the bar passes the field's text to onQuery", a
   });
 });
 
-test("TranscriptSearch: Enter calls next, Shift+Enter calls previous, and neither reaches the document", async () => {
+test("Find: Enter calls next, Shift+Enter calls previous, and neither reaches the document", async () => {
   const moves: string[] = [];
   await withFindBar({ onNext: () => moves.push("next"), onPrevious: () => moves.push("previous") }, async (input) => {
     const reached = keysAtDocument();
@@ -179,7 +199,7 @@ test("TranscriptSearch: Enter calls next, Shift+Enter calls previous, and neithe
   });
 });
 
-test("TranscriptSearch: Escape calls close and does not reach a document keydown listener", async () => {
+test("Find: Escape calls close and does not reach a document keydown listener", async () => {
   let closed = 0;
   await withFindBar({ onClose: () => (closed += 1) }, async (input) => {
     const reached = keysAtDocument();
@@ -191,7 +211,7 @@ test("TranscriptSearch: Escape calls close and does not reach a document keydown
 });
 
 // The App tests below render the App over a fake server, as escape.test.tsx does, and drive its find bar over a
-// session's transcript. Each test's name carries the token TranscriptSearch.
+// session's transcript. Each test's name carries the token Find.
 
 const now = 1000;
 const sessionWatchPath = "/orrery.v1.Sessions/WatchConversation";
@@ -428,7 +448,7 @@ async function openFind(container: HTMLElement): Promise<HTMLInputElement> {
   return findInput(container);
 }
 
-test("TranscriptSearch: after a click on a session row, / in its focused empty reply box opens the find bar, the bar's input takes focus, and the box stays empty", (t) =>
+test("Find: after a click on a session row, / in its focused empty reply box opens the find bar, the bar's input takes focus, and the box stays empty", (t) =>
   withApp(t.signal, [paneRow, sessionRow], async (container) => {
     await clickRow(container, sessionRow.key);
     assert.equal(document.activeElement, composer(container), "the click focuses the row's reply box");
@@ -438,7 +458,7 @@ test("TranscriptSearch: after a click on a session row, / in its focused empty r
     assert.equal(composer(container).value, "", "the reply box stays empty");
   }));
 
-test("TranscriptSearch: a query marks the case-insensitive matches in a reply, a prompt and a call's input, and the bar counts a match in a closed fold", (t) =>
+test("Find: a query marks the case-insensitive matches in a reply, a prompt and a call's input, and the bar counts a match in a closed fold", (t) =>
   withApp(t.signal, [sessionRow], async (container, fake) => {
     await openTranscript(t.signal, container, fake);
     const input = await openFind(container);
@@ -453,7 +473,7 @@ test("TranscriptSearch: a query marks the case-insensitive matches in a reply, a
     assert.equal(countText(container), "1 of 3", "the match in the closed run is counted");
   }));
 
-test("TranscriptSearch: Enter moves the current match to the next one and Shift+Enter to the previous, and both wrap at their ends", (t) =>
+test("Find: Enter moves the current match to the next one and Shift+Enter to the previous, and both wrap at their ends", (t) =>
   withApp(t.signal, [sessionRow], async (container, fake) => {
     await openTranscript(t.signal, container, fake);
     const input = await openFind(container);
@@ -472,7 +492,7 @@ test("TranscriptSearch: Enter moves the current match to the next one and Shift+
     assert.equal(document.activeElement, input, "the bar keeps its focus");
   }));
 
-test("TranscriptSearch: a current match in a call inside a folded tool run opens the run", (t) =>
+test("Find: a current match in a call inside a folded tool run opens the run", (t) =>
   withApp(t.signal, [sessionRow], async (container, fake) => {
     await openTranscript(t.signal, container, fake);
     const input = await openFind(container);
@@ -488,7 +508,7 @@ test("TranscriptSearch: a current match in a call inside a folded tool run opens
     );
   }));
 
-test("TranscriptSearch: on a working session, Escape in the find bar closes it, removes every mark, focuses the empty reply box, and calls neither Control.Interrupt nor Control.Withdraw", (t) =>
+test("Find: on a working session, Escape in the find bar closes it, removes every mark, focuses the empty reply box, and calls neither Control.Interrupt nor Control.Withdraw", (t) =>
   withApp(t.signal, [sessionRow], async (container, fake) => {
     await openTranscript(t.signal, container, fake);
     const input = await openFind(container);
@@ -504,7 +524,7 @@ test("TranscriptSearch: on a working session, Escape in the find bar closes it, 
     assert.equal(fake.callsTo(interruptPath).length, 0, "Escape interrupts nothing");
   }));
 
-test("TranscriptSearch: / in a reply box with text is typed, so its keydown is not prevented and no find bar opens", (t) =>
+test("Find: / in a reply box with text is typed, so its keydown is not prevented and no find bar opens", (t) =>
   withApp(t.signal, [sessionRow], async (container) => {
     await act(() => {
       composer(container).focus();
@@ -516,7 +536,7 @@ test("TranscriptSearch: / in a reply box with text is typed, so its keydown is n
     assert.equal(composer(container).value, "draft", "the box keeps its text");
   }));
 
-test("TranscriptSearch: a find bar closes when the cursor moves to another row, and does not reopen when the cursor returns", (t) =>
+test("Find: a find bar closes when the cursor moves to another row, and does not reopen when the cursor returns", (t) =>
   withApp(t.signal, [paneRow, sessionRow], async (container) => {
     await clickRow(container, sessionRow.key);
     await openFind(container);
@@ -524,4 +544,97 @@ test("TranscriptSearch: a find bar closes when the cursor moves to another row, 
     assert.equal(findBar(container), null, "the bar closes when the cursor leaves its row");
     await clickRow(container, sessionRow.key);
     assert.equal(findBar(container), null, "the bar does not reopen when the cursor returns to the row");
+  }));
+
+// readerOf is the cursor's reader, the element the transcript scrolls in on a wide page.
+function readerOf(container: HTMLElement): HTMLElement {
+  const reader = container.querySelector<HTMLElement>('[aria-label="reader"] .reader');
+  assert.ok(reader, "the cursor draws its reader");
+  return reader;
+}
+
+// layOut gives the reader a height the scroll tests can move in: 1000px of content in a 200px box, so a scroll of 300px
+// is not at its bottom and the reader stops following its end, as an owner's scroll stops it.
+function layOut(reader: HTMLElement): void {
+  Object.defineProperties(reader, { scrollHeight: { value: 1000 }, clientHeight: { value: 200 } });
+}
+
+// scrollReader moves the reader to top and reports the owner's scroll to it.
+async function scrollReader(reader: HTMLElement, top: number): Promise<void> {
+  await act(() => {
+    reader.scrollTop = top;
+    reader.dispatchEvent(new Event("scroll"));
+  });
+}
+
+// findAwayFromEnd opens the find bar over the transcript at a reader scrolled to 300px and a window scrolled to 250px,
+// types the query, and moves both as the current match's scroll does while the bar is open.
+async function findAwayFromEnd(
+  signal: AbortSignal,
+  container: HTMLElement,
+  fake: FakeServer,
+): Promise<{ input: HTMLInputElement; reader: HTMLElement }> {
+  await openTranscript(signal, container, fake);
+  const reader = readerOf(container);
+  layOut(reader);
+  await scrollReader(reader, 300);
+  window.scrollTo(0, 250);
+  const input = await openFind(container);
+  await typeInto(input, "build");
+  await scrollReader(reader, 600);
+  window.scrollTo(0, 700);
+  return { input, reader };
+}
+
+test("Find: Escape closes the bar and returns the reader and the page to the scroll position they had when find opened", (t) =>
+  withApp(t.signal, [sessionRow], async (container, fake) => {
+    const { input, reader } = await findAwayFromEnd(t.signal, container, fake);
+    await press(input, "Escape");
+    assert.equal(reader.scrollTop, 300, "the reader is back where find opened");
+    assert.equal(window.scrollY, 250, "the page is back where find opened");
+  }));
+
+test("Find: Close find closes the bar and returns the reader and the page to the scroll position they had when find opened", (t) =>
+  withApp(t.signal, [sessionRow], async (container, fake) => {
+    const { reader } = await findAwayFromEnd(t.signal, container, fake);
+    const close = container.querySelector<HTMLButtonElement>('button[aria-label="Close find"]');
+    assert.ok(close, "the bar draws a Close find button");
+    await act(() => {
+      close.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
+    });
+    assert.equal(findBar(container), null, "the bar closes");
+    assert.deepEqual(markTexts(container), [], "no mark is left");
+    assert.equal(document.activeElement, composer(container), "the empty reply box has focus");
+    assert.equal(reader.scrollTop, 300, "the reader is back where find opened");
+    assert.equal(window.scrollY, 250, "the page is back where find opened");
+  }));
+
+test("Find: the title row's search control opens the bar over the transcript, with its input focused", (t) =>
+  withApp(t.signal, [sessionRow], async (container, fake) => {
+    await openTranscript(t.signal, container, fake);
+    const control = container.querySelector<HTMLButtonElement>('button[aria-label="Find in this conversation"]');
+    assert.ok(control, "the title row draws the search control");
+    await act(() => {
+      control.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
+    });
+    assert.equal(document.activeElement, findInput(container), "the bar's input has focus");
+    await typeInto(findInput(container), "build");
+    assert.equal(countText(container), "1 of 3", "the bar counts the matches in the transcript");
+  }));
+
+test("Find: the current mark is scrolled into view when the current match moves to it", (t) =>
+  withApp(t.signal, [sessionRow], async (container, fake) => {
+    await openTranscript(t.signal, container, fake);
+    const scrolled: Element[] = [];
+    HTMLElement.prototype.scrollIntoView = function (this: HTMLElement) {
+      scrolled.push(this);
+    };
+    const input = await openFind(container);
+    await typeInto(input, "build");
+    scrolled.length = 0;
+    await press(input, "Enter");
+    const current = container.querySelector('[aria-label="reader"] mark.current');
+    assert.ok(current, "the second match is the current mark");
+    assert.equal(scrolled.length, 1, "moving the current match scrolls one element");
+    assert.ok(scrolled[0] === current, "the element scrolled into view is the current mark");
   }));

@@ -3,6 +3,7 @@ import { useEffect, useRef } from "preact/hooks";
 
 import type { ConversationItem } from "./gen/orrery/v1/orrery_pb";
 import { epicEventOf } from "./eventring";
+import { Icon } from "./glyphs";
 import { drawnText } from "./markdown";
 import { occurrences } from "./text";
 
@@ -85,8 +86,9 @@ function resultsByCall(items: ConversationItem[]): Map<number, ConversationItem>
 }
 
 // FindBar is the find field over the transcript: a focused input for the query, then the current match as n of N, or
-// nothing when no item matches. Enter goes to the next match and Shift+Enter to the previous, and Escape closes the
-// bar. The keys the bar handles stop here, so the page's keydown handler never sees them.
+// no matches when a query finds none, and nothing while the query is empty. Enter goes to the next match and
+// Shift+Enter to the previous, and Escape or the Close find button closes the bar. The keys the bar handles stop here,
+// so the page's keydown handler never sees them.
 export function FindBar({
   query,
   matches,
@@ -126,15 +128,20 @@ export function FindBar({
   };
   return (
     <div class="find">
+      <Icon name="search" />
       <input
         ref={field}
         type="text"
         value={query}
-        placeholder="find in transcript"
+        placeholder="Find in this conversation"
         onInput={(event) => onQuery(event.currentTarget.value)}
         onKeyDown={onKeyDown}
       />
       {matches > 0 && <span class="count">{`${current + 1} of ${matches}`}</span>}
+      {matches === 0 && query !== "" && <span class="count">no matches</span>}
+      <button type="button" class="icon" aria-label="Close find" onClick={onClose}>
+        <Icon name="close" />
+      </button>
     </div>
   );
 }
