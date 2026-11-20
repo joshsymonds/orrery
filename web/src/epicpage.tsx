@@ -1,19 +1,23 @@
 import type { ComponentChildren, JSX } from "preact";
-import { useLayoutEffect, useRef } from "preact/hooks";
+import { useLayoutEffect, useRef, useState } from "preact/hooks";
 
-import { AskFirst, NowBlock, nowSentence } from "./blocker";
 import type { LoadArtifact } from "./evidence";
-import type { EpicHistoryEntry, EpicSession, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
-import { JustHappened, NextRows, NowRows } from "./happenings";
+import type { EpicHistoryEntry, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
+import { JustHappened } from "./happenings";
+import { NowSection } from "./nowsection";
 import { Orrery } from "./orrery";
-import { durationText, type Phase, requirementArcs, wedgesOf } from "./phases";
-import { GreenProof, RedProof, Report, ReleaseProof } from "./proof";
+import { durationText, type Phase, provenOf, wedgesOf } from "./phases";
+import { recordTasksOf } from "./record";
+import { blockerPillOf, contractDoorOf, ownerParked, reachedOf, statePillOf, trackOf } from "./recordwords";
+import { RequirementTable } from "./reqtable";
 import type { Row } from "./rows";
-import { type Blocker, blockerOf, controlsOf, stateOf } from "./status";
+import { Sheet } from "./sheet";
+import { type Blocker, controlsOf, stateOf } from "./status";
 import { steererRowOf } from "./steer";
+import { TaskTable } from "./tasktable";
 import { listedTitle, TitleParts } from "./titleparts";
 import { type InboxMark, TitleRow } from "./titlerow";
-import { Workflow } from "./workflow";
+import { Track } from "./track";
 
 // EpicCommands are the epic's commands: pause, resume, stop and retry, and the answer to one open question: the choice
 // the owner picked, which is a declared choice's id or other, and its text.
@@ -33,12 +37,10 @@ export interface SessionTarget {
   label: string;
 }
 
-// sessionTarget is the target a session opens: its pane when it has one, else the session. Its label is the session's
-// served label alone.
-export function sessionTarget(session: EpicSession): SessionTarget {
-  return session.pane !== ""
-    ? { kind: "pane", id: session.pane, label: session.label }
-    : { kind: "session", id: session.id, label: session.label };
+// SteerSheet is the phone's steering sheet as the epic page holds it: whether it is open, and its closing.
+export interface SteerSheet {
+  open: boolean;
+  onClose: () => void;
 }
 
 // blockerLine is the blocker's text for the title row: its text, and its time once it has begun.
@@ -57,18 +59,6 @@ export function stateLine(detail: EpicsGetResponse, now: number): string {
   return state !== "" && phaseAt > 0 ? `${state} · ${durationText(Math.max(0, now - phaseAt))}` : state;
 }
 
-// creatorOf is the session that created the epic, the one its epic_create call made. When more than one is marked, it
-// is the one whose newest call is latest. It is undefined when no listed session is the creator.
-function creatorOf(sessions: EpicSession[]): EpicSession | undefined {
-  let creator: EpicSession | undefined;
-  for (const session of sessions) {
-    if (session.creator && (creator === undefined || session.at > creator.at)) {
-      creator = session;
-    }
-  }
-  return creator;
-}
-
 // Landing is the block an opened notice lands the epic page on, by its kind. Each notice makes its own, so the page
 // brings the block into view once for each. The empty kind names no block.
 export interface Landing {
@@ -78,19 +68,45 @@ export interface Landing {
 // landingTargets names the part of the epic page each block kind brings into view. A kind it does not name, the empty
 // one included, brings the page's top into view.
 const landingTargets: Partial<Record<string, string>> = {
-  question: ".now-block",
-  release_step: ".now-block",
-  report: ".proof.report",
+  question: "section.now",
+  release_step: "section.now",
 };
 
-// EpicPage is the one epic page: its title row with the epic's commands, the summary of its contract, the Conversation
-// line to the session that created the epic, the now sentence and blocker, the red proof, the implementation (the
-// orrery, Now, Next, Just happened and the workflow), the green proof, the handover when given, the release proof and
-// the report. A section the epic has not reached is dim. The commands are the ones controlsOf shows for the epic. Each
-// phase click reaches onOpenPhase. The Conversation line draws the creator's title, its listed row's
-// directory and line from rows through TitleParts, and reaches onOpenSession with the creator's target. A landing
-// brings its part of the page into view once the page is drawn. numberKeys is whether a digit key picks an option of
-// the open question.
+// SteeredFrom is the Steered from door: the session that steers the epic, titled from its listed row as steererRowOf finds
+// that row, and the opening of that conversation. A steerer no row lists is opened by its id, and its
+// title is the word session.
+function SteeredFrom({
+  steering,
+  rows,
+  onOpen,
+}: {
+  steering: string;
+  rows: Row[];
+  onOpen: (target: SessionTarget) => void;
+}): JSX.Element {
+  const row = steererRowOf(rows, steering);
+  const target: SessionTarget =
+    row === null ? { kind: "session", id: steering, label: "" } : { kind: row.kind, id: row.id, label: row.label };
+  const title = listedTitle(rows, target.kind, target.id, target.label);
+  return (
+    <button type="button" class="door steered" onClick={() => onOpen(target)}>
+      <span>Steered from</span> <TitleParts dir={title.dir} line={title.line} />
+    </button>
+  );
+}
+
+// EpicPage is the one epic page, drawn section by section in the order of the record: the title row with the epic's
+// state and blocker pills and its commands, and under it the did-not-land line of a failed command. Then, for an
+// orreryd epic: its problem, its summary with the Contract door and the Steered from door, its track, Now, Just
+// happened, the tasks with their chart and table, and the requirements. A record epic draws only Now and its tasks. A
+// section the epic has not reached is not drawn. The commands are the ones controlsOf shows for the epic. Each phase
+// click reaches onOpenPhase. Just happened names a session a move names by its listed row's label. A landing brings its
+// part of the page into view once the page is drawn. numberKeys is whether a digit key picks an option of the open
+// question. steer draws the steering control: in the title row at the desk, and under narrow the sheet that More's Steer
+// item opens. narrow moves the commands off the title row into a foot bar: its Talk button, given only when a steerer is
+// known, calls onTalk, and its More button opens a sheet of the commands, with the Steer item when steer is given. foot,
+// drawn above that bar under narrow, is the ended bar an epic no running conversation steers stands on. Stop asks first
+// in place: its confirm replaces the title row's commands on the desk, and it is a sheet of its own on the phone.
 export function EpicPage(props: {
   detail: EpicsGetResponse;
   history: EpicHistoryEntry[];
@@ -98,16 +114,19 @@ export function EpicPage(props: {
   loadArtifact: LoadArtifact;
   commands: EpicCommands;
   numberKeys: boolean;
+  commandError: string;
   onOpenContract: () => void;
   onOpenSession: (target: SessionTarget) => void;
   onBack: () => void;
   onOpenPhase?: (task: string, phase: Phase) => void;
-  actions?: ComponentChildren;
-  handover?: ComponentChildren;
   landing?: Landing;
   mark?: InboxMark;
   strip?: ComponentChildren;
   rows?: Row[];
+  narrow?: boolean;
+  onTalk?: () => void;
+  steer?: (sheet: SteerSheet) => ComponentChildren;
+  foot?: ComponentChildren;
 }): JSX.Element {
   const {
     detail,
@@ -116,29 +135,48 @@ export function EpicPage(props: {
     loadArtifact,
     commands,
     numberKeys,
+    commandError,
     onOpenContract,
     onOpenSession,
     onBack,
     onOpenPhase,
-    actions,
-    handover,
     landing,
     mark,
     strip,
     rows = [],
+    narrow = false,
+    onTalk,
+    steer,
+    foot,
   } = props;
-  const { epic, contract, requirements, steps, nodes, releaseSteps, report, sessions } = detail;
+  const { epic, contract, requirements, steps } = detail;
+  const reached = reachedOf(detail, history);
   const wedges = wedgesOf(detail);
-  const blocker = blockerOf(detail);
+  const tasks = recordTasksOf(detail);
+  const doneTasks = tasks.filter((task) => task.place === "integrated").length;
+  const provenIds = new Set(
+    [...requirements.map((requirement) => requirement.id), ...wedges.flatMap((wedge) => wedge.requirements)].filter((id) =>
+      provenOf(id, wedges, requirements),
+    ),
+  );
   const slug = epic?.slug ?? "";
   const controls = controlsOf(detail);
-  const creator = creatorOf(sessions);
+  const state = statePillOf(detail, now);
+  const blocker = blockerPillOf(detail, now);
+  const problem = epic?.source === "orreryd" ? epic.problem : "";
+  const summary = detail.summary !== "" ? detail.summary : (contract?.title ?? "");
+  const steering = epic?.steering ?? "";
+  const provenCount = requirements.filter((requirement) => provenIds.has(requirement.id)).length;
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [stopOpen, setStopOpen] = useState(false);
+  // stopAsking is whether Stop's confirm is open: it is only while the epic can be stopped.
+  const stopAsking = stopOpen && controls.stop;
+  // pausing is whether Pause is offered: an owner's park holds the epic until its owner answers, so nothing runs.
+  const pausing = controls.pause && !ownerParked(detail);
+  const [steerOpen, setSteerOpen] = useState(false);
+  const steerSheet: SteerSheet = { open: steerOpen, onClose: () => setSteerOpen(false) };
   // titleOf names a session by its listed row's label, for the move lines of the epic's log.
   const titleOf = (session: string) => steererRowOf(rows, session)?.label;
-  const creatorTarget = creator === undefined ? undefined : sessionTarget(creator);
-  const creatorTitle =
-    creatorTarget === undefined ? undefined : listedTitle(rows, creatorTarget.kind, creatorTarget.id, creatorTarget.label);
-  const released = epic !== undefined && epic.outcome.startsWith("released");
   const pageRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const page = pageRef.current;
@@ -154,67 +192,181 @@ export function EpicPage(props: {
       <TitleRow
         crumbs={[{ label: slug }]}
         onBack={onBack}
-        state={stateLine(detail, now)}
-        blocker={blockerLine(blocker, now)}
+        state={state.word}
+        stateTone={state.tone}
+        blocker={blocker?.word}
+        blockerTone={blocker?.tone}
         mark={mark}
-        strip={strip}
+        strip={narrow ? undefined : strip}
+        note={commandError}
       >
-        {actions}
-        {controls.resume && (
+        {!narrow && !stopAsking && steer?.(steerSheet)}
+        {!narrow && stopAsking && (
+          <>
+            <span class="sure">{`Stop ${slug}?`}</span>
+            <button
+              type="button"
+              class="act primary"
+              onClick={() => {
+                setStopOpen(false);
+                commands.stop();
+              }}
+            >
+              {`Stop ${slug}`}
+            </button>
+            <button type="button" class="act" onClick={() => setStopOpen(false)}>
+              Keep it running
+            </button>
+          </>
+        )}
+        {!narrow && !stopAsking && controls.resume && (
           <button type="button" class="act" onClick={() => commands.resume()}>
             Resume
           </button>
         )}
-        {controls.pause && (
+        {!narrow && !stopAsking && pausing && (
           <button type="button" class="act" onClick={() => commands.pause()}>
             Pause
           </button>
         )}
-        {controls.stop && (
-          <AskFirst
-            label="Stop…"
-            question={`Stop ${slug}?`}
-            confirm={`Stop ${slug}`}
-            keep="Keep it running"
-            onConfirm={() => commands.stop()}
-          />
+        {!narrow && !stopAsking && controls.stop && (
+          <button type="button" class="act" onClick={() => setStopOpen(true)}>
+            Stop…
+          </button>
         )}
       </TitleRow>
-      {contract !== undefined && (
-        <button type="button" class="summary" onClick={() => onOpenContract()}>
-          {detail.summary !== "" ? detail.summary : contract.title}
-        </button>
+      {problem !== "" && <p class="problem error">{problem}</p>}
+      {reached.summary && (
+        <section class="summary" aria-label="Summary">
+          <p class="summary-text">{summary}</p>
+          <div class="doors">
+            {contract !== undefined && (
+              <button type="button" class="door contract" onClick={() => onOpenContract()}>
+                <span>Contract</span> <span>{contractDoorOf(detail)}</span>
+              </button>
+            )}
+            {steering !== "" && <SteeredFrom steering={steering} rows={rows} onOpen={onOpenSession} />}
+          </div>
+        </section>
       )}
-      {creatorTarget !== undefined && creatorTitle !== undefined && (
-        <button type="button" class="summary conversation" onClick={() => onOpenSession(creatorTarget)}>
-          {"Conversation · "}
-          <TitleParts dir={creatorTitle.dir} line={creatorTitle.line} />
-        </button>
-      )}
-      {epic !== undefined && epic.problem !== "" && <p class="problem error">{epic.problem}</p>}
-      <NowBlock
-        sentence={nowSentence(wedges)}
-        blocker={blocker}
-        slug={slug}
-        epic={epic}
+      {reached.track && <Track stages={trackOf(detail)} />}
+      <NowSection
+        detail={detail}
         now={now}
+        narrow={narrow}
         numberKeys={numberKeys}
         onAnswer={commands.answer}
         onRetry={() => commands.retry()}
         onStop={() => commands.stop()}
+        onResume={() => commands.resume()}
       />
-      <RedProof requirements={requirements} wedges={wedges} loadArtifact={loadArtifact} onOpenPhase={onOpenPhase} />
-      <section class="implementation">
-        <Orrery wedges={wedges} arcs={requirementArcs(wedges, requirements)} now={now} onOpenPhase={onOpenPhase} />
-        <NowRows wedges={wedges} now={now} onOpenPhase={onOpenPhase} />
-        <NextRows wedges={wedges} onOpenPhase={onOpenPhase} />
-        <JustHappened entries={history} steps={steps} titleOf={titleOf} />
-        {nodes.length > 0 && <Workflow nodes={nodes} loadArtifact={loadArtifact} />}
-      </section>
-      <GreenProof requirements={requirements} wedges={wedges} loadArtifact={loadArtifact} onOpenPhase={onOpenPhase} />
-      {handover !== undefined && handover !== null && <section class="handover">{handover}</section>}
-      <ReleaseProof contract={contract} releaseSteps={releaseSteps} released={released} />
-      <Report report={report} />
+      {reached.history && <JustHappened entries={history} steps={steps} titleOf={titleOf} />}
+      {reached.tasks && (
+        <section class="tasks" aria-label="Tasks">
+          <header class="sec-head">
+            <h3>Tasks</h3>
+            <span>{`${doneTasks} of ${tasks.length} done`}</span>
+          </header>
+          <Orrery tasks={tasks} proven={provenIds} onOpenPhase={onOpenPhase} />
+          <TaskTable tasks={tasks} now={now} onOpenPhase={onOpenPhase} />
+        </section>
+      )}
+      {reached.requirements && (
+        <section class="requirements" aria-label="Requirements">
+          <header class="sec-head">
+            <h3>Requirements</h3>
+            <span>{`${provenCount} of ${requirements.length} proven`}</span>
+          </header>
+          <RequirementTable requirements={requirements} loadArtifact={loadArtifact} />
+        </section>
+      )}
+      {narrow && foot}
+      {narrow && (
+        <div class="cmdbar">
+          {onTalk !== undefined && (
+            <button type="button" class="act" onClick={() => onTalk()}>
+              Talk to the session that steers it
+            </button>
+          )}
+          <button type="button" class="act" onClick={() => setMoreOpen(true)}>
+            More
+          </button>
+        </div>
+      )}
+      {narrow && moreOpen && (
+        <Sheet title={slug} onClose={() => setMoreOpen(false)}>
+          {controls.resume && (
+            <button
+              type="button"
+              class="act"
+              onClick={() => {
+                commands.resume();
+                setMoreOpen(false);
+              }}
+            >
+              Resume
+            </button>
+          )}
+          {pausing && (
+            <button
+              type="button"
+              class="act"
+              onClick={() => {
+                commands.pause();
+                setMoreOpen(false);
+              }}
+            >
+              Pause
+            </button>
+          )}
+          {controls.stop && (
+            <button
+              type="button"
+              class="act"
+              onClick={() => {
+                setMoreOpen(false);
+                setStopOpen(true);
+              }}
+            >
+              Stop…
+            </button>
+          )}
+          {steer !== undefined && (
+            <button
+              type="button"
+              class="act"
+              onClick={() => {
+                setMoreOpen(false);
+                setSteerOpen(true);
+              }}
+            >
+              Steer it from another conversation
+            </button>
+          )}
+        </Sheet>
+      )}
+      {narrow && steer?.(steerSheet)}
+      {narrow && stopAsking && (
+        <Sheet title={`Stop ${slug}?`} onClose={() => setStopOpen(false)}>
+          <p>Its running steps are stopped. Nothing is released.</p>
+          <div class="foot">
+            <button type="button" class="act" onClick={() => setStopOpen(false)}>
+              Keep it running
+            </button>
+            <button
+              type="button"
+              class="act danger"
+              onClick={() => {
+                commands.stop();
+                setStopOpen(false);
+                setMoreOpen(false);
+              }}
+            >
+              {`Stop ${slug}`}
+            </button>
+          </div>
+        </Sheet>
+      )}
     </div>
   );
 }

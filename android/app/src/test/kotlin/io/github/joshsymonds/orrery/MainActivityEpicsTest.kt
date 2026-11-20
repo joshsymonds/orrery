@@ -3,10 +3,8 @@ package io.github.joshsymonds.orrery
 import android.content.Context
 import android.content.Intent
 import android.provider.Settings
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertTextEquals
-import androidx.compose.ui.test.click
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasScrollAction
@@ -15,7 +13,6 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
-import androidx.compose.ui.test.performTouchInput
 import androidx.test.core.app.ApplicationProvider
 import com.connectrpc.Code
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
@@ -30,7 +27,6 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicContract
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicFailure
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicHistoryEntry
-import io.github.joshsymonds.orrery.gen.orrery.v1.EpicLedgerFinding
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicPremise
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseStep
@@ -47,14 +43,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationResponse
-import io.github.joshsymonds.orrery.ui.Phase
-import io.github.joshsymonds.orrery.ui.point
-import io.github.joshsymonds.orrery.ui.ringRadius
-import io.github.joshsymonds.orrery.ui.sliceSpan
-import io.github.joshsymonds.orrery.ui.sliceStart
 import io.github.joshsymonds.orrery.ui.theme.Move
-import kotlin.math.PI
-import kotlin.math.min
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -94,9 +83,6 @@ private const val ENVELOPE_HEADER_BYTES = 5
 // A summary of sixty lines is taller than the screen, so a scroll leaves the summary's top above the screen and its
 // centre still under a tap.
 private val TALL_SUMMARY = (1..60).joinToString("\n") { "Synthetic summary line $it." }
-
-// The orrery's box in units, as Orrery draws it: its centre is point(0, 0), so the box is twice that from the centre.
-private val ORBIT_BOX = 2 * point(0f, 0f).x
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], qualifiers = "w400dp-h1200dp")
@@ -190,6 +176,7 @@ class MainActivityEpicsTest {
         .setOutcome("")
         .setChanged(NOW - 30)
         .setLive(true)
+        .setSource("orreryd")
         .addRunningSteps(epicStep())
         .addRunningSteps(epicStep(id = HELD_STEP_ID, held = true))
         .setEndedSteps(0)
@@ -197,15 +184,14 @@ class MainActivityEpicsTest {
         .build()
 
     /**
-     * Serves the epic, with its contract, its one requirement and [summary] when [contracted], with [steps], the
-     * planned [buildTasks], its [ledger] and its open [questions].
+     * Serves the epic with its [summary], [steps], planned [buildTasks] and open [questions]. When [contracted], it also
+     * serves its contract and its one requirement.
      */
     private fun serveEpic(
         contracted: Boolean = false,
         summary: String = "",
         steps: List<EpicStep> = listOf(epicStep()),
         buildTasks: List<EpicBuildTask> = emptyList(),
-        ledger: List<EpicLedgerFinding> = emptyList(),
         questions: List<EpicQuestion> = emptyList(),
     ) {
         server.respond(EPICS_LIST_PATH, EpicsListResponse.newBuilder().addEpics(liveEpic()).build())
@@ -214,7 +200,6 @@ class MainActivityEpicsTest {
             .addAllSteps(steps)
             .addAllBuildTasks(buildTasks)
             .setSummary(summary)
-            .addAllLedger(ledger)
             .addAllQuestions(questions)
         if (contracted) {
             detail.setContract(contractProto()).addRequirements(requirement)
@@ -243,16 +228,7 @@ class MainActivityEpicsTest {
         .setProblem("")
         .build()
 
-    /** One confirmed finding of the epic's review ledger. */
-    private fun ledgerFinding(): EpicLedgerFinding = EpicLedgerFinding.newBuilder()
-        .setId("synthetic-reviewer-1")
-        .setPosition(1L)
-        .setReviewer("synthetic-reviewer")
-        .setClaim("Synthetic ledger claim.")
-        .setResult("confirmed")
-        .setReason("Synthetic ledger reason.")
-        .build()
-
+    /** The one requirement a contracted epic carries, with its evidence. */
     private val requirement: EpicRequirement = EpicRequirement.newBuilder()
         .setId("R1")
         .setText("Synthetic requirement text")
@@ -407,7 +383,7 @@ class MainActivityEpicsTest {
 
     /** Taps the summary, then waits until the contract is read and the epic is gone. */
     private fun openContract() {
-        composeRule.onNodeWithTag("epic-summary").performClick()
+        composeRule.onNodeWithTag("epic-door-contract").performClick()
         awaitNode(hasTestTag("contract-body"))
         awaitNone(hasTestTag("epic-summary"))
     }
@@ -416,7 +392,7 @@ class MainActivityEpicsTest {
     private fun summaryTop(): Float = composeRule.onNodeWithTag("epic-summary").fetchSemanticsNode().positionInRoot.y
 
     /** Scrolls the epic's list until [section] shows, then returns where the summary's top is. */
-    private fun scrollEpicListUp(section: String = "epic-section:report"): Float {
+    private fun scrollEpicListUp(section: String = "epic-section:now"): Float {
         val before = summaryTop()
         composeRule.onNode(hasScrollAction() and hasAnyDescendant(hasTestTag("epic-summary")))
             .performScrollToNode(hasTestTag(section))
@@ -434,21 +410,7 @@ class MainActivityEpicsTest {
 
     /** Scrolls the epic's list until its implementation section shows: the orrery and the task rows. */
     private fun showImplementation() {
-        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("epic-section:implementation"))
-    }
-
-    /**
-     * Taps the orrery on [phase]'s ring, at the middle of the one wedge's slice. The chart is drawn at
-     * min(width, height) pixels over ORBIT_BOX units, centred in the node. The rim is ring 0, so a phase's ring is one
-     * more than its ordinal.
-     */
-    private fun tapOrreryCell(phase: Phase) {
-        val size = composeRule.onNodeWithTag("orrery").fetchSemanticsNode().size
-        val unit = min(size.width, size.height) / ORBIT_BOX
-        val angle = (sliceStart(0, 1) + sliceSpan(1) / 2) * PI.toFloat() / 180f
-        val offset = point(ringRadius(phase.ordinal + 1), angle) - point(0f, 0f)
-        val touch = Offset(size.width / 2f + offset.x * unit, size.height / 2f + offset.y * unit)
-        composeRule.onNodeWithTag("orrery").performTouchInput { click(touch) }
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("epic-section:tasks"))
     }
 
     /** The session button of the checking row, which opens the checking step's session. */
@@ -533,17 +495,6 @@ class MainActivityEpicsTest {
     }
 
     @Test
-    fun anEpicWithALedgerShowsItsFindingUnderTheHandover() {
-        serveEpic(contracted = true, ledger = listOf(ledgerFinding()))
-        openEpicFromHome()
-
-        composeRule.onNode(hasScrollAction() and hasAnyDescendant(hasTestTag("epic-section:now")))
-            .performScrollToNode(hasTestTag("epic-section:handover"))
-
-        awaitNode(hasText("Synthetic ledger claim.") and hasAnyAncestor(hasTestTag("epic-section:handover")))
-    }
-
-    @Test
     fun tappingAStepOpensTheSessionScreenAndBackReturnsToTheEpic() {
         serveEpic()
         server.respond(
@@ -575,11 +526,11 @@ class MainActivityEpicsTest {
     }
 
     @Test
-    fun tappingTheSummaryOpensTheContractScreenWithItsHeadings() {
+    fun tappingTheContractDoorOpensTheContractScreenWithItsHeadings() {
         serveEpic(contracted = true)
         openEpicFromHome()
 
-        composeRule.onNodeWithTag("epic-summary").performClick()
+        composeRule.onNodeWithTag("epic-door-contract").performClick()
 
         awaitNode(hasTestTag("contract-screen"))
         awaitNode(hasTestTag("contract-heading:0").and(hasText("WHAT YOU ASKED FOR")))
@@ -650,7 +601,7 @@ class MainActivityEpicsTest {
         openEpicFromHome()
         composeRule.mainClock.autoAdvance = false
 
-        composeRule.onNodeWithTag("epic-summary").performClick()
+        composeRule.onNodeWithTag("epic-door-contract").performClick()
         composeRule.mainClock.advanceTimeByFrame()
         composeRule.waitForIdle()
 
@@ -665,7 +616,7 @@ class MainActivityEpicsTest {
         openEpicFromHome()
         composeRule.mainClock.autoAdvance = false
 
-        composeRule.onNodeWithTag("epic-summary").performClick()
+        composeRule.onNodeWithTag("epic-door-contract").performClick()
         composeRule.mainClock.advanceTimeByFrame()
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("epic-summary").assertExists()
@@ -688,42 +639,16 @@ class MainActivityEpicsTest {
     }
 
     @Test
-    fun tappingAnOrreryPhaseCellOpensThatPhasesOutput() {
-        serveEpic(contracted = true, steps = checkingSteps(), buildTasks = listOf(taskBuild()))
-        openEpicFromHome()
-        showImplementation()
-
-        tapOrreryCell(Phase.CHECKING)
-
-        awaitNode(hasTestTag("phase-body:checking"))
-        composeRule.onNodeWithTag("crumb:2").assertTextEquals("$TASK_ID · checking")
-        awaitNone(hasTestTag("epic-summary"))
-    }
-
-    @Test
     fun tappingATaskRowOpensThatPhasesOutput() {
         serveEpic(contracted = true, steps = checkingSteps(), buildTasks = listOf(taskBuild()))
         openEpicFromHome()
         showImplementation()
-        awaitNode(hasTestTag("now-row:0"))
+        awaitNode(hasTestTag("task-row:$TASK_ID"))
 
-        composeRule.onNodeWithTag("now-row:0").performClick()
+        composeRule.onNodeWithTag("task-row:$TASK_ID").performClick()
 
         awaitNode(hasTestTag("phase-body:checking"))
         composeRule.onNodeWithTag("crumb:2").assertTextEquals("$TASK_ID · checking")
-        awaitNone(hasTestTag("epic-summary"))
-    }
-
-    @Test
-    fun tappingARedProofCardOpensThatTasksPhaseOutputAtImplementing() {
-        serveEpic(contracted = true, steps = checkingSteps(), buildTasks = listOf(taskBuild()))
-        openEpicFromHome()
-        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("proof-card:red:0"))
-
-        composeRule.onNodeWithTag("proof-card:red:0").performClick()
-
-        awaitNode(hasTestTag("phase-body:implementing"))
-        composeRule.onNodeWithTag("crumb:2").assertTextEquals("$TASK_ID · implementing")
         awaitNone(hasTestTag("epic-summary"))
     }
 
@@ -732,7 +657,7 @@ class MainActivityEpicsTest {
         serveEpic(contracted = true, steps = checkingSteps(), buildTasks = listOf(taskBuild()))
         val controller = openEpicFromHome()
         showImplementation()
-        composeRule.onNodeWithTag("now-row:0").performClick()
+        composeRule.onNodeWithTag("task-row:$TASK_ID").performClick()
         awaitNode(hasTestTag("phase-body:checking"))
 
         composeRule.onNode(hasTestTag("phase-row:implementing"), useUnmergedTree = true).performClick()
@@ -757,8 +682,8 @@ class MainActivityEpicsTest {
         )
         serveSessions(headlessSession(CHECK_STEP_ID, CHECK_SESSION_LABEL))
         val controller = openEpicFromHome()
-        val scrolled = scrollEpicListUp("epic-section:implementation")
-        composeRule.onNodeWithTag("now-row:0").performClick()
+        val scrolled = scrollEpicListUp("epic-section:tasks")
+        composeRule.onNodeWithTag("task-row:$TASK_ID").performClick()
         awaitNode(hasTestTag("phase-body:checking"))
         awaitNode(checkingSessionButton())
 
@@ -781,7 +706,7 @@ class MainActivityEpicsTest {
         serveEpic(contracted = true, steps = checkingSteps(), buildTasks = listOf(taskBuild()))
         openEpicFromHome()
         showImplementation()
-        composeRule.onNodeWithTag("now-row:0").performClick()
+        composeRule.onNodeWithTag("task-row:$TASK_ID").performClick()
         awaitNode(hasTestTag("phase-body:checking"))
         awaitNone(hasTestTag("epic-summary"))
 
@@ -800,7 +725,7 @@ class MainActivityEpicsTest {
         showImplementation()
         composeRule.mainClock.autoAdvance = false
 
-        composeRule.onNodeWithTag("now-row:0").performClick()
+        composeRule.onNodeWithTag("task-row:$TASK_ID").performClick()
         composeRule.mainClock.advanceTimeByFrame()
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("crumb:2").assertTextEquals("$TASK_ID · checking")

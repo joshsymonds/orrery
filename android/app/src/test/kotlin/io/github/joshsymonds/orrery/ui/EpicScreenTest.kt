@@ -1,49 +1,34 @@
 package io.github.joshsymonds.orrery.ui
 
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
-import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasAnyAncestor
-import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
 import com.connectrpc.Code
-import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Quiescence
 import io.github.joshsymonds.orrery.api.Reply
-import io.github.joshsymonds.orrery.api.StepRow
 import io.github.joshsymonds.orrery.awaitUntil
 import io.github.joshsymonds.orrery.gen.orrery.v1.Epic
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicContract
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicHistoryEntry
-import io.github.joshsymonds.orrery.gen.orrery.v1.EpicNode
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestionChoice
-import io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseProof
-import io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseStep
-import io.github.joshsymonds.orrery.gen.orrery.v1.EpicReport
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsAnswerRequest
@@ -51,27 +36,17 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsAnswerResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsHistoryRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsHistoryResponse
-import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsPauseRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsPauseResponse
-import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsResumeRequest
-import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsResumeResponse
-import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsRetryRequest
-import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsRetryResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsSeenRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsSeenResponse
-import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsStopRequest
-import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsStopResponse
-import io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun
 import io.github.joshsymonds.orrery.mainThreadComposeRule
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicReference
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], qualifiers = "w400dp-h1200dp")
@@ -83,23 +58,17 @@ class EpicScreenTest {
         const val EPICS_GET = "/orrery.v1.Epics/Get"
         const val EPICS_HISTORY = "/orrery.v1.Epics/History"
         const val EPICS_PAUSE = "/orrery.v1.Epics/Pause"
-        const val EPICS_RESUME = "/orrery.v1.Epics/Resume"
-        const val EPICS_STOP = "/orrery.v1.Epics/Stop"
-        const val EPICS_RETRY = "/orrery.v1.Epics/Retry"
         const val EPICS_ANSWER = "/orrery.v1.Epics/Answer"
         const val EPICS_SEEN = "/orrery.v1.Epics/Seen"
         // The web's dwell before an ended epic is marked seen (web/src/seen.ts DWELL_MS). A window that must send advances
         // by twice it: advanceTimeBy leaves a task due at its very end, and a dwell can begin at the instant it is at.
         const val DWELL_MILLIS = 1_000L
         const val CHANGED = 4_102_444_800L
-        const val REVISION = "0123456789abcdef0123456789abcdef01234567"
     }
 
     @get:Rule
     val composeRule = mainThreadComposeRule()
 
-    private val openedStep = AtomicReference<StepRow?>(null)
-    private val contractOpened = AtomicInteger()
     private val backed = AtomicInteger()
 
     private fun step(id: String, task: String, agent: String): EpicStep =
@@ -114,7 +83,6 @@ class EpicScreenTest {
     private fun body(
         steps: List<EpicStep> = emptyList(),
         requirements: List<EpicRequirement> = emptyList(),
-        nodes: List<EpicNode> = emptyList(),
         questions: List<EpicQuestion> = emptyList(),
         contract: EpicContract? = null,
         summary: String = "",
@@ -125,8 +93,6 @@ class EpicScreenTest {
         parked: String = "",
         phaseAt: Long = 0L,
         buildTasks: List<EpicBuildTask> = emptyList(),
-        releaseProof: List<EpicReleaseProof> = emptyList(),
-        report: EpicReport? = null,
         source: String = "orreryd",
         seen: Long = 0L,
     ): EpicsGetResponse {
@@ -147,105 +113,17 @@ class EpicScreenTest {
             .setEpic(epic)
             .addAllSteps(steps)
             .addAllRequirements(requirements)
-            .addAllNodes(nodes)
             .addAllQuestions(questions)
             .addAllBuildTasks(buildTasks)
-            .addAllReleaseSteps(releaseProof)
             .setSummary(summary)
             .setPaused(paused)
             .setParked(parked)
         contract?.let { response.setContract(it) }
-        report?.let { response.setReport(it) }
         return response.build()
     }
 
-    private fun buildTask(id: String): EpicBuildTask =
-        EpicBuildTask.newBuilder()
-            .setId(id)
-            .setTitle("Example task")
-            .setStatus("working")
-            .setStage("implementing")
-            .build()
-
-    private fun releaseProof(
-        position: Long,
-        state: String,
-        evidence: String = "",
-        reason: String = "",
-    ): EpicReleaseProof =
-        EpicReleaseProof.newBuilder()
-            .setPosition(position)
-            .setStep("example release step")
-            .setTarget("example target")
-            .setUndo("example undo")
-            .setState(state)
-            .setEvidence(evidence)
-            .setReason(reason)
-            .setAttempt(1L)
-            .setAt(CHANGED - 60)
-            .build()
-
-    private fun report(outcome: String, shipped: List<String>, notShipped: List<String>, why: String): EpicReport =
-        EpicReport.newBuilder()
-            .setOutcome(outcome)
-            .addAllShipped(shipped)
-            .addAllNotShipped(notShipped)
-            .setWhy(why)
-            .build()
-
-    private fun contract(title: String = "Example contract title"): EpicContract =
-        EpicContract.newBuilder()
-            .setTitle(title)
-            .addReleaseSteps(
-                EpicReleaseStep.newBuilder()
-                    .setStep("example release step")
-                    .setTarget("example target")
-                    .setUndo("example undo"),
-            )
-            .setReleaseThen("example release then")
-            .build()
-
     private fun question(id: String, text: String, asked: Long, choices: List<EpicQuestionChoice> = emptyList()): EpicQuestion =
         EpicQuestion.newBuilder().setId(id).setText(text).setTurn(1L).setAsked(asked).addAllChoices(choices).build()
-
-    private fun node(path: String, kind: String): EpicNode =
-        EpicNode.newBuilder()
-            .setPath(path)
-            .setNode("example-node")
-            .setKind(kind)
-            .setState("ended")
-            .setRound(1L)
-            .setRevision("example-revision")
-            .build()
-
-    private fun evidenceRun(id: String, phase: String): EvidenceRun =
-        EvidenceRun.newBuilder()
-            .setId(id)
-            .setPhase(phase)
-            .setSource("captured")
-            .setState("ended")
-            .setVerdict("holds")
-            .setPassed(true)
-            .setRevision(REVISION)
-            .setCreated(CHANGED - 600)
-            .setEnded(CHANGED - 60)
-            .build()
-
-    private fun requirement(
-        id: String,
-        text: String,
-        kind: String,
-        conclusion: String = "",
-        runs: List<EvidenceRun> = emptyList(),
-    ): EpicRequirement =
-        EpicRequirement.newBuilder()
-            .setId(id)
-            .setText(text)
-            .setEvidence("example evidence")
-            .setKind(kind)
-            .setConclusion(conclusion)
-            .addAllRuns(runs)
-            .build()
 
     private fun historyEntry(time: Long, cursor: String, step: EpicStep): EpicHistoryEntry =
         EpicHistoryEntry.newBuilder().setTime(time).setCursor(cursor).setStep(step).build()
@@ -262,9 +140,6 @@ class EpicScreenTest {
     private fun setScreen(
         server: FakeOrreryServer,
         listState: LazyListState = LazyListState(),
-        onOpenPhase: ((task: String, phase: Phase) -> Unit)? = null,
-        actions: @Composable RowScope.() -> Unit = {},
-        handover: (@Composable (EpicDetail) -> Unit)? = null,
         owner: LifecycleOwner? = null,
         shown: MutableState<Boolean> = mutableStateOf(true),
         openEpic: MutableState<String> = mutableStateOf(EPIC_ID),
@@ -277,12 +152,11 @@ class EpicScreenTest {
                         client = client,
                         epicId = openEpic.value,
                         onBack = { backed.incrementAndGet() },
-                        onOpenStep = { openedStep.set(it) },
-                        onOpenContract = { contractOpened.incrementAndGet() },
+                        onOpenStep = {},
+                        onOpenContract = {},
+                        onTalk = {},
+                        listedSteerer = { null },
                         listState = listState,
-                        onOpenPhase = onOpenPhase,
-                        actions = actions,
-                        handover = handover,
                         now = { NOW },
                     )
                 }
@@ -311,25 +185,10 @@ class EpicScreenTest {
         composeRule.onNodeWithTag(tag, useUnmergedTree = true).performClick()
     }
 
-    /** Scrolls the list until the node tagged [tag] is composed, as a test reaches a section or row. */
-    private fun scrollTo(tag: String) {
-        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag(tag))
+    /** Taps [tag] through its click action, as the content of a sheet is tapped under Robolectric. */
+    private fun tapInSheet(tag: String) {
+        composeRule.onNodeWithTag(tag, useUnmergedTree = true).performSemanticsAction(SemanticsActions.OnClick)
     }
-
-    /** The index of the item of section [name] in the list, read once the section is on screen. */
-    private fun sectionIndex(listState: LazyListState, name: String): Int {
-        scrollTo("epic-section:$name")
-        return composeRule.runOnIdle {
-            val visible = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "section:$name" }
-            checkNotNull(visible) { "section $name is not on screen after it was scrolled to" }.index
-        }
-    }
-
-    private fun stateOf(tag: String): String? =
-        composeRule.onNodeWithTag(tag, useUnmergedTree = true)
-            .fetchSemanticsNode()
-            .config
-            .getOrNull(SemanticsProperties.StateDescription)
 
     private fun requestsTo(server: FakeOrreryServer, path: String) = server.requests.filter { it.rawPath == path }
 
@@ -362,303 +221,6 @@ class EpicScreenTest {
             settle()
 
             assertEquals(0, seenRequests(server).size)
-        }
-    }
-
-    @Test
-    fun theSectionsShowInTheEpicPagesOrder() {
-        val listState = LazyListState()
-        FakeOrreryServer().use { server ->
-            serve(
-                server,
-                body(
-                    requirements = listOf(requirement("R1", "Example requirement one.", "check")),
-                    contract = contract(),
-                    summary = "Example summary.",
-                ),
-            )
-            setScreen(server, listState = listState)
-            awaitLoaded()
-
-            val names = listOf("summary", "now", "red", "implementation", "green", "release", "report")
-            val indexes = names.map { sectionIndex(listState, it) }
-            assertTrue("expected the sections in order, got $indexes", indexes.zipWithNext().all { (a, b) -> a < b })
-            assertEquals(0, countNodes(hasTestTag("epic-section:handover")))
-        }
-    }
-
-    @Test
-    fun theHandoverShowsBetweenGreenAndReleaseOnlyWhenGiven() {
-        val listState = LazyListState()
-        FakeOrreryServer().use { server ->
-            serve(server, body(contract = contract()))
-            setScreen(server, listState = listState, handover = { Text("Example handover.") })
-            awaitLoaded()
-
-            val indexes = listOf("green", "handover", "release").map { sectionIndex(listState, it) }
-            assertTrue("expected green, handover, release in order, got $indexes", indexes.zipWithNext().all { (a, b) -> a < b })
-            assertEquals(1, countIn("epic-section:handover", hasText("Example handover.")))
-        }
-    }
-
-    @Test
-    fun theHandoverIsGivenTheLoadedEpic() {
-        val listState = LazyListState()
-        FakeOrreryServer().use { server ->
-            serve(server, body(contract = contract()))
-            setScreen(
-                server,
-                listState = listState,
-                handover = { detail -> Text("Example handover for ${detail.epic.slug}.") },
-            )
-            awaitLoaded()
-
-            assertEquals(1, countIn("epic-section:handover", hasText("Example handover for example-epic.")))
-        }
-    }
-
-    @Test
-    fun theGreenProofIsReachedOnceAGreenRunPassesAndTheOthersStayDim() {
-        val green = evidenceRun("example-run-2", "green")
-        FakeOrreryServer().use { server ->
-            serve(
-                server,
-                body(requirements = listOf(requirement("R1", "Example requirement one.", "check", runs = listOf(green)))),
-            )
-            setScreen(server)
-            awaitLoaded()
-
-            scrollTo("epic-section:green")
-            assertEquals("reached", stateOf("proof:green"))
-            scrollTo("epic-section:red")
-            assertEquals("dim", stateOf("proof:red"))
-            scrollTo("epic-section:release")
-            assertEquals("dim", stateOf("proof:release"))
-            scrollTo("epic-section:report")
-            assertEquals("dim", stateOf("proof:report"))
-        }
-    }
-
-    @Test
-    fun theReleaseProofIsReachedOnceTheEpicIsReleased() {
-        FakeOrreryServer().use { server ->
-            serve(server, body(contract = contract(), outcome = "released", live = false))
-            setScreen(server)
-            awaitTag("title-state")
-
-            scrollTo("epic-section:release")
-            assertEquals("reached", stateOf("proof:release"))
-            assertEquals(1, countIn("epic-section:release", hasText("example release step")))
-        }
-    }
-
-    @Test
-    fun theTitleShowsTheStateWithTheTimeItsPhaseHasLasted() {
-        FakeOrreryServer().use { server ->
-            serve(server, body(buildTasks = listOf(buildTask("example-task-1")), phaseAt = NOW - 2_940))
-            setScreen(server)
-            awaitTag("title-state")
-
-            composeRule.onNodeWithTag("title-state", useUnmergedTree = true).assertTextEquals("building · 49 min")
-        }
-    }
-
-    @Test
-    fun theTitleShowsTheStateAloneWhenItsPhaseHasNoTime() {
-        FakeOrreryServer().use { server ->
-            serve(server, body(buildTasks = listOf(buildTask("example-task-1")), phaseAt = 0L))
-            setScreen(server)
-            awaitTag("title-state")
-
-            composeRule.onNodeWithTag("title-state", useUnmergedTree = true).assertTextEquals("building")
-        }
-    }
-
-    @Test
-    fun theTitleTimeIsZeroWhenThePhaseIsAfterNow() {
-        FakeOrreryServer().use { server ->
-            serve(server, body(buildTasks = listOf(buildTask("example-task-1")), phaseAt = NOW + 60))
-            setScreen(server)
-            awaitTag("title-state")
-
-            composeRule.onNodeWithTag("title-state", useUnmergedTree = true).assertTextEquals("building · 0 s")
-        }
-    }
-
-    @Test
-    fun aReleaseStepShowsItsStateEvidenceAndReasonFromTheEpic() {
-        FakeOrreryServer().use { server ->
-            serve(
-                server,
-                body(
-                    contract = contract(),
-                    releaseProof = listOf(releaseProof(1L, "passed", evidence = "Example evidence.", reason = "Example reason.")),
-                ),
-            )
-            setScreen(server)
-            awaitLoaded()
-
-            scrollTo("epic-section:release")
-            composeRule.onNodeWithTag("release-step-state:0", useUnmergedTree = true).assertTextEquals("passed")
-            composeRule.onNodeWithTag("release-step-evidence:0", useUnmergedTree = true).assertTextEquals("Example evidence.")
-            composeRule.onNodeWithTag("release-step-reason:0", useUnmergedTree = true).assertTextEquals("Example reason.")
-        }
-    }
-
-    @Test
-    fun theReportShowsItsLinesAndIsReachedWhenTheEpicHasOne() {
-        FakeOrreryServer().use { server ->
-            serve(
-                server,
-                body(
-                    outcome = "released",
-                    live = false,
-                    report = report("released", listOf("R1", "R2"), listOf("R3"), "Example why."),
-                ),
-            )
-            setScreen(server)
-            awaitTag("report-outcome")
-
-            scrollTo("epic-section:report")
-            composeRule.onNodeWithTag("report-outcome", useUnmergedTree = true).assertTextEquals("released")
-            composeRule.onNodeWithTag("report-shipped", useUnmergedTree = true).assertTextEquals("shipped R1, R2")
-            composeRule.onNodeWithTag("report-not-shipped", useUnmergedTree = true).assertTextEquals("not shipped R3")
-            composeRule.onNodeWithTag("report-why", useUnmergedTree = true).assertTextEquals("Example why.")
-            assertEquals("reached", stateOf("proof:report"))
-        }
-    }
-
-    @Test
-    fun aRunningEpicOffersPauseAndNotResume() {
-        FakeOrreryServer().use { server ->
-            serve(server, body())
-            setScreen(server)
-            awaitTag("epic-pause")
-
-            assertEquals(0, countNodes(hasTestTag("epic-resume")))
-        }
-    }
-
-    @Test
-    fun aPausedEpicOffersResumeAndNotPause() {
-        FakeOrreryServer().use { server ->
-            serve(server, body(paused = true))
-            setScreen(server)
-            awaitTag("epic-resume")
-
-            assertEquals(0, countNodes(hasTestTag("epic-pause")))
-            composeRule.onNodeWithTag("title-state", useUnmergedTree = true).assertTextEquals("paused")
-        }
-    }
-
-    @Test
-    fun anEpicWithAnOutcomeOffersNoCommands() {
-        FakeOrreryServer().use { server ->
-            serve(server, body(outcome = "released", live = false))
-            setScreen(server)
-            awaitTag("title-state")
-
-            assertEquals(0, countNodes(hasTestTag("epic-pause")))
-            assertEquals(0, countNodes(hasTestTag("epic-resume")))
-            assertEquals(0, countNodes(hasTestTag("epic-stop")))
-        }
-    }
-
-    @Test
-    fun aTapOnStopAsksFirstAndConfirmSendsStopOnceWithTheEpicId() {
-        FakeOrreryServer().use { server ->
-            serve(server, body())
-            server.respond(EPICS_STOP, EpicsStopResponse.getDefaultInstance())
-            setScreen(server)
-            awaitTag("epic-stop")
-
-            clickTag("epic-stop")
-            assertEquals(1, countNodes(hasTestTag("epic-stop-sure")))
-            assertEquals(0, requestsTo(server, EPICS_STOP).size)
-
-            clickTag("epic-stop-keep")
-            assertEquals(0, countNodes(hasTestTag("epic-stop-sure")))
-            assertEquals(0, requestsTo(server, EPICS_STOP).size)
-
-            clickTag("epic-stop")
-            val reads = getCount(server)
-            clickTag("epic-stop-confirm")
-            awaitReload(server, reads)
-
-            val stops = requestsTo(server, EPICS_STOP)
-            assertEquals(1, stops.size)
-            assertEquals(EPIC_ID, EpicsStopRequest.parseFrom(stops.single().body).id)
-        }
-    }
-
-    @Test
-    fun aTapOnTheBlockersStopAsksFirstAndConfirmSendsStopOnceWithTheEpicId() {
-        FakeOrreryServer().use { server ->
-            serve(server, body(parked = "example park reason"))
-            server.respond(EPICS_STOP, EpicsStopResponse.getDefaultInstance())
-            setScreen(server)
-            awaitTag("blocker-stop")
-
-            clickTag("blocker-stop")
-            assertEquals(1, countNodes(hasTestTag("blocker-stop-sure")))
-            assertEquals(0, requestsTo(server, EPICS_STOP).size)
-
-            val reads = getCount(server)
-            clickTag("blocker-stop-confirm")
-            awaitReload(server, reads)
-
-            val stops = requestsTo(server, EPICS_STOP)
-            assertEquals(1, stops.size)
-            assertEquals(EPIC_ID, EpicsStopRequest.parseFrom(stops.single().body).id)
-        }
-    }
-
-    @Test
-    fun pauseSendsThePauseWithTheEpicId() {
-        FakeOrreryServer().use { server ->
-            serve(server, body())
-            server.respond(EPICS_PAUSE, EpicsPauseResponse.getDefaultInstance())
-            setScreen(server)
-            awaitTag("epic-pause")
-
-            val reads = getCount(server)
-            clickTag("epic-pause")
-            awaitReload(server, reads)
-
-            assertEquals(EPIC_ID, EpicsPauseRequest.parseFrom(requestsTo(server, EPICS_PAUSE).single().body).id)
-        }
-    }
-
-    @Test
-    fun resumeSendsTheResumeWithTheEpicId() {
-        FakeOrreryServer().use { server ->
-            serve(server, body(paused = true))
-            server.respond(EPICS_RESUME, EpicsResumeResponse.getDefaultInstance())
-            setScreen(server)
-            awaitTag("epic-resume")
-
-            val reads = getCount(server)
-            clickTag("epic-resume")
-            awaitReload(server, reads)
-
-            assertEquals(EPIC_ID, EpicsResumeRequest.parseFrom(requestsTo(server, EPICS_RESUME).single().body).id)
-        }
-    }
-
-    @Test
-    fun retrySendsTheRetryWithTheEpicId() {
-        FakeOrreryServer().use { server ->
-            serve(server, body(parked = "example park reason"))
-            server.respond(EPICS_RETRY, EpicsRetryResponse.getDefaultInstance())
-            setScreen(server)
-            awaitTag("ask-option:1")
-
-            clickTag("ask-option:1")
-            val reads = getCount(server)
-            clickTag("ask-confirm")
-            awaitReload(server, reads)
-
-            assertEquals(EPIC_ID, EpicsRetryRequest.parseFrom(requestsTo(server, EPICS_RETRY).single().body).id)
         }
     }
 
@@ -737,117 +299,7 @@ class EpicScreenTest {
             composeRule.onNodeWithTag("ask-other-text", useUnmergedTree = true).performTextInput("Example answer")
             clickTag("ask-confirm")
 
-            awaitText("not sent: question is closed. Your answer: Example answer")
-        }
-    }
-
-    @Test
-    fun theActionsRenderFirstInTheTitleRow() {
-        FakeOrreryServer().use { server ->
-            serve(server, body())
-            setScreen(server, actions = { Text("Example action", modifier = Modifier.testTag("example-action")) })
-            awaitTag("epic-pause")
-
-            val action = composeRule.onNodeWithTag("example-action", useUnmergedTree = true).fetchSemanticsNode()
-            val pause = composeRule.onNodeWithTag("epic-pause", useUnmergedTree = true).fetchSemanticsNode()
-            assertTrue(action.boundsInRoot.left < pause.boundsInRoot.left)
-        }
-    }
-
-    @Test
-    fun theTitleShowsHowLongTheBlockerHasWaited() {
-        FakeOrreryServer().use { server ->
-            serve(
-                server,
-                body(questions = listOf(question("example-question-1", "Example question?", NOW - 120))),
-            )
-            setScreen(server)
-            awaitLoaded()
-
-            composeRule.onNodeWithTag("title-blocker", useUnmergedTree = true)
-                .assertTextEquals("waits on your answer · 2 min")
-        }
-    }
-
-    @Test
-    fun theSummaryOpensTheContractWhenTapped() {
-        FakeOrreryServer().use { server ->
-            serve(server, body(summary = "Example summary.", contract = contract()))
-            setScreen(server)
-            awaitLoaded()
-
-            scrollTo("epic-section:summary")
-            assertEquals(1, countIn("epic-section:summary", hasText("Example summary.")))
-            clickTag("epic-summary")
-
-            assertEquals(1, contractOpened.get())
-        }
-    }
-
-    @Test
-    fun theSummaryFallsBackToTheContractTitle() {
-        FakeOrreryServer().use { server ->
-            serve(server, body(contract = contract(title = "Example contract title")))
-            setScreen(server)
-            awaitLoaded()
-
-            scrollTo("epic-section:summary")
-            composeRule.onNodeWithTag("epic-summary", useUnmergedTree = true).assertTextEquals("Example contract title")
-        }
-    }
-
-    @Test
-    fun noSummaryShowsWithoutAContract() {
-        FakeOrreryServer().use { server ->
-            serve(server, body(summary = "Example summary."))
-            setScreen(server)
-            awaitLoaded()
-
-            assertEquals(0, countNodes(hasTestTag("epic-section:summary")))
-            assertEquals(0, countNodes(hasTestTag("epic-summary")))
-            assertEquals(0, countNodes(hasText("Example summary.")))
-        }
-    }
-
-    @Test
-    fun aHistoryStepEntryShowsItsLineAndOpensItsStep() {
-        val step = step("example-step-1", "example-task-1", "example-agent")
-        FakeOrreryServer().use { server ->
-            serve(
-                server,
-                body(steps = listOf(step)),
-                historyOf(historyEntry(NOW - 60, "example-cursor-1", step)),
-            )
-            setScreen(server)
-            awaitLoaded()
-
-            assertEquals(1, countIn("happened:0", hasText("example-task-1 · started")))
-            clickTag("happened:0")
-
-            assertEquals("example-step-1", openedStep.get()?.id)
-        }
-    }
-
-    @Test
-    fun justHappenedShowsTheNewestThreeAndOpensTheRestInPlace() {
-        val entries = (1..5).map { index ->
-            historyEntry(
-                NOW - 60,
-                "example-cursor-$index",
-                step("example-step-$index", "example-task-$index", "example-agent"),
-            )
-        }
-        FakeOrreryServer().use { server ->
-            serve(server, body(), historyOf(*entries.toTypedArray()))
-            setScreen(server)
-            awaitLoaded()
-
-            assertEquals(1, countIn("happened:0", hasText("example-task-5 · started")))
-            assertEquals(1, countIn("happened:2", hasText("example-task-3 · started")))
-            assertEquals(0, countNodes(hasTestTag("happened:3")))
-            clickTag("happened-more")
-
-            assertEquals(1, countIn("happened:4", hasText("example-task-1 · started")))
+            awaitText("Answer did not land: question is closed. Your answer: Example answer")
         }
     }
 
@@ -880,61 +332,6 @@ class EpicScreenTest {
     }
 
     @Test
-    fun theWorkflowNodesShowUnderTheWorkflowHeadingInTheImplementationSection() {
-        FakeOrreryServer().use { server ->
-            serve(server, body(nodes = listOf(node("example-path", "plan"))))
-            setScreen(server)
-            awaitLoaded()
-
-            scrollTo("epic-section:implementation")
-            assertEquals(1, countNodes(hasText("WORKFLOW")))
-            assertEquals(1, countIn("epic-section:implementation", hasTestTag("node-row:0")))
-        }
-    }
-
-    @Test
-    fun aRequirementShowsInTheRedAndGreenProofsWithItsIdTextKindAndConclusion() {
-        FakeOrreryServer().use { server ->
-            serve(
-                server,
-                body(requirements = listOf(requirement("R1", "Example requirement one.", "check", conclusion = "example conclusion"))),
-            )
-            setScreen(server)
-            awaitLoaded()
-
-            scrollTo("epic-section:red")
-            assertEquals(1, countIn("proof-card:red:0", hasText("R1")))
-            assertEquals(1, countIn("proof-card:red:0", hasText("Example requirement one.")))
-            assertEquals(1, countIn("proof-card:red:0", hasText("check")))
-            assertEquals(1, countIn("proof-card:red:0", hasText("example conclusion")))
-            scrollTo("epic-section:green")
-            assertEquals(1, countIn("proof-card:green:0", hasText("R1")))
-        }
-    }
-
-    @Test
-    fun theListKeepsTheScrollTheCallerHoldsWhenACommandReloadsTheEpic() {
-        val listState = LazyListState()
-        FakeOrreryServer().use { server ->
-            serve(server, body(nodes = (1..40).map { node("example-path-$it", "plan") }))
-            server.respond(EPICS_PAUSE, EpicsPauseResponse.getDefaultInstance())
-            setScreen(server, listState = listState)
-            awaitLoaded()
-
-            scrollTo("epic-section:implementation")
-            val before = composeRule.runOnIdle { listState.firstVisibleItemIndex }
-            assertTrue(before > 0)
-
-            val reads = getCount(server)
-            clickTag("epic-pause")
-            awaitReload(server, reads)
-            composeRule.waitForIdle()
-
-            assertEquals(before, composeRule.runOnIdle { listState.firstVisibleItemIndex })
-        }
-    }
-
-    @Test
     fun theTitleShowsTheProblemAsSent() {
         FakeOrreryServer().use { server ->
             serve(server, body(problem = "efforts/1/state.json: does not parse"))
@@ -945,38 +342,12 @@ class EpicScreenTest {
     }
 
     @Test
-    fun theOrreryDrawsInTheImplementationSection() {
-        FakeOrreryServer().use { server ->
-            serve(server, body())
-            setScreen(server)
-            awaitLoaded()
-
-            assertEquals(1, countIn("epic-section:implementation", hasTestTag("orrery")))
-        }
-    }
-
-    @Test
     fun unknownEpicShowsEpicNotFound() {
         FakeOrreryServer().use { server ->
             setScreen(server)
 
             awaitText("epic not found")
             assertEquals(0, countNodes(hasText("Retry")))
-        }
-    }
-
-    @Test
-    fun failedLoadShowsRetryAndRetryLoadsTheEpic() {
-        FakeOrreryServer().use { server ->
-            server.fail(EPICS_GET, Code.UNAVAILABLE, "synthetic outage")
-            server.respond(EPICS_HISTORY, historyOf())
-            setScreen(server)
-            awaitText("could not load epic")
-
-            server.respond(EPICS_GET, body(problem = "Loaded after retry"))
-            composeRule.onNodeWithText("Retry").performClick()
-
-            awaitText("Loaded after retry")
         }
     }
 
@@ -1123,18 +494,20 @@ class EpicScreenTest {
         FakeOrreryServer().use { server ->
             server.route(EPICS_GET) {
                 val live = reads.incrementAndGet() == 1
-                Reply.Message(body(live = live, outcome = if (live) "" else "released", phaseAt = NOW - 60), 0L)
+                Reply.Message(body(live = live, outcome = if (live) "built" else "released", phaseAt = NOW - 60), 0L)
             }
             server.respond(EPICS_HISTORY, historyOf())
             server.respond(EPICS_PAUSE, EpicsPauseResponse.getDefaultInstance())
             server.respond(EPICS_SEEN, EpicsSeenResponse.getDefaultInstance())
             setScreen(server)
-            awaitTag("epic-pause")
+            awaitTag("epic-more")
 
             val reloads = getCount(server)
-            clickTag("epic-pause")
+            clickTag("epic-more")
+            awaitTag("epic-sheet-pause")
+            tapInSheet("epic-sheet-pause")
             awaitReload(server, reloads)
-            composeRule.awaitUntil("the epic reads as not live") { countNodes(hasTestTag("epic-pause")) == 0 }
+            composeRule.awaitUntil("the epic reads as not live") { countNodes(hasTestTag("epic-more")) == 0 }
 
             assertEquals(0, countNodes(hasText("epic not found")))
             assertEquals(1, countNodes(hasTestTag("epic-section:now")))

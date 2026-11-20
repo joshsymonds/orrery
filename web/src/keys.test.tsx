@@ -6,12 +6,12 @@ import { create } from "@bufbuild/protobuf";
 import { type JSX, render } from "preact";
 import { act } from "preact/test-utils";
 
-import { NowBlock } from "./blocker";
 import { Dock } from "./dock";
 import type { DockFacts } from "./dockwords";
-import { EpicQuestionSchema, EpicSchema } from "./gen/orrery/v1/epics_pb";
+import { EpicQuestionSchema, EpicSchema, EpicsGetResponseSchema } from "./gen/orrery/v1/epics_pb";
 import { type Chord, keyGroups, type Where } from "./keys";
 import { type EscapeTarget, handleKey, type KeyContext } from "./keymap";
+import { NowSection } from "./nowsection";
 import type { Row } from "./rows";
 import { mockTimers } from "./testclock";
 import { assertSame, installTestDom, removeTestDom } from "./testdom";
@@ -319,21 +319,18 @@ async function questionPress(key: string, modifier: Modifier | null): Promise<Ou
   try {
     await act(() => {
       render(
-        <NowBlock
-          sentence=""
-          blocker={{
-            kind: "question",
-            text: "waits on your answer",
-            since: 0,
-            question: create(EpicQuestionSchema, { id: "Q1", text: "Which lane should it use?", choices: eightChoices }),
-          }}
-          slug="lanes"
-          epic={create(EpicSchema, { id: "orrery/lanes", slug: "lanes", repository: "orrery", live: true })}
+        <NowSection
+          detail={create(EpicsGetResponseSchema, {
+            epic: create(EpicSchema, { id: "orrery/lanes", slug: "lanes", repository: "orrery", live: true }),
+            questions: [create(EpicQuestionSchema, { id: "Q1", text: "Which lane should it use?", choices: eightChoices })],
+          })}
           now={0}
+          narrow={false}
           numberKeys
           onAnswer={() => Promise.resolve("")}
           onRetry={() => {}}
           onStop={() => {}}
+          onResume={() => {}}
         />,
         container,
       );

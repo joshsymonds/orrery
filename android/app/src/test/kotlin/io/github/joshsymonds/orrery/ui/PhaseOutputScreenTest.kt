@@ -333,8 +333,8 @@ class PhaseOutputScreenTest {
 
         showBody(epic, Phase.IMPLEMENTING)
 
-        composeRule.onNodeWithText("RED").assertExists()
-        composeRule.onNodeWithText("GREEN").assertExists()
+        composeRule.onNodeWithText("Red run: the test passes before any change. It should fail.").assertExists()
+        composeRule.onNodeWithText("Green run: the test passes on the change.").assertExists()
         composeRule.onNodeWithText("RETURNED").assertExists()
         composeRule.onNodeWithText("synthetic return reason").assertExists()
         // The running step's doing also shows as its phase row's summary, so the check looks inside the body alone.

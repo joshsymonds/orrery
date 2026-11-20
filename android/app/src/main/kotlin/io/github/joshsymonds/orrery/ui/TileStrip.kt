@@ -1,6 +1,7 @@
 package io.github.joshsymonds.orrery.ui
 
 import android.util.Log
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -25,9 +26,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import io.github.joshsymonds.orrery.api.BackgroundTask
+import io.github.joshsymonds.orrery.api.ContractRow
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.OrreryClient
@@ -40,11 +47,15 @@ import kotlinx.coroutines.withContext
 private const val TAG = "ConversationStrip"
 private val TILE_SHAPE = RoundedCornerShape(OrreryTokens.Radius.two)
 
+// The width and height of the doc icon's grid, in the units its path is written in.
+private const val DOC_GRID = 16f
+
 /**
  * The right rail's groups on a phone, as one horizontally scrolling strip. Each group is a column: its name over its
- * tiles. An epic is a tile with its small orrery when its detail is held and its short name otherwise, with a ? when
- * it asks. A list is a tile with its count. A group of more than three is one dots tile, its count or ? when one asks,
- * and opens [onOpenPicker]. A tile opens its thing through [onOpen]. [end] is drawn last, after the groups.
+ * tiles. A contract is a tile with the doc icon and its short name, with a ? while a decision is open. An epic is a
+ * tile with its small orrery when its detail is held and its short name otherwise, with a ? when it asks. A list is a
+ * tile with its count. A group of more than three is one dots tile, its count or ? when one asks, and opens
+ * [onOpenPicker]. A tile opens its thing through [onOpen]. [end] is drawn last, after the groups.
  */
 @Composable
 fun TileStrip(
@@ -89,6 +100,7 @@ private fun GroupColumn(group: RailGroup, onOpen: (RailThing) -> Unit, onOpenPic
             Row(horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight)) {
                 for (thing in group.things) {
                     when (thing) {
+                        is ContractThing -> ContractTile(thing, onOpen)
                         is EpicThing -> EpicTile(thing, onOpen)
                         is ListThing -> ListTile(thing, onOpen)
                     }
@@ -130,6 +142,55 @@ private fun EpicTile(epic: EpicThing, onOpen: (RailThing) -> Unit) {
 }
 
 @Composable
+private fun ContractTile(contract: ContractThing, onOpen: (RailThing) -> Unit) {
+    Box {
+        Tile(
+            "tile:contract:${contract.id}",
+            contract.tone,
+            onClick = { onOpen(contract) },
+            description = contract.title,
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Canvas(Modifier.size(OrreryTokens.Size.icon)) { drawDoc(OrreryTokens.Ink.two) }
+                Text(
+                    contract.short,
+                    style = OrreryTokens.Type.small,
+                    color = OrreryTokens.Ink.one,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        if (contract.asks) {
+            Text(
+                "?",
+                style = OrreryTokens.Type.small,
+                color = OrreryTokens.Role.attention,
+                modifier = Modifier.align(Alignment.TopEnd).testTag("tile-ask:contract:${contract.id}"),
+            )
+        }
+    }
+}
+
+// The round 6 doc icon: a page with its folded corner and two lines, drawn on a 16-unit grid.
+private fun DrawScope.drawDoc(color: Color) {
+    val stroke = Stroke(width = OrreryTokens.Size.hairline.toPx())
+    val scale = size.width / DOC_GRID
+    val page = listOf(4f to 2f, 9f to 2f, 12f to 5f, 12f to 14f, 4f to 14f)
+    drawPath(docPath(scale, page, closed = true), color, style = stroke)
+    drawPath(docPath(scale, listOf(9f to 2f, 9f to 5f, 12f to 5f)), color, style = stroke)
+    drawPath(docPath(scale, listOf(6f to 8f, 10f to 8f)), color, style = stroke)
+    drawPath(docPath(scale, listOf(6f to 11f, 10f to 11f)), color, style = stroke)
+}
+
+private fun docPath(scale: Float, points: List<Pair<Float, Float>>, closed: Boolean = false): Path = Path().apply {
+    points.forEachIndexed { index, (x, y) ->
+        if (index == 0) moveTo(x * scale, y * scale) else lineTo(x * scale, y * scale)
+    }
+    if (closed) close()
+}
+
+@Composable
 private fun ListTile(list: ListThing, onOpen: (RailThing) -> Unit) {
     Tile("tile:${list.key}", list.tone, onClick = { onOpen(list) }) {
         Text(list.count.toString(), style = OrreryTokens.Type.body, color = OrreryTokens.Ink.one)
@@ -138,7 +199,7 @@ private fun ListTile(list: ListThing, onOpen: (RailThing) -> Unit) {
 
 @Composable
 private fun DotsTile(group: RailGroup, onOpenPicker: (RailGroup) -> Unit) {
-    val asks = group.things.any { it is EpicThing && it.asks }
+    val asks = group.things.any { (it is EpicThing && it.asks) || (it is ContractThing && it.asks) }
     val tone = if (asks) ThingTone.ATTENTION else ThingTone.QUIET
     Tile("tile-dots:${kindTag(group.kind)}", tone, onClick = { onOpenPicker(group) }) {
         Text(
@@ -150,12 +211,19 @@ private fun DotsTile(group: RailGroup, onOpenPicker: (RailGroup) -> Unit) {
 }
 
 @Composable
-private fun Tile(tag: String, tone: ThingTone, onClick: () -> Unit, content: @Composable BoxScope.() -> Unit) {
+private fun Tile(
+    tag: String,
+    tone: ThingTone,
+    onClick: () -> Unit,
+    description: String? = null,
+    content: @Composable BoxScope.() -> Unit,
+) {
     Box(
         modifier = Modifier
             .size(OrreryTokens.Layout.railWidth)
             .testTag(tag)
             .clickable(onClick = onClick)
+            .semantics { description?.let { contentDescription = it } }
             .background(OrreryTokens.Surface.raised, TILE_SHAPE)
             .border(OrreryTokens.Size.hairline, lineOf(tone), TILE_SHAPE)
             .padding(OrreryTokens.Space.four),
@@ -179,14 +247,21 @@ private sealed interface OpenSheet {
     data class Picker(val group: RailGroup) : OpenSheet
 }
 
-/** The epics a conversation steers, with the detail of each one that is held. */
-private class SteeredEpics(val epics: List<EpicRow>, val details: Map<String, EpicDetail>)
+/** What the strip draws from the server: the epics, with the detail of each one that is held, and the contracts. */
+private class StripData(
+    val epics: List<EpicRow>,
+    val details: Map<String, EpicDetail>,
+    val contracts: List<ContractRow>,
+)
+
+/** The state a contract's picker row names, as the web's state pill words it. */
+private const val CONTRACT_STATE = "proposed · waits for you"
 
 /**
- * The epics list, then the detail of each epic [conversation] steers that is not archived. Null when a call fails,
- * so the strip keeps what it held.
+ * The epics list, then the detail of each epic [conversation] steers that is not archived, then the contract list.
+ * Null when the epics call fails, so the strip keeps what it held.
  */
-private suspend fun loadSteeredEpics(client: OrreryClient, conversation: String): SteeredEpics? =
+private suspend fun loadStripData(client: OrreryClient, conversation: String): StripData? =
     withContext(Dispatchers.IO) {
         try {
             val epics = client.epics()
@@ -196,18 +271,35 @@ private suspend fun loadSteeredEpics(client: OrreryClient, conversation: String)
                 epics.filter { it.steering == conversation && !it.archived }
             }
             val details = steered.mapNotNull { epic -> client.epic(epic.id)?.let { epic.id to it } }.toMap()
-            SteeredEpics(epics, details)
+            StripData(epics, details, loadContracts(client))
         } catch (e: IOException) {
             Log.w(TAG, "could not load the epics $conversation steers", e)
             null
         }
     }
 
+/** The contracts the server lists. A failed list gives none, so the strip has no contract group and no error. */
+private fun loadContracts(client: OrreryClient): List<ContractRow> =
+    try {
+        client.contracts()
+    } catch (e: IOException) {
+        Log.w(TAG, "could not load the contracts", e)
+        emptyList()
+    }
+
+/** The picker row of an epic or a contract. A list has none. */
+private fun pickerRowOf(thing: RailThing): PickerRow? = when (thing) {
+    is EpicThing -> PickerRow(thing.id, thing.slug, thing.state, thing.asks)
+    is ContractThing -> PickerRow(thing.id, thing.slug, CONTRACT_STATE, thing.asks)
+    is ListThing -> null
+}
+
 /**
  * A conversation's right rail as a strip under its header: the epics it steers and, unless [pane], its running
- * background [background] tasks. The epics load off the main thread for [conversation]. An epic tile, or a row of a
- * picker, calls [onOpenEpic] with the epic's id; a list tile opens its sheet, and a dots tile its picker. [now] is
- * unix seconds, the clock the sheets count from.
+ * background [background] tasks, headed by the contracts the conversation proposed. The data loads off the main thread
+ * for [conversation]. An epic tile, or an epic row of a picker, calls [onOpenEpic] with the epic's id; a contract tile,
+ * or a contract row of a picker, calls [onOpenContract] with the contract's id; a list tile opens its sheet, and a dots
+ * tile its picker. [now] is unix seconds, the clock the sheets count from.
  */
 @Composable
 fun ConversationStrip(
@@ -217,27 +309,30 @@ fun ConversationStrip(
     now: Long,
     client: OrreryClient,
     onOpenEpic: (String) -> Unit,
+    onOpenContract: (String) -> Unit = {},
     modifier: Modifier = Modifier,
     onTiles: (Boolean) -> Unit = {},
     end: @Composable () -> Unit = {},
 ) {
-    var steered by remember(conversation) { mutableStateOf(SteeredEpics(emptyList(), emptyMap())) }
+    var loaded by remember(conversation) { mutableStateOf(StripData(emptyList(), emptyMap(), emptyList())) }
     var sheet by remember(conversation) { mutableStateOf<OpenSheet?>(null) }
     LaunchedEffect(conversation) {
-        loadSteeredEpics(client, conversation)?.let { steered = it }
+        loadStripData(client, conversation)?.let { loaded = it }
     }
-    val groups = workGroupsOf(conversation, pane, steered.epics, steered.details, background)
+    val groups = workGroupsOf(conversation, pane, loaded.epics, loaded.details, background, loaded.contracts)
     val tiles = groups.isNotEmpty()
     LaunchedEffect(tiles) { onTiles(tiles) }
+    val openThing: (RailThing) -> Unit = { thing ->
+        when (thing) {
+            is ContractThing -> onOpenContract(thing.id)
+            is EpicThing -> onOpenEpic(thing.id)
+            is ListThing -> sheet = OpenSheet.Tasks(thing)
+        }
+    }
     if (tiles) {
         TileStrip(
             groups = groups,
-            onOpen = { thing ->
-                when (thing) {
-                    is EpicThing -> onOpenEpic(thing.id)
-                    is ListThing -> sheet = OpenSheet.Tasks(thing)
-                }
-            },
+            onOpen = openThing,
             onOpenPicker = { sheet = OpenSheet.Picker(it) },
             modifier = modifier,
             end = end,
@@ -252,8 +347,8 @@ fun ConversationStrip(
         )
         is OpenSheet.Picker -> RailPickerSheet(
             label = open.group.label,
-            rows = open.group.things.filterIsInstance<EpicThing>().map { PickerRow(it.id, it.slug, it.state, it.asks) },
-            onOpen = onOpenEpic,
+            rows = open.group.things.mapNotNull(::pickerRowOf),
+            onOpen = { id -> open.group.things.firstOrNull { it.key == id }?.let(openThing) },
             onDismiss = { sheet = null },
         )
         null -> Unit

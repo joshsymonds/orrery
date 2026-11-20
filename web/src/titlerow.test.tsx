@@ -214,3 +214,30 @@ test("HeadTitle: no note, or an empty one, draws no page-note", async () => {
     assert.equal(countOf(container, "p.page-note"), 0);
   });
 });
+
+test("EpicWords: a state pill with stateTone quiet carries t-quiet and its word", async () => {
+  const crumbs: Crumb[] = [{ label: "orrery", onGo: () => {} }, { label: "contract" }];
+  await withRow(<TitleRow crumbs={crumbs} onBack={() => {}} state="building" stateTone="quiet" />, (container) => {
+    assert.equal(container.querySelector(".state")?.className ?? null, "state t-quiet");
+    assert.equal(textOf(container, ".state"), "building");
+  });
+});
+
+test("EpicWords: a blocker pill with blockerTone attention carries t-attention and its words", async () => {
+  const crumbs: Crumb[] = [{ label: "orrery", onGo: () => {} }, { label: "contract" }];
+  await withRow(
+    <TitleRow crumbs={crumbs} onBack={() => {}} blocker="asks you what to do" blockerTone="attention" />,
+    (container) => {
+      assert.equal(container.querySelector(".blocker")?.className ?? null, "blocker t-attention");
+      assert.equal(textOf(container, ".blocker"), "asks you what to do");
+    },
+  );
+});
+
+test("EpicWords: with no tone the state and blocker pills carry only their own class", async () => {
+  const crumbs: Crumb[] = [{ label: "orrery", onGo: () => {} }, { label: "contract" }];
+  await withRow(<TitleRow crumbs={crumbs} onBack={() => {}} state="running" blocker="waiting" />, (container) => {
+    assert.equal(container.querySelector(".state")?.className ?? null, "state");
+    assert.equal(container.querySelector(".blocker")?.className ?? null, "blocker");
+  });
+});

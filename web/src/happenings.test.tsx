@@ -7,28 +7,9 @@ import { render } from "preact";
 import { act } from "preact/test-utils";
 
 import { type EpicHistoryEntry, EpicHistoryEntrySchema, type EpicStep, EpicStepSchema } from "./gen/orrery/v1/epics_pb";
-import { JustHappened, NextRows, NowRows } from "./happenings";
-import { PHASES, type PhaseSlice, type Place, type Tone, type Wedge } from "./phases";
+import { JustHappened, OutputTails } from "./happenings";
 import { clock } from "./reader";
 import { installTestDom, removeTestDom } from "./testdom";
-
-// now is the time the Now block measures its rows from, in unix seconds.
-const now = 10_000;
-
-// wedge is a task at a place with a tone. Its now slice is at its place, since the given time; a place that is not a
-// phase has no now slice.
-function wedge(task: string, title: string, place: Place, tone: Tone, since = 0): Wedge {
-  const slices = PHASES.map(
-    (phase): PhaseSlice => ({
-      phase,
-      state: phase === place ? "now" : "ahead",
-      summary: "",
-      since: phase === place ? since : 0,
-      seconds: 0,
-    }),
-  );
-  return { task, title, requirements: [], place, tone, slices };
-}
 
 function entry(init: MessageInitShape<typeof EpicHistoryEntrySchema>): EpicHistoryEntry {
   return create(EpicHistoryEntrySchema, init);
@@ -60,132 +41,6 @@ async function withRender(
     await removeTestDom(window);
   }
 }
-
-test("Now lists only the wedges in a phase that run or are held by the owner, with their phase and time", () => {
-  const wedges = [
-    wedge("b1", "build one", "implementing", "run", now - 90),
-    wedge("b2", "build two", "checking", "mine", now - 7_500),
-    wedge("b3", "build three", "reviewing", "bad", now - 60),
-    wedge("b4", "build four", "planned", "plan"),
-    wedge("b5", "build five", "integrated", "ok"),
-    wedge("b6", "build six", "integrating", "acc", now - 60),
-    wedge("b7", "build seven", "reviewing", "run"),
-  ];
-  return withRender(<NowRows wedges={wedges} now={now} />, (container) => {
-    assert.equal(textOf(container, "section.happen.now h3"), "Now");
-    assert.deepEqual(textsOf(container, "section.happen.now li"), [
-      "b1 · implementing · 1 min",
-      "b2 · checking · 2 h 5 min",
-      "b7 · reviewing",
-    ]);
-    assert.deepEqual(
-      [...container.querySelectorAll("section.happen.now li")].map((row) => row.getAttribute("class")),
-      ["t-run", "t-mine", "t-run"],
-    );
-  });
-});
-
-test("Next lists only the planned wedges, each with its task and title", () => {
-  const wedges = [
-    wedge("n1", "first", "planned", "plan"),
-    wedge("b1", "building", "implementing", "run", now - 30),
-    wedge("n2", "second", "planned", "plan"),
-    wedge("b2", "done", "integrated", "ok"),
-  ];
-  return withRender(<NextRows wedges={wedges} />, (container) => {
-    assert.equal(textOf(container, "section.happen.next h3"), "Next");
-    assert.deepEqual(textsOf(container, "section.happen.next li"), ["n1 · first", "n2 · second"]);
-  });
-});
-
-test("a click on a Now row calls onOpenPhase with its task and the phase it is in", () => {
-  const wedges = [
-    wedge("b1", "build one", "implementing", "run", now - 90),
-    wedge("b2", "build two", "checking", "mine", now - 7_500),
-    wedge("b3", "build three", "planned", "plan"),
-  ];
-  const opened: [string, string][] = [];
-  return withRender(
-    <NowRows
-      wedges={wedges}
-      now={now}
-      onOpenPhase={(task, phase) => {
-        opened.push([task, phase]);
-      }}
-    />,
-    async (container) => {
-      assert.deepEqual(
-        [...container.querySelectorAll("section.happen.now li")].map((row) => row.getAttribute("class")),
-        ["t-run open", "t-mine open"],
-      );
-      assert.deepEqual(
-        [...container.querySelectorAll("section.happen.now li")].map((row) => row.getAttribute("role")),
-        ["button", "button"],
-      );
-      await act(() => {
-        for (const row of container.querySelectorAll<HTMLLIElement>("section.happen.now li")) {
-          row.click();
-        }
-      });
-      assert.deepEqual(opened, [
-        ["b1", "implementing"],
-        ["b2", "checking"],
-      ]);
-    },
-  );
-});
-
-test("a click on a Next row calls onOpenPhase with its task and implementing", () => {
-  const wedges = [
-    wedge("n1", "first", "planned", "plan"),
-    wedge("b1", "building", "implementing", "run", now - 30),
-    wedge("n2", "second", "planned", "plan"),
-  ];
-  const opened: [string, string][] = [];
-  return withRender(
-    <NextRows
-      wedges={wedges}
-      onOpenPhase={(task, phase) => {
-        opened.push([task, phase]);
-      }}
-    />,
-    async (container) => {
-      assert.deepEqual(
-        [...container.querySelectorAll("section.happen.next li")].map((row) => row.getAttribute("class")),
-        ["open", "open"],
-      );
-      assert.deepEqual(
-        [...container.querySelectorAll("section.happen.next li")].map((row) => row.getAttribute("role")),
-        ["button", "button"],
-      );
-      await act(() => {
-        for (const row of container.querySelectorAll<HTMLLIElement>("section.happen.next li")) {
-          row.click();
-        }
-      });
-      assert.deepEqual(opened, [
-        ["n1", "implementing"],
-        ["n2", "implementing"],
-      ]);
-    },
-  );
-});
-
-test("without onOpenPhase no Now or Next row is clickable", () => {
-  const wedges = [wedge("b1", "build one", "implementing", "run", now - 90), wedge("n1", "first", "planned", "plan")];
-  return withRender(
-    <>
-      <NowRows wedges={wedges} now={now} />
-      <NextRows wedges={wedges} />
-    </>,
-    (container) => {
-      assert.equal(container.querySelectorAll("section.happen li[role='button']").length, 0);
-      assert.equal(container.querySelectorAll("section.happen li.open").length, 0);
-      assert.deepEqual(textsOf(container, "section.happen.now li"), ["b1 · implementing · 1 min"]);
-      assert.deepEqual(textsOf(container, "section.happen.next li"), ["n1 · first"]);
-    },
-  );
-});
 
 test("Just happened shows the newest three, and +n earlier opens the rest in place and goes", async () => {
   const entries = [
@@ -307,6 +162,17 @@ test("a failed check's output tails show under its step entry, and a passed chec
     assert.equal(row?.querySelectorAll(".tails").length, 1);
     assert.deepEqual(textsOf(container, "section.happen.just .tail-label"), ["stdout", "stderr"]);
     assert.deepEqual(textsOf(container, "section.happen.just .log"), ["lint out", "lint err"]);
+  });
+});
+
+test("OutputTails draws each non-empty tail under its own label", async () => {
+  await withRender(<OutputTails stdout={"FAIL\n"} stderr="" />, (container) => {
+    assert.deepEqual(textsOf(container, ".tail-label"), ["stdout"]);
+    assert.deepEqual(textsOf(container, ".log"), ["FAIL\n"]);
+  });
+  await withRender(<OutputTails stdout="" stderr={"boom\n"} />, (container) => {
+    assert.deepEqual(textsOf(container, ".tail-label"), ["stderr"]);
+    assert.deepEqual(textsOf(container, ".log"), ["boom\n"]);
   });
 });
 

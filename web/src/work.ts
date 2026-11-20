@@ -1,5 +1,7 @@
+import type { Contract } from "./gen/orrery/v1/contracts_pb";
 import type { Epic } from "./gen/orrery/v1/epics_pb";
 import type { BackgroundTask } from "./gen/orrery/v1/orrery_pb";
+import { contractSlug } from "./contracts";
 import { type EpicItem, type EpicsView, endedWords, epicLine, repositoryName } from "./epics";
 import { type Need, epicNeeds } from "./needs";
 
@@ -23,6 +25,17 @@ export interface EpicThing {
   gauge: Gauge;
 }
 
+export interface ContractThing {
+  kind: "contract";
+  key: string;
+  id: string;
+  slug: string;
+  short: string;
+  asks: boolean;
+  tone: ThingTone;
+  title: string;
+}
+
 export interface ListThing {
   kind: "agents" | "running";
   key: "agents" | "running";
@@ -31,10 +44,10 @@ export interface ListThing {
   tasks: BackgroundTask[];
 }
 
-export type Thing = EpicThing | ListThing;
+export type Thing = EpicThing | ListThing | ContractThing;
 
 export interface RailGroup {
-  kind: "epic" | "agents" | "running";
+  kind: "contract" | "epic" | "agents" | "running";
   label: string;
   things: Thing[];
   many: boolean;
@@ -51,14 +64,23 @@ type ListKind = "agents" | "running";
 // A group with more than this many things is marked many.
 const manyThings = 3;
 
-// workOf gives a conversation's right-rail groups, in order: the epics it steers, its running sub-agents and its
-// running shells. An epic is steered when its record names the conversation's session, and a session that is empty
-// steers none. A pane has no lists. A group with no thing is left out.
-export function workOf(conversation: WorkConversation | null, epics: EpicsView, now: number): RailGroup[] {
+// workOf gives a conversation's right-rail groups, in order: the contracts it proposed, the epics it steers, its
+// running sub-agents and its running shells. An epic is steered when its record names the conversation's session, and
+// a session that is empty steers none. A pane has no lists. A group with no thing is left out.
+export function workOf(
+  conversation: WorkConversation | null,
+  epics: EpicsView,
+  now: number,
+  contracts: readonly Contract[] = [],
+): RailGroup[] {
   if (conversation === null) {
     return [];
   }
   const groups: RailGroup[] = [];
+  const contractThings = contractThingsOf(conversation.session, contracts);
+  if (contractThings.length > 0) {
+    groups.push(groupOf("contract", "contract", contractThings));
+  }
   const epicThings = epicThingsOf(conversation.session, epics, now);
   if (epicThings.length > 0) {
     groups.push(groupOf("epic", epicThings.length === 1 ? "epic" : "epics", epicThings));
@@ -81,6 +103,29 @@ export function shortName(slug: string, repository: string): string {
   const prefix = `${repositoryName(repository)}-`;
   const rest = slug.startsWith(prefix) ? slug.slice(prefix.length) : slug;
   return rest.split("-")[0];
+}
+
+// contractThingsOf gives the contracts the session proposed, in List's order: the proposed ones whose conversation is the
+// session. A session that is empty has none. A contract asks while a decision is open.
+export function contractThingsOf(session: string, contracts: readonly Contract[]): ContractThing[] {
+  if (session === "") {
+    return [];
+  }
+  return contracts
+    .filter((contract) => contract.state === "proposed" && contract.conversation === session)
+    .map((contract) => {
+      const slug = contractSlug(contract.id);
+      return {
+        kind: "contract",
+        key: `contract:${contract.id}`,
+        id: contract.id,
+        slug,
+        short: shortName(slug, contract.repository),
+        asks: contract.openDecisions > 0n,
+        tone: "attention",
+        title: `${slug}: a contract waits for you`,
+      };
+    });
 }
 
 // The epics the session steers, in the rail's order: the blocks, then the waiting epics, then the just ended ones.

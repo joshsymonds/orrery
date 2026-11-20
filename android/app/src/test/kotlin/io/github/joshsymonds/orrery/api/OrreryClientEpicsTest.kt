@@ -13,7 +13,6 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicPremise
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseProof
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseStep
-import io.github.joshsymonds.orrery.gen.orrery.v1.EpicReport
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep
@@ -317,7 +316,6 @@ class OrreryClientEpicsTest {
                             reason = "example reason",
                         ),
                     ),
-                    handover = EpicHandoverRow(phase = epicRow.outcome),
                 ),
                 detail,
             )
@@ -699,6 +697,34 @@ class OrreryClientEpicsTest {
     }
 
     @Test
+    fun epicMapsThePlannerParkAndEveryStepLimitReset() {
+        FakeOrreryServer().use { server ->
+            server.respond(
+                EPICS_GET,
+                EpicsGetResponse.newBuilder()
+                    .setEpic(epicProto)
+                    .setPlannerParked(true)
+                    .addSteps(
+                        EpicStep.newBuilder()
+                            .setId("example-step-4")
+                            .setEnd("")
+                            .setStatus("working")
+                            .setStarted(4102444700L)
+                            .setLimited(true)
+                            .setLimitKind("weekly")
+                            .setLimitResets(4102448300L),
+                    )
+                    .build(),
+            )
+
+            val detail = OrreryClient(server.baseUrl).epic("example-repo/example-epic")
+
+            assertEquals(true, detail?.plannerParked)
+            assertEquals(4102448300L, detail?.steps?.single()?.limitResets)
+        }
+    }
+
+    @Test
     fun epicMapsEveryTaskAndBuildTaskRequirementInOrder() {
         FakeOrreryServer().use { server ->
             server.respond(
@@ -750,7 +776,7 @@ class OrreryClientEpicsTest {
     }
 
     @Test
-    fun epicMapsThePhaseTimeEveryReleaseProofFieldInContractOrderAndEveryReportField() {
+    fun epicMapsThePhaseTimeAndEveryReleaseProofFieldInContractOrder() {
         FakeOrreryServer().use { server ->
             server.respond(
                 EPICS_GET,
@@ -779,14 +805,6 @@ class OrreryClientEpicsTest {
                             .setReason("example reason two")
                             .setAttempt(1L)
                             .setAt(4102444900L),
-                    )
-                    .setReport(
-                        EpicReport.newBuilder()
-                            .setOutcome("shipped")
-                            .addShipped("example-requirement-1")
-                            .addShipped("example-requirement-2")
-                            .addNotShipped("example-requirement-3")
-                            .setWhy("Example why."),
                     )
                     .build(),
             )
@@ -821,20 +839,11 @@ class OrreryClientEpicsTest {
                 ),
                 detail?.releaseProof,
             )
-            assertEquals(
-                EpicReportRow(
-                    outcome = "shipped",
-                    shipped = listOf("example-requirement-1", "example-requirement-2"),
-                    notShipped = listOf("example-requirement-3"),
-                    why = "Example why.",
-                ),
-                detail?.report,
-            )
         }
     }
 
     @Test
-    fun aGetAnswerWithoutAReportMapsANullReportAndNoReleaseProof() {
+    fun aGetAnswerWithoutReleaseStepsMapsNoReleaseProof() {
         FakeOrreryServer().use { server ->
             server.respond(
                 EPICS_GET,
@@ -845,7 +854,6 @@ class OrreryClientEpicsTest {
 
             val detail = OrreryClient(server.baseUrl).epic("example-repo/example-epic")
 
-            assertNull(detail?.report)
             assertEquals(emptyList<EpicReleaseProofRow>(), detail?.releaseProof)
         }
     }

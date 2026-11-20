@@ -1,4 +1,4 @@
-// The stories of the glyphs, under round-6 names: each state of a state glyph, each gauge and pips state, and every icon.
+// The stories of the glyphs, under round-6 names: each state of a state glyph, each gauge state, and every icon.
 
 import type { Stories } from "./catalog/story";
 import * as glyphs from "./glyphs";
@@ -24,16 +24,6 @@ export const Gauge: Stories = {
   releasing: () => <glyphs.Gauge done={4} total={4} tone="engine" />,
   shipped: () => <glyphs.Gauge done={4} total={4} tone="ok" inner="check" />,
   "ended-short": () => <glyphs.Gauge done={0} started={1} total={3} inner="dash" />,
-};
-
-export const Pips: Stories = {
-  running: () => <glyphs.Pips tones={["ok", "run", "", "", ""]} />,
-  held: () => <glyphs.Pips tones={["ok", "mine", "", "", ""]} />,
-  limited: () => <glyphs.Pips tones={["ok", "plan", "", "", ""]} />,
-  failed: () => <glyphs.Pips tones={["ok", "bad", "", "", ""]} />,
-  accepted: () => <glyphs.Pips tones={["ok", "ok", "ok", "ok", "acc"]} />,
-  done: () => <glyphs.Pips tones={["ok", "ok", "ok", "ok", "ok"]} />,
-  "not-started": () => <glyphs.Pips tones={["", "", "", "", ""]} />,
 };
 
 export const Icons: Stories = {

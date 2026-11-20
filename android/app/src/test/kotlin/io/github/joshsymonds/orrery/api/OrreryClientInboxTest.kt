@@ -180,7 +180,7 @@ class OrreryClientInboxTest {
 
     @Test
     fun contractsAbsentOnAnOldServerIsEmpty() {
-        for (code in listOf(Code.UNAVAILABLE, Code.UNIMPLEMENTED, Code.NOT_FOUND)) {
+        for (code in listOf(Code.UNIMPLEMENTED, Code.NOT_FOUND)) {
             FakeOrreryServer().use { server ->
                 server.fail(CONTRACTS_LIST, code)
 

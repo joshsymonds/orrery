@@ -60,7 +60,6 @@ const resumeEpicPath = "/orrery.v1.Epics/Resume";
 const stopEpicPath = "/orrery.v1.Epics/Stop";
 const retryEpicPath = "/orrery.v1.Epics/Retry";
 const answerEpicPath = "/orrery.v1.Epics/Answer";
-const commandFailedText = "epic command failed";
 const startSessionPath = "/orrery.v1.Control/Start";
 const pickerAskPath = "/orrery.v1.Picker/Ask";
 const pickerRunPath = "/orrery.v1.Picker/Run";
@@ -3245,7 +3244,7 @@ test("an epic shows four running steps with the held one marked, then its more a
   });
 });
 
-test("an ended epic opens from its project's ended line, and its page draws the handover its Epics.Get answers", (t) => {
+test("an ended epic opens from its project's ended line, and its page draws the epic its Epics.Get answers", (t) => {
   const busy = makeEpic(widgetsRepo, "busy", { runningSteps: [makeStep("s1")] });
   const released = makeEpic(gadgetsRepo, "shipped", { live: false, outcome: "released" });
   // The poll loaded the live epic's detail, so only the released epic is asked for.
@@ -3254,11 +3253,8 @@ test("an ended epic opens from its project's ended line, and its page draws the 
     fake.replies.set(getEpicPath, [
       {
         epic: { id: released.id, repository: gadgetsRepo, slug: "shipped", outcome: "released" },
-        ledger: [{ id: "reviewer-one-1", reviewer: "reviewer-one", claim: "the ledger claim", result: "holds" }],
       },
     ]);
-    const handoverText = () =>
-      container.querySelector('section.page[aria-label="epic"] section.handover')?.textContent ?? "";
     assert.ok(endedLine(container), "the released epic sits behind its project's ended line");
     assertNone(container.querySelector(`[data-key="${epicKey(released)}"]`), "the line starts closed");
 
@@ -3274,7 +3270,11 @@ test("an ended epic opens from its project's ended line, and its page draws the 
     await act(() => {
       rowElement(container, epicKey(released)).dispatchEvent(clickEvent());
     });
-    await until(t.signal, () => handoverText().includes("the ledger claim"), "the handover the answer holds");
+    await until(
+      t.signal,
+      () => epicPageDrawn(container) && pageSlug(container) === "shipped",
+      "the page of the epic the answer holds",
+    );
     assert.equal(fake.callsTo(getEpicPath).length, 1, "the epic is asked for once");
     assert.equal(fake.callsTo(getEpicPath)[0].body.id, released.id);
 
@@ -3679,8 +3679,13 @@ const widgetsFirst = `${widgetsRepo}/first`;
 
 // pageEpic is a live epic with one running step, s1, whose detail carries the fields given. changed is the epic's last
 // write, which its history is read again for.
-function pageEpic(init: MessageInitShape<typeof EpicsGetResponseSchema> = {}, changed = 0n): EpicsView {
-  const epic = makeEpic(widgetsRepo, "first", { runningSteps: [makeStep("s1")], changed });
+// An orreryd one is accepted, since only an orreryd epic draws its history.
+function pageEpic(init: MessageInitShape<typeof EpicsGetResponseSchema> = {}, changed = 0n, orreryd = false): EpicsView {
+  const epic = makeEpic(widgetsRepo, "first", {
+    runningSteps: [makeStep("s1")],
+    changed,
+    ...(orreryd ? { source: "orreryd", outcome: "accepted" } : {}),
+  });
   return epicsView([epic], new Map([[epic.id, create(EpicsGetResponseSchema, { epic, ...init })]]));
 }
 
@@ -3700,6 +3705,15 @@ const optionsQuestion = {
   ],
 };
 
+// summaryEpic is a live orreryd epic accepted with the summary and contract given, whose summary section and Contract door draw.
+function summaryEpic(): EpicsView {
+  const epic = makeEpic(widgetsRepo, "first", { source: "orreryd", outcome: "accepted" });
+  return epicsView(
+    [epic],
+    new Map([[epic.id, create(EpicsGetResponseSchema, { epic, summary: "Ship the demo", contract: acceptedContract })]]),
+  );
+}
+
 // acceptedContract is an accepted contract whose title the summary shows.
 const acceptedContract = { title: "Show the accepted contract", approved: "approved line", intent: "the intent" };
 
@@ -3711,6 +3725,29 @@ function epicPageShown(container: HTMLElement): boolean {
 // epicPageDrawn is whether the page section holds the epic page itself, rather than the contract page.
 function epicPageDrawn(container: HTMLElement): boolean {
   return container.querySelector('section.page[aria-label="epic"] .epic-page') !== null;
+}
+
+// epicReadText is the line the epic page's section draws while the epic's detail is not drawn, or null.
+function epicReadText(container: HTMLElement): string | null {
+  return container.querySelector('section.page[aria-label="epic"] .side-note')?.textContent ?? null;
+}
+
+// epicPageButtons lists the labels of the buttons the epic page's section draws outside its title row.
+function epicPageButtons(container: HTMLElement): (string | null)[] {
+  return [...container.querySelectorAll('section.page[aria-label="epic"] button')]
+    .filter((button) => button.closest(".title-row") === null)
+    .map((button) => button.textContent);
+}
+
+// epicTitleSlug is the slug the epic page's title row names as the page it is on, or null when the section draws no
+// title row.
+function epicTitleSlug(container: HTMLElement): string | null {
+  return container.querySelector('section.page[aria-label="epic"] .title-row [aria-current="page"]')?.textContent ?? null;
+}
+
+// epicReply is the Epics.Get answer for an epic with the id and slug, with no detail but its own record.
+function epicReply(id: string, slug: string): object {
+  return { epic: { id, repository: widgetsRepo, slug, outcome: "", live: true } };
 }
 
 // contractDrawn is whether the page section holds the contract page.
@@ -3773,7 +3810,7 @@ test("an epic entry shows the epic page beside the list, and no epic column rema
     assert.equal(pageSlug(container), "first", "the page names the epic");
   }));
 
-test("an epic page shows the handover of its verdicts and ledger findings, with their texts", (t) =>
+test("an epic page draws no handover, though the epic holds verdicts and ledger findings", (t) =>
   withApp(t.signal, 
     {
       epics: pageEpic({
@@ -3792,11 +3829,14 @@ test("an epic page shows the handover of its verdicts and ledger findings, with 
     },
     async (container) => {
       await press("j");
-      const handover = container.querySelector('section.page[aria-label="epic"] section.handover');
-      assert.ok(handover, "the epic page shows the handover section");
-      const text = handover.textContent ?? "";
-      assert.equal(text.includes("the verdict reason"), true, "the handover shows the verdict's reason");
-      assert.equal(text.includes("the ledger claim"), true, "the handover shows the ledger's claim");
+      assert.equal(epicPageDrawn(container), true, "the page draws the epic page");
+      assert.equal(
+        container.querySelector('section.page[aria-label="epic"] section.handover') === null,
+        true,
+        "no handover section is drawn",
+      );
+      assert.equal(container.textContent?.includes("the verdict reason"), false, "the verdict's reason is not drawn");
+      assert.equal(container.textContent?.includes("the ledger claim"), false, "the ledger's claim is not drawn");
     },
   ));
 
@@ -3861,20 +3901,109 @@ test("a session row hides the epic page", (t) =>
     assert.equal(epicPageShown(container), false, "a session row hides the page");
   }));
 
-test("an epic with no detail shows epic unavailable in its page, and a step of it shows no page", (t) =>
+test("EpicCommands: an epic whose read has not answered reads loading the epic, with no button", (t) =>
+  withApp(t.signal, { epics: oneEpic() }, async (container, fake) => {
+    let answer: () => void = () => {};
+    fake.holds.set(
+      getEpicPath,
+      new Promise<void>((resolve) => {
+        answer = resolve;
+      }),
+    );
+    await press("j");
+    try {
+      assert.equal(epicPageDrawn(container), false, "no epic page is drawn before the answer");
+      assert.equal(epicReadText(container), "loading the epic…");
+      assert.equal(epicTitleSlug(container), "first", "the title row names the listed epic above the line");
+      assert.ok(
+        container.querySelector('section.page[aria-label="epic"] .title-row .back'),
+        "the title row has a back button",
+      );
+      assert.deepEqual(epicPageButtons(container), [], "no button while the epic loads");
+    } finally {
+      fake.replies.set(getEpicPath, [epicReply(widgetsFirst, "first")]);
+      answer();
+    }
+    await until(t.signal, () => epicPageDrawn(container), "the page the answer holds");
+  }));
+
+test("EpicCommands: an epic the server could not read says so with Try again, which reads it once more, and a step of it shows no page", (t) =>
   withApp(t.signal, { epics: oneEpic() }, async (container, fake) => {
     fake.failNext.add(getEpicPath);
     await press("j");
+    await until(t.signal, () => epicReadText(container) === "The server could not read this epic.", "the could-not-read line");
+    assert.ok(
+      container.querySelector('section.page[aria-label="epic"] p.side-note.unread'),
+      "the could-not-read line is drawn as a failure, not as a quiet note",
+    );
     assert.equal(epicPageShown(container), true);
     assert.equal(epicPageDrawn(container), false, "no epic page is drawn without detail");
-    assert.equal(
-      container.querySelector('section.page[aria-label="epic"]')?.textContent,
-      "epic unavailable",
-    );
+    assert.equal(epicTitleSlug(container), "first", "the title row names the listed epic above the line");
+    assert.deepEqual(epicPageButtons(container), ["Try again"]);
+    assert.equal(fake.callsTo(getEpicPath).length, 1, "the failed read is not repeated on its own");
+    fake.replies.set(getEpicPath, [epicReply(widgetsFirst, "first")]);
+    await clickButton(container, 'section.page[aria-label="epic"]', "Try again");
+    await until(t.signal, () => epicPageDrawn(container), "the page the retry answers");
+    assert.equal(fake.callsTo(getEpicPath).length, 2, "Try again reads the epic once");
+    assert.equal(fake.callsTo(getEpicPath)[1].body.id, widgetsFirst);
     await press("j");
     assert.equal(cursorKey(container), "step:s1");
     assert.equal(epicPageShown(container), false, "a step shows no page");
   }));
+
+test("EpicRecord: under 760px the loading epic's title row draws no host strip, as the page's does not", (t) =>
+  withApp(
+    t.signal,
+    { epics: oneEpic(), host: create(HostStatusResponseSchema, { host: "box" }) },
+    async (container, fake) => {
+      let answer: () => void = () => {};
+      fake.holds.set(
+        getEpicPath,
+        new Promise<void>((resolve) => {
+          answer = resolve;
+        }),
+      );
+      await clickRow(container, `epic:${widgetsFirst}`);
+      try {
+        assert.equal(epicReadText(container), "loading the epic…");
+        const row = container.querySelector('section.page[aria-label="epic"] header.title-row');
+        assert.ok(row, "the loading page draws its title row");
+        assert.equal(row.lastElementChild?.className, "acts", "nothing follows the commands: no strip");
+      } finally {
+        fake.replies.set(getEpicPath, [epicReply(widgetsFirst, "first")]);
+        answer();
+      }
+      await until(t.signal, () => epicPageDrawn(container), "the page the answer holds");
+    },
+    412,
+  ));
+
+test("EpicRecord: under 760px with the epic page shown, no inbox list and no reader column is drawn", (t) =>
+  withApp(t.signal, { epics: pageEpic() }, async (container) => {
+    await clickRow(container, `epic:${widgetsFirst}`);
+    assert.equal(epicPageDrawn(container), true, "the epic page is drawn");
+    const list = container.querySelector<HTMLElement>(".list");
+    assert.ok(list, "the inbox list stays mounted");
+    assert.equal(list.hidden, true, "the inbox list is hidden");
+    assert.equal(readerHidden(container), true, "the reader column is hidden");
+  }, 412));
+
+test("EpicRecord: at 412px a draft survives opening an epic page and coming back", (t) =>
+  withApp(t.signal, { epics: pageEpic() }, async (container, fake) => {
+    fake.replies.set(pullPath, [{ text: "" }]);
+    await clickRow(container, "a");
+    const box = composer(container);
+    await typeInto(box, "half a thought");
+    await pressIn(box, "Escape");
+    await until(t.signal, () => document.activeElement !== box, "the blur after the typing");
+    await press("h");
+    await clickRow(container, `epic:${widgetsFirst}`);
+    assert.equal(epicPageShown(container), true, "the epic page shows on the epic entry");
+    await press("h");
+    await clickRow(container, "a");
+    assert.equal(cursorKey(container), "a");
+    assert.equal(composer(container).value, "half a thought", "the draft survived the epic page");
+  }, 412));
 
 test("with a row pinned, the epic page follows the cursor from one epic to another, and a step between them shows its reader", (t) => {
   const first = makeEpic(widgetsRepo, "first", { runningSteps: [makeStep("s1"), makeStep("s2")] });
@@ -3908,11 +4037,11 @@ test("with a row pinned, the epic page follows the cursor from one epic to anoth
   });
 });
 
-test("the summary opens the contract page in place, and the page moves deeper", (t) =>
-  withApp(t.signal, { epics: pageEpic({ summary: "Ship the demo", contract: acceptedContract }) }, async (container) => {
+test("the Contract door opens the contract page in place, and the page moves deeper", (t) =>
+  withApp(t.signal, { epics: summaryEpic() }, async (container) => {
     await press("j");
     assert.equal(pageClass(container), "page");
-    await clickButton(container, ".epic-page", "Ship the demo");
+    await clickFirst(container, ".epic-page .door.contract");
     assert.equal(epicPageShown(container), true, "the page stays shown");
     assert.equal(contractDrawn(container), true, "the contract page is drawn");
     assert.equal(epicPageDrawn(container), false, "the epic page is not");
@@ -3921,16 +4050,16 @@ test("the summary opens the contract page in place, and the page moves deeper", 
   }));
 
 test("back and the slug crumb restore the epic page's scroll place, and the page moves back with leave", (t) =>
-  withApp(t.signal, { epics: pageEpic({ summary: "Ship the demo", contract: acceptedContract }) }, async (container) => {
+  withApp(t.signal, { epics: summaryEpic() }, async (container) => {
     await press("j");
     moveScroll(container, 120);
-    await clickButton(container, ".epic-page", "Ship the demo");
+    await clickFirst(container, ".epic-page .door.contract");
     assert.equal(pageScroll(container), 0, "the contract opens at its top");
     await clickButton(container, 'section.page[aria-label="epic"] .title-row', "‹");
     assert.equal(epicPageDrawn(container), true, "back returns to the epic page");
     assert.equal(pageClass(container), "page leave", "back moves the page back");
     assert.equal(pageScroll(container), 120, "back restores the scroll place");
-    await clickButton(container, ".epic-page", "Ship the demo");
+    await clickFirst(container, ".epic-page .door.contract");
     assert.equal(pageScroll(container), 0, "the contract opens at its top again");
     await clickButton(container, 'section.page[aria-label="epic"] .title-row', "first");
     assert.equal(epicPageDrawn(container), true, "the slug crumb returns to the epic page");
@@ -4002,7 +4131,7 @@ async function clickFirst(container: HTMLElement, selector: string): Promise<voi
 
 // optionCards are the option cards the epic page's question draws, in order, Something else last.
 function optionCards(container: HTMLElement): HTMLElement[] {
-  return [...container.querySelectorAll<HTMLElement>(".now-block .ask .opts > .opt")];
+  return [...container.querySelectorAll<HTMLElement>(".epic-page section.now .ask .opts > .opt")];
 }
 
 // selectedCard is the position of the option card that holds the pick, or -1 when none does.
@@ -4021,7 +4150,7 @@ async function clickCard(container: HTMLElement, index: number): Promise<void> {
 
 // clickConfirm presses the Ask's foot button, which sends the pick.
 async function clickConfirm(container: HTMLElement): Promise<void> {
-  await clickFirst(container, ".now-block .ask .foot .btn.primary");
+  await clickFirst(container, ".epic-page section.now .ask .foot .btn.primary");
 }
 
 // clickPhaseHead clicks the head of the phase row the phase output names.
@@ -4048,22 +4177,12 @@ test("a click on an orrery cell opens its task's phase output with that phase op
     assert.equal(pageClass(container), "page drill", "opening the phase output moves the page deeper");
   }));
 
-test("a click on a proof card opens the task that names its requirement at implementing", (t) =>
+test("a click on a task row opens the task at the phase its row names", (t) =>
   withApp(t.signal, { epics: phaseEpic() }, async (container) => {
     await press("j");
-    await clickFirst(container, 'section.page[aria-label="epic"] .proof.red article.proof-card.open');
-    assert.equal(phaseOutputShown(container), true, "the card opens the phase output");
-    assert.equal(phaseOpenName(container), "implementing", "a red card opens implementing");
-    assert.equal(pageSlug(container), "T1 · implementing");
-    assert.equal(pageClass(container), "page drill");
-  }));
-
-test("a click on a Now row opens its task at the phase it is in", (t) =>
-  withApp(t.signal, { epics: phaseEpic() }, async (container) => {
-    await press("j");
-    await clickFirst(container, 'section.page[aria-label="epic"] .happen.now li.open');
+    await clickFirst(container, 'section.page[aria-label="epic"] .tasks button.tr');
     assert.equal(phaseOutputShown(container), true, "the row opens the phase output");
-    assert.equal(phaseOpenName(container), "checking", "the row opens the phase it is in");
+    assert.equal(phaseOpenName(container), "checking", "the row opens the phase its task is in");
     assert.equal(pageSlug(container), "T1 · checking");
     assert.equal(pageClass(container), "page drill");
   }));
@@ -4154,40 +4273,75 @@ test("a nudge in the session calls Steps.Nudge with the step's id and the text",
     ]);
   }));
 
-test("Pause sends Epics.Pause with the epic's id", (t) =>
+test("EpicCommands: Pause sends one Epics.Pause with the epic's id", (t) =>
   withApp(t.signal, { epics: pageEpic() }, async (container, fake) => {
     await press("j");
     await clickButton(container, ".epic-page .title-row .acts", "Pause");
     await until(t.signal, () => fake.callsTo(pauseEpicPath).length === 1, "the Pause call");
+    await settle();
+    assert.equal(fake.callsTo(pauseEpicPath).length, 1, "the press sent one Epics.Pause");
     assert.equal(fake.callsTo(pauseEpicPath)[0].body.id, widgetsFirst);
   }));
 
-test("Resume sends Epics.Resume with the epic's id on a paused epic", (t) =>
+test("EpicCommands: Resume sends one Epics.Resume with the epic's id on a paused epic", (t) =>
   withApp(t.signal, { epics: pageEpic({ paused: true }) }, async (container, fake) => {
     await press("j");
     await clickButton(container, ".epic-page .title-row .acts", "Resume");
     await until(t.signal, () => fake.callsTo(resumeEpicPath).length === 1, "the Resume call");
+    await settle();
+    assert.equal(fake.callsTo(resumeEpicPath).length, 1, "the press sent one Epics.Resume");
     assert.equal(fake.callsTo(resumeEpicPath)[0].body.id, widgetsFirst);
   }));
 
-test("Stop asks first: Keep it running sends nothing, and the confirm sends Epics.Stop", (t) =>
+test("EpicCommands: Stop asks first, Keep it running sends no Epics.Stop, and the confirm sends one", (t) =>
   withApp(t.signal, { epics: pageEpic() }, async (container, fake) => {
     await press("j");
     await clickButton(container, ".epic-page .title-row .acts", "Stop…");
     await clickButton(container, ".epic-page .title-row .acts", "Keep it running");
+    await settle();
+    assert.equal(fake.callsTo(stopEpicPath).length, 0, "Keep it running sends no Epics.Stop");
     await clickButton(container, ".epic-page .title-row .acts", "Stop…");
     await clickButton(container, ".epic-page .title-row .acts", "Stop first");
-    await until(t.signal, () => fake.callsTo(stopEpicPath).length >= 1, "the Stop call");
-    assert.equal(fake.callsTo(stopEpicPath).length, 1, "only the confirm sends: Keep it running sent nothing");
+    await until(t.signal, () => fake.callsTo(stopEpicPath).length === 1, "the Stop call");
+    await settle();
+    assert.equal(fake.callsTo(stopEpicPath).length, 1, "the confirm sent one Epics.Stop");
     assert.equal(fake.callsTo(stopEpicPath)[0].body.id, widgetsFirst);
   }));
 
-test("Retry on a parked epic sends Epics.Retry with the epic's id", (t) =>
+test("EpicCommands: a Stop… confirm open on one epic does not carry over to the next epic", (t) => {
+  const first = makeEpic(widgetsRepo, "first");
+  const second = makeEpic(gadgetsRepo, "second");
+  const epics = epicsView(
+    [first, second],
+    new Map([
+      [first.id, detailOf(first, [])],
+      [second.id, detailOf(second, [])],
+    ]),
+  );
+  return withApp(t.signal, { rows: [], epics }, async (container, fake) => {
+    assert.equal(cursorKey(container), epicKey(first));
+    assert.equal(pageSlug(container), "first");
+    await clickButton(container, ".epic-page .title-row .acts", "Stop…");
+    assert.ok(container.querySelector(".epic-page .title-row .sure"), "the first epic's confirm shows");
+    await press("j");
+    assert.equal(cursorKey(container), epicKey(second));
+    assert.equal(pageSlug(container), "second");
+    assert.equal(container.querySelector(".epic-page .title-row .sure"), null, "the second epic shows no confirm");
+    const labels = [...container.querySelectorAll(".epic-page .title-row .acts button")].map((button) => button.textContent);
+    assert.ok(labels.includes("Stop…"), "the second epic offers Stop…");
+    await settle();
+    assert.equal(fake.callsTo(stopEpicPath).length, 0, "no Epics.Stop was sent");
+  });
+});
+
+test("EpicAsk: a park's Retry sends exactly one Epics.Retry with the epic's id", (t) =>
   withApp(t.signal, { epics: pageEpic({ parked: "rate limit" }) }, async (container, fake) => {
     await press("j");
     await clickCard(container, 0);
     await clickConfirm(container);
     await until(t.signal, () => fake.callsTo(retryEpicPath).length === 1, "the Retry call");
+    await settle();
+    assert.equal(fake.callsTo(retryEpicPath).length, 1, "the press sent exactly one Epics.Retry");
     assert.equal(fake.callsTo(retryEpicPath)[0].body.id, widgetsFirst);
   }));
 
@@ -4210,7 +4364,7 @@ test("Something else sends Epics.Answer with the choice other and the typed text
   withApp(t.signal, { epics: pageEpic(optionsQuestion) }, async (container, fake) => {
     await press("j");
     await clickCard(container, 3);
-    const box = container.querySelector<HTMLTextAreaElement>('.now-block textarea[aria-label="answer"]');
+    const box = container.querySelector<HTMLTextAreaElement>('.epic-page section.now textarea[aria-label="answer"]');
     assert.ok(box, "Something else shows its text box");
     await typeInto(box, "  use a file  ");
     await clickConfirm(container);
@@ -4248,7 +4402,7 @@ test("keys typed in the Something else box are text: j and p do nothing there, a
   withApp(t.signal, { epics: pageEpic(optionsQuestion) }, async (container) => {
     await press("j");
     await clickCard(container, 3);
-    const box = container.querySelector<HTMLTextAreaElement>('.now-block textarea[aria-label="answer"]');
+    const box = container.querySelector<HTMLTextAreaElement>('.epic-page section.now textarea[aria-label="answer"]');
     assert.ok(box, "Something else shows its text box");
     const viewOn = () => container.querySelector(".inbox-rows")?.getAttribute("data-list") ?? null;
     const cursor = cursorKey(container);
@@ -4272,7 +4426,7 @@ test("a digit typed in the Something else box selects no card", (t) =>
   withApp(t.signal, { epics: pageEpic(optionsQuestion) }, async (container) => {
     await press("j");
     await clickCard(container, 3);
-    const box = container.querySelector<HTMLTextAreaElement>('.now-block textarea[aria-label="answer"]');
+    const box = container.querySelector<HTMLTextAreaElement>('.epic-page section.now textarea[aria-label="answer"]');
     assert.ok(box, "Something else shows its text box");
     await act(() => {
       box.focus();
@@ -4281,18 +4435,20 @@ test("a digit typed in the Something else box selects no card", (t) =>
     assert.equal(selectedCard(container), 3, "the digit is text, so Something else stays selected");
   }));
 
-test("a command that fails shows a fixed line, and one that lands clears it", (t) =>
+test("a command that fails shows its did-not-land line under the title row, and one that lands clears it", (t) =>
   withApp(t.signal, { epics: pageEpic() }, async (container, fake) => {
+    const noteText = () => container.querySelector('section.page[aria-label="epic"] .title-row + .page-note')?.textContent ?? "";
     fake.failNext.add(pauseEpicPath);
     await press("j");
     await clickButton(container, ".epic-page .title-row .acts", "Pause");
-    await until(t.signal, () => alertTexts(container).includes(commandFailedText), "the fixed line");
+    await until(t.signal, () => noteText().startsWith("Pause did not land: "), "the did-not-land line");
+    assert.equal(noteText(), "Pause did not land: the server did not answer.", "the line gives the failure's plain reason");
     await clickButton(container, ".epic-page .title-row .acts", "Pause");
-    await until(t.signal, () => alertTexts(container).length === 0, "the line to clear");
+    await until(t.signal, () => noteText() === "", "the line to clear");
   }));
 
 test("Just happened shows the epic's history, read from its first entry", (t) =>
-  withApp(t.signal, { epics: pageEpic() }, async (container, fake) => {
+  withApp(t.signal, { epics: pageEpic({}, 0n, true) }, async (container, fake) => {
     fake.replies.set(historyPath, [
       { entries: [{ cursor: "c1", decision: { id: "d1", text: "use postgres" } }], next: "" },
     ]);
@@ -4305,7 +4461,7 @@ test("Just happened shows the epic's history, read from its first entry", (t) =>
   }));
 
 test("the history reads page by page until a page names no next cursor", (t) =>
-  withApp(t.signal, { epics: pageEpic() }, async (container, fake) => {
+  withApp(t.signal, { epics: pageEpic({}, 0n, true) }, async (container, fake) => {
     fake.replies.set(historyPath, [
       { entries: [{ cursor: "c1", decision: { id: "d1", text: "first decision" } }], next: "c1" },
       { entries: [{ cursor: "c2", decision: { id: "d2", text: "second decision" } }], next: "" },
@@ -4321,7 +4477,7 @@ test("the history reads page by page until a page names no next cursor", (t) =>
   }));
 
 test("a change to the epic's last write reads its history again", (t) =>
-  withApp(t.signal, { epics: pageEpic({}, 1n) }, async (container, fake) => {
+  withApp(t.signal, { epics: pageEpic({}, 1n, true) }, async (container, fake) => {
     fake.replies.set(historyPath, [
       { entries: [{ cursor: "c1", decision: { id: "d1", text: "before the change" } }], next: "" },
       { entries: [{ cursor: "c2", decision: { id: "d2", text: "after the change" } }], next: "" },
@@ -4333,14 +4489,14 @@ test("a change to the epic's last write reads its history again", (t) =>
       now,
       clients: fake.clients,
       seen: fake.seen,
-      epics: pageEpic({}, 2n),
+      epics: pageEpic({}, 2n, true),
     });
     await until(t.signal, () => historyText(container).includes("after the change"), "the reloaded history");
     assert.equal(fake.callsTo(historyPath).length, 2);
   }));
 
 test("a history that fails draws no history and no error line, and the page stays open", (t) =>
-  withApp(t.signal, { epics: pageEpic() }, async (container, fake) => {
+  withApp(t.signal, { epics: pageEpic({}, 0n, true) }, async (container, fake) => {
     fake.failNext.add(historyPath);
     await press("j");
     await until(t.signal, () => fake.callsTo(historyPath).length === 1, "the History call");
@@ -4696,25 +4852,32 @@ test("SteerMenu: a choice sends the move as chosen, closes the menu, and moves t
   }, deskWidth);
 });
 
-test("SteerMenu: at 412 wide the title row's More holds 'Steer it from another conversation', and that item opens the menu in a dialog", (t) => {
+test("SteerMenu: at 412 wide the foot bar's More sheet holds 'Steer it from another conversation', and that item opens the menu in a dialog in its place", (t) => {
   const epic = makeEpic(widgetsRepo, "first", { runningSteps: [makeStep("s1")], steering: "sess-old", source: "orreryd" });
   const epics = epicsView([epic], new Map([[epic.id, create(EpicsGetResponseSchema, { epic, repository: widgetsRepo })]]));
   const rows = [steerRow("sess-old", { kind: "session", archiveKind: "session", state: "done", label: "old steerer" })];
   return withApp(t.signal, { rows: [...fixture(), ...rows], epics }, async (container) => {
     await clickRow(container, epicKey(epic));
+    assert.equal(container.querySelector(".epic-page .title-row .icon"), null, "the title row holds no steering command");
+    const more = [...container.querySelectorAll<HTMLButtonElement>(".epic-page .cmdbar button")].find(
+      (button) => button.textContent === "More",
+    );
     await act(() => {
-      container.querySelector<HTMLButtonElement>(".epic-page .title-row .icon.more")?.dispatchEvent(new Event("click"));
+      more?.dispatchEvent(new Event("click"));
     });
-    const item = container.querySelector<HTMLButtonElement>(".epic-page .title-row .head-menu button");
-    assert.equal(item?.textContent, "Steer it from another conversation", "the More holds the steering item");
+    const item = [...container.querySelectorAll<HTMLButtonElement>('[role="dialog"][aria-label="first"] button')].find(
+      (button) => button.textContent === "Steer it from another conversation",
+    );
+    assert.ok(item !== undefined, "the More sheet holds the steering item");
     assert.equal(container.querySelector(".steer-anchor"), null, "no desk anchor is drawn at this width");
     await act(() => {
-      item?.dispatchEvent(new Event("click"));
+      item.dispatchEvent(new Event("click"));
     });
     assert.ok(
       container.querySelector('[role="dialog"][aria-label="Steer first from"] .steer-menu') !== null,
       "the item opens the steering menu in a dialog",
     );
+    assert.equal(container.querySelector('[role="dialog"][aria-label="first"]'), null, "the More sheet closes");
   }, 412);
 });
 

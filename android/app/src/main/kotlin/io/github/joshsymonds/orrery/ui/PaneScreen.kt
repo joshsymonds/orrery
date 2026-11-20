@@ -40,6 +40,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.connectrpc.Code
 import io.github.joshsymonds.orrery.api.Conversation
+import io.github.joshsymonds.orrery.api.ContractRow
 import io.github.joshsymonds.orrery.api.HostStat
 import io.github.joshsymonds.orrery.api.OrreryCallException
 import io.github.joshsymonds.orrery.api.OrreryClient
@@ -97,6 +98,16 @@ private suspend fun fetchSnapshot(client: OrreryClient, paneId: String): Snapsho
         }
     }
 
+/** The contracts the server lists, or null when the call fails, so the head keeps what it showed. */
+internal suspend fun fetchHeadContracts(client: OrreryClient): List<ContractRow>? =
+    withContext(Dispatchers.IO) {
+        try {
+            client.contracts()
+        } catch (e: IOException) {
+            null
+        }
+    }
+
 /** One `Host.Status` read. Null when the call fails, so the meters keep their last stats. */
 internal suspend fun fetchHost(client: OrreryClient): HostRead? =
     withContext(Dispatchers.IO) {
@@ -140,6 +151,9 @@ fun PaneScreen(
     modifier: Modifier = Modifier,
     onBack: () -> Unit = {},
     onOpenEpic: (String) -> Unit = {},
+    about: RowAbout? = null,
+    onClearAbout: () -> Unit = {},
+    onOpenContract: (id: String, live: Boolean) -> Unit = { _, _ -> },
     clock: () -> Long = { System.currentTimeMillis() / 1000 },
 ) {
     var pane by remember(paneId) { mutableStateOf<Pane?>(null) }
@@ -147,6 +161,7 @@ fun PaneScreen(
     var servingHost by remember(paneId) { mutableStateOf("") }
     var stats by remember(paneId) { mutableStateOf<List<HostStat>?>(null) }
     var headEpics by remember(paneId) { mutableStateOf(HeadEpics(emptyList(), emptyMap())) }
+    var contracts by remember(paneId) { mutableStateOf<List<ContractRow>>(emptyList()) }
     var nowSeconds by remember(paneId) { mutableLongStateOf(0L) }
     // Whether the strip under the band has tiles: then it, not the band, carries the control that hides the header.
     var stripTiles by remember(paneId) { mutableStateOf(false) }
@@ -213,8 +228,9 @@ fun PaneScreen(
                                     // Read before the snapshot's conversation is shown, so its time rows
                                     // never see the zero clock the state starts with.
                                     nowSeconds = clock()
-                                    // The epics read is before the host read, which stays the read's last call.
+                                    // The epics and contracts reads are before the host read, which stays the read's last call.
                                     val epics = fetchHeadEpics(client, pane?.orreryId.orEmpty())
+                                    val listed = fetchHeadContracts(client)
                                     val host = fetchHost(client)
                                     if (polled) {
                                         if (snapshot == null) {
@@ -229,6 +245,7 @@ fun PaneScreen(
                                         }
                                     }
                                     epics?.let { headEpics = it }
+                                    listed?.let { contracts = it }
                                     host?.let {
                                         servingHost = it.host
                                         stats = it.stats
@@ -288,6 +305,15 @@ fun PaneScreen(
     val lines = askLines(steered, headEpics.details)
     val asking = askingWords(ownName = current?.takeIf { ownAsks(it) }?.let { lastPathElement(it.cwd) }, lines = lines)
     val otherHost = current?.let { otherHostOf(it.host, servingHost) }
+    val bandLines = contractBandLines(contracts, current?.orreryId.orEmpty())
+    // The tile, the band line and the transcript line of a contract the conversation proposed open live while it runs.
+    // A transcript line also needs the contract listed as this conversation's, so a line of another's stays read-only.
+    val conversationId = current?.orreryId.orEmpty()
+    val live = conversationLive(current)
+    val openContract: (String) -> Unit = { id -> onOpenContract(id, live) }
+    val openTranscriptContract: (String) -> Unit = { id ->
+        onOpenContract(id, live && contracts.any { it.id == id && it.conversation == conversationId })
+    }
 
     Column(modifier = modifier.fillMaxSize().onSizeChanged { screenHeightPx = it.height }) {
         if (refreshFailed && current == null) {
@@ -310,6 +336,8 @@ fun PaneScreen(
                     endRequests = endRequests,
                     seen = seenAtOpen,
                     now = nowSeconds,
+                    contracts = contracts,
+                    onOpenContract = openTranscriptContract,
                     onRead = { readUpTo ->
                         scope.launch(Dispatchers.IO) {
                             try {
@@ -370,6 +398,8 @@ fun PaneScreen(
                             fold = fold,
                             onBack = onBack,
                             onOpenEpic = onOpenEpic,
+                            contracts = bandLines,
+                            onOpenContract = openContract,
                             onHide = { headHidden.value = true },
                             onShow = {
                                 headHidden.value = false
@@ -385,6 +415,7 @@ fun PaneScreen(
                                 now = nowSeconds,
                                 client = client,
                                 onOpenEpic = onOpenEpic,
+                                onOpenContract = openContract,
                                 modifier = Modifier.background(OrreryTokens.Surface.page),
                                 onTiles = { stripTiles = it },
                                 end = { HideHeader { headHidden.value = true } },
@@ -406,8 +437,14 @@ fun PaneScreen(
             nowSeconds = nowSeconds,
             client = client,
             draft = draft,
-            send = { text -> client.sendComposed(paneId, text) },
+            send = { text ->
+                val sent = about?.let { aboutMessage(it.id, it.text, text) } ?: text
+                client.sendComposed(paneId, sent)
+                if (about != null) onClearAbout()
+            },
             paneId = paneId,
+            about = about?.let { "${it.id} ${it.text}" },
+            onClearAbout = onClearAbout,
             waiting = conversation?.waiting.orEmpty(),
             maxFieldHeight = composeCap,
             onDraftPresent = { draftPresent = it },

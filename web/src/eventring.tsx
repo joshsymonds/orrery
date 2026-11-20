@@ -305,7 +305,7 @@ function QuestionReading({ epic, question, calls }: { epic: string; question: st
   if (open === undefined) {
     return <AskLine state="settled" who={`${epicProject(owner)} · ${owner.slug}`} />;
   }
-  // The Ask takes the epic page's now-block styles, as it does on the page.
+  // The Ask is drawn in the now-block column.
   return (
     <div class="now-block">
       <Ask

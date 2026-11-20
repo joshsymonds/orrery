@@ -46,8 +46,11 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 .list, .read, .rpanel { min-width: 0; }
 .read { display: flex; flex-direction: column; gap: var(--o-space-8); }
 .read[hidden] { display: none; }
+.list[hidden] { display: none; }
 /* The line the epic page shows when its epic's detail did not load. */
 .side-note { margin: 0; color: var(--o-ink-3); overflow-wrap: anywhere; }
+/* A read that failed is said as a failure, in the bad role, where the loading line stays quiet. */
+.side-note.unread { color: var(--o-role-bad); }
 .reply { min-width: 0; }
 .pin-reply { min-width: 0; }
 /* The in-app notice stack sits at the top right of .panes, the reading area, over the list and the reader. Each row is
@@ -94,9 +97,9 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
     --inbox-track: var(--o-layout-inbox-width);
     grid-template-columns: var(--inbox-track) minmax(0, 1fr) var(--o-layout-rail-width);
   }
-  .panes > .list, .panes > .read, .panes > .rpanel, .panes > .rail { grid-row: 1; }
+  .panes > .list, .panes > .read, .panes > .sheet-off > .sheet-off > .read, .panes > .rpanel, .panes > .rail { grid-row: 1; }
   .panes > .list { grid-column: 1; }
-  .panes > .read { grid-column: 2; }
+  .panes > .read, .panes > .sheet-off > .sheet-off > .read { grid-column: 2; }
   .panes > .read.pinned, .panes > .rpanel { grid-column: 3; }
   .panes > .rail { grid-column: -2 / -1; }
   .panes.split { grid-template-columns: var(--inbox-track) minmax(0, 1fr) minmax(0, 1fr) var(--o-layout-rail-width); }
@@ -237,6 +240,8 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 .pips i[data-tone="plan"] { background: var(--o-tone-plan); }
 .pips i[data-tone="run"] { background: var(--o-tone-run); animation: pulse var(--o-loop-pulse) ease-in-out infinite; }
 .pips i[data-tone="mine"] { background: var(--o-tone-mine); }
+/* A record's cell waiting on a usage limit is grey, so a limit never reads as a hold. */
+.pips i[data-tone="limited"] { background: var(--o-ink-3); }
 .pips i[data-tone="bad"] { background: var(--o-tone-bad); }
 .pips i[data-tone="acc"] { background: var(--o-tone-acc); }
 .pips i[data-tone="ok"] { background: var(--o-tone-ok); }
@@ -339,7 +344,6 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 
 .reply a { color: var(--o-role-ref); }
 
-
 /* New session and the key list. Both are a panel over the page, dimmed under it, and New is a sheet from the foot of the
    window below 760px. The start form and the key groups are the panel's own parts. */
 .scrim {
@@ -384,12 +388,14 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 .t-small { font: var(--o-type-small); }
 .t-body { font: var(--o-type-body); }
 .t-title { font: var(--o-type-title); }
+.ink-1 { color: var(--o-ink-1); }
+.ink-2 { color: var(--o-ink-2); }
+.ink-3 { color: var(--o-ink-3); }
 .ink-4 { color: var(--o-ink-4); }
+.is-attention { color: var(--o-role-attention); }
 
 /* A note in the hint's place, one line under the field: what happened, or the failure in the error role. */
 .inote { display: flex; align-items: center; gap: var(--o-space-8); margin: 0; font: var(--o-type-small); color: var(--o-ink-3); }
-/* A failure note also carries the error role, whose one line is cut at its edge elsewhere; a note's sentence wraps. */
-.inote.error { color: var(--o-role-bad); white-space: normal; overflow: visible; }
 .pick-row .chip { display: inline-flex; align-items: center; gap: var(--o-space-4); flex: none; padding: 0 var(--o-space-8); border-radius: var(--o-radius-1); background: var(--o-surface-raised); color: var(--o-ink-2); font: var(--o-type-small); white-space: nowrap; }
 .pick-row .chip.live { background: var(--o-role-live-fill); color: var(--o-role-live); }
 
@@ -437,6 +443,8 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 .sheet .field { height: var(--o-size-control-touch); }
 .sheet .foot { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: var(--o-space-8); padding: 0 var(--o-space-4); }
 .sheet .foot .end { justify-content: flex-end; margin-left: 0; }
+/* A confirm sheet's ending choice is drawn in the bad role, apart from the choice that keeps things as they are. */
+.sheet .foot .act.danger { color: var(--o-role-bad); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-role-bad-line); }
 
 /* ============ reader: its head, one conversation, its new rule, live text, its send foot ============ */
 .head { display: flex; align-items: center; gap: var(--o-space-12); min-width: 0; border-bottom: var(--o-size-hairline) solid var(--o-line-soft); white-space: nowrap; }
@@ -672,7 +680,6 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 }
 .reader .event-ring .ring-slug { flex: none; color: var(--o-role-ref); }
 .reader .event-ring .settled { margin: 0; color: var(--o-ink-3); }
-.reader .event-ring .answer .question { margin: 0; padding: 0; font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
 /* A step's end an event sent its caller: its agent, end, status and reason on the head, the headline under it, and the
    full return in a fold under that. A click opens the step's page. */
 .reader .step-card {
@@ -825,7 +832,7 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 .caret { display: inline-block; width: calc(var(--o-space-8) + var(--o-size-hairline)); height: var(--o-size-glyph); margin-left: var(--o-space-2); vertical-align: calc(-1 * var(--o-space-2)); background: var(--o-ink-1); animation: blink var(--o-loop-blink) steps(1) infinite; }
 .caret.soft { width: var(--o-size-hairline); background: var(--o-role-live); }
 
-/* ============ the epic page, in the reader's track: its title row, now block, orrery, happenings, proof and release ============ */
+/* ============ the epic page, in the reader's track: its title row, summary, track, Now, tasks and requirements, happenings and evidence runs ============ */
 .epic-page { display: flex; flex-direction: column; gap: var(--o-space-12); min-width: 0; }
 /* A page moving deeper drills in over the drill move, and a page coming back leaves in over the leave move. */
 section.page.drill { animation: move-drill var(--o-move-drill); }
@@ -833,7 +840,6 @@ section.page.leave { animation: move-leave var(--o-move-leave); }
 .epic-page p { margin: 0; }
 .epic-page ul, .epic-page ol { margin: 0; padding: 0; list-style: none; }
 .epic-page h3 { margin: 0; font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; color: var(--o-ink-3); }
-.epic-page h3 .sub { margin-left: var(--o-space-4); font: var(--o-type-small); letter-spacing: 0; text-transform: none; color: var(--o-ink-3); }
 .epic-page .sure { font: var(--o-type-small); color: var(--o-ink-2); }
 /* The title row: back, the crumbs, the state and blocker, and the commands pushed to its right. */
 .title-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-8); min-width: 0; padding-bottom: var(--o-space-8); border-bottom: var(--o-size-hairline) solid var(--o-line-soft); white-space: nowrap; }
@@ -843,6 +849,19 @@ section.page.leave { animation: move-leave var(--o-move-leave); }
 .title-row .crumb.here { font: var(--o-type-title); color: var(--o-ink-1); }
 .title-row .state { flex: none; font: var(--o-type-small); font-weight: var(--o-font-weight-bold); color: var(--o-ink-2); transition: color var(--o-move-state); }
 .title-row .blocker { min-width: 0; overflow: hidden; text-overflow: ellipsis; font: var(--o-type-small); color: var(--o-role-attention); transition: color var(--o-move-state); }
+.epic-page .title-row .state, .epic-page .title-row .blocker {
+  flex: none; display: inline-flex; align-items: center; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; padding: var(--o-space-2) var(--o-space-8);
+  border-radius: var(--o-radius-round); font: var(--o-type-small); color: var(--o-ink-2); background: var(--o-surface-raised); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm);
+  transition: color var(--o-move-state), background-color var(--o-move-state), box-shadow var(--o-move-state);
+}
+.epic-page .title-row .state { font-weight: var(--o-font-weight-bold); }
+/* On the epic page the state and the blocker are pills. A pill's tone sets its word, its tint and its outline. Quiet is grey on the raised ground. */
+.epic-page .title-row .t-live { color: var(--o-role-live); background: var(--o-role-live-fill); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-role-live-line); }
+.epic-page .title-row .t-attention { color: var(--o-role-attention); background: var(--o-role-attention-fill); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-role-attention-line); }
+.epic-page .title-row .t-quiet { color: var(--o-ink-3); }
+.epic-page .title-row .t-engine { color: var(--o-role-engine); background: var(--o-role-engine-fill); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-role-engine-line); }
+.epic-page .title-row .t-ok { color: var(--o-role-ok); background: var(--o-role-ok-fill); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-role-ok-line); }
+.epic-page .title-row .t-bad { color: var(--o-role-bad); background: var(--o-role-bad-fill); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-role-bad-line); }
 .title-row .acts { position: relative; display: flex; flex: none; align-items: center; gap: var(--o-space-4); margin-left: auto; }
 /* The find and More controls are square icon buttons, quiet until they are hovered or their menu is open. */
 .title-row .icon { flex: none; width: var(--o-size-control-desk); height: var(--o-size-control-desk); min-height: var(--o-size-control-desk); padding: 0; border: 0; border-radius: var(--o-radius-2); background: none; color: var(--o-ink-2); font: var(--o-type-body); cursor: pointer; appearance: none; -webkit-appearance: none; }
@@ -955,122 +974,124 @@ button.act.primary { background: var(--o-role-primary); color: var(--o-ink-on-ac
   appearance: none; -webkit-appearance: none;
 }
 button.act:active, .back:active, .crumb:active { transform: scale(.97); background-color: var(--o-surface-pressed); }
-/* The now block: the sentence the epic is on, over its blocker. A question draws as its option cards, a park as its line
-   and Retry, and Stop asks first. */
+/* The now block: the column an epic's Ask is drawn in inside a transcript's event ring. */
 .now-block { display: flex; flex-direction: column; align-items: flex-start; gap: var(--o-space-8); min-width: 0; }
-.now-block .now { font: var(--o-type-title); color: var(--o-ink-1); overflow-wrap: anywhere; }
-.now-block .blocked { color: var(--o-role-attention); overflow-wrap: anywhere; }
-.now-block .answer { display: flex; flex-direction: column; align-items: flex-start; gap: var(--o-space-4); width: 100%; min-width: 0; }
-.now-block .answer .question { color: var(--o-role-attention); white-space: pre-wrap; overflow-wrap: anywhere; }
-/* The option cards: a key cap beside the choice's name and what it does, the recommended card's why under it, and the
-   selected card ringed in the focus role. */
-.now-block .answer .opts { display: grid; gap: var(--o-space-8); width: 100%; }
-.now-block .answer .opt {
-  display: grid; grid-template-columns: var(--o-space-24) minmax(0, 1fr); gap: var(--o-space-8); align-items: start; width: 100%;
-  padding: var(--o-space-8) var(--o-space-12) var(--o-space-12) var(--o-space-8); border: 0; border-radius: var(--o-radius-2); cursor: pointer;
-  background: var(--o-surface-raised); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm); color: var(--o-ink-1);
-  font: var(--o-type-body); text-align: left; overflow-wrap: anywhere;
-  appearance: none; -webkit-appearance: none;
+/* The summary: the paragraph at reading measure, then its doors out. A door is a button: its label in ink.3, its value in the
+   reference colour. */
+.epic-page .summary { display: grid; gap: var(--o-space-8); min-width: 0; }
+.epic-page .summary-text { max-width: var(--o-layout-read-measure-ch); margin: 0; color: var(--o-ink-2); font: var(--o-type-body); overflow-wrap: anywhere; }
+.epic-page .doors { display: flex; flex-wrap: wrap; gap: var(--o-space-4) var(--o-space-24); min-width: 0; }
+/* A door: its label holds one line and never shrinks, and its line takes the rest of the row and ellipsizes. The Contract
+   door is also .contract, whose anywhere wrap would split the label inside a word, so the door resets that wrap. */
+.epic-page .door {
+  display: inline-flex; align-items: center; gap: var(--o-space-8); min-width: 0; max-width: 100%; min-height: var(--o-space-24); padding: var(--o-space-4) 0; border: 0; border-radius: 0;
+  background: none; color: var(--o-role-ref); font: var(--o-type-small); text-align: left; cursor: pointer; appearance: none; -webkit-appearance: none; overflow-wrap: normal;
 }
-.now-block .answer .opt kbd { margin-top: var(--o-space-2); background: var(--o-surface-raised); color: var(--o-ink-2); box-shadow: none; }
-.now-block .answer .opt.sel { background: var(--o-surface-raised); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-role-focus); }
-.now-block .answer .opt.sel kbd { color: var(--o-ink-1); }
-.now-block .answer .opt em {
-  display: table; margin: var(--o-space-2) 0 var(--o-space-4); padding: 0 var(--o-space-4); border-radius: var(--o-radius-1); background: none;
-  box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm); color: var(--o-ink-2);
-  font: var(--o-type-small); font-style: normal;
+.epic-page .door > span:first-child { color: var(--o-ink-3); flex: none; white-space: nowrap; }
+.epic-page .door > span:not(:first-child) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.epic-page .door:hover { text-decoration: underline; }
+/* The track: five stages in the epic's order, each a rail in its state's colour, its name in the label face and its words under it. */
+.epic-page .track { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--o-space-4); min-width: 0; margin: 0; padding: 0; list-style: none; }
+.epic-page .stage {
+  display: grid; align-content: start; gap: var(--o-space-2); min-width: 0; padding: var(--o-space-8) var(--o-space-8) 0 0;
+  border-top: var(--o-size-rail) solid var(--o-line-soft); color: var(--o-ink-4); font: var(--o-type-small);
 }
-.now-block .answer .opt small { display: block; font: var(--o-type-small); color: var(--o-ink-3); }
-.now-block .answer textarea {
-  width: 100%; min-height: calc(var(--o-space-48) + var(--o-space-8)); padding: var(--o-space-4) var(--o-space-8); border: 0; border-radius: var(--o-radius-2); resize: vertical; outline: 0;
-  background: var(--o-surface-well); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm); color: var(--o-ink-1); font: var(--o-type-body);
-}
-.now-block .answer textarea:focus-visible { box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-role-focus); }
-.epic-page .summary {
-  display: block; width: 100%; padding: var(--o-space-4) var(--o-space-8); border: 0; border-radius: var(--o-radius-2); cursor: pointer;
-  background: var(--o-surface-raised); color: var(--o-ink-2); text-align: left; font: var(--o-type-small); overflow-wrap: anywhere;
-  appearance: none; -webkit-appearance: none;
-}
-.epic-page .implementation { display: flex; flex-direction: column; gap: var(--o-space-12); min-width: 0; }
-/* The orrery: the wedges as rings of phase cells, the planned rim outside them, the requirement arcs and the centre count.
-   A cell and an arc change colour over the state move. */
+.epic-page .stage .nm { display: flex; align-items: center; gap: var(--o-space-4); min-width: 0; overflow: hidden; font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+.epic-page .stage .ds { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.epic-page .stage.done { border-top-color: var(--o-role-ok); color: var(--o-ink-3); }
+.epic-page .stage.done .nm { color: var(--o-ink-2); }
+.epic-page .stage.now { border-top-color: var(--tone, var(--o-role-live)); color: var(--o-ink-2); }
+.epic-page .stage.now .nm { color: var(--tone, var(--o-role-live)); }
+/* Now: the sentence the epic is on, then what asks. */
+.epic-page section.now { display: grid; gap: var(--o-space-8); min-width: 0; }
+/* Resume now is one button at its own width under the sentence, not a bar across Now. */
+.epic-page section.now > .act { justify-self: start; }
+.epic-page .now-sentence { margin: 0; color: var(--o-ink-1); font: var(--o-type-title); overflow-wrap: anywhere; }
+/* The sections of the tasks and the requirements: a head with its count, then the chart and table. */
+.epic-page .tasks, .epic-page .requirements { display: grid; gap: var(--o-space-12); min-width: 0; }
+/* Tasks sets the chart beside the task table, and the table wraps under the chart when the two do not fit side by side. */
+.epic-page section.tasks { display: flex; flex-wrap: wrap; align-items: flex-start; column-gap: var(--o-space-32); row-gap: var(--o-space-12); }
+.epic-page section.tasks > .sec-head { flex: 1 1 100%; }
+.epic-page section.tasks > .orrery-fig { flex: 0 0 var(--o-size-orrery-full); max-width: 100%; margin: 0 auto; }
+.epic-page section.tasks > .tbl { flex: 1 1 56ch; min-width: 0; }
+.epic-page .sec-head { display: flex; align-items: baseline; gap: var(--o-space-8); min-width: 0; }
+.epic-page .sec-head span { font: var(--o-type-small); color: var(--o-ink-3); }
+/* The chart: the rings of task cells, outside in, each cell in its tone; the requirement rim outside them; the count in the
+   centre; the hovered wedge outlined, with no pointer, and named in its caption. The epic line's mini chart shares the cell
+   and arc rules. A running cell pulses. */
+.orrery-fig { display: grid; justify-items: center; gap: var(--o-space-8); min-width: 0; margin: 0; }
 .orrery { display: block; width: 100%; max-width: calc(var(--o-size-orrery-full) + var(--o-space-48) + var(--o-space-32) + var(--o-space-4)); height: auto; margin-inline: auto; }
-.orrery text { font: inherit; }
 .orrery .cell, .orrery .req { transition: fill var(--o-move-state); }
+.orrery .cell.c-none { fill: var(--o-line-soft); }
+.orrery .cell.c-plan { fill: var(--o-tone-plan); }
+.orrery .cell.c-run { fill: var(--o-tone-run); animation: pulse var(--o-loop-pulse) ease-in-out infinite; }
+.orrery .cell.c-mine { fill: var(--o-tone-mine); }
+.orrery .cell.c-limited { fill: var(--o-ink-3); }
+.orrery .cell.c-bad { fill: var(--o-tone-bad); }
+.orrery .cell.c-acc { fill: var(--o-tone-acc); }
+.orrery .cell.c-ok { fill: var(--o-tone-ok); }
+.orrery .cell[role="button"] { cursor: pointer; }
 .orrery .cell.passed { fill: var(--o-role-ok); }
 .orrery .cell.ahead { fill: var(--o-line-soft); }
 .orrery .cell.planned { fill: var(--o-tone-plan); }
 .orrery .cell.now { fill: var(--tone); }
-.orrery .cell.open { cursor: pointer; }
+.orrery .req { fill: var(--o-line-firm); }
 .orrery .req.proven { fill: var(--o-role-ok); }
 .orrery .req.open { fill: var(--o-line-firm); }
-.orrery .req-id { font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; fill: var(--o-ink-2); }
-.orrery .phase-name { font: var(--o-type-small); fill: var(--o-ink-3); }
+.orrery .ring-way { fill: none; stroke: none; }
+.orrery .ring-name { font: var(--o-type-label); fill: var(--o-ink-2); }
 .orrery .count { font: var(--o-type-display); fill: var(--o-ink-1); }
-.orrery .count-of { font: var(--o-type-small); fill: var(--o-ink-3); }
-/* A running wedge's now cell glows and pulses; under reduced motion the glow holds still at full strength. */
-.orrery .glow {
-  fill: var(--o-role-live); stroke: var(--o-role-live); stroke-width: 4; stroke-linejoin: round; pointer-events: none;
-  animation: orbit-glow var(--o-loop-pulse) ease-in-out infinite;
-}
-@keyframes orbit-glow { 0%, 100% { opacity: 1; } 50% { opacity: var(--o-pulse-low); } }
-/* A tone names one role: a running wedge's now cell and its Now row take it. */
-.t-run { --tone: var(--o-role-live); }
-.t-mine { --tone: var(--o-role-attention); }
-.t-bad { --tone: var(--o-role-bad); }
-.t-acc { --tone: var(--o-role-engine); }
+.orrery .of { font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; fill: var(--o-ink-3); }
+.orrery .hl { fill: none; stroke: var(--o-ink-1); stroke-width: var(--o-size-hairline); pointer-events: none; }
+.orrery-cap { margin: 0; color: var(--o-ink-2); font: var(--o-type-small); text-align: center; overflow-wrap: anywhere; }
+/* A tone names one role. A tone class sets --tone, which the element's colour, fill or edge reads. */
+.t-live, .t-run, .t-working { --tone: var(--o-role-live); }
+.t-attention, .t-mine, .t-held { --tone: var(--o-role-attention); }
+.t-quiet, .t-limited { --tone: var(--o-ink-3); }
+.t-plan { --tone: var(--o-tone-plan); }
+.t-engine, .t-acc { --tone: var(--o-role-engine); }
 .t-ok { --tone: var(--o-role-ok); }
-.epic-page .slice-card { padding: var(--o-space-8); border-radius: var(--o-radius-2); background: var(--o-surface-well); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-soft); font: var(--o-type-small); }
-.epic-page .card-task { font-weight: var(--o-font-weight-bold); color: var(--o-ink-1); overflow-wrap: anywhere; }
-.epic-page .card-phase, .epic-page .card-time { color: var(--o-ink-3); }
-.epic-page .card-summary { color: var(--o-ink-2); overflow-wrap: anywhere; }
-/* Now, Next and Just happened: a line per task, a line that opens its task is a pointer, and the lines of Just happened
-   enter faded over the layout move. */
+.t-bad { --tone: var(--o-role-bad); }
+/* Just happened: a line per entry, a line that opens its task is a pointer, and the lines enter faded over the layout move. */
 .epic-page .happen ul { display: grid; gap: var(--o-space-2); }
 .epic-page .happen li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--o-type-small); color: var(--o-ink-2); }
-.epic-page .happen.now li { color: var(--tone); }
 .epic-page .happen li.open { cursor: pointer; }
 .epic-page .happen.just li { transition: opacity var(--o-move-layout), transform var(--o-move-layout); }
 @starting-style { .epic-page .happen.just li { opacity: 0; transform: translateY(calc(-1 * var(--o-space-4))); } }
+/* At the desk a line's clock sits in a right-aligned gutter, a gap before its words, as the happenings draw it. In the
+   panel the title row stays pinned at the card's top edge, across the scroller's padding and under the panel's own
+   controls, while the record under it scrolls. */
+@media (min-width: 760px) {
+  .rcard > section.page > .epic-page > .title-row {
+    position: sticky; top: calc(-1 * var(--o-space-16)); z-index: var(--o-z-sticky);
+    margin-top: calc(-1 * var(--o-space-16)); padding-top: var(--o-space-16); background: var(--o-surface-side);
+  }
+  .epic-page .happen li .at { display: inline-block; min-width: var(--o-layout-gutter-ch); margin-right: var(--o-space-16); color: var(--o-ink-4); text-align: right; }
+}
 .epic-page .happen .more { min-height: var(--o-space-24); padding: 0; border: 0; background: none; cursor: pointer; font: var(--o-type-small); color: var(--o-ink-3); appearance: none; -webkit-appearance: none; }
-/* The proof sections: a card per requirement in contract order. A section its phase has not reached draws in a lower ink. */
-.epic-page .proof { display: flex; flex-direction: column; gap: var(--o-space-4); min-width: 0; }
-.epic-page .proof.dim { --o-ink-1: var(--o-ink-3); --o-ink-2: var(--o-ink-3); }
-.epic-page .proof-card { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto; gap: var(--o-space-8); font: var(--o-type-small); }
-.epic-page .proof-card.open { cursor: pointer; }
-.epic-page .proof-card .rid { font-weight: var(--o-font-weight-bold); color: var(--o-ink-2); }
-.epic-page .proof-card .text { min-width: 0; font: var(--o-type-body); color: var(--o-ink-1); overflow-wrap: anywhere; }
-.epic-page .proof-card .kind { color: var(--o-ink-3); }
-.epic-page .proof-card .conclusion { grid-column: 2 / -1; font: var(--o-type-small); color: var(--o-ink-2); overflow-wrap: anywhere; }
-.epic-page .proof-card .runs { grid-column: 1 / -1; }
-.epic-page .release-step { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr); gap: var(--o-space-8); font: var(--o-type-small); }
-.epic-page .release-step .step { font-weight: var(--o-font-weight-bold); color: var(--o-ink-2); }
-.epic-page .release-step .target { min-width: 0; color: var(--o-ink-1); overflow-wrap: anywhere; }
-.epic-page .release-step .undo { min-width: 0; color: var(--o-ink-3); overflow-wrap: anywhere; }
-.epic-page .release-step .state { min-width: 0; font-weight: var(--o-font-weight-bold); color: var(--o-ink-2); }
-.epic-page .release-step .evidence, .epic-page .release-step .reason { grid-column: 2 / -1; min-width: 0; color: var(--o-ink-2); overflow-wrap: anywhere; }
-.epic-page .release .then { font: var(--o-type-small); color: var(--o-ink-2); overflow-wrap: anywhere; }
-/* Evidence runs, in a proof card and in a workflow node alike: each run a card of its head line, its log toggles and its
-   artifacts. */
+/* An evidence run is one line: its sentence, its verdict chip, its meta, and its log toggle at the end. The log and the
+   artifacts fold under it. */
+.run-line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-4) var(--o-space-8); min-width: 0; padding: var(--o-space-4) var(--o-space-12); border-left: var(--o-size-hairline) solid var(--o-line-firm); color: var(--o-ink-2); font: var(--o-type-small); }
+.run-line .meta { color: var(--o-ink-3); }
+.run-line .end { display: inline-flex; align-items: center; gap: var(--o-space-8); margin-left: auto; }
+.run-line .link { min-height: var(--o-space-24); color: var(--o-role-ref); cursor: pointer; }
+.run-line .chip { display: inline-flex; align-items: center; gap: var(--o-space-4); flex: none; padding: 0 var(--o-space-8); border-radius: var(--o-radius-1); background: var(--o-surface-raised); color: var(--o-ink-2); font: var(--o-type-small); white-space: nowrap; }
+.run-line .chip.ok { background: var(--o-role-ok-fill); color: var(--o-role-ok); }
+.run-line .chip.bad { background: var(--o-role-bad-fill); color: var(--o-role-bad); }
+.run-line .chip.live { background: var(--o-role-live-fill); color: var(--o-role-live); }
 .epic-page .runs, .phase-output .runs { display: grid; gap: var(--o-space-4); }
 .epic-page .run, .phase-output .run { display: grid; gap: var(--o-space-4); padding: var(--o-space-4) var(--o-space-8); border-radius: var(--o-radius-2); background: var(--o-surface-well); font: var(--o-type-small); }
-.epic-page .run .run-head, .phase-output .run .run-head { display: flex; flex-wrap: wrap; gap: 0 var(--o-space-8); min-width: 0; color: var(--o-ink-3); }
-.epic-page .run .phase, .phase-output .run .phase { font-weight: var(--o-font-weight-bold); color: var(--o-ink-2); }
-.epic-page .run .pass.ok, .phase-output .run .pass.ok { color: var(--o-role-ok); }
-.epic-page .run .log-toggle, .phase-output .run .log-toggle {
-  justify-self: start; min-height: var(--o-space-24); padding: 0; border: 0; background: none; cursor: pointer;
-  font: var(--o-type-small); color: var(--o-ink-3); appearance: none; -webkit-appearance: none;
-}
 .epic-page .run .pending, .phase-output .run .pending { color: var(--o-ink-3); }
 .epic-page .run .unavailable, .phase-output .run .unavailable { color: var(--o-role-bad); }
-.epic-page .run .artifacts, .phase-output .run .artifacts { display: grid; gap: var(--o-space-4); }
 .epic-page .artifact, .phase-output .artifact { display: flex; flex-wrap: wrap; gap: 0 var(--o-space-8); min-width: 0; color: var(--o-ink-3); }
-.epic-page .artifact .path, .phase-output .artifact .path { min-width: 0; overflow-wrap: anywhere; color: var(--o-ink-2); }
 .epic-page .artifact-image, .phase-output .artifact-image { display: block; max-width: 100%; height: auto; border-radius: var(--o-radius-2); }
 .epic-page .log, .phase-output .log {
   margin: 0; max-height: calc(var(--o-space-48) * 5); overflow: auto; padding: var(--o-space-4) var(--o-space-8); border-radius: var(--o-radius-2); background: var(--o-surface-side);
   font: var(--o-type-small); color: var(--o-ink-2); white-space: pre-wrap; overflow-wrap: anywhere;
 }
+/* A log's label names its stream: stdout quiet, stderr in the halt role. */
+.epic-page .log .lbl, .phase-output .log .lbl { display: block; margin-bottom: var(--o-space-4); color: var(--o-ink-3); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+.epic-page .log .lbl.is-halt, .phase-output .log .lbl.is-halt { color: var(--o-role-halt); }
 .epic-page .tail-label { color: var(--o-ink-3); }
 .epic-page .end { flex: none; color: var(--o-ink-3); }
 /* A commit's mark sits in its row's meta text: handover, evidence runs and the contract's accepted line. */
@@ -1207,10 +1228,73 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 .tilestrip .rgroup { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--o-space-4) var(--o-space-8); width: auto; padding: 0; }
 .tilestrip .rgroup + .rgroup { padding: 0; border: 0; }
 .tilestrip .rlabel { flex-basis: 100%; }
-/* Under 760px an open epic is the page in the conversation's place, and its foot bar opens the steering conversation. */
+/* Under 760px an open epic is the page in the conversation's place: its sections, then its foot bar. */
 .epic-read { display: flex; flex-direction: column; gap: var(--o-space-8); min-width: 0; }
-.epic-foot { display: flex; justify-content: center; padding-block: var(--o-space-8) var(--o-space-4); border-top: var(--o-size-hairline) solid var(--o-line-soft); }
-.epic-foot .side-note { text-align: center; }
+
+/* The tables: a row of facts in the columns its table names. The task table, the requirement table and the running steps
+   share the row rule; a row's proof cells and words take their tone; the fold line opens the rest of the tasks. */
+.tbl { display: grid; grid-template-columns: var(--cols, minmax(0, 1fr)); column-gap: var(--o-space-16); min-width: 0; }
+.tbl.tasks { --cols: minmax(0, 1.4fr) auto auto minmax(0, 1fr) auto; }
+.tbl.reqs { --cols: auto minmax(0, 1fr) auto auto auto; }
+.tbl.steps { --cols: var(--o-size-glyph) minmax(0, 1fr) auto minmax(0, 2fr) auto; }
+.tr, .tbl > .th {
+  display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: center; min-width: 0; margin: 0; padding: var(--o-space-8);
+  border: 0; border-top: var(--o-size-hairline) solid var(--o-line-soft); border-radius: 0; background: none; color: var(--o-ink-2); font: var(--o-type-small); text-align: left;
+}
+.tr.head, .tbl > .th { padding-top: 0; padding-bottom: var(--o-space-4); border-top: 0; color: var(--o-ink-3); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+button.tr { width: 100%; cursor: pointer; appearance: none; -webkit-appearance: none; }
+button.tr:hover { background: var(--o-surface-well); }
+.tr > * { min-width: 0; }
+.tr .id { color: var(--o-ink-3); white-space: nowrap; }
+.tr .strong { color: var(--o-ink-1); overflow-wrap: anywhere; }
+.tr .cell { display: inline-flex; align-items: center; gap: var(--o-space-4); color: var(--tone, var(--o-ink-2)); overflow-wrap: anywhere; }
+.tr .cell.t-plan { --tone: var(--o-ink-3); }
+.tr .cell.none { --tone: var(--o-ink-4); }
+.tr .cell.ok { --tone: var(--o-role-ok); }
+.tr .cell.bad { --tone: var(--o-role-bad); }
+.tr .cell.live { --tone: var(--o-role-live); }
+.tr .end { justify-self: end; color: var(--o-ink-3); white-space: nowrap; }
+.tr-detail { display: grid; grid-column: 1 / -1; gap: var(--o-space-8); min-width: 0; padding: 0 var(--o-space-8) var(--o-space-12) var(--o-space-32); }
+.tbl > .fold-line {
+  grid-column: 1 / -1; display: flex; align-items: center; gap: var(--o-space-8); width: 100%; min-height: var(--o-space-24); margin: 0; padding: var(--o-space-4) var(--o-space-8);
+  border: 0; border-radius: var(--o-radius-2); background: none; color: var(--o-ink-3); font: var(--o-type-small); text-align: left; cursor: pointer; appearance: none; -webkit-appearance: none;
+}
+.tbl > .fold-line:hover { background: var(--o-surface-well); color: var(--o-ink-2); }
+/* A running step's row: its glyph, its label, its pips, what it does and its clock. Limited rows and glyphs are grey; held
+   ones are peach, their doing included. */
+.tbl .g { display: block; width: var(--o-size-glyph); height: var(--o-size-glyph); border-radius: var(--o-radius-round); color: var(--tone); font: var(--o-type-small); font-weight: var(--o-font-weight-bold); text-align: center; }
+.tbl .g-working { border: var(--o-size-hairline) solid var(--o-line-firm); border-top-color: var(--o-role-live); animation: rot var(--o-loop-spin) linear infinite; }
+.tbl .g-held::after, .tbl .g-limited::after { content: "‖"; }
+.tbl .doing { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tr.t-limited, .tr.t-limited .strong { color: var(--tone); }
+.tr.t-held .doing { color: var(--tone); }
+/* The phone's foot bar: the steering conversation's button, growing to fill, and More, in reach of a thumb. */
+.cmdbar { display: flex; align-items: center; gap: var(--o-space-8); flex: none; padding: var(--o-space-8); border-top: var(--o-size-hairline) solid var(--o-line-soft); background: var(--o-surface-well); }
+.cmdbar .act:first-child { flex: 1 1 auto; }
+@media (width < 760px) {
+  .epic-page .door { min-height: var(--o-size-control-touch); }
+  /* As round 6's touch track: the stages' words and a done stage's check hide, each name sets small and takes its whole
+     column. */
+  .epic-page .stage { padding-right: 0; }
+  .epic-page .stage .ds, .epic-page .stage .nm > span { display: none; }
+  .epic-page .stage .nm { font: var(--o-type-small); letter-spacing: 0; text-transform: none; }
+  /* As round 6's touch tables: one column, each table's own touch columns, a wide cell spanning the row, and the head row
+     hidden. */
+  .tbl { grid-template-columns: minmax(0, 1fr); }
+  .tbl.tasks { --cols-touch: minmax(0, 1fr) auto auto; }
+  .tbl.reqs { --cols-touch: auto auto minmax(0, 1fr); }
+  .tbl.steps { --cols-touch: auto minmax(0, 1fr) auto; }
+  .tr { grid-template-columns: var(--cols-touch, minmax(0, 1fr) auto); column-gap: var(--o-space-12); row-gap: var(--o-space-2); padding: var(--o-space-12) 0; }
+  .tr .wide { grid-column: 1 / -1; }
+  .tr.head, .tbl > .th { display: none; }
+  .tbl > .fold-line { min-height: var(--o-size-control-touch); }
+  /* Just happened sets its time apart from its words, with no gutter column on the phone. */
+  .epic-page .happen .at { margin-right: var(--o-space-12); }
+  /* The problem line is read whole: it wraps, and the .error rule's cut at its edge does not apply. */
+  .problem { white-space: normal; text-overflow: clip; overflow-wrap: anywhere; }
+}
+/* A closed sheet draws its children in its two elements with no box of their own, so the page lays them out as its own. */
+.sheet-off { display: contents; }
 /* A sheet covers the window, so it lies over the page wherever the page is scrolled; its rules are the row sheet's, above.
    A picker drawn in it lies flat in the sheet. */
 .sheet .rpick { position: static; width: auto; padding: 0; background: none; box-shadow: none; }
@@ -1236,7 +1320,7 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 .rcard.quiet { border-top: var(--o-size-rail) solid var(--o-ink-3); }
 /* Open in a new window and Close sit at the right end of the card's title row, as round 6's record title draws them. */
 .rcard { position: relative; }
-.panel-ctl { position: absolute; top: var(--o-space-8); right: var(--o-space-8); z-index: var(--o-z-sticky); display: flex; gap: var(--o-space-4); }
+.panel-ctl { position: absolute; top: var(--o-space-8); right: var(--o-space-8); z-index: var(--o-z-flyout); display: flex; gap: var(--o-space-4); }
 .rcard .title-row, .rcard .plist > h2 { padding-right: calc(var(--o-space-24) * 2 + var(--o-space-12)); }
 .rcard .plist > h2 { padding-bottom: var(--o-space-8); border-bottom: var(--o-size-hairline) solid var(--o-line-soft); }
 .panel-ctl a, .panel-ctl button { display: grid; place-items: center; width: var(--o-space-24); height: var(--o-space-24); min-height: var(--o-space-24); padding: 0; border: 0; border-radius: var(--o-radius-2); background: none; color: var(--o-ink-3); font: var(--o-type-small); text-decoration: none; }
@@ -1265,11 +1349,113 @@ button.subj:hover { background: var(--o-surface-raised); }
 .subj.here { background: var(--o-surface-raised); }
 .subj.here .end { color: var(--o-ink-3); }
 
+/* ============ the contract: its document, its record and the one line that names it in a transcript. Round 6's Contract, its
+   DecisionLine, SectionHead, the table rows, the chips and notes, and the record's versions, command bar and older-version
+   banner. A table's columns are set by which table it is, as round 6 sets them inline; the phone stacks each row. */
+.contract { display: grid; gap: var(--o-space-32); min-width: 0; overflow-wrap: anywhere; }
+.contract > section:not(.dline) { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--o-space-12); min-width: 0; }
+.contract p { margin: 0; }
+.dline { display: grid; gap: var(--o-space-8); max-width: var(--o-layout-read-measure-ch); min-width: 0; }
+.dline h2 { font: var(--o-type-display); }
+.dline .approved { color: var(--o-ink-2); font: var(--o-type-body); }
+.dline .facts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-8) var(--o-space-16); color: var(--o-ink-2); font: var(--o-type-small); }
+.dline .facts.rec .by { display: inline-flex; align-items: baseline; gap: var(--o-space-8); }
+.dline .tbl { margin-top: var(--o-space-8); }
+.contract .intent, .contract .approach { max-width: var(--o-layout-read-measure-ch); color: var(--o-ink-2); font: var(--o-type-body); }
+.contract .exclusions { display: grid; gap: var(--o-space-4); margin: 0; padding-left: var(--o-space-24); list-style: "· "; color: var(--o-ink-1); font: var(--o-type-body); }
+.contract .exclusions li::marker { color: var(--o-prose-marker); }
+.contract .unread { color: var(--o-role-bad); }
+
+/* A section head's tag or changed chip sits at its end, and a head with something left to settle takes attention. */
+.sec .rest { margin-left: auto; font: var(--o-type-small); }
+.sec.attention { --hue: var(--o-role-attention); }
+
+/* A chip: a verdict or a tag on its role's tint. A rating's chip is ok or bad or none; a changed chip is new. */
+.chip { display: inline-flex; align-items: center; gap: var(--o-space-4); flex: none; padding: 0 var(--o-space-8); border-radius: var(--o-radius-1); background: var(--o-surface-raised); color: var(--o-ink-2); font: var(--o-type-small); white-space: nowrap; }
+.chip.live { background: var(--o-role-live-fill); color: var(--o-role-live); }
+.chip.bad { background: var(--o-role-bad-fill); color: var(--o-role-bad); }
+.chip.new { background: var(--o-role-new-fill); color: var(--o-role-new); }
+
+/* A note under a control: what happened, a settled decision, or a refusal in the error role. An error shows whole, not cut to a line. */
+.inote.ok { color: var(--o-role-ok); }
+.inote.error { margin: 0; padding: 0; border-radius: 0; background: none; color: var(--o-role-bad); overflow: visible; text-overflow: clip; white-space: normal; }
+.inote.banner { padding: var(--o-space-8) var(--o-space-12); border-radius: var(--o-radius-2); background: var(--o-surface-well); color: var(--o-ink-2); }
+
+/* A table: rows of facts in real columns, a head row of column names, and a hairline between rows. */
+.tbl { display: grid; grid-template-columns: var(--cols, minmax(0, 1fr)); column-gap: var(--o-space-16); min-width: 0; }
+.tr { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: baseline; min-width: 0; padding: var(--o-space-8); border-top: var(--o-size-hairline) solid var(--o-line-soft); color: var(--o-ink-2); font: var(--o-type-small); }
+.tr.head { padding-top: 0; padding-bottom: var(--o-space-4); border-top: 0; color: var(--o-ink-3); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+.tr.attention { box-shadow: inset var(--o-size-rail) 0 0 var(--o-role-attention); }
+.tr > * { min-width: 0; }
+.tr .id { color: var(--o-ink-3); white-space: nowrap; }
+.tr .strong { color: var(--o-ink-1); }
+.tr .end { justify-self: end; display: inline-flex; align-items: center; gap: var(--o-space-8); white-space: nowrap; }
+.tr .say { display: inline-flex; vertical-align: middle; visibility: hidden; }
+.tr .say.on, .tr:hover .say { visibility: visible; }
+.tr .say .ctl { background: var(--o-surface-raised); color: var(--o-role-you); }
+.keepdrop { display: inline-flex; gap: var(--o-space-4); }
+button.tr { width: 100%; min-height: 0; margin: 0; border: 0; border-radius: 0; background: none; color: var(--o-ink-2); font: var(--o-type-small); text-align: left; cursor: pointer; }
+button.tr:hover { background: var(--o-surface-well); }
+
+/* Each table's columns, by its head's count and the rows it holds: the id column leads where a row has one. A table of
+   requirements, premises, decisions, releases or versions is named by its rows, and the rest by their head. */
+.contract .tbl:where(:has(> .tr.head > :nth-child(3):last-child)) { --cols: minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1fr); --cols-touch: minmax(0, 1fr); }
+.contract .tbl:where(:has(> .tr.head > :nth-child(4):last-child)) { --cols: auto minmax(0, 1.3fr) auto minmax(0, 1fr); --cols-touch: auto minmax(0, 1fr) auto; }
+.contract .tbl:where(:has(> .tr.head > :nth-child(5):last-child)) { --cols: auto minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) auto; --cols-touch: auto minmax(0, 1fr); }
+.contract .tbl:has(> .tr[data-row^="R"]) { --cols: auto minmax(0, 1.2fr) minmax(0, 1fr); --cols-touch: minmax(0, 1fr) auto; }
+.contract .tbl:has(> .tr[data-row^="P"]) { --cols: auto minmax(0, 1fr) minmax(0, 1fr); --cols-touch: auto minmax(0, 1fr); }
+.contract .tbl:has(> .tr[data-row^="D"]) { --cols: auto minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr); --cols-touch: auto minmax(0, 1fr); }
+.contract .tbl:has(> .tr > .id:first-child) { --cols: auto minmax(0, 1.4fr) minmax(0, 1fr) auto; --cols-touch: auto minmax(0, 1fr) auto; }
+.contract .tbl.versions { --cols: auto auto minmax(0, 1fr) minmax(0, 1.6fr); --cols-touch: auto minmax(0, 1fr); }
+
+/* A disabled button is dimmed in ink. */
+.btn:disabled { background: none; color: var(--o-ink-4); cursor: default; transform: none; }
+button.link { min-height: 0; padding: 0; border: 0; border-radius: 0; background: none; color: var(--o-role-ref); font: inherit; cursor: pointer; }
+
+/* The record: its document, the older-version banner, and the command bar that accepts, sets aside or reopens it. */
+.contract-record { display: grid; gap: var(--o-space-32); min-width: 0; }
+.cmdbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-8); flex: none; padding: var(--o-space-8); border-top: var(--o-size-hairline) solid var(--o-line-soft); background: var(--o-surface-well); }
+.cmdbar .inote { min-width: 0; }
+/* At the desk the record scrolls inside its panel and its bar stays at the panel's foot; on the phone the bar ends the page. */
+@media (min-width: 760px) {
+  .cmdbar { position: sticky; bottom: 0; }
+}
+.cmdbar .end { display: inline-flex; flex-wrap: wrap; gap: var(--o-space-4); margin-left: auto; flex: none; }
+
+/* The one-line block a transcript draws where a contract was written: a rail in its tone, a doc glyph and its label, its
+   title and the rest of its state, and a chevron. A contract that is set aside is quiet. */
+.block { --rail: var(--o-line-firm); --tint: transparent; --ground: var(--o-surface-well); display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--o-space-4); min-width: 0; padding: var(--o-space-8) var(--o-space-12); border-left: var(--o-size-rail) solid var(--rail); border-radius: 0 var(--o-radius-2) var(--o-radius-2) 0; background: linear-gradient(var(--tint), var(--tint)), var(--ground); }
+button.block { width: 100%; border-top: 0; border-right: 0; border-bottom: 0; color: var(--o-ink-1); text-align: left; cursor: pointer; }
+button.block:hover { --ground: var(--o-surface-raised); }
+.block.attention { --rail: var(--o-role-attention); --tint: var(--o-role-attention-fill); }
+.block.ok { --rail: var(--o-role-ok); --tint: var(--o-role-ok-fill); }
+.block.quiet { --rail: var(--o-ink-3); }
+.block.oneline { display: flex; align-items: center; gap: var(--o-space-8); }
+.block > .head { display: flex; align-items: center; gap: var(--o-space-8); min-width: 0; color: var(--o-ink-3); font: var(--o-type-small); }
+.block.oneline > .head { flex: none; }
+.block > .head > .icon { flex: none; color: var(--rail); }
+.block > .head .lbl { flex: none; color: var(--rail); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+.block > .body { min-width: 0; color: var(--o-ink-1); overflow-wrap: anywhere; }
+.block.oneline > .body { flex: 1 1 auto; font: var(--o-type-small); }
+.block.oneline > .end { display: inline-flex; align-items: center; gap: var(--o-space-4); flex: none; font: var(--o-type-small); color: var(--o-ink-3); }
+
+/* On a phone a table is one column of rows: each row takes its touch template, its wide cells span the row, and the head
+   names are dropped. A row's Talk control is always drawn. */
+@media (width < 760px) {
+  .contract .tbl { grid-template-columns: minmax(0, 1fr); }
+  .contract .tr { grid-template-columns: var(--cols-touch, minmax(0, 1fr) auto); column-gap: var(--o-space-12); row-gap: var(--o-space-2); padding: var(--o-space-12) 0; }
+  .contract .tr.head { display: none; }
+  .contract .tr.attention { padding-left: var(--o-space-12); }
+  .contract .tr .wide { grid-column: 1 / -1; }
+  .contract .tr .say { visibility: visible; }
+  .btn { height: var(--o-size-control-touch); padding: 0 var(--o-space-16); }
+}
+
 /* Reduced motion comes last, so it wins over the rules above: each move is one 100 ms linear step, a page drills and
    leaves by a fade, and the loops hold still. */
 @media (prefers-reduced-motion: reduce) {
   section.page.drill { animation: move-fade var(--o-move-drill); }
   section.page.leave { animation: move-fade var(--o-move-leave); }
+  .tbl .g-working, .orrery .cell.c-run { animation: none; }
   .glyph[data-state="working"] .arc, .glyph[data-state="interrupting"], .pips i[data-tone="run"] { animation: none; }
-  .orrery .glow { animation: none; }
 }

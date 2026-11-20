@@ -1,12 +1,15 @@
 package io.github.joshsymonds.orrery.ui
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
@@ -50,6 +53,9 @@ class EndedBarEpicFootTest {
         const val STEER_TAG = "ended-steer"
         const val TALK_TAG = "epic-talk-bar"
         const val NONE_TAG = "epic-talk-none"
+        const val MORE_TAG = "epic-more"
+        const val STEER_ITEM_TAG = "epic-steer"
+        const val STEER_ITEM = "Steer it from another conversation"
         const val ENDED_LEAD =
             "This conversation has ended, and $SLUG still runs. Continue it in a new conversation, which starts with " +
                 "the contract and the epic’s log, or move it to one that is running."
@@ -115,7 +121,8 @@ class EndedBarEpicFootTest {
         composeRule.onNodeWithTag(tag).performClick()
     }
 
-    private fun setFoot(server: FakeOrreryServer, detail: EpicDetail) {
+    /** Draws the foot of [detail], allowed Stop when [canStop] and no other command. */
+    private fun setFoot(server: FakeOrreryServer, detail: EpicDetail, canStop: Boolean = false) {
         val client = OrreryClient(server.baseUrl)
         composeRule.setContent {
             MaterialTheme {
@@ -124,6 +131,12 @@ class EndedBarEpicFootTest {
                     detail = detail,
                     onOpenSteerer = {},
                     onSteered = { steered.add(it) },
+                    canPause = false,
+                    canResume = false,
+                    canStop = canStop,
+                    onPause = {},
+                    onResume = {},
+                    onStop = {},
                 )
             }
         }
@@ -145,6 +158,30 @@ class EndedBarEpicFootTest {
             composeRule.onNodeWithText(UNSTEERED_LEAD).assertIsDisplayed()
             assertFalse(nodeExists(NONE_TAG))
             assertFalse(nodeExists(TALK_TAG))
+        }
+    }
+
+    @Test
+    fun aLiveOrreryEpicNoConversationSteersKeepsTheMoreUnderTheEndedBarWithTheSteerCommandAndItsCommands() {
+        FakeOrreryServer().use { server ->
+            setFoot(server, detail(steering = ""), canStop = true)
+
+            composeRule.awaitExactlyOne(hasTestTag(BAR_TAG))
+            composeRule.onNodeWithTag(MORE_TAG).performSemanticsAction(SemanticsActions.OnClick)
+            composeRule.awaitUntil("the More sheet opens") { nodeExists(STEER_ITEM_TAG) }
+
+            composeRule.onNodeWithTag(STEER_ITEM_TAG).assertTextEquals(STEER_ITEM)
+            composeRule.onNodeWithTag("epic-sheet-stop").assertTextEquals("Stop…")
+        }
+    }
+
+    @Test
+    fun anEpicNoConversationCanTakeWithNoCommandDrawsNoMore() {
+        FakeOrreryServer().use { server ->
+            setFoot(server, detail(steering = "", source = "record"))
+
+            composeRule.awaitExactlyOne(hasTestTag(NONE_TAG))
+            assertFalse(nodeExists(MORE_TAG))
         }
     }
 
@@ -205,6 +242,7 @@ class EndedBarEpicFootTest {
             settle()
 
             composeRule.onNodeWithTag(TALK_TAG).assertIsDisplayed()
+            composeRule.onNodeWithTag(MORE_TAG).assertIsDisplayed()
             assertFalse(nodeExists(BAR_TAG))
         }
     }

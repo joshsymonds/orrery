@@ -14,6 +14,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextReplacement
+import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicQuestionRow
 import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.StepRow
@@ -28,62 +29,58 @@ import org.robolectric.annotation.Config
 private const val NOW = 1_700_000_000L
 private const val EPIC_ID = "example-repo/example-epic"
 private const val SLUG = "example-epic"
-private const val SENTENCE = "api-2 · checking · gate running"
-private const val NOW_TAG = "now-sentence"
 private const val ASK_TAG = "ask"
 private const val QUESTION_TAG = "ask-question"
 private const val OTHER_TAG = "ask-other"
 private const val OTHER_TEXT_TAG = "ask-other-text"
 private const val CONFIRM_TAG = "ask-confirm"
-private const val STOP_TAG = "blocker-stop"
-private const val STOP_SURE_TAG = "blocker-stop-sure"
-private const val STOP_CONFIRM_TAG = "blocker-stop-confirm"
-private const val PARKED_TEXT = "parked · rate limit"
+private const val PARK_STOP_TAG = "epic-park-stop"
 
-private val questionBlocker = EpicBlocker.Question(
-    text = "waits on your answer",
-    since = 0L,
-    question = EpicQuestionRow(id = "Q1", text = "Which branch should it use?", turn = 0L, asked = 0L),
-)
-private val laterQuestionBlocker = EpicBlocker.Question(
-    text = "waits on your answer",
-    since = 0L,
-    question = EpicQuestionRow(id = "Q2", text = "Which lane should it use?", turn = 0L, asked = 0L),
-)
-private val parkedBlocker = EpicBlocker.Parked(text = PARKED_TEXT, since = 0L)
-private val heldBlocker = EpicBlocker.Held(
-    text = "api-1 held",
-    since = 0L,
-    step = StepRow(
-        id = "S1",
-        task = "api-1",
-        agent = "",
-        end = "",
-        status = "",
-        held = true,
-        started = 0L,
-        ended = 0L,
-        doing = "",
-        checks = emptyList(),
-        reason = "",
-    ),
+private val question = EpicQuestionRow(id = "Q1", text = "Which branch should it use?", turn = 0L, asked = 0L)
+private val laterQuestion = EpicQuestionRow(id = "Q2", text = "Which lane should it use?", turn = 0L, asked = 0L)
+
+private fun step(held: Boolean = false): StepRow = StepRow(
+    id = "S1",
+    task = "api-1",
+    agent = "",
+    end = "",
+    status = "",
+    held = held,
+    started = 0L,
+    ended = 0L,
+    doing = "",
+    checks = emptyList(),
+    reason = "",
 )
 
-// wedge makes a wedge whose now slice is the phase named by place, with summary as that slice's summary.
-private fun wedge(task: String, place: WedgePlace, tone: WedgeTone, summary: String = ""): Wedge {
-    val slices = Phase.entries.map { phase ->
-        val now = phase.name == place.name
-        PhaseSlice(
-            phase = phase,
-            state = if (now) SliceState.NOW else SliceState.AHEAD,
-            summary = if (now) summary else "",
-            since = 0L,
-            seconds = 0L,
-        )
-    }
-    return Wedge(task = task, title = task, requirements = emptyList(), place = place, tone = tone, slices = slices)
-}
+private fun epicOf(): EpicRow = EpicRow(
+    id = EPIC_ID,
+    repository = "example-repo",
+    slug = SLUG,
+    outcome = "",
+    changed = NOW - 30,
+    live = true,
+    runningSteps = emptyList(),
+    endedSteps = 0,
+    problem = "",
+    path = "/home/user/example-repo",
+)
 
+private fun detail(
+    questions: List<EpicQuestionRow> = emptyList(),
+    parked: String = "",
+    steps: List<StepRow> = emptyList(),
+): EpicDetail = EpicDetail(
+    epic = epicOf(),
+    tasks = emptyList(),
+    slices = emptyList(),
+    steps = steps,
+    questions = questions,
+    parked = parked,
+)
+
+// What each blocker of an epic draws in Now: an open question its Ask, an owner's park its Ask with Retry and its Stop…,
+// and a held step nothing that answers.
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class EpicBlockerTest {
@@ -91,47 +88,8 @@ class EpicBlockerTest {
     val composeRule = mainThreadComposeRule()
 
     @Test
-    fun nowSentenceReadsTheFirstRunningWedgeTaskPhaseAndNowSummary() {
-        assertEquals(
-            SENTENCE,
-            nowSentence(
-                listOf(
-                    wedge("api-1", WedgePlace.IMPLEMENTING, WedgeTone.MINE, "waiting on you"),
-                    wedge("api-2", WedgePlace.CHECKING, WedgeTone.RUN, "gate running"),
-                    wedge("api-3", WedgePlace.REVIEWING, WedgeTone.RUN, "review"),
-                ),
-            ),
-        )
-    }
-
-    @Test
-    fun nowSentenceLeavesOutTheSummaryWhenTheNowSliceHasNone() {
-        assertEquals("api-2 · reviewing", nowSentence(listOf(wedge("api-2", WedgePlace.REVIEWING, WedgeTone.RUN))))
-    }
-
-    @Test
-    fun nowSentenceIsEmptyWhenNoWedgeRuns() {
-        assertEquals("", nowSentence(listOf(wedge("api-1", WedgePlace.IMPLEMENTING, WedgeTone.MINE, "waiting on you"))))
-        assertEquals("", nowSentence(emptyList()))
-    }
-
-    @Test
-    fun theNowSentenceDrawsWhenItHasText() {
-        setBlock(null, sentence = SENTENCE)
-
-        composeRule.onNodeWithTag(NOW_TAG).assertTextEquals(SENTENCE)
-    }
-
-    @Test
-    fun noNowSentenceDrawsWhenItIsEmpty() {
-        setBlock(null, sentence = "")
-
-        assertEquals(0, composeRule.onAllNodesWithTag(NOW_TAG).fetchSemanticsNodes().size)
-    }
-
-    @Test
     fun withNoBlockerThereIsNoAskAndNoButton() {
-        setBlock(null, sentence = SENTENCE)
+        setNow(detail(steps = listOf(step())))
 
         assertEquals(0, composeRule.onAllNodesWithTag(ASK_TAG).fetchSemanticsNodes().size)
         assertEquals(0, composeRule.onAllNodesWithTag(QUESTION_TAG).fetchSemanticsNodes().size)
@@ -140,7 +98,7 @@ class EpicBlockerTest {
 
     @Test
     fun anOpenQuestionDrawsItsTextAndAnAskWithItsConfirmDisabledUntilPicked() {
-        setBlock(questionBlocker)
+        setNow(detail(questions = listOf(question)))
 
         composeRule.onNodeWithTag(QUESTION_TAG).assertTextEquals("Which branch should it use?")
         composeRule.onNodeWithTag(ASK_TAG).assertIsDisplayed()
@@ -149,7 +107,7 @@ class EpicBlockerTest {
 
     @Test
     fun confirmIsDisabledWhileSomethingElseIsBlankAndEnabledOnceItHasText() {
-        setBlock(questionBlocker)
+        setNow(detail(questions = listOf(question)))
 
         composeRule.onNodeWithTag(OTHER_TAG).performClick()
         composeRule.onNodeWithTag(OTHER_TEXT_TAG).performTextReplacement("   ")
@@ -160,24 +118,23 @@ class EpicBlockerTest {
 
     @Test
     fun aDifferentOpenQuestionStartsWithAnEmptySomethingElseBox() {
-        val current = mutableStateOf<EpicBlocker?>(questionBlocker)
+        val current = mutableStateOf(detail(questions = listOf(question)))
         composeRule.setContent {
             MaterialTheme {
-                NowBlock(
-                    sentence = "",
-                    blocker = current.value,
-                    epic = epicOf(),
+                NowAsk(
+                    detail = current.value,
                     now = NOW,
                     onAnswer = { _, _, _ -> },
                     onRetry = {},
                     onStop = {},
+                    onResume = {},
                 )
             }
         }
 
         composeRule.onNodeWithTag(OTHER_TAG).performClick()
         composeRule.onNodeWithTag(OTHER_TEXT_TAG).performTextReplacement("Use main")
-        composeRule.runOnIdle { current.value = laterQuestionBlocker }
+        composeRule.runOnIdle { current.value = detail(questions = listOf(laterQuestion)) }
         composeRule.waitForIdle()
 
         composeRule.onNodeWithTag(QUESTION_TAG).assertTextEquals("Which lane should it use?")
@@ -187,9 +144,9 @@ class EpicBlockerTest {
 
     @Test
     fun aParkDrawsItsReasonAsTheAskWithNoSomethingElseBox() {
-        setBlock(parkedBlocker)
+        setNow(detail(parked = "rate limit"))
 
-        composeRule.onNodeWithText(PARKED_TEXT).assertIsDisplayed()
+        composeRule.onNodeWithText("Rate limit.").assertIsDisplayed()
         composeRule.onNodeWithTag(ASK_TAG).assertIsDisplayed()
         assertEquals(0, composeRule.onAllNodesWithTag(OTHER_TAG).fetchSemanticsNodes().size)
         assertEquals(0, composeRule.onAllNodesWithTag(OTHER_TEXT_TAG).fetchSemanticsNodes().size)
@@ -197,76 +154,59 @@ class EpicBlockerTest {
 
     @Test
     fun retryIsNotDrawnForAnOpenQuestion() {
-        setBlock(questionBlocker)
+        setNow(detail(questions = listOf(question)))
 
         assertEquals(0, composeRule.onAllNodes(hasText("Retry")).fetchSemanticsNodes().size)
     }
 
     @Test
     fun retryIsNotDrawnForAHeldStep() {
-        setBlock(heldBlocker)
+        setNow(detail(steps = listOf(step(held = true))))
 
         assertEquals(0, composeRule.onAllNodes(hasText("Retry")).fetchSemanticsNodes().size)
     }
 
     @Test
-    fun anOpenQuestionStopAsksFirstAndCallsOnStopOnceWhenConfirmed() {
-        assertStopAsksFirst(questionBlocker)
-    }
-
-    @Test
-    fun aParkedStopAsksFirstAndCallsOnStopOnceWhenConfirmed() {
-        assertStopAsksFirst(parkedBlocker)
-    }
-
-    @Test
-    fun aHeldStopAsksFirstAndCallsOnStopOnceWhenConfirmed() {
-        assertStopAsksFirst(heldBlocker)
-    }
-
-    private fun epicOf(): EpicRow = EpicRow(
-        id = EPIC_ID,
-        repository = "example-repo",
-        slug = SLUG,
-        outcome = "",
-        changed = NOW - 30,
-        live = true,
-        runningSteps = emptyList(),
-        endedSteps = 0,
-        problem = "",
-        path = "/home/user/example-repo",
-    )
-
-    private fun setBlock(blocker: EpicBlocker?, sentence: String = "", onStop: () -> Unit = {}) {
+    fun aParksStopCallsOnStopOnceAndNoQuestionOrHeldStepDrawsOne() {
+        var stops = 0
+        val current = mutableStateOf(detail(parked = "rate limit"))
         composeRule.setContent {
             MaterialTheme {
-                NowBlock(
-                    sentence = sentence,
-                    blocker = blocker,
-                    epic = epicOf(),
+                NowAsk(
+                    detail = current.value,
                     now = NOW,
                     onAnswer = { _, _, _ -> },
                     onRetry = {},
-                    onStop = onStop,
+                    onStop = { stops++ },
+                    onResume = {},
                 )
             }
         }
+
+        composeRule.onNodeWithTag(PARK_STOP_TAG).assertTextEquals("Stop…").performClick()
+        composeRule.waitForIdle()
+        assertEquals(1, stops)
+
+        for (blocked in listOf(detail(questions = listOf(question)), detail(steps = listOf(step(held = true))))) {
+            composeRule.runOnIdle { current.value = blocked }
+            composeRule.waitForIdle()
+            assertEquals(0, composeRule.onAllNodesWithTag(PARK_STOP_TAG).fetchSemanticsNodes().size)
+        }
     }
 
-    private fun assertStopAsksFirst(blocker: EpicBlocker) {
-        var stops = 0
-        setBlock(blocker, onStop = { stops++ })
-
-        composeRule.onNodeWithTag(STOP_TAG).performClick()
-        composeRule.waitForIdle()
-        assertEquals(0, stops)
-        composeRule.onNodeWithTag(STOP_SURE_TAG).assertTextEquals("Stop $SLUG?")
-        composeRule.onNodeWithTag(STOP_CONFIRM_TAG).performClick()
-        composeRule.waitForIdle()
-
-        assertEquals(1, stops)
-        assertEquals(0, composeRule.onAllNodesWithTag(STOP_SURE_TAG).fetchSemanticsNodes().size)
-        composeRule.onNodeWithTag(STOP_TAG).assertIsDisplayed()
+    private fun setNow(detail: EpicDetail) {
+        composeRule.setContent {
+            MaterialTheme {
+                NowAsk(
+                    detail = detail,
+                    now = NOW,
+                    onAnswer = { _, _, _ -> },
+                    onRetry = {},
+                    onStop = {},
+                    onResume = {},
+                )
+            }
+        }
     }
 
     private fun textOf(tag: String): String =

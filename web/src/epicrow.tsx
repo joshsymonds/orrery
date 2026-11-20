@@ -4,8 +4,10 @@ import { blockerLine } from "./epicpage";
 import type { Contract } from "./gen/orrery/v1/contracts_pb";
 import type { Epic, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 import { type EpicBlock, type EpicItem, epicLine, type StepItem } from "./epics";
-import { Gauge, type GaugeInner, Icon, Pips, StateGlyph } from "./glyphs";
+import { Gauge, type GaugeInner, Icon, StateGlyph } from "./glyphs";
 import { epicNeeds } from "./needs";
+import type { CellKind } from "./orbitcells";
+import { type PipTone, Pips } from "./pips";
 import { durationText } from "./phases";
 import { blockerOf, trackPart } from "./status";
 import type { EpicNode, Hung } from "./tree";
@@ -17,6 +19,9 @@ const proposedState = "proposed";
 const waitsOnAccept = "waits to be read and accepted";
 // The state of a release step that did not pass.
 const failedStep = "failed";
+// pipTone is the pip a step's ring cell draws: the ring it works toward runs, a held one is held, a failed one failed,
+// a ring with evidence passed, and a ring not reached none.
+const pipTone: Record<CellKind, PipTone> = { now: "run", held: "mine", errored: "bad", passed: "ok", track: "none" };
 
 // GaugeShare is an epic's gauge: the done share of its tasks out of the total, its tone, and the mark at its centre.
 export interface GaugeShare {
@@ -248,7 +253,7 @@ function EpicSteps({
           >
             <StateGlyph state={state} />
             <span class="label">{step.label}</span>
-            <Pips tones={step.pips} />
+            <Pips cells={step.pips.map((kind) => pipTone[kind])} />
             <span class="doing">{step.doing}</span>
           </div>
         );

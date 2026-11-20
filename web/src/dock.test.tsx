@@ -1420,6 +1420,39 @@ for (const { kind, pull } of [
   });
 }
 
+test("ContractMine: a send with an About records the About-led message it sends, so its echo above the box clears when that prompt arrives", async () => {
+  const sent: string[] = [];
+  const sending: string[] = [];
+  await withRerenderableDock(
+    {
+      facts: dockFacts({ kind: "pane", state: "working" }),
+      about: "the deploy check",
+      aboutId: "F1",
+      pull: async () => "",
+      send: async (text: string) => {
+        sent.push(text);
+      },
+      onSending: (entry) => {
+        sending.push(entry.text);
+      },
+    },
+    async (box, container, rerender) => {
+      await type(box, "hello");
+      await press(box, "Enter");
+      await settleSends();
+      const message = "About F1: the deploy check\n\nhello";
+      assert.deepEqual(sent, [message], "the send leads with the About");
+      assert.deepEqual(sending, [message], "the sending record is the text sent");
+      assert.deepEqual(
+        trayRows(container).map((row) => row.text),
+        [message],
+      );
+      await rerender({ items: [promptItem(message)] });
+      assert.deepEqual(trayRows(container), [], "the echo clears once the pane holds the prompt");
+    },
+  );
+});
+
 test("a pane's queued message with the text a send drew above the box is drawn once", async () => {
   await withRerenderableDock(
     { facts: dockFacts({ state: "working" }), pull: async () => "", send: async () => {} },
@@ -1654,6 +1687,16 @@ test("DockSend: the about line says what the message is about, and Not about thi
       assert.equal(textOf(container, ".quote .text"), "about the next check", "a new about draws the line again");
     },
   );
+});
+
+test("ContractMine: an about cleared and then given again with the same text draws its line again", async () => {
+  await withRerenderableDock({ about: "the deploy check", onClearAbout: () => {} }, async (_box, container, rerender) => {
+    await clickControl(container.querySelector<HTMLButtonElement>('.quote button[aria-label="Not about this"]'));
+    assert.equal(container.querySelector(".quote"), null, "the about line is cleared");
+    await rerender({ about: undefined });
+    await rerender({ about: "the deploy check" });
+    assert.equal(textOf(container, ".quote .text"), "about the deploy check", "the same about given again draws the line");
+  });
 });
 
 test("DockSend: the box carries focused while its textarea has focus", async () => {

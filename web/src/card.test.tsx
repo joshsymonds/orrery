@@ -273,7 +273,7 @@ test("EpicWidget: the pill reads paused, and a parked epic's pill reads parked",
   });
 });
 
-test("EpicWidget: the now sentence reads the running wedge's task, phase and doing", async (t) => {
+test("EpicWidget: the now sentence is the record's Now sentence for a running task", async (t) => {
   const fake = new FakeEpics(
     orreryd("accepted", {
       buildTasks: [{ id: "t1", title: "Login", status: "dispatched", requirements: ["R1"] }],
@@ -292,7 +292,7 @@ test("EpicWidget: the now sentence reads the running wedge's task, phase and doi
   );
   await withReader([createCall(), resultItem(createId, "created")], fake.calls(), async (container) => {
     await drawn(t, container);
-    assert.equal(textOf(container, ".now-sentence"), "t1 · implementing · writing the login");
+    assert.equal(textOf(container, ".now-sentence"), "One task is being worked on.");
   });
 });
 

@@ -3,10 +3,10 @@ import type { JSX } from "preact";
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 
 import type { Clients } from "./actions";
-import { nowSentence } from "./blocker";
 import type { EpicsView } from "./epics";
 import { type EpicRequirement, EpicSchema, type EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 import { provenOf, type Wedge, wedgesOf } from "./phases";
+import { nowSentenceOf } from "./recordwords";
 import { controlsOf, trackPart, trackParts } from "./status";
 
 // EpicCalls are the epic calls the reader's epic card makes. get reads an epic, pause and resume command it, and answer
@@ -204,13 +204,13 @@ function EpicBody({
   commandError: string;
 }): JSX.Element {
   const wedges = wedgesOf(detail);
-  const sentence = nowSentence(wedges);
+  const sentence = nowSentenceOf(detail);
   const controls = controlsOf(detail);
   const [question] = detail.questions;
   return (
     <>
       <Track detail={detail} />
-      {sentence !== "" && <p class="now-sentence">{sentence}</p>}
+      <p class="now-sentence">{sentence}</p>
       <Requirements requirements={detail.requirements} wedges={wedges} />
       {question !== undefined && <p class="question">{question.text}</p>}
       <div class="card-controls">

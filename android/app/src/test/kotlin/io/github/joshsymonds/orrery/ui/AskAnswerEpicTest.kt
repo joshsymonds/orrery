@@ -12,6 +12,7 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextReplacement
+import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicQuestionChoiceRow
 import io.github.joshsymonds.orrery.api.EpicQuestionRow
 import io.github.joshsymonds.orrery.api.EpicRow
@@ -26,8 +27,8 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
-// The epic's Ask as the now block draws it: a question's choices and its pick-then-confirm answer, a park's Retry. What
-// a confirm sends is recorded at the block's callbacks, against a synthetic clock: NOW is the instant ages are measured
+// The epic's Ask as the record's Now draws it: a question's choices and its pick-then-confirm answer, a park's Retry.
+// What a confirm sends is recorded at Now's callbacks, against a synthetic clock: NOW is the instant ages are measured
 // from.
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], qualifiers = "w400dp-h1200dp")
@@ -35,7 +36,7 @@ class AskAnswerEpicTest {
     private companion object {
         const val NOW = 1_700_000_000L
         const val EPIC_ID = "example-repo/example-epic"
-        const val PARKED = "parked · rate limit"
+        const val PARKED = "rate limit"
     }
 
     @get:Rule
@@ -72,17 +73,25 @@ class AskAnswerEpicTest {
         recommendedWhy = "it reads better on a phone",
     )
 
-    private fun setBlock(blocker: EpicBlocker) {
+    private fun detailOf(questions: List<EpicQuestionRow> = emptyList(), parked: String = ""): EpicDetail = EpicDetail(
+        epic = epicOf(),
+        tasks = emptyList(),
+        slices = emptyList(),
+        steps = emptyList(),
+        questions = questions,
+        parked = parked,
+    )
+
+    private fun setNow(detail: EpicDetail) {
         composeRule.setContent {
             MaterialTheme {
-                NowBlock(
-                    sentence = "",
-                    blocker = blocker,
-                    epic = epicOf(),
+                NowAsk(
+                    detail = detail,
                     now = NOW,
                     onAnswer = { questionId, choice, text -> answers += Answer(questionId, choice, text) },
                     onRetry = { retries++ },
                     onStop = {},
+                    onResume = {},
                 )
             }
         }
@@ -90,7 +99,7 @@ class AskAnswerEpicTest {
 
     @Test
     fun anEpicQuestionDrawsItsChoicesWithTheRecommendedOneMarkedAndNoNotNowOrMore() {
-        setBlock(EpicBlocker.Question(text = "waits on your answer", since = NOW - 120, question = question()))
+        setNow(detailOf(questions = listOf(question())))
 
         composeRule.onNodeWithTag("ask-option:1").assertExists()
         composeRule.onNodeWithTag("ask-option:2").assertExists()
@@ -102,7 +111,7 @@ class AskAnswerEpicTest {
 
     @Test
     fun aTapPicksAChoiceAndSendsNothing() {
-        setBlock(EpicBlocker.Question(text = "waits on your answer", since = NOW - 120, question = question()))
+        setNow(detailOf(questions = listOf(question())))
 
         composeRule.onNodeWithTag("ask-option:1").performClick()
         composeRule.waitForIdle()
@@ -113,7 +122,7 @@ class AskAnswerEpicTest {
 
     @Test
     fun confirmSendsTheChosenChoicesIdAndItsDoesText() {
-        setBlock(EpicBlocker.Question(text = "waits on your answer", since = NOW - 120, question = question()))
+        setNow(detailOf(questions = listOf(question())))
 
         composeRule.onNodeWithTag("ask-option:1").performClick()
         composeRule.onNodeWithTag("ask-confirm").performClick()
@@ -124,7 +133,7 @@ class AskAnswerEpicTest {
 
     @Test
     fun confirmOfSomethingElseSendsOtherAndTheTrimmedTypedText() {
-        setBlock(EpicBlocker.Question(text = "waits on your answer", since = NOW - 120, question = question()))
+        setNow(detailOf(questions = listOf(question())))
 
         composeRule.onNodeWithTag("ask-other").performClick()
         composeRule.onNodeWithTag("ask-confirm").assertIsNotEnabled()
@@ -137,7 +146,7 @@ class AskAnswerEpicTest {
 
     @Test
     fun aParkConfirmCallsRetryOnceAndSendsNoAnswer() {
-        setBlock(EpicBlocker.Parked(text = PARKED, since = 0L))
+        setNow(detailOf(parked = PARKED))
 
         composeRule.onNodeWithTag("ask-option:1").performClick()
         composeRule.onNodeWithTag("ask-confirm").performClick()
@@ -149,7 +158,7 @@ class AskAnswerEpicTest {
 
     @Test
     fun theRecordLineFollowsThePickAndIsWhatConfirmWillSend() {
-        setBlock(EpicBlocker.Question(text = "waits on your answer", since = NOW - 120, question = question()))
+        setNow(detailOf(questions = listOf(question())))
 
         composeRule.onNodeWithTag("ask-record").assertTextContains("owner: split the screen in two")
         composeRule.onNodeWithTag("ask-option:1").performClick()
@@ -162,7 +171,7 @@ class AskAnswerEpicTest {
 
     @Test
     fun somethingElseRecordsTheTrimmedTextThatConfirmWillSend() {
-        setBlock(EpicBlocker.Question(text = "waits on your answer", since = NOW - 120, question = question()))
+        setNow(detailOf(questions = listOf(question())))
 
         composeRule.onNodeWithTag("ask-other").performClick()
         composeRule.onNodeWithTag("ask-record").assertDoesNotExist()

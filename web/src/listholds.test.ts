@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { create } from "@bufbuild/protobuf";
 
 import { epicsView, noEpics } from "./epics";
+import { ContractSchema } from "./gen/orrery/v1/contracts_pb";
 import { EpicSchema, EpicStepSchema } from "./gen/orrery/v1/epics_pb";
 import { listHolds } from "./listholds";
 import type { Address, Entry, View } from "./router";
@@ -137,6 +138,15 @@ test("HashRoute: an epic in a block holds under the inbox, and not under archive
   const live = epicEntry("repo/live");
   assert.equal(listHolds(at("inbox", live), [], epics), true);
   assert.equal(listHolds(at("archived", live), [], epics), false);
+});
+
+test("ContractAddress: a contract entry holds under every view when the loaded contracts hold its id", () => {
+  const contract: Entry = { kind: "contract", id: "tidepool/tide-alerts" };
+  const contracts = [create(ContractSchema, { id: "tidepool/tide-alerts" })];
+  for (const view of views) {
+    assert.equal(listHolds(at(view, contract), [], noEpics, contracts), true, `${view} did not hold it`);
+    assert.equal(listHolds(at(view, contract), [], noEpics, []), false, `${view} held it with no contracts`);
+  }
 });
 
 test("HashRoute: a step in an epic block holds under the inbox, and never under archived", () => {

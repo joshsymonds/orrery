@@ -15,8 +15,15 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.AskRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.BackgroundTask as BackgroundTaskProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.BringBackRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.Contract as ContractProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.ContractDecision as ContractDecisionProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.ContractStateChange as ContractStateChangeProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.ContractVersion as ContractVersionProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsAcceptRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsClient
+import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsGetRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsListRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsReopenRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsSetAsideRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.ControlClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationContext as ConversationContextProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationItem as ConversationItemProto
@@ -32,8 +39,6 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicContract as EpicContractPr
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicDecision as EpicDecisionProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicFailure as EpicFailureProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicHistoryEntry as EpicHistoryEntryProto
-import io.github.joshsymonds.orrery.gen.orrery.v1.EpicNode as EpicNodeProto
-import io.github.joshsymonds.orrery.gen.orrery.v1.EpicNodeCheck as EpicNodeCheckProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicPremise as EpicPremiseProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion as EpicQuestionProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseStep as EpicReleaseStepProto
@@ -136,11 +141,26 @@ private val CLIENT_HEADERS: Map<String, List<String>> = mapOf("X-Orrery-Client" 
 /** The choice an answer to a question names when the owner types the answer rather than picking a declared option. */
 private const val CHOICE_OTHER = "other"
 
-/** The answers to the list calls of sessions and contracts that mean the server has no such rows to list. */
+/** The answers to a list call (ListHeadless, Sessions.List) that mean the server has no such rows to list. */
 private val ABSENT_LIST = setOf(Code.UNAVAILABLE, Code.UNIMPLEMENTED, Code.NOT_FOUND)
+
+/**
+ * The answers to Contracts.List that mean the server has no contracts to list. Unavailable is not among them: a
+ * failed call keeps what the caller showed, so it throws.
+ */
+private val CONTRACTS_ABSENT = setOf(Code.UNIMPLEMENTED, Code.NOT_FOUND)
 
 /** The answers to a move or a continue that mean no answer came back, so the write may or may not have landed. */
 private val STEER_NO_ANSWER = setOf(Code.UNAVAILABLE, Code.DEADLINE_EXCEEDED, Code.UNKNOWN)
+
+/** The answers to an accept, set aside or reopen that mean the server refused it, with its reason. */
+private val CONTRACT_REFUSED = setOf(
+    Code.FAILED_PRECONDITION,
+    Code.INVALID_ARGUMENT,
+    Code.ABORTED,
+    Code.PERMISSION_DENIED,
+    Code.NOT_FOUND,
+)
 
 data class Pane(
     val id: String,
@@ -205,6 +225,8 @@ data class ConversationItem(
     val tokens: Long = 0L,
     /** A `prompt` item's client-chosen prompt id, which a headless session's queue names; "" on other kinds or when the prompt has none. */
     val promptId: String = "",
+    /** The id of the contract a `tool` item's call writes; "" when the item names none, on other kinds, or from an older server. */
+    val contract: String = "",
 )
 
 /** A message Claude Code's queue holds for the pane. [canceled] is true when Claude Code cleared it on cancel. */
@@ -366,7 +388,8 @@ data class StepVerdictRow(val round: Int, val verdict: String, val reason: Strin
 /**
  * One labelled step as the epics view shows it. [end] is "" while the step runs. [stage] is the stage the step is in,
  * empty when it has none, and [stageStarted] is when that stage started, 0 when unknown. [limited] is whether a usage
- * limit of [limitKind] holds the step. [readOnly] is whether the step is read-only, [role] is the role it plays, and
+ * limit of [limitKind] holds the step, and [limitResets] is when that limit resets, in unix seconds, 0 when unknown.
+ * [readOnly] is whether the step is read-only, [role] is the role it plays, and
  * [summary] is its redacted summary. [gateName] is the gate its return is checked against, empty when it runs none,
  * and [verdicts] are its done-judge verdicts, in round order.
  */
@@ -386,6 +409,7 @@ data class StepRow(
     val stageStarted: Long = 0L,
     val limited: Boolean = false,
     val limitKind: String = "",
+    val limitResets: Long = 0L,
     val readOnly: Boolean = false,
     val role: String = "",
     val summary: String = "",
@@ -443,6 +467,57 @@ data class ContractRow(
     val created: Long,
     val changed: Long,
 )
+
+/** One decision a contract's version asks the owner to answer. [answer] is "" while the decision is open. */
+data class ContractDecisionRow(
+    val id: String,
+    val question: String,
+    val options: List<String>,
+    val recommendation: String,
+    val reason: String,
+    val row: String,
+    val answer: String,
+)
+
+/**
+ * One stored version of a contract: its [contract] body, [requirements] and [decisions], the [words] and [writer] it
+ * came with, and when it was stored in unix seconds. [changedRows] are the ids whose text differs from the version
+ * before, and [changedSections] the section names whose values do; both are empty for version 1.
+ */
+data class ContractVersionRow(
+    val version: Long,
+    val contract: EpicContractRow,
+    val requirements: List<EpicRequirementRow>,
+    val decisions: List<ContractDecisionRow>,
+    val words: String,
+    val writer: String,
+    val time: Long,
+    val changedRows: List<String>,
+    val changedSections: List<String>,
+)
+
+/** One change of a contract's state: [by] is "owner" or "session", and [session] is the writer's id when by is "session". */
+data class ContractStateRow(
+    val state: String,
+    val version: Long,
+    val by: String,
+    val session: String,
+    val words: String,
+    val time: Long,
+)
+
+/** One contract with its [versions], oldest first, and its [states], oldest first. */
+data class ContractRecordRow(
+    val contract: ContractRow,
+    val versions: List<ContractVersionRow>,
+    val states: List<ContractStateRow>,
+)
+
+/** The answer to an owner's accept, set aside or reopen: the contract as it stands, or the server's reason it was refused. */
+sealed interface ContractCallResult {
+    data class Done(val contract: ContractRow) : ContractCallResult
+    data class Refused(val reason: String) : ContractCallResult
+}
 
 /**
  * One requirement of an orreryd epic's contract: [kind] is "check" or "review". [conclusion] is what its evidence is
@@ -567,44 +642,6 @@ data class EpicSliceRow(
 )
 
 /**
- * One workflow node run of a stored epic. [path] is the run's path, unique on the epic. [round] is the innermost
- * enclosing loop's round, 0 outside a loop, and [loopRound] is a loop's current round from 1, 0 for any other kind.
- * [turns] are a plan's turn seqs and [tasks] its task seqs, or a build's task seq. [runs] are an evidence node's runs
- * for its attempt. [check] is a gate or command node's check, null until it is stored. [step] is an agent node's step
- * id, empty until it is stored.
- */
-data class EpicNodeRow(
-    val path: String,
-    val node: String,
-    val kind: String,
-    val state: String,
-    val outcome: String,
-    val round: Long,
-    val loopRound: Long,
-    val attempt: Long,
-    val output: String,
-    val revision: String,
-    val turns: List<Long>,
-    val tasks: List<Long>,
-    val runs: List<EvidenceRunRow>,
-    val check: EpicNodeCheckRow?,
-    val step: String,
-)
-
-/**
- * A gate or command node's check: [state] is running until it ends, [exit] and [timedOut] say how it ended, [notRun]
- * says why it did not run, and [stdout] and [stderr] are the newest bytes of each.
- */
-data class EpicNodeCheckRow(
-    val state: String,
-    val exit: Int,
-    val timedOut: Boolean,
-    val notRun: String,
-    val stdout: String,
-    val stderr: String,
-)
-
-/**
  * One task of an orreryd epic's plan, with its build: [stage] is the stage the build is on, empty before its first
  * unit. [red] and [green] are the evidence runs the build names, null until it names one. [requirements] are the
  * requirement ids the task covers, in order. [reviews] are the build's reviews, in attempt then position order.
@@ -705,16 +742,14 @@ data class EpicContractRow(
 
 /**
  * One epic with its tasks, its [slices] in serve's order, and every step labelled with it, oldest step first.
- * [requirements] are an orreryd epic's requirements in contract order, empty for a record epic. [nodes] are its
- * workflow node runs in the order the server lists them. [buildTasks] are an orreryd epic's planned tasks in the order
- * they were planned, empty for a record epic. [summary] is the epic's summary paragraph, empty until it is written.
- * [contract] is the accepted contract, null for a record epic. [questions] are the open questions in the order they
- * were asked. [paused] is whether the epic's planner starts no turn, and [parked] is why the epic is parked, empty
- * when it is not. [sessions] are the sessions that work on the epic, each with its newest epic call, in the order the
- * server lists them. [repository] is the absolute path of the git repository the epic belongs to, empty when none is
- * named. [handover] is the epic's handover rows, empty for a record epic. [releaseProof] is the contract's release steps
- * with the state their release runs gave them, in contract order, empty for a record epic. [report] is the epic's
- * report, null until the epic ends and for a record epic.
+ * [requirements] are an orreryd epic's requirements in contract order, empty for a record epic. [buildTasks] are an
+ * orreryd epic's planned tasks in the order they were planned, empty for a record epic. [summary] is the epic's summary
+ * paragraph, empty until it is written. [contract] is the accepted contract, null for a record epic. [questions] are
+ * the open questions in the order they were asked. [paused] is whether the epic's planner starts no turn, and [parked]
+ * is why the epic is parked, empty when it is not. [plannerParked] is whether the planner holds that park.
+ * [repository] is the absolute path of the git repository the epic belongs to, empty when none is named.
+ * [releaseProof] is the contract's release steps with the state their release runs gave them, in contract order,
+ * empty for a record epic.
  */
 data class EpicDetail(
     val epic: EpicRow,
@@ -722,17 +757,15 @@ data class EpicDetail(
     val slices: List<EpicSliceRow>,
     val steps: List<StepRow>,
     val requirements: List<EpicRequirementRow> = emptyList(),
-    val nodes: List<EpicNodeRow> = emptyList(),
     val buildTasks: List<EpicBuildTaskRow> = emptyList(),
     val summary: String = "",
     val contract: EpicContractRow? = null,
     val questions: List<EpicQuestionRow> = emptyList(),
     val paused: Boolean = false,
     val parked: String = "",
-    val handover: EpicHandoverRow = EpicHandoverRow(),
+    val plannerParked: Boolean = false,
     val repository: String = "",
     val releaseProof: List<EpicReleaseProofRow> = emptyList(),
-    val report: EpicReportRow? = null,
 )
 
 /** What a hold, nudge, stop or epic call came to: it landed, or orreryd refused it with its reason. */
@@ -895,15 +928,13 @@ class OrreryClient(
 
     /**
      * Every contract, created ascending, with its current version. A server with no contracts to list gives an empty
-     * list.
+     * list; an unavailable answer throws, as a failed call.
      */
-    fun contracts(): List<ContractRow> {
-        val contracts = absentAsEmpty {
+    fun contracts(): List<ContractRow> =
+        absentAsEmpty(CONTRACTS_ABSENT) {
             call(write = false) { standard.contracts.list(ContractsListRequest.getDefaultInstance(), CLIENT_HEADERS) }
-                .contractsList
+                .contractsList.map { it.toContractRow() }
         }
-        return contracts.map { it.toContractRow() }
-    }
 
     fun conversation(paneId: String): Conversation? {
         val request = ConversationRequest.newBuilder().setPane(paneId).setLimit(50).build()
@@ -1023,18 +1054,46 @@ class OrreryClient(
             slices = response.slicesList.map { it.toEpicSliceRow() },
             steps = response.stepsList.map { it.toStepRow() },
             requirements = response.requirementsList.map { it.toEpicRequirementRow() },
-            nodes = response.nodesList.map { it.toEpicNodeRow() },
             buildTasks = response.buildTasksList.map { it.toEpicBuildTaskRow() },
             summary = response.summary,
             contract = if (response.hasContract()) response.contract.toEpicContractRow() else null,
             questions = response.questionsList.map { it.toEpicQuestionRow() },
             paused = response.paused,
             parked = response.parked,
-            handover = response.toEpicHandoverRow(),
+            plannerParked = response.plannerParked,
             repository = response.repository,
             releaseProof = response.releaseStepsList.map { it.toEpicReleaseProofRow() },
-            report = if (response.hasReport()) response.report.toEpicReportRow() else null,
         )
+    }
+
+    /** One contract with its versions and state changes, or null when no contract has [id]. */
+    fun contract(id: String): ContractRecordRow? {
+        val request = ContractsGetRequest.newBuilder().setId(id).build()
+        val response = notFoundAsNull { call(write = false) { standard.contracts.get(request, CLIENT_HEADERS) } }
+            ?: return null
+        return ContractRecordRow(
+            contract = response.contract.toContractRow(),
+            versions = response.versionsList.map { it.toContractVersionRow() },
+            states = response.statesList.map { it.toContractStateRow() },
+        )
+    }
+
+    /** Accepts the contract [id] with no words. A refused accept answers [ContractCallResult.Refused] with the server's reason. */
+    fun acceptContract(id: String): ContractCallResult {
+        val request = ContractsAcceptRequest.newBuilder().setId(id).build()
+        return contractCall { call(write = true) { standard.contracts.accept(request, CLIENT_HEADERS) }.contract }
+    }
+
+    /** Sets the contract [id] aside with [words]. A refused set aside answers [ContractCallResult.Refused]. */
+    fun setAsideContract(id: String, words: String): ContractCallResult {
+        val request = ContractsSetAsideRequest.newBuilder().setId(id).setWords(words).build()
+        return contractCall { call(write = true) { standard.contracts.setAside(request, CLIENT_HEADERS) }.contract }
+    }
+
+    /** Reopens the contract [id] with no words. A refused reopen answers [ContractCallResult.Refused]. */
+    fun reopenContract(id: String): ContractCallResult {
+        val request = ContractsReopenRequest.newBuilder().setId(id).build()
+        return contractCall { call(write = true) { standard.contracts.reopen(request, CLIENT_HEADERS) }.contract }
     }
 
     /**
@@ -1430,6 +1489,40 @@ class OrreryClient(
             changed = changed,
         )
 
+    private fun ContractVersionProto.toContractVersionRow(): ContractVersionRow =
+        ContractVersionRow(
+            version = version,
+            contract = contract.toEpicContractRow(),
+            requirements = requirementsList.map { it.toEpicRequirementRow() },
+            decisions = decisionsList.map { it.toContractDecisionRow() },
+            words = words,
+            writer = writer,
+            time = time,
+            changedRows = changedRowsList.toList(),
+            changedSections = changedSectionsList.toList(),
+        )
+
+    private fun ContractDecisionProto.toContractDecisionRow(): ContractDecisionRow =
+        ContractDecisionRow(
+            id = id,
+            question = question,
+            options = optionsList.toList(),
+            recommendation = recommendation,
+            reason = reason,
+            row = row,
+            answer = answer,
+        )
+
+    private fun ContractStateChangeProto.toContractStateRow(): ContractStateRow =
+        ContractStateRow(
+            state = state,
+            version = version,
+            by = by,
+            session = session,
+            words = words,
+            time = time,
+        )
+
     private fun EpicRequirementProto.toEpicRequirementRow(): EpicRequirementRow =
         EpicRequirementRow(
             id = id,
@@ -1438,35 +1531,6 @@ class OrreryClient(
             kind = kind,
             conclusion = conclusion,
             runs = runsList.map { it.toEvidenceRunRow() },
-        )
-
-    private fun EpicNodeProto.toEpicNodeRow(): EpicNodeRow =
-        EpicNodeRow(
-            path = path,
-            node = node,
-            kind = kind,
-            state = state,
-            outcome = outcome,
-            round = round,
-            loopRound = loopRound,
-            attempt = attempt,
-            output = output,
-            revision = revision,
-            turns = turnsList.toList(),
-            tasks = tasksList.toList(),
-            runs = runsList.map { it.toEvidenceRunRow() },
-            check = if (hasCheck()) check.toEpicNodeCheckRow() else null,
-            step = step,
-        )
-
-    private fun EpicNodeCheckProto.toEpicNodeCheckRow(): EpicNodeCheckRow =
-        EpicNodeCheckRow(
-            state = state,
-            exit = exit,
-            timedOut = timedOut,
-            notRun = notRun,
-            stdout = stdout,
-            stderr = stderr,
         )
 
     private fun EvidenceRunProto.toEvidenceRunRow(): EvidenceRunRow =
@@ -1545,6 +1609,7 @@ class OrreryClient(
             stageStarted = stageStarted,
             limited = limited,
             limitKind = limitKind,
+            limitResets = limitResets,
             readOnly = readOnly,
             role = role,
             summary = summary,
@@ -1747,6 +1812,7 @@ class OrreryClient(
             trigger = trigger,
             tokens = tokens,
             promptId = promptId,
+            contract = contract,
         )
 
     private fun WaitingMessage.toWaitingItem(): WaitingItem =
@@ -1888,6 +1954,17 @@ class OrreryClient(
         }
 
     /**
+     * The answer of an accept, set aside or reopen: [ContractCallResult.Refused] when the server refused it with one of
+     * [CONTRACT_REFUSED], with its reason. Any other failure is thrown as [call] throws it.
+     */
+    private fun contractCall(rpc: () -> ContractProto): ContractCallResult =
+        try {
+            ContractCallResult.Done(rpc().toContractRow())
+        } catch (e: OrreryCallException) {
+            if (e.code in CONTRACT_REFUSED) ContractCallResult.Refused(e.message.orEmpty()) else throw e
+        }
+
+    /**
      * The answer of a move or a continue: [SteerResult.Refused] when the server answered with any code but the ones
      * that mean no answer came back. Those, and every failure that is not a server answer, are thrown as [call]
      * throws them.
@@ -1907,11 +1984,11 @@ class OrreryClient(
             if (e.code == Code.NOT_FOUND) null else throw e
         }
 
-    /** The rows of a list call, or none when the server answered one of [ABSENT_LIST]: it has no such rows to list. */
-    private inline fun <T> absentAsEmpty(read: () -> List<T>): List<T> =
+    /** The rows of a list call, or none when the server answered one of [absent]: it has no such rows to list. */
+    private inline fun <T> absentAsEmpty(absent: Set<Code> = ABSENT_LIST, read: () -> List<T>): List<T> =
         try {
             read()
         } catch (e: OrreryCallException) {
-            if (e.code in ABSENT_LIST) emptyList() else throw e
+            if (e.code in absent) emptyList() else throw e
         }
 }

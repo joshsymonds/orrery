@@ -1,4 +1,4 @@
-// The round-6 glyphs: the icon set, the state glyphs, an epic's gauge and a step's pips. Every drawing is on a 16 grid
+// The round-6 glyphs: the icon set, the state glyphs and an epic's gauge. Every drawing is on a 16 grid
 // (the gauge's on 24), stroked in currentColor, so each takes its colour from the text around it. The data-state and
 // data-tone attributes carry the colour rules the stylesheet sets.
 
@@ -217,17 +217,6 @@ function Arc({ klass, share }: { klass: string; share: number }): JSX.Element {
       stroke-dasharray={`${share.toFixed(1)} 100`}
       transform="rotate(-90 12 12)"
     />
-  );
-}
-
-// Pips draws a step's five phase cells, one per tone: '' is a phase not reached.
-export function Pips({ tones }: { tones: readonly string[] }): JSX.Element {
-  return (
-    <span class="pips" aria-hidden="true">
-      {tones.map((tone) => (
-        <i data-tone={tone} />
-      ))}
-    </span>
   );
 }
 

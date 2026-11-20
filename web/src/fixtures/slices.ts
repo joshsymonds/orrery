@@ -4,7 +4,11 @@
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import type { Code } from "@connectrpc/connect";
 
-import { type ContractsListResponse, ContractsListResponseSchema } from "../gen/orrery/v1/contracts_pb";
+import {
+  type ContractsGetResponse,
+  type ContractsListResponse,
+  ContractsListResponseSchema,
+} from "../gen/orrery/v1/contracts_pb";
 import {
   type EpicsGetResponse,
   type EpicsHistoryResponse,
@@ -23,7 +27,28 @@ import {
   type WatchConversationResponse,
 } from "../gen/orrery/v1/orrery_pb";
 import { contracts } from "./contracts";
-import { evidenceLogs, epics, gets, histories } from "./epics";
+import { tideAccepted, tideProposed, tideReady, tideSetAside } from "./contractrecords";
+import {
+  buoyPlanning,
+  buoyPlanningHistory,
+  denseEpic,
+  denseGet,
+  denseHistory,
+  denseSteering,
+  epicsListWith,
+  evidenceArtifacts,
+  type EvidenceArtifactBytes,
+  evidenceLogs,
+  epics,
+  gets,
+  histories,
+  noticesParked,
+  rotaBuilding,
+  rotaEvidence,
+  rotaLimited,
+  rotaPlanner,
+  rotaProblem,
+} from "./epics";
 import { host } from "./host";
 import { panes, paneStreams } from "./panes";
 import { headless, sessions, sessionStreams } from "./sessions";
@@ -39,12 +64,14 @@ export type AskAnswer =
   | { readonly failure: Code };
 
 // Slices is the data a fixture transport answers with. evidenceLogs holds the log each run's Evidence.Artifact answers
-// with, by run id. asks holds the answer Picker.Ask gives for each words, and words with no entry are refused. fail
-// holds the procedures that answer Unavailable, and hold the procedures that stay unanswered until their call aborts,
-// each named as "orrery.v1.Panes/List".
+// with, by run id. asks holds the answer Picker.Ask gives for each words, and words with no entry are refused.
+// contracts is the Contracts.List answer, and contractGets holds the Contracts.Get answer for each contract id. fail holds
+// the procedures that answer Unavailable, and hold the procedures that stay unanswered until their call aborts, each named
+// as "orrery.v1.Panes/List".
 export interface Slices {
   readonly epics: EpicsListResponse;
   readonly contracts: ContractsListResponse;
+  readonly contractGets: Readonly<Record<string, ContractsGetResponse>>;
   readonly gets: ReadonlyMap<string, EpicsGetResponse>;
   readonly histories: ReadonlyMap<string, EpicsHistoryResponse>;
   readonly panes: PanesListResponse;
@@ -54,6 +81,8 @@ export interface Slices {
   readonly paneStreams: ReadonlyMap<string, WatchConversationResponse>;
   readonly sessionStreams: ReadonlyMap<string, SessionsWatchConversationResponse>;
   readonly evidenceLogs: ReadonlyMap<string, string>;
+  // evidenceArtifacts holds the bytes of each kept artifact Evidence.Artifact answers with, by evidenceArtifactKey.
+  readonly evidenceArtifacts: ReadonlyMap<string, EvidenceArtifactBytes>;
   // say is how the fixture answers Control.Say. refused fails it as a session that takes no messages does, and unanswered
   // fails it as a call with no answer does. Unset, the write is absorbed.
   readonly say?: "refused" | "unanswered";
@@ -65,6 +94,10 @@ export interface Slices {
   // by pane id, after which the stream stays open until its call aborts. Unset, the keys are absorbed and no frame comes.
   readonly keysThen?: ReadonlyMap<string, WatchConversationResponse>;
   readonly asks: ReadonlyMap<string, AskAnswer>;
+  // heldGets names the epics whose Epics.Get stays open until its call aborts.
+  readonly heldGets: ReadonlySet<string>;
+  // failingEpicCommands names the epic commands that fail, each with the reason its error carries.
+  readonly failingEpicCommands: ReadonlyMap<"pause" | "resume" | "stop" | "retry", string>;
   readonly fail?: ReadonlySet<string>;
   readonly hold?: ReadonlySet<string>;
 }
@@ -73,6 +106,7 @@ export interface Slices {
 export const shippedSlices: Slices = {
   epics,
   contracts,
+  contractGets: { "tidepool/tide-alerts": tideProposed },
   gets,
   histories,
   panes,
@@ -82,7 +116,103 @@ export const shippedSlices: Slices = {
   paneStreams,
   sessionStreams,
   evidenceLogs,
+  evidenceArtifacts,
   asks: new Map<string, AskAnswer>(),
+  heldGets: new Set<string>(),
+  failingEpicCommands: new Map<"pause" | "resume" | "stop" | "retry", string>(),
+};
+
+// EpicScenario names an epic page scenario of round 6 that the page stories draw over the slices it is given.
+export type EpicScenario =
+  | "building"
+  | "limited"
+  | "plannerParked"
+  | "commandError"
+  | "problem"
+  | "unavailable"
+  | "planning"
+  | "dense"
+  | "loading"
+  | "parked"
+  | "evidence";
+
+const rotaId = "lighthouse/rota-export";
+const buoyId = "tidepool/buoy-feeds";
+const tideCacheId = "tidepool/tide-cache";
+const denseId = "commonframe/deck-pipeline";
+const noticesId = "orrery/notices-usable";
+
+// withRota is the shipped slices with rota-export in one of its states: its list row, its Epics.Get answer and its
+// history replaced.
+function withRota(state: typeof rotaBuilding): Slices {
+  return {
+    ...shippedSlices,
+    epics: epicsListWith((row) => (row.id === rotaId ? state.row : row)),
+    gets: new Map<string, EpicsGetResponse>([...gets, [rotaId, state.get]]),
+    histories: new Map<string, EpicsHistoryResponse>([...histories, [rotaId, state.history]]),
+  };
+}
+
+// denseSteererPanes are the shipped panes with commonframe's pane %21 listed as the session that steers deck-pipeline. The
+// shipped %21 carries no orrery id, so the list draws it as no steerer.
+const denseSteererPanes = {
+  ...panes,
+  panes: panes.panes.map((pane) => (pane.id === "%21" ? { ...pane, orreryId: denseSteering } : pane)),
+};
+
+// epicScenarios holds the slices each epic page scenario draws over. A scenario's slices change only what it names, and
+// the shipped slices serve every other story and test.
+export const epicScenarios: Record<EpicScenario, Slices> = {
+  building: withRota(rotaBuilding),
+  evidence: withRota(rotaEvidence),
+  limited: withRota(rotaLimited),
+  plannerParked: withRota(rotaPlanner),
+  commandError: {
+    ...withRota(rotaBuilding),
+    failingEpicCommands: new Map<"pause" | "resume" | "stop" | "retry", string>([["pause", "the server did not answer"]]),
+  },
+  problem: withRota(rotaProblem),
+  unavailable: {
+    ...withRota(rotaBuilding),
+    gets: new Map<string, EpicsGetResponse>([...gets].filter(([id]) => id !== rotaId)),
+  },
+  planning: {
+    ...shippedSlices,
+    gets: new Map<string, EpicsGetResponse>([...gets, [buoyId, buoyPlanning]]),
+    histories: new Map<string, EpicsHistoryResponse>([...histories, [buoyId, buoyPlanningHistory]]),
+  },
+  dense: {
+    ...shippedSlices,
+    panes: denseSteererPanes,
+    epics: epicsListWith((row) => row, [denseEpic]),
+    gets: new Map<string, EpicsGetResponse>([...gets, [denseId, denseGet]]),
+    histories: new Map<string, EpicsHistoryResponse>([...histories, [denseId, denseHistory]]),
+  },
+  parked: { ...shippedSlices, gets: new Map<string, EpicsGetResponse>([...gets, [noticesId, noticesParked]]) },
+  loading: {
+    ...shippedSlices,
+    epics: epicsListWith((row) => (row.id === tideCacheId ? { ...row, seen: 0n } : row)),
+    heldGets: new Set([tideCacheId]),
+  },
+};
+
+// contractSlices are the shipped slices with the record of one contract served, and the List holding that contract's own
+// entry, so the List and the record agree on its state and version.
+function contractSlices(id: string, record: ContractsGetResponse): Slices {
+  return {
+    ...shippedSlices,
+    contracts: create(ContractsListResponseSchema, { contracts: record.contract === undefined ? [] : [record.contract] }),
+    contractGets: { [id]: record },
+  };
+}
+
+// contractStories are the slices the contract page stories are served from, one for each state the scenarios show: the
+// record of tide-alerts in that state, and its List entry at the same state.
+export const contractStories = {
+  toAccept: contractSlices("tidepool/tide-alerts", tideProposed),
+  accepted: contractSlices("tidepool/tide-alerts", tideAccepted),
+  setAside: contractSlices("tidepool/tide-alerts", tideSetAside),
+  ready: contractSlices("tidepool/tide-alerts", tideReady),
 };
 
 // emptySlices is the world with nothing running: no panes, no headless sessions, no epics and no contracts. Every other
@@ -91,6 +221,7 @@ export const emptySlices: Slices = {
   ...shippedSlices,
   epics: create(EpicsListResponseSchema, { epics: [] }),
   contracts: create(ContractsListResponseSchema, { contracts: [] }),
+  contractGets: {},
   panes: create(PanesListResponseSchema, { panes: [] }),
   headless: create(ListHeadlessResponseSchema, { sessions: [] }),
 };

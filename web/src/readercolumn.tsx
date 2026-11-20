@@ -7,6 +7,7 @@ import { Ask, AskLine } from "./ask";
 import { type AskModel, conversationAsk } from "./askmodel";
 import { type AskState, answeredOf, askKey, askView } from "./askstate";
 import type { EpicCalls } from "./card";
+import type { RowAbout } from "./contracts";
 import { type Conversation, shownConversation } from "./conversation";
 import { Dock, type DockHandle } from "./dock";
 import { rowFacts, stepFacts } from "./dockfacts";
@@ -14,7 +15,7 @@ import type { StepItem } from "./epics";
 import { FindBar, type Match } from "./find";
 import { Head, type HeadProps } from "./head";
 import { foldOf } from "./headfold";
-import { Reader, type ReaderHandle } from "./reader";
+import { type ContractCalls, Reader, type ReaderHandle } from "./reader";
 import type { Row } from "./rows";
 import type { Sending, SentText } from "./sending";
 import { type InboxMark, TitleRow } from "./titlerow";
@@ -31,7 +32,18 @@ export interface FindState {
 // menu, under 760px the middle column's tiles, and the epic open in the panel beside the middle column. The column adds the fold, which it reads from its own reader.
 export type ColumnHead = Pick<
   HeadProps,
-  "host" | "showStrip" | "lines" | "askingWords" | "badges" | "note" | "menu" | "work" | "here"
+  | "host"
+  | "showStrip"
+  | "lines"
+  | "askingWords"
+  | "badges"
+  | "note"
+  | "menu"
+  | "work"
+  | "here"
+  | "contracts"
+  | "onOpenContract"
+  | "hereContract"
 >;
 
 // The section markup each column draws: the cursor's reader, and the pinned reader beside the list.
@@ -65,6 +77,8 @@ export interface AskCalls {
 // ReaderColumnProps are the state and callbacks a reader column draws from. App keeps all of it; the column only draws.
 export interface ReaderColumnProps {
   column: "cursor" | "pinned";
+  // bare is whether the column draws its reader and dock without its head, as the phone's conversation sheet does.
+  bare?: boolean;
   clients: Clients;
   now: number;
   // The row the column shows: the cursor's row, or the pinned row. Null hides the column when no step is given either.
@@ -103,6 +117,12 @@ export interface ReaderColumnProps {
   older: { current: () => void };
   sending: Sending[];
   epicCalls: EpicCalls;
+  // contractCalls are the reader's contract calls, which its contract lines draw through.
+  contractCalls?: ContractCalls;
+  // about is the About the shown row's dock holds: its next message leads with it, and onClearAbout clears it, on Not
+  // about this and once that message is sent.
+  about?: RowAbout | null;
+  onClearAbout?: () => void;
   addSending: (rowKey: string, sent: SentText, held: Conversation | null) => void;
   retractSending: (rowKey: string, promptId: string) => void;
   // open is the cursor's open toggle; the pinned column passes false and no toggle or answer.
@@ -131,6 +151,7 @@ export interface ReaderColumnProps {
 // whether the owner tapped the folded head open since.
 export function ReaderColumn({
   column,
+  bare = false,
   clients,
   now,
   row,
@@ -156,6 +177,9 @@ export function ReaderColumn({
   older,
   sending,
   epicCalls,
+  contractCalls,
+  about = null,
+  onClearAbout,
   addSending,
   retractSending,
   open,
@@ -187,9 +211,18 @@ export function ReaderColumn({
   const answered = ask === undefined || model !== null ? null : answeredOf(ask.state);
   const askNode =
     ask === undefined || model === null || key === null ? null : askFor(ask, model, key, now, narrow);
+  // sendRow sends a dock's message to its row; the Dock leads it with the shown row's About, which is cleared once the
+  // message is sent.
+  const sendRow = async (entry: Row, text: string, promptId: string): Promise<void> => {
+    const aboutOf = entry.key === rowKey ? about : null;
+    await actions.send(clients, entry, text, promptId);
+    if (aboutOf !== null) {
+      onClearAbout?.();
+    }
+  };
   return (
     <section class={names.section} aria-label={names.label} hidden={row === null && step === null}>
-      {row !== null && (
+      {row !== null && !bare && (
         <Head
           {...head(row, conversation)}
           row={row}
@@ -254,6 +287,7 @@ export function ReaderColumn({
           sending={sending}
           find={finding === null ? undefined : { query: finding.query, matches, current }}
           epicCalls={epicCalls}
+          contractCalls={contractCalls}
         />
       )}
       {step !== null && (
@@ -276,7 +310,7 @@ export function ReaderColumn({
               <Dock
                 facts={rowFacts(entry, entry.key === rowKey ? conversation : null, interrupts.has(entry.key))}
                 now={now}
-                send={(text, promptId) => actions.send(clients, entry, text, promptId)}
+                send={(text, promptId) => sendRow(entry, text, promptId)}
                 pull={entry.kind === "pane" ? () => actions.pullQueued(clients, entry) : null}
                 newPromptId={actions.newPromptId}
                 register={(handle) => registerHandle(handles, entry.key, handle)}
@@ -291,6 +325,9 @@ export function ReaderColumn({
                       }
                     : undefined
                 }
+                about={entry.key === rowKey ? about?.text : undefined}
+                aboutId={entry.key === rowKey ? about?.id : undefined}
+                onClearAbout={onClearAbout}
                 queued={entry.key === rowKey ? conversation?.state?.waiting : undefined}
                 sessionQueue={entry.key === rowKey ? conversation?.queued : undefined}
                 withdraw={

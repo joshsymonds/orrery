@@ -3,12 +3,22 @@
 // where none does, an after step clicks the way there.
 
 import { Code } from "@connectrpc/connect";
+import type { VNode } from "preact";
 
 import { PageStory } from "./catalog/pagestory";
 import type { Stories } from "./catalog/story";
 import { askSlices } from "./fixtures/ask";
 import { dockSlices, gatesSession, warmupSession } from "./fixtures/dock";
-import { type AskAnswer, emptySlices, type PickerRowInit, type Slices, shippedSlices } from "./fixtures/slices";
+import {
+  type AskAnswer,
+  contractStories,
+  emptySlices,
+  type EpicScenario,
+  epicScenarios,
+  type PickerRowInit,
+  type Slices,
+  shippedSlices,
+} from "./fixtures/slices";
 import { endedSlices, handoverSlices, movedSlices } from "./fixtures/steer";
 import { createFixtureTransport, type FixtureTransport } from "./fixtures/transport";
 import type { Address, ListPanelKind, PageView } from "./router";
@@ -16,10 +26,17 @@ import type { Address, ListPanelKind, PageView } from "./router";
 const rota = "lighthouse/rota-export";
 const tide = "tidepool/tide-alerts";
 const holder = "orrery/holder-scopes";
+const notices = "orrery/notices-usable";
+const harbour = "orrery/harbour-map";
+const buoy = "tidepool/buoy-feeds";
+const tideCache = "tidepool/tide-cache";
+const deck = "commonframe/deck-pipeline";
 const headlessSession = "4be0c6d2-8f3a-4c71-9e25-ephemeris001";
 // The headless session that steers tidepool/buoy-feeds, which runs two sub-agents and one shell.
 const buoySession = "6c2f9e14-3a7b-4d58-9b0e-2f7a1c8d4e55";
 const workerStep = "st-rota-t2-impl";
+// otherWords is the answer epic-question-other types into Something else.
+const otherWords = "Vendor the Lisbon rule as a fixture file; do not touch go.mod.";
 // panesList is the procedure the inbox's rows wait on: held, it leaves the inbox loading; failed, it leaves the inbox
 // saying the server did not answer.
 const panesList = "orrery.v1.Panes/List";
@@ -41,6 +58,12 @@ function sessionAt(id: string, panel?: ListPanelKind): Address {
 // paneAt is the address of a terminal pane on halyard.
 function paneAt(pane: string): Address {
   return { view: "inbox", entry: { kind: "pane", host: "halyard", pane } };
+}
+
+// contractAt is the address of a contract in the inbox: its panel opens over its conversation, or as the page at a
+// phone's width.
+function contractAt(id: string): Address {
+  return { view: "inbox", entry: { kind: "contract", id } };
 }
 
 // immediate is the process's own setImmediate, where there is one, taken when this module loads. A test's act holds the
@@ -113,16 +136,49 @@ async function typeInto(root: HTMLElement, selector: string, text: string): Prom
   return field;
 }
 
-// openSteer opens the steering menu from the epic page's title row: at the desk its steering command, and under the
-// phone's width its More and then the More's item, which opens the menu in a sheet.
+// openSteer opens the steering menu of the epic page: at the desk its steering command in the title row, and under the
+// phone's width the foot bar's More and then the More sheet's Steer item, which opens the menu in a sheet.
 async function openSteer(root: HTMLElement): Promise<void> {
   if (window.innerWidth >= phoneWidth) {
     await clickWhen(root, "section.page .title-row .icon.steer");
     return;
   }
-  await clickWhen(root, "section.page .title-row .icon.more");
-  await clickWhen(root, "section.page .title-row .head-menu button", "Steer it from another conversation");
+  await clickWhen(root, "section.page .cmdbar button", "More");
+  await clickWhen(root, '[role="dialog"] button.act', "Steer it from another conversation");
 }
+
+// scrollOpenRowIntoView brings the open requirement row to the top of the epic panel, where its runs and their logs come
+// under it. The row is drawn open by the time the story asks, so the scroll is the page's own call to the browser.
+async function scrollOpenRowIntoView(root: HTMLElement): Promise<void> {
+  const row = await drawnWhen(root, '.epic-page section.requirements button.tr[aria-expanded="true"]');
+  row.scrollIntoView({ block: "start" });
+}
+
+// openRunLog opens the log of the first evidence run whose log is still closed, and lets the page draw the change.
+async function openRunLog(root: HTMLElement): Promise<void> {
+  await clickWhen(root, '.runs .run-line button[aria-expanded="false"]', "log");
+  await nextRound();
+}
+
+// onPhone reports whether the layout is the phone's, where an epic's commands are under More and not in its title row.
+const onPhone = (): boolean => window.innerWidth < phoneWidth;
+
+// pressEpicCommand presses the epic page's command labelled label: in the page's title row at the desk, and under More
+// on the phone, where the command is one of More's sheet. The inbox's card of the epic has commands of its own, so the
+// page's are named by their place.
+async function pressEpicCommand(root: HTMLElement, label: string): Promise<void> {
+  if (onPhone()) {
+    await clickWhen(root, "section.page .cmdbar button", "More");
+    await clickWhen(root, '[role="dialog"] button.act', label);
+    return;
+  }
+  await clickWhen(root, "section.page .title-row .acts button.act", label);
+}
+
+// epicScenario draws the epic at address over the slices of the scenario named.
+const epicScenario = (address: Address, scenario: EpicScenario): VNode => (
+  <PageStory address={address} fixture={createFixtureTransport(epicScenarios[scenario])} />
+);
 
 // The inbox's search button and its field, which the search states open and type into.
 const searchButton = 'button[aria-label="Search sessions and epics"]';
@@ -300,8 +356,60 @@ export const Page: Stories = {
   ),
   "epic-question": () => <PageStory address={epicAt(rota, { kind: "epic" })} />,
   "epic-shipped": () => <PageStory address={epicAt(holder, { kind: "epic" })} />,
-  "contract-to-accept": () => <PageStory address={epicAt(tide, { kind: "contract" })} />,
-  "contract-accepted": () => <PageStory address={epicAt(rota, { kind: "contract" })} />,
+  "convo-contract": () => (
+    <PageStory address={paneAt("%16")} fixture={createFixtureTransport(contractStories.toAccept)} />
+  ),
+  "contract-to-accept": () => (
+    <PageStory address={contractAt(tide)} fixture={createFixtureTransport(contractStories.toAccept)} />
+  ),
+  "contract-accepted": () => (
+    <PageStory address={contractAt(tide)} fixture={createFixtureTransport(contractStories.accepted)} />
+  ),
+  "contract-talk": () => (
+    <PageStory
+      address={contractAt(tide)}
+      fixture={createFixtureTransport(contractStories.toAccept)}
+      after={async (root) => {
+        // The row's control sets the About, and the draft it types is what the owner sends about that row.
+        await clickWhen(root, 'div.tr[data-row="F2"] button.ctl');
+        // A dock the conversation's first frame has not yet drawn is redrawn by it, so the draft waits for that frame.
+        await drawnWhen(root, "section.read", "Why three retries and not one?");
+        const box = await typeInto(root, shownDockBox, "Make it one alert per table, not per table and day.");
+        box.focus();
+      }}
+    />
+  ),
+  "contract-versions": () => (
+    <PageStory
+      address={contractAt(tide)}
+      fixture={createFixtureTransport(contractStories.toAccept)}
+      after={(root) => clickWhen(root, "button.link", "versions")}
+    />
+  ),
+  "contract-set-aside": () => (
+    <PageStory address={contractAt(tide)} fixture={createFixtureTransport(contractStories.setAside)} />
+  ),
+  "contract-ready": () => (
+    <PageStory
+      address={contractAt(tide)}
+      fixture={createFixtureTransport(contractStories.ready)}
+      after={async (root) => {
+        // The section that cannot be undone is read once it has been on screen, where the page can watch it; the page
+        // then goes back to its head.
+        if (globalThis.IntersectionObserver === undefined) {
+          return;
+        }
+        await whenDrawn(root, 'section[aria-label="What leaves this machine or can’t be undone"]', "", (section) =>
+          section.scrollIntoView(),
+        );
+        await whenDrawn(root, ".cmdbar", "Nothing is left to settle.", () => {});
+        // The panel's page is what scrolls, so the title row is brought back into view there.
+        await whenDrawn(root, ".rcard .title-row", "", (title) => {
+          title.scrollIntoView({ block: "nearest" });
+        });
+      }}
+    />
+  ),
   "phase-implement": () => (
     <PageStory address={epicAt(rota, { kind: "phase", task: "T2", phase: "checking" })} />
   ),
@@ -314,7 +422,7 @@ export const Page: Stories = {
       after={async (root) => {
         // Under the phone's width the epic is a page, and its foot bar opens the conversation that steers it.
         if (window.innerWidth < phoneWidth) {
-          await clickWhen(root, ".epic-foot button", "Talk to the session");
+          await clickWhen(root, ".cmdbar button", "Talk to the session");
         }
       }}
     />
@@ -341,6 +449,58 @@ export const Page: Stories = {
   ),
   "convo-took-over": () => <PageStory address={paneAt("%11")} fixture={createFixtureTransport(movedSlices)} />,
   "convo-handed-over": () => <PageStory address={paneAt("%14")} fixture={createFixtureTransport(movedSlices)} />,
+  "epic-building": () => epicScenario(epicAt(rota, { kind: "epic" }), "building"),
+  "epic-question-other": () => (
+    <PageStory
+      address={epicAt(rota, { kind: "epic" })}
+      after={async (root) => {
+        await clickWhen(root, ".ask .opts .opt", "Something else");
+        await typeInto(root, 'textarea[aria-label="answer"]', otherWords);
+      }}
+    />
+  ),
+  "epic-parked": () => epicScenario(epicAt(notices, { kind: "epic" }), "parked"),
+  "epic-planner-parked": () => epicScenario(epicAt(rota, { kind: "epic" }), "plannerParked"),
+  "epic-limited": () => epicScenario(epicAt(rota, { kind: "epic" }), "limited"),
+  "epic-paused": () => <PageStory address={epicAt(harbour, { kind: "epic" })} />,
+  "epic-planning": () => epicScenario(epicAt(buoy, { kind: "epic" }), "planning"),
+  "epic-dense": () => epicScenario(epicAt(deck, { kind: "epic" }), "dense"),
+  "epic-evidence": () => (
+    <PageStory
+      address={epicAt(rota, { kind: "epic" })}
+      fixture={createFixtureTransport(epicScenarios.evidence)}
+      after={async (root) => {
+        await clickWhen(root, "button.tr", "Export refuses to overwrite an existing file.");
+        // The red run's log opens first, then the green run's, which folds its artifacts under it.
+        await openRunLog(root);
+        await openRunLog(root);
+        await scrollOpenRowIntoView(root);
+      }}
+    />
+  ),
+  "epic-stop-confirm": () => (
+    <PageStory
+      address={epicAt(rota, { kind: "epic" })}
+      fixture={createFixtureTransport(epicScenarios.building)}
+      after={async (root) => {
+        await pressEpicCommand(root, "Stop…");
+        await drawnWhen(root, onPhone() ? '[role="dialog"]' : ".sure", "Stop rota-export?");
+      }}
+    />
+  ),
+  "epic-command-error": () => (
+    <PageStory
+      address={epicAt(rota, { kind: "epic" })}
+      fixture={createFixtureTransport(epicScenarios.commandError)}
+      after={async (root) => {
+        await pressEpicCommand(root, "Pause");
+        await drawnWhen(root, ".page-note", "did not land");
+      }}
+    />
+  ),
+  "epic-problem": () => epicScenario(epicAt(rota, { kind: "epic" }), "problem"),
+  "epic-loading": () => epicScenario(epicAt(tideCache, { kind: "epic" }), "loading"),
+  "epic-unavailable": () => epicScenario(epicAt(rota, { kind: "epic" }), "unavailable"),
   "convo-working": () => <PageStory address={convoWorkingAt} />,
   "ask-session": () => (
     <PageStory

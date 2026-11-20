@@ -4,7 +4,7 @@ import { taskStateOf } from "./taskstatus";
 export const PHASES = ["implementing", "checking", "reviewing", "integrating"] as const;
 export type Phase = (typeof PHASES)[number];
 export type Place = "planned" | Phase | "integrated";
-export type Tone = "plan" | "run" | "mine" | "bad" | "acc" | "ok";
+export type Tone = "plan" | "run" | "mine" | "limited" | "bad" | "acc" | "ok";
 export type SliceState = "passed" | "now" | "ahead";
 
 export interface PhaseSlice {
@@ -24,13 +24,6 @@ export interface Wedge {
   slices: PhaseSlice[];
 }
 
-export interface RequirementArc {
-  id: string;
-  start: number;
-  end: number;
-  proven: boolean;
-}
-
 // A task as a wedge reads it: a planned build task, or a record task, which has no stage.
 export interface Task {
   task: string;
@@ -41,7 +34,7 @@ export interface Task {
 }
 
 // The build tasks when the epic has any, else the record's tasks.
-function tasksOf(detail: EpicsGetResponse): Task[] {
+export function tasksOf(detail: EpicsGetResponse): Task[] {
   if (detail.buildTasks.length > 0) {
     return detail.buildTasks.map((build) => ({
       task: build.id,
@@ -84,6 +77,14 @@ interface Placement {
   tone: Tone;
 }
 
+// The tone of a running step: held wins over limited, and a limited step's task is grey, not peach.
+function toneOfRunning(step: EpicStep): Tone {
+  if (step.held) {
+    return "mine";
+  }
+  return step.limited ? "limited" : "run";
+}
+
 // The place and tone of a task, by the first rule that matches.
 export function placementOf(task: Task, steps: EpicStep[]): Placement {
   if (taskStateOf(task.status) === "done") {
@@ -91,7 +92,7 @@ export function placementOf(task: Task, steps: EpicStep[]): Placement {
   }
   const latest = steps.at(-1);
   if (latest !== undefined && latest.end === "") {
-    return { place: phaseOf(latest), tone: latest.held || latest.limited ? "mine" : "run" };
+    return { place: phaseOf(latest), tone: toneOfRunning(latest) };
   }
   if (latest !== undefined && latest.end === "done") {
     return { place: "integrating", tone: "acc" };
@@ -102,6 +103,7 @@ export function placementOf(task: Task, steps: EpicStep[]): Placement {
   switch (task.stage) {
     case "red":
     case "implement":
+    case "orchestrate":
       return { place: "implementing", tone: "run" };
     case "green":
       return { place: "checking", tone: "run" };
@@ -204,26 +206,6 @@ export function provenOf(id: string, wedges: Wedge[], requirements: EpicRequirem
     return requirement.runs.some((run) => run.phase === "green" && run.passed);
   }
   return wedges.filter((wedge) => wedge.requirements.includes(id)).every((wedge) => wedge.place === "integrated");
-}
-
-// The arcs of the requirements around the wedges. Wedge i with k requirements gives part j the span from i + j/k to
-// i + (j+1)/k; a part continues the previous arc when it names the same requirement and starts where that arc ends.
-export function requirementArcs(wedges: Wedge[], requirements: EpicRequirement[]): RequirementArc[] {
-  const arcs: RequirementArc[] = [];
-  wedges.forEach((wedge, index) => {
-    const count = wedge.requirements.length;
-    wedge.requirements.forEach((id, part) => {
-      const start = index + part / count;
-      const end = index + (part + 1) / count;
-      const previous = arcs.at(-1);
-      if (previous !== undefined && previous.id === id && previous.end === start) {
-        previous.end = end;
-      } else {
-        arcs.push({ id, start, end, proven: provenOf(id, wedges, requirements) });
-      }
-    });
-  });
-  return arcs;
 }
 
 // A duration as text: seconds under a minute, whole minutes under an hour, then hours with any minutes left over.
