@@ -1,7 +1,7 @@
 import type { ComponentChildren } from "preact";
 
 import type { BackgroundTask } from "./gen/orrery/v1/orrery_pb";
-import { clock } from "./workline";
+import { elapsed } from "./dockwords";
 
 // SidePanel draws one opened thing as a card beside the conversation. Its top edge takes the tone of the lit tile it opened
 // from, and its controls are Open in a new window and Close. Every thing opens in this one frame, so it has no width or
@@ -74,7 +74,7 @@ export function ListPanel({
         {tasks.map((task) => (
           <li class={`row ${list.tone}`}>
             <span class="title">{task.description}</span>
-            <span class="age">{clock(now - Number(task.started))}</span>
+            <span class="age">{elapsed(now - Number(task.started))}</span>
             <span class="l2">
               {kind === "agents" ? (
                 <>

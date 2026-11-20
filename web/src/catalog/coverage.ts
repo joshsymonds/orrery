@@ -29,7 +29,6 @@ export const storyRenames: Renames = {
   "backgroundrow.tsx": { BackgroundRow: "TaskLine" },
   "blocker.tsx": { QuestionCard: "Ask", AskFirst: "ConfirmButton" },
   "card.tsx": { EpicWidget: "WorkCard" },
-  "composer.tsx": { Composer: "Dock" },
   "contract.tsx": { ContractBody: { module: "app.stories.tsx", story: "Page" } },
   "contractrecord.tsx": { ContractRecord: { module: "app.stories.tsx", story: "Page" } },
   "epicline.tsx": { EpicLine: "EpicRow" },
@@ -41,7 +40,6 @@ export const storyRenames: Renames = {
   "notices.tsx": { NoticeBanner: "Notice" },
   "picker.tsx": { NewPanel: { module: "app.stories.tsx", story: "Page" } },
   "sidepanel.tsx": { SidePanel: "ListPanel" },
-  "stepbox.tsx": { StepBox: "Dock" },
   "strip.tsx": { PaneStrip: "MeterStrip" },
 };
 

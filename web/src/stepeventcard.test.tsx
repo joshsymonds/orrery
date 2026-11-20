@@ -22,8 +22,6 @@ const watchPath = "/orrery.v1.Sessions/WatchConversation";
 const sessionId = "s1";
 const epic = "orrery-0668c87/orrery-conversation-model";
 const epicTitle = "Epic orrery-0668c87/orrery-conversation-model (A conversation shows what is happening)";
-const speakLabel = "arrives when you next speak";
-const freeLabel = "arrives when the session is free";
 // seenAt is past every item's time, so the reader draws no since-you-looked rule among the cards the tests count.
 const seenAt = Number.POSITIVE_INFINITY;
 
@@ -201,8 +199,8 @@ function eventPrompt(step: string, text: string, time: number) {
   return { kind: "prompt", time: String(time), text, sender: "event", promptId: `step:${step}` };
 }
 
-// PendingStepFields are the fields of a step's end the session holds, as the server lists it: its brief is the lines a
-// waiting card draws, ending with the More line.
+// PendingStepFields are the fields of a step's end the session holds, as the server lists it: its brief is its lines,
+// ending with the More line.
 interface PendingStepFields {
   step: string;
   agent: string;
@@ -378,47 +376,27 @@ test("StepEventCard: two step_end prompts delivered one after another draw two c
   });
 });
 
-test("StepEventCard: a pending event draws a waiting card labelled for speak and for free", async (t) => {
+test("DockWaits: a session's held events draw no card in the transcript, and a delivered prompt still draws its card", async (t) => {
   await withPage(t, async ({ container, fake }) => {
-    const waiting: PendingStepFields = {
-      step: "s3",
+    const step: StepFields = { step: "s7", agent: "builder", end: "done", status: "done", brief: ["Done."] };
+    const held: PendingStepFields = {
+      step: "s8",
       agent: "builder",
       end: "done",
       status: "done",
-      brief: "Done.\nMore: step_result id s3",
+      brief: "Held.\nMore: step_result id s8",
     };
-    const pending = [pendingStep(waiting, "speak"), pendingEpic("release", "free")];
-    fake.emit(delta([], { seq: 2, reset: true, pending }));
-    await settle(t, () => countOf(container, ".waiting") === 2, "both waiting cards are drawn");
-    assert.deepEqual(textsOf(container, ".wait-label"), [speakLabel, freeLabel], "each waits by its own label");
-    assert.equal(countOf(container, ".step-card.waiting"), 1, "the step's end draws as a step card");
-    assert.equal(countOf(container, ".event-ring.waiting"), 1, "the epic's event draws as its line");
-    assert.deepEqual(textsOf(container, ".ring-sentence"), [epicTitle], "the epic line names the epic's title");
-    assert.deepEqual(textsOf(container, ".step-agent"), ["builder"], "the step's card names its agent");
-    assert.deepEqual(textsOf(container, ".step-summary"), ["Done."], "the step's card draws its summary");
-  });
-});
-
-test("StepEventCard: a waiting card gives way to an ordinary card once its prompt arrives", async (t) => {
-  await withPage(t, async ({ container, fake }) => {
-    const step: StepFields = { step: "s4", agent: "builder", end: "done", status: "done", brief: ["Done."] };
-    const waiting: PendingStepFields = {
-      step: "s4",
-      agent: "builder",
-      end: "done",
-      status: "done",
-      brief: "Done.\nMore: step_result id s4",
-    };
-    const pending = [pendingStep(waiting, "speak")];
-    fake.emit(delta([], { seq: 2, reset: true, pending }));
-    await settle(t, () => countOf(container, ".step-card.waiting") === 1, "the waiting card is drawn");
-    assert.deepEqual(textsOf(container, ".wait-label"), [speakLabel]);
-
-    // The prompt arrives while the pending list still holds its event, as it does until the next poll takes it out.
-    fake.emit(delta([eventPrompt("s4", stepBlock(step), 102)], { seq: 3, pending }));
-    await settle(t, () => countOf(container, ".step-card:not(.waiting)") === 1, "the prompt is drawn as its card");
-    assert.equal(countOf(container, ".waiting"), 0, "the card is no longer dimmed");
-    assert.equal(countOf(container, ".wait-label"), 0, "no waiting label is drawn");
-    assert.deepEqual(textsOf(container, ".step-agent"), ["builder"]);
+    const pending = [
+      pendingStep(held, "speak"),
+      pendingStep({ ...held, step: "s9" }, "request"),
+      pendingEpic("release", "free"),
+    ];
+    fake.emit(delta([eventPrompt("s7", stepBlock(step), 102)], { seq: 2, reset: true, pending }));
+    await settle(t, () => textsOf(container, ".step-summary").includes("Done."), "the delivered prompt's card is drawn");
+    assert.equal(cardsOf(container).length, 1, "only the delivered prompt draws a card");
+    assert.deepEqual(textsOf(container, ".step-summary"), ["Done."], "only the delivered step draws its brief");
+    assert.equal(countOf(container, ".waiting"), 0, "no held event is dimmed in the transcript");
+    assert.equal(countOf(container, ".wait-label"), 0, "no held event is labelled in the transcript");
+    assert.equal(countOf(container, ".event-ring"), 0, "the held epic event draws no line in the transcript");
   });
 });

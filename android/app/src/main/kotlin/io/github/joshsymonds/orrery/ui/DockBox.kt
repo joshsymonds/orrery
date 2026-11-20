@@ -54,6 +54,9 @@ private const val COMPOSE_INPUT_TYPE =
         InputType.TYPE_TEXT_FLAG_AUTO_CORRECT or
         InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
 
+/** The blank line that sets one appended text off from the draft before it. */
+private const val DRAFT_BREAK = "\n\n"
+
 /** The field grows with its draft up to this many lines, then scrolls inside itself. */
 const val COMPOSE_MAX_LINES = 5
 
@@ -83,10 +86,35 @@ fun composeEdgeOf(state: String): ComposeEdge = when (state) {
 }
 
 /**
+ * The text a dock box edits and sends. The dock holds one per conversation and adds texts to it with
+ * [append]; the box clears what a successful send took.
+ */
+class DockDraft {
+    var text: String by mutableStateOf("")
+        private set
+
+    internal fun change(text: String) {
+        this.text = text
+    }
+
+    /** Puts [texts] after the draft, joined by blank lines. No texts leave the draft as it is. */
+    fun append(texts: List<String>) {
+        if (texts.isEmpty()) return
+        val added = texts.joinToString(DRAFT_BREAK)
+        text = if (text.isEmpty()) added else "$text$DRAFT_BREAK$added"
+    }
+}
+
+/** The draft for [key]; it starts empty again when [key] changes. */
+@Composable
+fun rememberDockDraft(key: Any): DockDraft = remember(key) { DockDraft() }
+
+/**
  * The composer for one pane, laid out like a text message: the draft field takes the row and
  * Send sits at its trailing edge, level with the field's bottom as the field grows. Send posts
- * the whole draft in one call and clears it only after the server answers with a success. The
- * field is locked while a send is in flight, so the draft cannot change under the request.
+ * the whole draft in one call and takes from [draft] only what that call sent, once the server
+ * answers with a success. The field is locked while a send is in flight, so the text the send
+ * took cannot change under the request; texts appended meanwhile stay in the draft.
  *
  * The composer is its own band: a hairline above, a mantle bar, and a filled, outlined field whose
  * outline turns mauve while it has focus; a tap anywhere in the field focuses it. [edge] colours that
@@ -101,9 +129,10 @@ fun composeEdgeOf(state: String): ComposeEdge = when (state) {
  * throw of [IOException] keeps the draft and shows the failure label, as a failed post does.
  */
 @Composable
-fun ComposeBox(
-    paneId: String,
+fun DockBox(
+    draft: DockDraft,
     client: OrreryClient,
+    paneId: String,
     modifier: Modifier = Modifier,
     edge: ComposeEdge = ComposeEdge.IDLE,
     maxFieldHeight: Dp = Dp.Unspecified,
@@ -114,12 +143,13 @@ fun ComposeBox(
     send: (String) -> Unit = { text -> client.sendComposed(paneId, text) },
 ) {
     key(paneId) {
-        ComposeDraft(edge, modifier, maxFieldHeight, hint, onDraftPresent, status, onSend, send)
+        DockField(draft, edge, modifier, maxFieldHeight, hint, onDraftPresent, status, onSend, send)
     }
 }
 
 @Composable
-private fun ComposeDraft(
+private fun DockField(
+    draft: DockDraft,
     edge: ComposeEdge,
     modifier: Modifier,
     maxFieldHeight: Dp,
@@ -129,14 +159,13 @@ private fun ComposeDraft(
     onSend: () -> Unit,
     send: (String) -> Unit,
 ) {
-    var draft by remember { mutableStateOf("") }
     var sending by remember { mutableStateOf(false) }
     var failure by remember { mutableStateOf<SendFailure?>(null) }
     var focused by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     val draftPresent by rememberUpdatedState(onDraftPresent)
-    val present = draft.isNotEmpty()
+    val present = draft.text.isNotEmpty()
     LaunchedEffect(present) { draftPresent(present) }
     val outline = when (edge) {
         ComposeEdge.IDLE -> if (focused) OrreryTokens.Role.focus else OrreryTokens.Line.firm
@@ -204,7 +233,7 @@ private fun ComposeDraft(
                                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
 
                                 override fun afterTextChanged(s: Editable?) {
-                                    draft = s.toString()
+                                    draft.change(s.toString())
                                     val field = this@apply
                                     OneShotPreDrawListener.add(field) { field.revealCursor() }
                                 }
@@ -218,13 +247,13 @@ private fun ComposeDraft(
                 update = { view ->
                     view.isEnabled = !sending
                     if (view.hint?.toString().orEmpty() != hint) view.hint = hint
-                    if (view.text.toString() != draft) {
-                        view.setText(draft)
+                    if (view.text.toString() != draft.text) {
+                        view.setText(draft.text)
                     }
                 },
             )
             Button(
-                enabled = draft.isNotBlank() && !sending,
+                enabled = draft.text.isNotBlank() && !sending,
                 modifier = Modifier.height(FIELD_MIN_HEIGHT),
                 shape = COMPOSER_SHAPE,
                 contentPadding = PaddingValues(horizontal = OrreryTokens.Space.sixteen),
@@ -235,7 +264,7 @@ private fun ComposeDraft(
                     disabledContentColor = OrreryTokens.Ink.three,
                 ),
                 onClick = {
-                    val text = draft
+                    val text = draft.text
                     onSend()
                     sending = true
                     failure = null
@@ -252,7 +281,7 @@ private fun ComposeDraft(
                         }
                         sending = false
                         if (outcome == null) {
-                            draft = ""
+                            draft.change(draft.text.removePrefix(text).removePrefix(DRAFT_BREAK))
                         } else {
                             failure = outcome
                         }
@@ -265,8 +294,8 @@ private fun ComposeDraft(
         failure?.let { reason ->
             Text(
                 when (reason) {
-                    SendFailure.NOT_SENT -> "not sent"
-                    SendFailure.NO_ANSWER -> "no answer — check before resending"
+                    SendFailure.NOT_SENT -> DockLines.sendRefused
+                    SendFailure.NO_ANSWER -> DockLines.sendUnknown
                 },
                 modifier = Modifier.padding(
                     start = OrreryTokens.Space.twelve + OrreryTokens.Space.two,

@@ -15,6 +15,8 @@ import {
   AskResponseSchema,
   HostStatusResponseSchema,
   PanesListResponseSchema,
+  SayResponseSchema,
+  SessionsWatchConversationResponseSchema,
   WatchConversationResponseSchema,
 } from "../gen/orrery/v1/orrery_pb";
 import { mockTimers } from "../testclock";
@@ -237,6 +239,29 @@ test("FixtureTransport absorbs Epics.Pause: it answers an empty message, and rec
   assert.deepEqual([...fixture.unserved], [], "the write is not recorded");
 });
 
+test("FixtureTransport absorbs Control.Say when the slices set no say: it answers an empty message, and records no call", async () => {
+  const fixture = createFixtureTransport();
+  const answer = await fixture.clients.control.say({ id: "fixture-new-session", text: "hello" });
+  assert.deepEqual(toJson(SayResponseSchema, answer), {}, "the answer is empty");
+  assert.deepEqual([...fixture.unserved], [], "the write is not recorded");
+});
+
+test("FixtureTransport refuses Control.Say with FailedPrecondition when the slices say refused, and records no call", async () => {
+  const fixture = createFixtureTransport({ ...shippedSlices, say: "refused" });
+  const error = await refusal(fixture.clients.control.say({ id: "fixture-new-session", text: "hello" }));
+  assert.equal(error.code, Code.FailedPrecondition);
+  assert.equal(error.rawMessage, "the session is not taking messages");
+  assert.deepEqual([...fixture.unserved], [], "a refused write is no unserved call");
+});
+
+test("FixtureTransport fails Control.Say with Unavailable when the slices say unanswered, and records no call", async () => {
+  const fixture = createFixtureTransport({ ...shippedSlices, say: "unanswered" });
+  const error = await refusal(fixture.clients.control.say({ id: "fixture-new-session", text: "hello" }));
+  assert.equal(error.code, Code.Unavailable);
+  assert.equal(error.rawMessage, "no answer");
+  assert.deepEqual([...fixture.unserved], [], "an unanswered write is no unserved call");
+});
+
 test("FixtureTransport records an unserved Picker call, tells each listener until it unregisters, and fails Unimplemented", async () => {
   const fixture = createFixtureTransport();
   const heard: string[] = [];
@@ -305,6 +330,55 @@ test("FixtureTransport: a pane stream sends its frame and holds open, a reconnec
   assert.equal(await after.then(() => "ended", () => "aborted"), "aborted", "the abort ends the wait");
   reconnect.abort();
   assert.equal(await reconnected.then(() => "ended", () => "aborted"), "aborted", "the reconnect's abort ends its wait");
+});
+
+test("FixtureTransport answers Control.Interrupt with the texts the slices give, in order, and records no call", async () => {
+  const fixture = createFixtureTransport({ ...shippedSlices, interrupt: { texts: ["first", "second"] } });
+  const answer = await fixture.clients.control.interrupt({ id: "st-rota-t2-impl" });
+  assert.deepEqual(answer.texts, ["first", "second"], "the texts come back in order");
+  assert.deepEqual([...fixture.unserved], [], "the interrupt is not recorded as unserved");
+});
+
+test("FixtureTransport absorbs Control.Interrupt when the slices set no interrupt: it answers no texts, and an open session stream sends no more", async () => {
+  const fixture = createFixtureTransport();
+  const stream = new AbortController();
+  const frames = fixture.clients.sessions
+    .watchConversation({ id: "st-rota-t2-impl" }, { signal: stream.signal })
+    [Symbol.asyncIterator]();
+  const frame = await frames.next();
+  assert.ok(!frame.done, "the stream sends its frame");
+  const after = frames.next();
+  const answer = await fixture.clients.control.interrupt({ id: "st-rota-t2-impl" });
+  assert.deepEqual(answer.texts, [], "the interrupt answers no texts");
+  assert.equal(await Promise.race([after.then(() => "sent"), turn().then(() => "held")]), "held", "the stream sends no more");
+  assert.deepEqual([...fixture.unserved], [], "the interrupt is not recorded as unserved");
+
+  stream.abort();
+  assert.equal(await after.then(() => "ended", () => "aborted"), "aborted", "the abort ends the wait");
+});
+
+test("FixtureTransport: an open session stream sends the interrupt's then frame once Interrupt is called, and an abort still ends it", async () => {
+  const then = create(SessionsWatchConversationResponseSchema, { transcript: "st-rota-t2-impl.jsonl", seq: 2n });
+  const fixture = createFixtureTransport({ ...shippedSlices, interrupt: { texts: [], then } });
+  const stream = new AbortController();
+  const frames = fixture.clients.sessions
+    .watchConversation({ id: "st-rota-t2-impl" }, { signal: stream.signal })
+    [Symbol.asyncIterator]();
+  const frame = await frames.next();
+  assert.ok(!frame.done, "the stream sends its frame");
+  const wanted = shippedSlices.sessionStreams.get("st-rota-t2-impl");
+  assert.ok(wanted !== undefined && equals(SessionsWatchConversationResponseSchema, frame.value, wanted), "the frame is the session's");
+
+  const next = frames.next();
+  assert.equal(await Promise.race([next.then(() => "sent"), turn().then(() => "held")]), "held", "the stream sends nothing before the interrupt");
+  await fixture.clients.control.interrupt({ id: "st-rota-t2-impl" });
+  const sent = await next;
+  assert.ok(!sent.done && equals(SessionsWatchConversationResponseSchema, sent.value, then), "the interrupt sends the then frame");
+
+  const after = frames.next();
+  assert.equal(await Promise.race([after.then(() => "sent"), turn().then(() => "held")]), "held", "the stream sends no more");
+  stream.abort();
+  assert.equal(await after.then(() => "ended", () => "aborted"), "aborted", "the abort ends the wait");
 });
 
 test("FixtureTransport: app/attention draws the attention rows", (t) => {
@@ -654,14 +728,29 @@ test("FixtureTransport: page/epic-question, page/epic-handover and page/epic-tal
   }
 });
 
-test("FixtureTransport: page's keys are exactly the 23 catalog names of its scenario states", () => {
+test("FixtureTransport: page's keys are exactly the 38 catalog names of its scenario states", () => {
   assert.deepEqual(Object.keys(Page).map((state) => storyName("Page", state)).sort(), [
+    "page/ask-later",
     "page/ask-session",
     "page/contract-accepted",
     "page/contract-to-accept",
     "page/convo-working",
     "page/dock-background",
+    "page/dock-cancelled",
+    "page/dock-cut-off",
+    "page/dock-draft",
+    "page/dock-failed",
+    "page/dock-idle",
+    "page/dock-interrupt-queue",
+    "page/dock-interrupted",
+    "page/dock-interrupting",
+    "page/dock-pane-queue",
+    "page/dock-queued",
     "page/dock-running",
+    "page/dock-send-error",
+    "page/dock-send-unknown",
+    "page/dock-stopped",
+    "page/dock-waiting",
     "page/epic-handover",
     "page/epic-question",
     "page/epic-shipped",

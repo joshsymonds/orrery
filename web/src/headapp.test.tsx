@@ -312,7 +312,7 @@ function badgeOf(container: HTMLElement, key: string): HTMLElement | null {
 
 // replyBox is the reply box of the cursor's reader, or null while none is drawn.
 function replyBox(container: HTMLElement): HTMLTextAreaElement | null {
-  return container.querySelector<HTMLTextAreaElement>('section[aria-label="reader"] .reply:not([hidden]) .composer textarea');
+  return container.querySelector<HTMLTextAreaElement>('section[aria-label="reader"] .reply:not([hidden]) .dock-input textarea');
 }
 
 test("Band: an epic whose steering is this row's archiveId shows its line with Answer, Answer opens the epic, and another conversation's epic never shows", (t) => {

@@ -50,7 +50,7 @@ private const val FIXTURE_SEEN = 4102444900L
 private const val REPLY_COUNT = 40
 private const val BAND_GOAL_TAG = "band-goal"
 private const val SYNTHETIC_GOAL = "synthetic goal text"
-private const val STATUS_LINE_TAG = "status-line"
+private const val DOCK_STATE_TAG = "dock-state"
 private const val COMPOSER_TAG = "composer"
 private const val CONVERSATION_LIST_TAG = "conversation-list"
 private const val COMPACT_ASKING_TAG = "compact-asking"
@@ -166,7 +166,7 @@ class BandGoalScreenTest {
             val goal = composeRule.onNodeWithText(SYNTHETIC_GOAL, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
             val band = composeRule.onNodeWithTag(BAND_GOAL_TAG).fetchSemanticsNode().boundsInRoot
             val composer = composeRule.onNodeWithTag(COMPOSER_TAG).fetchSemanticsNode().boundsInRoot
-            composeRule.onNodeWithTag(STATUS_LINE_TAG).assertIsDisplayed()
+            composeRule.onNodeWithTag(DOCK_STATE_TAG).assertIsDisplayed()
             assertTrue("the goal sits inside the band", goal.top >= band.top && goal.bottom <= band.bottom)
             assertTrue("the band sits above the composer", band.bottom <= composer.top)
         }
