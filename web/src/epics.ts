@@ -15,6 +15,7 @@ const stripToneOf: Record<Tone, StripTone> = {
   acc: "accepted",
   run: "now",
   mine: "held",
+  limited: "held",
   bad: "errored",
   plan: "none",
 };

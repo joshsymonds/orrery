@@ -83,14 +83,17 @@ test("a running read-only step places its task in reviewing, running with the sl
   }
 });
 
-test("a held or limited running step places its task as mine", () => {
+test("EpicWords: a held running step's task is mine, a limited one's is limited, and held wins over limited", () => {
   const held = wedgeOf(planOf("open", "implement", [step({ held: true })]));
   assert.equal(held.place, "implementing");
   assert.equal(held.tone, "mine");
 
   const limited = wedgeOf(planOf("open", "implement", [step({ limited: true })]));
   assert.equal(limited.place, "implementing");
-  assert.equal(limited.tone, "mine");
+  assert.equal(limited.tone, "limited");
+
+  const both = wedgeOf(planOf("open", "implement", [step({ held: true, limited: true })]));
+  assert.equal(both.tone, "mine");
 });
 
 test("a latest step that ended done places its task in integrating, accepted", () => {

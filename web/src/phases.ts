@@ -4,7 +4,7 @@ import { taskStateOf } from "./taskstatus";
 export const PHASES = ["implementing", "checking", "reviewing", "integrating"] as const;
 export type Phase = (typeof PHASES)[number];
 export type Place = "planned" | Phase | "integrated";
-export type Tone = "plan" | "run" | "mine" | "bad" | "acc" | "ok";
+export type Tone = "plan" | "run" | "mine" | "limited" | "bad" | "acc" | "ok";
 export type SliceState = "passed" | "now" | "ahead";
 
 export interface PhaseSlice {
@@ -41,7 +41,7 @@ export interface Task {
 }
 
 // The build tasks when the epic has any, else the record's tasks.
-function tasksOf(detail: EpicsGetResponse): Task[] {
+export function tasksOf(detail: EpicsGetResponse): Task[] {
   if (detail.buildTasks.length > 0) {
     return detail.buildTasks.map((build) => ({
       task: build.id,
@@ -84,6 +84,14 @@ interface Placement {
   tone: Tone;
 }
 
+// The tone of a running step: held wins over limited, and a limited step's task is grey, not peach.
+function toneOfRunning(step: EpicStep): Tone {
+  if (step.held) {
+    return "mine";
+  }
+  return step.limited ? "limited" : "run";
+}
+
 // The place and tone of a task, by the first rule that matches.
 export function placementOf(task: Task, steps: EpicStep[]): Placement {
   if (taskStateOf(task.status) === "done") {
@@ -91,7 +99,7 @@ export function placementOf(task: Task, steps: EpicStep[]): Placement {
   }
   const latest = steps.at(-1);
   if (latest !== undefined && latest.end === "") {
-    return { place: phaseOf(latest), tone: latest.held || latest.limited ? "mine" : "run" };
+    return { place: phaseOf(latest), tone: toneOfRunning(latest) };
   }
   if (latest !== undefined && latest.end === "done") {
     return { place: "integrating", tone: "acc" };
@@ -102,6 +110,7 @@ export function placementOf(task: Task, steps: EpicStep[]): Placement {
   switch (task.stage) {
     case "red":
     case "implement":
+    case "orchestrate":
       return { place: "implementing", tone: "run" };
     case "green":
       return { place: "checking", tone: "run" };
