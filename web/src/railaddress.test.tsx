@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
@@ -15,6 +16,7 @@ import {
   type EpicsGetResponse,
   EpicsGetResponseSchema,
 } from "./gen/orrery/v1/epics_pb";
+import { type HostStatusResponse, HostStatusResponseSchema } from "./gen/orrery/v1/orrery_pb";
 import type { Address } from "./router";
 import type { Row } from "./rows";
 import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
@@ -50,6 +52,7 @@ interface Setup {
   rows?: Row[];
   epics?: EpicsView;
   address?: Address;
+  host?: HostStatusResponse;
 }
 
 // followed resolves once a conversation stream has been asked for the session id. A check awaits it rather than reading
@@ -162,6 +165,9 @@ function epicAddress(
 // steererAddress is the address of the steerer's session row.
 const steererAddress: Address = { order: "attention", entry: { kind: "session", id: "s1" } };
 
+// agentsAddress is the address of the steerer's session row with its agents list open in the panel.
+const agentsAddress: Address = { order: "attention", entry: { kind: "session", id: "s1", panel: "agents" } };
+
 // draw renders App over the setup, with the probe recording its address reports.
 function draw(container: HTMLElement, clients: Clients, probe: Probe, setup: Setup): Promise<void> {
   return act(() => {
@@ -173,6 +179,7 @@ function draw(container: HTMLElement, clients: Clients, probe: Probe, setup: Set
         clients={clients}
         epics={setup.epics}
         address={setup.address}
+        host={setup.host ?? null}
         onAddress={(address, mode) => probe.reported.push({ address, mode })}
       />,
       container,
@@ -250,6 +257,24 @@ async function press(element: HTMLElement): Promise<void> {
   });
 }
 
+// cssDeclarations is the declarations of the one rule in style.css whose selector is selector, with comments removed.
+function cssDeclarations(selector: string): string {
+  const css = readFileSync(new URL("../src/style.css", import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+  const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter(([, selectors]) => selectors.trim() === selector);
+  assert.equal(rules.length, 1, `style.css has one ${selector} rule`);
+  return rules[0][2];
+}
+
+// declared is the value of property in a rule's declarations, or undefined when the rule does not set it.
+function declared(declarations: string, property: string): string | undefined {
+  return declarations
+    .split(";")
+    .map((declaration) => declaration.trim())
+    .find((declaration) => declaration.startsWith(`${property}:`))
+    ?.slice(property.length + 1)
+    .trim();
+}
+
 // lastReport is the address App reported last, with the mode it named.
 function lastReport(probe: Probe): { address: Address; mode: string } {
   const report = probe.reported.at(-1);
@@ -293,6 +318,10 @@ test("RailAddress: a task's address draws its steerer's conversation in the midd
       await followed(probe, "s1");
       assert.equal(readerShown(container), true, "the steerer's conversation is drawn in the middle");
       assert.equal(panelOf(container)?.querySelector(".phase-output") !== null, true, "the phase page is in the panel");
+      const crumbs = panelOf(container)?.querySelector(".title-row .crumbs")?.textContent ?? "";
+      assert.equal(crumbs.includes("alpha"), true, "the panel's crumbs name the epic");
+      assert.equal(crumbs.includes("T1 · checking"), true, "the panel's crumbs name the task and its phase");
+      assert.ok(panelOf(container)?.querySelector(".epic-page") === null, "the epic record is not drawn in the panel");
       assert.equal(litTile(container)?.querySelector(".cap")?.textContent, "alpha", "the epic's tile is lit");
     },
   );
@@ -440,4 +469,75 @@ test("SidePanel: a digit with an epic's question open in the panel answers nothi
       "the steerer's waiting question is not answered by the panel's digit",
     );
   });
+});
+
+// arrived is the epic's address over the steerer's rows and epic, which arrive after App mounts, as the page loads them: the
+// address is pending until the rows and epics hold its epic, and then opens it.
+const arrived: Setup = { rows: [steererRow()], epics: view([alpha]), address: epicAddress("alpha") };
+
+test("RailAddress: an epic's address hides the inbox at 1600, as a row's address does", (t) =>
+  withRail(t.signal, 1600, { address: epicAddress("alpha") }, async (mount) => {
+    await mount.rerender(arrived);
+    assert.ok(mount.container.querySelector('.panes[data-inbox="hidden"]') !== null, "the inbox is hidden");
+  }));
+
+test("RailAddress: an epic's address hides the inbox at 1000, where the panel overlays the page", (t) =>
+  withRail(t.signal, 1000, { address: epicAddress("alpha") }, async (mount) => {
+    await mount.rerender(arrived);
+    await followed(mount.probe, "s1");
+    assert.ok(mount.container.querySelector(".panes.overlay") !== null, "the layout is overlaid");
+    assert.ok(mount.container.querySelector('.panes[data-inbox="hidden"]') !== null, "the inbox is hidden");
+  }));
+
+test("RailAddress: at 1000 the overlaid panel starts one rail width past the inbox's track, leaving the reader beside it", (t) =>
+  withRail(t.signal, 1000, { address: epicAddress("alpha") }, async (mount) => {
+    await mount.rerender(arrived);
+    await followed(mount.probe, "s1");
+    assert.equal(readerShown(mount.container), true, "the steerer's conversation is drawn");
+    assert.equal(
+      declared(cssDeclarations(".panes.overlay > .rpanel"), "left"),
+      "calc(var(--inbox-track) + var(--o-layout-rail-width))",
+      "the panel's left edge is one rail width past the inbox's track",
+    );
+  }));
+
+test("RailAddress: at a phone's width the conversation's meters draw above its tile strip", (t) =>
+  withRail(
+    t.signal,
+    412,
+    {
+      rows: [steererRow()],
+      epics: view([alpha]),
+      address: steererAddress,
+      host: create(HostStatusResponseSchema, { host: "box" }),
+    },
+    (mount) => {
+      const meters = mount.container.querySelector(".pane-strip");
+      const strip = mount.container.querySelector(".tilestrip");
+      assert.ok(meters !== null, "the meters are drawn");
+      assert.ok(strip !== null, "the tile strip is drawn");
+      assert.equal(
+        (meters.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
+        true,
+        "the meters come before the tile strip",
+      );
+    },
+  ));
+
+test("RailAddress: a list's sheet names the list once, in its title, and draws no head of its own", (t) =>
+  withRail(t.signal, 412, { rows: [steererRow()], address: agentsAddress }, (mount) => {
+    const sheet = mount.container.querySelector('section.sheet[role="dialog"]');
+    assert.ok(sheet !== null, "the list is drawn in a sheet");
+    assert.equal(sheet.getAttribute("aria-label"), "Sub-agents", "the sheet is titled with the list");
+    assert.ok(sheet.querySelector(".plist h2") === null, "the list draws no head of its own");
+  }));
+
+test("WorkRail: a list tile's icon is sized and stroked as round 6's icon, from the tokens", () => {
+  const rule = cssDeclarations(".tile > .icon");
+  assert.equal(declared(rule, "width"), "var(--o-size-icon)", "the icon is the icon size wide");
+  assert.equal(declared(rule, "height"), "var(--o-size-icon)", "the icon is the icon size high");
+  assert.equal(declared(rule, "fill"), "none", "the icon is not filled");
+  assert.equal(declared(rule, "stroke"), "currentColor", "the icon is stroked in the current colour");
+  assert.equal(declared(rule, "stroke-linecap"), "round", "the stroke's ends are round");
+  assert.equal(declared(rule, "stroke-linejoin"), "round", "the stroke's joins are round");
 });

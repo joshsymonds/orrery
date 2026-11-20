@@ -1140,6 +1140,7 @@ export function App({
       if (listHolds(pending, rows, marked)) {
         openEpic(entry.id);
         setOpened({ entry });
+        setRowOpened(true);
         adopt();
         return;
       }
@@ -1234,15 +1235,15 @@ export function App({
       />
     ) : undefined;
 
-  // middleStrip is the middle conversation's strip. Under 760px it first draws the conversation's groups as tiles, whatever
-  // m holds, since the desk's rail that draws them is not drawn. Only the middle column draws them: the tiles act on the
-  // middle conversation, so a pinned column keeps the plain pageStrip.
+  // middleStrip is the middle conversation's strip. It draws the page's meters first, then, under 760px, the conversation's
+  // groups as tiles, whatever m holds, since the desk's rail that draws them is not drawn. Only the middle column draws
+  // them: the tiles act on the middle conversation, so a pinned column keeps the plain pageStrip.
   const middleStrip = (row: Row | null, conversation: Conversation | null) => {
     const groups = row === null || wide ? [] : workOf(workConversation(row, conversation), kept, now);
     return (
       <>
-        {groups.length > 0 && <WorkRail groups={groups} lit={lit} layout="strip" onOpen={openThing} />}
         {pageStrip(row, conversation)}
+        {groups.length > 0 && <WorkRail groups={groups} lit={lit} layout="strip" onOpen={openThing} />}
       </>
     );
   };
@@ -1817,7 +1818,7 @@ export function App({
         )}
         {listShown !== null && !wide && (
           <Sheet title={listHead(listShown)} onClose={closeList}>
-            <ListPanel kind={listShown} tasks={listTasks} now={now} />
+            <ListPanel kind={listShown} tasks={listTasks} now={now} headless />
           </Sheet>
         )}
         {wide && <WorkRail groups={railGroups} lit={lit} layout="rail" onOpen={openThing} />}
