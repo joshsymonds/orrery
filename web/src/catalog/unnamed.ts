@@ -8,8 +8,8 @@ import type { UnnamedEntry } from "./names";
 export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   // ---- whole exports: the export is not a round-6 component, and each of its stories is unnamed ----
 
-  // App draws each kind of page at an address: attention, a project, the archive, a session, a pane, a step, an epic, a
-  // contract, a phase, a worker session. The inbox page stands for them.
+  // App draws each kind of page at an address: the inbox, the archive, a session, a pane, a step, an epic, a contract, a
+  // phase, a worker session. The inbox page stands for them.
   app: { replacement: "inbox-home", epic: "F2" },
   // NowBlock draws an epic's now sentence over its blocker: an open question, a held step, a park, or nothing to block it.
   "now-block": { replacement: "epic-question", epic: "F4" },

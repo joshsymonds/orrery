@@ -121,10 +121,10 @@ function settle(signal: AbortSignal, check: () => boolean, what: string): Promis
   return until(signal, check, what, { step: () => act(turn) });
 }
 
-// withStory mounts story into a fresh DOM at the wide width, waits until drawn holds on its root, then runs check. The
+// withPage mounts story into a fresh DOM at the wide width, waits until drawn holds on its root, then runs check. The
 // story is unmounted and its DOM removed when the test ends, or as soon as the test's signal aborts. The test must call
 // mockTimers first.
-async function withStory(
+async function withPage(
   t: TestContext,
   story: () => ComponentChild,
   drawn: (root: HTMLElement) => boolean,
@@ -150,6 +150,17 @@ async function withStory(
   } finally {
     await teardown();
   }
+}
+
+// withStory is withPage for a story whose first load has answered: drawn holds only once PageStory marks its root
+// loaded, so the check sees the rows and epics the fixtures answer with, not the empty list drawn before the load.
+function withStory(
+  t: TestContext,
+  story: () => ComponentChild,
+  drawn: (root: HTMLElement) => boolean,
+  check: (root: HTMLElement) => void,
+): Promise<void> {
+  return withPage(t, story, (root) => root.querySelector("[data-loaded]") !== null && drawn(root), check);
 }
 
 test("FixtureTransport answers Epics.List, Epics.Get, Panes.List and Host.Status from the slices", async () => {
@@ -555,7 +566,7 @@ test("FixtureTransport: page/epic-question, page/epic-handover and page/epic-tal
   }
 });
 
-test("FixtureTransport: page's keys are exactly the 18 catalog names of its scenario states", () => {
+test("FixtureTransport: page's keys are exactly the 28 catalog names of its scenario states", () => {
   assert.deepEqual(Object.keys(Page).map((state) => storyName("Page", state)).sort(), [
     "page/ask-session",
     "page/contract-accepted",
@@ -565,7 +576,17 @@ test("FixtureTransport: page's keys are exactly the 18 catalog names of its scen
     "page/epic-question",
     "page/epic-shipped",
     "page/epic-talk",
+    "page/inbox-archived",
+    "page/inbox-empty",
+    "page/inbox-error",
+    "page/inbox-folded",
     "page/inbox-home",
+    "page/inbox-loading",
+    "page/inbox-new",
+    "page/inbox-row-menu",
+    "page/inbox-search",
+    "page/inbox-search-none",
+    "page/inbox-waiting",
     "page/keys",
     "page/new-empty",
     "page/new-error",
@@ -703,6 +724,164 @@ test("FixtureTransport: a story whose after rejects draws no failure and no erro
       assertNoFailure(root);
       assertNone(root.querySelector(".error"), "App drew no error");
       assert.deepEqual(reports, [["story #/inbox: the after step broke"]], "the rejection is reported once");
+    },
+  );
+});
+
+// searchValue is the words in the inbox's search field, or null while the field is shut.
+function searchValue(root: HTMLElement): string | null {
+  const field = root.querySelector<HTMLInputElement>('.inbox-search input[aria-label="Search sessions and epics"]');
+  return field?.value ?? null;
+}
+
+// blankText is the text of the inbox body's blank state: loading, the error, nothing running or nothing matching. It
+// is empty when the body draws a list.
+function blankText(root: HTMLElement): string {
+  return root.querySelector(".inbox-rows .blank")?.textContent ?? "";
+}
+
+test("InboxTree page/inbox-waiting draws the waiting chip on, and no other chip on", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["inbox-waiting"],
+    (root) => root.querySelector(".fchip.attention.on") !== null,
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(root.querySelectorAll(".fchip.on").length, 1, "one chip is on");
+    },
+  );
+});
+
+test("InboxTree page/inbox-new draws the new chip on, and no other chip on", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["inbox-new"],
+    (root) => root.querySelector(".fchip.new.on") !== null,
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(root.querySelectorAll(".fchip.on").length, 1, "one chip is on");
+    },
+  );
+});
+
+test("InboxTree page/inbox-search draws the search field holding tide, with rows under it", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["inbox-search"],
+    (root) => searchValue(root) === "tide",
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(searchValue(root), "tide", "the field holds the words");
+      assertNone(root.querySelector(".inbox-rows .blank"), "the search draws its blank state, not its rows");
+    },
+  );
+});
+
+test("InboxTree page/inbox-search-none draws the search field holding harbour-pilot, and Nothing matches", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["inbox-search-none"],
+    (root) => blankText(root).includes("Nothing matches"),
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(searchValue(root), "harbour-pilot", "the field holds the words");
+      assert.ok(blankText(root).includes("Nothing matches “harbour-pilot”."), "the blank says what was searched");
+    },
+  );
+});
+
+test("InboxTree page/inbox-row-menu draws pane %12's row with its More menu open", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["inbox-row-menu"],
+    (root) => root.querySelector('[data-key="pane:halyard:%12"] .row-menu-list') !== null,
+    (root) => {
+      assertNoFailure(root);
+      assert.ok(
+        root.querySelector('[data-key="pane:halyard:%12"]')?.classList.contains("menu-open"),
+        "pane %12's row is not marked menu-open",
+      );
+    },
+  );
+});
+
+test("InboxTree page/inbox-folded folds the orrery directory and opens tidepool's ended line", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  const tidepoolEnded = 'section.dir[aria-label="tidepool"] button.fold-line';
+  return withStory(
+    t,
+    Page["inbox-folded"],
+    (root) =>
+      root.querySelector('button.fold[aria-label="Unfold orrery"]') !== null &&
+      root.querySelector(tidepoolEnded)?.getAttribute("aria-expanded") === "true",
+    (root) => {
+      assertNoFailure(root);
+      assertNone(root.querySelector('section.dir[aria-label="orrery"] .dir-kids'), "orrery's conversations are drawn");
+      assert.equal(
+        root.querySelector(tidepoolEnded)?.getAttribute("aria-expanded"),
+        "true",
+        "tidepool's ended line is shut",
+      );
+    },
+  );
+});
+
+test("InboxTree page/inbox-archived draws the archived view with its Archived head", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["inbox-archived"],
+    (root) => listView(root) === "archived",
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(root.querySelector(".inbox-attn .name")?.textContent, "Archived", "the Archived head is drawn");
+    },
+  );
+});
+
+test("InboxTree page/inbox-loading draws the inbox as loading, with no project, before the first load", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withPage(
+    t,
+    Page["inbox-loading"],
+    (root) => blankText(root) === "loading…",
+    (root) => {
+      assertNoFailure(root);
+      assertNone(root.querySelector(".dir"), "a project is drawn before the first load answered");
+      assertNone(root.querySelector("[data-loaded]"), "the held first load answered");
+    },
+  );
+});
+
+test("InboxTree page/inbox-empty draws the inbox with nothing running, and no project", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["inbox-empty"],
+    (root) => blankText(root).includes("Nothing is running."),
+    (root) => {
+      assertNoFailure(root);
+      assertNone(root.querySelector(".dir"), "a project is drawn with nothing running");
+    },
+  );
+});
+
+test("InboxTree page/inbox-error draws the server did not answer in place of the rows, with no note line", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["inbox-error"],
+    (root) => blankText(root).includes("The server did not answer."),
+    (root) => {
+      assertNoFailure(root);
+      assertNone(root.querySelector('[role="alert"]'), "the list's failure is drawn as a note line");
+      const buttons = [...root.querySelectorAll("button")].map((button) => button.textContent ?? "");
+      assert.ok(buttons.some((text) => text.includes("Try now")), `the error offers no Try now; buttons were ${JSON.stringify(buttons)}`);
     },
   );
 });

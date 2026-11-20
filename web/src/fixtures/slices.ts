@@ -1,23 +1,26 @@
 // The fixture slices: the data the in-memory fixture transport answers with, one field per answer. shippedSlices is the
 // set the transport serves when it is given none.
 
-import type { MessageInitShape } from "@bufbuild/protobuf";
+import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import type { Code } from "@connectrpc/connect";
 
-import type { ContractsListResponse } from "../gen/orrery/v1/contracts_pb";
-import type {
-  EpicsGetResponse,
-  EpicsHistoryResponse,
-  EpicsListResponse,
+import { type ContractsListResponse, ContractsListResponseSchema } from "../gen/orrery/v1/contracts_pb";
+import {
+  type EpicsGetResponse,
+  type EpicsHistoryResponse,
+  type EpicsListResponse,
+  EpicsListResponseSchema,
 } from "../gen/orrery/v1/epics_pb";
-import type {
-  HostStatusResponse,
-  ListHeadlessResponse,
-  ListResponse,
-  PanesListResponse,
-  PickerRowSchema,
-  SessionsWatchConversationResponse,
-  WatchConversationResponse,
+import {
+  type HostStatusResponse,
+  type ListHeadlessResponse,
+  ListHeadlessResponseSchema,
+  type ListResponse,
+  type PanesListResponse,
+  PanesListResponseSchema,
+  type PickerRowSchema,
+  type SessionsWatchConversationResponse,
+  type WatchConversationResponse,
 } from "../gen/orrery/v1/orrery_pb";
 import { contracts } from "./contracts";
 import { evidenceLogs, epics, gets, histories } from "./epics";
@@ -70,4 +73,14 @@ export const shippedSlices: Slices = {
   sessionStreams,
   evidenceLogs,
   asks: new Map<string, AskAnswer>(),
+};
+
+// emptySlices is the world with nothing running: no panes, no headless sessions, no epics and no contracts. Every other
+// answer is the shipped one.
+export const emptySlices: Slices = {
+  ...shippedSlices,
+  epics: create(EpicsListResponseSchema, { epics: [] }),
+  contracts: create(ContractsListResponseSchema, { contracts: [] }),
+  panes: create(PanesListResponseSchema, { panes: [] }),
+  headless: create(ListHeadlessResponseSchema, { sessions: [] }),
 };

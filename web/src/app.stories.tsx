@@ -6,7 +6,7 @@ import { Code } from "@connectrpc/connect";
 
 import { PageStory } from "./catalog/pagestory";
 import type { Stories } from "./catalog/story";
-import { type AskAnswer, type PickerRowInit, shippedSlices } from "./fixtures/slices";
+import { type AskAnswer, emptySlices, type PickerRowInit, shippedSlices } from "./fixtures/slices";
 import { createFixtureTransport, type FixtureTransport } from "./fixtures/transport";
 import type { Address, PageView } from "./router";
 
@@ -15,6 +15,9 @@ const tide = "tidepool/tide-alerts";
 const holder = "orrery/holder-scopes";
 const headlessSession = "4be0c6d2-8f3a-4c71-9e25-ephemeris001";
 const workerStep = "st-rota-t2-impl";
+// panesList is the procedure the inbox's rows wait on: held, it leaves the inbox loading; failed, it leaves the inbox
+// saying the server did not answer.
+const panesList = "orrery.v1.Panes/List";
 
 const inbox: Address = { view: "inbox", entry: null };
 
@@ -81,6 +84,16 @@ async function typeInto(root: HTMLElement, selector: string, text: string): Prom
 }
 
 const openTalk = (root: HTMLElement) => clickWhen(root, "section.page .title-row .acts button.act", "Talk");
+
+// The inbox's search button and its field, which the search states open and type into.
+const searchButton = 'button[aria-label="Search sessions and epics"]';
+const searchField = 'input[aria-label="Search sessions and epics"]';
+
+// searchFor opens the inbox's search and types words into its field.
+async function searchFor(root: HTMLElement, words: string): Promise<void> {
+  await clickWhen(root, searchButton);
+  await typeInto(root, searchField, words);
+}
 
 // newField is New session's one field.
 const newField = 'input[aria-label="New session"]';
@@ -157,6 +170,32 @@ const convoWorkingAt: Address = { view: "inbox", entry: { kind: "pane", host: "h
 
 export const Page: Stories = {
   "inbox-home": () => <PageStory address={inbox} />,
+  "inbox-waiting": () => (
+    <PageStory address={inbox} after={(root) => clickWhen(root, ".inbox-attn .fchip.attention")} />
+  ),
+  "inbox-new": () => <PageStory address={inbox} after={(root) => clickWhen(root, ".inbox-attn .fchip.new")} />,
+  "inbox-search": () => <PageStory address={inbox} after={(root) => searchFor(root, "tide")} />,
+  "inbox-search-none": () => <PageStory address={inbox} after={(root) => searchFor(root, "harbour-pilot")} />,
+  "inbox-row-menu": () => (
+    <PageStory address={inbox} after={(root) => clickWhen(root, '[data-key="pane:halyard:%12"] button.more')} />
+  ),
+  "inbox-folded": () => (
+    <PageStory
+      address={inbox}
+      after={async (root) => {
+        await clickWhen(root, 'button.fold[aria-label="Fold orrery"]');
+        await clickWhen(root, 'section.dir[aria-label="tidepool"] button.fold-line');
+      }}
+    />
+  ),
+  "inbox-archived": () => <PageStory address={{ view: "archived", entry: null }} />,
+  "inbox-loading": () => (
+    <PageStory address={inbox} fixture={createFixtureTransport({ ...shippedSlices, hold: new Set([panesList]) })} />
+  ),
+  "inbox-empty": () => <PageStory address={inbox} fixture={createFixtureTransport(emptySlices)} />,
+  "inbox-error": () => (
+    <PageStory address={inbox} fixture={createFixtureTransport({ ...shippedSlices, fail: new Set([panesList]) })} />
+  ),
   "epic-question": () => <PageStory address={epicAt(rota, { kind: "epic" })} />,
   "epic-shipped": () => <PageStory address={epicAt(holder, { kind: "epic" })} />,
   "contract-to-accept": () => <PageStory address={epicAt(tide, { kind: "contract" })} />,
