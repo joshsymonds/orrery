@@ -153,6 +153,8 @@ class EvidenceRunsTest {
                 epicId = EPIC_ID,
                 onBack = {},
                 onOpenStep = {},
+                onOpenContract = {},
+                onTalk = {},
             )
         }
     }
@@ -166,7 +168,8 @@ class EvidenceRunsTest {
                     .setSlug("example-epic")
                     .setOutcome("in progress")
                     .setChanged(CHANGED)
-                    .setLive(true),
+                    .setLive(true)
+                    .setSource("orreryd"),
             )
             .addAllRequirements(requirements.toList())
             .build()
@@ -401,7 +404,9 @@ class EvidenceRunsTest {
                     .build(),
             )
             setScreen(server)
-            awaitAll(hasText("example conclusion"))
+            awaitAll(hasText("Example requirement."))
+            clickTag("req-row:R1")
+            awaitIn("evidence-run:0:0", hasText("fails"))
 
             assertEquals(1, countIn("evidence-run:0:0", hasText("fails")))
             clickTag("evidence-log:0:0:stdout")
@@ -455,7 +460,9 @@ class EvidenceRunsTest {
                 )
             }
             setScreen(server)
-            awaitAll(hasText("example conclusion"))
+            awaitAll(hasText("Example requirement."))
+            clickTag("req-row:R1")
+            awaitIn("evidence-run:0:0", hasText("fails"))
 
             clickTag("evidence-log:0:0:stdout")
             awaitIn("evidence-stream:0:0:stdout", hasText("example log line two", substring = true))

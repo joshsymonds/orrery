@@ -4,8 +4,7 @@ import android.util.Log
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -24,6 +23,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.testTag
@@ -51,32 +51,32 @@ private sealed interface EpicLoad {
     data class Loaded(val detail: EpicDetail, val history: List<EpicHistoryRow>) : EpicLoad
 }
 
-// The outcome an epic is released with, as written.
-private const val RELEASED = "released"
-
-// The notice a command leaves when the epic could not be reached.
-private const val UNREACHABLE = "could not reach the epic"
+// The reason a command gives when the epic could not be reached.
+private const val UNREACHABLE = "the server could not be reached"
 
 // How long the screen rests on an ended epic before orreryd is told the owner has seen it: the web's dwell (DWELL_MS).
 private const val SEEN_DWELL_MILLIS = 1_000L
 
+// The phases an orreryd epic may be paused in, and the phases it stops on: web/src/status.ts's controlsOf sets.
+private val PAUSABLE_PHASES = setOf("accepted", "built", "reviewing", "correcting")
+private val TRACK_PHASES = setOf("accepted", "built", "reviewing", "correcting", "clean", "releasing")
+
 private const val TAG = "EpicScreen"
 
 /**
- * A section an epic's list opens at, by its name: "now" or "report". Equality is identity, so each open is distinct,
- * and an open of the section the list is already at opens it again.
+ * A section an epic's list opens at, by its name: "now", "happened" or "tasks", among the sections the epic reaches.
+ * Equality is identity, so each open is distinct, and an open of the section the list is already at opens it again.
  */
 class EpicOpening(val section: String)
 
 /**
- * One epic as one scrolling list, in the epic page's order: its summary when it has a contract, what is happening now
- * (the problem and the blocker), the red proof, the implementation (the orrery, the now and next rows, what just
- * happened, the workflow's nodes), the green proof, [handover] when it is given, the release and the report. Each
- * section is one item, tagged "epic-section:[name]". A tap on a step calls [onOpenStep] with it, a tap on the summary
- * calls [onOpenContract], and a tap on the orrery, a proof card or a row calls [onOpenPhase]. [actions] render first in
- * the title row. [listState] is the list's state, so the caller keeps its scroll; [openAt] scrolls it to its section
- * when the list is composed. Back and the first crumb call [onBack]. [foot] is drawn under the list once the epic is loaded.
- * A command runs off the main thread, then the epic is read again; a command that did not land shows as a notice. An
+ * One epic as the record draws it: one scrolling list whose sections are drawn only when the epic reaches them. A
+ * problem is one red line at the top. The summary carries the contract and steered doors; the track, Now (its sentence,
+ * what asks, and its running steps), what just happened, the tasks (chart then table) and the requirements follow. The
+ * title shows the state and the blocker pills, with no commands. A command is in the foot's More sheet, and Stop asks
+ * first. A command that did not land shows one line under the title until a command lands. [onTalk] is given the
+ * steering session's id when Talk or the steered door is tapped. [listState] is the list's state, so the caller keeps
+ * its scroll; [openAt] scrolls it to its section when the list is composed. A tap on a task calls [onOpenPhase]. An
  * ended orreryd epic the owner has not seen is marked seen once the screen has rested on it for a second while resumed.
  */
 @Composable
@@ -85,14 +85,12 @@ fun EpicScreen(
     epicId: String,
     onBack: () -> Unit,
     onOpenStep: (StepRow) -> Unit,
+    onOpenContract: () -> Unit,
+    onTalk: (steering: String) -> Unit,
     modifier: Modifier = Modifier,
-    onOpenContract: () -> Unit = {},
     listState: LazyListState = rememberLazyListState(),
     openAt: EpicOpening? = null,
     onOpenPhase: ((task: String, phase: Phase) -> Unit)? = null,
-    actions: @Composable RowScope.() -> Unit = {},
-    handover: (@Composable (EpicDetail) -> Unit)? = null,
-    foot: @Composable (EpicDetail) -> Unit = {},
     now: () -> Long = { System.currentTimeMillis() / 1000 },
 ) {
     var load by remember(client, epicId) { mutableStateOf<EpicLoad>(EpicLoad.Loading) }
@@ -103,11 +101,11 @@ fun EpicScreen(
         { run: String, name: String, stderr: Boolean -> client.artifact(run, name, stderr) }
     }
 
-    // send runs one command off the main thread. What did not land shows as the notice, with the typed [answer] beside
-    // it when the command is an answer. Then the epic is read again.
-    fun send(answer: String = "", call: () -> StepCallResult) {
+    // send runs one command off the main thread. What did not land becomes the notice, and a command that lands clears
+    // it. Then the epic is read again.
+    fun send(verb: String, answer: String = "", call: () -> StepCallResult) {
         scope.launch {
-            notice = withContext(Dispatchers.IO) { noticeOf(call, answer) }
+            notice = withContext(Dispatchers.IO) { noticeOf(verb, answer, call) }
             generation++
         }
     }
@@ -122,12 +120,12 @@ fun EpicScreen(
         }
     }
 
-    val pause = { send { client.pauseEpic(epicId) } }
-    val resume = { send { client.resumeEpic(epicId) } }
-    val stop = { send { client.stopEpic(epicId) } }
-    val retry = { send { client.retryEpic(epicId) } }
+    val pause = { send("Pause") { client.pauseEpic(epicId) } }
+    val resume = { send("Resume") { client.resumeEpic(epicId) } }
+    val stop = { send("Stop") { client.stopEpic(epicId) } }
+    val retry = { send("Retry") { client.retryEpic(epicId) } }
     val onAnswer: (String, String) -> String = { questionId, text ->
-        send(answer = text) { client.answerEpic(epicId, questionId, text) }
+        send("Answer", answer = text) { client.answerEpic(epicId, questionId, text) }
         ""
     }
 
@@ -163,62 +161,64 @@ fun EpicScreen(
         }
     }
     val nowAt = now()
+    val statePill = detail?.let { statePillOf(it, nowAt) }
+    val blockerPill = detail?.let { blockerPillOf(it, nowAt) }
     Column(modifier = modifier.fillMaxSize()) {
         TitleRow(
             crumbs = listOfNotNull(Crumb("orrery", onBack), detail?.let { Crumb(it.epic.slug) }),
             onBack = onBack,
-            state = detail?.let { stateLineOf(epicStateOf(it), it.epic.phaseAt, nowAt) }.orEmpty(),
-            blocker = detail?.let { blockerLineOf(blockerOf(it), nowAt) }.orEmpty(),
-            actions = {
-                actions()
-                if (detail != null && detail.epic.live && detail.epic.outcome.isEmpty()) {
-                    if (detail.paused) {
-                        TextButton(onClick = resume, modifier = Modifier.testTag("epic-resume")) {
-                            Text("Resume")
-                        }
-                    } else {
-                        TextButton(onClick = pause, modifier = Modifier.testTag("epic-pause")) {
-                            Text("Pause")
-                        }
-                    }
-                    AskFirst(
-                        label = "Stop…",
-                        question = "Stop ${detail.epic.slug}?",
-                        confirm = "Stop ${detail.epic.slug}",
-                        keep = "Keep it running",
-                        tag = "epic-stop",
-                        onConfirm = stop,
-                    )
-                }
-            },
+            state = statePill?.word.orEmpty(),
+            stateTone = statePill?.tone,
+            blocker = blockerPill?.word.orEmpty(),
+            blockerTone = blockerPill?.tone,
         )
+        if (notice.isNotEmpty()) {
+            Text(
+                notice,
+                color = OrreryTokens.Role.bad,
+                modifier = Modifier.padding(horizontal = OrreryTokens.Space.sixteen).testTag("epic-notice"),
+            )
+        }
         when (current) {
-            EpicLoad.Loading -> Text("Loading...", modifier = Modifier.padding(OrreryTokens.Space.sixteen))
+            EpicLoad.Loading -> Text(
+                "loading the epic…",
+                modifier = Modifier.padding(OrreryTokens.Space.sixteen),
+            )
             EpicLoad.Failed -> Column(modifier = Modifier.padding(OrreryTokens.Space.sixteen)) {
-                Text("could not load epic", color = OrreryTokens.Role.bad)
+                Text("The server could not read this epic.", color = OrreryTokens.Role.bad)
                 TextButton(onClick = { generation++ }) {
-                    Text("Retry")
+                    Text("Try again")
                 }
             }
             EpicLoad.NotFound -> Text("epic not found", modifier = Modifier.padding(OrreryTokens.Space.sixteen))
             is EpicLoad.Loaded -> EpicBody(
                 loaded = current,
                 now = nowAt,
-                notice = notice,
                 listState = listState,
                 openAt = openAt,
                 loadArtifact = loadArtifact,
                 onOpenStep = onOpenStep,
                 onOpenContract = onOpenContract,
                 onOpenPhase = onOpenPhase,
-                onAnswer = onAnswer,
-                onRetry = retry,
-                onStop = stop,
-                handover = handover,
+                onTalk = onTalk,
+                actions = NowActions(answer = onAnswer, retry = retry, resume = resume, stop = stop),
                 modifier = Modifier.weight(1f),
             )
         }
-        detail?.let { foot(it) }
+        detail?.let { loaded ->
+            val controls = controlsOf(loaded)
+            EpicFoot(
+                slug = loaded.epic.slug,
+                steering = loaded.epic.steering,
+                onTalk = { onTalk(loaded.epic.steering) },
+                canPause = controls.pause,
+                canResume = controls.resume,
+                canStop = controls.stop,
+                onPause = pause,
+                onResume = resume,
+                onStop = stop,
+            )
+        }
     }
 }
 
@@ -235,9 +235,9 @@ private fun loadEpic(client: OrreryClient, epicId: String): EpicLoad {
     return EpicLoad.Loaded(detail, history)
 }
 
-// noticeOf runs one command and says what did not land: "" when it landed, else the server's reason or that the epic
-// could not be reached. An answer that did not land keeps its text in the notice, so it is not lost with the form.
-private fun noticeOf(call: () -> StepCallResult, answer: String): String {
+// noticeOf runs one command and says what did not land: "" when it landed, else "<verb> did not land: <reason>.", with the
+// typed [answer] after it when the command is an answer, so the text is not lost with the form.
+private fun noticeOf(verb: String, answer: String, call: () -> StepCallResult): String {
     val reason = try {
         when (val result = call()) {
             StepCallResult.Landed -> return ""
@@ -246,7 +246,26 @@ private fun noticeOf(call: () -> StepCallResult, answer: String): String {
     } catch (error: IOException) {
         UNREACHABLE
     }
-    return if (answer.isEmpty()) "not sent: $reason" else "not sent: $reason. Your answer: $answer"
+    return if (answer.isEmpty()) "$verb did not land: $reason." else "$verb did not land: $reason. Your answer: $answer"
+}
+
+// controlsOf is which commands an epic allows, by the rule web/src/status.ts shares between its page and its card: nothing
+// once the epic is not live; an orreryd epic pauses while it is not paused in a pausable phase, resumes whenever it is
+// paused, and stops in a track phase; a record epic pauses, resumes and stops only while it has no outcome.
+private data class Controls(val pause: Boolean, val resume: Boolean, val stop: Boolean)
+
+private fun controlsOf(detail: EpicDetail): Controls {
+    val epic = detail.epic
+    if (!epic.live) return Controls(pause = false, resume = false, stop = false)
+    if (epic.source == "orreryd") {
+        return Controls(
+            pause = !detail.paused && epic.outcome in PAUSABLE_PHASES,
+            resume = detail.paused,
+            stop = epic.outcome in TRACK_PHASES,
+        )
+    }
+    val open = epic.outcome.isEmpty()
+    return Controls(pause = open && !detail.paused, resume = open && detail.paused, stop = open)
 }
 
 // unseenEndingAt is the phase an orreryd epic ended at, when the owner has not seen it since: the ending the dwell marks.
@@ -271,136 +290,179 @@ private suspend fun markSeen(client: OrreryClient, epicId: String) {
 internal fun stateLineOf(state: String, phaseAt: Long, now: Long): String =
     if (state.isNotEmpty() && phaseAt > 0L) "$state · ${durationText((now - phaseAt).coerceAtLeast(0L))}" else state
 
-// blockerLineOf is the blocker's line in the title row: its text, and how long it has waited. A park is left out, since
-// the now section shows its text and it has no time.
-private fun blockerLineOf(blocker: EpicBlocker?, now: Long): String = when {
-    blocker == null || blocker is EpicBlocker.Parked -> ""
-    else -> blockerTextOf(blocker, now)
-}
+/** The actions the Now section makes: an answer to its question, Retry, Resume now, and Stop once its confirm is given. */
+private class NowActions(
+    val answer: (questionId: String, text: String) -> String,
+    val retry: () -> Unit,
+    val resume: () -> Unit,
+    val stop: () -> Unit,
+)
 
-/** The body of a loaded epic: one list, each section one item. */
+/** The body of a loaded epic: one list, each section one item, drawn only when the epic reaches it. */
 @Composable
 private fun EpicBody(
     loaded: EpicLoad.Loaded,
     now: Long,
-    notice: String,
     listState: LazyListState,
     openAt: EpicOpening?,
     loadArtifact: ArtifactLoader,
     onOpenStep: (StepRow) -> Unit,
     onOpenContract: () -> Unit,
     onOpenPhase: ((task: String, phase: Phase) -> Unit)?,
-    onAnswer: (questionId: String, text: String) -> String,
-    onRetry: () -> Unit,
-    onStop: () -> Unit,
-    handover: (@Composable (EpicDetail) -> Unit)?,
+    onTalk: (steering: String) -> Unit,
+    actions: NowActions,
     modifier: Modifier,
 ) {
     val detail = loaded.detail
-    val wedges = remember(detail) { wedgesOf(detail) }
-    val arcs = remember(detail) { requirementArcs(wedges, detail.requirements) }
-    val contract = detail.contract
+    val reached = reachedOf(detail, loaded.history)
+    val tasks = remember(detail) { recordTasksOf(detail) }
+    val proven = remember(detail) {
+        val wedges = wedgesOf(detail)
+        detail.requirements.filter { provenOf(it.id, wedges, detail.requirements) }.map { it.id }.toSet()
+    }
+    val drawn = listOfNotNull(
+        "problem".takeIf { detail.epic.problem.isNotEmpty() },
+        "summary".takeIf { reached.summary },
+        "track".takeIf { reached.track },
+        "now",
+        "happened".takeIf { reached.history },
+        "tasks".takeIf { reached.tasks },
+        "requirements".takeIf { reached.requirements },
+    )
     LaunchedEffect(openAt) {
-        openAt?.let { listState.scrollToItem(sectionIndex(it.section, contract != null, handover != null)) }
+        openAt?.let { opening ->
+            drawn.indexOf(opening.section).takeIf { it >= 0 }?.let { listState.scrollToItem(it) }
+        }
     }
     LazyColumn(modifier = modifier.fillMaxWidth(), state = listState) {
-        if (contract != null) {
-            section("summary") {
-                Text(
-                    detail.summary.ifEmpty { contract.title },
-                    style = OrreryTokens.Type.body,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("epic-summary")
-                        .clickable(onClick = onOpenContract)
-                        .padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.eight),
-                )
-            }
-        }
-        section("now") {
-            if (detail.epic.problem.isNotEmpty()) {
+        if (detail.epic.problem.isNotEmpty()) {
+            section("problem") {
                 Text(
                     detail.epic.problem,
                     color = OrreryTokens.Role.bad,
-                    modifier = Modifier.padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.four),
-                )
-            }
-            NowBlock(
-                sentence = nowSentence(wedges),
-                blocker = blockerOf(detail),
-                slug = detail.epic.slug,
-                onAnswer = onAnswer,
-                onRetry = onRetry,
-                onStop = onStop,
-            )
-            if (notice.isNotEmpty()) {
-                Text(
-                    notice,
-                    color = OrreryTokens.Role.bad,
-                    modifier = Modifier.padding(horizontal = OrreryTokens.Space.sixteen).testTag("epic-notice"),
+                    modifier = Modifier
+                        .testTag("epic-problem")
+                        .padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.four),
                 )
             }
         }
-        section("red") {
-            RedProof(
-                requirements = detail.requirements,
-                loadArtifact = loadArtifact,
-                wedges = wedges,
-                onOpenPhase = onOpenPhase,
-            )
+        if (reached.summary) {
+            section("summary") { Summary(detail, onOpenContract = onOpenContract, onTalk = onTalk) }
         }
-        section("implementation") {
-            Orrery(
-                wedges = wedges,
-                arcs = arcs,
-                modifier = Modifier.fillMaxWidth().aspectRatio(1f).padding(horizontal = OrreryTokens.Space.sixteen),
-                onOpenPhase = onOpenPhase,
-            )
-            NowRows(wedges = wedges, now = now, onOpenPhase = onOpenPhase)
-            NextRows(wedges = wedges, onOpenPhase = onOpenPhase)
-            JustHappened(entries = loaded.history, steps = detail.steps, onOpenStep = onOpenStep)
-            if (detail.nodes.isNotEmpty()) {
-                SectionHeading("Workflow")
-                detail.nodes.forEachIndexed { index, node -> WorkflowNodeRow(index, node, loadArtifact) }
+        if (reached.track) {
+            section("track") {
+                Column(modifier = Modifier.padding(horizontal = OrreryTokens.Space.sixteen)) {
+                    Track(trackOf(detail))
+                }
             }
         }
-        section("green") {
-            GreenProof(
-                requirements = detail.requirements,
-                loadArtifact = loadArtifact,
-                wedges = wedges,
-                onOpenPhase = onOpenPhase,
-            )
+        section("now") { NowSection(detail = detail, now = now, actions = actions) }
+        if (reached.history) {
+            section("happened") {
+                JustHappened(entries = loaded.history, steps = detail.steps, onOpenStep = onOpenStep)
+            }
         }
-        if (handover != null) {
-            section("handover") { handover(detail) }
+        if (reached.tasks) {
+            section("tasks") {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = OrreryTokens.Space.sixteen),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    SectionHeading("Tasks")
+                    Text(
+                        "${tasks.count { it.integrated }} of ${tasks.size} done",
+                        style = OrreryTokens.Type.small,
+                        color = OrreryTokens.Ink.three,
+                    )
+                }
+                EpicOrrery(tasks = tasks, proven = proven)
+                TaskTable(tasks = tasks, now = now, onOpenPhase = onOpenPhase)
+            }
         }
-        section("release") {
-            ReleaseProof(contract = contract, releaseProof = detail.releaseProof, released = detail.epic.outcome == RELEASED)
-        }
-        section("report") {
-            Report(report = detail.report)
+        if (reached.requirements) {
+            section("requirements") {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = OrreryTokens.Space.sixteen),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    SectionHeading("Requirements")
+                    Text(
+                        "${proven.size} of ${detail.requirements.size} proven",
+                        style = OrreryTokens.Type.small,
+                        color = OrreryTokens.Ink.three,
+                    )
+                }
+                RequirementTable(requirements = detail.requirements, loadArtifact = loadArtifact)
+            }
         }
     }
 }
 
-// sectionIndex is the position of the named section among the list's items, in the order EpicBody lays them out: the
-// summary comes first when there is a contract, and the handover sits between the green proof and the release.
-private fun sectionIndex(name: String, hasSummary: Boolean, hasHandover: Boolean): Int = listOfNotNull(
-    "summary".takeIf { hasSummary },
-    "now",
-    "red",
-    "implementation",
-    "green",
-    "handover".takeIf { hasHandover },
-    "release",
-    "report",
-).indexOf(name)
+// NowSection is Now: its sentence and what asks, then the running steps. Stop… on an owner's park opens a confirm here;
+// Stop is sent only once that confirm is given.
+@Composable
+private fun NowSection(detail: EpicDetail, now: Long, actions: NowActions) {
+    var stopAsking by remember { mutableStateOf(false) }
+    NowAsk(
+        detail = detail,
+        onAnswer = actions.answer,
+        onRetry = actions.retry,
+        onStop = { stopAsking = true },
+        onResume = actions.resume,
+    )
+    if (stopAsking) {
+        val slug = detail.epic.slug
+        Text("Stop $slug?", modifier = Modifier.padding(horizontal = OrreryTokens.Space.sixteen).testTag("now-stop-sure"))
+        TextButton(
+            onClick = {
+                stopAsking = false
+                actions.stop()
+            },
+            modifier = Modifier.testTag("now-stop-confirm"),
+        ) {
+            Text("Stop $slug")
+        }
+        TextButton(onClick = { stopAsking = false }, modifier = Modifier.testTag("now-stop-keep")) {
+            Text("Keep it running")
+        }
+    }
+    StepRows(lines = stepLinesOf(detail), tasks = recordTasksOf(detail), now = now)
+}
 
-// section is one item of the list: the section's content in a column tagged "epic-section:[name]", keyed "section:[name]".
-private fun LazyListScope.section(name: String, content: @Composable ColumnScope.() -> Unit) {
-    item(key = "section:$name") {
-        Column(modifier = Modifier.fillMaxWidth().testTag("epic-section:$name"), content = content)
+// Summary is the summary paragraph, then its two doors: the contract, and the conversation that steers the epic. A door
+// whose target is absent is not drawn.
+@Composable
+private fun ColumnScope.Summary(detail: EpicDetail, onOpenContract: () -> Unit, onTalk: (steering: String) -> Unit) {
+    Text(
+        detail.summary.ifEmpty { detail.contract?.title.orEmpty() },
+        style = OrreryTokens.Type.body,
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("epic-summary")
+            .padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.eight),
+    )
+    if (detail.contract != null) {
+        Door(label = "Contract", line = contractDoorOf(detail), tag = "epic-door-contract", onTap = onOpenContract)
+    }
+    val steerer = detail.sessions.firstOrNull { it.id == detail.epic.steering }
+    if (steerer != null) {
+        val line = listOf(detail.repository, steerer.label).filter { it.isNotEmpty() }.joinToString(" · ")
+        Door(label = "Steered from", line = line, tag = "epic-door-steered", onTap = { onTalk(steerer.id) })
+    }
+}
+
+// Door is one tappable line of the summary: its label, then what it opens.
+@Composable
+private fun Door(label: String, line: String, tag: String, onTap: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag(tag)
+            .clickable(onClick = onTap)
+            .padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.eight),
+    ) {
+        Text(label, style = OrreryTokens.Type.small, color = OrreryTokens.Ink.three)
+        Text(line, style = OrreryTokens.Type.small)
     }
 }
 
@@ -416,4 +478,11 @@ private fun SectionHeading(title: String) {
             bottom = OrreryTokens.Space.four,
         ),
     )
+}
+
+// section is one item of the list: the section's content in a column tagged "epic-section:[name]", keyed "section:[name]".
+private fun LazyListScope.section(name: String, content: @Composable ColumnScope.() -> Unit) {
+    item(key = "section:$name") {
+        Column(modifier = Modifier.fillMaxWidth().testTag("epic-section:$name"), content = content)
+    }
 }
