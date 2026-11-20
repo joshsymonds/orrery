@@ -993,6 +993,11 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 .epic-page .ask.epic.park .reason { color: var(--o-ink-1); font: var(--o-type-body); overflow-wrap: anywhere; }
 /* The sections of the tasks and the requirements: a head with its count, then the chart and table. */
 .epic-page .tasks, .epic-page .requirements { display: grid; gap: var(--o-space-12); min-width: 0; }
+/* Tasks sets the chart beside the task table, and the table wraps under the chart when the two do not fit side by side. */
+.epic-page section.tasks { display: flex; flex-wrap: wrap; align-items: flex-start; column-gap: var(--o-space-32); row-gap: var(--o-space-12); }
+.epic-page section.tasks > .sec-head { flex: 1 1 100%; }
+.epic-page section.tasks > .orrery-fig { flex: 0 0 var(--o-size-orrery-full); max-width: 100%; margin: 0 auto; }
+.epic-page section.tasks > .tbl { flex: 1 1 56ch; min-width: 0; }
 .epic-page .sec-head { display: flex; align-items: baseline; gap: var(--o-space-8); min-width: 0; }
 .epic-page .sec-head span { font: var(--o-type-small); color: var(--o-ink-3); }
 /* The chart: the rings of task cells, outside in, each cell in its tone; the requirement rim outside them; the count in the
@@ -1037,10 +1042,14 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 .epic-page .happen li.open { cursor: pointer; }
 .epic-page .happen.just li { transition: opacity var(--o-move-layout), transform var(--o-move-layout); }
 @starting-style { .epic-page .happen.just li { opacity: 0; transform: translateY(calc(-1 * var(--o-space-4))); } }
-/* At the desk a line's clock sits in a right-aligned gutter, a gap before its words, as the happenings draw it. The title
-   row stays pinned at the top of the panel while the record under it scrolls. */
+/* At the desk a line's clock sits in a right-aligned gutter, a gap before its words, as the happenings draw it. In the
+   panel the title row stays pinned at the card's top edge, across the scroller's padding and under the panel's own
+   controls, while the record under it scrolls. */
 @media (min-width: 760px) {
-  .epic-page > .title-row { position: sticky; top: 0; z-index: var(--o-z-sticky); background: var(--o-surface-side); }
+  .rcard > section.page > .epic-page > .title-row {
+    position: sticky; top: calc(-1 * var(--o-space-16)); z-index: var(--o-z-sticky);
+    margin-top: calc(-1 * var(--o-space-16)); padding-top: var(--o-space-16); background: var(--o-surface-side);
+  }
   .epic-page .happen li .at { display: inline-block; min-width: var(--o-layout-gutter-ch); margin-right: var(--o-space-16); color: var(--o-ink-4); text-align: right; }
 }
 .epic-page .happen .more { min-height: var(--o-space-24); padding: 0; border: 0; background: none; cursor: pointer; font: var(--o-type-small); color: var(--o-ink-3); appearance: none; -webkit-appearance: none; }
@@ -1293,7 +1302,7 @@ button.tr:hover { background: var(--o-surface-well); }
 .rcard.quiet { border-top: var(--o-size-rail) solid var(--o-ink-3); }
 /* Open in a new window and Close sit at the right end of the card's title row, as round 6's record title draws them. */
 .rcard { position: relative; }
-.panel-ctl { position: absolute; top: var(--o-space-8); right: var(--o-space-8); z-index: var(--o-z-sticky); display: flex; gap: var(--o-space-4); }
+.panel-ctl { position: absolute; top: var(--o-space-8); right: var(--o-space-8); z-index: var(--o-z-flyout); display: flex; gap: var(--o-space-4); }
 .rcard .title-row, .rcard .plist > h2 { padding-right: calc(var(--o-space-24) * 2 + var(--o-space-12)); }
 .rcard .plist > h2 { padding-bottom: var(--o-space-8); border-bottom: var(--o-size-hairline) solid var(--o-line-soft); }
 .panel-ctl a, .panel-ctl button { display: grid; place-items: center; width: var(--o-space-24); height: var(--o-space-24); min-height: var(--o-space-24); padding: 0; border: 0; border-radius: var(--o-radius-2); background: none; color: var(--o-ink-3); font: var(--o-type-small); text-decoration: none; }

@@ -211,9 +211,23 @@ test("EpicCommands: a confirm sheet's Stop is drawn in the bad role, apart from 
   assert.equal(declaredValue(rules, ".sheet .foot .act.danger", "color"), "var(--o-role-bad)");
 });
 
-test("EpicRecord: at the desk the epic page's title row stays pinned while its body scrolls", () => {
+test("EpicRecord: in the desk's panel the epic page's title row stays pinned at the card's top edge, under the panel's controls", () => {
   const desk = rulesUnder(css, "(min-width: 760px)");
-  assert.equal(declaredValue(desk, ".epic-page > .title-row", "position"), "sticky");
-  assert.equal(declaredValue(desk, ".epic-page > .title-row", "top"), "0");
-  assert.equal(declaredValue(desk, ".epic-page > .title-row", "background"), "var(--o-surface-side)");
+  const row = ".rcard > section.page > .epic-page > .title-row";
+  assert.equal(declaredValue(desk, row, "position"), "sticky");
+  assert.equal(declaredValue(desk, row, "top"), "calc(-1 * var(--o-space-16))");
+  assert.equal(declaredValue(desk, row, "padding-top"), "var(--o-space-16)");
+  assert.equal(declaredValue(desk, row, "margin-top"), "calc(-1 * var(--o-space-16))");
+  assert.equal(declaredValue(desk, row, "z-index"), "var(--o-z-sticky)");
+  assert.equal(declaredValue(desk, row, "background"), "var(--o-surface-side)");
+  assert.equal(declaredValue(rules, ".panel-ctl", "z-index"), "var(--o-z-flyout)", "the panel's controls sit above its pinned title row");
+  assert.equal(declaredValue(desk, ".epic-page > .title-row", "position"), undefined, "no page-wide pin outside the panel");
+});
+
+test("EpicRecord: the Tasks section sets the chart beside the task table, wrapping the table under it when narrow", () => {
+  assert.equal(declaredValue(rules, ".epic-page section.tasks", "display"), "flex");
+  assert.equal(declaredValue(rules, ".epic-page section.tasks", "flex-wrap"), "wrap");
+  assert.equal(declaredValue(rules, ".epic-page section.tasks > .sec-head", "flex"), "1 1 100%");
+  assert.equal(declaredValue(rules, ".epic-page section.tasks > .orrery-fig", "flex"), "0 0 var(--o-size-orrery-full)");
+  assert.equal(declaredValue(rules, ".epic-page section.tasks > .tbl", "flex"), "1 1 56ch");
 });
