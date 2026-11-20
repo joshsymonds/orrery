@@ -710,7 +710,7 @@ test("w goes to the first waiting row and does nothing when no row waits", (t) =
     assert.equal(cursorKey(container), "d");
   }));
 
-test("n goes to the next unseen row after the cursor and wraps", (t) =>
+test("InboxTree: n goes to the next unseen row after the cursor and wraps", (t) =>
   withApp(t.signal, {}, async (container) => {
     assert.equal(cursorKey(container), "a");
     await press("n");
@@ -1856,7 +1856,7 @@ test("x on the list writes Panes.MarkSeen for a pane row and Control.Seen for a 
     assert.deepEqual(fake.callsTo(markSessionPath)[0].body, { id: "s1" });
   }));
 
-test("e writes seen for the cursor's row, then rests on the next unseen row", (t) =>
+test("InboxTree: e writes seen for the cursor's row, then rests on the next unseen row", (t) =>
   withApp(t.signal, {}, async (container, fake) => {
     assert.equal(cursorKey(container), "a");
     await press("e");

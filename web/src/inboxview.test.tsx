@@ -209,6 +209,16 @@ test("InboxTree Inbox: an empty inbox says nothing is running and offers New, wh
   assert.equal(created, 1, "New in the empty inbox does not call onNew once");
 });
 
+test("InboxTree Inbox: an empty inbox says a session started in a directory shows there, grouped by it", async () => {
+  await withInbox({}, (container) => {
+    assert.equal(
+      textOf(container, ".inbox-rows .blank").includes("Start a session in a directory and it shows here, grouped by that directory."),
+      true,
+      "the empty inbox does not say where a started session shows",
+    );
+  });
+});
+
 test("InboxTree Inbox: an empty Archived draws no empty state and keeps Back to the inbox", async () => {
   await withInbox({ view: "archived" }, (container) => {
     assert.equal(container.querySelector(".inbox-rows .blank"), null, "the empty Archived draws the inbox's empty state");

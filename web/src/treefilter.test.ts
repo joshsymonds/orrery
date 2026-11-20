@@ -139,6 +139,26 @@ test("InboxTree never counts an archived conversation or an archived epic as wai
   assert.equal(countsOf(projects).waiting, 0);
 });
 
+test("InboxTree counts a live epic and a proposed contract hung under an archived stand-in, each once, in countsOf and projectWaiting", () => {
+  const rows = [
+    makeRow({ key: "a", label: "a", archiveId: "sess-a", project: "/srv/app", archived: true }),
+    makeRow({ key: "b", label: "b", archiveId: "sess-b", project: "/srv/app", state: "done" }),
+  ];
+  const projects = buildTree(
+    inputOf(rows, {
+      epics: [makeEpic({ id: "repo-a/alpha", steering: "sess-a" })],
+      details: new Map([["repo-a/alpha", threeQuestions]]),
+      contracts: [makeContract({ id: "repo-a/beta", conversation: "sess-a" })],
+    }),
+  );
+  assert.deepEqual(layout(projectAt(projects, "|/srv/app").convos), {
+    b: [],
+    "standin:archived:|/srv/app": ["epic:repo-a/alpha", "contract:repo-a/beta"],
+  });
+  assert.equal(countsOf(projects).waiting, 2);
+  assert.equal(projectWaiting(projectAt(projects, "|/srv/app")), 2);
+});
+
 test("InboxTree counts each unseen row once, in the tree or behind the ended line", () => {
   const rows = [
     makeRow({ key: "u1", label: "u1", archiveId: "sess-u1", state: "done", unseen: true }),
@@ -294,6 +314,16 @@ test("InboxTree search finds a contract by its title, a conversation by its stat
     b: ["contract:repo-c/gamma"],
   });
   assert.deepEqual(search(projects, ["~/code"]).map((project) => project.name), ["lighthouse"]);
+});
+
+test("InboxTree search matches a row by its host and keeps that conversation with all its things", () => {
+  const projects = searchTree();
+  assert.deepEqual(layout(projectAt(search(projects, ["halyard"]), "|/home/owner/code/lighthouse").convos), {
+    a: ["epic:repo-a/alpha", "epic:repo-a/beta"],
+  });
+  assert.deepEqual(layout(search(projects, ["brine"]).flatMap((project) => project.convos)), {
+    b: ["contract:repo-c/gamma"],
+  });
 });
 
 test("InboxTree search returns nothing when no word matches", () => {
