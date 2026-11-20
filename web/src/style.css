@@ -1229,14 +1229,25 @@ button.tr:hover { background: var(--o-surface-well); }
 .cmdbar .act:first-child { flex: 1 1 auto; }
 @media (width < 760px) {
   .epic-page .door { min-height: var(--o-size-control-touch); }
-  /* As round 6's touch track: the stages' words hide, and each name sets small. */
-  .epic-page .stage .ds { display: none; }
+  /* As round 6's touch track: the stages' words and a done stage's check hide, each name sets small and takes its whole
+     column. */
+  .epic-page .stage { padding-right: 0; }
+  .epic-page .stage .ds, .epic-page .stage .nm > span { display: none; }
   .epic-page .stage .nm { font: var(--o-type-small); letter-spacing: 0; text-transform: none; }
-  /* As round 6's touch table: one column, each row stacked, and the head row hidden. */
+  /* As round 6's touch tables: one column, each table's own touch columns, a wide cell spanning the row, and the head row
+     hidden. */
   .tbl { grid-template-columns: minmax(0, 1fr); }
+  .tbl.tasks { --cols-touch: minmax(0, 1fr) auto auto; }
+  .tbl.reqs { --cols-touch: auto auto minmax(0, 1fr); }
+  .tbl.steps { --cols-touch: auto minmax(0, 1fr) auto; }
   .tr { grid-template-columns: var(--cols-touch, minmax(0, 1fr) auto); column-gap: var(--o-space-12); row-gap: var(--o-space-2); padding: var(--o-space-12) 0; }
+  .tr .wide { grid-column: 1 / -1; }
   .tr.head, .tbl > .th { display: none; }
   .fold-line { min-height: var(--o-size-control-touch); }
+  /* Just happened sets its time apart from its words, with no gutter column on the phone. */
+  .epic-page .happen .at { margin-right: var(--o-space-12); }
+  /* The problem line is read whole: it wraps, and the .error rule's cut at its edge does not apply. */
+  .problem { white-space: normal; text-overflow: clip; overflow-wrap: anywhere; }
 }
 /* A sheet covers the window, so it lies over the page wherever the page is scrolled. */
 .sheet-scrim { position: fixed; inset: 0; z-index: var(--o-z-panel); display: flex; align-items: flex-end; background: var(--o-scrim); }

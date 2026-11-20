@@ -78,7 +78,7 @@ export function NowSection({
             <span class={`g g-${line.glyph}`} aria-label={line.glyph} />
             <span class="strong">{line.label}</span>
             <Pips cells={tasks.find((task) => task.task === line.task)?.cells ?? unreached} />
-            <span class="doing">{line.doing}</span>
+            <span class="doing wide">{line.doing}</span>
             <span class="end">{elapsed(now - line.since)}</span>
           </div>
         ))}

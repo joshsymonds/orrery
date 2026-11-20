@@ -68,7 +68,7 @@ function TaskRow({
         ))}
       </span>
       <Pips cells={task.cells} />
-      <span class={`cell t-${task.tone}`}>{task.words}</span>
+      <span class={`cell t-${task.tone} wide`}>{task.words}</span>
       <span class="end">{task.since > 0 ? elapsed(now - task.since) : ""}</span>
     </>
   );

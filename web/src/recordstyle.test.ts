@@ -162,3 +162,36 @@ test("EpicWords: at phone width the track hides each stage's words and sets its 
 test("EpicWords: at phone width the fold line takes the touch height", () => {
   assert.equal(declaredValue(phone, ".fold-line", "min-height"), "var(--o-size-control-touch)");
 });
+
+test("EpicWords: at phone width the task table takes round 6's touch columns", () => {
+  assert.equal(declaredValue(phone, ".tbl.tasks", "--cols-touch"), "minmax(0, 1fr) auto auto");
+});
+
+test("EpicWords: at phone width the requirement table takes round 6's touch columns", () => {
+  assert.equal(declaredValue(phone, ".tbl.reqs", "--cols-touch"), "auto auto minmax(0, 1fr)");
+});
+
+test("EpicWords: at phone width the running steps table takes round 6's touch columns", () => {
+  assert.equal(declaredValue(phone, ".tbl.steps", "--cols-touch"), "auto minmax(0, 1fr) auto");
+});
+
+test("EpicWords: at phone width a row's wide cell spans the row, so its pips keep the first line", () => {
+  assert.equal(declaredValue(phone, ".tr .wide", "grid-column"), "1 / -1");
+});
+
+test("EpicWords: at phone width Just happened sets its time apart from its text", () => {
+  assert.equal(declaredValue(phone, ".epic-page .happen .at", "margin-right"), "var(--o-space-12)");
+});
+
+test("EpicWords: at phone width the problem line wraps and does not ellipsis", () => {
+  assert.equal(declaredValue(phone, ".problem", "white-space"), "normal");
+  assert.equal(declaredValue(phone, ".problem", "text-overflow"), "clip");
+});
+
+test("EpicWords: at phone width the track's stages take the full column, so a name reads whole", () => {
+  assert.equal(declaredValue(phone, ".epic-page .stage", "padding-right"), "0");
+});
+
+test("EpicWords: at phone width the track hides a done stage's check, which would cut its name", () => {
+  assert.equal(declaredValue(phone, ".epic-page .stage .nm > span", "display"), "none");
+});

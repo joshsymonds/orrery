@@ -66,7 +66,7 @@ function RequirementRow(props: {
     <>
       <button type="button" class="tr" aria-expanded={open} onClick={() => setOpen((isOpen) => !isOpen)}>
         <span class="id">{requirement.id}</span>
-        <span class="strong">{requirement.text}</span>
+        <span class="strong wide">{requirement.text}</span>
         <ProofCell proof={redProofOf(requirement)} />
         <ProofCell proof={greenProofOf(requirement)} />
         <span class="end">{proven ? "proven" : "open"}</span>
