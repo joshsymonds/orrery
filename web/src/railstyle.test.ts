@@ -2,13 +2,6 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-import { createElement, render } from "preact";
-import { act } from "preact/test-utils";
-
-import { InboxRail } from "./inboxrail";
-import type { RailTileModel } from "./railtiles";
-import { installTestDom, removeTestDom } from "./testdom";
-
 // Each test's name starts with InboxRail. Each reads the declarations of style.css and tokens.css, as railaddress.test.tsx
 // does: a rule by its exact selector with comments removed, a rule inside its @media block where a selector repeats, and a
 // token by its one declaration.
@@ -61,20 +54,6 @@ function tokenValue(name: string): string {
 
 const wide = "@media (min-width: 760px)";
 const narrow = "@media (min-width: 760px) and (max-width: 1250px)";
-
-// withDom gives the check a container on the document, and removes the container and the DOM however the check ends.
-async function withDom(check: (container: HTMLElement) => void): Promise<void> {
-  const window = installTestDom();
-  const container = document.createElement("div");
-  document.body.appendChild(container);
-  try {
-    check(container);
-  } finally {
-    render(null, container);
-    container.remove();
-    await removeTestDom(window);
-  }
-}
 
 test("InboxRail: the rail is 64 wide at the left edge, and at rest the inbox's list is hidden", () => {
   assert.equal(tokenValue("--o-layout-rail-width"), "64px");
@@ -148,31 +127,4 @@ test("InboxRail: a project tile is the place colour, its live dot yellow and its
   assert.equal(declared(declarationsOf(sheet, ".tile .dots i.new"), "background"), "var(--o-role-new)");
   assert.equal(tokenValue("--o-role-new"), "var(--o-palette-lavender)");
   assert.equal(tokenValue("--o-palette-lavender"), "#b4befe");
-});
-
-test("InboxRail: a project tile renders with class place", async () => {
-  await withDom((container) => {
-    const noop = () => {};
-    const tiles: RailTileModel[] = [
-      { key: "tidepool", text: "ti", n: 0, live: false, fresh: false, cur: false, title: "tidepool" },
-    ];
-    act(() => {
-      render(
-        createElement(InboxRail, {
-          tiles,
-          onMark: noop,
-          onTile: noop,
-          onNew: noop,
-          onSearch: noop,
-          onKeys: noop,
-          onEnter: noop,
-          onLeave: noop,
-        }),
-        container,
-      );
-    });
-    const tile = container.querySelector<HTMLElement>('button[aria-label="tidepool"]');
-    assert.ok(tile !== null, "the project tile is drawn");
-    assert.equal(tile.classList.contains("place"), true);
-  });
 });

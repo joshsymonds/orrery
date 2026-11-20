@@ -110,6 +110,7 @@ test("InboxRail project tile shows its letters, its count only above zero, its l
     assert.equal(quiet.querySelector(".dots"), null);
     assert.equal(quiet.classList.contains("cur"), false);
     assert.equal(quiet.getAttribute("title"), "lighthouse");
+    assert.equal(quiet.classList.contains("place"), true);
 
     const waiting = tileOf(container, "tidepool: 3 waits on you");
     assert.equal(waiting.querySelector(".n")?.textContent, "3");
