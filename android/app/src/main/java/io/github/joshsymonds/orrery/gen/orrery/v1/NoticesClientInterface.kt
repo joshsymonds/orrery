@@ -9,8 +9,8 @@ import com.connectrpc.ResponseMessage
 import com.connectrpc.ServerOnlyStreamInterface
 
 /**
- *  Notices streams the notices open web pages show in-app, and takes the page's word that the owner opened one. serve
- *  forwards both to orreryd.
+ *  Notices streams the notices open web pages show in-app, takes the page's word that the owner opened one, lists the
+ *  notice history and marks it read. serve forwards every call to orreryd.
  */
 public interface NoticesClientInterface {
   /**
@@ -26,4 +26,15 @@ public interface NoticesClientInterface {
    *  more than one of its fields is invalid_argument. With no orreryd to forward to, Seen is unavailable.
    */
   public suspend fun seen(request: NoticesSeenRequest, headers: Headers = emptyMap()): ResponseMessage<NoticesSeenResponse>
+
+  /**
+   *  List returns the notices orreryd showed at the desk or sent away with their desk text built, timed within the last
+   *  14 days, newest first, each with its read mark. With no orreryd to forward to, List is unavailable.
+   */
+  public suspend fun list(request: NoticesListRequest, headers: Headers = emptyMap()): ResponseMessage<NoticesListResponse>
+
+  /**
+   *  ReadAll marks every notice in the notice history read. With no orreryd to forward to, ReadAll is unavailable.
+   */
+  public suspend fun readAll(request: NoticesReadAllRequest, headers: Headers = emptyMap()): ResponseMessage<NoticesReadAllResponse>
 }

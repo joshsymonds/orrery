@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -658,7 +659,7 @@ func TestStopEpicStopsTheOpenIntegrator(t *testing.T) {
 	w := newConflictWorld(t)
 	w.pass()
 
-	step, err := w.s.StopEpic(t.Context(), runEpic)
+	step, err := w.s.StopEpic(t.Context(), runEpic, store.Maker{By: store.MakerOwner}, time.Unix(1700000000, 0))
 	if err != nil {
 		t.Fatalf("StopEpic: %v", err)
 	}

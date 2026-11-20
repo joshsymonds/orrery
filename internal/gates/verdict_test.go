@@ -82,15 +82,17 @@ func TestPromptWithEmptyCallerEndsWithAssertions(t *testing.T) {
 	}
 }
 
-func TestVerdictInstructionStrictReadingFailsAssertionsHeldOnlyUnderLooserReading(t *testing.T) {
-	inOrder(t, verdictInstruction,
-		"Read each assertion strictly.",
-		"When the revision satisfies an assertion only under a looser reading, the result is fails, not holds.",
-		"The evidence for that fails names the strict reading",
-		"the looser reading it does.",
-	)
-	if !strings.Contains(verdictInstruction, "or satisfies it only under a looser reading") {
-		t.Errorf("fails result does not cover an assertion held only under a looser reading:\n%s", verdictInstruction)
+// TestJudgeCarryAgentGateInstructionNoStrictReading: every agent gate's prompt opens with the verdict instruction, which
+// no longer tells the agent to take an assertion at its strictest reading.
+func TestJudgeCarryAgentGateInstructionNoStrictReading(t *testing.T) {
+	got := Prompt(verdictGate(), "")
+	if !strings.HasPrefix(got, verdictInstruction) {
+		t.Errorf("prompt does not open with the verdict instruction:\n%s", got)
+	}
+	for _, term := range []string{"strictly", "strict meaning", "looser reading"} {
+		if strings.Contains(got, term) {
+			t.Errorf("prompt contains %q:\n%s", term, got)
+		}
 	}
 }
 

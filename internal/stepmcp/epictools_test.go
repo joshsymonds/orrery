@@ -28,6 +28,7 @@ type fakeEpics struct {
 	lists        []*v1.ListEpicsRequest
 	answers      []*v1.AnswerEpicRequest
 	pauses       []*v1.PauseEpicRequest
+	moves        []*v1.MoveEpicRequest
 	resumes      []*v1.ResumeEpicRequest
 	stops        []*v1.StopEpicRequest
 	retries      []*v1.RetryEpicRequest
@@ -41,6 +42,7 @@ type fakeEpics struct {
 	listReply    *v1.ListEpicsResponse
 	answerReply  *v1.AnswerEpicResponse
 	pauseReply   *v1.PauseEpicResponse
+	moveReply    *v1.MoveEpicResponse
 	resumeReply  *v1.ResumeEpicResponse
 	stopReply    *v1.StopEpicResponse
 	retryReply   *v1.RetryEpicResponse
@@ -115,6 +117,26 @@ func (f *fakeEpics) PauseEpic(
 		return nil, f.err
 	}
 	return connect.NewResponse(f.pauseReply), nil
+}
+
+func (f *fakeEpics) MoveEpic(
+	_ context.Context,
+	req *connect.Request[v1.MoveEpicRequest],
+) (*connect.Response[v1.MoveEpicResponse], error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.moves = append(f.moves, req.Msg)
+	if f.err != nil {
+		return nil, f.err
+	}
+	return connect.NewResponse(f.moveReply), nil
+}
+
+func (f *fakeEpics) ContinueEpic(
+	_ context.Context,
+	_ *connect.Request[v1.ContinueEpicRequest],
+) (*connect.Response[v1.ContinueEpicResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("no epic tool continues an epic"))
 }
 
 func (f *fakeEpics) ResumeEpic(
@@ -249,6 +271,7 @@ type epicCalls struct {
 	lists    []*v1.ListEpicsRequest
 	answers  []*v1.AnswerEpicRequest
 	pauses   []*v1.PauseEpicRequest
+	moves    []*v1.MoveEpicRequest
 	resumes  []*v1.ResumeEpicRequest
 	stops    []*v1.StopEpicRequest
 	retries  []*v1.RetryEpicRequest
@@ -267,6 +290,7 @@ func (f *fakeEpics) calls() epicCalls {
 		lists:    slices.Clone(f.lists),
 		answers:  slices.Clone(f.answers),
 		pauses:   slices.Clone(f.pauses),
+		moves:    slices.Clone(f.moves),
 		resumes:  slices.Clone(f.resumes),
 		stops:    slices.Clone(f.stops),
 		retries:  slices.Clone(f.retries),
@@ -279,7 +303,7 @@ func (f *fakeEpics) calls() epicCalls {
 
 func (c epicCalls) total() int {
 	return len(c.creates) + len(c.gets) + len(c.lists) + len(c.answers) +
-		len(c.pauses) + len(c.resumes) + len(c.stops) + len(c.retries) + len(c.kicks) + len(c.releases) +
+		len(c.pauses) + len(c.moves) + len(c.resumes) + len(c.stops) + len(c.retries) + len(c.kicks) + len(c.releases) +
 		len(c.follows) + len(c.closes)
 }
 
@@ -531,6 +555,26 @@ func TestEpicCreateWithoutDecisionsSendsNoSeedDecisions(t *testing.T) {
 	calls := fake.calls().creates
 	if len(calls) != 1 || len(calls[0].GetDecisions()) != 0 {
 		t.Fatalf("CreateEpic requests = %v, want one with no decisions", calls)
+	}
+}
+
+func TestEpicCreatePrintsEachWarningLine(t *testing.T) {
+	warnings := []string{
+		"requirements[0].item.capture: -run pattern \"X\" matches TestX in ./pkg at the base: name a new top-level test",
+		"release_steps[1].step: says merge: a release step fast-forwards main to the release candidate; write fast-forward",
+	}
+	fake := &fakeEpics{createReply: &v1.CreateEpicResponse{Epic: storedEpicOf(fullContract()), Warnings: warnings}}
+	p := newPeer(t, nil, fake)
+
+	outcome := p.tool("epic_create", `{"contract":{"id":"`+testEpicID+`"}}`)
+
+	if outcome.isError {
+		t.Fatalf("epic_create returned an error: %s", outcome.text)
+	}
+	wantText := "epic " + testEpicID + ": phase accepted\ncreated with 1 requirements and 2 decisions\n" +
+		"warning: " + warnings[0] + "\nwarning: " + warnings[1]
+	if outcome.text != wantText {
+		t.Fatalf("epic_create text = %q, want %q", outcome.text, wantText)
 	}
 }
 

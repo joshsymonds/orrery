@@ -17,6 +17,12 @@ func planRows(turns []store.EpicTurn, tasks []store.EpicTask, pending int) Rows 
 	return Rows{Epic: store.EpicRow{Turns: turns, Tasks: tasks}, Pending: pending}
 }
 
+// withActions returns rows with actions planner actions pending.
+func withActions(rows Rows, actions int) Rows {
+	rows.Actions = actions
+	return rows
+}
+
 // planNode returns a plan node whose run started with Mark mark.
 func planNode(mark int64) Node {
 	return Node{Run: store.NodeRun{Kind: "plan", Mark: mark}}
@@ -122,6 +128,12 @@ func TestPlanDecide(t *testing.T) {
 			"pending trigger gives run",
 			planNode(2),
 			planRows([]store.EpicTurn{{Seq: 3, State: "succeeded", Outcome: "complete"}}, done, 1),
+			Action{Kind: ActRun},
+		},
+		{
+			"pending planner action of the complete turn gives run",
+			planNode(2),
+			withActions(planRows([]store.EpicTurn{{Seq: 3, State: "succeeded", Outcome: "complete"}}, done, 0), 1),
 			Action{Kind: ActRun},
 		},
 	}

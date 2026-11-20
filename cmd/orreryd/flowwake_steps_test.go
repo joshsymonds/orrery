@@ -172,7 +172,7 @@ func TestOrrerydFlowWakeLabeledStepEndPassesItsEpic(t *testing.T) {
 	repo, _ := buildWiringRepo(t)
 	created := time.Unix(plannerWiringStamp, 0)
 	for _, epic := range []string{flowWakeStepsEpicA, flowWakeStepsEpicB} {
-		createFlowWiringEpic(t, st, epic, created)
+		createFlowWiringEpic(t, st, epic, flowWiringRepo, "", created)
 		endFlowWiringPlan(t, st, epic, created)
 	}
 	host := startFlowWakeStepsHost(t, st, getenv, path, defaultStepCap)
@@ -210,7 +210,7 @@ func TestOrrerydFlowWakeCapRefusedStartRetriedWhenAnotherStepEnds(t *testing.T) 
 	repo, _ := buildWiringRepo(t)
 	created := time.Unix(plannerWiringStamp, 0)
 	for _, epic := range []string{flowWakeStepsEpicA, flowWakeStepsEpicC} {
-		createFlowWiringEpic(t, st, epic, created)
+		createFlowWiringEpic(t, st, epic, flowWiringRepo, "", created)
 		endFlowWiringPlan(t, st, epic, created)
 	}
 	host := startFlowWakeStepsHost(t, st, getenv, path, 1)

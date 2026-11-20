@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
+	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
 // amendEpic is the epic the amendment tests amend, and amendBase its base, where each amendment's red run runs.
@@ -35,13 +36,18 @@ func amendItem(pkg, conclusion string) evidence.Item {
 	}
 }
 
-// amendConclusion is the conclusion of R1 of the amended epic.
-const amendConclusion = "a quiet step survives a restart"
+// amendConclusion is the conclusion of R1 of the amended epic, and amendedConclusion the conclusion the owner gives it.
+const (
+	amendConclusion   = "a quiet step survives a restart"
+	amendedConclusion = "a quiet step restarts quietly"
+)
 
-// oldAmendItem is the item R1 of the amended epic is created with, and newAmendItem the item the tests amend it to: the
-// same conclusion, its test moved to another package.
-func oldAmendItem() evidence.Item { return amendItem("internal/enginehost", amendConclusion) }
-func newAmendItem() evidence.Item { return amendItem("cmd/orreryd", amendConclusion) }
+// oldAmendItem is the item R1 of the amended epic is created with. newAmendItem is the item the owner amends it to: its
+// conclusion changes, which is a change of what R1 claims, so its red runs at the base. captureAmendItem is the item a
+// change of how R1 is shown asks for: the same conclusion and kind, its test moved to another package.
+func oldAmendItem() evidence.Item     { return amendItem("internal/enginehost", amendConclusion) }
+func newAmendItem() evidence.Item     { return amendItem("cmd/orreryd", amendedConclusion) }
+func captureAmendItem() evidence.Item { return amendItem("cmd/orreryd", amendConclusion) }
 
 // createAmendEpic stores the amended epic at its base, with R1 naming oldAmendItem and R3 naming a capture item.
 func createAmendEpic(t *testing.T, s *Store) {
@@ -60,8 +66,8 @@ func createAmendEpic(t *testing.T, s *Store) {
 func amendOwner(t *testing.T, s *Store, item evidence.Item) EvidenceAmendment {
 	t.Helper()
 	amended, err := s.AmendEvidence(context.Background(), amendEpic, Amendment{
-		Requirement: "R1", Item: item, Reason: "the test moved to cmd/orreryd",
-	}, amendAt())
+		Requirement: "R1", Item: item, Reason: "the conclusion is sharpened and the test moved to cmd/orreryd",
+	}, Maker{By: MakerOwner}, amendAt())
 	if err != nil {
 		t.Fatalf("AmendEvidence: %v", err)
 	}
@@ -176,9 +182,17 @@ func TestAmendEvidenceStartsCheckingAndKeepsTheItem(t *testing.T) {
 
 	got := amendOwner(t, s, newAmendItem())
 	want := EvidenceAmendment{
-		Epic: amendEpic, Seq: 1, Requirement: "R1", Amender: AmenderOwner, Prior: oldAmendItem(), Item: newAmendItem(),
-		Reason: "the test moved to cmd/orreryd", Base: amendBase, State: AmendmentChecking,
-		RedRun: AmendmentWorkID(amendEpic, 1, AmendmentRed, 0), Created: amendAt(),
+		Epic:        amendEpic,
+		Seq:         1,
+		Requirement: "R1",
+		Amender:     AmenderOwner,
+		Prior:       oldAmendItem(),
+		Item:        newAmendItem(),
+		Reason:      "the conclusion is sharpened and the test moved to cmd/orreryd",
+		Base:        amendBase,
+		State:       AmendmentChecking,
+		RedRun:      AmendmentWorkID(amendEpic, 1, AmendmentRed, 0),
+		Created:     amendAt(),
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("AmendEvidence = %+v, want %+v", got, want)
@@ -294,7 +308,7 @@ func TestAmendEvidenceRefusals(t *testing.T) {
 				tc.prepare(t, s)
 			}
 			before := len(closeRow(t, s, amendEpic).Amendments)
-			_, err := s.AmendEvidence(context.Background(), amendEpic, tc.amend, amendAt())
+			_, err := s.AmendEvidence(context.Background(), amendEpic, tc.amend, Maker{By: MakerOwner}, amendAt())
 			var refusal RefusalError
 			if !errors.As(err, &refusal) || refusal.Error() != tc.want {
 				t.Fatalf("AmendEvidence = %v, want the refusal %q", err, tc.want)
@@ -314,7 +328,16 @@ func TestAmendEvidenceOfAnUnknownEpicIsErrNoEpic(t *testing.T) {
 	s := openEpicStore(t)
 	createAmendEpic(t, s)
 	amend := Amendment{Requirement: "R1", Item: newAmendItem()}
-	if _, err := s.AmendEvidence(context.Background(), "no-such-epic", amend, amendAt()); !errors.Is(err, ErrNoEpic) {
+	if _, err := s.AmendEvidence(
+		context.Background(),
+		"no-such-epic",
+		amend,
+		Maker{By: MakerOwner},
+		amendAt(),
+	); !errors.Is(
+		err,
+		ErrNoEpic,
+	) {
 		t.Errorf("AmendEvidence of an unknown epic = %v, want ErrNoEpic", err)
 	}
 }
@@ -323,10 +346,139 @@ func TestOwnerMayChangeTheConclusion(t *testing.T) {
 	t.Parallel()
 	s := openEpicStore(t)
 	createAmendEpic(t, s)
-	changed := newAmendItem()
-	changed.Conclusion = "a quiet step restarts quietly"
+	changed := oldAmendItem()
+	changed.Conclusion = amendedConclusion
 	if got := amendOwner(t, s, changed); got.State != AmendmentChecking || got.Item.Conclusion != changed.Conclusion {
 		t.Errorf("owner AmendEvidence with a new conclusion = %+v, want checking with that conclusion", got)
+	}
+}
+
+// TestAmendShownOwnerCaptureAppliesOnceStored checks that a change of how R1 is shown, with the conclusion and kind kept,
+// is applied with its reason once stored: no red run at the base is needed, so the amendment is not left checking.
+func TestAmendShownOwnerCaptureAppliesOnceStored(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openEpicStore(t)
+	createAmendEpic(t, s)
+
+	amended, err := s.AmendEvidence(ctx, amendEpic, Amendment{
+		Requirement: "R1", Item: captureAmendItem(), Reason: "the test moved to cmd/orreryd",
+	}, Maker{By: MakerOwner}, amendAt())
+	if err != nil {
+		t.Fatalf("AmendEvidence: %v", err)
+	}
+	if amended.State != AmendmentApplied || amended.Settled != amendAt() {
+		t.Fatalf("AmendEvidence of how R1 is shown = %s settled %v, want applied at %v with no red run",
+			amended.State, amended.Settled, amendAt())
+	}
+	if item := r1Item(t, s); !reflect.DeepEqual(item, captureAmendItem()) {
+		t.Errorf("R1 item after the amendment = %+v, want the capture item %+v", item, captureAmendItem())
+	}
+	text := decisionNamed(t, s, amendEpic, "amend-1").Text
+	for _, want := range []string{
+		"owner amended the evidence of R1 (A1): the test moved to cmd/orreryd.",
+		"It keeps the conclusion and kind, so it needs no red run at the epic's base.",
+		itemsText(oldAmendItem(), captureAmendItem()),
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("decision amend-1 = %q, want it to hold %q", text, want)
+		}
+	}
+	state, cause := triggerRow(t, s, amendEpic, "amend-1")
+	wantCause := "evidence of R1 amended by the owner (A1): the next integrate captures the new item at its candidate"
+	if state != triggerPending || cause != wantCause {
+		t.Errorf("trigger amend-1 = %s %q, want pending %q", state, cause, wantCause)
+	}
+	if open, err := s.OpenAmendments(ctx); err != nil || len(open) != 0 {
+		t.Errorf("OpenAmendments after the amendment = %v, %v, want none", open, err)
+	}
+}
+
+// TestAmendShownCaptureCapturesGreenAtAMovedStoredBase checks that a change of how R1 is shown is applied at once, with
+// its green run captured at the moved stored base and no red run at the base.
+func TestAmendShownCaptureCapturesGreenAtAMovedStoredBase(t *testing.T) {
+	t.Parallel()
+	s := openEpicStore(t)
+	createAmendEpic(t, s)
+	moveStoredBase(t, s)
+
+	amended := amendOwner(t, s, captureAmendItem())
+
+	green := AmendmentWorkID(amendEpic, 1, AmendmentGreen, 0)
+	if amended.State != AmendmentCapturing || amended.StoredBase != "stored-2" || amended.GreenRun != green {
+		t.Fatalf("capture at a moved stored base = %s at %q under %q, want capturing at stored-2 under %s",
+			amended.State, amended.StoredBase, amended.GreenRun, green)
+	}
+	if item := r1Item(t, s); !reflect.DeepEqual(item, captureAmendItem()) {
+		t.Errorf("R1 item while capturing = %+v, want the capture item applied", item)
+	}
+}
+
+// TestAmendShownOwnerClaimChangeStillChecks checks that a change of the kind, which is what R1 claims, is still checking
+// with the old item kept, so its red run at the base decides it.
+func TestAmendShownOwnerClaimChangeStillChecks(t *testing.T) {
+	t.Parallel()
+	s := openEpicStore(t)
+	createAmendEpic(t, s)
+	kind := captureAmendItem()
+	kind.Kind, kind.Tests = evidence.KindCapture, nil
+
+	if got := amendOwner(t, s, kind); got.State != AmendmentChecking {
+		t.Errorf("owner AmendEvidence with a new kind = %s, want checking", got.State)
+	}
+	if item := r1Item(t, s); !reflect.DeepEqual(item, oldAmendItem()) {
+		t.Errorf("R1 item while checking = %+v, want the old item", item)
+	}
+}
+
+// amendWaitsForWork is the refusal of an amendment that changes how R1 is shown while evidence work is under way.
+const amendWaitsForWork = "R1 keeps its conclusion and kind, so it applies at once, which waits for the evidence, " +
+	"integrate, sync or release run under way to end"
+
+// integrateUnderWay starts an integrate run of the amended epic with its revision, which captures R1 under its own ids,
+// and returns it.
+func integrateUnderWay(t *testing.T, s *Store) NodeRun {
+	t.Helper()
+	ctx := context.Background()
+	run := NodeRun{Path: "plan/S1/integrate", ID: "integrate-run", Node: "integrate", Kind: "integrate"}
+	if err := s.StartNodes(ctx, amendEpic, []NodeRun{run}, nil, amendAt()); err != nil {
+		t.Fatalf("StartNodes: %v", err)
+	}
+	if err := s.PrepareNode(ctx, amendEpic, run.Path, 0, "candidate-1", "refs"); err != nil {
+		t.Fatalf("PrepareNode: %v", err)
+	}
+	return run
+}
+
+// TestAmendShownCaptureWaitsForEvidenceWorkUnderWay checks that a change of how R1 is shown is refused while an integrate
+// run that captures R1 is under way, since applying it would leave that run's stored runs stale, and that the same
+// amendment applies once the run has ended.
+func TestAmendShownCaptureWaitsForEvidenceWorkUnderWay(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openEpicStore(t)
+	createAmendEpic(t, s)
+	run := integrateUnderWay(t, s)
+	capture := Amendment{Requirement: "R1", Item: captureAmendItem(), Reason: "the test moved to cmd/orreryd"}
+
+	_, err := s.AmendEvidence(ctx, amendEpic, capture, Maker{By: MakerOwner}, amendAt())
+	var refusal RefusalError
+	if !errors.As(err, &refusal) || refusal.Error() != amendWaitsForWork {
+		t.Fatalf("AmendEvidence under way = %v, want the refusal %q", err, amendWaitsForWork)
+	}
+	if amendments := closeRow(t, s, amendEpic).Amendments; len(amendments) != 0 {
+		t.Errorf("amendments after the refusal = %+v, want none stored", amendments)
+	}
+
+	if err = s.EndNodes(ctx, amendEpic, []NodeEnd{{Path: run.Path, Outcome: "passed"}}, amendAt()); err != nil {
+		t.Fatalf("EndNodes: %v", err)
+	}
+	amended, err := s.AmendEvidence(ctx, amendEpic, capture, Maker{By: MakerOwner}, amendAt())
+	if err != nil {
+		t.Fatalf("AmendEvidence once the run ended: %v", err)
+	}
+	if amended.State != AmendmentApplied {
+		t.Errorf("amendment once the run ended = %s, want applied", amended.State)
 	}
 }
 
@@ -354,7 +506,7 @@ func TestSettleAmendmentAppliesARedThatFailsAtTheBase(t *testing.T) {
 	}
 	text := decisionNamed(t, s, amendEpic, "amend-1").Text
 	for _, want := range []string{
-		"owner amended the evidence of R1 (A1): the test moved to cmd/orreryd.",
+		"owner amended the evidence of R1 (A1): the conclusion is sharpened and the test moved to cmd/orreryd.",
 		"The red run " + amended.RedRun + " of the new item at the epic's base " + amendBase + " was judged fails.",
 		"Prior item: " + itemJSON(oldAmendItem()) + ".", "New item: " + itemJSON(newAmendItem()) + ".",
 	} {
@@ -397,8 +549,8 @@ func TestSettleAmendmentRefusesARedThatHoldsAtTheBase(t *testing.T) {
 		t.Errorf("R1 item after the refusal = %+v, want the old item kept", item)
 	}
 	text := decisionNamed(t, s, amendEpic, "amend-1-refused").Text
-	want := "owner amendment A1 of the evidence of R1 refused: " + refusal + ". Its reason: the test moved to " +
-		"cmd/orreryd." + itemsText(oldAmendItem(), newAmendItem())
+	want := "owner amendment A1 of the evidence of R1 refused: " + refusal + ". Its reason: the conclusion is " +
+		"sharpened and the test moved to cmd/orreryd." + itemsText(oldAmendItem(), newAmendItem())
 	if text != want {
 		t.Errorf("decision amend-1-refused = %q, want %q", text, want)
 	}
@@ -772,7 +924,7 @@ func TestSettleAmendmentRerunsAGreenLostAtARestart(t *testing.T) {
 	capture.Kind, capture.Tests = evidence.KindCapture, nil
 	amended, err := s.AmendEvidence(ctx, amendEpic, Amendment{
 		Requirement: "R1", Item: capture, Reason: "a capture shows it",
-	}, amendAt())
+	}, Maker{By: MakerOwner}, amendAt())
 	if err != nil {
 		t.Fatalf("AmendEvidence: %v", err)
 	}
@@ -871,13 +1023,16 @@ func actionState(t *testing.T, s *Store, action PlannerAction) (state, refusal s
 	return state, refusal
 }
 
-func TestAmendEvidenceActionStaysPendingWhileItsRedRuns(t *testing.T) {
+// TestAmendShownPlannerActionIsTakenAtOnce checks that an amend_evidence action that changes how R1 is shown is carried
+// out once: its amendment is applied with the planner's reason in the same write, so the action is taken and no red run
+// is awaited.
+func TestAmendShownPlannerActionIsTakenAtOnce(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	createAmendEpic(t, s)
-	action := storeActionsOf(t, s, amendAction(newAmendItem()))[0]
-	if action.Requirement != "R1" || !reflect.DeepEqual(action.Item, newAmendItem()) {
+	action := storeActionsOf(t, s, amendAction(captureAmendItem()))[0]
+	if action.Requirement != "R1" || !reflect.DeepEqual(action.Item, captureAmendItem()) {
 		t.Fatalf("stored action = %+v, want R1 and the new item read back", action)
 	}
 
@@ -892,22 +1047,18 @@ func TestAmendEvidenceActionStaysPendingWhileItsRedRuns(t *testing.T) {
 	}
 	amended := amendments[0]
 	if amended.Amender != AmenderPlanner || amended.Turn != 1 || amended.Position != 1 ||
-		amended.State != AmendmentChecking {
-		t.Errorf("planned amendment = %+v, want the planner's, of action 1 of turn 1, checking", amended)
+		amended.State != AmendmentApplied {
+		t.Errorf("planned amendment = %+v, want the planner's, of action 1 of turn 1, applied", amended)
 	}
-	if state, _ := actionState(t, s, action); state != "pending" {
-		t.Errorf("action while its red runs = %s, want pending", state)
-	}
-
-	judgedRun(t, s, amended.RedRun, evidence.PhaseRed, amendBase, 1, evidence.VerdictFails)
-	settle(t, s)
-
 	if state, _ := actionState(t, s, action); state != "taken" {
 		t.Errorf("action once its amendment applied = %s, want taken", state)
 	}
+	if item := r1Item(t, s); !reflect.DeepEqual(item, captureAmendItem()) {
+		t.Errorf("R1 item after the planner's amendment = %+v, want the capture item", item)
+	}
 	text := decisionNamed(t, s, amendEpic, "action-1-1").Text
 	if !strings.HasPrefix(text, "planner amended the evidence of R1 (A1): R1's test now lives in cmd/orreryd.") ||
-		!strings.Contains(text, itemsText(oldAmendItem(), newAmendItem())) {
+		!strings.Contains(text, itemsText(oldAmendItem(), captureAmendItem())) {
 		t.Errorf("decision action-1-1 = %q, want the planner's amendment with both items", text)
 	}
 	if state, _ := triggerRow(t, s, amendEpic, "amend-1"); state != triggerPending {
@@ -921,32 +1072,29 @@ func TestAmendEvidenceActionStaysPendingWhileItsRedRuns(t *testing.T) {
 	}
 }
 
-func TestAmendEvidenceActionRefusedWhenItsRedHoldsAtTheBase(t *testing.T) {
+// TestAmendShownPlannerActionIsRefusedWhileEvidenceWorkIsUnderWay checks that an amend_evidence action that changes how R1
+// is shown is refused, with the planner's reason and both items on record, while evidence work captures R1 under way.
+func TestAmendShownPlannerActionIsRefusedWhileEvidenceWorkIsUnderWay(t *testing.T) {
 	t.Parallel()
+	ctx := context.Background()
 	s := openEpicStore(t)
 	createAmendEpic(t, s)
-	action := storeActionsOf(t, s, amendAction(newAmendItem()))[0]
-	if _, err := s.CarryOutAction(context.Background(), action, amendAt()); err != nil {
+	integrateUnderWay(t, s)
+	action := storeActionsOf(t, s, amendAction(captureAmendItem()))[0]
+
+	if _, err := s.CarryOutAction(ctx, action, amendAt()); err != nil {
 		t.Fatalf("CarryOutAction: %v", err)
 	}
-	amended := storedAmendment(t, s, 1)
-	judgedRun(t, s, amended.RedRun, evidence.PhaseRed, amendBase, 0, evidence.VerdictHolds)
 
-	settle(t, s)
-
-	stored := storedAmendment(t, s, 1)
-	if stored.State != AmendmentRefused {
-		t.Fatalf("amendment after a red that holds = %s, want refused", stored.State)
-	}
-	requireRefusedAmendAction(t, s, action, stored.Refusal)
-	if item := r1Item(t, s); !reflect.DeepEqual(item, oldAmendItem()) {
-		t.Errorf("R1 item after the refusal = %+v, want the old item kept", item)
+	requireRefusedAmendAction(t, s, action, amendWaitsForWork)
+	if amendments := closeRow(t, s, amendEpic).Amendments; len(amendments) != 0 {
+		t.Errorf("amendments after a refused action = %+v, want none stored", amendments)
 	}
 }
 
-// requireRefusedAmendAction fails unless action, an amend_evidence action of R1 asking for newAmendItem, is recorded as
-// refused with refusal: its row holds the refusal, its decision holds the refusal, the planner's reason and both items,
-// and a pending trigger names the action and the refusal.
+// requireRefusedAmendAction fails unless action, an amend_evidence action of R1 asking for an item, is recorded as refused
+// with refusal: its row holds the refusal, its decision holds the refusal, the planner's reason and both items, and a
+// pending trigger names the action and the refusal.
 func requireRefusedAmendAction(t *testing.T, s *Store, action PlannerAction, refusal string) {
 	t.Helper()
 	if state, stored := actionState(t, s, action); state != "refused" || stored != refusal {
@@ -970,11 +1118,13 @@ func storeActionsOf(t *testing.T, s *Store, actions ...EpicActionInput) []Planne
 	return storeActions(t, s, amendEpic, actions...)
 }
 
-func TestAmendEvidenceActionThatChangesTheConclusionOrKindIsRefusedAtOnce(t *testing.T) {
+// TestAmendShownPlannerConclusionOrKindIsRefusedAtOnce checks that an amend_evidence action that changes the conclusion or
+// the kind of R1, what it claims, is refused at once, while a change of how it is shown is not.
+func TestAmendShownPlannerConclusionOrKindIsRefusedAtOnce(t *testing.T) {
 	t.Parallel()
-	conclusion := newAmendItem()
+	conclusion := captureAmendItem()
 	conclusion.Conclusion = "a quiet step is quiet"
-	kind := newAmendItem()
+	kind := captureAmendItem()
 	kind.Kind, kind.Tests = evidence.KindCapture, nil
 	cases := []struct {
 		name    string
@@ -1002,6 +1152,80 @@ func TestAmendEvidenceActionThatChangesTheConclusionOrKindIsRefusedAtOnce(t *tes
 			}
 		})
 	}
+}
+
+// storeLegacyAmendment stores amendment seq of the amended epic for action, a planner's amend_evidence action, as checking
+// with prior as the item it holds, as the store stored a planner's amendment before a change of how a Requirement is
+// shown applied at once. Its red run is named for attempt 0, as a checking amendment's is.
+func storeLegacyAmendment(t *testing.T, s *Store, seq int64, action PlannerAction, prior evidence.Item) {
+	t.Helper()
+	priorItem, err := encodeItem(prior)
+	if err != nil {
+		t.Fatalf("encode prior item: %v", err)
+	}
+	item, err := encodeItem(action.Item)
+	if err != nil {
+		t.Fatalf("encode item: %v", err)
+	}
+	ctx := context.Background()
+	err = s.write(ctx, func(queries *sqlcgen.Queries) error {
+		return queries.InsertEpicAmendment(ctx, sqlcgen.InsertEpicAmendmentParams{
+			Epic: action.Epic, Seq: seq, Requirement: action.Requirement, Amender: AmenderPlanner, Turn: action.Turn,
+			Position: action.Position, PriorItem: priorItem, Item: item, Reason: action.Reason, Base: amendBase,
+			RedRun: AmendmentWorkID(action.Epic, seq, AmendmentRed, 0), Created: amendAt().Unix(),
+		})
+	})
+	if err != nil {
+		t.Fatalf("store legacy amendment %d: %v", seq, err)
+	}
+}
+
+// TestSettleAmendmentSettlesAPlannerAmendmentStoredChecking checks that a planner amendment stored checking, before a
+// change of how a Requirement is shown applied at once, settles by its red run at the base: a red that fails applies the
+// item and takes the action, and a red that holds refuses both.
+func TestSettleAmendmentSettlesAPlannerAmendmentStoredChecking(t *testing.T) {
+	t.Parallel()
+	t.Run("a red that fails applies the item and takes the action", func(t *testing.T) {
+		t.Parallel()
+		s := openEpicStore(t)
+		createAmendEpic(t, s)
+		action := storeActionsOf(t, s, amendAction(captureAmendItem()))[0]
+		storeLegacyAmendment(t, s, 1, action, oldAmendItem())
+		judgedSpecRun(t, s, captureAmendItem(), AmendmentWorkID(amendEpic, 1, AmendmentRed, 0), evidence.PhaseRed,
+			amendBase, 1, evidence.VerdictFails)
+
+		settle(t, s)
+
+		if stored := storedAmendment(t, s, 1); stored.State != AmendmentApplied {
+			t.Errorf("amendment after a red that fails = %s, want applied", stored.State)
+		}
+		if item := r1Item(t, s); !reflect.DeepEqual(item, captureAmendItem()) {
+			t.Errorf("R1 item after the amendment = %+v, want the capture item", item)
+		}
+		if state, _ := actionState(t, s, action); state != "taken" {
+			t.Errorf("action after the amendment applied = %s, want taken", state)
+		}
+	})
+	t.Run("a red that holds refuses the item and the action", func(t *testing.T) {
+		t.Parallel()
+		s := openEpicStore(t)
+		createAmendEpic(t, s)
+		action := storeActionsOf(t, s, amendAction(captureAmendItem()))[0]
+		storeLegacyAmendment(t, s, 1, action, oldAmendItem())
+		judgedSpecRun(t, s, captureAmendItem(), AmendmentWorkID(amendEpic, 1, AmendmentRed, 0), evidence.PhaseRed,
+			amendBase, 0, evidence.VerdictHolds)
+
+		settle(t, s)
+
+		stored := storedAmendment(t, s, 1)
+		if stored.State != AmendmentRefused {
+			t.Fatalf("amendment after a red that holds = %s, want refused", stored.State)
+		}
+		requireRefusedAmendAction(t, s, action, stored.Refusal)
+		if item := r1Item(t, s); !reflect.DeepEqual(item, oldAmendItem()) {
+			t.Errorf("R1 item after the refusal = %+v, want the old item kept", item)
+		}
+	})
 }
 
 // actionParkOf returns the park planner_actions links action to.
@@ -1033,37 +1257,24 @@ func parkNotBuilt(t *testing.T, s *Store, reason string) int64 {
 }
 
 // TestAmendEvidenceActionKeepsThePark checks that an amend_evidence action is linked to the planner park its epic held
-// when it was carried out, and keeps that link when its amendment is applied while another park is held.
+// when it was carried out, and is taken with that park, since its amendment applies in the same write that links it.
 func TestAmendEvidenceActionKeepsThePark(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	createAmendEpic(t, s)
-	first := parkNotBuilt(t, s, "epic not built: R1 is not green at the stored base")
-	action := storeActionsOf(t, s, amendAction(newAmendItem()))[0]
+	park := parkNotBuilt(t, s, "epic not built: R1 is not green at the stored base")
+	action := storeActionsOf(t, s, amendAction(captureAmendItem()))[0]
+
 	if _, err := s.CarryOutAction(ctx, action, amendAt()); err != nil {
 		t.Fatalf("CarryOutAction: %v", err)
 	}
-	if got := actionParkOf(t, s, action); got != first {
-		t.Fatalf("park of the pending action = %d, want the park %d it answered", got, first)
-	}
-	if err := s.RetryEpic(ctx, amendEpic); err != nil {
-		t.Fatalf("RetryEpic: %v", err)
-	}
-	second := parkNotBuilt(t, s, "epic not built: R1 has no red at the epic's base")
-	if second == first {
-		t.Fatalf("second park = %d, want a new park row", second)
-	}
-
-	judgedRun(t, s, storedAmendment(t, s, 1).RedRun, evidence.PhaseRed, amendBase, 1, evidence.VerdictFails)
-	settle(t, s)
 
 	if state, _ := actionState(t, s, action); state != "taken" {
 		t.Fatalf("action after its amendment applied = %s, want taken", state)
 	}
-	if got := actionParkOf(t, s, action); got != first {
-		t.Errorf("park of the taken action = %d, want the park %d it answered, not the park %d held now", got, first,
-			second)
+	if got := actionParkOf(t, s, action); got != park {
+		t.Errorf("park of the taken action = %d, want the park %d it answered", got, park)
 	}
 }
 
@@ -1114,11 +1325,19 @@ func TestCloseSettlesOpenAmendments(t *testing.T) {
 	action := storeActionsOf(t, s, EpicActionInput{
 		Kind: ActionAmendEvidence, Requirement: "R3", Item: capture, Reason: "a shorter limit",
 	})[0]
-	if _, err := s.CarryOutAction(ctx, action, amendAt()); err != nil {
-		t.Fatalf("CarryOutAction: %v", err)
-	}
+	r3 := runItem()
+	r3.Kind = evidence.KindCapture
+	storeLegacyAmendment(t, s, 2, action, r3)
 
-	if _, err := s.CloseEpic(ctx, amendEpic, "abandoned", "", CloserOwner, amendAt()); err != nil {
+	if _, err := s.CloseEpic(
+		ctx,
+		amendEpic,
+		"abandoned",
+		"",
+		CloserOwner,
+		Maker{By: MakerOwner},
+		amendAt(),
+	); err != nil {
 		t.Fatalf("CloseEpic: %v", err)
 	}
 
@@ -1128,9 +1347,6 @@ func TestCloseSettlesOpenAmendments(t *testing.T) {
 	refusal := "epic " + amendEpic + " closed as abandoned"
 	if got := storedAmendment(t, s, 2); got.State != AmendmentRefused || got.Refusal != refusal {
 		t.Errorf("checking amendment after the close = %s %q, want refused %q", got.State, got.Refusal, refusal)
-	}
-	if state, stored := actionState(t, s, action); state != "refused" || stored != refusal {
-		t.Errorf("action of the checking amendment = %s %q, want refused %q", state, stored, refusal)
 	}
 	if open, err := s.OpenAmendments(ctx); err != nil || len(open) != 0 {
 		t.Errorf("OpenAmendments after the close = %v, %v, want none", open, err)

@@ -1,5 +1,6 @@
 package io.github.joshsymonds.orrery.ui
 
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasAnyAncestor
@@ -10,6 +11,8 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performImeAction
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
@@ -217,7 +220,7 @@ class PaneListScreenTest {
             assertTrue(nodeOf(hasTestTag("folder:$ALPHA")).boundsInRoot.top < nodeOf(hasTestTag("pane-row:%1")).boundsInRoot.top)
             assertTrue(nodeOf(hasTestTag("pane-row:%5")).boundsInRoot.top < nodeOf(hasTestTag("folder:$BETA")).boundsInRoot.top)
             assertTrue(nodeOf(hasTestTag("folder:$BETA")).boundsInRoot.top < nodeOf(hasTestTag("pane-row:%3")).boundsInRoot.top)
-            assertTrue(nodeOf(hasText("alpha-build")).boundsInRoot.left > nodeOf(hasText("alpha")).boundsInRoot.left)
+            assertTrue(nodeOf(hasText("alpha-build")).boundsInRoot.left > nodeOf(hasText("ALPHA")).boundsInRoot.left)
 
             composeRule.onNodeWithTag("folder:$ALPHA").performClick()
 
@@ -392,7 +395,7 @@ class PaneListScreenTest {
             assertEquals("the old folder holds only an ended session", 0, countNodes(hasTestTag("folder:$STOPPED_DIR")))
             assertEquals(1, countNodes(hasTestTag("folder:$ALPHA")))
             assertEquals(1, countNodes(hasTestTag("folder:$BETA")))
-            assertEquals(1, countNodes(hasText("2 ended")))
+            assertEquals(1, countNodes(hasText("2 ENDED")))
 
             composeRule.onNodeWithTag("ended-toggle").performClick()
 
@@ -404,13 +407,13 @@ class PaneListScreenTest {
                 assertEquals("$id stays a tree row", 1, countNodes(hasTestTag("pane-row:$id")))
             }
             assertEquals(0, countNodes(hasTestTag("folder:$FAILED_SEEN_DIR")))
-            assertEquals(1, countNodes(hasText("2 ended")))
+            assertEquals(1, countNodes(hasText("2 ENDED")))
 
             composeRule.onNodeWithTag("ended-toggle").performClick()
 
             assertEquals(0, countNodes(hasTestTag("pane-row:$FAILED_SEEN_ID")))
             assertEquals(0, countNodes(hasTestTag("pane-row:$STOPPED_ID")))
-            assertEquals(1, countNodes(hasText("2 ended")))
+            assertEquals(1, countNodes(hasText("2 ENDED")))
         }
     }
 
@@ -560,7 +563,7 @@ class PaneListScreenTest {
             composeRule.onNodeWithText("Retry").performClick()
 
             awaitRow("%1")
-            composeRule.onNodeWithText("alpha").assertExists()
+            composeRule.onNodeWithText("ALPHA").assertExists()
         }
     }
 
@@ -613,9 +616,9 @@ class PaneListScreenTest {
 
             composeRule.onNodeWithTag("picker-new").performClick()
             composeRule.onNodeWithTag("picker-text").performTextInput("beta")
-            composeRule.onNodeWithTag("picker-ask").performClick()
+            composeRule.onNodeWithTag("picker-text").performImeAction()
             composeRule.awaitUntil { countNodes(hasTestTag("picker-row:0")) == 1 }
-            composeRule.onNodeWithTag("picker-row:0").performClick()
+            composeRule.onNodeWithTag("picker-row:0").performSemanticsAction(SemanticsActions.OnClick)
             composeRule.awaitUntil { openedPaneId.get() != null }
 
             assertEquals("%9", openedPaneId.get())
@@ -625,32 +628,18 @@ class PaneListScreenTest {
     }
 
     @Test
-    fun paneRowStillOpensItsPaneWhilePickerIsOpen() {
-        FakeOrreryServer().use { server ->
-            server.respond(PANES_LIST, panesBody())
-            setScreen(server)
-            awaitRow("%3")
-
-            composeRule.onNodeWithTag("picker-new").performClick()
-            composeRule.onNodeWithTag("picker-text").assertExists()
-            composeRule.onNodeWithTag("pane-row:%3").performClick()
-
-            assertEquals("%3", openedPane?.id)
-            assertNull(openedPaneId.get())
-        }
-    }
-
-    @Test
-    fun cancelHidesThePicker() {
+    fun dismissingThePickerSheetHidesIt() {
         FakeOrreryServer().use { server ->
             server.respond(PANES_LIST, panesBody())
             setScreen(server)
             awaitRow("%1")
 
             composeRule.onNodeWithTag("picker-new").performClick()
-            composeRule.onNodeWithTag("picker-cancel").performClick()
+            composeRule.onNodeWithTag("picker-text").assertExists()
+            composeRule.onNode(SemanticsMatcher.keyIsDefined(SemanticsActions.Dismiss))
+                .performSemanticsAction(SemanticsActions.Dismiss)
 
-            assertEquals(0, countNodes(hasTestTag("picker-text")))
+            composeRule.awaitUntil { countNodes(hasTestTag("picker-text")) == 0 }
         }
     }
 }

@@ -81,7 +81,7 @@ func TestFollowsCountsAnsweredRecommendationsPerLabelAcrossEpics(t *testing.T) {
 	followExec(t, s, `UPDATE epic_questions SET label = '' WHERE epic = ? AND seq = 5`, claimEpic)
 	followExec(t, s, `UPDATE epic_questions SET recommended = '' WHERE epic = ? AND seq = 6`, claimEpic)
 	noted := completedAt().Add(time.Minute)
-	if _, err := s.AnswerEpic(ctx, claimEpic, "D3", "Keep the cheap path.", noted); err != nil {
+	if _, err := s.AnswerEpic(ctx, claimEpic, "D3", "Keep the cheap path.", Maker{}, noted); err != nil {
 		t.Fatalf("AnswerEpic note: %v", err)
 	}
 

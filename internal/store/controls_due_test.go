@@ -37,7 +37,12 @@ func TestPauseEpicRecordsTheOwnerSource(t *testing.T) {
 	s := openEpicStore(t)
 	createEpic(t, s, fullEpic(claimEpic))
 
-	if err := s.PauseEpic(context.Background(), claimEpic); err != nil {
+	if err := s.PauseEpic(
+		context.Background(),
+		claimEpic,
+		Maker{By: MakerOwner},
+		time.Unix(1700000000, 0),
+	); err != nil {
 		t.Fatalf("PauseEpic: %v", err)
 	}
 	if got := pauseSourceOf(t, s); got != "owner" {
@@ -52,7 +57,7 @@ func TestPauseEpicOverALimitPauseIsAcceptedAndClosesItsDueRow(t *testing.T) {
 	createEpic(t, s, fullEpic(claimEpic))
 	freeLimitOf(t, s, claimTurnOf(t, s), time.Unix(dueResetA, 0))
 
-	if err := s.PauseEpic(ctx, claimEpic); err != nil {
+	if err := s.PauseEpic(ctx, claimEpic, Maker{By: MakerOwner}, time.Unix(1700000000, 0)); err != nil {
 		t.Fatalf("PauseEpic over a limit pause: %v", err)
 	}
 	if paused, _ := epicFlags(t, s); paused != 1 {
@@ -85,13 +90,17 @@ func TestPauseEpicRefusesASecondOwnerPauseAndWritesNothing(t *testing.T) {
 	ctx := context.Background()
 	s := openEpicStore(t)
 	createEpic(t, s, fullEpic(claimEpic))
-	if err := s.PauseEpic(ctx, claimEpic); err != nil {
+	if err := s.PauseEpic(ctx, claimEpic, Maker{By: MakerOwner}, time.Unix(1700000000, 0)); err != nil {
 		t.Fatalf("PauseEpic: %v", err)
 	}
 	insertStaleDueRow(t, s)
 
 	before := controlRows(t, s)
-	requireRefusal(t, s.PauseEpic(ctx, claimEpic), "epic "+claimEpic+" is already paused")
+	requireRefusal(
+		t,
+		s.PauseEpic(ctx, claimEpic, Maker{By: MakerOwner}, time.Unix(1700000000, 0)),
+		"epic "+claimEpic+" is already paused",
+	)
 	if got := controlRows(t, s); !reflect.DeepEqual(got, before) {
 		t.Errorf("rows after refused PauseEpic = %v, want %v", got, before)
 	}
@@ -110,7 +119,12 @@ func TestStopEpicRecordsTheOwnerSourceAndClosesTheDueRows(t *testing.T) {
 	claimTurnOf(t, s)
 	insertStaleDueRow(t, s)
 
-	if _, err := s.StopEpic(context.Background(), claimEpic); err != nil {
+	if _, err := s.StopEpic(
+		context.Background(),
+		claimEpic,
+		Maker{By: MakerOwner},
+		time.Unix(1700000000, 0),
+	); err != nil {
 		t.Fatalf("StopEpic: %v", err)
 	}
 	if got := pauseSourceOf(t, s); got != "owner" {
@@ -126,7 +140,12 @@ func TestResumeEpicClosesTheDueRowsOfTheEpic(t *testing.T) {
 	s := openEpicStore(t)
 	limitedWithTwoDueRowsOf(t, s)
 
-	if err := s.ResumeEpic(context.Background(), claimEpic); err != nil {
+	if err := s.ResumeEpic(
+		context.Background(),
+		claimEpic,
+		Maker{By: MakerOwner},
+		time.Unix(1700000000, 0),
+	); err != nil {
 		t.Fatalf("ResumeEpic: %v", err)
 	}
 	if paused, _ := epicFlags(t, s); paused != 0 {
@@ -216,7 +235,7 @@ func TestResumeDueEpicResumesNothingForAnOwnerPausedEpic(t *testing.T) {
 	ctx := context.Background()
 	s := openEpicStore(t)
 	createEpic(t, s, fullEpic(claimEpic))
-	if err := s.PauseEpic(ctx, claimEpic); err != nil {
+	if err := s.PauseEpic(ctx, claimEpic, Maker{By: MakerOwner}, time.Unix(1700000000, 0)); err != nil {
 		t.Fatalf("PauseEpic: %v", err)
 	}
 	insertStaleDueRow(t, s)

@@ -224,6 +224,9 @@
     "type": "object"
    },
    "type": "array"
+  },
+  "unresolvable": {
+   "type": "string"
   }
  },
  "required": [

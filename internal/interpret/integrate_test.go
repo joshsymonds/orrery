@@ -187,12 +187,12 @@ func (w *integrateWorld) endCapture(path string) {
 	nodeEndEvidence(w.t, w.s, workID(w.t, w.s, path, "capture R1"))
 }
 
-// endRed ends the red capture of R1 at the node run at path as its judge finds the conclusion fails. That is the
-// Requirement not met at base, which a red run passes.
-func (w *integrateWorld) endRed(path string) {
+// endRed ends the red capture of R1 at the built-in epic's red node run as its judge finds the conclusion fails. That
+// is the Requirement not met at base, which a red run passes.
+func (w *integrateWorld) endRed() {
 	w.t.Helper()
 	ctx := context.Background()
-	id := workID(w.t, w.s, path, "R1")
+	id := workID(w.t, w.s, "red", "R1")
 	if err := w.s.RecordEvidenceCapture(ctx, id, store.EvidenceCapture{At: runClock()}); err != nil {
 		w.t.Fatalf("RecordEvidenceCapture %s: %v", id, err)
 	}
@@ -485,16 +485,17 @@ func TestIntegrateOverlapLeavesTaskOutAndTellsThePlanner(t *testing.T) {
 }
 
 // TestBuiltInEpicReachesBuiltThenWaitsAtReview: a database epic pinned to the built-in epic, with one Requirement naming
-// an evidence item, runs red at base first: its capture is judged not met, so red passes and the plan starts. The one
-// task is planned, built and accepted, and its batch integrates green, so the plan ends built and review starts. Review
-// waits: after further passes it is still running, the epic is not parked, and no node after it has started.
+// an evidence item, runs red at base first: its capture is judged not met, so red passes and its cost check at base
+// ends, and then the plan starts. The one task is planned, built and accepted, and its batch integrates green, so the
+// plan ends built and review starts. Review waits: after further passes it is still running, the epic is not parked,
+// and no node after it has started.
 func TestBuiltInEpicReachesBuiltThenWaitsAtReview(t *testing.T) {
 	t.Parallel()
 	w := newIntegrateWorld(t, pinnedTo(builtinPin(t)), viaRunnerPass())
 	s := w.s
 
 	w.pass()
-	w.endRed("red")
+	w.endRed()
 	w.pass()
 	if red := runAt(t, s, "red"); red.State != store.NodeEnded || red.Outcome != "passed" {
 		t.Errorf("red = %+v, want ended passed: the Requirement is not met at base", red)
@@ -505,8 +506,10 @@ func TestBuiltInEpicReachesBuiltThenWaitsAtReview(t *testing.T) {
 	if !reflect.DeepEqual(w.fakes.evidence.calls, wantEvidence) {
 		t.Fatalf("evidence runs = %+v, want %+v", w.fakes.evidence.calls, wantEvidence)
 	}
+	endCost(t, s)
+	w.pass()
 	if plan := runAt(t, s, "plan"); plan.State != store.NodeRunning {
-		t.Fatalf("plan = %+v, want running once red passed", plan)
+		t.Fatalf("plan = %+v, want running once red and the cost check passed", plan)
 	}
 
 	completeTurn(t, s, store.EpicPlan{

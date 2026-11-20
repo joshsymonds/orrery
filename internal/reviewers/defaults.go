@@ -22,29 +22,28 @@ var securityRole string
 //go:embed roles/test_parsimony.md
 var testParsimonyRole string
 
+//go:embed roles/release.md
+var releaseRole string
+
 // defaultsSource names the first layer in the errors a default reviewer's entry would raise.
 const defaultsSource = "orrery defaults"
 
 // ruledOut opens the must_not that Generate adds to conformance for each Must Not Ship entry.
 const ruledOut = "The change does what this entry rules out: "
 
-// Defaults returns orrery's default reviewers, the first layer Merge applies: floor, conformance, integration, security
-// and test_parsimony. Each is read-only, verified, and runs on the model its entry names. Every call returns fresh
-// entries, so a caller may change them.
+// Defaults returns orrery's default reviewers, the first layer Merge applies: floor, conformance, integration, security,
+// test_parsimony and release. Each is read-only and runs on the model its entry names. Each but release is verified;
+// release's refusal is taken as its verdict. Every call returns fresh entries, so a caller may change them.
 func Defaults() []Entry {
 	entries := []Entry{
 		{
 			Name:  "floor",
 			Stage: []string{StageTask},
 			Must: []string{
-				"Each capture for the task's Requirements would fail if the behavior it proves were removed.",
+				"The change does what the task asked, leaves the checks that judge it intact, and the tests it adds " +
+					"or changes would fail if the behavior they cover were removed.",
 			},
 			MustNot: []string{
-				"The change suppresses, skips or disables a check.",
-				"The change weakens a test or makes one tautological.",
-				"The change adds dead code.",
-				"The change leaves an error unhandled.",
-				"The change does something the task did not ask for.",
 				"The change introduces a security or data-loss failure with a reachable precondition.",
 			},
 			Prompt: new(floorRole),
@@ -77,7 +76,7 @@ func Defaults() []Entry {
 		},
 		{
 			Name:  TestParsimony,
-			Stage: []string{StageTask, StageEpic},
+			Stage: []string{StageEpic},
 			MustNot: []string{
 				"The change adds a test that uses a real wait or a real clock.",
 				"The change adds a test that starts its own real resource where a shared one exists.",
@@ -86,11 +85,21 @@ func Defaults() []Entry {
 				"The change adds an unjustified golden suite.",
 				"The change adds a test that asserts wall-clock timing.",
 				"The change adds a test that checks model output deterministically.",
-				"The change adds or changes tests that push a package over its test CPU budget (a test-budget line " +
-					"in Test cost), or a test whose own run is slow (seconds, not milliseconds), without a stated " +
-					"reason in the task.",
+				"The change adds or changes tests that push a package's test CPU cost over its base (a Test cost " +
+					"line marked over), or, for a package with no base measurement, over its budget (a test-budget " +
+					"line in Test cost), or a test whose own run is slow (seconds, not milliseconds), without a " +
+					"stated reason in the task.",
 			},
 			Prompt: new(testParsimonyRole), Model: new("sonnet"), Tools: readOnlyTools(), Verify: new(true),
+		},
+		{
+			// Verify is off: a refusal is taken as the reviewer's verdict, since no verifier runs for a release.
+			Name:  "release",
+			Stage: []string{StageRelease},
+			MustNot: []string{
+				"The candidate carries a clear danger to the release's destination that the contract did not anticipate.",
+			},
+			Prompt: new(releaseRole), Model: new("opus"), Tools: readOnlyTools(), Verify: new(false),
 		},
 	}
 	for i := range entries {

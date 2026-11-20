@@ -207,7 +207,7 @@ func startDaemonWithEnv(
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
-	go func() { done <- enginehost.Serve(ctx, ln, nil, steps, nil, nil, nil, nil, nil, nil) }()
+	go func() { done <- enginehost.Serve(ctx, ln, nil, steps, nil, nil, nil, nil, nil, nil, nil) }()
 	t.Cleanup(func() {
 		cancel()
 		if err := <-done; err != nil {
@@ -379,6 +379,7 @@ func TestToolsListNamesEveryStepEpicAndEvidenceTool(t *testing.T) {
 		"epic_release",
 		"epic_resume",
 		"epic_retry",
+		"epic_steer",
 		"epic_stop",
 		"evidence_get",
 		"evidence_list",

@@ -728,7 +728,7 @@ class MainActivityEpicsTest {
         composeRule.onNodeWithTag("epic-summary").performClick()
 
         awaitNode(hasTestTag("contract-screen"))
-        awaitNode(hasTestTag("contract-heading:0").and(hasText("What you asked for")))
+        awaitNode(hasTestTag("contract-heading:0").and(hasText("WHAT YOU ASKED FOR")))
         awaitNone(hasTestTag("epic-summary"))
         composeRule.onNodeWithTag("crumb:0").assertTextEquals("orrery")
         composeRule.onNodeWithTag("crumb:1").assertTextEquals(EPIC_SLUG)

@@ -155,5 +155,24 @@ public interface EpicHistoryEntryOrBuilder extends
    */
   io.github.joshsymonds.orrery.gen.orrery.v1.EpicTell getTell();
 
+  /**
+   * <pre>
+   * An action taken on the epic's steering or controls.
+   * </pre>
+   *
+   * <code>.orrery.v1.EpicAction action = 9 [json_name = "action"];</code>
+   * @return Whether the action field is set.
+   */
+  boolean hasAction();
+  /**
+   * <pre>
+   * An action taken on the epic's steering or controls.
+   * </pre>
+   *
+   * <code>.orrery.v1.EpicAction action = 9 [json_name = "action"];</code>
+   * @return The action.
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.EpicAction getAction();
+
   public io.github.joshsymonds.orrery.gen.orrery.v1.EpicHistoryEntry.ItemCase getItemCase();
 }

@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// sessionFeedOwedEngine adds the engine session id, so a step's caller, an epic's creator and an engine prompt name
+// sessionFeedOwedEngine adds the engine session id, so a step's caller, an epic's steerer and an engine prompt name
 // a sessions row.
 func sessionFeedOwedEngine(t *testing.T, s *Store, id string) {
 	t.Helper()
@@ -51,7 +51,9 @@ func TestSessionFeedOwedStreamFeedNamesOwedSessions(t *testing.T) {
 	ctx := context.Background()
 	s := openSyncStore(t)
 	sessionFeedOwedEngine(t, s, "S")
-	createEpic(t, s, fullEpic(claimEpic))
+	steered := fullEpic(claimEpic)
+	steered.Steerer = "S"
+	createEpic(t, s, steered)
 	if _, err := s.RecordEpicCall(ctx, claimEpic, EpicCaller{Session: "S"}, "epic_create", claimedAt()); err != nil {
 		t.Fatalf("RecordEpicCall epic_create by S: %v", err)
 	}

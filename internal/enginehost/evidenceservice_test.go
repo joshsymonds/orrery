@@ -81,7 +81,7 @@ func evidenceServiceStartServer(t *testing.T, evidence EvidenceCommands) string 
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
-	go func() { done <- Serve(ctx, ln, nil, nil, nil, nil, evidence, nil, nil, nil) }()
+	go func() { done <- Serve(ctx, ln, nil, nil, nil, nil, nil, evidence, nil, nil, nil) }()
 	t.Cleanup(func() {
 		cancel()
 		if err := <-done; err != nil {

@@ -127,7 +127,7 @@ const sessionStates: [string, string, string][] = [
   ["done", "done", "done"],
   ["interrupted", "interrupted", "interrupted"],
   ["failed", "ended", "failed"],
-  ["stopped", "ended", "stopped"],
+  ["stopped", "stopped", "stopped"],
   ["paused", "idle", "paused"],
   ["", "idle", "idle"],
 ];

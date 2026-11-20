@@ -187,7 +187,7 @@
   },
   {
     "name": "epic_create",
-    "description": "Create an epic from an accepted contract. decisions seeds the epic's recorded decisions. workflow names the workflow the epic pins, epic by default. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. A refusal names the field that failed.",
+    "description": "Create an epic from an accepted contract. decisions seeds the epic's recorded decisions. workflow names the workflow the epic pins, epic by default. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. Lint findings come back as warnings: a warning line for each, naming its field and reason, and the epic is still stored. A refusal names the field that failed.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -477,6 +477,22 @@
         "id",
         "requirement",
         "item"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "epic_steer",
+    "description": "Move the steering of an epic by id to the calling conversation, which takes the epic over from the conversation that steers it now. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. A refusal names why the steering did not move.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
       ],
       "additionalProperties": false
     }

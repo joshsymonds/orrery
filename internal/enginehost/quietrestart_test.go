@@ -68,7 +68,7 @@ func TestQuietRestartQuietBeforeSayAndNotResumed(t *testing.T) {
 		"quiet": {state: "interrupted", reason: restartedReason},
 	})
 	want := Notice{Session: "quiet", Dir: dir, State: "interrupted", Body: restartedReason}
-	if got := sink.got(); len(got) != 1 || got[0] != want {
+	if got := sink.got(); len(got) != 1 || !reflect.DeepEqual(got[0], want) {
 		t.Fatalf("notices = %+v, want exactly [%+v]", got, want)
 	}
 	if texts := promptTexts(t, path, "quiet"); !slices.Equal(texts, []string{ownerWords}) {
@@ -196,7 +196,7 @@ func TestQuietRestartFailedQuietReadResumesNoRow(t *testing.T) {
 		"working": {state: "interrupted", reason: restartedReason},
 	})
 	want := Notice{Session: "working", Dir: dir, State: "interrupted", Body: restartedReason}
-	if got := sink.got(); len(got) != 1 || got[0] != want {
+	if got := sink.got(); len(got) != 1 || !reflect.DeepEqual(got[0], want) {
 		t.Fatalf("notices = %+v, want exactly [%+v]", got, want)
 	}
 	if starts := fakeStarts(t, dir); len(starts) != 0 {

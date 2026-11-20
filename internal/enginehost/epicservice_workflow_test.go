@@ -19,6 +19,9 @@ nodes:
   - id: red
     kind: evidence
     at: base
+  - id: cost
+    kind: cost
+    at: base
   - id: plan
     kind: plan
     body:
@@ -30,7 +33,6 @@ nodes:
     kind: review
   - id: correct
     loop:
-      max: 2
       until: closure.passed
       spent: continue
     body:
@@ -49,7 +51,7 @@ nodes:
     kind: release
 `
 
-const builtInEpicSHA256 = "635c8150d032f47b09ad509c244e39db5d3c098f1dd18b379cc1eb3cb4c6b7ba"
+const builtInEpicSHA256 = "601afde966378774331b2156f0c2c59a59e9c76f1777a737300446d7fd8e1cdf"
 
 // demoWorkflowFile is a repository workflow named demo. Its comment is not in its canonical text.
 const demoWorkflowFile = "# Synthetic demo workflow.\nname: demo\nnodes:\n  - id: plan\n    kind: plan\n    body:\n" +

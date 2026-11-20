@@ -34,6 +34,12 @@ type Rows struct {
 	// of the epic that is still pending, those among it.
 	AmendActions int
 	Actions      int
+	// GapTurns holds the planner turns each gap was given, and Unresolvable the gaps the latest succeeded turn declared
+	// it cannot resolve without the owner, as store.EpicFlow reads them. Reruns holds the reruns rerun_review actions
+	// asked for, in turn then position order, as store.EpicFlow reads them.
+	GapTurns     []store.GapTurn
+	Unresolvable []store.GapDeclaration
+	Reruns       []store.ReviewRerun
 	Review       store.Review
 	Reviewers    []Reviewer
 	Releases     []store.ReleaseRun
@@ -79,11 +85,12 @@ const (
 // and Output the output an end reports. IDs are the ids of the work a start starts and Items the Requirement each of
 // them is for, in the same order. Tasks are the seqs of the tasks a prepare claims for its batch, in seq order. Units
 // are the steps a start of a review or closure run starts, in the order of IDs. Verdicts, Ledger, Round, Closures and
-// Phase are what a review, closure or conclusion ends with. Revision, when set, is the revision the work runs at in
-// place of the run's own: a release run walks the Done gates and captures of a merge the release integrator committed,
-// and records it as the candidate, at that commit. Reason, on a sync run's advance, is why the epic is no longer at the
-// quiet point the sync started at, and empty while it is. Tell, on a sync run's end, reports whether its output is
-// told to the owner.
+// Phase are what a review, closure or conclusion ends with. Gaps are the live gaps a conclusion's gap round gives
+// each a planner turn, and Question is the gaps question an ending with gaps opens. Revision, when set, is the revision
+// the work runs at in place of the run's own: a release run walks the Done gates and captures of a merge the release
+// integrator committed, and records it as the candidate, at that commit. Reason, on a sync run's advance, is why the
+// epic is no longer at the quiet point the sync started at, and empty while it is. Tell, on a sync run's end, reports
+// whether its output is told to the owner.
 type Action struct {
 	Kind     ActionKind
 	Outcome  string
@@ -100,6 +107,8 @@ type Action struct {
 	Revision string
 	Reason   string
 	Tell     bool
+	Gaps     []Gap
+	Question store.GapsQuestion
 }
 
 // Kind decides what happens next to a node run.
@@ -119,7 +128,8 @@ type Idler interface {
 var _ Idler = Release{}
 
 // Plan is the plan kind. Its run ends complete once the epic's last turn, above the turn the run started after, has
-// succeeded with outcome complete, and no turn runs, no task is open and no trigger is pending.
+// succeeded with outcome complete, and no turn runs, no task is open, no trigger is pending and no planner action is
+// pending.
 type Plan struct{}
 
 // Build is the build kind. Its run is one planned task: it runs while the task is open on an epic with a base whose phase
@@ -156,11 +166,13 @@ func (Plan) Decide(node Node, rows Rows) Action {
 }
 
 // planComplete reports whether a plan run started after turn mark may end complete. The epic's highest-seq turn must be
-// above mark, succeeded and complete. No turn may be running, no task open and no trigger pending. No evidence amendment
-// may be under way either, neither an amend_evidence action still pending nor an amendment checking or capturing, since
-// its end decides what the plan has built and wakes the planner.
+// above mark, succeeded and complete. No turn may be running, no task open, no trigger pending and no planner action
+// pending: a turn may return complete beside an action, such as a retry_node that reruns the plan's failed batch, and
+// the plan must not end before that action is carried out, or the run it reruns would run under an ended plan. No
+// evidence amendment may be under way either, neither an amend_evidence action still pending nor an amendment checking
+// or capturing, since its end decides what the plan has built and wakes the planner.
 func planComplete(mark int64, rows Rows) bool {
-	if rows.Pending != 0 || anyTaskOpen(rows.Epic.Tasks) || amending(rows) {
+	if rows.Pending != 0 || rows.Actions != 0 || anyTaskOpen(rows.Epic.Tasks) || amending(rows) {
 		return false
 	}
 	var last store.EpicTurn

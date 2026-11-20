@@ -15,7 +15,8 @@ func replanRun(attempt int64, start, reason string) store.ReleaseRun {
 // TestReleaseReplanDecisions checks how the release kind sends a release back to planning and resumes it: a failed round
 // of the integrator with a replan of its attempt replans with the report in place of stopping, a replan of another
 // attempt does not, a stopped epic whose run a retry turned running replans and one with no replan waits, and a
-// correcting epic waits while its replan plan runs and resumes once it has ended.
+// correcting epic replans when no plan runs under its replan prefix, waits while its replan plan runs and resumes once it
+// has ended.
 func TestReleaseReplanDecisions(t *testing.T) {
 	t.Parallel()
 	report := "the release integrator stopped the merge: README: side: candidate"
@@ -62,7 +63,7 @@ func TestReleaseReplanDecisions(t *testing.T) {
 			rows: correcting(store.NodeRunning),
 			want: Action{Kind: ActNone},
 		},
-		{name: "correcting epic with no plan waits", rows: correcting(""), want: Action{Kind: ActNone}},
+		{name: "correcting epic with no plan replans", rows: correcting(""), want: Action{Kind: ActReplan}},
 		{
 			name: "correcting epic resumes once its plan ended",
 			rows: correcting(store.NodeEnded),

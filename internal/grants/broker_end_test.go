@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/storetest"
@@ -74,11 +73,12 @@ func (l *storeLock) release(t *testing.T) {
 
 // TestEndedGrantTheStoreRefusesKeepsItsMembersUntilASettleRemovesIt ends a grant while the store refuses writes. The
 // grant's row stays, so its member stays granted to it and a request queued for the member is not granted it. Once the
-// store takes writes again, the next settle, here one a status tick starts, removes the row and grants the member to the
-// queued request, which stores it with no ErrMemberGranted.
+// store takes writes again, the next settle, here the one the store's retry fires, removes the row and grants the
+// member to the queued request, which stores it with no ErrMemberGranted.
 func TestEndedGrantTheStoreRefusesKeepsItsMembersUntilASettleRemovesIt(t *testing.T) {
 	s, path := openBusyStore(t)
-	b := brokerOn(t, s, nil)
+	timers := &retryTimers{}
+	b := wakeBroker(t, s, nil, nil, timers)
 	p := awakePool(t, "p", 1, "m1")
 	ctx, cancel := context.WithCancel(t.Context())
 	first := start(ctx, b, request("a", p, 1))
@@ -106,9 +106,7 @@ func TestEndedGrantTheStoreRefusesKeepsItsMembersUntilASettleRemovesIt(t *testin
 	}
 
 	lock.release(t)
-	tick := make(chan time.Time)
-	go b.Run(t.Context(), tick)
-	tick <- fixedNow()
+	timers.fire(t)
 	next := second.next(t).Grant
 	if next == nil || !slices.Equal(next.Members, []Member{{Pool: "p", Name: "m1"}}) {
 		t.Fatalf("second request got %+v, want m1 once the ended grant's row is removed", next)
@@ -120,16 +118,20 @@ func TestEndedGrantTheStoreRefusesKeepsItsMembersUntilASettleRemovesIt(t *testin
 
 // TestGrantTheStoreRefusesBusyKeepsTheRequestQueuedUntilASettleStoresIt queues a request while the store refuses writes.
 // Its grant is not stored, and the request stays queued rather than failing. Once the store takes writes again, the
-// settle a status tick starts stores the grant and grants the request.
+// settle the store's retry fires stores the grant and grants the request.
 func TestGrantTheStoreRefusesBusyKeepsTheRequestQueuedUntilASettleStoresIt(t *testing.T) {
 	s, path := openBusyStore(t)
-	b := brokerOn(t, s, nil)
+	timers := &retryTimers{}
+	b := wakeBroker(t, s, nil, nil, timers)
 	p := awakePool(t, "p", 1, "m1")
 	lock := lockStore(t, path)
 	c := start(t.Context(), b, request("a", p, 1))
 	if e := c.next(t); e.Position != 1 {
 		t.Fatalf("first event = %+v, want position 1", e)
 	}
+	// The status and the admit that follow it run after the position is sent. Once m1 is admitted, its settle has
+	// refused the grant and armed the retry.
+	awaitState(t, b, "p", "m1", Admitted)
 	if got := queuedProjects(b); !slices.Equal(got, []string{"a"}) {
 		t.Fatalf("queued = %v while the store refuses the grant, want a waiting", got)
 	}
@@ -138,9 +140,7 @@ func TestGrantTheStoreRefusesBusyKeepsTheRequestQueuedUntilASettleStoresIt(t *te
 	}
 
 	lock.release(t)
-	tick := make(chan time.Time)
-	go b.Run(t.Context(), tick)
-	tick <- fixedNow()
+	timers.fire(t)
 	granted := c.next(t).Grant
 	if granted == nil || !slices.Equal(granted.Members, []Member{{Pool: "p", Name: "m1"}}) {
 		t.Fatalf("request got %+v, want m1 once the store takes the grant", granted)

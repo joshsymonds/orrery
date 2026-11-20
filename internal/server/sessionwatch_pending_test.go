@@ -36,6 +36,7 @@ func addCardEvents(t *testing.T, s *store.Store) {
 	at := time.Unix(eventAt, 0)
 	epic := store.EpicRow{
 		ID: cardEpic, Repository: "/work/card", Title: "Card epic", Phase: "released", Created: at, Changed: at,
+		Steerer: eventEngine,
 	}
 	if err := s.CreateEpic(t.Context(), epic); err != nil {
 		t.Fatalf("CreateEpic: %v", err)
@@ -65,15 +66,16 @@ func cardPending(waits string) []*orreryv1.PendingEvent {
 // cardStepEnd is the card of cardStep's end, labeled waits.
 func cardStepEnd(waits string) *orreryv1.PendingEvent {
 	return &orreryv1.PendingEvent{
-		Id:     cardStepEvent,
-		Kind:   "step_end",
-		Step:   cardStep,
-		Agent:  "implementer",
-		End:    "done",
-		Status: "passed",
-		Brief:  "Return: First line...\nNot shown: return (22 bytes)\nReason: gate green\nMore: step_result id step-card",
-		Epic:   cardEpic,
-		Waits:  waits,
+		Id:        cardStepEvent,
+		Kind:      "step_end",
+		Step:      cardStep,
+		Agent:     "implementer",
+		End:       "done",
+		Status:    "passed",
+		Brief:     "Return: First line...\nNot shown: return (22 bytes)\nReason: gate green\nMore: step_result id step-card",
+		Epic:      cardEpic,
+		Waits:     waits,
+		StepFacts: &orreryv1.StepFacts{},
 	}
 }
 

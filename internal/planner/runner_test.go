@@ -523,8 +523,16 @@ func TestRunnerPromptOfNextTurnShowsTheFollowCountOfAnsweredRecommendation(t *te
 	steps.end("step-1", store.StepRow{End: "done", Result: validPlan})
 	waitFor(t, "turn 1 to succeed", func() bool { return epicOf(t, s).Turns[0].State == "succeeded" })
 
-	if _, err := s.AnswerQuestion(context.Background(), runnerEpicID, "answer-1", "use sqlite", 1, "sqlite",
-		claimedAt()); err != nil {
+	if _, err := s.AnswerQuestion(
+		context.Background(),
+		runnerEpicID,
+		"answer-1",
+		"use sqlite",
+		1,
+		"sqlite",
+		store.Maker{},
+		claimedAt(),
+	); err != nil {
 		t.Fatalf("AnswerQuestion: %v", err)
 	}
 	runner.Pass(t.Context())

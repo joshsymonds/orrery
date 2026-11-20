@@ -38,7 +38,8 @@ type Node struct {
 }
 
 // Loop is a loop node's settings: Max rounds at most, the Until outcome that ends it, and Spent, what happens when
-// the rounds run out: park or continue.
+// the rounds run out: park or continue. A loop that names no max has Max 0, and it has no count of rounds: it ends
+// when Until holds or when a round's plan planned no task.
 type Loop struct {
 	Max   int
 	Until Outcome
@@ -82,6 +83,7 @@ const (
 	kindBuild     = "build"
 	kindIntegrate = "integrate"
 	kindGate      = "gate"
+	kindCost      = "cost"
 	kindEvidence  = "evidence"
 	kindOwned     = "owned"
 	kindCommand   = "command"
@@ -154,11 +156,12 @@ type settingsReader func(here site, pairs []pair) (*Settings, error)
 // kinds is the table of registered kinds. A plan sits at the top level and in a loop body, holds a build and an
 // integrate and reports complete. A build sits only in a plan body and takes no settings and reports no outcome. An
 // integrate sits only in a plan body, takes no settings and no body, and reports passed or failed. A check kind sits
-// anywhere, takes the settings its reader reads and reports passed or failed. The epic kinds take no settings and no
-// body: a review, a conclude and a release sit at the top level, and a closure sits in a loop body. A review and a
-// conclude report passed, and a closure and a release report passed or failed. The interpreter always registers the
-// release kind, and registers the review, closure and conclude kinds when it has reviewers and an ending; without them
-// a node of one of those waits.
+// anywhere, takes the settings its reader reads and reports passed or failed. A cost sits anywhere, takes the setting
+// its reader reads and reports passed only, since it measures the base and never judges it. The epic kinds take no
+// settings and no body: a review, a conclude and a release sit at the top level, and a closure sits in a loop body. A
+// review and a conclude report passed, and a closure and a release report passed or failed. The interpreter always
+// registers the release kind, and registers the review, closure and conclude kinds when it has reviewers and an ending;
+// without them a node of one of those waits.
 func kinds() map[string]kindSpec {
 	checkOutcomes := []string{outcomePassed, outcomeFailed}
 	passed := []string{outcomePassed}
@@ -172,6 +175,7 @@ func kinds() map[string]kindSpec {
 		kindEvidence: {
 			sits: anywhere(), outcomes: checkOutcomes, keys: []string{keyAt}, read: readEvidenceSettings,
 		},
+		kindCost: {sits: anywhere(), outcomes: passed, keys: []string{keyAt}, read: readEvidenceSettings},
 		kindOwned: {
 			sits: anywhere(), outcomes: checkOutcomes, keys: []string{keyPaths}, read: readOwnedSettings,
 		},
@@ -572,11 +576,11 @@ func readLoopFields(here site, pairs []pair) (Loop, error) {
 	return Loop{Max: rounds, Until: until, Spent: spent}, nil
 }
 
-// readMax reads max: an integer of 1 or more, required.
+// readMax reads max: an integer of 1 or more, or 0 when it is absent, which names no count of rounds.
 func readMax(here site, pairs []pair) (int, error) {
 	pr, ok := find(pairs, keyMax)
 	if !ok {
-		return 0, here.refusef(here.line, loopPrefix+keyMax, "required")
+		return 0, nil
 	}
 	return countOf(here, pr)
 }

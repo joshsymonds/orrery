@@ -22,6 +22,9 @@ nodes:
   - id: red
     kind: evidence
     at: base
+  - id: cost
+    kind: cost
+    at: base
   - id: plan
     kind: plan
     body:
@@ -33,7 +36,6 @@ nodes:
     kind: review
   - id: correct
     loop:
-      max: 2
       until: closure.passed
       spent: continue
     body:
@@ -52,7 +54,7 @@ nodes:
     kind: release
 `
 
-const pinTestEpicSHA = "635c8150d032f47b09ad509c244e39db5d3c098f1dd18b379cc1eb3cb4c6b7ba"
+const pinTestEpicSHA = "601afde966378774331b2156f0c2c59a59e9c76f1777a737300446d7fd8e1cdf"
 
 // pinTestOutline is a committed epic: an outline plan holding one write build.
 const pinTestOutline = "name: epic\nnodes:\n  - id: outline\n    kind: plan\n    body:\n      - id: write\n        kind: build\n"
@@ -104,6 +106,7 @@ func TestPinWorkflowEmptyNamePinsBuiltInEpic(t *testing.T) {
 		SHA256: pinTestEpicSHA,
 		Nodes: []store.EpicWorkflowNode{
 			{ID: "red", Parent: "", Kind: "evidence"},
+			{ID: "cost", Parent: "", Kind: "cost"},
 			{ID: "plan", Parent: "", Kind: "plan"},
 			{ID: "build", Parent: "plan", Kind: "build"},
 			{ID: "integrate", Parent: "plan", Kind: "integrate"},

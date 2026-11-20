@@ -14,7 +14,7 @@ import (
 )
 
 // sessionChange is what a committed write did to the session feed: the largest seq of the events rows it inserted, 0
-// when it inserted none, and the sorted, distinct session ids the write names (feedsSession and addCreators). A write
+// when it inserted none, and the sorted, distinct session ids the write names (feedsSession and addSteerers). A write
 // that names no session has no sessions, and the hook is not called for it.
 type sessionChange struct {
 	seq      int64
@@ -35,7 +35,7 @@ type sessionRow struct {
 // changed owed state with no event appended has seq 0. sessions is the sorted, distinct session ids the write names:
 // the session of each events row it inserted, each engine text row it inserted, updated or deleted, each caller event,
 // put-off mark and prompt state it inserted, updated or deleted, the caller of each step it inserted or updated when
-// the caller is set, the session of each epic session it inserted or updated, and the creator session of each epic
+// the caller is set, the session of each epic session it inserted or updated, and the steerer session of each epic
 // whose revision it moved, when the epic has one. The prune of old events, which names no session, calls nothing for
 // its deletes. A write that rolls back, fails to commit or names no session calls nothing. A nil fn clears the hook.
 // It is safe to call while writes run.
@@ -122,7 +122,7 @@ func (m *epicMoves) recordSession(data *sqlite.SQLitePreUpdateData) {
 }
 
 // flushSessions returns what the armed write did to the session feed: the largest seq of its events rows and the
-// sorted, distinct session ids its feed rows name, with the creator of each epic in moved, which the write moved and
+// sorted, distinct session ids its feed rows name, with the steerer of each epic in moved, which the write moved and
 // which is read now, in the write. It resets the record, and returns the error the hook met, if any.
 func (m *epicMoves) flushSessions(ctx context.Context, db sqlcgen.DBTX, moved []string) (sessionChange, error) {
 	m.mu.Lock()
@@ -148,7 +148,7 @@ func (m *epicMoves) flushSessions(ctx context.Context, db sqlcgen.DBTX, moved []
 		}
 		change.seq = max(change.seq, row.seq)
 	}
-	ids, err := addCreators(ctx, db, ids, moved)
+	ids, err := addSteerers(ctx, db, ids, moved)
 	if err != nil {
 		return sessionChange{}, err
 	}
@@ -156,22 +156,21 @@ func (m *epicMoves) flushSessions(ctx context.Context, db sqlcgen.DBTX, moved []
 	return change, nil
 }
 
-// addCreators adds to ids the creator session of each epic in epics, read as ListCreatedEpics reads a creator: the
-// session of the newest epic_sessions row marked creator for the epic, when that session has a sessions row. An epic
-// with no creator adds nothing.
-func addCreators(
+// addSteerers adds to ids the steerer session of each epic in epics, read as EpicSteerer reads a steerer: the epic's
+// steerer, when that session has a sessions row. An epic with no steerer adds nothing.
+func addSteerers(
 	ctx context.Context, db sqlcgen.DBTX, ids map[string]struct{}, epics []string,
 ) (map[string]struct{}, error) {
 	queries := sqlcgen.New(db)
 	for _, epic := range epics {
-		creator, err := queries.GetEpicCreator(ctx, epic)
+		steerer, err := queries.GetEpicSteerer(ctx, epic)
 		if errors.Is(err, sql.ErrNoRows) {
 			continue
 		}
 		if err != nil {
-			return nil, fmt.Errorf("read creator of epic %s: %w", epic, err)
+			return nil, fmt.Errorf("read steerer of epic %s: %w", epic, err)
 		}
-		ids = addTo(ids, creator.ID)
+		ids = addTo(ids, steerer.ID)
 	}
 	return ids, nil
 }

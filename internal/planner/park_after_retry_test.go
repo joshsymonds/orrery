@@ -28,7 +28,11 @@ type retryingStore struct {
 }
 
 func (r *retryingStore) ClaimTurn(ctx context.Context, epic string, at time.Time) (store.EpicTurn, error) {
-	retry := func() { r.once.Do(func() { r.retryErr = r.Store.RetryEpic(ctx, epic) }) }
+	retry := func() {
+		r.once.Do(func() {
+			r.retryErr = r.Store.RetryEpic(ctx, epic, store.Maker{By: store.MakerOwner}, time.Unix(1700000000, 0))
+		})
+	}
 	if r.beforeClaim {
 		retry()
 	}
@@ -140,7 +144,12 @@ func TestRunnerParkTurnYieldsToARetrySinceItsClaim(t *testing.T) {
 		if _, err := s.ClaimTurn(ctx, runnerEpicID, claimedAt()); err != nil {
 			t.Fatalf("ClaimTurn: %v", err)
 		}
-		if err := s.RetryEpic(ctx, runnerEpicID); err != nil {
+		if err := s.RetryEpic(
+			ctx,
+			runnerEpicID,
+			store.Maker{By: store.MakerOwner},
+			time.Unix(1700000000, 0),
+		); err != nil {
 			t.Fatalf("RetryEpic: %v", err)
 		}
 		var reads atomic.Int64

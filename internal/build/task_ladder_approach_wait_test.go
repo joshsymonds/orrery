@@ -21,6 +21,12 @@ func ladderApproachWaitBuild(stage string, attempt int64) store.TaskBuild {
 	return store.TaskBuild{Stage: stage, Base: decideBranch, Attempt: attempt, RedRun: "red-run"}
 }
 
+// ladderApproachWaitView returns the view of open task 3 of decideEpic on build, with versions stored and no step.
+func ladderApproachWaitView(build store.TaskBuild, versions ...store.TaskVersion) View {
+	task := store.EpicTask{Seq: 3, Files: []string{"a.go"}, Status: taskOpen, Build: build, Versions: versions}
+	return View{Epic: decideEpic, Task: task}
+}
+
 // ladderApproachWaitVersion returns a change of approach in state, as the planner's change_approach stores it.
 func ladderApproachWaitVersion(state string) store.TaskVersion {
 	return store.TaskVersion{Version: ladderApproachWaitNumber, Source: store.SourceApproach, State: state}
@@ -45,7 +51,7 @@ func TestTaskLadderApproachWaitsForVersion(t *testing.T) {
 	t.Parallel()
 	movedRed := ladderApproachWaitBuild(StageImplement, store.ApproachRung)
 	movedRed.Stage = StageRed
-	review := ladderRescueView(ladderApproachWaitBuild(StageReview, store.ApproachRung), nil)
+	review := ladderApproachWaitView(ladderApproachWaitBuild(StageReview, store.ApproachRung))
 	review.ReviewGates = []string{"review"}
 	reviewStep := StepID(decideEpic, 3, StageReview, store.ApproachRung, 0, 0, 0)
 	for _, tc := range []struct {
@@ -54,44 +60,44 @@ func TestTaskLadderApproachWaitsForVersion(t *testing.T) {
 		want Action
 	}{
 		{
-			"implement waits with no version", ladderRescueView(
-				ladderApproachWaitBuild(StageImplement, store.ApproachRung), nil),
+			"implement waits with no version", ladderApproachWaitView(
+				ladderApproachWaitBuild(StageImplement, store.ApproachRung)),
 			Action{Kind: ActNone},
 		},
 		{
-			"red waits with no run", ladderRescueView(ladderApproachWaitBuild(StageRed, store.ApproachRung), nil),
+			"red waits with no run", ladderApproachWaitView(ladderApproachWaitBuild(StageRed, store.ApproachRung)),
 			Action{Kind: ActNone},
 		},
 		{
-			"an applied version starts the snapshot", ladderRescueView(
-				ladderApproachWaitBuild(StageImplement, store.ApproachRung), nil,
+			"an applied version starts the snapshot", ladderApproachWaitView(
+				ladderApproachWaitBuild(StageImplement, store.ApproachRung),
 				ladderApproachWaitVersion(store.VersionApplied)),
 			Action{Kind: ActSnapshot},
 		},
 		{
-			"a checking version moves to red", ladderRescueView(
-				ladderApproachWaitBuild(StageImplement, store.ApproachRung), nil,
+			"a checking version moves to red", ladderApproachWaitView(
+				ladderApproachWaitBuild(StageImplement, store.ApproachRung),
 				ladderApproachWaitVersion(store.VersionChecking)),
 			Action{Kind: ActMove, Next: movedRed},
 		},
 		{
-			"a refused version does not wait again", ladderRescueView(
-				ladderApproachWaitBuild(StageImplement, store.ApproachRung), nil,
+			"a refused version does not wait again", ladderApproachWaitView(
+				ladderApproachWaitBuild(StageImplement, store.ApproachRung),
 				ladderApproachWaitVersion(store.VersionRefused)),
 			Action{Kind: ActSnapshot},
 		},
 		{
-			"rung 6 with no version does not wait", ladderRescueView(
-				ladderApproachWaitBuild(StageImplement, store.LastRung), nil),
+			"rung 5 with no version does not wait", ladderApproachWaitView(
+				ladderApproachWaitBuild(StageImplement, store.LastRung)),
 			Action{Kind: ActSnapshot},
 		},
 		{
-			"rung 4 with no version does not wait", ladderRescueView(
-				ladderApproachWaitBuild(StageImplement, store.OrchestratorRung), nil),
+			"rung 3 with no version does not wait", ladderApproachWaitView(
+				ladderApproachWaitBuild(StageImplement, store.OrchestratorRung)),
 			Action{Kind: ActSnapshot},
 		},
 		{
-			"a review on rung 5 is not held", review,
+			"a review on rung 4 is not held", review,
 			Action{Kind: ActStartStep, Unit: StageReview, ID: reviewStep},
 		},
 	} {
@@ -112,8 +118,8 @@ func ladderApproachWaitCheckLastStart(f *passFixture, id string) {
 	}
 }
 
-// ladderApproachWaitCheckRungs fails the test unless task 1's rungs 5 and 6 are approach rungs that ended failed, and
-// its rung 7 is a gap rung.
+// ladderApproachWaitCheckRungs fails the test unless task 1's rungs 4 and 5 are approach rungs that ended failed, and
+// its rung 6 is a gap rung.
 func ladderApproachWaitCheckRungs(f *passFixture) {
 	f.t.Helper()
 	byRung := map[int64]store.TaskRung{}
@@ -131,8 +137,8 @@ func ladderApproachWaitCheckRungs(f *passFixture) {
 }
 
 // TestTaskLadderApproachRunsTwoAttempts: a task that climbs onto ApproachRung starts no step until the planner's change
-// of approach is stored. Then its implementer runs on rung 5 under that version, and when that attempt fails the task
-// climbs to rung 6 with no wait and no second version. When rung 6 fails too, the task ends as a gap.
+// of approach is stored. Then its implementer runs on rung 4 under that version, and when that attempt fails the task
+// climbs to rung 5 with no wait and no second version. When rung 5 fails too, the task ends as a gap.
 func TestTaskLadderApproachRunsTwoAttempts(t *testing.T) {
 	t.Parallel()
 	f := newPassFixture(t)
@@ -147,7 +153,7 @@ func TestTaskLadderApproachRunsTwoAttempts(t *testing.T) {
 	}
 	if build := f.task().Build; build.Attempt != store.ApproachRung || build.Stage != StageImplement ||
 		build.Step != "" {
-		t.Errorf("build %+v while awaiting the change of approach, want implement on rung 5 with no step", build)
+		t.Errorf("build %+v while awaiting the change of approach, want implement on rung 4 with no step", build)
 	}
 
 	deliverable := ladderApproachWaitDeliverable

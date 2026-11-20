@@ -39,6 +39,9 @@ func buildTasksEpic() *enginev1.StoredEpic {
 					},
 					{Id: "F2", Claim: "synthetic claim two", Location: "synthetic/two.go:20"},
 				},
+			}, {
+				Attempt: 2, Gate: "review-gate", Step: "step-review-2", Verdict: "undetermined",
+				Reason: "synthetic review step stopped",
 			}},
 		},
 		{Id: "T2", Title: "synthetic task two", Status: "open", Requirements: []string{"R2"}},
@@ -77,6 +80,9 @@ func TestEpicsGetAnswersBuildTasksInOrder(t *testing.T) {
 					},
 					{Id: "F2", Claim: "synthetic claim two", Location: "synthetic/two.go:20"},
 				},
+			}, {
+				Attempt: 2, Gate: "review-gate", Step: "step-review-2", Verdict: "undetermined",
+				Reason: "synthetic review step stopped",
 			}},
 		},
 		{Id: "T2", Title: "synthetic task two", Status: "open", Requirements: []string{"R2"}},

@@ -405,7 +405,9 @@ func syncCaptureRegressionTellsAndDoesNotAdvance(images *worldImages) func(t *te
 		w.endCaptureFailed(workID(t, w.s, syncFirst, "capture R1"))
 		w.pass()
 		output := fmt.Sprintf(
-			"merge %s of origin's commit %s into the stored base %s\nR1 regressed from green at the stored base %s",
+			"merge %s of origin's commit %s into the stored base %s\n"+
+				"R1 regressed from green at the stored base %s: its capture exited 0 and was judged fails: "+
+				"the runner stopped",
 			sync.Revision, originHead, candidate, candidate,
 		)
 		w.requireSyncEnded(syncFirst, outcomeFailed, output)
@@ -724,7 +726,9 @@ func TestSyncOnTheBuiltInEpicHoldsThePlannerAndEndsBuilt(t *testing.T) {
 	s := w.s
 
 	w.pass()
-	w.endRed("red")
+	w.endRed()
+	w.pass()
+	endCost(t, s)
 	w.pass()
 	completeTurn(t, s, store.EpicPlan{
 		Decisions: []string{}, Tasks: []store.EpicTaskInput{runTask("only", "b.go")}, Outline: "one task",
@@ -1084,7 +1088,15 @@ type closingSyncStore struct {
 func (c *closingSyncStore) PrepareSync(
 	ctx context.Context, epic, path string, attempt int64, revision, result string, read store.OriginRead,
 ) error {
-	if _, err := c.closer.CloseEpic(ctx, epic, "abandoned", "", store.CloserOwner, runClock()); err != nil {
+	if _, err := c.closer.CloseEpic(
+		ctx,
+		epic,
+		"abandoned",
+		"",
+		store.CloserOwner,
+		store.Maker{By: store.MakerOwner},
+		runClock(),
+	); err != nil {
 		return fmt.Errorf("close epic %s: %w", epic, err)
 	}
 	return c.Store.PrepareSync(ctx, epic, path, attempt, revision, result, read)

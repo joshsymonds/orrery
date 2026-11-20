@@ -62,6 +62,14 @@ service Epics {
   // UnarchiveRow clears the archive mark of the list row of kind and id, and answers an empty reply. The refusals are
   // those of ArchiveRow.
   rpc UnarchiveRow(UnarchiveRowRequest) returns (UnarchiveRowResponse);
+
+  // MoveEpic moves a stored epic's steering to the session the request names, or to the calling conversation when the
+  // session is empty, and returns the stored epic.
+  rpc MoveEpic(MoveEpicRequest) returns (MoveEpicResponse);
+
+  // ContinueEpic starts a steering session for a stored epic, moves the epic's steering to it as its owner, and returns
+  // the stored epic with the session's id.
+  rpc ContinueEpic(ContinueEpicRequest) returns (ContinueEpicResponse);
 }
 
 // Evidence runs an item's evidence, lists an epic's evidence runs and reads the artifacts a run kept.
@@ -181,7 +189,8 @@ message EpicReviewer {
   // Whether the reviewer runs. A disabled reviewer stays in the list and runs at no stage.
   optional bool enabled = 2;
 
-  // The stages the reviewer runs at: task, epic, or both.
+  // The stages the reviewer runs at: any of task, epic and release. The release stage runs once before the release's
+  // first step, on the candidate.
   repeated string stage = 3;
 
   // The statements the reviewer's return must show hold.
@@ -448,6 +457,12 @@ message EpicDecision {
 
   // The question, Q<n>, the decision answers; empty for a note.
   string question = 5;
+
+  // Who recorded the decision: 'owner', 'conversation' or 'orreryd'; empty for a decision stored before this release.
+  string by = 6;
+
+  // The conversation's session id when by is 'conversation', empty otherwise.
+  string session = 7;
 }
 
 // EpicTurn is one planner turn on an epic, in the order it started.
@@ -578,7 +593,8 @@ message EpicTaskVersion {
   // The version's number on its task, from 2.
   int64 version = 1;
 
-  // The source that wrote the version: orchestrator, grant, rescue, approach or carry.
+  // The source that wrote the version: orchestrator, grant, approach, carry or send_back, or rescue for a version stored
+  // before the rescue rung was removed.
   string source = 2;
 
   // The id of the epic decision that wrote the version; empty for orreryd's rule grant.
@@ -627,13 +643,15 @@ message EpicTaskVersion {
 // EpicTaskRung is one rung of a task's ladder: the task build's attempt it stands for, what moved the task onto it, and
 // how it ended.
 message EpicTaskRung {
-  // The task build's attempt number, from 1; 7 is the gap.
+  // The task build's attempt number, from 1; 6 is the gap.
   int64 rung = 1;
 
-  // The rung's kind: attempt, rescue, orchestrator, approach or gap.
+  // The rung's kind: attempt, orchestrator, approach or gap, or rescue for a rung stored before the rescue rung was
+  // removed.
   string kind = 2;
 
-  // What moved the task onto the rung: unit, finding, fail_decision, cannot_meet or fail_task; empty for rung 1.
+  // What moved the task onto the rung: unit, finding, fail_decision, cannot_meet, fail_task or send_back; empty for
+  // rung 1.
   string moved_by = 3;
 
   // The failure's text that moved the task onto the rung; empty for rung 1.
@@ -672,11 +690,14 @@ message EpicTaskReview {
   // The step that ran the review.
   string step = 3;
 
-  // The review's verdict: holds or fails.
+  // The review's verdict: holds, fails, or undetermined when the reviewer gave neither twice.
   string verdict = 4;
 
   // The findings the review raised, in position order.
   repeated EpicTaskFinding findings = 5;
+
+  // Why the review is undetermined: how its step ended. Empty for holds and fails.
+  string reason = 6;
 }
 
 // EpicTaskFinding is one finding a review raised, with its verification.
@@ -1076,6 +1097,39 @@ message StoredEpic {
 
   // How many writes have changed the epic's row or a row of its parts, its steps aside, as EpicSummary.revision counts.
   int64 revision = 30;
+
+  // The id of the session that steers the orreryd epic, empty when it has none.
+  string steerer = 31;
+
+  // Why the orreryd epic is paused, 'owner' or 'limit' while it is paused, empty otherwise.
+  string pause_source = 32;
+
+  // The epic's steering actions in seq order. Only a GetEpic that asks for history fills them.
+  repeated EpicAction actions = 33;
+}
+
+// EpicAction is one action taken on an epic's steering or controls, such as a move.
+message EpicAction {
+  // The action's position on the epic, counted from 1.
+  int64 seq = 1;
+
+  // What the action did, such as move.
+  string kind = 2;
+
+  // When the action was taken, in unix seconds.
+  int64 time = 3;
+
+  // Who took the action, as the store records its maker.
+  string by = 4;
+
+  // The session that took the action, empty when none did.
+  string session = 5;
+
+  // The session the action moved the epic from, empty when none.
+  string from = 6;
+
+  // The session the action moved the epic to, empty when none.
+  string to = 7;
 }
 
 // EpicReleaseRun is one release run of an epic: the candidate it starts from, a release step, a named step, or the judge.
@@ -1191,6 +1245,21 @@ message EpicSummary {
   // How many writes have changed the epic's row or a row of its parts, its steps aside. It only grows, so an epic whose
   // revision moved has changed in some part that GetEpic answers.
   int64 revision = 9;
+
+  // The id of the session that steers the orreryd epic, empty when it has none or for a record epic.
+  string steerer = 10;
+
+  // Whether the epic is paused. A paused epic starts no planner turn until it is resumed.
+  bool paused = 11;
+
+  // Why the epic is paused, 'owner' or 'limit' while it is paused, empty otherwise.
+  string pause_source = 12;
+
+  // Why the epic is parked, empty when it is not parked.
+  string parked = 13;
+
+  // How many of the epic's questions are open.
+  int32 open_questions = 14;
 }
 
 // CreateEpicRequest asks for a new epic.
@@ -1205,10 +1274,14 @@ message CreateEpicRequest {
   string workflow = 3;
 }
 
-// CreateEpicResponse carries the stored epic.
+// CreateEpicResponse carries the stored epic and the warnings its contract drew. The epic is stored with them.
 message CreateEpicResponse {
   // The stored epic.
   StoredEpic epic = 1;
+
+  // One warning for each lint finding that does not refuse the contract: a go test whose -run pattern matches a test at
+  // the base, or a release step that says merge, names a fixed version or waits on CI. Each names its field and reason.
+  repeated string warnings = 2;
 }
 
 // GetEpicRequest names one epic.
@@ -1260,6 +1333,36 @@ message AnswerEpicResponse {
 
   // A warning set when a note is recorded while questions are open; empty otherwise.
   string warning = 2;
+}
+
+// MoveEpicRequest names the epic to move and the session to move it to.
+message MoveEpicRequest {
+  // The epic's id.
+  string id = 1;
+
+  // The session to move the epic's steering to. Empty names the calling conversation.
+  string session = 2;
+}
+
+// MoveEpicResponse carries the moved epic.
+message MoveEpicResponse {
+  // The stored epic.
+  StoredEpic epic = 1;
+}
+
+// ContinueEpicRequest names the epic to continue.
+message ContinueEpicRequest {
+  // The epic's id.
+  string id = 1;
+}
+
+// ContinueEpicResponse carries the continued epic and the steering session started for it.
+message ContinueEpicResponse {
+  // The stored epic.
+  StoredEpic epic = 1;
+
+  // The id of the steering session started for the epic.
+  string session = 2;
 }
 
 // PauseEpicRequest names the epic to pause.

@@ -661,6 +661,36 @@ func TestParkNodeMetAtBaseParksRunEpicAndTellOnce(t *testing.T) {
 	}
 }
 
+// TestEndNodesTellingRedContinuesEndsRunAndTellsOnce checks that EndNodesTelling ends the running run at its path and
+// adds the tell, with no park, so the epic goes on. A repeat, once the run has ended, adds no tell.
+func TestEndNodesTellingRedContinuesEndsRunAndTellsOnce(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openIntegrateStore(t)
+	startIntegrateRuns(t, s, NodeRun{Path: "red", ID: "id-red", Node: "red", Kind: "evidence", Attempt: 1})
+
+	const tell = "workflow node red: R1 met at the epic's base main, recorded as met there, and the epic goes on"
+	ends := []NodeEnd{{Path: "red", Outcome: "passed", Output: tell}}
+	if err := s.EndNodesTelling(ctx, integrateEpic, ends, tell, integrateEndedAt()); err != nil {
+		t.Fatalf("EndNodesTelling: %v", err)
+	}
+	requireIntegrateRun(t, s, "red", NodeRun{Path: "red", ID: "id-red", Node: "red", Kind: "evidence", Attempt: 1,
+		Outcome: "passed", Output: tell, State: NodeEnded, Started: integrateStartedAt(), Ended: integrateEndedAt()})
+	if row := integrateEpicRow(t, s); row.Parked != "" || row.Phase != "accepted" {
+		t.Errorf("parked and phase after EndNodesTelling = %q and %q, want none and accepted", row.Parked, row.Phase)
+	}
+	if got := integrateTells(t, s); !reflect.DeepEqual(got, []string{tell}) {
+		t.Errorf("tells of epic %s after EndNodesTelling = %q, want one tell %q", integrateEpic, got, tell)
+	}
+
+	if err := s.EndNodesTelling(ctx, integrateEpic, ends, tell, integrateEndedAt()); err != nil {
+		t.Fatalf("repeat EndNodesTelling: %v", err)
+	}
+	if got := integrateTells(t, s); !reflect.DeepEqual(got, []string{tell}) {
+		t.Errorf("tells of epic %s after a repeat EndNodesTelling = %q, want one tell %q", integrateEpic, got, tell)
+	}
+}
+
 // TestRetryRefusedForEpicEndedAtBase checks that RetryEpic and RetryNode on an epic in phase met_at_base are
 // RefusalErrors that name the park reason, and leave the epic and the parked run as the owner's end left them. R4: the
 // phase is set by the owner's end answer to the park question, which the park no longer does.
@@ -675,13 +705,22 @@ func TestRetryRefusedForEpicEndedAtBase(t *testing.T) {
 		integrateParkedAt()); err != nil {
 		t.Fatalf("ParkNodeMetAtBase: %v", err)
 	}
-	if _, err := s.AnswerQuestion(ctx, integrateEpic, "D3", "", 1, ChoiceEnd, integrateParkedAt()); err != nil {
+	if _, err := s.AnswerQuestion(
+		ctx,
+		integrateEpic,
+		"D3",
+		"",
+		1,
+		ChoiceEnd,
+		Maker{},
+		integrateParkedAt(),
+	); err != nil {
 		t.Fatalf("AnswerQuestion end: %v", err)
 	}
 
 	want := "epic " + integrateEpic + " is parked for good: " + reason
-	requireRefusal(t, s.RetryEpic(ctx, integrateEpic), want)
-	requireRefusal(t, s.RetryNode(ctx, integrateEpic, "red"), want)
+	requireRefusal(t, s.RetryEpic(ctx, integrateEpic, Maker{By: MakerOwner}, time.Unix(1700000000, 0)), want)
+	requireRefusal(t, s.RetryNode(ctx, integrateEpic, "red", Maker{By: MakerOwner}, time.Unix(1700000000, 0)), want)
 
 	requireIntegrateRun(t, s, "red", NodeRun{Path: "red", ID: "id-red", Node: "red", Kind: "evidence",
 		Attempt: 1, Outcome: "failed", Output: "R1 met", State: NodeParked, Started: integrateStartedAt()})

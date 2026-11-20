@@ -130,31 +130,26 @@ func TestSpendSecondAttemptFails(t *testing.T) {
 	}
 }
 
-func TestNoVerdictFirstReruns(t *testing.T) {
+func TestSilentRerunFirstReruns(t *testing.T) {
 	t.Parallel()
 	v := taskView(store.TaskBuild{Stage: StageGreen, Base: "base", Attempt: 1, Rerun: 1, Revision: "rev"})
-	got := noVerdict(v, "judge", "the judge wrote nothing")
+	got, again := silentRerun(v)
 	want := Action{Kind: ActMove, Next: store.TaskBuild{
 		Stage: StageGreen, Base: "base", Attempt: 1, Rerun: 2, NoVerdict: 1, Revision: "rev",
 	}}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("noVerdict with no_verdict 0 = %+v, want %+v", got, want)
+	if !again || !reflect.DeepEqual(got, want) {
+		t.Errorf("silentRerun with no_verdict 0 = %+v, %t, want %+v, true", got, again, want)
 	}
 }
 
-func TestNoVerdictSecondParks(t *testing.T) {
+// TestSilentRerunSecondLeavesTheUnitToDecide: a second no verdict in a row is not rerun; the unit decides what it means,
+// so nothing parks.
+func TestSilentRerunSecondLeavesTheUnitToDecide(t *testing.T) {
 	t.Parallel()
 	v := taskView(store.TaskBuild{Stage: StageGreen, Base: "base", Attempt: 1, Rerun: 1, NoVerdict: 1})
-	got := noVerdict(v, "judge", "the judge wrote nothing")
-	want := Action{
-		Kind: ActPark,
-		Next: store.TaskBuild{
-			Stage: StageGreen, Base: "base", Attempt: 1, Rerun: 1, NoVerdict: 2, Held: HeldParked,
-		},
-		Reason: "T3 judge gave no verdict twice: the judge wrote nothing",
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("noVerdict with no_verdict 1 = %+v, want %+v", got, want)
+	got, again := silentRerun(v)
+	if again || !reflect.DeepEqual(got, Action{}) {
+		t.Errorf("silentRerun with no_verdict 1 = %+v, %t, want the zero action and false", got, again)
 	}
 }
 

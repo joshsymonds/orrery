@@ -443,3 +443,94 @@ func TestDecideLoop(t *testing.T) {
 		},
 	})
 }
+
+// builtInCorrect returns the correct loop of the built-in epic, as a workflow loads it. It names no max.
+func builtInCorrect(t *testing.T) workflow.Node {
+	t.Helper()
+	epic, err := workflow.Load("epic", func(string) ([]byte, bool, error) { return nil, false, nil })
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	for _, node := range epic.Workflow.Nodes {
+		if node.ID == "correct" {
+			return node
+		}
+	}
+	t.Fatal("the built-in epic has no node correct")
+	return workflow.Node{}
+}
+
+// correctLoop returns the correct loop of the built-in epic, running at round.
+func correctLoop(round int64) store.NodeRun {
+	run := startOf("correct", "correct", "loop", 0)
+	run.LoopRound = round
+	return running(run)
+}
+
+// correctFix returns the fix plan of round of the correct loop, ended complete, which started after turn 1.
+func correctFix(round int64) store.NodeRun {
+	return withMark(ended(startOf(fmt.Sprintf("correct@%d/fix", round), "fix", "plan", round), "complete"), 1)
+}
+
+// correctClosure returns the closure of round of the correct loop, ended failed: closure has not passed.
+func correctClosure(round int64) store.NodeRun {
+	return ended(startOf(fmt.Sprintf("correct@%d/closure", round), "closure", "closure", round), "failed")
+}
+
+// TestCorrectionContinuesThirdRound: the built-in correct loop names no max, so a round whose closure has not passed
+// moves on to the next round when its fix plan planned a task.
+func TestCorrectionContinuesThirdRound(t *testing.T) {
+	t.Parallel()
+	turns := []store.EpicTurn{turnAt(1, "complete"), turnAt(2, "complete")}
+	tasks := []store.EpicTask{doneTask(1, 1), doneTask(2, 2)}
+	decideCases(t, []decideCase{
+		{
+			name: "round 2 whose fix plan planned a task moves on to round 3",
+			flow: []workflow.Node{builtInCorrect(t)},
+			rows: rowsOf(turns, tasks, correctLoop(2), correctFix(2), correctClosure(2)),
+			want: []Action{{Kind: ActRound, Path: "correct", Round: 2}},
+		},
+	})
+}
+
+// TestCorrectionContinuesEndsWhenNoTaskPlanned: a loop with no max ends, with no outcome, in the round whose fix plan
+// planned no task, however few rounds have run.
+func TestCorrectionContinuesEndsWhenNoTaskPlanned(t *testing.T) {
+	t.Parallel()
+	tasks := []store.EpicTask{doneTask(1, 1)}
+	want := []Action{{Kind: ActEnd, Ends: []store.NodeEnd{{Path: "correct"}}}}
+	decideCases(t, []decideCase{
+		{
+			name: "round 1 whose fix plan planned no task ends the loop without a second round",
+			flow: []workflow.Node{builtInCorrect(t)},
+			rows: rowsOf([]store.EpicTurn{turnAt(1, "complete")}, tasks,
+				correctLoop(1), correctFix(1), correctClosure(1)),
+			want: want,
+		},
+		{
+			name: "round 2 whose fix plan planned no task ends the loop, its turn being work",
+			flow: []workflow.Node{builtInCorrect(t)},
+			rows: rowsOf([]store.EpicTurn{turnAt(1, "complete"), turnAt(2, "work")}, tasks,
+				correctLoop(2), correctFix(2), correctClosure(2)),
+			want: want,
+		},
+	})
+}
+
+// TestCorrectionContinuesCappedByMax: a correct loop that names max 2 still ends at its second round, though that
+// round's fix plan planned a task, so the max caps the rounds whatever a plan planned.
+func TestCorrectionContinuesCappedByMax(t *testing.T) {
+	t.Parallel()
+	capped := builtInCorrect(t)
+	capped.Loop.Max = 2
+	turns := []store.EpicTurn{turnAt(1, "complete"), turnAt(2, "complete")}
+	tasks := []store.EpicTask{doneTask(1, 1), doneTask(2, 2)}
+	decideCases(t, []decideCase{
+		{
+			name: "round 2 of max 2 ends with no outcome though its fix plan planned a task",
+			flow: []workflow.Node{capped},
+			rows: rowsOf(turns, tasks, correctLoop(2), correctFix(2), correctClosure(2)),
+			want: []Action{{Kind: ActEnd, Ends: []store.NodeEnd{{Path: "correct"}}}},
+		},
+	})
+}

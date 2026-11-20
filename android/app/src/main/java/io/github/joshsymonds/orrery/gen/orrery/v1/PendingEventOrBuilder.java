@@ -32,7 +32,7 @@ public interface PendingEventOrBuilder extends
 
   /**
    * <pre>
-   * The event's kind: step_end, question, park, release or end.
+   * The event's kind: step_end, question, park, release, end, moved or action.
    * </pre>
    *
    * <code>string kind = 2 [json_name = "kind"];</code>
@@ -41,7 +41,7 @@ public interface PendingEventOrBuilder extends
   java.lang.String getKind();
   /**
    * <pre>
-   * The event's kind: step_end, question, park, release or end.
+   * The event's kind: step_end, question, park, release, end, moved or action.
    * </pre>
    *
    * <code>string kind = 2 [json_name = "kind"];</code>
@@ -215,4 +215,23 @@ public interface PendingEventOrBuilder extends
    */
   com.google.protobuf.ByteString
       getWaitsBytes();
+
+  /**
+   * <pre>
+   * The facts of the step, for a step_end.
+   * </pre>
+   *
+   * <code>.orrery.v1.StepFacts step_facts = 13 [json_name = "stepFacts"];</code>
+   * @return Whether the stepFacts field is set.
+   */
+  boolean hasStepFacts();
+  /**
+   * <pre>
+   * The facts of the step, for a step_end.
+   * </pre>
+   *
+   * <code>.orrery.v1.StepFacts step_facts = 13 [json_name = "stepFacts"];</code>
+   * @return The stepFacts.
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.StepFacts getStepFacts();
 }

@@ -35,7 +35,7 @@ func TestOrrerydDueDeadlineWakes(t *testing.T) {
 	ctx := t.Context()
 	logger := slog.New(slog.DiscardHandler)
 	st, _ := openLimitStore(t)
-	createAttentionEpic(t, st)
+	createAttentionEpic(t, st, "")
 	host := newSessionHost(logger)
 	host.newCallerEvents(st, options{}, logger)
 	host.subscribeFlowWake(st, func([]string) {})

@@ -10,12 +10,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import io.github.joshsymonds.orrery.api.OrreryClient
-import io.github.joshsymonds.orrery.ui.theme.Mocha
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 
 /**
  * The conversation a Talk row opens: the epic's line pinned on one line at the top, where a tap returns
@@ -31,10 +28,12 @@ fun TalkSessionScreen(epicLine: String, target: TalkTarget, client: OrreryClient
                 .testTag("talk-epic-line")
                 .fillMaxWidth()
                 .clickable(onClick = onBack)
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-            color = Mocha.Text,
-            fontWeight = FontWeight.Bold,
-            fontSize = 15.sp,
+                .padding(
+                    horizontal = OrreryTokens.Space.twelve + OrreryTokens.Space.two,
+                    vertical = OrreryTokens.Space.eight + OrreryTokens.Space.two,
+                ),
+            color = OrreryTokens.Ink.one,
+            style = OrreryTokens.Type.body.copy(fontWeight = OrreryTokens.Font.Weight.bold),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )

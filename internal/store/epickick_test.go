@@ -5,6 +5,7 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+	"time"
 )
 
 // kickRows reads every row a kick may change: the epic, its turns, its triggers and its decisions.
@@ -27,7 +28,7 @@ func TestEpicKickStoresTheDecisionAndOnePendingTriggerCarryingTheText(t *testing
 	s := openEpicStore(t)
 	createEpic(t, s, fullEpic(claimEpic))
 
-	if err := s.KickEpic(ctx, claimEpic, "Try the sqlite plan", claimedAt()); err != nil {
+	if err := s.KickEpic(ctx, claimEpic, "Try the sqlite plan", Maker{}, claimedAt()); err != nil {
 		t.Fatalf("KickEpic: %v", err)
 	}
 	epic, err := s.Epic(ctx, claimEpic)
@@ -58,7 +59,7 @@ func TestEpicKickOfUnknownEpicIsErrNoEpicAndWritesNothing(t *testing.T) {
 	before := kickRows(t, s)
 
 	const missing = "orrery-1a2b3c4/no-such-epic"
-	if err := s.KickEpic(ctx, missing, "Try again", claimedAt()); !errors.Is(err, ErrNoEpic) {
+	if err := s.KickEpic(ctx, missing, "Try again", Maker{}, claimedAt()); !errors.Is(err, ErrNoEpic) {
 		t.Fatalf("KickEpic of an unknown epic err = %v, want ErrNoEpic", err)
 	}
 	requireNoKickWrite(t, s, before)
@@ -75,7 +76,7 @@ func TestEpicKickRefusesEveryEndedPhaseAndWritesNothing(t *testing.T) {
 			t.Fatalf("set phase %s: %v", phase, err)
 		}
 		before := kickRows(t, s)
-		requireRefusal(t, s.KickEpic(ctx, claimEpic, "Try again", claimedAt()),
+		requireRefusal(t, s.KickEpic(ctx, claimEpic, "Try again", Maker{}, claimedAt()),
 			"epic "+claimEpic+" is "+phase+", an ended phase, and takes no kick")
 		requireNoKickWrite(t, s, before)
 	}
@@ -86,12 +87,12 @@ func TestEpicKickRefusesPausedEpicAndWritesNothing(t *testing.T) {
 	ctx := context.Background()
 	s := openEpicStore(t)
 	createEpic(t, s, fullEpic(claimEpic))
-	if err := s.PauseEpic(ctx, claimEpic); err != nil {
+	if err := s.PauseEpic(ctx, claimEpic, Maker{By: MakerOwner}, time.Unix(1700000000, 0)); err != nil {
 		t.Fatalf("PauseEpic: %v", err)
 	}
 	before := kickRows(t, s)
 
-	requireRefusal(t, s.KickEpic(ctx, claimEpic, "Try again", claimedAt()),
+	requireRefusal(t, s.KickEpic(ctx, claimEpic, "Try again", Maker{}, claimedAt()),
 		"epic "+claimEpic+" is paused; resume it before kicking it")
 	requireNoKickWrite(t, s, before)
 }
@@ -104,7 +105,7 @@ func TestEpicKickRefusesParkedEpicNamingRetryAndWritesNothing(t *testing.T) {
 	parkEpic(t, s, claimEpic, "credit ran out")
 	before := kickRows(t, s)
 
-	requireRefusal(t, s.KickEpic(ctx, claimEpic, "Try again", claimedAt()),
+	requireRefusal(t, s.KickEpic(ctx, claimEpic, "Try again", Maker{}, claimedAt()),
 		"epic "+claimEpic+" is parked; orrery epic retry "+claimEpic+" ends the park before a kick")
 	requireNoKickWrite(t, s, before)
 }

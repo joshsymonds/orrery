@@ -156,7 +156,8 @@ func epicRecordTools(epics enginev1connect.EpicsClient, in epicInputs) []Tool {
 			Description: "Create an epic from an accepted contract. decisions seeds the epic's recorded " +
 				"decisions. workflow names the workflow the epic pins, epic by default. Returns a short " +
 				"acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. " +
-				"A refusal names the field that failed.",
+				"Lint findings come back as warnings: a warning line for each, naming its field and reason, and the " +
+				"epic is still stored. A refusal names the field that failed.",
 			InputSchema: in.create,
 			Handler:     epicCreateHandler(epics),
 		},
@@ -282,6 +283,14 @@ func epicControlTools(epics enginev1connect.EpicsClient, in epicInputs) []Tool {
 			InputSchema: in.amend,
 			Handler:     epicAmendHandler(epics),
 		},
+		{
+			Name: "epic_steer",
+			Description: "Move the steering of an epic by id to the calling conversation, which takes the epic over " +
+				"from the conversation that steers it now. Returns a short acknowledgement, not the stored epic: " +
+				"the epic id, its phase and one line naming what changed. A refusal names why the steering did not move.",
+			InputSchema: in.id,
+			Handler:     epicSteerHandler(epics),
+		},
 	}
 }
 
@@ -335,7 +344,7 @@ func epicCreateHandler(epics enginev1connect.EpicsClient) ToolHandler {
 			return toolFailure(err), nil
 		}
 		epic := created.Msg.GetEpic()
-		return epicAck(epic, req.GetContract().GetId(), createChange(epic)), nil
+		return epicAck(epic, req.GetContract().GetId(), createChange(epic), created.Msg.GetWarnings()...), nil
 	}
 }
 
@@ -506,6 +515,21 @@ func epicAmendHandler(epics enginev1connect.EpicsClient) ToolHandler {
 		}
 		change := amendChange(amended.Msg.GetAmendment())
 		return epicAck(amended.Msg.GetEpic(), req.GetId(), change), nil
+	}
+}
+
+func epicSteerHandler(epics enginev1connect.EpicsClient) ToolHandler {
+	return func(ctx context.Context, call Call) (ToolResult, error) {
+		// epic_steer takes the id alone, so a session key is refused and the move names the calling conversation.
+		var args idArgs
+		if err := decodeArguments(call.Arguments, &args); err != nil {
+			return ToolResult{}, err
+		}
+		moved, err := epics.MoveEpic(ctx, connect.NewRequest(&v1.MoveEpicRequest{Id: args.ID}))
+		if err != nil {
+			return toolFailure(err), nil
+		}
+		return epicAck(moved.Msg.GetEpic(), args.ID, "this conversation now steers the epic"), nil
 	}
 }
 

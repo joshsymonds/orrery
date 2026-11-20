@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.test.assertHeightIsEqualTo
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
@@ -27,6 +28,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.ResumeResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.StopRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.StopResponse
 import io.github.joshsymonds.orrery.mainThreadComposeRule
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import java.util.concurrent.atomic.AtomicInteger
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -146,6 +148,14 @@ class SessionControlsTest {
         composeRule.onNodeWithTag(INTERRUPT_TAG).assertIsDisplayed()
         composeRule.onNodeWithTag(STOP_TAG).assertIsDisplayed()
         assertFalse(shown(RESUME_TAG))
+    }
+
+    @Test
+    fun inLineButtonsDrawTwentyFourHigh() {
+        setActions("working")
+
+        composeRule.onNodeWithTag(INTERRUPT_TAG).assertHeightIsEqualTo(OrreryTokens.Size.gauge)
+        composeRule.onNodeWithTag(STOP_TAG).assertHeightIsEqualTo(OrreryTokens.Size.gauge)
     }
 
     @Test

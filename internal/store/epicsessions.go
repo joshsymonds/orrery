@@ -81,16 +81,68 @@ func (s *Store) CallerSession(ctx context.Context, caller EpicCaller) (string, b
 	return session, session != "", nil
 }
 
-// EpicCreator returns the sessions row of the session marked the creator of epic, and true. It returns false, and no
-// error, when no row of epic is marked creator or when the marked session's row is gone. When more than one row is
-// marked, it returns the one of the newest call.
-func (s *Store) EpicCreator(ctx context.Context, epic string) (CallerSession, bool, error) {
-	row, err := sqlcgen.New(s.db).GetEpicCreator(ctx, epic)
+// The makers of an epic call: the owner, which is the user and has no session; a conversation, which is a session
+// that is a conversation; and orreryd, which made a step's end.
+const (
+	MakerOwner        = "owner"
+	MakerConversation = "conversation"
+	MakerOrreryd      = "orreryd"
+)
+
+// Maker names who made an epic call. By is one of the Maker constants. Session is the id of the conversation's
+// sessions row when By is MakerConversation, and "" otherwise.
+type Maker struct{ By, Session string }
+
+// CallerMaker returns who made an epic call as caller names it. A zero caller has no session, server or pane, so it is
+// the owner and no read is made. Any other caller names a sessions row as resolveEpicCaller does. The caller is the
+// owner when no row matches; an orreryd step when its row is of KindStep; and a conversation when its row is of
+// KindEngine. A pane row, of kind "", is a conversation when its state is not empty and the owner when it is empty.
+// It reads the store without writing it.
+func (s *Store) CallerMaker(ctx context.Context, caller EpicCaller) (Maker, error) {
+	owner := Maker{By: MakerOwner}
+	if caller == (EpicCaller{}) {
+		return owner, nil
+	}
+	queries := sqlcgen.New(s.db)
+	id := caller.Session
+	if id == "" {
+		pane, err := queries.GetPaneSession(ctx, sqlcgen.GetPaneSessionParams{Server: caller.Server, Pane: caller.Pane})
+		if errors.Is(err, sql.ErrNoRows) {
+			return owner, nil
+		}
+		if err != nil {
+			return Maker{}, fmt.Errorf("read pane %s of server %q: %w", caller.Pane, caller.Server, err)
+		}
+		id = pane
+	}
+	row, err := queries.GetSession(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return owner, nil
+	}
+	if err != nil {
+		return Maker{}, fmt.Errorf("read session %s: %w", id, err)
+	}
+	switch row.Kind {
+	case KindStep:
+		return Maker{By: MakerOrreryd}, nil
+	case KindEngine:
+		return Maker{By: MakerConversation, Session: row.ID}, nil
+	}
+	if row.State == "" {
+		return owner, nil
+	}
+	return Maker{By: MakerConversation, Session: row.ID}, nil
+}
+
+// EpicSteerer returns the sessions row of the session that steers epic, and true. It returns false, and no error, when
+// epic has no steerer or when the steerer's sessions row is gone.
+func (s *Store) EpicSteerer(ctx context.Context, epic string) (CallerSession, bool, error) {
+	row, err := sqlcgen.New(s.db).GetEpicSteerer(ctx, epic)
 	if errors.Is(err, sql.ErrNoRows) {
 		return CallerSession{}, false, nil
 	}
 	if err != nil {
-		return CallerSession{}, false, fmt.Errorf("read creator of epic %s: %w", epic, err)
+		return CallerSession{}, false, fmt.Errorf("read steerer of epic %s: %w", epic, err)
 	}
 	return CallerSession{ID: row.ID, Kind: row.Kind, Server: row.Server, Pane: row.Pane, State: row.State}, true, nil
 }

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 // The integrate run a refs move parks in the tests of this file, and the reason the move parks it with.
@@ -49,7 +50,16 @@ func TestParkRetryRerunAnswerRetryRerunsTheParkedRunOfItsQuestion(t *testing.T) 
 	s := openEpicStore(t)
 	refMoveRunParked(t, s)
 
-	if _, err := s.AnswerQuestion(context.Background(), claimEpic, "D3", "", 1, ChoiceRetry, claimedAt()); err != nil {
+	if _, err := s.AnswerQuestion(
+		context.Background(),
+		claimEpic,
+		"D3",
+		"",
+		1,
+		ChoiceRetry,
+		Maker{},
+		claimedAt(),
+	); err != nil {
 		t.Fatalf("AnswerQuestion retry: %v", err)
 	}
 	run := runAtPath(t, s, parkRetryRunPath)
@@ -78,7 +88,7 @@ func TestParkRetryRerunLeavesAnotherParkedRunOfTheSameNodeParked(t *testing.T) {
 		t.Fatalf("ParkNode of %s: %v", other, err)
 	}
 
-	if _, err := s.AnswerQuestion(ctx, claimEpic, "D3", "", 1, ChoiceRetry, claimedAt()); err != nil {
+	if _, err := s.AnswerQuestion(ctx, claimEpic, "D3", "", 1, ChoiceRetry, Maker{}, claimedAt()); err != nil {
 		t.Fatalf("AnswerQuestion retry: %v", err)
 	}
 	if run := runAtPath(t, s, parkRetryRunPath); run.State != NodeRunning || run.Attempt != 2 {
@@ -97,8 +107,8 @@ func TestParkRetryRerunOtherAnswerRerunsNothing(t *testing.T) {
 	refMoveRunParked(t, s)
 
 	if _, err := s.AnswerQuestion(
-		context.Background(), claimEpic, "D3", "Keep the run parked", 1, ChoiceOther, claimedAt(),
-	); err != nil {
+		context.Background(), claimEpic, "D3", "Keep the run parked", 1, ChoiceOther, Maker{},
+		claimedAt()); err != nil {
 		t.Fatalf("AnswerQuestion other: %v", err)
 	}
 	if run := runAtPath(t, s, parkRetryRunPath); run.State != NodeParked || run.Attempt != 1 {
@@ -116,7 +126,12 @@ func TestParkRetryRerunRetryEpicRerunsTheParkedRunOfItsOpenQuestion(t *testing.T
 	s := openEpicStore(t)
 	refMoveRunParked(t, s)
 
-	if err := s.RetryEpic(context.Background(), claimEpic); err != nil {
+	if err := s.RetryEpic(
+		context.Background(),
+		claimEpic,
+		Maker{By: MakerOwner},
+		time.Unix(1700000000, 0),
+	); err != nil {
 		t.Fatalf("RetryEpic: %v", err)
 	}
 	if run := runAtPath(t, s, parkRetryRunPath); run.State != NodeRunning || run.Attempt != 2 {

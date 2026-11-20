@@ -182,8 +182,8 @@ func TestPromptOpensWithRoleThenEverySectionInOrder(t *testing.T) {
 		"- answered-1: owner answered Q1",
 		"## Spent lines",
 		"None.",
-		"## Last failure",
-		"planner return refused",
+		"## Failed turns",
+		"- turn 1: planner return refused",
 	)
 }
 
@@ -239,8 +239,8 @@ func TestPromptFirstTurnHasNoNewNotesOrFailureButListsEveryDecision(t *testing.T
 		"## New notes\nNone.\n",
 		"## Open questions",
 	)
-	if !strings.HasSuffix(prompt, "## Last failure\nNone.\n") {
-		t.Fatalf("first turn's last failure is not None.; prompt ends %q", prompt[len(prompt)-60:])
+	if !strings.HasSuffix(prompt, "## Failed turns\nNone.\n") {
+		t.Fatalf("first turn's failed turns are not None.; prompt ends %q", prompt[len(prompt)-60:])
 	}
 }
 
@@ -264,8 +264,8 @@ func TestPromptSkipsFreeTurnWhenFindingLastTurn(t *testing.T) {
 	if !strings.Contains(prompt, want) {
 		t.Fatalf("prompt lacks %q: a free turn must not set the new notes", want)
 	}
-	if !strings.HasSuffix(prompt, "## Last failure\nfirst failure\n") {
-		t.Fatalf("last failure is not the failed turn's reason; prompt ends %q", prompt[len(prompt)-60:])
+	if !strings.HasSuffix(prompt, "## Failed turns\n- turn 1: first failure\n") {
+		t.Fatalf("failed turns are not the failed turn before the free one; prompt ends %q", prompt[len(prompt)-60:])
 	}
 }
 

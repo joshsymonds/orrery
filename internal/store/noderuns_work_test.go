@@ -516,7 +516,13 @@ func TestRetryNodeTurnsParkedRunRunningAtNextAttempt(t *testing.T) {
 		t.Fatalf("ParkNode of %s: %v", workOther, err)
 	}
 
-	if err := s.RetryNode(ctx, workEpic, "check"); err != nil {
+	if err := s.RetryNode(
+		ctx,
+		workEpic,
+		"check",
+		store.Maker{By: store.MakerOwner},
+		time.Unix(1700000000, 0),
+	); err != nil {
 		t.Fatalf("RetryNode: %v", err)
 	}
 	if parked := parkedOf(t, raw, workEpic); parked != "" {
@@ -537,7 +543,11 @@ func TestRetryNodeTurnsParkedRunRunningAtNextAttempt(t *testing.T) {
 		t.Errorf("parked of epic %s after RetryNode of %s = %q, want %q", workOther, workEpic, parked, "other reason")
 	}
 
-	requireRefusalError(t, s.RetryNode(ctx, workEpic, "check"), "node check of epic "+workEpic+" is not parked")
+	requireRefusalError(
+		t,
+		s.RetryNode(ctx, workEpic, "check", store.Maker{By: store.MakerOwner}, time.Unix(1700000000, 0)),
+		"node check of epic "+workEpic+" is not parked",
+	)
 	requireNodeRuns(t, s, workEpic, want)
 }
 
@@ -554,7 +564,7 @@ func TestRetryNodeWithoutParkedRunIsRefused(t *testing.T) {
 	}
 
 	for _, node := range []string{"check", "missing"} {
-		err := s.RetryNode(ctx, workEpic, node)
+		err := s.RetryNode(ctx, workEpic, node, store.Maker{By: store.MakerOwner}, time.Unix(1700000000, 0))
 		requireRefusalError(t, err, "node "+node+" of epic "+workEpic+" is not parked")
 	}
 	requireNodeRuns(t, s, workEpic, []store.NodeRun{
@@ -582,7 +592,7 @@ func TestRetryNodeNamingAParkedLoopIsRefused(t *testing.T) {
 		t.Fatalf("ParkLoop: %v", err)
 	}
 
-	err := s.RetryNode(ctx, workEpic, "r")
+	err := s.RetryNode(ctx, workEpic, "r", store.Maker{By: store.MakerOwner}, time.Unix(1700000000, 0))
 	requireRefusalError(t, err, "node r of epic "+workEpic+" is not parked")
 	requireNodeRuns(t, s, workEpic, []store.NodeRun{
 		{Path: "r", ID: "id-r", Node: "r", Kind: "loop", LoopRound: 1, State: store.NodeParked,

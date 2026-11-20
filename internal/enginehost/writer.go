@@ -389,6 +389,9 @@ func (w *Writer) coalesceConsumedLocked(id string, consumed store.EngineConsumed
 			if consumed.Background != nil {
 				prev.Background = consumed.Background
 			}
+			if consumed.Awaited != nil {
+				prev.Awaited = consumed.Awaited
+			}
 			queued.op = prev
 			return queued.result, true
 		}

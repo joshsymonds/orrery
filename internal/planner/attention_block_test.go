@@ -85,8 +85,8 @@ func TestAttentionBlockQuestionsTurnOpensOnItsFirstOpenQuestion(t *testing.T) {
 		t.Fatalf("CompleteTurn: %v", err)
 	}
 	if _, err := s.AnswerQuestion(
-		ctx, runnerEpicID, "answer-1", "use the store", 1, store.ChoiceOther, claimedAt(),
-	); err != nil {
+		ctx, runnerEpicID, "answer-1", "use the store", 1, store.ChoiceOther, store.Maker{},
+		claimedAt()); err != nil {
 		t.Fatalf("AnswerQuestion: %v", err)
 	}
 	router := &fakeAttentionRouter{}
@@ -201,8 +201,8 @@ func TestAttentionBlockRestoreNoticeKeepsTheBlock(t *testing.T) {
 		t.Fatalf("CompleteTurn: %v", err)
 	}
 	if _, err := s.AnswerQuestion(
-		ctx, runnerEpicID, "answer-1", "use the store", 1, store.ChoiceOther, claimedAt(),
-	); err != nil {
+		ctx, runnerEpicID, "answer-1", "use the store", 1, store.ChoiceOther, store.Maker{},
+		claimedAt()); err != nil {
 		t.Fatalf("AnswerQuestion: %v", err)
 	}
 	router := &fakeAttentionRouter{}

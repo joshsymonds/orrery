@@ -261,4 +261,106 @@ public interface EpicOrBuilder extends
    * @return The revision.
    */
   long getRevision();
+
+  /**
+   * <pre>
+   * The id of the session that steers the orreryd epic; empty when it has none or for a record epic. It may name a
+   * session whose row is gone.
+   * </pre>
+   *
+   * <code>string steering = 17 [json_name = "steering"];</code>
+   * @return The steering.
+   */
+  java.lang.String getSteering();
+  /**
+   * <pre>
+   * The id of the session that steers the orreryd epic; empty when it has none or for a record epic. It may name a
+   * session whose row is gone.
+   * </pre>
+   *
+   * <code>string steering = 17 [json_name = "steering"];</code>
+   * @return The bytes for steering.
+   */
+  com.google.protobuf.ByteString
+      getSteeringBytes();
+
+  /**
+   * <pre>
+   * The absolute path of the orreryd epic's repository; empty for a record epic.
+   * </pre>
+   *
+   * <code>string path = 18 [json_name = "path"];</code>
+   * @return The path.
+   */
+  java.lang.String getPath();
+  /**
+   * <pre>
+   * The absolute path of the orreryd epic's repository; empty for a record epic.
+   * </pre>
+   *
+   * <code>string path = 18 [json_name = "path"];</code>
+   * @return The bytes for path.
+   */
+  com.google.protobuf.ByteString
+      getPathBytes();
+
+  /**
+   * <pre>
+   * Whether the orreryd epic is paused. A paused epic starts no planner turn until it is resumed.
+   * </pre>
+   *
+   * <code>bool paused = 19 [json_name = "paused"];</code>
+   * @return The paused.
+   */
+  boolean getPaused();
+
+  /**
+   * <pre>
+   * Why the orreryd epic is paused, 'owner' or 'limit' while it is paused, empty otherwise.
+   * </pre>
+   *
+   * <code>string pause_source = 20 [json_name = "pauseSource"];</code>
+   * @return The pauseSource.
+   */
+  java.lang.String getPauseSource();
+  /**
+   * <pre>
+   * Why the orreryd epic is paused, 'owner' or 'limit' while it is paused, empty otherwise.
+   * </pre>
+   *
+   * <code>string pause_source = 20 [json_name = "pauseSource"];</code>
+   * @return The bytes for pauseSource.
+   */
+  com.google.protobuf.ByteString
+      getPauseSourceBytes();
+
+  /**
+   * <pre>
+   * Why the epic is parked, empty when it is not parked.
+   * </pre>
+   *
+   * <code>string parked = 21 [json_name = "parked"];</code>
+   * @return The parked.
+   */
+  java.lang.String getParked();
+  /**
+   * <pre>
+   * Why the epic is parked, empty when it is not parked.
+   * </pre>
+   *
+   * <code>string parked = 21 [json_name = "parked"];</code>
+   * @return The bytes for parked.
+   */
+  com.google.protobuf.ByteString
+      getParkedBytes();
+
+  /**
+   * <pre>
+   * How many of the epic's questions are open.
+   * </pre>
+   *
+   * <code>int32 open_questions = 22 [json_name = "openQuestions"];</code>
+   * @return The openQuestions.
+   */
+  int getOpenQuestions();
 }

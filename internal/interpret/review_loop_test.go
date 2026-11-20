@@ -63,6 +63,16 @@ const (
 	reviewLoopFindingLine   = "security-1 (security): claim: the claim; citation: a.go:1; location: a.go; evidence: the evidence; reason: a reason"
 	reviewLoopRoundOneCause = "ledger round 1: open findings to correct\n" + reviewLoopFindingLine
 	reviewLoopRoundTwoCause = "ledger round 2: open findings to correct\n" + reviewLoopFindingLine
+	reviewLoopGapCause      = "ledger round 1: no open findings; gaps to reconcile\n" +
+		"gap reviewer:security: reviewer security: reviewer 1 gave no verdict twice: failed: " + reviewLoopGapFailure
+	// The causes of the gap rounds the conclusion gives the gaps the epic still has: each gap's cause, with the
+	// review's verdicts and ledger, in each of its two rounds.
+	reviewLoopGapRoundCause = "gap reviewer:security: reviewer security: reviewer 1 gave no verdict twice: failed: " +
+		reviewLoopGapFailure + "\nverdicts:\n- security: gap: reviewer 1 gave no verdict twice: failed: " +
+		reviewLoopGapFailure + "\n- tests: holds\nledger: empty"
+	reviewLoopOpenGapCause = "gap open:security-1: security-1: open after 2 rounds\nverdicts:\n- security: fails\n" +
+		"- tests: holds\nledger:\n- security-1 (security): confirmed: claim: the claim; reason: a reason\n" +
+		"  closure round 1: open: checked\n  closure round 2: open: checked"
 )
 
 // The returns the test steps keep: a reviewer's gate return with one finding, a verifier's return confirming it, and a
@@ -469,7 +479,8 @@ func TestReviewLoopClosedFindingEndsCleanInRoundOne(t *testing.T) {
 }
 
 // TestReviewLoopFindingOpenAfterTwoRoundsEndsWithGaps: a confirmed finding that its closure leaves open in both rounds
-// wakes a fix plan in each round, and once the rounds run out the epic ends ended_with_gaps, naming the finding.
+// wakes a fix plan in each round. Once the rounds run out, the finding's gap gets a gap round of its own in each of two
+// rounds, and the epic ends ended_with_gaps, naming the finding.
 func TestReviewLoopFindingOpenAfterTwoRoundsEndsWithGaps(t *testing.T) {
 	t.Parallel()
 	got := reviewLoopCase(t, reviewLoopFindingScript("open", "open"))
@@ -491,14 +502,17 @@ func TestReviewLoopFindingOpenAfterTwoRoundsEndsWithGaps(t *testing.T) {
 	if got.review.Clean != "" {
 		t.Errorf("clean revision = %q, want none", got.review.Clean)
 	}
-	reviewLoopWantCauses(t, got, []string{reviewLoopCreatedCause, reviewLoopRoundOneCause, reviewLoopRoundTwoCause})
+	reviewLoopWantCauses(t, got, []string{
+		reviewLoopCreatedCause, reviewLoopRoundOneCause, reviewLoopRoundTwoCause, reviewLoopOpenGapCause,
+		reviewLoopOpenGapCause,
+	})
 	reviewLoopWantEnd(t, got, "ended_with_gaps",
 		kinds.EndingBody("ended_with_gaps", []string{"security-1: open after 2 rounds"}, nil))
 }
 
 // TestReviewLoopCostlyReviewerEndsWithGap: a reviewer whose two tries both end costly gives a gap, which the review keeps
-// as its verdict. The reviewer is started once more than the others, its second try is the last, and the epic ends
-// ended_with_gaps naming the reviewer.
+// as its verdict. The reviewer is started once more than the others, its second try is the last, and the gap gets two
+// gap rounds, after which the epic ends ended_with_gaps naming the reviewer.
 func TestReviewLoopCostlyReviewerEndsWithGap(t *testing.T) {
 	t.Parallel()
 	got := reviewLoopCase(t, reviewLoopCostlyScript())
@@ -515,7 +529,9 @@ func TestReviewLoopCostlyReviewerEndsWithGap(t *testing.T) {
 		t.Errorf("verdicts = %+v, want %+v", got.review.Verdicts, want)
 	}
 	reviewLoopWantStarts(t, got, []string{"security", "security", "tests"})
-	reviewLoopWantCauses(t, got, []string{reviewLoopCreatedCause, reviewLoopEmptyCause})
+	reviewLoopWantCauses(t, got, []string{
+		reviewLoopCreatedCause, reviewLoopGapCause, reviewLoopGapRoundCause, reviewLoopGapRoundCause,
+	})
 	reviewLoopWantEnd(t, got, "ended_with_gaps",
 		kinds.EndingBody("ended_with_gaps", []string{"reviewer security: " + reason}, nil))
 }

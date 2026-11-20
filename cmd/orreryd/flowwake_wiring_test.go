@@ -58,7 +58,7 @@ func TestOrrerydFlowWakeStoreWriteWakesInterpreter(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	st, _ := openLimitStore(t)
-	createAttentionEpic(t, st)
+	createAttentionEpic(t, st, "")
 	host := newSessionHost(slog.New(slog.DiscardHandler))
 	rec := &flowWakeWiringRecorder{}
 	host.subscribeFlowWake(st, rec.record)

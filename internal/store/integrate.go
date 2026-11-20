@@ -4,15 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
 // The epic phases the integration writes set or reads. An epic is built once the integrate batches of its plan have
-// passed and every Requirement is green at its stored base. An evidence node at the epic's base that finds a Requirement
-// already met parks the epic with a question, and the owner's end answer sets met_at_base. A plan that ends built sets
-// built only on an accepted epic.
+// passed and every Requirement is green at its stored base. An evidence node at the epic's base that finds a
+// Requirement already met ends passed with a tell, and the epic goes on. A park an evidence node made before that is
+// still answered: the owner's end answer to it sets met_at_base. A plan that ends built sets built only on an accepted
+// epic.
 const (
 	phaseAccepted  = "accepted"
 	phaseBuilt     = "built"
@@ -135,6 +137,42 @@ func settleBatchBase(
 	return nil
 }
 
+// EndNodesTelling ends each of ends at its running run, and adds tell as a tell of epic, in one write. The tell is
+// added only when the first end's run is still running, as EndPlanBuilt requires, so a run that has ended already, and
+// no end, change nothing and a repeat adds no tell.
+func (s *Store) EndNodesTelling(ctx context.Context, epic string, ends []NodeEnd, tell string, at time.Time) error {
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		if len(ends) == 0 {
+			return nil
+		}
+		running, err := queries.CountRunningEpicNodeRun(ctx, sqlcgen.CountRunningEpicNodeRunParams{
+			Epic: epic, Path: ends[0].Path,
+		})
+		if err != nil {
+			return fmt.Errorf("read node run %s of epic %s: %w", ends[0].Path, epic, err)
+		}
+		if running == 0 {
+			return nil
+		}
+		return endAndTell(ctx, queries, epic, ends, tell, at)
+	})
+}
+
+// endAndTell ends each of ends at its running run, and adds tell as a tell of epic, in the caller's write.
+func endAndTell(
+	ctx context.Context,
+	queries *sqlcgen.Queries,
+	epic string,
+	ends []NodeEnd,
+	tell string,
+	at time.Time,
+) error {
+	if err := endNodeRuns(ctx, queries, epic, ends, at); err != nil {
+		return err
+	}
+	return insertTell(ctx, queries, epic, capTurnText(tell), at)
+}
+
 // ParkEpicWaking parks epic with reason as the not_built planner class, and adds trigger pending, in one write. The
 // planner class adds no tell, and the trigger is the one park's wake, so no second trigger is added. A trigger whose id
 // is stored in any state changes nothing, so a repeat parks nothing.
@@ -232,10 +270,30 @@ func parkMetAtBase(
 	return insertQuestionTell(ctx, queries, epic, park, question, at)
 }
 
+// The phases ListUnreportedEpics reports that no other constant names.
+const (
+	phaseReleased = "released"
+	phaseDone     = "done"
+)
+
+// unreportedEndPhase reports whether phase is one ListUnreportedEpics reports: a phase whose epic ends, which the
+// OnEpicEnded hook is called for.
+func unreportedEndPhase(phase string) bool {
+	switch phase {
+	case phaseReleased, phaseDone, phaseEndedWithGaps, PhaseClosedSuperseded, PhaseClosedShipped, PhaseClosedAbandoned:
+		return true
+	}
+	return false
+}
+
 // setEpicPhase stores phase as the phase of epic in the caller's write, at as the time it was set. A phase that epic
-// already has keeps the time it was set.
+// already has keeps the time it was set. A phase ListUnreportedEpics reports marks the statement for OnEpicEnded.
 func setEpicPhase(ctx context.Context, queries *sqlcgen.Queries, epic, phase string, at time.Time) error {
-	if err := queries.SetEpicPhase(withEpicEvent(ctx), sqlcgen.SetEpicPhaseParams{
+	statement := withEpicEvent(ctx)
+	if unreportedEndPhase(phase) {
+		statement = withHousekeepMark(statement, hookEpicEnded, epic)
+	}
+	if err := queries.SetEpicPhase(statement, sqlcgen.SetEpicPhaseParams{
 		Phase: phase, At: at.Unix(), ID: epic,
 	}); err != nil {
 		return fmt.Errorf("set phase of epic %s: %w", epic, err)
@@ -247,4 +305,53 @@ func setEpicPhase(ctx context.Context, queries *sqlcgen.Queries, epic, phase str
 // the park reason it is parked with.
 func metAtBaseRefusal(epic, reason string) RefusalError {
 	return RefusalError(fmt.Sprintf("epic %s is parked for good: %s", epic, reason))
+}
+
+// batchComposition is the part of an integrate run's result the store reads: the tasks the batch composed into commits.
+type batchComposition struct {
+	Composed []composedTask `json:"composed"`
+}
+
+// composedTask is one task a batch composed, by its seq.
+type composedTask struct {
+	Task int64 `json:"task"`
+}
+
+// composesTask reports whether run is an integrate run whose result composed task seq into a commit. A result that is not
+// a batch result composed none.
+func composesTask(run NodeRun, seq int64) bool {
+	if run.Kind != integrateKind {
+		return false
+	}
+	var result batchComposition
+	if json.Unmarshal([]byte(run.Result), &result) != nil {
+		return false
+	}
+	return slices.ContainsFunc(result.Composed, func(composed composedTask) bool { return composed.Task == seq })
+}
+
+// runningBatchOf returns the path of an integrate run that has not ended, running or parked, and claims task or composes
+// it, or "" when none does. Such a run carries the task's commit onward, and a parked one can be retried and pass, so
+// the task is not sent back while one is open.
+func runningBatchOf(runs []NodeRun, task sqlcgen.EpicTask) string {
+	for _, run := range runs {
+		if run.State == NodeEnded || run.Kind != integrateKind {
+			continue
+		}
+		if (task.Batch != "" && run.Path == task.Batch) || composesTask(run, task.Seq) {
+			return run.Path
+		}
+	}
+	return ""
+}
+
+// claimedPassed reports whether the integrate run that claims task ended passed with the task in its batch, so the stored
+// base holds the task's commit. A task its claiming run left out is not in the base, though the run passed.
+func claimedPassed(runs []NodeRun, task sqlcgen.EpicTask) bool {
+	if task.Batch == "" {
+		return false
+	}
+	i := slices.IndexFunc(runs, func(run NodeRun) bool { return run.Path == task.Batch })
+	return i >= 0 && runs[i].State == NodeEnded && runs[i].Outcome == nodePassedOutcome &&
+		composesTask(runs[i], task.Seq)
 }

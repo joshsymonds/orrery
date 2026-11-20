@@ -2,6 +2,7 @@ package planner
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
@@ -50,7 +51,7 @@ func TestAttentionEndingRoutesOneNoticeKeyedToItsEpic(t *testing.T) {
 			if len(router.notices) != 1 {
 				t.Fatalf("notices after ending %s = %d, want exactly one", tc.phase, len(router.notices))
 			}
-			if got := shownOf(t, router.notices[0]); got != want {
+			if got := shownOf(t, router.notices[0]); !reflect.DeepEqual(got, want) {
 				t.Errorf("notice = %+v, want %+v", got, want)
 			}
 		})

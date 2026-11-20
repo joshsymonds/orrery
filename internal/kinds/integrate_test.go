@@ -418,7 +418,10 @@ func TestGreenAt(t *testing.T) {
 		{
 			"capture that did not pass is not green",
 			Rows{Epic: integrateEpic(), Runs: []store.NodeRun{integrated}, Evidence: []store.EvidenceRun{
-				{ID: store.NodeWorkID("int-run", 1, "capture R1"), Phase: evidence.PhaseGreen, State: runEnded},
+				{
+					ID: store.NodeWorkID("int-run", 1, "capture R1"), Phase: evidence.PhaseGreen, State: runEnded,
+					Verdict: evidence.VerdictFails,
+				},
 			}},
 			"base-1",
 			map[string]bool{},
@@ -516,12 +519,25 @@ func TestUnbuilt(t *testing.T) {
 			[]string{"R3 names no evidence item"},
 		},
 		{
-			"requirement with no red at the base is named",
-			Rows{Epic: store.EpicRow{Base: "base-1", StoredBase: "base-1", Requirements: []store.EpicRequirement{r1}}},
-			[]string{"R1 has no red at the epic's base base-1"},
+			"green at the stored base without a red at the base is built",
+			Rows{
+				Epic: store.EpicRow{
+					Base:         "base-1",
+					StoredBase:   "base-1",
+					Requirements: []store.EpicRequirement{r1},
+				},
+				Runs:     []store.NodeRun{redRun, integrated},
+				Evidence: []store.EvidenceRun{green("R1")},
+			},
+			nil,
 		},
 		{
-			"red that did not pass does not count",
+			"requirement with no red at the base and no green is named for its green",
+			Rows{Epic: store.EpicRow{Base: "base-1", StoredBase: "base-1", Requirements: []store.EpicRequirement{r1}}},
+			[]string{"R1 is not green at the stored base base-1"},
+		},
+		{
+			"red that did not pass does not count toward green",
 			Rows{
 				Epic: store.EpicRow{
 					Base:         "base-1",
@@ -531,10 +547,10 @@ func TestUnbuilt(t *testing.T) {
 				Runs:     []store.NodeRun{redRun},
 				Evidence: []store.EvidenceRun{red("R1", false)},
 			},
-			[]string{"R1 has no red at the epic's base base-1"},
+			[]string{"R1 is not green at the stored base base-1"},
 		},
 		{
-			"red in an evidence run that failed does not count",
+			"red in an evidence run that failed does not count toward green",
 			Rows{
 				Epic: store.EpicRow{Base: "base-1", StoredBase: "base-1", Requirements: []store.EpicRequirement{r1}},
 				Runs: []store.NodeRun{{
@@ -542,10 +558,10 @@ func TestUnbuilt(t *testing.T) {
 				}},
 				Evidence: []store.EvidenceRun{red("R1", true)},
 			},
-			[]string{"R1 has no red at the epic's base base-1"},
+			[]string{"R1 is not green at the stored base base-1"},
 		},
 		{
-			"red at another revision does not count",
+			"red at another revision does not count toward green",
 			Rows{
 				Epic: store.EpicRow{Base: "base-1", StoredBase: "base-1", Requirements: []store.EpicRequirement{r1}},
 				Runs: []store.NodeRun{redRun},
@@ -554,7 +570,7 @@ func TestUnbuilt(t *testing.T) {
 					State: runEnded, Verdict: evidence.VerdictFails, Passed: true,
 				}},
 			},
-			[]string{"R1 has no red at the epic's base base-1"},
+			[]string{"R1 is not green at the stored base base-1"},
 		},
 		{
 			"red without green at the stored base is named",
@@ -570,7 +586,7 @@ func TestUnbuilt(t *testing.T) {
 			[]string{"R1 is not green at the stored base base-1"},
 		},
 		{
-			"each Requirement lacking proof gets its own line in contract order",
+			"each Requirement not green at the stored base gets its own line in contract order",
 			Rows{
 				Epic: store.EpicRow{
 					Base: "base-1", StoredBase: "base-1",
@@ -580,7 +596,7 @@ func TestUnbuilt(t *testing.T) {
 				Evidence: []store.EvidenceRun{red("R2", true)},
 			},
 			[]string{
-				"R1 has no red at the epic's base base-1",
+				"R1 is not green at the stored base base-1",
 				"R3 names no evidence item",
 				"R2 is not green at the stored base base-1",
 			},
@@ -603,6 +619,12 @@ func TestMetAtBase(t *testing.T) {
 		return store.EvidenceRun{
 			ID: workID(part), Phase: evidence.PhaseRed, State: runEnded,
 			Verdict: evidence.VerdictHolds, Passed: false,
+		}
+	}
+	passed := func(part string) store.EvidenceRun {
+		return store.EvidenceRun{
+			ID: workID(part), Phase: evidence.PhaseRed, State: runEnded,
+			Verdict: evidence.VerdictFails, Passed: true,
 		}
 	}
 	r1 := store.EpicRequirement{ID: "R1", Text: "the suite passes", Item: evidenceItem("the suite passes")}
@@ -666,6 +688,32 @@ func TestMetAtBase(t *testing.T) {
 			Rows{
 				Epic:     store.EpicRow{Requirements: []store.EpicRequirement{bare}},
 				Evidence: []store.EvidenceRun{holds("R3")},
+			},
+			nil,
+		},
+		{
+			"met Requirement beside a passed red is met",
+			Rows{
+				Epic:     store.EpicRow{Requirements: []store.EpicRequirement{r1, r2}},
+				Evidence: []store.EvidenceRun{holds("R1"), passed("R2")},
+			},
+			[]string{"R1"},
+		},
+		{
+			"met Requirement beside a red that gave no verdict is not met, so the node fails as it did",
+			Rows{
+				Epic: store.EpicRow{Requirements: []store.EpicRequirement{r1, r2}},
+				Evidence: []store.EvidenceRun{holds("R1"), {
+					ID: workID("R2"), Phase: evidence.PhaseRed, State: runEnded,
+				}},
+			},
+			nil,
+		},
+		{
+			"met Requirement beside a Requirement with no red run is not met",
+			Rows{
+				Epic:     store.EpicRow{Requirements: []store.EpicRequirement{r1, r2}},
+				Evidence: []store.EvidenceRun{holds("R1")},
 			},
 			nil,
 		},

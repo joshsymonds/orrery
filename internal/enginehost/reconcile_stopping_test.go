@@ -2,6 +2,7 @@ package enginehost
 
 import (
 	"context"
+	"reflect"
 	"slices"
 	"sync"
 	"testing"
@@ -123,7 +124,7 @@ func TestReconcileLeavesStoppingDrainingRowToItsPump(t *testing.T) {
 		t.Fatalf("fake claude read %d %q prompts after the turn ended, want none", n, resumePrompt)
 	}
 	want := Notice{Session: id, Dir: dir, State: "done", Body: "fake trickle 1.60"}
-	if got := sink.got(); len(got) != 1 || got[0] != want {
+	if got := sink.got(); len(got) != 1 || !reflect.DeepEqual(got[0], want) {
 		t.Fatalf("notices after the turn ended = %+v, want exactly [%+v]", got, want)
 	}
 }

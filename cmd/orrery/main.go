@@ -123,6 +123,7 @@ subcommands:
   epic stop ID                                  pause an epic and stop the step of its running turn; an epic
                                                 holding its repository's release slot frees the slot and stops
                                                 its open release step instead, and is not paused
+  epic steer ID                                 move an epic's steering to this conversation, which takes it over
   epic kick ID TEXT                             record TEXT as your decision on an idle epic and wake its planner
                                                 with it at the epic's next plan run; refused for a paused, parked
                                                 or ended epic

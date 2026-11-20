@@ -83,6 +83,16 @@ func recordPendingCreator(t *testing.T, s *Store, epic, session string) {
 	}
 }
 
+// steerPendingEpic sets the steerer of epic to session by a direct update, for an epic that a helper created without
+// one. The update is a store write, so the epic's revision moves as any write of its row does.
+func steerPendingEpic(t *testing.T, s *Store, epic, session string) {
+	t.Helper()
+	query := `UPDATE epics SET steerer = ? WHERE id = ?`
+	if _, err := s.fixtureExec(context.Background(), query, session, epic); err != nil {
+		t.Fatalf("steer epic %s by %s: %v", epic, session, err)
+	}
+}
+
 // readPending returns the caller events still owed to session, read through a Reader of path.
 func readPending(t *testing.T, path, session string) []PendingEvent {
 	t.Helper()
@@ -111,22 +121,28 @@ func TestStepEventCardPendingListsOwedStepEndsAndEpicEvents(t *testing.T) {
 	// engine-1 creates claimEpic, which asks one question, pendingParked, which parks, and pendingReleased, which is
 	// released. engine-2 creates pendingOther, which is released too.
 	questionedEpic(t, s, shapedQuestion("keep-old-tasks", "Keep the old tasks?"))
+	steerPendingEpic(t, s, claimEpic, "engine-1")
 	recordPendingCreator(t, s, claimEpic, "engine-1")
-	createEpic(t, s, fullEpic(pendingParked))
+	parked := fullEpic(pendingParked)
+	parked.Steerer = "engine-1"
+	createEpic(t, s, parked)
 	if err := s.ParkEpic(ctx, pendingParked, ParkClassBranch, "credit ran out", pendingAt()); err != nil {
 		t.Fatalf("ParkEpic: %v", err)
 	}
 	recordPendingCreator(t, s, pendingParked, "engine-1")
 	released := fullEpic(pendingReleased)
 	released.Phase = "released"
+	released.Steerer = "engine-1"
 	createEpic(t, s, released)
 	recordPendingCreator(t, s, pendingReleased, "engine-1")
 	ended := fullEpic(pendingEnded)
 	ended.Phase = "done"
+	ended.Steerer = "engine-1"
 	createEpic(t, s, ended)
 	recordPendingCreator(t, s, pendingEnded, "engine-1")
 	other := fullEpic(pendingOther)
 	other.Phase = "released"
+	other.Steerer = "engine-2"
 	createEpic(t, s, other)
 	recordPendingCreator(t, s, pendingOther, "engine-2")
 
@@ -147,6 +163,7 @@ func TestStepEventCardPendingListsOwedStepEndsAndEpicEvents(t *testing.T) {
 			Status: "passed",
 			Brief:  "Return: First line...\nNot shown: return (22 bytes)\nReason: gate green\nMore: step_result id step-a",
 			Epic:   claimEpic,
+			Facts:  StepFacts{Seconds: 60},
 		},
 		{
 			ID: "epic:orrery-1a2b3c4/epic-ended:done", Kind: CallerKindEnd, Epic: pendingEnded, Title: "Synthetic epic",
@@ -172,7 +189,8 @@ func TestStepEventCardPendingListsOwedStepEndsAndEpicEvents(t *testing.T) {
 	gotOther := readPending(t, path, "engine-2")
 	wantOther := []PendingEvent{
 		{ID: "step:step-b", Kind: CallerKindStepEnd, Step: "step-b", Agent: "implementer", End: "done",
-			Status: "passed", Brief: "Return: Other\nNot shown: none\nReason: gate green\nMore: step_result id step-b"},
+			Status: "passed", Brief: "Return: Other\nNot shown: none\nReason: gate green\nMore: step_result id step-b",
+			Facts: StepFacts{Seconds: 120}},
 		{ID: "epic:orrery-1a2b3c4/epic-other:released", Kind: CallerKindRelease, Epic: pendingOther,
 			Title: "Synthetic epic"},
 	}
@@ -189,18 +207,23 @@ func TestEndComesBackPendingDropsMarkedEvents(t *testing.T) {
 	s, path := openPendingStore(t)
 	addPendingEngines(t, s, "engine-1", "engine-2")
 	questionedEpic(t, s, shapedQuestion("keep-old-tasks", "Keep the old tasks?"))
+	steerPendingEpic(t, s, claimEpic, "engine-1")
 	recordPendingCreator(t, s, claimEpic, "engine-1")
-	createEpic(t, s, fullEpic(pendingParked))
+	parked := fullEpic(pendingParked)
+	parked.Steerer = "engine-1"
+	createEpic(t, s, parked)
 	if err := s.ParkEpic(ctx, pendingParked, ParkClassBranch, "credit ran out", pendingAt()); err != nil {
 		t.Fatalf("ParkEpic: %v", err)
 	}
 	recordPendingCreator(t, s, pendingParked, "engine-1")
 	released := fullEpic(pendingReleased)
 	released.Phase = "released"
+	released.Steerer = "engine-1"
 	createEpic(t, s, released)
 	recordPendingCreator(t, s, pendingReleased, "engine-1")
 	ended := fullEpic(pendingEnded)
 	ended.Phase = "done"
+	ended.Steerer = "engine-1"
 	createEpic(t, s, ended)
 	recordPendingCreator(t, s, pendingEnded, "engine-1")
 

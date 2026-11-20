@@ -99,11 +99,13 @@ func (e epicsServer) List(
 			epics = append(epics, epicMessage(rec, tasks, taskProblems, counts, now))
 			continue
 		}
-		epics = append(epics, storedEpicMessage(rec.ID, summary, recordProblems(rec, taskProblems), counts))
+		epics = append(epics, storedEpicMessage(rec.ID, summary, summary.GetRepository(),
+			summary.GetOpenQuestions(), recordProblems(rec, taskProblems), counts))
 		delete(storedByID, rec.ID)
 	}
 	for id, summary := range storedByID {
-		epics = append(epics, storedEpicMessage(id, summary, nil, runningCounts(byEpic[id], ended[id])))
+		epics = append(epics, storedEpicMessage(id, summary, summary.GetRepository(), summary.GetOpenQuestions(),
+			nil, runningCounts(byEpic[id], ended[id])))
 	}
 	markEpics(epics, marks, now)
 	sort.Slice(epics, func(i, j int) bool { return epics[i].GetId() < epics[j].GetId() })
@@ -165,7 +167,8 @@ func (e epicsServer) Get(
 		Sessions:   e.listSessions(ctx, id),
 	}
 	if inStore {
-		resp.Epic = storedEpicMessage(id, stored, recordProblems(rec, taskProblems), counts)
+		resp.Epic = storedEpicMessage(id, stored, stored.GetContract().GetRepository(),
+			epicOpenQuestions(stored.GetQuestions()), recordProblems(rec, taskProblems), counts)
 		runs := e.listEvidence(ctx, id)
 		roles := storedStepRoles(stored, runs)
 		applyStoredRoles(resp.GetSteps(), roles)
@@ -361,30 +364,49 @@ type storedHead interface {
 	GetChanged() int64
 	GetSeen() int64
 	GetRevision() int64
+	GetSteerer() string
+	GetPaused() bool
+	GetPauseSource() string
+	GetParked() string
 }
 
 // storedEpicMessage returns the Epic of an epic orreryd's database holds, from its head: its outcome is the phase,
 // which for a closed epic is the closed phase of its kind, its phase time, changed time, seen time and revision are the
 // database's, and it is live unless the phase is released or done, which end an epic, or a closed phase, which a close
-// ends it in; ended_with_gaps and stopped stay live. Its problem joins problems, which are the record's when a record of
-// the id exists and none otherwise. Its running steps and its count of ended steps are counts', as epicMessage's are.
-func storedEpicMessage(id string, head storedHead, problems []string, counts epicStepCounts) *orreryv1.Epic {
+// ends it in; ended_with_gaps and stopped stay live. Its steering, paused, pause source and park are the head's, its
+// path is the repository path given and its open questions are the count given, since the two heads answer them
+// differently. Its problem joins problems, which are the record's when a record of the id exists and none otherwise.
+// Its running steps and its count of ended steps are counts', as epicMessage's are.
+func storedEpicMessage(
+	id string,
+	head storedHead,
+	path string,
+	openQuestions int32,
+	problems []string,
+	counts epicStepCounts,
+) *orreryv1.Epic {
 	phase := head.GetPhase()
 	repository, slug, _ := strings.Cut(id, "/")
 	return &orreryv1.Epic{
-		Id:           id,
-		Repository:   repository,
-		Slug:         slug,
-		Outcome:      phase,
-		PhaseAt:      head.GetPhaseAt(),
-		Changed:      head.GetChanged(),
-		Seen:         head.GetSeen(),
-		Revision:     head.GetRevision(),
-		Live:         phase != "released" && phase != "done" && !store.IsClosedPhase(phase),
-		RunningSteps: counts.running,
-		EndedSteps:   counts.ended,
-		Problem:      strings.Join(problems, "; "),
-		Source:       epicSourceOrreryd,
+		Id:            id,
+		Repository:    repository,
+		Slug:          slug,
+		Outcome:       phase,
+		PhaseAt:       head.GetPhaseAt(),
+		Changed:       head.GetChanged(),
+		Seen:          head.GetSeen(),
+		Revision:      head.GetRevision(),
+		Live:          phase != "released" && phase != "done" && !store.IsClosedPhase(phase),
+		RunningSteps:  counts.running,
+		EndedSteps:    counts.ended,
+		Problem:       strings.Join(problems, "; "),
+		Source:        epicSourceOrreryd,
+		Steering:      head.GetSteerer(),
+		Path:          path,
+		Paused:        head.GetPaused(),
+		PauseSource:   head.GetPauseSource(),
+		Parked:        head.GetParked(),
+		OpenQuestions: openQuestions,
 	}
 }
 
@@ -480,6 +502,17 @@ func epicQuestionMessages(questions []*enginev1.EpicQuestion, turns []*enginev1.
 		})
 	}
 	return out
+}
+
+// epicOpenQuestions counts the questions the owner has not answered.
+func epicOpenQuestions(questions []*enginev1.EpicQuestion) int32 {
+	var open int32
+	for _, question := range questions {
+		if question.GetState() == epicQuestionOpen {
+			open++
+		}
+	}
+	return open
 }
 
 // epicQuestionChoiceMessages converts the choices a question declares to their EpicQuestionChoice messages, in order.

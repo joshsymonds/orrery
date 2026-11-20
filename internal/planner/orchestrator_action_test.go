@@ -64,6 +64,7 @@ func TestOrchestratorActionIsCarriedOutByTheNextPass(t *testing.T) {
 	}
 	want := []store.EpicDecision{{
 		Seq: 1, ID: "action-1-1", Text: "planner fail task 1: the build cannot reach the store", Time: claimedAt(),
+		Maker: store.Maker{By: store.MakerOrreryd},
 	}}
 	if !reflect.DeepEqual(epic.Decisions, want) {
 		t.Errorf("decisions after the pass = %+v, want %+v", epic.Decisions, want)

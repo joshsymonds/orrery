@@ -38,9 +38,32 @@ func epicTestStore(t *testing.T) *store.Store {
 	return st
 }
 
-// startEpicServer serves epics on a sessions socket in a temporary directory and returns the socket's path. The
-// server stops at cleanup.
+// fixedSteerID is the session id fixedSteering starts.
+const fixedSteerID = "steering-fixed"
+
+// fixedSteering is the SteeringSessions the epic server helpers serve with: Start returns fixedSteerID and starts no
+// session, Stop does nothing, and PaneDir returns no directory.
+type fixedSteering struct{}
+
+// Start returns fixedSteerID.
+func (fixedSteering) Start(context.Context, store.EpicRow) (string, error) { return fixedSteerID, nil }
+
+// Stop does nothing.
+func (fixedSteering) Stop(context.Context, string) error { return nil }
+
+// PaneDir returns no directory.
+func (fixedSteering) PaneDir(context.Context, string, string) (string, error) { return "", nil }
+
+// startEpicServer serves epics with fixedSteering on a sessions socket in a temporary directory and returns the socket's
+// path. The server stops at cleanup.
 func startEpicServer(t *testing.T, epics EpicCommands) string {
+	t.Helper()
+	return serveEpicsWith(t, epics, fixedSteering{})
+}
+
+// serveEpicsWith serves epics with steering on a sessions socket in a temporary directory and returns the socket's
+// path. The server stops at cleanup.
+func serveEpicsWith(t *testing.T, epics EpicCommands, steering SteeringSessions) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "sessions.sock")
 	ln, err := Listen(path)
@@ -49,7 +72,7 @@ func startEpicServer(t *testing.T, epics EpicCommands) string {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
-	go func() { done <- Serve(ctx, ln, nil, nil, epics, nil, nil, nil, nil, nil) }()
+	go func() { done <- Serve(ctx, ln, nil, nil, epics, steering, nil, nil, nil, nil, nil) }()
 	t.Cleanup(func() {
 		cancel()
 		if err := <-done; err != nil {
@@ -192,7 +215,10 @@ func TestEpicCreateThenGetRoundTripsContract(t *testing.T) {
 		t.Fatalf("decisions = %d, want %d seeds", len(stored.GetDecisions()), len(seeds))
 	}
 	for i, seed := range seeds {
-		want := &v1.EpicDecision{Seq: int64(i + 1), Id: seed.GetId(), Text: seed.GetText(), Time: stored.GetCreated()}
+		// The seeds are made by the caller, which here names no conversation and so is the owner.
+		want := &v1.EpicDecision{
+			Seq: int64(i + 1), Id: seed.GetId(), Text: seed.GetText(), Time: stored.GetCreated(), By: "owner",
+		}
 		if !proto.Equal(stored.GetDecisions()[i], want) {
 			t.Fatalf("decision %d = %v, want seed %v", i, stored.GetDecisions()[i], want)
 		}
@@ -322,7 +348,7 @@ func TestEpicCreateStoresMergedReviewers(t *testing.T) {
 	if !proto.Equal(got, stored) {
 		t.Fatalf("GetEpic = %v, want the created epic %v", got, stored)
 	}
-	want := []string{"floor", "conformance", "integration", "security", "test_parsimony", "synthetic_check"}
+	want := []string{"floor", "conformance", "integration", "security", "test_parsimony", "release", "synthetic_check"}
 	if names := epicReviewerNames(got.GetReviewers()); !slices.Equal(names, want) {
 		t.Fatalf("reviewers = %v, want %v", names, want)
 	}
@@ -350,7 +376,7 @@ func TestEpicCreateStoresMergedReviewers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("store Epic: %v", err)
 	}
-	wantReview := []string{"floor", "test_parsimony", "synthetic_check"}
+	wantReview := []string{"floor", "synthetic_check"}
 	if !slices.Equal(row.ReviewGates, wantReview) {
 		t.Fatalf("review list = %v, want the enabled task-stage reviewers %v", row.ReviewGates, wantReview)
 	}
@@ -518,17 +544,29 @@ func TestEpicListReturnsSummariesByID(t *testing.T) {
 	}
 }
 
-// summaryOf returns the summary of a stored epic: its id, repository, title, phase, phase time, created and changed.
+// summaryOf returns the summary of a stored epic: its id, repository, title, phase, phase time, created and changed,
+// revision, steerer, pause, park and open question count.
 func summaryOf(epic *v1.StoredEpic) *v1.EpicSummary {
+	var open int32
+	for _, question := range epic.GetQuestions() {
+		if question.GetState() == store.QuestionOpen {
+			open++
+		}
+	}
 	return &v1.EpicSummary{
-		Id:         epic.GetContract().GetId(),
-		Repository: epic.GetContract().GetRepository(),
-		Title:      epic.GetContract().GetTitle(),
-		Phase:      epic.GetPhase(),
-		PhaseAt:    epic.GetPhaseAt(),
-		Created:    epic.GetCreated(),
-		Changed:    epic.GetChanged(),
-		Revision:   epic.GetRevision(),
+		Id:            epic.GetContract().GetId(),
+		Repository:    epic.GetContract().GetRepository(),
+		Title:         epic.GetContract().GetTitle(),
+		Phase:         epic.GetPhase(),
+		PhaseAt:       epic.GetPhaseAt(),
+		Created:       epic.GetCreated(),
+		Changed:       epic.GetChanged(),
+		Revision:      epic.GetRevision(),
+		Steerer:       epic.GetSteerer(),
+		Paused:        epic.GetPaused(),
+		PauseSource:   epic.GetPauseSource(),
+		Parked:        epic.GetParked(),
+		OpenQuestions: open,
 	}
 }
 

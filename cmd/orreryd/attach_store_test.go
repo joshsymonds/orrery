@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"sync"
 	"testing"
@@ -56,12 +57,14 @@ func (s *recordSender) PublishClear(_ context.Context, c push.Clear) error {
 	return nil
 }
 
-// attachRouter returns the router serve builds, with notices as its phone and sinks as its desk, log and clock.
+// attachRouter returns the router serve builds, with notices as its phone and sinks as its desk, log and clock, the
+// clock its store-call bounds are armed on too.
 func attachRouter(notices *notice.Notices, sinks *paneSinks) *route.Router {
 	hub := newRelay(route.Config{
 		Host:       attachHost,
 		Now:        sinks.Now,
 		After:      sinks.After,
+		StoreAfter: sinks.After,
 		Desk:       sinks,
 		Phone:      notices,
 		Subscribed: sinks.Subscribed,
@@ -104,7 +107,7 @@ func TestAttachStore(t *testing.T) {
 			Host: attachHost, Project: filepath.Base(attachProject), Session: attachSession,
 			State: "waiting", Question: attachQuestion, Time: attachResentAt,
 		}
-		if len(sender.pushes) != 1 || sender.pushes[0] != wantPush {
+		if len(sender.pushes) != 1 || !reflect.DeepEqual(sender.pushes[0], wantPush) {
 			t.Errorf("pushes = %+v, want [%+v]", sender.pushes, wantPush)
 		}
 		if len(sender.clears) != 0 {

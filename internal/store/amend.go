@@ -63,10 +63,10 @@ type Amendment struct {
 // EvidenceAmendment is one stored amendment of a Requirement's evidence item: the epic and its seq there, the Requirement,
 // its amender, the turn and 1-based position of the planner action that asked for it (0 for both otherwise), the item the
 // Requirement held when it was asked for and the item it asks for, the reason, the epic's base, and its state. RedRun is
-// the id of the red run of New at Base at RedAttempt. StoredBase is the stored base the green run GreenRun, and for a test
-// item the reproduction check ReproCheck, run at, at GreenAttempt; all three are empty while the amendment is checking, and
-// for an amendment applied with no green run. Refusal is why a refused amendment was refused. Settled is when it left
-// checking, and zero while it is checking.
+// the id of the red run of New at Base at RedAttempt, which an amendment that keeps the conclusion and kind never runs.
+// StoredBase is the stored base the green run GreenRun, and for a test item the reproduction check ReproCheck, run at,
+// at GreenAttempt; all three are empty while the amendment is checking, and for an amendment applied with no green run.
+// Refusal is why a refused amendment was refused. Settled is when it left checking, and zero while it is checking.
 type EvidenceAmendment struct {
 	Epic         string
 	Seq          int64
@@ -106,20 +106,29 @@ func AmendmentWorkID(epic string, seq int64, part string, attempt int64) string 
 }
 
 // AmendEvidence stores, in one write, the owner's amendment of the evidence item of a Requirement of epic, and returns
-// it. An amend_evidence action makes the same write by the planner (see CarryOutAction). The amendment starts checking:
-// the item does not change until the red run of the new item at the epic's base is judged not to hold (see
-// SettleAmendment). An unknown epic is ErrNoEpic. An amendment the store refuses is a RefusalError and writes nothing;
-// startAmendment gives the refusals.
+// it. An amend_evidence action makes the same write by the planner (see CarryOutAction). An amendment that keeps the
+// Requirement's conclusion and kind, changing only how it is shown, applies in that write (see applyUnchanged). Any other
+// amendment starts checking: the item does not change until the red run of the new item at the epic's base is judged not
+// to hold (see SettleAmendment). The write appends one amend action made by maker at at. An unknown epic is ErrNoEpic.
+// An amendment the store refuses is a RefusalError and writes nothing; startAmendment gives the refusals.
 func (s *Store) AmendEvidence(
 	ctx context.Context,
 	epic string,
 	amend Amendment,
+	maker Maker,
 	at time.Time,
 ) (EvidenceAmendment, error) {
 	var stored EvidenceAmendment
 	err := s.write(ctx, func(queries *sqlcgen.Queries) error {
-		var err error
-		stored, err = startAmendment(ctx, queries, epic, amendStart{amender: AmenderOwner, Amendment: amend}, at)
+		started, err := startAmendment(ctx, queries, epic, amendStart{amender: AmenderOwner, Amendment: amend}, at)
+		if err != nil {
+			return err
+		}
+		stored, err = applyUnchanged(ctx, queries, started, at)
+		if err != nil {
+			return err
+		}
+		_, err = appendEpicAction(ctx, queries, epic, ActionAmend, maker, "", "", at)
 		return err
 	})
 	if err != nil {
@@ -129,9 +138,10 @@ func (s *Store) AmendEvidence(
 }
 
 // startAmendment stores start as the next amendment of epic in the caller's write, checking, with the item the
-// Requirement holds as its old item, the epic's base as its base, and its red run named for attempt 0, and returns it. A
-// refusal is a RefusalError and writes nothing: an epic in an ended phase, an epic with no base, a Requirement the epic
-// does not hold, and the refusals amendmentRefusal gives.
+// Requirement holds as its old item, the epic's base as its base, and its red run named for attempt 0, and returns it. The
+// caller applies it when it changes neither the conclusion nor the kind (see applyUnchanged). A refusal is a RefusalError
+// and writes nothing: an epic in an ended phase, an epic with no base, a Requirement the epic does not hold, and the
+// refusals amendmentRefusal gives.
 func startAmendment(
 	ctx context.Context, queries *sqlcgen.Queries, epic string, start amendStart, at time.Time,
 ) (EvidenceAmendment, error) {
@@ -198,8 +208,10 @@ func epicRequirement(ctx context.Context, queries *sqlcgen.Queries, epic, id str
 // amendmentRefusal returns why start may not amend requirement of epic, or "" when it may: a Requirement dropped as
 // already met at the base, an item evidence.Check refuses, with each of its lines, an item the Requirement already holds,
 // whatever empty lists it gives as null or [], a planner amendment that changes the conclusion or the kind, which only the
-// owner may change, and a Requirement with an amendment that is checking or capturing. A planner that changed the kind
-// could drop what the kind checks, such as the reproduction of a test item.
+// owner may change, a Requirement with an amendment that is checking or capturing, and an amendment that keeps the
+// conclusion and kind while evidence work of the epic is under way. A planner that changed the kind could drop what the
+// kind checks, such as the reproduction of a test item. An amendment that keeps them applies in the write that stores it,
+// so it is refused rather than deferred while that work runs: its new item would leave the stored runs of the work stale.
 func amendmentRefusal(
 	ctx context.Context, queries *sqlcgen.Queries, epic string, requirement EpicRequirement, start amendStart,
 ) (string, error) {
@@ -232,15 +244,52 @@ func amendmentRefusal(
 	if open > 0 {
 		return fmt.Sprintf("%s has an amendment that is not settled yet", id), nil
 	}
+	if claimChanged(requirement.Item, start.Item) {
+		return "", nil
+	}
+	working, err := queries.CountWorkingEvidenceNodeRuns(ctx, epic)
+	if err != nil {
+		return "", fmt.Errorf("count working evidence runs of epic %s: %w", epic, err)
+	}
+	if working > 0 {
+		return fmt.Sprintf("%s keeps its conclusion and kind, so it applies at once, which waits for the evidence, "+
+			"integrate, sync or release run under way to end", id), nil
+	}
 	return "", nil
 }
 
+// claimChanged reports whether item changes what the Requirement claims, its conclusion or its kind, from prior, the item
+// it holds. Only such a change needs its red run at the epic's base. How the Requirement is shown, its capture, limit,
+// artifacts, supplied files, judge and tests, may change with no red run.
+func claimChanged(prior, item evidence.Item) bool {
+	return item.Conclusion != prior.Conclusion || item.Kind != prior.Kind
+}
+
+// applyUnchanged applies amendment, stored in the caller's write, when it keeps the conclusion and kind of the Requirement,
+// since such an amendment needs no red run at the base, and returns it as it then stands. An amendment that changes either
+// is returned checking, for its red run to settle it (see SettleAmendment).
+func applyUnchanged(
+	ctx context.Context, queries *sqlcgen.Queries, amendment EvidenceAmendment, at time.Time,
+) (EvidenceAmendment, error) {
+	if claimChanged(amendment.Prior, amendment.Item) {
+		return amendment, nil
+	}
+	if err := applyAmendment(ctx, queries, amendment, unchangedProof, at); err != nil {
+		return EvidenceAmendment{}, err
+	}
+	return readAmendment(ctx, queries, amendment.Epic, amendment.Seq)
+}
+
+// unchangedProof is the account a decision gives of why an amendment that keeps the conclusion and kind applies with no
+// red run.
+const unchangedProof = " It keeps the conclusion and kind, so it needs no red run at the epic's base."
+
 // startPlannedAmendment starts the amendment action asks for, an amend_evidence action, in one write, as AmendEvidence
 // starts one, by the planner, keeping the action's turn and position on it. The same write links the action to the park
-// it answers, as any action is linked when it is carried out, so the link is the park its turn answered however long its
-// amendment takes. The action stays pending until its amendment is settled, so an action whose amendment is stored already
-// changes nothing. A refusal is recorded as CarryOutAction records any refusal of an action, and the amendment is not
-// stored.
+// it answers, as any action is linked when it is carried out, and then applies the amendment when it keeps the conclusion
+// and kind, which a planner's amendment must (see applyUnchanged), so the action is taken in that write. A planner
+// amendment that would change them is refused. An action whose amendment is stored already changes nothing. A refusal is
+// recorded as CarryOutAction records any refusal of an action, and the amendment is not stored.
 func (s *Store) startPlannedAmendment(ctx context.Context, action PlannerAction, at time.Time) error {
 	err := s.write(ctx, func(queries *sqlcgen.Queries) error {
 		_, err := queries.GetActionAmendment(ctx, sqlcgen.GetActionAmendmentParams{
@@ -261,10 +310,11 @@ func (s *Store) startPlannedAmendment(ctx context.Context, action PlannerAction,
 		if err != nil {
 			return err
 		}
-		if _, err = startAmendment(ctx, queries, action.Epic, amendStart{
+		amended, err := startAmendment(ctx, queries, action.Epic, amendStart{
 			amender: AmenderPlanner, turn: action.Turn, position: action.Position,
 			Amendment: Amendment{Requirement: action.Requirement, Item: action.Item, Reason: action.Reason},
-		}, at); err != nil {
+		}, at)
+		if err != nil {
 			return err
 		}
 		if err = queries.LinkPlannerActionPark(ctx, sqlcgen.LinkPlannerActionParkParams{
@@ -273,7 +323,8 @@ func (s *Store) startPlannedAmendment(ctx context.Context, action PlannerAction,
 			return fmt.Errorf("link action %d of turn %d of epic %s to its park: %w",
 				action.Position, action.Turn, action.Epic, err)
 		}
-		return nil
+		_, err = applyUnchanged(ctx, queries, amended, at)
+		return err
 	})
 	var refusal RefusalError
 	switch {
@@ -373,7 +424,8 @@ func settleRed(ctx context.Context, queries *sqlcgen.Queries, amendment Evidence
 		return nil
 	}
 	if run.Passed {
-		return applyAmendment(ctx, queries, amendment, run, at)
+		return applyAmendment(ctx, queries, amendment, fmt.Sprintf(
+			" The red run %s of the new item at the epic's base %s was judged fails.", run.ID, amendment.Base), at)
 	}
 	return refuseAmendment(ctx, queries, amendment, redRefusal(amendment, run), at)
 }
@@ -408,7 +460,8 @@ func redRefusal(amendment EvidenceAmendment, run EvidenceRun) string {
 	return where + " gave no verdict: " + run.JudgeReason
 }
 
-// applyAmendment applies amendment, whose red run passed, in the caller's write. It returns ErrAmendmentDeferred,
+// applyAmendment applies amendment in the caller's write, whose proof is the account its decision gives of why it may
+// apply: its red run passed, or it keeps the conclusion and kind (see applyUnchanged). It returns ErrAmendmentDeferred,
 // having written nothing, while an evidence, integrate or sync node run of the epic has a revision and is running, or
 // while its release node run is running, the epic is releasing, and the latest round of its release integrator that
 // passed at the run's attempt made a merge that is not yet a candidate of that attempt: the release walks that merge's
@@ -419,7 +472,7 @@ func redRefusal(amendment EvidenceAmendment, run EvidenceRun) string {
 // amendment moves to capturing, with its green run and, for a test item, its reproduction named at the stored base.
 // Otherwise it is applied at once, and the next integrate captures the new item at its candidate.
 func applyAmendment(
-	ctx context.Context, queries *sqlcgen.Queries, amendment EvidenceAmendment, red EvidenceRun, at time.Time,
+	ctx context.Context, queries *sqlcgen.Queries, amendment EvidenceAmendment, proof string, at time.Time,
 ) error {
 	working, err := queries.CountWorkingEvidenceNodeRuns(ctx, amendment.Epic)
 	if err != nil {
@@ -440,17 +493,25 @@ func applyAmendment(
 		return setErr
 	}
 	text := fmt.Sprintf(
-		"%s amended the evidence of %s (A%d): %s. The red run %s of the new item at the epic's base %s "+
-			"was judged fails.%s",
+		"%s amended the evidence of %s (A%d): %s.%s%s",
 		amendment.Amender,
 		amendment.Requirement,
 		amendment.Seq,
 		amendment.Reason,
-		red.ID,
-		amendment.Base,
+		proof,
 		itemsText(amendment.Prior, amendment.Item),
 	)
-	if _, err = appendDecision(ctx, queries, amendment.Epic, amendmentDecisionID(amendment), text, 0, at); err != nil {
+	if _, err = appendDecision(
+		ctx,
+		queries,
+		amendment.Epic,
+		amendmentDecisionID(amendment),
+		text,
+		0,
+		Maker{By: MakerOrreryd},
+		"",
+		at,
+	); err != nil {
 		return err
 	}
 	if takeErr := takeAmendmentAction(ctx, queries, amendment); takeErr != nil {
@@ -575,7 +636,17 @@ func refuseAmendment(
 	id := amendmentDecisionID(amendment) + "-refused"
 	text := fmt.Sprintf("%s amendment A%d of the evidence of %s refused: %s. Its reason: %s.%s", amendment.Amender,
 		amendment.Seq, amendment.Requirement, refusal, amendment.Reason, itemsText(amendment.Prior, amendment.Item))
-	if _, err := appendDecision(ctx, queries, amendment.Epic, id, text, 0, at); err != nil {
+	if _, err := appendDecision(
+		ctx,
+		queries,
+		amendment.Epic,
+		id,
+		text,
+		0,
+		Maker{By: MakerOrreryd},
+		"",
+		at,
+	); err != nil {
 		return err
 	}
 	tell := fmt.Sprintf("Evidence amendment A%d of %s refused: %s", amendment.Seq, amendment.Requirement, refusal)

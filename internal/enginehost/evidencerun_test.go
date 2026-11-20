@@ -74,6 +74,14 @@ func evidenceRunSeed(t *testing.T, st *store.Store, repo string, requirement, ta
 // Close runs when the test ends.
 func evidenceRunNew(t *testing.T, st *store.Store, steps EvidenceSteps) *Evidence {
 	t.Helper()
+	return evidenceRunNewAfter(t, st, steps, nil)
+}
+
+// evidenceRunNewAfter is evidenceRunNew with the After the runner waits on, which nil leaves as time.After.
+func evidenceRunNewAfter(
+	t *testing.T, st *store.Store, steps EvidenceSteps, after func(time.Duration) <-chan time.Time,
+) *Evidence {
+	t.Helper()
 	home := t.TempDir()
 	stepGateWriteFile(t, filepath.Join(home, "orrery", "pools.toml"), stepGatePoolsText("gate"))
 	ev := NewEvidence(EvidenceConfig{
@@ -83,9 +91,45 @@ func evidenceRunNew(t *testing.T, st *store.Store, steps EvidenceSteps) *Evidenc
 		Environ:      gateEnv("XDG_CONFIG_HOME=" + home),
 		StateDir:     t.TempDir(),
 		GateStateDir: gateShortStateDir(t),
+		After:        after,
 	})
 	t.Cleanup(ev.Close)
 	return ev
+}
+
+// evidenceRunWaits is the After of a runner under test. Each wait is announced, and then ends on a tick the test sends, so
+// the test decides when a wait ends and sees each wait begin.
+type evidenceRunWaits struct {
+	announced chan struct{}
+	ticks     chan time.Time
+}
+
+// newEvidenceRunWaits returns the waits of a runner under test, with none announced.
+func newEvidenceRunWaits() *evidenceRunWaits {
+	return &evidenceRunWaits{announced: make(chan struct{}, 8), ticks: make(chan time.Time)}
+}
+
+// after announces a wait and returns the channel the test ticks it on.
+func (w *evidenceRunWaits) after(time.Duration) <-chan time.Time {
+	w.announced <- struct{}{}
+	return w.ticks
+}
+
+// evidenceRunResumeEpic waits until a judge of the run waits on its paused epic, then resumes the epic in st and ends that
+// wait. It fails at once when the work of eng has finished first.
+func evidenceRunResumeEpic(t *testing.T, eng engine, st *store.Store, waits *evidenceRunWaits) {
+	t.Helper()
+	evidenceRunEventually(t, eng, "a judge waits on its paused epic", func() bool { return len(waits.announced) > 0 })
+	<-waits.announced
+	if err := st.ResumeEpic(
+		t.Context(),
+		evidenceRunEpic,
+		store.Maker{By: store.MakerOwner},
+		time.Unix(1700000000, 0),
+	); err != nil {
+		t.Fatalf("ResumeEpic: %v", err)
+	}
+	waits.ticks <- time.Time{}
 }
 
 // evidenceRunEventually polls ok until it holds. It has no deadline of its own, and fails at once, naming what, when the
@@ -138,11 +182,31 @@ func evidenceRunWantStarted(t *testing.T, started store.EvidenceRun, item, revis
 }
 
 // evidenceRunJudge is what one judge step of evidenceRunSteps does: the row it ends with, or the error its Start refuses
-// with, or that it never ends until its context does.
+// with, or that it never ends until its context does. beforeEnd, when set, runs as the step starts, before its row ends.
 type evidenceRunJudge struct {
-	end  store.StepRow
-	err  error
-	hang bool
+	end       store.StepRow
+	err       error
+	hang      bool
+	beforeEnd func()
+}
+
+// evidenceRunStoppedByPause is a judge that a pause of the epic stops: as it starts, the epic is paused in st, and then it
+// ends stopped.
+func evidenceRunStoppedByPause(t *testing.T, st *store.Store) evidenceRunJudge {
+	t.Helper()
+	return evidenceRunJudge{
+		end: store.StepRow{End: stepStoppedEnd},
+		beforeEnd: func() {
+			if err := st.PauseEpic(
+				t.Context(),
+				evidenceRunEpic,
+				store.Maker{By: store.MakerOwner},
+				time.Unix(1700000000, 0),
+			); err != nil {
+				t.Errorf("PauseEpic: %v", err)
+			}
+		},
+	}
 }
 
 // evidenceRunHolds is a judge that ends done: its conclusion holds.
@@ -183,6 +247,9 @@ func (f *evidenceRunSteps) Start(_ context.Context, _ StepStart) (string, error)
 	f.judges = f.judges[1:]
 	if judge.err != nil {
 		return "", judge.err
+	}
+	if judge.beforeEnd != nil {
+		judge.beforeEnd()
 	}
 	id := fmt.Sprintf("judge-%d", f.count)
 	if !judge.hang {
@@ -348,6 +415,60 @@ func TestEvidenceRunThreeNoVerdictEndsRecordNoVerdict(t *testing.T) {
 			"run = verdict %q passed %t reason %q judges %d starts %d, want no verdict, not passed, reason %q, three",
 			got.Verdict, got.Passed, got.JudgeReason, got.Judges, starts, wantReason,
 		)
+	}
+}
+
+// TestEvidenceRunJudgeStoppedByPauseStartsAgainOnResume pauses the epic as its first judge starts, so the judge ends stopped.
+// No second judge starts while the epic is paused, and the second judge starts once the epic is resumed, and holds.
+func TestEvidenceRunJudgeStoppedByPauseStartsAgainOnResume(t *testing.T) {
+	t.Parallel()
+	repo, head := evidenceRunRepo(t, "exit 0\n")
+	st := epicTestStore(t)
+	evidenceRunSeed(t, st, repo, evidenceRunItem(), evidenceRunItem())
+	steps := &evidenceRunSteps{judges: []evidenceRunJudge{evidenceRunStoppedByPause(t, st), evidenceRunHolds()}}
+	waits := newEvidenceRunWaits()
+	ev := evidenceRunNewAfter(t, st, steps, waits.after)
+
+	started, err := ev.Run(t.Context(), evidenceRunEpic, "R1", head, evidence.PhaseGreen)
+	if err != nil {
+		t.Fatalf("Run(R1): %v", err)
+	}
+	eng := engineOf(ev)
+	evidenceRunResumeEpic(t, eng, st, waits)
+	got := evidenceRunSettled(t, eng, st, started.ID)
+	if got.Verdict != evidence.VerdictHolds || got.Judges != 2 || steps.startCount() != 2 {
+		t.Fatalf("run = verdict %q judges %d starts %d, want holds after two judges, each started once",
+			got.Verdict, got.Judges, steps.startCount())
+	}
+}
+
+// TestEvidenceRunPausedStopSpendsNoTry pauses the epic as its first judge starts, and then gives two judges no verdict and a
+// fourth that holds. The judge the pause stopped spends no attempt, so the fourth judge is the third attempt and its verdict
+// is recorded.
+func TestEvidenceRunPausedStopSpendsNoTry(t *testing.T) {
+	t.Parallel()
+	repo, head := evidenceRunRepo(t, "exit 0\n")
+	st := epicTestStore(t)
+	evidenceRunSeed(t, st, repo, evidenceRunItem(), evidenceRunItem())
+	steps := &evidenceRunSteps{judges: []evidenceRunJudge{
+		evidenceRunStoppedByPause(t, st),
+		evidenceRunNoVerdict("first"),
+		evidenceRunNoVerdict("second"),
+		evidenceRunHolds(),
+	}}
+	waits := newEvidenceRunWaits()
+	ev := evidenceRunNewAfter(t, st, steps, waits.after)
+
+	started, err := ev.Run(t.Context(), evidenceRunEpic, "R1", head, evidence.PhaseGreen)
+	if err != nil {
+		t.Fatalf("Run(R1): %v", err)
+	}
+	eng := engineOf(ev)
+	evidenceRunResumeEpic(t, eng, st, waits)
+	got := evidenceRunSettled(t, eng, st, started.ID)
+	if got.Verdict != evidence.VerdictHolds || !got.Passed || got.Judges != 4 || steps.startCount() != 4 {
+		t.Fatalf("run = verdict %q passed %t judges %d starts %d, want holds, passed, four judges",
+			got.Verdict, got.Passed, got.Judges, steps.startCount())
 	}
 }
 

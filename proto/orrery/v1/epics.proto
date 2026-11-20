@@ -48,6 +48,13 @@ service Epics {
   // Close closes the named orreryd epic as superseded, shipped by hand or abandoned, and records the owner as its
   // closer.
   rpc Close(EpicsCloseRequest) returns (EpicsCloseResponse);
+
+  // Move moves the steering of the named orreryd epic to the session the request names, as the owner.
+  rpc Move(EpicsMoveRequest) returns (EpicsMoveResponse);
+
+  // Continue starts a steering session for the named orreryd epic, moves its steering to that session as the owner, and
+  // answers the session's id.
+  rpc Continue(EpicsContinueRequest) returns (EpicsContinueResponse);
 }
 
 // Steps carries the owner's calls on one labelled step. It has no call that starts a step.
@@ -390,7 +397,34 @@ message EpicHistoryEntry {
 
     // A tell: what the owner was told.
     EpicTell tell = 8;
+
+    // An action taken on the epic's steering or controls.
+    EpicAction action = 9;
   }
+}
+
+// EpicAction is one action taken on an orreryd epic's steering or controls, such as a move.
+message EpicAction {
+  // The action's position on the epic, counted from 1.
+  int64 seq = 1;
+
+  // What the action did, such as move.
+  string kind = 2;
+
+  // When the action was taken, in unix seconds.
+  int64 time = 3;
+
+  // Who took the action, as the store records its maker.
+  string by = 4;
+
+  // The session that took the action, empty when none did.
+  string session = 5;
+
+  // The session the action moved the epic from, empty when none.
+  string from = 6;
+
+  // The session the action moved the epic to, empty when none.
+  string to = 7;
 }
 
 // EpicTurn is one planner turn of an orreryd epic.
@@ -457,6 +491,12 @@ message EpicDecision {
 
   // The question, Q<n>, the decision answers; empty for a note.
   string question = 5;
+
+  // Who recorded the decision: 'owner', 'conversation' or 'orreryd'; empty for a decision stored before this release.
+  string by = 6;
+
+  // The conversation's session id when by is 'conversation', empty otherwise.
+  string session = 7;
 }
 
 // EpicTell is one thing an orreryd epic told its owner.
@@ -472,6 +512,30 @@ message EpicTell {
 
   // Whether the owner has been told it.
   bool told = 4;
+}
+
+// EpicsMoveRequest names the orreryd epic to move and the session to move it to.
+message EpicsMoveRequest {
+  // The epic's id.
+  string id = 1;
+
+  // The session to move the epic's steering to.
+  string session = 2;
+}
+
+// EpicsMoveResponse is the reply to a Move. It has no fields.
+message EpicsMoveResponse {}
+
+// EpicsContinueRequest names the orreryd epic to continue.
+message EpicsContinueRequest {
+  // The epic's id.
+  string id = 1;
+}
+
+// EpicsContinueResponse answers the steering session started for the epic.
+message EpicsContinueResponse {
+  // The id of the steering session started for the epic.
+  string session = 1;
 }
 
 // EpicsPauseRequest names the orreryd epic to pause.
@@ -672,6 +736,25 @@ message Epic {
   // records hold. It only grows, so an epic whose revision moved has changed in some part Get answers that this
   // message does not carry, such as its questions, its park, its nodes, its tasks or its ledger.
   int64 revision = 16;
+
+  // The id of the session that steers the orreryd epic; empty when it has none or for a record epic. It may name a
+  // session whose row is gone.
+  string steering = 17;
+
+  // The absolute path of the orreryd epic's repository; empty for a record epic.
+  string path = 18;
+
+  // Whether the orreryd epic is paused. A paused epic starts no planner turn until it is resumed.
+  bool paused = 19;
+
+  // Why the orreryd epic is paused, 'owner' or 'limit' while it is paused, empty otherwise.
+  string pause_source = 20;
+
+  // Why the epic is parked, empty when it is not parked.
+  string parked = 21;
+
+  // How many of the epic's questions are open.
+  int32 open_questions = 22;
 }
 
 // EpicTask is one task from an effort's state.json.
@@ -730,11 +813,14 @@ message EpicTaskReview {
   // The step that ran the review.
   string step = 3;
 
-  // The review's verdict: holds or fails.
+  // The review's verdict: holds, fails, or undetermined when the reviewer gave neither twice.
   string verdict = 4;
 
   // The findings the review raised, in position order.
   repeated EpicTaskFinding findings = 5;
+
+  // Why the review is undetermined: how its step ended. Empty for holds and fails.
+  string reason = 6;
 }
 
 // EpicTaskFinding is one finding a review raised, with its verification.
@@ -927,8 +1013,7 @@ message EpicStep {
 
   // How the step ended, one of done, returned, goal_unmet, checks_failed, gate_failed, failed, stopped,
   // engine_restarted, overtime, tool_stuck, silent, looping or wedged; empty while it runs. gate_failed is an agent
-  // gate step's checked return that did not pass: its assertions did not all hold, its status was not done, or an
-  // earlier return of the step held a fails result.
+  // gate step's checked return that did not pass: a result was fails or undetermined, or its status was not done.
   string end = 4;
 
   // The step's status.

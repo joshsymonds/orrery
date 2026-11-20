@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsNode
 import androidx.compose.ui.test.SemanticsMatcher
@@ -19,6 +20,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
 import io.github.joshsymonds.orrery.mainThreadAndroidComposeRule
 import io.github.joshsymonds.orrery.ui.theme.OrreryTheme
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -35,7 +37,6 @@ class PaneListColorTest {
     private companion object {
         const val NOW = 1_700_000_000L
         const val PANES_LIST = "/orrery.v1.Panes/List"
-        const val MAUVE_ARGB = 0xFFCBA6F7.toInt()
         val YELLOW = Color(0xFFF9E2AF)
         val PEACH = Color(0xFFFAB387)
         val GREEN = Color(0xFFA6E3A1)
@@ -144,7 +145,7 @@ class PaneListColorTest {
     }
 
     @Test
-    fun unseenDotRendersMauve() {
+    fun unseenDotRendersInRoleNew() {
         FakeOrreryServer().use { server ->
             server.respond(PANES_LIST, panesBody())
             setScreen(server)
@@ -160,7 +161,7 @@ class PaneListColorTest {
 
             val x = bounds.center.x.toInt()
             val y = bounds.center.y.toInt()
-            assertEquals(MAUVE_ARGB, bitmap.getPixel(x, y))
+            assertEquals(OrreryTokens.Role.new.toArgb(), bitmap.getPixel(x, y))
         }
     }
 }

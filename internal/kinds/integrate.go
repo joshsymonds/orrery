@@ -241,36 +241,66 @@ func reproCheck(checks []store.NodeCheck, run store.NodeRun, id string) (store.N
 }
 
 // captureCauses returns a line for each capture that did not run or was not judged, and for each Requirement that was
-// green at the stored base and whose capture does not pass now.
+// green at the stored base and whose capture does not pass now. A regression also names the capture's exit, verdict and
+// the judge's reason when the capture has a verdict and a reason. A carried capture is no cause (see carried).
 func captureCauses(rows Rows, captured map[string]store.EvidenceRun) []string {
 	green := GreenAt(rows, rows.Epic.StoredBase)
 	var causes []string
 	for _, requirement := range itemRequirements(rows.Epic.Requirements) {
 		capture := captured[requirement.ID]
+		if carried(capture, green[requirement.ID]) {
+			continue
+		}
 		if capture.NotCaptured != "" || capture.Verdict == "" {
 			causes = append(causes, requirement.ID+" capture failed")
 		}
 		if green[requirement.ID] && !capture.Passed {
-			causes = append(causes, fmt.Sprintf(
+			regression := fmt.Sprintf(
 				"%s regressed from green at the stored base %s", requirement.ID, rows.Epic.StoredBase,
-			))
+			)
+			if capture.Verdict != "" && capture.JudgeReason != "" {
+				regression += fmt.Sprintf(": its capture exited %d and was judged %s: %s",
+					capture.Exit, capture.Verdict, capture.JudgeReason)
+			}
+			causes = append(causes, regression)
 		}
 	}
 	return causes
 }
 
-// requirementLines returns a line for each Requirement in contract order: green when its capture passed, and not yet
-// green otherwise.
+// requirementLines returns a line for each Requirement in contract order: green when its capture passed, green with a
+// note when its capture is carried (see carried), and not yet green otherwise.
 func requirementLines(rows Rows, captured map[string]store.EvidenceRun) []string {
+	green := GreenAt(rows, rows.Epic.StoredBase)
 	lines := make([]string, 0, len(rows.Epic.Requirements))
 	for _, requirement := range rows.Epic.Requirements {
-		if captured[requirement.ID].Passed {
+		capture := captured[requirement.ID]
+		switch {
+		case capture.Passed:
 			lines = append(lines, requirement.ID+" green")
-		} else {
+		case carried(capture, green[requirement.ID]):
+			lines = append(lines, fmt.Sprintf(
+				"%s green: the judge gave no verdict on its exit-0 capture (%s), so its verdict at the stored base %s carries",
+				requirement.ID,
+				capture.JudgeReason,
+				rows.Epic.StoredBase,
+			))
+		default:
 			lines = append(lines, requirement.ID+" not yet green")
 		}
 	}
 	return lines
+}
+
+// carried reports whether a capture carries its Requirement's earlier verdict: the capture is judgeless, and the
+// Requirement was green at the stored base. A carried capture passes its node, with a note (requirementLines).
+func carried(capture store.EvidenceRun, green bool) bool {
+	return green && judgeless(capture)
+}
+
+// judgeless reports whether a capture ran and exited 0 without timing out, yet the judge gave it no verdict.
+func judgeless(capture store.EvidenceRun) bool {
+	return capture.NotCaptured == "" && !capture.TimedOut && capture.Exit == 0 && capture.Verdict == ""
 }
 
 // settle ends an integrate run once its refs are checked: failed with its causes when there are any, and advanced
@@ -291,8 +321,9 @@ func outputOf(lines, leftOut []string) string {
 }
 
 // GreenAt returns the Requirements whose capture passed in an integrate or sync run that ended passed at revision, at
-// the run's attempt. A rerun stands for the capture it reran. A Requirement whose evidence amendment ran its green run
-// at revision is green there too when that run passed (see amendedGreen).
+// the run's attempt. A rerun stands for the capture it reran. A passed run also holds a judgeless capture, which only
+// the carry lets it hold, so that capture counts as green too (see judgeless). A Requirement whose evidence amendment
+// ran its green run at revision is green there too when that run passed (see amendedGreen).
 func GreenAt(rows Rows, revision string) map[string]bool {
 	green := make(map[string]bool)
 	for _, run := range rows.Runs {
@@ -301,7 +332,7 @@ func GreenAt(rows Rows, revision string) map[string]bool {
 		}
 		for _, requirement := range itemRequirements(rows.Epic.Requirements) {
 			capture, _, outcome := evidenceChain(run, rows.Evidence, captureWork(requirement.ID), true)
-			if outcome != chainNone && capture.Passed {
+			if outcome != chainNone && (capture.Passed || judgeless(capture)) {
 				green[requirement.ID] = true
 			}
 		}
@@ -335,17 +366,6 @@ func amendment(rows Rows, id string) (store.EvidenceAmendment, bool) {
 	return store.EvidenceAmendment{}, false
 }
 
-// amendedRed reports whether the amendment of Requirement id has a red run at the epic's base that passed. Only a current
-// run counts, since rows.Evidence holds only current runs.
-func amendedRed(rows Rows, id string) bool {
-	amended, ok := amendment(rows, id)
-	if !ok {
-		return false
-	}
-	red, found := evidenceByID(rows.Evidence, amended.RedRun)
-	return found && red.Phase == evidence.PhaseRed && red.Revision == rows.Epic.Base && red.Passed
-}
-
 // amendedGreen reports whether the amendment of Requirement id ran its green run at revision and that run passed.
 func amendedGreen(rows Rows, id, revision string) bool {
 	amended, ok := amendment(rows, id)
@@ -357,38 +377,26 @@ func amendedGreen(rows Rows, id, revision string) bool {
 }
 
 // Unbuilt returns, for each Requirement in contract order, why it lacks the proof that the epic is built: it names no
-// evidence item, it has no passed red run at the epic's base, or it is not green at the stored base. A test item that is
-// green at the stored base also lacks it when its reproduction at the epic's base disagrees with its red, or did not run.
-// A Requirement dropped as already met at the base has no red run or reproduction at the base to name, so it lacks the
-// proof only when it is not green at the stored base. A Requirement that a task whose status is taskGap claims is not
-// named at all: that task ended its ladder as a gap, and TaskGaps names it instead. It returns nil when every Requirement
-// has its proof or is held by a gap.
+// evidence item, or it is not green at the stored base. Only a Requirement not green at the stored base holds the plan.
+// A missing red at the epic's base, and a reproduction that is missing or that disagrees with its red, hold nothing, so
+// neither is named. A Requirement that a task whose status is taskGap claims is not named at all: that task ended its
+// ladder as a gap, and TaskGaps names it instead. It returns nil when every Requirement is green at the stored base or
+// is held by a gap.
 func Unbuilt(rows Rows) []string {
 	green := GreenAt(rows, rows.Epic.StoredBase)
 	var lines []string
 	for _, requirement := range rows.Epic.Requirements {
-		if gapHeld(rows.Epic.Tasks, requirement.ID) {
+		if gapHeld(rows.Epic.Tasks, requirement.ID) || green[requirement.ID] {
 			continue
 		}
-		dropped := droppedAsMet(requirement)
-		switch {
-		case !hasItem(requirement):
+		if !hasItem(requirement) {
 			lines = append(lines, requirement.ID+" names no evidence item")
-		case !dropped && !hasRedAtBase(rows, requirement.ID):
-			lines = append(lines, fmt.Sprintf("%s has no red at the epic's base %s", requirement.ID, rows.Epic.Base))
-		case !green[requirement.ID]:
-			lines = append(lines, fmt.Sprintf(
-				"%s is not green at the stored base %s", requirement.ID, rows.Epic.StoredBase,
-			))
-		case !dropped && isTestItem(requirement):
-			line := Disagreement(rows, requirement.ID)
-			if line == "" {
-				line = noReproduction(rows, requirement.ID)
-			}
-			if line != "" {
-				lines = append(lines, line)
-			}
+			continue
 		}
+		lines = append(
+			lines,
+			fmt.Sprintf("%s is not green at the stored base %s", requirement.ID, rows.Epic.StoredBase),
+		)
 	}
 	return lines
 }
@@ -422,22 +430,6 @@ func Disagreement(rows Rows, id string) string {
 		id,
 		rows.Epic.Base,
 	)
-}
-
-// noReproduction returns the line that names test-item Requirement id when no reproduction of it at the stored base ran.
-// It names the reason the first reproduction did not run, when there is one. It returns "" when a reproduction ran.
-func noReproduction(rows Rows, id string) string {
-	checks := baseReproductions(rows, id)
-	line := fmt.Sprintf("%s has no reproduction at the epic's base %s", id, rows.Epic.Base)
-	if len(checks) == 0 {
-		return line
-	}
-	for _, check := range checks {
-		if check.NotRun == "" {
-			return ""
-		}
-	}
-	return line + ": " + checks[0].NotRun
 }
 
 // baseReproductions returns, in run order, the reproduction of Requirement id that each integrate or sync run which
@@ -474,28 +466,11 @@ func baseReproductions(rows Rows, id string) []store.NodeCheck {
 	return checks
 }
 
-// hasRedAtBase reports whether an evidence node run that ended passed has a passed red run of Requirement id at the
-// epic's base, at the run's attempt. That red run is the one the run's rerun chain decides on, as Evidence.Decide reads it.
-// The red run at the base that an applied amendment of id passed counts as well (see amendedRed).
-func hasRedAtBase(rows Rows, id string) bool {
-	if amendedRed(rows, id) {
-		return true
-	}
-	for _, run := range rows.Runs {
-		if run.Kind != kindEvidence || run.Outcome != outcomePassed {
-			continue
-		}
-		red, _, outcome := evidenceChain(run, rows.Evidence, id, false)
-		if outcome != chainNone && red.Phase == evidence.PhaseRed && red.Revision == rows.Epic.Base && red.Passed {
-			return true
-		}
-	}
-	return false
-}
-
-// MetAtBase returns the Requirements whose red run at the attempt of the node run was judged met, so their conclusion
-// already holds at the base. That red run is the one the rerun chain decides on, as Evidence.Decide reads it. They are in
-// contract order. A Requirement dropped as already met has no red run to judge, so it is never named.
+// MetAtBase returns the Requirements that an evidence node at base found met at the epic's base: each whose red run at
+// the attempt of the node run was judged holding, in contract order. The node's other red runs must have passed, so a
+// node that failed for any other reason returns none. That red run is the one the rerun chain decides on, as
+// Evidence.Decide reads it. A Requirement dropped as already met has no red run to judge, so it is never named and does
+// not count.
 func MetAtBase(node Node, rows Rows) []string {
 	var met []string
 	for _, requirement := range itemRequirements(rows.Epic.Requirements) {
@@ -503,9 +478,16 @@ func MetAtBase(node Node, rows Rows) []string {
 			continue
 		}
 		red, _, outcome := evidenceChain(node.Run, rows.Evidence, requirement.ID, false)
-		if outcome != chainNone && red.Phase == evidence.PhaseRed && red.Verdict == evidence.VerdictHolds {
-			met = append(met, requirement.ID)
+		if outcome != chainEnded || red.Phase != evidence.PhaseRed {
+			return nil
 		}
+		if red.Passed {
+			continue
+		}
+		if red.Verdict != evidence.VerdictHolds {
+			return nil
+		}
+		met = append(met, requirement.ID)
 	}
 	return met
 }

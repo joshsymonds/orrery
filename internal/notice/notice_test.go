@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/url"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -77,7 +78,7 @@ func wantCalls(t *testing.T, got []call, want ...call) {
 		t.Fatalf("calls = %+v, want %+v", got, want)
 	}
 	for i := range want {
-		if got[i] != want[i] {
+		if !reflect.DeepEqual(got[i], want[i]) {
 			t.Fatalf("call %d = %+v, want %+v (all calls %+v)", i, got[i], want[i], got)
 		}
 	}

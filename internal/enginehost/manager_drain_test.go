@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -160,7 +161,8 @@ func TestReconcileDrainsOneVersionOlderHolderAfterItsTurn(t *testing.T) {
 	}
 	// The pump tells the owner once the turn's end is stored, so the notice can still be on its way.
 	want1 := Notice{Session: id, Dir: dir, State: "done", Body: "fake trickle 1.60"}
-	if got := waitNotices(t, engineOf(rig.manager, restarted), sink); len(got) != 1 || got[0] != want1 {
+	if got := waitNotices(t, engineOf(rig.manager, restarted), sink); len(got) != 1 ||
+		!reflect.DeepEqual(got[0], want1) {
 		t.Fatalf("notices after the restart = %+v, want exactly [%+v]", got, want1)
 	}
 	waitHolderEnded(t, pids)

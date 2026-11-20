@@ -323,7 +323,7 @@ func TestAnswerEpicAppendsSeqThreeAndMovesChanged(t *testing.T) {
 	createEpic(t, s, fullEpic(id))
 
 	at := time.Unix(1700000500, 0)
-	got, err := s.AnswerEpic(ctx, id, "D3", "Answer", at)
+	got, err := s.AnswerEpic(ctx, id, "D3", "Answer", Maker{}, at)
 	if err != nil {
 		t.Fatalf("AnswerEpic: %v", err)
 	}
@@ -352,11 +352,11 @@ func TestAnswerEpicWithStoredIDAndTextReturnsStoredRowAndWritesNothing(t *testin
 	createEpic(t, s, fullEpic(id))
 
 	first := time.Unix(1700000500, 0)
-	stored, err := s.AnswerEpic(ctx, id, "D3", "Answer", first)
+	stored, err := s.AnswerEpic(ctx, id, "D3", "Answer", Maker{}, first)
 	if err != nil {
 		t.Fatalf("first AnswerEpic: %v", err)
 	}
-	got, err := s.AnswerEpic(ctx, id, "D3", "Answer", first.Add(time.Hour))
+	got, err := s.AnswerEpic(ctx, id, "D3", "Answer", Maker{}, first.Add(time.Hour))
 	if err != nil {
 		t.Fatalf("repeated AnswerEpic: %v", err)
 	}
@@ -384,10 +384,10 @@ func TestAnswerEpicWithStoredIDAndOtherTextIsErrDecisionConflict(t *testing.T) {
 	createEpic(t, s, fullEpic(id))
 
 	first := time.Unix(1700000500, 0)
-	if _, err := s.AnswerEpic(ctx, id, "D3", "Answer", first); err != nil {
+	if _, err := s.AnswerEpic(ctx, id, "D3", "Answer", Maker{}, first); err != nil {
 		t.Fatalf("first AnswerEpic: %v", err)
 	}
-	_, err := s.AnswerEpic(ctx, id, "D3", "Other answer", first.Add(time.Hour))
+	_, err := s.AnswerEpic(ctx, id, "D3", "Other answer", Maker{}, first.Add(time.Hour))
 	if !errors.Is(err, ErrDecisionConflict) {
 		t.Fatalf("AnswerEpic with other text err = %v, want ErrDecisionConflict", err)
 	}
@@ -408,7 +408,7 @@ func TestAnswerEpicWithStoredIDAndOtherTextIsErrDecisionConflict(t *testing.T) {
 func TestAnswerEpicOfUnknownEpicIsErrNoEpic(t *testing.T) {
 	t.Parallel()
 	s := openEpicStore(t)
-	_, err := s.AnswerEpic(context.Background(), "orrery-1a2b3c4/missing", "D1", "text", epicCreated())
+	_, err := s.AnswerEpic(context.Background(), "orrery-1a2b3c4/missing", "D1", "text", Maker{}, epicCreated())
 	if !errors.Is(err, ErrNoEpic) {
 		t.Fatalf("AnswerEpic of unknown epic err = %v, want ErrNoEpic", err)
 	}
@@ -477,7 +477,7 @@ func TestPhaseAtFollowsEachPhaseWrite(t *testing.T) {
 	}
 	requirePhaseAt(t, s, "stopped", 1700002800)
 
-	if err := s.ReleaseEpic(ctx, integrateEpic, nil, time.Unix(1700002900, 0)); err != nil {
+	if err := s.ReleaseEpic(ctx, integrateEpic, nil, Maker{}, time.Unix(1700002900, 0)); err != nil {
 		t.Fatalf("ReleaseEpic: %v", err)
 	}
 	requirePhaseAt(t, s, "releasing", 1700002900)

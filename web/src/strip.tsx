@@ -1,21 +1,27 @@
 import type { JSX } from "preact";
 
 import type { ConversationContext, HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
+import { context } from "./tokens/rules";
 
 // StripHost is the host a strip names: its name and the stats it draws. A pane row on another host names that host with
 // no stats.
 export type StripHost = Pick<HostStatusResponse, "host" | "stats">;
 
-// contextBlocks are the five blocks a context draws, each filled from its own fifth of the window.
-const contextBlocks = [1, 2, 3, 4, 5];
-const percentPerBlock = 20;
+// seriesCount is how many series colours a host's stats take in turn: the stat at index i takes series
+// (i mod seriesCount) + 1.
+const seriesCount = 5;
+
+// contextBlocks are the blocks a context draws, numbered from one, each filled from its own percentPerBlock of the
+// window.
+const contextBlocks = Array.from({ length: context.blocks }, (_, index) => index + 1);
+const percentPerBlock = context.percentPerBlock;
 
 // ContextFigure is a context as the strip draws it: its percent of the window, the blocks it fills, and the band its
 // percent falls in.
 interface ContextFigure {
   percent: number;
   blocks: number;
-  band: "green" | "yellow" | "peach" | "red";
+  band: "ok" | "warn" | "crit";
 }
 
 // PaneStrip is a page's strip, drawn under its title row: the host's name with each of its stats, as a label, a value
@@ -41,7 +47,10 @@ export function PaneStrip({
           <span class="pane-strip-label">{stat.label}</span>
           <span class="pane-strip-value">{stat.value}</span>
           {stat.percent !== undefined && (
-            <span class={`bar level-${stat.level}`} style={{ width: `${stat.percent}%` }} />
+            <span
+              class={`bar series-${(index % seriesCount) + 1} level-${stat.level}`}
+              style={{ width: `${stat.percent}%` }}
+            />
           )}
         </span>
       ))}
@@ -60,18 +69,16 @@ function contextFigure(context: ConversationContext | undefined): ContextFigure 
   return { percent, blocks: Math.round(percent / percentPerBlock), band: bandOf(percent) };
 }
 
-// bandOf is the colour band a percent falls in: green under 40, yellow under 60, peach under 80 and red from 80.
+// bandOf is the level a percent falls in, read from rules' context limits: ok below the first limit, warn below the
+// second, and crit from the second on.
 function bandOf(percent: number): ContextFigure["band"] {
-  if (percent < 40) {
-    return "green";
+  if (percent < context.limits[0]) {
+    return "ok";
   }
-  if (percent < 60) {
-    return "yellow";
+  if (percent < context.limits[1]) {
+    return "warn";
   }
-  if (percent < 80) {
-    return "peach";
-  }
-  return "red";
+  return "crit";
 }
 
 // ContextFigureLine draws a context's five blocks, the filled ones on, and its percent as a whole number.

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 // The paths of the integrate runs the retry tests start: two settle walks of one plan, the second the newer.
@@ -76,7 +77,13 @@ func TestRetryFailedIntegrateRerunsLatestFailedRunKeepingRevisionAndResult(t *te
 	failIntegrateRun(t, s, retryLatestBatch, "id-s2", "rev-1", "lint failed")
 	parkIntegrateEpic(t, s)
 
-	if err := s.RetryNode(ctx, integrateEpic, "integrate"); err != nil {
+	if err := s.RetryNode(
+		ctx,
+		integrateEpic,
+		"integrate",
+		Maker{By: MakerOwner},
+		time.Unix(1700000000, 0),
+	); err != nil {
 		t.Fatalf("RetryNode of a failed integrate run: %v", err)
 	}
 	requireIntegrateRun(t, s, retryLatestBatch, NodeRun{
@@ -102,7 +109,11 @@ func TestRetryFailedIntegrateRerunsLatestFailedRunKeepingRevisionAndResult(t *te
 		t.Errorf("phase of epic %s after RetryNode = %q, want accepted", integrateEpic, row.Phase)
 	}
 
-	requireRefusal(t, s.RetryNode(ctx, integrateEpic, "integrate"), retryNotParked)
+	requireRefusal(
+		t,
+		s.RetryNode(ctx, integrateEpic, "integrate", Maker{By: MakerOwner}, time.Unix(1700000000, 0)),
+		retryNotParked,
+	)
 }
 
 // TestRetryFailedIntegrateRefusesRunningRun checks that RetryNode of an integrate run that is running is a
@@ -115,7 +126,11 @@ func TestRetryFailedIntegrateRefusesRunningRun(t *testing.T) {
 		Attempt: 1})
 	parkIntegrateEpic(t, s)
 
-	requireRefusal(t, s.RetryNode(ctx, integrateEpic, "integrate"), retryNotParked)
+	requireRefusal(
+		t,
+		s.RetryNode(ctx, integrateEpic, "integrate", Maker{By: MakerOwner}, time.Unix(1700000000, 0)),
+		retryNotParked,
+	)
 	requireIntegrateRun(t, s, retryLatestBatch, NodeRun{Path: retryLatestBatch, ID: "id-s2", Node: "integrate",
 		Kind: "integrate", Attempt: 1, State: NodeRunning, Started: integrateStartedAt()})
 	requireParkOfIntegrateEpic(t, s, retryParkReason)
@@ -135,7 +150,11 @@ func TestRetryFailedIntegrateRefusesPassedRun(t *testing.T) {
 	}
 	parkIntegrateEpic(t, s)
 
-	requireRefusal(t, s.RetryNode(ctx, integrateEpic, "integrate"), retryNotParked)
+	requireRefusal(
+		t,
+		s.RetryNode(ctx, integrateEpic, "integrate", Maker{By: MakerOwner}, time.Unix(1700000000, 0)),
+		retryNotParked,
+	)
 	requireIntegrateRun(t, s, retryLatestBatch, NodeRun{Path: retryLatestBatch, ID: "id-s2", Node: "integrate",
 		Kind: "integrate", Attempt: 1, Outcome: "passed", State: NodeEnded,
 		Started: integrateStartedAt(), Ended: integrateEndedAt()})
@@ -153,7 +172,11 @@ func TestRetryFailedIntegrateRefusesSupersededRun(t *testing.T) {
 		Attempt: 1})
 	parkIntegrateEpic(t, s)
 
-	requireRefusal(t, s.RetryNode(ctx, integrateEpic, "integrate"), retryNotParked)
+	requireRefusal(
+		t,
+		s.RetryNode(ctx, integrateEpic, "integrate", Maker{By: MakerOwner}, time.Unix(1700000000, 0)),
+		retryNotParked,
+	)
 	requireIntegrateRun(t, s, retryEarlierBatch, NodeRun{
 		Path: retryEarlierBatch, ID: "id-s1", Node: "integrate", Kind: "integrate", Attempt: 1,
 		Revision: "rev-earlier", Refs: "refs-1", Result: retryComposed, RefsChecked: true,
@@ -182,7 +205,13 @@ func TestRetryFailedIntegrateLeavesParkedRunsRerunnable(t *testing.T) {
 		t.Fatalf("ParkNode: %v", err)
 	}
 
-	if err := s.RetryNode(ctx, integrateEpic, "integrate"); err != nil {
+	if err := s.RetryNode(
+		ctx,
+		integrateEpic,
+		"integrate",
+		Maker{By: MakerOwner},
+		time.Unix(1700000000, 0),
+	); err != nil {
 		t.Fatalf("RetryNode of a parked integrate run: %v", err)
 	}
 	requireIntegrateRun(t, s, retryEarlierBatch, NodeRun{
@@ -209,11 +238,20 @@ func TestRetryFailedIntegrateRefusedForEpicEndedAtBase(t *testing.T) {
 		integrateParkedAt()); err != nil {
 		t.Fatalf("ParkNodeMetAtBase: %v", err)
 	}
-	if _, err := s.AnswerQuestion(ctx, integrateEpic, "D3", "", 1, ChoiceEnd, integrateParkedAt()); err != nil {
+	if _, err := s.AnswerQuestion(
+		ctx,
+		integrateEpic,
+		"D3",
+		"",
+		1,
+		ChoiceEnd,
+		Maker{},
+		integrateParkedAt(),
+	); err != nil {
 		t.Fatalf("AnswerQuestion end: %v", err)
 	}
 
-	requireRefusal(t, s.RetryNode(ctx, integrateEpic, "integrate"),
+	requireRefusal(t, s.RetryNode(ctx, integrateEpic, "integrate", Maker{By: MakerOwner}, time.Unix(1700000000, 0)),
 		"epic "+integrateEpic+" is parked for good: "+reason)
 	requireIntegrateRun(t, s, retryLatestBatch, NodeRun{
 		Path: retryLatestBatch, ID: "id-s2", Node: "integrate", Kind: "integrate", Attempt: 1,
@@ -250,7 +288,13 @@ func TestRetryFailedIntegrateRerunsALateWalkStartedAfterTheSettleWalk(t *testing
 		t.Fatalf("EndBatch: %v", err)
 	}
 	parkIntegrateEpic(t, s)
-	if err := s.RetryNode(ctx, integrateEpic, "integrate"); err != nil {
+	if err := s.RetryNode(
+		ctx,
+		integrateEpic,
+		"integrate",
+		Maker{By: MakerOwner},
+		time.Unix(1700000000, 0),
+	); err != nil {
 		t.Fatalf("RetryNode: %v", err)
 	}
 	if run := integrateRun(t, s, late); run.State != NodeRunning || run.Attempt != 2 {

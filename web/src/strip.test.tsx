@@ -29,10 +29,12 @@ const denHost = create(HostStatusResponseSchema, {
 // The pane contexts the strip is checked at: tokens out of a 200000-token window, the percent each reads, the blocks it
 // fills and its band.
 const contextCases = [
-  { tokens: "60000", percent: "30%", filled: 2, band: "green" },
-  { tokens: "100000", percent: "50%", filled: 3, band: "yellow" },
-  { tokens: "140000", percent: "70%", filled: 4, band: "peach" },
-  { tokens: "180000", percent: "90%", filled: 5, band: "red" },
+  { tokens: "60000", percent: "30%", filled: 2, band: "ok" },
+  { tokens: "100000", percent: "50%", filled: 3, band: "ok" },
+  { tokens: "120000", percent: "60%", filled: 3, band: "warn" },
+  { tokens: "140000", percent: "70%", filled: 4, band: "warn" },
+  { tokens: "160000", percent: "80%", filled: 4, band: "crit" },
+  { tokens: "180000", percent: "90%", filled: 5, band: "crit" },
 ];
 
 // Stream is one WatchConversation call the app opened, with the controller that feeds it.
@@ -176,12 +178,16 @@ function widthsOf(container: HTMLElement, selector: string): string[] {
   return [...container.querySelectorAll<HTMLElement>(selector)].map((element) => element.style.width);
 }
 
-test("PaneStrip: a pane page's strip names the serving host, and draws each stat's label, value and bar level", (t) =>
+test("PaneStrip: a pane page's strip names the serving host, and draws each stat's label, value and bar in its series then its level", (t) =>
   withStrip(t.signal, { host: denHost }, (container) => {
     assert.equal(textOf(container, `${cursorStrip} .pane-strip-host`), "den");
     assert.deepEqual(textsOf(container, `${cursorStrip} .pane-strip-label`), ["cpu", "disk", "mem"]);
     assert.deepEqual(textsOf(container, `${cursorStrip} .pane-strip-value`), ["12%", "65%", "7.1 GB"]);
-    assert.deepEqual(classesOf(container, `${cursorStrip} .bar`), ["bar level-ok", "bar level-warn", "bar level-crit"]);
+    assert.deepEqual(classesOf(container, `${cursorStrip} .bar`), [
+      "bar series-1 level-ok",
+      "bar series-2 level-warn",
+      "bar series-3 level-crit",
+    ]);
     assert.deepEqual(widthsOf(container, `${cursorStrip} .bar`), ["12%", "65%", "88%"]);
     assert.equal(
       container.querySelector(`${cursorStrip} .pane-strip-context`) === null,
@@ -190,7 +196,7 @@ test("PaneStrip: a pane page's strip names the serving host, and draws each stat
     );
   }));
 
-test("PaneStrip: a pane conversation's context draws five blocks, filled by its percent, in its band", (t) =>
+test("PaneStrip: a pane conversation's context draws five blocks, filled by its percent, at its level: ok below the first limit, warn below the second, crit from it", (t) =>
   withStrip(t.signal, { host: denHost }, async (container, transport) => {
     await untilTurn(t.signal, () => transport.streams.length === 1, "the pane stream");
     const [stream] = transport.streams;
@@ -262,8 +268,8 @@ test("PaneStrip: m hides every strip, and a second m shows them again", (t) =>
     assert.equal(container.querySelectorAll(".pane-strip").length, 2);
   }));
 
-test("PaneStrip: no inbox footer remains, and the keys hint sits in the inbox head", (t) =>
+test("PaneStrip: no inbox footer remains, and the Keys control sits in the inbox head", (t) =>
   withStrip(t.signal, { host: denHost }, (container) => {
     assert.equal(container.querySelector(".lfoot") === null, true);
-    assert.equal(textOf(container, ".list > header.top .keys-hint"), "? keys");
+    assert.equal(container.querySelector(".list > header.top .keys-hint")?.getAttribute("aria-label"), "Keys");
   }));

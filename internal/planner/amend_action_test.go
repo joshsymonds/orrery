@@ -227,9 +227,10 @@ func completeAmendTurn(t *testing.T, s *store.Store, runner *Runner, plan string
 	}
 }
 
-// TestAmendEvidenceActionStartsAnAmendmentThatStaysPending checks that the pass carrying out an amend_evidence action
-// starts its amendment checking and leaves the action pending, and that a later pass starts no second amendment.
-func TestAmendEvidenceActionStartsAnAmendmentThatStaysPending(t *testing.T) {
+// TestAmendShownEvidenceActionIsAppliedAndTaken checks that the pass carrying out an amend_evidence action that changes how
+// R1 is shown applies its amendment at once, with no red run, so the action is taken and a later pass starts no second
+// amendment.
+func TestAmendShownEvidenceActionIsAppliedAndTaken(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openRunnerStore(t)
@@ -247,16 +248,19 @@ func TestAmendEvidenceActionStartsAnAmendmentThatStaysPending(t *testing.T) {
 		t.Fatalf("amendments after two passes = %d, want 1", len(epic.Amendments))
 	}
 	amended := epic.Amendments[0]
-	if amended.State != store.AmendmentChecking || amended.Amender != store.AmenderPlanner ||
+	if amended.State != store.AmendmentApplied || amended.Amender != store.AmenderPlanner ||
 		!reflect.DeepEqual(amended.Item, item) || amended.Base != "base-1" {
-		t.Errorf("amendment = %+v, want the planner's, checking %+v at base-1", amended, item)
+		t.Errorf("amendment = %+v, want the planner's, applied %+v at base-1", amended, item)
+	}
+	if got := epic.Requirements[0].Item; !reflect.DeepEqual(got, item) {
+		t.Errorf("R1 item after the amendment = %+v, want %+v", got, item)
 	}
 	pending, err := s.PendingActions(ctx)
 	if err != nil {
 		t.Fatalf("PendingActions: %v", err)
 	}
-	if len(pending) != 1 || pending[0].Kind != store.ActionAmendEvidence {
-		t.Errorf("pending actions while the amendment checks = %+v, want the amend_evidence action", pending)
+	if len(pending) != 0 {
+		t.Errorf("pending actions after the amendment applied = %+v, want none", pending)
 	}
 }
 

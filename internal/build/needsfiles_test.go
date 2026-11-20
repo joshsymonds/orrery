@@ -218,7 +218,7 @@ func TestNeedsFilesPassStoresThePathsWithTheClimb(t *testing.T) {
 	before := ladderClimbBefore(f, 1)
 	f.runner.PassTasks(f.ctx, passEpic, first)
 	task := f.task()
-	want := "returned needs_context: stuck; internal/other/a.go is owned by open task T2"
+	want := "returned needs_context: stuck"
 	if task.Build.Failure != want {
 		t.Errorf("task failure %q, want %q", task.Build.Failure, want)
 	}
@@ -253,7 +253,7 @@ func TestNeedsFilesPassGrantsFreeFilesAndRerunsTheImplementerInTheSameWorktree(t
 	t.Parallel()
 	f := newPassFixture(t)
 	guardStartImplementer(f)
-	worktree := ImplementWorktree(f.stateDir, passEpic, 1)
+	worktree := ImplementWorktree(f.stateDir, passEpic, store.EpicTask{Seq: 1})
 	if err := os.WriteFile(filepath.Join(worktree, "thing.go"), []byte("package thing\n"), 0o600); err != nil {
 		t.Fatalf("write earlier work: %v", err)
 	}

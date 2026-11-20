@@ -119,8 +119,9 @@ func EpicPhaseEventKind(phase string) (string, bool) {
 // marked under once it is delivered, and Kind is the kind its block names.
 //
 // A step_end carries the step: Step is its id, Agent its agent, End and Status how it ended, Brief the lines of its
-// step_end block's body joined by newlines, as StepEndParts gives them, its last line the More line, and Epic the epic
-// that holds it, empty when none does. An epic event carries Epic, the epic's id, and Title, the epic's title.
+// step_end block's body joined by newlines, as StepEndParts gives them, its last line the More line, Epic the epic
+// that holds it, empty when none does, and Facts the step's facts, as StepFactsOf gives them. An epic event carries
+// Epic, the epic's id, and Title, the epic's title, and no facts.
 type PendingEvent struct {
 	ID     string
 	Kind   string
@@ -131,15 +132,19 @@ type PendingEvent struct {
 	Brief  string
 	Epic   string
 	Title  string
+	Facts  StepFacts
 }
 
 // PendingCallerEvents returns the caller events still owed to session, read in one read transaction. A step end is
 // owed when the step has ended, session called it, it is unread, and no mark holds its id under session. An epic event
-// is owed when session created the epic, as EpicCreator reads it, and no mark holds its id under session: each open
+// is owed when session steers the epic, as EpicSteerer reads it, and no mark holds its id under session: each open
 // question of the epic in seq order, then the epic's phase event when its phase sends one.
 //
 // The step ends come first, oldest end first and then by id. The epic events follow in epic id order. An epic event has
 // no time of its own, so the epic events are not merged into the step ends by time.
+//
+// An action event is owed when session is its recipient or a move leaves or takes it, as ActionEvents lists it; those
+// events come last, after the epic events, in the order ActionEvents gives them.
 //
 // It returns an error matching ErrUnavailable when the store file is missing or the database is busy.
 func (r *Reader) PendingCallerEvents(ctx context.Context, session string) ([]PendingEvent, error) {
@@ -195,15 +200,16 @@ func pendingInTx(ctx context.Context, tx *sql.Tx, session string) ([]PendingEven
 		events = append(events, PendingEvent{
 			ID: stepEventPrefix + step.ID, Kind: CallerKindStepEnd, Step: step.ID, Agent: step.Agent,
 			End: step.End, Status: step.Status, Brief: strings.Join(lines, "\n"), Epic: step.Epic,
+			Facts: StepFactsOf(step),
 		})
 	}
 
-	created, err := queries.ListCreatedEpics(ctx, session)
+	steered, err := queries.ListSteeredEpics(ctx, session)
 	if err != nil {
-		return nil, fmt.Errorf("list epics created by session %s: %w", session, err)
+		return nil, fmt.Errorf("list epics steered by session %s: %w", session, err)
 	}
 	var epicEvents []PendingEvent
-	for _, epic := range created {
+	for _, epic := range steered {
 		owned, epicErr := epicEventsOf(ctx, queries, epic)
 		if epicErr != nil {
 			return nil, epicErr
@@ -214,7 +220,15 @@ func pendingInTx(ctx context.Context, tx *sql.Tx, session string) ([]PendingEven
 	if err != nil {
 		return nil, err
 	}
-	return append(events, owed...), nil
+	events = append(events, owed...)
+	actions, err := sessionActionEvents(ctx, queries, session)
+	if err != nil {
+		return nil, err
+	}
+	for _, action := range actions {
+		events = append(events, PendingEvent{ID: action.ID, Kind: action.Kind, Epic: action.Epic, Title: action.Title})
+	}
+	return events, nil
 }
 
 // epicEventsOf returns the epic events of epic before the marks are read: its open questions in seq order, then its

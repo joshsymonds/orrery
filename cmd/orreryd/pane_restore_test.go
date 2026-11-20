@@ -59,7 +59,8 @@ const (
 )
 
 // paneSinks is the desk, phone and log of one orreryd process, and the clock its router reads. Its After timers are
-// the waits its router started, and fire runs one of them.
+// the waits its router started, and the bound on each of its store calls, and fire runs one of them. A store-call bound
+// on this clock fires only when a test fires it, so no store write reads as late however long it takes.
 type paneSinks struct {
 	mu       sync.Mutex
 	now      int64
@@ -219,7 +220,7 @@ func (s *paneSinks) check(t *testing.T, lines []route.Line, posts []deskstream.N
 	if !slices.Equal(s.posts, posts) {
 		t.Errorf("desk posts = %+v, want %+v", s.posts, posts)
 	}
-	if !slices.Equal(s.pushes, pushes) {
+	if !slices.EqualFunc(s.pushes, pushes, func(a, b push.Notification) bool { return reflect.DeepEqual(a, b) }) {
 		t.Errorf("phone pushes = %+v, want %+v", s.pushes, pushes)
 	}
 }
@@ -409,13 +410,17 @@ func reopenPaneStore(t *testing.T, s *store.Store, path string) *store.Store {
 }
 
 // startProcess starts one orreryd process's relay over sinks and s, with home as its judge's home and caller as its
-// judge's caller. Its router is attached to s, and the caller decides whether it is closed.
-func startProcess(t *testing.T, sinks *paneSinks, s *store.Store, home string, caller *paneJudgeCaller) *relay {
+// judge's caller, and viewed as the clock its viewing checks read (nil reads time.Now). Its router arms its waits and
+// its store-call bounds on sinks' clock, and is attached to s; the caller decides whether it is closed.
+func startProcess(
+	t *testing.T, sinks *paneSinks, s *store.Store, home string, caller *paneJudgeCaller, viewed func() time.Time,
+) *relay {
 	t.Helper()
 	hub := newRelay(route.Config{
 		Host:       paneHost,
 		Now:        sinks.Now,
 		After:      sinks.After,
+		StoreAfter: sinks.After,
 		Desk:       sinks,
 		Phone:      sinks,
 		Subscribed: sinks.Subscribed,
@@ -426,6 +431,7 @@ func startProcess(t *testing.T, sinks *paneSinks, s *store.Store, home string, c
 		logger: slog.New(slog.DiscardHandler),
 		judge:  donejudge.New(caller, nil),
 		reads:  newReadTimes(),
+		now:    viewed,
 	})
 	hub.router.Attach(t.Context(), s)
 	return hub
@@ -463,7 +469,7 @@ func resumeDeciding(t *testing.T) {
 
 	restartAt := paneClock + decidingRestartSecs
 	sinks := newPaneSinks(restartAt, false)
-	hub := startProcess(t, sinks, s, home, &paneJudgeCaller{})
+	hub := startProcess(t, sinks, s, home, &paneJudgeCaller{}, nil)
 	t.Cleanup(hub.router.Close)
 	hub.router.Wait()
 
@@ -476,11 +482,15 @@ func resumeDeciding(t *testing.T) {
 }
 
 // resumeHeld restarts orreryd while a waiting notice is held because a client watches its pane. The client keeps its
-// input across the restart, so the restarted router checks the watch at once and writes no second watching line.
+// input across the restart, so the restarted router checks the watch at once and writes no second watching line. Both
+// processes' viewing checks read the clock at the second tmux recorded the client's input, so the input stays recent
+// however long the test takes.
 func resumeHeld(t *testing.T) {
 	ctx := t.Context()
 	fx := newWiringFixture(t)
 	fx.typeIntoClient(t)
+	typed := newestActivity(t, fx.client)
+	viewed := func() time.Time { return time.Unix(typed, 0) }
 	setPaneText(t, fx.client, fx.pane)
 	setPaneState(t, fx.client, fx.pane, protocol.StateWaiting)
 	home := t.TempDir()
@@ -491,7 +501,7 @@ func resumeHeld(t *testing.T) {
 	caller := &paneJudgeCaller{}
 
 	first := newPaneSinks(paneClock, false)
-	hub := startProcess(t, first, s, home, caller)
+	hub := startProcess(t, first, s, home, caller, viewed)
 	hub.notify(ctx, transition, nil, nil)
 	hub.router.Wait()
 	first.check(t, []route.Line{expectedLine(paneClock, fx.pane, protocol.StateWaiting, route.None, reasonWatching)},
@@ -502,7 +512,7 @@ func resumeHeld(t *testing.T) {
 	s = reopenPaneStore(t, s, path)
 	restartAt := paneClock + heldRestartSecs
 	second := newPaneSinks(restartAt, false)
-	hub2 := startProcess(t, second, s, home, caller)
+	hub2 := startProcess(t, second, s, home, caller, viewed)
 	t.Cleanup(hub2.router.Close)
 	hub2.router.Wait()
 
@@ -529,7 +539,7 @@ func resumeDelayed(t *testing.T) {
 	caller := &paneJudgeCaller{}
 
 	first := newPaneSinks(paneClock, false)
-	hub := startProcess(t, first, s, home, caller)
+	hub := startProcess(t, first, s, home, caller, nil)
 	hub.notify(ctx, transition, nil, nil)
 	hub.router.Wait()
 	first.check(t, nil, nil, nil)
@@ -539,7 +549,7 @@ func resumeDelayed(t *testing.T) {
 	s = reopenPaneStore(t, s, path)
 	restartAt := paneClock + delayedRestartSecs
 	second := newPaneSinks(restartAt, false)
-	hub2 := startProcess(t, second, s, home, caller)
+	hub2 := startProcess(t, second, s, home, caller, nil)
 	t.Cleanup(hub2.router.Close)
 	hub2.router.Wait()
 
@@ -579,7 +589,7 @@ func resumeDesk(t *testing.T) {
 	s := openPaneStore(t, path)
 
 	first := newPaneSinks(paneClock, true)
-	hub := startProcess(t, first, s, home, &paneJudgeCaller{})
+	hub := startProcess(t, first, s, home, &paneJudgeCaller{}, nil)
 	hub.notify(ctx, transition, nil, nil)
 	hub.router.Wait()
 	first.check(t, []route.Line{expectedLine(paneClock, pane, protocol.StateWaiting, route.Desk, reasonAtDesk)},
@@ -590,7 +600,7 @@ func resumeDesk(t *testing.T) {
 	s = reopenPaneStore(t, s, path)
 	restartAt := paneClock + deskRestartSecs
 	second := newPaneSinks(restartAt, true)
-	hub2 := startProcess(t, second, s, home, &paneJudgeCaller{})
+	hub2 := startProcess(t, second, s, home, &paneJudgeCaller{}, nil)
 	t.Cleanup(hub2.router.Close)
 	hub2.router.Wait()
 	second.check(t, nil, nil, nil)

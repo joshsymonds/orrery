@@ -45,6 +45,17 @@ func storeEndedReview(
 	ctx context.Context, queries *sqlcgen.Queries, epic string, verdicts []ReviewVerdict, ledger []LedgerFinding,
 	at time.Time,
 ) error {
+	if err := insertVerdicts(ctx, queries, epic, verdicts); err != nil {
+		return err
+	}
+	if err := insertLedger(ctx, queries, epic, ledger); err != nil {
+		return err
+	}
+	return setEpicPhase(ctx, queries, epic, phaseCorrecting, at)
+}
+
+// insertVerdicts stores verdicts as verdicts of the review of epic, each at its Position, in the caller's write.
+func insertVerdicts(ctx context.Context, queries *sqlcgen.Queries, epic string, verdicts []ReviewVerdict) error {
 	for _, v := range verdicts {
 		if err := queries.InsertEpicReviewVerdict(ctx, sqlcgen.InsertEpicReviewVerdictParams{
 			Epic: epic, Position: v.Position, Reviewer: v.Reviewer, Step: v.Step, Verdict: v.Verdict, Reason: v.Reason,
@@ -52,6 +63,12 @@ func storeEndedReview(
 			return fmt.Errorf("insert verdict %d of epic %s: %w", v.Position, epic, err)
 		}
 	}
+	return nil
+}
+
+// insertLedger stores ledger as findings of the ledger of epic, each at its Position and without closures, in the
+// caller's write.
+func insertLedger(ctx context.Context, queries *sqlcgen.Queries, epic string, ledger []LedgerFinding) error {
 	for _, finding := range ledger {
 		if err := queries.InsertEpicLedgerFinding(ctx, sqlcgen.InsertEpicLedgerFindingParams{
 			Epic: epic, ID: finding.ID, Position: finding.Position, Reviewer: finding.Reviewer,
@@ -62,5 +79,5 @@ func storeEndedReview(
 			return fmt.Errorf("insert finding %s of epic %s: %w", finding.ID, epic, err)
 		}
 	}
-	return setEpicPhase(ctx, queries, epic, phaseCorrecting, at)
+	return nil
 }

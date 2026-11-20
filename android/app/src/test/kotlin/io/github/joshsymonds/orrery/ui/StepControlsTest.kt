@@ -1,6 +1,7 @@
 package io.github.joshsymonds.orrery.ui
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.test.assertHeightIsEqualTo
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
@@ -17,6 +18,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.StepsNudgeResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.StepsStopRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.StepsStopResponse
 import io.github.joshsymonds.orrery.mainThreadComposeRule
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import java.io.IOException
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -81,6 +83,15 @@ class StepControlsTest {
         composeRule.waitForIdle()
         assertTrue(composeRule.onAllNodesWithTag(HOLD_TAG).fetchSemanticsNodes().isEmpty())
         composeRule.onNodeWithTag(STOP_TAG).assertIsDisplayed()
+    }
+
+    @Test
+    fun inLineButtonsDrawTwentyFourHigh() {
+        val calls = StepCalls(OrreryClient(server.baseUrl), STEP_ID)
+        setActions(calls, held = false)
+
+        composeRule.onNodeWithTag(HOLD_TAG).assertHeightIsEqualTo(OrreryTokens.Size.gauge)
+        composeRule.onNodeWithTag(STOP_TAG).assertHeightIsEqualTo(OrreryTokens.Size.gauge)
     }
 
     @Test

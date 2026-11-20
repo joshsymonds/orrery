@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/kinds"
@@ -131,7 +132,7 @@ func syncPausedBeforeItsAdvanceIsNotMovedAndIsTriedAgain(images *worldImages) fu
 		ctx := context.Background()
 		w, candidate := images.syncWorld(t, atCaptured)
 		originHead, sync := w.syncAdvance()
-		if err := w.s.PauseEpic(ctx, runEpic); err != nil {
+		if err := w.s.PauseEpic(ctx, runEpic, store.Maker{By: store.MakerOwner}, time.Unix(1700000000, 0)); err != nil {
 			t.Fatalf("PauseEpic: %v", err)
 		}
 		w.pass()
@@ -142,7 +143,12 @@ func syncPausedBeforeItsAdvanceIsNotMovedAndIsTriedAgain(images *worldImages) fu
 		if tells := w.syncTells(); len(tells) != 0 {
 			t.Errorf("tells = %q, want none", tells)
 		}
-		if err := w.s.ResumeEpic(ctx, runEpic); err != nil {
+		if err := w.s.ResumeEpic(
+			ctx,
+			runEpic,
+			store.Maker{By: store.MakerOwner},
+			time.Unix(1700000000, 0),
+		); err != nil {
 			t.Fatalf("ResumeEpic: %v", err)
 		}
 		w.retriedAtTheNextQuietPoint(candidate, originHead, 2)

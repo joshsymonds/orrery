@@ -7,7 +7,10 @@ service Sessions {
   // List returns every tracked session.
   rpc List(ListRequest) returns (ListResponse);
 
-  // ListHeadless returns the headless sessions of the last 14 days, each row's text derived when it is read.
+  // ListHeadless returns the headless sessions of the last 14 days, each row's text derived when it is read. Every
+  // listed row is a conversation: a session of kind engine, whether the owner, a client or Talk started it. A row is
+  // never a step's session (the planner's, the evidence judge's, a reviewer's, an implementer's or the release
+  // integrator's).
   rpc ListHeadless(ListHeadlessRequest) returns (ListHeadlessResponse);
 
   // WatchConversation streams the conversation of one headless session in the deltas Panes.WatchConversation sends:
@@ -134,7 +137,9 @@ message ListHeadlessResponse {
 }
 
 // HeadlessSession is one headless session as the phone lists it: a row of kind engine with an event in the last 14
-// days, its label and summary derived when it is read.
+// days, its label and summary derived when it is read. Every listed row is a conversation: a session of kind engine,
+// whether the owner, a client or Talk started it. A row is never a step's session (the planner's, the evidence
+// judge's, a reviewer's, an implementer's or the release integrator's).
 message HeadlessSession {
   // The session's id, 32 lowercase hex digits.
   string id = 1;
@@ -235,6 +240,10 @@ message QueuedMessage {
 
   // The message's lifecycle state: queued, canceled or discarded, as the store names them.
   string state = 3;
+
+  // What the message waits on: turn while the session is working, when Claude takes it at that turn's next tool result,
+  // or as the next turn if the turn ends first, and start in every other state, when no turn runs to take it.
+  string waits = 4;
 }
 
 // SessionsOlderRequest asks for the items of one headless session older than a seq. limit follows
@@ -1001,6 +1010,10 @@ message ConversationItem {
   // The id of the epic a tool item's call creates: the contract id of an epic_create call, or empty when the item is
   // not an epic_create call or its contract names no id.
   string epic = 14;
+
+  // The facts of the step a prompt item is for, set on a prompt item whose prompt_id is step:<id>, read from that
+  // step's row.
+  StepFacts step_facts = 15;
 }
 
 // ConversationContext is the context figure of a conversation: its tokens out of the window they are measured
@@ -1133,6 +1146,13 @@ message ConversationState {
 
   // The background tasks the headless session reported. Pane streams never set it.
   repeated BackgroundTask background = 10;
+
+  // The unix seconds of the engine_interrupt that makes interrupting true, and 0 when interrupting is false. Pane
+  // streams never set it.
+  int64 interrupting_since = 11;
+
+  // The unix seconds the running turn started while the session is working, and 0 otherwise. Pane streams never set it.
+  int64 turn_since = 12;
 }
 
 // PendingEvent is a caller event held for a headless session: one that the session has not yet taken, or that waits
@@ -1141,7 +1161,7 @@ message PendingEvent {
   // The event's id, which names its delivery mark.
   string id = 1;
 
-  // The event's kind: step_end, question, park, release or end.
+  // The event's kind: step_end, question, park, release, end, moved or action.
   string kind = 2;
 
   // The step the event is about, for a step_end.
@@ -1171,8 +1191,33 @@ message PendingEvent {
   // and no speak applies. free otherwise.
   string waits = 11;
 
+  // The facts of the step, for a step_end.
+  StepFacts step_facts = 13;
+
   reserved 7, 12;
   reserved "reason", "result", "summary";
+}
+
+// StepFacts is the facts of a step's end: its loop round, its duration and the size of its change.
+message StepFacts {
+  // The step's loop round, or 0 when the step never returned.
+  uint32 rounds = 1;
+
+  // The seconds the step ran: its end minus its start.
+  int64 seconds = 2;
+
+  // Whether the step's changed lines were counted. The three counts below are set only when it is true.
+  bool counted = 3;
+
+  // The files the step changed, from git diff --numstat from the step's revision to the commit its checks ran on. A
+  // binary file counts as a file with no lines. Set only when counted.
+  int64 files = 4;
+
+  // The lines the step added, from the same git diff --numstat as files. Set only when counted.
+  int64 added = 5;
+
+  // The lines the step removed, from the same git diff --numstat as files. Set only when counted.
+  int64 removed = 6;
 }
 
 // BackgroundTask is a background task that a headless session reported, with the times it started and ended.

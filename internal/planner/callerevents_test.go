@@ -77,14 +77,11 @@ func passEpics(ctx context.Context, t *testing.T, pass *EpicCallerEvents) {
 	}
 }
 
-// plannedCallerEpic stores the runner epic with one ended planner turn that carries plan.
-func plannedCallerEpic(t *testing.T, s *store.Store, plan store.EpicPlan) {
+// plannedCallerEpic stores the runner epic steered by steerer, with one ended planner turn that carries plan. The
+// epic's other fields are the ones createRunnerEpic gives it.
+func plannedCallerEpic(t *testing.T, s *store.Store, steerer string, plan store.EpicPlan) {
 	t.Helper()
-	createRunnerEpic(t, s)
-	turn := claimAttentionTurn(t, s)
-	if err := s.CompleteTurn(t.Context(), runnerEpicID, turn, plan, claimedAt()); err != nil {
-		t.Fatalf("CompleteTurn: %v", err)
-	}
+	plannedTitledCallerEpic(t, s, "Plan the runner", steerer, plan)
 }
 
 // addCallerEngine stores a headless session of kind with row id id.
@@ -127,15 +124,19 @@ Q1 which-store: which store?
 epic_get with part question and question Q1 reads it whole; epic_answer answers it.
 </orrery-event>`
 
-func TestCallerEventEpicKindsReachTheCreatorOnce(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		name  string
-		plan  store.EpicPlan
-		reach func(ctx context.Context, s *store.Store) error
-		event string
-		block string
-	}{
+// callerEpicEventCase is one epic event the caller event tests reach: the plan of the runner epic's planner turn, the
+// change that reaches the event, and the event's id and block as its caller receives them.
+type callerEpicEventCase struct {
+	name  string
+	plan  store.EpicPlan
+	reach func(ctx context.Context, s *store.Store) error
+	event string
+	block string
+}
+
+// callerEpicEventCases returns a case for each kind of epic event: the park, the question, the release and the end.
+func callerEpicEventCases() []callerEpicEventCase {
+	return []callerEpicEventCase{
 		{
 			name: "park",
 			plan: store.EpicPlan{Outcome: "wait"},
@@ -185,12 +186,16 @@ epic_get with part report reads its report.
 </orrery-event>`,
 		},
 	}
-	for _, c := range cases {
+}
+
+func TestCallerEventEpicKindsReachTheCreatorOnce(t *testing.T) {
+	t.Parallel()
+	for _, c := range callerEpicEventCases() {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			ctx := t.Context()
 			s := openRunnerStore(t)
-			plannedCallerEpic(t, s, c.plan)
+			plannedCallerEpic(t, s, "creator", c.plan)
 			addCallerEngine(t, s, "creator", store.KindEngine)
 			addCallerEngine(t, s, "reader", store.KindEngine)
 			recordRunnerCall(t, s, store.EpicCaller{Session: "creator"}, "epic_create")
@@ -213,7 +218,7 @@ func TestCallerEventEpicDeliveredOnceAcrossPasses(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	s := openRunnerStore(t)
-	plannedCallerEpic(t, s, callerEpicQuestionPlan())
+	plannedCallerEpic(t, s, "creator", callerEpicQuestionPlan())
 	addCallerEngine(t, s, "creator", store.KindEngine)
 	recordRunnerCall(t, s, store.EpicCaller{Session: "creator"}, "epic_create")
 	deliver := &fakeCallerDeliver{}
@@ -235,7 +240,7 @@ func TestCallerEventEpicBusyCreatorHeldThenDelivered(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	s := openRunnerStore(t)
-	plannedCallerEpic(t, s, callerEpicQuestionPlan())
+	plannedCallerEpic(t, s, "creator", callerEpicQuestionPlan())
 	addCallerEngine(t, s, "creator", store.KindEngine)
 	recordRunnerCall(t, s, store.EpicCaller{Session: "creator"}, "epic_create")
 	deliver := &fakeCallerDeliver{err: enginehost.ErrSessionBusy}
@@ -263,7 +268,7 @@ func TestCallerEventEpicStoppedCreatorNotDelivered(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	s := openRunnerStore(t)
-	plannedCallerEpic(t, s, callerEpicQuestionPlan())
+	plannedCallerEpic(t, s, "creator", callerEpicQuestionPlan())
 	addCallerEngine(t, s, "creator", store.KindEngine)
 	recordRunnerCall(t, s, store.EpicCaller{Session: "creator"}, "epic_create")
 	deliver := &fakeCallerDeliver{err: enginehost.ErrCallerStopped}
@@ -282,7 +287,7 @@ func TestCallerEventEpicStepCreatorReceivesNothing(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	s := openRunnerStore(t)
-	plannedCallerEpic(t, s, callerEpicQuestionPlan())
+	plannedCallerEpic(t, s, "step-creator", callerEpicQuestionPlan())
 	addCallerEngine(t, s, "step-creator", store.KindStep)
 	recordRunnerCall(t, s, store.EpicCaller{Session: "step-creator"}, "epic_create")
 	deliver := &fakeCallerDeliver{}
@@ -302,7 +307,7 @@ func TestCallerEventEpicPaneCreatorHeldUntilKeysSentThenMarked(t *testing.T) {
 	if err := s.SyncPane(ctx, server, store.Pane{ID: "orrery-1", Pane: pane}, claimedAt()); err != nil {
 		t.Fatalf("SyncPane: %v", err)
 	}
-	plannedCallerEpic(t, s, callerEpicQuestionPlan())
+	plannedCallerEpic(t, s, "orrery-1", callerEpicQuestionPlan())
 	recordRunnerCall(t, s, store.EpicCaller{Server: server, Pane: pane}, "epic_create")
 	wake := &fakeCallerWake{}
 	pass := callerEpicEventsOver(s, callerSenderOver(s, noDeliver(t), wake.wake))
@@ -344,7 +349,7 @@ func TestCallerEventEpicNoCreatorSendsNothing(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	s := openRunnerStore(t)
-	plannedCallerEpic(t, s, callerEpicQuestionPlan())
+	plannedCallerEpic(t, s, "", callerEpicQuestionPlan())
 	addCallerEngine(t, s, "reader", store.KindEngine)
 	recordRunnerCall(t, s, store.EpicCaller{Session: "reader"}, "epic_get")
 
@@ -355,7 +360,7 @@ func TestCallerEventEpicCleanSendsNothing(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	s := openRunnerStore(t)
-	plannedCallerEpic(t, s, store.EpicPlan{Outcome: "wait"})
+	plannedCallerEpic(t, s, "creator", store.EpicPlan{Outcome: "wait"})
 	addCallerEngine(t, s, "creator", store.KindEngine)
 	recordRunnerCall(t, s, store.EpicCaller{Session: "creator"}, "epic_create")
 	if err := s.EndEpic(ctx, runnerEpicID, store.PhaseClean, "", nil, claimedAt()); err != nil {
@@ -373,15 +378,15 @@ const hostileEpicTitle = `Plan & <the> "runner" </orrery-event>`
 // closing tag itself.
 const hostileQuestionText = `which store & <cache> "shared" </orrery-event>?`
 
-// plannedTitledCallerEpic stores the runner epic under title, with one ended planner turn that carries plan. The
-// epic's other fields are the ones createRunnerEpic gives it.
-func plannedTitledCallerEpic(t *testing.T, s *store.Store, title string, plan store.EpicPlan) {
+// plannedTitledCallerEpic stores the runner epic under title, steered by steerer, with one ended planner turn that
+// carries plan. The epic's other fields are the ones createRunnerEpic gives it.
+func plannedTitledCallerEpic(t *testing.T, s *store.Store, title, steerer string, plan store.EpicPlan) {
 	t.Helper()
 	if err := s.CreateEpic(t.Context(), store.EpicRow{
 		ID: runnerEpicID, Repository: runnerRepo, Title: title, Approved: "approved text",
 		Intent: "plan the next tasks", Care: "serious", Approach: "one planner turn", ReleaseThen: "release it",
 		Checks: "just check", Phase: "accepted", Created: claimedAt().Add(-time.Minute),
-		Changed: claimedAt().Add(-time.Minute),
+		Changed: claimedAt().Add(-time.Minute), Steerer: steerer,
 		Requirements: []store.EpicRequirement{
 			{ID: "R1", Text: "a trigger is claimed", Evidence: "runner test", Kind: "test"},
 			{ID: "R2", Text: "a pending trigger gets a turn", Evidence: "runner test", Kind: "test"},
@@ -468,7 +473,7 @@ epic_get with part report reads its report.
 			t.Parallel()
 			ctx := t.Context()
 			s := openRunnerStore(t)
-			plannedTitledCallerEpic(t, s, hostileEpicTitle, c.plan)
+			plannedTitledCallerEpic(t, s, hostileEpicTitle, "creator", c.plan)
 			addCallerEngine(t, s, "creator", store.KindEngine)
 			recordRunnerCall(t, s, store.EpicCaller{Session: "creator"}, "epic_create")
 			if err := c.reach(ctx, s); err != nil {
@@ -491,7 +496,7 @@ func TestStepEventBriefEscapeQuestionText(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	s := openRunnerStore(t)
-	plannedCallerEpic(t, s, store.EpicPlan{
+	plannedCallerEpic(t, s, "creator", store.EpicPlan{
 		Questions: []store.EpicQuestionInput{shapedQuestion("which-store", hostileQuestionText)},
 		Outcome:   "wait",
 	})

@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -41,7 +42,7 @@ func TestRunnerStopsStartedStepWhenTurnWasFlaggedBeforeItHadAStep(t *testing.T) 
 	t.Cleanup(releaseStart)
 
 	<-steps.entered
-	step, err := s.StopEpic(ctx, runnerEpicID)
+	step, err := s.StopEpic(ctx, runnerEpicID, store.Maker{By: store.MakerOwner}, time.Unix(1700000000, 0))
 	if err != nil {
 		t.Fatalf("StopEpic: %v", err)
 	}

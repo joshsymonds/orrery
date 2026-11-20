@@ -2,6 +2,7 @@ package enginehost
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"slices"
 	"sync"
@@ -39,6 +40,45 @@ func (r *stopRecorder) stopped() []string {
 	return slices.Clone(r.stops)
 }
 
+// pauseSteps is a StepCommands over fixed step rows for the pause tests. List returns the rows labeled with the epic
+// asked for, oldest first, as the step store does. Stop records each id, and returns the error failStop names for it.
+// Its other methods come from the nil embedded StepCommands, so a call to one panics and fails the test.
+type pauseSteps struct {
+	StepCommands
+
+	rows     []store.StepRow
+	failStop map[string]error
+
+	mu    sync.Mutex
+	stops []string
+}
+
+// List returns copies of the rows labeled with epic.
+func (r *pauseSteps) List(_ context.Context, epic, _ string) ([]store.StepRow, error) {
+	var rows []store.StepRow
+	for _, row := range r.rows {
+		if row.Epic == epic {
+			rows = append(rows, row)
+		}
+	}
+	return rows, nil
+}
+
+// Stop records id, and returns the error failStop names for it.
+func (r *pauseSteps) Stop(_ context.Context, id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.stops = append(r.stops, id)
+	return r.failStop[id]
+}
+
+// stopped returns a copy of the ids Stop was called with, in order.
+func (r *pauseSteps) stopped() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.stops)
+}
+
 // startControlServer serves epics with steps on a sessions socket in a temporary directory and returns the socket's
 // path. The server stops at cleanup.
 func startControlServer(t *testing.T, epics EpicCommands, steps StepCommands) string {
@@ -50,7 +90,7 @@ func startControlServer(t *testing.T, epics EpicCommands, steps StepCommands) st
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
-	go func() { done <- Serve(ctx, ln, nil, steps, epics, nil, nil, nil, nil, nil) }()
+	go func() { done <- Serve(ctx, ln, nil, steps, epics, fixedSteering{}, nil, nil, nil, nil, nil) }()
 	t.Cleanup(func() {
 		cancel()
 		if err := <-done; err != nil {
@@ -178,6 +218,75 @@ func TestEpicStopWithoutRunningTurnRefusesAndStopsNothing(t *testing.T) {
 	if getEpicOK(t, client).GetPaused() {
 		t.Fatalf("paused = true after the refused StopEpic, want false")
 	}
+}
+
+func TestEpicPauseStopsRunningStepsOfTheEpic(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	st, _ := openPlannerStore(t)
+	steps := &pauseSteps{rows: []store.StepRow{
+		{ID: "implementer", Epic: epicServiceID, Task: "T1"},
+		{ID: "reviewer", Epic: epicServiceID, Task: "T1"},
+		{ID: "judge", Epic: epicServiceID, Task: "evidence-run"},
+		{ID: "other-epic", Epic: "orrery-other-epic", Task: "T1"},
+		{ID: "ended", Epic: epicServiceID, Task: "T1", End: "done"},
+	}}
+	client := newEpicsClient(t, startControlServer(t, st, steps))
+	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+
+	if _, err := client.PauseEpic(ctx, connect.NewRequest(&v1.PauseEpicRequest{Id: epicServiceID})); err != nil {
+		t.Fatalf("PauseEpic: %v", err)
+	}
+	stopped := []string{"implementer", "reviewer", "judge"}
+	if got := steps.stopped(); !slices.Equal(got, stopped) {
+		t.Fatalf("steps stopped by PauseEpic = %v, want %v: each running step of the epic and no other", got, stopped)
+	}
+	if !getEpicOK(t, client).GetPaused() {
+		t.Fatalf("paused = false after PauseEpic, want true")
+	}
+
+	if _, err := client.ResumeEpic(ctx, connect.NewRequest(&v1.ResumeEpicRequest{Id: epicServiceID})); err != nil {
+		t.Fatalf("ResumeEpic: %v", err)
+	}
+	if getEpicOK(t, client).GetPaused() {
+		t.Fatalf("paused = true after ResumeEpic, want the pause cleared so each held unit starts again")
+	}
+	if got := steps.stopped(); !slices.Equal(got, stopped) {
+		t.Fatalf("steps stopped by ResumeEpic = %v, want none beyond %v", got, stopped)
+	}
+}
+
+func TestEpicPauseStopsLeavesALimitedStepHeld(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	st, _ := openPlannerStore(t)
+	steps := &pauseSteps{rows: []store.StepRow{
+		{ID: "limited", Epic: epicServiceID, Task: "T1", LoopLimited: true},
+	}}
+	client := newEpicsClient(t, startControlServer(t, st, steps))
+	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+
+	if _, err := client.PauseEpic(ctx, connect.NewRequest(&v1.PauseEpicRequest{Id: epicServiceID})); err != nil {
+		t.Fatalf("PauseEpic: %v", err)
+	}
+	if got := steps.stopped(); len(got) != 0 {
+		t.Fatalf("steps stopped by PauseEpic = %v, want none: a usage limit holds the step, no process runs", got)
+	}
+}
+
+func TestEpicPauseStopsReportsAStepThatWillNotStop(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	st, _ := openPlannerStore(t)
+	steps := &pauseSteps{
+		rows:     []store.StepRow{{ID: "implementer", Epic: epicServiceID, Task: "T1"}},
+		failStop: map[string]error{"implementer": errors.New("synthetic stop failure")},
+	}
+	client := newEpicsClient(t, startControlServer(t, st, steps))
+	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+
+	_, err := client.PauseEpic(ctx, connect.NewRequest(&v1.PauseEpicRequest{Id: epicServiceID}))
+	wantConnectError(t, err, connect.CodeInternal, "stop step implementer: synthetic stop failure")
 }
 
 func TestEpicRetryEndsParkAndRefusesUnparked(t *testing.T) {

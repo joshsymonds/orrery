@@ -10,17 +10,25 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// reviewCostStore is a Store that holds the steps labeled with a task, or fails to read them with err. Only
-// LabelledSteps is called; any other method panics on the nil Store it embeds.
+// reviewCostStore is a Store that holds the steps labeled with a task, or fails to read them with err, and the epic's
+// cost checks, or fails to read them with baseErr. Only LabelledSteps and BaseCost are called; any other method panics
+// on the nil Store it embeds.
 type reviewCostStore struct {
 	Store
-	steps []store.StepRow
-	err   error
+	steps   []store.StepRow
+	err     error
+	base    []store.NodeCheck
+	baseErr error
 }
 
 // LabelledSteps returns the steps the fake holds, or its error.
 func (f reviewCostStore) LabelledSteps(context.Context, string, string) ([]store.StepRow, error) {
 	return f.steps, f.err
+}
+
+// BaseCost returns the cost checks the fake holds, or its error.
+func (f reviewCostStore) BaseCost(context.Context, string) ([]store.NodeCheck, error) {
+	return f.base, f.baseErr
 }
 
 // reviewCostEpic is an epic whose only review gate is the test_parsimony reviewer, at the task stage.

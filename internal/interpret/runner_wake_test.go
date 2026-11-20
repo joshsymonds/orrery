@@ -166,6 +166,16 @@ func flowWakePark(t *testing.T, s *store.Store, epic string) int64 {
 	return open[0].Seq
 }
 
+// flowWakeEndCost ends the built-in epic's cost run passed, as a cost check at the base ends, so the next pass of epic,
+// whose red has passed, starts its plan run.
+func flowWakeEndCost(t *testing.T, s *store.Store, epic string) {
+	t.Helper()
+	if err := s.EndNodes(context.Background(), epic, []store.NodeEnd{{Path: "cost", Outcome: outcomePassed}},
+		runClock()); err != nil {
+		t.Fatalf("EndNodes cost of %s: %v", epic, err)
+	}
+}
+
 // flowWakeQuiet gives epic, whose plan run is running, a batch its integrate passed at a revision, so its plan is at a
 // quiet point. It then records origin's main as read at read, found held, for the stored base the batch left. A pass
 // once the sync interval has passed since the read finds the read stale, and reads origin again.
@@ -231,7 +241,7 @@ func TestFlowWakeStoreWritePassesOnlyItsEpic(t *testing.T) {
 	readsA, readsB := rig.reads.flowWakeReads(flowWakeA), rig.reads.flowWakeReads(flowWakeB)
 
 	if _, err := s.AnswerQuestion(context.Background(), flowWakeA, "wake-answer", "", seq, store.ChoiceRetry,
-		runClock()); err != nil {
+		store.Maker{}, runClock()); err != nil {
 		t.Fatalf("AnswerQuestion: %v", err)
 	}
 	rig.awaitPass()
@@ -346,6 +356,8 @@ func TestFlowDeadlineStaleOriginReadPassesAtItsMoment(t *testing.T) {
 	s := openRunStore(t)
 	flowWakeCreate(t, s, flowWakeA, runPhase)
 	rig := newFlowWakeRig(t, s)
+	rig.runner.Pass(ctx)
+	flowWakeEndCost(t, s, flowWakeA)
 	rig.runner.Pass(ctx)
 	read := runClock()
 	flowWakeQuiet(t, s, flowWakeA, read)

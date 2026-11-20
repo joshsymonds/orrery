@@ -101,6 +101,19 @@ type Epic struct {
 	OriginReadCommit string
 	OriginReadState  string
 	OriginReadAt     int64
+	Steerer          string
+}
+
+type EpicAction struct {
+	Epic         string
+	Seq          int64
+	Kind         string
+	Maker        string
+	MakerSession string
+	FromSession  string
+	ToSession    string
+	Recipient    string
+	At           int64
 }
 
 type EpicAddition struct {
@@ -153,12 +166,15 @@ type EpicClosure struct {
 }
 
 type EpicDecision struct {
-	Epic     string
-	Seq      int64
-	ClientID string
-	Text     string
-	Time     int64
-	Question int64
+	Epic         string
+	Seq          int64
+	ClientID     string
+	Text         string
+	Time         int64
+	Question     int64
+	Maker        string
+	MakerSession string
+	Recipient    string
 }
 
 type EpicExclusion struct {
@@ -174,6 +190,14 @@ type EpicFailure struct {
 	Text     string
 	Rating   string
 	Response string
+}
+
+type EpicGapTurn struct {
+	Epic    string
+	Gap     string
+	Turn    int64
+	Reason  string
+	Created int64
 }
 
 type EpicGate struct {
@@ -354,6 +378,14 @@ type EpicReviewHold struct {
 	Step string
 }
 
+type EpicReviewRerun struct {
+	Epic     string
+	Reviewer string
+	Turn     int64
+	Position int64
+	Created  int64
+}
+
 type EpicReviewRound struct {
 	Epic     string
 	Round    int64
@@ -437,6 +469,8 @@ type EpicTask struct {
 	AfterTasks  string
 	Question    int64
 	GateChanges string
+	Rebriefs    string
+	Notes       string
 }
 
 type EpicTaskContribute struct {
@@ -471,6 +505,14 @@ type EpicTaskFinding struct {
 	Unverified int64
 }
 
+type EpicTaskRefused struct {
+	Epic     string
+	Task     int64
+	Path     string
+	Decision string
+	Created  int64
+}
+
 type EpicTaskRequirement struct {
 	Epic        string
 	Task        int64
@@ -486,6 +528,7 @@ type EpicTaskReview struct {
 	Gate     string
 	Step     string
 	Verdict  string
+	Reason   string
 }
 
 type EpicTaskRung struct {
@@ -656,6 +699,22 @@ type Hold struct {
 	Since  int64
 }
 
+type NoticeHistory struct {
+	ID       int64
+	Pane     string
+	Session  string
+	Epic     string
+	LimitKey string
+	Alert    string
+	State    string
+	Title    string
+	Body     string
+	Block    string
+	BlockRef string
+	Time     int64
+	Read     bool
+}
+
 type PendingNotice struct {
 	ID          int64
 	Pane        string
@@ -695,6 +754,18 @@ type PlannerAction struct {
 	Requirement string
 	Item        string
 	Deliverable string
+	Files       string
+	RemoveFiles string
+	Reviewer    string
+}
+
+type PlannerUnresolvable struct {
+	Epic        string
+	Turn        int64
+	Position    int64
+	Gap         string
+	Reason      string
+	Recommended string
 }
 
 type PromptState struct {
@@ -757,6 +828,7 @@ type Session struct {
 	Title         string
 	Headline      string
 	HeadlineAt    int64
+	Awaited       bool
 }
 
 type Step struct {
@@ -809,6 +881,10 @@ type Step struct {
 	Agents          string
 	Unowned         int64
 	Caller          string
+	LinesCounted    int64
+	LinesFiles      int64
+	LinesAdded      int64
+	LinesRemoved    int64
 }
 
 type StepListing struct {

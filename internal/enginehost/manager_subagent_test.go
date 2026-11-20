@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"testing"
 
@@ -59,7 +60,7 @@ func TestSubagentBlocksAfterTurnEndLeaveSessionIdleAndSayIsSent(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 	first := Notice{Session: id, Dir: dir, State: "done", Body: "fake launched 1"}
-	if got := waitNotices(t, engineOf(m), sink); len(got) != 1 || got[0] != first {
+	if got := waitNotices(t, engineOf(m), sink); len(got) != 1 || !reflect.DeepEqual(got[0], first) {
 		t.Fatalf("notices after the first turn = %+v, want exactly [%+v]", got, first)
 	}
 

@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
@@ -19,7 +18,7 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
 import io.github.joshsymonds.orrery.mainThreadAndroidComposeRule
-import io.github.joshsymonds.orrery.ui.theme.Mocha
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
@@ -132,10 +131,14 @@ class OrreryTest {
         // Each now slice sits on its phase's ring, at the middle of its wedge's angle.
         val bitmap = renderWindow()
 
-        assertWithinARoundingStep("running", Mocha.Yellow.toArgb(), bitmap.argbAt(spot(RINGS[1], middle(0, 4))))
-        assertEquals("waits on you", Mocha.Peach.toArgb(), bitmap.argbAt(spot(RINGS[2], middle(1, 4))))
-        assertEquals("ended short", Mocha.Red.toArgb(), bitmap.argbAt(spot(RINGS[3], middle(2, 4))))
-        assertEquals("accepted", Color(0xFF94E2D5).toArgb(), bitmap.argbAt(spot(RINGS[4], middle(3, 4))))
+        assertWithinARoundingStep(
+            "running",
+            OrreryTokens.Tone.run.toArgb(),
+            bitmap.argbAt(spot(RINGS[1], middle(0, 4))),
+        )
+        assertEquals("waits on you", OrreryTokens.Tone.mine.toArgb(), bitmap.argbAt(spot(RINGS[2], middle(1, 4))))
+        assertEquals("ended short", OrreryTokens.Tone.bad.toArgb(), bitmap.argbAt(spot(RINGS[3], middle(2, 4))))
+        assertEquals("accepted", OrreryTokens.Tone.acc.toArgb(), bitmap.argbAt(spot(RINGS[4], middle(3, 4))))
     }
 
     @Test
@@ -174,7 +177,7 @@ class OrreryTest {
         composeRule.mainClock.advanceTimeBy(HALF_BREATH_MS)
         val later = renderWindow().argbAt(spot(142.5f, middle(0, 2)))
 
-        assertNotEquals("the glow shows beside the running cell", Mocha.Base.toArgb(), first)
+        assertNotEquals("the glow shows beside the running cell", OrreryTokens.Surface.page.toArgb(), first)
         assertEquals("the glow does not move", first, later)
     }
 

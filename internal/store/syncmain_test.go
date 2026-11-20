@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The sync run the sync write tests store, the merge its prepare made and origin's commit that merge holds.
@@ -237,7 +238,14 @@ func TestSyncRunIsNoParkAndNoTargetOfTheOwnersOrThePlannersRetry(t *testing.T) {
 	}
 
 	var refusal RefusalError
-	if err := s.RetryNode(ctx, integrateEpic, "sync"); !errors.As(err, &refusal) || string(refusal) != syncNotParked {
+	if err := s.RetryNode(
+		ctx,
+		integrateEpic,
+		"sync",
+		Maker{By: MakerOwner},
+		time.Unix(1700000000, 0),
+	); !errors.As(err, &refusal) ||
+		string(refusal) != syncNotParked {
 		t.Errorf("RetryNode of the node sync = %v, want the refusal %q", err, syncNotParked)
 	}
 	requireSyncRunsKept(t, s, runs)
@@ -300,7 +308,15 @@ func TestCloseEndsARunningSyncAndItsLaterWritesChangeNothing(t *testing.T) {
 	ctx := context.Background()
 	s := openIntegrateStore(t)
 	startSyncRun(t, s)
-	if _, err := s.CloseEpic(ctx, integrateEpic, "abandoned", "", CloserOwner, closeAt()); err != nil {
+	if _, err := s.CloseEpic(
+		ctx,
+		integrateEpic,
+		"abandoned",
+		"",
+		CloserOwner,
+		Maker{By: MakerOwner},
+		closeAt(),
+	); err != nil {
 		t.Fatalf("CloseEpic: %v", err)
 	}
 	closed := integrateRun(t, s, syncRunPath)

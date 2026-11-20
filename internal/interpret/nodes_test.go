@@ -633,35 +633,6 @@ func TestCommandMovingMainParksNodeAndEpicTold(t *testing.T) {
 	}
 }
 
-// TestCommandMovingAnotherRefOnlyTells: a command whose work adds a ref other than main or HEAD tells the move and
-// carries on: its node passes and its epic is not parked.
-func TestCommandMovingAnotherRefOnlyTells(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	repo, base := nodeRepo(t)
-	s, dbPath := openNodeStore(t)
-	createNodeEpic(t, s, repo, base, nodeCommandFlow)
-	nodeEpicBranch(t, repo, "b.go")
-	runner := runNodes(s, newNodeFakes(s))
-	runner.Pass(ctx)
-	check := workID(t, s, "tests", "check")
-
-	nodeGit(t, repo, "branch", "side")
-	nodeEndCheck(t, s, check, 0, "")
-	runner.Pass(ctx)
-
-	if run := runAt(t, s, "tests"); run.State != store.NodeEnded || run.Outcome != "passed" {
-		t.Errorf("node tests = %+v, want ended passed", run)
-	}
-	if got := epicOf(t, s).Parked; got != "" {
-		t.Errorf("epic Parked = %q, want not parked", got)
-	}
-	want := fmt.Sprintf("workflow node tests moved refs/heads/side ( to %s)", base)
-	if got := nodeTells(t, dbPath); !reflect.DeepEqual(got, []string{want}) {
-		t.Errorf("tells = %q, want %q", got, []string{want})
-	}
-}
-
 // TestOwnedRecordsAnEmptyArrayWhenNothingChanged: an owned node whose epic branch changes nothing over its base records
 // the empty JSON array, so its kind ends it passed rather than starting it again.
 func TestOwnedRecordsAnEmptyArrayWhenNothingChanged(t *testing.T) {

@@ -27,14 +27,15 @@ const speakSession = "5e1f0a9c2b7d4e6f8a3c1b0d9e7f2a4c"
 // speakPending is the one pending event of the speak-label test, labeled waits.
 func speakPending(waits string) *orreryv1.PendingEvent {
 	return &orreryv1.PendingEvent{
-		Id:     speakEvent,
-		Kind:   "step_end",
-		Step:   speakStep,
-		Agent:  "implementer",
-		End:    "done",
-		Status: "passed",
-		Brief:  "Return: First line...\nNot shown: return (22 bytes)\nReason: gate green\nMore: step_result id step-speak",
-		Waits:  waits,
+		Id:        speakEvent,
+		Kind:      "step_end",
+		Step:      speakStep,
+		Agent:     "implementer",
+		End:       "done",
+		Status:    "passed",
+		Brief:     "Return: First line...\nNot shown: return (22 bytes)\nReason: gate green\nMore: step_result id step-speak",
+		Waits:     waits,
+		StepFacts: &orreryv1.StepFacts{},
 	}
 }
 

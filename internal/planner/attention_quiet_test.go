@@ -2,6 +2,7 @@ package planner
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
@@ -117,8 +118,8 @@ func TestQuietImplementerTellAfterAnAnsweredQuestionLeavesTheEpicNeedingNothing(
 		t.Fatalf("notices before the answer = %d, want the question's one", len(router.notices))
 	}
 	if _, err := s.AnswerQuestion(
-		ctx, runnerEpicID, "answer-1", "use the store", 1, store.ChoiceOther, claimedAt(),
-	); err != nil {
+		ctx, runnerEpicID, "answer-1", "use the store", 1, store.ChoiceOther, store.Maker{},
+		claimedAt()); err != nil {
 		t.Fatalf("AnswerQuestion: %v", err)
 	}
 	tellRunner(t, s, implementerMoveText, claimedAt().Add(time.Second))
@@ -164,7 +165,7 @@ func TestQuietImplementerTellBesideTheEndingTellNotifiesOnlyTheEnding(t *testing
 			Project: runnerContractTitle, State: protocol.StateWaiting, Summary: "Released. No gaps.", Block: "report",
 		},
 	}
-	if got := shownOf(t, router.notices[0]); got != want {
+	if got := shownOf(t, router.notices[0]); !reflect.DeepEqual(got, want) {
 		t.Errorf("notice = %+v, want %+v", got, want)
 	}
 	if tells := untoldTellsOfRunner(t, s); len(tells) != 0 {
@@ -194,7 +195,7 @@ func TestQuietImplementerTellWorkflowNodeParkMoveStillRoutes(t *testing.T) {
 		t.Fatalf("notices for the parking node move = %d, want exactly one", len(router.notices))
 	}
 	want := parkNoticeWant(retryAdvice + "\nparked: " + nodeMoveText)
-	if got := shownOf(t, router.notices[0]); got != want {
+	if got := shownOf(t, router.notices[0]); !reflect.DeepEqual(got, want) {
 		t.Errorf("notice = %+v, want %+v", got, want)
 	}
 }
@@ -217,7 +218,7 @@ func TestQuietParkNeedRoutesTheParkUnderItsContractTitle(t *testing.T) {
 	if len(router.notices) != 1 {
 		t.Fatalf("notices after one pass = %d, want exactly one", len(router.notices))
 	}
-	if got, want := shownOf(t, router.notices[0]), parkNoticeWant(creditParkBody); got != want {
+	if got, want := shownOf(t, router.notices[0]), parkNoticeWant(creditParkBody); !reflect.DeepEqual(got, want) {
 		t.Errorf("notice = %+v, want %+v", got, want)
 	}
 }
@@ -242,7 +243,7 @@ func TestQuietParkNeedTellWithItsTurnToldRoutesOneNotice(t *testing.T) {
 		t.Fatalf("notices after one pass = %d, want exactly one", len(router.notices))
 	}
 	want := parkNoticeWant(retryAdvice + "\nparked: " + implementerMoveText)
-	if got := shownOf(t, router.notices[0]); got != want {
+	if got := shownOf(t, router.notices[0]); !reflect.DeepEqual(got, want) {
 		t.Errorf("notice = %+v, want %+v", got, want)
 	}
 }
@@ -273,7 +274,7 @@ func TestQuietParkNeedFinalParkTellLeadsWithItsReason(t *testing.T) {
 		t.Fatalf("notices after the final park = %d, want exactly one", len(router.notices))
 	}
 	want := parkNoticeWant("parked: budget spent\nQ1 park:\n  other: answer in your own words")
-	if got := shownOf(t, router.notices[0]); got != want {
+	if got := shownOf(t, router.notices[0]); !reflect.DeepEqual(got, want) {
 		t.Errorf("notice = %+v, want %+v", got, want)
 	}
 }
