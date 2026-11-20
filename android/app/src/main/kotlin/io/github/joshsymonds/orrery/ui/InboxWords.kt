@@ -73,7 +73,7 @@ private fun contractWords(contract: ContractRow, now: Long): EpicRowWords {
 }
 
 // An epic reads its count, its state word with the time since its phase began, its blocker, and its gauge.
-private fun epicWords(node: EpicNode, now: Long): EpicRowWords {
+internal fun epicWords(node: EpicNode, now: Long): EpicRowWords {
     val listed = node.epic
     val detail = node.detail
     val state = stateWordOf(listed, detail)
