@@ -672,6 +672,93 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 .stepbox-notice { margin: var(--o-space-8) 0 0; padding: var(--o-space-4) var(--o-space-8); border-radius: var(--o-radius-2); color: var(--o-ink-2); overflow-wrap: anywhere; }
 .stepbox-notice.err { color: var(--o-role-bad); }
 
+/* The dock: one box at the foot of a conversation, after round 6. The state's rail is its left edge. Top to bottom, each part
+   only when it has rows: the state bar, the waits line, the trays, the quote and the input. The notes sit under the box. */
+.dock { flex: none; padding: 0 var(--o-layout-page-pad-desk) var(--o-space-16); }
+.dock-box { --state: var(--o-line-firm); display: grid; min-width: 0; border-left: var(--o-size-rail) solid var(--state); border-radius: var(--o-radius-3); background: var(--o-surface-well); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm); overflow: hidden; }
+.dock-box[data-state="working"] { --state: var(--o-state-working); }
+.dock-box[data-state="waiting"] { --state: var(--o-state-waiting); }
+.dock-box[data-state="held"] { --state: var(--o-state-held); }
+.dock-box[data-state="done"] { --state: var(--o-state-done); }
+.dock-box[data-state="interrupted"], .dock-box[data-state="interrupting"] { --state: var(--o-state-interrupted); }
+.dock-box[data-state="failed"] { --state: var(--o-state-failed); }
+.dock-box[data-state="stopped"], .dock-box[data-state="idle"] { --state: var(--o-line-firm); }
+.dock-box:focus-within, .dock-box.focused { box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-role-focus); }
+.dock-box > * + * { border-top: var(--o-size-hairline) solid var(--o-line-soft); }
+
+/* The state bar: the state, once, beside the controls that change it. */
+.statebar { display: flex; align-items: center; gap: var(--o-space-8); min-width: 0; min-height: var(--o-size-control-desk); padding: var(--o-space-4) var(--o-space-4) var(--o-space-4) var(--o-space-12); font: var(--o-type-small); color: var(--o-ink-2); }
+.statebar .word { flex: none; color: var(--state); font-weight: var(--o-font-weight-bold); }
+.dock-box[data-state="done"] .statebar .word, .dock-box[data-state="idle"] .statebar .word, .dock-box[data-state="stopped"] .statebar .word { color: var(--o-ink-2); font-weight: var(--o-font-weight-regular); }
+.statebar .what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.statebar .what .name { color: var(--o-role-ref); }
+.statebar .clock { flex: none; color: var(--state); }
+.statebar .end { display: inline-flex; align-items: center; gap: var(--o-space-4); margin-left: auto; flex: none; }
+.statebar .g-working { color: var(--state); animation: rot var(--o-loop-spin) linear infinite; }
+
+/* The waits line: what the session waits on, under the state bar. */
+.dock-waits { display: flex; align-items: center; gap: var(--o-space-8); padding: var(--o-space-4) var(--o-space-12); border-top: var(--o-size-hairline) solid var(--o-line-soft); color: var(--o-role-engine); font: var(--o-type-small); }
+
+/* Ctl: a control inside a line of the dock or a tray. It is the height of the line's text, the same at the desk and on
+   touch; its touch target is the line it sits in. Its key hint is drawn at the desk only. */
+.ctl { display: inline-flex; align-items: center; gap: var(--o-space-4); flex: none; height: var(--o-space-24); min-height: 0; padding: 0 var(--o-space-8); border: 0; border-radius: var(--o-radius-1); background: none; cursor: pointer; color: var(--o-ink-2); font: var(--o-type-small); white-space: nowrap; appearance: none; -webkit-appearance: none; }
+.ctl:hover, .ctl.hover { background: var(--o-surface-raised); color: var(--o-ink-1); }
+.ctl.bad .icon { color: var(--o-role-bad); }
+.ctl.go .icon { color: var(--o-role-ok); }
+.ctl:disabled { color: var(--o-ink-4); }
+.ctl.only { padding: 0 var(--o-space-4); }
+
+/* The icon: stroked in the current colour unless a part is filled. */
+.icon { width: var(--o-size-icon); height: var(--o-size-icon); fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+
+/* The quote: what a message is about, above the input. */
+.quote { display: flex; align-items: center; gap: var(--o-space-8); min-width: 0; padding: var(--o-space-4) var(--o-space-8) var(--o-space-4) var(--o-space-12); color: var(--o-ink-2); font: var(--o-type-small); }
+.quote .text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The trays: rows that have not happened yet. Each row's rail is dashed, in the tone of who it belongs to. */
+.tray { display: grid; padding: var(--o-space-4) 0; }
+.tray-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--o-space-8); padding: var(--o-space-2) var(--o-space-12); font: var(--o-type-small); color: var(--o-ink-3); }
+.tray-head .lbl { flex: none; font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+.tray-head .why { flex: 1 1 auto; min-width: 0; }
+.tray-head .end { display: inline-flex; align-items: center; gap: var(--o-space-8); margin-left: auto; flex: none; }
+.tray-row { --rail: var(--o-line-firm); display: flex; align-items: center; gap: var(--o-space-8); min-width: 0; margin-left: var(--o-space-12); padding: var(--o-space-2) var(--o-space-12) var(--o-space-2) var(--o-space-8); border-left: var(--o-size-rail) dashed var(--rail); font: var(--o-type-small); color: var(--o-ink-2); }
+.tray-row.you { --rail: var(--o-role-you); color: var(--o-ink-1); font: var(--o-type-body); }
+.tray-row.cancelled { --rail: var(--o-role-halt); color: var(--o-ink-3); text-decoration: line-through; }
+.tray-row .lbl { display: inline-block; flex: none; color: var(--rail); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; text-decoration: none; }
+.tray-row .text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tray-row .text.wrap { white-space: pre-wrap; }
+.tray-row .note { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-ink-3); }
+.tray-row .end { display: inline-flex; align-items: center; gap: var(--o-space-4); margin-left: auto; flex: none; color: var(--o-ink-3); font: var(--o-type-small); }
+.tray-more { margin-left: var(--o-space-12); padding: var(--o-space-2) var(--o-space-12); font: var(--o-type-small); color: var(--o-ink-3); }
+
+/* The notes under the box: what happened to a send, a take-back or a resume, in red when it failed. */
+.dock .inote { display: flex; align-items: center; gap: var(--o-space-8); margin: var(--o-space-4) 0 0; font: var(--o-type-small); color: var(--o-ink-3); }
+.dock .inote.error { color: var(--o-role-bad); }
+
+/* The input: what you type, and Send. The placeholder says what a send will do in this state. */
+.dock-input { display: flex; align-items: flex-end; gap: var(--o-space-8); padding: var(--o-space-8) var(--o-space-8) var(--o-space-8) var(--o-space-12); }
+.dock-input textarea {
+  flex: 1 1 auto; min-width: 0; min-height: var(--o-size-control-desk); padding: var(--o-space-4) 0; resize: none;
+  border: 0; outline: 0; background: none; color: var(--o-ink-1); font: var(--o-type-body);
+  field-sizing: content; max-height: calc(8 * var(--o-type-body-line)); overflow-y: auto;
+}
+.dock-input textarea::placeholder { color: var(--o-ink-4); }
+.dock-input button.go {
+  flex: none; display: inline-flex; align-items: center; justify-content: center; width: var(--o-size-control-desk); height: var(--o-size-control-desk); padding: 0; border: 0; border-radius: var(--o-radius-2); cursor: pointer;
+  background: var(--o-role-primary); color: var(--o-ink-on-accent);
+  appearance: none; -webkit-appearance: none;
+}
+
+/* On a phone the dock takes the screen's edges, its input takes the touch height, and a Ctl's key hint is not drawn. */
+@media (width < 760px) {
+  .dock { padding: 0 var(--o-space-8) var(--o-space-8); }
+  .dock-input textarea { min-height: var(--o-size-control-touch); padding: var(--o-space-12) 0; }
+  .ctl kbd { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .statebar .g-working { animation: none; }
+}
+
 /* The live line's caret, after the wireframe. */
 @keyframes blink { 0%, 55% { opacity: 1; } 56%, 100% { opacity: 0; } }
 @keyframes rot { to { transform: rotate(360deg); } }
