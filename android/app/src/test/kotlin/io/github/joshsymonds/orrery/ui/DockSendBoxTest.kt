@@ -29,6 +29,8 @@ import com.connectrpc.Code
 import io.github.joshsymonds.orrery.api.NoAnswerException
 import io.github.joshsymonds.orrery.api.OrreryCallException
 import io.github.joshsymonds.orrery.api.OrreryClient
+import io.github.joshsymonds.orrery.api.Quiescence
+import io.github.joshsymonds.orrery.api.Reply
 import io.github.joshsymonds.orrery.awaitUntil
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendTextRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendTextResponse
@@ -76,10 +78,12 @@ class DockSendBoxTest {
     val composeRule = mainThreadAndroidComposeRule<ComponentActivity>()
 
     private val server = FakeOrreryServer()
+    private val heldSendReply = CountDownLatch(1)
     private lateinit var boxDraft: DockDraft
 
     @After
     fun tearDown() {
+        heldSendReply.countDown()
         server.close()
     }
 
@@ -188,7 +192,10 @@ class DockSendBoxTest {
 
     @Test
     fun nextSendClearsSendUnknownLabel() {
-        server.respond(TEXT_PATH, SendTextResponse.getDefaultInstance(), delayMillis = SLOW_ANSWER_MS)
+        server.route(TEXT_PATH) {
+            heldSendReply.await()
+            Reply.Message(SendTextResponse.getDefaultInstance(), 0L)
+        }
         setBox(client = slowClient())
         setDraft(DRAFT)
         composeRule.onNodeWithText("Send").performClick()
@@ -197,8 +204,9 @@ class DockSendBoxTest {
         }
 
         // FakeOrreryServer answers one request at a time, so the second request would queue behind the
-        // slow answer and miss the compose timeout. Let that answer finish first.
-        Thread.sleep(SLOW_ANSWER_MS)
+        // held answer and miss the compose timeout. Release that answer and wait until nothing is in flight.
+        heldSendReply.countDown()
+        composeRule.awaitUntil("the held answer is sent") { Quiescence.inFlight() == null }
         server.respond(TEXT_PATH, SendTextResponse.getDefaultInstance())
         composeRule.onNodeWithText("Send").performClick()
         composeRule.awaitUntil { editField().text.isEmpty() }
