@@ -157,7 +157,7 @@ private fun cellWordOf(cell: CellTone): String = when (cell) {
 
 // A cell's colour: ok, running, held, accepted and failed as the tones are, a limit or plan in grey, and none in the
 // line's soft colour.
-private fun cellColourOf(cell: CellTone): Color = when (cell) {
+internal fun cellColourOf(cell: CellTone): Color = when (cell) {
     CellTone.OK -> OrreryTokens.Role.ok
     CellTone.RUN -> OrreryTokens.Tone.run
     CellTone.MINE -> OrreryTokens.Tone.mine
