@@ -1763,3 +1763,9 @@ SELECT * FROM contract_versions WHERE contract = ? ORDER BY version;
 
 -- name: ListContractStates :many
 SELECT * FROM contract_states WHERE contract = ? ORDER BY seq;
+
+-- name: CountContractStates :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM contract_states WHERE contract = ?;
+
+-- name: GetContractVersion :one
+SELECT * FROM contract_versions WHERE contract = ? AND version = ?;

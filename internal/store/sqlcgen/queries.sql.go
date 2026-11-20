@@ -280,6 +280,17 @@ func (q *Queries) CountContract(ctx context.Context, id string) (int64, error) {
 	return column_1, err
 }
 
+const countContractStates = `-- name: CountContractStates :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM contract_states WHERE contract = ?
+`
+
+func (q *Queries) CountContractStates(ctx context.Context, contract string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countContractStates, contract)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const countEnginePrompts = `-- name: CountEnginePrompts :one
 SELECT COUNT(*) FROM events AS prompts
 WHERE prompts.session_id = ?1 AND prompts.kind = 'engine_prompt'
@@ -1141,6 +1152,36 @@ func (q *Queries) GetContractListing(ctx context.Context, id string) (GetContrac
 		&i.Conversation,
 		&i.State,
 		&i.Changed,
+	)
+	return i, err
+}
+
+const getContractVersion = `-- name: GetContractVersion :one
+SELECT contract, version, repository, title, care, body, decisions, open_decisions, words, writer, at, changed_rows, changed_sections FROM contract_versions WHERE contract = ? AND version = ?
+`
+
+type GetContractVersionParams struct {
+	Contract string
+	Version  int64
+}
+
+func (q *Queries) GetContractVersion(ctx context.Context, arg GetContractVersionParams) (ContractVersion, error) {
+	row := q.db.QueryRowContext(ctx, getContractVersion, arg.Contract, arg.Version)
+	var i ContractVersion
+	err := row.Scan(
+		&i.Contract,
+		&i.Version,
+		&i.Repository,
+		&i.Title,
+		&i.Care,
+		&i.Body,
+		&i.Decisions,
+		&i.OpenDecisions,
+		&i.Words,
+		&i.Writer,
+		&i.At,
+		&i.ChangedRows,
+		&i.ChangedSections,
 	)
 	return i, err
 }

@@ -18,9 +18,6 @@ var ErrContractExists = errors.New("contract id already held by a contract or an
 // ContractProposed is the state a contract is in when it is first stored.
 const ContractProposed = "proposed"
 
-// emptyJSONList is the JSON array a list column holds when its list is empty.
-const emptyJSONList = "[]"
-
 // ContractDecision is one decision of a contract version. Answer is "" while the decision is open.
 type ContractDecision struct {
 	ID             string   `json:"id"`
@@ -78,16 +75,6 @@ type ContractRecord struct {
 // contract or an epic already has id.
 func (s *Store) ProposeContract(ctx context.Context, id string, proposal ContractVersion) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		decisions, err := encodeList(proposal.Decisions)
-		if err != nil {
-			return fmt.Errorf("encode decisions of contract %s: %w", id, err)
-		}
-		var open int64
-		for _, decision := range proposal.Decisions {
-			if decision.Answer == "" {
-				open++
-			}
-		}
 		held, err := queries.CountContract(ctx, id)
 		if err != nil {
 			return fmt.Errorf("count contract %s: %w", id, err)
@@ -102,20 +89,12 @@ func (s *Store) ProposeContract(ctx context.Context, id string, proposal Contrac
 		if err = queries.InsertContract(ctx, sqlcgen.InsertContractParams{ID: id, Created: proposal.At}); err != nil {
 			return fmt.Errorf("insert contract %s: %w", id, err)
 		}
-		if err = queries.InsertContractVersion(ctx, sqlcgen.InsertContractVersionParams{
-			Contract: id, Version: 1, Repository: proposal.Repository, Title: proposal.Title, Care: proposal.Care,
-			Body: proposal.Body, Decisions: decisions, OpenDecisions: open, Words: proposal.Words,
-			Writer: proposal.Writer, At: proposal.At, ChangedRows: emptyJSONList, ChangedSections: emptyJSONList,
-		}); err != nil {
-			return fmt.Errorf("insert version of contract %s: %w", id, err)
+		proposal.Version, proposal.ChangedRows, proposal.ChangedSections = 1, nil, nil
+		if versionErr := insertContractVersion(ctx, queries, id, proposal); versionErr != nil {
+			return versionErr
 		}
-		if err = queries.InsertContractState(ctx, sqlcgen.InsertContractStateParams{
-			Contract: id, Seq: 1, State: ContractProposed, Version: 1, Session: proposal.Writer,
-			Words: proposal.Words, At: proposal.At,
-		}); err != nil {
-			return fmt.Errorf("insert state of contract %s: %w", id, err)
-		}
-		return nil
+		change := ContractChange{Session: proposal.Writer, Words: proposal.Words, At: proposal.At}
+		return appendContractState(ctx, queries, id, ContractProposed, 1, change)
 	})
 }
 
@@ -176,12 +155,9 @@ func (r *Reader) Contracts(ctx context.Context) ([]ContractListing, error) {
 
 // readContract returns the contract with id, its listing, versions and states, read with queries.
 func readContract(ctx context.Context, queries *sqlcgen.Queries, id string) (ContractRecord, error) {
-	listing, err := queries.GetContractListing(ctx, id)
-	if errors.Is(err, sql.ErrNoRows) {
-		return ContractRecord{}, fmt.Errorf("contract %s: %w", id, ErrNoContract)
-	}
+	listing, err := readContractListing(ctx, queries, id)
 	if err != nil {
-		return ContractRecord{}, fmt.Errorf("read contract %s: %w", id, err)
+		return ContractRecord{}, err
 	}
 	versions, err := queries.ListContractVersions(ctx, id)
 	if err != nil {
@@ -191,7 +167,7 @@ func readContract(ctx context.Context, queries *sqlcgen.Queries, id string) (Con
 	if err != nil {
 		return ContractRecord{}, fmt.Errorf("list states of contract %s: %w", id, err)
 	}
-	record := ContractRecord{ContractListing: contractListingOf(listing)}
+	record := ContractRecord{ContractListing: listing}
 	for _, row := range versions {
 		version, convertErr := contractVersionOf(row)
 		if convertErr != nil {
