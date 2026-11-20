@@ -42,6 +42,7 @@ type EpicCommands interface {
 	EpicFlow(ctx context.Context, id string) (store.EpicFlow, error)
 	EpicHistory(ctx context.Context, id string) (store.EpicHistory, error)
 	MoveEpic(ctx context.Context, epic, to string, maker store.Maker, at time.Time) (store.EpicAction, error)
+	RecordEpicAction(ctx context.Context, epic, kind string, maker store.Maker, at time.Time) error
 	SteerTarget(ctx context.Context, id string) (store.SteerTarget, bool, error)
 	Epics(ctx context.Context) ([]store.EpicRow, error)
 	EpicListings(ctx context.Context) ([]store.EpicRow, error)
@@ -576,10 +577,8 @@ func (s *epicService) ResumeEpic(
 	if err != nil {
 		return nil, err
 	}
-	if head.Paused || len(limited) == 0 {
-		if err = s.epics.ResumeEpic(ctx, id, maker, time.Now()); err != nil {
-			return nil, epicControlError(id, err)
-		}
+	if err = s.recordResume(ctx, id, head.Paused, len(limited) > 0, maker); err != nil {
+		return nil, epicControlError(id, err)
 	}
 	var resumed, stillLimited []string
 	for _, row := range limited {
@@ -604,6 +603,22 @@ func (s *epicService) ResumeEpic(
 		Resumed:      resumed,
 		StillLimited: stillLimited,
 	}), nil
+}
+
+// recordResume writes the resume a ResumeEpic call makes on epic. A paused epic, or one with no limited step, goes
+// through the store's ResumeEpic, which clears the pause or refuses an epic that is neither paused nor limited. An
+// unpaused epic that holds limited steps has no pause to clear, so its resume is one resume action.
+func (s *epicService) recordResume(ctx context.Context, epic string, paused, limited bool, maker store.Maker) error {
+	if paused || !limited {
+		if err := s.epics.ResumeEpic(ctx, epic, maker, time.Now()); err != nil {
+			return fmt.Errorf("resume epic %s: %w", epic, err)
+		}
+		return nil
+	}
+	if err := s.epics.RecordEpicAction(ctx, epic, store.ActionResume, maker, time.Now()); err != nil {
+		return fmt.Errorf("record resume of epic %s: %w", epic, err)
+	}
+	return nil
 }
 
 // stopRunningSteps stops each step of epic that is running, and returns the stops that failed, each named by its step,

@@ -83,6 +83,19 @@ func (s *Store) MoveEpic(ctx context.Context, epic, to string, maker Maker, at t
 	return action, err
 }
 
+// RecordEpicAction appends one action of kind to epic in one write, made by maker at the time at. Its From and To are
+// "" and its recipient is as appendEpicAction sets it. A move is MoveEpic's to make, so kind is not ActionMove. An
+// unknown epic is ErrNoEpic.
+func (s *Store) RecordEpicAction(ctx context.Context, epic, kind string, maker Maker, at time.Time) error {
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		if _, err := epicHead(ctx, queries, epic); err != nil {
+			return err
+		}
+		_, err := appendEpicAction(ctx, queries, epic, kind, maker, "", "", at)
+		return err
+	})
+}
+
 // EpicActionEvent is the id of the caller event for action seq of epic.
 func EpicActionEvent(epic string, seq int64) string {
 	return fmt.Sprintf("epic:%s:A%d", epic, seq)
