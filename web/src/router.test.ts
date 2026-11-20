@@ -61,6 +61,17 @@ test("HashRoute round-trips an epic's contract", () => {
   assertRoundTrip({ order: "attention", entry: { kind: "epic", id: "E-1", page: { kind: "contract" } } });
 });
 
+test("ContractAddress: round-trips a contract entry", () => {
+  assertRoundTrip({ order: "attention", entry: { kind: "contract", id: "tidepool/tide-alerts" } });
+});
+
+test("ContractAddress: writes a contract entry's hash with its id encoded", () => {
+  assert.equal(
+    formatAddress({ order: "project", entry: { kind: "contract", id: "tidepool/tide-alerts" } }),
+    "#/project/contract/tidepool%2Ftide-alerts",
+  );
+});
+
 test("HashRoute round-trips an epic's phase output", () => {
   assertRoundTrip({
     order: "project",

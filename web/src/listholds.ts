@@ -1,3 +1,4 @@
+import type { Contract } from "./gen/orrery/v1/contracts_pb";
 import type { EpicsView } from "./epics";
 import type { Address } from "./router";
 import type { Row } from "./rows";
@@ -16,8 +17,13 @@ export function listsEpic(view: EpicsView, id: string): boolean {
 // listHolds reports whether the line of address.order holds address.entry, so that opening the address shows its entry.
 // An address with no entry always holds. The archived line holds archived rows and archived epics, and no step. The
 // attention and project lines hold the rows that are not archived, the epics listsEpic finds, and the steps of the
-// epic blocks.
-export function listHolds(address: Address, rows: Row[], epics: EpicsView): boolean {
+// epic blocks. A contract holds under every order while the loaded contracts hold its id.
+export function listHolds(
+  address: Address,
+  rows: Row[],
+  epics: EpicsView,
+  contracts: readonly Contract[] = [],
+): boolean {
   const { order, entry } = address;
   if (entry === null) {
     return true;
@@ -35,5 +41,7 @@ export function listHolds(address: Address, rows: Row[], epics: EpicsView): bool
       return !archived && epics.blocks.some((block) => block.steps.some((step) => step.id === entry.id));
     case "epic":
       return archived ? epics.archived.some((item) => item.id === entry.id) : listsEpic(epics, entry.id);
+    case "contract":
+      return contracts.some((contract) => contract.id === entry.id);
   }
 }

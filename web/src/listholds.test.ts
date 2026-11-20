@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { create } from "@bufbuild/protobuf";
 
 import { epicsView, noEpics } from "./epics";
+import { ContractSchema } from "./gen/orrery/v1/contracts_pb";
 import { EpicSchema, EpicStepSchema } from "./gen/orrery/v1/epics_pb";
 import { listHolds } from "./listholds";
 import type { Address, Entry, Order } from "./router";
@@ -141,6 +142,15 @@ test("HashRoute: an epic in a block holds under attention and project, and not u
   assert.equal(listHolds(at("attention", live), [], epics), true);
   assert.equal(listHolds(at("project", live), [], epics), true);
   assert.equal(listHolds(at("archived", live), [], epics), false);
+});
+
+test("ContractAddress: a contract entry holds under every order when the loaded contracts hold its id", () => {
+  const contract: Entry = { kind: "contract", id: "tidepool/tide-alerts" };
+  const contracts = [create(ContractSchema, { id: "tidepool/tide-alerts" })];
+  for (const order of orders) {
+    assert.equal(listHolds(at(order, contract), [], noEpics, contracts), true, `${order} did not hold it`);
+    assert.equal(listHolds(at(order, contract), [], noEpics, []), false, `${order} held it with no contracts`);
+  }
 });
 
 test("HashRoute: a step in an epic block holds under attention and project, and never under archived", () => {

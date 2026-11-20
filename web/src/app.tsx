@@ -8,6 +8,8 @@ import { askingWords, askLines, headBadges, ownAsks, steeredEpics } from "./asks
 import { epicCallsOf } from "./card";
 import type { DockHandle } from "./dock";
 import { ContractBody } from "./contract";
+import { ContractRecord } from "./contractrecord";
+import { contractSlug } from "./contracts";
 import { type Conversation, shownConversation } from "./conversation";
 import { type ArchiveControl, EpicLine } from "./epicline";
 import { type EpicCommands, EpicPage, type Landing } from "./epicpage";
@@ -26,6 +28,7 @@ import {
 } from "./epics";
 import { findMatches } from "./find";
 import { type Followed, follow } from "./follow";
+import type { Contract } from "./gen/orrery/v1/contracts_pb";
 import type { EpicHistoryEntry, EpicsGetResponse, EpicStep } from "./gen/orrery/v1/epics_pb";
 import type { InAppNotice, NoticeKey } from "./gen/orrery/v1/notice_pb";
 import type { HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
@@ -129,6 +132,13 @@ interface OpenedEpic {
   entry: Extract<Entry, { kind: "epic" }>;
 }
 
+// The contract an opened address names, with the cursor key it opened over: its panel is open while the cursor rests
+// there.
+interface OpenedContract {
+  id: string;
+  cursor: string;
+}
+
 // A pending open is the entry an opened address names, with the order it names. The entry is decided only in a pass whose
 // view is that order.
 interface PendingOpen {
@@ -167,6 +177,8 @@ const newSinceTitle = "New since you looked";
 const noDirectoryTitle = "no directory";
 const epicUnavailableText = "epic unavailable";
 const noSteererText = "No conversation steers this epic.";
+// The session states that end a conversation: its row holds it, but it is not live.
+const endedStates: readonly string[] = ["stopped", "failed"];
 const seenFailedText = "could not mark seen";
 const answerFailedText = "no answer was sent";
 const takeBackFailedText = "could not take the queued messages back";
@@ -189,6 +201,8 @@ const wideQuery = "(min-width: 760px)";
 // The query of the layout at 1250px and under, where the epic panel lies over the conversation from the right, beside the
 // rail, rather than taking a track of its own.
 const overlayQuery = "(max-width: 1250px)";
+// The contracts an App holds when none are given.
+const noContracts: readonly Contract[] = [];
 
 export function App({
   rows,
@@ -198,6 +212,7 @@ export function App({
   seenClock,
   seenWindow,
   epics = noEpics,
+  contracts = noContracts,
   notices = [],
   host = null,
   onViewing,
@@ -212,6 +227,7 @@ export function App({
   seenClock?: SeenClock;
   seenWindow?: SeenWindow;
   epics?: EpicsView;
+  contracts?: readonly Contract[];
   notices?: InAppNotice[];
   host?: HostStatusResponse | null;
   onViewing?: (viewing: Viewing) => void;
@@ -342,6 +358,9 @@ export function App({
   const [steppedTo, setSteppedTo] = useState<SteppedTo | null>(null);
   // The epic entry the last opened address named, whose sub-page the page lands on in the commit that moves the cursor.
   const [opened, setOpened] = useState<OpenedEpic | null>(null);
+  // The contract an opened address names, and the read set of the contract records, which the page keeps for its life.
+  const [openedContract, setOpenedContract] = useState<OpenedContract | null>(null);
+  const [contractRead, setContractRead] = useState<ReadonlySet<string>>(() => new Set());
   // The worker session the page shows, held under the step it belongs to.
   const [sessionStream, setSessionStream] = useState<Stream | null>(null);
   // The list panel open beside a session, and the thing a panel held last, which ] reopens.
@@ -488,8 +507,21 @@ export function App({
   // The epic's steerer: the row of the session that steers it, as the rail names it. The middle row is the row the
   // reader column draws: the cursor's row, or for an epic entry its steerer's row. The entry the reader follows is the
   // middle row, or else the cursor's step. Its stream is kept under this key, so a stream never shows under another entry.
-  const steererRow = epicEntry === null ? null : steererOf(rows, epics.listed.get(epicEntry.id)?.steering ?? "");
-  const middleRow = cursorRow ?? steererRow;
+  // The contract the address opened is open while the cursor rests on the entry it opened over. Its conversation is the
+  // row whose session is the contract's conversation: the middle while that row is live, which an archived row, or one
+  // stopped or failed, is not.
+  const openedId = openedContract?.cursor === cursorKey ? openedContract.id : "";
+  const contract = openedId === "" ? undefined : contracts.find((candidate) => candidate.id === openedId);
+  const contractShown = contract !== undefined;
+  const contractRow = contract === undefined ? null : steererOf(shownRows, contract.conversation);
+  const contractLiveRow =
+    contractRow !== null && !contractRow.archived && !endedStates.includes(contractRow.state) ? contractRow : null;
+  const contractTone = contract?.state === "proposed" ? "attention" : "quiet";
+  const steererRow =
+    epicEntry === null || contractShown ? null : steererOf(rows, epics.listed.get(epicEntry.id)?.steering ?? "");
+  const middleRow = contractShown ? contractLiveRow : (cursorRow ?? steererRow);
+  // The row the seen watch rests on: the cursor's row, or while a contract is open, the conversation the middle draws.
+  const watchedRow = contractShown ? contractLiveRow : cursorRow;
   const middleKey = middleRow?.key ?? "";
   const readerKey = middleKey !== "" ? middleKey : cursorStepKey;
   // The cursor's epic entry while its ending reads unseen: the seen watch rests on it, and its write marks it seen.
@@ -516,8 +548,13 @@ export function App({
   // reset has run.
   const shownPage = pageCursor.current === cursorKey ? epicPage : openEpicPage;
   // The list panel the cursor's session row shows: a list is open only while the cursor rests on the row it is open on.
-  const listShown: ListPanelKind | null = listPanel !== null && listPanel.key === cursorRowKey ? listPanel.panel : null;
-  const shownAddress: Address = { order: view, entry: shownEntry(cursorItem, shownPage, listShown) };
+  const listShown: ListPanelKind | null =
+    !contractShown && listPanel !== null && listPanel.key === cursorRowKey ? listPanel.panel : null;
+  const shownAddress: Address = {
+    order: view,
+    entry:
+      contract === undefined ? shownEntry(cursorItem, shownPage, listShown) : { kind: "contract", id: contract.id },
+  };
   const shownForm = formatAddress(shownAddress);
 
   // The held cursor follows the entry shown, so a first render or a clamp does not leave it on a stale key.
@@ -526,6 +563,14 @@ export function App({
       setCursor({ key: cursorKey, index: shownIndex });
     }
   }, [cursor, cursorKey, shownIndex]);
+
+  // The contract panel shuts once the cursor leaves the entry it opened over, so a return to that entry does not reopen
+  // it.
+  useEffect(() => {
+    if (openedContract !== null && openedContract.cursor !== cursorKey) {
+      setOpenedContract(null);
+    }
+  }, [openedContract, cursorKey]);
 
   // The middle row, or the cursor's step, is followed while the cursor rests on it: a move to another entry, or an unmount,
   // stops the stream. A step is followed as its session, by its id.
@@ -841,13 +886,13 @@ export function App({
   // Each render tells the watch the cursor's row, or its unseen ended epic, and whether it reads as unseen. A changed
   // row is a new key, so a change made while the cursor rests on it gets its own dwell; an ending is a key of its own.
   useEffect(() => {
-    restedSeen.current = cursorRow ?? restedEpic;
+    restedSeen.current = watchedRow ?? restedEpic;
     if (restedEpic !== null) {
       seenWatch.current?.rest(endingKey(restedEpic), true);
     } else {
       seenWatch.current?.rest(
-        cursorRow === null ? "" : `${cursorRow.key}@${cursorRow.changed}`,
-        cursorRow?.unseen ?? false,
+        watchedRow === null ? "" : `${watchedRow.key}@${watchedRow.changed}`,
+        watchedRow?.unseen ?? false,
       );
     }
   });
@@ -1183,6 +1228,7 @@ export function App({
       return;
     }
     setView(address.order);
+    setOpenedContract(null);
     pendingOpen.current = address.entry === null ? null : { order: address.order, entry: address.entry };
     if (address.entry === null && !first && epicEntry !== null) {
       setEpicPage(closedEpicPage);
@@ -1205,11 +1251,26 @@ export function App({
     if (pending === null || pending.order !== view) {
       return;
     }
-    if (!listHolds(pending, rows, epics)) {
+    if (!listHolds(pending, rows, epics, contracts)) {
       return;
     }
     const { entry } = pending;
     pendingOpen.current = null;
+    if (entry.kind === "contract") {
+      // The conversation's row takes the cursor when the list shows it, as an epic's line does, so the middle, the
+      // composer and the seen watch rest on the same row. The contract stays open over the cursor's key that results.
+      const listed = contracts.find((candidate) => candidate.id === entry.id);
+      const conversation = listed === undefined ? null : steererOf(shownRows, listed.conversation);
+      const conversationItem =
+        conversation === null ? undefined : flat.find((candidate) => candidate.key === conversation.key);
+      if (conversationItem !== undefined) {
+        selectItem(conversationItem);
+      }
+      setOpenedContract({ id: entry.id, cursor: conversationItem?.key ?? cursorKey });
+      setRowOpened(true);
+      adopt();
+      return;
+    }
     if (entry.kind === "epic") {
       if (listHolds(pending, rows, marked)) {
         openEpic(entry.id);
@@ -1235,7 +1296,7 @@ export function App({
     arm();
     lastForm.current = null;
     renderAddress();
-  }, [addressForm, flat, marked]);
+  }, [addressForm, flat, marked, contracts]);
 
   // markNoticeSeen sends the notice's key as seen. A failed report is dropped; the notice stays until it ends.
   const markNoticeSeen = (notice: InAppNotice) => {
@@ -1384,10 +1445,12 @@ export function App({
   // The epic panel is open while the cursor rests on an epic entry and its page is not closed. Its tile is the rail's tile
   // of that epic, which is lit while the panel is open, and whose tone the card takes. An epic no conversation steers has
   // no tile, so no tile is lit and the card takes the quiet tone.
-  const panelOpen = epicEntry !== null && !epicPage.closed;
+  const panelOpen = epicEntry !== null && !epicPage.closed && !contractShown;
   // Under 760px an open epic is the page in the conversation's place: the conversation is not drawn, and the page's
   // foot bar opens the steering conversation. At the desk the epic panel lies beside the conversation.
   const epicPageShown = !wide && panelOpen;
+  // Under 760px an open contract is the page in the conversation's place too, and the reader is not drawn.
+  const contractPageShown = !wide && contractShown;
   const panelThing =
     epicEntry === null
       ? undefined
@@ -1444,6 +1507,9 @@ export function App({
   // closeList shuts the list panel, from its lit tile or its Close. The cursor stays on the session's row, so the
   // address is the session's own.
   const closeList = navigated(() => setListPanel(null));
+  // closeContract shuts the contract panel, from its Close or its title row's back. The address is the cursor's entry
+  // again.
+  const closeContract = navigated(() => setOpenedContract(null));
   // openThing is a press on a rail tile. The lit tile shuts its panel, whether it is an epic's or a list's. Another
   // epic's tile opens that epic as an open, and a list's tile opens the list on the session row the rail reads.
   const openThing = (thing: Thing) => {
@@ -1555,22 +1621,65 @@ export function App({
     </section>
   );
 
+  // contractPage draws the contract the address opened: its title row and its record, which is live while its
+  // conversation is. writerOf names a session by its row's line, or by its id when no row holds it.
+  const writerOf = (session: string): string => steererOf(rows, session)?.label ?? session;
+  const readContract = (key: string) => setContractRead((previous) => new Set(previous).add(key));
+  const contractPage =
+    contract === undefined ? null : (
+      <div>
+        <TitleRow
+          crumbs={[{ label: contractSlug(contract.id) }, { label: "contract" }]}
+          onBack={closeContract}
+          mark={inboxMark}
+          strip={pageStrip(null, null)}
+        />
+        <ContractRecord
+          key={contract.id}
+          id={contract.id}
+          clients={clients}
+          writer={writerOf}
+          hasEpic={listsEpic(epics, contract.id)}
+          read={contractRead}
+          onRead={readContract}
+          live={contractLiveRow !== null}
+        />
+      </div>
+    );
+
   // pageNode draws the page the section holds over the epic's detail: the epic page, or the contract, the phase output
   // or the worker session the page has moved to.
   const pageNode = (entry: EpicItem, detail: EpicsGetResponse) => {
     const { page } = epicPage;
-    if (page.kind === "contract" && detail.contract !== undefined) {
-      return (
-        <div>
-          <TitleRow
-            crumbs={[{ label: detail.epic?.slug ?? "", onGo: toEpicPage }, { label: "contract" }]}
-            onBack={back}
-            mark={inboxMark}
-            strip={pageStrip(null, null)}
-          />
-          <ContractBody contract={detail.contract} requirements={detail.requirements} />
-        </div>
-      );
+    if (page.kind === "contract") {
+      const crumbs = [{ label: detail.epic?.slug ?? "", onGo: toEpicPage }, { label: "contract" }];
+      // The epic's contract is its record when the contracts list holds it, else the contract Epics.Get holds.
+      const listed = contracts.find((candidate) => candidate.id === entry.id);
+      if (listed !== undefined) {
+        return (
+          <div>
+            <TitleRow crumbs={crumbs} onBack={back} mark={inboxMark} strip={pageStrip(null, null)} />
+            <ContractRecord
+              key={listed.id}
+              id={listed.id}
+              clients={clients}
+              writer={writerOf}
+              hasEpic
+              read={contractRead}
+              onRead={readContract}
+              live={false}
+            />
+          </div>
+        );
+      }
+      if (detail.contract !== undefined) {
+        return (
+          <div>
+            <TitleRow crumbs={crumbs} onBack={back} mark={inboxMark} strip={pageStrip(null, null)} />
+            <ContractBody contract={detail.contract} requirements={detail.requirements} />
+          </div>
+        );
+      }
     }
     if (page.kind === "phase") {
       return (
@@ -1839,7 +1948,7 @@ export function App({
           column="cursor"
           clients={clients}
           now={now}
-          row={epicPageShown ? null : middleRow}
+          row={epicPageShown || contractPageShown ? null : middleRow}
           conversation={cursorConversation}
           rows={visited}
           interrupts={interrupts}
@@ -1875,10 +1984,13 @@ export function App({
           steps={visitedSteps}
           stepInputs={stepInputs}
         />
-        {epicEntry !== null && steererRow === null && !epicPageShown && (
+        {epicEntry !== null && !contractShown && steererRow === null && !epicPageShown && (
           <section class="read" aria-label="no conversation">
             <p class="side-note">{noSteererText}</p>
           </section>
+        )}
+        {contractShown && contractLiveRow === null && !contractPageShown && (
+          <section class="read" aria-label="no conversation" />
         )}
         <ReaderColumn
           column="pinned"
@@ -1934,6 +2046,17 @@ export function App({
             </div>
           </div>
         )}
+        {contract !== undefined && wide && (
+          <SidePanel
+            label={`${contractSlug(contract.id)} contract`}
+            tone={contractTone}
+            href={shownForm}
+            onClose={closeContract}
+          >
+            {contractPage}
+          </SidePanel>
+        )}
+        {contract !== undefined && !wide && <div class="epic-read">{contractPage}</div>}
         {listShown !== null && wide && (
           <SidePanel label={listHead(listShown)} tone={listTone} href={shownForm} onClose={closeList}>
             <ListPanel kind={listShown} tasks={listTasks} now={now} />
@@ -2266,7 +2389,7 @@ function shownEntry(item: Item | null, epicPage: EpicPageState, list: ListPanelK
 }
 
 // addressKey is the key the list gives the row or step an address names, which the cursor is moved to.
-function addressKey(entry: Exclude<Entry, { kind: "epic" }>): string {
+function addressKey(entry: Exclude<Entry, { kind: "epic" | "contract" }>): string {
   switch (entry.kind) {
     case "session":
       return `session:${entry.id}`;

@@ -4,6 +4,7 @@ import { render } from "preact";
 import { App } from "./app";
 import { createClients, createTransport } from "./client";
 import { type EpicsView, epicsView, noEpics } from "./epics";
+import type { Contract } from "./gen/orrery/v1/contracts_pb";
 import type { InAppNotice } from "./gen/orrery/v1/notice_pb";
 import type { HostStatusResponse, WatchResponse } from "./gen/orrery/v1/orrery_pb";
 import { localHeadStore } from "./headfold";
@@ -44,6 +45,7 @@ interface Loaded {
   error: string;
   epics: EpicsView;
   epicsError: string;
+  contracts: readonly Contract[];
 }
 
 // PageBuild is the build the page was bundled with and how it reloads itself.
@@ -150,7 +152,7 @@ export function start(
   win: SeenWindow = window,
   page: PageBuild = bundledPage,
 ): () => void {
-  let loaded: Loaded = { rows: [], error: "", epics: noEpics, epicsError: "" };
+  let loaded: Loaded = { rows: [], error: "", epics: noEpics, epicsError: "", contracts: [] };
   let notices: InAppNotice[] = [];
   let host: HostStatusResponse | null = null;
   let now = 0;
@@ -192,6 +194,7 @@ export function start(
         rows={loaded.rows}
         error={error}
         epics={loaded.epics}
+        contracts={loaded.contracts}
         now={now}
         clients={clients}
         notices={notices}
@@ -206,9 +209,19 @@ export function start(
   };
 
   // listAnswered reports whether the list an entry is in has answered its first load: the rows for a session or a pane,
-  // and the epics for a step or an epic.
-  const listAnswered = (entry: Entry): boolean =>
-    entry.kind === "session" || entry.kind === "pane" ? rowsAnswered : epicsAnswered;
+  // the epics for a step or an epic, and both for a contract, whose panel rests on the cursor's row.
+  const listAnswered = (entry: Entry): boolean => {
+    switch (entry.kind) {
+      case "session":
+      case "pane":
+        return rowsAnswered;
+      case "contract":
+        return rowsAnswered && epicsAnswered;
+      case "step":
+      case "epic":
+        return epicsAnswered;
+    }
+  };
 
   // settleAddress decides the held address once the list its entry is in has answered. If that list holds the entry,
   // the address stays as the prop and App opens it. If not, the prop becomes the address's order with no entry, and the
@@ -219,7 +232,7 @@ export function start(
     }
     const pending = holding;
     holding = null;
-    if (listHolds(pending, loaded.rows, loaded.epics)) {
+    if (listHolds(pending, loaded.rows, loaded.epics, loaded.contracts)) {
       address = pending;
       return;
     }
@@ -285,13 +298,18 @@ export function start(
   const runEpics = coalesced(async () => {
     const asked = refetch ?? changedOnly;
     refetch = null;
-    const next = await loadEpics(clients, held, asked);
+    const next = await loadEpics(clients, held, asked, loaded.contracts);
     if (stopped) {
       return;
     }
     held = next.held;
     steps = stepSessions(next.epics, next.details);
-    loaded = { ...loaded, epics: epicsView(next.epics, next.details), epicsError: next.error };
+    loaded = {
+      ...loaded,
+      epics: epicsView(next.epics, next.details),
+      epicsError: next.error,
+      contracts: next.contracts,
+    };
     epicsAnswered = true;
     settleAddress();
     now = Math.floor(Date.now() / 1000);
