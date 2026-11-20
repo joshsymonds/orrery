@@ -128,7 +128,7 @@ class InboxTreeRowsTest {
     private fun setRow(
         convo: Convo,
         opened: MutableList<String> = mutableListOf(),
-        pressed: MutableList<Convo> = mutableListOf(),
+        pressed: MutableList<SheetRow> = mutableListOf(),
     ) {
         composeRule.setContent {
             ConvoRowItem(convo = convo, now = NOW, onOpen = { opened.add(it) }, onLongPress = { pressed.add(it) })
@@ -244,15 +244,28 @@ class InboxTreeRowsTest {
     }
 
     @Test
-    fun aLongPressOnAConversationRowCallsOnLongPressWithIt() {
+    fun aLongPressOnAConversationRowCallsOnLongPressWithItsPane() {
         val opened = mutableListOf<String>()
-        val pressed = mutableListOf<Convo>()
-        val convo = convo()
-        setRow(convo, opened = opened, pressed = pressed)
+        val pressed = mutableListOf<SheetRow>()
+        val pane = paneOf()
+        setRow(convo(pane = pane), opened = opened, pressed = pressed)
 
         composeRule.onNodeWithTag("convo:$CONVO_KEY", useUnmergedTree = true).performTouchInput { longClick() }
 
-        assertEquals(listOf(convo), pressed)
+        assertEquals(listOf(SheetRow.Conversation(pane)), pressed)
+        assertEquals(emptyList<String>(), opened)
+    }
+
+    @Test
+    fun aLongPressOnAnEpicHungUnderAConversationCallsOnLongPressWithTheEpic() {
+        val opened = mutableListOf<String>()
+        val pressed = mutableListOf<SheetRow>()
+        val epic = epic()
+        setRow(convo(hung = listOf(EpicNode(epic, detail(epic), contract = null))), opened = opened, pressed = pressed)
+
+        composeRule.onNodeWithTag("hung:epic:$EPIC_ID", useUnmergedTree = true).performTouchInput { longClick() }
+
+        assertEquals(listOf(SheetRow.Epic(epic)), pressed)
         assertEquals(emptyList<String>(), opened)
     }
 }

@@ -54,15 +54,15 @@ private const val QUESTION_LEAD = "? "
 
 /**
  * One conversation and what hangs under it, drawn as round 6 draws the inbox tree: its row, then each epic's and
- * contract's row in order. A tap on a row or a step calls [onOpen] with its key; a long press on a conversation's row
- * calls [onLongPress]. A stand-in draws its words in place of a row.
+ * contract's row in order. A tap on a row or a step calls [onOpen] with its key; a long press on a conversation's row or
+ * an epic's row calls [onLongPress] with the row's [SheetRow]. A stand-in draws its words in place of a row.
  */
 @Composable
 internal fun ConvoRowItem(
     convo: Convo,
     now: Long,
     onOpen: (String) -> Unit,
-    onLongPress: (Convo) -> Unit,
+    onLongPress: (SheetRow) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val pane = convo.pane
@@ -80,7 +80,7 @@ internal fun ConvoRowItem(
         if (convo.hung.isNotEmpty()) {
             Column(modifier = Modifier.fillMaxWidth()) {
                 for (hung in convo.hung) {
-                    HungRow(hung, now, onOpen)
+                    HungRow(hung, now, onOpen, onLongPress)
                 }
             }
         }
@@ -88,13 +88,13 @@ internal fun ConvoRowItem(
 }
 
 @Composable
-private fun ConvoLine(convo: Convo, pane: Pane, now: Long, onOpen: (String) -> Unit, onLongPress: (Convo) -> Unit) {
+private fun ConvoLine(convo: Convo, pane: Pane, now: Long, onOpen: (String) -> Unit, onLongPress: (SheetRow) -> Unit) {
     val unseen = pane.unread()
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("convo:${convo.key}")
-            .combinedClickable(onClick = { onOpen(convo.key) }, onLongClick = { onLongPress(convo) })
+            .combinedClickable(onClick = { onOpen(convo.key) }, onLongClick = { onLongPress(SheetRow.Conversation(pane)) })
             .padding(vertical = OrreryTokens.Space.eight),
         horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
         verticalAlignment = Alignment.Top,
@@ -148,18 +148,20 @@ private fun NewDot(unseen: Boolean) {
 // A hung epic or contract: an epic's gauge or a contract's mark, its name and words, its blocker in attention, and for
 // an epic its running steps. The count of a contract sits at the row's end, its version.
 @Composable
-private fun HungRow(hung: Hung, now: Long, onOpen: (String) -> Unit) {
+private fun HungRow(hung: Hung, now: Long, onOpen: (String) -> Unit, onLongPress: (SheetRow) -> Unit) {
     val words = epicRowWords(hung, now)
     val gauge = words.gauge
     val contract = gauge == null
     val ended = hung is EpicNode && !hung.epic.live
     val line = if (contract) words.words else listOf(words.words, words.count).filter { it.isNotEmpty() }.joinToString(" · ")
+    // Only an epic has a sheet; a contract has no archive to offer.
+    val onLongClick: (() -> Unit)? = (hung as? EpicNode)?.let { node -> { onLongPress(SheetRow.Epic(node.epic)) } }
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("hung:${hung.key}")
-                .clickable { onOpen(hung.key) }
+                .combinedClickable(onClick = { onOpen(hung.key) }, onLongClick = onLongClick)
                 .padding(vertical = OrreryTokens.Space.four),
             horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
             verticalAlignment = Alignment.Top,

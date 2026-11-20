@@ -62,7 +62,7 @@ internal const val RETRY_DELAY_MILLIS = 5_000L
 
 /**
  * The inbox's state: the chip on, the search words (null while the search is closed), the folded projects, the projects
- * whose ended line is open, and the tree of the last read that answered. The caller keeps one above the screens it
+ * whose ended line is open, the view (the inbox or the archived tree), and the tree of the last read that answered. The caller keeps one above the screens it
  * switches between, so all of it survives opening a conversation and coming back.
  */
 class PaneListState {
@@ -70,6 +70,7 @@ class PaneListState {
     internal var search by mutableStateOf<String?>(null)
     internal var folded by mutableStateOf(emptySet<String>())
     internal var endedOpen by mutableStateOf(emptySet<String>())
+    internal var view by mutableStateOf(TreeView.INBOX)
     internal var held: TreeData? = null
 
     internal fun toggleFolded(key: String) {
@@ -98,8 +99,10 @@ internal class TreeData(
 /**
  * The inbox: the head with the Orrery mark, Search, New, Pools and Settings; then, while search is open, its field; then
  * the two chips and each project as a card, its conversations hanging under it with what steers them, and its ended
- * line. The chips narrow the tree, search narrows what the chips left, and a folded card says what waits in it. A tap on
- * a conversation calls [onOpenPane] with its pane, and a tap on an epic or one of its steps calls [onOpenEpic]. New opens
+ * line. The chips narrow the tree, search narrows what the chips left, and a folded card says what waits in it. The foot
+ * opens the archived tree and returns from it. A tap on a conversation calls [onOpenPane] with its pane, and a tap on an
+ * epic or one of its steps calls [onOpenEpic]. A long press on a conversation or an epic opens its sheet, where the
+ * owner marks it seen or archives it, and a landed change reads the tree again. New opens
  * the picker as a bottom sheet; a run it answers opens that pane through [onOpenPaneId], and a start it answers opens
  * that session through [onStartedSession]. The Pools button opens the pools view through [onOpenPools].
  *
@@ -124,6 +127,7 @@ fun PaneListScreen(
     var failed by remember(client) { mutableStateOf(false) }
     var generation by remember(client) { mutableIntStateOf(0) }
     var picking by remember { mutableStateOf(false) }
+    var sheet by remember { mutableStateOf<SheetRow?>(null) }
 
     LaunchedEffect(client, generation) {
         val read = readTree(client, state.held)
@@ -200,6 +204,17 @@ fun PaneListScreen(
                 onClose = { picking = false },
             )
         }
+        sheet?.let { row ->
+            InboxSheet(
+                row = row,
+                client = client,
+                onLanded = {
+                    sheet = null
+                    generation++
+                },
+                onClose = { sheet = null },
+            )
+        }
         val loaded = data
         when {
             failed -> DidNotAnswer(onTryNow = { generation++ })
@@ -215,6 +230,7 @@ fun PaneListScreen(
                 onOpenPane = onOpenPane,
                 onOpenEpic = onOpenEpic,
                 onNew = { picking = true },
+                onLongPress = { sheet = it },
             )
         }
     }
@@ -254,7 +270,10 @@ private suspend fun detailsOf(client: OrreryClient, epics: List<EpicRow>): Map<S
     reads.awaitAll().filterNotNull().toMap()
 }
 
-/** The tree as the inbox draws it: the chips, the cards, and the nothing-running line when there is no project. */
+/**
+ * The tree as the inbox draws it, or as the archived view draws it: the chips, the cards, the nothing-running line when the
+ * inbox has no project, and the foot that switches between the two views.
+ */
 @Composable
 private fun InboxBody(
     data: TreeData,
@@ -263,15 +282,12 @@ private fun InboxBody(
     onOpenPane: (Pane) -> Unit,
     onOpenEpic: (String) -> Unit,
     onNew: () -> Unit,
+    onLongPress: (SheetRow) -> Unit,
 ) {
-    val projects = remember(data) {
-        inboxTree(data.panes, data.archived, data.epics, data.details, data.contracts, data.host, TreeView.INBOX)
+    val projects = remember(data, state.view) {
+        inboxTree(data.panes, data.archived, data.epics, data.details, data.contracts, data.host, state.view)
     }
     val query = state.search.orEmpty()
-    if (projects.isEmpty() && query.isBlank()) {
-        NothingRunning(onNew = onNew)
-        return
-    }
     val counts = remember(projects) { countsOf(projects) }
     val waitingOf = remember(projects) { projects.associate { it.key to projectWaiting(it) } }
     // A chip that has nothing left to narrow to is not drawn, so it is not on either: the tree shows whole.
@@ -297,29 +313,62 @@ private fun InboxBody(
         }
     }
 
-    LazyColumn(modifier = Modifier.fillMaxSize()) {
-        item(key = "chips") {
-            InboxChips(
-                counts = counts,
-                narrow = chip,
-                onNarrow = { state.narrow = it },
-                modifier = Modifier.padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.four),
-            )
+    Column(modifier = Modifier.fillMaxSize()) {
+        if (projects.isEmpty() && query.isBlank()) {
+            // The archived view with nothing archived draws no words, as the web does; only the inbox says nothing runs.
+            if (state.view == TreeView.INBOX) NothingRunning(onNew = onNew)
+        } else {
+            LazyColumn(modifier = Modifier.weight(1f)) {
+                item(key = "chips") {
+                    InboxChips(
+                        counts = counts,
+                        narrow = chip,
+                        onNarrow = { state.narrow = it },
+                        modifier = Modifier.padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.four),
+                    )
+                }
+                if (query.isNotBlank() && shown.isEmpty()) {
+                    item(key = "no-match") { NothingMatches(words = query) }
+                }
+                items(shown, key = { it.key }) { project ->
+                    ProjectCard(
+                        project = project,
+                        folded = project.key in state.folded,
+                        waiting = waitingOf[project.key] ?: 0,
+                        endedOpen = project.key in state.endedOpen,
+                        onFold = { state.toggleFolded(project.key) },
+                        onEnded = { state.toggleEnded(project.key) },
+                        convo = { convo -> ConvoRowItem(convo = convo, now = now, onOpen = onOpen, onLongPress = onLongPress) },
+                        modifier = Modifier.padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.four),
+                    )
+                }
+            }
         }
-        if (query.isNotBlank() && shown.isEmpty()) {
-            item(key = "no-match") { NothingMatches(words = query) }
-        }
-        items(shown, key = { it.key }) { project ->
-            ProjectCard(
-                project = project,
-                folded = project.key in state.folded,
-                waiting = waitingOf[project.key] ?: 0,
-                endedOpen = project.key in state.endedOpen,
-                onFold = { state.toggleFolded(project.key) },
-                onEnded = { state.toggleEnded(project.key) },
-                convo = { convo -> ConvoRowItem(convo = convo, now = now, onOpen = onOpen, onLongPress = {}) },
-                modifier = Modifier.padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.four),
-            )
+        ViewFoot(view = state.view, onView = { state.view = it })
+    }
+}
+
+/** The foot of the inbox: Archived opens the archived tree, and Back to the inbox returns from it. */
+@Composable
+private fun ViewFoot(view: TreeView, onView: (TreeView) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.four),
+    ) {
+        when (view) {
+            TreeView.INBOX -> TextButton(
+                onClick = { onView(TreeView.ARCHIVED) },
+                modifier = Modifier.testTag("open-archived"),
+            ) {
+                Text("Archived")
+            }
+            TreeView.ARCHIVED -> TextButton(
+                onClick = { onView(TreeView.INBOX) },
+                modifier = Modifier.testTag("back-to-inbox"),
+            ) {
+                Text("Back to the inbox")
+            }
         }
     }
 }

@@ -32,8 +32,10 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession
 import io.github.joshsymonds.orrery.gen.orrery.v1.HostStatusResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.ListHeadlessResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.ListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.Session as SessionProto
 import io.github.joshsymonds.orrery.mainThreadComposeRule
 import java.util.concurrent.CountDownLatch
 import org.junit.Assert.assertEquals
@@ -59,6 +61,7 @@ class InboxTreeScreenTest {
         const val EPICS_GET = "/orrery.v1.Epics/Get"
         const val CONTRACTS_LIST = "/orrery.v1.Contracts/List"
         const val HOST_STATUS = "/orrery.v1.Host/Status"
+        const val SESSIONS_LIST = "/orrery.v1.Sessions/List"
         const val EPIC_ID = "example-repo/example-epic"
         const val EPIC_REPOSITORY = "example-repo"
         const val EPIC_SLUG = "example-epic"
@@ -890,6 +893,63 @@ class InboxTreeScreenTest {
 
             assertNull(openedEpic)
             assertNull(openedPane)
+        }
+    }
+
+    /** Two conversations: %1 is archived, with a live epic it steers; %2 is not archived. */
+    private fun serveArchivedAndListed(server: FakeOrreryServer) {
+        serveDefaults(server)
+        server.respond(
+            PANES_LIST,
+            panesOf(
+                pane("%1", ALPHA, "working", NOW - 30, NOW - 10, NOW - 30, ALPHA_SESSION),
+                pane("%2", BETA, "working", NOW - 40, NOW - 10, NOW - 40, BETA_SESSION),
+            ),
+        )
+        server.respond(
+            SESSIONS_LIST,
+            ListResponse.newBuilder().addSessions(SessionProto.newBuilder().setId(ALPHA_SESSION).setArchived(true)).build(),
+        )
+        server.respond(EPICS_LIST, EpicsListResponse.newBuilder().addEpics(liveEpic(ALPHA_SESSION)).build())
+        server.respond(EPICS_GET, EpicsGetResponse.newBuilder().setEpic(liveEpic(ALPHA_SESSION)).build())
+    }
+
+    @Test
+    fun theArchivedViewShowsTheArchivedConversationWithWhatItSteeredAndBackReturnsToTheInbox() {
+        FakeOrreryServer().use { server ->
+            serveArchivedAndListed(server)
+            setScreen(server)
+            awaitNode(hasTestTag(convoTag("%2")))
+            assertEquals(0, countNodes(hasTestTag(convoTag("%1"))))
+
+            composeRule.onNodeWithTag("open-archived").performClick()
+
+            awaitNode(hasTestTag(convoTag("%1")))
+            assertEquals(1, countNodes(hasTestTag(hungTag("epic:$EPIC_ID"))))
+            assertEquals(0, countNodes(hasTestTag(convoTag("%2"))))
+
+            composeRule.onNodeWithTag("back-to-inbox").performClick()
+
+            awaitNode(hasTestTag(convoTag("%2")))
+            assertEquals(0, countNodes(hasTestTag(convoTag("%1"))))
+        }
+    }
+
+    @Test
+    fun theArchivedViewSurvivesLeavingTheScreen() {
+        FakeOrreryServer().use { server ->
+            serveArchivedAndListed(server)
+            setScreen(server, PaneListState())
+            awaitNode(hasTestTag(convoTag("%2")))
+            composeRule.onNodeWithTag("open-archived").performClick()
+            awaitNode(hasTestTag("back-to-inbox"))
+
+            composeRule.runOnIdle { screenShown = false }
+            composeRule.runOnIdle { screenShown = true }
+
+            awaitNode(hasTestTag(convoTag("%1")))
+            assertEquals(0, countNodes(hasTestTag(convoTag("%2"))))
+            assertEquals(1, countNodes(hasTestTag("back-to-inbox")))
         }
     }
 }
