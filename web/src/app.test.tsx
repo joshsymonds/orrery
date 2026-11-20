@@ -2915,6 +2915,32 @@ test("InboxTree: folding a project hides its conversations and its head says how
     assert.deepEqual(drawnKeys(dirCard(container, "api")), ["a", "d"], "unfolded, the card draws its conversations again");
   }));
 
+// partlyNewRows are the tree rows with a's waiting question seen, and an unseen working conversation e added to api. Under
+// the new chip api keeps only e, while a still waits in api.
+function partlyNewRows(): Row[] {
+  return [
+    ...treeRows().map((item) => (item.key === "a" ? { ...item, unseen: false, seen: item.changed } : item)),
+    row({ key: "e", label: "fresh", project: "/work/api", state: "working", summary: "fresh", changed: 400, seen: 100, unseen: true }),
+  ];
+}
+
+test("InboxTree: a folded project under the new chip says what waits in the whole project", (t) =>
+  withApp(t.signal, { rows: partlyNewRows(), host: treeHost }, async (container) => {
+    await clickElement(chipNamed(container, "new") ?? container);
+    await clickElement(dirCard(container, "api").querySelector(".fold") ?? container);
+    assert.deepEqual(drawnKeys(dirCard(container, "api")), [], "the folded card draws no conversation");
+    assert.equal(dirCard(container, "api").querySelector(".is-attention")?.textContent, "1 waiting", "the new chip narrowed the folded count");
+  }));
+
+test("InboxTree: a folded project under a search says what waits in the whole project, not what the search keeps", (t) =>
+  withApp(t.signal, { rows: partlyNewRows(), host: treeHost }, async (container) => {
+    await clickElement(container.querySelector<HTMLElement>('button[aria-label="Search sessions and epics"]') ?? container);
+    await typeSearch(container, "fresh");
+    await clickElement(dirCard(container, "api").querySelector(".fold") ?? container);
+    assert.deepEqual(drawnKeys(dirCard(container, "api")), [], "the folded card draws no conversation");
+    assert.equal(dirCard(container, "api").querySelector(".is-attention")?.textContent, "1 waiting", "the search narrowed the folded count");
+  }));
+
 test("InboxTree: a project's ended line opens to the conversations that ended, with their epics", (t) =>
   withApp(t.signal, { rows: treeRows(), host: treeHost, epics: epicsView([oldEpic], new Map()) }, async (container) => {
     assert.deepEqual(drawnKeys(dirCard(container, "api")), ["a"], "the ended conversation is behind the ended line");

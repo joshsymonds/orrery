@@ -11,6 +11,7 @@ import { Inbox, type InboxProps } from "./inbox";
 import type { Row } from "./rows";
 import { installTestDom, removeTestDom } from "./testdom";
 import type { Convo, Project } from "./tree";
+import { projectWaiting } from "./treefilter";
 
 const noop = () => {};
 
@@ -57,10 +58,12 @@ function makeProject(init: Partial<Project> & Pick<Project, "key" | "name">): Pr
 // inboxProps are the inputs of an inbox that is ready, empty, unsearched and unnarrowed, with every press a no-op, and the
 // init given over them.
 function inboxProps(init: Partial<InboxProps> = {}): InboxProps {
+  const projects = init.projects ?? [];
   return {
     view: "inbox",
     state: "ready",
     projects: [],
+    waitingOf: new Map(projects.map((project) => [project.key, projectWaiting(project)])),
     counts: { waiting: 0, fresh: 0 },
     narrow: "",
     onNarrow: noop,
@@ -293,6 +296,13 @@ test("InboxTree Inbox: a folded project counts what waits on it, and its fold pr
     container.querySelector<HTMLButtonElement>("section.dir .fold")?.click();
   });
   assert.deepEqual(folds, ["api"], "the fold press does not call onFold with the project's key");
+});
+
+test("InboxTree Inbox: a folded project says the waiting of its whole project, not of the narrowed project it draws", () => {
+  const api = makeProject({ key: "api", name: "api", convos: [convo({ key: "a2", state: "working" })] });
+  return withInbox({ projects: [api], folded: new Set(["api"]), waitingOf: new Map([["api", 1]]) }, (container) => {
+    assert.equal(textOf(container, "section.dir .dir-head .is-attention"), "1 waiting", "the folded count is the narrowed project's, not the whole project's");
+  });
 });
 
 test("InboxTree Inbox: a project's ended line calls onEnded with its key, and opens to its ended conversations", async () => {

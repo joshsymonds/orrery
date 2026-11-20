@@ -6,14 +6,16 @@ import { FilterChip } from "./filterchip";
 import { Icon } from "./glyphs";
 import { Mark } from "./mark";
 import type { Convo, Project, View } from "./tree";
-import { type Counts, type Narrow, projectWaiting } from "./treefilter";
+import { type Counts, type Narrow } from "./treefilter";
 
-// InboxProps are the Inbox's inputs: the view and the load state, the projects already narrowed and searched, the counts
-// for the chips, and the presses and the state they change. search is null while the search field is closed.
+// InboxProps are the Inbox's inputs: the view and the load state, the projects already narrowed and searched, each
+// project's waiting number over the whole tree by its key, the counts for the chips, and the presses and the state they
+// change. search is null while the search field is closed.
 export interface InboxProps {
   view: View;
   state: "loading" | "error" | "ready";
   projects: Project[];
+  waitingOf: ReadonlyMap<string, number>;
   counts: Counts;
   narrow: Narrow;
   onNarrow: (by: Narrow) => void;
@@ -41,6 +43,7 @@ export function Inbox({
   view,
   state,
   projects,
+  waitingOf,
   counts,
   narrow,
   onNarrow,
@@ -138,6 +141,7 @@ export function Inbox({
           view={view}
           state={state}
           projects={projects}
+          waitingOf={waitingOf}
           narrow={narrow}
           search={search}
           folded={folded}
@@ -172,12 +176,13 @@ export function Inbox({
   );
 }
 
-// BodyProps are what the inbox's body draws: the load state, the projects, the narrowing and search that chose them, and
-// the presses the cards and states make.
+// BodyProps are what the inbox's body draws: the load state, the projects and their whole-tree waiting numbers, the
+// narrowing and search that chose them, and the presses the cards and states make.
 interface BodyProps {
   view: View;
   state: InboxProps["state"];
   projects: Project[];
+  waitingOf: ReadonlyMap<string, number>;
   narrow: Narrow;
   search: string | null;
   folded: ReadonlySet<string>;
@@ -196,6 +201,7 @@ function Body({
   view,
   state,
   projects,
+  waitingOf,
   narrow,
   search,
   folded,
@@ -261,7 +267,7 @@ function Body({
           key={project.key}
           project={project}
           folded={folded.has(project.key)}
-          waiting={projectWaiting(project)}
+          waiting={waitingOf.get(project.key) ?? 0}
           endedOpen={endedOpen.has(project.key)}
           onFold={() => onFold(project.key)}
           onEnded={() => onEnded(project.key)}

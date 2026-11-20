@@ -54,7 +54,7 @@ import { lastPathElement } from "./titleparts";
 import { type InboxMark, TitleRow } from "./titlerow";
 import { Toast } from "./toast";
 import { buildTree, type Convo, type Project } from "./tree";
-import { countsOf, type Narrow, narrow as narrowTree, search as searchTree, waitOrder } from "./treefilter";
+import { countsOf, type Narrow, narrow as narrowTree, projectWaiting, search as searchTree, waitOrder } from "./treefilter";
 import { type ListThing, type Thing, type WorkConversation, workOf } from "./work";
 import { WorkerSessionPage } from "./workersession";
 import { WorkRail } from "./workrail";
@@ -446,6 +446,8 @@ export function App({
     view,
   });
   const counts = countsOf(tree);
+  // Each project's waiting number over the whole tree, before the chips and the search narrow it: a folded card says it.
+  const waitingOf = new Map(tree.map((project) => [project.key, projectWaiting(project)]));
   const projects = searchTree(narrowTree(tree, view === "inbox" ? narrowBy : ""), words);
   // The counted things of the projects as they are narrowed and searched, oldest first, which w walks.
   const waitKeys = waitOrder(projects);
@@ -1855,6 +1857,7 @@ export function App({
             view={view}
             state={!answered ? "loading" : listFailed ? "error" : "ready"}
             projects={projects}
+            waitingOf={waitingOf}
             counts={counts}
             narrow={view === "inbox" ? narrowBy : ""}
             onNarrow={setNarrowBy}
