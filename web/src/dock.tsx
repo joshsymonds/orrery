@@ -67,6 +67,23 @@ function pendingKey(pending: readonly PendingEvent[]): string {
   return pending.map((event) => `${event.id}:${event.waits}`).join("|");
 }
 
+// lineIcons are the drawings of the icons the dock's lines lead with, from the round-6 wireframe's icons.js: the bell of
+// the waits line and the warning of an error note.
+const lineIcons = {
+  bell: "M4 11V7.5a4 4 0 0 1 8 0V11l1 1.5H3zM6.5 13.5a1.5 1.5 0 0 0 3 0",
+  warn: "M8 2.5l6 10.5H2zM8 6.5v3M8 11.2v.3",
+} as const;
+
+// LineIcon draws one of the dock's line icons, stroked in the line's colour and hidden from assistive technology, since
+// the line's words say the same.
+function LineIcon({ name }: { name: keyof typeof lineIcons }): JSX.Element {
+  return (
+    <svg class="icon" data-icon={name} viewBox="0 0 16 16" aria-hidden="true">
+      <path d={lineIcons[name]} />
+    </svg>
+  );
+}
+
 // DockHandle is what the page calls on a dock when its row's Escape takes queued messages back. append puts their texts
 // in the box after its text, joined by blank lines, and notes that they are back in the box. forget drops the local
 // entry each text matches, since the session queue no longer carries those messages.
@@ -519,9 +536,7 @@ export function Dock(props: {
         </div>
         {waits !== "" && (
           <div class="dock-waits">
-            <svg class="icon" viewBox="0 0 16 16" aria-hidden="true">
-              <path d="M4 11V7.5a4 4 0 0 1 8 0V11l1 1.5H3zM6.5 13.5a1.5 1.5 0 0 0 3 0" />
-            </svg>
+            <LineIcon name="bell" />
             <span>{waits}</span>
           </div>
         )}
@@ -604,7 +619,8 @@ export function Dock(props: {
       </div>
       {error !== "" && (
         <p class="inote error" role="alert">
-          {error}
+          <LineIcon name="warn" />
+          <span>{error}</span>
         </p>
       )}
       {note !== "" && (

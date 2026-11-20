@@ -1587,6 +1587,7 @@ test("DockSend: a refused send keeps the draft and shows Not sent as the error l
     assert.equal(box.value, "keep me");
     assert.equal(errorLine(container)?.textContent, "Not sent. Your draft is kept; send again.");
     assert.equal(noteLine(container), null, "the refusal is the only line");
+    assert.equal(errorLine(container)?.firstElementChild?.getAttribute("data-icon"), "warn", "the error line leads with the warning icon");
   });
 });
 
