@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -22,11 +21,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.unit.dp
 import io.github.joshsymonds.orrery.api.EvidenceArtifactFile
 import io.github.joshsymonds.orrery.api.EvidenceArtifactRow
 import io.github.joshsymonds.orrery.api.EvidenceRunRow
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
+import io.github.joshsymonds.orrery.ui.theme.inLabelCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -73,25 +72,25 @@ private fun EvidenceRunView(position: String, run: EvidenceRunRow, loadArtifact:
         modifier = Modifier
             .fillMaxWidth()
             .testTag("evidence-run:$position")
-            .padding(vertical = 4.dp),
+            .padding(vertical = OrreryTokens.Space.four),
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(run.phase, style = MaterialTheme.typography.labelLarge)
+        Row(horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight), verticalAlignment = Alignment.CenterVertically) {
+            Text(run.phase.inLabelCase(), style = OrreryTokens.Type.label)
             if (run.source == "supplied") {
-                Text("agent-supplied", style = MaterialTheme.typography.labelSmall)
+                Text("agent-supplied", style = OrreryTokens.Type.small)
             }
             if (run.state != "ended") {
-                Text("running", style = MaterialTheme.typography.labelSmall)
+                Text("running", style = OrreryTokens.Type.small)
             }
         }
-        Text(run.verdict.ifEmpty { "no verdict" }, style = MaterialTheme.typography.bodyMedium)
+        Text(run.verdict.ifEmpty { "no verdict" }, style = OrreryTokens.Type.body)
         if (run.judgeReason.isNotEmpty()) {
-            Text(run.judgeReason, style = MaterialTheme.typography.bodySmall)
+            Text(run.judgeReason, style = OrreryTokens.Type.body)
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(if (run.passed) "passed" else "not passed", style = MaterialTheme.typography.labelSmall)
-            Text("exit ${run.exit}", style = MaterialTheme.typography.labelSmall)
-            Text("revision ${run.revision.take(12)}", style = MaterialTheme.typography.labelSmall)
+        Row(horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight)) {
+            Text(if (run.passed) "passed" else "not passed", style = OrreryTokens.Type.small)
+            Text("exit ${run.exit}", style = OrreryTokens.Type.small)
+            Text("revision ${run.revision.take(12)}", style = OrreryTokens.Type.small)
         }
         RunLog(position = position, runId = run.id, stderr = false, loadArtifact = loadArtifact)
         if (run.stderrBytes > 0) {
@@ -127,13 +126,12 @@ private fun RunLog(position: String, runId: String, stderr: Boolean, loadArtifac
         }
         when (val current = log) {
             null -> Unit
-            Fetch.Loading -> Text("loading log", style = MaterialTheme.typography.labelSmall)
-            Fetch.Missing -> Text("log missing", style = MaterialTheme.typography.labelSmall)
-            is Fetch.Failed -> Text(current.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
+            Fetch.Loading -> Text("loading log", style = OrreryTokens.Type.small)
+            Fetch.Missing -> Text("log missing", style = OrreryTokens.Type.small)
+            is Fetch.Failed -> Text(current.message, color = OrreryTokens.Role.bad, style = OrreryTokens.Type.small)
             is Fetch.Loaded -> Text(
                 current.value,
-                fontFamily = FontFamily.Monospace,
-                style = MaterialTheme.typography.bodySmall,
+                style = OrreryTokens.Type.small,
             )
         }
     }
@@ -147,10 +145,10 @@ private fun ArtifactView(
     artifact: EvidenceArtifactRow,
     loadArtifact: ArtifactLoader,
 ) {
-    Text(artifact.path, style = MaterialTheme.typography.labelSmall)
+    Text(artifact.path, style = OrreryTokens.Type.small)
     when {
-        artifact.state == "missing" -> Text("missing", style = MaterialTheme.typography.labelSmall)
-        artifact.state == "over_cap" -> Text("over cap", style = MaterialTheme.typography.labelSmall)
+        artifact.state == "missing" -> Text("missing", style = OrreryTokens.Type.small)
+        artifact.state == "over_cap" -> Text("over cap", style = OrreryTokens.Type.small)
         artifact.state == "kept" && artifact.mediaType.startsWith("image/") -> ArtifactImage(
             runId = runId,
             path = artifact.path,
@@ -166,9 +164,9 @@ private fun ArtifactImage(runId: String, path: String, tag: String, loadArtifact
         value = fetchImage(runId, path, loadArtifact)
     }
     when (val current = image) {
-        Fetch.Loading -> Text("loading image", style = MaterialTheme.typography.labelSmall)
-        Fetch.Missing -> Text("missing", style = MaterialTheme.typography.labelSmall)
-        is Fetch.Failed -> Text(current.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
+        Fetch.Loading -> Text("loading image", style = OrreryTokens.Type.small)
+        Fetch.Missing -> Text("missing", style = OrreryTokens.Type.small)
+        is Fetch.Failed -> Text(current.message, color = OrreryTokens.Role.bad, style = OrreryTokens.Type.small)
         is Fetch.Loaded -> Image(
             bitmap = current.value,
             contentDescription = path,

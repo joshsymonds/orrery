@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"reflect"
-	"strings"
 	"testing"
 )
 
@@ -73,6 +72,29 @@ func TestPauseEpicPausesAndRefusesASecondPause(t *testing.T) {
 	requireRefusal(t, s.PauseEpic(ctx, claimEpic), "epic "+claimEpic+" is already paused")
 	if got := controlRows(t, s); !reflect.DeepEqual(got, before) {
 		t.Errorf("rows after refused PauseEpic = %v, want %v", got, before)
+	}
+}
+
+func TestPauseStopsTheRunningTurn(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openEpicStore(t)
+	createEpic(t, s, fullEpic(claimEpic))
+	addPendingTrigger(t, s)
+	turn, err := s.ClaimTurn(ctx, claimEpic, claimedAt())
+	if err != nil {
+		t.Fatalf("ClaimTurn: %v", err)
+	}
+
+	if err = s.PauseEpic(ctx, claimEpic); err != nil {
+		t.Fatalf("PauseEpic: %v", err)
+	}
+	stopped, err := s.TurnStopped(ctx, claimEpic, turn.Seq)
+	if err != nil {
+		t.Fatalf("TurnStopped after PauseEpic: %v", err)
+	}
+	if !stopped {
+		t.Errorf("TurnStopped after PauseEpic = false, want true: the running turn is flagged to stop")
 	}
 }
 
@@ -196,33 +218,6 @@ func TestRetryEpicClearsThePark(t *testing.T) {
 	requireRefusal(t, s.RetryEpic(ctx, claimEpic), "epic "+claimEpic+" is not parked")
 	if got := controlRows(t, s); !reflect.DeepEqual(got, before) {
 		t.Errorf("rows after refused RetryEpic = %v, want %v", got, before)
-	}
-}
-
-func TestRetriedFailuresDoNotCountTowardAPark(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openEpicStore(t)
-	createEpic(t, s, fullEpic(claimEpic))
-	addPendingTrigger(t, s)
-	for range 3 {
-		claimAndFail(t, s, "return had no outline")
-	}
-	if _, parked := epicFlags(t, s); !strings.HasPrefix(parked, parkPrefix) {
-		t.Fatalf("parked after three failed turns = %q, want the park prefix", parked)
-	}
-	if err := s.RetryEpic(ctx, claimEpic); err != nil {
-		t.Fatalf("RetryEpic: %v", err)
-	}
-
-	claimAndFail(t, s, "still no outline")
-	if _, parked := epicFlags(t, s); parked != "" {
-		t.Errorf("parked after one failed turn following retry = %q, want none", parked)
-	}
-	claimAndFail(t, s, "still no outline")
-	claimAndFail(t, s, "still no outline")
-	if _, parked := epicFlags(t, s); !strings.HasPrefix(parked, parkPrefix) {
-		t.Errorf("parked after three failed turns following retry = %q, want the park prefix", parked)
 	}
 }
 

@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -22,7 +21,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.unit.dp
 import io.github.joshsymonds.orrery.api.Hold
 import io.github.joshsymonds.orrery.api.Holder
 import io.github.joshsymonds.orrery.api.OrreryClient
@@ -30,6 +28,8 @@ import io.github.joshsymonds.orrery.api.Pool
 import io.github.joshsymonds.orrery.api.PoolMember
 import io.github.joshsymonds.orrery.api.PoolsView
 import io.github.joshsymonds.orrery.api.Waiter
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
+import io.github.joshsymonds.orrery.ui.theme.inLabelCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -83,27 +83,27 @@ fun PoolsScreen(
 
     Column(modifier = modifier.fillMaxSize()) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.eight),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             TextButton(onClick = onBack) {
                 Text("Back")
             }
-            Text("Pools", style = MaterialTheme.typography.titleLarge)
+            Text("Pools", style = OrreryTokens.Type.title)
         }
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                .padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.eight),
+            verticalArrangement = Arrangement.spacedBy(OrreryTokens.Space.twelve),
         ) {
-            notice?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            notice?.let { Text(it, color = OrreryTokens.Role.bad) }
             when (val current = load) {
                 PoolsLoad.Loading -> Text("Loading...")
                 PoolsLoad.Failed -> Column {
-                    Text("could not load pools", color = MaterialTheme.colorScheme.error)
+                    Text("could not load pools", color = OrreryTokens.Role.bad)
                     TextButton(onClick = { generation++ }) {
                         Text("Retry")
                     }
@@ -131,12 +131,12 @@ private fun PoolsContent(view: PoolsView, now: Long, onAct: (String, Boolean) ->
 private fun PoolCard(pool: Pool, now: Long, onAct: (String, Boolean) -> Unit) {
     Column(
         modifier = Modifier.fillMaxWidth().testTag("pool:${pool.name}"),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
     ) {
-        Text(pool.name, style = MaterialTheme.typography.titleSmall)
+        Text(pool.name.inLabelCase(), style = OrreryTokens.Type.label)
         pool.members.forEach { member -> MemberRow(member, now, onAct) }
         if (pool.waiters.isNotEmpty()) {
-            Text("waiting", style = MaterialTheme.typography.labelMedium)
+            Text("waiting".inLabelCase(), style = OrreryTokens.Type.label)
             pool.waiters.forEach { waiter -> WaiterRow(pool.name, waiter) }
         }
     }
@@ -148,23 +148,23 @@ private fun MemberRow(member: PoolMember, now: Long, onAct: (String, Boolean) ->
     val held = member.heldSince != 0L
     Row(
         modifier = Modifier.fillMaxWidth().testTag("member:${member.name}"),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            Text(member.name, style = MaterialTheme.typography.bodyLarge)
-            Text(member.state, style = MaterialTheme.typography.labelSmall)
+            Text(member.name, style = OrreryTokens.Type.body)
+            Text(member.state, style = OrreryTokens.Type.small)
             if (holder != null) {
                 GrantLines(holder, now)
             }
             if (held) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("held", style = MaterialTheme.typography.labelMedium)
-                    Text(ageOf(now - member.heldSince), style = MaterialTheme.typography.labelSmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight)) {
+                    Text("held", style = OrreryTokens.Type.small)
+                    Text(ageOf(now - member.heldSince), style = OrreryTokens.Type.small)
                 }
             }
             if (holder == null && !held) {
-                Text("free", style = MaterialTheme.typography.labelMedium)
+                Text("free", style = OrreryTokens.Type.small)
             }
         }
         TextButton(
@@ -178,41 +178,41 @@ private fun MemberRow(member: PoolMember, now: Long, onAct: (String, Boolean) ->
 
 @Composable
 private fun GrantLines(holder: Holder, now: Long) {
-    Text("granted", style = MaterialTheme.typography.labelMedium)
-    Text(holder.project, style = MaterialTheme.typography.labelSmall)
+    Text("granted", style = OrreryTokens.Type.small)
+    Text(holder.project, style = OrreryTokens.Type.small)
     if (holder.command.isNotEmpty()) {
-        Text(holder.command.joinToString(" "), style = MaterialTheme.typography.labelSmall)
+        Text(holder.command.joinToString(" "), style = OrreryTokens.Type.small)
     }
-    Text(ageOf(now - holder.since), style = MaterialTheme.typography.labelSmall)
+    Text(ageOf(now - holder.since), style = OrreryTokens.Type.small)
     if (holder.stopping) {
-        Text("stopping", style = MaterialTheme.typography.labelSmall)
+        Text("stopping", style = OrreryTokens.Type.small)
     }
 }
 
 @Composable
 private fun WaiterRow(poolName: String, waiter: Waiter) {
     Column(modifier = Modifier.fillMaxWidth().testTag("waiter:$poolName:${waiter.position}")) {
-        Text("#${waiter.position}", style = MaterialTheme.typography.labelMedium)
-        Text(waiter.project, style = MaterialTheme.typography.labelSmall)
+        Text("#${waiter.position}", style = OrreryTokens.Type.small)
+        Text(waiter.project, style = OrreryTokens.Type.small)
         if (waiter.command.isNotEmpty()) {
-            Text(waiter.command.joinToString(" "), style = MaterialTheme.typography.labelSmall)
+            Text(waiter.command.joinToString(" "), style = OrreryTokens.Type.small)
         }
-        Text("needs ${waiter.count}", style = MaterialTheme.typography.labelSmall)
+        Text("needs ${waiter.count}", style = OrreryTokens.Type.small)
     }
 }
 
 @Composable
 private fun OutsideHolds(holds: List<Hold>, now: Long, onAct: (String, Boolean) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Holds outside any pool", style = MaterialTheme.typography.titleSmall)
+    Column(verticalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight)) {
+        Text("Holds outside any pool".inLabelCase(), style = OrreryTokens.Type.label)
         holds.forEach { hold ->
             Row(
                 modifier = Modifier.fillMaxWidth().testTag("outside-hold:${hold.member}"),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(hold.member, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-                Text(ageOf(now - hold.since), style = MaterialTheme.typography.labelSmall)
+                Text(hold.member, style = OrreryTokens.Type.body, modifier = Modifier.weight(1f))
+                Text(ageOf(now - hold.since), style = OrreryTokens.Type.small)
                 TextButton(
                     onClick = { onAct(hold.member, true) },
                     modifier = Modifier.testTag("outside-hold-action:${hold.member}"),

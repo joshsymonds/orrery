@@ -69,4 +69,26 @@ public interface QueuedMessageOrBuilder extends
    */
   com.google.protobuf.ByteString
       getStateBytes();
+
+  /**
+   * <pre>
+   * What the message waits on: turn while the session is working, when Claude takes it at that turn's next tool result,
+   * or as the next turn if the turn ends first, and start in every other state, when no turn runs to take it.
+   * </pre>
+   *
+   * <code>string waits = 4 [json_name = "waits"];</code>
+   * @return The waits.
+   */
+  java.lang.String getWaits();
+  /**
+   * <pre>
+   * What the message waits on: turn while the session is working, when Claude takes it at that turn's next tool result,
+   * or as the next turn if the turn ends first, and start in every other state, when no turn runs to take it.
+   * </pre>
+   *
+   * <code>string waits = 4 [json_name = "waits"];</code>
+   * @return The bytes for waits.
+   */
+  com.google.protobuf.ByteString
+      getWaitsBytes();
 }

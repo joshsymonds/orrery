@@ -145,9 +145,6 @@ func TestDecideRed(t *testing.T) {
 	noVerdictOnce.NoVerdict = 1
 	withVerdict := red
 	withVerdict.NoVerdict = 1
-	parkedRed := red
-	parkedRed.NoVerdict = 2
-	parkedRed.Held = HeldParked
 	passed := store.TaskBuild{Stage: StageImplement, Base: decideBranch, Attempt: 1, RedRun: "red-run"}
 	runDecideCases(t, Decide, []decideCase{
 		{
@@ -172,11 +169,14 @@ func TestDecideRed(t *testing.T) {
 			want: Action{Kind: ActNone},
 		},
 		{
-			name: "run not captured fails",
+			name: "run not captured is a note and red moves on",
 			view: View{Epic: decideEpic, Run: &store.EvidenceRun{
 				ID: "red-run", Ended: ended, NotCaptured: "no log",
 			}, Task: store.EpicTask{Seq: 3, Build: red}},
-			want: Action{Kind: ActFail, Reason: "red not captured: no log"},
+			want: Action{
+				Kind: ActMove, Next: passed,
+				Notes: []string{"T3 red: not captured: no log"}, Tells: []string{"T3 red: not captured: no log"},
+			},
 		},
 		{
 			name: "no verdict once reruns red",
@@ -186,14 +186,14 @@ func TestDecideRed(t *testing.T) {
 			want: Action{Kind: ActMove, Next: noVerdictOnce},
 		},
 		{
-			name: "no verdict twice parks the task",
+			name: "no verdict twice is a note and red moves on",
 			view: View{Epic: decideEpic, Run: &store.EvidenceRun{
 				ID: "red-run", Ended: ended, JudgeReason: "judge wrote nothing",
 			}, Task: store.EpicTask{Seq: 3, Build: withVerdict}},
 			want: Action{
-				Kind:   ActPark,
-				Next:   parkedRed,
-				Reason: "T3 red gave no verdict twice: judge wrote nothing",
+				Kind: ActMove, Next: passed,
+				Notes: []string{"T3 red: the judge gave no verdict twice: judge wrote nothing"},
+				Tells: []string{"T3 red: the judge gave no verdict twice: judge wrote nothing"},
 			},
 		},
 		{
@@ -204,11 +204,15 @@ func TestDecideRed(t *testing.T) {
 			want: Action{Kind: ActMove, Next: passed},
 		},
 		{
-			name: "red whose conclusion holds at the base fails",
+			name: "red whose conclusion holds at the base is a note and red moves on",
 			view: View{Epic: decideEpic, Run: &store.EvidenceRun{
 				ID: "red-run", Ended: ended, Verdict: "holds",
 			}, Task: store.EpicTask{Seq: 3, Build: red}},
-			want: Action{Kind: ActFail, Reason: "red: the conclusion holds at the base"},
+			want: Action{
+				Kind: ActMove, Next: passed,
+				Notes: []string{"T3 red: the conclusion holds at the base (exit 0)"},
+				Tells: []string{"T3 red: the conclusion holds at the base (exit 0)"},
+			},
 		},
 	})
 }

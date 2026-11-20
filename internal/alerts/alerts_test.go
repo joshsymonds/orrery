@@ -5,6 +5,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -87,7 +88,7 @@ func (f *fake) check(t *testing.T, r *route.Router, wantPosts []deskstream.Notic
 	if !slices.Equal(f.posts, wantPosts) {
 		t.Errorf("desk posts = %+v, want %+v", f.posts, wantPosts)
 	}
-	if !slices.Equal(f.pushes, wantPushes) {
+	if !slices.EqualFunc(f.pushes, wantPushes, func(a, b pushed) bool { return reflect.DeepEqual(a, b) }) {
 		t.Errorf("pushes = %+v, want %+v", f.pushes, wantPushes)
 	}
 }

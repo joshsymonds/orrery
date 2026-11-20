@@ -18,7 +18,7 @@ import (
 // epicTableColumns returns, keyed by table, the columns in declaration order of every table migrations 00014, 00016,
 // 00019, 00028, 00030, 00035, 00036, 00037, 00038, 00040, 00041, 00043, 00044, 00049, 00051 and 00052 create, and of the
 // columns those migrations and 00020, 00021, 00022, 00025, 00029, 00033, 00034, 00035, 00039, 00040, 00042, 00044, 00045,
-// 00048, 00050, 00051, 00052, 00053, 00054, 00057, 00065 and 00070 add to epic tables.
+// 00048, 00050, 00051, 00052, 00053, 00054, 00057, 00065, 00070 and 00078 add to epic tables.
 func epicTableColumns() map[string][]string {
 	return map[string][]string{
 		"epics": {
@@ -62,6 +62,10 @@ func epicTableColumns() map[string][]string {
 			"gate_pos", "finding_pos", "batch", "guard", "needs_files", "decisions", "after_tasks", "question",
 			// The declared gate-needed changes, from 00065_task_gate_changes.sql.
 			"gate_changes",
+			// The first line of each failure a re-brief answered, from 00077_gambit_ladder.sql.
+			"rebriefs",
+			// The notes a task's build holds, a JSON list, from 00078_task_review_undetermined.sql.
+			"notes",
 		},
 		"epic_task_files":        {"epic", "task", "position", "path"},
 		"epic_task_requirements": {"epic", "task", "position", "requirement"},
@@ -72,7 +76,8 @@ func epicTableColumns() map[string][]string {
 			"epic", "task", "version", "source", "decision", "step", "reason", "deliverable", "files", "test_changes",
 			"gate", "evidence", "state", "red_run", "refusal", "created", "settled",
 		},
-		"epic_task_reviews": {"epic", "task", "attempt", "position", "gate", "step", "verdict"},
+		// The reason a review gate with no holds or fails verdict ended so, from 00078_task_review_undetermined.sql.
+		"epic_task_reviews": {"epic", "task", "attempt", "position", "gate", "step", "verdict", "reason"},
 		"epic_task_findings": {
 			"epic", "task", "attempt", "review", "position", "id", "claim", "citation", "location", "evidence",
 			"verify_by", "step", "result", "reason", "unverified",
@@ -82,6 +87,8 @@ func epicTableColumns() map[string][]string {
 			"epic", "task", "rung", "kind", "moved_by", "cause", "gate", "assertion", "step", "created",
 		},
 		"epic_task_rung_outcomes": {"epic", "task", "rung", "outcome", "reason", "ended"},
+		// The files orchestrator decisions refused per task, from 00074_task_repairs.sql.
+		"epic_task_refused": {"epic", "task", "path", "decision", "created"},
 		"epic_reviewers": {
 			"epic", "position", "name", "enabled", "stage", "must", "must_not", "prompt", "agent", "model", "tools",
 			"effort", "limit_seconds", "verify",
@@ -123,9 +130,10 @@ func epicTableColumns() map[string][]string {
 		// R2: the actions a planner turn returned, from 00049_planner_actions.sql. park, the planner park an action
 		// answers, is 00051_park_bound.sql. requirement and item, what an amend_evidence action asks for, are
 		// 00052_evidence_amendments.sql. deliverable, what a change_approach action asks for, is 00070_task_ladder.sql.
+		// files and remove_files, the files a change_approach action adds and removes, are 00077_gambit_ladder.sql.
 		"planner_actions": {
 			"epic", "turn", "position", "kind", "node", "task", "close_kind", "by_epic", "undo_none", "reason", "state",
-			"refusal", "park", "requirement", "item", "deliverable",
+			"refusal", "park", "requirement", "item", "deliverable", "files", "remove_files",
 		},
 		// The amendments of the epics' Requirement evidence items, from 00052_evidence_amendments.sql.
 		"epic_amendments": {
@@ -543,8 +551,12 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00072_epic_revisions_table.sql is the newest. The
-	// newest was 00071_park_question_runs.sql before the revisions table added 00072, 00070_task_ladder.sql before the
+	// Open applies 00014_epics.sql and every migration after it: 00077_gambit_ladder.sql is the newest. The newest was
+	// 00076_notice_history.sql before the gambit ladder added 00077, 00075_step_facts.sql before the notice history added
+	// 00076,
+	// 00074_task_repairs.sql before the step facts added 00075, 00073_session_awaited.sql before the task repairs added
+	// 00074, 00072_epic_revisions_table.sql before the awaited flag added 00073, 00071_park_question_runs.sql before the
+	// revisions table added 00072, 00070_task_ladder.sql before the
 	// park question runs added 00071, 00069_epic_revisions.sql before the task ladder added 00070,
 	// 00068_step_listings.sql before the epic revisions added 00069, 00067_drop_caller_read.sql before the step listings
 	// added 00068, 00066_put_off_questions.sql before
@@ -552,8 +564,8 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 	// 00064_step_indexes.sql before the gate changes added 00065, 00063_task_versions.sql before the step indexes added
 	// 00064, 00062_drop_engine_held.sql before the task versions added 00063, 00061_prompt_states.sql before the drop of
 	// engine_held added 00062, and 00060_cron_jobs.sql before the prompt states added 00061.
-	if version != 72 {
-		t.Fatalf("store version after Open = %d, want 72", version)
+	if version != 78 {
+		t.Fatalf("store version after Open = %d, want 78", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and

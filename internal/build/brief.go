@@ -32,9 +32,9 @@ const gateNeededRule = "Gate-needed change: when the gate or the Capture cannot 
 	"Requirements do not name, such as a flake the epic's gates failed on, declare each file it changes the same way. " +
 	"Reviewers judge a declared gate-needed change in scope when the gate needs it and it is no larger than that " +
 	"need, and an undeclared change the Deliverable does not ask for fails review. The guard still judges a " +
-	"gate-needed change, so it never removes a test, lowers its assertions or adds a skip. For a gate-needed change " +
-	"in a file outside the owned files, return needs_context naming the file in needs_files, with the reason in " +
-	"summary."
+	"gate-needed change: it refuses a changed capture file, and a removed test, a lowered assertion or an added " +
+	"skip goes to the floor reviewer. For a gate-needed change in a file outside the owned files, return " +
+	"needs_context naming the file in needs_files, with the reason in summary."
 
 // declaredHeading heads the brief's list of the gate-needed changes a task's earlier tries declared.
 const declaredHeading = "Gate-needed changes declared on this task so far:"
@@ -107,9 +107,7 @@ func Brief(
 		},
 		bullets(task.TestChanges),
 		[]string{
-			"Outside those test changes, orreryd's guard refuses a commit that deletes or renames a guarded test " +
-				"file, removes a test present at the base, lowers a test's assertions, adds a skip, or changes a file " +
-				"a capture runs.",
+			"Outside those test changes, orreryd's guard refuses a commit that changes a file a capture runs.",
 			fmt.Sprintf("Gate: %s. After you return done, orreryd runs `%s` on your commit. Do not run the gate "+
 				"yourself. When it fails, orreryd sends you its output: fix the cause, commit the fix on top, and return "+
 				"done again.", task.Gate, shellWords(gate.Argv)),
@@ -200,11 +198,12 @@ const plainShellChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ012
 // ReviewPrompt renders the prompt of reviewer's review gate step for task T<seq> of epic: the task, the lines naming
 // its spec version when it is past version 1 (taskspec.Lines), its files, its test changes, the gate-needed changes its
 // implementer declared under the heading that says when each is in scope, its Requirements, and the range the change
-// under review spans from base to revision. The test_parsimony reviewer's prompt ends with the Test
-// cost section (reviewers.TestCost) of gate, the gate check the implementer's commit passed, which is the zero check
-// when the task has none.
+// under review spans from base to revision. The floor reviewer's prompt ends the change with the notes the task's build
+// holds and the guard's facts of the commit, facts, when they have any. The test_parsimony reviewer's prompt ends with
+// the Test cost section (reviewers.TestCost) of gate, the gate check the implementer's commit passed, which is the zero
+// check when the task has none.
 func ReviewPrompt(
-	epic store.EpicRow, task store.EpicTask, reviewer, base, revision string, gate store.StepCheck,
+	epic store.EpicRow, task store.EpicTask, reviewer, base, revision string, gate store.StepCheck, facts ...string,
 ) string {
 	change := fmt.Sprintf(
 		"The change under review is %s..%s; this worktree is checked out at %s. Inspect it with `git diff %s %s`.",
@@ -226,13 +225,39 @@ func ReviewPrompt(
 		[]string{"Requirements:"},
 		requirementLines(epic.Requirements, task.Requirements),
 		[]string{reviewEvidenceHeading},
-		reviewEvidenceLines(epic.Requirements, task),
+		reviewEvidenceLines(task),
 		[]string{change},
 	)
+	if reviewer == reviewFloor {
+		lines = append(lines, floorSections(task.Notes, facts)...)
+	}
 	if reviewer == reviewers.TestParsimony {
 		lines = append(lines, reviewers.TestCost(gate.Stdout, gate.Stderr)...)
 	}
 	return strings.Join(lines, "\n")
+}
+
+// The headings of the floor reviewer's prompt's notes and guard facts.
+const (
+	floorNotesHeading = "Notes the task's build recorded. Each is an outcome that did not gate the build, such as a red " +
+		"run whose conclusion held at the base or a reproduction that passed; weigh it as evidence about the tests:"
+	floorFactsHeading = "Guard facts of the commit. Each is a change to a guarded test file that the guard does not " +
+		"refuse; judge each as the mechanical floor asks:"
+)
+
+// floorSections returns the floor reviewer's prompt's sections of the notes the task's build holds and the guard's
+// facts of the commit, each under its heading and only when it has items.
+func floorSections(notes, facts []string) []string {
+	var lines []string
+	if len(notes) > 0 {
+		lines = append(lines, floorNotesHeading)
+		lines = append(lines, bullets(notes)...)
+	}
+	if len(facts) > 0 {
+		lines = append(lines, floorFactsHeading)
+		lines = append(lines, bullets(facts)...)
+	}
+	return lines
 }
 
 // GateChangeItems returns each declared gate-needed change as `<path>: <reason>`, in order.
@@ -286,29 +311,19 @@ func bullets(items []string) []string {
 	return lines
 }
 
-// reviewEvidenceHeading heads the evidence a task reviewer judges: the captures that prove the task's work, each with
-// the conclusion it must show.
-const reviewEvidenceHeading = "Evidence (each capture and the conclusion it must show):"
+// reviewEvidenceHeading heads the evidence a task reviewer judges: the task's own evidence item, with the conclusion it
+// must show.
+const reviewEvidenceHeading = "Evidence (the task's own evidence and the conclusion it must show):"
 
-// reviewEvidenceLines renders, for a task reviewer, the task's own evidence item and then the evidence item the
-// contract declares for each Requirement of task, in task.Requirements order, as bullets. A capture renders as
-// `<id>: <conclusion> (capture: <argv>)`, supplied files as `<id>: <conclusion> (supplied: <files>)`, and a closure
-// item as `<id>: <conclusion> (closure: the round's closure check settles it)`. An item with no conclusion, and a
-// Requirement the epic does not declare, render nothing. A reviewer asked whether each capture would fail without the
-// behavior it proves thus sees the capture even when it is no test in the change, such as a grep of a document.
-func reviewEvidenceLines(declared []store.EpicRequirement, task store.EpicTask) []string {
-	items := make([]string, 0, 1+len(task.Requirements))
+// reviewEvidenceLines renders, for a task reviewer, the task's own evidence item as a bullet, or none when it has no
+// conclusion. A capture renders as `T<seq>: <conclusion> (capture: <argv>)`, supplied files as `T<seq>: <conclusion>
+// (supplied: <files>)`, and a closure item as `T<seq>: <conclusion> (closure: the round's closure check settles it)`.
+// The reviewer judges the task's change and its tests as a whole, so the contract's evidence for each Requirement the
+// task claims is not listed.
+func reviewEvidenceLines(task store.EpicTask) []string {
+	var items []string
 	if line, ok := reviewEvidenceLine(fmt.Sprintf("T%d", task.Seq), task.Evidence); ok {
 		items = append(items, line)
-	}
-	for _, id := range task.Requirements {
-		i := slices.IndexFunc(declared, func(r store.EpicRequirement) bool { return r.ID == id })
-		if i < 0 {
-			continue
-		}
-		if line, ok := reviewEvidenceLine(id, declared[i].Item); ok {
-			items = append(items, line)
-		}
 	}
 	return bullets(items)
 }

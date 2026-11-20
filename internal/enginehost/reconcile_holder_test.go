@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -119,7 +120,7 @@ func TestReconcileStopsHolderLeftRunningForWorkingRow(t *testing.T) {
 		t.Fatalf("unfinished text rows after Reconcile = %d, want 0", n)
 	}
 	want := Notice{Session: "working", Dir: dir, State: "interrupted", Body: restartedReason}
-	if got := sink.got(); len(got) != 1 || got[0] != want {
+	if got := sink.got(); len(got) != 1 || !reflect.DeepEqual(got[0], want) {
 		t.Fatalf("notices = %+v, want exactly [%+v]", got, want)
 	}
 }
@@ -271,7 +272,7 @@ func TestReconcileLogsFailedClearAndSettlesRows(t *testing.T) {
 		"working": {state: "interrupted", reason: restartedReason},
 	})
 	want := Notice{Session: "working", Dir: dir, State: "interrupted", Body: restartedReason}
-	if got := sink.got(); len(got) != 1 || got[0] != want {
+	if got := sink.got(); len(got) != 1 || !reflect.DeepEqual(got[0], want) {
 		t.Fatalf("notices = %+v, want exactly [%+v]", got, want)
 	}
 }

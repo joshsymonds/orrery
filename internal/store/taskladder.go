@@ -9,10 +9,10 @@ import (
 )
 
 // The kinds a rung of a task's ladder can be. A rung is the task build's Attempt number: rungs 1 and 2 are RungAttempt,
-// 3 is RungRescue, 4 is RungOrchestrator, 5 and 6 are RungApproach, and 7 is RungGap.
+// 3 is RungOrchestrator, 4 and 5 are RungApproach, and 6 is RungGap. A rung of kind rescue, the kind the ladder had
+// before its rung 3 became the orchestrator's attempt, is still read from its stored row.
 const (
 	RungAttempt      = "attempt"
-	RungRescue       = "rescue"
 	RungOrchestrator = "orchestrator"
 	RungApproach     = "approach"
 	RungGap          = "gap"
@@ -25,6 +25,7 @@ const (
 	MovedByFailDecision = "fail_decision"
 	MovedByCannotMeet   = "cannot_meet"
 	MovedByFailTask     = "fail_task"
+	MovedBySendBack     = "send_back"
 )
 
 // The outcomes a rung can end with. RungGapped is the outcome 'gap', the same word as the kind RungGap.
@@ -37,23 +38,24 @@ const (
 // TaskGap is the status of a task that ended as a gap.
 const TaskGap = "gap"
 
-// taskOpen is the status of a task that is open, the only status a planner's fail_task acts on.
-const taskOpen = "open"
+// The statuses of a task that is open, the only status a planner's fail_task acts on, and of a task that is accepted.
+const (
+	taskOpen = "open"
+	taskDone = "done"
+)
 
-// RescueRung is rung 3, the rung of kind RungRescue.
-const RescueRung = 3
+// OrchestratorRung is rung 3, the rung of kind RungOrchestrator: the orchestrator's own writing attempt.
+const OrchestratorRung = 3
 
-// OrchestratorRung is rung 4, the rung of kind RungOrchestrator.
-const OrchestratorRung = 4
+// ApproachRung is rung 4, the first rung of kind RungApproach: a task that climbs onto it needs a change of approach,
+// the recarve the planner writes, and runs its attempt under that version.
+const ApproachRung = 4
 
-// ApproachRung is rung 5, the first rung of kind RungApproach: a task that climbs onto it needs a change of approach.
-const ApproachRung = 5
+// LastRung is rung 5, the highest rung a task builds on: a climb past it ends the task as a gap.
+const LastRung = 5
 
-// LastRung is rung 6, the highest rung a task builds on: a climb past it ends the task as a gap.
-const LastRung = 6
-
-// GapRung is rung 7, the rung of kind RungGap, which a task ends on as a gap.
-const GapRung = 7
+// GapRung is rung 6, the rung of kind RungGap, which a task ends on as a gap.
+const GapRung = 6
 
 // RungMove is the failure that moves a task off its rung: MovedBy is the kind of failure, Cause its text, and Step the
 // step it came from. To is the rung to move to, and 0 means the next rung. Gate and Assertion are the review gate and
@@ -124,14 +126,12 @@ func ClimbCause(cause string, decided bool) string {
 	return capTurnText(cause)
 }
 
-// RungKind returns the kind of rung: RungAttempt for rungs 1 and 2, RungRescue for RescueRung, RungOrchestrator for
+// RungKind returns the kind of rung: RungAttempt for the rungs before OrchestratorRung, RungOrchestrator for
 // OrchestratorRung, RungApproach for the rungs up to LastRung, and RungGap for GapRung and above.
 func RungKind(rung int64) string {
 	switch {
-	case rung < RescueRung:
+	case rung < OrchestratorRung:
 		return RungAttempt
-	case rung == RescueRung:
-		return RungRescue
 	case rung == OrchestratorRung:
 		return RungOrchestrator
 	case rung <= LastRung:
@@ -168,10 +168,10 @@ func ClimbedBuild(from TaskBuild, rung int64, failure string) TaskBuild {
 // gapped, sets the task's status to TaskGap, and adds a pending trigger `T<seq>-gap` with cause
 // `task T<seq> ended as a gap: <cause>`. A climb onto ApproachRung adds a pending trigger `T<seq>-approach` with cause
 // `task T<seq> needs a change of approach: <cause>`. version, when not nil, is stored as the task's next version,
-// applied by decision's id, and decision, when not nil, is appended to the epic's decisions. A target at or below
-// RungOf(from), a to that is not on the target capped at GapRung, and a move whose MovedBy is not one of the MovedBy
-// values are errors that write nothing. A task that is not open, or whose stored build is not from, is ErrTaskMoved
-// and writes nothing.
+// applied by decision's id, and decision, when not nil, is appended to the epic's decisions, with its refused files
+// stored as refused by its id. A target at or below RungOf(from), a to that is not on the target capped at GapRung,
+// and a move whose MovedBy is not one of the MovedBy values are errors that write nothing. A task that is not open, or
+// whose stored build is not from, is ErrTaskMoved and writes nothing.
 func (s *Store) ClimbTask(
 	ctx context.Context,
 	epic string,
@@ -222,10 +222,19 @@ func climbTask(
 	if decision != nil {
 		decisionID = decision.ID
 	}
+	var granted []string
 	if version != nil {
 		if err := appendTaskVersion(ctx, queries, epic, seq, decisionID, *version, at); err != nil {
 			return err
 		}
+		granted = version.Files
+	}
+	var refusals TaskDecision
+	if decision != nil {
+		refusals = *decision
+	}
+	if err := storeRefusals(ctx, queries, epic, seq, refusals, granted, at); err != nil {
+		return err
 	}
 	if decision == nil {
 		return nil
@@ -256,7 +265,8 @@ func checkClimb(epic string, seq int64, from, to TaskBuild, move RungMove) error
 	return nil
 }
 
-// knownMovedBy reports whether movedBy is one of the MovedBy values.
+// knownMovedBy reports whether movedBy is one of the MovedBy values a climb records. A send_back is not a climb, so it is
+// not among them: sentBackBuild and restartLadder move a task onto rung 1 without a climb.
 func knownMovedBy(movedBy string) bool {
 	switch movedBy {
 	case MovedByUnit, MovedByFinding, MovedByFailDecision, MovedByCannotMeet, MovedByFailTask:
@@ -264,6 +274,40 @@ func knownMovedBy(movedBy string) bool {
 	default:
 		return false
 	}
+}
+
+// sentBackBuild returns the build a send_back of a task built from from stores: a fresh build on implement at attempt 1,
+// built on base, with cause as its failure, so the next implementer's brief carries it. The orchestrator decisions the
+// task's build carried stay counted, so a send_back does not reset the bound on them.
+func sentBackBuild(from TaskBuild, base, cause string) TaskBuild {
+	return TaskBuild{Stage: "implement", Base: base, Attempt: 1, Failure: cause, Decisions: from.Decisions}
+}
+
+// restartLadder replaces the ladder of task seq of epic with its rung 1, moved by send_back for cause, in the caller's
+// write. The task's rung rows and their outcomes are deleted first, since a rung row is kept once it is stored, so a
+// later climb writes the ladder again from rung 1. The decisions and versions that recorded the earlier climbs are kept.
+func restartLadder(
+	ctx context.Context,
+	queries *sqlcgen.Queries,
+	epic string,
+	seq int64,
+	cause string,
+	at time.Time,
+) error {
+	if err := queries.DeleteEpicTaskRungOutcomes(ctx, sqlcgen.DeleteEpicTaskRungOutcomesParams{
+		Epic: epic, Task: seq,
+	}); err != nil {
+		return fmt.Errorf("delete outcomes of rungs of task %d of epic %s: %w", seq, epic, err)
+	}
+	if err := queries.DeleteEpicTaskRungs(ctx, sqlcgen.DeleteEpicTaskRungsParams{Epic: epic, Task: seq}); err != nil {
+		return fmt.Errorf("delete rungs of task %d of epic %s: %w", seq, epic, err)
+	}
+	if _, err := queries.InsertEpicTaskRung(ctx, sqlcgen.InsertEpicTaskRungParams{
+		Epic: epic, Task: seq, Rung: 1, Kind: RungKind(1), MovedBy: MovedBySendBack, Cause: cause, Created: at.Unix(),
+	}); err != nil {
+		return fmt.Errorf("insert rung 1 of task %d of epic %s: %w", seq, epic, err)
+	}
+	return nil
 }
 
 // insertClimbRungs writes, in the caller's write, the row of rung from of task seq with its outcome failed for move's
@@ -326,19 +370,41 @@ func insertClimbEnd(
 	}
 }
 
-// insertClimbTrigger adds a pending trigger with id and cause to epic, in the caller's write.
+// insertClimbTrigger adds a pending trigger with cause to epic, in the caller's write, under id, or under the first of
+// id-2, id-3 and so on that no trigger holds. A task a send_back reopened can climb onto the same rung or end as a gap
+// again, and its trigger under id is stored already, so the planner is woken under the next free id.
 func insertClimbTrigger(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
 	epic, id, cause string,
 	at time.Time,
 ) error {
-	if err := queries.InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
-		Epic: epic, ID: id, Cause: cause, State: triggerPending, Turn: 0, Created: at.Unix(),
+	free, err := freeTriggerID(ctx, queries, epic, id)
+	if err != nil {
+		return err
+	}
+	if err = queries.InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
+		Epic: epic, ID: free, Cause: cause, State: triggerPending, Turn: 0, Created: at.Unix(),
 	}); err != nil {
-		return fmt.Errorf("insert trigger %s of epic %s: %w", id, epic, err)
+		return fmt.Errorf("insert trigger %s of epic %s: %w", free, epic, err)
 	}
 	return nil
+}
+
+// freeTriggerID returns id when epic holds no trigger under it in any state, and otherwise the first of id-2, id-3 and so
+// on that it holds none under.
+func freeTriggerID(ctx context.Context, queries *sqlcgen.Queries, epic, id string) (string, error) {
+	free := id
+	for n := 2; ; n++ {
+		stored, err := queries.CountEpicTrigger(ctx, sqlcgen.CountEpicTriggerParams{Epic: epic, ID: free})
+		if err != nil {
+			return "", fmt.Errorf("read trigger %s of epic %s: %w", free, epic, err)
+		}
+		if stored == 0 {
+			return free, nil
+		}
+		free = fmt.Sprintf("%s-%d", id, n)
+	}
 }
 
 // acceptRung ends rung of task seq of epic as accepted, in the caller's write, when the task has a row for that rung.

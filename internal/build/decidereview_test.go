@@ -135,17 +135,14 @@ func TestDecideGreen(t *testing.T) {
 			want: Action{Kind: ActMove, Next: rerunOnce},
 		},
 		{
-			name: "no verdict twice parks the task",
+			name: "no verdict twice moves on to review with a note",
 			view: View{Epic: decideEpic, Run: &store.EvidenceRun{
 				ID: "green-run", Ended: ended, JudgeReason: "judge wrote nothing",
 			}, Task: store.EpicTask{Seq: 3, Build: build}},
 			want: Action{
-				Kind: ActPark,
-				Next: store.TaskBuild{
-					Stage: StageGreen, Base: "base", Attempt: 1, Rerun: 2, NoVerdict: 2, Held: HeldParked,
-					Revision: "rev", RedRun: "red-run",
-				},
-				Reason: "T3 green gave no verdict twice: judge wrote nothing",
+				Kind: ActMove, Next: reviewed,
+				Notes: []string{"T3 green: the judge gave no verdict twice: judge wrote nothing"},
+				Tells: []string{"T3 green: the judge gave no verdict twice: judge wrote nothing"},
 			},
 		},
 		{
@@ -208,9 +205,6 @@ func TestDecideReview(t *testing.T) {
 	noVerdictOnce.NoVerdict = 1
 	noVerdictTwice := build
 	noVerdictTwice.NoVerdict = 1
-	parkedTwice := build
-	parkedTwice.NoVerdict = 2
-	parkedTwice.Held = HeldParked
 	reviewStep := func(end, result, reason string) *store.StepRow {
 		return &store.StepRow{ID: "review-step", End: end, Result: result, Reason: reason}
 	}
@@ -373,15 +367,18 @@ func TestDecideReview(t *testing.T) {
 			want: Action{Kind: ActMove, Next: noVerdictOnce},
 		},
 		{
-			name: "failed twice parks the task",
+			name: "failed twice stores the review undetermined and moves to the next gate",
 			view: View{
 				Epic: decideEpic, ReviewGates: gates, Step: reviewStep("failed", "", "boom"),
 				Task: store.EpicTask{Seq: 3, Build: noVerdictTwice},
 			},
 			want: Action{
-				Kind:   ActPark,
-				Next:   parkedTwice,
-				Reason: "T3 review lint gave no verdict twice: failed: boom",
+				Kind: ActReview,
+				Review: store.TaskReview{
+					Attempt: 1, Position: 0, Gate: "lint", Step: "review-step", Verdict: verdictUndetermined,
+					Reason: "failed: boom",
+				},
+				Next: nextGate,
 			},
 		},
 	}
@@ -504,9 +501,6 @@ func TestDecideVerify(t *testing.T) {
 	noVerdictOnce.NoVerdict = 1
 	noVerdictTwice := build
 	noVerdictTwice.NoVerdict = 1
-	parkedTwice := build
-	parkedTwice.NoVerdict = 2
-	parkedTwice.Held = HeldParked
 	stopped := build
 	stopped.Held = HeldStopped
 	restarted := build
@@ -653,14 +647,21 @@ func TestDecideVerify(t *testing.T) {
 			want: Action{Kind: ActMove, Next: noVerdictOnce},
 		},
 		{
-			name: "failed twice parks the task",
+			name: "failed twice stores the finding undecided and moves on",
 			view: View{Epic: decideEpic, Step: verifyStep("failed", "", "boom"), Task: store.EpicTask{
 				Seq: 3, Build: noVerdictTwice, Reviews: verifyReviews(1, "", ""),
 			}},
 			want: Action{
-				Kind:   ActPark,
-				Next:   parkedTwice,
-				Reason: "T3 verify F1 gave no verdict twice: failed: boom",
+				Kind: ActFinding,
+				Finding: store.TaskFindingResult{
+					Attempt:  1,
+					Review:   0,
+					Position: 0,
+					Step:     "verify-step",
+					Result:   resultUndecided,
+					Reason:   "failed: boom",
+				},
+				Next: nextFinding,
 			},
 		},
 	}

@@ -24,16 +24,12 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import io.github.joshsymonds.orrery.ui.theme.Mocha
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
+import io.github.joshsymonds.orrery.ui.theme.inLabelCase
 
-private val GOAL_TEXT_SIZE = 12.5.sp
-private val GOAL_LINE_HEIGHT = 17.sp
-private val GOAL_RING = 8.dp
-private val GOAL_RING_TOP = 4.5.dp
+private val GOAL_RING = OrreryTokens.Space.eight
+private val GOAL_RING_TOP = OrreryTokens.Space.four
 
 /**
  * The pane's active goal on one compact line: a mauve ring and "goal", then the goal's text cut
@@ -48,44 +44,40 @@ fun GoalLine(goal: String, modifier: Modifier = Modifier) {
         modifier = modifier
             .testTag("goal-line")
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(OrreryTokens.Radius.two))
             .clickable { open = !open }
             .semantics { stateDescription = if (open) "expanded" else "collapsed" }
-            .padding(horizontal = 10.dp, vertical = 4.dp),
+            .padding(horizontal = OrreryTokens.Space.eight + OrreryTokens.Space.two, vertical = OrreryTokens.Space.four),
         verticalAlignment = Alignment.Top,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
     ) {
         Box(
             modifier = Modifier
                 .padding(top = GOAL_RING_TOP)
                 .size(GOAL_RING)
-                .border(1.5.dp, Mocha.Mauve, CircleShape),
+                .border(OrreryTokens.Size.hairline, OrreryTokens.Role.you, CircleShape),
         )
         Text(
-            text = "goal",
-            color = Mocha.Mauve,
-            fontWeight = FontWeight.Bold,
-            fontSize = GOAL_TEXT_SIZE,
-            lineHeight = GOAL_LINE_HEIGHT,
+            text = "goal".inLabelCase(),
+            color = OrreryTokens.Role.you,
+            style = OrreryTokens.Type.label.copy(fontWeight = OrreryTokens.Font.Weight.bold),
             maxLines = 1,
         )
         Text(
             text = goal,
             modifier = Modifier.weight(1f).testTag("goal-text"),
-            color = Mocha.Subtext0,
-            fontSize = GOAL_TEXT_SIZE,
-            lineHeight = GOAL_LINE_HEIGHT,
+            color = OrreryTokens.Ink.two,
+            style = OrreryTokens.Type.small,
             maxLines = if (open) Int.MAX_VALUE else 1,
             overflow = TextOverflow.Ellipsis,
         )
         Text(
             text = "›",
             modifier = Modifier
-                .width(9.dp)
+                .width(OrreryTokens.Space.eight)
                 .graphicsLayer { rotationZ = if (open) 90f else 0f },
-            color = Mocha.Overlay1,
-            fontSize = GOAL_TEXT_SIZE,
-            lineHeight = GOAL_LINE_HEIGHT,
+            color = OrreryTokens.Ink.four,
+            style = OrreryTokens.Type.small,
             maxLines = 1,
         )
     }

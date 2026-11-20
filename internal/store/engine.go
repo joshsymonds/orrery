@@ -92,20 +92,22 @@ type EnginePrompt struct {
 }
 
 // EngineLaunch starts tracking an engine session's consumed offset from zero. It sets consumed and replay_from to
-// 0, turns background off, and sets prompts_from to the newest event seq, so HolderPrompts lists only the prompts
+// 0, turns background and awaited off, and sets prompts_from to the newest event seq, so HolderPrompts lists only the prompts
 // sent after the launch. It appends no event.
 type EngineLaunch struct {
 	ID string
 }
 
-// EngineConsumed sets the consumed offset of an engine session. ReplayFrom, Output and Background are each stored
-// only when non-nil, and the other columns are left as they are. It appends no event.
+// EngineConsumed sets the consumed offset of an engine session. ReplayFrom, Output, Background and Awaited are each
+// stored only when non-nil, and the other columns are left as they are. Background is whether the session's last
+// background-task report lists a task, and Awaited whether it lists one that runs a model. It appends no event.
 type EngineConsumed struct {
 	ID         string
 	Consumed   int64
 	ReplayFrom *int64
 	Output     *string
 	Background *bool
+	Awaited    *bool
 }
 
 // EnginePromptFailed records that a prompt failed to send. The marker keeps the first reason for its session and
@@ -474,6 +476,9 @@ func (op EngineConsumed) applyEngine(ctx context.Context, queries *sqlcgen.Queri
 	}
 	if op.Background != nil {
 		params.Background = sql.NullBool{Bool: *op.Background, Valid: true}
+	}
+	if op.Awaited != nil {
+		params.Awaited = sql.NullBool{Bool: *op.Awaited, Valid: true}
 	}
 	affected, err := queries.UpdateEngineConsumed(ctx, params)
 	if err != nil {

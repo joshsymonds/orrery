@@ -67,8 +67,8 @@ func acceptedPeer(seq int64, changed ...string) Peer {
 // emptyVersion returns the version of a return that changes nothing: every field the schema requires, empty.
 func emptyVersion() map[string]any {
 	return map[string]any{
-		"changed": []string{}, "deliverable": "", "files": []string{}, "test_changes": []string{}, "gate": "",
-		"evidence": map[string]any{
+		"changed": []string{}, "deliverable": "", "files": []string{}, "remove": []string{}, "test_changes": []string{},
+		"gate": "", "evidence": map[string]any{
 			"capture": []string{}, "limit": 0, "artifacts": []string{}, "supplied": []string{}, "conclusion": "",
 			"judge": "", "kind": "", "tests": []string{},
 		},
@@ -134,6 +134,9 @@ func TestOrchestratorSchemaAcceptsEachDecisionAndUsesTheEngineSubset(t *testing.
 			"version": versionWith(map[string]any{"changed": []string{"gate"}, "gate": "check"}),
 		}),
 		orchReturn(t, map[string]any{"decision": "grant", "version": filesVersion("b.go")}),
+		orchReturn(t, map[string]any{"decision": "re_brief", "version": versionWith(map[string]any{
+			"changed": []string{"files"}, "files": []string{"c.go"}, "remove": []string{"a.go"},
+		})}),
 		orchReturn(t, map[string]any{"decision": "fail", "failure": "f", "needs_files": []string{"b.go"}}),
 		orchReturn(t, map[string]any{"decision": "ask", "question": askQuestion()}),
 		orchReturn(t, map[string]any{"status": "blocked"}),
@@ -382,7 +385,9 @@ func TestDecideOrchestrate(t *testing.T) {
 	t.Parallel()
 	rerun := orchBuild(0)
 	rerun.Stage, rerun.Rerun, rerun.Step, rerun.Decisions = StageImplement, 3, "", 1
-	rerun.Failure = "returned needs_context: the spec is short"
+	rerun.Failure = "returned needs_context: the spec is short; the orchestrator granted none"
+	grantedRerun := rerun
+	grantedRerun.Failure = "returned needs_context: the spec is short; the orchestrator granted b.go"
 	waiting := rerun
 	waiting.Held, waiting.After = HeldWaiting, "4,5"
 	waitingOnFour := rerun
@@ -401,6 +406,7 @@ func TestDecideOrchestrate(t *testing.T) {
 	grantRet := orchReturn(t, map[string]any{"decision": "grant", "version": filesVersion("b.go")})
 	nothing := store.TaskVersionInput{
 		Source: store.SourceOrchestrator, Step: "orch-step", Reason: "the code says so", Files: []string{},
+		Remove: []string{},
 	}
 	redone := nothing
 	redone.Deliverable = &deliverable
@@ -448,7 +454,9 @@ func TestDecideOrchestrate(t *testing.T) {
 			view: orchView(0, orchDone(rerunRet)),
 			want: Action{
 				Kind: ActDecide, Next: rerun, Fallback: &fallback, Behind: []int64{}, Version: redone,
-				Decision: &store.TaskDecision{ID: "T3-request-1", Text: "T3 rerun: the code says so"},
+				Decision: &store.TaskDecision{
+					ID: "T3-request-1", Text: "T3 rerun: the code says so", Refused: []string{"b.go"},
+				},
 			},
 		},
 		{
@@ -456,14 +464,16 @@ func TestDecideOrchestrate(t *testing.T) {
 			view: orchView(0, orchDone(waitRet), openPeer(4), acceptedPeer(5)),
 			want: Action{
 				Kind: ActDecide, Next: waiting, Behind: []int64{4, 5}, Fallback: &fallback, Version: nothing,
-				Decision: &store.TaskDecision{ID: "T3-request-1", Text: "T3 rerun after T4, T5: the code says so"},
+				Decision: &store.TaskDecision{
+					ID: "T3-request-1", Text: "T3 rerun after T4, T5: the code says so", Refused: []string{"b.go"},
+				},
 			},
 		},
 		{
 			name: "grant carries its files",
 			view: orchView(0, orchDone(grantRet)),
 			want: Action{
-				Kind: ActDecide, Next: rerun, Version: granted, Fallback: &grantFallback, Behind: []int64{},
+				Kind: ActDecide, Next: grantedRerun, Version: granted, Fallback: &grantFallback, Behind: []int64{},
 				Decision: &store.TaskDecision{ID: "T3-request-1", Text: "T3 grant b.go: the code says so"},
 			},
 		},
@@ -472,8 +482,10 @@ func TestDecideOrchestrate(t *testing.T) {
 			view: orchView(1, orchDone(failRet)),
 			want: Action{
 				Kind: ActFail, Reason: "The task's files cannot hold its deliverable.", NeedsFiles: []string{"b.go"},
-				Decision: &store.TaskDecision{ID: "T3-request-2", Text: "T3 fail: the code says so"},
-				Move:     store.RungMove{MovedBy: store.MovedByFailDecision},
+				Decision: &store.TaskDecision{
+					ID: "T3-request-2", Text: "T3 fail: the code says so", Refused: []string{"b.go"},
+				},
+				Move: store.RungMove{MovedBy: store.MovedByFailDecision},
 			},
 		},
 		{
@@ -507,7 +519,9 @@ func TestDecideOrchestrate(t *testing.T) {
 			})), Peer{Task: store.EpicTask{Seq: 4, Status: taskDone}, State: Integrated, Composed: "c4"}),
 			want: Action{
 				Kind: ActDecide, Next: waitingOnFour, Behind: []int64{4}, Fallback: &fallback, Version: nothing,
-				Decision: &store.TaskDecision{ID: "T3-request-1", Text: "T3 rerun after T4: the code says so"},
+				Decision: &store.TaskDecision{
+					ID: "T3-request-1", Text: "T3 rerun after T4: the code says so", Refused: []string{"b.go"},
+				},
 			},
 		},
 		{

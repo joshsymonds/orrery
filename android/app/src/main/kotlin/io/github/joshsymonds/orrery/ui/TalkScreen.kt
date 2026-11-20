@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -18,9 +17,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.unit.dp
 import io.github.joshsymonds.orrery.api.OrreryClient
-import io.github.joshsymonds.orrery.ui.theme.Mocha
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -107,8 +105,8 @@ fun TalkScreen(
         modifier = modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+            .padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.eight),
+        verticalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
     ) {
         if (repository.isNotBlank()) {
             Button(
@@ -120,18 +118,18 @@ fun TalkScreen(
             }
         }
         failure?.let { reason ->
-            Text(reason, modifier = Modifier.testTag("talk-error"), color = Mocha.Red)
+            Text(reason, modifier = Modifier.testTag("talk-error"), color = OrreryTokens.Role.bad)
         }
         sessions.forEach { session ->
             Text(
                 talkLine(session),
-                style = MaterialTheme.typography.bodyLarge,
-                color = Mocha.Text,
+                style = OrreryTokens.Type.body,
+                color = OrreryTokens.Ink.one,
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("talk-session")
                     .clickable { onOpen(talkTarget(session)) }
-                    .padding(vertical = 6.dp),
+                    .padding(vertical = OrreryTokens.Space.four + OrreryTokens.Space.two),
             )
         }
     }

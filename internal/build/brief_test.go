@@ -70,9 +70,8 @@ const briefRules = "Do not edit any other file. When the work needs a file that 
 	"back to this same worktree with your work kept.\n"
 
 // briefGuardAndGate are the guard line and the gate line for briefGate, then the line on a gate-needed change.
-const briefGuardAndGate = "Outside those test changes, orreryd's guard refuses a commit that deletes or renames a guarded " +
-	"test file, removes a test present at the base, lowers a test's assertions, adds a skip, or changes a file a " +
-	"capture runs.\n" +
+const briefGuardAndGate = "Outside those test changes, orreryd's guard refuses a commit that changes a file a capture " +
+	"runs.\n" +
 	"Gate: check. After you return done, orreryd runs `scripts/in-devenv -c 'just remote just check'` on your commit. " +
 	"Do not run the gate yourself. When it fails, orreryd sends you its output: fix the cause, commit the fix on top, " +
 	"and return done again.\n" +
@@ -82,9 +81,10 @@ const briefGuardAndGate = "Outside those test changes, orreryd's guard refuses a
 	"the reason the gate or Capture needs it. When the Deliverable itself fixes a gate failure the Requirements do " +
 	"not name, such as a flake the epic's gates failed on, declare each file it changes the same way. Reviewers judge " +
 	"a declared gate-needed change in scope when the gate needs it and it is no larger than that need, and an " +
-	"undeclared change the Deliverable does not ask for fails review. The guard still judges a gate-needed change, " +
-	"so it never removes a test, lowers its assertions or adds a skip. For a gate-needed change in a file outside " +
-	"the owned files, return needs_context naming the file in needs_files, with the reason in summary.\n"
+	"undeclared change the Deliverable does not ask for fails review. The guard still judges a gate-needed change: " +
+	"it refuses a changed capture file, and a removed test, a lowered assertion or an added skip goes to the floor " +
+	"reviewer. For a gate-needed change in a file outside the owned files, return needs_context naming the file in " +
+	"needs_files, with the reason in summary.\n"
 
 // reviewDeclared heads the declared gate-needed changes in the prompts of a task's reviewers and verifiers.
 const reviewDeclared = "Gate-needed changes the implementer declared (each is in scope, though the Deliverable does not " +
@@ -316,11 +316,11 @@ func TestReviewPromptNamesRangeFilesAndRequirements(t *testing.T) {
 	}
 }
 
-// TestReviewPromptListsEachRequirementsContractCapture: a task reviewer's prompt lists, under Evidence, the task's
-// capture and then the contract capture of each Requirement the task covers, with its conclusion, so a Requirement
-// proved by a grep of a document rather than a test in the change shows the reviewer its capture. Supplied files and a
-// closure item render their own form; a Requirement the epic does not declare, or with no evidence, renders nothing.
-func TestReviewPromptListsEachRequirementsContractCapture(t *testing.T) {
+// TestReviewPromptListsOnlyTheTasksOwnEvidence: a task reviewer's prompt lists, under Evidence, the task's own evidence
+// item and nothing else, so a Requirement's contract capture, whether a capture, supplied files or a closure item, is
+// not shown: the reviewer judges the task's change and its tests as a whole. The Requirements the task claims stay
+// under Requirements, each with its text.
+func TestReviewPromptListsOnlyTheTasksOwnEvidence(t *testing.T) {
 	t.Parallel()
 	epic := briefEpic()
 	epic.Requirements = []store.EpicRequirement{
@@ -336,13 +336,22 @@ func TestReviewPromptListsEachRequirementsContractCapture(t *testing.T) {
 	task.Evidence = evidence.Item{}
 	task.Requirements = []string{"R1", "R9", "R2", "R3", "R4"}
 	got := ReviewPrompt(epic, task, "floor", "base1", "rev1", store.StepCheck{})
-	want := reviewEvidenceHeading + "\n" +
-		"- R1: docs/contract.md names the Closed by decision list (capture: grep -n 'Closed by decision' docs/contract.md)\n" +
-		"- R2: the page shows it (supplied: shot.png)\n" +
-		"- R4: F1 no longer holds (closure: the round's closure check settles it)\n" +
+	want := "Requirements:\n" +
+		"- R1: one\n" +
+		"- R2: two\n" +
+		"- R3: three\n" +
+		"- R4: four\n" +
+		reviewEvidenceHeading + "\n" +
+		"- none\n" +
 		"The change under review"
 	if !strings.Contains(got, want) {
-		t.Fatalf("review prompt lacks the Requirements' contract captures\n got:\n%s\nwant a run of:\n%s", got, want)
+		t.Fatalf("review prompt lists a Requirement's contract capture under Evidence\n got:\n%s\nwant a run of:\n%s",
+			got, want)
+	}
+	for _, shown := range []string{"docs/contract.md", "shot.png", "F1 no longer holds"} {
+		if strings.Contains(got, shown) {
+			t.Errorf("review prompt shows a Requirement's contract capture (%q):\n%s", shown, got)
+		}
 	}
 }
 
@@ -405,9 +414,9 @@ func TestReviewPromptEndsTestParsimonyWithTheGatesTestCost(t *testing.T) {
 			},
 		},
 		{
-			name: "exceeded budget on stderr",
+			name: "check-changed exceeded line is no budget line",
 			gate: exceeded,
-			want: []string{"- check-changed: exceeded 240s budget (Go tests was running)"},
+			want: []string{"- no budget lines"},
 		},
 		{
 			name: "output without budget lines",

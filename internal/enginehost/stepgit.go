@@ -5,10 +5,14 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os/exec"
 	"slices"
+	"strconv"
 	"strings"
+
+	"github.com/joshsymonds/orrery/internal/store"
 )
 
 // stepCheck is one verdict on a step's done return.
@@ -287,4 +291,68 @@ func stepGitNULRecords(out string) []string {
 		}
 	}
 	return records
+}
+
+// stepGitLines returns the line counts of the diff from start to commit in dir: the files it changes, and the lines it
+// adds and removes. Each NUL-terminated numstat record is one file, and a binary file's record, with - for both counts,
+// is a file with no lines. start and commit resolve as stepGitOwnedCheck resolves them. An empty or unresolvable commit
+// is an error, and so is a malformed record.
+func stepGitLines(ctx context.Context, dir, start, commit string) (store.StepLines, error) {
+	if commit == "" {
+		return store.StepLines{}, errors.New("commit is empty")
+	}
+	from, err := stepGitResolve(ctx, dir, start)
+	if err != nil {
+		return store.StepLines{}, fmt.Errorf("start %q does not resolve: %w", start, err)
+	}
+	to, err := stepGitResolve(ctx, dir, commit)
+	if err != nil {
+		return store.StepLines{}, fmt.Errorf("commit %q does not resolve: %w", commit, err)
+	}
+	out, err := stepGit(ctx, dir, "diff", "--numstat", "-z", "--no-renames", from, to)
+	if err != nil {
+		return store.StepLines{}, fmt.Errorf("diff %s %s: %w", from, to, err)
+	}
+	records := stepGitNULRecords(out)
+	lines := store.StepLines{Counted: true, Files: int64(len(records))}
+	for _, rec := range records {
+		var added, removed int64
+		if added, removed, err = stepGitNumstat(rec); err != nil {
+			return store.StepLines{}, fmt.Errorf("diff %s %s: %w", from, to, err)
+		}
+		lines.Added += added
+		lines.Removed += removed
+	}
+	return lines, nil
+}
+
+// stepGitNumstatFields is the number of fields in a numstat record: added, removed and the path.
+const stepGitNumstatFields = 3
+
+// stepGitNumstat returns the lines a numstat record, added<TAB>removed<TAB>path, adds and removes. A binary file's
+// record has - for both counts and adds none. A record of any other shape, or with no path, is malformed.
+func stepGitNumstat(rec string) (added, removed int64, err error) {
+	fields := strings.SplitN(rec, "\t", stepGitNumstatFields)
+	if len(fields) != stepGitNumstatFields || fields[2] == "" {
+		return 0, 0, fmt.Errorf("malformed numstat record %q", rec)
+	}
+	if fields[0] == "-" && fields[1] == "-" {
+		return 0, 0, nil
+	}
+	if added, err = stepGitCount(fields[0]); err != nil {
+		return 0, 0, fmt.Errorf("malformed numstat record %q: %w", rec, err)
+	}
+	if removed, err = stepGitCount(fields[1]); err != nil {
+		return 0, 0, fmt.Errorf("malformed numstat record %q: %w", rec, err)
+	}
+	return added, removed, nil
+}
+
+// stepGitCount returns the line count field of a numstat record, which is a non-negative integer.
+func stepGitCount(field string) (int64, error) {
+	n, err := strconv.ParseInt(field, 10, 64)
+	if err != nil || n < 0 {
+		return 0, fmt.Errorf("%q is not a line count", field)
+	}
+	return n, nil
 }

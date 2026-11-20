@@ -12,10 +12,6 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// verdictNoRoundReason is the gate_failed reason a return that holds every assertion ends with when an earlier return,
-// one that was no round, held fails on verdictTestMust.
-const verdictNoRoundReason = "an earlier return held fails: " + verdictTestMust
-
 // verdictNoRoundFails returns a schema-valid verdict return whose first assertion fails, with its finding.
 func verdictNoRoundFails(t *testing.T) json.RawMessage {
 	t.Helper()
@@ -122,7 +118,7 @@ func newVerdictWatchFixture(t *testing.T, haiku haikuCaller) *watchLoopFixture {
 	return f
 }
 
-func TestVerdictNoRoundFailsLatchesBeforeOwnerNudge(t *testing.T) {
+func TestVerdictNoRoundFailsLastReturnStandsBeforeOwnerNudge(t *testing.T) {
 	t.Parallel()
 	f := newVerdictFixture(t, nil)
 	_, done := f.start(t)
@@ -139,13 +135,37 @@ func TestVerdictNoRoundFailsLatchesBeforeOwnerNudge(t *testing.T) {
 		t.Fatalf("continues = %q, want the owner's nudge only", got)
 	}
 	row := f.row(t)
-	if row.End != stepLoopEndGateFailed || row.Reason != verdictNoRoundReason {
-		t.Fatalf("end = %q reason %q, want gate_failed with reason %q", row.End, row.Reason, verdictNoRoundReason)
+	if row.End != stepLoopEndDone || row.Reason != "" {
+		t.Fatalf("end = %q reason %q, want done with no reason", row.End, row.Reason)
 	}
 	verdictNoRoundWantRoundOne(t, row)
 }
 
-func TestVerdictNoRoundFailsLatchesAroundHold(t *testing.T) {
+func TestVerdictNoRoundLastReturnStandsWhenItFails(t *testing.T) {
+	t.Parallel()
+	f := newVerdictFixture(t, nil)
+	_, done := f.start(t)
+	f.run.Event(session.Started{})
+	if err := f.run.do(t.Context(), verdictNoRoundNudge(f.run)); err != nil {
+		t.Fatalf("owner nudge: %v", err)
+	}
+
+	f.run.Return(session.TurnEnded{StructuredOutput: verdictNoRoundFails(t)})
+	f.run.Return(session.TurnEnded{StructuredOutput: verdictNoRoundFails(t)})
+	waitRunEnd(t, done)
+
+	if got := f.sessions.continuedTexts(); !reflect.DeepEqual(got, []string{"carry on"}) {
+		t.Fatalf("continues = %q, want the owner's nudge only", got)
+	}
+	row := f.row(t)
+	if row.End != stepLoopEndGateFailed || row.Reason != "fails: "+verdictTestMust {
+		t.Fatalf("end = %q reason %q, want gate_failed with reason %q", row.End, row.Reason,
+			"fails: "+verdictTestMust)
+	}
+	verdictNoRoundWantRoundOne(t, row)
+}
+
+func TestVerdictNoRoundFailsLastReturnStandsAroundHold(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		name string
@@ -185,16 +205,15 @@ func TestVerdictNoRoundFailsLatchesAroundHold(t *testing.T) {
 				t.Fatalf("continues = %q, want the owner's nudge only", got)
 			}
 			row := f.row(t)
-			if row.End != stepLoopEndGateFailed || row.Reason != verdictNoRoundReason {
-				t.Fatalf("end = %q reason %q, want gate_failed with reason %q",
-					row.End, row.Reason, verdictNoRoundReason)
+			if row.End != stepLoopEndDone || row.Reason != "" {
+				t.Fatalf("end = %q reason %q, want done with no reason", row.End, row.Reason)
 			}
 			verdictNoRoundWantRoundOne(t, row)
 		})
 	}
 }
 
-func TestVerdictNoRoundFailsLatchesAtWatchdogNudge(t *testing.T) {
+func TestVerdictNoRoundFailsLastReturnStandsAtWatchdogNudge(t *testing.T) {
 	t.Parallel()
 	haiku := &watchLoopHaiku{replies: []watchLoopReply{watchLoopVerdict(watchVerdictLooping, watchLoopDoing)}}
 	f := newVerdictWatchFixture(t, haiku)
@@ -208,8 +227,8 @@ func TestVerdictNoRoundFailsLatchesAtWatchdogNudge(t *testing.T) {
 	f.event(5*time.Minute, session.Started{})
 	f.turnEnd(6*time.Minute, session.TurnEnded{StructuredOutput: verdictNoRoundHolds(t)})
 	row := f.waitEnd(t)
-	if row.End != stepLoopEndGateFailed || row.Reason != verdictNoRoundReason {
-		t.Fatalf("end = %q reason %q, want gate_failed with reason %q", row.End, row.Reason, verdictNoRoundReason)
+	if row.End != stepLoopEndDone || row.Reason != "" {
+		t.Fatalf("end = %q reason %q, want done with no reason", row.End, row.Reason)
 	}
 	verdictNoRoundWantRoundOne(t, row)
 }

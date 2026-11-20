@@ -116,10 +116,10 @@ func TestTaskVersionEvidenceChangeAppliedWhenRedDoesNotHold(t *testing.T) {
 	}
 }
 
-// TestTaskVersionEvidenceChangeRefusedWhenRedHolds: a red run whose conclusion holds at the base refuses the checking
-// version. The task keeps version 1 and its evidence and its earlier red run, and is back at implement with its failure
-// ending in the refusal. The task stays open.
-func TestTaskVersionEvidenceChangeRefusedWhenRedHolds(t *testing.T) {
+// TestTaskVersionEvidenceChangeAppliesWhenRedHolds: a red run whose conclusion holds at the base does not refuse the
+// checking version. Red is not a gate, so the version applies, and the red outcome is a note on the task's build: the
+// note lands first, and the version settles on the next pass. The task stays open.
+func TestTaskVersionEvidenceChangeAppliesWhenRedHolds(t *testing.T) {
 	t.Parallel()
 	f := newRequestFixture(t)
 	f.carryRerun(redCheckRerun(t))
@@ -127,22 +127,21 @@ func TestTaskVersionEvidenceChangeRefusedWhenRedHolds(t *testing.T) {
 	addCheckingRun(f, red, evidence.VerdictHolds)
 
 	f.pass()
+	f.pass()
 	task := f.task()
-	if want := passPlan().Tasks[0].Evidence.Conclusion; task.Version != 1 || task.Evidence.Conclusion != want {
-		t.Errorf("task at version %d with evidence %q, want the planner's version 1 with %q", task.Version,
+	if want := redCheckItem().Conclusion; task.Version != 2 || task.Evidence.Conclusion != want {
+		t.Errorf("task at version %d with evidence %q, want version 2 with %q", task.Version,
 			task.Evidence.Conclusion, want)
 	}
-	const refusal = "red: the conclusion holds at the base"
-	if len(task.Versions) != 1 || task.Versions[0].State != store.VersionRefused ||
-		task.Versions[0].Refusal != refusal {
-		t.Errorf("Versions = %+v, want version 2 refused for %q", task.Versions, refusal)
+	if len(task.Versions) != 1 || task.Versions[0].State != store.VersionApplied {
+		t.Errorf("Versions = %+v, want version 2 applied", task.Versions)
 	}
-	if want := passRunID(StageRed, 0); task.Build.Stage != StageImplement || task.Build.RedRun != want {
-		t.Errorf("build stage %q red run %q, want implement with the earlier red run %s", task.Build.Stage,
-			task.Build.RedRun, want)
+	if task.Build.Stage != StageImplement || task.Build.RedRun != red {
+		t.Errorf("build stage %q red run %q, want implement with the red run %s", task.Build.Stage,
+			task.Build.RedRun, red)
 	}
-	if want := "orreryd refused version 2 of the spec: " + refusal; !strings.HasSuffix(task.Build.Failure, want) {
-		t.Errorf("Build.Failure = %q, want it to end with %q", task.Build.Failure, want)
+	if len(task.Notes) != 1 || !strings.HasPrefix(task.Notes[0], taskLabel(task.Seq)+" red: the conclusion holds") {
+		t.Errorf("notes = %q, want the red run's note", task.Notes)
 	}
 	if task.Status != taskOpen {
 		t.Errorf("task status %q, want open", task.Status)

@@ -25,7 +25,7 @@ const (
 	epicReasonArgvClustered = "holds white space after %s, and only -c exempts it: write the flags apart, as %s"
 )
 
-// The reasons a release step refusal gives after its field. The version reason takes the version the step names.
+// The reasons a release step warning gives after its field. The version reason takes the version the step names.
 const (
 	epicReasonReleaseMerge   = "says merge: a release step fast-forwards main to the release candidate; write fast-forward"
 	epicReasonReleaseVersion = "names the fixed version %s: a release step's tag is chosen when the step runs; " +
@@ -39,43 +39,55 @@ var errShellQuote = errors.New("quote not closed")
 // clusteredFlagPattern matches a short flag cluster: a dash and two or more letters.
 var clusteredFlagPattern = regexp.MustCompile(`^-[A-Za-z]{2,}$`)
 
-// checkContractLint returns the first refusal of wording that would strand the epic when it runs. It runs after every
-// other check of checkEpic, so each element it reads has passed them. It checks the argv elements of the gates in
-// order, then those of each requirement's capture. Once they pass, it refuses the first go test in the captures, in
-// order, whose -run pattern matches a test at the base. It reads the words of each line after -c that
-// checkArgvElements split, and splits no line again. Last, it refuses the first release step, in order, whose text
-// says merge, names a fixed version or waits on CI.
-func checkContractLint(ctx context.Context, contract *v1.EpicContract) error {
+// checkContractLint returns the first refusal of an argv element the shell or the splitter would misread. It runs after
+// every other check of checkEpic, so each element it reads has passed them. It checks the argv elements of the gates in
+// order, then those of each requirement's capture.
+func checkContractLint(contract *v1.EpicContract) error {
 	for i, gate := range contract.GetGates() {
 		if _, err := checkArgvElements(fmt.Sprintf("gates[%d].argv", i), gate.GetArgv()); err != nil {
 			return err
 		}
 	}
-	requirements := contract.GetRequirements()
-	captureLines := make([][][]string, len(requirements))
-	for i, requirement := range requirements {
-		lines, err := checkArgvElements(
+	for i, requirement := range contract.GetRequirements() {
+		if _, err := checkArgvElements(
 			fmt.Sprintf("requirements[%d].item.capture", i), requirement.GetItem().GetCapture(),
-		)
-		if err != nil {
+		); err != nil {
 			return err
 		}
-		captureLines[i] = lines
 	}
+	return nil
+}
+
+// contractLintWarnings returns the warnings the lint gives a contract that checkEpic passes, in order: one for each go
+// test in a capture whose -run pattern matches a test at the base, then one for each release step whose text says
+// merge, names a fixed version or waits on CI. Each names its field and reason. It runs after checkContractLint, so each
+// argv element it reads has passed it. A git failure reading a go test's package is returned, so no check passes on it.
+func contractLintWarnings(ctx context.Context, contract *v1.EpicContract) ([]string, error) {
 	base, err := stepGitResolve(ctx, contract.GetRepository(), contract.GetBase())
 	if err != nil {
-		return err
+		return nil, err
 	}
-	for i, requirement := range requirements {
+	var warnings []string
+	for i, requirement := range contract.GetRequirements() {
 		list := fmt.Sprintf("requirements[%d].item.capture", i)
 		argv := requirement.GetItem().GetCapture()
-		for _, args := range goTestArgs(argv, captureLines[i]) {
-			if refused := checkGoTestArgs(ctx, contract.GetRepository(), base, list, args); refused != nil {
-				return refused
+		var lines [][]string
+		lines, err = checkArgvElements(list, argv)
+		if err != nil {
+			return nil, err
+		}
+		for _, args := range goTestArgs(argv, lines) {
+			var warning string
+			warning, err = goTestWarning(ctx, contract.GetRepository(), base, list, args)
+			if err != nil {
+				return nil, err
+			}
+			if warning != "" {
+				warnings = append(warnings, warning)
 			}
 		}
 	}
-	return checkReleaseSteps(contract.GetReleaseSteps())
+	return append(warnings, releaseStepWarnings(contract.GetReleaseSteps())...), nil
 }
 
 // The patterns of a release step's text. The merge and CI rules match whole words; the version rule matches a
@@ -87,19 +99,20 @@ var (
 	releaseCIPattern      = regexp.MustCompile(`\bCI\b`)
 )
 
-// checkReleaseSteps returns the first refusal of a release step whose text says merge, names a fixed version or waits
-// on CI, in the order of the steps.
-func checkReleaseSteps(steps []*v1.EpicReleaseStep) error {
+// releaseStepWarnings returns a warning for each release step whose text says merge, names a fixed version or waits on
+// CI, in the order of the steps.
+func releaseStepWarnings(steps []*v1.EpicReleaseStep) []string {
+	var warnings []string
 	for i, step := range steps {
 		if reason := releaseStepReason(step.GetStep()); reason != "" {
-			return &epicFieldError{field: epicRowField("release_steps", i, "step"), reason: reason}
+			warnings = append(warnings, fmt.Sprintf("%s: %s", epicRowField("release_steps", i, "step"), reason))
 		}
 	}
-	return nil
+	return warnings
 }
 
-// releaseStepReason returns the reason a release step's text is refused, or "" when it passes. The rules run in
-// order, and the first one that matches gives the reason.
+// releaseStepReason returns the reason a release step's text is warned, or "" when it passes. The rules run in order,
+// and the first one that matches gives the reason.
 func releaseStepReason(text string) string {
 	if releaseMergePattern.MatchString(text) {
 		return epicReasonReleaseMerge
@@ -384,37 +397,35 @@ func goTestFuncsAtBase(ctx context.Context, repo, base string, scope goTestScope
 	return funcs, nil
 }
 
-// checkGoTestArgs returns the refusal of one go test whose arguments are args, when its -run pattern matches a Test
-// function at base in the packages it names. It accepts the go test when its pattern or a package is not literal, or
-// when the top-level element of the pattern does not compile.
-func checkGoTestArgs(ctx context.Context, repo, base, list string, args []string) error {
+// goTestWarning returns the warning of one go test whose arguments are args, when its -run pattern matches a Test
+// function at base in the packages it names, and "" when it does not. It gives no warning when its pattern or a package
+// is not literal, or when the top-level element of the pattern does not compile.
+func goTestWarning(ctx context.Context, repo, base, list string, args []string) (string, error) {
 	call := parseGoTestArgs(args)
 	if !call.hasRun || shellExpansion.MatchString(call.pattern) {
-		return nil
+		return "", nil
 	}
 	matcher, compiles := topLevelMatcher(call.pattern)
 	if !compiles {
-		return nil
+		return "", nil
 	}
 	scopes, literal := goTestScopes(call.packages)
 	if !literal {
-		return nil
+		return "", nil
 	}
 	for _, scope := range scopes {
 		funcs, err := goTestFuncsAtBase(ctx, repo, base, scope)
 		if err != nil {
-			return err
+			return "", err
 		}
 		for _, fn := range funcs {
 			if matcher.MatchString(fn.name) {
-				return &epicFieldError{field: list, reason: fmt.Sprintf(
-					"-run pattern %q matches %s in %s at the base: name a new top-level test",
-					call.pattern, fn.name, displayDir(path.Dir(fn.file)),
-				)}
+				return fmt.Sprintf("%s: -run pattern %q matches %s in %s at the base: name a new top-level test",
+					list, call.pattern, fn.name, displayDir(path.Dir(fn.file))), nil
 			}
 		}
 	}
-	return nil
+	return "", nil
 }
 
 // topLevelMatcher returns the matcher of the top-level element of a -run pattern, and false when that element does not

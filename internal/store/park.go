@@ -17,8 +17,8 @@ const (
 	ParkClassRefMove ParkClass = "ref_move"
 	// ParkClassMetAtBase is a Requirement the evidence found met at the epic's base.
 	ParkClassMetAtBase ParkClass = "met_at_base"
-	// ParkClassOrchestrator is an orchestrator unable to run: its role or agent does not resolve, three planner turns
-	// failed in a row, or its pinned workflow does not load.
+	// ParkClassOrchestrator is an orchestrator unable to run: its role or agent does not resolve, or its pinned workflow
+	// does not load.
 	ParkClassOrchestrator ParkClass = "orchestrator"
 	// ParkClassRetryBound is a planner park that came back after two planner actions on its chain. The planner is not
 	// woken again for it: the owner answers it.

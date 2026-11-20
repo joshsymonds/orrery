@@ -64,6 +64,20 @@ func taskKind(taskType, subagentType string) string {
 	return "shell"
 }
 
+// awaitedTaskType reports whether a background task of taskType runs a model: an agent, a workflow or a teammate. A
+// step waits for such a task, since its end starts a turn of claude's own whose return is the one that counts. A shell
+// task, which a Monitor's watch is too, is not waited for: a step whose turn returns while only shell tasks are listed has
+// returned, and its stop ends them.
+func awaitedTaskType(taskType string) bool {
+	return strings.HasSuffix(taskType, "agent") || strings.HasSuffix(taskType, "workflow") ||
+		strings.HasSuffix(taskType, "teammate")
+}
+
+// awaitsTask reports whether tasks lists a task that runs a model (see awaitedTaskType).
+func awaitsTask(tasks []session.BackgroundTask) bool {
+	return slices.ContainsFunc(tasks, func(task session.BackgroundTask) bool { return awaitedTaskType(task.TaskType) })
+}
+
 // taskEndStatus is the status an engine task records when its message reports the terminal status the wire gives.
 func taskEndStatus(status string) string {
 	switch status {
@@ -350,6 +364,51 @@ func requestQuestion(ev session.Request) string {
 	}
 }
 
+// requestChoices returns the option labels an open headless request offers and the id it is answered by: allow and
+// deny for a permission request, and the labels of the only question of a question request that is not multiSelect.
+// Any other event, a refused or answered request, and a request of another shape offers none, and so does a question
+// with no options. The shapes mirror the ones the server answers by.
+func requestChoices(event session.Event) (options []string, request string) {
+	ev, ok := event.(session.Request)
+	if !ok || ev.Refused || ev.Answered {
+		return nil, ""
+	}
+	switch ev.Kind {
+	case session.RequestPermission:
+		return []string{"allow", "deny"}, ev.RequestID
+	case session.RequestQuestion:
+		options = singleChoiceLabels(ev.Input)
+		if len(options) == 0 {
+			return nil, ""
+		}
+		return options, ev.RequestID
+	default:
+		return nil, ""
+	}
+}
+
+// singleChoiceLabels returns the option labels, in order, of an AskUserQuestion input that has exactly one question
+// and that question is not multiSelect. Any other input, or one that does not decode, has none.
+func singleChoiceLabels(input json.RawMessage) []string {
+	var fields struct {
+		Questions []struct {
+			MultiSelect bool `json:"multiSelect"`
+			Options     []struct {
+				Label string `json:"label"`
+			} `json:"options"`
+		} `json:"questions"`
+	}
+	if err := json.Unmarshal(input, &fields); err != nil || len(fields.Questions) != 1 ||
+		fields.Questions[0].MultiSelect {
+		return nil
+	}
+	var labels []string
+	for _, option := range fields.Questions[0].Options {
+		labels = append(labels, option.Label)
+	}
+	return labels
+}
+
 // eventNotice returns the state and body of the notice event sends the owner, and whether it sends one. reply is the
 // text of the turn's last finished main-conversation text block, and interrupted reports that the turn was interrupted
 // through Interrupt, so its end sends nothing.
@@ -387,7 +446,8 @@ func mainText(event session.Event) (string, bool) {
 
 // consumedOf returns the EngineConsumed that stores the offset of line for session id, and whether line holds a
 // TurnEnded. The offset is the line's End. A line holding a TurnEnded also stores that End as the replay-from and the
-// turn's structured output, and a line holding BackgroundTasks stores whether its last report lists a task.
+// turn's structured output, and a line holding BackgroundTasks stores whether its last report lists a task and whether it
+// lists one that runs a model (see awaitsTask).
 func consumedOf(id string, line session.Line) (store.EngineConsumed, bool) {
 	consumed := store.EngineConsumed{ID: id, Consumed: line.End}
 	ended := false
@@ -400,8 +460,8 @@ func consumedOf(id string, line session.Line) (store.EngineConsumed, bool) {
 			consumed.Output = &output
 			ended = true
 		case session.BackgroundTasks:
-			background := len(ev.Tasks) > 0
-			consumed.Background = &background
+			background, awaited := len(ev.Tasks) > 0, awaitsTask(ev.Tasks)
+			consumed.Background, consumed.Awaited = &background, &awaited
 		}
 	}
 	return consumed, ended

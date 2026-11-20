@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"syscall"
@@ -93,7 +94,7 @@ func requireResumed(t *testing.T, s *store.Store, path, id, dir string, sink *fa
 		t.Fatalf("prompts of session %s = %q, want the last to be Resume working.", id, texts)
 	}
 	want := Notice{Session: id, Dir: dir, State: "interrupted", Body: "orreryd restarted during the turn; resumed it"}
-	if got := sink.got(); len(got) != 1 || got[0] != want {
+	if got := sink.got(); len(got) != 1 || !reflect.DeepEqual(got[0], want) {
 		t.Fatalf("notices after the restart = %+v, want exactly [%+v]", got, want)
 	}
 	waittest.Until(t, nil, "the fake claude to start with --resume session_1", func() bool {
@@ -141,7 +142,7 @@ func TestReconcileDoesNotResumeWaitingRow(t *testing.T) {
 		"waiting": {state: "interrupted", reason: restartedReason},
 	})
 	want := Notice{Session: "waiting", Dir: dir, State: "interrupted", Body: restartedReason}
-	if got := sink.got(); len(got) != 1 || got[0] != want {
+	if got := sink.got(); len(got) != 1 || !reflect.DeepEqual(got[0], want) {
 		t.Fatalf("notices = %+v, want exactly [%+v]", got, want)
 	}
 	if starts := fakeStarts(t, dir); len(starts) != 0 {
@@ -174,7 +175,7 @@ func TestReconcileDoesNotResumeTurnResumedAlready(t *testing.T) {
 		"working": {state: "interrupted", reason: restartedReason},
 	})
 	want := Notice{Session: "working", Dir: dir, State: "interrupted", Body: restartedReason}
-	if got := sink.got(); len(got) != 1 || got[0] != want {
+	if got := sink.got(); len(got) != 1 || !reflect.DeepEqual(got[0], want) {
 		t.Fatalf("notices = %+v, want exactly [%+v]", got, want)
 	}
 	if starts := fakeStarts(t, dir); len(starts) != 0 {
@@ -235,7 +236,7 @@ func TestReconcileInterruptsWorkingRowWhenCapRefusesResume(t *testing.T) {
 			row.State, row.Reason)
 	}
 	want := Notice{Session: "working", Dir: dir, State: "interrupted", Body: restartedReason}
-	if got := sink.got(); len(got) != 1 || got[0] != want {
+	if got := sink.got(); len(got) != 1 || !reflect.DeepEqual(got[0], want) {
 		t.Fatalf("notices = %+v, want exactly [%+v]", got, want)
 	}
 	if starts := fakeStarts(t, dir); len(starts) != 0 {
@@ -269,7 +270,7 @@ func TestReconcileNotifiesOnlyFailureWhenResumeFails(t *testing.T) {
 		t.Fatalf("row after the failed resume = state %q reason %q, want failed with a reason", row.State, row.Reason)
 	}
 	want := Notice{Session: "working", Dir: dir, State: "failed", Body: row.Reason}
-	if got := sink.got(); len(got) != 1 || got[0] != want {
+	if got := sink.got(); len(got) != 1 || !reflect.DeepEqual(got[0], want) {
 		t.Fatalf("notices = %+v, want exactly [%+v]", got, want)
 	}
 }
@@ -341,7 +342,7 @@ func TestDrainOfOpenQuestionInSpoolIsNotResumed(t *testing.T) {
 	})
 	got := sink.got()
 	want := Notice{Session: id, Dir: dir, State: "interrupted", Body: restartedReason}
-	if len(got) == 0 || got[len(got)-1] != want {
+	if len(got) == 0 || !reflect.DeepEqual(got[len(got)-1], want) {
 		t.Fatalf("notices after the restart = %+v, want the last to be [%+v]", got, want)
 	}
 	if starts := fakeStarts(t, dir); len(starts) != 1 {

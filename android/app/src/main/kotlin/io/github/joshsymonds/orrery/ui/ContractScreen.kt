@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -17,11 +16,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.unit.dp
 import io.github.joshsymonds.orrery.api.EpicContractRow
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicRequirementRow
 import io.github.joshsymonds.orrery.api.OrreryClient
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
+import io.github.joshsymonds.orrery.ui.theme.inLabelCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.IOException
@@ -43,86 +43,86 @@ fun ContractBody(
     val accepted = Instant.ofEpochSecond(contract.accepted).atZone(ZoneId.systemDefault()).format(CLOCK_TIME)
     LazyColumn(
         modifier = modifier.testTag("contract-body"),
-        contentPadding = PaddingValues(16.dp),
+        contentPadding = PaddingValues(OrreryTokens.Space.sixteen),
     ) {
-        item { Text(contract.title, style = MaterialTheme.typography.titleLarge) }
-        item { Text(contract.approved, style = MaterialTheme.typography.bodySmall) }
+        item { Text(contract.title, style = OrreryTokens.Type.display) }
+        item { Text(contract.approved, style = OrreryTokens.Type.small) }
 
         heading(0, "What you asked for")
-        item { Text(contract.intent, style = MaterialTheme.typography.bodyMedium) }
+        item { Text(contract.intent, style = OrreryTokens.Type.body) }
 
         heading(1, "What could go wrong, and how much we care")
         items(contract.failures) { failure ->
-            Column(modifier = Modifier.padding(vertical = 4.dp)) {
-                Text(failure.id, style = MaterialTheme.typography.labelMedium)
-                Text(failure.text, style = MaterialTheme.typography.bodyMedium)
-                Text(failure.rating, style = MaterialTheme.typography.labelMedium)
-                Text(failure.response, style = MaterialTheme.typography.bodySmall)
+            Column(modifier = Modifier.padding(vertical = OrreryTokens.Space.four)) {
+                Text(failure.id, style = OrreryTokens.Type.small)
+                Text(failure.text, style = OrreryTokens.Type.body)
+                Text(failure.rating, style = OrreryTokens.Type.small)
+                Text(failure.response, style = OrreryTokens.Type.small)
             }
         }
-        item { Text(contract.care, style = MaterialTheme.typography.bodyMedium) }
+        item { Text(contract.care, style = OrreryTokens.Type.body) }
 
         heading(2, "Things you did not ask for")
         if (contract.additions.isEmpty()) {
-            item { Text("None", style = MaterialTheme.typography.bodyMedium) }
+            item { Text("None", style = OrreryTokens.Type.body) }
         } else {
             items(contract.additions) { addition ->
-                Column(modifier = Modifier.padding(vertical = 4.dp)) {
-                    Text(addition.location, style = MaterialTheme.typography.labelMedium)
-                    Text(addition.what, style = MaterialTheme.typography.bodyMedium)
-                    Text(addition.why, style = MaterialTheme.typography.bodySmall)
-                    Text(addition.cost, style = MaterialTheme.typography.bodySmall)
+                Column(modifier = Modifier.padding(vertical = OrreryTokens.Space.four)) {
+                    Text(addition.location, style = OrreryTokens.Type.small)
+                    Text(addition.what, style = OrreryTokens.Type.body)
+                    Text(addition.why, style = OrreryTokens.Type.small)
+                    Text(addition.cost, style = OrreryTokens.Type.small)
                 }
             }
         }
 
         heading(3, "What will be true when done")
         items(requirements) { requirement ->
-            Column(modifier = Modifier.padding(vertical = 4.dp)) {
-                Text(requirement.id, style = MaterialTheme.typography.labelMedium)
-                Text(requirement.text, style = MaterialTheme.typography.bodyMedium)
-                Text(requirement.evidence, style = MaterialTheme.typography.bodySmall)
+            Column(modifier = Modifier.padding(vertical = OrreryTokens.Space.four)) {
+                Text(requirement.id, style = OrreryTokens.Type.small)
+                Text(requirement.text, style = OrreryTokens.Type.body)
+                Text(requirement.evidence, style = OrreryTokens.Type.small)
             }
         }
 
         heading(4, "What I'm assuming")
         items(contract.premises) { premise ->
-            Column(modifier = Modifier.padding(vertical = 4.dp)) {
-                Text(premise.id, style = MaterialTheme.typography.labelMedium)
-                Text(premise.text, style = MaterialTheme.typography.bodyMedium)
-                Text(premise.ifWrong, style = MaterialTheme.typography.bodySmall)
+            Column(modifier = Modifier.padding(vertical = OrreryTokens.Space.four)) {
+                Text(premise.id, style = OrreryTokens.Type.small)
+                Text(premise.text, style = OrreryTokens.Type.body)
+                Text(premise.ifWrong, style = OrreryTokens.Type.small)
             }
         }
 
         heading(5, "What we won't do")
         items(contract.exclusions) { exclusion ->
-            Text(exclusion, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(vertical = 4.dp))
+            Text(exclusion, style = OrreryTokens.Type.body, modifier = Modifier.padding(vertical = OrreryTokens.Space.four))
         }
 
         heading(6, "How, and why not the other ways")
-        item { Text(contract.approach, style = MaterialTheme.typography.bodyMedium) }
+        item { Text(contract.approach, style = OrreryTokens.Type.body) }
         items(contract.alternatives) { alternative ->
-            Column(modifier = Modifier.padding(vertical = 4.dp)) {
-                Text(alternative.alternative, style = MaterialTheme.typography.bodyMedium)
-                Text(alternative.whyNot, style = MaterialTheme.typography.bodySmall)
-                Text(alternative.reconsider, style = MaterialTheme.typography.bodySmall)
+            Column(modifier = Modifier.padding(vertical = OrreryTokens.Space.four)) {
+                Text(alternative.alternative, style = OrreryTokens.Type.body)
+                Text(alternative.whyNot, style = OrreryTokens.Type.small)
+                Text(alternative.reconsider, style = OrreryTokens.Type.small)
             }
         }
 
         heading(7, "What leaves this machine or can't be undone")
         items(contract.releaseSteps) { step ->
-            Column(modifier = Modifier.padding(vertical = 4.dp)) {
-                Text(step.step, style = MaterialTheme.typography.bodyMedium)
-                Text(step.target, style = MaterialTheme.typography.bodySmall)
-                Text(step.undo, style = MaterialTheme.typography.bodySmall)
+            Column(modifier = Modifier.padding(vertical = OrreryTokens.Space.four)) {
+                Text(step.step, style = OrreryTokens.Type.body)
+                Text(step.target, style = OrreryTokens.Type.small)
+                Text(step.undo, style = OrreryTokens.Type.small)
             }
         }
-        item { Text(contract.releaseThen, style = MaterialTheme.typography.bodyMedium) }
+        item { Text(contract.releaseThen, style = OrreryTokens.Type.body) }
 
         heading(8, "Checks the machines run")
-        item { Text(contract.checks, style = MaterialTheme.typography.bodyMedium) }
+        item { Text(contract.checks, style = OrreryTokens.Type.body) }
 
-        item { Text("accepted $accepted$base", style = MaterialTheme.typography.labelSmall) }
+        item { Text("accepted $accepted$base", style = OrreryTokens.Type.small.copy(fontWeight = OrreryTokens.Font.Weight.bold)) }
     }
 }
 
@@ -160,17 +160,17 @@ fun ContractScreen(
             onBack = onBack,
         )
         when (val current = load) {
-            ContractLoad.Loading -> Text("Loading...", modifier = Modifier.padding(16.dp))
+            ContractLoad.Loading -> Text("Loading...", modifier = Modifier.padding(OrreryTokens.Space.sixteen))
             ContractLoad.Failed -> Text(
                 "could not load epic",
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.padding(16.dp),
+                color = OrreryTokens.Role.bad,
+                modifier = Modifier.padding(OrreryTokens.Space.sixteen),
             )
-            ContractLoad.NotFound -> Text("epic not found", modifier = Modifier.padding(16.dp))
+            ContractLoad.NotFound -> Text("epic not found", modifier = Modifier.padding(OrreryTokens.Space.sixteen))
             is ContractLoad.Loaded -> {
                 val contract = current.detail.contract
                 if (contract == null) {
-                    Text("this epic has no contract", modifier = Modifier.padding(16.dp))
+                    Text("this epic has no contract", modifier = Modifier.padding(OrreryTokens.Space.sixteen))
                 } else {
                     ContractBody(
                         contract = contract,
@@ -193,9 +193,9 @@ private sealed interface ContractLoad {
 private fun LazyListScope.heading(index: Int, text: String) {
     item {
         Text(
-            text,
-            style = MaterialTheme.typography.titleSmall,
-            modifier = Modifier.padding(top = 16.dp).testTag("contract-heading:$index"),
+            text.inLabelCase(),
+            style = OrreryTokens.Type.label,
+            modifier = Modifier.padding(top = OrreryTokens.Space.sixteen).testTag("contract-heading:$index"),
         )
     }
 }

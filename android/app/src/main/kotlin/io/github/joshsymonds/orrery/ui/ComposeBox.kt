@@ -35,17 +35,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.res.ResourcesCompat
 import androidx.core.view.OneShotPreDrawListener
 import io.github.joshsymonds.orrery.R
 import io.github.joshsymonds.orrery.api.NoAnswerException
 import io.github.joshsymonds.orrery.api.OrreryClient
-import io.github.joshsymonds.orrery.ui.theme.Mocha
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -60,14 +57,13 @@ private const val COMPOSE_INPUT_TYPE =
 /** The field grows with its draft up to this many lines, then scrolls inside itself. */
 const val COMPOSE_MAX_LINES = 5
 
-private const val FIELD_TEXT_SP = 13.5f
-private const val FIELD_LINE_SPACING = 1.4f
-private val FIELD_MIN_HEIGHT = 42.dp
-private val FIELD_PAD_H = 12.dp
-private val FIELD_PAD_V = 10.dp
-private val COMPOSER_SHAPE = RoundedCornerShape(14.dp)
-private val COMPOSER_PAD_V = 10.dp
-private const val FOCUSED_OUTLINE_ALPHA = 0.7f
+private val FIELD_TEXT_SP = OrreryTokens.Type.body.fontSize.value
+private val FIELD_LINE_SPACING = OrreryTokens.Type.body.lineHeight.value / OrreryTokens.Type.body.fontSize.value
+private val FIELD_MIN_HEIGHT = OrreryTokens.Size.controlTouch
+private val FIELD_PAD_H = OrreryTokens.Space.twelve
+private val FIELD_PAD_V = OrreryTokens.Space.eight + OrreryTokens.Space.two
+private val COMPOSER_SHAPE = RoundedCornerShape(OrreryTokens.Radius.three)
+private val COMPOSER_PAD_V = OrreryTokens.Space.eight + OrreryTokens.Space.two
 
 /**
  * Why a send left its draft in the field. [NOT_SENT] is a failed connection or an error answer, so
@@ -143,21 +139,30 @@ private fun ComposeDraft(
     val present = draft.isNotEmpty()
     LaunchedEffect(present) { draftPresent(present) }
     val outline = when (edge) {
-        ComposeEdge.IDLE -> if (focused) Mocha.Mauve.copy(alpha = FOCUSED_OUTLINE_ALPHA) else Mocha.Surface1
-        ComposeEdge.WORKING -> Mocha.Yellow
-        ComposeEdge.WAITING, ComposeEdge.HELD -> Mocha.Peach
+        ComposeEdge.IDLE -> if (focused) OrreryTokens.Role.focus else OrreryTokens.Line.firm
+        ComposeEdge.WORKING -> OrreryTokens.State.working
+        ComposeEdge.WAITING, ComposeEdge.HELD -> OrreryTokens.State.waiting
     }
     val edgeTag = "composer-edge:${edge.name.lowercase()}"
 
-    Column(modifier = modifier.testTag("composer").fillMaxWidth().background(Mocha.Mantle)) {
-        Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Mocha.Surface0))
+    Column(modifier = modifier.testTag("composer").fillMaxWidth().background(OrreryTokens.Surface.well)) {
+        Box(modifier = Modifier.fillMaxWidth().height(OrreryTokens.Size.hairline).background(OrreryTokens.Line.soft))
         status?.let { content ->
-            Box(modifier = Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 8.dp)) { content() }
+            Box(
+                modifier = Modifier.fillMaxWidth().padding(
+                    start = OrreryTokens.Space.eight + OrreryTokens.Space.two,
+                    end = OrreryTokens.Space.eight + OrreryTokens.Space.two,
+                    top = OrreryTokens.Space.eight,
+                ),
+            ) { content() }
         }
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = COMPOSER_PAD_V),
+            modifier = Modifier.fillMaxWidth().padding(
+                horizontal = OrreryTokens.Space.eight + OrreryTokens.Space.two,
+                vertical = COMPOSER_PAD_V,
+            ),
             verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
         ) {
             AndroidView(
                 modifier = Modifier
@@ -165,9 +170,9 @@ private fun ComposeDraft(
                     .testTag(edgeTag)
                     .heightIn(max = maxFieldHeight)
                     .clip(COMPOSER_SHAPE)
-                    .background(Mocha.Surface0)
+                    .background(OrreryTokens.Surface.raised)
                     .border(
-                        width = 1.dp,
+                        width = OrreryTokens.Size.rail,
                         color = outline,
                         shape = COMPOSER_SHAPE,
                     ),
@@ -180,8 +185,8 @@ private fun ComposeDraft(
                         typeface = ResourcesCompat.getFont(context, R.font.orrery_mono_regular)
                         setTextSize(TypedValue.COMPLEX_UNIT_SP, FIELD_TEXT_SP)
                         setLineSpacing(0f, FIELD_LINE_SPACING)
-                        setTextColor(Mocha.Text.toArgb())
-                        setHintTextColor(Mocha.Overlay0.toArgb())
+                        setTextColor(OrreryTokens.Ink.one.toArgb())
+                        setHintTextColor(OrreryTokens.Ink.four.toArgb())
                         setOnFocusChangeListener { _, hasFocus -> focused = hasFocus }
                         with(density) {
                             minHeight = FIELD_MIN_HEIGHT.roundToPx()
@@ -222,12 +227,12 @@ private fun ComposeDraft(
                 enabled = draft.isNotBlank() && !sending,
                 modifier = Modifier.height(FIELD_MIN_HEIGHT),
                 shape = COMPOSER_SHAPE,
-                contentPadding = PaddingValues(horizontal = 16.dp),
+                contentPadding = PaddingValues(horizontal = OrreryTokens.Space.sixteen),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = Mocha.Mauve,
-                    contentColor = Mocha.Crust,
-                    disabledContainerColor = Mocha.Surface0,
-                    disabledContentColor = Mocha.Overlay0,
+                    containerColor = OrreryTokens.Role.primary,
+                    contentColor = OrreryTokens.Ink.onAccent,
+                    disabledContainerColor = OrreryTokens.Surface.raised,
+                    disabledContentColor = OrreryTokens.Ink.three,
                 ),
                 onClick = {
                     val text = draft
@@ -254,7 +259,7 @@ private fun ComposeDraft(
                     }
                 },
             ) {
-                Text("Send", fontWeight = FontWeight.Bold)
+                Text("Send", style = OrreryTokens.Type.small.copy(fontWeight = OrreryTokens.Font.Weight.bold))
             }
         }
         failure?.let { reason ->
@@ -263,12 +268,15 @@ private fun ComposeDraft(
                     SendFailure.NOT_SENT -> "not sent"
                     SendFailure.NO_ANSWER -> "no answer — check before resending"
                 },
-                modifier = Modifier.padding(start = 14.dp, bottom = 6.dp),
+                modifier = Modifier.padding(
+                    start = OrreryTokens.Space.twelve + OrreryTokens.Space.two,
+                    bottom = OrreryTokens.Space.four + OrreryTokens.Space.two,
+                ),
                 color = when (reason) {
-                    SendFailure.NOT_SENT -> Mocha.Red
-                    SendFailure.NO_ANSWER -> Mocha.Yellow
+                    SendFailure.NOT_SENT -> OrreryTokens.Role.bad
+                    SendFailure.NO_ANSWER -> OrreryTokens.Ink.three
                 },
-                fontSize = 12.sp,
+                style = OrreryTokens.Type.small,
             )
         }
     }

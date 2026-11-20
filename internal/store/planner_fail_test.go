@@ -7,17 +7,12 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
 // failedAt is the second the failure and free tests stamp on an ended turn.
 func failedAt() time.Time {
 	return time.Unix(1700000700, 0)
 }
-
-// parkPrefix is the text a third failed turn in a row stores before its own reason.
-const parkPrefix = "3 planner turns failed in a row: "
 
 // triggerRows returns the epic_triggers rows of claimEpic: the created trigger and t2, each in state and turn.
 func triggerRows(state string, turn int64) [][]any {
@@ -36,18 +31,6 @@ func claimAndFail(t *testing.T, s *Store, reason string) {
 	}
 	if err := s.FailTurn(context.Background(), claimEpic, turn.Seq, reason, failedAt()); err != nil {
 		t.Fatalf("FailTurn of turn %d: %v", turn.Seq, err)
-	}
-}
-
-// claimAndFree claims a turn of claimEpic and ends it free with reason.
-func claimAndFree(t *testing.T, s *Store, reason string) {
-	t.Helper()
-	turn, err := s.ClaimTurn(context.Background(), claimEpic, claimedAt())
-	if err != nil {
-		t.Fatalf("ClaimTurn: %v", err)
-	}
-	if err := s.FreeTurn(context.Background(), claimEpic, turn.Seq, TurnFree{Reason: reason}, failedAt()); err != nil {
-		t.Fatalf("FreeTurn of turn %d: %v", turn.Seq, err)
 	}
 }
 
@@ -162,64 +145,7 @@ func TestFailTurnCapsTheReasonAtARuneBoundary(t *testing.T) {
 	}
 }
 
-func TestThreeFailedTurnsInARowParkTheEpicWithTheStoredReason(t *testing.T) {
-	t.Parallel()
-	s := openEpicStore(t)
-	const id = claimEpic
-	createEpic(t, s, fullEpic(id))
-	addPendingTrigger(t, s)
-
-	claimAndFail(t, s, "first failure")
-	claimAndFail(t, s, "second failure")
-	if _, parked := epicFlags(t, s); parked != "" {
-		t.Fatalf("parked after two failed turns = %q, want none", parked)
-	}
-
-	claimAndFail(t, s, "third failure")
-	if _, parked := epicFlags(t, s); parked != parkPrefix+"third failure" {
-		t.Errorf("parked after three failed turns = %q, want %q", parked, parkPrefix+"third failure")
-	}
-}
-
-func TestParkedReasonIsCappedAt1024BytesWithItsPrefix(t *testing.T) {
-	t.Parallel()
-	s := openEpicStore(t)
-	const id = claimEpic
-	createEpic(t, s, fullEpic(id))
-	addPendingTrigger(t, s)
-
-	claimAndFail(t, s, "first failure")
-	claimAndFail(t, s, "second failure")
-	claimAndFail(t, s, strings.Repeat("x", 2000))
-
-	// The 33-byte prefix leaves 991 bytes of the stored 1024-byte reason inside the 1024-byte park reason.
-	if _, parked := epicFlags(t, s); parked != parkPrefix+strings.Repeat("x", 991) {
-		t.Errorf("parked after three failed turns has %d bytes, want the prefix and 991 bytes of x", len(parked))
-	}
-}
-
-func TestFreeTurnBetweenFailuresNeitherResetsNorCountsTowardsThree(t *testing.T) {
-	t.Parallel()
-	s := openEpicStore(t)
-	const id = claimEpic
-	createEpic(t, s, fullEpic(id))
-	addPendingTrigger(t, s)
-
-	claimAndFail(t, s, "first failure")
-	claimAndFail(t, s, "second failure")
-	claimAndFree(t, s, "free turn")
-	if _, parked := epicFlags(t, s); parked != "" {
-		t.Fatalf("parked after two failed turns and a free turn = %q, want none", parked)
-	}
-
-	claimAndFail(t, s, "fourth failure")
-	if _, parked := epicFlags(t, s); parked != parkPrefix+"fourth failure" {
-		t.Errorf("parked after a free turn and a third failure = %q, want %q", parked,
-			parkPrefix+"fourth failure")
-	}
-}
-
-func TestSucceededTurnResetsTheFailureCount(t *testing.T) {
+func TestPlannerInfoThreeFailedTurnsInARowLeaveTheEpicUnparked(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
@@ -229,29 +155,29 @@ func TestSucceededTurnResetsTheFailureCount(t *testing.T) {
 
 	claimAndFail(t, s, "first failure")
 	claimAndFail(t, s, "second failure")
-	turn, err := s.ClaimTurn(ctx, id, claimedAt())
-	if err != nil {
-		t.Fatalf("ClaimTurn of the succeeding turn: %v", err)
-	}
-	if err := s.CompleteTurn(ctx, id, turn.Seq, plannedTurn(), completedAt()); err != nil {
-		t.Fatalf("CompleteTurn: %v", err)
-	}
-	if err := s.fixtureQueries().InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
-		Epic: id, ID: "t3", Cause: "later trigger", State: "pending", Turn: 0, Created: epicCreated().Unix(),
-	}); err != nil {
-		t.Fatalf("insert trigger t3: %v", err)
-	}
-
-	claimAndFail(t, s, "fourth failure")
-	claimAndFail(t, s, "fifth failure")
+	claimAndFail(t, s, "third failure")
 	if _, parked := epicFlags(t, s); parked != "" {
-		t.Fatalf("parked after a succeeded turn and two failed turns = %q, want none", parked)
+		t.Errorf("parked after three failed turns = %q, want unparked", parked)
+	}
+	if _, err := s.ClaimTurn(ctx, id, claimedAt().Add(time.Minute)); err != nil {
+		t.Errorf("ClaimTurn after three failed turns: %v, want the epic claimable", err)
 	}
 
-	claimAndFail(t, s, "sixth failure")
-	if _, parked := epicFlags(t, s); parked != parkPrefix+"sixth failure" {
-		t.Errorf("parked after three failed turns since the success = %q, want %q", parked,
-			parkPrefix+"sixth failure")
+	history, err := s.EpicHistory(ctx, id)
+	if err != nil {
+		t.Fatalf("EpicHistory: %v", err)
+	}
+	texts := make([]string, 0, len(history.Tells))
+	for _, tell := range history.Tells {
+		texts = append(texts, tell.Text)
+	}
+	want := []string{
+		"planner turn 1 failed: first failure",
+		"planner turn 2 failed: second failure",
+		"planner turn 3 failed: third failure",
+	}
+	if !reflect.DeepEqual(texts, want) {
+		t.Errorf("tells after three failed turns = %q, want %q", texts, want)
 	}
 }
 

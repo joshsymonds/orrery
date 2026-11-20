@@ -95,7 +95,9 @@ const apiErrorRateLimit = "rate_limit"
 // with commitChecks against start and owned in dir, without its owned check when unowned, and with gate when every
 // commit check passes and gate is set. gate
 // runs holding the members of grant that pools grants, and its check records gateName and gateSource; a nil pools fails
-// the gate. stateDir and scope are the state directory and the systemd-run scope the gate's holder runs under, and
+// the gate. countLines counts the lines a done return's commit changes from start in dir, and newStepRun makes it
+// stepGitLines when nil. stateDir and scope are the state directory and the systemd-run scope the gate's holder runs
+// under, and
 // scopeMemory is the scope's memory cap in bytes, zero for holder.DefaultScopeMemory. A read-only
 // step runs in dir too, and each of its returns is compared with checkout, the state its checkout was in at its start; a
 // moved checkout ends it checks_failed. A read-only step's done return passes on its schema check alone. A nil cleanup
@@ -133,6 +135,7 @@ type stepRunConfig struct {
 	start       string
 	owned       []string
 	unowned     bool
+	countLines  func(ctx context.Context, dir, start, commit string) (store.StepLines, error)
 	gate        []string
 	gateLimit   time.Duration
 	environ     []string
@@ -211,9 +214,6 @@ type stepRun struct {
 	// resumeGate is the gate a restored step's row stores as running: its grant and holder, and the round it runs in.
 	// runDoneGate re-adopts it in that round, and clears it then.
 	resumeGate store.StepGate
-	// firstFails is the first fails result of any schema-valid agent gate output that holds one, a round's return or a
-	// turn end that is no round, nil until one does. It is never cleared, so no return after it can end done.
-	firstFails *verdictResult
 	// ended is closed once finish has acted.
 	ended chan struct{}
 	// runDone is closed when run returns, so Return and Exited never wait on a run that will not drain them.
@@ -238,6 +238,9 @@ func newStepRun(cfg stepRunConfig) *stepRun {
 	}
 	if cfg.publish == nil {
 		cfg.publish = func(context.Context, string) {}
+	}
+	if cfg.countLines == nil {
+		cfg.countLines = stepGitLines
 	}
 	start := cfg.now()
 	return &stepRun{
@@ -368,12 +371,13 @@ func (r *stepRun) tick(ctx context.Context) bool {
 }
 
 // resume takes up a re-adopted step from restore. Its loop state is restored, and the watch's turn is marked running
-// when no turn end was found. A limited row is restored as limited, and its stored turn end is not handled again. A turn
-// end its latest return covers goes to resumeReturn. A turn end stored while a background task is listed is a return
-// only when it has the done value, as Manager.noteEvent hands one, so any other such turn end is left unread and the
-// step waits with no turn running, as a live step does. A stored latest return that is not done is likewise left open
-// while a step the run started runs, as resumeReturn leaves it (see awaitingChildren), so the step waits the same way.
-// Any other turn end is handled as one the session has just given. It reports whether the run goes on.
+// when no turn end was found. A limited row is restored as limited, and its stored turn end is not handled again. A
+// turn end its latest return covers goes to resumeReturn. A turn end stored while a background task that runs a model
+// is listed is a return only when it has the done value, as Manager.noteEvent hands one, so any other such turn end is
+// left unread and the step waits with no turn running, as a live step does. A stored latest return that is not done is
+// likewise left open while a step the run started runs, as resumeReturn leaves it (see awaitingChildren), so the step
+// waits the same way. Any other turn end is handled as one the session has just given. It reports whether the run goes
+// on.
 func (r *stepRun) resume(ctx context.Context, restore stepRestore) bool {
 	row := restore.Row
 	r.round = row.LoopRound
@@ -400,7 +404,7 @@ func (r *stepRun) resume(ctx context.Context, restore stepRestore) bool {
 		return true
 	case restore.Turn.Returned:
 		return r.resumeReturn(ctx, row)
-	case restore.Turn.Background && !r.Done(ended):
+	case restore.Turn.Awaited && !r.Done(ended):
 		return true
 	}
 	return r.turnEnded(ctx, ended)
@@ -462,11 +466,9 @@ func (r *stepRun) resumeReturn(ctx context.Context, row store.StepRow) bool {
 // step's resume, in the write of the prompt it sends (continueStep), so a restart before that write finds the nudge
 // still pending and the step still held, and sends it again. Any other turn end stores the clear before it goes on. A
 // held step's turn end is no round and continues nothing, unless an owner nudge is pending, which resumes the step with
-// it. An owner nudge
-// pending continues the step with it, error or not. A pending watchdog nudge is sent back with an error turn end. A turn end
-// that is no round latches its output's first fails for an agent gate step, as judge would latch a round's. A return that
-// is not done while a step the run started runs is left open, with no round (see awaitingChildren). Any other turn end is
-// the next round, which judge checks. It reports whether the run goes on.
+// it. An owner nudge pending continues the step with it, error or not. A pending watchdog nudge is sent back with an
+// error turn end. A return that is not done while a step the run started runs is left open, with no round (see
+// awaitingChildren). Any other turn end is the next round, which judge checks. It reports whether the run goes on.
 func (r *stepRun) turnEnded(ctx context.Context, ended session.TurnEnded) bool {
 	if limited, goOn := r.limitTurn(ctx); limited {
 		return goOn
@@ -474,7 +476,6 @@ func (r *stepRun) turnEnded(ctx context.Context, ended session.TurnEnded) bool {
 	nudge, owner := r.nudge, r.ownerNudge
 	r.nudge, r.ownerNudge = "", ""
 	if r.held.Load() {
-		r.latchNoRound(ended.StructuredOutput)
 		if owner == "" {
 			r.heldEnded = true
 			if nudge != "" {
@@ -487,11 +488,9 @@ func (r *stepRun) turnEnded(ctx context.Context, ended session.TurnEnded) bool {
 		return r.continueWith(ctx, StepPrompt{Text: joinNudges(nudge, owner), Sender: store.PromptSenderOwner})
 	}
 	if owner != "" {
-		r.latchNoRound(ended.StructuredOutput)
 		return r.continueWith(ctx, StepPrompt{Text: joinNudges(nudge, owner), Sender: store.PromptSenderOwner})
 	}
 	if nudge != "" && ended.IsError {
-		r.latchNoRound(ended.StructuredOutput)
 		return r.continueWith(ctx, StepPrompt{Text: nudge, Sender: store.PromptSenderEngine})
 	}
 	if nudge != "" {
@@ -685,6 +684,7 @@ func (r *stepRun) judge(ctx context.Context, round int, value json.RawMessage) b
 	}
 	var commit, gateDir string
 	var verdict verdictReturn
+	var lines *store.StepLines
 	if schemaErr == nil {
 		if err := json.Unmarshal(value, &head); err != nil {
 			r.finish(ctx, stepLoopEndFailed, "", fmt.Sprintf("read status of step %s: %v", r.id, err))
@@ -696,12 +696,13 @@ func (r *stepRun) judge(ctx context.Context, round int, value json.RawMessage) b
 			if checks, gateDir, ok = r.writingChecks(ctx, round, commit, checks); !ok {
 				return false
 			}
+			lines = r.countLinesOf(ctx, commit)
 		}
 	}
 	if schemaErr == nil {
 		checks, verdict = r.valueChecks(round, value, checks)
 	}
-	ret := store.StepReturn{ID: r.id, Result: string(value), Checks: checks}
+	ret := store.StepReturn{ID: r.id, Result: string(value), Checks: checks, Lines: lines}
 	if err := r.commitReturn(ctx, round, ret); err != nil {
 		r.finish(ctx, stepLoopEndFailed, "", fmt.Sprintf("record return of step %s: %v", r.id,
 			errors.Join(err, gateClear(ctx, gateDir))))
@@ -1041,6 +1042,21 @@ func (r *stepRun) stepLoopCommit(ctx context.Context, raw json.RawMessage) strin
 		return ""
 	}
 	return head
+}
+
+// countLinesOf returns the line counts of commit, the commit a done return's checks ran on. An unowned step's return is
+// not counted, so it returns nil and leaves the row's counts as they are. When the count fails, it logs the failure and
+// returns uncounted counts, which clear the counts of an earlier return.
+func (r *stepRun) countLinesOf(ctx context.Context, commit string) *store.StepLines {
+	if r.unowned {
+		return nil
+	}
+	lines, err := r.countLines(ctx, r.dir, r.start, commit)
+	if err != nil {
+		r.logger.WarnContext(ctx, "count lines of step", "step", r.id, "err", err)
+		return &store.StepLines{}
+	}
+	return &lines
 }
 
 // stepLoopRecord returns c as a check stored with round.

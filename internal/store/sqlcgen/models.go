@@ -437,6 +437,8 @@ type EpicTask struct {
 	AfterTasks  string
 	Question    int64
 	GateChanges string
+	Rebriefs    string
+	Notes       string
 }
 
 type EpicTaskContribute struct {
@@ -471,6 +473,14 @@ type EpicTaskFinding struct {
 	Unverified int64
 }
 
+type EpicTaskRefused struct {
+	Epic     string
+	Task     int64
+	Path     string
+	Decision string
+	Created  int64
+}
+
 type EpicTaskRequirement struct {
 	Epic        string
 	Task        int64
@@ -486,6 +496,7 @@ type EpicTaskReview struct {
 	Gate     string
 	Step     string
 	Verdict  string
+	Reason   string
 }
 
 type EpicTaskRung struct {
@@ -656,6 +667,22 @@ type Hold struct {
 	Since  int64
 }
 
+type NoticeHistory struct {
+	ID       int64
+	Pane     string
+	Session  string
+	Epic     string
+	LimitKey string
+	Alert    string
+	State    string
+	Title    string
+	Body     string
+	Block    string
+	BlockRef string
+	Time     int64
+	Read     bool
+}
+
 type PendingNotice struct {
 	ID          int64
 	Pane        string
@@ -695,6 +722,8 @@ type PlannerAction struct {
 	Requirement string
 	Item        string
 	Deliverable string
+	Files       string
+	RemoveFiles string
 }
 
 type PromptState struct {
@@ -757,6 +786,7 @@ type Session struct {
 	Title         string
 	Headline      string
 	HeadlineAt    int64
+	Awaited       bool
 }
 
 type Step struct {
@@ -809,6 +839,10 @@ type Step struct {
 	Agents          string
 	Unowned         int64
 	Caller          string
+	LinesCounted    int64
+	LinesFiles      int64
+	LinesAdded      int64
+	LinesRemoved    int64
 }
 
 type StepListing struct {

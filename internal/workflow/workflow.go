@@ -38,7 +38,8 @@ type Node struct {
 }
 
 // Loop is a loop node's settings: Max rounds at most, the Until outcome that ends it, and Spent, what happens when
-// the rounds run out: park or continue.
+// the rounds run out: park or continue. A loop that names no max has Max 0, and it has no count of rounds: it ends
+// when Until holds or when a round's plan planned no task.
 type Loop struct {
 	Max   int
 	Until Outcome
@@ -572,11 +573,11 @@ func readLoopFields(here site, pairs []pair) (Loop, error) {
 	return Loop{Max: rounds, Until: until, Spent: spent}, nil
 }
 
-// readMax reads max: an integer of 1 or more, required.
+// readMax reads max: an integer of 1 or more, or 0 when it is absent, which names no count of rounds.
 func readMax(here site, pairs []pair) (int, error) {
 	pr, ok := find(pairs, keyMax)
 	if !ok {
-		return 0, here.refusef(here.line, loopPrefix+keyMax, "required")
+		return 0, nil
 	}
 	return countOf(here, pr)
 }

@@ -221,7 +221,7 @@ func TestKeyedRepeatedWritesFromStateBeforeChangeNoRow(t *testing.T) {
 			},
 			want: ActMove,
 		},
-		{name: "fail", setup: redHoldsFixture, want: ActFail},
+		{name: "red holds note", setup: redHoldsFixture, want: ActMove},
 		{
 			name: "accept",
 			setup: func(t *testing.T) *passFixture {

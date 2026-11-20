@@ -41,7 +41,7 @@ func TestEngineLaunchTracksRowAtZero(t *testing.T) {
 
 	if err := s.ApplyEngine(ctx, []EngineOp{
 		EngineAdd{ID: "e1", Dir: "/a", State: "idle"},
-		EngineConsumed{ID: "e1", Consumed: 9, ReplayFrom: int64Of(4), Background: boolOf(true)},
+		EngineConsumed{ID: "e1", Consumed: 9, ReplayFrom: int64Of(4), Background: boolOf(true), Awaited: boolOf(true)},
 		EngineLaunch{ID: "e1"},
 	}, engineNowAt()); err != nil {
 		t.Fatalf("ApplyEngine: %v", err)
@@ -51,9 +51,10 @@ func TestEngineLaunchTracksRowAtZero(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EngineSession: %v", err)
 	}
-	if !row.Tracked || row.Consumed != 0 || row.ReplayFrom != 0 || row.Background {
-		t.Fatalf("launched row: got tracked %v consumed %d replayFrom %d background %v, want tracked at 0 "+
-			"with replay from 0 and background off", row.Tracked, row.Consumed, row.ReplayFrom, row.Background)
+	if !row.Tracked || row.Consumed != 0 || row.ReplayFrom != 0 || row.Background || row.Awaited {
+		t.Fatalf("launched row: got tracked %v consumed %d replayFrom %d background %v awaited %v, want tracked at 0 "+
+			"with replay from 0 and background and awaited off",
+			row.Tracked, row.Consumed, row.ReplayFrom, row.Background, row.Awaited)
 	}
 }
 
@@ -80,14 +81,23 @@ func TestEngineConsumedMovesOnlySetColumns(t *testing.T) {
 			want: EngineRow{Tracked: true, Consumed: 5, ReplayFrom: 3, Background: true},
 		},
 		{
-			name: "consumed with output only leaves replay from and background",
+			name: "consumed with awaited leaves background",
+			op:   EngineConsumed{ID: "e1", Consumed: 6, Awaited: boolOf(true)},
+			want: EngineRow{Tracked: true, Consumed: 6, ReplayFrom: 3, Background: true, Awaited: true},
+		},
+		{
+			name: "consumed with output only leaves replay from, background and awaited",
 			op:   EngineConsumed{ID: "e1", Consumed: 7, Output: strOf("done")},
-			want: EngineRow{Tracked: true, Consumed: 7, ReplayFrom: 3, Background: true, TurnOutput: "done"},
+			want: EngineRow{
+				Tracked: true, Consumed: 7, ReplayFrom: 3, Background: true, Awaited: true, TurnOutput: "done",
+			},
 		},
 		{
 			name: "consumed alone leaves every optional column",
 			op:   EngineConsumed{ID: "e1", Consumed: 8},
-			want: EngineRow{Tracked: true, Consumed: 8, ReplayFrom: 3, Background: true, TurnOutput: "done"},
+			want: EngineRow{
+				Tracked: true, Consumed: 8, ReplayFrom: 3, Background: true, Awaited: true, TurnOutput: "done",
+			},
 		},
 	}
 	for _, step := range steps {

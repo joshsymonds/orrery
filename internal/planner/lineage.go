@@ -10,8 +10,8 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// lineLimit is how many failed tasks a task's line holds when the planner may plan no further try of it: a task that
-// failed, then the task that replaced it, which failed too. The next try goes to the owner instead.
+// lineLimit is how many failed tasks a task's line holds when the line is spent: a task that failed, then the task that
+// replaced it, which failed too. A spent line is information in the prompt, and the planner judges its next try.
 const lineLimit = 2
 
 // SpentLine is a line of failed tasks a turn may not try again: the failed task whose trigger the turn claimed, and the
@@ -57,7 +57,7 @@ func failedSeq(id string) (int64, bool) {
 	return seq, true
 }
 
-// spentLines returns the lines of failed tasks the turn that claimed triggers may not try again, in trigger order. Each
+// spentLines returns the spent lines of failed tasks the turn that claimed triggers is told of, in trigger order. Each
 // trigger T<F>-failed names a failed task F, and F's line is F followed back through the tasks it replaced. Task N
 // replaced task E when the turn that planned N claimed the trigger T<E>-failed, E was failed and planned before N, and
 // the two share a claimed or contributed Requirement or a file; of several such E, N replaced the lowest seq. A line of
@@ -153,65 +153,15 @@ func overlaps(claims, contributes, files, otherClaims, otherContributes, otherFi
 	return false
 }
 
-// spentLineText returns what the planner reads of a spent line: the tasks of the line, and that it plans no further try.
+// spentLineText returns what the planner reads of a spent line: the tasks of the line, and that its next try is the
+// planner's judgment.
 func spentLineText(line SpentLine) string {
-	return fmt.Sprintf("- T%d failed after replacing a failed task, so its line has failed %d times (%s). Plan no "+
-		"further try of it: ask the owner a catastrophe question, or amend_evidence when the failure is in a "+
-		"Requirement's evidence item.", line.Task(), len(line.Failed), line.labels())
-}
-
-// checkSpentLines returns the refusals of a return planned while lines are spent. Each task of ret that shares a claimed
-// or contributed Requirement or a file with a task of a spent line is refused, named by index and title, since it would
-// be the line's next try. A return that asks no question, amends no evidence and closes no epic while a line is spent
-// gets one line under questions, since the owner decides a spent line.
-func checkSpentLines(ret Return, lines []SpentLine, tasks []store.EpicTask) []string {
-	if len(lines) == 0 {
-		return nil
-	}
-	var refusals []string
-	for i, task := range ret.Tasks {
-		for _, line := range lines {
-			if !lineOverlaps(line, tasks, task) {
-				continue
-			}
-			refusals = append(refusals, fmt.Sprintf(
-				`tasks[%d] "%s": tries again the line of T%d, which has failed %d times (%s); plan no further try: `+
-					`ask the owner a catastrophe question, or amend_evidence when the failure is in a Requirement's `+
-					`evidence item`,
-				i, task.Title, line.Task(), len(line.Failed), line.labels()))
-			break
-		}
-	}
-	if !decidesSpent(ret) {
-		for _, line := range lines {
-			refusals = append(refusals, fmt.Sprintf(
-				"questions: the line of T%d has failed %d times (%s); ask the owner a catastrophe question about it, "+
-					"or amend_evidence when the failure is in a Requirement's evidence item",
-				line.Task(), len(line.Failed), line.labels()))
-		}
-	}
-	return refusals
-}
-
-// lineOverlaps reports whether task shares a claimed or contributed Requirement or a file with a task of line.
-func lineOverlaps(line SpentLine, tasks []store.EpicTask, task Task) bool {
-	for _, seq := range line.Failed {
-		failed, ok := failedTask(tasks, seq)
-		if ok && overlaps(failed.Requirements, failed.Contributes, failed.Files, task.Requirements, task.Contributes,
-			task.Files) {
-			return true
-		}
-	}
-	return false
-}
-
-// decidesSpent reports whether ret hands a spent line to the owner or settles it otherwise: it asks a question, or it
-// amends a Requirement's evidence or closes the epic.
-func decidesSpent(ret Return) bool {
-	if len(ret.Questions) > 0 {
-		return true
-	}
-	return slices.ContainsFunc(ret.Actions, func(action EngineAction) bool {
-		return action.Kind == store.ActionAmendEvidence || action.Kind == store.ActionCloseEpic
-	})
+	return fmt.Sprintf(
+		"- T%d failed after replacing a failed task, so its line has failed %d times (%s). A further try is "+
+			"your judgment: ask the owner a catastrophe question, or amend_evidence when the failure is in a Requirement's "+
+			"evidence item, or plan a try that changes what the failures point at.",
+		line.Task(),
+		len(line.Failed),
+		line.labels(),
+	)
 }

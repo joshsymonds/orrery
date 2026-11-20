@@ -119,7 +119,8 @@ type Idler interface {
 var _ Idler = Release{}
 
 // Plan is the plan kind. Its run ends complete once the epic's last turn, above the turn the run started after, has
-// succeeded with outcome complete, and no turn runs, no task is open and no trigger is pending.
+// succeeded with outcome complete, and no turn runs, no task is open, no trigger is pending and no planner action is
+// pending.
 type Plan struct{}
 
 // Build is the build kind. Its run is one planned task: it runs while the task is open on an epic with a base whose phase
@@ -156,11 +157,13 @@ func (Plan) Decide(node Node, rows Rows) Action {
 }
 
 // planComplete reports whether a plan run started after turn mark may end complete. The epic's highest-seq turn must be
-// above mark, succeeded and complete. No turn may be running, no task open and no trigger pending. No evidence amendment
-// may be under way either, neither an amend_evidence action still pending nor an amendment checking or capturing, since
-// its end decides what the plan has built and wakes the planner.
+// above mark, succeeded and complete. No turn may be running, no task open, no trigger pending and no planner action
+// pending: a turn may return complete beside an action, such as a retry_node that reruns the plan's failed batch, and
+// the plan must not end before that action is carried out, or the run it reruns would run under an ended plan. No
+// evidence amendment may be under way either, neither an amend_evidence action still pending nor an amendment checking
+// or capturing, since its end decides what the plan has built and wakes the planner.
 func planComplete(mark int64, rows Rows) bool {
-	if rows.Pending != 0 || anyTaskOpen(rows.Epic.Tasks) || amending(rows) {
+	if rows.Pending != 0 || rows.Actions != 0 || anyTaskOpen(rows.Epic.Tasks) || amending(rows) {
 		return false
 	}
 	var last store.EpicTurn

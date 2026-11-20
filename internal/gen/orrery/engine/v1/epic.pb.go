@@ -401,7 +401,8 @@ type EpicReviewer struct {
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	// Whether the reviewer runs. A disabled reviewer stays in the list and runs at no stage.
 	Enabled *bool `protobuf:"varint,2,opt,name=enabled,proto3,oneof" json:"enabled,omitempty"`
-	// The stages the reviewer runs at: task, epic, or both.
+	// The stages the reviewer runs at: any of task, epic and release. The release stage runs once before the release's
+	// first step, on the candidate.
 	Stage []string `protobuf:"bytes,3,rep,name=stage,proto3" json:"stage,omitempty"`
 	// The statements the reviewer's return must show hold.
 	Must []string `protobuf:"bytes,4,rep,name=must,proto3" json:"must,omitempty"`
@@ -1971,7 +1972,8 @@ type EpicTaskVersion struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The version's number on its task, from 2.
 	Version int64 `protobuf:"varint,1,opt,name=version,proto3" json:"version,omitempty"`
-	// The source that wrote the version: orchestrator, grant, rescue, approach or carry.
+	// The source that wrote the version: orchestrator, grant, approach, carry or send_back, or rescue for a version stored
+	// before the rescue rung was removed.
 	Source string `protobuf:"bytes,2,opt,name=source,proto3" json:"source,omitempty"`
 	// The id of the epic decision that wrote the version; empty for orreryd's rule grant.
 	Decision string `protobuf:"bytes,3,opt,name=decision,proto3" json:"decision,omitempty"`
@@ -2151,11 +2153,13 @@ func (x *EpicTaskVersion) GetSettled() int64 {
 // how it ended.
 type EpicTaskRung struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The task build's attempt number, from 1; 7 is the gap.
+	// The task build's attempt number, from 1; 6 is the gap.
 	Rung int64 `protobuf:"varint,1,opt,name=rung,proto3" json:"rung,omitempty"`
-	// The rung's kind: attempt, rescue, orchestrator, approach or gap.
+	// The rung's kind: attempt, orchestrator, approach or gap, or rescue for a rung stored before the rescue rung was
+	// removed.
 	Kind string `protobuf:"bytes,2,opt,name=kind,proto3" json:"kind,omitempty"`
-	// What moved the task onto the rung: unit, finding, fail_decision, cannot_meet or fail_task; empty for rung 1.
+	// What moved the task onto the rung: unit, finding, fail_decision, cannot_meet, fail_task or send_back; empty for
+	// rung 1.
 	MovedBy string `protobuf:"bytes,3,opt,name=moved_by,json=movedBy,proto3" json:"moved_by,omitempty"`
 	// The failure's text that moved the task onto the rung; empty for rung 1.
 	Cause string `protobuf:"bytes,4,opt,name=cause,proto3" json:"cause,omitempty"`
@@ -2293,10 +2297,12 @@ type EpicTaskReview struct {
 	Gate string `protobuf:"bytes,2,opt,name=gate,proto3" json:"gate,omitempty"`
 	// The step that ran the review.
 	Step string `protobuf:"bytes,3,opt,name=step,proto3" json:"step,omitempty"`
-	// The review's verdict: holds or fails.
+	// The review's verdict: holds, fails, or undetermined when the reviewer gave neither twice.
 	Verdict string `protobuf:"bytes,4,opt,name=verdict,proto3" json:"verdict,omitempty"`
 	// The findings the review raised, in position order.
-	Findings      []*EpicTaskFinding `protobuf:"bytes,5,rep,name=findings,proto3" json:"findings,omitempty"`
+	Findings []*EpicTaskFinding `protobuf:"bytes,5,rep,name=findings,proto3" json:"findings,omitempty"`
+	// Why the review is undetermined: how its step ended. Empty for holds and fails.
+	Reason        string `protobuf:"bytes,6,opt,name=reason,proto3" json:"reason,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2364,6 +2370,13 @@ func (x *EpicTaskReview) GetFindings() []*EpicTaskFinding {
 		return x.Findings
 	}
 	return nil
+}
+
+func (x *EpicTaskReview) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
 }
 
 // EpicTaskFinding is one finding a review raised, with its verification.
@@ -4484,11 +4497,14 @@ func (x *CreateEpicRequest) GetWorkflow() string {
 	return ""
 }
 
-// CreateEpicResponse carries the stored epic.
+// CreateEpicResponse carries the stored epic and the warnings its contract drew. The epic is stored with them.
 type CreateEpicResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The stored epic.
-	Epic          *StoredEpic `protobuf:"bytes,1,opt,name=epic,proto3" json:"epic,omitempty"`
+	Epic *StoredEpic `protobuf:"bytes,1,opt,name=epic,proto3" json:"epic,omitempty"`
+	// One warning for each lint finding that does not refuse the contract: a go test whose -run pattern matches a test at
+	// the base, or a release step that says merge, names a fixed version or waits on CI. Each names its field and reason.
+	Warnings      []string `protobuf:"bytes,2,rep,name=warnings,proto3" json:"warnings,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4526,6 +4542,13 @@ func (*CreateEpicResponse) Descriptor() ([]byte, []int) {
 func (x *CreateEpicResponse) GetEpic() *StoredEpic {
 	if x != nil {
 		return x.Epic
+	}
+	return nil
+}
+
+func (x *CreateEpicResponse) GetWarnings() []string {
+	if x != nil {
+		return x.Warnings
 	}
 	return nil
 }
@@ -6862,13 +6885,14 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\aoutcome\x18\t \x01(\tR\aoutcome\x12\x16\n" +
 	"\x06reason\x18\n" +
 	" \x01(\tR\x06reason\x12\x14\n" +
-	"\x05ended\x18\v \x01(\x03R\x05ended\"\xab\x01\n" +
+	"\x05ended\x18\v \x01(\x03R\x05ended\"\xc3\x01\n" +
 	"\x0eEpicTaskReview\x12\x18\n" +
 	"\aattempt\x18\x01 \x01(\x03R\aattempt\x12\x12\n" +
 	"\x04gate\x18\x02 \x01(\tR\x04gate\x12\x12\n" +
 	"\x04step\x18\x03 \x01(\tR\x04step\x12\x18\n" +
 	"\averdict\x18\x04 \x01(\tR\averdict\x12=\n" +
-	"\bfindings\x18\x05 \x03(\v2!.orrery.engine.v1.EpicTaskFindingR\bfindings\"\xb7\x01\n" +
+	"\bfindings\x18\x05 \x03(\v2!.orrery.engine.v1.EpicTaskFindingR\bfindings\x12\x16\n" +
+	"\x06reason\x18\x06 \x01(\tR\x06reason\"\xb7\x01\n" +
 	"\x0fEpicTaskFinding\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05claim\x18\x02 \x01(\tR\x05claim\x12\x1a\n" +
@@ -7063,9 +7087,10 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\x11CreateEpicRequest\x12:\n" +
 	"\bcontract\x18\x01 \x01(\v2\x1e.orrery.engine.v1.EpicContractR\bcontract\x12A\n" +
 	"\tdecisions\x18\x02 \x03(\v2#.orrery.engine.v1.EpicDecisionInputR\tdecisions\x12\x1a\n" +
-	"\bworkflow\x18\x03 \x01(\tR\bworkflow\"F\n" +
+	"\bworkflow\x18\x03 \x01(\tR\bworkflow\"b\n" +
 	"\x12CreateEpicResponse\x120\n" +
-	"\x04epic\x18\x01 \x01(\v2\x1c.orrery.engine.v1.StoredEpicR\x04epic\":\n" +
+	"\x04epic\x18\x01 \x01(\v2\x1c.orrery.engine.v1.StoredEpicR\x04epic\x12\x1a\n" +
+	"\bwarnings\x18\x02 \x03(\tR\bwarnings\":\n" +
 	"\x0eGetEpicRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\ahistory\x18\x02 \x01(\bR\ahistory\"C\n" +

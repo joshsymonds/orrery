@@ -190,20 +190,21 @@ type Config struct {
 // from the send of its prompt or a Started event until its TurnEnded or the process's Exited. interrupting is set by
 // Interrupt while a turn runs, until that turn's end, which then sends no notice. ownerInterrupt is set by
 // OwnerInterrupt while a turn runs, until that turn's end or the process's Exited, and marks that turn's end as caused
-// by the owner (see noteTurnEndedLocked). closing is set by Close before it stops the session. The manager's lock guards
-// turning, interrupting, ownerInterrupt, closing, sending, requests, background, returned, idleSince, idleTimer and
-// idleStopped, and the pump sets exited under it too. requests holds the ids of the requests the host has open,
-// background is set while a background task runs, idleSince is when the session last became not busy (zero while it
-// is busy), idleTimer is the function that stops the timer armed for the session's idle deadline (nil while none is
-// armed), and idleStopped is set when a check stops the session for being idle. step is set for a step session, which sends no notice and frees a
-// step slot rather than a session slot. observer receives the hand-offs of a step, which the pump makes, and returned is
-// set from a hand-off until Continue sends the step's next prompt, so the step stays busy meanwhile. schema is set for a
-// step that runs with a schema, whose init event must list StructuredOutput (see observe). draining is set for a session
-// re-adopted from a holder one version older than the controller's, which retireLocked takes out of the live set
-// once no turn, request or background task runs and it owes no answer, and retired is set once it has. stopped is closed
+// by the owner (see noteTurnEndedLocked). closing is set by Close before it stops the session. The manager's lock
+// guards turning, interrupting, ownerInterrupt, closing, sending, requests, background, awaited, returned, idleSince,
+// idleTimer and idleStopped, and the pump sets exited under it too. requests holds the ids of the requests the host has
+// open, background is set while a background task runs, awaited while one of those tasks runs a model (see
+// awaitsTask), idleSince is when the session last became not busy (zero while it is busy), idleTimer is the function
+// that stops the timer armed for the session's idle deadline (nil while none is armed), and idleStopped is set when a
+// check stops the session for being idle. step is set for a step session, which sends no notice and frees a step slot
+// rather than a session slot. observer receives the hand-offs of a step, which the pump makes, and returned is set from
+// a hand-off until Continue sends the step's next prompt, so the step stays busy meanwhile. schema is set for a step
+// that runs with a schema, whose init event must list StructuredOutput (see observe). draining is set for a session
+// re-adopted from a holder one version older than the controller's, which retireLocked takes out of the live set once
+// no turn, request or background task runs and it owes no answer, and retired is set once it has. stopped is closed
 // once the stop of a retired session returns, which is once its holder has ended and its directory is removed. sending
-// counts the sends of a prompt that markSending or claimStep began and send has not ended, so a draining session
-// is not retired between the start of a send and its end.
+// counts the sends of a prompt that markSending or claimStep began and send has not ended, so a draining session is
+// not retired between the start of a send and its end.
 type liveSession struct {
 	id             string
 	dir            string
@@ -226,6 +227,7 @@ type liveSession struct {
 	sending        int
 	requests       map[string]struct{}
 	background     bool
+	awaited        bool
 	returned       bool
 	idleSince      time.Time
 	idleTimer      func() bool
@@ -1644,16 +1646,17 @@ func (m *Manager) register(
 	return live, nil
 }
 
-// prime builds the state of live, a re-adopted session not yet registered, from re. Its turn runs when its row is working
-// or waiting, and its background flag is the row's. Each replayed line goes through noteEvent and the recorder with the ops
-// discarded, so the requests it leaves open, its unfinished text and its reply are those the replay gives. A waiting row
-// with no request open goes working with no question. Each prompt the holder has not written is sent in order, marking the
-// turn running. It returns the reply the pump starts from.
+// prime builds the state of live, a re-adopted session not yet registered, from re. Its turn runs when its row is
+// working or waiting, and its background and awaited flags are the row's. Each replayed line goes through noteEvent and
+// the recorder with the ops discarded, so the requests it leaves open, its unfinished text and its reply are those the
+// replay gives. A waiting row with no request open goes working with no question. Each prompt the holder has not
+// written is sent in order, marking the turn running. It returns the reply the pump starts from.
 func (m *Manager) prime(ctx context.Context, live *liveSession, rec *recorder, re *readoption) (string, error) {
 	row := re.row
 	m.mu.Lock()
 	live.turning = row.State == string(protocol.StateWorking) || row.State == string(protocol.StateWaiting)
 	live.background = row.Background
+	live.awaited = row.Awaited
 	m.updateIdleLocked(live)
 	m.mu.Unlock()
 	reply := m.replay(live, rec, re.lines)
@@ -2467,19 +2470,20 @@ func opensTurn(event session.Event) bool {
 
 // noteEvent tracks the turn of live through event, one the pump reads when pumping is true and one replayed otherwise.
 // It reports whether the pump records event, and for a turn's end, whether that turn was interrupted through Interrupt,
-// which clears the mark for the next turn, and whether the turn is handed to the step's observer: a step's turn that ends
-// with no background task live, or whose structured return is the step's done value while one is live (see
-// StepObserver.Done). The hand-off makes the step busy in the same lock hold. A pumped turn's end is followed by another
-// turn when a prompt the session counts as sent is still unanswered after it, as its reader counted at that end or as the
-// session counts now: claude runs a prompt sent during a turn as the turn after it. A prompt counts from before its
-// record is stored (see session.Session.ExpectPrompt), so the send under way of the prompt this very turn answers
-// follows nothing, and a send whose prompt the turn does not answer is still counted. A followed
-// turn end keeps the turn running, hands nothing to the observer and retires nothing. A pumped event that opens a turn
-// (see opensTurn) while no turn runs opens one claude started by itself, as a background task's end starts: the turn is
-// marked running, and noteEvent reports it opened. A draining session whose turn ends is retired in the same lock hold (see
-// retireLocked). The exit of a session that Close or a retirement is stopping is not recorded here: recordClosed records a
-// closed session's state from its turn instead, and under a holder scope records nothing, and a retired session records
-// nothing.
+// which clears the mark for the next turn, and whether the turn is handed to the step's observer: a step's turn that
+// ends with no background task live that runs a model (see awaitsTask), or whose structured return is the step's done
+// value while one is live (see StepObserver.Done). A shell task, a Monitor's watch among them, holds no turn end back:
+// the step's loop takes the return, and the step's stop ends what the session left running. The hand-off makes the step
+// busy in the same lock hold. A pumped turn's end is followed by another turn when a prompt the session counts as sent
+// is still unanswered after it, as its reader counted at that end or as the session counts now: claude runs a prompt
+// sent during a turn as the turn after it. A prompt counts from before its record is stored (see
+// session.Session.ExpectPrompt), so the send under way of the prompt this very turn answers follows nothing, and a send
+// whose prompt the turn does not answer is still counted. A followed turn end keeps the turn running, hands nothing to
+// the observer and retires nothing. A pumped event that opens a turn (see opensTurn) while no turn runs opens one
+// claude started by itself, as a background task's end starts: the turn is marked running, and noteEvent reports it
+// opened. A draining session whose turn ends is retired in the same lock hold (see retireLocked). The exit of a session
+// that Close or a retirement is stopping is not recorded here: recordClosed records a closed session's state from its
+// turn instead, and under a holder scope records nothing, and a retired session records nothing.
 func (m *Manager) noteEvent(live *liveSession, event session.Event, pumping bool) noted {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -2502,6 +2506,7 @@ func (m *Manager) noteEvent(live *liveSession, event session.Event, pumping bool
 		m.wakeIfNoneOpen(live, open)
 	case session.BackgroundTasks:
 		live.background = len(ev.Tasks) > 0
+		live.awaited = awaitsTask(ev.Tasks)
 	case session.TurnEnded:
 		return m.noteTurnEndedLocked(live, ev, pumping)
 	case session.Exited:
@@ -2509,6 +2514,7 @@ func (m *Manager) noteEvent(live *liveSession, event session.Event, pumping bool
 		live.ownerInterrupt = false
 		clear(live.requests)
 		live.background = false
+		live.awaited = false
 		if live.closing || live.idleStopped || live.retired {
 			return noted{}
 		}
@@ -2533,7 +2539,7 @@ func (m *Manager) noteTurnEndedLocked(live *liveSession, ended session.TurnEnded
 	}
 	live.turning = false
 	handed := false
-	if live.observer != nil && (!live.background || live.observer.Done(ended)) {
+	if live.observer != nil && (!live.awaited || live.observer.Done(ended)) {
 		live.returned = true
 		handed = true
 	}
@@ -2594,14 +2600,20 @@ func (m *Manager) stopRetired(live *liveSession) {
 
 // notify sends the owner a notice of session id in dir, in state with body. It sends nothing without a notifier.
 func (m *Manager) notify(ctx context.Context, id, dir, state, body string) {
+	m.notifyNotice(ctx, Notice{Session: id, Dir: dir, State: state, Body: body})
+}
+
+// notifyNotice sends the owner the notice n. It sends nothing without a notifier.
+func (m *Manager) notifyNotice(ctx context.Context, n Notice) {
 	if m.notifier == nil {
 		return
 	}
-	m.notifier.Notify(ctx, Notice{Session: id, Dir: dir, State: state, Body: body})
+	m.notifier.Notify(ctx, n)
 }
 
 // tellOwner tells the owner of recorded event of live: a notice when the event calls for one, and otherwise that the
-// session changed when the event ends its pending notice. A step tells the owner nothing.
+// session changed when the event ends its pending notice. A step tells the owner nothing. A notice of an open request
+// carries the request's options and id.
 func (m *Manager) tellOwner(
 	ctx context.Context, live *liveSession, event session.Event, reply string, interrupted bool,
 ) {
@@ -2609,7 +2621,10 @@ func (m *Manager) tellOwner(
 		return
 	}
 	if state, body, notify := eventNotice(event, reply, interrupted); notify {
-		m.notify(ctx, live.id, live.dir, state, body)
+		options, request := requestChoices(event)
+		m.notifyNotice(ctx, Notice{
+			Session: live.id, Dir: live.dir, State: state, Body: body, Options: options, Request: request,
+		})
 	} else if endsNotice(event) {
 		m.changed(ctx, live.id)
 	}
