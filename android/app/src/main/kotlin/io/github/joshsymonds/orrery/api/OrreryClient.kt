@@ -46,9 +46,11 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTrigger as EpicTriggerProt
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTurn as EpicTurnProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsAnswerRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsClient
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsContinueRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsHistoryRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsListRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsMoveRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsPauseRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsResumeRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsRetryRequest
@@ -64,6 +66,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.OpenRequest as OpenRequestProt
 import io.github.joshsymonds.orrery.gen.orrery.v1.HostStatusRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.InterruptRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.ListHeadlessRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.ListRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.MarkSeenRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.NoticeKey
 import io.github.joshsymonds.orrery.gen.orrery.v1.NoticesClient
@@ -122,8 +125,11 @@ private val CLIENT_HEADERS: Map<String, List<String>> = mapOf("X-Orrery-Client" 
 /** The choice an answer to a question names when the owner types the answer rather than picking a declared option. */
 private const val CHOICE_OTHER = "other"
 
-/** The answers to ListHeadless that mean the server has no headless sessions to list. */
-private val HEADLESS_ABSENT = setOf(Code.UNAVAILABLE, Code.UNIMPLEMENTED, Code.NOT_FOUND)
+/** The answers to a session list (ListHeadless, Sessions.List) that mean the server has no sessions to list. */
+private val LIST_ABSENT = setOf(Code.UNAVAILABLE, Code.UNIMPLEMENTED, Code.NOT_FOUND)
+
+/** The answers to a move or a continue that mean no answer came back, so the write may or may not have landed. */
+private val STEER_NO_ANSWER = setOf(Code.UNAVAILABLE, Code.DEADLINE_EXCEEDED, Code.UNKNOWN)
 
 data class Pane(
     val id: String,
@@ -151,6 +157,8 @@ data class Pane(
     val orreryId: String = "",
     /** True while the owner has put this question off and not brought it back. */
     val putOff: Boolean = false,
+    /** True for a headless session the owner has archived; always false for a tmux pane. */
+    val archived: Boolean = false,
 )
 
 data class PaneTool(val id: String, val name: String, val input: String, val start: Long)
@@ -665,6 +673,12 @@ sealed interface StepCallResult {
     data class Refused(val message: String) : StepCallResult
 }
 
+/** What a move or a continue came to: the session that steers the epic now, or orreryd's refusal with its reason. */
+sealed interface SteerResult {
+    data class Steered(val session: String) : SteerResult
+    data class Refused(val message: String) : SteerResult
+}
+
 sealed interface KeysResult {
     data object Sent : KeysResult
     data object PromptChanged : KeysResult
@@ -791,15 +805,21 @@ class OrreryClient(
      * The headless sessions of the last 14 days, each as a pane with [Pane.headless] set. A server that answers
      * unavailable, unimplemented or not_found has none to list, so it gives an empty list.
      */
-    fun headless(): List<Pane> {
-        val response = try {
+    fun headless(): List<Pane> =
+        listedOrEmpty {
             call(write = false) { standard.sessions.listHeadless(ListHeadlessRequest.getDefaultInstance(), CLIENT_HEADERS) }
-        } catch (e: OrreryCallException) {
-            if (e.code in HEADLESS_ABSENT) return emptyList()
-            throw e
+                .sessionsList.map { it.toHeadlessPane() }
         }
-        return response.sessionsList.map { it.toHeadlessPane() }
-    }
+
+    /**
+     * The ids of the sessions the owner has archived. A server that answers unavailable, unimplemented or not_found
+     * has no sessions to list, so it gives an empty set.
+     */
+    fun archivedSessions(): Set<String> =
+        listedOrEmpty {
+            call(write = false) { standard.sessions.list(ListRequest.getDefaultInstance(), CLIENT_HEADERS) }
+                .sessionsList.filter { it.archived }.map { it.id }
+        }.toSet()
 
     fun conversation(paneId: String): Conversation? {
         val request = ConversationRequest.newBuilder().setPane(paneId).setLimit(50).build()
@@ -1147,6 +1167,29 @@ class OrreryClient(
     fun retryEpic(id: String, node: String = ""): StepCallResult {
         val request = EpicsRetryRequest.newBuilder().setId(id).setNode(node).build()
         return stepCall { call(write = true) { standard.epics.retry(request, CLIENT_HEADERS) } }
+    }
+
+    /**
+     * Moves the steering of the orreryd epic [id] to [session], so that session's questions and events are the
+     * epic's from now on. A refused move answers [SteerResult.Refused] with the server's reason.
+     */
+    fun moveEpic(id: String, session: String): SteerResult {
+        val request = EpicsMoveRequest.newBuilder().setId(id).setSession(session).build()
+        return steerCall {
+            call(write = true) { standard.epics.move(request, CLIENT_HEADERS) }
+            SteerResult.Steered(session)
+        }
+    }
+
+    /**
+     * Starts a steering session for the orreryd epic [id] and moves the epic's steering to it. The answer names the
+     * started session, which is "" when the server started none. A refused continue answers [SteerResult.Refused].
+     */
+    fun continueEpic(id: String): SteerResult {
+        val request = EpicsContinueRequest.newBuilder().setId(id).build()
+        return steerCall {
+            SteerResult.Steered(call(write = true) { standard.epics.`continue`(request, CLIENT_HEADERS) }.session)
+        }
     }
 
     /**
@@ -1503,6 +1546,7 @@ class OrreryClient(
             headless = true,
             orreryId = id,
             putOff = putOff,
+            archived = archived,
         )
 
     private fun ConversationItemProto.toConversationItem(): ConversationItem =
@@ -1644,6 +1688,26 @@ class OrreryClient(
             StepCallResult.Landed
         } catch (e: OrreryCallException) {
             if (e.code == Code.FAILED_PRECONDITION) StepCallResult.Refused(e.message.orEmpty()) else throw e
+        }
+
+    /**
+     * The answer of a move or a continue: [SteerResult.Refused] when the server answered with any code but the ones
+     * that mean no answer came back. Those, and every failure that is not a server answer, are thrown as [call]
+     * throws them.
+     */
+    private inline fun steerCall(rpc: () -> SteerResult): SteerResult =
+        try {
+            rpc()
+        } catch (e: OrreryCallException) {
+            if (e.code in STEER_NO_ANSWER) throw e else SteerResult.Refused(e.message.orEmpty())
+        }
+
+    /** The session list [read] gives, or an empty list when the server answered with one of [LIST_ABSENT]'s codes. */
+    private inline fun <T> listedOrEmpty(read: () -> List<T>): List<T> =
+        try {
+            read()
+        } catch (e: OrreryCallException) {
+            if (e.code in LIST_ABSENT) emptyList() else throw e
         }
 
     /** The answer, or null when the server answered not_found. */
