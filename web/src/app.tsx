@@ -2482,7 +2482,10 @@ export function App({
             notices={notices}
             head={(notice) => noticeHead(notice, tree, shownRows, now)}
             age={noticeAgeOf}
-            onOpen={openNotice}
+            onOpen={(notice) => {
+              setNoticesOpen(false);
+              openNotice(notice);
+            }}
             onRead={markNoticeSeen}
             onMore={() => setNoticesOpen(true)}
           />

@@ -285,14 +285,6 @@ function settle(): Promise<void> {
   return act(() => {});
 }
 
-// settleTurns awaits settle a fixed number of times, so a request the page has sent reaches the fake server before the
-// test looks at what the server recorded.
-async function settleTurns(): Promise<void> {
-  for (let turn = 0; turn < 50; turn++) {
-    await settle();
-  }
-}
-
 // advance moves the mocked clock forward by ms and flushes the renders its timers cause.
 async function advance(t: TestContext, ms: number): Promise<void> {
   await act(() => {
@@ -460,19 +452,47 @@ test("NoticeStack: the N more in Notices link opens the notice centre in the pag
     assert.ok(centre(container) !== null, "the centre is drawn once the link is pressed");
   }));
 
+// pressStackOpenWithCentre opens the centre, then presses Open on the stack row that names pane b. The press sends Seen
+// for the row's key, closes the centre, and lands the cursor on the row.
+async function pressStackOpenWithCentre(signal: AbortSignal, container: HTMLElement, server: FakeServer): Promise<void> {
+  await openCentre(container);
+  await press(stackRowOf(container, "web finished body")?.querySelector("button:not(.quiet)"));
+  await until(signal, () => server.seen.length === 1, "the Seen the stack row sent");
+  assert.deepEqual(server.seen, [{ pane: "b" }]);
+  assert.equal(centreDrawn(container), false, "the centre closes once the stack row is opened");
+  await until(signal, () => cursored(container) === "b", "the cursor on the stack row's pane");
+}
+
+test("NoticeStack: at 1024px, Open on a stack row with the centre open sends Seen, closes the centre, and lands on the row", (t) =>
+  withDesk(t.signal, { width: wideWidth, notices: stackedNotices() }, (container, server) =>
+    pressStackOpenWithCentre(t.signal, container, server),
+  ));
+
+test("NoticeStack: at 700px, Open on a stack row with the centre open sends Seen, closes the centre, and lands on the row", (t) =>
+  withDesk(t.signal, { width: narrowWidth, notices: stackedNotices() }, (container, server) =>
+    pressStackOpenWithCentre(t.signal, container, server),
+  ));
+
 test("NoticeStack: a notice that leaves the stack after 8 s leaves its log row unread, so the bell still counts it", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withDesk(
     t.signal,
     { width: wideWidth, notices: [stackNotice({ pane: "b" }, "web finished")], step: settle },
-    async (container) => {
+    async (container, server) => {
       await until(t.signal, () => stackRowOf(container, "web finished body") !== undefined, "the notice in the stack", {
         step: settle,
       });
       await until(t.signal, () => bellCount(container) === "2", "the bell's count of 2", { step: settle });
       await advance(t, 8000);
       assert.equal(stackRowOf(container, "web finished body"), undefined, "the notice is still on the stack at 8000 ms");
-      await settleTurns();
+      const listsBefore = server.lists;
+      await act(() => {
+        window.dispatchEvent(new window.Event("focus"));
+      });
+      await until(t.signal, () => server.lists > listsBefore, "the log listed after the notice left the stack", {
+        step: settle,
+      });
+      assert.deepEqual(server.seen, [], "no Seen was sent for the notice that left the stack");
       assert.equal(bellCount(container), "2", "the notice that left the stack no longer counts as unread");
     },
   );
