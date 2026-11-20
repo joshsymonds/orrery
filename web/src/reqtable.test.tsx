@@ -230,12 +230,17 @@ test("EpicProof: a row opens its runs red first then green, each phase in create
       assert.ok(detail, "the row opens its runs under it");
       assert.equal(detail.previousElementSibling, row);
       assert.deepEqual(
-        Array.from(detail.querySelectorAll("li.run .phase"), (phase) => phase.textContent),
-        ["red", "red", "green", "green"],
+        Array.from(detail.querySelectorAll("li.run .sentence"), (sentence) => sentence.textContent),
+        [
+          "Red run: the test fails before any change, as it should.",
+          "Red run: the test fails before any change, as it should.",
+          "Green run: the test still fails on the change.",
+          "Green run: the test passes on the change.",
+        ],
       );
       assert.deepEqual(
-        Array.from(detail.querySelectorAll("li.run .exit"), (exit) => exit.textContent),
-        ["exit 11", "exit 12", "exit 13", "exit 14"],
+        Array.from(detail.querySelectorAll("li.run .meta"), (meta) => meta.textContent),
+        ["captured · exit 11", "captured · exit 12", "captured · exit 13", "captured · exit 14"],
       );
 
       act(() => {

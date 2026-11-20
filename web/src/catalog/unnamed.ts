@@ -70,9 +70,6 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   // StepEndBlock draws a step that ended with no agent named and a looping reason, and a step's end that waits to be spoken.
   "step-end-block/without-agent": { replacement: "StepEndBlock", epic: "F3" },
   "step-end-block/waiting": { replacement: "StepEndBlock", epic: "F3" },
-  // EvidenceRun draws a requirement's captured red and green runs as one list, and a run still going, which draws no exit.
-  "evidence-run/captured-red-and-green": { replacement: "EvidenceRun", epic: "F4" },
-  "evidence-run/running": { replacement: "EvidenceRun", epic: "F4" },
   // FindBar draws the find field with no query, and with a query that has one match.
   "find-bar/empty": { replacement: "FindBar", epic: "F3" },
   "find-bar/one-match": { replacement: "FindBar", epic: "F3" },

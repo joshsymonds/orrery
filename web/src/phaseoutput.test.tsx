@@ -363,7 +363,10 @@ test("each row's head shows its summary, and a passed row its seconds, a now row
 test("the implementing body shows the red run, each attempt, and the green run, and none of the checks or reviews", async () => {
   await withPage(pageProps(finished(), "T1", "implementing", []), (container) => {
     const body = bodyOf(container);
-    assert.equal(textsOf(container, ".phase-body .run .phase").join(","), "red,green");
+    assert.equal(
+      textsOf(container, ".phase-body .run .sentence").join("|"),
+      "Red run: the test passes before any change. It should fail.|Green run: the test passes on the change.",
+    );
     assert.equal(textsOf(container, ".phase-body .attempt-end").join(","), "done,checks_failed,done");
     assert.equal(
       textsOf(container, ".phase-body .attempt-text").join("|"),

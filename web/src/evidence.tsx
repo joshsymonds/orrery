@@ -1,7 +1,6 @@
 import type { JSX } from "preact";
 import { useEffect, useState } from "preact/hooks";
 
-import { CommitMark } from "./commitmark";
 import type { EvidenceArtifact, EvidenceRun } from "./gen/orrery/v1/epics_pb";
 
 // LoadArtifact reads one artifact of an evidence run, or the run's log when the name is empty: its stderr log when
@@ -12,68 +11,64 @@ export type LoadArtifact = (
   stderr: boolean,
 ) => Promise<{ data: Uint8Array; mediaType: string }>;
 
-// EvidenceRuns is a requirement's evidence runs in order. Each run shows its phase, source, state, verdict, result,
-// exit and commit mark, its stdout log behind a toggle and its stderr log behind a second toggle when it has one,
-// and its artifacts; a kept image is drawn inline. Every text is a child of its element, so no markup in a log, reason
+// EvidenceRuns is a requirement's evidence runs in order. Each run draws as one line: its sentence, its verdict chip and
+// its meta, then a log toggle. Opened, the toggle folds the run's stdout, then its stderr when it has bytes, and its
+// artifacts. initiallyOpen draws every run's log open. Every text is a child of its element, so no markup in a log, reason
 // or path becomes an element.
-export function EvidenceRuns(props: { runs: EvidenceRun[]; loadArtifact: LoadArtifact }): JSX.Element {
-  const { runs, loadArtifact } = props;
+export function EvidenceRuns(props: {
+  runs: EvidenceRun[];
+  loadArtifact: LoadArtifact;
+  initiallyOpen?: boolean;
+}): JSX.Element {
+  const { runs, loadArtifact, initiallyOpen } = props;
   return (
     <ul class="runs">
       {runs.map((run) => (
-        <EvidenceRunRow key={run.id} run={run} loadArtifact={loadArtifact} />
+        <EvidenceRunRow key={run.id} run={run} loadArtifact={loadArtifact} initiallyOpen={initiallyOpen === true} />
       ))}
     </ul>
   );
 }
 
-// EvidenceRunRow is one run: its head line, its log toggles with each log while it is open, and its artifacts. The exit
-// shows once the run has ended, since a run that is still going has none. A run with no stderr bytes has no stderr
-// toggle.
-function EvidenceRunRow(props: { run: EvidenceRun; loadArtifact: LoadArtifact }): JSX.Element {
-  const { run, loadArtifact } = props;
-  const ended = run.state === "ended";
+// EvidenceRunRow is one run: its line, and under it while its toggle is open, its logs and artifacts.
+function EvidenceRunRow(props: { run: EvidenceRun; loadArtifact: LoadArtifact; initiallyOpen: boolean }): JSX.Element {
+  const { run, loadArtifact, initiallyOpen } = props;
+  const [open, setOpen] = useState(initiallyOpen);
   return (
     <li class="run">
-      <div class="run-head">
-        <span class="phase">{run.phase}</span>
-        <span class="source">{sourceOf(run.source)}</span>
-        <span class="state">{ended ? "ended" : "running"}</span>
-        <span class="verdict">{verdictOf(run)}</span>
-        <span class={run.passed ? "pass ok" : "pass"}>{run.passed ? "passed" : "not passed"}</span>
-        {ended && <span class="exit">{`exit ${run.exit}`}</span>}
-        {run.revision !== "" && <CommitMark hash={run.revision} />}
+      <div class="run-line">
+        <span class="sentence">{sentenceOf(run)}</span>
+        <VerdictChip run={run} />
+        <span class="meta">{metaOf(run)}</span>
+        <span class="end">
+          <button type="button" class="link" aria-expanded={open} onClick={() => setOpen((isOpen) => !isOpen)}>
+            {open ? "hide the log" : "log"}
+          </button>
+        </span>
       </div>
-      <LogToggle run={run.id} stderr={false} loadArtifact={loadArtifact} />
-      {run.stderrBytes > 0n && <LogToggle run={run.id} stderr loadArtifact={loadArtifact} />}
-      {run.artifacts.length > 0 && (
-        <ul class="artifacts">
-          {run.artifacts.map((artifact) => (
-            <ArtifactRow key={artifact.path} run={run.id} artifact={artifact} loadArtifact={loadArtifact} />
-          ))}
-        </ul>
-      )}
+      {open && <RunLog run={run.id} stderr={false} loadArtifact={loadArtifact} />}
+      {open && run.stderrBytes > 0n && <RunLog run={run.id} stderr loadArtifact={loadArtifact} />}
+      {open &&
+        run.artifacts.map((artifact) => (
+          <ArtifactRow key={artifact.path} run={run.id} artifact={artifact} loadArtifact={loadArtifact} />
+        ))}
     </li>
   );
 }
 
-// LogToggle is one of a run's logs behind a toggle, the stderr log when stderr is set and else the stdout log. The log
-// shows while the toggle is open.
-function LogToggle(props: { run: string; stderr: boolean; loadArtifact: LoadArtifact }): JSX.Element {
-  const { run, stderr, loadArtifact } = props;
-  const [open, setOpen] = useState(false);
+// VerdictChip is a run's verdict: its state while it is going, else its verdict, or no verdict with the judge's reason.
+function VerdictChip(props: { run: EvidenceRun }): JSX.Element {
+  const { tone, glyph, word } = chipOf(props.run);
   return (
-    <>
-      <button type="button" class="log-toggle" aria-expanded={open} onClick={() => setOpen((isOpen) => !isOpen)}>
-        {stderr ? "stderr" : "stdout"}
-      </button>
-      {open && <RunLog run={run} stderr={stderr} loadArtifact={loadArtifact} />}
-    </>
+    <span class={tone === "" ? "chip" : `chip ${tone}`}>
+      {glyph !== "" && <span aria-hidden="true">{glyph}</span>}
+      {word}
+    </span>
   );
 }
 
-// RunLog is a run's log while its toggle is open: a loading line until the bytes arrive, then the text preformatted. A
-// log that fails to load says so. A load that lands after the log closes sets nothing.
+// RunLog is a run's log while its toggle is open, labelled stdout or stderr: a loading line until the bytes arrive, then
+// the text. A log that fails to load says so. A load that lands after the log closes sets nothing.
 function RunLog(props: { run: string; stderr: boolean; loadArtifact: LoadArtifact }): JSX.Element {
   const { run, stderr, loadArtifact } = props;
   const [text, setText] = useState<string | undefined>(undefined);
@@ -92,22 +87,24 @@ function RunLog(props: { run: string; stderr: boolean; loadArtifact: LoadArtifac
       current = false;
     };
   }, [run, stderr, loadArtifact]);
-  if (failed) return <p class="unavailable">log unavailable</p>;
-  if (text === undefined) return <p class="pending">loading</p>;
-  return <pre class="log">{text}</pre>;
+  const body = failed ? "The log is not available." : text === undefined ? "loading the log…" : text;
+  return (
+    <div class="log side">
+      <span class={stderr ? "lbl is-halt" : "lbl"}>{stderr ? "stderr" : "stdout"}</span>
+      {body}
+    </div>
+  );
 }
 
-// ArtifactRow is one artifact: its path, its state and size, and for a kept image the image drawn under them.
+// ArtifactRow is one artifact's line: its path, its state and its size, and for a kept image the image drawn under it.
 function ArtifactRow(props: { run: string; artifact: EvidenceArtifact; loadArtifact: LoadArtifact }): JSX.Element {
   const { run, artifact, loadArtifact } = props;
   const drawn = artifact.state === "kept" && artifact.mediaType.startsWith("image/");
   return (
-    <li class="artifact">
-      <span class="path">{artifact.path}</span>
-      <span class="artifact-state">{artifactStateOf(artifact.state)}</span>
-      <span class="size">{`${artifact.size} bytes`}</span>
+    <div class="artifact">
+      <span>{`${artifact.path} · ${artifactStateOf(artifact.state)} · ${artifact.size} bytes`}</span>
       {drawn && <ArtifactImage run={run} path={artifact.path} loadArtifact={loadArtifact} />}
-    </li>
+    </div>
   );
 }
 
@@ -142,20 +139,50 @@ function ArtifactImage(props: { run: string; path: string; loadArtifact: LoadArt
   return <img class="artifact-image" src={src} alt={path} />;
 }
 
-// sourceOf names a run's source: a supplied run reads agent-supplied, and a captured run reads as captured.
-function sourceOf(source: string): string {
-  return source === "supplied" ? "agent-supplied" : source;
-}
-
-// verdictOf is a run's verdict, or no verdict with the judge's reason when the judge gave none.
-function verdictOf(run: EvidenceRun): string {
-  if (run.verdict !== "") {
-    return run.verdict;
+// sentenceOf is a run's one sentence: what its capture is doing while it goes, why its output is missing, or whether
+// the test failed as it should, or passed on the change, once it has ended.
+function sentenceOf(run: EvidenceRun): string {
+  const phase = run.phase === "red" ? "Red" : "Green";
+  if (run.state !== "ended") {
+    return `${phase} run: ${run.state === "judging" ? "a judge is reading the output" : "capturing the output"}…`;
   }
-  return run.judgeReason === "" ? "no verdict" : `no verdict · ${run.judgeReason}`;
+  if (run.notCaptured !== "") {
+    return `${phase} run: the output was not captured: ${run.notCaptured}.`;
+  }
+  if (run.phase === "red") {
+    return run.passed
+      ? "Red run: the test fails before any change, as it should."
+      : "Red run: the test passes before any change. It should fail.";
+  }
+  return run.passed ? "Green run: the test passes on the change." : "Green run: the test still fails on the change.";
 }
 
-// artifactStateOf names an artifact's state: kept, missing, or over cap.
+// chipOf is a run's verdict chip: its state while it goes, its verdict once it has ended, or no verdict with the judge's
+// reason after it. The tone names the chip's class, and the glyph its mark.
+function chipOf(run: EvidenceRun): { tone: string; glyph: string; word: string } {
+  if (run.state !== "ended") {
+    return { tone: "live", glyph: "", word: run.state === "judging" ? "judging" : "capturing" };
+  }
+  if (run.verdict === "holds") {
+    return { tone: "ok", glyph: "✓", word: "holds" };
+  }
+  if (run.verdict === "fails") {
+    return { tone: "bad", glyph: "✗", word: "fails" };
+  }
+  return {
+    tone: "",
+    glyph: "",
+    word: run.judgeReason === "" ? "no verdict" : `no verdict · ${run.judgeReason}`,
+  };
+}
+
+// metaOf is a run's meta: its source, and its exit once it has ended.
+function metaOf(run: EvidenceRun): string {
+  const source = run.source === "supplied" ? "supplied by the agent" : "captured";
+  return run.state === "ended" ? `${source} · exit ${run.exit}` : source;
+}
+
+// artifactStateOf names an artifact's state: kept, missing, or too large to keep.
 function artifactStateOf(state: string): string {
-  return state === "over_cap" ? "over cap" : state;
+  return state === "over_cap" ? "too large to keep" : state;
 }
