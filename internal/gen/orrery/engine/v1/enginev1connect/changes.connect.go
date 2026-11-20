@@ -41,8 +41,9 @@ const (
 type ChangesClient interface {
 	// Watch streams the changes to sessions. The first message has opened set and nothing else, and is sent once the
 	// subscription is registered, so a subscriber that reads its sources after receiving it misses nothing. Each later
-	// message names the sessions whose events or unfinished text changed since the last message the subscriber took,
-	// with the newest event seq among them, or 0 when only text changed.
+	// message names the sessions whose events, unfinished text or owed state changed since the last message the
+	// subscriber took (owed state being caller events, put-off marks, prompt states, called steps and created epics),
+	// with the newest event seq among them, or 0 when no event was appended.
 	Watch(context.Context, *connect.Request[v1.ChangesWatchRequest]) (*connect.ServerStreamForClient[v1.ChangesWatchResponse], error)
 }
 
@@ -80,8 +81,9 @@ func (c *changesClient) Watch(ctx context.Context, req *connect.Request[v1.Chang
 type ChangesHandler interface {
 	// Watch streams the changes to sessions. The first message has opened set and nothing else, and is sent once the
 	// subscription is registered, so a subscriber that reads its sources after receiving it misses nothing. Each later
-	// message names the sessions whose events or unfinished text changed since the last message the subscriber took,
-	// with the newest event seq among them, or 0 when only text changed.
+	// message names the sessions whose events, unfinished text or owed state changed since the last message the
+	// subscriber took (owed state being caller events, put-off marks, prompt states, called steps and created epics),
+	// with the newest event seq among them, or 0 when no event was appended.
 	Watch(context.Context, *connect.Request[v1.ChangesWatchRequest], *connect.ServerStream[v1.ChangesWatchResponse]) error
 }
 

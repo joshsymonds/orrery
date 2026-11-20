@@ -243,8 +243,8 @@ func appendEvent(ctx context.Context, queries *sqlcgen.Queries, sessionID, kind,
 //
 // A write that commits after one of its statements ran with a context from withEpicEvent calls the hook OnCallerEvent
 // set, once, after the connection is free again, so the hook may read the store. A write that moved the revision of
-// any epic (see runWrite) then calls the hook OnEpicsChanged set, once, with those epics. A write that commits after
-// inserting an events row or writing an engine text row then calls the hook OnSessionEvents set, once, after that.
+// any epic (see runWrite) then calls the hook OnEpicsChanged set, once, with those epics. A write that commits and
+// names a session (see OnSessionEvents) then calls the hook OnSessionEvents set, once, after that.
 func (s *Store) write(ctx context.Context, fn func(queries *sqlcgen.Queries) error) error {
 	return s.writeDB(ctx, func(db sqlcgen.DBTX) error { return fn(sqlcgen.New(db)) })
 }
@@ -279,10 +279,10 @@ type writeDone struct {
 }
 
 // runWrite runs fn in the write transaction on conn and commits it. While fn runs, the connection's pre-update hook
-// records each epic a written row of an epic table names (epicMoves) and each row of the session feed's tables (the
-// session feed); before the commit, the write moves the revision of each of those epics by one (epicMoves.flush), in
-// the same transaction, and reads the sessions those rows name (epicMoves.flushSessions). It reports what the write
-// did, which is set only when runWrite returns nil.
+// records each epic a written row of an epic table names (epicMoves) and each row of the session feed's tables (see
+// recordSession); before the commit, the write moves the revision of each of those epics by one (epicMoves.flush), in
+// the same transaction, and reads the sessions those rows name, and the creator of each epic it moved
+// (epicMoves.flushSessions). It reports what the write did, which is set only when runWrite returns nil.
 func runWrite(
 	ctx context.Context, conn *sql.Conn, fn func(db sqlcgen.DBTX) error,
 ) (done writeDone, err error) {
@@ -304,7 +304,7 @@ func runWrite(
 	if err != nil {
 		return writeDone{}, errors.Join(err, rollback(ctx, conn))
 	}
-	session, err := moves.flushSessions(ctx, statements)
+	session, err := moves.flushSessions(ctx, statements, moved)
 	if err != nil {
 		return writeDone{}, errors.Join(err, rollback(ctx, conn))
 	}

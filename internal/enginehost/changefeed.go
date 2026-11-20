@@ -35,9 +35,10 @@ func NewChangeFeed() *ChangeFeed {
 	return &ChangeFeed{subs: make(map[*changeSubscriber]struct{})}
 }
 
-// Publish records a change to sessions, with seq the newest event seq among them or 0 when only unfinished text
-// changed. It merges the change into each subscriber's pending change and signals each one, and never waits for a
-// subscriber to read.
+// Publish records a change to sessions, the sessions whose events, unfinished text or owed state changed (caller
+// events, put-off marks, prompt states, called steps and created epics), with seq the newest event seq among them or 0
+// when no event was appended. It merges the change into each subscriber's pending change and signals each one, and
+// never waits for a subscriber to read.
 func (f *ChangeFeed) Publish(seq int64, sessions []string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

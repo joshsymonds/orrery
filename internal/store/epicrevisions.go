@@ -152,8 +152,8 @@ type epicMoves struct {
 	unresolved []unresolvedRow
 	outside    map[string]int
 	// sessionRows are the rows of the session feed's tables the armed write wrote (see recordSession), and sessionErr is
-	// the error the hook met reading one. sessionColumns is the column session_id is at, by table, once read; only the
-	// write running on the connection reads it.
+	// the error the hook met reading one. sessionColumns is the column that holds each table's session, by table, once
+	// read; only the write running on the connection reads it.
 	sessionRows    []sessionRow
 	sessionErr     error
 	sessionColumns map[string]int

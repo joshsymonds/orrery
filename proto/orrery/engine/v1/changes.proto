@@ -7,8 +7,9 @@ package orrery.engine.v1;
 service Changes {
   // Watch streams the changes to sessions. The first message has opened set and nothing else, and is sent once the
   // subscription is registered, so a subscriber that reads its sources after receiving it misses nothing. Each later
-  // message names the sessions whose events or unfinished text changed since the last message the subscriber took,
-  // with the newest event seq among them, or 0 when only text changed.
+  // message names the sessions whose events, unfinished text or owed state changed since the last message the
+  // subscriber took (owed state being caller events, put-off marks, prompt states, called steps and created epics),
+  // with the newest event seq among them, or 0 when no event was appended.
   rpc Watch(ChangesWatchRequest) returns (stream ChangesWatchResponse);
 }
 
@@ -20,9 +21,10 @@ message ChangesWatchResponse {
   // True only in the opened message, which is sent once the subscription is registered.
   bool opened = 1;
 
-  // The newest event seq among the sessions, or 0 when only unfinished text changed. Unset in the opened message.
+  // The newest event seq among the sessions, or 0 when no event was appended. Unset in the opened message.
   int64 seq = 2;
 
-  // The sessions whose events or unfinished text changed, sorted and distinct. Empty in the opened message.
+  // The sessions whose events, unfinished text or owed state changed (caller events, put-off marks, prompt states,
+  // called steps and created epics), sorted and distinct. Empty in the opened message.
   repeated string sessions = 3;
 }

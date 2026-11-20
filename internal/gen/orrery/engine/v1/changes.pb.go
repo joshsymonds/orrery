@@ -63,9 +63,10 @@ type ChangesWatchResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// True only in the opened message, which is sent once the subscription is registered.
 	Opened bool `protobuf:"varint,1,opt,name=opened,proto3" json:"opened,omitempty"`
-	// The newest event seq among the sessions, or 0 when only unfinished text changed. Unset in the opened message.
+	// The newest event seq among the sessions, or 0 when no event was appended. Unset in the opened message.
 	Seq int64 `protobuf:"varint,2,opt,name=seq,proto3" json:"seq,omitempty"`
-	// The sessions whose events or unfinished text changed, sorted and distinct. Empty in the opened message.
+	// The sessions whose events, unfinished text or owed state changed (caller events, put-off marks, prompt states,
+	// called steps and created epics), sorted and distinct. Empty in the opened message.
 	Sessions      []string `protobuf:"bytes,3,rep,name=sessions,proto3" json:"sessions,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
