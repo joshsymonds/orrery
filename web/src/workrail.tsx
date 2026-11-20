@@ -91,6 +91,22 @@ function GroupView({ group, lit, layout, onOpen }: GroupViewProps): JSX.Element 
     }
   }, [picking, layout]);
 
+  // While the rail's picker is open, Escape shuts it from anywhere on the page. The window's capture listener runs before
+  // every other key handler, and it stops the key there, so the page's own handler never acts on it.
+  useEffect(() => {
+    if (!picking || layout !== "rail") {
+      return undefined;
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        setPicking(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [picking, layout]);
+
   // The rail's picker shuts on a press outside the group, its tile and picker included.
   useEffect(() => {
     if (!picking || layout !== "rail") {
@@ -148,7 +164,7 @@ function GroupView({ group, lit, layout, onOpen }: GroupViewProps): JSX.Element 
         ))
       )}
       {picking && layout === "rail" && (
-        <div ref={picker} class="rpick" role="menu" onKeyDown={(event) => onPickerKey(event, () => setPicking(false))}>
+        <div ref={picker} class="rpick" role="menu">
           <div class="menu-head">{head}</div>
           {rows}
         </div>
@@ -162,15 +178,6 @@ function GroupView({ group, lit, layout, onOpen }: GroupViewProps): JSX.Element 
       )}
     </div>
   );
-}
-
-// onPickerKey closes the rail's picker on Escape, and stops that key there, so the page's own key handler never
-// sees it.
-function onPickerKey(event: JSX.TargetedKeyboardEvent<HTMLDivElement>, close: () => void): void {
-  if (event.key === "Escape") {
-    event.stopPropagation();
-    close();
-  }
 }
 
 // GaugeRing draws an epic's gauge: a planned ring, with its started and done arcs as shares of its total.

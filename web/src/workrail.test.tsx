@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { type JSX, render } from "preact";
 import { act } from "preact/test-utils";
 
-import { assertSame, installTestDom, removeTestDom } from "./testdom";
+import { assertNone, assertSame, installTestDom, removeTestDom } from "./testdom";
 import type { EpicThing, ListThing, RailGroup, Thing } from "./work";
 import { WorkRail } from "./workrail";
 
@@ -331,6 +331,77 @@ test("RailPicker: Escape inside the picker closes it and never reaches the docum
       });
       assert.equal(container.querySelector(".rpick"), null);
       assert.equal(documentKeys, 0);
+    } finally {
+      document.removeEventListener("keydown", onDocumentKey);
+    }
+  });
+});
+
+test("RailPicker: Escape on the dots tile closes the picker and never reaches the document", () => {
+  let documentKeys = 0;
+  const onDocumentKey = () => {
+    documentKeys += 1;
+  };
+  return withDom((container) => {
+    draw(container, onRail([epicsOf(4)]));
+    act(() => {
+      one(container, ".tile-w.group").dispatchEvent(new Event("click", { bubbles: true }));
+    });
+    document.addEventListener("keydown", onDocumentKey);
+    try {
+      act(() => {
+        one(container, ".tile-w.group").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      });
+      assertNone(container.querySelector(".rpick"));
+      assert.equal(documentKeys, 0);
+    } finally {
+      document.removeEventListener("keydown", onDocumentKey);
+    }
+  });
+});
+
+test("RailPicker: Escape with focus on the page body closes the picker and never reaches the document", () => {
+  let documentKeys = 0;
+  const onDocumentKey = () => {
+    documentKeys += 1;
+  };
+  return withDom((container) => {
+    draw(container, onRail([epicsOf(4)]));
+    act(() => {
+      one(container, ".tile-w.group").dispatchEvent(new Event("click", { bubbles: true }));
+    });
+    document.addEventListener("keydown", onDocumentKey);
+    try {
+      act(() => {
+        document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      });
+      assertNone(container.querySelector(".rpick"));
+      assert.equal(documentKeys, 0);
+    } finally {
+      document.removeEventListener("keydown", onDocumentKey);
+    }
+  });
+});
+
+test("RailPicker: once the picker is shut, Escape reaches the document again", () => {
+  let documentKeys = 0;
+  const onDocumentKey = () => {
+    documentKeys += 1;
+  };
+  return withDom((container) => {
+    draw(container, onRail([epicsOf(4)]));
+    act(() => {
+      one(container, ".tile-w.group").dispatchEvent(new Event("click", { bubbles: true }));
+    });
+    document.addEventListener("keydown", onDocumentKey);
+    try {
+      act(() => {
+        document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      });
+      act(() => {
+        document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      });
+      assert.equal(documentKeys, 1);
     } finally {
       document.removeEventListener("keydown", onDocumentKey);
     }
