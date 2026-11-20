@@ -664,6 +664,7 @@ data class TaskReviewRow(
     val step: String,
     val verdict: String,
     val findings: List<TaskFindingRow>,
+    val reason: String = "",
 )
 
 /**
@@ -1588,6 +1589,7 @@ class OrreryClient(
             step = step,
             verdict = verdict,
             findings = findingsList.map { it.toTaskFindingRow() },
+            reason = reason,
         )
 
     private fun EpicTaskFindingProto.toTaskFindingRow(): TaskFindingRow =
