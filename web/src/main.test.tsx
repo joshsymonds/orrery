@@ -797,6 +797,7 @@ test("the page calls only the list, get and watch paths it reads", (t) =>
       assert.deepEqual(
         [...server.paths].sort(),
         [
+          "/orrery.v1.Contracts/List",
           epicsGetPath,
           epicsListPath,
           "/orrery.v1.Epics/History",

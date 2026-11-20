@@ -4,6 +4,7 @@
 import type { MessageInitShape } from "@bufbuild/protobuf";
 import type { Code } from "@connectrpc/connect";
 
+import type { ContractsGetResponse, ContractsListResponse } from "../gen/orrery/v1/contracts_pb";
 import type {
   EpicsGetResponse,
   EpicsHistoryResponse,
@@ -18,6 +19,8 @@ import type {
   SessionsWatchConversationResponse,
   WatchConversationResponse,
 } from "../gen/orrery/v1/orrery_pb";
+import { contracts } from "./contracts";
+import { tideProposed } from "./contractrecords";
 import { evidenceLogs, epics, gets, histories } from "./epics";
 import { host } from "./host";
 import { panes, paneStreams } from "./panes";
@@ -35,8 +38,13 @@ export type AskAnswer =
 
 // Slices is the data a fixture transport answers with. evidenceLogs holds the log each run's Evidence.Artifact answers
 // with, by run id. asks holds the answer Picker.Ask gives for each words, and words with no entry are refused.
+// contracts is the Contracts.List answer, and contractGets holds the Contracts.Get answer for each contract id. fail holds
+// the procedures that answer Unavailable, and hold the procedures that stay unanswered until their call aborts, each named
+// as "orrery.v1.Panes/List".
 export interface Slices {
   readonly epics: EpicsListResponse;
+  readonly contracts: ContractsListResponse;
+  readonly contractGets: Readonly<Record<string, ContractsGetResponse>>;
   readonly gets: ReadonlyMap<string, EpicsGetResponse>;
   readonly histories: ReadonlyMap<string, EpicsHistoryResponse>;
   readonly panes: PanesListResponse;
@@ -54,11 +62,15 @@ export interface Slices {
   // stays open until its call aborts. Unset, the interrupt is absorbed and no texts come back.
   readonly interrupt?: { texts: string[]; then?: SessionsWatchConversationResponse };
   readonly asks: ReadonlyMap<string, AskAnswer>;
+  readonly fail?: ReadonlySet<string>;
+  readonly hold?: ReadonlySet<string>;
 }
 
 // shippedSlices is the data the fixture transport serves when it is given no slices.
 export const shippedSlices: Slices = {
   epics,
+  contracts,
+  contractGets: { "tidepool/tide-alerts": tideProposed },
   gets,
   histories,
   panes,

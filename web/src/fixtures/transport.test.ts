@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
 
 import { create, equals, toJson } from "@bufbuild/protobuf";
-import { Code, ConnectError } from "@connectrpc/connect";
+import { Code, ConnectError, createClient } from "@connectrpc/connect";
 import { type ComponentChild, h, render } from "preact";
 import { act } from "preact/test-utils";
 
@@ -10,6 +10,7 @@ import { App, Page } from "../app.stories";
 import { PageStory } from "../catalog/pagestory";
 import { storyName } from "../catalog/story";
 import type { Address } from "../router";
+import { Contracts, ContractsGetResponseSchema, ContractsListResponseSchema } from "../gen/orrery/v1/contracts_pb";
 import { EpicsGetResponseSchema, EpicsListResponseSchema, EpicsPauseResponseSchema } from "../gen/orrery/v1/epics_pb";
 import {
   AskResponseSchema,
@@ -22,6 +23,7 @@ import {
 import { mockTimers } from "../testclock";
 import { assertNone, installTestDom, removeTestDom, teardownOnce } from "../testdom";
 import { turn, until } from "../testwait";
+import { at } from "./clock";
 import { shippedSlices } from "./slices";
 import { createFixtureTransport } from "./transport";
 
@@ -305,6 +307,69 @@ test("FixtureTransport fails a Picker.Ask its slice holds a failure for with tha
   const error = await refusal(fixture.clients.picker.ask({ text: "roster page tidepool" }));
   assert.equal(error.code, Code.DeadlineExceeded);
   assert.deepEqual([...fixture.unserved], [], "a failure from the slice is no refused call");
+});
+
+test("FixtureTransport answers Contracts.List with tide-alerts proposed by sess-tide-16", async () => {
+  const fixture = createFixtureTransport();
+  const contracts = createClient(Contracts, fixture.transport);
+  const list = await contracts.list({});
+  assert.ok(equals(ContractsListResponseSchema, list, shippedSlices.contracts), "Contracts.List answers the contract list");
+  assert.equal(list.contracts.length, 1, "one contract is listed");
+  const [tide] = list.contracts;
+  assert.deepEqual(
+    [tide.id, tide.repository, tide.title, tide.care, tide.state, tide.version, tide.openDecisions, tide.conversation, tide.created, tide.changed],
+    ["tidepool/tide-alerts", "/home/owner/code/tidepool", "Tide alerts for the harbour office", "serious", "proposed", 2n, 0n, "sess-tide-16", at("@13:58"), at("@14:15")],
+  );
+  assert.deepEqual([...fixture.unserved], [], "the list is no refused call");
+});
+
+test("FixtureTransport answers Contracts.Get with the record its contractGets holds for the id", async () => {
+  const fixture = createFixtureTransport();
+  const contracts = createClient(Contracts, fixture.transport);
+  const record = await contracts.get({ id: "tidepool/tide-alerts" });
+  assert.ok(
+    equals(ContractsGetResponseSchema, record, shippedSlices.contractGets["tidepool/tide-alerts"]),
+    "Contracts.Get answers the record its slices hold for the id",
+  );
+  assert.equal(record.contract?.id, "tidepool/tide-alerts", "the record is the contract asked for");
+  assert.deepEqual([...fixture.unserved], [], "the get is no refused call");
+});
+
+test("FixtureTransport fails Contracts.Get of an id with no record with NotFound, and records no refusal", async () => {
+  const fixture = createFixtureTransport();
+  const contracts = createClient(Contracts, fixture.transport);
+  const error = await refusal(contracts.get({ id: "tidepool/no-such-contract" }));
+  assert.equal(error.code, Code.NotFound);
+  assert.deepEqual([...fixture.unserved], [], "a NotFound is no refused call");
+});
+
+test("FixtureTransport refuses the Contracts calls its slices do not serve, and records each", async () => {
+  const fixture = createFixtureTransport();
+  const contracts = createClient(Contracts, fixture.transport);
+  const error = await refusal(contracts.accept({ id: "tidepool/tide-alerts" }));
+  assert.equal(error.code, Code.Unimplemented);
+  assert.deepEqual([...fixture.unserved], ["orrery.v1.Contracts/Accept"], "the refused call is recorded by its procedure");
+});
+
+test("FixtureTransport fails a procedure its slices name with Unavailable, records no refusal, and serves the others", async () => {
+  const fixture = createFixtureTransport({ ...shippedSlices, fail: new Set(["orrery.v1.Panes/List"]) });
+  const error = await refusal(fixture.clients.panes.list({}));
+  assert.equal(error.code, Code.Unavailable);
+  assert.deepEqual([...fixture.unserved], [], "a failure is no refused call");
+  const list = await fixture.clients.epics.list({});
+  assert.ok(equals(EpicsListResponseSchema, list, shippedSlices.epics), "the other procedures are answered as before");
+});
+
+test("FixtureTransport holds a procedure its slices name until its call aborts, and the abort ends the call", async () => {
+  const fixture = createFixtureTransport({ ...shippedSlices, hold: new Set(["orrery.v1.Contracts/List"]) });
+  const contracts = createClient(Contracts, fixture.transport);
+  const controller = new AbortController();
+  const call = contracts.list({}, { signal: controller.signal });
+  assert.equal(await Promise.race([call.then(() => "answered", () => "failed"), turn().then(() => "held")]), "held", "the call is not answered");
+  controller.abort();
+  const error = await refusal(call);
+  assert.equal(error.code, Code.Canceled, "the abort ends the call");
+  assert.deepEqual([...fixture.unserved], [], "a held call is no refused call");
 });
 
 test("FixtureTransport: a pane stream sends its frame and holds open, a reconnect gets no frame, and an abort ends the wait", async () => {
