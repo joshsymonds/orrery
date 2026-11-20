@@ -1456,7 +1456,8 @@ test("a tick during a slow Host.Status starts no second read", (t) =>
   }));
 
 // narrowWidth is a window under the 760px the wide layout starts at. In the wide layout a row's click hides the inbox,
-// and the list's keys then pop it out rather than move the cursor, so the test that presses j runs narrow.
+// and the list's keys then pop it out rather than move the cursor. Under 760px a row's page draws alone, the list hidden
+// behind it, and the list's keys still move the cursor, so the test that presses j runs narrow.
 const narrowWidth = 700;
 
 // settle is the wait between checks in a test whose timers are mocked: act applies the renders the page has queued, and

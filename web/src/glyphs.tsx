@@ -150,11 +150,16 @@ function stateDrawing(state: string): JSX.Element {
   }
 }
 
+// stateWord is a state's word, which a state it does not know reads as idle.
+export function stateWord(state: string): string {
+  return STATE_WORDS[Object.hasOwn(STATE_WORDS, state) ? state : "idle"];
+}
+
 // StateGlyph draws a session's or a step's state. Its word is its accessible name, so a glyph is never the only way to
 // learn the state. A state it does not know is drawn as idle.
 export function StateGlyph({ state }: { state: string }): JSX.Element {
   const name = Object.hasOwn(STATE_WORDS, state) ? state : "idle";
-  const word = STATE_WORDS[name];
+  const word = stateWord(name);
   return (
     <svg class="glyph" data-state={name} viewBox="0 0 16 16" role="img" aria-label={word}>
       <title>{word}</title>

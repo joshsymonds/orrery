@@ -16,7 +16,7 @@ import { type Viewing, watchPresence } from "./presence";
 import { type Affects, affectsOf, stepSessions } from "./refresh";
 import { type Address, type Entry, formatAddress, parseAddress } from "./router";
 import type { Row } from "./rows";
-import type { SeenClock, SeenWindow } from "./seen";
+import { realClock, type SeenWindow } from "./seen";
 
 const defaultIntervalMs = 5000;
 
@@ -28,13 +28,6 @@ const eventReloadMs = 100;
 
 // The element index.html provides for the page to mount into.
 const pageRootId = "app";
-
-// The clock the presence watch reads and times its reports with.
-const realClock: SeenClock = {
-  now: () => Date.now(),
-  setTimeout: (fn, ms) => setTimeout(fn, ms),
-  clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
-};
 
 // What an event that has waited for its reload asks for before any event has come.
 const noAffects: Affects = { rows: false, epics: false };

@@ -18,8 +18,10 @@ import { turn, until } from "./testwait";
 
 const now = 1000;
 
-// narrowWidth is a window under the 760px the wide layout starts at. In the narrow layout the inbox stays docked when a
-// row is opened, so the list's keys move the cursor on their first press, as the cursor keys checked here need.
+// wideWidth is the window the tests run at, past the 760px the wide layout starts at, where a row's page draws beside the
+// inbox from the start. narrowWidth is a window under 760px: there an opened row's page draws alone, and the list's keys
+// still move the cursor, as the tests that open a row and press a key check.
+const wideWidth = 1024;
 const narrowWidth = 700;
 
 type Clients = ReturnType<typeof createClients>;
@@ -35,6 +37,8 @@ interface Setup {
   notices?: InAppNotice[];
   items?: object[];
   address?: Address;
+  // width is the window's width: the wide window unless the test runs narrow.
+  width?: number;
 }
 
 // Shown is what a test's check reads: the DOM App draws into, the reports App has made, and a render of App over
@@ -206,7 +210,7 @@ function show(container: HTMLElement, clients: Clients, setup: Setup, reports: R
 async function withApp(t: TestContext, setup: Setup, check: (shown: Shown) => void | Promise<void>): Promise<void> {
   mockTimers(t, ["setTimeout"]);
   const window = installTestDom();
-  window.happyDOM.setViewport({ width: narrowWidth, height: 800 });
+  window.happyDOM.setViewport({ width: setup.width ?? wideWidth, height: 800 });
   const container = document.createElement("div");
   document.body.append(container);
   const transport = createTransport({ baseUrl: "https://orrery.test", fetch: fakeFetch(setup.items ?? []) });
@@ -304,38 +308,38 @@ async function cursorModes(reports: Report[]): Promise<string[]> {
 }
 
 test("HashRoute: a row click pushes its address, and the first cursor key after it pushes while the rest replace", (t) =>
-  withApp(t, { rows: historyRows() }, async ({ container, reports }) => {
+  withApp(t, { rows: historyRows(), width: narrowWidth }, async ({ container, reports }) => {
     await click(container, '[data-key="session:s1"]');
     assert.deepEqual(reports, [["#/inbox/session/s1", "push"]]);
     assert.deepEqual(await cursorModes(reports), cursorKeyModes);
   }));
 
-test("HashRoute: Enter on a row the cursor moved to records nothing, and the first cursor key after it pushes", (t) =>
-  withApp(t, { rows: historyRows() }, async ({ reports }) => {
+test("HashRoute: Enter on a row the cursor moved to pushes the address it opens, and the first cursor key after it pushes", (t) =>
+  withApp(t, { rows: historyRows(), width: narrowWidth }, async ({ reports }) => {
     await press("G");
     await press("k");
     const before = reports.length;
     await press("Enter");
     await unfocus();
-    assert.equal(reports.length, before, "Enter reports nothing: the row is the cursor's already");
+    assert.deepEqual(reports.slice(before), [["#/inbox/session/s2", "push"]], "Enter opens the row, so its address pushes");
     assert.deepEqual(await cursorModes(reports), cursorKeyModes);
   }));
 
-test("HashRoute: a click on the row the cursor rests on records nothing, and the next j pushes", (t) =>
-  withApp(t, { rows: historyRows() }, async ({ container, reports }) => {
+test("HashRoute: a click on a row under 760px pushes the address it opens, and the next j pushes", (t) =>
+  withApp(t, { rows: historyRows(), width: narrowWidth }, async ({ container, reports }) => {
     await click(container, '[data-key="session:s0"]');
-    assert.deepEqual(reports, [], "the click reports nothing");
+    assert.deepEqual(reports, [["#/inbox/session/s0", "push"]], "the click opens the row, so its address pushes");
     await press("j");
-    assert.deepEqual(reports, [["#/inbox/session/s1", "push"]]);
+    assert.deepEqual(reports.slice(1), [["#/inbox/session/s1", "push"]]);
   }));
 
-test("HashRoute: Enter on the row the cursor rests on records nothing, and the next j pushes", (t) =>
-  withApp(t, { rows: historyRows() }, async ({ container, reports }) => {
+test("HashRoute: Enter on the row the cursor rests on pushes the address it opens, and the next j pushes", (t) =>
+  withApp(t, { rows: historyRows(), width: narrowWidth }, async ({ container, reports }) => {
     await press("Enter");
     await unfocus();
-    assert.deepEqual(reports, [], "Enter reports nothing");
+    assert.deepEqual(reports, [["#/inbox/session/s0", "push"]], "Enter opens the row, so its address pushes");
     await press("j");
-    assert.deepEqual(reports, [["#/inbox/session/s1", "push"]]);
+    assert.deepEqual(reports.slice(1), [["#/inbox/session/s1", "push"]]);
     assert.equal(cursorKey(container), "session:s1");
   }));
 
@@ -372,14 +376,14 @@ test("HashRoute: a card's open control pushes the address of its epic, and the f
   }));
 
 test("HashRoute: the v key pushes the archived view", (t) =>
-  withApp(t, { rows: historyRows() }, async ({ container, reports }) => {
+  withApp(t, { rows: historyRows(), width: narrowWidth }, async ({ container, reports }) => {
     await click(container, '[data-key="session:s1"]');
     await press("v");
     assert.deepEqual(reports.slice(1), [["#/archived", "push"]]);
   }));
 
 test("HashRoute: the foot's Archived and Back to the inbox push their views, and the first cursor key after them pushes", (t) =>
-  withApp(t, { rows: historyRows() }, async ({ container, reports }) => {
+  withApp(t, { rows: historyRows(), width: narrowWidth }, async ({ container, reports }) => {
     await click(container, '[data-key="session:s1"]');
     await click(container, ".inbox-foot button", "Archivedv");
     assert.deepEqual(reports.slice(1), [["#/archived", "push"]]);
@@ -481,7 +485,7 @@ test("HashRoute: a bare load with its rows arriving records nothing", (t) =>
 test("HashRoute: an applied address prop records nothing, and the next j pushes", (t) =>
   withApp(
     t,
-    { rows: historyRows(), address: { view: "inbox", entry: { kind: "session", id: "s1" } } },
+    { rows: historyRows(), width: narrowWidth, address: { view: "inbox", entry: { kind: "session", id: "s1" } } },
     async ({ container, reports }) => {
       assert.deepEqual(reports, []);
       assert.equal(cursorKey(container), "session:s1");
@@ -523,7 +527,7 @@ test("HashRoute: a crumb return that changes no address is not carried to a late
   }));
 
 test("HashRoute: an address prop echoing the one App reported records nothing, and later cursor keys replace", (t) =>
-  withApp(t, { rows: historyRows() }, async ({ container, reports, rerender }) => {
+  withApp(t, { rows: historyRows(), width: narrowWidth }, async ({ container, reports, rerender }) => {
     await click(container, '[data-key="session:s1"]');
     await press("j");
     assert.deepEqual(reports, [
@@ -540,7 +544,7 @@ test("HashRoute: an address prop echoing the one App reported records nothing, a
 test("HashRoute: an address whose entry is pending records nothing until the entry arrives", (t) =>
   withApp(
     t,
-    { rows: [], address: { view: "inbox", entry: { kind: "session", id: "s1" } } },
+    { rows: [], width: narrowWidth, address: { view: "inbox", entry: { kind: "session", id: "s1" } } },
     async ({ container, reports, rerender }) => {
       assert.deepEqual(reports, [], "nothing while the entry is pending");
       const address: Address = { view: "inbox", entry: { kind: "session", id: "s1" } };
@@ -625,3 +629,40 @@ test("HashRoute: an address under archived naming an archived row opens it and r
     assert.deepEqual(reports, [], "the applied address records nothing");
   });
 });
+
+// listHiddenIn is whether the inbox's list is hidden, which the narrow layout does while a page is drawn alone.
+function listHiddenIn(container: HTMLElement): boolean {
+  const list = container.querySelector(".list");
+  assert.ok(list, "the list is rendered");
+  return list.hasAttribute("hidden");
+}
+
+// readerHiddenIn is whether the reader is hidden.
+function readerHiddenIn(container: HTMLElement): boolean {
+  const reader = container.querySelector('section[aria-label="reader"]');
+  assert.ok(reader, "the reader is rendered");
+  return reader.hasAttribute("hidden");
+}
+
+test("HashRoute: under 760px the page's Back pushes the inbox's address, which names no row", (t) =>
+  withApp(t, { rows: historyRows(), width: narrowWidth }, async ({ container, reports }) => {
+    await click(container, '[data-key="session:s1"]');
+    assert.deepEqual(reports, [["#/inbox/session/s1", "push"]]);
+    await click(container, 'section[aria-label="reader"] button.back');
+    assert.equal(listHiddenIn(container), false, "Back draws the inbox");
+    assert.deepEqual(reports.slice(1), [[inboxAddress, "push"]], "Back reports the inbox's address");
+  }));
+
+test("HashRoute: under 760px a popped inbox address draws the inbox alone, and records nothing", (t) =>
+  withApp(
+    t,
+    { rows: historyRows(), width: narrowWidth, address: { view: "inbox", entry: { kind: "session", id: "s1" } } },
+    async ({ container, reports, rerender }) => {
+      assert.equal(listHiddenIn(container), true, "the applied row's page draws alone");
+      const before = reports.length;
+      await rerender({ rows: historyRows(), address: { view: "inbox", entry: null } });
+      assert.equal(listHiddenIn(container), false, "the popped inbox address draws the list");
+      assert.equal(readerHiddenIn(container), true, "the popped inbox address leaves no page beside it");
+      assert.deepEqual(reports.slice(before), [], "the applied address records nothing");
+    },
+  ));

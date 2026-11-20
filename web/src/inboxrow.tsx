@@ -250,7 +250,7 @@ function clockText(seconds: number): string {
   return `${Math.floor(total / secondsPerMinute)}:${String(total % secondsPerMinute).padStart(2, "0")}`;
 }
 
-function ageText(changed: number, now: number): string {
+export function ageText(changed: number, now: number): string {
   if (changed <= 0) {
     return "";
   }

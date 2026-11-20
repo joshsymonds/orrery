@@ -15,10 +15,11 @@ import type { Contract } from "./gen/orrery/v1/contracts_pb";
 import type { Epic, EpicHistoryEntry, EpicsGetResponse, EpicStep } from "./gen/orrery/v1/epics_pb";
 import type { InAppNotice, NoticeKey } from "./gen/orrery/v1/notice_pb";
 import type { HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
+import { stateWord } from "./glyphs";
 import { Handover } from "./handover";
 import { KeyList } from "./helppanel";
 import { Inbox } from "./inbox";
-import { InboxRow, type RowMore, stateWaiting } from "./inboxrow";
+import { ageText, InboxRow, type RowMore, stateWaiting } from "./inboxrow";
 import {
   type BoxOpen,
   type EscapeTarget,
@@ -39,13 +40,15 @@ import { type Viewing, viewingOf } from "./presence";
 import type { ReaderHandle } from "./reader";
 import { type Address, type Entry, formatAddress, type PageView, type View } from "./router";
 import { type Row, splitArchived } from "./rows";
-import { type SeenClock, type SeenWindow, watchSeen } from "./seen";
+import { realClock, type SeenClock, type SeenWindow, watchSeen } from "./seen";
 import { type SendKind, type Sending, type SentText, sendingEntry, unsentEntries, withoutTexts } from "./sending";
 import { type FindState, headState, ReaderColumn, stepCalls } from "./readercolumn";
 import { PaneStrip, type StripHost } from "./strip";
 import { Talk, type TalkTarget } from "./talk";
 import { TalkDock } from "./talkdock";
+import { lastPathElement } from "./titleparts";
 import { type InboxMark, TitleRow } from "./titlerow";
+import { Toast } from "./toast";
 import { buildTree, type Convo, type Project } from "./tree";
 import { countsOf, type Narrow, narrow as narrowTree, search as searchTree } from "./treefilter";
 import { WorkerSessionPage } from "./workersession";
@@ -139,6 +142,8 @@ const interruptFailedText = "could not interrupt";
 const commandFailedText = "epic command failed";
 const sessionUnavailableText = "session unavailable";
 const archiveFailedText = "could not change archive";
+// How long the archive toast stays, in milliseconds on the App's clock, when Undo is not pressed first.
+const toastMs = 5000;
 // The most entries one page of an epic's history asks for.
 const historyPageSize = 200;
 
@@ -197,9 +202,9 @@ export function App({
   const [open, setOpen] = useState(false);
   // Whether the strips under the title rows are drawn. m hides and shows every one of them.
   const [stripsShown, setStripsShown] = useState(true);
-  // Whether a row has been opened by a click or Enter, which hides the inbox. The mark's click or B pins the inbox
-  // beside the page. A hidden inbox is popped out over the page by the pointer on the mark, or by a key, and popout
-  // records which.
+  // Whether an entry, a row, a step or an epic, has been opened by a click or Enter, which hides the inbox. The mark's
+  // click or B pins the inbox beside the page. A hidden inbox is popped out over the page by the pointer on the mark, or
+  // by a key, and popout records which.
   const [rowOpened, setRowOpened] = useState(false);
   const [inboxPinned, setInboxPinned] = useState(false);
   const [popout, setPopout] = useState<Popout>("none");
@@ -271,6 +276,9 @@ export function App({
   // while the list still says it is working, and the mark clears once that state leaves working.
   const [interrupts, setInterrupts] = useState<Set<string>>(() => new Set());
   const [archiveError, setArchiveError] = useState("");
+  // The row an archive under 760px just archived, which the toast names and Undo unarchives. Each archive makes its own
+  // object, so a later archive replaces the toast and restarts its lifetime.
+  const [toast, setToast] = useState<{ row: Row } | null>(null);
   // The key of the entry whose ⋯ menu is open, if any: one menu is open at a time. It counts as open only while the entry
   // is drawn.
   const [menuKey, setMenuKey] = useState<string | null>(null);
@@ -472,7 +480,9 @@ export function App({
   // cursor. So a render that moves the cursor reads the open page, and the page the cursor left is shown only once that
   // reset has run.
   const shownPage = pageCursor.current === cursorKey ? epicPage : openEpicPage;
-  const shownAddress: Address = { view, entry: shownEntry(cursorItem, shownPage) };
+  // Under 760px the cursor's entry is the address only once it is opened, so the inbox's address names no row.
+  const pageDrawn = wide || rowOpened;
+  const shownAddress: Address = { view, entry: pageDrawn ? shownEntry(cursorItem, shownPage) : null };
   const shownForm = formatAddress(shownAddress);
 
   // The held cursor follows the entry shown, so a first render or a clamp does not leave it on a stale key.
@@ -697,9 +707,32 @@ export function App({
           setEpicMarks((previous) => new Map(previous).set(entry.id, archived));
         } else {
           setRowMarks((previous) => new Map(previous).set(entry.key, archived));
+          if (archived && !wide) {
+            setToast({ row: entry });
+          }
         }
       },
     );
+  };
+
+  // The archive toast goes five seconds after it shows, on the App's clock, and a later archive restarts that count.
+  // Unmount or its replacement clears the timer.
+  const toastClock = seenClock ?? realClock;
+  useEffect(() => {
+    if (toast === null) {
+      return;
+    }
+    const timer = toastClock.setTimeout(() => setToast(null), toastMs);
+    return () => toastClock.clearTimeout(timer);
+  }, [toast, toastClock]);
+  // Undo unarchives the row the toast names, through the same call an Unarchive from its menu makes, and takes the toast
+  // away.
+  const undoToast = () => {
+    if (toast === null) {
+      return;
+    }
+    setToast(null);
+    setArchive(toast.row, false);
   };
 
   // A menu whose entry leaves the list closes, so it does not reopen when the entry returns. While a menu is open, a
@@ -776,11 +809,17 @@ export function App({
     pinStream !== null && pinned !== null && pinStream.key === pinned.key ? pinStream.conversation : null;
   // The More menu of a list row: its items, each acting on that row alone. Mark seen is drawn while the row is unseen, and
   // Archive, or Unarchive in the Archived view, while the row can be archived. Open in a new window opens the row's
-  // address in a new window, in the view the page shows.
+  // address in a new window, in the view the page shows. Under 760px the menu is a sheet, under the row's title the line
+  // of its project, state in words and age.
   const rowMore = (row: Row): RowMore => ({
     open: openMenu === row.key,
     toggle: () => setMenuKey((current) => (current === row.key ? null : row.key)),
     close: () => setMenuKey(null),
+    sheet: wide
+      ? undefined
+      : [lastPathElement(row.project), stateWord(row.state), ageText(row.changed, now)]
+          .filter((part) => part !== "")
+          .join(" · "),
     items: [
       {
         label: "Open in a new window",
@@ -937,10 +976,19 @@ export function App({
   const back = navigated(() => leaveTo(epicPage.below.length - 1));
   const toEpicPage = navigated(() => leaveTo(0));
   // backOneCrumb is h and the left arrow. On a contract, phase output or worker session page it does that page's back.
-  // On the epic page, a row's page or a step's page, which is at its first crumb, it pops a hidden inbox out by key.
+  // Under 760px, on an opened page at its first crumb, it is Back: the epic page or the row's or step's page closes to
+  // the inbox. At 760px and wider, on the epic page, a row's page or a step's page, it pops a hidden inbox out by key.
   const backOneCrumb = () => {
     if (epicEntry !== null && epicPage.page.kind !== "epic") {
       back();
+    } else if (!wide) {
+      if (rowOpened) {
+        if (epicEntry !== null) {
+          closeEpicPage();
+        } else {
+          backToInbox();
+        }
+      }
     } else if (inboxHidden) {
       setPopout("key");
     }
@@ -954,7 +1002,13 @@ export function App({
     drill({ kind: "phase", task, phase });
   });
   const openContract = navigated(() => drill({ kind: "contract" }));
-  const closeEpicPage = navigated(() => setEpicPage(closedEpicPage));
+  // closeEpicPage closes the epic page. Under 760px the epic page is the opened page, so closing it returns to the inbox.
+  const closeEpicPage = navigated(() => {
+    setEpicPage(closedEpicPage);
+    if (!wide) {
+      backToInbox();
+    }
+  });
 
   // A notice's landing opens the epic page on the block it names. Effects run in declaration order, and this one is
   // declared after the cursor's reset above, so in the commit where a notice moves the cursor the landing is the page
@@ -1079,17 +1133,31 @@ export function App({
   };
 
   // openEpic moves the cursor to an epic's entry, after revealing it. The entry is then in the list, so the cursor rests
-  // on it.
+  // on it. Under 760px the epic's page draws alone, so the entry is opened.
   const openEpic = (id: string) => {
     revealKey(`epic:${id}`);
     setCursor({ key: `epic:${id}`, index: shownIndex });
+    if (!wide) {
+      openPageAlone();
+    }
   };
 
-  // selectKey moves the cursor to the entry drawn under key, as a press on that entry does.
+  // openPageAlone opens the cursor's page under 760px, where it draws alone: a row's page, or an epic page that a Back
+  // closed while the cursor stayed on it.
+  const openPageAlone = () => {
+    setRowOpened(true);
+    setEpicPage((previous) => (previous.closed ? openEpicPage : previous));
+  };
+
+  // selectKey moves the cursor to the entry drawn under key, as a press on that entry does. A press on an epic or a step
+  // under 760px opens it, as a press on a row does.
   const selectKey = (key: string) => {
     const item = flat.find((candidate) => candidate.key === key);
     if (item !== undefined) {
       selectItem(item);
+      if (!wide) {
+        openPageAlone();
+      }
     }
   };
 
@@ -1131,6 +1199,9 @@ export function App({
     pendingOpen.current = address.entry === null ? null : { view: address.view, entry: address.entry };
     if (address.entry === null && !first && epicEntry !== null) {
       setEpicPage(closedEpicPage);
+    }
+    if (address.entry === null && !wide) {
+      setRowOpened(false);
     }
     if (address.entry === null) {
       adopt();
@@ -1268,6 +1339,12 @@ export function App({
     }
     document.querySelector<HTMLElement>(".row.cur")?.focus();
   };
+  // backToInbox is a row's page's Back under 760px: the inbox draws again, and the row takes the focus once the render
+  // that draws the list has run.
+  const backToInbox = () => {
+    focusPending.current = true;
+    setRowOpened(false);
+  };
 
   // replyBoxTarget is the row whose reply box is focused, when it is the cursor's or the pinned row's, with the row's
   // state at the press. A step's box, the talk dock's box and any other box are none.
@@ -1309,6 +1386,11 @@ export function App({
     replyBoxTarget,
     focusCursorRow,
     backOneCrumb: navigated(backOneCrumb),
+    openCursorPage: () => {
+      if (!wide) {
+        openPageAlone();
+      }
+    },
     answerCursor,
     toggleOpen,
     closePin,
@@ -1472,11 +1554,19 @@ export function App({
       </p>
     ));
 
+  // Under 760px one page draws at a time. The reader and the epic page draw only once an entry has been opened, so the
+  // inbox is the home page until then. The list hides while the opened row's, step's or epic's page draws alone. At
+  // 760px and wider the list and the page sit abreast as before.
+  const readerRow = pageDrawn ? cursorRow : null;
+  const readerStep = pageDrawn ? cursorStep : null;
+  const epicShown = pageDrawn && epicEntry !== null && !epicPage.closed;
+  const listHides = !wide && ((rowOpened && (cursorRow !== null || cursorStep !== null)) || epicShown);
+
   return (
     <main class="app">
       <div class={pinned !== null ? "panes split" : "panes"} data-inbox={inboxState}>
         {notices.length > 0 && <NoticeBanner notices={notices} onOpen={openNotice} onDismiss={markNoticeSeen} />}
-        <div class="list" ref={listRef} onMouseLeave={() => setPopout("none")}>
+        <div class="list" ref={listRef} onMouseLeave={() => setPopout("none")} hidden={listHides}>
           <Inbox
             view={view}
             state={!answered ? "loading" : listFailed ? "error" : "ready"}
@@ -1504,13 +1594,13 @@ export function App({
           column="cursor"
           clients={clients}
           now={now}
-          row={cursorRow}
+          row={readerRow}
           conversation={cursorConversation}
           rows={visited}
           interrupts={interrupts}
           mark={inboxMark}
           pageStrip={pageStrip}
-          onBack={navigated(focusCursorRow)}
+          onBack={navigated(wide ? focusCursorRow : backToInbox)}
           finding={cursorFinding}
           matches={cursorMatches}
           current={cursorCurrent}
@@ -1526,7 +1616,7 @@ export function App({
           open={open}
           onToggleOpen={toggleOpen}
           onAnswer={answerCursor}
-          step={cursorStep}
+          step={readerStep}
           steps={visitedSteps}
           stepInputs={stepInputs}
         />
@@ -1558,7 +1648,7 @@ export function App({
         <section
           class={pageClasses(epicPage.move, docked !== null)}
           aria-label="epic"
-          hidden={epicEntry === null || epicPage.closed}
+          hidden={!epicShown}
           ref={pageRef}
         >
           {epicEntry !== null &&
@@ -1580,6 +1670,9 @@ export function App({
           )}
         </section>
       </div>
+      {toast !== null && !wide && (
+        <Toast text={`Archived “${toast.row.label}”.`} action="Undo" onAction={undoToast} />
+      )}
       {pickerOpen && (
         <NewPanel
           clients={clients}

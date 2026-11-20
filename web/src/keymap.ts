@@ -72,6 +72,9 @@ export interface KeyContext {
   replyBoxTarget: (box: HTMLElement) => EscapeTarget | null;
   focusCursorRow: () => void;
   backOneCrumb: () => void;
+  // openCursorPage opens the cursor's epic or step page as Enter on a row opens its page: under 760px it then draws
+  // alone. At 760px and wider the page already stands beside the inbox, so it changes nothing there.
+  openCursorPage: () => void;
   answerCursor: (choice: 1 | 2 | 3) => void;
   toggleOpen: () => void;
   closePin: () => void;
@@ -120,6 +123,7 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
     replyBoxTarget,
     focusCursorRow,
     backOneCrumb,
+    openCursorPage,
     answerCursor,
     toggleOpen,
     closePin,
@@ -260,6 +264,8 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
         void writeSeen(cursorRow);
         // Enter opens the row into its reply box, as a click on the row does; x only marks it seen.
         setBoxOpened({ column: "cursor", key: cursorRow.key });
+      } else if (cursorItem?.kind === "epic" || cursorItem?.kind === "step") {
+        openCursorPage();
       }
       break;
     case "b":

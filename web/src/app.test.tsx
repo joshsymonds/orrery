@@ -41,6 +41,8 @@ const intervalMs = 2;
 const markPanePath = "/orrery.v1.Panes/MarkSeen";
 const markSessionPath = "/orrery.v1.Control/Seen";
 const seenEpicPath = "/orrery.v1.Epics/Seen";
+const archivePath = "/orrery.v1.Epics/Archive";
+const unarchivePath = "/orrery.v1.Epics/Unarchive";
 const seenFailedText = "could not mark seen";
 const sendKeysPath = "/orrery.v1.Panes/SendKeys";
 const answerPath = "/orrery.v1.Control/Answer";
@@ -5002,6 +5004,365 @@ test("NewPanel: under 760px App opens the sheet titled New session, with no pane
       assert.equal(dialog.className, "sheet", "the dialog is a sheet");
       assert.equal(dialog.querySelector(".sheet-head b")?.textContent, "New session");
       assertNone(dialog.querySelector("h2"), "a sheet has no heading");
+    },
+    600,
+  ));
+
+// listHidden is whether the inbox's list is hidden, which the narrow layout does while a page is drawn alone.
+function listHidden(container: HTMLElement): boolean {
+  const list = container.querySelector<HTMLElement>(".list");
+  assert.ok(list, "the list is rendered");
+  return list.hasAttribute("hidden");
+}
+
+// backButton is the reader's back button, the one that returns from a row's page.
+function backButton(container: HTMLElement): HTMLButtonElement {
+  const back = container.querySelector<HTMLButtonElement>('section[aria-label="reader"] button.back');
+  assert.ok(back, "the reader has its back button");
+  return back;
+}
+
+test("InboxTree: under 760px the inbox draws alone as the home page, with no row's page beside it", (t) =>
+  withApp(
+    t.signal,
+    {},
+    (container) => {
+      assert.equal(listHidden(container), false, "the inbox is drawn");
+      assert.equal(readerHidden(container), true, "no row's page is drawn beside the inbox");
+    },
+    600,
+  ));
+
+test("InboxTree: under 760px a row's page draws alone, and its Back returns to the inbox", (t) =>
+  withApp(
+    t.signal,
+    {},
+    async (container) => {
+      await clickRow(container, "a");
+      assert.equal(listHidden(container), true, "the opened row's page hides the inbox");
+      assert.equal(readerHidden(container), false, "the opened row's page is drawn");
+      await clickElement(backButton(container));
+      assert.equal(listHidden(container), false, "Back draws the inbox again");
+      assert.equal(readerHidden(container), true, "Back leaves no page beside the inbox");
+      assert.equal(document.activeElement?.getAttribute("data-key"), "a", "Back puts the focus on the cursor's row");
+    },
+    600,
+  ));
+
+test("InboxTree: at 760px and wider the inbox stays beside a row's page, which draws from the start", (t) =>
+  withApp(
+    t.signal,
+    {},
+    async (container) => {
+      assert.equal(listHidden(container), false, "the inbox is drawn");
+      assert.equal(readerHidden(container), false, "the cursor's row page is drawn beside the inbox");
+      await clickRow(container, "a");
+      assert.equal(listHidden(container), false, "the inbox stays beside the page");
+      assert.equal(readerHidden(container), false, "the page is drawn");
+    },
+    1024,
+  ));
+
+// archiveRows are the two rows the narrow archive tests archive: a waiting session row, three minutes older than now's
+// four minutes, and a working one, each with its own archive id.
+function archiveRows(): Row[] {
+  return [
+    row({
+      key: "a",
+      label: "tidepool work",
+      project: "/work/tidepool",
+      state: "waiting",
+      changed: now - 240,
+      seen: now - 240,
+      archiveKind: "session",
+      archiveId: "sess-a",
+    }),
+    row({
+      key: "b",
+      label: "bundling",
+      project: "/work/web",
+      state: "working",
+      changed: now - 10,
+      seen: now - 10,
+      archiveKind: "session",
+      archiveId: "sess-b",
+    }),
+  ];
+}
+
+// moreOf is the ⋯ button of the row under key.
+function moreOf(container: HTMLElement, key: string): HTMLButtonElement {
+  const more = rowElement(container, key).querySelector<HTMLButtonElement>(".more");
+  assert.ok(more, `row ${key} has its More button`);
+  return more;
+}
+
+// menuItem is the menu item, in a popover or a sheet, whose label is label.
+function menuItem(container: HTMLElement, label: string): HTMLButtonElement {
+  const item = [...container.querySelectorAll<HTMLButtonElement>(".menu-item")].find(
+    (button) => button.querySelector("span")?.textContent === label,
+  );
+  assert.ok(item, `the menu has ${label}`);
+  return item;
+}
+
+function sheetOf(container: HTMLElement): HTMLElement | null {
+  return container.querySelector<HTMLElement>('section.sheet[role="dialog"]');
+}
+
+function toastOf(container: HTMLElement): HTMLElement | null {
+  return container.querySelector<HTMLElement>(".toast");
+}
+
+function toastText(container: HTMLElement): string | null | undefined {
+  return toastOf(container)?.querySelector(".grow")?.textContent;
+}
+
+test("InboxTree: under 760px More opens a sheet whose line is the row's project, state in words and age", (t) =>
+  withApp(
+    t.signal,
+    { rows: archiveRows() },
+    async (container) => {
+      await clickElement(moreOf(container, "a"));
+      const sheet = sheetOf(container);
+      assert.ok(sheet, "More opens a sheet");
+      assert.equal(sheet.querySelector(".sheet-head b")?.textContent, "tidepool work", "the sheet is titled with the row");
+      assert.equal(sheet.querySelector(".sheet-head")?.lastChild?.textContent, "tidepool · waiting on you · 4m", "the sheet's line");
+    },
+    600,
+  ));
+
+test("InboxTree: under 760px Archive from a row's sheet archives that row and shows Undo, which unarchives it", (t) =>
+  withApp(
+    t.signal,
+    { rows: archiveRows() },
+    async (container, fake) => {
+      await clickElement(moreOf(container, "a"));
+      await clickElement(menuItem(container, "Archive"));
+      await until(t.signal, () => fake.callsTo(archivePath).length === 1, "the Archive call");
+      assert.deepEqual(fake.callsTo(archivePath)[0].body, { kind: "session", id: "sess-a" }, "Archive names the row");
+      await until(t.signal, () => toastOf(container) !== null, "the toast");
+      assert.equal(toastText(container), "Archived “tidepool work”.", "the toast names the row");
+      await clickElement(toastButton(container));
+      await until(t.signal, () => fake.callsTo(unarchivePath).length === 1, "the Unarchive call");
+      assert.deepEqual(fake.callsTo(unarchivePath)[0].body, { kind: "session", id: "sess-a" }, "Undo names the same row");
+      assert.equal(toastOf(container), null, "Undo takes the toast away");
+      await until(t.signal, () => container.querySelector('[data-key="a"]') !== null, "the row back in the list");
+    },
+    600,
+  ));
+
+test("InboxTree: under 760px A archives the cursor's row and shows the toast", (t) =>
+  withApp(
+    t.signal,
+    { rows: archiveRows() },
+    async (container, fake) => {
+      assert.equal(cursorKey(container), "a", "the cursor rests on the first row");
+      await press("A");
+      await until(t.signal, () => fake.callsTo(archivePath).length === 1, "the Archive call");
+      assert.deepEqual(fake.callsTo(archivePath)[0].body, { kind: "session", id: "sess-a" }, "A names the cursor's row");
+      await until(t.signal, () => toastText(container) === "Archived “tidepool work”.", "the toast");
+    },
+    600,
+  ));
+
+test("InboxTree: under 760px the archive toast goes five seconds after it shows, and a later archive restarts that count", (t) =>
+  withApp(
+    t.signal,
+    { rows: archiveRows() },
+    async (container, fake) => {
+      await press("A");
+      await until(t.signal, () => toastText(container) === "Archived “tidepool work”.", "the first toast");
+      fake.seen.advance(3000);
+      await press("A");
+      await until(t.signal, () => toastText(container) === "Archived “bundling”.", "the second toast replaces the first");
+      fake.seen.advance(4999);
+      assert.equal(toastOf(container) !== null, true, "the toast stays under five seconds after the later archive");
+      fake.seen.advance(1);
+      await until(t.signal, () => toastOf(container) === null, "the toast goes five seconds after the later archive");
+    },
+    600,
+  ));
+
+test("InboxTree: at 760px and wider an archive shows no toast, and More opens the popover, not a sheet", (t) =>
+  withApp(
+    t.signal,
+    { rows: archiveRows() },
+    async (container, fake) => {
+      await clickElement(moreOf(container, "a"));
+      assert.equal(sheetOf(container), null, "More opens no sheet");
+      assert.ok(container.querySelector(".row-menu-list"), "More opens the popover");
+      await clickElement(menuItem(container, "Archive"));
+      await until(t.signal, () => fake.callsTo(archivePath).length === 1, "the Archive call");
+      await until(t.signal, () => container.querySelector('[data-key="a"]') === null, "the archived row leaves the list");
+      assert.equal(toastOf(container), null, "no toast draws at 760px");
+    },
+    760,
+  ));
+
+// toastButton is the toast's action button.
+function toastButton(container: HTMLElement): HTMLButtonElement {
+  const button = toastOf(container)?.querySelector<HTMLButtonElement>("button");
+  assert.ok(button, "the toast has its action button");
+  return button;
+}
+
+// unfocus takes the focus off the focused element, so the list's keys reach the list and not a reply box.
+async function unfocus(): Promise<void> {
+  await act(() => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  });
+}
+
+test("InboxTree: under 760px a cursor on an epic draws no epic page until a click opens it, and the page's Back returns to the inbox", (t) =>
+  withApp(
+    t.signal,
+    { epics: pageEpic() },
+    async (container) => {
+      await press("j");
+      assert.equal(cursorKey(container), `epic:${widgetsFirst}`, "the cursor rests on the epic");
+      assert.equal(listHidden(container), false, "the list stays drawn with the cursor on the epic");
+      assert.equal(epicPageShown(container), false, "no epic page draws before the epic is opened");
+      const line = container.querySelector(`[data-key="epic:${widgetsFirst}"]`);
+      assert.ok(line, "the epic's line is drawn");
+      await clickElement(line);
+      assert.equal(listHidden(container), true, "the opened epic's page hides the list");
+      assert.equal(epicPageShown(container), true, "the opened epic's page draws alone");
+      const back = container.querySelector<HTMLButtonElement>('section[aria-label="epic"] button.back');
+      assert.ok(back, "the epic page has its back button");
+      await clickElement(back);
+      assert.equal(listHidden(container), false, "Back draws the inbox again");
+      assert.equal(epicPageShown(container), false, "Back leaves no epic page");
+    },
+    600,
+  ));
+
+test("InboxTree: under 760px Enter on the cursor's epic opens its page alone", (t) =>
+  withApp(
+    t.signal,
+    { epics: pageEpic() },
+    async (container) => {
+      await press("j");
+      assert.equal(cursorKey(container), `epic:${widgetsFirst}`, "the cursor rests on the epic");
+      assert.equal(epicPageShown(container), false, "no epic page draws before Enter");
+      await press("Enter");
+      assert.equal(listHidden(container), true, "Enter's epic page hides the list");
+      assert.equal(epicPageShown(container), true, "Enter draws the epic's page alone");
+    },
+    600,
+  ));
+
+test("InboxTree: under 760px an epic whose page Back closed opens again by a click and by Enter", (t) =>
+  withApp(
+    t.signal,
+    { epics: pageEpic() },
+    async (container) => {
+      await press("j");
+      const drawn = (found: Element | null, what: string): Element => {
+        assert.ok(found, `${what} is drawn`);
+        return found;
+      };
+      const line = () => drawn(container.querySelector(`[data-key="epic:${widgetsFirst}"]`), "the epic's line");
+      const back = () => drawn(container.querySelector('section[aria-label="epic"] button.back'), "the epic page's back");
+      await clickElement(line());
+      await clickElement(back());
+      assert.equal(epicPageShown(container), false, "Back leaves no epic page");
+      await clickElement(line());
+      assert.equal(epicPageShown(container), true, "a click opens the epic's page again");
+      assert.equal(listHidden(container), true, "the reopened page draws alone");
+      await clickElement(back());
+      await press("Enter");
+      assert.equal(epicPageShown(container), true, "Enter opens the epic's page again");
+      assert.equal(listHidden(container), true, "Enter's reopened page draws alone");
+    },
+    600,
+  ));
+
+test("InboxTree: under 760px h and the left arrow on an opened row's page return to the inbox, as Back does", (t) =>
+  withApp(
+    t.signal,
+    {},
+    async (container) => {
+      await clickRow(container, "a");
+      await unfocus();
+      assert.equal(listHidden(container), true, "the opened row's page hides the inbox");
+      await press("h");
+      assert.equal(listHidden(container), false, "h draws the inbox again");
+      assert.equal(readerHidden(container), true, "h leaves no page beside the inbox");
+      await clickRow(container, "a");
+      await unfocus();
+      await press("ArrowLeft");
+      assert.equal(listHidden(container), false, "the left arrow draws the inbox again");
+      assert.equal(readerHidden(container), true, "the left arrow leaves no page beside the inbox");
+    },
+    600,
+  ));
+
+// paneArchiveRow is a waiting pane row whose archive id is its orrery_id, which its own id does not hold.
+function paneArchiveRow(): Row {
+  return row({
+    key: "pane:box:%3",
+    id: "%3",
+    kind: "pane",
+    host: "box",
+    label: "pane work",
+    project: "/work/web",
+    state: "waiting",
+    changed: now - 240,
+    seen: now - 240,
+    archiveKind: "session",
+    archiveId: "orr-p",
+  });
+}
+
+test("InboxTree: under 760px A on a pane row archives the pane's orrery_id, and Undo unarchives that id", (t) =>
+  withApp(
+    t.signal,
+    { rows: [paneArchiveRow()] },
+    async (container, fake) => {
+      assert.equal(cursorKey(container), "pane:box:%3", "the cursor rests on the pane row");
+      await press("A");
+      await until(t.signal, () => fake.callsTo(archivePath).length === 1, "the Archive call");
+      assert.deepEqual(fake.callsTo(archivePath)[0].body, { kind: "session", id: "orr-p" }, "A names the pane's archive id");
+      await until(t.signal, () => toastText(container) === "Archived “pane work”.", "the toast");
+      await clickElement(toastButton(container));
+      await until(t.signal, () => fake.callsTo(unarchivePath).length === 1, "the Unarchive call");
+      assert.deepEqual(fake.callsTo(unarchivePath)[0].body, { kind: "session", id: "orr-p" }, "Undo names the same id");
+      await until(t.signal, () => container.querySelector('[data-key="pane:box:%3"]') !== null, "the row back in the list");
+    },
+    600,
+  ));
+
+test("InboxTree: under 760px A on a headless row archives it as headless by its id, and Undo unarchives the same", (t) =>
+  withApp(
+    t.signal,
+    {
+      rows: [
+        row({
+          key: "session:h-9",
+          id: "h-9",
+          kind: "session",
+          label: "headless work",
+          project: "/work/web",
+          state: "waiting",
+          changed: now - 240,
+          seen: now - 240,
+          archiveKind: "headless",
+          archiveId: "h-9",
+        }),
+      ],
+    },
+    async (container, fake) => {
+      assert.equal(cursorKey(container), "session:h-9", "the cursor rests on the headless row");
+      await press("A");
+      await until(t.signal, () => fake.callsTo(archivePath).length === 1, "the Archive call");
+      assert.deepEqual(fake.callsTo(archivePath)[0].body, { kind: "headless", id: "h-9" }, "A names the row's kind and id");
+      await until(t.signal, () => toastText(container) === "Archived “headless work”.", "the toast");
+      await clickElement(toastButton(container));
+      await until(t.signal, () => fake.callsTo(unarchivePath).length === 1, "the Unarchive call");
+      assert.deepEqual(fake.callsTo(unarchivePath)[0].body, { kind: "headless", id: "h-9" }, "Undo names the same kind and id");
     },
     600,
   ));
