@@ -33,7 +33,7 @@ class ConversationStreamTest {
 
     private fun request(id: String) = SessionRequest(id, "question", "question-$id", listOf("yes", "no"))
 
-    private fun queuedItem(id: String) = QueuedItem(id, "text-$id", "queued", "turn")
+    private fun queuedItem(id: String, state: String = "queued") = QueuedItem(id, "text-$id", state, "turn")
 
     private fun delta(
         seq: Long,
@@ -423,5 +423,35 @@ class ConversationStreamTest {
         assertEquals(listOf(queuedItem("q1"), queuedItem("q2")), first.queued)
         assertEquals(listOf(queuedItem("q3")), second.queued)
         assertEquals(emptyList<QueuedItem>(), third.queued)
+    }
+
+    @Test
+    fun unsentHoldsTheCanceledAndDiscardedPromptIdsOfAResetAndNotTheQueuedOnes() {
+        val absent: StreamedConversation? = null
+
+        val result = absent.applyDelta(
+            delta(
+                seq = 1L,
+                reset = true,
+                queued = listOf(queuedItem("q1"), queuedItem("q2", "canceled"), queuedItem("q3", "discarded")),
+            ),
+        )
+
+        assertEquals(listOf("q2", "q3"), result.unsent)
+    }
+
+    @Test
+    fun unsentGrowsByTheCanceledAndDiscardedPromptIdsOfEachDeltaAndKeepsThem() {
+        val absent: StreamedConversation? = null
+
+        val first = absent.applyDelta(delta(seq = 1L, reset = true, queued = listOf(queuedItem("q1", "canceled"))))
+        val second = first.applyDelta(delta(seq = 2L, queued = listOf(queuedItem("q2", "discarded"), queuedItem("q3"))))
+        val third = second.applyDelta(delta(seq = 3L))
+        val fourth = third.applyDelta(delta(seq = 4L, queued = listOf(queuedItem("q1", "canceled"), queuedItem("q4", "canceled"))))
+
+        assertEquals(listOf("q1"), first.unsent)
+        assertEquals(listOf("q1", "q2"), second.unsent)
+        assertEquals(listOf("q1", "q2"), third.unsent)
+        assertEquals(listOf("q1", "q2", "q4"), fourth.unsent)
     }
 }

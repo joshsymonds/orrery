@@ -75,21 +75,14 @@ class DockStateFactsTest {
     )
 
     @Test
-    fun interruptingFromTheStreamIsTrueWithoutTheMark() {
+    fun interruptingFromTheStreamIsTrue() {
         val facts = dockFactsOf(DockKind.SESSION, "name", null, stream(interrupting = true))
 
         assertTrue(facts.interrupting)
     }
 
     @Test
-    fun interruptingFromTheMarkIsTrueWithoutTheStream() {
-        val facts = dockFactsOf(DockKind.SESSION, "name", null, null, interruptMark = true)
-
-        assertTrue(facts.interrupting)
-    }
-
-    @Test
-    fun interruptingIsFalseWhenNeitherTheStreamNorTheMarkSaysSo() {
+    fun interruptingIsFalseWhenTheStreamDoesNotSayItIsInterrupting() {
         val facts = dockFactsOf(DockKind.SESSION, "name", null, stream())
 
         assertFalse(facts.interrupting)

@@ -7,7 +7,6 @@ import io.github.joshsymonds.orrery.api.currentTool
 /**
  * The dock's facts for one screen: the pane's state, changed and tool for a pane or shell, the stream's interrupt,
  * turn and running-call facts for a session or step, and the stream's newest interrupted item and request's put-off.
- * [interruptMark] is the screen's own interrupt mark, which counts alongside the stream's interrupting flag.
  */
 fun dockFactsOf(
     kind: DockKind,
@@ -16,14 +15,13 @@ fun dockFactsOf(
     streamed: StreamedConversation?,
     reason: String = "",
     step: DockStep? = null,
-    interruptMark: Boolean = false,
 ): DockFacts {
     val items = streamed?.conversation?.items.orEmpty()
     return DockFacts(
         kind = kind,
         name = name,
         state = pane?.state.orEmpty(),
-        interrupting = interruptMark || streamed?.interrupting == true,
+        interrupting = streamed?.interrupting == true,
         interruptingSince = streamed?.interruptingSince ?: 0L,
         turnSince = streamed?.turnSince ?: 0L,
         tool = when (kind) {

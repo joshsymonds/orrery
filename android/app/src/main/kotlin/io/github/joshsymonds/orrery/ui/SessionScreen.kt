@@ -126,7 +126,7 @@ fun SessionScreen(
     val conversation = held?.conversation
     val pane = held?.pane
     val entries = remember(held) {
-        held?.let { foldConversation(it.conversation.items) + unfinishedReplies(it) }.orEmpty()
+        held?.let { foldConversation(it.shownItems()) + unfinishedReplies(it) }.orEmpty()
     }
     val footer: (@Composable () -> Unit)? = held?.request?.takeIf { step == null }?.let { open ->
         val content: @Composable () -> Unit = {

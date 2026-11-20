@@ -185,6 +185,8 @@ data class ConversationItem(
     val trigger: String = "",
     /** A `compaction` item's context tokens before it compacted; 0 when its boundary was not read, on other kinds, or from an older server. */
     val tokens: Long = 0L,
+    /** A `prompt` item's client-chosen prompt id, which a headless session's queue names; "" on other kinds or when the prompt has none. */
+    val promptId: String = "",
 )
 
 /** A message Claude Code's queue holds for the pane. [canceled] is true when Claude Code cleared it on cancel. */
@@ -1527,6 +1529,7 @@ class OrreryClient(
             notice = notice,
             trigger = trigger,
             tokens = tokens,
+            promptId = promptId,
         )
 
     private fun WaitingMessage.toWaitingItem(): WaitingItem =
