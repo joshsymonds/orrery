@@ -34,8 +34,6 @@ const clockSeconds = 1_800_000_000;
 const longPollMs = 60_000;
 // The pause before a stream that failed unavailable reopens, short so the tests' waits stay well inside their deadline.
 const retryMs = 5;
-// How long a test waits for a failed report's answer to reach the page before it looks for an error line.
-const settleMs = 20;
 
 // Synthetic panes, both waiting and both read. The api pane changed last, so the list shows it first.
 const panesBody = {
@@ -266,10 +264,6 @@ function errorTexts(root: HTMLElement): string[] {
   return [...root.querySelectorAll(".error")].map((element) => element.textContent ?? "");
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 // lineDrawn reports whether the list draws the line under key.
 function lineDrawn(root: HTMLElement, key: string): boolean {
   return root.querySelector(`[data-key="${key}"]`) !== null;
@@ -398,11 +392,35 @@ test("NoticeStack: a failed Seen is dropped without a page error, and the click 
     server.seenFails = true;
     sendNotice(server, shownMessage({ pane: "%2" }, "web needs you"));
     await until(t.signal, () => rowOf(root, "web needs you") !== undefined, "the notice in the stack");
+    // The load-time List and the one the shown notice starts land before the click, so the list after it is the failed
+    // report's alone.
+    await until(t.signal, () => server.lists >= 2, "the notice log listed for the shown notice");
+    const listsBefore = server.lists;
     assert.equal(clickRowControl(root, "web needs you"), true, "no Open control for the notice");
     await until(t.signal, () => server.seen.length === 1, "the Seen report");
     await until(t.signal, () => isCursored(root, webRow), "the cursor on the web row");
-    await sleep(settleMs);
+    // The failed report's handling relists the log, so a list after the click means the failure was handled.
+    await until(t.signal, () => server.lists > listsBefore, "the notice log listed after the failed report");
     assert.deepEqual(errorTexts(root), []);
+  }));
+
+test("NoticeBell: a notice from the Watch stream lists the log again", (t) =>
+  withPage(t.signal, async (root, server) => {
+    await until(t.signal, () => server.lists >= 1, "the load-time List");
+    const listsBefore = server.lists;
+    sendNotice(server, shownMessage({ pane: "%2" }, "web needs you"));
+    await until(t.signal, () => server.lists > listsBefore, "the notice log listed again");
+  }));
+
+test("NoticeBell: an ended notice from the Watch stream lists the log again", (t) =>
+  withPage(t.signal, async (root, server) => {
+    sendNotice(server, shownMessage({ pane: "%2" }, "web needs you"));
+    await until(t.signal, () => rowOf(root, "web needs you") !== undefined, "the notice in the stack");
+    // The load-time List and the one the shown notice starts are the two lists before the end.
+    await until(t.signal, () => server.lists >= 2, "the notice log listed for the shown notice");
+    const listsBefore = server.lists;
+    sendNotice(server, endedMessage({ pane: "%2" }));
+    await until(t.signal, () => server.lists > listsBefore, "the notice log listed again");
   }));
 
 test("NoticeStack: the stack is drawn inside .panes, the reading area it sits over", (t) => {
@@ -498,6 +516,11 @@ test("NoticeStack: a notice leaves the stack at 8 seconds after it appears, and 
       assert.notEqual(rowOf(root, "web needs you"), undefined, "the notice left the stack before 8000 ms");
       await advance(t, 1);
       assert.equal(rowOf(root, "web needs you"), undefined, "the notice was still on the stack at 8000 ms");
+      // A focus lists the log, a request sent after the timeout, so a Seen the timeout sent would have reached the
+      // server before it. The list's arrival is the signal the wait ends on.
+      const listsBefore = server.lists;
+      window.dispatchEvent(new Event("focus"));
+      await until(t.signal, () => server.lists > listsBefore, "the notice log listed after the timeout", { step: settle });
       await settleTurns();
       assert.deepEqual(server.seen, [], "a Seen was sent for the timed-out notice");
     },
