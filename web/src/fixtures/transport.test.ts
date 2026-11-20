@@ -918,7 +918,7 @@ test("FixtureTransport: page/epic-question, page/epic-handover and page/epic-tal
   }
 });
 
-test("FixtureTransport: page's keys are exactly the 52 catalog names of its scenario states", () => {
+test("FixtureTransport: page's keys are exactly the 56 catalog names of its scenario states", () => {
   assert.deepEqual(Object.keys(Page).map((state) => storyName("Page", state)).sort(), [
     "page/ask-later",
     "page/ask-session",
@@ -952,10 +952,13 @@ test("FixtureTransport: page's keys are exactly the 52 catalog names of its scen
     "page/inbox-archived",
     "page/inbox-empty",
     "page/inbox-error",
+    "page/inbox-flyout",
     "page/inbox-folded",
     "page/inbox-home",
     "page/inbox-loading",
+    "page/inbox-narrow",
     "page/inbox-new",
+    "page/inbox-rail",
     "page/inbox-row-menu",
     "page/inbox-search",
     "page/inbox-search-none",
@@ -968,6 +971,7 @@ test("FixtureTransport: page's keys are exactly the 52 catalog names of its scen
     "page/new-results",
     "page/new-working",
     "page/phase-implement",
+    "page/project",
     "page/work-empty",
     "page/work-rail",
     "page/work-rail-group",

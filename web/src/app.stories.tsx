@@ -261,6 +261,18 @@ export const App: Stories = {
 // convoWorkingAt is the reader of pane %11, the page the New session and the key list are drawn over.
 const convoWorkingAt: Address = { view: "inbox", entry: { kind: "pane", host: "halyard", pane: "%11" } };
 
+// lighthouseAt is the page of lighthouse's project. Its key is its directory with no host, since the fixtures serve from
+// halyard, the host that is left out of a key.
+const lighthouseAt: Address = { view: "inbox", entry: { kind: "project", key: "|/home/owner/code/lighthouse" } };
+
+// pressAtRest waits for the opened page's inbox to rest as its rail, then presses key on the document and lets the page
+// draw what the press changed.
+async function pressAtRest(root: HTMLElement, key: string): Promise<void> {
+  await drawnWhen(root, '.panes[data-inbox="rail"] > .rail.start');
+  press(document, key);
+  await nextRound();
+}
+
 export const Page: Stories = {
   "inbox-home": () => <PageStory address={inbox} />,
   "inbox-waiting": () => (
@@ -336,6 +348,10 @@ export const Page: Stories = {
   "convo-took-over": () => <PageStory address={paneAt("%11")} fixture={createFixtureTransport(movedSlices)} />,
   "convo-handed-over": () => <PageStory address={paneAt("%14")} fixture={createFixtureTransport(movedSlices)} />,
   "convo-working": () => <PageStory address={convoWorkingAt} />,
+  "inbox-rail": () => <PageStory address={convoWorkingAt} />,
+  "inbox-flyout": () => <PageStory address={convoWorkingAt} after={(root) => pressAtRest(root, "b")} />,
+  "inbox-narrow": () => <PageStory address={convoWorkingAt} after={(root) => pressAtRest(root, "B")} />,
+  project: () => <PageStory address={lighthouseAt} />,
   "ask-session": () => (
     <PageStory
       address={inbox}
