@@ -56,6 +56,8 @@ const stepSeenAt = Number.POSITIVE_INFINITY;
 // ReaderColumnProps are the state and callbacks a reader column draws from. App keeps all of it; the column only draws.
 export interface ReaderColumnProps {
   column: "cursor" | "pinned";
+  // bare is whether the column draws its reader and dock without its head, as the phone's conversation sheet does.
+  bare?: boolean;
   clients: Clients;
   now: number;
   // The row the column shows: the cursor's row, or the pinned row. Null hides the column when no step is given either.
@@ -126,6 +128,7 @@ export interface ReaderColumnProps {
 // whether the owner tapped the folded head open since.
 export function ReaderColumn({
   column,
+  bare = false,
   clients,
   now,
   row,
@@ -189,7 +192,7 @@ export function ReaderColumn({
   };
   return (
     <section class={names.section} aria-label={names.label} hidden={row === null && step === null}>
-      {row !== null && (
+      {row !== null && !bare && (
         <Head
           {...head(row, conversation)}
           row={row}

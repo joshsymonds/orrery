@@ -1901,6 +1901,7 @@ export function App({
   const middleColumn = (
     <ReaderColumn
       column="cursor"
+      bare={sheeted}
       clients={clients}
       now={now}
       row={epicPageShown || (contractPageShown && !sheeted) ? null : middleRow}

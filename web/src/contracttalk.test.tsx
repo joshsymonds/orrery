@@ -428,6 +428,10 @@ test("ContractAddress: under 760px Talk about it raises the conversation in the 
       "the sheet draws the conversation's reader",
     );
     assert.ok(shownBox(container) !== null, "the sheet draws the conversation's send box");
+    assert.ok(
+      container.querySelector("section.sheet .convo-head") === null,
+      "the sheet holds the transcript and the dock, not the conversation's head",
+    );
     assert.equal(recordDrawn(container), true, "the record stays drawn under the sheet");
   }));
 
