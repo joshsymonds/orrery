@@ -1,10 +1,14 @@
 // The fixture slices: the data the in-memory fixture transport answers with, one field per answer. shippedSlices is the
 // set the transport serves when it is given none.
 
-import type { MessageInitShape } from "@bufbuild/protobuf";
+import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import type { Code } from "@connectrpc/connect";
 
-import type { ContractsGetResponse, ContractsListResponse } from "../gen/orrery/v1/contracts_pb";
+import {
+  type ContractsGetResponse,
+  ContractsListResponseSchema,
+  type ContractsListResponse,
+} from "../gen/orrery/v1/contracts_pb";
 import type {
   EpicsGetResponse,
   EpicsHistoryResponse,
@@ -20,7 +24,7 @@ import type {
   WatchConversationResponse,
 } from "../gen/orrery/v1/orrery_pb";
 import { contracts } from "./contracts";
-import { tideProposed } from "./contractrecords";
+import { tideAccepted, tideProposed, tideReady, tideSetAside } from "./contractrecords";
 import { evidenceLogs, epics, gets, histories } from "./epics";
 import { host } from "./host";
 import { panes, paneStreams } from "./panes";
@@ -81,4 +85,23 @@ export const shippedSlices: Slices = {
   sessionStreams,
   evidenceLogs,
   asks: new Map<string, AskAnswer>(),
+};
+
+// contractSlices are the shipped slices with the record of one contract served, and the List holding that contract's own
+// entry, so the List and the record agree on its state and version.
+function contractSlices(id: string, record: ContractsGetResponse): Slices {
+  return {
+    ...shippedSlices,
+    contracts: create(ContractsListResponseSchema, { contracts: record.contract === undefined ? [] : [record.contract] }),
+    contractGets: { [id]: record },
+  };
+}
+
+// contractStories are the slices the contract page stories are served from, one for each state the scenarios show: the
+// record of tide-alerts in that state, and its List entry at the same state.
+export const contractStories = {
+  toAccept: contractSlices("tidepool/tide-alerts", tideProposed),
+  accepted: contractSlices("tidepool/tide-alerts", tideAccepted),
+  setAside: contractSlices("tidepool/tide-alerts", tideSetAside),
+  ready: contractSlices("tidepool/tide-alerts", tideReady),
 };

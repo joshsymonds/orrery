@@ -66,6 +66,8 @@ const lampFragment = "Full jitter is in";
 // Talk menu is drawn on the epic page only in the talk states, so the epic's own state checks neither.
 const rotaQuestion = "Bump the embedded tz database?";
 const rotaPrompt = "Plan the rota export as an epic.";
+// tideTitle is the title of tide-alerts' contract body, which the contract record's heading draws.
+const tideTitle = "Alert the harbour office within a minute when a published tide table changes.";
 
 // inboxHome is Page/inbox-home: the attention rows, with the inbox docked beside the cursor's reader on pane %12.
 function inboxHome(root: HTMLElement): boolean {
@@ -630,23 +632,23 @@ test("FixtureTransport: page/contract-to-accept draws the tide-alerts contract",
   return withStory(
     t,
     Page["contract-to-accept"],
-    (root) => root.querySelector("article.contract h2")?.textContent === "tide-alerts",
+    (root) => root.querySelector("article.contract h2")?.textContent === tideTitle,
     (root) => {
       assertNoFailure(root);
-      assert.equal(root.querySelector("article.contract h2")?.textContent, "tide-alerts");
+      assert.equal(root.querySelector("article.contract h2")?.textContent, tideTitle);
     },
   );
 });
 
-test("FixtureTransport: page/contract-accepted draws the rota-export contract", (t) => {
+test("FixtureTransport: page/contract-accepted draws the tide-alerts contract", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(
     t,
     Page["contract-accepted"],
-    (root) => root.querySelector("article.contract h2")?.textContent === "rota-export",
+    (root) => root.querySelector("article.contract h2")?.textContent === tideTitle,
     (root) => {
       assertNoFailure(root);
-      assert.equal(root.querySelector("article.contract h2")?.textContent, "rota-export");
+      assert.equal(root.querySelector("article.contract h2")?.textContent, tideTitle);
     },
   );
 });
@@ -793,12 +795,17 @@ test("FixtureTransport: page/epic-question, page/epic-handover and page/epic-tal
   }
 });
 
-test("FixtureTransport: page's keys are exactly the 38 catalog names of its scenario states", () => {
+test("FixtureTransport: page's keys are exactly the 43 catalog names of its scenario states", () => {
   assert.deepEqual(Object.keys(Page).map((state) => storyName("Page", state)).sort(), [
     "page/ask-later",
     "page/ask-session",
     "page/contract-accepted",
+    "page/contract-ready",
+    "page/contract-set-aside",
+    "page/contract-talk",
     "page/contract-to-accept",
+    "page/contract-versions",
+    "page/convo-contract",
     "page/convo-working",
     "page/dock-background",
     "page/dock-cancelled",
