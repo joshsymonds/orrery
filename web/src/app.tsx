@@ -8,6 +8,7 @@ import { askingWords, askLines, headBadges, ownAsks, steeredEpics } from "./asks
 import { epicCallsOf } from "./card";
 import type { DockHandle } from "./dock";
 import { ContractBody } from "./contract";
+import { endedLead, EndedBar, unsteeredLead } from "./endedbar";
 import { type Conversation, shownConversation } from "./conversation";
 import { type ArchiveControl, EpicLine } from "./epicline";
 import { type EpicCommands, EpicPage, type Landing, type SessionTarget } from "./epicpage";
@@ -26,7 +27,7 @@ import {
 } from "./epics";
 import { findMatches } from "./find";
 import { type Followed, follow } from "./follow";
-import type { EpicHistoryEntry, EpicsGetResponse, EpicStep } from "./gen/orrery/v1/epics_pb";
+import type { Epic, EpicHistoryEntry, EpicsGetResponse, EpicStep } from "./gen/orrery/v1/epics_pb";
 import type { InAppNotice, NoticeKey } from "./gen/orrery/v1/notice_pb";
 import type { HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
 import { Handover } from "./handover";
@@ -61,7 +62,7 @@ import { type SendKind, type Sending, type SentText, sendingEntry, unsentEntries
 import { type ColumnHead, type FindState, headState, ReaderColumn, stepCalls } from "./readercolumn";
 import { Sheet } from "./sheet";
 import { ListPanel, listHead, SidePanel } from "./sidepanel";
-import { steerCallsOf, steererRowOf } from "./steer";
+import { steerCallsOf, steererRowOf, steersLive } from "./steer";
 import { SteerMenu, useSteer } from "./steermenu";
 import { PaneStrip, type StripHost } from "./strip";
 import { ReplyText } from "./text";
@@ -1572,6 +1573,49 @@ export function App({
     </section>
   );
 
+  // steeredBar is an epic's ended bar, which steers the epic from another conversation, and whose current steering is
+  // current. A session the bar moves the epic to opens the epic's entry, and is recorded for the epic as the title row
+  // records it.
+  const steeredBar = (epic: Epic, current: string, lead: string) => (
+    <EndedBar
+      epic={epic.id}
+      slug={epic.slug}
+      repository={epic.repository}
+      steering={current}
+      rows={rows}
+      lead={lead}
+      calls={steerCallsOf(clients)}
+      narrow={!wide}
+      onSteered={(session) => {
+        navigated(openEpic)(epic.id);
+        setSteered({ epic: epic.id, listed: epic.steering, session });
+      }}
+    />
+  );
+
+  // endedBarOf is the ended bar in place of a stopped or failed headless conversation's dock, when a live orreryd epic
+  // that conversation steers is listed. Its lead says the conversation ended, and the bar continues the epic.
+  const endedBarOf = (row: Row) => {
+    if (row.archiveKind !== "headless" || (row.state !== "stopped" && row.state !== "failed")) {
+      return null;
+    }
+    const epic = [...epics.listed.values()].find(
+      (listed) => listed.live && listed.source === "orreryd" && listed.steering === row.archiveId,
+    );
+    return epic === undefined ? null : steeredBar(epic, epic.steering, endedLead(epic.slug));
+  };
+
+  // noSteererMiddle is the middle beside an epic entry whose steerer has no listed row. A live orreryd epic gets the
+  // ended bar, its lead naming the epic's steering: unsteered when it has none, else its conversation ended. Any other
+  // epic gets the no-conversation line and no control.
+  const noSteererMiddle = (detail: EpicsGetResponse | undefined) => {
+    if (detail?.epic === undefined || !steersLive(detail)) {
+      return <p class="side-note">{noSteererText}</p>;
+    }
+    const lead = steering === "" ? unsteeredLead(detail.epic.slug) : endedLead(detail.epic.slug);
+    return steeredBar(detail.epic, steering, lead);
+  };
+
   // pageNode draws the page the section holds over the epic's detail: the epic page, or the contract, the phase output
   // or the worker session the page has moved to.
   const pageNode = (entry: EpicItem, detail: EpicsGetResponse) => {
@@ -1893,10 +1937,11 @@ export function App({
           step={cursorStep}
           steps={visitedSteps}
           stepInputs={stepInputs}
+          ended={endedBarOf}
         />
         {epicEntry !== null && steererRow === null && !epicPageShown && (
           <section class="read" aria-label="no conversation">
-            <p class="side-note">{noSteererText}</p>
+            {noSteererMiddle(epicDetail)}
           </section>
         )}
         <ReaderColumn
@@ -1944,7 +1989,7 @@ export function App({
             {epicPageSection(epicEntry, epicDetail)}
             <div class="epic-foot">
               {steererRow === null ? (
-                <p class="side-note">{noSteererText}</p>
+                noSteererMiddle(epicDetail)
               ) : (
                 <button type="button" class="act" onClick={closePanel}>
                   Talk to the session that steers it
