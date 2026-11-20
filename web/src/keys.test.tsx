@@ -361,6 +361,34 @@ test("KeyList: the help panel's keys act exactly as the table says", async () =>
   await withDom(() => expectTable("help", handlerPress(() => listFake({ helpOpen: true }))));
 });
 
+test("KeyList: the notice centre's keys act exactly as the table says", async () => {
+  await withDom(() => expectTable("notices", handlerPress(() => listFake({ noticesOpen: true }))));
+});
+
+test("KeyList: Escape with the notice centre open closes it and calls nothing else", async () => {
+  await withDom(async () => {
+    const { context, calls } = listFake({ noticesOpen: true });
+    const event = eventFor("Escape", null);
+    handleKey(event, context);
+    assert.deepEqual(calls, [["closeNotices"]], "Escape with the centre open only closes it");
+    assert.equal(event.defaultPrevented, true, "Escape with the centre open is handled");
+  });
+});
+
+test("KeyList: with the notice centre covering the cursor row, x and A do nothing on it and e only moves on", async () => {
+  await withDom(async () => {
+    const press = (key: string, init: Partial<KeyContext>): string[] => {
+      const { context, calls } = listFake({ noticesOpen: true, ...init });
+      handleKey(eventFor(key, null), context);
+      return calls.map(([name]) => name);
+    };
+    assert.deepEqual(press("x", { rowCovered: false }), ["writeSeen"], "x marks the row seen while the list is on screen");
+    assert.deepEqual(press("x", { rowCovered: true }), [], "x does nothing on a row the centre covers");
+    assert.deepEqual(press("A", { rowCovered: true }), [], "A does nothing on a row the centre covers");
+    assert.deepEqual(press("e", { rowCovered: true }), ["nextUnseen"], "e moves on without marking a covered row");
+  });
+});
+
 test("KeyList: the palette's keys act exactly as the table says", async () => {
   await withDom(() => expectTable("palette", handlerPress(() => listFake({ pickerOpen: true }))));
 });

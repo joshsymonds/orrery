@@ -27,6 +27,7 @@ const limitKey = "five-hour@1800000000";
 // object.
 interface FakeServer {
   fetch: typeof globalThis.fetch;
+  requests: { path: string; body: string }[];
   listed: object[];
   lists: number;
   listFails: boolean;
@@ -39,6 +40,7 @@ function fakeServer(listed: object[]): FakeServer {
     fetch: async (input, init) => {
       const request = new Request(input, init);
       const path = new URL(request.url).pathname;
+      server.requests.push({ path, body: await request.clone().text() });
       if (path.endsWith("/WatchConversation") || path.endsWith("/Watch")) {
         return new Response(new ReadableStream<Uint8Array>({ start() {} }), {
           status: 200,
@@ -66,6 +68,7 @@ function fakeServer(listed: object[]): FakeServer {
       }
       return json({});
     },
+    requests: [],
     listed,
     lists: 0,
     listFails: false,
@@ -123,7 +126,17 @@ function row(init: Partial<Row> & Pick<Row, "key">): Row {
 // rows are two conversations in the api directory, one waiting, and one in docs, all seen, so no dwell timer runs.
 function rows(): Row[] {
   return [
-    row({ key: "a", label: "api one", state: "waiting", question: "Ship it?", changed: 300, seen: 300 }),
+    row({
+      key: "a",
+      label: "api one",
+      state: "waiting",
+      question: "Ship it?",
+      questionHash: "hash-a",
+      changed: 300,
+      seen: 300,
+      archiveKind: "session",
+      archiveId: "sess-a",
+    }),
     row({ key: "b", label: "api two", changed: 200, seen: 200 }),
     row({ key: "c", label: "docs", project: "/work/docs", state: "done", changed: 150, seen: 150 }),
   ];
@@ -216,6 +229,12 @@ function centre(container: HTMLElement): HTMLElement | null {
   return container.querySelector<HTMLElement>("section.ncentre");
 }
 
+// centreDrawn reports whether the centre is drawn. The tests assert on this flag and not on the element: a failed
+// assertion on an element prints the page's DOM, which is far too large to print.
+function centreDrawn(container: HTMLElement): boolean {
+  return centre(container) !== null;
+}
+
 // centreRows are the rows the centre draws, in order.
 function centreRows(container: HTMLElement): HTMLElement[] {
   return [...container.querySelectorAll<HTMLElement>("section.ncentre button.notice")];
@@ -258,6 +277,51 @@ async function openCentre(container: HTMLElement): Promise<void> {
 function stackMore(container: HTMLElement): HTMLElement {
   return one(container, "button.notices-more");
 }
+
+// stackedNotices are the notices the page's stack holds, one per pane and one for the limit.
+function stackedNotices(): InAppNotice[] {
+  return [
+    stackNotice({ pane: "b" }, "web finished"),
+    stackNotice({ pane: "c" }, "docs failed"),
+    stackNotice({ limit: limitKey }, "five-hour limit"),
+    stackNotice({ pane: "a" }, "api needs you"),
+  ];
+}
+
+// pressRow clicks the row under key, which moves the cursor to it and opens its reply box with the focus in it, then
+// takes the focus off the box, so the page's keys reach the list.
+async function pressRow(container: HTMLElement, key: string): Promise<void> {
+  await press(one(container, `[data-key="${key}"]`));
+  await act(() => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  });
+}
+
+// keyPress dispatches a keydown on the document, where the page's key listener hears it, and lets Preact draw what the
+// key changed.
+async function keyPress(key: string): Promise<void> {
+  await act(() => {
+    document.dispatchEvent(new KeyboardEvent("keydown", { key, cancelable: true }));
+  });
+}
+
+// callsTo counts the requests the fake server took for the method whose path ends in suffix.
+function callsTo(server: FakeServer, suffix: string): number {
+  return server.requests.filter((request) => request.path.endsWith(suffix)).length;
+}
+
+// keysSent are the keys of each SendKeys the fake server took, in the order they were sent.
+function keysSent(server: FakeServer): string[][] {
+  return server.requests
+    .filter((request) => request.path.endsWith(sendKeysSuffix))
+    .map((request) => (JSON.parse(request.body) as { keys: string[] }).keys);
+}
+
+const sendKeysSuffix = "/orrery.v1.Panes/SendKeys";
+const markSeenSuffix = "/orrery.v1.Panes/MarkSeen";
+const archiveSuffix = "/orrery.v1.Epics/Archive";
 
 test("NoticeBell: the inbox head draws the bell between search and New, labelled Notices", (t) =>
   withDesk(t.signal, { width: wideWidth }, (container) => {
@@ -323,14 +387,14 @@ test("NoticeBell: no count is drawn on either bell when no notice is unread", (t
 
 test("NoticeBell: a click on the head bell opens the notice centre", (t) =>
   withDesk(t.signal, { width: wideWidth }, async (container) => {
-    assert.equal(centre(container), null);
+    assert.equal(centreDrawn(container), false);
     await openCentre(container);
   }));
 
 test("NoticeBell: a click on the rail's Notices tile opens the notice centre", (t) =>
   withDesk(t.signal, { width: wideWidth }, async (container) => {
     await press(one(container, `[data-key="b"]`));
-    assert.equal(centre(container), null);
+    assert.equal(centreDrawn(container), false);
     await press(railBell(container));
     assert.ok(centre(container) !== null, "the centre is drawn once the rail's Notices tile is pressed");
   }));
@@ -353,7 +417,7 @@ test("NoticeCentre: a click on a row sends Seen for its key, lands on it, and cl
     await until(t.signal, () => server.seen.length === 1, "the Seen the row sent");
     assert.deepEqual(server.seen, [{ pane: "b" }]);
     await until(t.signal, () => cursored(container) === "b", "the cursor on the row's pane");
-    assert.equal(centre(container), null, "the centre closes once its row is opened");
+    assert.equal(centreDrawn(container), false, "the centre closes once its row is opened");
   }));
 
 test("NoticeCentre: a limit row sends Seen, lands nowhere, and closes the centre", (t) =>
@@ -365,7 +429,7 @@ test("NoticeCentre: a limit row sends Seen, lands nowhere, and closes the centre
     await until(t.signal, () => server.seen.length === 1, "the Seen the limit row sent");
     assert.deepEqual(server.seen, [{ limit: limitKey }]);
     assert.equal(cursored(container), before, "the limit row moves the cursor nowhere");
-    assert.equal(centre(container), null, "the centre closes once its row is opened");
+    assert.equal(centreDrawn(container), false, "the centre closes once its row is opened");
   }));
 
 test("NoticeCentre: Mark all read sends ReadAll, then lists the log again", (t) =>
@@ -382,7 +446,7 @@ test("NoticeCentre: Close closes the centre", (t) =>
   withDesk(t.signal, { width: wideWidth }, async (container) => {
     await openCentre(container);
     await press(one(container, 'section.ncentre button[aria-label="Close"]'));
-    assert.equal(centre(container), null);
+    assert.equal(centreDrawn(container), false);
   }));
 
 test("NoticeCentre: a failed List keeps the rows and says so", (t) =>
@@ -419,17 +483,12 @@ test("NoticeCentre: under 760px the centre is a Notices page, and Back returns t
     assert.equal(page.querySelector(".crumb.here")?.textContent, "Notices");
     assert.equal(listHidden(container), true, "the list does not draw beside the centre page");
     await press(one(container, 'section.ncentre button[aria-label="back"]'));
-    assert.equal(centre(container), null);
+    assert.equal(centreDrawn(container), false);
     assert.equal(listHidden(container), false, "Back shows the inbox again");
   }));
 
 test("NoticeCentre: under 760px Back from the centre returns to the page open before it", (t) =>
-  withDesk(t.signal, { width: narrowWidth, notices: [
-    stackNotice({ pane: "b" }, "web finished"),
-    stackNotice({ pane: "c" }, "docs failed"),
-    stackNotice({ limit: limitKey }, "five-hour limit"),
-    stackNotice({ pane: "a" }, "api needs you"),
-  ] }, async (container) => {
+  withDesk(t.signal, { width: narrowWidth, notices: stackedNotices() }, async (container) => {
     await press(one(container, `[data-key="b"]`));
     assert.equal(readerDrawn(container), true, "the reader page is drawn before the centre opens");
     await press(stackMore(container));
@@ -437,4 +496,76 @@ test("NoticeCentre: under 760px Back from the centre returns to the page open be
     assert.equal(readerDrawn(container), false, "the centre draws alone, without the reader page");
     await press(one(container, 'section.ncentre button[aria-label="back"]'));
     assert.equal(readerDrawn(container), true, "Back returns to the reader page");
+  }));
+
+test("NoticeCentre: Escape closes the centre overlay, and once it is shut Escape interrupts the working row", (t) =>
+  withDesk(t.signal, { width: wideWidth }, async (container, server) => {
+    await pressRow(container, "b");
+    await until(t.signal, () => cursored(container) === "b", "the cursor on the working row");
+    await openCentre(container);
+    await keyPress("Escape");
+    assert.equal(centreDrawn(container), false, "Escape closes the centre");
+    await keyPress("Escape");
+    await until(
+      t.signal,
+      () => callsTo(server, sendKeysSuffix) === 1,
+      "with the centre shut, Escape interrupts the working row",
+    );
+  }));
+
+test("NoticeCentre: under 760px Escape closes the centre page, and the reader page the centre covered draws again", (t) =>
+  withDesk(t.signal, { width: narrowWidth, notices: stackedNotices() }, async (container) => {
+    await pressRow(container, "b");
+    await press(stackMore(container));
+    assert.ok(centre(container) !== null, "the centre page is drawn");
+    await keyPress("Escape");
+    assert.equal(centreDrawn(container), false, "Escape closes the centre page");
+    assert.equal(readerDrawn(container), true, "the reader page the centre covered draws again");
+  }));
+
+test("NoticeCentre: 1, 2 and 3 send nothing while the centre is open, and 2 answers once it is shut", (t) =>
+  withDesk(t.signal, { width: wideWidth }, async (container, server) => {
+    await pressRow(container, "a");
+    await until(t.signal, () => cursored(container) === "a", "the cursor on the waiting row");
+    await openCentre(container);
+    await keyPress("1");
+    await keyPress("2");
+    await keyPress("3");
+    await keyPress("Escape");
+    assert.equal(centreDrawn(container), false, "Escape closes the centre");
+    await keyPress("2");
+    await until(t.signal, () => keysSent(server).length >= 1, "the answer once the centre is shut");
+    assert.deepEqual(keysSent(server), [["2"]], "only the key pressed once the centre was shut was sent");
+  }));
+
+test("NoticeCentre: with the list on screen beside the centre, x, e and A act on the cursor row", (t) =>
+  withDesk(t.signal, { width: wideWidth }, async (container, server) => {
+    await pressRow(container, "a");
+    await until(t.signal, () => cursored(container) === "a", "the cursor on the waiting row");
+    await keyPress("B");
+    await until(t.signal, () => listHidden(container) === false, "the pinned inbox draws beside the page");
+    await openCentre(container);
+    const seenBefore = callsTo(server, markSeenSuffix);
+    await keyPress("x");
+    await until(t.signal, () => callsTo(server, markSeenSuffix) === seenBefore + 1, "x marks the cursor row seen");
+    await keyPress("e");
+    await until(t.signal, () => callsTo(server, markSeenSuffix) === seenBefore + 2, "e marks the cursor row seen");
+    await keyPress("A");
+    await until(t.signal, () => callsTo(server, archiveSuffix) === 1, "A archives the cursor row");
+  }));
+
+test("NoticeCentre: under 760px the centre covers the cursor row, so x, e and A do nothing on it until it is shut", (t) =>
+  withDesk(t.signal, { width: narrowWidth, notices: stackedNotices() }, async (container, server) => {
+    await pressRow(container, "a");
+    await press(stackMore(container));
+    assert.ok(centre(container) !== null, "the centre page is drawn");
+    await keyPress("x");
+    await keyPress("e");
+    await keyPress("A");
+    await keyPress("Escape");
+    assert.equal(centreDrawn(container), false, "Escape closes the centre page");
+    await keyPress("A");
+    await until(t.signal, () => callsTo(server, archiveSuffix) >= 1, "A archives once the centre is shut");
+    assert.equal(callsTo(server, markSeenSuffix), 0, "x and e marked nothing while the centre covered the row");
+    assert.equal(callsTo(server, archiveSuffix), 1, "only the A pressed once the centre was shut archived");
   }));

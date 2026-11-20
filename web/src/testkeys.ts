@@ -26,6 +26,7 @@ export function fakeContext(init: Partial<KeyContext> = {}): Fake {
     keyPopped: false,
     rowCovered: false,
     projectShown: false,
+    noticesOpen: false,
     index: 0,
     flat: [],
     waitKeys: [],
@@ -75,6 +76,7 @@ export function fakeContext(init: Partial<KeyContext> = {}): Fake {
     setView: record("setView"),
     setPinned: record("setPinned"),
     setPinStream: record("setPinStream"),
+    closeNotices: record("closeNotices"),
     setHelpOpen: (update) => {
       calls.push(["setHelpOpen", typeof update === "function" ? update(helpOpen) : update]);
     },

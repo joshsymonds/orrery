@@ -45,11 +45,15 @@ export interface KeyContext {
   // Whether the inbox is hidden, and whether a key popped it out.
   inboxHidden: boolean;
   keyPopped: boolean;
-  // Whether a project page covers the cursor row: the page is shown and the inbox list, where the row is drawn, is not on
-  // screen beside or over it. A, x and e do not act on a covered row.
+  // Whether a page covers the cursor row: a project page or the notice centre is shown and the inbox list, where the
+  // row is drawn, is not on screen beside or over it. A, x and e do not act on a covered row.
   rowCovered: boolean;
   // Whether a project page is shown. It covers the reader, so 1-3 and Escape's interrupt do nothing while it is.
   projectShown: boolean;
+  // Whether the notice centre is open, and the closer that shuts it. The centre covers the reader like a project page,
+  // and while it is open Escape closes it and does nothing else.
+  noticesOpen: boolean;
+  closeNotices: () => void;
   // The cursor's index in the flat list, and the flat list, which G reads.
   index: number;
   flat: Item[];
@@ -117,6 +121,8 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
     keyPopped,
     rowCovered,
     projectShown,
+    noticesOpen,
+    closeNotices,
     index,
     flat,
     waitKeys,
@@ -177,6 +183,12 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
     }
     return;
   }
+  // While the notice centre is open, Escape closes it before anything else, and interrupts nothing.
+  if (noticesOpen && event.key === "Escape") {
+    closeNotices();
+    event.preventDefault();
+    return;
+  }
   // While a drawn entry's ⋯ menu is open, Escape closes it and does nothing else: it takes back and interrupts nothing.
   if (event.key === "Escape" && openMenu !== null) {
     setMenuKey(null);
@@ -220,6 +232,8 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
 
   const afterG = pendingG.current;
   pendingG.current = false;
+  // A project page or the notice centre covers the reader: 1-3 and Escape's interrupt do nothing while either is shown.
+  const readerCovered = projectShown || noticesOpen;
   // While the inbox is hidden, a list key pops it out by key and does nothing else, so the cursor never moves unseen.
   if (inboxHidden && inboxListKeys.has(event.key)) {
     setPopout("key");
@@ -327,20 +341,24 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
         composerInputs.current.get(cursorRowKey)?.focus();
       }
       break;
+    // The digits do nothing while the reader is covered, and do not take the key either.
     case "1":
-      if (!projectShown) {
-        answerCursor(1);
+      if (readerCovered) {
+        return;
       }
+      answerCursor(1);
       break;
     case "2":
-      if (!projectShown) {
-        answerCursor(2);
+      if (readerCovered) {
+        return;
       }
+      answerCursor(2);
       break;
     case "3":
-      if (!projectShown) {
-        answerCursor(3);
+      if (readerCovered) {
+        return;
       }
+      answerCursor(3);
       break;
     case "o":
       toggleOpen();
@@ -374,7 +392,7 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
         setHelpOpen(false);
         return;
       }
-      if (!helpOpen && !projectShown && cursorRow !== null) {
+      if (!helpOpen && !readerCovered && cursorRow !== null) {
         void escapeRow({ row: cursorRow, column: "cursor", state: headState(cursorRow, cursorConversation) }, null);
       }
       setHelpOpen(false);

@@ -1916,10 +1916,10 @@ export function App({
       panelOpen ||
       contractPageShown);
   // The list is on screen where it is drawn: beside or over the page at the desk unless it rests as the rail, and under
-  // 760px unless a page draws alone over it. A project page covers the cursor row unless the list is on screen, and A,
-  // x and e do not act on a covered row.
+  // 760px unless a page draws alone over it. A project page or the notice centre covers the cursor row unless the list
+  // is on screen, and A, x and e do not act on a covered row.
   const listOnScreen = wide ? inboxState !== "rail" : !listHides;
-  const rowCovered = shownProject !== null && !listOnScreen;
+  const rowCovered = (shownProject !== null || noticesOpen) && !listOnScreen;
 
   // The keys read this render's state and call this render's actions, so the document listener runs the latest context.
   const keyContext: KeyContext = {
@@ -1930,6 +1930,8 @@ export function App({
     keyPopped,
     rowCovered,
     projectShown: shownProject !== null,
+    noticesOpen,
+    closeNotices: () => setNoticesOpen(false),
     index,
     flat,
     waitKeys,
