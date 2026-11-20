@@ -21,7 +21,6 @@ import {
   EpicsGetResponseSchema,
 } from "./gen/orrery/v1/epics_pb";
 import type { HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
-import { keyGroups } from "./keys";
 import type { Viewing } from "./presence";
 import type { Row } from "./rows";
 import type { SeenClock, SeenWindow } from "./seen";
@@ -345,9 +344,6 @@ function fixture(): Row[] {
     }),
   ];
 }
-
-// keysHelpList is every cap the key list draws, in the table's order: the ellipsis of a range is text, not a key.
-const keysHelpList = keyGroups.flatMap((group) => group.lines.flatMap((line) => line.caps.filter((cap) => cap !== "…")));
 
 async function mount(container: HTMLElement, props: Props): Promise<void> {
   await act(() => {
@@ -752,18 +748,6 @@ test("/ focuses the filter input and does not type the slash", (t) =>
     assert.equal(filterInput(container).value, "");
   }));
 
-test("? toggles a help panel listing exactly the keys", (t) =>
-  withApp(t.signal, {}, async (container) => {
-    assert.equal(container.querySelector('[role="dialog"][aria-label="Keys"]') === null, true);
-    await press("?");
-    const help = container.querySelector('[role="dialog"][aria-label="Keys"]');
-    assert.ok(help, "help panel is open");
-    const listed = [...help.querySelectorAll(".keygroups kbd")].map((element) => element.textContent);
-    assert.deepEqual(listed, keysHelpList);
-    await press("?");
-    assert.equal(container.querySelector('[role="dialog"][aria-label="Keys"]') === null, true);
-  }));
-
 test("Esc closes the help when the filter does not have focus", (t) =>
   withApp(t.signal, {}, async (container) => {
     await press("?");
@@ -773,6 +757,7 @@ test("Esc closes the help when the filter does not have focus", (t) =>
 
 test("? opens the key list over the page, outside the list, and a second ? closes it", (t) =>
   withApp(t.signal, {}, async (container) => {
+    assert.equal(container.querySelector('[role="dialog"][aria-label="Keys"]') === null, true, "the key list starts closed");
     await press("?");
     const help = container.querySelector('[role="dialog"][aria-label="Keys"]');
     assert.ok(help !== null, "help panel is open");

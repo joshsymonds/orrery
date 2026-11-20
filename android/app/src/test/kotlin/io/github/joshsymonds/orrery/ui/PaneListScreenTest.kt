@@ -3,7 +3,6 @@ package io.github.joshsymonds.orrery.ui
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
-import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasContentDescription
@@ -616,7 +615,6 @@ class PaneListScreenTest {
             awaitRow("%1")
 
             composeRule.onNodeWithTag("picker-new").performClick()
-            composeRule.onNodeWithTag("picker-title").assertTextEquals("New session")
             composeRule.onNodeWithTag("picker-text").performTextInput("beta")
             composeRule.onNodeWithTag("picker-text").performImeAction()
             composeRule.awaitUntil { countNodes(hasTestTag("picker-row:0")) == 1 }

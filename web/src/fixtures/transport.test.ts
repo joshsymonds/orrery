@@ -645,7 +645,6 @@ test("FixtureTransport: page/keys draws the key list over the page", (t) => {
     (root) => root.querySelector('[role="dialog"][aria-label="Keys"]') !== null,
     (root) => {
       assertNoFailure(root);
-      assert.ok(root.querySelector('[role="dialog"][aria-label="Keys"]') !== null, "the key list is drawn");
     },
   );
 });

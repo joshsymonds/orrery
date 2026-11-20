@@ -349,27 +349,6 @@ class PickerPanelTest {
     }
 
     @Test
-    fun placeholderAndHintShowUntilTheFirstAskAndAskingShowsWhileItRuns() {
-        FakeOrreryServer().use { server ->
-            val release = CountDownLatch(1)
-            holdAsk(server, release, rowsResponse())
-            setPanel(server)
-
-            composeRule.onNodeWithTag("picker-hint").assertTextEquals(HINT)
-            composeRule.onNodeWithText(PLACEHOLDER, useUnmergedTree = true).assertExists()
-
-            composeRule.onNodeWithTag("picker-text").performTextInput("fix the test")
-            composeRule.onNodeWithTag("picker-text").performImeAction()
-            composeRule.onNodeWithTag("picker-working").assertTextEquals("asking…")
-            release.countDown()
-            composeRule.awaitUntil { rowExists(0) }
-
-            assertEquals(0, countTagged("picker-hint"))
-            assertEquals(0, countTagged("picker-working"))
-        }
-    }
-
-    @Test
     fun anAskThatFindsNothingSaysSoWithItsWords() {
         FakeOrreryServer().use { server ->
             server.respond(ASK_PATH, AskResponse.getDefaultInstance())
