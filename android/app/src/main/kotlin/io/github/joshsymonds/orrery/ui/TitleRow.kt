@@ -18,7 +18,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.style.TextOverflow
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 
@@ -37,7 +40,8 @@ data class Crumb(val label: String, val onGo: (() -> Unit)? = null)
  * starts the next line whole, and only a crumb wider than the row on its own ends in an ellipsis. Under them, the
  * state, the blocker, then [actions] wrap onto as many lines as they need. Back and every crumb but the last are
  * tappable; the last crumb is the page itself. A null [onBack] draws no Back. The state and the blocker show only when
- * given.
+ * given. Each draws in the colour of its tone when one is given; with no tone the state takes the default colour and
+ * the blocker the attention colour.
  *
  * One row for all of it measured the state and the actions at their full width first and left the crumbs about one
  * character on a phone, so a slug stood one letter to a line.
@@ -47,7 +51,9 @@ fun TitleRow(
     crumbs: List<Crumb>,
     onBack: (() -> Unit)?,
     state: String = "",
+    stateTone: WordTone? = null,
     blocker: String = "",
+    blockerTone: WordTone? = null,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
     val last = crumbs.lastIndex
@@ -99,10 +105,12 @@ fun TitleRow(
             itemVerticalAlignment = Alignment.CenterVertically,
         ) {
             if (state.isNotEmpty()) {
-                Text(state, modifier = Modifier.testTag("title-state"))
+                val colour = stateTone?.let { toneColourOf(it) } ?: Color.Unspecified
+                Text(AnnotatedString(state, SpanStyle(color = colour)), modifier = Modifier.testTag("title-state"))
             }
             if (blocker.isNotEmpty()) {
-                Text(blocker, color = OrreryTokens.Role.attention, modifier = Modifier.testTag("title-blocker"))
+                val colour = blockerTone?.let { toneColourOf(it) } ?: OrreryTokens.Role.attention
+                Text(AnnotatedString(blocker, SpanStyle(color = colour)), modifier = Modifier.testTag("title-blocker"))
             }
             actions()
         }

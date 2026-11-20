@@ -53,7 +53,7 @@ private fun wordsColourOf(stage: Stage): Color = when (stage.state) {
     StageState.AHEAD -> OrreryTokens.Ink.four
 }
 
-private fun toneColourOf(tone: WordTone): Color = when (tone) {
+internal fun toneColourOf(tone: WordTone): Color = when (tone) {
     WordTone.LIVE -> OrreryTokens.Role.live
     WordTone.ATTENTION -> OrreryTokens.Role.attention
     WordTone.QUIET -> OrreryTokens.Ink.three

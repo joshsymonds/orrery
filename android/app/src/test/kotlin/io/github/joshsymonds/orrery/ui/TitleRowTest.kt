@@ -6,7 +6,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
@@ -15,6 +17,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import io.github.joshsymonds.orrery.mainThreadComposeRule
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -95,6 +98,28 @@ class TitleRowTest {
     }
 
     @Test
+    fun aStateToneColoursTheStateInItsColour() {
+        setRow(crumbs = CRUMBS, state = "building", stateTone = WordTone.QUIET)
+
+        assertEquals(listOf(OrreryTokens.Ink.three), coloursOf(STATE_TAG))
+    }
+
+    @Test
+    fun aBlockerToneColoursTheBlockerInItsColour() {
+        setRow(crumbs = CRUMBS, blocker = "parked", blockerTone = WordTone.LIVE)
+
+        assertEquals(listOf(OrreryTokens.Role.live), coloursOf(BLOCKER_TAG))
+    }
+
+    @Test
+    fun withNoToneTheStateDrawsInTheDefaultColourAndTheBlockerInAttention() {
+        setRow(crumbs = CRUMBS, state = "running", blocker = "waiting on review")
+
+        assertEquals(listOf(Color.Unspecified), coloursOf(STATE_TAG))
+        assertEquals(listOf(OrreryTokens.Role.attention), coloursOf(BLOCKER_TAG))
+    }
+
+    @Test
     fun actionsShowInTheRow() {
         setRow(crumbs = CRUMBS, actions = { Text("synthetic action", modifier = Modifier.testTag(ACTION_TAG)) })
 
@@ -146,16 +171,30 @@ class TitleRowTest {
         assertTrue(composeRule.onAllNodesWithTag(tag).fetchSemanticsNodes().isEmpty())
     }
 
+    private fun coloursOf(tag: String): List<Color> =
+        composeRule.onNodeWithTag(tag).fetchSemanticsNode()
+            .config[SemanticsProperties.Text].flatMap { text -> text.spanStyles.map { it.item.color } }
+
     private fun setRow(
         crumbs: List<Crumb>,
         onBack: () -> Unit = {},
         state: String = "",
+        stateTone: WordTone? = null,
         blocker: String = "",
+        blockerTone: WordTone? = null,
         actions: @Composable RowScope.() -> Unit = {},
     ) {
         composeRule.setContent {
             MaterialTheme {
-                TitleRow(crumbs = crumbs, onBack = onBack, state = state, blocker = blocker, actions = actions)
+                TitleRow(
+                    crumbs = crumbs,
+                    onBack = onBack,
+                    state = state,
+                    stateTone = stateTone,
+                    blocker = blocker,
+                    blockerTone = blockerTone,
+                    actions = actions,
+                )
             }
         }
     }
