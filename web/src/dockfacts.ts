@@ -85,7 +85,7 @@ export function rowFacts(row: Row, conversation: Conversation | null, interrupti
 }
 
 export function stepFacts(
-  step: Pick<StepItem, "label" | "held" | "started">,
+  step: Pick<StepItem, "label" | "held" | "started" | "doing">,
   conversation: Conversation | null,
 ): DockFacts {
   return {
@@ -100,6 +100,6 @@ export function stepFacts(
     reason: "",
     interruptedAt: 0,
     putOff: false,
-    step: { label: step.label, held: step.held },
+    step: { label: step.label, held: step.held, doing: step.doing },
   };
 }

@@ -66,7 +66,7 @@ export function WorkerSessionPage({
       />
       {step.end === "" && (
         <Dock
-          facts={stepFacts({ label: task, held: step.held, started: Number(step.started) }, conversation)}
+          facts={stepFacts({ label: task, held: step.held, started: Number(step.started), doing: step.doing }, conversation)}
           now={now}
           send={nudge}
           pull={null}

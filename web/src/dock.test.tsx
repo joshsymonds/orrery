@@ -840,6 +840,15 @@ test("DockState: interrupting while working says interrupting…, waits for the 
   });
 });
 
+test("DockState: interrupting… ends once the state is no longer working, and the line reads that state", async () => {
+  const facts = dockFacts({ state: "done", interrupting: true, interruptingSince: now - 20 });
+  await withDock({ facts, onInterrupt: () => {} }, async (_box, container) => {
+    assert.equal(toneOf(container), "done");
+    assert.equal(textOf(container, ".statebar .word"), "done");
+    assertNone(controlNamed(container, "Interrupting…"), "no Interrupting… is drawn once the state is not working");
+  });
+});
+
 test("DockState: done after your interrupt says interrupted by you, with the time it was interrupted, and no control", async () => {
   const interruptedAt = now - 600;
   const facts = dockFacts({ state: "done", interruptedAt });
@@ -1136,6 +1145,32 @@ test("DockQueue: a pane's Take all back pulls its text into the box", async () =
       await clickControl(headButton(container, "Take all back"));
       await settle();
       assert.equal(box.value, "pulled words");
+    },
+  );
+});
+
+test("DockQueue: a pane whose rows are all canceled draws no Take all back", async () => {
+  await withDock(
+    {
+      facts: dockFacts({ kind: "pane", name: "lamp", state: "working" }),
+      queued: [queuedMessage("one", true)],
+      pull: async () => "pulled words",
+    },
+    async (_box, container) => {
+      assert.deepEqual(trayHead(container)?.controls, []);
+    },
+  );
+});
+
+test("DockQueue: a pane with a live row beside a canceled one draws Take all back", async () => {
+  await withDock(
+    {
+      facts: dockFacts({ kind: "pane", name: "lamp", state: "working" }),
+      queued: [queuedMessage("one", true), queuedMessage("two")],
+      pull: async () => "pulled words",
+    },
+    async (_box, container) => {
+      assert.deepEqual(trayHead(container)?.controls, ["Take all back"]);
     },
   );
 });
@@ -1627,6 +1662,7 @@ test("DockSend: the box carries focused while its textarea has focus", async () 
 interface StepInit {
   label?: string;
   held?: boolean;
+  doing?: string;
   nudge?: (text: string) => Promise<void>;
   hold?: () => Promise<void>;
   stop?: () => Promise<void>;
@@ -1662,7 +1698,7 @@ async function withStep(
         kind: "step",
         name: init.label ?? "api",
         state: "working",
-        step: { label: init.label ?? "api", held: init.held ?? false },
+        step: { label: init.label ?? "api", held: init.held ?? false, doing: init.doing ?? "" },
       }),
       send: (text) => nudge(text),
       stepCalls: { hold: init.hold ?? landed, stop: init.stop ?? landed },
@@ -1680,7 +1716,7 @@ test("DockState: a running step's line reads running with its tool and clock, wi
         state: "working",
         turnSince: now - 85,
         tool: { name: "Bash", arg: "just check", start: now - 20 },
-        step: { label: "api", held: false },
+        step: { label: "api", held: false, doing: "" },
       }),
       stepCalls: { hold: landed, stop: landed },
     },
@@ -1692,6 +1728,13 @@ test("DockState: a running step's line reads running with its tool and clock, wi
       assert.ok(container.querySelector('button[aria-label="Stop this step…"]') !== null, "a running step draws More");
     },
   );
+});
+
+test("DockState: a held step's line says what the step waits on, in its what", async () => {
+  await withStep({ held: true, doing: "waits on your answer" }, async (_box, container) => {
+    assert.equal(textOf(container, ".statebar .word"), "held");
+    assert.equal(textOf(container, ".statebar .what"), "waits on your answer");
+  });
 });
 
 test("DockState: a held step's line reads held, with More and no Interrupt", async () => {
@@ -2136,17 +2179,25 @@ test("DockState: a step's foot has no nudge sentence, then Interrupt first on th
   });
 });
 
-test("DockState: a step draws no Stop until More is pressed, and More reports whether the question is open", async () => {
+test("DockState: a step draws no Stop until More is pressed, and draws no More while the question is open", async () => {
   await withStep({}, async (_box, container) => {
     assertNone(controlNamed(container, "Stop api"), "Stop is not shown before More is pressed");
     assert.equal(stepMore(container).getAttribute("aria-expanded"), "false");
     await askStop(container);
     assert.ok(controlNamed(container, "Stop api"), "Stop is shown once More is pressed");
-    assert.equal(stepMore(container).getAttribute("aria-expanded"), "true");
+    assertNone(container.querySelector('button[aria-label="Stop this step…"]'), "More is not drawn while the question is open");
   });
 });
 
-test("DockState: a second More press on a step closes the question and calls nothing", async () => {
+test("DockState: a step's open Stop question is the line's only controls, with no Interrupt and no More", async () => {
+  await withStep({}, async (_box, container) => {
+    await askStop(container);
+    const controls = Array.from(container.querySelectorAll<HTMLButtonElement>(".statebar .end button"), (button) => controlName(button));
+    assert.deepEqual(controls, ["Stop api", "Keep it running"]);
+  });
+});
+
+test("DockState: Keep it running on a step's open question closes it and calls nothing", async () => {
   let stops = 0;
   await withStep(
     {
@@ -2156,7 +2207,7 @@ test("DockState: a second More press on a step closes the question and calls not
     },
     async (_box, container) => {
       await askStop(container);
-      await askStop(container);
+      await clickControl(controlNamed(container, "Keep it running"));
       await settle();
       assert.equal(stepQuestion(container), null, "the question closed");
       assert.equal(stepMore(container).getAttribute("aria-expanded"), "false");

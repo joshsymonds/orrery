@@ -246,12 +246,17 @@ test("DockState: a step's facts name the step, say working from its start, and t
   assert.equal(facts.name, "deploy");
   assert.equal(facts.state, "working");
   assert.equal(facts.turnSince, 300);
-  assert.deepEqual(facts.step, { label: "deploy", held: false });
+  assert.deepEqual(facts.step, { label: "deploy", held: false, doing: "" });
   assert.deepEqual(facts.tool, { name: "mcp__orrery__step_start", arg: "deploy", start: 310 });
 });
 
 test("DockState: a held step's facts carry the held flag and no running call without a stream", () => {
   const facts = stepFacts(step({ held: true }), null);
-  assert.deepEqual(facts.step, { label: "deploy", held: true });
+  assert.deepEqual(facts.step, { label: "deploy", held: true, doing: "" });
   assert.equal(facts.tool, null);
+});
+
+test("DockState: a step's facts carry its doing, what the step is doing or why it is held", () => {
+  const facts = stepFacts(step({ held: true, doing: "waits on your answer" }), null);
+  assert.deepEqual(facts.step, { label: "deploy", held: true, doing: "waits on your answer" });
 });

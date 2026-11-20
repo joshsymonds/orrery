@@ -38,8 +38,23 @@ function facts(over: Partial<DockFacts> = {}): DockFacts {
 }
 
 test("DockState: a held step says held, with no clock or control", () => {
-  const line = stateLine(facts({ kind: "step", state: "working", step: { label: "deploy", held: true } }), now);
+  const line = stateLine(facts({ kind: "step", state: "working", step: { label: "deploy", held: true, doing: "" } }), now);
   assert.deepEqual(line, { tone: "held", word: "held", tool: "", what: "", clock: "", control: "none" });
+});
+
+test("DockState: a held step's line says held with its doing in the what, and no clock or control", () => {
+  const line = stateLine(
+    facts({ kind: "step", state: "working", step: { label: "deploy", held: true, doing: "waits on your answer" } }),
+    now,
+  );
+  assert.deepEqual(line, {
+    tone: "held",
+    word: "held",
+    tool: "",
+    what: "waits on your answer",
+    clock: "",
+    control: "none",
+  });
 });
 
 test("DockState: a step not held says running, its tool, and the turn's elapsed time, even while interrupting", () => {
@@ -47,7 +62,7 @@ test("DockState: a step not held says running, its tool, and the turn's elapsed 
     facts({
       kind: "step",
       state: "working",
-      step: { label: "deploy", held: false },
+      step: { label: "deploy", held: false, doing: "" },
       tool: { name: "mcp__orrery__step_start", arg: "deploy", start: now - 30 },
       turnSince: now - 125,
       interrupting: true,
@@ -66,7 +81,7 @@ test("DockState: a step not held says running, its tool, and the turn's elapsed 
 });
 
 test("DockState: a step that is not held with no tool says thinking, with no clock when the turn has no start", () => {
-  const line = stateLine(facts({ kind: "step", step: { label: "deploy", held: false } }), now);
+  const line = stateLine(facts({ kind: "step", step: { label: "deploy", held: false, doing: "" } }), now);
   assert.deepEqual(line, { tone: "working", word: "running", tool: "", what: "thinking", clock: "", control: "interrupt" });
 });
 
@@ -234,12 +249,12 @@ test("DockState: placeholder for a shell is a command prompt", () => {
 });
 
 test("DockState: placeholder for a held step says it resumes with your words", () => {
-  const text = placeholder(facts({ kind: "step", step: { label: "deploy", held: true } }), false);
+  const text = placeholder(facts({ kind: "step", step: { label: "deploy", held: true, doing: "" } }), false);
   assert.equal(text, "Nudge deploy. It resumes with your words");
 });
 
 test("DockState: placeholder for a running step says it interrupts the turn first", () => {
-  const text = placeholder(facts({ kind: "step", step: { label: "deploy", held: false } }), false);
+  const text = placeholder(facts({ kind: "step", step: { label: "deploy", held: false, doing: "" } }), false);
   assert.equal(text, "Nudge deploy. It interrupts the turn, then gives it your words");
 });
 

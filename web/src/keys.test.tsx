@@ -282,7 +282,7 @@ function stepPress(text: string): Press {
     pressTextarea(
       (calls) => (
         <Dock
-          facts={dockFacts({ label: "api", held: false })}
+          facts={dockFacts({ label: "api", held: false, doing: "" })}
           now={0}
           send={(sent) => {
             calls.push(["nudge", sent]);

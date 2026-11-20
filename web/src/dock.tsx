@@ -486,7 +486,7 @@ export function Dock(props: {
           )}
           {line.clock !== "" && <span class="clock">{line.clock}</span>}
           <span class="end">
-            {line.control === "interrupt" && (stepCalls !== undefined || onInterrupt !== undefined) && (
+            {!stopOpen && line.control === "interrupt" && (stepCalls !== undefined || onInterrupt !== undefined) && (
               <Ctl
                 label="Interrupt"
                 icon="stop"
@@ -506,7 +506,7 @@ export function Dock(props: {
                 <Ctl label="Keep it running" onClick={() => setStopOpen(false)} />
               </span>
             )}
-            {stepCalls !== undefined && (
+            {stepCalls !== undefined && !stopOpen && (
               <Ctl
                 only
                 label="Stop this step…"
@@ -528,7 +528,7 @@ export function Dock(props: {
               <span class="lbl">{trayLabel(drawn.length)}</span>
               <span class="why">{trayWhy(trayKind, drawn)}</span>
               <span class="end">
-                {pull !== null && (
+                {pull !== null && drawn.some((row) => !row.cancelled) && (
                   <Ctl label="Take all back" icon="edit" onClick={() => void pullBack(dockLines.takeAllBackFailed)} />
                 )}
                 {interrupt !== undefined && state === "working" && (

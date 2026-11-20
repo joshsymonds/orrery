@@ -57,7 +57,13 @@ const base = {
 
 // stepFacts is a running or held step named label, which its turn started at now minus 83 seconds.
 const stepFacts = (label: string, held: boolean): DockFacts =>
-  facts({ kind: "step", name: label, state: "working", turnSince: now - 83, step: { label, held } });
+  facts({
+    kind: "step",
+    name: label,
+    state: "working",
+    turnSince: now - 83,
+    step: { label, held, doing: held ? "waits on your answer" : "" },
+  });
 
 // stepCalls are a step's calls in the stories, which resolve at once: the fixture's Steps absorbs them.
 const stepCalls = { hold: () => Promise.resolve(), stop: () => Promise.resolve() };
@@ -72,6 +78,27 @@ function StepConfirm() {
     <div ref={root}>
       <dock.Dock {...base} facts={stepFacts("T2", false)} stepCalls={stepCalls} />
     </div>
+  );
+}
+
+// AboutDraft is a waiting session whose message is about an alert, with the draft round 6 draws typed in its box.
+function AboutDraft() {
+  const field = useRef<HTMLTextAreaElement | null>(null);
+  useEffect(() => {
+    const box = field.current;
+    if (box === null) {
+      return;
+    }
+    box.value = "Make it one alert per table.";
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+  }, []);
+  return (
+    <dock.Dock
+      {...base}
+      facts={facts({ state: "waiting" })}
+      about="F2 The harbour office gets the same alert many times."
+      inputRef={field}
+    />
   );
 }
 
@@ -151,9 +178,7 @@ export const Dock: Stories = {
       sessionQueue={[queuedMessage("prompt-discarded", "Retry the upload after the spool drains.", "discarded")]}
     />
   ),
-  about: () => (
-    <dock.Dock {...base} facts={facts({ state: "done", changed: now - 300 })} about="the failing deploy check" />
-  ),
+  about: () => <AboutDraft />,
   "events-wait": () => (
     <dock.Dock
       {...base}

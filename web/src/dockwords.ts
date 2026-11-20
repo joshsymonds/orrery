@@ -23,7 +23,8 @@ export interface DockFacts {
   reason: string;
   interruptedAt: number; // unix seconds of the newest item when it is the interrupted rule, else 0
   putOff: boolean;
-  step: { label: string; held: boolean } | null;
+  // doing is what the step is doing, or why it is held (DL-G24).
+  step: { label: string; held: boolean; doing: string } | null;
 }
 
 export type DockControl = "interrupt" | "interrupting" | "resume" | "none";
@@ -124,7 +125,7 @@ function running(word: string, facts: DockFacts, clockText: string): StateLine {
 export function stateLine(facts: DockFacts, now: number): StateLine {
   if (facts.kind === "step" && facts.step !== null) {
     if (facts.step.held) {
-      return plain("held", "held");
+      return { ...plain("held", "held"), what: facts.step.doing };
     }
     return running("running", facts, since(facts.turnSince, now));
   }
