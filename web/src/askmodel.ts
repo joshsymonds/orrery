@@ -47,10 +47,13 @@ const secondsPerDay = 86400;
 // The state a pane or session is in while a question waits on the owner.
 const waitingState = "waiting";
 
+// The suffix Claude Code ends the label of the option it recommends with.
+const recommendedSuffix = " (Recommended)";
+
 // The three answers a pane permission offers, in the order keys 1, 2 and 3 send them.
 const panePermissionOptions: { name: string; does: string }[] = [
   { name: "Yes", does: "" },
-  { name: "Yes, and don't ask again", does: "for commands like this one in this session" },
+  { name: "Yes, and don’t ask again", does: "for commands like this one in this session" },
   { name: "No", does: "and say what to do instead, below" },
 ];
 
@@ -82,7 +85,7 @@ export function conversationAsk(row: Row, conversation: Conversation | null): As
         kind: "pane",
         who: shape.count > 1 ? `${who} · question 1 of ${shape.count}` : who,
         question: parsed.title,
-        options: parsed.options.map((option, index) => optionOf(index + 1, option.label, option.description)),
+        options: parsed.options.map((option, index) => servedOption(index + 1, option.label, option.description)),
       };
     }
     if (shape.kind === "permission") {
@@ -116,7 +119,7 @@ export function conversationAsk(row: Row, conversation: Conversation | null): As
     asked: row.changed,
     question: permission ? permissionQuestion(request.question, "") : request.question,
     command: null,
-    options: request.options.map((name, index) => optionOf(index + 1, name)),
+    options: request.options.map((label, index) => servedOption(index + 1, label)),
     putOff,
     archive,
     target: { kind: "headless", id: row.id, requestId: request.id, options: request.options },
@@ -192,6 +195,14 @@ function archiveOf(row: Row): AskModel["archive"] {
 
 function optionOf(n: number, name: string, does = "", recommended = false, why = ""): AskOption {
   return { n, name, does, recommended, why, answerable: n <= lastKeyedOption };
+}
+
+// servedOption is an option of a question as Claude Code labels it. A label ending " (Recommended)" is named without the
+// suffix and marked recommended; the label itself, which the answer sends, is kept by the question's target.
+function servedOption(n: number, label: string, does = ""): AskOption {
+  const recommended = label.endsWith(recommendedSuffix);
+  const name = recommended ? label.slice(0, -recommendedSuffix.length) : label;
+  return optionOf(n, name, does, recommended);
 }
 
 // joinWords joins the parts that are not empty with the middle dot the Ask's who uses.

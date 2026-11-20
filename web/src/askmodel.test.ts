@@ -55,7 +55,7 @@ function requestOf(init: MessageInitShape<typeof OpenRequestSchema>): OpenReques
 
 const permissionOptions = [
   { n: 1, name: "Yes", does: "", recommended: false, why: "", answerable: true },
-  { n: 2, name: "Yes, and don't ask again", does: "for commands like this one in this session", recommended: false, why: "", answerable: true },
+  { n: 2, name: "Yes, and don’t ask again", does: "for commands like this one in this session", recommended: false, why: "", answerable: true },
   { n: 3, name: "No", does: "and say what to do instead, below", recommended: false, why: "", answerable: true },
 ];
 
@@ -173,8 +173,46 @@ test("Ask: a pane's plain-text question is answered by the three permission answ
   assert.equal(model?.command, null);
   assert.deepEqual(
     model?.options.map((option) => [option.n, option.name]),
-    [[1, "Yes"], [2, "Yes, and don't ask again"], [3, "No"]],
+    [[1, "Yes"], [2, "Yes, and don’t ask again"], [3, "No"]],
   );
+});
+
+test("Ask: a pane AskUserQuestion option ending (Recommended) is named without the suffix and marked recommended", () => {
+  const stored = JSON.stringify({
+    questions: [
+      {
+        question: "Which database should the sample use?",
+        options: [
+          { label: "SQLite (Recommended)", description: "Embedded, one file" },
+          { label: "Postgres", description: "" },
+        ],
+      },
+    ],
+  });
+
+  const model = conversationAsk(paneRow({ id: "%3", orreryId: "orr-1", question: stored, questionHash: "h1" }), null);
+
+  assert.deepEqual(model?.options, [
+    { n: 1, name: "SQLite", does: "Embedded, one file", recommended: true, why: "", answerable: true },
+    { n: 2, name: "Postgres", does: "", recommended: false, why: "", answerable: true },
+  ]);
+  assert.deepEqual(model?.target, { kind: "pane", id: "%3", questionHash: "h1", changed: 1794700000 });
+});
+
+test("Ask: a session option ending (Recommended) is named without the suffix and marked, and its target keeps the full served label", () => {
+  const served = ["One query per week (Recommended)", "Cache keepers"];
+  const row = headlessRow({});
+
+  const model = conversationAsk(
+    row,
+    conversation(create(ConversationStateSchema, { request: requestOf({ id: "req-7", kind: "question", question: "Which fix?", options: served }) })),
+  );
+
+  assert.deepEqual(model?.options, [
+    { n: 1, name: "One query per week", does: "", recommended: true, why: "", answerable: true },
+    { n: 2, name: "Cache keepers", does: "", recommended: false, why: "", answerable: true },
+  ]);
+  assert.deepEqual(model?.target, { kind: "headless", id: row.id, requestId: "req-7", options: served });
 });
 
 test("Ask: putOff comes from the stream's open request or from its pane", () => {

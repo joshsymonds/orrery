@@ -137,7 +137,7 @@ export const Ask: Stories = {
           { n: 1, name: "Yes", does: "", recommended: false, why: "", answerable: true },
           {
             n: 2,
-            name: "Yes, and don't ask again",
+            name: "Yes, and don’t ask again",
             does: "for commands like this one in this session",
             recommended: false,
             why: "",
