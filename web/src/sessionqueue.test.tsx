@@ -180,7 +180,7 @@ async function withApp(
 // mount draws the App over the fake server, as a page opening or a reload does.
 async function mount(container: HTMLElement, fake: FakeServer): Promise<void> {
   await act(() => {
-    render(<App rows={[sessionRow]} error="" now={now} clients={fake.clients} />, container);
+    render(<App rows={[sessionRow]} now={now} clients={fake.clients} />, container);
   });
 }
 

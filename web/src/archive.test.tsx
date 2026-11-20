@@ -106,7 +106,7 @@ async function withArchive(
   });
   try {
     await act(() => {
-      render(<App rows={setup.rows ?? []} error="" now={now} clients={fake.clients} epics={setup.epics} />, container);
+      render(<App rows={setup.rows ?? []} now={now} clients={fake.clients} epics={setup.epics} />, container);
     });
     await check(container, fake);
   } finally {

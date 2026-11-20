@@ -112,7 +112,7 @@ async function withInbox(
   try {
     await act(() => {
       render(
-        <App rows={props.rows ?? fixture()} error="" now={now} clients={clients} epics={props.epics} />,
+        <App rows={props.rows ?? fixture()} now={now} clients={clients} epics={props.epics} />,
         container,
       );
     });
@@ -318,7 +318,7 @@ async function withRecordedInbox(
   });
   try {
     await act(() => {
-      render(<App rows={fixture()} error="" now={now} clients={clients} />, container);
+      render(<App rows={fixture()} now={now} clients={clients} />, container);
     });
     await check(container);
   } finally {

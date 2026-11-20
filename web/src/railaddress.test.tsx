@@ -175,7 +175,6 @@ function draw(container: HTMLElement, clients: Clients, probe: Probe, setup: Set
     render(
       <App
         rows={setup.rows ?? []}
-        error=""
         now={now}
         clients={clients}
         epics={setup.epics}

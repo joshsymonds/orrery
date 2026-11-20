@@ -353,7 +353,7 @@ async function withApp(
   });
   try {
     await act(() => {
-      render(<App rows={rows} error="" now={now} clients={fake.clients} />, container);
+      render(<App rows={rows} now={now} clients={fake.clients} />, container);
     });
     await check(container, fake);
   } finally {

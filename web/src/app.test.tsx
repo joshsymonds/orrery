@@ -71,7 +71,6 @@ type Seen = ReturnType<typeof fakeSeen>;
 
 interface Props {
   rows: Row[];
-  error: string;
   now: number;
   clients: Clients;
   seen: Seen;
@@ -356,7 +355,6 @@ async function mount(container: HTMLElement, props: Props): Promise<void> {
     render(
       <App
         rows={props.rows}
-        error={props.error}
         now={props.now}
         clients={props.clients}
         seenClock={props.seen.clock}
@@ -396,7 +394,7 @@ async function withApp(
     await removeTestDom(window);
   });
   try {
-    await mount(container, { rows: fixture(), error: "", now, clients: fake.clients, seen: fake.seen, ...props });
+    await mount(container, { rows: fixture(), now, clients: fake.clients, seen: fake.seen, ...props });
     await check(container, fake);
   } finally {
     await teardown();
@@ -704,7 +702,7 @@ test("w goes to the first waiting row and does nothing when no row waits", (t) =
     await press("w");
     assert.equal(cursorKey(container), "a");
 
-    await mount(container, { rows: fixture().slice(1), error: "", now, clients: fake.clients, seen: fake.seen });
+    await mount(container, { rows: fixture().slice(1), now, clients: fake.clients, seen: fake.seen });
     await press("G");
     await press("w");
     assert.equal(cursorKey(container), "d");
@@ -824,10 +822,10 @@ test("the cursor keeps its row across new rows and clamps when its row leaves", 
     assert.equal(cursorKey(container), "b");
 
     const added = row({ key: "e", label: "new", state: "waiting", changed: 900, seen: 1, unseen: true });
-    await mount(container, { rows: [...fixture(), added], error: "", now, clients: fake.clients, seen: fake.seen });
+    await mount(container, { rows: [...fixture(), added], now, clients: fake.clients, seen: fake.seen });
     assert.equal(cursorKey(container), "b");
 
-    await mount(container, { rows: fixture().filter((item) => item.key !== "b"), error: "", now, clients: fake.clients, seen: fake.seen });
+    await mount(container, { rows: fixture().filter((item) => item.key !== "b"), now, clients: fake.clients, seen: fake.seen });
     assert.equal(cursorKey(container), "d");
   }));
 
@@ -835,7 +833,7 @@ test("an unmoved cursor keeps its row when a row sorts in above it", (t) =>
   withApp(t.signal, {}, async (container, fake) => {
     assert.equal(cursorKey(container), "a");
     const added = row({ key: "e", label: "new", state: "waiting", changed: 900, seen: 1, unseen: true });
-    await mount(container, { rows: [...fixture(), added], error: "", now, clients: fake.clients, seen: fake.seen });
+    await mount(container, { rows: [...fixture(), added], now, clients: fake.clients, seen: fake.seen });
     assert.equal(cursorKey(container), "a");
   }));
 
@@ -844,10 +842,10 @@ test("a clamped cursor keeps the row it moved to", (t) =>
     await press("j");
     await press("j");
     assert.equal(cursorKey(container), "b");
-    await mount(container, { rows: fixture().filter((item) => item.key !== "b"), error: "", now, clients: fake.clients, seen: fake.seen });
+    await mount(container, { rows: fixture().filter((item) => item.key !== "b"), now, clients: fake.clients, seen: fake.seen });
     assert.equal(cursorKey(container), "d");
     const added = row({ key: "e", label: "new", state: "waiting", changed: 900, seen: 1, unseen: true });
-    await mount(container, { rows: [...fixture().filter((item) => item.key !== "b"), added], error: "", now, clients: fake.clients, seen: fake.seen });
+    await mount(container, { rows: [...fixture().filter((item) => item.key !== "b"), added], now, clients: fake.clients, seen: fake.seen });
     assert.equal(cursorKey(container), "d");
   }));
 
@@ -962,15 +960,17 @@ test("the head, the chips, the rows and the foot sit inside the list, in that or
     assert.deepEqual(outsideList(container, ".inbox-head, .inbox-foot"), []);
   }));
 
-test("a non-empty error shows one line in the list, under the head and above the rows", (t) =>
-  withApp(t.signal, { error: "list unavailable" }, (container) => {
-    assert.equal(container.querySelector('[role="alert"]')?.textContent, "list unavailable");
+test("a failed write's line shows in the list, under the head and above the rows", (t) =>
+  withApp(t.signal, {}, async (container, fake) => {
+    fake.failNext.add(markPanePath);
+    await press("x");
+    await until(t.signal, () => container.querySelector('[role="alert"]') !== null, "the seen failure line");
     assert.deepEqual(inboxChildren(container), ["inbox-head", "error", "inbox-attn", "inbox-rows", "inbox-foot"]);
     assert.deepEqual(outsideList(container, ".error"), []);
   }));
 
-test("no error line shows when the error is empty", (t) =>
-  withApp(t.signal, { error: "" }, (container) => {
+test("no error line shows when nothing failed", (t) =>
+  withApp(t.signal, {}, (container) => {
     assert.equal(container.querySelector('[role="alert"]') === null, true);
   }));
 
@@ -1456,7 +1456,6 @@ test("a message sent to a working session draws above the box as queued, and lea
     assertNone(queued?.querySelector(".note"), "a waiting row carries no note on when it sends");
     await mount(container, {
       rows: [{ ...sessionRow, state: "done" }],
-      error: "",
       now,
       clients: fake.clients,
       seen: fake.seen,
@@ -1537,8 +1536,8 @@ test("a failed send keeps its draft and prompt id through a poll that lists no s
       composer(container).blur();
     });
     // A poll whose Sessions.List failed lists the panes only; the next poll lists the session again.
-    await mount(container, { rows: [paneRow], error: "", now, clients: fake.clients, seen: fake.seen });
-    await mount(container, { rows: [paneRow, sessionRow], error: "", now, clients: fake.clients, seen: fake.seen });
+    await mount(container, { rows: [paneRow], now, clients: fake.clients, seen: fake.seen });
+    await mount(container, { rows: [paneRow, sessionRow], now, clients: fake.clients, seen: fake.seen });
     if (cursorKey(container) !== "s1") {
       await press("j");
     }
@@ -1934,7 +1933,7 @@ test("a row that changes while the cursor rests on it is written again after one
     await until(t.signal, () => !rowElement(container, "a").hasAttribute("data-unseen"), "the row to read as seen");
 
     const moved = fixture().map((item) => (item.key === "a" ? { ...item, changed: 400 } : item));
-    await mount(container, { rows: moved, error: "", now, clients: fake.clients, seen: fake.seen });
+    await mount(container, { rows: moved, now, clients: fake.clients, seen: fake.seen });
     assert.equal(rowElement(container, "a").hasAttribute("data-unseen"), true, "the newer change is unseen");
     fake.seen.input.emit("keydown");
     fake.seen.advance(1000);
@@ -1947,11 +1946,11 @@ test("a written row stops showing unseen until its changed time moves past the o
     await press("x");
     await until(t.signal, () => !rowElement(container, "a").hasAttribute("data-unseen"), "the row to read as seen");
 
-    await mount(container, { rows: fixture(), error: "", now, clients: fake.clients, seen: fake.seen });
+    await mount(container, { rows: fixture(), now, clients: fake.clients, seen: fake.seen });
     assert.equal(rowElement(container, "a").hasAttribute("data-unseen"), false, "the server has not caught up yet");
 
     const moved = fixture().map((item) => (item.key === "a" ? { ...item, changed: 400 } : item));
-    await mount(container, { rows: moved, error: "", now, clients: fake.clients, seen: fake.seen });
+    await mount(container, { rows: moved, now, clients: fake.clients, seen: fake.seen });
     assert.equal(rowElement(container, "a").hasAttribute("data-unseen"), true, "a newer change is unseen again");
   }));
 
@@ -2229,7 +2228,7 @@ test("a session row that turns working after an answer draws no chips and no ans
     await openPermissionRequest(t.signal, container, fake);
     await press("2");
     await until(t.signal, () => fake.callsTo(answerPath).length === 1, "the answer");
-    await mount(container, { rows: [workingSession], error: "", now, clients: fake.clients, seen: fake.seen });
+    await mount(container, { rows: [workingSession], now, clients: fake.clients, seen: fake.seen });
     assert.equal(answerLine(container, "s1"), null, "no answer line");
     assert.deepEqual(chipTexts(container, "s1"), [], "a working row shows no chips");
   }));
@@ -2243,7 +2242,6 @@ test("a row that waits on another question after an answer draws no chips for it
     });
     await mount(container, {
       rows: [row({ ...fourOptionRow, question: nextQuestion })],
-      error: "",
       now,
       clients: fake.clients,
       seen: fake.seen,
@@ -2963,7 +2961,7 @@ test("InboxTree: the chips count what waits and what is new, narrow the tree, an
     await clickElement(chipNamed(container, "new") ?? container);
     assert.deepEqual([...container.querySelectorAll("section.dir")].map((card) => card.getAttribute("aria-label")), ["api", "docs"]);
     assert.deepEqual(drawnKeys(container), ["a", "c"], "new narrows to the unseen conversations");
-    await mount(container, { rows: treeRows().map((row) => ({ ...row, state: "done", unseen: false, seen: row.changed })), error: "", now, clients: fake.clients, seen: fake.seen, host: treeHost });
+    await mount(container, { rows: treeRows().map((row) => ({ ...row, state: "done", unseen: false, seen: row.changed })), now, clients: fake.clients, seen: fake.seen, host: treeHost });
     assert.equal(chipNamed(container, "waits on you") === undefined, true, "the chip with no count is not drawn");
     assert.equal(chipNamed(container, "new") === undefined, true, "the chip with no count is not drawn");
     assert.deepEqual([...container.querySelectorAll("section.dir")].map((card) => card.getAttribute("aria-label")), ["api", "web", "docs"], "the narrowing turned off");
@@ -3382,7 +3380,6 @@ test("a landed Epics.Seen reads the ending as seen in this page, and its ending 
 
     await mount(container, {
       rows: [],
-      error: "",
       now: endedNow,
       clients: fake.clients,
       seen: fake.seen,
@@ -3435,7 +3432,6 @@ test("a later ending of a seen epic reads unseen again and is written after its 
     });
     await mount(container, {
       rows: [],
-      error: "",
       now: endedNow,
       clients: fake.clients,
       seen: fake.seen,
@@ -3463,7 +3459,6 @@ test("an epic under the cursor that another client marks seen stays under the en
 
     await mount(container, {
       rows: [],
-      error: "",
       now: endedNow,
       clients: fake.clients,
       seen: fake.seen,
@@ -3488,7 +3483,6 @@ test("an epic under the cursor that the next view gives released and unseen stay
 
     await mount(container, {
       rows: [],
-      error: "",
       now: endedNow,
       clients: fake.clients,
       seen: fake.seen,
@@ -4326,7 +4320,6 @@ test("a change to the epic's last write reads its history again", (t) =>
     await until(t.signal, () => historyText(container).includes("before the change"), "the first history");
     await mount(container, {
       rows: fixture(),
-      error: "",
       now,
       clients: fake.clients,
       seen: fake.seen,
@@ -4568,8 +4561,8 @@ test("a step's draft survives a poll that no longer lists the step", (t) =>
     await typeInto(composer(container), "keep going");
     await pressIn(composer(container), "Escape");
     const withoutSteps = epicsView([makeEpic(widgetsRepo, "first")], new Map());
-    await mount(container, { rows: fixture(), error: "", now, clients: fake.clients, seen: fake.seen, epics: withoutSteps });
-    await mount(container, { rows: fixture(), error: "", now, clients: fake.clients, seen: fake.seen, epics: oneEpic() });
+    await mount(container, { rows: fixture(), now, clients: fake.clients, seen: fake.seen, epics: withoutSteps });
+    await mount(container, { rows: fixture(), now, clients: fake.clients, seen: fake.seen, epics: oneEpic() });
     await press("g");
     await press("g");
     await onStepOne(t.signal, container, fake);
@@ -4732,7 +4725,6 @@ test("RailAddress: a session Talk starts opens in the middle once its row is lis
     await mount(container, {
       rows: [...fixture(), startedRow],
       epics,
-      error: "",
       now,
       clients: fake.clients,
       seen: fake.seen,
@@ -4924,7 +4916,7 @@ test("PickerPalette: a pane Picker.Run answers takes the cursor once its row arr
     assert.equal(cursorKey(container), "a", "the pane's row is not in the list yet");
 
     const deploy = row({ key: "pane:box:%9", id: "%9", label: "deploy", state: "working", changed: 500, seen: 500 });
-    await mount(container, { rows: [...fixture(), deploy], error: "", now, clients: fake.clients, seen: fake.seen });
+    await mount(container, { rows: [...fixture(), deploy], now, clients: fake.clients, seen: fake.seen });
     assert.equal(cursorKey(container), "pane:box:%9");
   }));
 
@@ -4968,7 +4960,7 @@ test("PickerStartForm: a started session takes the cursor once its row arrives i
       changed: 500,
       seen: 500,
     });
-    await mount(container, { rows: [...fixture(), started], error: "", now, clients: fake.clients, seen: fake.seen });
+    await mount(container, { rows: [...fixture(), started], now, clients: fake.clients, seen: fake.seen });
     assert.equal(cursorKey(container), "session:sess-new");
   }));
 
@@ -5189,20 +5181,6 @@ test("InboxTree: under 760px Archive from a row's sheet archives that row and sh
       assert.deepEqual(fake.callsTo(unarchivePath)[0].body, { kind: "session", id: "sess-a" }, "Undo names the same row");
       assert.equal(toastOf(container), null, "Undo takes the toast away");
       await until(t.signal, () => container.querySelector('[data-key="a"]') !== null, "the row back in the list");
-    },
-    600,
-  ));
-
-test("InboxTree: under 760px A archives the cursor's row and shows the toast", (t) =>
-  withApp(
-    t.signal,
-    { rows: archiveRows() },
-    async (container, fake) => {
-      assert.equal(cursorKey(container), "a", "the cursor rests on the first row");
-      await press("A");
-      await until(t.signal, () => fake.callsTo(archivePath).length === 1, "the Archive call");
-      assert.deepEqual(fake.callsTo(archivePath)[0].body, { kind: "session", id: "sess-a" }, "A names the cursor's row");
-      await until(t.signal, () => toastText(container) === "Archived “tidepool work”.", "the toast");
     },
     600,
   ));

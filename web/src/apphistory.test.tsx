@@ -190,7 +190,6 @@ function show(container: HTMLElement, clients: Clients, setup: Setup, reports: R
     render(
       <App
         rows={setup.rows ?? []}
-        error=""
         now={now}
         clients={clients}
         epics={setup.epics}

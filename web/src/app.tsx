@@ -178,7 +178,6 @@ const overlayQuery = "(max-width: 1250px)";
 
 export function App({
   rows,
-  error = "",
   answered = true,
   listFailed = false,
   onRetry,
@@ -196,8 +195,6 @@ export function App({
   headStore,
 }: {
   rows: Row[];
-  // error is a note line the list shows above its rows, for a failure that is not a list's.
-  error?: string;
   // Whether the rows and the epics have each answered their first load. Until both have, the inbox says loading.
   answered?: boolean;
   // Whether the latest rows or epics load failed. While it has, the inbox says the server did not answer, in place of
@@ -1828,7 +1825,7 @@ export function App({
   );
 
   // notes are the error lines the list shows above its rows, in the order they were set.
-  const notes = [error, seenError, answerError, escapeError, archiveError, commandError]
+  const notes = [seenError, answerError, escapeError, archiveError, commandError]
     .filter((line) => line !== "")
     .map((line) => (
       <p class="error" role="alert" key={line}>

@@ -183,7 +183,7 @@ async function withPage(signal: AbortSignal, rows: Row[], check: (page: Page) =>
   const fake = new FakeServer();
   const show = (next: Row[]) =>
     act(() => {
-      render(<App rows={next} error="" now={now} clients={fake.clients} />, container);
+      render(<App rows={next} now={now} clients={fake.clients} />, container);
     });
   const teardown = teardownOnce(signal, async () => {
     fake.releaseAll();

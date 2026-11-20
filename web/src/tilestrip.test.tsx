@@ -224,7 +224,6 @@ function draw(container: HTMLElement, clients: Clients, reported: Report[], setu
     render(
       <App
         rows={setup.rows ?? []}
-        error=""
         now={now}
         clients={clients}
         epics={setup.epics}

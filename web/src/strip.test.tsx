@@ -126,7 +126,6 @@ async function withStrip(
       render(
         <App
           rows={props.rows ?? [row({ key: "a", label: "api" })]}
-          error=""
           now={now}
           clients={clients}
           host={props.host}

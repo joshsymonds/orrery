@@ -154,7 +154,6 @@ async function withHead(signal: AbortSignal, setup: Setup, check: (harness: Harn
       render(
         <App
           rows={setup.rows ?? [row({ key: "api", label: "api" })]}
-          error=""
           now={now}
           clients={clients}
           epics={setup.epics}

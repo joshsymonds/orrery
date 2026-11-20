@@ -219,7 +219,7 @@ async function withApp(
   });
   try {
     await act(() => {
-      render(<App rows={props.rows} error="" now={now} clients={fake.clients} epics={props.epics} />, container);
+      render(<App rows={props.rows} now={now} clients={fake.clients} epics={props.epics} />, container);
     });
     await check(container, fake);
   } finally {
@@ -334,7 +334,7 @@ test("EscapeInterrupt: Escape on a waiting session marks no interrupt, so the se
     await pressIn(composer(container), "Escape");
     await until(t.signal, () => document.activeElement !== composer(container), "the blur");
     await act(() => {
-      render(<App rows={[sessionRow]} error="" now={now} clients={fake.clients} />, container);
+      render(<App rows={[sessionRow]} now={now} clients={fake.clients} />, container);
     });
     assert.equal(headWord(container), "working");
   }));

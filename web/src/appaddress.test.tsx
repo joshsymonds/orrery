@@ -141,7 +141,6 @@ function show(container: HTMLElement, clients: Clients, setup: Setup, address?: 
     render(
       <App
         rows={setup.rows ?? []}
-        error=""
         now={setup.now ?? now}
         clients={clients}
         epics={setup.epics}
