@@ -54,9 +54,6 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   // HappeningList draws the history of the holder epic, and an empty history.
   "happening-list/holder": { replacement: "HappeningList", epic: "F4" },
   "happening-list/empty": { replacement: "HappeningList", epic: "F4" },
-  // Notice draws a stack of three notices, and of more than three with its "+n more" line.
-  "notice/three-notices": { replacement: "Notice", epic: "F5" },
-  "notice/over-the-limit": { replacement: "Notice", epic: "F5" },
   // TitleRow draws a crumb and a state, a blocker, and a page's commands.
   "title-row/crumbs-and-state": { replacement: "TitleRow", epic: "F3" },
   "title-row/blocker": { replacement: "TitleRow", epic: "F3" },

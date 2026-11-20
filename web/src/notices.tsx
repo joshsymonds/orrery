@@ -3,6 +3,8 @@ import { useLayoutEffect, useRef, useState } from "preact/hooks";
 
 import type { createClients } from "./client";
 import type { InAppNotice, NoticeKey, NoticesWatchResponse } from "./gen/orrery/v1/notice_pb";
+import { Gauge, Icon, StateGlyph } from "./glyphs";
+import type { NoticeAct, NoticeHead, NoticeLead } from "./noticewords";
 
 // noticeKey names a notice's key as one string over all five fields in order, so a key that sets a different field is
 // a different notice.
@@ -173,6 +175,84 @@ export function NoticeBanner({ notices, onOpen, onDismiss }: NoticeBannerProps):
         </div>
       ))}
       {more > 0 && <p class="notices-more">{`+${more} more`}</p>}
+    </div>
+  );
+}
+
+// NoticeLeadMark draws a notice's lead: its epic's gauge, its session's or pane's state glyph, or its icon.
+function NoticeLeadMark({ lead }: { lead: NoticeLead }): JSX.Element {
+  switch (lead.kind) {
+    case "gauge":
+      return <Gauge {...lead.gauge} />;
+    case "glyph":
+      return <StateGlyph state={lead.state} />;
+    case "icon":
+      return <Icon name={lead.icon} />;
+  }
+}
+
+interface NoticeProps {
+  head: NoticeHead;
+  when: string;
+  body: string;
+  act?: NoticeAct;
+  onAct?: () => void;
+  onRead?: () => void;
+  flat?: boolean;
+  unread?: boolean;
+  onClick?: () => void;
+}
+
+// Notice draws one notice in two lines, as round 6 draws it. The first line is its lead, its directory in the place
+// colour and its words, then its age. The second is the body's first line, since a body may hold several lines. A stack
+// row is a status block with its primary control, Answer or Open when it has one, and a quiet Mark read. A flat row is
+// one button, marked unread while it is unread, and holds no control.
+export function Notice({
+  head,
+  when,
+  body,
+  act = null,
+  onAct,
+  onRead,
+  flat = false,
+  unread = false,
+  onClick,
+}: NoticeProps): JSX.Element {
+  const words = (
+    <>
+      <NoticeLeadMark lead={head.lead} />
+      <span class="t">
+        {head.dir !== "" && (
+          <>
+            <span class="dirn">{head.dir}</span>{" "}
+          </>
+        )}
+        {head.what}
+      </span>
+      <span class="when">{when}</span>
+      <span class="b">{body.split("\n")[0]}</span>
+    </>
+  );
+  if (flat) {
+    return (
+      <button type="button" class={unread ? "notice flat unread" : "notice flat"} onClick={onClick}>
+        {words}
+      </button>
+    );
+  }
+  return (
+    <div class="notice" role="status">
+      {words}
+      <span class="acts">
+        {act !== null && (
+          <button type="button" class={act === "Answer" ? "btn primary" : "btn"} onClick={onAct}>
+            {act}
+          </button>
+        )}
+        <button type="button" class="btn quiet" onClick={onRead}>
+          Mark read
+        </button>
+      </span>
     </div>
   );
 }

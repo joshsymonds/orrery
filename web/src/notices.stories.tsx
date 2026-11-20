@@ -1,49 +1,68 @@
-// The stories of Notice, drawn by NoticeBanner: the stack of notices a banner shows, one notice, three, and more than three
-// with its "+n more" line. The notices come from applyNotice, the function the app folds its notice stream with, so each
-// is shown as the stream would show it. The banner's open and dismiss handlers do nothing.
-
-import { create, type MessageInitShape } from "@bufbuild/protobuf";
+// The stories of Notice, as round 6 draws them: a stack row asking you, an epic asking, an epic shipped, a failure, and
+// a row of the centre. Each head is written out here as noticeHead writes it for that notice.
 
 import type { Stories } from "./catalog/story";
-import { type InAppNotice, InAppNoticeSchema, NoticesWatchResponseSchema } from "./gen/orrery/v1/notice_pb";
-import { applyNotice, NoticeBanner as Banner } from "./notices";
+import { Notice as Row } from "./notices";
 
 const noop = () => {};
 
-// stack is the notices a banner shows after each of them is shown in order.
-function stack(...notices: MessageInitShape<typeof InAppNoticeSchema>[]): InAppNotice[] {
-  return notices.reduce<InAppNotice[]>(
-    (showing, value) => applyNotice(showing, create(NoticesWatchResponseSchema, { change: { case: "shown", value } })),
-    [],
-  );
-}
-
-const waiting = {
-  key: { pane: "%12" },
-  state: "waiting",
-  title: "Why the roster page is slow past forty shifts",
-  body: "Which fix should I make?",
-};
-const interrupted = {
-  key: { session: "4be0c6d2-8f3a-4c71-9e25-ephemeris001" },
-  state: "interrupted",
-  title: "The 2027 ephemeris import",
-  body: "orreryd restarted during the turn",
-};
-const question = {
-  key: { epic: "lighthouse/rota-export" },
-  state: "waiting",
-  title: "rota-export",
-  body: "Bump the embedded tz database?",
-};
-const limited = { key: { limit: "weekly@1794700000" }, state: "limited", title: "halyard", body: "usage limit reached" };
-const finished = { key: { epic: "tidepool/tide-alerts" }, state: "done", title: "tide-alerts", body: "epic integrated" };
-const holder = { key: { epic: "orrery/holder-scopes" }, state: "done", title: "holder-scopes", body: "epic integrated" };
-
 export const Notice: Stories = {
-  "asks-you": () => <Banner notices={stack(waiting)} onOpen={noop} onDismiss={noop} />,
-  "three-notices": () => <Banner notices={stack(waiting, interrupted, question)} onOpen={noop} onDismiss={noop} />,
-  "over-the-limit": () => (
-    <Banner notices={stack(waiting, interrupted, question, limited, finished, holder)} onOpen={noop} onDismiss={noop} />
+  "asks-you": () => (
+    <Row
+      head={{ lead: { kind: "glyph", state: "waiting" }, dir: "tidepool", what: "waiting on you" }}
+      when="2m"
+      body="Which fix should I make?"
+      act="Answer"
+      onAct={noop}
+      onRead={noop}
+    />
+  ),
+  "epic-asks": () => (
+    <Row
+      head={{
+        lead: { kind: "gauge", gauge: { done: 2, total: 5, tone: "live" } },
+        dir: "",
+        what: "rota-export asks you a question",
+      }}
+      when="14m"
+      body="Bump the embedded tz database?"
+      act="Answer"
+      onAct={noop}
+      onRead={noop}
+    />
+  ),
+  shipped: () => (
+    <Row
+      head={{
+        lead: { kind: "gauge", gauge: { done: 5, total: 5, tone: "ok", inner: "check" } },
+        dir: "",
+        what: "tide-alerts finished",
+      }}
+      when="1h"
+      body="epic integrated"
+      act="Open"
+      onAct={noop}
+      onRead={noop}
+    />
+  ),
+  failed: () => (
+    <Row
+      head={{ lead: { kind: "glyph", state: "failed" }, dir: "halyard", what: "failed" }}
+      when="3h"
+      body="the release build exited 1"
+      act="Open"
+      onAct={noop}
+      onRead={noop}
+    />
+  ),
+  "in-the-centre": () => (
+    <Row
+      head={{ lead: { kind: "glyph", state: "waiting" }, dir: "tidepool", what: "waiting on you" }}
+      when="14:31"
+      body="Which fix should I make?"
+      flat
+      unread
+      onClick={noop}
+    />
   ),
 };

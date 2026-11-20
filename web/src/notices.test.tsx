@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test, type TestContext } from "node:test";
+import { fileURLToPath } from "node:url";
 import v8 from "node:v8";
 import vm from "node:vm";
 
@@ -16,7 +18,8 @@ import {
   type NoticesWatchResponse,
   NoticesWatchResponseSchema,
 } from "./gen/orrery/v1/notice_pb";
-import { applyNotice, NoticeBanner, noticeLifetimeMillis, watchNotices } from "./notices";
+import { applyNotice, Notice, NoticeBanner, noticeLifetimeMillis, watchNotices } from "./notices";
+import type { NoticeAct, NoticeHead } from "./noticewords";
 import { mockTimers } from "./testclock";
 import { installTestDom, removeTestDom } from "./testdom";
 import { settledFlag, until } from "./testwait";
@@ -360,8 +363,8 @@ function drawBanner(container: HTMLElement, notices: InAppNotice[], handlers: Ba
   );
 }
 
-// withBanner runs check in a fresh DOM, and removes the DOM when check ends.
-async function withBanner(check: (container: HTMLElement) => Promise<void>): Promise<void> {
+// withContainer runs check in a fresh DOM, and removes the DOM when check ends.
+async function withContainer(check: (container: HTMLElement) => Promise<void>): Promise<void> {
   const window = installTestDom();
   const container = document.createElement("div");
   document.body.append(container);
@@ -395,7 +398,7 @@ async function advance(t: TestContext, ms: number): Promise<void> {
 
 test("a row holds its title and its body as separate elements, with a separator between them", async (t) => {
   mockTimers(t, ["setTimeout"]);
-  await withBanner(async (container) => {
+  await withContainer(async (container) => {
     await act(() => {
       drawBanner(container, [notice("%1", "one")]);
     });
@@ -413,7 +416,7 @@ test("a row holds its title and its body as separate elements, with a separator 
 
 test("the banner draws at most three rows, then a +n more line for the rest", async (t) => {
   mockTimers(t, ["setTimeout"]);
-  await withBanner(async (container) => {
+  await withContainer(async (container) => {
     const five = ["one", "two", "three", "four", "five"].map((title, index) => notice(`%${index + 1}`, title));
     await act(() => {
       drawBanner(container, five);
@@ -432,7 +435,7 @@ test("a × drops its row at once and calls onDismiss with its notice, and the ot
   mockTimers(t, ["setTimeout"]);
   const dismissed: InAppNotice[] = [];
   const opened: InAppNotice[] = [];
-  await withBanner(async (container) => {
+  await withContainer(async (container) => {
     await act(() => {
       drawBanner(container, [notice("%1", "one"), notice("%2", "two")], {
         onDismiss: (item) => dismissed.push(item),
@@ -457,7 +460,7 @@ test("a × drops its row at once and calls onDismiss with its notice, and the ot
 test("a row leaves the stack 8 seconds after it first shows, and nothing is told of it", async (t) => {
   mockTimers(t, ["setTimeout"]);
   const dismissed: InAppNotice[] = [];
-  await withBanner(async (container) => {
+  await withContainer(async (container) => {
     await act(() => {
       drawBanner(container, [notice("%1", "one")], { onDismiss: (item) => dismissed.push(item) });
     });
@@ -471,7 +474,7 @@ test("a row leaves the stack 8 seconds after it first shows, and nothing is told
 
 test("a fourth notice starts its own 8 seconds when it moves into the three rows", async (t) => {
   mockTimers(t, ["setTimeout"]);
-  await withBanner(async (container) => {
+  await withContainer(async (container) => {
     const four = ["one", "two", "three", "four"].map((title, index) => notice(`%${index + 1}`, title));
     await act(() => {
       drawBanner(container, four);
@@ -488,7 +491,7 @@ test("a fourth notice starts its own 8 seconds when it moves into the three rows
 
 test("a notice that leaves the list and is shown again under its key shows again", async (t) => {
   mockTimers(t, ["setTimeout"]);
-  await withBanner(async (container) => {
+  await withContainer(async (container) => {
     await act(() => {
       drawBanner(container, [notice("%1", "one")], { onDismiss: () => undefined });
     });
@@ -515,7 +518,7 @@ test("unmounting clears the pending lifetime timer of each row", async (t) => {
   mockTimers(t, ["setTimeout"]);
   const scheduled = t.mock.method(globalThis, "setTimeout");
   const cleared = t.mock.method(globalThis, "clearTimeout");
-  await withBanner(async (container) => {
+  await withContainer(async (container) => {
     await act(() => {
       drawBanner(container, [notice("%1", "one")]);
     });
@@ -529,4 +532,280 @@ test("unmounting clears the pending lifetime timer of each row", async (t) => {
       "unmounting does not clear the lifetime timer, so the row's timer outlives the banner",
     );
   });
+});
+
+// drawNotice renders one Notice into container, in the current act. Its props default as a stack row's do, with a
+// two-minute age and a one-line body.
+interface NoticeDraw {
+  head: NoticeHead;
+  when?: string;
+  body?: string;
+  act?: NoticeAct;
+  onAct?: () => void;
+  onRead?: () => void;
+  flat?: boolean;
+  unread?: boolean;
+  onClick?: () => void;
+}
+
+function drawNotice(container: HTMLElement, draw: NoticeDraw): void {
+  render(
+    <Notice
+      head={draw.head}
+      when={draw.when ?? "2m"}
+      body={draw.body ?? "a body"}
+      act={draw.act}
+      onAct={draw.onAct}
+      onRead={draw.onRead}
+      flat={draw.flat}
+      unread={draw.unread}
+      onClick={draw.onClick}
+    />,
+    container,
+  );
+}
+
+// noticeRoot is the one notice container draws.
+function noticeRoot(container: HTMLElement): HTMLElement {
+  const root = container.querySelector<HTMLElement>(".notice");
+  assert.ok(root, "no notice is drawn");
+  return root;
+}
+
+// controlTexts reads the labels of the buttons inside root, in order.
+function controlTexts(root: HTMLElement): string[] {
+  return [...root.querySelectorAll("button")].map((button) => button.textContent ?? "");
+}
+
+// clickControl clicks the button of root labelled label.
+function clickControl(root: HTMLElement, label: string): void {
+  const button = [...root.querySelectorAll("button")].find((item) => item.textContent === label);
+  assert.ok(button, `no ${label} button`);
+  button.dispatchEvent(new Event("click", { bubbles: true }));
+}
+
+test("NoticeStack: an epic's notice is led by its gauge", async () => {
+  await withContainer(async (container) => {
+    await act(() => {
+      drawNotice(container, {
+        head: {
+          lead: { kind: "gauge", gauge: { done: 2, total: 5, tone: "live" } },
+          dir: "",
+          what: "rota-export asks you a question",
+        },
+      });
+    });
+    assert.equal(noticeRoot(container).firstElementChild?.getAttribute("class"), "gauge");
+  });
+});
+
+test("NoticeStack: a pane's or session's notice is led by its state glyph, which names the state", async () => {
+  await withContainer(async (container) => {
+    await act(() => {
+      drawNotice(container, {
+        head: { lead: { kind: "glyph", state: "waiting" }, dir: "tidepool", what: "waiting on you" },
+      });
+    });
+    const lead = noticeRoot(container).firstElementChild;
+    assert.equal(lead?.getAttribute("class"), "glyph", "the lead is not a state glyph");
+    assert.equal(lead?.getAttribute("data-state"), "waiting", "the glyph does not draw the notice's state");
+  });
+});
+
+test("NoticeStack: an alert's and a limit's lead is an icon, and the icon is the head's", async () => {
+  await withContainer(async (container) => {
+    await act(() => {
+      drawNotice(container, { head: { lead: { kind: "icon", icon: "bell" }, dir: "", what: "a bell alert" } });
+    });
+    const bell = noticeRoot(container).firstElementChild;
+    assert.equal(bell?.getAttribute("class"), "icon", "the lead is not an icon");
+    const bellPath = bell?.querySelector("path")?.getAttribute("d");
+    await act(() => {
+      drawNotice(container, { head: { lead: { kind: "icon", icon: "clock" }, dir: "", what: "a limit" } });
+    });
+    const clockPath = noticeRoot(container).firstElementChild?.querySelector("path")?.getAttribute("d");
+    assert.ok(bellPath && clockPath && bellPath !== clockPath, "the bell and the clock draw the same icon");
+  });
+});
+
+test("NoticeStack: the directory is drawn in its own element, and the words follow it", async () => {
+  await withContainer(async (container) => {
+    await act(() => {
+      drawNotice(container, {
+        head: { lead: { kind: "glyph", state: "waiting" }, dir: "tidepool", what: "waiting on you" },
+      });
+    });
+    const title = noticeRoot(container).querySelector(".t");
+    assert.equal(title?.querySelector(".dirn")?.textContent, "tidepool", "the directory is not in the place element");
+    assert.equal(title?.textContent, "tidepool waiting on you", "the words do not follow the directory");
+  });
+});
+
+test("NoticeStack: a head with no directory draws its words alone", async () => {
+  await withContainer(async (container) => {
+    await act(() => {
+      drawNotice(container, {
+        head: { lead: { kind: "icon", icon: "clock" }, dir: "", what: "halyard usage limit reached" },
+      });
+    });
+    const title = noticeRoot(container).querySelector(".t");
+    assert.equal(title?.querySelector(".dirn"), null, "an empty directory is drawn");
+    assert.equal(title?.textContent, "halyard usage limit reached");
+  });
+});
+
+test("NoticeStack: the second line is when, then the body's first line", async () => {
+  await withContainer(async (container) => {
+    await act(() => {
+      drawNotice(container, {
+        head: { lead: { kind: "icon", icon: "bell" }, dir: "", what: "a bell alert" },
+        when: "3h",
+        body: "first line\nsecond line",
+      });
+    });
+    const root = noticeRoot(container);
+    assert.equal(root.querySelector(".when")?.textContent, "3h", "the age is not drawn as when");
+    assert.equal(root.querySelector(".b")?.textContent, "first line", "the body's first line is not the second line");
+  });
+});
+
+test("NoticeStack: Answer is the primary control and a click calls onAct", async () => {
+  await withContainer(async (container) => {
+    let acted = 0;
+    await act(() => {
+      drawNotice(container, {
+        head: { lead: { kind: "glyph", state: "waiting" }, dir: "tidepool", what: "waiting on you" },
+        act: "Answer",
+        onAct: () => (acted += 1),
+      });
+    });
+    const root = noticeRoot(container);
+    const answer = [...root.querySelectorAll("button")].find((button) => button.textContent === "Answer");
+    assert.ok(answer?.classList.contains("primary"), "Answer is not the primary control");
+    await act(() => {
+      clickControl(root, "Answer");
+    });
+    assert.equal(acted, 1, "Answer did not call onAct once");
+  });
+});
+
+test("NoticeStack: Open is an ordinary control, not the primary one", async () => {
+  await withContainer(async (container) => {
+    await act(() => {
+      drawNotice(container, {
+        head: { lead: { kind: "glyph", state: "done" }, dir: "tidepool", what: "done" },
+        act: "Open",
+      });
+    });
+    const open = [...noticeRoot(container).querySelectorAll("button")].find((button) => button.textContent === "Open");
+    assert.ok(open, "no Open control");
+    assert.equal(open.classList.contains("primary"), false, "Open is drawn as the primary control");
+  });
+});
+
+test("NoticeStack: a notice with no act has Mark read as its only control", async () => {
+  await withContainer(async (container) => {
+    await act(() => {
+      drawNotice(container, { head: { lead: { kind: "icon", icon: "clock" }, dir: "", what: "a limit" }, act: null });
+    });
+    assert.deepEqual(controlTexts(noticeRoot(container)), ["Mark read"]);
+  });
+});
+
+test("NoticeStack: Mark read is quiet, and a click calls onRead and not onAct", async () => {
+  await withContainer(async (container) => {
+    const calls: string[] = [];
+    await act(() => {
+      drawNotice(container, {
+        head: { lead: { kind: "glyph", state: "waiting" }, dir: "tidepool", what: "waiting on you" },
+        act: "Answer",
+        onAct: () => calls.push("act"),
+        onRead: () => calls.push("read"),
+      });
+    });
+    const root = noticeRoot(container);
+    const read = [...root.querySelectorAll("button")].find((button) => button.textContent === "Mark read");
+    assert.ok(read?.classList.contains("quiet"), "Mark read is not the quiet control");
+    await act(() => {
+      clickControl(root, "Mark read");
+    });
+    assert.deepEqual(calls, ["read"], "Mark read did not call onRead alone");
+  });
+});
+
+test("NoticeStack: no control reads Dismiss or ×", async () => {
+  await withContainer(async (container) => {
+    await act(() => {
+      drawNotice(container, {
+        head: { lead: { kind: "glyph", state: "waiting" }, dir: "tidepool", what: "waiting on you" },
+        act: "Answer",
+      });
+    });
+    assert.deepEqual(controlTexts(noticeRoot(container)), ["Answer", "Mark read"]);
+  });
+});
+
+test("NoticeStack: the stack is a status block", async () => {
+  await withContainer(async (container) => {
+    await act(() => {
+      drawNotice(container, { head: { lead: { kind: "icon", icon: "bell" }, dir: "", what: "a bell alert" } });
+    });
+    assert.equal(noticeRoot(container).getAttribute("role"), "status");
+  });
+});
+
+test("NoticeStack: a flat notice is one button that calls onClick, with no control inside it", async () => {
+  await withContainer(async (container) => {
+    let clicks = 0;
+    await act(() => {
+      drawNotice(container, {
+        head: { lead: { kind: "glyph", state: "done" }, dir: "tidepool", what: "done" },
+        flat: true,
+        onClick: () => (clicks += 1),
+      });
+    });
+    const root = noticeRoot(container);
+    assert.equal(root.tagName, "BUTTON", "the flat notice is not the one button");
+    assert.equal(container.querySelectorAll("button").length, 1, "the flat notice holds controls inside it");
+    await act(() => {
+      root.dispatchEvent(new Event("click", { bubbles: true }));
+    });
+    assert.equal(clicks, 1, "the flat notice did not call onClick once");
+  });
+});
+
+test("NoticeStack: an unread flat notice is marked unread, and a read one is not", async () => {
+  await withContainer(async (container) => {
+    const head: NoticeHead = { lead: { kind: "glyph", state: "done" }, dir: "tidepool", what: "done" };
+    await act(() => {
+      drawNotice(container, { head, flat: true, unread: true });
+    });
+    assert.ok(noticeRoot(container).classList.contains("unread"), "an unread notice is not marked");
+    await act(() => {
+      drawNotice(container, { head, flat: true, unread: false });
+    });
+    assert.equal(noticeRoot(container).classList.contains("unread"), false, "a read notice is marked unread");
+  });
+});
+
+test("NoticeStack: the stack rule sits under the title row's band, at the right", () => {
+  // This file is bundled to web/build, so web/src is one directory up.
+  const css = readFileSync(fileURLToPath(new URL("../src/style.css", import.meta.url)), "utf8");
+  const rule = /^\.notices \{([^}]*)\}/m.exec(css);
+  assert.ok(rule, "style.css has no .notices rule");
+  const declarations = new Map(
+    rule[1]
+      .split(";")
+      .map((declaration) => declaration.trim())
+      .filter((declaration) => declaration !== "")
+      .map((declaration) => {
+        const colon = declaration.indexOf(":");
+        return [declaration.slice(0, colon).trim(), declaration.slice(colon + 1).trim()];
+      }),
+  );
+  assert.equal(declarations.get("right"), "var(--o-space-16)", "the stack is not at the right, in the page's gutter");
+  assert.ok(
+    declarations.get("top")?.includes("var(--o-size-control-desk)"),
+    "the stack's top does not clear the title row, whose height its controls set",
+  );
 });
