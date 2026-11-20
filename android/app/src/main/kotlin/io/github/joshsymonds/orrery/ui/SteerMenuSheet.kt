@@ -94,10 +94,17 @@ class SteerSend internal constructor(
     }
 }
 
-/** Remembers the [SteerSend] of [epicId] for the composition, and reports each steering it settles on to [onSteered]. */
+/**
+ * Remembers the [SteerSend] of [epicId] for the composition, and reports each steering it settles on to [onSteered]. Its
+ * calls run in [scope], so a host that can leave the composition while a call is out passes a scope that outlives it.
+ */
 @Composable
-fun rememberSteerSend(client: OrreryClient, epicId: String, onSteered: (String) -> Unit): SteerSend {
-    val scope = rememberCoroutineScope()
+fun rememberSteerSend(
+    client: OrreryClient,
+    epicId: String,
+    scope: CoroutineScope = rememberCoroutineScope(),
+    onSteered: (String) -> Unit,
+): SteerSend {
     val latestOnSteered by rememberUpdatedState(onSteered)
     return remember(client, epicId) {
         SteerSend(client, epicId, scope) { latestOnSteered(it) }

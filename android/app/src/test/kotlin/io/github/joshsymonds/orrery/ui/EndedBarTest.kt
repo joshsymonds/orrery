@@ -1,6 +1,10 @@
 package io.github.joshsymonds.orrery.ui
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
@@ -27,11 +31,14 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession
 import io.github.joshsymonds.orrery.gen.orrery.v1.HostStatusResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.ListHeadlessResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationResponse
 import io.github.joshsymonds.orrery.mainThreadComposeRule
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -65,8 +72,12 @@ class EndedBarTest {
         const val EPICS_LIST_PATH = "/orrery.v1.Epics/List"
         const val GET_PATH = "/orrery.v1.Epics/Get"
         const val CONTINUE_PATH = "/orrery.v1.Epics/Continue"
+        const val PANES_PATH = "/orrery.v1.Panes/List"
+        const val HEADLESS_PATH = "/orrery.v1.Sessions/ListHeadless"
+        const val UNLISTED = "example session is gone"
         const val COMPOSER_TAG = "composer"
         const val BAR_TAG = "ended-bar"
+        const val DOCK_TAG = "dock"
     }
 
     @get:Rule
@@ -209,6 +220,49 @@ class EndedBarTest {
         }
     }
 
+    /** A session whose watch answers not_found, listed by no pane or headless session, steering [epic]. */
+    private fun serveUnlistedSessionSteering(server: FakeOrreryServer, epic: EpicProto) {
+        serveHost(server)
+        server.route(WATCH_PATH) { Reply.Stream(emptyList(), StreamEnd.Error(Code.NOT_FOUND, UNLISTED)) }
+        server.respond(PANES_PATH, PanesListResponse.getDefaultInstance())
+        server.respond(HEADLESS_PATH, ListHeadlessResponse.getDefaultInstance())
+        server.respond(EPICS_LIST_PATH, EpicsListResponse.newBuilder().addEpics(epic).build())
+        server.respond(GET_PATH, EpicsGetResponse.newBuilder().setEpic(epic).build())
+    }
+
+    @Test
+    fun anUnlistedSessionSteeringALiveOrreryEpicShowsTheEndedBarInPlaceOfTheDock() {
+        FakeOrreryServer().use { server ->
+            serveUnlistedSessionSteering(server, listedEpic())
+            setScreen(server)
+
+            composeRule.awaitExactlyOne(hasTestTag(BAR_TAG))
+            composeRule.onNodeWithText(ENDED_LEAD).assertIsDisplayed()
+            assertFalse(nodeExists(DOCK_TAG))
+            assertFalse(nodeExists(COMPOSER_TAG))
+        }
+    }
+
+    @Test
+    fun aSessionWhoseWatchAnswersNotFoundButIsStillListedKeepsTheDockAndNoBar() {
+        FakeOrreryServer().use { server ->
+            serveUnlistedSessionSteering(server, listedEpic())
+            server.respond(
+                HEADLESS_PATH,
+                ListHeadlessResponse.newBuilder()
+                    .addSessions(HeadlessSession.newBuilder().setId(SESSION).setDir(PROJECT_DIR).setState("working"))
+                    .build(),
+            )
+            setScreen(server)
+
+            composeRule.awaitUntil("the listing is read") { server.requests.any { it.rawPath == HEADLESS_PATH } }
+            settle()
+
+            assertTrue(nodeExists(DOCK_TAG))
+            assertFalse(nodeExists(BAR_TAG))
+        }
+    }
+
     @Test
     fun aWorkingSessionSteeringALiveOrreryEpicKeepsTheComposerAndNoBar() {
         FakeOrreryServer().use { server ->
@@ -286,6 +340,66 @@ class EndedBarTest {
             assertEquals(EPIC, EpicsContinueRequest.parseFrom(continues.single().body).id)
             assertEquals(1, server.requests.count { it.rawPath == GET_PATH })
             assertEquals(listOf(CONTINUED), steered.toList())
+        }
+    }
+
+    /**
+     * The bar of a host that drops it once the epic moves, before the re-read answers. The host's scope runs the bar's
+     * calls (as SessionScreen passes its own), so the re-read still reaches onSteered. Composition coroutines run on the
+     * test's frame clock, which stands still while the re-read is held, so the host drops the bar on a frame this test
+     * advances itself.
+     */
+    @Test
+    fun aContinueWhoseBarLeavesBeforeTheReReadAnswersStillReportsTheSteeringTheReadNames() {
+        FakeOrreryServer().use { server ->
+            val reReads = AtomicInteger()
+            val release = CountDownLatch(1)
+            val barLeft = AtomicBoolean(false)
+            val shown = mutableStateOf(true)
+            server.respond(CONTINUE_PATH, EpicsContinueResponse.newBuilder().setSession(CONTINUED).build())
+            server.route(GET_PATH) {
+                reReads.incrementAndGet()
+                release.await()
+                Reply.Message(epicGetResponse(CONTINUED), 0L)
+            }
+            val client = OrreryClient(server.baseUrl)
+            composeRule.setContent {
+                val hostScope = rememberCoroutineScope()
+                MaterialTheme {
+                    if (shown.value) {
+                        EndedBar(
+                            client = client,
+                            epic = epicRow(),
+                            repository = REPO,
+                            lead = endedLead(SLUG),
+                            onSteered = { steered.add(it) },
+                            scope = hostScope,
+                        )
+                        DisposableEffect(Unit) { onDispose { barLeft.set(true) } }
+                    }
+                }
+            }
+            // The held re-read is let go however the test ends, so a failing run closes the server and does not hang.
+            try {
+                tap("ended-continue")
+                composeRule.awaitUntil("the re-read is out") { reReads.get() == 1 }
+
+                shown.value = false
+                Snapshot.sendApplyNotifications()
+                composeRule.mainClock.advanceTimeByFrame()
+                assertTrue(barLeft.get())
+                assertTrue(steered.isEmpty())
+
+                release.countDown()
+                composeRule.awaitUntil("the re-read names the started conversation") { steered.isNotEmpty() }
+                settle()
+
+                assertEquals(1, server.requests.count { it.rawPath == CONTINUE_PATH })
+                assertEquals(1, reReads.get())
+                assertEquals(listOf(CONTINUED), steered.toList())
+            } finally {
+                release.countDown()
+            }
         }
     }
 

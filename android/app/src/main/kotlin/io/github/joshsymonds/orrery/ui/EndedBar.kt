@@ -12,12 +12,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
+import kotlinx.coroutines.CoroutineScope
 
 private const val NO_ANSWER = "The server did not answer, so the move may have gone through. Reading the epic again…"
 private const val CONTINUE_LABEL = "Continue in a new conversation"
@@ -36,7 +38,8 @@ fun unsteeredLead(slug: String): String = "No conversation steers $slug. $NEXT_C
  * The bar that stands in for the composer when the conversation that steered [epic] has ended: [lead] says so, then
  * two full-width buttons. Continue in a new conversation sends one Epics.Continue, and Steer from another opens the
  * steering menu, a sheet. Both go through one [SteerSend], so one call is out at a time, and [onSteered] hears each
- * steering the epic settles on. A refused or unanswered move shows its note in the bar while the menu is shut.
+ * steering the epic settles on. A refused or unanswered move shows its note in the bar while the menu is shut. Its calls
+ * run in [scope]: a host that drops the bar once the epic moves passes its own, so the re-read still reaches [onSteered].
  */
 @Composable
 fun EndedBar(
@@ -46,8 +49,9 @@ fun EndedBar(
     lead: String,
     onSteered: (String) -> Unit,
     modifier: Modifier = Modifier,
+    scope: CoroutineScope = rememberCoroutineScope(),
 ) {
-    val send = rememberSteerSend(client, epic.id, onSteered)
+    val send = rememberSteerSend(client, epic.id, scope, onSteered)
     var menuOpen by remember { mutableStateOf(false) }
     val busy = send.state == SteerState.Sending || send.state == SteerState.Unanswered
     val style = OrreryTokens.Type.small
