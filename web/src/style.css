@@ -390,8 +390,6 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 
 /* A note in the hint's place, one line under the field: what happened, or the failure in the error role. */
 .inote { display: flex; align-items: center; gap: var(--o-space-8); margin: 0; font: var(--o-type-small); color: var(--o-ink-3); }
-/* A failure note also carries the error role, whose one line is cut at its edge elsewhere; a note's sentence wraps. */
-.inote.error { color: var(--o-role-bad); white-space: normal; overflow: visible; }
 .pick-row .chip { display: inline-flex; align-items: center; gap: var(--o-space-4); flex: none; padding: 0 var(--o-space-8); border-radius: var(--o-radius-1); background: var(--o-surface-raised); color: var(--o-ink-2); font: var(--o-type-small); white-space: nowrap; }
 .pick-row .chip.live { background: var(--o-role-live-fill); color: var(--o-role-live); }
 
@@ -1243,10 +1241,7 @@ button.subj:hover { background: var(--o-surface-raised); }
 .contract .exclusions li::marker { color: var(--o-prose-marker); }
 .contract .unread { color: var(--o-role-bad); }
 
-/* A section head: its name in the label type, in its hue; a count beside it; a tag or a changed chip at the end. */
-.sec { display: flex; align-items: baseline; gap: var(--o-space-8); --hue: var(--o-ink-3); color: var(--o-ink-3); }
-.sec .name { color: var(--hue); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
-.sec .n { font: var(--o-type-small); }
+/* A section head's tag or changed chip sits at its end, and a head with something left to settle takes attention. */
 .sec .rest { margin-left: auto; font: var(--o-type-small); }
 .sec.attention { --hue: var(--o-role-attention); }
 
@@ -1288,14 +1283,7 @@ button.tr:hover { background: var(--o-surface-well); }
 .contract .tbl:has(> .tr > .id:first-child) { --cols: auto minmax(0, 1.4fr) minmax(0, 1fr) auto; --cols-touch: auto minmax(0, 1fr) auto; }
 .contract .tbl.versions { --cols: auto auto minmax(0, 1fr) minmax(0, 1.6fr); --cols-touch: auto minmax(0, 1fr); }
 
-/* A button: raised by default, quiet with no fill, primary for the one action, and dimmed in ink when disabled. */
-.btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--o-space-8); flex: none; max-width: 100%; min-width: 0; height: var(--o-size-control-desk); padding: 0 var(--o-space-12); border: 0; border-radius: var(--o-radius-2); background: var(--o-surface-raised); color: var(--o-ink-1); font: var(--o-type-small); white-space: nowrap; transition: background var(--o-move-press), transform var(--o-move-press); }
-.btn:hover { background: var(--o-surface-pressed); }
-.btn:active { background: var(--o-surface-pressed); transform: scale(.97); }
-.btn.quiet { background: none; color: var(--o-ink-2); }
-.btn.quiet:hover { background: var(--o-surface-raised); color: var(--o-ink-1); }
-.btn.primary { background: var(--o-role-primary); color: var(--o-ink-on-accent); font-weight: var(--o-font-weight-bold); }
-.btn.primary:hover { background: var(--o-role-primary); }
+/* A disabled button is dimmed in ink. */
 .btn:disabled { background: none; color: var(--o-ink-4); cursor: default; transform: none; }
 button.link { min-height: 0; padding: 0; border: 0; border-radius: 0; background: none; color: var(--o-role-ref); font: inherit; cursor: pointer; }
 
