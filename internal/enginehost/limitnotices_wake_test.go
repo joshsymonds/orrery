@@ -98,8 +98,8 @@ func (r *wakeRun) wake() {
 
 // TestLimitNoticeWakeClockAdvancedHoursWithoutWakeReadsNoSteps checks that with the clock advanced hours and no wake, the
 // limited steps are read no further times than the check at start. The run is in a synctest bubble with the default
-// timer, so a period or a retry timer in Run fires during the three hours' sleep. Only a wake or an armed retry starts a
-// check, and a clean check arms no retry.
+// timer, so a period or a retry timer in Run fires as the clock advances three hours. Only a wake or an armed retry
+// starts a check, and a clean check arms no retry.
 func TestLimitNoticeWakeClockAdvancedHoursWithoutWakeReadsNoSteps(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
@@ -126,7 +126,7 @@ func TestLimitNoticeWakeClockAdvancedHoursWithoutWakeReadsNoSteps(t *testing.T) 
 		if n := len(steps.reading); n != 1 {
 			t.Fatalf("limited steps read %d times at start, want 1", n)
 		}
-		time.Sleep(3 * time.Hour)
+		<-time.After(3 * time.Hour)
 		synctest.Wait()
 		if n := len(steps.reading); n != 1 {
 			t.Fatalf("limited steps read %d times after the clock advanced hours with no wake, want 1", n)

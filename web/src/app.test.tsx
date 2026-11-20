@@ -427,25 +427,21 @@ async function typeInto(box: HTMLTextAreaElement, text: string): Promise<void> {
 
 // composer is the reply box the cursor's row shows: each row keeps its own, and only the cursor's is not hidden.
 function composer(container: HTMLElement): HTMLTextAreaElement {
-  const box = container.querySelector<HTMLTextAreaElement>(".reply:not([hidden]) .composer textarea");
+  const box = container.querySelector<HTMLTextAreaElement>(".reply:not([hidden]) textarea");
   assert.ok(box, "the reader has a composer");
   return box;
 }
 
 // composerSendButton is the send button of the reply box the cursor's row shows.
 function composerSendButton(container: HTMLElement): HTMLButtonElement {
-  const button = container.querySelector<HTMLButtonElement>('.reply:not([hidden]) .composer button[aria-label="send"]');
+  const button = container.querySelector<HTMLButtonElement>('.reply:not([hidden]) button[aria-label="send"]');
   assert.ok(button, "the reply box has a send button");
   return button;
 }
 
-// composerEdgeNames are the edge classes a composer or a step box carries.
-const composerEdgeNames = ["edge-working", "edge-waiting", "edge-idle", "edge-held"];
-
-// edgesOf names the edge classes the composer around a reply box carries, in the order of composerEdgeNames.
-function edgesOf(box: HTMLTextAreaElement): string[] {
-  const root = box.closest(".composer");
-  return composerEdgeNames.filter((edge) => root?.classList.contains(edge) === true);
+// toneOf is the state line's tone the dock around a reply box carries as data-state.
+function toneOf(box: HTMLTextAreaElement): string {
+  return box.closest(".dock-box")?.getAttribute("data-state") ?? "";
 }
 
 function readerText(container: HTMLElement): string {
@@ -463,6 +459,17 @@ function readerHead(container: HTMLElement): Element | null {
 // pinnedHead is the title row the pinned reader opens with, or null when no row is pinned.
 function pinnedHead(container: HTMLElement): Element | null {
   return container.querySelector('section[aria-label="pinned reader"] > .convo-head > .title-row');
+}
+
+// dockBox is the box of the dock a reader column shows: the visible dock under the column's reader, or null. Its state
+// line says the row's state.
+function dockBox(container: HTMLElement, section = "reader"): Element | null {
+  return container.querySelector(`section[aria-label="${section}"] .send > div:not([hidden]) .dock-box`);
+}
+
+// dockWord is the word of the state line the column's dock draws, or empty when the column draws no dock.
+function dockWord(container: HTMLElement, section = "reader"): string {
+  return dockBox(container, section)?.querySelector(".statebar .word")?.textContent ?? "";
 }
 
 // crumbTexts are the labels of a title row's crumbs, in order: the directory's label first, the page's label last. The
@@ -491,7 +498,7 @@ function sectionChildren(section: Element | null): string[] {
 // queueTexts is the text of each message in the cursor's foot queue, oldest first, without its tag.
 function queueTexts(container: HTMLElement): string[] {
   return Array.from(
-    container.querySelectorAll('[aria-label="reader"] .send .queue li .text'),
+    container.querySelectorAll('[aria-label="reader"] .send .tray-row .text'),
     (text) => text.textContent ?? "",
   );
 }
@@ -499,7 +506,7 @@ function queueTexts(container: HTMLElement): string[] {
 // pinnedQueueTexts is the text of each message in the pinned foot queue, oldest first, without its tag.
 function pinnedQueueTexts(container: HTMLElement): string[] {
   return Array.from(
-    container.querySelectorAll('[aria-label="pinned reader"] .send .queue li .text'),
+    container.querySelectorAll('[aria-label="pinned reader"] .send .tray-row .text'),
     (text) => text.textContent ?? "",
   );
 }
@@ -526,6 +533,7 @@ function workingPane(tool: string) {
   return {
     id: "a",
     state: "working",
+    claudeSession: "5e0e0000-0000-4000-8000-000000000001",
     tool: JSON.stringify({ id: "t1", name: tool, input: "ls", start: 940 }),
     changed: "900",
     lastTurnEnd: "700",
@@ -1089,7 +1097,7 @@ test("the cursor's pane row opens its conversation, and the reader shows the str
     await until(t.signal, () => readerText(container).includes("the streamed reply"), "the streamed reply");
   }));
 
-test("the cursor's reader opens on the title row: a back button and the crumb of the label", (t) =>
+test("the cursor's reader opens on the title row: a back button and the crumb of the label, and its state on the dock", (t) =>
   withApp(t.signal, { rows: [paneRow] }, (container) => {
     assert.equal(
       container.querySelector('section[aria-label="reader"]')?.firstElementChild?.getAttribute("class"),
@@ -1098,33 +1106,37 @@ test("the cursor's reader opens on the title row: a back button and the crumb of
     assert.equal(readerHead(container)?.getAttribute("class"), "title-row");
     assert.equal(readerHead(container)?.querySelector(".back")?.getAttribute("aria-label"), "back");
     assert.deepEqual(crumbTexts(readerHead(container)), ["app", "build green"]);
+    assert.equal(dockWord(container), "waiting on you");
+    assert.equal(dockBox(container)?.querySelector(".statebar .clock") === null, true);
   }));
 
-test("a session's conversation draws the title row: a back button and the crumb of the session's label", (t) =>
+test("a session's conversation draws the title row: a back button and the crumb of the session's label, and its state on the dock with no tool", (t) =>
   withApp(t.signal, { rows: [sessionRow] }, (container) => {
     assert.equal(readerHead(container)?.getAttribute("class"), "title-row");
     assert.equal(readerHead(container)?.querySelector(".back")?.getAttribute("aria-label"), "back");
     assert.deepEqual(crumbTexts(readerHead(container)), ["notes"]);
+    assert.equal(dockWord(container), "working");
+    assert.equal(dockBox(container)?.querySelector(".statebar .name") === null, true);
   }));
 
-test("a step's head names its epic, agent and round, then the step, and its pill runs from the step's start", (t) => {
+test("a step's head names its epic, agent and round, then the step, and its dock's line runs from the step's start", (t) => {
   const running = makeStep("s1", { started: BigInt(now - 60) });
   const epics = epicsView([makeEpic(widgetsRepo, "first", { runningSteps: [running] })], new Map());
   return withApp(t.signal, { epics }, async (container, fake) => {
     await onStepOne(t.signal, container, fake);
     assert.deepEqual(crumbTexts(readerHead(container)), ["first › builder · step · round 1", "s1"]);
-    assert.equal(readerHead(container)?.querySelector(".pill .word")?.textContent, "running");
-    assert.equal(readerHead(container)?.querySelector(".pill .clock")?.textContent, "1:00");
+    assert.equal(dockWord(container), "running");
+    assert.equal(dockBox(container)?.querySelector(".statebar .clock")?.textContent, "1:00");
   });
 });
 
-test("a held step's head pill reads held with no clock", (t) => {
+test("a held step's dock line reads held with no clock", (t) => {
   const held = makeStep("s1", { held: true });
   const epics = epicsView([makeEpic(widgetsRepo, "first", { runningSteps: [held] })], new Map());
   return withApp(t.signal, { epics }, async (container, fake) => {
     await onStepOne(t.signal, container, fake);
-    assert.equal(readerHead(container)?.querySelector(".pill .word")?.textContent, "held");
-    assert.equal(readerHead(container)?.querySelector(".pill .clock") === null, true);
+    assert.equal(dockWord(container), "held");
+    assert.equal(dockBox(container)?.querySelector(".statebar .clock") === null, true);
   });
 });
 
@@ -1135,22 +1147,24 @@ test("each step box takes its own step's held flag, and a box the cursor left ke
   );
   return withApp(t.signal, { epics }, async (container, fake) => {
     await onStepOne(t.signal, container, fake);
-    assert.deepEqual(edgesOf(cursorStepInput(container)), ["edge-held"]);
-    assert.equal(cursorStepInput(container).placeholder, "Nudge s1: it resumes the step with your text");
+    assert.equal(toneOf(composer(container)), "held");
+    assert.equal(composer(container).placeholder, "Nudge s1. It resumes with your words");
     await press("j");
     assert.equal(cursorKey(container), "step:s2");
-    assert.deepEqual(edgesOf(cursorStepInput(container)), ["edge-working"]);
-    assert.equal(cursorStepInput(container).placeholder, "Nudge s2: it interrupts the turn, then prompts");
-    assert.deepEqual(edgesOf(stepInputNamed(container, "s1")), ["edge-held"], "s1's hidden box keeps its held edge");
+    assert.equal(toneOf(composer(container)), "working");
+    assert.equal(composer(container).placeholder, "Nudge s2. It interrupts the turn, then gives it your words");
+    assert.equal(toneOf(stepInputNamed(container, "s1")), "held", "s1's hidden box keeps its held tone");
   });
 });
 
-test("a working pane's delta draws no note under the reader", (t) =>
+test("a working pane's delta puts its tool and time on the dock's line, and draws no note under the reader", (t) =>
   withApp(t.signal, {}, async (container, fake) => {
     await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
     const [stream] = fake.callsTo(paneWatchPath);
     fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
-    await until(t.signal, () => edgesOf(composer(container)).includes("edge-working"), "the working edge");
+    await until(t.signal, () => dockWord(container) === "working", "the working line");
+    assert.equal(dockBox(container)?.querySelector(".statebar .name")?.textContent, "Bash");
+    assert.equal(dockBox(container)?.querySelector(".statebar .clock")?.textContent, "1:00");
     assert.equal(readerNote(container) === null, true, "the cursor's reader draws no working note");
     assert.equal(noteWords(container.querySelector('section[aria-label="reader"]')), false, "the reader's text names no note");
     assert.equal(container.querySelector(".work-line") === null, true, "no work line is drawn");
@@ -1161,15 +1175,33 @@ test("a later delta whose pane is done draws no working note", (t) =>
     await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
     const [stream] = fake.callsTo(paneWatchPath);
     fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
-    await until(t.signal, () => edgesOf(composer(container)).includes("edge-working"), "the working edge");
+    await until(t.signal, () => dockBox(container)?.querySelector(".statebar .name")?.textContent === "Bash", "the working tool");
     fake.emit(stream, {
       transcript: "t1",
       seq: "2",
       items: [],
       state: { pane: { id: "a", state: "done", tool: "", changed: "1000", lastTurnEnd: "1000" } },
     });
-    await until(t.signal, () => edgesOf(composer(container)).includes("edge-idle"), "the idle edge");
+    await until(t.signal, () => dockWord(container) === "done", "the done line");
+    assert.equal(dockBox(container)?.querySelector(".statebar .name") === null, true);
     assert.equal(readerNote(container) === null, true, "the cursor's reader draws no working note");
+  }));
+
+test("DockState: a working pane's head draws no state word or pill, and its dock's line reads working", (t) =>
+  withApp(t.signal, {}, async (container, fake) => {
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    const [stream] = fake.callsTo(paneWatchPath);
+    fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
+    await until(t.signal, () => dockWord(container) === "working", "the working line");
+    assert.equal(readerHead(container)?.querySelector(".state") === null, true, "the head draws no state word");
+    assert.equal(readerHead(container)?.querySelector(".pill") === null, true, "the head draws no pill");
+  }));
+
+test("DockState: a waiting row's head draws no state word or pill, and its dock's line reads waiting on you", (t) =>
+  withApp(t.signal, { rows: [paneRow] }, (container) => {
+    assert.equal(readerHead(container)?.querySelector(".state") === null, true, "the head draws no state word");
+    assert.equal(readerHead(container)?.querySelector(".pill") === null, true, "the head draws no pill");
+    assert.equal(dockWord(container), "waiting on you");
   }));
 
 test("moving the cursor to a session row aborts the pane's stream and opens the session's", (t) =>
@@ -1320,7 +1352,7 @@ test("the cursor's queued messages dock in its foot, oldest first, and draw nowh
     });
     await until(t.signal, () => queueTexts(container).length === 2, "the queued messages");
     assert.deepEqual(queueTexts(container), ["first waiting", "second waiting"]);
-    assert.equal(container.querySelectorAll('[aria-label="reader"] .send .queue li.canceled').length, 1);
+    assert.equal(container.querySelectorAll('[aria-label="reader"] .send .tray-row.cancelled').length, 1);
     const reader = container.querySelector('[aria-label="reader"] > .reader')?.textContent ?? "";
     assert.equal(reader.includes("first waiting"), false, "the reader draws no queued message");
     assert.equal(reader.includes("second waiting"), false, "the reader draws no canceled message");
@@ -1357,7 +1389,7 @@ test("a row's queued messages draw in no other foot: the pin keeps its own, and 
     await until(t.signal, () => queueTexts(container).includes("c waiting"), "c's queue");
     assert.deepEqual(queueTexts(container), ["c waiting"], "only c's composer draws c's queue");
     assert.deepEqual(pinnedQueueTexts(container), ["pinned waiting"]);
-    assert.equal(container.querySelector(".reply[hidden] .queue") === null, true, "a's hidden composer draws no queue");
+    assert.equal(container.querySelector(".reply[hidden] .tray") === null, true, "a's hidden composer draws no tray");
   }));
 
 test("Enter in a session's composer sends the text with Control.Say and a prompt id", (t) =>
@@ -1373,7 +1405,7 @@ test("Enter in a session's composer sends the text with Control.Say and a prompt
     assert.match(String(say.body.promptId), /^[0-9a-f-]{36}$/);
   }));
 
-const sentNotice = "Not sent. Your draft is kept; press Enter to try again.";
+const sendUnknownNote = "No answer from the server. It may have been sent: check the conversation before sending again.";
 
 test("a message sent to a headless session draws at once as a sending row, and its stored prompt replaces it", (t) =>
   withApp(t.signal, { rows: [{ ...sessionRow, state: "done" }] }, async (container, fake) => {
@@ -1466,8 +1498,8 @@ test("a failed send to a session leaves no sending row, and keeps the draft and 
     await untilTurn(t.signal, () => fake.callsTo(sayPath).length === 1, "the say");
     assert.equal(sendingRows(container).length, 1, "the row draws while the say is pending");
     releaseSay();
-    await untilTurn(t.signal, () => container.querySelector('[role="alert"]') !== null, "the failed send's line");
-    assert.equal(container.querySelector('[role="alert"]')?.textContent, sentNotice);
+    await untilTurn(t.signal, () => container.querySelector('.dock .inote') !== null, "the failed send's line");
+    assert.equal(container.querySelector('.dock .inote')?.textContent, sendUnknownNote);
     assert.equal(sendingRows(container).length, 0, "no sending row is left");
     assert.equal(composer(container).value, "keep going", "the draft is kept");
   }));
@@ -1479,10 +1511,10 @@ test("a message sent to a working session draws above the box as queued, and lea
     await pressIn(composer(container), "Enter");
     await untilTurn(t.signal, () => queueTexts(container).length === 1, "the queued send");
     assert.deepEqual(queueTexts(container), ["after the turn"]);
-    assert.equal(container.querySelector('[aria-label="reader"] .send .queue .queue-head')?.textContent, "1 queued");
-    const queued = container.querySelector('[aria-label="reader"] .send .queue li.queued');
-    assertNone(queued?.querySelector(".tag"), "a waiting row carries no per-row tag, since the head names it");
-    assertNone(queued?.querySelector(".words"), "a waiting row carries no note on when it sends");
+    assert.equal(container.querySelector('[aria-label="reader"] .send .tray-head .lbl')?.textContent, "Queued 1");
+    const queued = container.querySelector('[aria-label="reader"] .send .tray-row');
+    assertNone(queued?.querySelector(".lbl"), "a waiting row carries no label, since the head names it");
+    assertNone(queued?.querySelector(".note"), "a waiting row carries no note on when it sends");
     await mount(container, {
       rows: [{ ...sessionRow, state: "done" }],
       error: "",
@@ -1498,14 +1530,14 @@ test("a message sent to a working pane draws above the box as queued, and leaves
     await untilTurn(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
     const [stream] = fake.callsTo(paneWatchPath);
     fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
-    await untilTurn(t.signal, () => composer(container).placeholder.startsWith("Queue for"), "the working placeholder");
+    await untilTurn(t.signal, () => composer(container).placeholder.startsWith("Queue a message for"), "the working placeholder");
     await press("i");
     await typeInto(composer(container), "after the turn");
     await pressIn(composer(container), "Enter");
     await untilTurn(t.signal, () => queueTexts(container).length === 1, "the queued send");
     assert.deepEqual(queueTexts(container), ["after the turn"]);
     assertNone(
-      container.querySelector('[aria-label="reader"] .send .queue li.queued .words'),
+      container.querySelector('[aria-label="reader"] .send .tray-row .note'),
       "a waiting row carries no note on when it sends",
     );
 
@@ -1537,7 +1569,7 @@ test("a failed send keeps its prompt id when the cursor moves away and back", (t
     const box = composer(container);
     await typeInto(box, "keep going");
     await pressIn(box, "Enter");
-    await until(t.signal, () => container.querySelector('[role="alert"]') !== null, "the failed send's line");
+    await until(t.signal, () => container.querySelector('.dock .inote') !== null, "the failed send's line");
     await act(() => {
       box.blur();
     });
@@ -1561,7 +1593,7 @@ test("a failed send keeps its draft and prompt id through a poll that lists no s
     await press("i");
     await typeInto(composer(container), "keep going");
     await pressIn(composer(container), "Enter");
-    await until(t.signal, () => container.querySelector('[role="alert"]') !== null, "the failed send's line");
+    await until(t.signal, () => container.querySelector('.dock .inote') !== null, "the failed send's line");
     await act(() => {
       composer(container).blur();
     });
@@ -2312,7 +2344,7 @@ function pinnedColumn(container: HTMLElement): HTMLElement | null {
 
 // pinnedComposer is the reply box of the open pin: each pinned row keeps its own, and only the open pin's is not hidden.
 function pinnedComposer(container: HTMLElement): HTMLTextAreaElement {
-  const box = pinnedColumn(container)?.querySelector<HTMLTextAreaElement>(".pin-reply:not([hidden]) .composer textarea");
+  const box = pinnedColumn(container)?.querySelector<HTMLTextAreaElement>(".pin-reply:not([hidden]) textarea");
   assert.ok(box, "the pinned column has a composer");
   return box;
 }
@@ -2331,7 +2363,9 @@ test("the pinned title row names the pinned row while the cursor rests on anothe
     await press("j");
     assert.equal(cursorKey(container), "c");
     assert.deepEqual(crumbTexts(pinnedHead(container)), ["api", "build green"]);
+    assert.equal(dockWord(container, "pinned reader"), "waiting on you");
     assert.deepEqual(crumbTexts(readerHead(container)), ["docs", "wrote the guide"]);
+    assert.equal(dockWord(container), "done");
     assert.equal(container.querySelector(".pin-head") === null, true);
   }));
 
@@ -2357,7 +2391,7 @@ test("‹ on the pinned title row closes the pin, as | does", (t) =>
     assert.equal(container.querySelector(".read.pinned")?.hasAttribute("hidden"), true, "the pinned reader is hidden");
   }));
 
-test("the pinned column draws no note for its own stream while the cursor rests on another pane", (t) =>
+test("the pinned column's dock line draws its own stream's state and no note while the cursor rests on another pane", (t) =>
   withApp(t.signal, {}, async (container, fake) => {
     await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
     await press("|");
@@ -2375,7 +2409,9 @@ test("the pinned column draws no note for its own stream while the cursor rests 
       items: [],
       state: { pane: workingPane("Bash") },
     });
-    await until(t.signal, () => edgesOf(pinnedComposer(container)).includes("edge-working"), "the pinned working edge");
+    await until(t.signal, () => dockWord(container, "pinned reader") === "working", "the pinned line");
+    assert.equal(dockBox(container, "pinned reader")?.querySelector(".statebar .name")?.textContent, "Bash");
+    assert.equal(dockBox(container, "pinned reader")?.querySelector(".statebar .clock")?.textContent, "1:00");
     assert.equal(pinnedNote(container) === null, true, "the pinned reader draws no working note");
     assert.equal(
       noteWords(container.querySelector('section[aria-label="pinned reader"]')),
@@ -2383,6 +2419,7 @@ test("the pinned column draws no note for its own stream while the cursor rests 
       "the pinned reader's text names no note",
     );
     assert.equal(readerNote(container) === null, true, "the cursor's reader on c draws no note");
+    assert.equal(dockBox(container)?.querySelector(".statebar .name") === null, true, "c's line has no tool");
   }));
 
 test("the reader's composer on a working row has the working edge and says it queues", (t) =>
@@ -2390,20 +2427,20 @@ test("the reader's composer on a working row has the working edge and says it qu
     await press("j");
     await press("j");
     assert.equal(cursorKey(container), "b");
-    assert.deepEqual(edgesOf(composer(container)), ["edge-working"]);
-    assert.equal(composer(container).placeholder, "Queue for web");
+    assert.equal(toneOf(composer(container)), "working");
+    assert.equal(composer(container).placeholder, "Queue a message for web. Claude Code takes it when it can");
   }));
 
 test("a working pane turns a waiting row's composer from answering to queueing", (t) =>
   withApp(t.signal, {}, async (container, fake) => {
-    assert.deepEqual(edgesOf(composer(container)), ["edge-waiting"]);
+    assert.equal(toneOf(composer(container)), "waiting");
     assert.equal(composer(container).placeholder, "Answer api");
     await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
     const [stream] = fake.callsTo(paneWatchPath);
     fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
-    await until(t.signal, () => composer(container).placeholder.startsWith("Queue for"), "the working placeholder");
-    assert.deepEqual(edgesOf(composer(container)), ["edge-working"]);
-    assert.equal(composer(container).placeholder, "Queue for api");
+    await until(t.signal, () => composer(container).placeholder.startsWith("Queue a message for"), "the working placeholder");
+    assert.equal(toneOf(composer(container)), "working");
+    assert.equal(composer(container).placeholder, "Queue a message for api. Claude Code takes it when it can");
   }));
 
 test("a pane on the cursor's stream turns only the shown composer; a visited row's hidden composer keeps its row's state", (t) =>
@@ -2415,13 +2452,13 @@ test("a pane on the cursor's stream turns only the shown composer; a visited row
     const stream = fake.callsTo(paneWatchPath).find((call) => call.body.pane === "c");
     assert.ok(stream, "the cursor's stream on c is open");
     fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
-    await until(t.signal, () => composer(container).placeholder.startsWith("Queue for"), "the shown composer's working placeholder");
-    assert.deepEqual(edgesOf(composer(container)), ["edge-working"]);
-    assert.equal(composer(container).placeholder, "Queue for docs");
+    await until(t.signal, () => composer(container).placeholder.startsWith("Queue a message for"), "the shown composer's working placeholder");
+    assert.equal(toneOf(composer(container)), "working");
+    assert.equal(composer(container).placeholder, "Queue a message for docs. Claude Code takes it when it can");
     const hidden = [...container.querySelectorAll<HTMLTextAreaElement>('[aria-label="reader"] .reply[hidden] textarea')];
     const api = hidden.find((box) => box.placeholder === "Answer api");
     assert.equal(api !== undefined, true, "the api row's hidden composer still answers");
-    assert.deepEqual(api === undefined ? [] : edgesOf(api), ["edge-waiting"]);
+    assert.equal(api === undefined ? "" : toneOf(api), "waiting");
   }));
 
 test("the pinned composer follows its own stream's pane while the cursor rests on another row", (t) =>
@@ -2436,11 +2473,11 @@ test("the pinned composer follows its own stream's pane while the cursor rests o
     const [, pinnedStream] = fake.callsTo(paneWatchPath);
     assert.equal(pinnedStream.body.pane, "a");
     fake.emit(pinnedStream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
-    await until(t.signal, () => pinnedComposer(container).placeholder.startsWith("Queue for"), "the pinned working placeholder");
-    assert.deepEqual(edgesOf(pinnedComposer(container)), ["edge-working"]);
-    assert.equal(pinnedComposer(container).placeholder, "Queue for api");
-    assert.deepEqual(edgesOf(composer(container)), ["edge-idle"]);
-    assert.equal(composer(container).placeholder, "Reply to docs");
+    await until(t.signal, () => pinnedComposer(container).placeholder.startsWith("Queue a message for"), "the pinned working placeholder");
+    assert.equal(toneOf(pinnedComposer(container)), "working");
+    assert.equal(pinnedComposer(container).placeholder, "Queue a message for api. Claude Code takes it when it can");
+    assert.equal(toneOf(composer(container)), "done");
+    assert.equal(composer(container).placeholder, "Message docs");
   }));
 
 test("| pins the cursor's row in a second column that streams it while the cursor moves on", (t) =>
@@ -2562,7 +2599,7 @@ test("a failed send in the pinned column keeps its prompt id through a close and
     await typeInto(pinnedComposer(container), "keep going");
     await pressIn(pinnedComposer(container), "Enter");
     await until(t.signal, () => fake.callsTo(sayPath).length === 1, "the failed say");
-    await until(t.signal, () => pinnedColumn(container)?.querySelector('[role="alert"]') !== null, "the failed send's line");
+    await until(t.signal, () => pinnedColumn(container)?.querySelector('.dock .inote') !== null, "the failed send's line");
     await act(() => {
       pinnedComposer(container).blur();
     });
@@ -4288,10 +4325,10 @@ test("a nudge in the session calls Steps.Nudge with the step's id and the text",
     await openCheckingPhase(container);
     await clickButton(container, phaseBody, "Open the session ›");
     await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
-    const box = container.querySelector<HTMLTextAreaElement>('section.page[aria-label="epic"] .stepbox textarea');
+    const box = container.querySelector<HTMLTextAreaElement>('section.page[aria-label="epic"] .dock-box textarea');
     assert.ok(box, "the session's step box has an input");
     await typeInto(box, "try the other route");
-    await clickFirst(container, 'section.page[aria-label="epic"] .stepbox button[aria-label="send"]');
+    await clickFirst(container, 'section.page[aria-label="epic"] .dock-box button[aria-label="send"]');
     await until(t.signal, () => fake.callsTo(nudgePath).length === 1, "the nudge");
     assert.deepEqual(fake.callsTo(nudgePath).map((call) => [call.body.id, call.body.text]), [
       ["run1", "try the other route"],
@@ -4510,44 +4547,38 @@ async function onStepOne(
   await wait(signal, () => fake.callsTo(sessionWatchPath).length === 1, "the step stream");
 }
 
-// stepButton is the button of the cursor's step box with the given label: Interrupt and ⋯ on the line, and Stop,
-// Confirm stop or Cancel in the menu ⋯ opens.
+// stepButtons are the buttons of the cursor's step dock: Interrupt on the state line, More, and, once More is pressed, the
+// Stop question's Stop {label} and Keep it running.
+function stepButtons(container: HTMLElement): HTMLButtonElement[] {
+  return [...container.querySelectorAll<HTMLButtonElement>(".reply:not([hidden]) .dock-box button")];
+}
+
+// stepButton is the cursor's step dock button named label: its text, or its accessible name for the icon-only More.
 function stepButton(container: HTMLElement, label: string): HTMLButtonElement {
-  const button = [...container.querySelectorAll<HTMLButtonElement>(".reply:not([hidden]) .stepbox button")].find(
-    (element) => element.textContent === label,
+  const button = stepButtons(container).find(
+    (element) => element.textContent === label || element.getAttribute("aria-label") === label,
   );
-  assert.ok(button, `the step box has a ${label} button`);
+  assert.ok(button, `the step dock has a ${label} button`);
   return button;
 }
 
-// cursorStepInput is the textarea of the cursor's step box.
-function cursorStepInput(container: HTMLElement): HTMLTextAreaElement {
-  const box = container.querySelector<HTMLTextAreaElement>(".reply:not([hidden]) .stepbox textarea");
-  assert.ok(box, "the cursor's step box has an input");
-  return box;
+// stepQuestion is the Stop question the cursor's step dock draws once More is pressed, and "" while it is closed.
+function stepQuestion(container: HTMLElement): string {
+  return container.querySelector(".reply:not([hidden]) .dock-box .confirm > span")?.textContent ?? "";
 }
 
-// stepInputNamed is the textarea of the step box for the step with the given label, shown or hidden.
+// stepInputNamed is the textarea of the step dock for the step with the given label, shown or hidden.
 function stepInputNamed(container: HTMLElement, label: string): HTMLTextAreaElement {
-  const box = [...container.querySelectorAll<HTMLTextAreaElement>('[aria-label="reader"] .stepbox textarea')].find(
-    (element) => element.placeholder.startsWith(`Nudge ${label}:`),
+  const box = [...container.querySelectorAll<HTMLTextAreaElement>(".reply textarea")].find((element) =>
+    element.placeholder.startsWith(`Nudge ${label}.`),
   );
-  assert.ok(box, `the step box for ${label} has an input`);
+  assert.ok(box, `the step dock for ${label} has an input`);
   return box;
 }
 
-// sendButton is the send button of the cursor's step box.
-function sendButton(container: HTMLElement): HTMLButtonElement {
-  const button = container.querySelector<HTMLButtonElement>('.reply:not([hidden]) .stepbox button[aria-label="send"]');
-  assert.ok(button, "the step box has a send button");
-  return button;
-}
-
-// stepButtonAbsent reports that the cursor's step box has no button with the given label.
+// stepButtonAbsent reports that the cursor's step dock has no button with the given text.
 function stepButtonAbsent(container: HTMLElement, label: string): boolean {
-  return [...container.querySelectorAll<HTMLButtonElement>(".reply:not([hidden]) .stepbox button")].every(
-    (element) => element.textContent !== label,
-  );
+  return stepButtons(container).every((element) => element.textContent !== label);
 }
 
 async function clickIn(element: Element): Promise<void> {
@@ -4614,11 +4645,11 @@ test("the send button calls Steps.Nudge once with the step's id and text, and a 
     await onStepOne(t.signal, container, fake);
     await press("i");
     await typeInto(composer(container), "   ");
-    await clickIn(sendButton(container));
+    await clickIn(composerSendButton(container));
     await settle();
     assert.equal(fake.callsTo(nudgePath).length, 0, "a blank box sends nothing");
     await typeInto(composer(container), "try the other route");
-    await clickIn(sendButton(container));
+    await clickIn(composerSendButton(container));
     await until(t.signal, () => fake.callsTo(nudgePath).length === 1, "the nudge");
     assert.deepEqual(fake.callsTo(nudgePath)[0].body, { id: "s1", text: "try the other route" });
     await until(t.signal, () => composer(container).value === "", "the landed draft cleared");
@@ -4638,7 +4669,7 @@ test("a nudge on the cursor's step calls Steps.Nudge with that step's id, not th
     assert.deepEqual(fake.callsTo(nudgePath)[0].body, { id: "s2", text: "on two" });
     await until(t.signal, () => composer(container).value === "", "the landed draft cleared");
     await typeInto(composer(container), "again on two");
-    await clickIn(sendButton(container));
+    await clickIn(composerSendButton(container));
     await until(t.signal, () => fake.callsTo(nudgePath).length === 2, "the nudge on s2 by the send button");
     assert.deepEqual(fake.callsTo(nudgePath)[1].body, { id: "s2", text: "again on two" });
     await until(t.signal, () => composer(container).value === "", "the second landed draft cleared");
@@ -4685,20 +4716,19 @@ test("Interrupt calls Steps.Hold with the step's id", (t) =>
     assert.deepEqual(fake.callsTo(holdPath)[0].body, { id: "s1" });
   }));
 
-test("Stop sits behind ⋯; Cancel sends nothing, and Confirm stop calls Steps.Stop with the step's id", (t) =>
+test("Stop this step… asks first: Keep it running sends nothing, and Stop s1 calls Steps.Stop with the step's id", (t) =>
   withApp(t.signal, { epics: oneEpic() }, async (container, fake) => {
     await onStepOne(t.signal, container, fake);
-    assert.equal(stepButtonAbsent(container, "Stop"), true, "no Stop until ⋯ is pressed");
-    await clickIn(stepButton(container, "⋯"));
-    await clickIn(stepButton(container, "Stop"));
-    assert.equal(fake.callsTo(stopStepPath).length, 0, "Stop alone sends nothing");
-    await clickIn(stepButton(container, "Cancel"));
+    assert.equal(stepButtonAbsent(container, "Stop s1"), true, "no Stop until More is pressed");
+    await clickIn(stepButton(container, "Stop this step…"));
+    assert.equal(stepQuestion(container), "Stop s1?", "More asks Stop s1?");
+    assert.equal(fake.callsTo(stopStepPath).length, 0, "More alone sends nothing");
+    await clickIn(stepButton(container, "Keep it running"));
     await settle();
-    assert.equal(fake.callsTo(stopStepPath).length, 0, "Cancel sends nothing");
-    assert.equal(stepButtonAbsent(container, "Stop"), true, "Cancel closes the menu");
-    await clickIn(stepButton(container, "⋯"));
-    await clickIn(stepButton(container, "Stop"));
-    await clickIn(stepButton(container, "Confirm stop"));
+    assert.equal(fake.callsTo(stopStepPath).length, 0, "Keep it running sends nothing");
+    assert.equal(stepQuestion(container), "", "Keep it running closes the question");
+    await clickIn(stepButton(container, "Stop this step…"));
+    await clickIn(stepButton(container, "Stop s1"));
     await until(t.signal, () => fake.callsTo(stopStepPath).length === 1, "the stop");
     assert.deepEqual(fake.callsTo(stopStepPath)[0].body, { id: "s1" });
   }));
@@ -4769,9 +4799,8 @@ test("no Control or Panes call names a step, and no call starts a step", (t) =>
     await until(t.signal, () => fake.callsTo(nudgePath).length === 1, "the nudge");
     await clickIn(stepButton(container, "Interrupt"));
     await until(t.signal, () => fake.callsTo(holdPath).length === 1, "the hold");
-    await clickIn(stepButton(container, "⋯"));
-    await clickIn(stepButton(container, "Stop"));
-    await clickIn(stepButton(container, "Confirm stop"));
+    await clickIn(stepButton(container, "Stop this step…"));
+    await clickIn(stepButton(container, "Stop s1"));
     await until(t.signal, () => fake.callsTo(stopStepPath).length === 1, "the stop");
     for (const call of fake.calls) {
       assert.equal(call.path.includes("StartStep"), false, `${call.path} is not a start`);

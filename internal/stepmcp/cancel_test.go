@@ -273,7 +273,7 @@ func TestCancelLeavesAMutatingCallRunning(t *testing.T) {
 		{tool: "step_start", arguments: `{"prompt":"p","workspace":"/work/demo"}`},
 		{tool: "step_stop", arguments: `{"id":"step-1"}`},
 		{tool: "step_resume", arguments: `{"id":"step-1"}`},
-		{tool: "epic_create", arguments: `{"contract":{"id":"` + epicID + `"}}`},
+		{tool: "epic_create", arguments: `{"id":"` + epicID + `"}`},
 		{tool: "epic_answer", arguments: `{"epicId":"` + epicID + `","id":"D3","text":"Yes."}`},
 		{tool: "epic_pause", arguments: `{"id":"` + epicID + `"}`},
 		{tool: "epic_resume", arguments: `{"id":"` + epicID + `"}`},

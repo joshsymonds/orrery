@@ -43,8 +43,9 @@ func listedSummaryOK(t *testing.T, client enginev1connect.EpicsClient) *v1.EpicS
 
 func TestEpicSeenIsZeroUntilSeeEpic(t *testing.T) {
 	t.Parallel()
-	client := newEpicsClient(t, startEpicServer(t, epicTestStore(t)))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	st := epicTestStore(t)
+	client := newEpicsClient(t, startEpicServer(t, st))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 
 	if got := listedSummaryOK(t, client).GetSeen(); got != 0 {
 		t.Fatalf("ListEpics seen = %d before SeeEpic, want 0", got)
@@ -61,7 +62,7 @@ func TestEpicSeenStoredBySeeEpicIsCarriedAcrossClients(t *testing.T) {
 	path := startEpicServer(t, st)
 	owner := newEpicsClient(t, path)
 	other := newEpicsClient(t, path)
-	createEpicOK(t, owner, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	createEpicOK(t, st, owner, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 
 	if _, err := owner.SeeEpic(ctx, connect.NewRequest(&v1.SeeEpicRequest{Id: epicServiceID})); err != nil {
 		t.Fatalf("SeeEpic: %v", err)
@@ -78,8 +79,9 @@ func TestEpicSeenStoredBySeeEpicIsCarriedAcrossClients(t *testing.T) {
 func TestEpicSeenSeeEpicRefusesEmptyAndUnknownID(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	client := newEpicsClient(t, startEpicServer(t, epicTestStore(t)))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	st := epicTestStore(t)
+	client := newEpicsClient(t, startEpicServer(t, st))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 
 	_, err := client.SeeEpic(ctx, connect.NewRequest(&v1.SeeEpicRequest{}))
 	wantConnectError(t, err, connect.CodeInvalidArgument, "id: empty")

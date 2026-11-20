@@ -33,10 +33,11 @@ func openControlsStore(t *testing.T) (*store.Store, string) {
 	return s, path
 }
 
-// addPendingTrigger writes a pending trigger id on runnerEpicID beside the store's own writes. The store adds a trigger
-// at create and on an answer to an open question, and an open question exists only once a turn has completed, so a
-// trigger that arrives while a turn runs is written directly, as TestRunnerClaimsEveryPendingTriggerInOneTurn does.
-func addPendingTrigger(t *testing.T, path, id string) {
+// addPendingTrigger writes a pending trigger id on runnerEpicID beside the store's own writes, then notifies changes so a
+// waiter checks again. The store adds a trigger at create and on an answer to an open question, and an open question
+// exists only once a turn has completed, so a trigger that arrives while a turn runs is written directly, as
+// TestRunnerClaimsEveryPendingTriggerInOneTurn does.
+func addPendingTrigger(t *testing.T, path, id string, changes *changeNotice) {
 	t.Helper()
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
@@ -51,6 +52,7 @@ func addPendingTrigger(t *testing.T, path, id string) {
 		VALUES (?, ?, 'synthetic answer', 'pending', 0, 1700000400)`, runnerEpicID, id); err != nil {
 		t.Fatalf("insert trigger %s: %v", id, err)
 	}
+	changes.notify()
 }
 
 // waitHeldSteps is a fakeSteps whose Subscribe reports that it was entered, then waits for release before it subscribes.
@@ -77,18 +79,24 @@ func TestRunnerPauseDuringTurnLetsTurnFinishAndStartsNoStep(t *testing.T) {
 	s, path := openControlsStore(t)
 	createRunnerEpic(t, s)
 	steps := newFakeSteps()
+	steps.watchStore(s)
 	var reads atomic.Int64
 	runner := runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
-	waitFor(t, "a planner step to start", func() bool { return len(steps.started()) == 1 })
-	waitFor(t, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
+	waitFor(t, &steps.changeNotice, "a planner step to start", func() bool { return len(steps.started()) == 1 })
+	waitFor(t, &steps.changeNotice, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
 	// The trigger stays pending once turn 1 ends, so an unpaused runner would claim it and start a second step.
-	addPendingTrigger(t, path, "answer:D9")
+	addPendingTrigger(t, path, "answer:D9", &steps.changeNotice)
 
 	if err := s.PauseEpic(ctx, runnerEpicID, store.Maker{By: store.MakerOwner}, time.Unix(1700000000, 0)); err != nil {
 		t.Fatalf("PauseEpic: %v", err)
 	}
 	steps.end("step-1", store.StepRow{End: "done", Result: validPlan})
-	waitFor(t, "turn 1 to succeed", func() bool { return epicOf(t, s).Turns[0].State == "succeeded" })
+	waitFor(
+		t,
+		&steps.changeNotice,
+		"turn 1 to succeed",
+		func() bool { return epicOf(t, s).Turns[0].State == "succeeded" },
+	)
 
 	passRunner(t, runner, 3)
 	if n := len(steps.started()); n != 1 {
@@ -115,6 +123,7 @@ func TestRunnerResumeLetsRunnerStartStepForPendingTriggers(t *testing.T) {
 		t.Fatalf("PauseEpic: %v", err)
 	}
 	steps := newFakeSteps()
+	steps.watchStore(s)
 	var reads atomic.Int64
 	runner := runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
 
@@ -127,8 +136,13 @@ func TestRunnerResumeLetsRunnerStartStepForPendingTriggers(t *testing.T) {
 		t.Fatalf("ResumeEpic: %v", err)
 	}
 	runner.Pass(t.Context())
-	waitFor(t, "a planner step to start after the resume", func() bool { return len(steps.started()) == 1 })
-	waitFor(t, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
+	waitFor(
+		t,
+		&steps.changeNotice,
+		"a planner step to start after the resume",
+		func() bool { return len(steps.started()) == 1 },
+	)
+	waitFor(t, &steps.changeNotice, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
 	if epic := epicOf(t, s); epic.Paused {
 		t.Errorf("epic Paused = true after the resume, want false")
 	}
@@ -147,6 +161,7 @@ func TestRunnerRetryLetsRunnerStartStepForPendingTriggersOfParkedEpic(t *testing
 		t.Fatalf("FreeTurn: %v", err)
 	}
 	steps := newFakeSteps()
+	steps.watchStore(s)
 	var reads atomic.Int64
 	runner := runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
 
@@ -162,8 +177,13 @@ func TestRunnerRetryLetsRunnerStartStepForPendingTriggersOfParkedEpic(t *testing
 		t.Fatalf("RetryEpic: %v", err)
 	}
 	runner.Pass(t.Context())
-	waitFor(t, "a planner step to start after the retry", func() bool { return len(steps.started()) == 1 })
-	waitFor(t, "step-1 recorded on turn 2", func() bool {
+	waitFor(
+		t,
+		&steps.changeNotice,
+		"a planner step to start after the retry",
+		func() bool { return len(steps.started()) == 1 },
+	)
+	waitFor(t, &steps.changeNotice, "step-1 recorded on turn 2", func() bool {
 		turns := epicOf(t, s).Turns
 		return len(turns) == 2 && turns[1].Step == "step-1"
 	})
@@ -172,7 +192,7 @@ func TestRunnerRetryLetsRunnerStartStepForPendingTriggersOfParkedEpic(t *testing
 // runnerParkedByRole runs a runner over s and steps whose planner role fails while broken is set. It waits until the
 // runner parks the epic with the role error, which opens the park question, and clearing broken makes the role resolve
 // again, so the next pass after the park ends claims a turn. It returns the runner, which the test passes again.
-func runnerParkedByRole(t *testing.T, s *store.Store, steps Steps, broken *atomic.Bool) *Runner {
+func runnerParkedByRole(t *testing.T, s *store.Store, steps *fakeSteps, broken *atomic.Bool) *Runner {
 	t.Helper()
 	roleErr := errors.New("planner role: no agent")
 	agent := func() (string, error) {
@@ -182,7 +202,7 @@ func runnerParkedByRole(t *testing.T, s *store.Store, steps Steps, broken *atomi
 		return runnerAgent, nil
 	}
 	runner := runRunner(t, runnerConfig(s, steps, agent))
-	waitFor(t, "the epic to be parked with the role error", func() bool {
+	waitFor(t, &steps.changeNotice, "the epic to be parked with the role error", func() bool {
 		return epicOf(t, s).Parked == roleErr.Error()
 	})
 	return runner
@@ -193,6 +213,7 @@ func TestRunnerAnswerOtherWithWordsToParkQuestionHoldsWordsInNextPrompt(t *testi
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newFakeSteps()
+	steps.watchStore(s)
 	var broken atomic.Bool
 	broken.Store(true)
 	runner := runnerParkedByRole(t, s, steps, &broken)
@@ -215,7 +236,12 @@ func TestRunnerAnswerOtherWithWordsToParkQuestionHoldsWordsInNextPrompt(t *testi
 		t.Fatalf("epic Parked after the other answer = %q, want empty", got)
 	}
 	runner.Pass(t.Context())
-	waitFor(t, "a planner step to start after the answer", func() bool { return len(steps.started()) == 1 })
+	waitFor(
+		t,
+		&steps.changeNotice,
+		"a planner step to start after the answer",
+		func() bool { return len(steps.started()) == 1 },
+	)
 	want := "- answer-1 (answers Q1 with other): " + words
 	if prompt := steps.started()[0].Prompt; !strings.Contains(prompt, want) {
 		t.Errorf("prompt of turn 2 lacks %q; prompt is:\n%s", want, prompt)
@@ -227,6 +253,7 @@ func TestRunnerRetryEpicClosesParkQuestionAsRetry(t *testing.T) {
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newFakeSteps()
+	steps.watchStore(s)
 	var broken atomic.Bool
 	broken.Store(true)
 	runner := runnerParkedByRole(t, s, steps, &broken)
@@ -245,7 +272,12 @@ func TestRunnerRetryEpicClosesParkQuestionAsRetry(t *testing.T) {
 		t.Fatalf("questions after RetryEpic = %+v, want the park question answered with retry", questions)
 	}
 	runner.Pass(t.Context())
-	waitFor(t, "a planner step to start after the retry", func() bool { return len(steps.started()) == 1 })
+	waitFor(
+		t,
+		&steps.changeNotice,
+		"a planner step to start after the retry",
+		func() bool { return len(steps.started()) == 1 },
+	)
 }
 
 func TestRunnerStopAfterStepStoredResultKeepsIt(t *testing.T) {
@@ -254,6 +286,7 @@ func TestRunnerStopAfterStepStoredResultKeepsIt(t *testing.T) {
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := &waitHeldSteps{fakeSteps: newFakeSteps(), entered: make(chan struct{}, 1), release: make(chan struct{})}
+	steps.watchStore(s)
 	var reads atomic.Int64
 	runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
 	releaseWait := sync.OnceFunc(func() { close(steps.release) })
@@ -271,7 +304,12 @@ func TestRunnerStopAfterStepStoredResultKeepsIt(t *testing.T) {
 	}
 	releaseWait()
 
-	waitFor(t, "turn 1 to succeed", func() bool { return epicOf(t, s).Turns[0].State == "succeeded" })
+	waitFor(
+		t,
+		&steps.changeNotice,
+		"turn 1 to succeed",
+		func() bool { return epicOf(t, s).Turns[0].State == "succeeded" },
+	)
 	epic := epicOf(t, s)
 	if !epic.Paused {
 		t.Errorf("epic Paused = false, want true: the stop paused the epic")

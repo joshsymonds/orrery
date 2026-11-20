@@ -1,21 +1,18 @@
 import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
 
-import { create } from "@bufbuild/protobuf";
 import type { JSX } from "preact";
 import { render } from "preact";
 import { act } from "preact/test-utils";
 
 import type { EpicCalls } from "./card";
 import { noEpics } from "./epics";
-import { StepCard, stepEventOf, WaitingCard } from "./eventring";
-import { PendingEventSchema } from "./gen/orrery/v1/orrery_pb";
+import { StepCard, stepEventOf } from "./eventring";
 import { installTestDom, removeTestDom } from "./testdom";
 import { turn, until } from "./testwait";
 
-// The step's end cards over the two sources they draw from: a delivered step_end, read from its prompt's block, and a
-// pending step_end as the server lists it, with its brief. A card's return is read through the epic calls its fold is
-// given. Each test's name carries the token StepEndText.
+// The step's end cards over the delivered step_end they draw from: read from its prompt's block, with its brief. A
+// card's return is read through the epic calls its fold is given. Each test's name carries the token StepEndText.
 
 // stepBlock is the block a delivered step_end carries, as enginehost's CallerEventBlock writes it: its agent, end and
 // status as attributes of the opening tag, its brief on lines of its own, and the line that points to the full return.
@@ -35,22 +32,6 @@ function deliveredCard(brief: string[], calls?: EpicCalls): JSX.Element {
     throw new Error("a step_end block is read as a step's end");
   }
   return <StepCard event={event} calls={calls} />;
-}
-
-// pendingCard draws the waiting card of a step_end the server holds, with line as its one brief line and then the More
-// line.
-function pendingCard(line: string, calls?: EpicCalls): JSX.Element {
-  const event = create(PendingEventSchema, {
-    id: "step:s1",
-    kind: "step_end",
-    step: "s1",
-    agent: "builder",
-    end: "done",
-    status: "done",
-    brief: `${line}\nMore: step_result id s1`,
-    waits: "speak",
-  });
-  return <WaitingCard event={event} calls={calls} />;
 }
 
 // callsReturning are the epic calls a step card's fold reads through: stepResult answers result, and no other call is
@@ -142,30 +123,23 @@ function outsideFold(card: HTMLElement): string {
     .join("\n");
 }
 
-// assertHead checks the head of a step's card: its agent, end and status, its brief lines, and the waiting dim and
-// label when it waits.
-function assertHead(card: HTMLElement, brief: string[], what: string, waiting: boolean): void {
+// assertHead checks the head of a step's card: its agent, end and status, and its brief lines.
+function assertHead(card: HTMLElement, brief: string[], what: string): void {
   assert.equal(textOf(card, ".step-agent"), "builder", `${what} names its agent`);
   assert.equal(textOf(card, ".step-end"), "end done", `${what} draws its end`);
   assert.equal(textOf(card, ".step-status"), "status done", `${what} draws its status`);
   assert.deepEqual(textsOf(card, ".step-summary"), brief, `${what} draws each brief line`);
-  assert.equal(card.classList.contains("waiting"), waiting, `${what} is dimmed only while it waits`);
-  const label = waiting ? "arrives when you next speak" : "";
-  assert.equal(textOf(card, ".wait-label") ?? "", label, `${what} labels its wait`);
 }
 
 // briefCases are the briefs a delivered step_end draws, one line each. A line that starts like an object is text.
 const briefCases = [["Shipped the index.", "Ran the suite."], ['{"answer": "Shipped the index."']];
 
-test("StepEndText: delivered and pending step_end cards draw their agent, end and status, and their brief lines", async () => {
+test("StepEndText: a delivered step_end card draws its agent, end and status, and its brief lines", async () => {
   for (const brief of briefCases) {
     await withCard(deliveredCard(brief), async (container) => {
-      assertHead(cardOf(container), brief, "a delivered step_end", false);
+      assertHead(cardOf(container), brief, "a delivered step_end");
     });
   }
-  await withCard(pendingCard("Shipped the index."), async (container) => {
-    assertHead(cardOf(container), ["Shipped the index."], "a pending step_end", true);
-  });
 });
 
 // jsonResult is a JSON return on one line, as the server writes it, and jsonPretty is the same value as the fold
@@ -183,42 +157,30 @@ const jsonPretty = [
 ].join("\n");
 
 test("StepEndText: the return is folded and closed by default, and draws pretty-printed JSON once opened", async (t) => {
-  const sources = [
-    { what: "a delivered step_end", card: deliveredCard(["Shipped the index."], callsReturning(jsonResult)) },
-    { what: "a pending step_end", card: pendingCard("Shipped the index.", callsReturning(jsonResult)) },
-  ];
-  for (const { what, card } of sources) {
-    await withCard(card, async (container) => {
-      const details = container.querySelector("details");
-      assert.ok(details !== null, `${what} draws its return in a fold`);
-      assert.equal(details.open, false, `${what} folds its return closed by default`);
-      const summary = details.querySelector("summary");
-      assert.ok(summary !== null, `${what} names its fold`);
-      assert.equal(summary.textContent, "return", `${what} names the fold return`);
-      await openReturn(t, container);
-      assert.equal(details.open, true, `${what} opens its fold on a click on the summary`);
-      assert.equal(textOf(details, "pre"), jsonPretty, `${what} draws its JSON pretty-printed once opened`);
-    });
-  }
+  await withCard(deliveredCard(["Shipped the index."], callsReturning(jsonResult)), async (container) => {
+    const details = container.querySelector("details");
+    assert.ok(details !== null, "a delivered step_end draws its return in a fold");
+    assert.equal(details.open, false, "a delivered step_end folds its return closed by default");
+    const summary = details.querySelector("summary");
+    assert.ok(summary !== null, "a delivered step_end names its fold");
+    assert.equal(summary.textContent, "return", "a delivered step_end names the fold return");
+    await openReturn(t, container);
+    assert.equal(details.open, true, "a delivered step_end opens its fold on a click on the summary");
+    assert.equal(textOf(details, "pre"), jsonPretty, "a delivered step_end draws its JSON pretty-printed once opened");
+  });
 });
 
-test("StepEndText: no line of raw JSON draws outside the fold of a delivered or a pending step_end", async (t) => {
+test("StepEndText: no line of raw JSON draws outside the fold of a delivered step_end", async (t) => {
   const jsonLines = jsonPretty.split("\n").map((line) => line.trim());
-  const sources = [
-    { what: "a delivered step_end", card: deliveredCard(["Shipped the index."], callsReturning(jsonResult)) },
-    { what: "a pending step_end", card: pendingCard("Shipped the index.", callsReturning(jsonResult)) },
-  ];
-  for (const { what, card } of sources) {
-    await withCard(card, async (container) => {
-      await openReturn(t, container);
-      const outside = outsideFold(cardOf(container));
-      assert.ok(outside.includes("Shipped the index."), `${what} draws its brief outside the fold`);
-      assert.equal(outside.includes(jsonResult), false, `${what} draws the raw JSON on no line outside the fold`);
-      for (const line of jsonLines.filter((text) => text.includes('"'))) {
-        assert.equal(outside.includes(line), false, `${what} draws the JSON line ${line} only inside the fold`);
-      }
-    });
-  }
+  await withCard(deliveredCard(["Shipped the index."], callsReturning(jsonResult)), async (container) => {
+    await openReturn(t, container);
+    const outside = outsideFold(cardOf(container));
+    assert.ok(outside.includes("Shipped the index."), "a delivered step_end draws its brief outside the fold");
+    assert.equal(outside.includes(jsonResult), false, "a delivered step_end draws the raw JSON on no line outside the fold");
+    for (const line of jsonLines.filter((text) => text.includes('"'))) {
+      assert.equal(outside.includes(line), false, `a delivered step_end draws the JSON line ${line} only inside the fold`);
+    }
+  });
 });
 
 // plainReturns are the returns that are not JSON: plain text over lines, and text that starts like an object and does
@@ -230,10 +192,6 @@ test("StepEndText: a return that is plain text draws whole in the fold, as it is
     await withCard(deliveredCard(["Added the index."], callsReturning(result)), async (container) => {
       await openReturn(t, container);
       assert.equal(textOf(container, "details pre"), result, "a delivered step_end's fold holds the whole text");
-    });
-    await withCard(pendingCard("Added the index.", callsReturning(result)), async (container) => {
-      await openReturn(t, container);
-      assert.equal(textOf(container, "details pre"), result, "a pending step_end's fold holds the whole text");
     });
   }
 });

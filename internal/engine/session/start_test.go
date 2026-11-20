@@ -9,13 +9,11 @@ import (
 	"strings"
 	"syscall"
 	"testing"
-	"time"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/joshsymonds/orrery/internal/exectest"
 )
-
-// pollInterval is the pause between checks while a test waits for a child process.
-const pollInterval = 10 * time.Millisecond
 
 // grandchildClaude is a fake claude that records the session marker and its arguments in argv, starts
 // a background sleep, which a non-interactive shell leaves ignoring SIGINT and which outlives
@@ -83,9 +81,47 @@ func startRealSession(t *testing.T, cfg Config) *Session {
 	return s
 }
 
-// waitPID returns the pid that the fake claude writes to path, waiting for the file to appear.
+// watchDir starts an inotify watch on dir for files that are closed after a write or moved into dir, the
+// two ways a fake child publishes a file there. The watch is closed when the test ends.
+func watchDir(t *testing.T, dir string) int {
+	t.Helper()
+	fd, err := unix.InotifyInit1(unix.IN_CLOEXEC)
+	if err != nil {
+		t.Fatalf("inotify_init1: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := unix.Close(fd); err != nil {
+			t.Errorf("close inotify fd: %v", err)
+		}
+	})
+	if _, err := unix.InotifyAddWatch(fd, dir, unix.IN_CLOSE_WRITE|unix.IN_MOVED_TO); err != nil {
+		t.Fatalf("watch %s: %v", dir, err)
+	}
+	return fd
+}
+
+// awaitDirChange blocks until the watch on fd reports a file closed after a write or moved into its
+// directory. It has no deadline of its own.
+func awaitDirChange(t *testing.T, fd int) {
+	t.Helper()
+	var buf [4096]byte
+	for {
+		_, err := unix.Read(fd, buf[:])
+		if errors.Is(err, syscall.EINTR) {
+			continue
+		}
+		if err != nil {
+			t.Fatalf("read inotify events: %v", err)
+		}
+		return
+	}
+}
+
+// waitPID returns the pid that the fake claude writes to path, waiting for the file to appear. It has no
+// deadline of its own.
 func waitPID(t *testing.T, path string) int {
 	t.Helper()
+	fd := watchDir(t, filepath.Dir(path))
 	for {
 		if data, err := os.ReadFile(path); err == nil {
 			pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
@@ -94,19 +130,36 @@ func waitPID(t *testing.T, path string) int {
 			}
 			return pid
 		}
-		time.Sleep(pollInterval)
+		awaitDirChange(t, fd)
 	}
 }
 
-// waitGone waits until pid no longer exists. It has no deadline of its own.
+// waitGone waits until pid no longer exists. A pidfd for the process becomes readable when the process
+// exits, so the wait blocks in the kernel until then. It has no deadline of its own.
 func waitGone(t *testing.T, pid int) {
 	t.Helper()
-	for {
-		err := syscall.Kill(pid, 0)
-		if errors.Is(err, syscall.ESRCH) {
-			return
+	fd, err := unix.PidfdOpen(pid, 0)
+	if errors.Is(err, syscall.ESRCH) {
+		return
+	}
+	if err != nil {
+		t.Fatalf("open pidfd of %d: %v", pid, err)
+	}
+	defer func() {
+		if err := unix.Close(fd); err != nil {
+			t.Errorf("close pidfd of %d: %v", pid, err)
 		}
-		time.Sleep(pollInterval)
+	}()
+	fds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}
+	for {
+		_, err := unix.Poll(fds, -1)
+		if errors.Is(err, syscall.EINTR) {
+			continue
+		}
+		if err != nil {
+			t.Fatalf("wait on pidfd of %d: %v", pid, err)
+		}
+		return
 	}
 }
 

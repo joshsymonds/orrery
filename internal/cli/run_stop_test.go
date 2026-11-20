@@ -88,6 +88,8 @@ type stopPools struct {
 
 	mu       sync.Mutex
 	requests []*v1.AcquireRequest
+	// notice is notified after each request is recorded, so a wait for requests checks again.
+	notice changeNotice
 }
 
 // received returns the requests received so far.
@@ -107,6 +109,7 @@ func (p *stopPools) Acquire(
 	step := p.steps[min(len(p.requests), len(p.steps)-1)]
 	p.requests = append(p.requests, req.Msg)
 	p.mu.Unlock()
+	p.notice.notify()
 	if err := sendEvents(stream, step.before); err != nil {
 		return err
 	}
@@ -221,7 +224,7 @@ func nextLine(t *testing.T, lines <-chan string, status <-chan int) string {
 // the run whose result arrives on status has returned without them (see awaitRunRequests).
 func awaitStopRequests(t *testing.T, pools *stopPools, n int, status <-chan int) {
 	t.Helper()
-	awaitRunRequests(t, status, func() int { return len(pools.received()) }, n)
+	awaitRunRequests(t, &pools.notice, status, func() int { return len(pools.received()) }, n)
 }
 
 // remainingLines returns the lines that out delivers after the test has closed its write end.

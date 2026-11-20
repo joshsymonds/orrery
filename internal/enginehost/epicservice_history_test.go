@@ -27,7 +27,7 @@ func TestEpicGetAnswersSummaryAndHistory(t *testing.T) {
 	t.Parallel()
 	st := epicTestStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
-	created := createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	created := createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 	if created.GetSummary() != "" {
 		t.Fatalf("created summary = %q, want empty until written", created.GetSummary())
 	}

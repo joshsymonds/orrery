@@ -80,6 +80,7 @@ function columnOf(
     row,
     conversation,
     rows: row === null ? [] : [row],
+    interrupts: new Set<string>(),
     mark: quiet,
     pageStrip: () => undefined,
     head: () => bareHead,

@@ -53,7 +53,7 @@ func TestEpicAnswerToOpenQuestionTiesDecisionAndClosesIt(t *testing.T) {
 	t.Parallel()
 	st, _ := openPlannerStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 	askQuestions(t, st, "Synthetic question one?")
 
 	reply, err := answerEpic(t, client, "A1", "Ship it.", "Q1", store.ChoiceOther)
@@ -76,7 +76,7 @@ func TestEpicAnswerWithDeclaredChoiceRecordsTheChoiceWithItsText(t *testing.T) {
 	t.Parallel()
 	st, _ := openPlannerStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 	askQuestions(t, st, "Synthetic question one?")
 
 	reply, err := answerEpic(t, client, "A1", "", "Q1", "synthetic-a")
@@ -96,7 +96,7 @@ func TestEpicNoteWithOpenQuestionsWarnsNamingThem(t *testing.T) {
 	t.Parallel()
 	st, _ := openPlannerStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 	askQuestions(t, st, "Synthetic question one?", "Synthetic question two?")
 
 	reply, err := answerEpic(t, client, "A1", "Ship it.", "", "")
@@ -121,7 +121,7 @@ func TestEpicNoteWithNoOpenQuestionHasNoWarning(t *testing.T) {
 	t.Parallel()
 	st, _ := openPlannerStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 	askQuestions(t, st, "Synthetic question one?")
 	if _, err := answerEpic(t, client, "A1", "Ship it.", "Q1", store.ChoiceOther); err != nil {
 		t.Fatalf("AnswerEpic of Q1: %v", err)
@@ -143,7 +143,7 @@ func TestEpicAnswerRefusedRequestsRecordNoDecision(t *testing.T) {
 	t.Parallel()
 	st, _ := openPlannerStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 	askQuestions(t, st, "Synthetic question one?")
 	cases := []struct {
 		text     string
@@ -188,7 +188,7 @@ func TestEpicAnswerNamingMissingQuestionIsNotFound(t *testing.T) {
 	t.Parallel()
 	st, _ := openPlannerStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 	askQuestions(t, st, "Synthetic question one?")
 
 	_, err := answerEpic(t, client, "A1", "Ship it.", "Q9", store.ChoiceOther)
@@ -202,7 +202,7 @@ func TestEpicAnswerNamingMalformedQuestionIsNotFound(t *testing.T) {
 	t.Parallel()
 	st, _ := openPlannerStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 	askQuestions(t, st, "Synthetic question one?")
 
 	for _, question := range []string{"banana", "Q0"} {
@@ -218,7 +218,7 @@ func TestEpicAnswerToClosedQuestionIsFailedPrecondition(t *testing.T) {
 	t.Parallel()
 	st, _ := openPlannerStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 	askQuestions(t, st, "Synthetic question one?")
 	if _, err := answerEpic(t, client, "A1", "Ship it.", "Q1", store.ChoiceOther); err != nil {
 		t.Fatalf("AnswerEpic of Q1: %v", err)
@@ -235,7 +235,7 @@ func TestEpicAnswerToReplacedQuestionIsFailedPrecondition(t *testing.T) {
 	t.Parallel()
 	st, path := openPlannerStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 	askQuestions(t, st, "Synthetic question one?")
 	insertPendingTrigger(t, path, "t2")
 	second, err := st.ClaimTurn(t.Context(), epicServiceID, time.Unix(turnRestarted, 0))
@@ -261,7 +261,7 @@ func TestEpicRepeatAnswerToQuestionReturnsStoredDecision(t *testing.T) {
 	t.Parallel()
 	st, _ := openPlannerStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 	askQuestions(t, st, "Synthetic question one?")
 
 	first, err := answerEpic(t, client, "A1", "Ship it.", "Q1", store.ChoiceOther)

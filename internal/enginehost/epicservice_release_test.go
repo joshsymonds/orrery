@@ -198,7 +198,7 @@ func TestEpicGetShowsReleaseRunsAndSlotHolder(t *testing.T) {
 	}
 
 	const waitingID = "synthetic-repo-0a1b2c3/epic-waiting"
-	createEpicOK(t, client, fullEpicRequest(repo, waitingID))
+	createEpicOK(t, st, client, fullEpicRequest(repo, waitingID))
 	waiting, err := client.GetEpic(ctx, connect.NewRequest(&v1.GetEpicRequest{Id: waitingID}))
 	if err != nil {
 		t.Fatalf("GetEpic %s: %v", waitingID, err)

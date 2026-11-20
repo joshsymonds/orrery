@@ -179,16 +179,20 @@ func takesReleaseSlot(phase string) bool {
 	return phase == PhaseClean || phase == PhaseReleasing || phase == PhaseStopped
 }
 
-// releaseSlotHolder returns the epic that holds the release slot of repository, or "" when the slot is free.
+// releaseSlotHolder returns the epic that holds the release slot of repository, ReleaseSlotOutsidePrefix and the label of
+// an outside holder, or "" when the slot is free.
 func releaseSlotHolder(ctx context.Context, queries *sqlcgen.Queries, repository string) (string, error) {
-	holder, err := queries.GetEpicReleaseSlotHolder(ctx, repository)
+	row, err := queries.GetEpicReleaseSlotHolder(ctx, repository)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
 	if err != nil {
 		return "", fmt.Errorf("read release slot of %s: %w", repository, err)
 	}
-	return holder, nil
+	if row.HolderKind == ReleaseSlotOutside {
+		return ReleaseSlotOutsidePrefix + row.Label, nil
+	}
+	return row.Epic, nil
 }
 
 // FreeReleaseSlot frees the release slot epic holds, in one write. A slot another epic holds is left as it is.

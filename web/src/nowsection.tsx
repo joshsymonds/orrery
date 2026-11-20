@@ -5,7 +5,7 @@ import type { EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 import { recordTasksOf } from "./record";
 import { type PipTone, Pips } from "./pips";
 import { askingOf, nowSentenceOf, stepLinesOf } from "./recordwords";
-import { clock } from "./workline";
+import { elapsed } from "./dockwords";
 
 // A step with no task, or a task the record does not list, draws five unreached pips.
 const unreached: readonly PipTone[] = ["none", "none", "none", "none", "none"];
@@ -79,7 +79,7 @@ export function NowSection({
             <span class="strong">{line.label}</span>
             <Pips cells={tasks.find((task) => task.task === line.task)?.cells ?? unreached} />
             <span class="doing">{line.doing}</span>
-            <span class="end">{clock(now - line.since)}</span>
+            <span class="end">{elapsed(now - line.since)}</span>
           </div>
         ))}
       </div>

@@ -43,7 +43,7 @@ func newMoveEnv(t *testing.T) moveEnv {
 	client := newEpicsClient(t, serveEpicsWith(t, st, panes))
 	repo := stepGitTestRepo(t)
 	steerer := startedIn(t, m, repo)
-	if err := steererSetCreate(t, client, repo, sessionHeader(steerer)); err != nil {
+	if err := steererSetCreate(t, st, client, repo, sessionHeader(steerer)); err != nil {
 		t.Fatalf("CreateEpic: %v", err)
 	}
 	return moveEnv{m: m, st: st, client: client, panes: panes, repo: repo, steerer: steerer}

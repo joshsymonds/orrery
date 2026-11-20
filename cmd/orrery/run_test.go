@@ -10,13 +10,13 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
 	"syscall"
 	"testing"
-	"time"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/proto"
@@ -104,9 +104,13 @@ func runHelper(mode string) int {
 	case "exit":
 		return helperExitStatus
 	case "sleep":
+		// The command runs until orrery sends it SIGTERM. It is caught here, so the command ends with the status of one
+		// ended by SIGTERM, which is what the run reports.
+		term := make(chan os.Signal, 1)
+		signal.Notify(term, syscall.SIGTERM)
 		fmt.Fprintf(os.Stdout, "ready %d\n", os.Getpid())
-		time.Sleep(time.Hour)
-		return 0
+		<-term
+		return sigtermStatus
 	default:
 		fmt.Fprintf(os.Stderr, "unknown helper mode %q\n", mode)
 		return 1

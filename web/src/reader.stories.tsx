@@ -3,7 +3,7 @@
 
 import type { Stories } from "./catalog/story";
 import { applyDelta, type Conversation } from "./conversation";
-import { at, liveEpoch } from "./fixtures/clock";
+import { at } from "./fixtures/clock";
 import { gets } from "./fixtures/epics";
 import { paneStreams, panes } from "./fixtures/panes";
 import { headless, sessions, sessionStreams } from "./fixtures/sessions";
@@ -13,9 +13,7 @@ import * as reader from "./reader";
 import { type Row, rowsFrom } from "./rows";
 import { sendingEntry } from "./sending";
 import { TitleParts } from "./titleparts";
-import { Pill, stepPill } from "./workline";
 
-const now = Date.parse(liveEpoch) / 1000;
 const noop = () => {};
 
 // must returns value, or throws naming what the fixtures do not hold.
@@ -95,9 +93,5 @@ export const ReaderHead: Stories = {
       where=""
     />
   ),
-  "where-and-pill": () => (
-    <reader.ReaderHead label="rota-export" where="lighthouse › T2 · implementing">
-      <Pill model={stepPill(false, Number(at("@14:07")))} now={now} />
-    </reader.ReaderHead>
-  ),
+  where: () => <reader.ReaderHead label="rota-export" where="lighthouse › T2 · implementing" />,
 };

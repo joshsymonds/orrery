@@ -251,17 +251,18 @@ func conversationItems(items []conversation.Item) []*v1.ConversationItem {
 	out := make([]*v1.ConversationItem, 0, len(items))
 	for _, item := range items {
 		out = append(out, &v1.ConversationItem{
-			Kind:    item.Kind,
-			Time:    item.Time,
-			Text:    item.Text,
-			Tool:    item.Tool,
-			Input:   item.Input,
-			Id:      item.ID,
-			Error:   item.Error,
-			Notice:  item.Notice,
-			Trigger: item.Trigger,
-			Tokens:  item.Tokens,
-			Epic:    item.Epic,
+			Kind:     item.Kind,
+			Time:     item.Time,
+			Text:     item.Text,
+			Tool:     item.Tool,
+			Input:    item.Input,
+			Id:       item.ID,
+			Error:    item.Error,
+			Notice:   item.Notice,
+			Trigger:  item.Trigger,
+			Tokens:   item.Tokens,
+			Epic:     item.Epic,
+			Contract: item.Contract,
 		})
 	}
 	return out

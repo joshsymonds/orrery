@@ -14,7 +14,7 @@ func TestGetEpicSupersededByServesTheReplacementNamedByASupersededClose(t *testi
 	t.Parallel()
 	st, _ := openPlannerStore(t)
 	client := newEpicsClient(t, startControlServer(t, st, closeSteps()))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 	const successor = "synthetic-repo-0a1b2c3/epic-successor"
 	if _, err := client.CloseEpic(t.Context(), connect.NewRequest(&v1.CloseEpicRequest{
 		Id: epicServiceID, Kind: "superseded", By: successor,
@@ -32,7 +32,7 @@ func TestGetEpicSupersededByIsEmptyForAnEpicThatIsNotClosed(t *testing.T) {
 	t.Parallel()
 	st, _ := openPlannerStore(t)
 	client := newEpicsClient(t, startControlServer(t, st, closeSteps()))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 	if got := getEpicOK(t, client).GetSupersededBy(); got != "" {
 		t.Fatalf("superseded by of an open epic = %q, want empty", got)
 	}
@@ -47,7 +47,7 @@ func TestGetEpicSupersededByIsEmptyForAShippedOrAbandonedCloseWithoutBy(t *testi
 	repo := stepGitTestRepo(t)
 	for _, kind := range []string{"shipped", "abandoned"} {
 		id := "synthetic-repo-0a1b2c3/epic-" + kind
-		createEpicOK(t, client, fullEpicRequest(repo, id))
+		createEpicOK(t, st, client, fullEpicRequest(repo, id))
 		if _, err := client.CloseEpic(t.Context(), connect.NewRequest(&v1.CloseEpicRequest{
 			Id: id, Kind: kind,
 		})); err != nil {

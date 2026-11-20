@@ -4,7 +4,7 @@ import { useState } from "preact/hooks";
 import { type Phase } from "./phases";
 import { phaseOfPlace, type RecordTask } from "./record";
 import { Pips } from "./pips";
-import { clock } from "./workline";
+import { elapsed } from "./dockwords";
 
 // shownRows is how many task rows the table draws before its fold line.
 const shownRows = 12;
@@ -69,7 +69,7 @@ function TaskRow({
       </span>
       <Pips cells={task.cells} />
       <span class={`cell t-${task.tone}`}>{task.words}</span>
-      <span class="end">{task.since > 0 ? clock(now - task.since) : ""}</span>
+      <span class="end">{task.since > 0 ? elapsed(now - task.since) : ""}</span>
     </>
   );
   if (phase !== undefined && onOpenPhase !== undefined) {

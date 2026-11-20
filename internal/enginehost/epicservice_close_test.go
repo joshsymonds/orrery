@@ -32,7 +32,7 @@ func TestCloseEpicRPCStopsTheTurnStepAndRunningStepsAndReadsTheEpicBack(t *testi
 	st, _ := openPlannerStore(t)
 	steps := closeSteps()
 	client := newEpicsClient(t, startControlServer(t, st, steps))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 	turn, err := st.ClaimTurn(ctx, epicServiceID, time.Unix(turnStarted, 0))
 	if err != nil {
 		t.Fatalf("ClaimTurn: %v", err)
@@ -66,8 +66,8 @@ func TestCloseEpicRPCTakesThePlannerCloserFromTheTurnsStep(t *testing.T) {
 	st, _ := openPlannerStore(t)
 	const other = "synthetic-repo-0a1b2c3/epic-other"
 	client := newEpicsClient(t, startControlServer(t, st, closeSteps()))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), other))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), other))
 	turn, err := st.ClaimTurn(ctx, epicServiceID, time.Unix(turnStarted, 0))
 	if err != nil {
 		t.Fatalf("ClaimTurn: %v", err)
@@ -106,7 +106,7 @@ func TestCloseEpicRPCRefusesSupersededWithoutByAndStopsNothing(t *testing.T) {
 	st, _ := openPlannerStore(t)
 	steps := closeSteps()
 	client := newEpicsClient(t, startControlServer(t, st, steps))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 	turn, err := st.ClaimTurn(ctx, epicServiceID, time.Unix(turnStarted, 0))
 	if err != nil {
 		t.Fatalf("ClaimTurn: %v", err)

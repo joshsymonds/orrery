@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/joshsymonds/orrery/internal/exectest"
 )
 
@@ -34,28 +36,31 @@ func commandEnv(extra ...string) []string {
 const commandGroupBody = `sleep 60 & read -r stat < /proc/$$/stat; rest=${stat##*) }; set -- $rest; ` +
 	`echo "$$ $! $3" > "$PIDS"; sleep 60`
 
-// commandPids polls until path holds the three pids commandGroupBody writes, and returns them.
+// commandPids waits until path holds the three pids commandGroupBody writes, and returns them. It rechecks the file
+// after each write that closes it.
 func commandPids(t *testing.T, path string) (int, int, int) {
 	t.Helper()
-	for {
+	var values []int
+	awaitWrite(t, path, func() bool {
 		data, err := os.ReadFile(path)
-		if err == nil && strings.HasSuffix(string(data), "\n") {
-			fields := strings.Fields(string(data))
-			if len(fields) != 3 {
-				t.Fatalf("pid file %s = %q, want three pids", path, string(data))
-			}
-			values := make([]int, 3)
-			for i, field := range fields {
-				value, convErr := strconv.Atoi(field)
-				if convErr != nil {
-					t.Fatalf("pid file %s field %q: %v", path, field, convErr)
-				}
-				values[i] = value
-			}
-			return values[0], values[1], values[2]
+		if err != nil || !strings.HasSuffix(string(data), "\n") {
+			return false
 		}
-		time.Sleep(20 * time.Millisecond)
-	}
+		fields := strings.Fields(string(data))
+		if len(fields) != 3 {
+			t.Fatalf("pid file %s = %q, want three pids", path, string(data))
+		}
+		values = make([]int, 3)
+		for i, field := range fields {
+			value, convErr := strconv.Atoi(field)
+			if convErr != nil {
+				t.Fatalf("pid file %s field %q: %v", path, field, convErr)
+			}
+			values[i] = value
+		}
+		return true
+	})
+	return values[0], values[1], values[2]
 }
 
 // commandProcessGone reports whether pid has exited: no /proc entry, or a zombie waiting to be reaped.
@@ -68,13 +73,48 @@ func commandProcessGone(pid int) bool {
 	return found && (strings.HasPrefix(after, "Z") || strings.HasPrefix(after, "X"))
 }
 
-// commandWaitGone polls until every pid in pids has exited.
+// commandWaitGone waits until every pid in pids has exited.
 func commandWaitGone(t *testing.T, pids ...int) {
 	t.Helper()
 	for _, pid := range pids {
-		for !commandProcessGone(pid) {
-			time.Sleep(20 * time.Millisecond)
+		commandWaitExit(t, pid)
+	}
+}
+
+// commandWaitExit waits until pid has exited. The pid's pidfd becomes readable when its process exits, so each recheck
+// of commandProcessGone follows a kernel event. A pid with no pidfd has already been reaped.
+func commandWaitExit(t *testing.T, pid int) {
+	t.Helper()
+	pidfd, err := unix.PidfdOpen(pid, 0)
+	if errors.Is(err, unix.ESRCH) {
+		return
+	}
+	if err != nil {
+		t.Fatalf("pidfd_open %d: %v", pid, err)
+	}
+	defer func() {
+		if err := unix.Close(pidfd); err != nil {
+			t.Errorf("close pidfd of %d: %v", pid, err)
 		}
+	}()
+	for !commandProcessGone(pid) {
+		commandPollReadable(t, pidfd)
+	}
+}
+
+// commandPollReadable blocks until fd is readable. It has no timeout of its own.
+func commandPollReadable(t *testing.T, fd int) {
+	t.Helper()
+	fds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}
+	for {
+		_, err := unix.Poll(fds, -1)
+		if errors.Is(err, unix.EINTR) {
+			continue
+		}
+		if err != nil {
+			t.Fatalf("poll %d: %v", fd, err)
+		}
+		return
 	}
 }
 

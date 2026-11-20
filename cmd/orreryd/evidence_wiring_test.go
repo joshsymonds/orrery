@@ -31,7 +31,6 @@ const (
 	evidenceWiringRun      = "synthetic-run"
 	evidenceWiringStep     = "synthetic-judge"
 	evidenceWiringRev      = "abc123"
-	evidenceWiringPoll     = 10 * time.Millisecond
 	evidenceWiringStamp    = 1_700_000_000
 	evidenceWiringJudgeEnd = "done"
 )
@@ -77,6 +76,8 @@ func TestSessionsHostTakesUpJudgingEvidenceRun(t *testing.T) {
 	evidenceWiringJudging(t, st)
 
 	opts := evidenceWiringOptions(t)
+	written, epicWrites := newEpicWritesSeam()
+	opts.epicWrites = epicWrites
 	host, err := startSessions(
 		ctx, opts, evidenceWiringHost, st, &recordingRouter{}, nil,
 		slog.New(slog.DiscardHandler), getenv,
@@ -85,7 +86,7 @@ func TestSessionsHostTakesUpJudgingEvidenceRun(t *testing.T) {
 		t.Fatalf("startSessions: %v", err)
 	}
 
-	run := waitEvidenceVerdict(t, st, evidenceWiringRun)
+	run := waitEvidenceVerdict(t, st, evidenceWiringRun, written)
 	if run.Verdict != evidence.VerdictHolds {
 		t.Errorf("verdict = %q, want %q: the open run is taken up at start", run.Verdict, evidence.VerdictHolds)
 	}
@@ -256,9 +257,10 @@ func evidenceWiringJudging(t *testing.T, st *store.Store) {
 	}
 }
 
-// waitEvidenceVerdict reads the run id from st until it has a verdict, and returns that read. It has no deadline of its
-// own.
-func waitEvidenceVerdict(t *testing.T, st *store.Store, id string) store.EvidenceRun {
+// waitEvidenceVerdict reads the run id from st until it has a verdict, and returns that read. It rechecks after each
+// signal on written, which the epics-written seam sends on each write that moves an epic, the verdict's among them. It
+// has no deadline of its own.
+func waitEvidenceVerdict(t *testing.T, st *store.Store, id string, written <-chan struct{}) store.EvidenceRun {
 	t.Helper()
 	for {
 		run, err := st.EvidenceRun(t.Context(), id)
@@ -271,6 +273,6 @@ func waitEvidenceVerdict(t *testing.T, st *store.Store, id string) store.Evidenc
 		if run.State == "ended" {
 			t.Fatalf("evidence run %s ended with no verdict", id)
 		}
-		time.Sleep(evidenceWiringPoll)
+		<-written
 	}
 }

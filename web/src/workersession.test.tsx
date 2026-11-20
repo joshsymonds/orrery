@@ -13,8 +13,8 @@ import { WorkerSessionPage } from "./workersession";
 
 type Props = Parameters<typeof WorkerSessionPage>[0];
 
-const resumesPlaceholder = "Nudge api: it resumes the step with your text";
-const interruptsPlaceholder = "Nudge api: it interrupts the turn, then prompts";
+const resumesPlaceholder = "Nudge api. It resumes with your words";
+const interruptsPlaceholder = "Nudge api. It interrupts the turn, then gives it your words";
 
 function item(init: MessageInitShape<typeof ConversationItemSchema>): ConversationItem {
   return create(ConversationItemSchema, init);
@@ -42,6 +42,7 @@ function step(init: MessageInitShape<typeof EpicStepSchema> = {}): EpicStep {
 function baseProps(calls: string[], init: Partial<Props>): Props {
   return {
     conversation: null,
+    now: 100_000,
     step: step(),
     epic: "orrery-style",
     task: "api",
@@ -193,7 +194,7 @@ test("the epic crumb calls onGoEpic, and the phase crumb onBack", async () => {
 test("a running step's box sends its nudge text through nudge", async () => {
   const calls: string[] = [];
   await withPage(calls, { step: step({ end: "", held: false }) }, async (container) => {
-    assert.equal(container.querySelector(".stepbox") !== null, true);
+    assert.equal(container.querySelector(".dock-box") !== null, true);
     assert.equal(textarea(container).placeholder, interruptsPlaceholder);
     await type(textarea(container), "check the migration");
     await press(textarea(container), "Enter");
@@ -205,7 +206,7 @@ test("a running step's box sends its nudge text through nudge", async () => {
 test("a held step's box offers the nudge that resumes it", async () => {
   const calls: string[] = [];
   await withPage(calls, { step: step({ end: "", held: true }) }, async (container) => {
-    assert.equal(container.querySelector(".composer.edge-held") !== null, true);
+    assert.equal(container.querySelector('.dock-box[data-state="held"]') !== null, true);
     assert.equal(textarea(container).placeholder, resumesPlaceholder);
     await type(textarea(container), "use the new schema");
     await press(textarea(container), "Enter");
@@ -216,6 +217,6 @@ test("a held step's box offers the nudge that resumes it", async () => {
 
 test("an ended step shows no box", async () => {
   await withPage([], { step: step({ end: "done" }) }, async (container) => {
-    assert.equal(container.querySelector(".stepbox") === null, true);
+    assert.equal(container.querySelector(".dock-box") === null, true);
   });
 });

@@ -16,8 +16,6 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   // EpicPage draws an epic's page in each state the fixtures hold: a rota decision, a released holder, a contract with tide
   // alerts, a stopped epic offline, and paused follow-ups.
   "epic-page": { replacement: "epic-building", epic: "F4" },
-  // WaitingCard draws a pending event that waits for you to speak or for the session to be free.
-  "waiting-card": { replacement: "Dock", epic: "F3" },
   // Mark draws the Orrery mark, the symbol the rail and the title row open on.
   mark: { replacement: "Tile", epic: "F2" },
   // Markdown draws reply prose: emphasis, a list, a fenced code block, a table, a heading with a link, and a marked query.
@@ -36,7 +34,7 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   reader: { replacement: "convo-shell", epic: "F3" },
   // ReaderColumn draws a row's column: its head, reader and send box, or the cursor's step, a held step, a loading session.
   "reader-column": { replacement: "convo-shell", epic: "F3" },
-  // ReaderHead draws a conversation's head, titled, or with where and the pill.
+  // ReaderHead draws a conversation's head, titled, or with where.
   "reader-head": { replacement: "TitleRow", epic: "F3" },
   // Talk draws the epic's Talk command, shut and open, with and without sessions or a repository.
   talk: { replacement: "epic-talk", epic: "F4" },
@@ -59,17 +57,14 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   // WorkCard draws an epic's card on a project's page when the epic has released, and when the fixtures hold no detail for it.
   "work-card/released": { replacement: "WorkCard", epic: "F2" },
   "work-card/unavailable": { replacement: "WorkCard", epic: "F2" },
-  // Dock draws the composer over a queue whose message was cancelled while the session worked.
-  "dock/canceled-queued": { replacement: "Dock", epic: "F3" },
   // EpicRow draws an epic's line: the cursor on it, its ⋯ menu shut, and an epic with no detail, so no orrery.
   "epic-row/current": { replacement: "EpicRow", epic: "F2" },
   "epic-row/with-menu": { replacement: "EpicRow", epic: "F2" },
   "epic-row/no-detail": { replacement: "EpicRow", epic: "F2" },
   // EpicEventBlock draws an epic's question event whose epic holds no open question, so the event reads it as settled.
   "epic-event-block/question-settled": { replacement: "EpicEventBlock", epic: "F3" },
-  // StepEndBlock draws a step that ended with no agent named and a looping reason, and a step's end that waits to be spoken.
+  // StepEndBlock draws a step that ended with no agent named and a looping reason.
   "step-end-block/without-agent": { replacement: "StepEndBlock", epic: "F3" },
-  "step-end-block/waiting": { replacement: "StepEndBlock", epic: "F3" },
   // FindBar draws the find field with no query, and with a query that has one match.
   "find-bar/empty": { replacement: "FindBar", epic: "F3" },
   "find-bar/one-match": { replacement: "FindBar", epic: "F3" },
@@ -81,12 +76,6 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   // Notice draws a stack of three notices, and of more than three with its "+n more" line.
   "notice/three-notices": { replacement: "Notice", epic: "F5" },
   "notice/over-the-limit": { replacement: "Notice", epic: "F5" },
-  // Pill draws a working row's pill with no tool, with a tool and its clock, an interrupting row, a failed session, and a held step.
-  "pill/working-tool": { replacement: "Pill", epic: "F3" },
-  "pill/working-no-tool": { replacement: "Pill", epic: "F3" },
-  "pill/interrupting": { replacement: "Pill", epic: "F3" },
-  "pill/failed": { replacement: "Pill", epic: "F3" },
-  "pill/step-held": { replacement: "Pill", epic: "F3" },
   // TitleRow draws a crumb and a state, a blocker, and a page's commands.
   "title-row/crumbs-and-state": { replacement: "TitleRow", epic: "F3" },
   "title-row/blocker": { replacement: "TitleRow", epic: "F3" },

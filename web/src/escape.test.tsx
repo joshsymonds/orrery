@@ -227,9 +227,14 @@ async function withApp(
 }
 
 function composer(container: HTMLElement): HTMLTextAreaElement {
-  const box = container.querySelector<HTMLTextAreaElement>(".reply:not([hidden]) .composer textarea");
+  const box = container.querySelector<HTMLTextAreaElement>(".reply:not([hidden]) textarea");
   assert.ok(box, "the reader has a composer");
   return box;
+}
+
+// headWord is the word of the state line the cursor's dock draws for the cursor's row.
+function headWord(container: HTMLElement): string {
+  return container.querySelector('[aria-label="reader"] .send > div:not([hidden]) .statebar .word')?.textContent ?? "";
 }
 
 function cursorKey(container: HTMLElement): string | null {
@@ -239,7 +244,7 @@ function cursorKey(container: HTMLElement): string | null {
 // queueTexts is the text of each message in the cursor's queue above its box, oldest first, without its tag.
 function queueTexts(container: HTMLElement): string[] {
   return Array.from(
-    container.querySelectorAll('[aria-label="reader"] .send .queue li .text'),
+    container.querySelectorAll('[aria-label="reader"] .send .tray-row .text'),
     (text) => text.textContent ?? "",
   );
 }
@@ -287,7 +292,7 @@ async function sendFromComposer(
   return String(fake.callsTo(sayPath)[0].body.promptId);
 }
 
-test("EscapeInterrupt: Escape on a working headless session withdraws its held messages into the composer in order, before it calls Control.Interrupt", (t) =>
+test("DockQueue: Escape on a working headless session puts its returned messages in the box in send order, before it calls Control.Interrupt", (t) =>
   withApp(t.signal, { rows: [sessionRow] }, async (container, fake) => {
     fake.replies.set(interruptPath, [{ texts: ["first", "second"] }]);
     await emitQueued(t.signal, container, fake, [
@@ -320,6 +325,39 @@ test("EscapeInterrupt: Escape on a waiting session calls no Control.Interrupt", 
     await until(t.signal, () => document.activeElement !== composer(container), "the blur");
     assert.equal(fake.callsTo(withdrawPath).length, 0, "a session that is not working asks for no withdraw");
     assert.equal(fake.callsTo(interruptPath).length, 0, "a waiting session is not interrupted");
+  }));
+
+test("EscapeInterrupt: Escape on a waiting session marks no interrupt, so the session later working reads working", (t) =>
+  withApp(t.signal, { rows: [{ ...sessionRow, state: "waiting" }] }, async (container, fake) => {
+    await press("i");
+    await pressIn(composer(container), "Escape");
+    await until(t.signal, () => document.activeElement !== composer(container), "the blur");
+    await act(() => {
+      render(<App rows={[sessionRow]} error="" now={now} clients={fake.clients} />, container);
+    });
+    assert.equal(headWord(container), "working");
+  }));
+
+test("DockState: Escape on a session whose stream reads working, while its listed row reads done, still interrupts", (t) =>
+  withApp(t.signal, { rows: [{ ...sessionRow, state: "done" }] }, async (container, fake) => {
+    await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    fake.emit(fake.callsTo(sessionWatchPath)[0], {
+      transcript: "s1.jsonl",
+      seq: "1",
+      reset: true,
+      items: [],
+      state: { session: { state: "working" } },
+    });
+    await until(t.signal, () => headWord(container) === "working", "the dock's line from the stream");
+    await press("Escape");
+    await until(t.signal, () => fake.callsTo(interruptPath).length === 1, "the interrupt");
+  }));
+
+test("EscapeInterrupt: Escape on a working pane marks no interrupt, so its line still reads working", (t) =>
+  withApp(t.signal, { rows: [paneRow] }, async (container, fake) => {
+    await press("Escape");
+    await until(t.signal, () => fake.callsTo(sendKeysPath).length === 1, "the Escape key");
+    assert.equal(headWord(container), "working");
   }));
 
 test("EscapeInterrupt: Escape in a step's box calls neither Control.Interrupt nor Control.Withdraw", (t) =>

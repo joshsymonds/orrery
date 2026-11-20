@@ -84,7 +84,7 @@ func recordEpicCall(
 func epicNamedBy(msg any) string {
 	switch req := msg.(type) {
 	case *v1.CreateEpicRequest:
-		return req.GetContract().GetId()
+		return req.GetId()
 	case *v1.AnswerEpicRequest:
 		return req.GetEpicId()
 	case *v1.GetEpicRequest:

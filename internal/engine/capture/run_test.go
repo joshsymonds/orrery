@@ -16,6 +16,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -173,15 +175,68 @@ func runCompare(t *testing.T, sink, got, want string) {
 	}
 }
 
-// runWaitGone waits until pid no longer exists. It has no deadline of its own.
+// runWaitGone waits until pid no longer exists. A pidfd for the process becomes readable when the process
+// exits, so the wait blocks in the kernel until then. It has no deadline of its own.
 func runWaitGone(t *testing.T, pid int) {
 	t.Helper()
-	for {
-		err := syscall.Kill(pid, 0)
-		if errors.Is(err, syscall.ESRCH) {
-			return
+	fd, err := unix.PidfdOpen(pid, 0)
+	if errors.Is(err, syscall.ESRCH) {
+		return
+	}
+	if err != nil {
+		t.Fatalf("open pidfd of %d: %v", pid, err)
+	}
+	defer func() {
+		if err := unix.Close(fd); err != nil {
+			t.Errorf("close pidfd of %d: %v", pid, err)
 		}
-		time.Sleep(10 * time.Millisecond)
+	}()
+	fds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}
+	for {
+		_, err := unix.Poll(fds, -1)
+		if errors.Is(err, syscall.EINTR) {
+			continue
+		}
+		if err != nil {
+			t.Fatalf("wait on pidfd of %d: %v", pid, err)
+		}
+		return
+	}
+}
+
+// runWatchDir starts an inotify watch on dir for files that are closed after a write or moved into dir, the
+// two ways a fake probe publishes a file there. The watch is closed when the test ends.
+func runWatchDir(t *testing.T, dir string) int {
+	t.Helper()
+	fd, err := unix.InotifyInit1(unix.IN_CLOEXEC)
+	if err != nil {
+		t.Fatalf("inotify_init1: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := unix.Close(fd); err != nil {
+			t.Errorf("close inotify fd: %v", err)
+		}
+	})
+	if _, err := unix.InotifyAddWatch(fd, dir, unix.IN_CLOSE_WRITE|unix.IN_MOVED_TO); err != nil {
+		t.Fatalf("watch %s: %v", dir, err)
+	}
+	return fd
+}
+
+// runAwaitDirChange blocks until the watch on fd reports a file closed after a write or moved into its
+// directory. It has no deadline of its own.
+func runAwaitDirChange(t *testing.T, fd int) {
+	t.Helper()
+	var buf [4096]byte
+	for {
+		_, err := unix.Read(fd, buf[:])
+		if errors.Is(err, syscall.EINTR) {
+			continue
+		}
+		if err != nil {
+			t.Fatalf("read inotify events: %v", err)
+		}
+		return
 	}
 }
 
@@ -433,11 +488,12 @@ func TestRunListsMalformedRequestsAndContinues(t *testing.T) {
 // own.
 func runAwaitPID(t *testing.T, path string) int {
 	t.Helper()
+	fd := runWatchDir(t, filepath.Dir(path))
 	for {
 		if data, err := os.ReadFile(path); err == nil && strings.HasSuffix(string(data), "\n") {
 			return runReadPID(t, path)
 		}
-		time.Sleep(time.Millisecond)
+		runAwaitDirChange(t, fd)
 	}
 }
 
@@ -520,13 +576,15 @@ while IFS= read -r line; do
 done
 `
 
-// runLockedWriter is a sink a test reads while Run writes it from its own goroutine.
+// runLockedWriter is a sink a test reads while Run writes it from its own goroutine. Each Write leaves a token on
+// changed, so a test can block until the sink has changed rather than poll it.
 type runLockedWriter struct {
-	mu  sync.Mutex
-	buf bytes.Buffer
+	mu      sync.Mutex
+	buf     bytes.Buffer
+	changed chan struct{}
 }
 
-// Write appends data.
+// Write appends data and signals the change.
 func (writer *runLockedWriter) Write(data []byte) (int, error) {
 	writer.mu.Lock()
 	defer writer.mu.Unlock()
@@ -534,7 +592,27 @@ func (writer *runLockedWriter) Write(data []byte) (int, error) {
 	if err != nil {
 		return n, fmt.Errorf("record sink write: %w", err)
 	}
+	select {
+	case writer.changesLocked() <- struct{}{}:
+	default:
+	}
 	return n, nil
+}
+
+// changes returns the channel that holds a token after each Write. A waiter that takes a token rechecks the
+// sink, which already holds every write made before the token was left.
+func (writer *runLockedWriter) changes() <-chan struct{} {
+	writer.mu.Lock()
+	defer writer.mu.Unlock()
+	return writer.changesLocked()
+}
+
+// changesLocked makes the channel on first use, so a zero runLockedWriter works.
+func (writer *runLockedWriter) changesLocked() chan struct{} {
+	if writer.changed == nil {
+		writer.changed = make(chan struct{}, 1)
+	}
+	return writer.changed
 }
 
 // String returns everything written so far.
@@ -626,12 +704,12 @@ func awaitRun(t *testing.T, done <-chan runOutcome) Outcome {
 // fails the test if Run returns first.
 func awaitAnswered(t *testing.T, done <-chan runOutcome, in *runLockedWriter) {
 	t.Helper()
+	changed := in.changes()
 	for !strings.Contains(in.String(), runAllowReply) {
 		select {
 		case got := <-done:
 			t.Fatalf("Run returned %+v before it answered the request sent during the linger", got)
-		default:
-			time.Sleep(time.Millisecond)
+		case <-changed:
 		}
 	}
 }

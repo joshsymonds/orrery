@@ -1,11 +1,13 @@
 package transport
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
+	"sync"
 	"testing"
-	"time"
 )
 
 const (
@@ -46,7 +48,6 @@ func TestRawLinesManyShortLinesSurviveBufferRefill(t *testing.T) {
 
 	const count = 3000
 	fake := newFakeProcess(t)
-	transport := startTransport(t, fake, WithRawLines(), WithBufferSize(count))
 	padding := strings.Repeat("p", 24)
 	want := make([]string, count)
 	var stream strings.Builder
@@ -55,10 +56,18 @@ func TestRawLinesManyShortLinesSurviveBufferRefill(t *testing.T) {
 		stream.WriteString(want[i])
 		stream.WriteByte('\n')
 	}
-	emit(fake, stream.String())
+	stdout := newParkingStream(stream.String())
+	transport := New(fake.stdinWriter, stdout, WithRawLines(), WithBufferSize(count))
+	t.Cleanup(func() {
+		if err := transport.Close(); err != nil {
+			t.Errorf("Close: %v", err)
+		}
+	})
+	t.Cleanup(stdout.release)
 
-	for len(transport.Lines()) < count {
-		time.Sleep(time.Millisecond)
+	<-stdout.asked
+	if got := len(transport.Lines()); got != count {
+		t.Fatalf("Lines holds %d lines, want %d", got, count)
 	}
 	for i, expected := range want {
 		if got := string(receive(t, transport.Lines())); got != expected {
@@ -66,6 +75,41 @@ func TestRawLinesManyShortLinesSurviveBufferRefill(t *testing.T) {
 		}
 	}
 	requireNoTermination(t, transport.Done())
+}
+
+// parkingStream is a transport's stdout that serves stream and then parks. The transport reads only when no
+// complete line it has been given is still undispatched, so its first read past stream means every line of
+// stream is on Lines. That read closes asked and waits until release, then returns io.EOF. The test releases it
+// in a cleanup that runs before the transport is closed.
+type parkingStream struct {
+	stream      *bytes.Reader
+	asked       chan struct{}
+	released    chan struct{}
+	askedOnce   sync.Once
+	releaseOnce sync.Once
+}
+
+func newParkingStream(data string) *parkingStream {
+	return &parkingStream{
+		stream:   bytes.NewReader([]byte(data)),
+		asked:    make(chan struct{}),
+		released: make(chan struct{}),
+	}
+}
+
+// Read serves the stream, then parks on its first read past the end.
+func (stdout *parkingStream) Read(p []byte) (int, error) {
+	if stdout.stream.Len() > 0 {
+		return stdout.stream.Read(p)
+	}
+	stdout.askedOnce.Do(func() { close(stdout.asked) })
+	<-stdout.released
+	return 0, io.EOF
+}
+
+// release ends the park, so a read past the end returns io.EOF.
+func (stdout *parkingStream) release() {
+	stdout.releaseOnce.Do(func() { close(stdout.released) })
 }
 
 func TestRawLinesLongerThanReadBufferArriveIntact(t *testing.T) {

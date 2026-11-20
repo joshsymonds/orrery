@@ -1,24 +1,11 @@
 package io.github.joshsymonds.orrery.ui
 
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.ui.test.assertHeightIsEqualTo
-import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.onAllNodesWithTag
-import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.performClick
 import com.connectrpc.Code
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
-import io.github.joshsymonds.orrery.awaitUntil
-import io.github.joshsymonds.orrery.gen.orrery.v1.StepsHoldRequest
-import io.github.joshsymonds.orrery.gen.orrery.v1.StepsHoldResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.StepsNudgeRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.StepsNudgeResponse
-import io.github.joshsymonds.orrery.gen.orrery.v1.StepsStopRequest
-import io.github.joshsymonds.orrery.gen.orrery.v1.StepsStopResponse
 import io.github.joshsymonds.orrery.mainThreadComposeRule
-import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import java.io.IOException
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -32,15 +19,8 @@ import org.robolectric.annotation.Config
 
 private const val STEP_ID = "synthetic-step-1"
 private const val NUDGE_TEXT = "synthetic nudge text"
-private const val HOLD_PATH = "/orrery.v1.Steps/Hold"
 private const val NUDGE_PATH = "/orrery.v1.Steps/Nudge"
-private const val STOP_PATH = "/orrery.v1.Steps/Stop"
-private const val HOLD_TAG = "step-hold"
-private const val STOP_TAG = "step-stop"
-private const val CONFIRM_TAG = "step-stop-confirm"
-private const val HOLD_LANDED = "hold landed"
 private const val NUDGE_LANDED = "nudge landed"
-private const val STOPPED = "stopped"
 private const val UNREACHABLE = "could not reach the step"
 private const val REFUSAL_REASON = "synthetic refusal"
 
@@ -55,79 +35,6 @@ class StepControlsTest {
     @After
     fun tearDown() {
         server.close()
-    }
-
-    @Test
-    fun holdPostsOnceAndShowsHoldLanded() {
-        server.respond(HOLD_PATH, StepsHoldResponse.getDefaultInstance())
-        val calls = StepCalls(OrreryClient(server.baseUrl), STEP_ID)
-        setActions(calls, held = false)
-
-        composeRule.onNodeWithTag(HOLD_TAG).performClick()
-        composeRule.awaitUntil { calls.outcome == HOLD_LANDED }
-        composeRule.waitForIdle()
-
-        composeRule.onNodeWithText(HOLD_LANDED).assertIsDisplayed()
-        assertEquals(1, server.requests.size)
-        val request = server.requests.single()
-        assertEquals("POST", request.method)
-        assertEquals(HOLD_PATH, request.rawPath)
-        assertEquals(StepsHoldRequest.newBuilder().setId(STEP_ID).build(), StepsHoldRequest.parseFrom(request.body))
-    }
-
-    @Test
-    fun heldStepShowsNoHoldButtonButKeepsStop() {
-        val calls = StepCalls(OrreryClient(server.baseUrl), STEP_ID)
-        setActions(calls, held = true)
-
-        composeRule.waitForIdle()
-        assertTrue(composeRule.onAllNodesWithTag(HOLD_TAG).fetchSemanticsNodes().isEmpty())
-        composeRule.onNodeWithTag(STOP_TAG).assertIsDisplayed()
-    }
-
-    @Test
-    fun inLineButtonsDrawTwentyFourHigh() {
-        val calls = StepCalls(OrreryClient(server.baseUrl), STEP_ID)
-        setActions(calls, held = false)
-
-        composeRule.onNodeWithTag(HOLD_TAG).assertHeightIsEqualTo(OrreryTokens.Size.gauge)
-        composeRule.onNodeWithTag(STOP_TAG).assertHeightIsEqualTo(OrreryTokens.Size.gauge)
-    }
-
-    @Test
-    fun stopPostsNothingUntilConfirmThenPostsOnceAndShowsStopped() {
-        server.respond(STOP_PATH, StepsStopResponse.getDefaultInstance())
-        val calls = StepCalls(OrreryClient(server.baseUrl), STEP_ID)
-        setActions(calls, held = false)
-
-        composeRule.onNodeWithTag(STOP_TAG).performClick()
-        composeRule.waitForIdle()
-        composeRule.onNodeWithTag(CONFIRM_TAG).assertIsDisplayed()
-        assertTrue(server.requests.isEmpty())
-
-        composeRule.onNodeWithTag(CONFIRM_TAG).performClick()
-        composeRule.awaitUntil { calls.outcome == STOPPED }
-        composeRule.waitForIdle()
-
-        composeRule.onNodeWithText(STOPPED).assertIsDisplayed()
-        assertEquals(1, server.requests.size)
-        val request = server.requests.single()
-        assertEquals("POST", request.method)
-        assertEquals(STOP_PATH, request.rawPath)
-        assertEquals(StepsStopRequest.newBuilder().setId(STEP_ID).build(), StepsStopRequest.parseFrom(request.body))
-    }
-
-    @Test
-    fun refusedHoldShowsTheRefusalReason() {
-        server.fail(HOLD_PATH, Code.FAILED_PRECONDITION, REFUSAL_REASON)
-        val calls = StepCalls(OrreryClient(server.baseUrl), STEP_ID)
-        setActions(calls, held = false)
-
-        composeRule.onNodeWithTag(HOLD_TAG).performClick()
-        composeRule.awaitUntil { calls.outcome == "refused: $REFUSAL_REASON" }
-        composeRule.waitForIdle()
-
-        composeRule.onNodeWithText("refused: $REFUSAL_REASON").assertIsDisplayed()
     }
 
     @Test
@@ -160,19 +67,6 @@ class StepControlsTest {
     }
 
     @Test
-    fun droppedHoldShowsCouldNotReachTheStep() {
-        server.drop(HOLD_PATH)
-        val calls = StepCalls(OrreryClient(server.baseUrl), STEP_ID)
-        setActions(calls, held = false)
-
-        composeRule.onNodeWithTag(HOLD_TAG).performClick()
-        composeRule.awaitUntil { calls.outcome == UNREACHABLE }
-        composeRule.waitForIdle()
-
-        composeRule.onNodeWithText(UNREACHABLE).assertIsDisplayed()
-    }
-
-    @Test
     fun droppedNudgeRethrowsAsIOExceptionAndShowsCouldNotReachTheStep() {
         server.drop(NUDGE_PATH)
         val calls = StepCalls(OrreryClient(server.baseUrl), STEP_ID)
@@ -181,13 +75,5 @@ class StepControlsTest {
 
         assertTrue(thrown !is NudgeRefusedException)
         assertEquals(UNREACHABLE, calls.outcome)
-    }
-
-    private fun setActions(calls: StepCalls, held: Boolean) {
-        composeRule.setContent {
-            MaterialTheme {
-                StepActions(calls, held)
-            }
-        }
     }
 }

@@ -5,7 +5,7 @@ import { BackgroundRow } from "./backgroundrow";
 import { type EpicCalls, EpicWidget } from "./card";
 import type { Conversation } from "./conversation";
 import type { Match } from "./find";
-import { EventRing, epicEventOf, StepCard, stepEventOf, WaitingCard } from "./eventring";
+import { EventRing, epicEventOf, StepCard, stepEventOf } from "./eventring";
 import { useFlash } from "./flash";
 import type { EpicStep, EpicStepCheck } from "./gen/orrery/v1/epics_pb";
 import type { ConversationItem, EngineText } from "./gen/orrery/v1/orrery_pb";
@@ -64,14 +64,14 @@ interface CallReveal {
 // conversation has older items, it calls onOlder, which loads the page before its oldest item. The page pages it a
 // screen at a time through the handle register gets.
 // With find, every case-insensitive occurrence of its query is a mark in what the reader draws of a reply, a prompt, a
-// call's input and result, and a notice. Compaction, check cards, epic cards, event rings, step cards, waiting cards,
+// call's input and result, and a notice. Compaction, check cards, epic cards, event rings, step cards,
 // background rows, live text, thinking, the question card, sending rows, event lines, cron rows and agent-finished
 // lines are not searched. The current match, find.current's index in find.matches, is the mark with class current: it
 // is scrolled into view as it arrives, and the fold, call or run that holds it opens. A fold opens when the current
 // match moves into it, and the owner can close it; it opens again only when the current match moves into it once more.
-// After the items and live text, the reader draws a waiting card for each caller event the conversation holds pending,
-// oldest first, except one whose id an event prompt already drawn holds. Then it draws a row for each background task
-// the conversation's state holds, in the state's order. The sending entries draw after them, each as a dimmed prompt
+// After the items and live text, the reader draws a row for each background task the conversation's state holds, in the
+// state's order. A caller event the conversation holds pending is not drawn: it draws as its card once its prompt
+// arrives. The sending entries draw after them, each as a dimmed prompt
 // row marked sending. They are not items: they keep no key and no place in the scroll place, and a reader
 // at its bottom keeps it as a new row arrives.
 export function Reader({
@@ -316,21 +316,6 @@ export function Reader({
   });
   const questionCard = question === null ? null : <QuestionCard question={question} onAnswer={onAnswer} />;
   const live = liveBlocks.map((block) => <LiveRow key={`${block.messageId}/${block.index}`} block={block} />);
-  // A pending event whose prompt is drawn is an ordinary card now, so it draws no waiting card, even before the next
-  // poll takes it out of the pending list.
-  const drawnEvents = new Set(
-    items.filter((item) => item.kind === "prompt" && item.sender === "event").map((item) => item.promptId),
-  );
-  const waiting = (conversation.state?.pending ?? [])
-    .filter((event) => !drawnEvents.has(event.id))
-    .map((event) => (
-      <div key={`waiting/${event.id}`} class="t waiting-row">
-        <span class="gut" />
-        <div class="body">
-          <WaitingCard event={event} calls={rowCalls} />
-        </div>
-      </div>
-    ));
   const background = (conversation.state?.background ?? []).map((task) => (
     <BackgroundRow key={task.id} task={task} onOpen={openCall} />
   ));
@@ -339,7 +324,6 @@ export function Reader({
       {rows}
       {questionCard}
       {live}
-      {waiting}
       {background}
       {sendingRows}
     </div>

@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/joshsymonds/orrery/internal/archive"
 	"github.com/joshsymonds/orrery/internal/closer"
 	"github.com/joshsymonds/orrery/internal/protocol"
@@ -111,7 +113,16 @@ func attach(t *testing.T, client *tmuxctl.Client, session string) string {
 		t.Fatalf("socket path: %v", err)
 	}
 	// script runs command through $SHELL; quoting the target keeps zsh from reading =name as a command lookup.
-	command := fmt.Sprintf("stty cols 80 rows 24; tmux -S %s attach -t '=%s'", strings.TrimSpace(socket), session)
+	// events is the directory the server's client-attached hook appends to, one byte per attach. The command appends
+	// the exited file when it ends, so a client that fails to attach wakes the wait below and fails the test.
+	events := t.TempDir()
+	hook := fmt.Sprintf("run-shell -b 'printf . >> %s'", filepath.Join(events, "attached"))
+	if _, err := client.Run(t.Context(), "set-hook", "-g", "client-attached", hook); err != nil {
+		t.Fatalf("set client-attached hook: %v", err)
+	}
+	exited := filepath.Join(events, "exited")
+	command := fmt.Sprintf("stty cols 80 rows 24; tmux -S %s attach -t '=%s'; : > '%s'",
+		strings.TrimSpace(socket), session, exited)
 	cmd := exec.CommandContext(t.Context(), "script", "-qfc", command, "/dev/null")
 	cmd.Env = append(withoutEnv(os.Environ(), "TMUX"), "TERM=xterm-256color")
 	cmd.Stdout = io.Discard
@@ -129,7 +140,10 @@ func attach(t *testing.T, client *tmuxctl.Client, session string) string {
 	})
 
 	var tty string
-	waitFor(t, "client on "+session, func() error {
+	waitFor(t, events, "client on "+session, func() error {
+		if _, err := os.Stat(exited); err == nil {
+			t.Fatalf("client on %s: attach ended before the client attached", session)
+		}
 		clients, err := clientSessions(t.Context(), client)
 		if err != nil {
 			return err
@@ -157,12 +171,34 @@ func withoutEnv(env []string, name string) []string {
 	return kept
 }
 
-// waitFor polls cond until it returns nil; what names the condition. It has no deadline of its own: tmux runs at the
-// machine's pace, and the test binary's timeout ends a wait that never ends.
-func waitFor(t *testing.T, _ string, cond func() error) {
+// watchMask is the inotify events a wait reads: an entry created, written, closed after writing, or moved in.
+const watchMask = unix.IN_CREATE | unix.IN_MODIFY | unix.IN_CLOSE_WRITE | unix.IN_MOVED_TO
+
+// waitFor checks cond, then blocks until an entry of dir changes, and checks again after each change. The watch is
+// added before the first check, so a change made after a check is an event the next read returns. The name of the
+// condition is not needed: the check names it when it fails. It has no deadline of its own: tmux runs at the machine's
+// pace, and the test binary's timeout ends a wait that never ends.
+func waitFor(t *testing.T, dir string, _ string, cond func() error) {
 	t.Helper()
+	fd, err := unix.InotifyInit1(unix.IN_NONBLOCK | unix.IN_CLOEXEC)
+	if err != nil {
+		t.Fatalf("inotify: %v", err)
+	}
+	// The descriptor is non-blocking, so the runtime poller serves each read and Close ends a read that is waiting.
+	inotify := os.NewFile(uintptr(fd), "wait watch")
+	defer func() {
+		if err := inotify.Close(); err != nil {
+			t.Errorf("close wait watch: %v", err)
+		}
+	}()
+	if _, err := unix.InotifyAddWatch(fd, dir, watchMask); err != nil {
+		t.Fatalf("watch %s: %v", dir, err)
+	}
+	buf := make([]byte, 4096)
 	for cond() != nil {
-		time.Sleep(50 * time.Millisecond)
+		if _, err := inotify.Read(buf); err != nil {
+			t.Fatalf("read watch events: %v", err)
+		}
 	}
 }
 

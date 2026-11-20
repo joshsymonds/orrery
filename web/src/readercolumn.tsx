@@ -4,21 +4,18 @@ import { useEffect, useMemo, useState } from "preact/hooks";
 import * as actions from "./actions";
 import type { Clients } from "./actions";
 import type { EpicCalls } from "./card";
-import { Composer, type ComposerHandle } from "./composer";
 import { type Conversation, shownConversation } from "./conversation";
+import { Dock, type DockHandle } from "./dock";
+import { rowFacts, stepFacts } from "./dockfacts";
 import type { StepItem } from "./epics";
 import { FindBar, type Match } from "./find";
-import type { Pane } from "./gen/orrery/v1/orrery_pb";
 import { Head, type HeadProps } from "./head";
 import { foldOf } from "./headfold";
 import { readerQuestion } from "./inboxrow";
 import { Reader, type ReaderHandle } from "./reader";
 import type { Row } from "./rows";
 import type { Sending, SentText } from "./sending";
-import { StepBox } from "./stepbox";
-import { lastPathElement } from "./titleparts";
 import { type InboxMark, TitleRow } from "./titlerow";
-import { Pill, stepPill } from "./workline";
 
 // FindState is a column's find bar, open on the row it was opened on: the query typed in it, and the match it shows, an
 // index into the matches the query finds in that row's conversation. A bar whose row leaves its column is closed.
@@ -53,8 +50,10 @@ export interface ReaderColumnProps {
   row: Row | null;
   // The conversation the column's reader holds, when its stream belongs to row.
   conversation: Conversation | null;
-  // The rows that keep a composer in this column. The shown row gets one before the effect that keeps it has run.
+  // The rows that keep a dock in this column. The shown row gets one before the effect that keeps it has run.
   rows: Row[];
+  // The rows whose interrupt mark holds, by row key: the column reads only whether a row is marked.
+  interrupts: Pick<ReadonlyMap<string, number>, "has">;
   mark: InboxMark;
   // pageStrip draws the strip under a step's title row, or under no row.
   pageStrip: (row: Row | null, conversation: Conversation | null) => ComponentChildren;
@@ -74,10 +73,10 @@ export interface ReaderColumnProps {
   matches: Match[];
   current: number;
   onFind: (finding: FindState | null) => void;
-  // The column's composer inputs by row key, and its composer handles, which an Escape calls.
+  // The column's dock inputs by row key, and its dock handles, which an Escape calls.
   inputs: { current: Map<string, HTMLTextAreaElement> };
-  handles: { current: Map<string, ComposerHandle> };
-  // The column's reader handle, which an empty composer's Page Up and Page Down page, and the older-page callback the
+  handles: { current: Map<string, DockHandle> };
+  // The column's reader handle, which an empty dock's Page Up and Page Down page, and the older-page callback the
   // reader calls at its top.
   reader: { current: ReaderHandle | null };
   older: { current: () => void };
@@ -89,6 +88,11 @@ export interface ReaderColumnProps {
   open: boolean;
   onToggleOpen?: () => void;
   onAnswer?: (choice: 1 | 2 | 3) => void;
+  // onInterrupt is a dock's state line Interrupt on a row: the row's Escape path. No Interrupt control is drawn without it.
+  onInterrupt?: (row: Row) => void;
+  // interrupt is a session row's Send now interrupt, which resolves the texts the interrupt cancelled. No Send now is
+  // drawn without it.
+  interrupt?: (row: Row) => Promise<string[]>;
   // The cursor column's step, when the cursor rests on one: the step it draws, the step boxes it keeps, and their inputs.
   step?: StepItem | null;
   steps?: StepItem[];
@@ -96,10 +100,10 @@ export interface ReaderColumnProps {
 }
 
 // ReaderColumn draws one reader column: the cursor's, or the pinned row's beside the list. It draws the row's head, the
-// find bar while one is open, the reader of the row, and the send box, with a composer for each kept row and only the
-// shown row's composer visible. The cursor column also draws its step, when one is given: the step's title row, its
-// reader, and a step box for each kept step. The column keeps only how its reader is scrolled: whether it is at the
-// newest line, and whether the owner tapped the folded head open since.
+// find bar while one is open, the reader of the row, and the send box, with a dock for each kept row and only the
+// shown row's dock visible. The cursor column also draws its step, when one is given: the step's title row, its reader,
+// and a dock for each kept step. The column keeps only how its reader is scrolled: whether it is at the newest line, and
+// whether the owner tapped the folded head open since.
 export function ReaderColumn({
   column,
   clients,
@@ -107,6 +111,7 @@ export function ReaderColumn({
   row,
   conversation,
   rows,
+  interrupts,
   mark,
   pageStrip,
   head,
@@ -131,6 +136,8 @@ export function ReaderColumn({
   open,
   onToggleOpen,
   onAnswer,
+  onInterrupt,
+  interrupt,
   step = null,
   steps = [],
   stepInputs,
@@ -138,7 +145,7 @@ export function ReaderColumn({
   const names = columnNames[column];
   const rowKey = row?.key ?? "";
   const stepKey = step?.key ?? "";
-  // The conversation the readers and the shown composer draw, without the prompts its queue still holds or has discarded.
+  // The conversation the readers and the shown dock draw, without the prompts its queue still holds or has discarded.
   const shown = useMemo(() => shownConversation(conversation), [conversation]);
   const [atNewest, setAtNewest] = useState(true);
   const [tapped, setTapped] = useState(false);
@@ -188,9 +195,7 @@ export function ReaderColumn({
           onBack={onBack}
           mark={mark}
           strip={pageStrip(null, null)}
-        >
-          <Pill model={stepPill(step.held, step.started)} now={now} />
-        </TitleRow>
+        />
       )}
       {row !== null && (
         <Reader
@@ -227,23 +232,33 @@ export function ReaderColumn({
         />
       )}
       <div class="send">
-        {composerRows(rows, row).map((entry) => (
+        {dockRows(rows, row).map((entry) => (
           <div key={entry.key} class={names.reply} hidden={entry.key !== rowKey}>
-            <Composer
-              label={rowName(entry)}
-              state={entry.key === rowKey ? headState(entry, conversation?.state?.pane) : entry.state}
+            <Dock
+              facts={rowFacts(entry, entry.key === rowKey ? conversation : null, interrupts.has(entry.key))}
+              now={now}
               send={(text, promptId) => actions.send(clients, entry, text, promptId)}
               pull={entry.kind === "pane" ? () => actions.pullQueued(clients, entry) : null}
               newPromptId={actions.newPromptId}
               register={(handle) => registerHandle(handles, entry.key, handle)}
               onPage={(direction) => reader.current?.page(direction) ?? false}
               onFind={() => onFind({ key: entry.key, query: "", current: 0 })}
+              onInterrupt={onInterrupt === undefined ? undefined : () => onInterrupt(entry)}
+              interrupt={interrupt === undefined || entry.kind !== "session" ? undefined : () => interrupt(entry)}
+              resume={
+                entry.kind === "session"
+                  ? async () => {
+                      await clients.control.resume({ id: entry.id });
+                    }
+                  : undefined
+              }
               queued={entry.key === rowKey ? conversation?.state?.waiting : undefined}
               sessionQueue={entry.key === rowKey ? conversation?.queued : undefined}
               withdraw={
                 entry.kind === "session" ? (promptId) => actions.withdrawQueued(clients, entry, promptId) : undefined
               }
               items={entry.key === rowKey ? shown?.items : undefined}
+              pending={entry.key === rowKey ? conversation?.state?.pending : undefined}
               onSending={(sent) => addSending(entry.key, sent, entry.key === rowKey ? conversation : null)}
               onUnsent={(promptId) => retractSending(entry.key, promptId)}
               inputRef={(element) => {
@@ -256,16 +271,17 @@ export function ReaderColumn({
             />
           </div>
         ))}
-        {composerRows(steps, step).map((entry) => {
+        {dockRows(steps, step).map((entry) => {
           const calls = stepCalls(clients, entry.id);
           return (
             <div key={entry.id} class={names.reply} hidden={entry.key !== stepKey}>
-              <StepBox
-                label={entry.label}
-                held={entry.held}
-                nudge={calls.nudge}
-                hold={calls.hold}
-                stop={calls.stop}
+              <Dock
+                facts={stepFacts(entry, entry.key === stepKey ? shown : null)}
+                now={now}
+                send={calls.nudge}
+                pull={null}
+                newPromptId={actions.newPromptId}
+                stepCalls={{ hold: calls.hold, stop: calls.stop }}
                 inputRef={(element) => {
                   if (element === null) {
                     stepInputs?.current.delete(entry.key);
@@ -282,10 +298,10 @@ export function ReaderColumn({
   );
 }
 
-// headState is the state a composer's box reads: a pane given speaks for the row, and a row with no pane reads its own
-// state.
-export function headState(row: Row, pane: Pane | undefined): string {
-  return pane?.state ?? row.state;
+// headState is the state a row's keys read: the state its dock's line draws, so a stream that reads working counts as
+// working where the list still says otherwise.
+export function headState(row: Row, conversation: Conversation | null): string {
+  return rowFacts(row, conversation, false).state;
 }
 
 // stepCalls are the owner's calls on one step, each naming the step by its id: Steps.Nudge with the text, Steps.Hold,
@@ -304,14 +320,8 @@ export function stepCalls(clients: Clients, id: string) {
   };
 }
 
-// rowName names a row in its composer's placeholder by its directory's last element, or by its line when it has no
-// directory.
-function rowName(row: Row): string {
-  return lastPathElement(row.project) || row.label;
-}
-
-// registerHandle keeps a composer's handle under its row key while the composer is mounted, and drops it on null.
-function registerHandle(handles: { current: Map<string, ComposerHandle> }, key: string, handle: ComposerHandle | null) {
+// registerHandle keeps a dock's handle under its row key while the dock is mounted, and drops it on null.
+function registerHandle(handles: { current: Map<string, DockHandle> }, key: string, handle: DockHandle | null) {
   if (handle === null) {
     handles.current.delete(key);
   } else {
@@ -319,9 +329,9 @@ function registerHandle(handles: { current: Map<string, ComposerHandle> }, key: 
   }
 }
 
-// composerRows returns the entries that render a box: the kept entries, and the shown entry before the effect has added
+// dockRows returns the entries that render a dock: the kept entries, and the shown entry before the effect has added
 // it.
-function composerRows<T extends { key: string }>(kept: T[], shown: T | null): T[] {
+function dockRows<T extends { key: string }>(kept: T[], shown: T | null): T[] {
   if (shown === null || kept.some((entry) => entry.key === shown.key)) {
     return kept;
   }

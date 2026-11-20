@@ -16,9 +16,10 @@ import (
 // epicCreateArgs is the arguments of epic_create, described for its input schema. The handler decodes the arguments
 // with protojson, which refuses an unknown key, so the struct is never decoded into.
 type epicCreateArgs struct {
-	Contract  json.RawMessage    `json:"contract"            jsonschema:"the accepted contract in protobuf JSON field names: id, repository, title, approved, intent, failures, care, additions, requirements, premises, exclusions, approach, alternatives, releaseSteps, releaseThen, checks, base, gates, doneGates, reviewers. A requirement carries item, its evidence: capture, limit, artifacts, supplied, conclusion, judge, kind and tests. Each entry of reviewers carries name, enabled, stage, must, mustNot, prompt, agent, model, tools, effort, limit and verify."`
+	ID        string             `json:"id"                  jsonschema:"the id of the accepted contract the epic is made from; the epic takes the same id"`
+	Base      string             `json:"base"                jsonschema:"the commit the epic starts from, in the contract's repository"`
 	Decisions []epicDecisionArgs `json:"decisions,omitempty"`
-	Workflow  string             `json:"workflow,omitempty"  jsonschema:"the workflow the epic pins, read at the contract's base: a repository file .orrery/workflows/<name>.yaml, else the built-in of that name; omit it to pin epic"`
+	Workflow  string             `json:"workflow,omitempty"  jsonschema:"the workflow the epic pins, read at base: a repository file .orrery/workflows/<name>.yaml, else the built-in of that name; omit it to pin epic"`
 }
 
 // epicDecisionArgs is one decision of epic_create's decisions.
@@ -153,8 +154,9 @@ func epicRecordTools(epics enginev1connect.EpicsClient, in epicInputs) []Tool {
 	return []Tool{
 		{
 			Name: "epic_create",
-			Description: "Create an epic from an accepted contract. decisions seeds the epic's recorded " +
-				"decisions. workflow names the workflow the epic pins, epic by default. Returns a short " +
+			Description: "Create an epic from an accepted contract, named by id; the epic takes that id and the " +
+				"accepted version's words. base is the commit the epic starts from. decisions seeds the epic's " +
+				"recorded decisions. workflow names the workflow the epic pins, epic by default. Returns a short " +
 				"acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. " +
 				"Lint findings come back as warnings: a warning line for each, naming its field and reason, and the " +
 				"epic is still stored. A refusal names the field that failed.",
@@ -344,7 +346,7 @@ func epicCreateHandler(epics enginev1connect.EpicsClient) ToolHandler {
 			return toolFailure(err), nil
 		}
 		epic := created.Msg.GetEpic()
-		return epicAck(epic, req.GetContract().GetId(), createChange(epic), created.Msg.GetWarnings()...), nil
+		return epicAck(epic, req.GetId(), createChange(epic), created.Msg.GetWarnings()...), nil
 	}
 }
 

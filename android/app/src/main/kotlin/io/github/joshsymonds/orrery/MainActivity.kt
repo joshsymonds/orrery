@@ -109,7 +109,11 @@ class MainActivity : ComponentActivity() {
                                     Screen.Panes -> PaneListScreen(
                                         client = client,
                                         onOpenPane = {
-                                            screen = if (it.headless) Screen.Session(it.id) else Screen.Pane(it.id)
+                                            screen = if (it.headless) {
+                                                Screen.Session(it.id, reason = it.summary)
+                                            } else {
+                                                Screen.Pane(it.id)
+                                            }
                                         },
                                         onOpenPaneId = { screen = Screen.Pane(it) },
                                         onStartedSession = { screen = Screen.Session(it) },
@@ -126,7 +130,13 @@ class MainActivity : ComponentActivity() {
                                             epicId = current.id,
                                             onBack = { screen = Screen.Panes },
                                             onOpenStep = {
-                                                screen = Screen.Step(it.id, held = it.held, back = current)
+                                                screen = Screen.Step(
+                                                    it.id,
+                                                    held = it.held,
+                                                    back = current,
+                                                    label = it.task.ifEmpty { it.agent },
+                                                    doing = it.doing,
+                                                )
                                             },
                                             onOpenContract = { screen = Screen.Contract(current.id) },
                                             onOpenPhase = { task, phase ->
@@ -153,7 +163,13 @@ class MainActivity : ComponentActivity() {
                                                 screen = Screen.Phase(current.epicId, task, phase)
                                             },
                                             onOpenSession = {
-                                                screen = Screen.Step(it.id, held = it.held, back = current)
+                                                screen = Screen.Step(
+                                                    it.id,
+                                                    held = it.held,
+                                                    back = current,
+                                                    label = it.task.ifEmpty { it.agent },
+                                                    doing = it.doing,
+                                                )
                                             },
                                         )
                                     }
@@ -172,7 +188,11 @@ class MainActivity : ComponentActivity() {
                                             sessionId = current.id,
                                             client = client,
                                             onBack = { screen = current.back },
-                                            step = StepMode(held = current.held),
+                                            step = StepMode(
+                                                held = current.held,
+                                                label = current.label,
+                                                doing = current.doing,
+                                            ),
                                             onOpenEpic = { screen = Screen.Epic(it) },
                                         )
                                     }
@@ -191,6 +211,7 @@ class MainActivity : ComponentActivity() {
                                             sessionId = current.id,
                                             client = client,
                                             onBack = { screen = Screen.Panes },
+                                            reason = current.reason,
                                             onOpenEpic = { screen = Screen.Epic(it) },
                                         )
                                     }
@@ -317,7 +338,7 @@ class MainActivity : ComponentActivity() {
         data object Settings : Screen
         data object Pools : Screen
         data class Pane(val id: String) : Screen
-        data class Session(val id: String) : Screen
+        data class Session(val id: String, val reason: String = "") : Screen
         /** An epic, at its top or, when [open] is set, at that section. */
         data class Epic(val id: String, val open: EpicOpening? = null) : Screen
 
@@ -332,9 +353,16 @@ class MainActivity : ComponentActivity() {
 
         /**
          * A step's session, reached from its epic or from a task's phase output: back returns to [back]. [held] is the
-         * step's held state when it was opened.
+         * step's held state when it was opened, and [label] and [doing] name the step and say what it is doing in its
+         * dock.
          */
-        data class Step(val id: String, val held: Boolean, val back: Screen) : Screen
+        data class Step(
+            val id: String,
+            val held: Boolean,
+            val back: Screen,
+            val label: String,
+            val doing: String,
+        ) : Screen
 
     }
 }
