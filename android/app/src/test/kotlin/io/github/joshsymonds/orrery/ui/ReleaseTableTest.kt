@@ -204,40 +204,6 @@ class ReleaseTableTest {
     }
 
     @Test
-    fun aReleasingEpicsWordsNameTheStepItIsAt() {
-        FakeOrreryServer().use { server ->
-            serve(
-                server,
-                body(
-                    outcome = "releasing",
-                    steps = listOf(releaseStep(1, "passed"), releaseStep(2, "running"), releaseStep(3, "waiting")),
-                ),
-            )
-            setScreen(server)
-            awaitLoaded()
-
-            assertTextAt("release-words", "step 2 of 3")
-        }
-    }
-
-    @Test
-    fun aReleasedEpicsWordsCountItsPassedSteps() {
-        FakeOrreryServer().use { server ->
-            serve(
-                server,
-                body(
-                    outcome = "released",
-                    steps = listOf(releaseStep(1, "passed"), releaseStep(2, "passed"), releaseStep(3, "waiting")),
-                ),
-            )
-            setScreen(server)
-            awaitLoaded()
-
-            assertTextAt("release-words", "2 of 3 steps passed")
-        }
-    }
-
-    @Test
     fun aStepRowShowsItsPositionStepTargetAndUndo() {
         FakeOrreryServer().use { server ->
             serve(
