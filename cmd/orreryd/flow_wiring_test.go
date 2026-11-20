@@ -37,8 +37,11 @@ func TestSessionsHostLeavesCompletedEpicUnparked(t *testing.T) {
 	}
 	st := openPaneStore(t, path)
 	created := time.Unix(plannerWiringStamp, 0)
-	createFlowWiringEpic(t, st, flowWiringEpic, created)
-	createFlowWiringEpic(t, st, flowWiringControl, created)
+	// The control epic runs its red and cost at a scratch repository's base, so it reaches its plan. The synthetic epic's
+	// cost ends in its fixture, and it keeps the synthetic repository with no base, where its review waits as it did.
+	repo, base := buildWiringRepo(t)
+	createFlowWiringEpic(t, st, flowWiringEpic, flowWiringRepo, "", created)
+	createFlowWiringEpic(t, st, flowWiringControl, repo, base, created)
 	endFlowWiringPlan(t, st, flowWiringEpic, created)
 	read, err := st.EpicFlow(ctx, flowWiringEpic)
 	if err != nil {
@@ -77,12 +80,14 @@ func TestSessionsHostLeavesCompletedEpicUnparked(t *testing.T) {
 	}
 }
 
-// createFlowWiringEpic creates the synthetic accepted epic id with one requirement, as the planner wiring test does.
-func createFlowWiringEpic(t *testing.T, st *store.Store, id string, created time.Time) {
+// createFlowWiringEpic creates the synthetic accepted epic id over repo at base, with one requirement, as the planner
+// wiring test does.
+func createFlowWiringEpic(t *testing.T, st *store.Store, id, repo, base string, created time.Time) {
 	t.Helper()
 	if err := st.CreateEpic(t.Context(), store.EpicRow{
 		ID:          id,
-		Repository:  flowWiringRepo,
+		Repository:  repo,
+		Base:        base,
 		Title:       "Run the flow",
 		Approved:    "approved text",
 		Intent:      "plan the next tasks",
@@ -101,24 +106,43 @@ func createFlowWiringEpic(t *testing.T, st *store.Store, id string, created time
 	}
 }
 
-// endFlowWiringPlan starts the plan run of epic and ends it complete, as a plan whose turns finished leaves it.
+// endFlowWiringPlan starts the plan run of epic and ends it complete, as a plan whose turns finished leaves it. The red
+// and cost runs before it end passed first, since the plan starts only once they have.
 func endFlowWiringPlan(t *testing.T, st *store.Store, epic string, at time.Time) {
 	t.Helper()
 	ctx := t.Context()
-	run := store.NodeRun{
-		Path: "plan", ID: store.NodeRunID(epic, "plan", 0, "start"), Node: "plan", Kind: "plan", Started: at,
+	nodes := []struct{ path, kind, outcome string }{
+		{"red", "evidence", "passed"}, {"cost", "cost", "passed"}, {"plan", "plan", "complete"},
 	}
-	if err := st.StartNodes(ctx, epic, []store.NodeRun{run}, nil, at); err != nil {
-		t.Fatalf("start plan run of %s: %v", epic, err)
+	runs := make([]store.NodeRun, 0, len(nodes))
+	ends := make([]store.NodeEnd, 0, len(nodes))
+	for _, node := range nodes {
+		runs = append(runs, store.NodeRun{
+			Path: node.path, ID: store.NodeRunID(epic, node.path, 0, "start"), Node: node.path, Kind: node.kind,
+			Started: at,
+		})
+		ends = append(ends, store.NodeEnd{Path: node.path, Outcome: node.outcome})
 	}
-	if err := st.EndNodes(ctx, epic, []store.NodeEnd{{Path: "plan", Outcome: "complete"}}, at); err != nil {
-		t.Fatalf("end plan run of %s: %v", epic, err)
+	if err := st.StartNodes(ctx, epic, runs, nil, at); err != nil {
+		t.Fatalf("start node runs of %s: %v", epic, err)
 	}
-	runs, err := st.NodeRuns(ctx, epic)
+	if err := st.EndNodes(ctx, epic, ends, at); err != nil {
+		t.Fatalf("end node runs of %s: %v", epic, err)
+	}
+	read, err := st.NodeRuns(ctx, epic)
 	if err != nil {
 		t.Fatalf("read node runs of %s: %v", epic, err)
 	}
-	if len(runs) != 1 || runs[0].State != store.NodeEnded || runs[0].Outcome != "complete" {
-		t.Fatalf("node runs of %s = %+v, want one plan run ended complete", epic, runs)
+	if len(read) != len(nodes) {
+		t.Fatalf("node runs of %s = %+v, want %d runs", epic, read, len(nodes))
+	}
+	byPath := make(map[string]store.NodeRun, len(read))
+	for _, run := range read {
+		byPath[run.Path] = run
+	}
+	for _, node := range nodes {
+		if run := byPath[node.path]; run.State != store.NodeEnded || run.Outcome != node.outcome {
+			t.Fatalf("node run %s of %s = %+v, want ended %s", node.path, epic, run, node.outcome)
+		}
 	}
 }

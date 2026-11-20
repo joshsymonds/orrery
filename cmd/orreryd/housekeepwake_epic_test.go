@@ -64,7 +64,7 @@ func TestHousekeepWakeSessionsHostSummarizesAndReportsAnEpic(t *testing.T) {
 	st, getenv := openLimitStore(t)
 	startHousekeepHost(t, st, getenv, housekeepClaude(t))
 
-	createFlowWiringEpic(t, st, housekeepWakeEpic, time.Unix(housekeepWakeStamp, 0))
+	createFlowWiringEpic(t, st, housekeepWakeEpic, flowWiringRepo, "", time.Unix(housekeepWakeStamp, 0))
 	waittest.Until(t, nil, "the stored epic has its summary", func() bool {
 		row, err := st.Epic(t.Context(), housekeepWakeEpic)
 		return err == nil && row.Summary != ""

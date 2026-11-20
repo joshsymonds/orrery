@@ -37,6 +37,7 @@ type Store interface {
 	RunningTurns(ctx context.Context) ([]store.EpicTurn, error)
 	RateLimit(ctx context.Context, session string) (store.RateLimit, bool, error)
 	Follows(ctx context.Context) ([]store.LabelFollow, error)
+	GapTurns(ctx context.Context, epic string) ([]store.GapTurn, error)
 }
 
 // Steps starts planner steps, subscribes to their ends and holds, and stops them. *enginehost.Steps satisfies it.
@@ -311,6 +312,10 @@ func (r *Runner) startStep(ctx context.Context, epic string, turn store.EpicTurn
 	if err != nil {
 		return "", fmt.Errorf("read the spent lines of turn %d of epic %s: %w", turn.Seq, epic, err)
 	}
+	gapTurns, err := r.store.GapTurns(ctx, epic)
+	if err != nil {
+		return "", fmt.Errorf("read the gap turns of epic %s: %w", epic, err)
+	}
 	prompt, err := Prompt(row, turn.Seq, triggers, follows, spent)
 	if err != nil {
 		return "", fmt.Errorf("render prompt of turn %d of epic %s: %w", turn.Seq, epic, err)
@@ -323,7 +328,7 @@ func (r *Runner) startStep(ctx context.Context, epic string, turn store.EpicTurn
 		Workspace:   row.Repository,
 		ReadOnly:    true,
 		Epic:        row.ID,
-		ReturnCheck: returnCheck(ctx, row, review, r.resolve),
+		ReturnCheck: returnCheck(ctx, row, review, r.resolve, priorGapTurns(gapTurns, triggers)),
 	})
 	if id != "" {
 		if setErr := r.recordStep(ctx, epic, turn.Seq, id); setErr != nil {
@@ -745,12 +750,19 @@ func planOf(ret Return) store.EpicPlan {
 		actions = append(actions, store.EpicActionInput{
 			Kind: action.Kind, Node: action.Node, Task: action.Task, Close: action.Close, By: action.By,
 			Requirement: action.Requirement, Item: action.Item, Deliverable: action.Deliverable,
-			Files: action.Files, Remove: action.Remove, UndoNone: action.UndoNone, Reason: action.Reason,
+			Files: action.Files, Remove: action.Remove, Reviewer: action.Reviewer, UndoNone: action.UndoNone,
+			Reason: action.Reason,
+		})
+	}
+	unresolvable := make([]store.GapDeclaration, 0, len(ret.Unresolvable))
+	for _, entry := range ret.Unresolvable {
+		unresolvable = append(unresolvable, store.GapDeclaration{
+			Gap: entry.Gap, Reason: entry.Reason, Recommended: entry.Recommended,
 		})
 	}
 	return store.EpicPlan{
 		Decisions: ret.Decisions, Tasks: tasks, Outline: ret.Outline, Questions: questions, Outcome: ret.Outcome,
-		Actions: actions,
+		Actions: actions, Unresolvable: unresolvable,
 	}
 }
 
@@ -776,12 +788,14 @@ func questionInputOf(question Question) store.EpicQuestionInput {
 // Any other return gets the refusals of Check, against the epic's Requirement ids, the files of its open tasks, and the
 // gates and judges that resolve answers for epic, then those of checkAmendKeeps against the epic's Requirements, then
 // those of checkClosureTasks against the epic's phase, then those of checkCloses against the epic's phase and the
-// findings of review that the next closure round checks. Coverage and the spent lines are not refusals: the prompt
-// names them. When epic holds a planner-class park, a return with no action and no question gets one more line from
-// checkPark, which names the park reason. An owner park is not checked, since the owner answers it. The gate resolves
-// under ctx without its cancellation, so the turn that started the step ending does not refuse its return.
+// findings of review that the next closure round checks, then those of checkSpentGaps against gapTurns, the planner
+// turns each gap of the epic was given before the checked turn, for the rerun_review actions that name a reviewer whose
+// gap has spent its turns. Coverage and the spent lines are not refusals: the prompt names them. When epic holds a
+// planner-class park, a return with no action and no question gets one more line from checkPark, which names the park
+// reason. An owner park is not checked, since the owner answers it. The gate resolves under ctx without its
+// cancellation, so the turn that started the step ending does not refuse its return.
 func returnCheck(
-	ctx context.Context, epic store.EpicRow, review store.Review, resolve Resolver,
+	ctx context.Context, epic store.EpicRow, review store.Review, resolve Resolver, gapTurns []store.GapTurn,
 ) func(value json.RawMessage) []string {
 	requirements := make([]string, 0, len(epic.Requirements))
 	for _, requirement := range epic.Requirements {
@@ -809,6 +823,7 @@ func returnCheck(
 		refusals = append(refusals, checkAmendKeeps(ret, epic.Requirements)...)
 		refusals = append(refusals, checkClosureTasks(ret, epic.Phase)...)
 		refusals = append(refusals, checkCloses(ret, epic.Phase, open)...)
+		refusals = append(refusals, checkSpentGaps(ret, gapTurns)...)
 		return append(refusals, checkPark(ret, park)...)
 	}
 }

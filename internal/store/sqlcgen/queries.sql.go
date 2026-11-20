@@ -632,6 +632,54 @@ func (q *Queries) DeleteEngineText(ctx context.Context, arg DeleteEngineTextPara
 	return err
 }
 
+const deleteEpicClosuresOfReviewer = `-- name: DeleteEpicClosuresOfReviewer :exec
+DELETE FROM epic_closures WHERE epic_closures.epic = ?1 AND epic_closures.finding IN (
+    SELECT epic_ledger.id FROM epic_ledger
+    WHERE epic_ledger.epic = ?1 AND epic_ledger.reviewer = ?2
+)
+`
+
+type DeleteEpicClosuresOfReviewerParams struct {
+	Epic     string
+	Reviewer string
+}
+
+func (q *Queries) DeleteEpicClosuresOfReviewer(ctx context.Context, arg DeleteEpicClosuresOfReviewerParams) error {
+	_, err := q.db.ExecContext(ctx, deleteEpicClosuresOfReviewer, arg.Epic, arg.Reviewer)
+	return err
+}
+
+const deleteEpicLedgerOfReviewer = `-- name: DeleteEpicLedgerOfReviewer :exec
+DELETE FROM epic_ledger WHERE epic = ? AND reviewer = ?
+`
+
+type DeleteEpicLedgerOfReviewerParams struct {
+	Epic     string
+	Reviewer string
+}
+
+func (q *Queries) DeleteEpicLedgerOfReviewer(ctx context.Context, arg DeleteEpicLedgerOfReviewerParams) error {
+	_, err := q.db.ExecContext(ctx, deleteEpicLedgerOfReviewer, arg.Epic, arg.Reviewer)
+	return err
+}
+
+const deleteEpicReviewVerdictOf = `-- name: DeleteEpicReviewVerdictOf :execrows
+DELETE FROM epic_review_verdicts WHERE epic = ? AND reviewer = ?
+`
+
+type DeleteEpicReviewVerdictOfParams struct {
+	Epic     string
+	Reviewer string
+}
+
+func (q *Queries) DeleteEpicReviewVerdictOf(ctx context.Context, arg DeleteEpicReviewVerdictOfParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteEpicReviewVerdictOf, arg.Epic, arg.Reviewer)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const deleteEpicTaskFile = `-- name: DeleteEpicTaskFile :exec
 DELETE FROM epic_task_files WHERE epic = ? AND task = ? AND path = ?
 `
@@ -2552,6 +2600,29 @@ func (q *Queries) InsertEpicFailure(ctx context.Context, arg InsertEpicFailurePa
 	return err
 }
 
+const insertEpicGapTurn = `-- name: InsertEpicGapTurn :exec
+INSERT INTO epic_gap_turns (epic, gap, turn, reason, created) VALUES (?, ?, ?, ?, ?)
+`
+
+type InsertEpicGapTurnParams struct {
+	Epic    string
+	Gap     string
+	Turn    int64
+	Reason  string
+	Created int64
+}
+
+func (q *Queries) InsertEpicGapTurn(ctx context.Context, arg InsertEpicGapTurnParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicGapTurn,
+		arg.Epic,
+		arg.Gap,
+		arg.Turn,
+		arg.Reason,
+		arg.Created,
+	)
+	return err
+}
+
 const insertEpicGate = `-- name: InsertEpicGate :exec
 INSERT INTO epic_gates (epic, position, name, argv, limit_seconds, needs, agent, must, must_not)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -3014,6 +3085,29 @@ func (q *Queries) InsertEpicReviewHold(ctx context.Context, arg InsertEpicReview
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const insertEpicReviewRerun = `-- name: InsertEpicReviewRerun :exec
+INSERT INTO epic_review_reruns (epic, reviewer, turn, position, created) VALUES (?, ?, ?, ?, ?)
+`
+
+type InsertEpicReviewRerunParams struct {
+	Epic     string
+	Reviewer string
+	Turn     int64
+	Position int64
+	Created  int64
+}
+
+func (q *Queries) InsertEpicReviewRerun(ctx context.Context, arg InsertEpicReviewRerunParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicReviewRerun,
+		arg.Epic,
+		arg.Reviewer,
+		arg.Turn,
+		arg.Position,
+		arg.Created,
+	)
+	return err
 }
 
 const insertEpicReviewRound = `-- name: InsertEpicReviewRound :exec
@@ -3749,9 +3843,9 @@ func (q *Queries) InsertNoticeHistory(ctx context.Context, arg InsertNoticeHisto
 const insertPlannerAction = `-- name: InsertPlannerAction :exec
 INSERT INTO planner_actions (
     epic, turn, position, kind, node, task, close_kind, by_epic, undo_none, reason, state, refusal, requirement, item,
-    deliverable, files, remove_files
+    deliverable, files, remove_files, reviewer
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?, ?, ?, ?, ?, ?)
 `
 
 type InsertPlannerActionParams struct {
@@ -3770,6 +3864,7 @@ type InsertPlannerActionParams struct {
 	Deliverable string
 	Files       string
 	RemoveFiles string
+	Reviewer    string
 }
 
 func (q *Queries) InsertPlannerAction(ctx context.Context, arg InsertPlannerActionParams) error {
@@ -3789,6 +3884,32 @@ func (q *Queries) InsertPlannerAction(ctx context.Context, arg InsertPlannerActi
 		arg.Deliverable,
 		arg.Files,
 		arg.RemoveFiles,
+		arg.Reviewer,
+	)
+	return err
+}
+
+const insertPlannerUnresolvable = `-- name: InsertPlannerUnresolvable :exec
+INSERT INTO planner_unresolvable (epic, turn, position, gap, reason, recommended) VALUES (?, ?, ?, ?, ?, ?)
+`
+
+type InsertPlannerUnresolvableParams struct {
+	Epic        string
+	Turn        int64
+	Position    int64
+	Gap         string
+	Reason      string
+	Recommended string
+}
+
+func (q *Queries) InsertPlannerUnresolvable(ctx context.Context, arg InsertPlannerUnresolvableParams) error {
+	_, err := q.db.ExecContext(ctx, insertPlannerUnresolvable,
+		arg.Epic,
+		arg.Turn,
+		arg.Position,
+		arg.Gap,
+		arg.Reason,
+		arg.Recommended,
 	)
 	return err
 }
@@ -4588,7 +4709,7 @@ func (q *Queries) ListEpicAmendments(ctx context.Context, epic string) ([]EpicAm
 }
 
 const listEpicChainActions = `-- name: ListEpicChainActions :many
-SELECT planner_actions.epic, planner_actions.turn, planner_actions.position, planner_actions.kind, planner_actions.node, planner_actions.task, planner_actions.close_kind, planner_actions.by_epic, planner_actions.undo_none, planner_actions.reason, planner_actions.state, planner_actions.refusal, planner_actions.park, planner_actions.requirement, planner_actions.item, planner_actions.deliverable, planner_actions.files, planner_actions.remove_files FROM planner_actions
+SELECT planner_actions.epic, planner_actions.turn, planner_actions.position, planner_actions.kind, planner_actions.node, planner_actions.task, planner_actions.close_kind, planner_actions.by_epic, planner_actions.undo_none, planner_actions.reason, planner_actions.state, planner_actions.refusal, planner_actions.park, planner_actions.requirement, planner_actions.item, planner_actions.deliverable, planner_actions.files, planner_actions.remove_files, planner_actions.reviewer FROM planner_actions
 JOIN epic_parks ON epic_parks.epic = planner_actions.epic AND epic_parks.seq = planner_actions.park
 WHERE planner_actions.epic = ?1 AND epic_parks.chain = ?2
   AND planner_actions.state IN ('taken', 'refused')
@@ -4628,6 +4749,7 @@ func (q *Queries) ListEpicChainActions(ctx context.Context, arg ListEpicChainAct
 			&i.Deliverable,
 			&i.Files,
 			&i.RemoveFiles,
+			&i.Reviewer,
 		); err != nil {
 			return nil, err
 		}
@@ -4866,6 +4988,77 @@ func (q *Queries) ListEpicFailures(ctx context.Context, epic string) ([]EpicFail
 			&i.Text,
 			&i.Rating,
 			&i.Response,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEpicGapTurns = `-- name: ListEpicGapTurns :many
+SELECT epic, gap, turn, reason, created FROM epic_gap_turns WHERE epic = ? ORDER BY gap, turn
+`
+
+func (q *Queries) ListEpicGapTurns(ctx context.Context, epic string) ([]EpicGapTurn, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicGapTurns, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicGapTurn
+	for rows.Next() {
+		var i EpicGapTurn
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Gap,
+			&i.Turn,
+			&i.Reason,
+			&i.Created,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEpicGapTurnsOf = `-- name: ListEpicGapTurnsOf :many
+SELECT epic, gap, turn, reason, created FROM epic_gap_turns WHERE epic = ? AND gap = ? ORDER BY turn
+`
+
+type ListEpicGapTurnsOfParams struct {
+	Epic string
+	Gap  string
+}
+
+func (q *Queries) ListEpicGapTurnsOf(ctx context.Context, arg ListEpicGapTurnsOfParams) ([]EpicGapTurn, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicGapTurnsOf, arg.Epic, arg.Gap)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicGapTurn
+	for rows.Next() {
+		var i EpicGapTurn
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Gap,
+			&i.Turn,
+			&i.Reason,
+			&i.Created,
 		); err != nil {
 			return nil, err
 		}
@@ -5453,6 +5646,39 @@ func (q *Queries) ListEpicReviewHolds(ctx context.Context, epic string) ([]EpicR
 	for rows.Next() {
 		var i EpicReviewHold
 		if err := rows.Scan(&i.Epic, &i.Step); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEpicReviewReruns = `-- name: ListEpicReviewReruns :many
+SELECT epic, reviewer, turn, position, created FROM epic_review_reruns WHERE epic = ? ORDER BY turn, position
+`
+
+func (q *Queries) ListEpicReviewReruns(ctx context.Context, epic string) ([]EpicReviewRerun, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicReviewReruns, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicReviewRerun
+	for rows.Next() {
+		var i EpicReviewRerun
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Reviewer,
+			&i.Turn,
+			&i.Position,
+			&i.Created,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -8094,7 +8320,7 @@ func (q *Queries) ListPendingNotices(ctx context.Context) ([]PendingNotice, erro
 }
 
 const listPendingPlannerActions = `-- name: ListPendingPlannerActions :many
-SELECT epic, turn, position, kind, node, task, close_kind, by_epic, undo_none, reason, state, refusal, park, requirement, item, deliverable, files, remove_files FROM planner_actions WHERE state = 'pending' ORDER BY epic, turn, position
+SELECT epic, turn, position, kind, node, task, close_kind, by_epic, undo_none, reason, state, refusal, park, requirement, item, deliverable, files, remove_files, reviewer FROM planner_actions WHERE state = 'pending' ORDER BY epic, turn, position
 `
 
 func (q *Queries) ListPendingPlannerActions(ctx context.Context) ([]PlannerAction, error) {
@@ -8125,6 +8351,7 @@ func (q *Queries) ListPendingPlannerActions(ctx context.Context) ([]PlannerActio
 			&i.Deliverable,
 			&i.Files,
 			&i.RemoveFiles,
+			&i.Reviewer,
 		); err != nil {
 			return nil, err
 		}
@@ -9014,6 +9241,46 @@ func (q *Queries) ListUnreportedEpics(ctx context.Context) ([]Epic, error) {
 			&i.OriginReadCommit,
 			&i.OriginReadState,
 			&i.OriginReadAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUnresolvableOfLastTurn = `-- name: ListUnresolvableOfLastTurn :many
+SELECT epic, turn, position, gap, reason, recommended FROM planner_unresolvable
+WHERE planner_unresolvable.epic = ?1
+  AND planner_unresolvable.turn = (
+      SELECT MAX(epic_turns.seq) FROM epic_turns
+      WHERE epic_turns.epic = ?1 AND epic_turns.state = 'succeeded'
+  )
+ORDER BY planner_unresolvable.position
+`
+
+func (q *Queries) ListUnresolvableOfLastTurn(ctx context.Context, epic string) ([]PlannerUnresolvable, error) {
+	rows, err := q.db.QueryContext(ctx, listUnresolvableOfLastTurn, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PlannerUnresolvable
+	for rows.Next() {
+		var i PlannerUnresolvable
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Turn,
+			&i.Position,
+			&i.Gap,
+			&i.Reason,
+			&i.Recommended,
 		); err != nil {
 			return nil, err
 		}

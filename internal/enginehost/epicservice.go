@@ -960,6 +960,7 @@ const (
 	kindPlan     = "plan"
 	kindBuild    = "build"
 	kindGate     = "gate"
+	kindCost     = "cost"
 	kindCommand  = "command"
 	kindEvidence = "evidence"
 	kindAgent    = "agent"
@@ -1031,7 +1032,7 @@ func epicNodeMessage(flow store.EpicFlow, run store.NodeRun) (*v1.EpicNode, erro
 		message.Tasks = []int64{run.Task}
 	case kindEvidence:
 		message.Runs = evidenceRunIDs(flow, run)
-	case kindGate, kindCommand:
+	case kindGate, kindCost, kindCommand:
 		check, found := storedCheckOf(flow, run)
 		if !found {
 			break

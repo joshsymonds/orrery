@@ -453,7 +453,8 @@ func TestStartReviewIsReadOnlyAtRevisionWithReviewAgentGate(t *testing.T) {
 	if start.Agents != "" {
 		t.Errorf("review start Agents = %s, want none for an agent reviewer", start.Agents)
 	}
-	if want := ReviewPrompt(setup.epic, task, "review", setup.base, revision, store.StepCheck{}); start.Prompt != want {
+	want := ReviewPrompt(setup.epic, task, "review", setup.base, revision, store.StepCheck{}, nil)
+	if start.Prompt != want {
 		t.Errorf("review start Prompt = %q, want %q", start.Prompt, want)
 	}
 	if start.Epic != setup.epic.ID || start.Task != "T3" {

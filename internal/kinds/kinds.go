@@ -34,6 +34,12 @@ type Rows struct {
 	// of the epic that is still pending, those among it.
 	AmendActions int
 	Actions      int
+	// GapTurns holds the planner turns each gap was given, and Unresolvable the gaps the latest succeeded turn declared
+	// it cannot resolve without the owner, as store.EpicFlow reads them. Reruns holds the reruns rerun_review actions
+	// asked for, in turn then position order, as store.EpicFlow reads them.
+	GapTurns     []store.GapTurn
+	Unresolvable []store.GapDeclaration
+	Reruns       []store.ReviewRerun
 	Review       store.Review
 	Reviewers    []Reviewer
 	Releases     []store.ReleaseRun
@@ -79,11 +85,12 @@ const (
 // and Output the output an end reports. IDs are the ids of the work a start starts and Items the Requirement each of
 // them is for, in the same order. Tasks are the seqs of the tasks a prepare claims for its batch, in seq order. Units
 // are the steps a start of a review or closure run starts, in the order of IDs. Verdicts, Ledger, Round, Closures and
-// Phase are what a review, closure or conclusion ends with. Revision, when set, is the revision the work runs at in
-// place of the run's own: a release run walks the Done gates and captures of a merge the release integrator committed,
-// and records it as the candidate, at that commit. Reason, on a sync run's advance, is why the epic is no longer at the
-// quiet point the sync started at, and empty while it is. Tell, on a sync run's end, reports whether its output is
-// told to the owner.
+// Phase are what a review, closure or conclusion ends with. Gaps are the live gaps a conclusion's gap round gives
+// each a planner turn, and Question is the gaps question an ending with gaps opens. Revision, when set, is the revision
+// the work runs at in place of the run's own: a release run walks the Done gates and captures of a merge the release
+// integrator committed, and records it as the candidate, at that commit. Reason, on a sync run's advance, is why the
+// epic is no longer at the quiet point the sync started at, and empty while it is. Tell, on a sync run's end, reports
+// whether its output is told to the owner.
 type Action struct {
 	Kind     ActionKind
 	Outcome  string
@@ -100,6 +107,8 @@ type Action struct {
 	Revision string
 	Reason   string
 	Tell     bool
+	Gaps     []Gap
+	Question store.GapsQuestion
 }
 
 // Kind decides what happens next to a node run.
