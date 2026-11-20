@@ -70,6 +70,18 @@ func (s *titleFakeStore) UntitledSessions(context.Context) ([]store.UntitledSess
 	return untitled, nil
 }
 
+// UntitledSession returns the session id when it has no title, and false when it has one or the fake does not hold it.
+func (s *titleFakeStore) UntitledSession(_ context.Context, id string) (store.UntitledSession, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, row := range s.untitled {
+		if row.ID == id && s.titles[id] == "" {
+			return row, true, nil
+		}
+	}
+	return store.UntitledSession{}, false, nil
+}
+
 // SetSessionTitle stores title for id when the session has none, and answers writeErr when the fake fails writes.
 func (s *titleFakeStore) SetSessionTitle(_ context.Context, id, title string) error {
 	s.mu.Lock()
@@ -93,9 +105,11 @@ func (s *titleFakeStore) titleOf(id string) string {
 	return s.titles[id]
 }
 
-// titleLoop is a SessionTitles started over a fake store, and the channels a test drives it with.
+// titleLoop is a SessionTitles started over a fake store, and the channels a test drives it with. Its retry timer is the
+// fake one clock arms.
 type titleLoop struct {
-	ticks  chan time.Time
+	titles *SessionTitles
+	clock  *retryClock
 	passes chan struct{}
 	done   chan struct{}
 	cancel context.CancelFunc
@@ -105,19 +119,20 @@ type titleLoop struct {
 // stops it too.
 func startTitleLoop(t *testing.T, st SessionTitleStore, haiku haikuCaller) *titleLoop {
 	t.Helper()
-	ticks := make(chan time.Time)
 	passes := make(chan struct{}, 16)
 	ctx, cancel := context.WithCancel(t.Context())
-	loop := &titleLoop{ticks: ticks, passes: passes, done: make(chan struct{}), cancel: cancel}
-	titles := NewSessionTitles(SessionTitlesConfig{
-		Store:  st,
-		Haiku:  haiku,
-		Tick:   ticks,
-		Passed: func() { passes <- struct{}{} },
+	loop := &titleLoop{
+		clock: &retryClock{armed: make(chan armedRetry, 8)}, passes: passes, done: make(chan struct{}), cancel: cancel,
+	}
+	loop.titles = NewSessionTitles(SessionTitlesConfig{
+		Store:    st,
+		Haiku:    haiku,
+		NewTimer: loop.clock.newTimer,
+		Passed:   func() { passes <- struct{}{} },
 	})
 	go func() {
 		defer close(loop.done)
-		titles.Run(ctx)
+		loop.titles.Run(ctx)
 	}()
 	t.Cleanup(loop.stop)
 	<-passes
@@ -130,9 +145,17 @@ func (l *titleLoop) stop() {
 	<-l.done
 }
 
-// tick has the loop pass once more and waits until that pass is done.
+// wake wakes the session with id, as the store's first-prompt hook does, and waits until the pass it starts is done.
+func (l *titleLoop) wake(id string) {
+	l.titles.Wake(id)
+	<-l.passes
+}
+
+// tick fires the retry the loop armed, and waits until the pass it starts is done. A retry is armed while a title the
+// store refused is kept.
 func (l *titleLoop) tick() {
-	l.ticks <- time.Time{}
+	retry := <-l.clock.armed
+	retry.fire <- time.Time{}
 	<-l.passes
 }
 
@@ -158,13 +181,13 @@ func TestSessionTitleWritesOnceFromTheFirstPrompt(t *testing.T) {
 	if got := st.titleOf("e-alpha"); got != "Login redirect" {
 		t.Fatalf("title after start = %q, want the trimmed reply", got)
 	}
-	loop.tick()
-	loop.tick()
+	loop.wake("e-alpha")
+	loop.wake("e-alpha")
 	if got := haiku.calls(); got != 1 {
-		t.Fatalf("calls after two ticks = %d, want still 1", got)
+		t.Fatalf("calls after two wakes = %d, want still 1", got)
 	}
 	if got := st.titleOf("e-alpha"); got != "Login redirect" {
-		t.Fatalf("title after two ticks = %q, want it unchanged", got)
+		t.Fatalf("title after two wakes = %q, want it unchanged", got)
 	}
 }
 
@@ -199,9 +222,9 @@ func TestSessionTitleBlankOrFailedReplyStoresNothing(t *testing.T) {
 			if got := st.titleOf("e-beta"); got != "" {
 				t.Fatalf("title after a failed reply = %q, want empty", got)
 			}
-			loop.tick()
+			loop.wake("e-beta")
 			if got := haiku.calls(); got != 1 {
-				t.Fatalf("calls after a tick = %d, want still 1", got)
+				t.Fatalf("calls after a wake = %d, want still 1", got)
 			}
 		})
 	}
@@ -214,7 +237,7 @@ func TestSessionTitleSecondStartRetriesAnUntitledSessionOnce(t *testing.T) {
 	st := &titleFakeStore{untitled: []store.UntitledSession{{ID: "e-gamma", Dir: "/work/gamma", FirstPrompt: "p"}}}
 
 	first := startTitleLoop(t, st, &titleFakeHaiku{reply: json.RawMessage(`not json`)})
-	first.tick()
+	first.wake("e-gamma")
 	first.stop()
 
 	haiku := &titleFakeHaiku{reply: json.RawMessage(`{"title":"Gamma work"}`)}
@@ -225,8 +248,8 @@ func TestSessionTitleSecondStartRetriesAnUntitledSessionOnce(t *testing.T) {
 	if got := st.titleOf("e-gamma"); got != "Gamma work" {
 		t.Fatalf("title after the second start = %q, want the reply", got)
 	}
-	second.tick()
+	second.wake("e-gamma")
 	if got := haiku.calls(); got != 1 {
-		t.Fatalf("calls after a tick of the second start = %d, want still 1", got)
+		t.Fatalf("calls after a wake of the second start = %d, want still 1", got)
 	}
 }

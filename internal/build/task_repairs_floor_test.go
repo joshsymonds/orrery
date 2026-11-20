@@ -22,7 +22,7 @@ func TestTaskRepairsFloorPromptCarriesTheTasksChangeNotARequirementCapture(t *te
 	}
 	task := briefTask()
 	task.Requirements = []string{"R1"}
-	got := ReviewPrompt(epic, task, "floor", "base-9", "rev-9", store.StepCheck{})
+	got := ReviewPrompt(epic, task, "floor", "base-9", "rev-9", store.StepCheck{}, nil)
 	want := "Task T4 of epic repo/epic-x (Build the task): Render brief\n" +
 		"Deliverable: brief.go\n" +
 		"Owned files:\n" +

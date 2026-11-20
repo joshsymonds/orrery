@@ -133,6 +133,15 @@ func (d *heldDaemon) StopEpic(
 	return connect.NewResponse(&v1.StopEpicResponse{Epic: &v1.StoredEpic{}}), nil
 }
 
+func (d *heldDaemon) MoveEpic(
+	ctx context.Context, _ *connect.Request[v1.MoveEpicRequest],
+) (*connect.Response[v1.MoveEpicResponse], error) {
+	if err := d.hold(ctx, "MoveEpic"); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&v1.MoveEpicResponse{Epic: &v1.StoredEpic{}}), nil
+}
+
 func (d *heldDaemon) CloseEpic(
 	ctx context.Context, _ *connect.Request[v1.CloseEpicRequest],
 ) (*connect.Response[v1.CloseEpicResponse], error) {
@@ -276,6 +285,7 @@ func TestCancelLeavesAMutatingCallRunning(t *testing.T) {
 			arguments: `{"id":"` + epicID + `","requirement":"R1","item":{"capture":["/bin/true"],"limit":1,` +
 				`"conclusion":"it holds","judge":"j","kind":"capture"}}`,
 		},
+		{tool: "epic_steer", arguments: `{"id":"` + epicID + `"}`},
 		{
 			tool: "evidence_run",
 			arguments: `{"epic":"` + epicID + `","item":"R1",` +

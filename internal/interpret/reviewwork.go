@@ -37,8 +37,9 @@ func (r *Runner) prepareReview(ctx context.Context, epic store.EpicRow, act Acti
 	return nil
 }
 
-// prepareClosure records the stored base of epic as the revision of the closure run at act's path. A closure run takes no
-// refs, so none are recorded.
+// prepareClosure records the stored base of epic as the revision of the closure run, or of the rerun run, at act's path.
+// Neither takes refs, so none are recorded. A rerun run's revision is the stored base too, as a closure's is, and a
+// rerun is not frozen, so it does not freeze the review.
 func (r *Runner) prepareClosure(ctx context.Context, epic store.EpicRow, act Action) error {
 	base, err := storedBaseOf(epic)
 	if err != nil {
@@ -88,14 +89,15 @@ func (r *Runner) reviewUnitStart(
 ) (enginehost.StepStart, error) {
 	switch {
 	case strings.HasPrefix(unit.Part, reviewerPart):
-		var doneGates []store.NodeCheck
+		var doneGates, baseCost []store.NodeCheck
 		if unit.Reviewer == reviewers.TestParsimony {
 			var err error
-			if doneGates, err = r.doneGateChecks(ctx, epic.ID, act.Run.Revision); err != nil {
+			if doneGates, baseCost, err = r.doneGateChecks(ctx, epic.ID, act.Run.Revision); err != nil {
 				return enginehost.StepStart{}, err
 			}
 		}
-		start, err := r.reviewers.Start(ctx, epic, unit.Reviewer, changeBase(epic), act.Run.Revision, doneGates)
+		start, err := r.reviewers.Start(
+			ctx, epic, unit.Reviewer, changeBase(epic), act.Run.Revision, doneGates, baseCost)
 		if err != nil {
 			return enginehost.StepStart{}, fmt.Errorf("reviewer %s: %w", unit.Reviewer, err)
 		}
@@ -125,10 +127,14 @@ func (r *Runner) reviewUnitStart(
 // run at that revision with any ran there and that ended with a result, in the order they were created. That run is the
 // integrate or sync run that made revision the epic's stored base. A check lost at a restart, and one that exited
 // store.EnvironmentExit, which its rerun replaces, are left out. It returns none when no run ran a check at revision.
-func (r *Runner) doneGateChecks(ctx context.Context, epic, revision string) ([]store.NodeCheck, error) {
+// It also returns the base measurement of test cost: the cost checks of the same read (store.CostChecks), so both
+// describe the same state of the epic's checks.
+func (r *Runner) doneGateChecks(
+	ctx context.Context, epic, revision string,
+) ([]store.NodeCheck, []store.NodeCheck, error) {
 	read, err := r.store.EpicFlow(ctx, epic)
 	if err != nil {
-		return nil, fmt.Errorf("read epic %s: %w", epic, err)
+		return nil, nil, fmt.Errorf("read epic %s: %w", epic, err)
 	}
 	var (
 		newest  time.Time
@@ -149,7 +155,7 @@ func (r *Runner) doneGateChecks(ctx context.Context, epic, revision string) ([]s
 			newest, decided = run.Started, ran
 		}
 	}
-	return decided, nil
+	return decided, store.CostChecks(read.Checks), nil
 }
 
 // verifierAgent returns the agent the verifier role runs under, from the machine's role file.

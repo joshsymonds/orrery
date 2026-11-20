@@ -41,7 +41,7 @@ func (f *passFixture) returnRequest(rerun int64, status, summary string, needs .
 	id := StepID(passEpic, 1, StageImplement, 1, rerun, 0, 0)
 	f.steps.rows[id] = store.StepRow{
 		ID: id, End: endReturned, Status: status, Result: string(ret),
-		Workspace: ImplementWorktree(f.stateDir, passEpic, 1), Schema: ImplementerSchema,
+		Workspace: ImplementWorktree(f.stateDir, passEpic, store.EpicTask{Seq: 1}), Schema: ImplementerSchema,
 	}
 }
 
@@ -90,7 +90,7 @@ func TestOrchestratePassStartsAReadOnlyStepAtTheBaseThatReadsTheWorktree(t *test
 		start.DoneValue != "done" || start.Epic != passEpic || start.Task != "T1" {
 		t.Fatalf("start = %+v, want a read-only orchestrator step at the base with its schema and check", start)
 	}
-	worktree := ImplementWorktree(f.stateDir, passEpic, 1)
+	worktree := ImplementWorktree(f.stateDir, passEpic, store.EpicTask{Seq: 1})
 	for _, want := range []string{
 		strings.TrimRight(OrchestratorRole, "\n"), "\n## Contract\n", "\n## Decisions\n", "\n## Task\n",
 		"T1: Build the thing", "\n## Worktree\n", "Path: " + worktree, "\n## Requested files\n", "\n## Tasks\n",
@@ -199,7 +199,7 @@ func TestOrchestratePassRerunRecordsTheDecisionAndRerunsTheImplementerWithTheNot
 func TestOrchestratePassFailKeepsTheLongerFailureAndRecordsTheDecision(t *testing.T) {
 	t.Parallel()
 	f := newRequestFixture(t)
-	worktree := ImplementWorktree(f.stateDir, passEpic, 1)
+	worktree := ImplementWorktree(f.stateDir, passEpic, store.EpicTask{Seq: 1})
 	failure := "The task's files cannot hold its deliverable. " + strings.Repeat("evidence ", 600)
 	f.endOrchestrator(orchID(0, 0), orchReturn(t, map[string]any{
 		"decision": "fail", "failure": failure, "needs_files": []string{"internal/other/a.go"},
@@ -480,7 +480,7 @@ func TestOrchestratePassWaitingTaskMovesOntoTheNewBaseOnceItsTaskIsIntegrated(t 
 	const file = waitFile
 	f := newWaitFixture(t)
 	identify(t, f.repo)
-	worktree := ImplementWorktree(f.stateDir, passEpic, 1)
+	worktree := ImplementWorktree(f.stateDir, passEpic, store.EpicTask{Seq: 1})
 	writeFile(t, filepath.Join(worktree, "thing.go"), "package thing // kept\n")
 	f.endOrchestrator(orchID(0, 0), orchReturn(t, map[string]any{
 		"decision": "rerun", "after_tasks": []int64{2},
@@ -521,7 +521,7 @@ func TestOrchestratePassWaitingTaskWhoseMoveFailsClimbsWithTheReason(t *testing.
 	const file = waitFile
 	f := newWaitFixture(t)
 	identify(t, f.repo)
-	worktree := ImplementWorktree(f.stateDir, passEpic, 1)
+	worktree := ImplementWorktree(f.stateDir, passEpic, store.EpicTask{Seq: 1})
 	writeFile(t, filepath.Join(worktree, file), "package mine\n")
 	buildRun(t, worktree, "add", file)
 	f.endOrchestrator(orchID(0, 0), orchReturn(t, map[string]any{

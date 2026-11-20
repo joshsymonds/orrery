@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
@@ -34,6 +36,24 @@ func (s *Store) UnreportedEpics(ctx context.Context) ([]EpicRow, error) {
 		rows = append(rows, row)
 	}
 	return rows, nil
+}
+
+// UnreportedEpic returns the epic with id, read as Epic reads it, and whether UnreportedEpics lists it. An epic that is
+// not listed, or not stored, is false with no error.
+func (s *Store) UnreportedEpic(ctx context.Context, id string) (EpicRow, bool, error) {
+	queries := sqlcgen.New(s.db)
+	head, err := queries.GetUnreportedEpic(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return EpicRow{}, false, nil
+	}
+	if err != nil {
+		return EpicRow{}, false, fmt.Errorf("get unreported epic %s: %w", id, err)
+	}
+	row, err := readEpicOf(ctx, queries, head)
+	if err != nil {
+		return EpicRow{}, false, err
+	}
+	return row, true, nil
 }
 
 // SetEpicReport stores report as the report of epic when the epic's phase is report's phase and its stored report is

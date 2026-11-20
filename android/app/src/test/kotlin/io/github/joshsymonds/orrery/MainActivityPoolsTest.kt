@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
@@ -137,7 +136,7 @@ class MainActivityPoolsTest {
         launch()
         openPools()
 
-        composeRule.onNodeWithText("Back").performClick()
+        composeRule.onNodeWithTag("title-back").performClick()
 
         awaitNode(hasTestTag("pane-row:%1"))
         assertAbsent(hasTestTag("pool:$POOL"))

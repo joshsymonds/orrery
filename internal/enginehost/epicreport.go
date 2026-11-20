@@ -19,32 +19,38 @@ const epicReportSchema = `{"type":"object","additionalProperties":false,"require
 // epicReportInstruction asks for the why that the report text follows in the call's input.
 const epicReportInstruction = "Explain in one short paragraph of plain prose why this epic ended as it did, from its outcome, the Requirements that shipped and those that did not, and its gaps. Answer with the why field only."
 
-// EpicReportStore reads the epics that need a report, reads an epic's report inputs, and stores a report. *store.Store
-// satisfies it.
+// EpicReportStore reads the epics that need a report, reads one of them, reads an epic's report inputs, and stores a
+// report. *store.Store satisfies it.
 type EpicReportStore interface {
 	UnreportedEpics(ctx context.Context) ([]store.EpicRow, error)
+	UnreportedEpic(ctx context.Context, id string) (store.EpicRow, bool, error)
 	EpicFlow(ctx context.Context, id string) (store.EpicFlow, error)
 	SetEpicReport(ctx context.Context, id string, report store.EpicReport) error
 }
 
 // EpicReportsConfig configures EpicReports. Store reads the epics and stores their reports, Haiku makes each why call,
-// Tick is the channel each pass after the first waits on, and Logger logs a failed read, call or write. A nil Logger
-// discards. Passed is a test seam: when set, Run calls it after each pass. Production leaves it nil.
+// NewTimer arms the one retry a refused write or a failed read waits on, and Logger logs a failed read, call or write.
+// A nil NewTimer wraps time.NewTimer, and a nil Logger discards. Passed is a test seam: when set, Run calls it after
+// each pass. Production leaves it nil.
 type EpicReportsConfig struct {
-	Store  EpicReportStore
-	Haiku  haikuCaller
-	Tick   <-chan time.Time
-	Logger *slog.Logger
-	Passed func()
+	Store    EpicReportStore
+	Haiku    haikuCaller
+	NewTimer func(time.Duration) (<-chan time.Time, func() bool)
+	Logger   *slog.Logger
+	Passed   func()
 }
 
 // EpicReports writes the report of each ended epic that has none for its ending. It keeps the endings, epic id and
 // phase, it has tried since it started, so each ending of an epic gets at most one call per start, and the reports,
-// by epic id, whose write the store refused, which each later pass writes again.
+// by epic id, whose write the store refused, which a retry writes again.
 type EpicReports struct {
 	cfg      EpicReportsConfig
 	tried    map[string]bool
 	unstored unstoredWrites[store.EpicReport]
+	wakes    *housekeepWake
+	// fullOwed is set until a read of every ended epic without a report for its ending succeeds. It is set at start, so
+	// the start reads all of them, and it stays set when the read fails, so the retry reads them again.
+	fullOwed bool
 }
 
 // NewEpicReports returns an EpicReports for cfg.
@@ -52,36 +58,58 @@ func NewEpicReports(cfg EpicReportsConfig) *EpicReports {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.DiscardHandler)
 	}
-	return &EpicReports{cfg: cfg, tried: make(map[string]bool), unstored: unstoredWrites[store.EpicReport]{}}
+	return &EpicReports{
+		cfg: cfg, tried: make(map[string]bool), unstored: unstoredWrites[store.EpicReport]{},
+		wakes: newHousekeepWake(cfg.NewTimer), fullOwed: true,
+	}
 }
 
-// Run writes the reports at start and at each tick until ctx ends.
+// Wake asks Run to report the ending of the epic with id, without blocking. The store's OnEpicEnded hook calls it for
+// each epic it ends.
+func (e *EpicReports) Wake(epic string) {
+	e.wakes.Wake(epic)
+}
+
+// Run writes the reports at start, over every ended epic, and then on each wake and each retry, until ctx ends. A pass
+// whose write or read the store refused arms one retry, and a clean pass arms none.
 func (e *EpicReports) Run(ctx context.Context) {
-	for {
-		e.pass(ctx)
+	e.wakes.run(ctx, func(ctx context.Context, retry bool) bool {
+		owed := e.pass(ctx, retry)
 		if e.cfg.Passed != nil {
 			e.cfg.Passed()
 		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-e.cfg.Tick:
-		}
-	}
+		return owed
+	})
 }
 
-// pass writes again the reports whose write the store refused, then reports each stored ended epic that has no report
-// for its ending and whose ending this start has not tried, one call at a time, in id order. A failed read is logged
-// and the pass does nothing else; the next pass reads again.
-func (e *EpicReports) pass(ctx context.Context) {
-	if n := e.unstored.retry(context.WithoutCancel(ctx), e.cfg.Store.SetEpicReport); n > 0 {
-		e.cfg.Logger.InfoContext(ctx, "epic reports stored after a retry", "reports", n)
+// pass makes one round. A retry first writes again the reports the store refused, with no call. Then it reads the
+// epics it owes a read: every ended epic without a report for its ending while the full read is owed, and the epics
+// the wakes named, with the ones whose read failed on a retry. It reports whether a retry is still owed for the full
+// read or a refused write.
+func (e *EpicReports) pass(ctx context.Context, retry bool) bool {
+	if retry {
+		if n := e.unstored.retry(context.WithoutCancel(ctx), e.cfg.Store.SetEpicReport); n > 0 {
+			e.cfg.Logger.InfoContext(ctx, "epic reports stored after a retry", "reports", n)
+		}
 	}
+	if e.fullOwed {
+		e.fullPass(ctx)
+	}
+	for _, id := range e.wakes.take(retry) {
+		e.wokenEpic(ctx, id)
+	}
+	return e.fullOwed || len(e.unstored) > 0
+}
+
+// fullPass reports each stored ended epic that has no report for its ending and whose ending this start has not tried,
+// one call at a time, in id order. A failed read is logged and leaves the full read owed.
+func (e *EpicReports) fullPass(ctx context.Context) {
 	rows, err := e.cfg.Store.UnreportedEpics(ctx)
 	if err != nil {
 		e.cfg.Logger.ErrorContext(ctx, "read unreported epics", "error", err)
 		return
 	}
+	e.fullOwed = false
 	for _, row := range rows {
 		if ctx.Err() != nil {
 			return
@@ -95,9 +123,29 @@ func (e *EpicReports) pass(ctx context.Context) {
 	}
 }
 
+// wokenEpic reads the epic with id and reports its ending when it is listed as unreported and this start has not tried
+// that ending. An epic that is not listed is dropped, and a failed read is logged and kept for the retry.
+func (e *EpicReports) wokenEpic(ctx context.Context, id string) {
+	row, listed, err := e.cfg.Store.UnreportedEpic(ctx, id)
+	if err != nil {
+		e.cfg.Logger.ErrorContext(ctx, "read unreported epic", "epic", id, "error", err)
+		e.wakes.keep(id)
+		return
+	}
+	if !listed {
+		return
+	}
+	ending := row.ID + "\x00" + row.Phase
+	if e.tried[ending] {
+		return
+	}
+	e.tried[ending] = true
+	e.report(ctx, row.ID)
+}
+
 // report calls Haiku for the why of the epic with id and stores its report with the shipped and not-shipped ids. A
 // failed read, call or reply is logged and leaves the report empty. The write ignores ctx's cancellation, so a stop that
-// lands after a reply still stores it, and a write the store refuses is logged and kept for the next pass to write
+// lands after a reply still stores it, and a write the store refuses is logged and kept for a retry to write
 // again.
 func (e *EpicReports) report(ctx context.Context, id string) {
 	flow, err := e.cfg.Store.EpicFlow(ctx, id)
@@ -125,7 +173,7 @@ func (e *EpicReports) report(ctx context.Context, id string) {
 		Why:        why,
 	}
 	if err = e.cfg.Store.SetEpicReport(context.WithoutCancel(ctx), id, report); err != nil {
-		e.cfg.Logger.ErrorContext(ctx, "store epic report; kept for the next pass", "epic", id, "error", err)
+		e.cfg.Logger.ErrorContext(ctx, "store epic report; kept for a retry", "epic", id, "error", err)
 		e.unstored[id] = report
 	}
 }

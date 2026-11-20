@@ -5,6 +5,7 @@ import (
 	"errors"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -87,7 +88,7 @@ func TestRetryOfReleaseStoppedByIntegratorEndsTheStop(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, _ := stoppedRelease(t, blockedRound(1))
-	if err := s.RetryEpic(ctx, resumeEpic); err != nil {
+	if err := s.RetryEpic(ctx, resumeEpic, store.Maker{By: store.MakerOwner}, time.Unix(1700000000, 0)); err != nil {
 		t.Fatalf("RetryEpic: %v", err)
 	}
 	flow, err := s.EpicFlow(ctx, resumeEpic)
@@ -124,7 +125,7 @@ func TestRetryOfOtherStoppedReleaseIsRefused(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()
 			s, _ := stoppedRelease(t, run)
-			err := s.RetryEpic(ctx, resumeEpic)
+			err := s.RetryEpic(ctx, resumeEpic, store.Maker{By: store.MakerOwner}, time.Unix(1700000000, 0))
 			want := "epic " + resumeEpic + " is stopped; retry ends a stopped release only when its release " +
 				"integrator stopped it"
 			var refusal store.RefusalError

@@ -4,6 +4,7 @@ import (
 	"context"
 	"reflect"
 	"testing"
+	"time"
 )
 
 // reviewHoldStore returns a store whose integrateEpic has its review frozen at rev-7 by a running review run, so
@@ -85,7 +86,7 @@ func TestHoldReviewStepRepeatChangesNothing(t *testing.T) {
 	requireReviewHoldPaused(t, s, true)
 	requireReviewHoldTells(t, s, []string{"review stopped"})
 
-	if err := s.ResumeEpic(ctx, integrateEpic); err != nil {
+	if err := s.ResumeEpic(ctx, integrateEpic, Maker{By: MakerOwner}, time.Unix(1700000000, 0)); err != nil {
 		t.Fatalf("ResumeEpic: %v", err)
 	}
 	if err := s.HoldReviewStep(ctx, integrateEpic, "id-review", "review stopped again",
@@ -106,7 +107,7 @@ func TestHoldReviewStepSecondStepPausesOnce(t *testing.T) {
 	if err := s.HoldReviewStep(ctx, integrateEpic, "id-review", "review stopped", integrateParkedAt()); err != nil {
 		t.Fatalf("HoldReviewStep: %v", err)
 	}
-	if err := s.ResumeEpic(ctx, integrateEpic); err != nil {
+	if err := s.ResumeEpic(ctx, integrateEpic, Maker{By: MakerOwner}, time.Unix(1700000000, 0)); err != nil {
 		t.Fatalf("ResumeEpic: %v", err)
 	}
 

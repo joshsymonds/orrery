@@ -386,6 +386,7 @@ func TestToolsListNamesEveryStepEpicEvidenceAndContractTool(t *testing.T) {
 		"epic_release",
 		"epic_resume",
 		"epic_retry",
+		"epic_steer",
 		"epic_stop",
 		"evidence_get",
 		"evidence_list",

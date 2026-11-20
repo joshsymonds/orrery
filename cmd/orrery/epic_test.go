@@ -99,6 +99,20 @@ func (f *recordingEpics) PauseEpic(
 	return respond(f, req.Msg, &v1.PauseEpicResponse{Epic: f.epic})
 }
 
+func (f *recordingEpics) MoveEpic(
+	_ context.Context,
+	req *connect.Request[v1.MoveEpicRequest],
+) (*connect.Response[v1.MoveEpicResponse], error) {
+	return respond(f, req.Msg, &v1.MoveEpicResponse{Epic: f.epic})
+}
+
+func (f *recordingEpics) ContinueEpic(
+	_ context.Context,
+	req *connect.Request[v1.ContinueEpicRequest],
+) (*connect.Response[v1.ContinueEpicResponse], error) {
+	return respond(f, req.Msg, &v1.ContinueEpicResponse{Epic: f.epic})
+}
+
 func (f *recordingEpics) ResumeEpic(
 	_ context.Context,
 	req *connect.Request[v1.ResumeEpicRequest],

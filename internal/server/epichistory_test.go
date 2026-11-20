@@ -340,7 +340,7 @@ func TestEpicsHistoryBadCursorAnswersInvalidArgument(t *testing.T) {
 		{name: "not base64", cursor: "!!!"},
 		{name: "no separators", cursor: rawCursor("garbage")},
 		{name: "time not a number", cursor: rawCursor("x|0|0|")},
-		{name: "kind out of range", cursor: rawCursor("0|6|0|")},
+		{name: "kind out of range", cursor: rawCursor(fmt.Sprintf("0|%d|0|", historyKinds))},
 	}
 	for _, tc := range cases {
 		_, err := client.History(context.Background(), connect.NewRequest(&orreryv1.EpicsHistoryRequest{

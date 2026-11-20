@@ -7,14 +7,14 @@ import (
 )
 
 // TestContractRecordMigrationStepsDownAndUp checks the migration that adds the contract record's three tables. It seeds
-// version 78 with a session, the seeded epic with its decision and its failure, requirement and premise sections, its
+// version 81 with a session, the seeded epic with its decision and its failure, requirement and premise sections, its
 // epic_sessions row and a caller_events row. The Up
 // adds the three tables empty, and rows written into them under the migration are gone after the Down removes the
 // tables. The seeded rows read back unchanged after the Up, the Down, and the second Up, which starts the tables empty.
 func TestContractRecordMigrationStepsDownAndUp(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, provider := storeAtVersion(t, 78)
+	s, provider := storeAtVersion(t, 81)
 	seedEpic(t, s.db.DB)
 	if _, err := s.fixtureExec(ctx, `INSERT INTO epic_failures (epic, position, id, text, rating, response)
 		VALUES (?, 0, 'F1', 'The store loses a row', 'serious', 'prevent: R1')`, seededEpic); err != nil {
@@ -83,7 +83,7 @@ func TestContractRecordMigrationStepsDownAndUp(t *testing.T) {
 	}
 
 	if _, err := provider.UpByOne(ctx); err != nil {
-		t.Fatalf("Up of 00079: %v", err)
+		t.Fatalf("Up of 00082: %v", err)
 	}
 	assertContractTables("after Up", true)
 	assertSeeded("after Up")
@@ -106,13 +106,13 @@ func TestContractRecordMigrationStepsDownAndUp(t *testing.T) {
 	}
 
 	if _, err := provider.Down(ctx); err != nil {
-		t.Fatalf("Down of 00079: %v", err)
+		t.Fatalf("Down of 00082: %v", err)
 	}
 	assertContractTables("after Down", false)
 	assertSeeded("after Down")
 
 	if _, err := provider.UpByOne(ctx); err != nil {
-		t.Fatalf("Up of 00079 again: %v", err)
+		t.Fatalf("Up of 00082 again: %v", err)
 	}
 	assertContractTables("after second Up", true)
 	assertSeeded("after second Up")

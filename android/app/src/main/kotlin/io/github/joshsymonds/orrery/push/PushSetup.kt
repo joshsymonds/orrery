@@ -16,6 +16,8 @@ class PushSetup(
     private val requestPermission: ActivityResultLauncher<String> =
         activity.registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
 
+    private val preferences = PushPreferences(activity)
+
     fun start() {
         if (activity.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED
@@ -23,6 +25,7 @@ class PushSetup(
             requestPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
         UnifiedPush.tryUseCurrentOrDefaultDistributor(activity) { ok ->
+            preferences.distributorMissing = !ok
             if (ok) UnifiedPush.register(activity, keyManager = keyManager)
         }
     }

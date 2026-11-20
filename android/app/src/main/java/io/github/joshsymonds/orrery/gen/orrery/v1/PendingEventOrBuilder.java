@@ -32,7 +32,7 @@ public interface PendingEventOrBuilder extends
 
   /**
    * <pre>
-   * The event's kind: step_end, question, park, release or end.
+   * The event's kind: step_end, question, park, release, end, moved or action.
    * </pre>
    *
    * <code>string kind = 2 [json_name = "kind"];</code>
@@ -41,7 +41,7 @@ public interface PendingEventOrBuilder extends
   java.lang.String getKind();
   /**
    * <pre>
-   * The event's kind: step_end, question, park, release or end.
+   * The event's kind: step_end, question, park, release, end, moved or action.
    * </pre>
    *
    * <code>string kind = 2 [json_name = "kind"];</code>

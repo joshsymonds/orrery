@@ -289,7 +289,7 @@ func TestRetryEpicGrantsEachParkedLoopOneRound(t *testing.T) {
 		t.Fatalf("ParkLoop of epic %s: %v", loopOther, err)
 	}
 
-	if err := s.RetryEpic(ctx, loopEpic); err != nil {
+	if err := s.RetryEpic(ctx, loopEpic, store.Maker{By: store.MakerOwner}, time.Unix(1700000000, 0)); err != nil {
 		t.Fatalf("RetryEpic: %v", err)
 	}
 	if parked := parkedOf(t, raw, loopEpic); parked != "" {
@@ -329,7 +329,7 @@ func TestRetryEpicWithoutParkedLoopGrantsNothing(t *testing.T) {
 		t.Fatalf("ParkEpic: %v", err)
 	}
 
-	if err := s.RetryEpic(ctx, loopEpic); err != nil {
+	if err := s.RetryEpic(ctx, loopEpic, store.Maker{By: store.MakerOwner}, time.Unix(1700000000, 0)); err != nil {
 		t.Fatalf("RetryEpic: %v", err)
 	}
 	if parked := parkedOf(t, raw, loopEpic); parked != "" {

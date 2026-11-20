@@ -15,13 +15,15 @@ import (
 // The sources a task spec version can come from. SourcePlanner is the source of version 1, the planner's epic_tasks row,
 // which is never stored as a version row. SourceOrchestrator writes a rerun, grant or re-brief, SourceGrant a rule's
 // grant of files, SourceApproach the planner's recarve, and SourceCarry the work a climb could not carry onto its base.
-// A version of source rescue is still read from its stored row, though no version is written with that source.
+// SourceSendBack writes the record of a planner's send_back, which changes no field. A version of source rescue is still
+// read from its stored row, though no version is written with that source.
 const (
 	SourcePlanner      = "planner"
 	SourceOrchestrator = "orchestrator"
 	SourceGrant        = "grant"
 	SourceApproach     = "approach"
 	SourceCarry        = "carry"
+	SourceSendBack     = "send_back"
 )
 
 // The states a task spec version is in. VersionApplied is the state of a version the task's spec takes, and the
@@ -82,6 +84,22 @@ func (task EpicTask) Source() string {
 		}
 	}
 	return source
+}
+
+// ApproachStands reports whether a change of approach stands for a task whose versions are versions, in version order: a
+// change of approach in any state stands, unless a send_back stored after it reopened the task's ladder, which ends the
+// change of approach it reopens from. A reopened task that climbs onto rung 4 again writes a new change of approach.
+func ApproachStands(versions []TaskVersion) bool {
+	standing := false
+	for _, version := range versions {
+		switch version.Source {
+		case SourceApproach:
+			standing = true
+		case SourceSendBack:
+			standing = false
+		}
+	}
+	return standing
 }
 
 // Changed returns the names of the fields the version changes, in the order deliverable, files, test_changes, gate,
@@ -189,6 +207,30 @@ func appendTaskVersion(
 	}
 	if err = queries.InsertEpicTaskVersion(ctx, params); err != nil {
 		return fmt.Errorf("insert version %d of task %d of epic %s: %w", params.Version, seq, epic, err)
+	}
+	return nil
+}
+
+// insertSendBackVersion stores the version a send_back of task seq of epic writes, in the caller's write, applied by
+// decision with reason. It changes no field, so the task's spec is what it was, and the version records the send_back
+// that reopened the task. It is stored even though no field changes, which appendTaskVersion does not do.
+func insertSendBackVersion(
+	ctx context.Context,
+	queries *sqlcgen.Queries,
+	epic string,
+	seq int64,
+	decision, reason string,
+	at time.Time,
+) error {
+	highest, err := queries.MaxEpicTaskVersion(ctx, sqlcgen.MaxEpicTaskVersionParams{Epic: epic, Task: seq})
+	if err != nil {
+		return fmt.Errorf("read versions of task %d of epic %s: %w", seq, epic, err)
+	}
+	if err = queries.InsertEpicTaskVersion(ctx, sqlcgen.InsertEpicTaskVersionParams{
+		Epic: epic, Task: seq, Version: highest + 1, Source: SourceSendBack, Decision: decision, Reason: reason,
+		State: VersionApplied, Created: at.Unix(), Settled: at.Unix(),
+	}); err != nil {
+		return fmt.Errorf("insert version %d of task %d of epic %s: %w", highest+1, seq, epic, err)
 	}
 	return nil
 }

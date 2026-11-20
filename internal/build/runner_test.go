@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -508,7 +509,12 @@ func TestPassParkedEpicWithGoneBranchIsToldOnce(t *testing.T) {
 func TestPassPausedEpicCreatesNoBranch(t *testing.T) {
 	t.Parallel()
 	f := newPassFixture(t)
-	if err := f.store.PauseEpic(f.ctx, passEpic); err != nil {
+	if err := f.store.PauseEpic(
+		f.ctx,
+		passEpic,
+		store.Maker{By: store.MakerOwner},
+		time.Unix(1700000000, 0),
+	); err != nil {
 		t.Fatalf("PauseEpic: %v", err)
 	}
 	f.pass()
@@ -551,22 +557,24 @@ func TestRunPassesAtOnceThenReturnsWhenContextEnds(t *testing.T) {
 	}
 }
 
-// TestPassRedHoldingAtBaseClimbsTask: a red run whose conclusion holds at the base climbs the task off rung 1, from
-// attempt 0 to attempt 2, with that reason as its failure, and adds no trigger.
-func TestPassRedHoldingAtBaseClimbsTask(t *testing.T) {
+// TestPassRedHoldingAtBaseIsANoteAndTheImplementerStarts: a red run whose conclusion holds at the base is a note on the
+// task's build, not a climb: the build moves to implement with that run as its red run.
+func TestPassRedHoldingAtBaseIsANoteAndTheImplementerStarts(t *testing.T) {
 	t.Parallel()
 	f := newPassFixture(t)
 	f.pass()
-	f.addRun(f.lastRun().id, evidence.PhaseRed, f.base, 1, evidence.VerdictHolds)
-	before := ladderClimbBefore(f, 0)
+	red := f.lastRun().id
+	f.addRun(red, evidence.PhaseRed, f.base, 1, evidence.VerdictHolds)
 	f.pass()
-	const reason = "red: the conclusion holds at the base"
-	if task := f.task(); task.Build.Failure != reason {
-		t.Errorf("task failure %q, want %q", task.Build.Failure, reason)
+	task := f.task()
+	note := taskLabel(task.Seq) + " red: the conclusion holds at the base (exit 1)"
+	if task.Build.Stage != StageImplement || task.Build.RedRun != red || task.Build.Failure != "" ||
+		!reflect.DeepEqual(task.Notes, []string{note}) {
+		t.Errorf("build stage %q red run %q failure %q notes %q, want implement with red run %s and the note %q",
+			task.Build.Stage, task.Build.RedRun, task.Build.Failure, task.Notes, red, note)
 	}
-	ladderClimbCheck(f, store.RungOf(before), store.MovedByUnit)
 	if got := f.pendingTriggers(); len(got) != 0 {
-		t.Errorf("pending triggers = %v, want none: a climb to rung 2 adds no trigger", got)
+		t.Errorf("pending triggers = %v, want none", got)
 	}
 }
 
@@ -601,7 +609,7 @@ func TestPassRedFailingAtBaseSnapshotsRefsAndStartsImplementer(t *testing.T) {
 	if start.CommandGate == nil || start.CommandGate.Name != "check" {
 		t.Errorf("start CommandGate = %+v, want the check gate", start.CommandGate)
 	}
-	if want := ImplementWorktree(f.stateDir, passEpic, 1); start.Workspace != want {
+	if want := ImplementWorktree(f.stateDir, passEpic, store.EpicTask{Seq: 1}); start.Workspace != want {
 		t.Errorf("start Workspace = %s, want %s", start.Workspace, want)
 	}
 }
@@ -661,7 +669,7 @@ func TestPassImplementerDoneWithoutCommitGreenAtWorktreeHead(t *testing.T) {
 	t.Parallel()
 	f := newImplementerFixture(t)
 	id := passStep(StageImplement, 1, 0)
-	head := buildCommit(t, ImplementWorktree(f.stateDir, passEpic, 1))
+	head := buildCommit(t, ImplementWorktree(f.stateDir, passEpic, store.EpicTask{Seq: 1}))
 	f.setStep(id, "done", `{"summary":"done"}`)
 	f.pass()
 	f.expectGreenAt(head)
@@ -712,6 +720,7 @@ func TestPassImplementerNonParkingRefMoveIsToldAndGreenStarts(t *testing.T) {
 	t.Parallel()
 	f := newImplementerFixture(t)
 	commit := buildObject(t, f.repo, f.base)
+	detachStep(t, f, commit)
 	buildRun(t, f.repo, "update-ref", "refs/heads/feature", commit)
 	f.setStep(passStep(StageImplement, 1, 0), "done", `{"summary":"done","commit":"`+commit+`"}`)
 	f.pass()
@@ -829,7 +838,7 @@ func TestPassReviewRunsEachTaskReviewerAsDeclared(t *testing.T) {
 		def.Effort != "high" || def.Prompt != "Review the diff." {
 		t.Errorf("floor review inline agent = %+v, want the floor's model, tools, effort and prompt", def)
 	}
-	if want := ReviewPrompt(epic, task, "floor", base, revision, store.StepCheck{}); first.Prompt != want {
+	if want := ReviewPrompt(epic, task, "floor", base, revision, store.StepCheck{}, nil); first.Prompt != want {
 		t.Errorf("floor review Prompt = %q, want the review prompt %q", first.Prompt, want)
 	}
 
@@ -841,7 +850,7 @@ func TestPassReviewRunsEachTaskReviewerAsDeclared(t *testing.T) {
 	if second.Agents != "" {
 		t.Errorf("custom review Agents = %s, want none for an agent reviewer", second.Agents)
 	}
-	want := "Check the migration.\n\n" + ReviewPrompt(epic, task, "custom", base, revision, store.StepCheck{})
+	want := "Check the migration.\n\n" + ReviewPrompt(epic, task, "custom", base, revision, store.StepCheck{}, nil)
 	if second.Prompt != want {
 		t.Errorf("custom review Prompt = %q, want %q", second.Prompt, want)
 	}
@@ -952,7 +961,12 @@ func TestPassStoppedStepPausesThenResumeRerunsUnderNewID(t *testing.T) {
 		t.Fatalf("epic Paused = %t, build Held = %q, want paused with the build held stopped",
 			f.epic().Paused, f.task().Build.Held)
 	}
-	if err := f.store.ResumeEpic(f.ctx, passEpic); err != nil {
+	if err := f.store.ResumeEpic(
+		f.ctx,
+		passEpic,
+		store.Maker{By: store.MakerOwner},
+		time.Unix(1700000000, 0),
+	); err != nil {
 		t.Fatalf("ResumeEpic: %v", err)
 	}
 	f.pass()

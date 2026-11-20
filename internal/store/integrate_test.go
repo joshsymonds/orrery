@@ -719,8 +719,8 @@ func TestRetryRefusedForEpicEndedAtBase(t *testing.T) {
 	}
 
 	want := "epic " + integrateEpic + " is parked for good: " + reason
-	requireRefusal(t, s.RetryEpic(ctx, integrateEpic), want)
-	requireRefusal(t, s.RetryNode(ctx, integrateEpic, "red"), want)
+	requireRefusal(t, s.RetryEpic(ctx, integrateEpic, Maker{By: MakerOwner}, time.Unix(1700000000, 0)), want)
+	requireRefusal(t, s.RetryNode(ctx, integrateEpic, "red", Maker{By: MakerOwner}, time.Unix(1700000000, 0)), want)
 
 	requireIntegrateRun(t, s, "red", NodeRun{Path: "red", ID: "id-red", Node: "red", Kind: "evidence",
 		Attempt: 1, Outcome: "failed", Output: "R1 met", State: NodeParked, Started: integrateStartedAt()})

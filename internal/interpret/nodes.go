@@ -24,6 +24,7 @@ import (
 // position other than base is head.
 const (
 	kindGate     = "gate"
+	kindCost     = "cost"
 	kindCommand  = "command"
 	kindEvidence = "evidence"
 	kindOwned    = "owned"
@@ -35,9 +36,13 @@ const (
 // store reads the step under the same part.
 const stepPart = "step"
 
+// kindRerun is the kind of the rerun run a conclusion starts for a rerun_review action: one reviewer's try chain walked
+// again at the epic's stored base. Its work is a closure's, and its starts are a review's.
+const kindRerun = "rerun"
+
 // work carries out one work action of a check node run: the prepare, start, capture, repro, refs check or advance its
-// kind asks for. An integrate run's prepare claims its batch, and its advance moves the epic's branch. A review or
-// closure run's prepare and start are its own. The work of a release run is carried out by release, and that of a sync
+// kind asks for. An integrate run's prepare claims its batch, and its advance moves the epic's branch. A review, closure
+// or rerun run's prepare and start are its own. The work of a release run is carried out by release, and that of a sync
 // run by syncWork.
 func (r *Runner) work(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	switch act.NodeKind {
@@ -53,7 +58,7 @@ func (r *Runner) work(ctx context.Context, epic store.EpicRow, act Action, at ti
 			return r.prepareBatch(ctx, epic, act)
 		case reviewNodeKind:
 			return r.prepareReview(ctx, epic, act, at)
-		case closureNodeKind:
+		case closureNodeKind, kindRerun:
 			return r.prepareClosure(ctx, epic, act)
 		}
 		return r.prepare(ctx, epic, act)
@@ -137,11 +142,11 @@ func (r *Runner) refSnapshot(ctx context.Context, epic store.EpicRow) (string, e
 }
 
 // start carries out the start of a check node run's work: its check, its evidence runs or its agent step, or the record of
-// an owned run's result. A review or closure run starts the units it asks for. The work of a kind whose service the
-// runner was not given is an error, not a start.
+// an owned run's result. A review, closure or rerun run starts the units it asks for. The work of a kind whose service
+// the runner was not given is an error, not a start.
 func (r *Runner) start(ctx context.Context, epic store.EpicRow, act Action) error {
 	switch act.NodeKind {
-	case reviewNodeKind, closureNodeKind:
+	case reviewNodeKind, closureNodeKind, kindRerun:
 		if r.steps == nil {
 			return missingService("steps")
 		}
@@ -149,7 +154,7 @@ func (r *Runner) start(ctx context.Context, epic store.EpicRow, act Action) erro
 			return missingService("reviewers")
 		}
 		return r.startReviewUnits(ctx, epic, act)
-	case kindGate, kindCommand, kindIntegrate, kindSync, kindRelease:
+	case kindGate, kindCost, kindCommand, kindIntegrate, kindSync, kindRelease:
 		if r.checks == nil {
 			return missingService("checks")
 		}
@@ -176,14 +181,17 @@ func missingService(service string) error {
 	return fmt.Errorf("the runner was not given a %s service", service)
 }
 
-// startCheck starts the check of a gate or command run under the id its action names, at the run's revision. The check of
-// an integrate, sync or release run is one of its Done gates, which the action names.
+// startCheck starts the check of a gate, cost or command run under the id its action names, at the run's revision. The
+// check of an integrate, sync or release run is one of its Done gates, which the action names, and the check of a cost
+// run is the epic's first Done gate.
 func (r *Runner) startCheck(ctx context.Context, epic store.EpicRow, act Action) error {
 	check := store.NodeCheck{ID: act.IDs[0], Epic: epic.ID, Path: act.Path, Revision: act.Run.Revision}
 	var err error
 	switch act.NodeKind {
 	case kindGate:
 		check, err = r.withGate(ctx, epic, act.Def.Settings.Gate, check)
+	case kindCost:
+		check, err = r.withCostGate(ctx, epic, check)
 	case kindIntegrate, kindSync, kindRelease:
 		check, err = r.withGate(ctx, epic, act.Items[0], check)
 	default:
@@ -198,6 +206,16 @@ func (r *Runner) startCheck(ctx context.Context, epic store.EpicRow, act Action)
 		return fmt.Errorf("run check %s: %w", check.ID, err)
 	}
 	return nil
+}
+
+// withCostGate fills check with the epic's first Done gate, which a cost run measures at the base. An epic with no Done
+// gate has nothing to measure, so check ends with the reason it did not run.
+func (r *Runner) withCostGate(ctx context.Context, epic store.EpicRow, check store.NodeCheck) (store.NodeCheck, error) {
+	if len(epic.DoneGates) == 0 {
+		check.NotRun = "no Done gate to measure at the base"
+		return check, nil
+	}
+	return r.withGate(ctx, epic, epic.DoneGates[0], check)
 }
 
 // withGate fills check with the gate named name: its argv, limit and needs. A gate that does not resolve, and an agent
@@ -320,8 +338,9 @@ func (r *Runner) recordOwned(ctx context.Context, epic store.EpicRow, act Action
 	return nil
 }
 
-// checkRefs compares the refs a check node run was prepared with to the refs now. The first move that parks is the park
-// reason, which parks the run and the epic. Every other move is told.
+// checkRefs compares the refs a check node run was prepared with to the refs now. A check node makes no commits, so
+// build.ScopeMoves blames it only for the moves that park and for the epic's own refs. The first move that parks is the
+// park reason, which parks the run and the epic. Every other move is told.
 func (r *Runner) checkRefs(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	now, err := r.refSnapshot(ctx, epic)
 	if err != nil {
@@ -330,6 +349,10 @@ func (r *Runner) checkRefs(ctx context.Context, epic store.EpicRow, act Action, 
 	moves, err := build.Compare(act.Run.Refs, now)
 	if err != nil {
 		return fmt.Errorf("compare refs of node %s: %w", act.Path, err)
+	}
+	moves, err = build.ScopeMoves(ctx, epic.Repository, epic.ID, moves, "", "")
+	if err != nil {
+		return fmt.Errorf("scope refs of node %s: %w", act.Path, err)
 	}
 	var park string
 	var tells []string

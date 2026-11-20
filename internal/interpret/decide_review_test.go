@@ -154,6 +154,10 @@ func TestDecideConcludeRunAction(t *testing.T) {
 	t.Parallel()
 	conclude := kindNode("conclude", "conclude")
 	run := attempted(running(startOf("conclude", "conclude", "conclude", 0)), 1)
+	question := store.GapsQuestion{
+		Gaps: []string{"reviewer 1: fails"}, Recommended: store.ChoiceRelease,
+		Why: "the planner recommends release for every gap",
+	}
 	decideCases(t, []decideCase{
 		{
 			name: "clean end gives the conclusion with the clean phase and its body",
@@ -172,11 +176,11 @@ func TestDecideConcludeRunAction(t *testing.T) {
 			rows: rowsOf(nil, nil, run),
 			reg: map[string]kinds.Kind{"conclude": scripted{0: {
 				Kind: kinds.ActEnd, Outcome: "passed", Phase: "ended_with_gaps",
-				Output: "epic e1 ended with gaps: reviewer 1: fails",
+				Output: "epic e1 ended with gaps: reviewer 1: fails", Question: question,
 			}}},
 			want: []Action{{
 				Kind: ActConclude, Path: "conclude", Attempt: 1, Phase: "ended_with_gaps",
-				Output: "epic e1 ended with gaps: reviewer 1: fails",
+				Output: "epic e1 ended with gaps: reviewer 1: fails", Question: question,
 			}},
 		},
 	})

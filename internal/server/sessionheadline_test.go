@@ -46,7 +46,6 @@ func TestSessionHeadlineLoopHeadlineIsWhatListHeadlessCarries(t *testing.T) {
 	headlines := enginehost.NewSessionHeadlines(enginehost.SessionHeadlinesConfig{
 		Store: s,
 		Haiku: fixedHeadlineHaiku{},
-		Tick:  make(chan time.Time),
 		Now:   func() time.Time { return now },
 		Passed: func() {
 			passed <- struct{}{}

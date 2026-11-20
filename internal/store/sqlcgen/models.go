@@ -135,6 +135,18 @@ type Epic struct {
 	Steerer          string
 }
 
+type EpicAction struct {
+	Epic         string
+	Seq          int64
+	Kind         string
+	Maker        string
+	MakerSession string
+	FromSession  string
+	ToSession    string
+	Recipient    string
+	At           int64
+}
+
 type EpicAddition struct {
 	Epic     string
 	Position int64
@@ -193,6 +205,7 @@ type EpicDecision struct {
 	Question     int64
 	Maker        string
 	MakerSession string
+	Recipient    string
 }
 
 type EpicExclusion struct {
@@ -208,6 +221,14 @@ type EpicFailure struct {
 	Text     string
 	Rating   string
 	Response string
+}
+
+type EpicGapTurn struct {
+	Epic    string
+	Gap     string
+	Turn    int64
+	Reason  string
+	Created int64
 }
 
 type EpicGate struct {
@@ -388,6 +409,14 @@ type EpicReviewHold struct {
 	Step string
 }
 
+type EpicReviewRerun struct {
+	Epic     string
+	Reviewer string
+	Turn     int64
+	Position int64
+	Created  int64
+}
+
 type EpicReviewRound struct {
 	Epic     string
 	Round    int64
@@ -472,6 +501,7 @@ type EpicTask struct {
 	Question    int64
 	GateChanges string
 	Rebriefs    string
+	Notes       string
 }
 
 type EpicTaskContribute struct {
@@ -529,6 +559,7 @@ type EpicTaskReview struct {
 	Gate     string
 	Step     string
 	Verdict  string
+	Reason   string
 }
 
 type EpicTaskRung struct {
@@ -756,6 +787,16 @@ type PlannerAction struct {
 	Deliverable string
 	Files       string
 	RemoveFiles string
+	Reviewer    string
+}
+
+type PlannerUnresolvable struct {
+	Epic        string
+	Turn        int64
+	Position    int64
+	Gap         string
+	Reason      string
+	Recommended string
 }
 
 type PromptState struct {

@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -31,6 +33,22 @@ func (s *Store) HeadlineDueSessions(ctx context.Context) ([]HeadlineDueSession, 
 		})
 	}
 	return due, nil
+}
+
+// HeadlineDueSession returns the engine session id as HeadlineDueSessions lists it, and true, when the session is due. It
+// returns false, and no error, when it is not: a session whose newest turn end is not later than its headline_at, a
+// step or pane session, and an unknown id.
+func (s *Store) HeadlineDueSession(ctx context.Context, id string) (HeadlineDueSession, bool, error) {
+	row, err := sqlcgen.New(s.db).GetHeadlineDueSession(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return HeadlineDueSession{}, false, nil
+	}
+	if err != nil {
+		return HeadlineDueSession{}, false, fmt.Errorf("get headline due session %s: %w", id, err)
+	}
+	return HeadlineDueSession{
+		ID: row.ID, Dir: row.Dir, FirstPrompt: row.FirstPrompt, TurnAt: row.TurnAt, HeadlineAt: row.HeadlineAt,
+	}, true, nil
 }
 
 // RecentTurn is one of a session's recent turns. Role is "user" for an engine_prompt text the owner sent, and

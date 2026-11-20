@@ -845,7 +845,15 @@ func decideOrchestrate(view View) Action {
 		}
 		return Action{
 			Kind: ActStartStep, Unit: StageOrchestrate,
-			ID: StepID(view.Epic, view.Task.Seq, StageOrchestrate, build.Attempt, build.Rerun, build.Decisions, 0),
+			ID: StepID(
+				unitScope(view.Epic, view.Task),
+				view.Task.Seq,
+				StageOrchestrate,
+				build.Attempt,
+				build.Rerun,
+				build.Decisions,
+				0,
+			),
 		}
 	}
 	switch step.End {

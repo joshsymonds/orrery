@@ -41,7 +41,12 @@ func freeLimitOf(t *testing.T, s *Store, turn EpicTurn, resets time.Time) {
 func limitTurnThenResume(t *testing.T, s *Store, resets time.Time) {
 	t.Helper()
 	freeLimitOf(t, s, claimTurnOf(t, s), resets)
-	if err := s.ResumeEpic(context.Background(), claimEpic); err != nil {
+	if err := s.ResumeEpic(
+		context.Background(),
+		claimEpic,
+		Maker{By: MakerOwner},
+		time.Unix(1700000000, 0),
+	); err != nil {
 		t.Fatalf("ResumeEpic: %v", err)
 	}
 }
