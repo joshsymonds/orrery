@@ -1,5 +1,5 @@
-// The stories of the blocker pieces: AskFirst, QuestionCard and NowBlock. They draw the rota export epic, whose open
-// question Q1 has no choices, whose held step is T1, and a question with choices, which no fixture holds.
+// The stories of the blocker pieces: AskFirst and QuestionCard. They draw the rota export epic's open question Q1, which
+// has no choices, and a question with choices, which no fixture holds.
 
 import { create } from "@bufbuild/protobuf";
 
@@ -8,8 +8,6 @@ import * as blocker from "./blocker";
 import { at } from "./fixtures/clock";
 import { gets } from "./fixtures/epics";
 import { type EpicsGetResponse, EpicQuestionSchema } from "./gen/orrery/v1/epics_pb";
-import { wedgesOf } from "./phases";
-import { blockerOf } from "./status";
 
 const noop = () => {};
 
@@ -26,12 +24,6 @@ function fixtureOf<Value>(entries: ReadonlyMap<string, Value>, id: string): Valu
 }
 
 const rota: EpicsGetResponse = fixtureOf(gets, "lighthouse/rota-export");
-const sentence = blocker.nowSentence(wedgesOf(rota));
-
-// heldDetail and parkedDetail are the rota export with its question answered, so that its blocker is its held step, or
-// its park.
-const heldDetail: EpicsGetResponse = { ...rota, questions: [] };
-const parkedDetail: EpicsGetResponse = { ...rota, questions: [], parked: "waiting on the harbour office" };
 
 // recommended is a question with three choices, the first recommended. No fixture holds a question with choices.
 const recommended = create(EpicQuestionSchema, {
@@ -62,51 +54,4 @@ export const ConfirmButton: Stories = {
 export const Ask: Stories = {
   "open-question": () => <blocker.QuestionCard question={rota.questions[0]} numberKeys onAnswer={answer} />,
   epic: () => <blocker.QuestionCard question={recommended} numberKeys onAnswer={answer} />,
-};
-
-export const NowBlock: Stories = {
-  question: () => (
-    <blocker.NowBlock
-      sentence={sentence}
-      blocker={blockerOf(rota)}
-      slug="rota-export"
-      numberKeys
-      onAnswer={answer}
-      onRetry={noop}
-      onStop={noop}
-    />
-  ),
-  held: () => (
-    <blocker.NowBlock
-      sentence={sentence}
-      blocker={blockerOf(heldDetail)}
-      slug="rota-export"
-      numberKeys
-      onAnswer={answer}
-      onRetry={noop}
-      onStop={noop}
-    />
-  ),
-  parked: () => (
-    <blocker.NowBlock
-      sentence={sentence}
-      blocker={blockerOf(parkedDetail)}
-      slug="rota-export"
-      numberKeys
-      onAnswer={answer}
-      onRetry={noop}
-      onStop={noop}
-    />
-  ),
-  running: () => (
-    <blocker.NowBlock
-      sentence={sentence}
-      blocker={null}
-      slug="rota-export"
-      numberKeys
-      onAnswer={answer}
-      onRetry={noop}
-      onStop={noop}
-    />
-  ),
 };

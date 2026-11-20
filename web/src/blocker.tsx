@@ -2,8 +2,6 @@ import type { JSX } from "preact";
 import { useEffect, useState } from "preact/hooks";
 
 import type { EpicQuestion } from "./gen/orrery/v1/epics_pb";
-import type { Wedge } from "./phases";
-import type { Blocker } from "./status";
 
 const answerFailedLine = "Not answered. Your answer is kept.";
 
@@ -48,18 +46,6 @@ export function AskFirst({
       </button>
     </>
   );
-}
-
-// nowSentence is the one live sentence of an epic: the task and phase of its first running wedge, and the summary of
-// that phase's now slice when it has one. Empty when no wedge runs.
-export function nowSentence(wedges: Wedge[]): string {
-  const running = wedges.find((wedge) => wedge.tone === "run");
-  if (running === undefined) {
-    return "";
-  }
-  const summary = running.slices.find((slice) => slice.state === "now")?.summary ?? "";
-  const head = `${running.task} · ${running.place}`;
-  return summary === "" ? head : `${head} · ${summary}`;
 }
 
 // isTextBox reports whether an element is a text box, whose keys are text and no command.
@@ -184,56 +170,5 @@ export function QuestionCard({
         </p>
       )}
     </form>
-  );
-}
-
-// NowBlock is the now sentence over the epic's blocker. An open question draws as its option cards, a park draws with
-// Retry, and any blocker has a Stop that asks first. numberKeys is whether a digit key picks a card of the question.
-export function NowBlock({
-  sentence,
-  blocker,
-  slug,
-  numberKeys,
-  onAnswer,
-  onRetry,
-  onStop,
-}: {
-  sentence: string;
-  blocker: Blocker | null;
-  slug: string;
-  numberKeys: boolean;
-  onAnswer: (questionId: string, choice: string, text: string) => Promise<string>;
-  onRetry: () => void;
-  onStop: () => void;
-}): JSX.Element {
-  return (
-    <section class="now-block">
-      {sentence !== "" && <p class="now">{sentence}</p>}
-      {blocker?.kind === "question" && (
-        <QuestionCard
-          key={blocker.question.id}
-          question={blocker.question}
-          numberKeys={numberKeys}
-          onAnswer={onAnswer}
-        />
-      )}
-      {blocker?.kind === "parked" && (
-        <>
-          <p class="blocked">{blocker.text}</p>
-          <button type="button" class="act" onClick={() => onRetry()}>
-            Retry
-          </button>
-        </>
-      )}
-      {blocker !== null && (
-        <AskFirst
-          label="Stop…"
-          question={`Stop ${slug}?`}
-          confirm={`Stop ${slug}`}
-          keep="Keep it running"
-          onConfirm={onStop}
-        />
-      )}
-    </section>
   );
 }

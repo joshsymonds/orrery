@@ -322,8 +322,9 @@ test("EndedBar: at the desk, an epic whose steering names no listed session draw
 
 test("EndedBar: at 412, an epic whose steering names no listed session draws the bar in the narrow foot, with the conversation-ended lead", (t) =>
   withApp(t.signal, 412, { rows: [], epics: view([rota("sess-gone")]), address: epicAddress("rota") }, ({ container }) => {
-    const foot = container.querySelector<HTMLElement>(".epic-foot");
-    assert.ok(foot !== null, "the narrow foot is drawn");
+    const foot = container.querySelector<HTMLElement>(".epic-page > .ended-bar");
+    assert.ok(foot !== null, "the bar is drawn at the epic page's foot");
+    assert.equal(foot.nextElementSibling?.classList.contains("cmdbar"), true, "the bar stands right above the foot bar");
     assert.equal(foot.querySelector(".ended-lead")?.textContent, endedLead("rota"), "the bar's lead says the conversation ended");
     assert.ok(continueButton(foot) !== null, "the bar's Continue button is drawn");
   }));
@@ -338,8 +339,9 @@ test("EndedBar: at the desk, an epic with no steering draws the bar in the middl
 
 test("EndedBar: at 412, an epic with no steering draws the bar in the narrow foot, with the no-conversation lead", (t) =>
   withApp(t.signal, 412, { rows: [], epics: view([rota("")]), address: epicAddress("rota") }, ({ container }) => {
-    const foot = container.querySelector<HTMLElement>(".epic-foot");
-    assert.ok(foot !== null, "the narrow foot is drawn");
+    const foot = container.querySelector<HTMLElement>(".epic-page > .ended-bar");
+    assert.ok(foot !== null, "the bar is drawn at the epic page's foot");
+    assert.equal(foot.nextElementSibling?.classList.contains("cmdbar"), true, "the bar stands right above the foot bar");
     assert.equal(foot.querySelector(".ended-lead")?.textContent, unsteeredLead("rota"), "the bar's lead says no conversation steers it");
     assert.ok(continueButton(foot) !== null, "the bar's Continue button is drawn");
   }));

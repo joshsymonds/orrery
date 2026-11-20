@@ -116,7 +116,7 @@ class ProjectPageCardTest {
         assertEquals(CardTone.ATTENTION, card.tone)
         assertEquals("building · 49 min", card.state)
         assertEquals(listOf(TrackState.DONE, TrackState.DONE, TrackState.NOW, TrackState.AHEAD, TrackState.AHEAD), card.track)
-        assertEquals("t1 · implementing · writing the feed", card.now)
+        assertEquals("One task is being worked on, and one waits on you.", card.now)
         assertEquals("Which fix should I make?", card.asks)
         assertEquals("Answer", card.act)
         assertEquals("0 of 1 tasks done", card.count)

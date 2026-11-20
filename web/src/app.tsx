@@ -12,7 +12,7 @@ import { bandText, contractSlug, leftOf, type RowAbout, readKey, statePill } fro
 import { endedLead, EndedBar, unsteeredLead } from "./endedbar";
 import { type Conversation, shownConversation } from "./conversation";
 import { ConvoRow } from "./convorow";
-import { type EpicCommands, EpicPage, type Landing, type SessionTarget } from "./epicpage";
+import { type EpicCommands, EpicPage, type Landing, type SessionTarget, type SteerSheet } from "./epicpage";
 import { type EpicItem, type EpicsView, epicsView, noEpics, type StepItem } from "./epics";
 import { findMatches } from "./find";
 import { type Followed, follow } from "./follow";
@@ -21,7 +21,6 @@ import type { Epic, EpicHistoryEntry, EpicsGetResponse, EpicStep } from "./gen/o
 import type { InAppNotice, NoticeKey } from "./gen/orrery/v1/notice_pb";
 import type { HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
 import { stateWord } from "./glyphs";
-import { Handover } from "./handover";
 import { type HeadStore, memoryHeadStore } from "./headfold";
 import { KeyList } from "./helppanel";
 import { Inbox } from "./inbox";
@@ -175,7 +174,8 @@ const noHeadNote: HeadNote = { key: "", text: "" };
 const stateWorking = "working";
 // The block kind a notice names when it opens the contract page.
 const contractBlock = "contract";
-const epicUnavailableText = "epic unavailable";
+const loadingEpicText = "loading the epic…";
+const couldNotReadEpicText = "The server could not read this epic.";
 const noSteererText = "No conversation steers this epic.";
 const noProjectText = "Nothing in the inbox is in this project.";
 // The session states that end a conversation: its row holds it, but it is not live.
@@ -184,7 +184,8 @@ const seenFailedText = "could not mark seen";
 const answerFailedText = "no answer was sent";
 const takeBackFailedText = "could not take the queued messages back";
 const interruptFailedText = "could not interrupt";
-const commandFailedText = "epic command failed";
+// The reason a failed command shows when its error carries no message.
+const noReasonText = "no reason was given";
 const sessionUnavailableText = "session unavailable";
 const archiveFailedText = "could not change archive";
 const noAnswerText = "the server did not answer";
@@ -374,8 +375,10 @@ export function App({
   // answers are kept here and the asked ids in a ref.
   const [askedDetails, setAskedDetails] = useState<Map<string, EpicsGetResponse>>(() => new Map());
   const askedEpics = useRef(new Set<string>());
-  // The fixed line an epic page's command leaves when it fails. A command that lands clears it.
-  const [commandError, setCommandError] = useState("");
+  // The epics whose read failed. An epic in neither the poll's detail nor the answers is still loading.
+  const [failedEpicReads, setFailedEpicReads] = useState<Set<string>>(() => new Set());
+  // The epic page's own command line: the last page command that did not land, under its title row.
+  const [epicCommandLine, setEpicCommandLine] = useState("");
   const [epicHistory, setEpicHistory] = useState<EpicHistory>({ id: "", entries: [] });
   const [epicPage, setEpicPage] = useState<EpicPageState>(openEpicPage);
   // The session a steering move of an epic named when its re-read answered, with the epic and the steering the list
@@ -603,7 +606,7 @@ export function App({
   const openStep = !epicPage.closed && epicPage.page.kind === "session" ? epicPage.page.step : "";
   const shownSession = epicDetail?.steps.some((step) => step.id === openStep) === true ? openStep : "";
   // The epic entry the cursor rests on, when the poll did not load its detail, is asked for once with Epics.Get. A
-  // failed answer leaves the page at its unavailable line.
+  // failed answer leaves the page at its could-not-read line.
   const askedId = epicEntry?.id ?? "";
   const polledDetail = askedId !== "" && epics.details.has(askedId);
   // The address the page shows. The epic page's reset to the open page is a layout effect of the render that moves the
@@ -764,16 +767,25 @@ export function App({
     };
   }, [historyId, epicChanged, clients]);
 
+  // readEpic asks the server for an epic. Its answer is the detail the page draws, and a failed read is kept as failed.
+  const readEpic = (id: string): void => {
+    void clients.epics.get({ id }).then(
+      (answer) => setAskedDetails((previous) => new Map(previous).set(id, answer)),
+      () => setFailedEpicReads((previous) => new Set(previous).add(id)),
+    );
+  };
+  // retryEpicRead reads an epic whose read failed once more. The page shows it as loading until that read answers.
+  const retryEpicRead = (id: string): void => {
+    setFailedEpicReads((previous) => new Set([...previous].filter((failed) => failed !== id)));
+    readEpic(id);
+  };
   // An epic the poll did not load is asked for once, when the cursor rests on it, and its answer draws the page.
   useEffect(() => {
     if (askedId === "" || polledDetail || askedEpics.current.has(askedId)) {
       return;
     }
     askedEpics.current.add(askedId);
-    void clients.epics.get({ id: askedId }).then(
-      (answer) => setAskedDetails((previous) => new Map(previous).set(askedId, answer)),
-      () => undefined,
-    );
+    readEpic(askedId);
   }, [askedId, polledDetail, clients]);
 
   // A move of the cursor opens the epic page afresh, so a page a back closed or a contract opened does not outlast it.
@@ -1973,10 +1985,32 @@ export function App({
     );
   };
 
-  // epicPageSection draws the epic section over the epic's detail, or the line that the detail did not load.
+  // epicPageSection draws the epic section over the epic's detail, or while the detail is not drawn, the title row with
+  // the line its read leaves: loading, or the could-not-read line with Try again.
   const epicPageSection = (entry: EpicItem, detail: EpicsGetResponse | undefined) => (
     <section class={pageClasses(epicPage.move)} aria-label="epic" ref={pageRef}>
-      {detail === undefined ? <p class="side-note">{epicUnavailableText}</p> : pageNode(entry, detail)}
+      {detail !== undefined ? (
+        pageNode(entry, detail)
+      ) : (
+        <>
+          <TitleRow
+            crumbs={[{ label: entry.slug }]}
+            onBack={closeEpicPage}
+            mark={inboxMark}
+            strip={wide ? pageStrip(null, null) : undefined}
+          />
+          {failedEpicReads.has(entry.id) ? (
+            <>
+              <p class="side-note unread">{couldNotReadEpicText}</p>
+              <button type="button" class="act" onClick={() => retryEpicRead(entry.id)}>
+                Try again
+              </button>
+            </>
+          ) : (
+            <p class="side-note">{loadingEpicText}</p>
+          )}
+        </>
+      )}
     </section>
   );
 
@@ -2053,16 +2087,20 @@ export function App({
     return epic === undefined ? null : steeredBar(epic, epic.steering, endedLead(epic.slug));
   };
 
-  // noSteererMiddle is the middle beside an epic entry whose steerer has no listed row. A live orreryd epic gets the
-  // ended bar, its lead naming the epic's steering: unsteered when it has none, else its conversation ended. Any other
-  // epic gets the no-conversation line and no control.
-  const noSteererMiddle = (detail: EpicsGetResponse | undefined) => {
+  // unsteeredBar is the ended bar of an epic entry whose steerer has no listed row, when the epic is a live orreryd one:
+  // its lead names the epic's steering, unsteered when it has none, else its conversation ended. Any other epic has none.
+  const unsteeredBar = (detail: EpicsGetResponse | undefined) => {
     if (detail?.epic === undefined || !steersLive(detail)) {
-      return <p class="side-note">{noSteererText}</p>;
+      return null;
     }
     const lead = conversationEnded(rows, steering) ? endedLead(detail.epic.slug) : unsteeredLead(detail.epic.slug);
     return steeredBar(detail.epic, steering, lead);
   };
+
+  // noSteererMiddle is the middle beside an epic entry whose steerer has no listed row: its ended bar, or for an epic
+  // that has none the no-conversation line and no control.
+  const noSteererMiddle = (detail: EpicsGetResponse | undefined) =>
+    unsteeredBar(detail) ?? <p class="side-note">{noSteererText}</p>;
 
   // pageNode draws the page the section holds over the epic's detail: the epic page, or the contract, the phase output
   // or the worker session the page has moved to.
@@ -2148,22 +2186,26 @@ export function App({
     const openSession = (target: SessionTarget) => setPending({ kind: target.kind, id: target.id });
     return (
       <EpicPage
+        key={entry.id}
         detail={detail}
         landing={epicPage.landing}
         history={epicHistory.id === entry.id ? epicHistory.entries : []}
         now={now}
         loadArtifact={loadArtifact}
-        commands={epicCommands(clients, entry.id, setCommandError)}
+        commands={epicCommands(clients, entry.id, setEpicCommandLine)}
         numberKeys={!epicPage.closed}
+        commandError={epicCommandLine}
         onOpenContract={openContract}
         onOpenSession={openSession}
         onOpenPhase={openPhase}
         onBack={closeEpicPage}
-        handover={Handover({ detail })}
         mark={inboxMark}
         strip={pageStrip(null, null)}
         rows={rows}
-        actions={
+        narrow={!wide}
+        onTalk={steererRow === null ? undefined : closePanel}
+        foot={steererRow === null ? unsteeredBar(detail) : null}
+        steer={(sheet) => (
           <EpicSteer
             key={entry.id}
             epic={entry.id}
@@ -2173,9 +2215,10 @@ export function App({
             rows={rows}
             clients={clients}
             narrow={!wide}
+            sheet={sheet}
             onSteered={(session) => setSteered({ epic: entry.id, listed: listedSteering, session })}
           />
-        }
+        )}
       />
     );
   };
@@ -2210,7 +2253,7 @@ export function App({
   );
 
   // notes are the error lines the list shows above its rows, in the order they were set.
-  const notes = [seenError, answerError, escapeError, archiveError, commandError]
+  const notes = [seenError, answerError, escapeError, archiveError]
     .filter((line) => line !== "")
     .map((line) => (
       <p class="error" role="alert" key={line}>
@@ -2399,18 +2442,7 @@ export function App({
           </SidePanel>
         )}
         {epicEntry !== null && panelOpen && !wide && (
-          <div class="epic-read">
-            {epicPageSection(epicEntry, epicDetail)}
-            <div class="epic-foot">
-              {steererRow === null ? (
-                noSteererMiddle(epicDetail)
-              ) : (
-                <button type="button" class="act" onClick={closePanel}>
-                  Talk to the session that steers it
-                </button>
-              )}
-            </div>
-          </div>
+          <div class="epic-read">{epicPageSection(epicEntry, epicDetail)}</div>
         )}
         {contract !== undefined && wide && (
           <SidePanel
@@ -2682,9 +2714,10 @@ function phaseOfStep(detail: EpicsGetResponse, step: EpicStep): Phase {
   return row?.phase ?? (step.readOnly ? "reviewing" : "implementing");
 }
 
-// EpicSteer is the steering command in an epic page's title row. At the desk it is an icon that opens the steering menu
-// under it. Under 760px it is a More whose one item opens the menu in a sheet. It holds the menu's open state and the
-// one steering handle the menu and its choices share, and a choice that steers closes the menu and reports the session.
+// EpicSteer is the steering command of an epic page. At the desk it is an icon in the title row that opens the steering
+// menu under it. Under 760px it is the sheet that the More sheet's Steer item opens, which the page holds as sheet. It
+// holds the desk menu's open state and the one steering handle the menu and its choices share, and a choice that steers
+// closes the menu and reports the session.
 function EpicSteer({
   epic,
   slug,
@@ -2693,6 +2726,7 @@ function EpicSteer({
   rows,
   clients,
   narrow,
+  sheet,
   onSteered,
 }: {
   epic: string;
@@ -2702,71 +2736,41 @@ function EpicSteer({
   rows: Row[];
   clients: Clients;
   narrow: boolean;
+  sheet: SteerSheet;
   onSteered: (session: string) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [sheet, setSheet] = useState(false);
   const steer = useSteer(epic, steerCallsOf(clients), (session) => {
     setOpen(false);
-    setSheet(false);
+    sheet.onClose();
     onSteered(session);
   });
   const menu = (onClose: () => void) => (
     <SteerMenu slug={slug} steering={steering} repository={repository} rows={rows} steer={steer} onClose={onClose} />
   );
-  if (!narrow) {
-    return (
-      <span class="steer-anchor">
-        <button
-          type="button"
-          class="icon steer"
-          aria-label="Steer it from another conversation"
-          title="Steer it from another conversation"
-          aria-expanded={open}
-          onClick={() => setOpen((isOpen) => !isOpen)}
-        >
-          <svg viewBox="0 0 16 16" aria-hidden="true">
-            <path d="M3 5h9M10 2.5 12.5 5M13 11H4M6 8.5 3.5 11" />
-          </svg>
-        </button>
-        {open && menu(() => setOpen(false))}
-      </span>
-    );
+  if (narrow) {
+    return sheet.open ? (
+      <Sheet title={`Steer ${slug} from`} onClose={sheet.onClose}>
+        {menu(sheet.onClose)}
+      </Sheet>
+    ) : null;
   }
   return (
-    <>
+    <span class="steer-anchor">
       <button
         type="button"
-        class="icon more"
-        aria-label="More"
+        class="icon steer"
+        aria-label="Steer it from another conversation"
         title="Steer it from another conversation"
         aria-expanded={open}
         onClick={() => setOpen((isOpen) => !isOpen)}
       >
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-          <path d="M3.5 6.9a1.1 1.1 0 1 0 0 2.2 1.1 1.1 0 0 0 0-2.2zM8 6.9a1.1 1.1 0 1 0 0 2.2 1.1 1.1 0 0 0 0-2.2zM12.5 6.9a1.1 1.1 0 1 0 0 2.2 1.1 1.1 0 0 0 0-2.2z" />
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M3 5h9M10 2.5 12.5 5M13 11H4M6 8.5 3.5 11" />
         </svg>
       </button>
-      {open && (
-        <div class="head-menu" role="menu">
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              setOpen(false);
-              setSheet(true);
-            }}
-          >
-            Steer it from another conversation
-          </button>
-        </div>
-      )}
-      {sheet && (
-        <Sheet title={`Steer ${slug} from`} onClose={() => setSheet(false)}>
-          {menu(() => setSheet(false))}
-        </Sheet>
-      )}
-    </>
+      {open && menu(() => setOpen(false))}
+    </span>
   );
 }
 
@@ -2848,20 +2852,22 @@ async function readHistory(clients: Clients, id: string): Promise<EpicHistoryEnt
   return entries;
 }
 
-// epicCommands binds an epic's commands to its id. A command that fails reports commandFailedText through report, and
-// one that lands reports "". answer resolves "" when the answer lands, else the error's message.
+// epicCommands binds an epic's commands to its id. A command that fails reports its did-not-land line through report,
+// the command's name and the error's message as the reason; one that lands reports "". answer resolves "" when the
+// answer lands, else the error's message.
 function epicCommands(clients: Clients, epicId: string, report: (line: string) => void): EpicCommands {
-  const send = (sent: Promise<unknown>): void => {
+  const send = (name: string, sent: Promise<unknown>): void => {
     void sent.then(
       () => report(""),
-      () => report(commandFailedText),
+      (error: unknown) =>
+        report(`${name} did not land: ${failureReason(error) !== "" ? failureReason(error) : noReasonText}.`),
     );
   };
   return {
-    pause: () => send(clients.epics.pause({ id: epicId })),
-    resume: () => send(clients.epics.resume({ id: epicId })),
-    stop: () => send(clients.epics.stop({ id: epicId })),
-    retry: () => send(clients.epics.retry({ id: epicId })),
+    pause: () => send("Pause", clients.epics.pause({ id: epicId })),
+    resume: () => send("Resume", clients.epics.resume({ id: epicId })),
+    stop: () => send("Stop", clients.epics.stop({ id: epicId })),
+    retry: () => send("Retry", clients.epics.retry({ id: epicId })),
     answer: (question, choice, text) =>
       clients.epics.answer({ epicId, id: crypto.randomUUID(), text, question, choice }).then(
         () => "",

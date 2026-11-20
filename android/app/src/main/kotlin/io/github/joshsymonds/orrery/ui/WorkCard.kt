@@ -110,7 +110,7 @@ private fun epicCardOf(node: EpicNode, now: Long): WorkCardWords {
         },
         state = words.words,
         track = part?.let { trackAt(TRACK_PARTS.indexOf(it)) } ?: trackAt(1, hasNow = false),
-        now = detail?.let { nowSentence(wedgesOf(it)) }.orEmpty(),
+        now = detail?.let { nowSentenceOf(it) }.orEmpty(),
         asks = when {
             need == null -> ""
             questionId != null -> questionText

@@ -156,6 +156,7 @@ private fun toneWord(tone: WedgeTone): String = when (tone) {
     WedgeTone.PLAN -> "planned"
     WedgeTone.RUN -> "running"
     WedgeTone.MINE -> "waits on you"
+    WedgeTone.LIMITED -> "waits on a limit"
     WedgeTone.BAD -> "ended short"
     WedgeTone.ACC -> "accepted"
     WedgeTone.OK -> "integrated"
@@ -224,12 +225,13 @@ private fun sliceColour(state: SliceState, tone: WedgeTone): Color = when (state
     SliceState.AHEAD -> TRACK
 }
 
-// The colour of a now slice, by its wedge's tone: running yellow, waits on you peach, ended short red, accepted teal and
-// integrated green. A planned wedge has no now slice, so its colour is the track's.
+// The colour of a now slice, by its wedge's tone: running yellow, waits on you peach, waits on a limit grey, ended short
+// red, accepted teal and integrated green. A planned wedge has no now slice, so its colour is the track's.
 private fun nowColour(tone: WedgeTone): Color = when (tone) {
     WedgeTone.PLAN -> TRACK
     WedgeTone.RUN -> OrreryTokens.Tone.run
     WedgeTone.MINE -> OrreryTokens.Tone.mine
+    WedgeTone.LIMITED -> TRACK
     WedgeTone.BAD -> OrreryTokens.Tone.bad
     WedgeTone.ACC -> OrreryTokens.Tone.acc
     WedgeTone.OK -> OrreryTokens.Tone.ok

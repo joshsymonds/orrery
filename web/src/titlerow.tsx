@@ -1,6 +1,7 @@
 import { type ComponentChildren, Fragment, type JSX } from "preact";
 
 import { Mark } from "./mark";
+import type { WordTone } from "./recordwords";
 
 // A crumb's label is text, or the title a row's conversation head draws (TitleParts).
 export interface Crumb {
@@ -25,6 +26,11 @@ function crumbClass(here: string, place: boolean | undefined): string {
   return ["crumb", here, place ? "place" : ""].filter(Boolean).join(" ");
 }
 
+// pillClass is the class of a title row's pill: "state" or "blocker", plus "t-<tone>" when the pill has a tone.
+function pillClass(base: string, tone: WordTone | undefined): string {
+  return tone ? `${base} t-${tone}` : base;
+}
+
 // noInbox is the mark of a title row no inbox answers for: no count, and no action.
 const noInbox: InboxMark = { needs: 0, enter: () => {}, leave: () => {}, pin: () => {} };
 
@@ -33,12 +39,15 @@ const noInbox: InboxMark = { needs: 0, enter: () => {}, leave: () => {}, pin: ()
 // Back and every crumb but the last call their handlers; a crumb with no handler is a plain label, and the last crumb
 // is the page itself, a span marked as the current page. A place crumb draws in the place colour. Every text is a child
 // text node, so markup in a label shows as text. The strip, when given, takes a line of its own under the row's
-// controls. A non-empty note draws under the row as an alert.
+// controls. A non-empty note draws under the row as an alert. The state and blocker pills take a word tone each, when
+// given.
 export function TitleRow({
   crumbs,
   onBack,
   state,
+  stateTone,
   blocker,
+  blockerTone,
   mark = noInbox,
   strip,
   note,
@@ -47,7 +56,9 @@ export function TitleRow({
   crumbs: Crumb[];
   onBack: () => void;
   state?: string;
+  stateTone?: WordTone;
   blocker?: string;
+  blockerTone?: WordTone;
   mark?: InboxMark;
   strip?: ComponentChildren;
   note?: string;
@@ -92,8 +103,8 @@ export function TitleRow({
             </Fragment>
           ))}
         </nav>
-        {state ? <span class="state">{state}</span> : null}
-        {blocker ? <span class="blocker">{blocker}</span> : null}
+        {state ? <span class={pillClass("state", stateTone)}>{state}</span> : null}
+        {blocker ? <span class={pillClass("blocker", blockerTone)}>{blocker}</span> : null}
         <div class="acts">{children}</div>
         {strip}
       </header>

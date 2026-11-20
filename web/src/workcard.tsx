@@ -1,12 +1,11 @@
 import type { JSX } from "preact";
 
-import { nowSentence } from "./blocker";
 import { type GaugeShare, epicRowWords } from "./epicrow";
 import type { Contract } from "./gen/orrery/v1/contracts_pb";
 import type { EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 import { Gauge, Icon } from "./glyphs";
 import { type Need, epicNeeds } from "./needs";
-import { wedgesOf } from "./phases";
+import { nowSentenceOf } from "./recordwords";
 import { trackPart, trackParts } from "./status";
 import type { EpicNode, Hung } from "./tree";
 
@@ -84,7 +83,7 @@ function epicCard(node: EpicNode, now: number): CardModel {
     tone: need !== undefined ? "attention" : listed.live && !listed.archived ? "live" : "",
     state: words.words,
     track: stagesOf(part === undefined ? 1 : trackParts.indexOf(part), part !== undefined),
-    now: detail === undefined ? "" : nowSentence(wedgesOf(detail)),
+    now: detail === undefined ? "" : nowSentenceOf(detail),
     asks: ask.asks,
     act: ask.act,
     count: words.count,

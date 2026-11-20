@@ -11,16 +11,6 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   // App draws each kind of page at an address: the inbox, the archive, a session, a pane, a step, an epic, a contract, a
   // phase, a worker session. The inbox page stands for them.
   app: { replacement: "inbox-home", epic: "F2" },
-  // NowBlock draws an epic's now sentence over its blocker: an open question, a held step, a park, or nothing to block it.
-  "now-block": { replacement: "epic-question", epic: "F4" },
-  // EpicPage draws an epic's page in each state the fixtures hold: a rota decision, a released holder, a contract with tide
-  // alerts, a stopped epic offline, and paused follow-ups.
-  "epic-page": { replacement: "epic-building", epic: "F4" },
-  // NowRows and NextRows draw the in-flight and planned wedges of an epic, with or without a phase that opens.
-  "now-rows": { replacement: "epic-building", epic: "F4" },
-  "next-rows": { replacement: "epic-building", epic: "F4" },
-  // Handover draws an epic's handover, with its epic-stage review verdicts.
-  handover: { replacement: "epic-handover", epic: "F4" },
   // Mark draws the Orrery mark, the symbol the rail and the title row open on.
   mark: { replacement: "Tile", epic: "F2" },
   // Markdown draws reply prose: emphasis, a list, a fenced code block, a table, a heading with a link, and a marked query.
@@ -31,13 +21,6 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   "reply-text": { replacement: "Reply", epic: "F3" },
   // PhaseOutputPage draws a task's phase output at each phase of the rota export.
   "phase-output-page": { replacement: "phase-implement", epic: "F4" },
-  // GreenProof and RedProof draw the green and red cards of an epic page, reached or dim.
-  "green-proof": { replacement: "EvidenceRun", epic: "F4" },
-  "red-proof": { replacement: "EvidenceRun", epic: "F4" },
-  // ReleaseProof draws the release steps of an epic: released, in progress, waiting, or with no contract.
-  "release-proof": { replacement: "ReleaseTable", epic: "F4" },
-  // Report draws an epic's report: written, not shipped, or unwritten.
-  report: { replacement: "epic-shipped", epic: "F4" },
   // Reader draws one conversation: loading, a pane's conversation, a folded compaction, a question, find, a sending box, live
   // session text, and a session's step.
   reader: { replacement: "convo-shell", epic: "F3" },
@@ -51,8 +34,6 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   "worker-session-page": { replacement: "worker-running", epic: "F4" },
   // OutputTails draws a command's output tails: both, stdout only, stderr only.
   "output-tails": { replacement: "epic-evidence", epic: "F4" },
-  // Workflow draws an epic's workflow nodes: a plan and a build, evidence, failed checks, a loop.
-  workflow: { replacement: "epic-building", epic: "F4" },
   // EpicWidget draws the reader's tool-call card: the live card of an epic a tool call created, under the conversation's tool call.
   "epic-widget": { replacement: "convo-epic", epic: "F3" },
 
@@ -67,9 +48,6 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   "epic-event-block/question-settled": { replacement: "EpicEventBlock", epic: "F3" },
   // StepEndBlock draws a step that ended with no agent named and a looping reason.
   "step-end-block/without-agent": { replacement: "StepEndBlock", epic: "F3" },
-  // EvidenceRun draws a requirement's captured red and green runs as one list, and a run still going, which draws no exit.
-  "evidence-run/captured-red-and-green": { replacement: "EvidenceRun", epic: "F4" },
-  "evidence-run/running": { replacement: "EvidenceRun", epic: "F4" },
   // FindBar draws the find field with no query, and with a query that has one match.
   "find-bar/empty": { replacement: "FindBar", epic: "F3" },
   "find-bar/one-match": { replacement: "FindBar", epic: "F3" },
@@ -79,8 +57,6 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   // Notice draws a stack of three notices, and of more than three with its "+n more" line.
   "notice/three-notices": { replacement: "Notice", epic: "F5" },
   "notice/over-the-limit": { replacement: "Notice", epic: "F5" },
-  // Orrery draws the rota export with its phase cells open to a click.
-  "orrery/opens-phase": { replacement: "Orrery", epic: "F4" },
   // TitleRow draws a crumb and a state, a blocker, and a page's commands.
   "title-row/crumbs-and-state": { replacement: "TitleRow", epic: "F3" },
   "title-row/blocker": { replacement: "TitleRow", epic: "F3" },

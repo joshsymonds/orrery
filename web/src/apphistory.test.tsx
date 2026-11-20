@@ -140,18 +140,23 @@ function firstEpic(init: MessageInitShape<typeof EpicsGetResponseSchema> = {}): 
   return epicsView([epic], new Map([[epic.id, create(EpicsGetResponseSchema, { epic, ...init })]]));
 }
 
-// acceptedContract is an accepted contract, whose summary the epic page draws as a button that opens it.
+// acceptedContract is an accepted contract, whose summary the epic page draws with the Contract door that opens it.
 const acceptedContract = { title: "Show the accepted contract", approved: "approved line", intent: "the intent" };
 
-// contractEpic is firstEpic with its summary and accepted contract, so its page draws the button that drills into it.
+// contractEpic is a live orreryd epic accepted with its summary and contract, so its page draws the Contract door that
+// drills into the contract.
 function contractEpic(): EpicsView {
-  return firstEpic({ summary: "Ship the demo", contract: acceptedContract });
+  const epic = makeEpic(widgetsRepo, "first", { source: "orreryd", outcome: "accepted", runningSteps: [makeStep("run1")] });
+  return epicsView(
+    [epic],
+    new Map([[epic.id, create(EpicsGetResponseSchema, { epic, summary: "Ship the demo", contract: acceptedContract })]]),
+  );
 }
 
 // twoEpics are two live epics with no steps and the first with an accepted contract, so the cursor walks from the
 // first straight to the second.
 function twoEpics(): EpicsView {
-  const first = makeEpic(widgetsRepo, "first");
+  const first = makeEpic(widgetsRepo, "first", { source: "orreryd", outcome: "accepted" });
   const second = makeEpic(widgetsRepo, "second");
   const detail = create(EpicsGetResponseSchema, { epic: first, summary: "Ship the demo", contract: acceptedContract });
   return epicsView(
@@ -397,7 +402,7 @@ test("HashRoute: the foot's Archived and Back to the inbox push their views, and
 test("HashRoute: a drill into the contract pushes its page, and the first cursor key after it pushes", (t) =>
   withApp(t, { rows: historyRows(), epics: contractEpic() }, async ({ container, reports }) => {
     await openEpicLine(container, widgetsFirstKey);
-    await click(container, ".epic-page button", "Ship the demo");
+    await click(container, ".epic-page .door.contract");
     assert.deepEqual(reports, [
       [firstAddress, "push"],
       [`${firstAddress}/contract`, "push"],
@@ -425,7 +430,7 @@ test("HashRoute: a drill into a worker session pushes its page, and the first cu
 test("HashRoute: h pushes the epic page a contract returns to", (t) =>
   withApp(t, { rows: historyRows(), epics: contractEpic() }, async ({ container, reports }) => {
     await openEpicLine(container, widgetsFirstKey);
-    await click(container, ".epic-page button", "Ship the demo");
+    await click(container, ".epic-page .door.contract");
     const before = reports.length;
     await press("h");
     assert.deepEqual(reports.slice(before), [[firstAddress, "push"]]);
@@ -434,7 +439,7 @@ test("HashRoute: h pushes the epic page a contract returns to", (t) =>
 test("HashRoute: ArrowLeft pushes the epic page a contract returns to", (t) =>
   withApp(t, { rows: historyRows(), epics: contractEpic() }, async ({ container, reports }) => {
     await openEpicLine(container, widgetsFirstKey);
-    await click(container, ".epic-page button", "Ship the demo");
+    await click(container, ".epic-page .door.contract");
     const before = reports.length;
     await press("ArrowLeft");
     assert.deepEqual(reports.slice(before), [[firstAddress, "push"]]);
@@ -443,7 +448,7 @@ test("HashRoute: ArrowLeft pushes the epic page a contract returns to", (t) =>
 test("HashRoute: the back caret of a contract pushes the epic page it returns to", (t) =>
   withApp(t, { rows: historyRows(), epics: contractEpic() }, async ({ container, reports }) => {
     await openEpicLine(container, widgetsFirstKey);
-    await click(container, ".epic-page button", "Ship the demo");
+    await click(container, ".epic-page .door.contract");
     const before = reports.length;
     await click(container, 'section.page[aria-label="epic"] .title-row .back', "‹");
     assert.deepEqual(reports.slice(before), [[firstAddress, "push"]]);
@@ -452,7 +457,7 @@ test("HashRoute: the back caret of a contract pushes the epic page it returns to
 test("HashRoute: the epic crumb of a contract pushes the epic page", (t) =>
   withApp(t, { rows: historyRows(), epics: contractEpic() }, async ({ container, reports }) => {
     await openEpicLine(container, widgetsFirstKey);
-    await click(container, ".epic-page button", "Ship the demo");
+    await click(container, ".epic-page .door.contract");
     const before = reports.length;
     await click(container, 'section.page[aria-label="epic"] .crumb', "first");
     assert.deepEqual(reports.slice(before), [[firstAddress, "push"]]);
@@ -469,7 +474,7 @@ test("HashRoute: the orrery crumb of the epic page closes it and pushes the inbo
 test("HashRoute: a cursor key onto another epic from a contract pushes that epic once, not the contract", (t) =>
   withApp(t, { rows: historyRows(), epics: twoEpics() }, async ({ container, reports }) => {
     await openEpicLine(container, widgetsFirstKey);
-    await click(container, ".epic-page button", "Ship the demo");
+    await click(container, ".epic-page .door.contract");
     const before = reports.length;
     await press("j");
     assert.deepEqual(reports.slice(before), [[secondAddress, "push"]]);

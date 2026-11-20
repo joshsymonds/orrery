@@ -4,124 +4,114 @@ import { test } from "node:test";
 import { render } from "preact";
 import { act } from "preact/test-utils";
 
-import { CENTRE, RING_RADII, cellPath, point, sector, sliceSpan, sliceStart } from "./orbits";
+import { CENTRE, GAP, RING_RADII, cellPath, point, sliceStart } from "./orbits";
 import { Orrery } from "./orrery";
-import { PHASES, type Phase, type PhaseSlice, type RequirementArc, type SliceState, type Wedge } from "./phases";
+import type { Phase } from "./phases";
+import { type Cell, PLACES, type RecordTask } from "./record";
 import { installTestDom, removeTestDom } from "./testdom";
 
-// now is the clock the orrery reads its running and passed times against, in the same seconds as the slices' since.
-const now = 400;
-
-function slice(
-  phase: PhaseSlice["phase"],
-  state: SliceState,
-  summary: string,
-  since: number,
-  seconds: number,
-): PhaseSlice {
-  return { phase, state, summary, since, seconds };
+// Props is the orrery's props, so a test can pass its own tasks, proven set and open handler.
+interface Props {
+  tasks: RecordTask[];
+  proven: ReadonlySet<string>;
+  onOpenPhase?: (task: string, phase: Phase) => void;
 }
 
-function aheadSlices(): PhaseSlice[] {
-  return PHASES.map((phase) => slice(phase, "ahead", "", 0, 0));
-}
-
-// integrated is a wedge with every phase passed: its implementing slice has a summary and two minutes, its checking
-// slice is empty.
-const integrated: Wedge = {
+// integrated is a task in the integrate ring's place: every cell ok, and it proves R4, which is proven.
+const integrated: RecordTask = {
   task: "t1",
   title: "Login",
   requirements: ["R4"],
   place: "integrated",
   tone: "ok",
-  slices: [
-    slice("implementing", "passed", "built it", 0, 120),
-    slice("checking", "passed", "", 0, 0),
-    slice("reviewing", "passed", "reviewed", 0, 30),
-    slice("integrating", "passed", "merged", 0, 10),
-  ],
+  cells: ["ok", "ok", "ok", "ok", "ok"],
+  words: "done",
+  since: 0,
 };
 
-// running is a wedge in implementing whose implementing slice is now, since 100: five minutes at now.
-const running: Wedge = {
+// implementing is a task running in the implement ring: red is ok, implement is live, and the rest are not reached.
+const implementing: RecordTask = {
   task: "t2",
   title: "Parser",
   requirements: ["R5"],
-  place: "implementing",
+  place: "implement",
   tone: "run",
-  slices: [
-    slice("implementing", "now", "writing the parser", 100, 0),
-    ...aheadSlices().slice(1),
-  ],
+  cells: ["ok", "run", "none", "none", "none"],
+  words: "implement · writing the parser",
+  since: 100,
 };
 
-// planned is a wedge at the rim, with every slice ahead.
-const planned: Wedge = {
+// planned is a task before any ring: every cell none.
+const planned: RecordTask = {
   task: "t3",
   title: "Lexer",
   requirements: ["R5"],
   place: "planned",
   tone: "plan",
-  slices: aheadSlices(),
+  cells: ["none", "none", "none", "none", "none"],
+  words: "not started",
+  since: 0,
 };
 
-// blocked is a wedge in checking whose checking slice is now with a bad tone and no summary, since 50: five minutes.
-const blocked: Wedge = {
+// blocked is a task failing in the green ring, which proves R4 and R5 and so is not proven.
+const blocked: RecordTask = {
   task: "t4",
   title: "Store",
   requirements: ["R4", "R5"],
-  place: "checking",
+  place: "green",
   tone: "bad",
-  slices: [
-    slice("implementing", "passed", "fixed", 0, 30),
-    slice("checking", "now", "", 50, 0),
-    ...aheadSlices().slice(2),
-  ],
+  cells: ["ok", "ok", "bad", "none", "none"],
+  words: "green · failed",
+  since: 50,
 };
 
-const wedges = [integrated, running, planned, blocked];
+const tasks = [integrated, implementing, planned, blocked];
+const proven: ReadonlySet<string> = new Set(["R4"]);
 
-const arcs: RequirementArc[] = [
-  { id: "R4", start: 0, end: 1.5, proven: true },
-  { id: "R5", start: 1.5, end: 4, proven: false },
-];
+// RECORD_GAP is the gap at 12 o'clock the record's chart opens, in degrees: wide enough that each ring's name reads whole.
+const RECORD_GAP = 62;
+const DEG = Math.PI / 180;
+// CAPTION_LINE is the line of the caption under the count: the .of label's 16px line.
+const CAPTION_LINE = 16;
 
-// phaseNames are the labels down the top gap, rim first.
-const phaseNames = ["planned", "implementing", "checking", "reviewing", "integrating"];
-
-// allowedTexts are the only text classes the orrery draws: no legend, key, caption or ring letter.
-const allowedTexts = ["req-id", "phase-name", "count", "count-of"];
-
-// turn lets Preact's queued render run before the test reads the DOM.
-async function turn(): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, 0));
+// turn draws what a DOM event changed: act flushes Preact's queued render without a timer.
+async function fire(target: Element, event: string): Promise<void> {
+  await act(() => {
+    target.dispatchEvent(new Event(event));
+  });
 }
 
-function textOf(root: ParentNode, selector: string): string | null {
-  return root.querySelector(selector)?.textContent ?? null;
+// cellOf finds the cell of a task's ring; a missing cell fails the test.
+function cellOf(container: HTMLElement, task: string, place: string): Element {
+  const found = container.querySelector(`path.cell[data-task="${task}"][data-place="${place}"]`);
+  if (found === null) {
+    throw new Error(`no cell for ${task} ${place}`);
+  }
+  return found;
 }
 
 function textsOf(root: ParentNode, selector: string): (string | null)[] {
   return [...root.querySelectorAll(selector)].map((element) => element.textContent);
 }
 
-// cellOf finds the cell of a task's phase, or the rim when phase is "planned"; a missing cell fails the test.
-function cellOf(container: HTMLElement, task: string, phase: string): Element {
-  const found = container.querySelector(`.cell[data-task="${task}"][data-phase="${phase}"]`);
-  if (found === null) {
-    throw new Error(`no cell for ${task} ${phase}`);
-  }
-  return found;
+// numbersOf reads the numbers of a path's data, in order: a ring-way path is "M x y A r r 0 0 1 x y".
+function numbersOf(d: string | null): number[] {
+  return (d ?? "").match(/-?\d+(\.\d+)?/g)?.map(Number) ?? [];
+}
+
+// angleOf is a point's angle in degrees, clockwise from 12 o'clock.
+function angleOf(x: number, y: number): number {
+  return (Math.atan2(x - CENTRE, CENTRE - y) / DEG + 360) % 360;
 }
 
 async function withOrrery(
   check: (container: HTMLElement) => void | Promise<void>,
-  onOpenPhase?: (task: string, phase: Phase) => void,
+  props: Props = { tasks, proven },
 ): Promise<void> {
   const window = installTestDom();
   const container = document.createElement("div");
   try {
-    render(<Orrery wedges={wedges} arcs={arcs} now={now} onOpenPhase={onOpenPhase} />, container);
+    render(<Orrery tasks={props.tasks} proven={props.proven} onOpenPhase={props.onOpenPhase} />, container);
     await check(container);
   } finally {
     render(null, container);
@@ -129,237 +119,229 @@ async function withOrrery(
   }
 }
 
-async function hover(container: HTMLElement, task: string, phase: string): Promise<void> {
-  cellOf(container, task, phase).dispatchEvent(new Event("pointerenter"));
-  await turn();
-}
-
-// click clicks a task's phase cell, or its rim cell for "planned", and lets Preact draw what the click changed.
-async function click(container: HTMLElement, task: string, phase: string): Promise<void> {
-  await act(() => {
-    cellOf(container, task, phase).dispatchEvent(new Event("click"));
-  });
-}
-
-test("the svg reads its view box, role and integrated count of wedges", () =>
+test("EpicOrrery: the five ring names read outside in, each on a textPath of its own ring-way path", () =>
   withOrrery((container) => {
-    const svg = container.querySelector("svg.orrery");
-    assert.equal(svg?.tagName, "svg");
-    assert.equal(svg?.getAttribute("viewBox"), "0 0 412 412");
-    assert.equal(svg?.getAttribute("role"), "img");
-    assert.equal(svg?.getAttribute("aria-label"), "1 of 4 integrated");
+    assert.deepEqual(textsOf(container, "text.ring-name"), ["red", "implement", "green", "review", "integrate"]);
+    const names = [...container.querySelectorAll("text.ring-name")];
+    names.forEach((name, ring) => {
+      const textPath = name.querySelector("textPath");
+      assert.equal(textPath?.getAttribute("startOffset"), "100%");
+      const id = textPath?.getAttribute("href")?.slice(1) ?? "";
+      const way = container.querySelector(`path.ring-way[id="${id}"]`);
+      assert.notEqual(way, null, `no ring-way path ${id}`);
+      const [startX, startY, , , , , , endX, endY] = numbersOf(way?.getAttribute("d") ?? null);
+      const radius = RING_RADII[ring];
+      assert.ok(Math.abs(Math.hypot(startX - CENTRE, startY - CENTRE) - radius) < 0.01, "the way starts off its ring");
+      assert.ok(Math.abs(Math.hypot(endX - CENTRE, endY - CENTRE) - radius) < 0.01, "the way ends off its ring");
+      const left = point(radius, (-RECORD_GAP / 2) * DEG);
+      const first = point(radius, (RECORD_GAP / 2) * DEG);
+      assert.ok(Math.abs(startX - left.x) < 0.01 && Math.abs(startY - left.y) < 0.01, "the way starts off the gap's left edge");
+      assert.ok(Math.abs(endX - first.x) < 0.01 && Math.abs(endY - first.y) < 0.01, "the way ends off the first cell");
+    });
   }));
 
-test("each wedge draws five cells: a rim cell and one cell for each of its four phases", () =>
+test("EpicOrrery: each task draws five cells, one per ring, each on its ring's radius", () =>
   withOrrery((container) => {
-    assert.equal(container.querySelectorAll(".cell").length, 20);
-    for (const wedge of wedges) {
-      assert.equal(container.querySelectorAll(`.cell[data-task="${wedge.task}"]`).length, 5);
+    assert.equal(container.querySelectorAll("path.cell").length, tasks.length * PLACES.length);
+    tasks.forEach((task, index) => {
+      PLACES.forEach((place, ring) => {
+        assert.equal(
+          cellOf(container, task.task, place).getAttribute("d"),
+          cellPath(tasks.length, index, ring + 1, RECORD_GAP),
+        );
+      });
+    });
+  }));
+
+test("EpicOrrery: a cell's class is its tone in its ring, so a task reads ok before its place, its tone at it and none after", () =>
+  withOrrery((container) => {
+    const classesOf = (task: string) =>
+      PLACES.map((place) => {
+        const cell = cellOf(container, task, place);
+        return [...cell.classList].find((name) => name.startsWith("c-"))?.slice(2) as Cell;
+      });
+    assert.deepEqual(classesOf("t1"), ["ok", "ok", "ok", "ok", "ok"]);
+    assert.deepEqual(classesOf("t2"), ["ok", "run", "none", "none", "none"]);
+    assert.deepEqual(classesOf("t3"), ["none", "none", "none", "none", "none"]);
+    assert.deepEqual(classesOf("t4"), ["ok", "ok", "bad", "none", "none"]);
+  }));
+
+test("EpicOrrery: each cell carries its ring as data-place and the phase that ring opens as data-phase", () =>
+  withOrrery((container) => {
+    const phases: Record<string, Phase> = {
+      red: "implementing",
+      implement: "implementing",
+      green: "checking",
+      review: "reviewing",
+      integrate: "integrating",
+    };
+    for (const place of PLACES) {
+      assert.equal(cellOf(container, "t2", place).getAttribute("data-phase"), phases[place]);
     }
   }));
 
-test("the rim cell reads planned for a planned wedge and passed for any other", () =>
+test("EpicOrrery: a requirement rim outside each wedge reads proven when every requirement it proves is proven", () =>
   withOrrery((container) => {
-    const plannedRim = cellOf(container, "t3", "planned");
-    assert.equal(plannedRim.classList.contains("rim"), true);
-    assert.equal(plannedRim.classList.contains("planned"), true);
-    assert.equal(plannedRim.classList.contains("passed"), false);
-    const runningRim = cellOf(container, "t2", "planned");
-    assert.equal(runningRim.classList.contains("rim"), true);
-    assert.equal(runningRim.classList.contains("passed"), true);
-    assert.equal(runningRim.classList.contains("planned"), false);
+    const rims = container.querySelectorAll("path.req");
+    assert.equal(rims.length, tasks.length);
+    assert.equal(rims[0]?.getAttribute("class"), "req proven");
+    assert.equal(rims[1]?.getAttribute("class"), "req");
+    assert.equal(rims[2]?.getAttribute("class"), "req");
+    assert.equal(rims[3]?.getAttribute("class"), "req");
   }));
 
-test("a phase cell carries its phase and state, and the now slice alone carries its wedge's tone", () =>
+test("EpicOrrery: a task that proves no requirement has an open rim, not a proven one", () =>
+  withOrrery(
+    (container) => {
+      assert.equal(container.querySelectorAll("path.req.proven").length, 0);
+    },
+    { tasks: [{ ...planned, requirements: [] }], proven: new Set() },
+  ));
+
+test("EpicOrrery: the svg reads its count of done tasks, and the centre reads done over of N done", () =>
   withOrrery((container) => {
-    const now2 = cellOf(container, "t2", "implementing");
-    assert.equal(now2.classList.contains("phase-implementing"), true);
-    assert.equal(now2.classList.contains("now"), true);
-    assert.equal(now2.classList.contains("t-run"), true);
-
-    const ahead = cellOf(container, "t2", "checking");
-    assert.equal(ahead.classList.contains("phase-checking"), true);
-    assert.equal(ahead.classList.contains("ahead"), true);
-    assert.equal([...ahead.classList].some((name) => name.startsWith("t-")), false);
-
-    const passed = cellOf(container, "t1", "reviewing");
-    assert.equal(passed.classList.contains("phase-reviewing"), true);
-    assert.equal(passed.classList.contains("passed"), true);
-    assert.equal([...passed.classList].some((name) => name.startsWith("t-")), false);
-
-    const blockedNow = cellOf(container, "t4", "checking");
-    assert.equal(blockedNow.classList.contains("now"), true);
-    assert.equal(blockedNow.classList.contains("t-bad"), true);
+    const svg = container.querySelector("svg.orrery");
+    assert.equal(svg?.getAttribute("role"), "img");
+    assert.equal(svg?.getAttribute("aria-label"), "1 of 4 tasks done");
+    assert.deepEqual(textsOf(container, "text.count"), ["1"]);
+    assert.deepEqual(textsOf(container, "text.of"), ["of 4 done"]);
   }));
 
-test("each cell's path is the cell of its wedge's index and its phase's ring", () =>
-  withOrrery((container) => {
-    assert.equal(cellOf(container, "t3", "planned").getAttribute("d"), cellPath(4, 2, 1));
-    assert.equal(cellOf(container, "t2", "implementing").getAttribute("d"), cellPath(4, 1, 2));
-    assert.equal(cellOf(container, "t4", "reviewing").getAttribute("d"), cellPath(4, 3, 4));
+test("EpicOrrery: an epic with no tasks draws nothing", () =>
+  withOrrery(
+    (container) => {
+      assert.equal(container.childNodes.length, 0);
+    },
+    { tasks: [], proven: new Set() },
+  ));
+
+test("EpicOrrery: 120 tasks draw 120 wedges, and the only text is the five ring names and the centre", () => {
+  const many: RecordTask[] = Array.from({ length: 120 }, (_, index) => ({
+    ...planned,
+    task: `unit-${index + 1}`,
+    requirements: ["R1"],
   }));
+  return withOrrery(
+    (container) => {
+      assert.equal(container.querySelectorAll("path.cell").length, 120 * PLACES.length);
+      assert.equal(container.querySelectorAll("path.req").length, 120);
+      const texts = [...container.querySelectorAll("svg.orrery text")];
+      assert.equal(
+        texts.every((element) => ["ring-name", "count", "of"].includes(element.getAttribute("class") ?? "")),
+        true,
+      );
+      assert.equal(container.querySelectorAll("text.ring-name").length, PLACES.length);
+    },
+    { tasks: many, proven: new Set() },
+  );
+});
 
-test("a running wedge glows its now slice after all cells, and no other slice glows", () =>
-  withOrrery((container) => {
-    const glows = container.querySelectorAll(".glows .glow");
-    assert.equal(glows.length, 1);
-    assert.equal(glows[0]?.getAttribute("d"), cellPath(4, 1, 2));
-
-    const children = [...(container.querySelector("svg.orrery")?.children ?? [])];
-    const glowGroup = children.findIndex((child) => child.getAttribute("class") === "glows");
-    const lastCell = children.map((child) => child.classList.contains("cell")).lastIndexOf(true);
-    assert.equal(glowGroup > lastCell, true);
-  }));
-
-test("requirement arcs read proven or open by their ids, drawn from radius 184 to 192 with the id at 200", () =>
-  withOrrery((container) => {
-    assert.equal(container.querySelectorAll("path.req").length, 2);
-    assert.equal(container.querySelector('path.req[data-req="R4"]')?.classList.contains("proven"), true);
-    assert.equal(container.querySelector('path.req[data-req="R5"]')?.classList.contains("open"), true);
-    assert.equal(container.querySelector('path.req[data-req="R5"]')?.classList.contains("proven"), false);
-    assert.deepEqual(textsOf(container, "text.req-id"), ["R4", "R5"]);
-
-    const from = sliceStart(4, 0);
-    const to = sliceStart(4, 0) + 1.5 * sliceSpan(4);
-    assert.equal(container.querySelector('path.req[data-req="R4"]')?.getAttribute("d"), sector(184, 192, from, to));
-
-    const mid = (from + to) / 2;
-    const idX = Number(container.querySelector("text.req-id")?.getAttribute("x"));
-    const idY = Number(container.querySelector("text.req-id")?.getAttribute("y"));
-    assert.equal(idX, point(200, mid).x);
-    assert.equal(idY, point(200, mid).y);
-  }));
-
-test("the phase names run down the top gap, one at each ring's radius", () =>
-  withOrrery((container) => {
-    assert.deepEqual(textsOf(container, "text.phase-name"), phaseNames);
-    const ys = [...container.querySelectorAll("text.phase-name")].map((element) => Number(element.getAttribute("y")));
-    assert.deepEqual(
-      ys,
-      RING_RADII.map((radius) => CENTRE - radius),
-    );
-  }));
-
-test("the centre reads the integrated count of wedges and the word integrated", () =>
-  withOrrery((container) => {
-    assert.equal(textOf(container, "text.count"), "1 of 4");
-    assert.equal(textOf(container, "text.count-of"), "integrated");
-  }));
-
-test("hovering a running slice shows its task, phase, summary and the time since it began", () =>
+test("EpicOrrery: hovering a wedge outlines it and captions it with its task's title and words, and leaving clears both", () =>
   withOrrery(async (container) => {
-    assert.equal(container.querySelectorAll(".slice-card").length, 0);
-    await hover(container, "t2", "implementing");
-    assert.equal(container.querySelectorAll(".slice-card").length, 1);
-    assert.equal(textOf(container, ".slice-card .card-task"), "t2");
-    assert.equal(textOf(container, ".slice-card .card-phase"), "implementing");
-    assert.equal(textOf(container, ".slice-card .card-summary"), "writing the parser");
-    assert.equal(textOf(container, ".slice-card .card-time"), "5 min");
-    assert.equal(container.lastElementChild?.classList.contains("slice-card"), true);
+    assert.equal(container.querySelectorAll("path.hl").length, 0);
+    assert.equal(container.querySelectorAll("figcaption.orrery-cap").length, 0);
+    await fire(cellOf(container, "t2", "green"), "pointerenter");
+    assert.equal(container.querySelectorAll("path.hl").length, 1);
+    assert.equal(textsOf(container, "figcaption.orrery-cap")[0], "Parser · implement · writing the parser");
+    await fire(cellOf(container, "t2", "green"), "pointerleave");
+    assert.equal(container.querySelectorAll("path.hl").length, 0);
+    assert.equal(container.querySelectorAll("figcaption.orrery-cap").length, 0);
   }));
 
-test("hovering a passed slice shows the time its ended steps took", () =>
+test("EpicOrrery: hovering one wedge's cell moves the outline to its wedge", () =>
   withOrrery(async (container) => {
-    await hover(container, "t1", "implementing");
-    assert.equal(textOf(container, ".slice-card .card-summary"), "built it");
-    assert.equal(textOf(container, ".slice-card .card-time"), "2 min");
-
-    await hover(container, "t4", "implementing");
-    assert.equal(textOf(container, ".slice-card .card-time"), "30 s");
+    await fire(cellOf(container, "t1", "red"), "pointerenter");
+    assert.equal(textsOf(container, "figcaption.orrery-cap")[0], "Login · done");
+    await fire(cellOf(container, "t4", "review"), "pointerenter");
+    assert.equal(container.querySelectorAll("path.hl").length, 1);
+    assert.equal(textsOf(container, "figcaption.orrery-cap")[0], "Store · green · failed");
   }));
 
-test("hovering an empty passed slice shows no summary and no time", () =>
-  withOrrery(async (container) => {
-    await hover(container, "t1", "checking");
-    assert.equal(textOf(container, ".slice-card .card-task"), "t1");
-    assert.equal(textOf(container, ".slice-card .card-phase"), "checking");
-    assert.equal(container.querySelectorAll(".slice-card .card-summary").length, 0);
-    assert.equal(container.querySelectorAll(".slice-card .card-time").length, 0);
-  }));
-
-test("hovering a now slice with no summary shows its time and no summary", () =>
-  withOrrery(async (container) => {
-    await hover(container, "t4", "checking");
-    assert.equal(container.querySelectorAll(".slice-card .card-summary").length, 0);
-    assert.equal(textOf(container, ".slice-card .card-time"), "5 min");
-  }));
-
-test("hovering an ahead slice shows no time", () =>
-  withOrrery(async (container) => {
-    await hover(container, "t2", "reviewing");
-    assert.equal(textOf(container, ".slice-card .card-phase"), "reviewing");
-    assert.equal(container.querySelectorAll(".slice-card .card-time").length, 0);
-  }));
-
-test("leaving a slice hides its card", () =>
-  withOrrery(async (container) => {
-    await hover(container, "t2", "implementing");
-    assert.equal(container.querySelectorAll(".slice-card").length, 1);
-    cellOf(container, "t2", "implementing").dispatchEvent(new Event("pointerleave"));
-    await turn();
-    assert.equal(container.querySelectorAll(".slice-card").length, 0);
-  }));
-
-test("hovering a rim cell shows no card", () =>
-  withOrrery(async (container) => {
-    await hover(container, "t2", "planned");
-    assert.equal(container.querySelectorAll(".slice-card").length, 0);
-  }));
-
-test("the orrery draws no legend, key, ring letter or text beyond its labels", () =>
-  withOrrery((container) => {
-    assert.equal(container.querySelectorAll(".legend, .key, .ring-letter").length, 0);
-    const texts = [...container.querySelectorAll("svg.orrery text")];
-    assert.equal(
-      texts.every((element) => allowedTexts.includes(element.getAttribute("class") ?? "")),
-      true,
-    );
-  }));
-
-test("a click on a phase cell calls onOpenPhase once with that cell's task and phase", () => {
+test("EpicOrrery: a click on a task's cell calls onOpenPhase once with that task and the phase of its ring", () => {
   const opened: [string, string][] = [];
   return withOrrery(
     async (container) => {
-      await click(container, "t2", "implementing");
-      await click(container, "t4", "checking");
+      await act(() => {
+        cellOf(container, "t2", "implement").dispatchEvent(new Event("click"));
+      });
+      await act(() => {
+        cellOf(container, "t4", "green").dispatchEvent(new Event("click"));
+      });
       assert.deepEqual(opened, [
         ["t2", "implementing"],
         ["t4", "checking"],
       ]);
     },
-    (task, phase) => {
-      opened.push([task, phase]);
-    },
+    { tasks, proven, onOpenPhase: (task, phase) => opened.push([task, phase]) },
   );
 });
 
-test("a click on a rim cell calls nothing, and a phase click after it still calls once", () => {
+test("EpicOrrery: a click on a planned task's cell calls nothing", () => {
   const opened: [string, string][] = [];
   return withOrrery(
     async (container) => {
-      await click(container, "t3", "planned");
+      await act(() => {
+        cellOf(container, "t3", "red").dispatchEvent(new Event("click"));
+      });
       assert.deepEqual(opened, []);
-      await click(container, "t2", "implementing");
-      assert.deepEqual(opened, [["t2", "implementing"]]);
     },
-    (task, phase) => {
-      opened.push([task, phase]);
-    },
+    { tasks, proven, onOpenPhase: (task, phase) => opened.push([task, phase]) },
   );
 });
 
-test("with onOpenPhase every phase cell is a button marked open, and no rim cell is", () =>
-  withOrrery(
-    (container) => {
-      assert.equal(container.querySelectorAll(".cell.open").length, wedges.length * PHASES.length);
-      assert.equal(container.querySelectorAll('.cell[role="button"]').length, wedges.length * PHASES.length);
-      assert.equal(container.querySelectorAll('.rim.open, .rim[role="button"]').length, 0);
-    },
-    () => {},
-  ));
+test("EpicOrrery: each drawn chart's ring-name paths have ids no other chart in the document shares", async () => {
+  const window = installTestDom();
+  const first = document.createElement("div");
+  const second = document.createElement("div");
+  try {
+    render(<Orrery tasks={tasks} proven={proven} />, first);
+    render(<Orrery tasks={tasks} proven={proven} />, second);
+    const ids = [...first.querySelectorAll("path.ring-way"), ...second.querySelectorAll("path.ring-way")].map(
+      (element) => element.id,
+    );
+    assert.equal(ids.length, 2 * PLACES.length);
+    assert.equal(new Set(ids).size, ids.length);
+  } finally {
+    render(null, first);
+    render(null, second);
+    await removeTestDom(window);
+  }
+});
 
-test("without onOpenPhase no cell is marked open or is a button", () =>
+test("EpicOrrery: the record's gap at 12 o'clock is 62 degrees, so its first cell starts at +31 degrees for any count", async () => {
+  for (const count of [1, 4, 120]) {
+    const many: RecordTask[] = Array.from({ length: count }, (_, index) => ({
+      ...planned,
+      task: `unit-${index + 1}`,
+      requirements: ["R1"],
+    }));
+    await withOrrery(
+      (container) => {
+        const [x, y] = numbersOf(cellOf(container, "unit-1", "red").getAttribute("d"));
+        assert.ok(Math.abs(angleOf(x ?? 0, y ?? 0) - RECORD_GAP / 2) < 1.5, `the first cell of ${count} starts off +31 degrees`);
+      },
+      { tasks: many, proven: new Set() },
+    );
+  }
+});
+
+test("EpicOrrery: the centre count and its caption sit on their own baselines, a caption line apart, with no central baseline", () =>
   withOrrery((container) => {
-    assert.equal(container.querySelectorAll(".cell.open").length, 0);
-    assert.equal(container.querySelectorAll('.cell[role="button"]').length, 0);
+    const [count] = container.querySelectorAll("text.count");
+    const [of] = container.querySelectorAll("text.of");
+    assert.equal(count?.getAttribute("dominant-baseline"), null);
+    assert.equal(of?.getAttribute("dominant-baseline"), null);
+    const apart = Number(of?.getAttribute("y")) - Number(count?.getAttribute("y"));
+    assert.ok(apart >= CAPTION_LINE, `the caption sits ${apart} units under the count, less than a caption line`);
   }));
+
+test("EpicOrrery: a slice drawn with no gap, as the inbox's mini chart draws it, keeps the 16 degree gap", () => {
+  assert.equal(GAP, 16);
+  for (const count of [1, 4, 120]) {
+    assert.equal(sliceStart(count, 0), sliceStart(count, 0, GAP));
+    assert.notEqual(sliceStart(count, 0), sliceStart(count, 0, 62));
+    for (let ring = 0; ring < RING_RADII.length; ring++) {
+      assert.equal(cellPath(count, 0, ring), cellPath(count, 0, ring, GAP));
+    }
+  }
+});

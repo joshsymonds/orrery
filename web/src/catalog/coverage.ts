@@ -23,14 +23,15 @@ export const storyExemptions: Readonly<Record<string, string>> = {
 
 // storyRenames names each component export whose stories are not in its file's own stories module under its own name, by
 // its component file and export: a round-6 name for the story export in the file's stories module, or the stories module
-// and story export of another file that draws the export, as { module, story }. A page draws Inbox, NewPanel, KeyList,
-// SteerMenu, EndedBar and ProjectPage, so their entries name app.stories.tsx's Page.
+// and story export of another file that draws the export, as { module, story }. A page draws EpicPage, Inbox, NewPanel,
+// KeyList, SteerMenu, EndedBar and ProjectPage, so their entries name app.stories.tsx's Page.
 export const storyRenames: Renames = {
   "backgroundrow.tsx": { BackgroundRow: "TaskLine" },
   "blocker.tsx": { QuestionCard: "Ask", AskFirst: "ConfirmButton" },
   "contract.tsx": { ContractBody: { module: "app.stories.tsx", story: "Page" } },
   "contractrecord.tsx": { ContractRecord: { module: "app.stories.tsx", story: "Page" } },
   "endedbar.tsx": { EndedBar: { module: "app.stories.tsx", story: "Page" } },
+  "epicpage.tsx": { EpicPage: { module: "app.stories.tsx", story: "Page" } },
   "eventring.tsx": { EventRing: "EpicEventBlock", StepCard: "StepEndBlock" },
   "evidence.tsx": { EvidenceRuns: "EvidenceRun" },
   "glyphs.tsx": { Icon: "Icons" },
@@ -40,6 +41,7 @@ export const storyRenames: Renames = {
   "inbox.tsx": { Inbox: { module: "app.stories.tsx", story: "Page" } },
   "helppanel.tsx": { KeyList: { module: "app.stories.tsx", story: "Page" } },
   "notices.tsx": { NoticeBanner: "Notice" },
+  "nowsection.tsx": { NowSection: { module: "app.stories.tsx", story: "Page" } },
   "picker.tsx": { NewPanel: { module: "app.stories.tsx", story: "Page" } },
   "projectpage.tsx": { ProjectPage: { module: "app.stories.tsx", story: "Page" } },
   "sidepanel.tsx": { SidePanel: "ListPanel" },

@@ -41,11 +41,8 @@ import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.push.PushNotifier
 import io.github.joshsymonds.orrery.push.PushSetup
 import io.github.joshsymonds.orrery.ui.ContractScreen
-import io.github.joshsymonds.orrery.ui.EpicFoot
-import io.github.joshsymonds.orrery.ui.EpicHandover
 import io.github.joshsymonds.orrery.ui.EpicOpening
 import io.github.joshsymonds.orrery.ui.EpicScreen
-import io.github.joshsymonds.orrery.ui.EpicSteerMore
 import io.github.joshsymonds.orrery.ui.PaneListScreen
 import io.github.joshsymonds.orrery.ui.PaneListState
 import io.github.joshsymonds.orrery.ui.PaneScreen
@@ -60,6 +57,7 @@ import io.github.joshsymonds.orrery.ui.SettingsScreen
 import io.github.joshsymonds.orrery.ui.StepMode
 import io.github.joshsymonds.orrery.ui.WelcomeScreen
 import io.github.joshsymonds.orrery.ui.conversationLive
+import io.github.joshsymonds.orrery.ui.steererOf
 import io.github.joshsymonds.orrery.ui.theme.Move
 import io.github.joshsymonds.orrery.ui.theme.OrreryTheme
 import io.github.joshsymonds.orrery.ui.theme.animationsOn
@@ -109,6 +107,11 @@ class MainActivity : ComponentActivity() {
                     val scope = rememberCoroutineScope()
                     // Opens the conversation that steers an epic once a steering settles on it.
                     val openSteerer: (String) -> Unit = { id -> scope.launch { screen = steererScreen(client, id) } }
+                    // The listed conversation an epic's steering names. The screen that draws it reads it off the main
+                    // thread.
+                    val listedSteerer: (String) -> Pane? = remember(client) {
+                        { id -> steererOf(client.panes() + client.headless(), id) }
+                    }
                     // The directory a project page's New session here opens the picker on, null while it is closed.
                     var pickerDir by remember { mutableStateOf<String?>(null) }
                     val animated = animationsOn()
@@ -181,18 +184,11 @@ class MainActivity : ComponentActivity() {
                                             onOpenPhase = { task, phase ->
                                                 screen = Screen.Phase(current.id, task, phase)
                                             },
+                                            onTalk = openSteerer,
+                                            listedSteerer = listedSteerer,
+                                            onSteered = openSteerer,
                                             listState = epicListStates.getOrPut(current.id) { LazyListState() },
                                             openAt = current.open,
-                                            handover = { detail -> EpicHandover(detail.handover) },
-                                            more = { detail -> EpicSteerMore(client, detail, openSteerer) },
-                                            foot = { detail ->
-                                                EpicFoot(
-                                                    client = client,
-                                                    detail = detail,
-                                                    onOpenSteerer = { openSteerer(detail.epic.steering) },
-                                                    onSteered = openSteerer,
-                                                )
-                                            },
                                         )
                                     }
                                     is Screen.Phase -> {
@@ -375,12 +371,11 @@ class MainActivity : ComponentActivity() {
 
     /**
      * The screen a notice opens its epic at: the contract for a contract block, the epic's now section for a question
-     * or a release step, its report for a report, and its top when there is no block.
+     * or a release step, and its top when there is no block.
      */
     private fun epicScreenOf(epicId: String, block: String?): Screen = when (block) {
         "contract" -> Screen.Contract(epicId)
         "question", "release_step" -> Screen.Epic(epicId, EpicOpening("now"))
-        "report" -> Screen.Epic(epicId, EpicOpening("report"))
         else -> Screen.Epic(epicId)
     }
 

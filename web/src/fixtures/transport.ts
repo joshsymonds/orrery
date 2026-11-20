@@ -15,7 +15,7 @@ import {
 
 import { createClients } from "../client";
 import { Contracts } from "../gen/orrery/v1/contracts_pb";
-import { Epics, EpicsContinueResponseSchema, Evidence, Steps } from "../gen/orrery/v1/epics_pb";
+import { Epics, EpicsContinueResponseSchema, EpicsGetResponseSchema, Evidence, Steps } from "../gen/orrery/v1/epics_pb";
 import { Notices } from "../gen/orrery/v1/notice_pb";
 import {
   AskResponseSchema,
@@ -28,6 +28,7 @@ import {
   Sessions,
   type SessionsWatchConversationResponse,
 } from "../gen/orrery/v1/orrery_pb";
+import { evidenceArtifactKey } from "./epics";
 import { type Slices, shippedSlices } from "./slices";
 
 // FixtureTransport is the fixture a page is given: the transport, the clients made from it, the procedures it refused,
@@ -63,6 +64,15 @@ export function createFixtureTransport(slices: Slices = shippedSlices): FixtureT
 
   // absorb answers a write with an empty message. The fixture takes the write and records nothing.
   const absorb = () => ({});
+
+  // epicCommand answers an epic command with an empty message, or fails it with the reason the slices name for it.
+  const epicCommand = (name: "pause" | "resume" | "stop" | "retry") => () => {
+    const reason = slices.failingEpicCommands.get(name);
+    if (reason !== undefined) {
+      throw new ConnectError(reason, Code.Unavailable);
+    }
+    return {};
+  };
 
   // notFound is the error a read of an id the slices do not hold fails with.
   const notFound = (message: string) => new ConnectError(message, Code.NotFound);
@@ -228,7 +238,12 @@ export function createFixtureTransport(slices: Slices = shippedSlices): FixtureT
     });
     router.service(Epics, {
       list: () => slices.epics,
-      get: (request) => {
+      // A held Get stays open until its call aborts, as a Picker.Ask its slices hold open does.
+      get: async (request, context) => {
+        if (slices.heldGets.has(request.id)) {
+          await held(context.signal);
+          return create(EpicsGetResponseSchema);
+        }
         const epic = slices.gets.get(request.id);
         if (epic === undefined) {
           throw notFound(`epic ${request.id} not found`);
@@ -236,13 +251,13 @@ export function createFixtureTransport(slices: Slices = shippedSlices): FixtureT
         return epic;
       },
       history: (request) => slices.histories.get(request.id) ?? { entries: [], next: "" },
-      pause: absorb,
+      pause: epicCommand("pause"),
       // Continue starts no conversation in the fixture, so it answers an empty session.
       continue: () => create(EpicsContinueResponseSchema, { session: "" }),
       move: absorb,
-      resume: absorb,
-      stop: absorb,
-      retry: absorb,
+      resume: epicCommand("resume"),
+      stop: epicCommand("stop"),
+      retry: epicCommand("retry"),
       kick: refuse,
       answer: absorb,
       seen: absorb,
@@ -252,7 +267,11 @@ export function createFixtureTransport(slices: Slices = shippedSlices): FixtureT
     router.service(Evidence, {
       artifact: (request) => {
         if (request.name !== "") {
-          throw notFound(`artifact ${request.name} not found`);
+          const artifact = slices.evidenceArtifacts.get(evidenceArtifactKey(request.run, request.name));
+          if (artifact === undefined) {
+            throw notFound(`artifact ${request.name} not found`);
+          }
+          return { data: artifact.data, mediaType: artifact.mediaType };
         }
         // A run's stderr is empty; its log is the stdout that Evidence/Artifact returns with an empty name.
         const log = request.stderr ? "" : slices.evidenceLogs.get(request.run);

@@ -1,14 +1,12 @@
-// The stories of Orrery: the rota export epic in flight, the holder epic with every task integrated, and the rota
-// export with its phase cells open to a click. ARC_INNER and ARC_OUTER are numbers, so they have no story.
+// The stories of Orrery: the follow-ups epic in flight, the rota export with a held task, the holder epic with every task
+// integrated, and round 6's dense mix of 120 tasks. ARC_INNER and ARC_OUTER are numbers, so they have no story.
 
 import type { Stories } from "./catalog/story";
-import { liveEpoch } from "./fixtures/clock";
 import { gets } from "./fixtures/epics";
 import * as orrery from "./orrery";
-import { requirementArcs, wedgesOf } from "./phases";
-
-const noop = () => {};
-const now = Date.parse(liveEpoch) / 1000;
+import { type Cell, PLACES, type RecordTask, recordTasksOf } from "./record";
+import type { EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
+import { provenOf, wedgesOf } from "./phases";
 
 // fixtureOf is the fixture's entry under id. The stories name only held ids, so a missing one is a broken story.
 function fixtureOf<Value>(entries: ReadonlyMap<string, Value>, id: string): Value {
@@ -19,15 +17,39 @@ function fixtureOf<Value>(entries: ReadonlyMap<string, Value>, id: string): Valu
   return entry;
 }
 
+// provenIdsOf is the requirement ids an epic proves, as the chart's rims read them.
+function provenIdsOf(detail: EpicsGetResponse): Set<string> {
+  const wedges = wedgesOf(detail);
+  const ids = [...detail.requirements.map((requirement) => requirement.id), ...wedges.flatMap((wedge) => wedge.requirements)];
+  return new Set(ids.filter((id) => provenOf(id, wedges, detail.requirements)));
+}
+
+const followups = fixtureOf(gets, "orrery/orrery-followups");
 const rota = fixtureOf(gets, "lighthouse/rota-export");
-const rotaWedges = wedgesOf(rota);
-const rotaArcs = requirementArcs(rotaWedges, rota.requirements);
 const holder = fixtureOf(gets, "orrery/holder-scopes");
-const holderWedges = wedgesOf(holder);
-const holderArcs = requirementArcs(holderWedges, holder.requirements);
+
+// denseTasks is round 6's dense mix: 96 integrated, three in review, five in green, three in implement, three in red and
+// ten planned. Task 102 is failing in green, and task 107 is held in implement.
+const denseTasks: RecordTask[] = Array.from({ length: 120 }, (_, index) => {
+  const placeIndex = index < 96 ? PLACES.length : index < 99 ? 3 : index < 104 ? 2 : index < 107 ? 1 : index < 110 ? 0 : -1;
+  const tone = index < 96 ? "ok" : index === 101 ? "bad" : index === 106 ? "mine" : placeIndex === -1 ? "plan" : "run";
+  const cells = PLACES.map((_, ring): Cell => (ring < placeIndex ? "ok" : ring === placeIndex ? tone : "none"));
+  const place = placeIndex === PLACES.length ? "integrated" : placeIndex === -1 ? "planned" : PLACES[placeIndex];
+  return {
+    task: `unit-${String(index + 1).padStart(3, "0")}`,
+    title: `Unit ${index + 1}`,
+    requirements: [`R${(index % 6) + 1}`],
+    place,
+    tone,
+    cells,
+    words: place === "integrated" ? "done" : place === "planned" ? "not started" : place,
+    since: 0,
+  };
+});
 
 export const Orrery: Stories = {
-  mine: () => <orrery.Orrery wedges={rotaWedges} arcs={rotaArcs} now={now} />,
-  done: () => <orrery.Orrery wedges={holderWedges} arcs={holderArcs} now={now} />,
-  "opens-phase": () => <orrery.Orrery wedges={rotaWedges} arcs={rotaArcs} now={now} onOpenPhase={noop} />,
+  running: () => <orrery.Orrery tasks={recordTasksOf(followups)} proven={provenIdsOf(followups)} />,
+  mine: () => <orrery.Orrery tasks={recordTasksOf(rota)} proven={provenIdsOf(rota)} />,
+  done: () => <orrery.Orrery tasks={recordTasksOf(holder)} proven={provenIdsOf(holder)} />,
+  dense: () => <orrery.Orrery tasks={denseTasks} proven={new Set(["R1", "R2"])} />,
 };

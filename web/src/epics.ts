@@ -15,6 +15,7 @@ const stripToneOf: Record<Tone, StripTone> = {
   acc: "accepted",
   run: "now",
   mine: "held",
+  limited: "held",
   bad: "errored",
   plan: "none",
 };
@@ -284,4 +285,3 @@ export function roundOf(step: EpicStep): number {
 export function repositoryName(repository: string): string {
   return repository.replace(hexSuffix, "");
 }
-

@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import { type JSX, render } from "preact";
 
-import { Gauge, Icon, Pips, StateGlyph } from "./glyphs";
+import { Gauge, Icon, StateGlyph } from "./glyphs";
 import { installTestDom, removeTestDom } from "./testdom";
 
 // Each test's name carries the token Glyphs: the glyphs draw on their own, outside any page.
@@ -81,14 +81,6 @@ test("Glyphs: a Gauge's check and dash inner marks draw their own path", async (
     assert.equal(one(container, "path.done").getAttribute("d"), "M9 12h6");
   });
 });
-
-test("Glyphs: Pips draws one cell per tone, each carrying its tone, and hides itself", () =>
-  drawn(<Pips tones={["ok", "run", "", "", ""]} />, (container) => {
-    const pips = one(container, "span.pips");
-    assert.equal(pips.getAttribute("aria-hidden"), "true");
-    const cells = Array.from(pips.querySelectorAll("i")).map((cell) => cell.getAttribute("data-tone"));
-    assert.deepEqual(cells, ["ok", "run", "", "", ""]);
-  }));
 
 test("Glyphs: an Icon with a label is named, and one without is hidden", async () => {
   await drawn(<Icon name="back" label="Back" />, (container) => {

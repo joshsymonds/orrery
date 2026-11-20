@@ -117,7 +117,7 @@ class EpicSteerMenuTest {
             .setRepository(REPO)
             .build()
 
-    /** The screen the record's More belongs to: the epic, with EpicSteerMore drawn in its title row. */
+    /** The screen the record's More belongs to: the epic, with the More in its foot. */
     private fun setScreen(server: FakeOrreryServer) {
         val client = OrreryClient(server.baseUrl)
         composeRule.setContent {
@@ -126,7 +126,10 @@ class EpicSteerMenuTest {
                 epicId = EPIC,
                 onBack = {},
                 onOpenStep = {},
-                more = { detail -> EpicSteerMore(client, detail) { steered.add(it) } },
+                onOpenContract = {},
+                onTalk = {},
+                listedSteerer = { null },
+                onSteered = { steered.add(it) },
             )
         }
     }
@@ -146,16 +149,16 @@ class EpicSteerMenuTest {
         composeRule.onNodeWithTag(tag).fetchSemanticsNode()
             .config[SemanticsProperties.Text].joinToString(" ") { it.text }
 
-    /** Taps the More's button, which the screen draws in its title row. */
+    /** Taps the More's button, which the screen draws in its foot. */
     private fun openMore() {
         composeRule.awaitUntil("the More is drawn once the epic loads") { nodeExists("epic-more") }
         composeRule.onNodeWithTag("epic-more", useUnmergedTree = true).performClick()
     }
 
-    /** Opens the steering sheet through the More's menu, the way a viewer does. */
+    /** Opens the steering sheet through the More's sheet, the way a viewer does. */
     private fun openSteerSheet() {
         openMore()
-        composeRule.awaitUntil("the menu opens") { nodeExists("epic-steer") }
+        composeRule.awaitUntil("the More sheet opens") { nodeExists("epic-steer") }
         tapPopup("epic-steer")
     }
 
@@ -168,14 +171,14 @@ class EpicSteerMenuTest {
     }
 
     @Test
-    fun theMoreOpensAMenuHoldingTheSteerCommand() {
+    fun theMoreOpensASheetHoldingTheSteerCommand() {
         FakeOrreryServer().use { server ->
             server.respond(GET_PATH, epicGet(STEERER))
             server.respond(HISTORY_PATH, EpicsHistoryResponse.getDefaultInstance())
             setScreen(server)
 
             openMore()
-            composeRule.awaitUntil("the menu opens") { nodeExists("epic-steer") }
+            composeRule.awaitUntil("the More sheet opens") { nodeExists("epic-steer") }
             composeRule.onNodeWithTag("epic-steer").assertTextEquals(MORE_ITEM)
         }
     }

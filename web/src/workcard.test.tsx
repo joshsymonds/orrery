@@ -124,7 +124,7 @@ test("ProjectPage WorkCard words for an epic that asks: its question, Answer, no
     tone: "attention",
     state: "building · 49 min",
     track: ["done", "done", "now", "ahead", "ahead"],
-    now: "T2 · implementing · Adding the refuse-on-existing check and its test.",
+    now: "2 tasks are being worked on, and one waits on you.",
     asks: questionOf("lighthouse/rota-export"),
     act: "Answer",
     count: "3 of 6 proven",
@@ -149,7 +149,7 @@ test("ProjectPage WorkCard words for an epic building: live, with no asks", () =
     tone: "live",
     state: "building · 20 min",
     track: ["done", "done", "now", "ahead", "ahead"],
-    now: "T1 · implementing · Reworking the invalid-UTF-8 test so that it fails against the old cut.",
+    now: "2 tasks are being worked on.",
     asks: "",
     act: "",
     count: "1 of 3 proven",
@@ -182,7 +182,7 @@ test("ProjectPage WorkCard draws its words, and its card, act and Open each call
     (container) => {
       assert.equal(textOf(container, ".slug"), "rota-export");
       assert.equal(textOf(container, ".pill"), "building · 49 min");
-      assert.equal(textOf(container, "p.now"), "T2 · implementing · Adding the refuse-on-existing check and its test.");
+      assert.equal(textOf(container, "p.now"), "2 tasks are being worked on, and one waits on you.");
       assert.equal(textOf(container, ".asks span"), questionOf("lighthouse/rota-export"));
       assert.equal(textOf(container, "button.act"), "Answer");
       assert.equal(textOf(container, "button.link"), "Open");

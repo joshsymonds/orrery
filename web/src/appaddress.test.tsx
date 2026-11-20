@@ -106,8 +106,17 @@ function firstEpic(init: MessageInitShape<typeof EpicsGetResponseSchema> = {}): 
   return epicsView([epic], new Map([[epic.id, create(EpicsGetResponseSchema, { epic, ...init })]]));
 }
 
-// acceptedContract is an accepted contract, whose summary the epic page draws as a link to it.
+// acceptedContract is an accepted contract, whose summary the epic page draws with the Contract door that opens it.
 const acceptedContract = { title: "Show the accepted contract", approved: "approved line", intent: "the intent" };
+
+// summaryEpic is a live orreryd epic accepted with its summary and contract, so its page draws the Contract door.
+function summaryEpic(): EpicsView {
+  const epic = makeEpic(widgetsRepo, "first", { source: "orreryd", outcome: "accepted", runningSteps: [makeStep("s1")] });
+  return epicsView(
+    [epic],
+    new Map([[epic.id, create(EpicsGetResponseSchema, { epic, summary: "Ship the demo", contract: acceptedContract })]]),
+  );
+}
 
 // phaseEpic is a live epic whose task T1 runs its gate step run1, which puts T1 in checking.
 function phaseEpic(): EpicsView {
@@ -219,6 +228,15 @@ async function clickButton(container: HTMLElement, scope: string, label: string)
   });
 }
 
+// clickContractDoor presses the Contract door of the epic page.
+async function clickContractDoor(container: HTMLElement): Promise<void> {
+  const door = container.querySelector<HTMLButtonElement>(".epic-page .door.contract");
+  assert.ok(door !== null, "the epic page draws its Contract door");
+  await act(() => {
+    door.dispatchEvent(new Event("click"));
+  });
+}
+
 // backFromPage presses the back button of the page over the epic page.
 async function backFromPage(container: HTMLElement): Promise<void> {
   await clickButton(container, 'section.page[aria-label="epic"] .title-row', "‹");
@@ -291,7 +309,7 @@ test("HashRoute: a contract address shows the contract page over the epic page",
     t.signal,
     {
       rows: [waitingRow()],
-      epics: firstEpic({ summary: "Ship the demo", contract: acceptedContract }),
+      epics: summaryEpic(),
       address: { view: "inbox", entry: { kind: "epic", id: widgetsFirst, page: { kind: "contract" } } },
     },
     async (container) => {
@@ -385,11 +403,11 @@ test("HashRoute: a rerender with the address App already shows changes nothing",
     t.signal,
     {
       rows: [waitingRow()],
-      epics: firstEpic({ summary: "Ship the demo", contract: acceptedContract }),
+      epics: summaryEpic(),
       address: { view: "inbox", entry: { kind: "epic", id: widgetsFirst, page: { kind: "epic" } } },
     },
     async (container, rerender) => {
-      await clickButton(container, ".epic-page", "Ship the demo");
+      await clickContractDoor(container);
       assert.equal(pageClass(container), "page drill", "the page drills into the contract");
       await rerender({ view: "inbox", entry: { kind: "epic", id: widgetsFirst, page: { kind: "contract" } } });
       assert.equal(pageClass(container), "page drill", "the address App shows is not opened again");
