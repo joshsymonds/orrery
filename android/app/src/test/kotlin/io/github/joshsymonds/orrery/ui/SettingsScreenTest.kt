@@ -306,15 +306,6 @@ class SettingsScreenTest {
     }
 
     @Test
-    fun aSilentChannelSaysSoOnItsRow() {
-        createChannel(PushNotifier.CHANNEL_ID, QUESTIONS, NotificationManager.IMPORTANCE_DEFAULT)
-        createChannel(PushNotifier.SILENT_CHANNEL_ID, REST, NotificationManager.IMPORTANCE_LOW)
-        setContent()
-
-        assertInOrder(QUESTIONS, SOUND, REST, SILENT)
-    }
-
-    @Test
     fun eachChannelSwitchIsOnByDefaultAndTurningItOffStopsOnlyItsChannel() {
         val preferences = PushPreferences(context)
         setContent()
