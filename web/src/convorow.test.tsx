@@ -15,19 +15,22 @@ import { buildTree, type Convo, type EpicNode, type Hung } from "./tree";
 // now is the clock the rows read their times against, in unix seconds: the fixtures' live instant.
 const now = Date.parse(liveEpoch) / 1000;
 
-// tree is the inbox tree of the fixtures, as the page places them on the serving host.
-const tree = buildTree({
+// treeInput is the fixture world the inbox tree places, as the page places it on the serving host.
+const treeInput = {
   rows: rowsFrom(shippedSlices.panes.panes, shippedSlices.sessions.sessions, shippedSlices.headless.sessions),
   epics: shippedSlices.epics.epics,
   details: shippedSlices.gets,
   contracts: shippedSlices.contracts.contracts,
   host: shippedSlices.host.host,
-  view: "inbox",
-});
+};
+
+// tree is the inbox tree of the fixtures, and archivedTree the Archived view of them.
+const tree = buildTree({ ...treeInput, view: "inbox" });
+const archivedTree = buildTree({ ...treeInput, view: "archived" });
 
 // convoOf is the conversation the tree draws for the row key, which the fixtures must hold.
-function convoOf(rowKey: string): Convo {
-  const convo = tree.flatMap((project) => project.convos).find((candidate) => candidate.row?.key === rowKey);
+function convoOf(rowKey: string, drawn: readonly { convos: Convo[] }[] = tree): Convo {
+  const convo = drawn.flatMap((project) => project.convos).find((candidate) => candidate.row?.key === rowKey);
   if (convo === undefined) {
     throw new Error(`the fixture tree draws no conversation for ${rowKey}`);
   }
@@ -177,4 +180,16 @@ test("InboxTree ConvoRow presses call onSelect with the pressed epic's key, and 
     },
     { onSelect: (key) => pressed.push(key) },
   );
+});
+
+test("InboxTree ConvoRow draws the Archived view's tide warm-up, which is not archived, with its archived epic under .steers", () => {
+  const convo = convoOf("session:9b5e1a47-2c0d-4e8f-8a31-6d7c0f5b2e90", archivedTree);
+  assert.deepEqual(keysOf(convo.hung), ["epic:tidepool/tide-warmup"], "the archived epic hangs under the live conversation");
+  return withConvo(convo, (container) => {
+    assert.equal(container.firstElementChild?.getAttribute("data-key"), "session:9b5e1a47-2c0d-4e8f-8a31-6d7c0f5b2e90");
+    const steers = container.querySelector(".steers");
+    assert.ok(steers, "the archived epic hangs in .steers");
+    const drawn = [...steers.querySelectorAll(":scope > .row.epic")].map((row) => row.getAttribute("data-key"));
+    assert.deepEqual(drawn, ["epic:tidepool/tide-warmup"], "its EpicRow is drawn under the conversation");
+  });
 });

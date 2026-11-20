@@ -5,11 +5,30 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { rowsFrom, type Row } from "../rows";
+import { buildTree, type Convo, type Project } from "../tree";
 import { at, liveEpoch } from "./clock";
 import { shippedSlices } from "./slices";
 
 // rows are the fixture conversations, one row each, as load.ts reads the panes and the headless sessions.
 const rows = rowsFrom(shippedSlices.panes.panes, shippedSlices.sessions.sessions, shippedSlices.headless.sessions);
+
+// treeInput is the fixture world the inbox tree places, as the page places it on the serving host.
+const treeInput = {
+  rows,
+  epics: shippedSlices.epics.epics,
+  details: shippedSlices.gets,
+  contracts: shippedSlices.contracts.contracts,
+  host: shippedSlices.host.host,
+};
+const inboxTree = buildTree({ ...treeInput, view: "inbox" });
+const archivedTree = buildTree({ ...treeInput, view: "archived" });
+
+// drawnConvo is the conversation the tree draws for the row key. It fails the test when the tree draws none.
+function drawnConvo(tree: Project[], rowKey: string): Convo {
+  const convo = tree.flatMap((project) => project.convos).find((candidate) => candidate.row?.key === rowKey);
+  assert.ok(convo !== undefined, `the tree draws the conversation ${rowKey}`);
+  return convo;
+}
 
 // titled is the fixture row whose title, its line, is title. The fixtures hold each title once.
 function titled(title: string): Row {
@@ -114,6 +133,11 @@ test("FixtureWorld: \"Why the roster page is slow past forty shifts\" changed fo
 
 // buoyFeedsSession is the headless session that steers tidepool/buoy-feeds.
 const buoyFeedsSession = "6c2f9e14-3a7b-4d58-9b0e-2f7a1c8d4e55";
+// moonSession is the archived almanac conversation Moon phase rounding, which steers almanac/moon-rounding.
+const moonSession = "e7c4b2a1-5d9f-4e3a-9b61-2a8f0c4d7e13";
+// warmupSession is the stopped tidepool conversation Tide table cache warm-up, which stays listed and steers
+// tidepool/tide-warmup, an archived epic.
+const warmupSession = "9b5e1a47-2c0d-4e8f-8a31-6d7c0f5b2e90";
 
 // steering is each epic and the session that steers it. The session is a row of the fixtures by its archive id.
 const steering: [epic: string, session: string][] = [
@@ -127,6 +151,8 @@ const steering: [epic: string, session: string][] = [
   ["orrery/holder-scopes", "sess-holder-19"],
   ["tidepool/tide-cache", "sess-cache-20"],
   ["tidepool/buoy-feeds", buoyFeedsSession],
+  ["almanac/moon-rounding", moonSession],
+  ["tidepool/tide-warmup", warmupSession],
 ];
 
 for (const [epic, session] of steering) {
@@ -150,4 +176,35 @@ test("FixtureWorld: the headless session Steering buoy-feeds runs two agents and
     ["agent", "Check the station list against NOAA's"],
     ["shell", "just serve --port 8710"],
   ]);
+});
+
+test("InboxTree: the Archived view holds Moon phase rounding, archived, in almanac, with the archived moon-rounding epic under it", () => {
+  const convo = drawnConvo(archivedTree, `session:${moonSession}`);
+  const project = archivedTree.find((candidate) => candidate.convos.includes(convo));
+  assert.equal(convo.row?.archived, true, "the conversation is archived");
+  assert.equal(project?.dir, "/home/owner/code/almanac", "the conversation sits in almanac");
+  assert.deepEqual(convo.hung.map((thing) => thing.key), ["epic:almanac/moon-rounding"]);
+});
+
+test("InboxTree: the Archived view draws Tide table cache warm-up, which is not archived, with the archived tide-warmup epic under it", () => {
+  const convo = drawnConvo(archivedTree, `session:${warmupSession}`);
+  const project = archivedTree.find((candidate) => candidate.convos.includes(convo));
+  assert.equal(convo.row?.archived, false, "the conversation stays listed");
+  assert.equal(project?.dir, "/home/owner/code/tidepool", "the conversation sits in tidepool");
+  assert.deepEqual(convo.hung.map((thing) => thing.key), ["epic:tidepool/tide-warmup"]);
+});
+
+test("InboxTree: the inbox draws neither archived epic under any conversation", () => {
+  const archivedEpics = ["epic:almanac/moon-rounding", "epic:tidepool/tide-warmup"];
+  const drawn = inboxTree
+    .flatMap((project) => [...project.convos, ...project.ended])
+    .flatMap((convo) => convo.hung.map((thing) => thing.key));
+  assert.deepEqual(drawn.filter((key) => archivedEpics.includes(key)), []);
+});
+
+test("InboxTree: pane %12 has the orrery_id sess-beacon-12, whose Session is listed unarchived, so its row archives as that session", () => {
+  const session = shippedSlices.sessions.sessions.find((candidate) => candidate.id === "sess-beacon-12");
+  const row = rows.find((candidate) => candidate.key === "pane:halyard:%12");
+  assert.deepEqual([session?.pane, session?.archived], ["%12", false], "the Session of the orrery_id is listed for pane %12");
+  assert.deepEqual([row?.archiveId, row?.archiveKind, row?.archived], ["sess-beacon-12", "session", false]);
 });

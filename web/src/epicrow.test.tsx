@@ -87,27 +87,16 @@ test("InboxTree EpicRow words read releasing for an epic whose tag is being push
   assert.equal(epicRowWords(epicNode(listedEpic("orrery/orbit-labels")), now).words, "releasing · 4 min");
 });
 
-test("InboxTree EpicRow words read parked for a parked epic", () => {
-  const parked = listedEpic("orrery/notices-usable", (epic) => {
-    epic.parked = "R5 is already met at the epic’s base";
-  });
-  assert.equal(epicRowWords(epicNode(parked), now).words, "parked · 29 h");
+test("InboxTree EpicRow words read parked for notices-usable, which the fixture list holds parked", () => {
+  assert.equal(epicRowWords(epicNode(listedEpic("orrery/notices-usable")), now).words, "parked · 29 h");
 });
 
-test("InboxTree EpicRow words read paused by you for an epic the owner paused", () => {
-  const paused = listedEpic("orrery/harbour-map", (epic) => {
-    epic.paused = true;
-    epic.pauseSource = "owner";
-  });
-  assert.equal(epicRowWords(epicNode(paused), now).words, "paused by you · 3 h");
+test("InboxTree EpicRow words read paused by you for harbour-map, which the fixture list holds paused by its owner", () => {
+  assert.equal(epicRowWords(epicNode(listedEpic("orrery/harbour-map")), now).words, "paused by you · 3 h");
 });
 
 test("InboxTree EpicRow gauge of a paused epic takes no tone, and a building one the live tone", () => {
-  const paused = listedEpic("orrery/harbour-map", (epic) => {
-    epic.paused = true;
-    epic.pauseSource = "owner";
-  });
-  assert.equal(epicRowWords(epicNode(paused), now).gauge?.tone, "");
+  assert.equal(epicRowWords(epicNode(listedEpic("orrery/harbour-map")), now).gauge?.tone, "");
   assert.equal(epicRowWords(epicNode(listedEpic("orrery/orrery-followups")), now).gauge?.tone, "live");
 });
 

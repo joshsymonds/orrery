@@ -449,21 +449,29 @@ test("FixtureTransport: app/inbox draws the inbox rows, with the fixture's propo
       assert.equal(listView(root), "inbox");
       const tide = root.querySelector('[data-key="epic:tidepool/tide-alerts"]');
       assert.ok(tide?.classList.contains("contract"), "tide-alerts is not drawn as its proposed contract");
+      assertNone(root.querySelector('[data-key="epic:almanac/moon-rounding"]'), "moon-rounding is archived, so the inbox holds it not");
+      assertNone(root.querySelector('[data-key="epic:tidepool/tide-warmup"]'), "tide-warmup is archived, so the inbox holds it not");
     },
   );
 });
 
-test("FixtureTransport: app/archived draws the archived rows, with the Archived head and no rota-export line", (t) => {
+test("FixtureTransport: app/archived draws the archived rows, with the Archived head, no rota-export line, and the archived epics under their conversations", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(
     t,
     App.archived,
-    (root) => listView(root) === "archived",
+    (root) => listView(root) === "archived" && root.querySelector('[data-key="epic:almanac/moon-rounding"]') !== null,
     (root) => {
       assertNoFailure(root);
       assert.equal(listView(root), "archived");
       assert.equal(root.querySelector(".inbox-attn .name")?.textContent, "Archived", "the Archived head is drawn");
       assertNone(root.querySelector('[data-key="epic:lighthouse/rota-export"]'), "the rota-export line is not archived");
+      assert.ok(
+        root.querySelector('[data-key="session:e7c4b2a1-5d9f-4e3a-9b61-2a8f0c4d7e13"]'),
+        "the archived conversation Moon phase rounding is drawn",
+      );
+      assert.ok(root.querySelector('[data-key="epic:almanac/moon-rounding"]'), "its archived epic moon-rounding is drawn under it");
+      assert.ok(root.querySelector('[data-key="epic:tidepool/tide-warmup"]'), "the archived epic under the warm-up is drawn");
     },
   );
 });
@@ -1032,6 +1040,11 @@ test("InboxTree page/inbox-row-menu draws pane %12's row with its More menu open
       assert.ok(
         root.querySelector('[data-key="pane:halyard:%12"]')?.classList.contains("menu-open"),
         "pane %12's row is not marked menu-open",
+      );
+      const labels = [...root.querySelectorAll('[data-key="pane:halyard:%12"] .row-menu-list [role="menuitem"] span')];
+      assert.ok(
+        labels.some((label) => label.textContent === "Archive"),
+        "pane %12's More menu offers Archive, since its row has an orrery_id",
       );
     },
   );

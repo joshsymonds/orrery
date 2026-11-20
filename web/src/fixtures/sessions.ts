@@ -145,8 +145,15 @@ sessionStreams.set(buoyFeedsId, create(SessionsWatchConversationResponseSchema, 
   },
 }));
 
-// sessions is the Sessions.List answer: no session is listed, so the rows come from the panes and the headless sessions.
-export const sessions = create(ListResponseSchema, { sessions: [], seq: 0n });
+// sessions is the Sessions.List answer: pane %12's Session, which its orrery_id names and which is not archived, so the
+// pane's row can archive; the other rows come from the panes and the headless sessions.
+export const sessions = create(ListResponseSchema, {
+  sessions: [{
+    id: "sess-beacon-12", server: "halyard", pane: "%12", state: "waiting", label: "",
+    summary: "Why the roster page is slow past forty shifts", archived: false,
+  }],
+  seq: 0n,
+});
 
 // headless is the Sessions.ListHeadless answer: the headless sessions orreryd holds, in id order.
 export const headless = create(ListHeadlessResponseSchema, {

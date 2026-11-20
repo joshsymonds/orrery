@@ -922,6 +922,54 @@ const tidecacheGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
   },
 });
 
+// ---------------------------------------------------------------------------------------------------------------------
+// almanac/moon-rounding: archived, under its archived conversation Moon phase rounding
+// ---------------------------------------------------------------------------------------------------------------------
+
+const moonRoundingEpic: EpicInit = {
+  id: "almanac/moon-rounding", repository: "almanac", path: "/home/owner/code/almanac", slug: "moon-rounding", steering: "e7c4b2a1-5d9f-4e3a-9b61-2a8f0c4d7e13", outcome: "released",
+  changed: at("@-9d 14:00"), live: false, runningSteps: [], endedSteps: 0, problem: "", source: "orreryd",
+  outcomeDetail: "", waiting: false, phaseAt: at("@-9d 14:00"), seen: at("@-9d 14:30"), archived: true,
+};
+
+const moonRoundingGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
+  epic: moonRoundingEpic,
+  repository: "/home/owner/code/almanac",
+  requirements: [
+    { id: "R1", kind: "check", text: "The moon phase rounds at the date line the way the almanac says it does.", evidence: "go test ./internal/moon/ -run TestRoundingAtDateLine", conclusion: "", runs: [] },
+  ],
+  report: {
+    outcome: "released",
+    shipped: ["R1"],
+    notShipped: [],
+    why: "Fixed and merged.",
+  },
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// tidepool/tide-warmup: archived, under the stopped conversation Tide table cache warm-up, which stays listed
+// ---------------------------------------------------------------------------------------------------------------------
+
+const tideWarmupEpic: EpicInit = {
+  id: "tidepool/tide-warmup", repository: "tidepool", path: "/home/owner/code/tidepool", slug: "tide-warmup", steering: "9b5e1a47-2c0d-4e8f-8a31-6d7c0f5b2e90", outcome: "stopped",
+  changed: at("@-2d 14:41"), live: false, runningSteps: [], endedSteps: 0, problem: "", source: "orreryd",
+  outcomeDetail: "", waiting: false, phaseAt: at("@-2d 14:41"), seen: at("@-2d 14:42"), archived: true,
+};
+
+const tideWarmupGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
+  epic: tideWarmupEpic,
+  repository: "/home/owner/code/tidepool",
+  requirements: [
+    { id: "R1", kind: "check", text: "Every port’s tide table is cached for the next thirty days.", evidence: "just warm", conclusion: "", runs: [] },
+  ],
+  report: {
+    outcome: "stopped",
+    shipped: [],
+    notShipped: ["R1"],
+    why: "You stopped it.",
+  },
+});
+
 // The Epics.List rows, in order.
 const epicRows: EpicInit[] = [
   {
@@ -952,12 +1000,12 @@ const epicRows: EpicInit[] = [
   {
     id: "orrery/notices-usable", repository: "orrery", path: "/home/owner/code/orrery", slug: "notices-usable", steering: "sess-follow-22", outcome: "accepted", changed: at("@-1d 09:41"),
     live: true, runningSteps: [], endedSteps: 0, problem: "", source: "orreryd", outcomeDetail: "", waiting: false,
-    phaseAt: at("@-1d 09:41"), seen: 0n,
+    phaseAt: at("@-1d 09:41"), seen: 0n, parked: "R5 is already met at the epic’s base",
   },
   {
     id: "orrery/harbour-map", repository: "orrery", path: "/home/owner/code/orrery", slug: "harbour-map", steering: "sess-follow-22", outcome: "accepted", changed: at("@11:41"),
     live: true, runningSteps: [], endedSteps: 0, problem: "", source: "orreryd", outcomeDetail: "", waiting: false,
-    phaseAt: at("@11:41"), seen: 0n,
+    phaseAt: at("@11:41"), seen: 0n, paused: true, pauseSource: "owner",
   },
   {
     id: "tidepool/buoy-feeds", repository: "tidepool", path: "/home/owner/code/tidepool", slug: "buoy-feeds", steering: "6c2f9e14-3a7b-4d58-9b0e-2f7a1c8d4e55", outcome: "accepted", changed: at("@14:38"),
@@ -974,6 +1022,8 @@ const epicRows: EpicInit[] = [
     changed: at("@-4d 09:12"), live: false, runningSteps: [], endedSteps: 2, problem: "", source: "orreryd",
     outcomeDetail: "", waiting: false, phaseAt: at("@-4d 09:12"), seen: at("@-4d 09:30"),
   },
+  moonRoundingEpic,
+  tideWarmupEpic,
 ];
 
 // epics is the Epics.List answer: the epic rows, in the order the list draws them.
@@ -991,6 +1041,8 @@ export const gets = new Map<string, EpicsGetResponse>([
   ["tidepool/buoy-feeds", buoyGet],
   ["orrery/holder-scopes", holderGet],
   ["tidepool/tide-cache", tidecacheGet],
+  ["almanac/moon-rounding", moonRoundingGet],
+  ["tidepool/tide-warmup", tideWarmupGet],
 ]);
 
 // histories holds the Epics.History answer of each epic that has one, by epic id.
