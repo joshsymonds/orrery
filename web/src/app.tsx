@@ -1868,6 +1868,7 @@ export function App({
     const openSession = (target: SessionTarget) => setPending({ kind: target.kind, id: target.id });
     return (
       <EpicPage
+        key={entry.id}
         detail={detail}
         landing={epicPage.landing}
         history={epicHistory.id === entry.id ? epicHistory.entries : []}

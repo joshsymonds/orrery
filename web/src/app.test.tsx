@@ -4296,6 +4296,32 @@ test("EpicCommands: Stop asks first, Keep it running sends no Epics.Stop, and th
     assert.equal(fake.callsTo(stopEpicPath)[0].body.id, widgetsFirst);
   }));
 
+test("EpicCommands: a Stop… confirm open on one epic does not carry over to the next epic", (t) => {
+  const first = makeEpic(widgetsRepo, "first");
+  const second = makeEpic(gadgetsRepo, "second");
+  const epics = epicsView(
+    [first, second],
+    new Map([
+      [first.id, detailOf(first, [])],
+      [second.id, detailOf(second, [])],
+    ]),
+  );
+  return withApp(t.signal, { rows: [], epics }, async (container, fake) => {
+    assert.equal(cursorKey(container), epicKey(first));
+    assert.equal(pageSlug(container), "first");
+    await clickButton(container, ".epic-page .title-row .acts", "Stop…");
+    assert.ok(container.querySelector(".epic-page .title-row .sure"), "the first epic's confirm shows");
+    await press("j");
+    assert.equal(cursorKey(container), epicKey(second));
+    assert.equal(pageSlug(container), "second");
+    assert.equal(container.querySelector(".epic-page .title-row .sure"), null, "the second epic shows no confirm");
+    const labels = [...container.querySelectorAll(".epic-page .title-row .acts button")].map((button) => button.textContent);
+    assert.ok(labels.includes("Stop…"), "the second epic offers Stop…");
+    await settle();
+    assert.equal(fake.callsTo(stopEpicPath).length, 0, "no Epics.Stop was sent");
+  });
+});
+
 test("EpicAsk: a park's Retry sends exactly one Epics.Retry with the epic's id", (t) =>
   withApp(t.signal, { epics: pageEpic({ parked: "rate limit" }) }, async (container, fake) => {
     await press("j");
