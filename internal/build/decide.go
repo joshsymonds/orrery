@@ -35,10 +35,9 @@ type implementerReturn struct {
 
 // Decide returns the next action for an open task from its view. A stopped or parked build waits until the owner
 // releases it, a waiting build until the tasks it waits for are integrated (decideWait), and an asked build until its
-// question is answered (decideAsked). A task due its rescue (rescueDue) moves to the rescue's orchestrate unit first. A
-// task on ApproachRung waits for its change of approach before its first unit (approachAwaited), and a task whose
-// change of approach is checking moves to red before its implementer (approachDue). Every other build is decided by its
-// stage (decideStage).
+// question is answered (decideAsked). A task on ApproachRung waits for its change of approach before its first unit
+// (approachAwaited), and a task whose change of approach is checking moves to red before its implementer (approachDue).
+// Every other build is decided by its stage (decideStage).
 func Decide(view View) Action {
 	build := view.Task.Build
 	switch build.Held {
@@ -58,12 +57,6 @@ func Decide(view View) Action {
 		build.NoVerdict = 0
 		return releaseHold(build)
 	}
-	if rescueDue(view) {
-		build.Stage = StageOrchestrate
-		build.Step = ""
-		build.NoVerdict = 0
-		return Action{Kind: ActMove, Next: build}
-	}
 	if approachAwaited(view) {
 		return Action{Kind: ActNone}
 	}
@@ -76,9 +69,8 @@ func Decide(view View) Action {
 	return decideStage(view)
 }
 
-// decideStage returns the action for a build that no hold or rescue move decides, by its stage. A fresh task starts at
-// red, or at implement when it is closure-kind, since a closure-kind task runs no red and no green. The orchestrate
-// unit is decided as its rescue while the build is rescuing (rescuing), and as its request otherwise.
+// decideStage returns the action for a build that no hold or approach move decides, by its stage. A fresh task starts at
+// red, or at implement when it is closure-kind, since a closure-kind task runs no red and no green.
 func decideStage(view View) Action {
 	switch view.Task.Build.Stage {
 	case "":
@@ -88,9 +80,6 @@ func decideStage(view View) Action {
 	case StageImplement:
 		return decideImplement(view)
 	case StageOrchestrate:
-		if rescuing(view) {
-			return decideRescue(view)
-		}
 		return decideOrchestrate(view)
 	case StageGreen:
 		return decideGreen(view)
@@ -104,8 +93,7 @@ func decideStage(view View) Action {
 
 // DecideStartError returns the action for a unit whose start the engine refused with err. A red unit climbs the task,
 // a green unit spends its attempt as a capture that failed does, an orchestrate unit settles its request as it was
-// settled before the orchestrator (requestFallback), and any other unit climbs the task. A rescue that did not start
-// climbs the task, since it has no request to settle.
+// settled before the orchestrator (requestFallback), and any other unit climbs the task.
 func DecideStartError(view View, err error) Action {
 	switch view.Task.Build.Stage {
 	case StageRed:
@@ -113,9 +101,6 @@ func DecideStartError(view View, err error) Action {
 	case StageGreen:
 		return spend(view, fmt.Sprintf("green not captured: %v", err))
 	case StageOrchestrate:
-		if rescuing(view) {
-			return Action{Kind: ActFail, Reason: fmt.Sprintf("rescue did not start: %v", err)}
-		}
 		return withNote(requestFallback(view), fmt.Sprintf("orchestrate did not start: %v", err))
 	}
 	return Action{Kind: ActFail, Reason: fmt.Sprintf("%s did not start: %v", view.Task.Build.Stage, err)}
@@ -149,11 +134,9 @@ func decideFresh(view View) Action {
 }
 
 // decideRed returns the action for the red unit: its evidence run at the base, once it has ended. A red run that
-// exited store.EnvironmentExit reruns or parks the unit as environmentRerun decides. A red run that fails at the base
-// passes into implement with the run kept, on the rung the build is on, or rung 1 before its first attempt. One whose
-// conclusion holds at the base climbs the task. While the task has a checking version, the run judges that version
-// instead: a conclusion that holds at the base, or a run not captured, settles it refused, and a conclusion that does
-// not hold settles it applied (settleVersion). Neither climbs the task.
+// exited store.EnvironmentExit reruns or parks the unit as environmentRerun decides. Any other red run is judged for
+// its note (redOutcome): red is not a gate, so a run whose conclusion holds at the base, that was not captured, or
+// whose judge gave no verdict twice, passes into implement with its outcome recorded as a note.
 func decideRed(view View) Action {
 	build := view.Task.Build
 	run := view.Run
@@ -163,7 +146,7 @@ func decideRed(view View) Action {
 		}
 		return Action{
 			Kind: ActStartRun, Phase: StageRed, Revision: build.Base,
-			ID: RunID(view.Epic, view.Task.Seq, StageRed, build.Attempt, build.Rerun),
+			ID: RunID(unitScope(view.Epic, view.Task), view.Task.Seq, StageRed, build.Attempt, build.Rerun),
 		}
 	}
 	if run.Ended.IsZero() {
@@ -173,59 +156,66 @@ func decideRed(view View) Action {
 		return environmentRerun(view, StageRed+" capture")
 	}
 	if run.NotCaptured != "" {
-		return redNotHolding(view, run.ID, "red not captured: "+run.NotCaptured)
+		return redOutcome(view, run, "not captured: "+run.NotCaptured)
 	}
 	if run.Verdict == "" {
-		return noVerdict(view, StageRed, run.JudgeReason)
+		if action, again := silentRerun(view); again {
+			return action
+		}
+		return redOutcome(view, run, "the judge gave no verdict twice: "+run.JudgeReason)
 	}
 	if !run.Passed {
-		return redNotHolding(view, run.ID, "red: the conclusion holds at the base")
+		return redOutcome(view, run, fmt.Sprintf("the conclusion holds at the base (exit %d)", run.Exit))
+	}
+	return redOutcome(view, run, "")
+}
+
+// redOutcome returns the action for a red run that ended, for outcome: what the run gave, as a note's text, or empty
+// when red holds at the base and there is nothing to note. The build goes on to implement with the run kept as its red
+// run, and the note recorded with the move. A checking version applies whatever red gave (settleVersion). Its note
+// lands first, on a move that keeps the build at red, so the settle follows on the next pass once the note is kept.
+func redOutcome(view View, run *store.EvidenceRun, outcome string) Action {
+	note := ""
+	if outcome != "" {
+		note = fmt.Sprintf("%s red: %s", taskLabel(view.Task.Seq), outcome)
 	}
 	if version, ok := view.Task.Checking(); ok {
-		return settleVersion(view, store.TaskVersionSettle{
-			Version: version.Version, State: store.VersionApplied, RedRun: run.ID,
-		})
+		if note != "" && !slices.Contains(view.Task.Notes, note) {
+			return noted(view, view.Task.Build, note)
+		}
+		return settleVersion(view, version, run.ID)
 	}
+	build := view.Task.Build
 	build.Stage = StageImplement
 	build.Attempt = max(build.Attempt, 1)
 	build.Rerun = 0
 	build.NoVerdict = 0
 	build.RedRun = run.ID
-	return Action{Kind: ActMove, Next: build}
-}
-
-// redNotHolding returns the action for a red run that ended without passing, for reason, with id the run. Without a
-// checking version it climbs the task. With one, the version is refused for reason and the task carries on, as
-// settleVersion gives.
-func redNotHolding(view View, id, reason string) Action {
-	version, ok := view.Task.Checking()
-	if !ok {
-		return Action{Kind: ActFail, Reason: reason}
+	if note == "" {
+		return Action{Kind: ActMove, Next: build}
 	}
-	return settleVersion(view, store.TaskVersionSettle{
-		Version: version.Version, State: store.VersionRefused, RedRun: id, Refusal: reason,
-	})
+	return noted(view, build, note)
 }
 
-// settleVersion returns the action that settles the checking version settle names and moves the build to implement,
-// with its attempt, its rerun and its refs kept, its verdict counted from zero and no step. An applied version's red
-// run is the build's RedRun. A refused version keeps the build's RedRun, and its failure gains the final line that
-// names the version and its refusal.
-func settleVersion(view View, settle store.TaskVersionSettle) Action {
+// settleVersion returns the action that applies the checking version and moves the build to implement, with its attempt,
+// its rerun and its refs kept, its verdict counted from zero and no step, and redRun as its red run.
+func settleVersion(view View, version store.TaskVersion, redRun string) Action {
 	build := view.Task.Build
 	build.Stage = StageImplement
 	build.NoVerdict = 0
 	build.Step = ""
-	if settle.State == store.VersionApplied {
-		build.RedRun = settle.RedRun
-	} else {
-		line := fmt.Sprintf("orreryd refused version %d of the spec: %s", settle.Version, settle.Refusal)
-		if build.Failure != "" {
-			build.Failure += "\n"
-		}
-		build.Failure += line
-	}
+	build.RedRun = redRun
+	settle := store.TaskVersionSettle{Version: version.Version, State: store.VersionApplied, RedRun: redRun}
 	return Action{Kind: ActSettleVersion, Next: build, Settle: &settle}
+}
+
+// silentSpend returns the action for an implementer step whose return gave no verdict for reason: its first no verdict
+// reruns the unit, and its second spends the attempt.
+func silentSpend(view View, reason string) Action {
+	if action, again := silentRerun(view); again {
+		return action
+	}
+	return spend(view, fmt.Sprintf("%s implement gave no verdict twice: %s", taskLabel(view.Task.Seq), reason))
 }
 
 // decideImplement returns the action for the implement unit. Without a step, the refs are snapshotted and then the
@@ -246,7 +236,9 @@ func decideImplement(view View) Action {
 		}
 		return Action{
 			Kind: ActStartStep, Unit: StageImplement,
-			ID: StepID(view.Epic, view.Task.Seq, StageImplement, build.Attempt, build.Rerun, 0, 0),
+			ID: StepID(
+				unitScope(view.Epic, view.Task), view.Task.Seq, StageImplement, build.Attempt, build.Rerun, 0, 0,
+			),
 		}
 	}
 	if step.End == "" {
@@ -261,7 +253,7 @@ func decideImplement(view View) Action {
 	case endDone, endGoalUnmet:
 		ret, ok := parseImplementerReturn(step.Result)
 		if !ok {
-			return noVerdict(view, StageImplement, endText(step))
+			return silentSpend(view, endText(step))
 		}
 		return Action{
 			Kind: ActGuard, Next: finishedBuild(view, ret),
@@ -336,7 +328,7 @@ func mergeGateChanges(before, declared []store.GateChange) []store.GateChange {
 func decideReturned(view View, step *store.StepRow) Action {
 	ret, ok := parseImplementerReturn(step.Result)
 	if !ok {
-		return noVerdict(view, StageImplement, endText(step))
+		return silentSpend(view, endText(step))
 	}
 	fail := returnedFail(step, ret)
 	if step.Status == statusNeedsContext {

@@ -65,8 +65,16 @@ func decisionLoopTurn(askOn string) reviewLoopTurn {
 			t.Fatalf("CompleteTurn of turn %d: %v", turn.Seq, err)
 		}
 		if ask {
-			if _, err = s.AnswerQuestion(ctx, runEpic, decisionLoopAnswerID, decisionLoopAnswer, 1, decisionLoopKeep,
-				runClock()); err != nil {
+			if _, err = s.AnswerQuestion(
+				ctx,
+				runEpic,
+				decisionLoopAnswerID,
+				decisionLoopAnswer,
+				1,
+				decisionLoopKeep,
+				store.Maker{},
+				runClock(),
+			); err != nil {
 				t.Fatalf("AnswerQuestion: %v", err)
 			}
 		}

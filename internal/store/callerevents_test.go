@@ -42,6 +42,17 @@ func recordCaller(t *testing.T, s *store.Store, id, call string, at time.Time) {
 	}
 }
 
+// createCallerEpic creates callerEpic steered by steerer, at callerStart. An empty steerer leaves the epic unsteered.
+func createCallerEpic(t *testing.T, s *store.Store, steerer string) {
+	t.Helper()
+	if err := s.CreateEpic(context.Background(), store.EpicRow{
+		ID: callerEpic, Repository: "/work/engine", Title: "Caller epic", Phase: "accepted",
+		Created: callerStart(), Changed: callerStart(), Steerer: steerer,
+	}); err != nil {
+		t.Fatalf("CreateEpic %s: %v", callerEpic, err)
+	}
+}
+
 // startCallerStep starts the step id under the session caller, at callerStart.
 func startCallerStep(t *testing.T, s *store.Store, id string, caller store.EpicCaller) {
 	t.Helper()
@@ -78,47 +89,40 @@ func listCallerSteps(t *testing.T, s *store.Store) []store.CallerStep {
 	return steps
 }
 
-func TestCallerEventStoreEpicCreateMarksCreator(t *testing.T) {
+func TestCallerEventStoreEpicSteererReturnsSteererRow(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, _ := openEpicCallStore(t)
 	addCallerEngines(t, s, "engine-1", "engine-2")
+	createCallerEpic(t, s, "engine-1")
+	// engine-2 creates the epic, and engine-1 steers it: the steerer is the row EpicSteerer returns.
+	recordCaller(t, s, "engine-2", "epic_create", callerLater())
 
-	recordCaller(t, s, "engine-2", "epic_get", callerStart())
-	if _, ok, err := s.EpicCreator(ctx, callerEpic); err != nil || ok {
-		t.Fatalf("EpicCreator before any epic_create = ok %v, err %v, want no creator", ok, err)
-	}
-
-	recordCaller(t, s, "engine-1", "epic_create", callerLater())
-	creator, ok, err := s.EpicCreator(ctx, callerEpic)
+	steerer, ok, err := s.EpicSteerer(ctx, callerEpic)
 	if err != nil {
-		t.Fatalf("EpicCreator: %v", err)
+		t.Fatalf("EpicSteerer: %v", err)
 	}
 	want := store.CallerSession{ID: "engine-1", Kind: "engine", State: "idle"}
-	if !ok || creator != want {
-		t.Fatalf("EpicCreator after epic_create = %+v, %v, want %+v, true", creator, ok, want)
+	if !ok || steerer != want {
+		t.Fatalf("EpicSteerer = %+v, %v, want %+v, true", steerer, ok, want)
 	}
 }
 
-func TestCallerEventStoreLaterCallKeepsCreator(t *testing.T) {
+func TestCallerEventStoreEpicSteererEmptyReadsFalse(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, _ := openEpicCallStore(t)
 	addCallerEngines(t, s, "engine-1")
-
+	createCallerEpic(t, s, "")
+	// engine-1 creates the epic, but no steerer is set, so the creator is not read as one.
 	recordCaller(t, s, "engine-1", "epic_create", callerStart())
-	recordCaller(t, s, "engine-1", "epic_get", callerLater())
 
-	creator, ok, err := s.EpicCreator(ctx, callerEpic)
-	if err != nil {
-		t.Fatalf("EpicCreator: %v", err)
-	}
-	if !ok || creator.ID != "engine-1" {
-		t.Fatalf("EpicCreator after a later epic_get = %+v, %v, want engine-1 still the creator", creator, ok)
+	if steerer, ok, err := s.EpicSteerer(ctx, callerEpic); err != nil || ok {
+		t.Fatalf("EpicSteerer of an epic with no steerer = %+v, %v, %v, want no steerer", steerer, ok, err)
 	}
 }
 
-func TestCallerEventStoreEpicCreatorReturnsPaneRowUntilItIsGone(t *testing.T) {
+func TestCallerEventStoreEpicSteererReturnsPaneRowUntilItIsGone(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, _ := openEpicCallStore(t)
@@ -126,26 +130,23 @@ func TestCallerEventStoreEpicCreatorReturnsPaneRowUntilItIsGone(t *testing.T) {
 	if err := s.SyncPane(ctx, "-L orrery", pane, callerStart()); err != nil {
 		t.Fatalf("SyncPane: %v", err)
 	}
-	caller := store.EpicCaller{Server: "-L orrery", Pane: "%1"}
-	if _, err := s.RecordEpicCall(ctx, callerEpic, caller, "epic_create", callerStart()); err != nil {
-		t.Fatalf("RecordEpicCall: %v", err)
-	}
+	createCallerEpic(t, s, "orrery-1")
 
-	creator, ok, err := s.EpicCreator(ctx, callerEpic)
+	steerer, ok, err := s.EpicSteerer(ctx, callerEpic)
 	if err != nil {
-		t.Fatalf("EpicCreator: %v", err)
+		t.Fatalf("EpicSteerer: %v", err)
 	}
 	want := store.CallerSession{ID: "orrery-1", Server: "-L orrery", Pane: "%1", State: "idle"}
-	if !ok || creator != want {
-		t.Fatalf("EpicCreator = %+v, %v, want %+v, true", creator, ok, want)
+	if !ok || steerer != want {
+		t.Fatalf("EpicSteerer = %+v, %v, want %+v, true", steerer, ok, want)
 	}
 
-	// The pane leaves the server, so its sessions row is removed and the creator is gone with it.
+	// The pane leaves the server, so its sessions row is removed and the steerer is gone with it.
 	if err := s.SyncServer(ctx, "-L orrery", nil, callerLater()); err != nil {
 		t.Fatalf("SyncServer: %v", err)
 	}
-	if creator, ok, err := s.EpicCreator(ctx, callerEpic); err != nil || ok {
-		t.Fatalf("EpicCreator after the pane is gone = %+v, %v, %v, want no creator", creator, ok, err)
+	if steerer, ok, err := s.EpicSteerer(ctx, callerEpic); err != nil || ok {
+		t.Fatalf("EpicSteerer after the pane is gone = %+v, %v, %v, want no steerer", steerer, ok, err)
 	}
 }
 

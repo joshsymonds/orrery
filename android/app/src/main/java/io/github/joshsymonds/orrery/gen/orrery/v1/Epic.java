@@ -27,6 +27,10 @@ public  final class Epic extends
     problem_ = "";
     source_ = "";
     outcomeDetail_ = "";
+    steering_ = "";
+    path_ = "";
+    pauseSource_ = "";
+    parked_ = "";
   }
   public static final int ID_FIELD_NUMBER = 1;
   private java.lang.String id_;
@@ -954,6 +958,355 @@ public  final class Epic extends
   private void clearRevision() {
 
     revision_ = 0L;
+  }
+
+  public static final int STEERING_FIELD_NUMBER = 17;
+  private java.lang.String steering_;
+  /**
+   * <pre>
+   * The id of the session that steers the orreryd epic; empty when it has none or for a record epic. It may name a
+   * session whose row is gone.
+   * </pre>
+   *
+   * <code>string steering = 17 [json_name = "steering"];</code>
+   * @return The steering.
+   */
+  @java.lang.Override
+  public java.lang.String getSteering() {
+    return steering_;
+  }
+  /**
+   * <pre>
+   * The id of the session that steers the orreryd epic; empty when it has none or for a record epic. It may name a
+   * session whose row is gone.
+   * </pre>
+   *
+   * <code>string steering = 17 [json_name = "steering"];</code>
+   * @return The bytes for steering.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getSteeringBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(steering_);
+  }
+  /**
+   * <pre>
+   * The id of the session that steers the orreryd epic; empty when it has none or for a record epic. It may name a
+   * session whose row is gone.
+   * </pre>
+   *
+   * <code>string steering = 17 [json_name = "steering"];</code>
+   * @param value The steering to set.
+   */
+  private void setSteering(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    steering_ = value;
+  }
+  /**
+   * <pre>
+   * The id of the session that steers the orreryd epic; empty when it has none or for a record epic. It may name a
+   * session whose row is gone.
+   * </pre>
+   *
+   * <code>string steering = 17 [json_name = "steering"];</code>
+   */
+  private void clearSteering() {
+
+    steering_ = getDefaultInstance().getSteering();
+  }
+  /**
+   * <pre>
+   * The id of the session that steers the orreryd epic; empty when it has none or for a record epic. It may name a
+   * session whose row is gone.
+   * </pre>
+   *
+   * <code>string steering = 17 [json_name = "steering"];</code>
+   * @param value The bytes for steering to set.
+   */
+  private void setSteeringBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    steering_ = value.toStringUtf8();
+
+  }
+
+  public static final int PATH_FIELD_NUMBER = 18;
+  private java.lang.String path_;
+  /**
+   * <pre>
+   * The absolute path of the orreryd epic's repository; empty for a record epic.
+   * </pre>
+   *
+   * <code>string path = 18 [json_name = "path"];</code>
+   * @return The path.
+   */
+  @java.lang.Override
+  public java.lang.String getPath() {
+    return path_;
+  }
+  /**
+   * <pre>
+   * The absolute path of the orreryd epic's repository; empty for a record epic.
+   * </pre>
+   *
+   * <code>string path = 18 [json_name = "path"];</code>
+   * @return The bytes for path.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getPathBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(path_);
+  }
+  /**
+   * <pre>
+   * The absolute path of the orreryd epic's repository; empty for a record epic.
+   * </pre>
+   *
+   * <code>string path = 18 [json_name = "path"];</code>
+   * @param value The path to set.
+   */
+  private void setPath(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    path_ = value;
+  }
+  /**
+   * <pre>
+   * The absolute path of the orreryd epic's repository; empty for a record epic.
+   * </pre>
+   *
+   * <code>string path = 18 [json_name = "path"];</code>
+   */
+  private void clearPath() {
+
+    path_ = getDefaultInstance().getPath();
+  }
+  /**
+   * <pre>
+   * The absolute path of the orreryd epic's repository; empty for a record epic.
+   * </pre>
+   *
+   * <code>string path = 18 [json_name = "path"];</code>
+   * @param value The bytes for path to set.
+   */
+  private void setPathBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    path_ = value.toStringUtf8();
+
+  }
+
+  public static final int PAUSED_FIELD_NUMBER = 19;
+  private boolean paused_;
+  /**
+   * <pre>
+   * Whether the orreryd epic is paused. A paused epic starts no planner turn until it is resumed.
+   * </pre>
+   *
+   * <code>bool paused = 19 [json_name = "paused"];</code>
+   * @return The paused.
+   */
+  @java.lang.Override
+  public boolean getPaused() {
+    return paused_;
+  }
+  /**
+   * <pre>
+   * Whether the orreryd epic is paused. A paused epic starts no planner turn until it is resumed.
+   * </pre>
+   *
+   * <code>bool paused = 19 [json_name = "paused"];</code>
+   * @param value The paused to set.
+   */
+  private void setPaused(boolean value) {
+    
+    paused_ = value;
+  }
+  /**
+   * <pre>
+   * Whether the orreryd epic is paused. A paused epic starts no planner turn until it is resumed.
+   * </pre>
+   *
+   * <code>bool paused = 19 [json_name = "paused"];</code>
+   */
+  private void clearPaused() {
+
+    paused_ = false;
+  }
+
+  public static final int PAUSE_SOURCE_FIELD_NUMBER = 20;
+  private java.lang.String pauseSource_;
+  /**
+   * <pre>
+   * Why the orreryd epic is paused, 'owner' or 'limit' while it is paused, empty otherwise.
+   * </pre>
+   *
+   * <code>string pause_source = 20 [json_name = "pauseSource"];</code>
+   * @return The pauseSource.
+   */
+  @java.lang.Override
+  public java.lang.String getPauseSource() {
+    return pauseSource_;
+  }
+  /**
+   * <pre>
+   * Why the orreryd epic is paused, 'owner' or 'limit' while it is paused, empty otherwise.
+   * </pre>
+   *
+   * <code>string pause_source = 20 [json_name = "pauseSource"];</code>
+   * @return The bytes for pauseSource.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getPauseSourceBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(pauseSource_);
+  }
+  /**
+   * <pre>
+   * Why the orreryd epic is paused, 'owner' or 'limit' while it is paused, empty otherwise.
+   * </pre>
+   *
+   * <code>string pause_source = 20 [json_name = "pauseSource"];</code>
+   * @param value The pauseSource to set.
+   */
+  private void setPauseSource(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    pauseSource_ = value;
+  }
+  /**
+   * <pre>
+   * Why the orreryd epic is paused, 'owner' or 'limit' while it is paused, empty otherwise.
+   * </pre>
+   *
+   * <code>string pause_source = 20 [json_name = "pauseSource"];</code>
+   */
+  private void clearPauseSource() {
+
+    pauseSource_ = getDefaultInstance().getPauseSource();
+  }
+  /**
+   * <pre>
+   * Why the orreryd epic is paused, 'owner' or 'limit' while it is paused, empty otherwise.
+   * </pre>
+   *
+   * <code>string pause_source = 20 [json_name = "pauseSource"];</code>
+   * @param value The bytes for pauseSource to set.
+   */
+  private void setPauseSourceBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    pauseSource_ = value.toStringUtf8();
+
+  }
+
+  public static final int PARKED_FIELD_NUMBER = 21;
+  private java.lang.String parked_;
+  /**
+   * <pre>
+   * Why the epic is parked, empty when it is not parked.
+   * </pre>
+   *
+   * <code>string parked = 21 [json_name = "parked"];</code>
+   * @return The parked.
+   */
+  @java.lang.Override
+  public java.lang.String getParked() {
+    return parked_;
+  }
+  /**
+   * <pre>
+   * Why the epic is parked, empty when it is not parked.
+   * </pre>
+   *
+   * <code>string parked = 21 [json_name = "parked"];</code>
+   * @return The bytes for parked.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getParkedBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(parked_);
+  }
+  /**
+   * <pre>
+   * Why the epic is parked, empty when it is not parked.
+   * </pre>
+   *
+   * <code>string parked = 21 [json_name = "parked"];</code>
+   * @param value The parked to set.
+   */
+  private void setParked(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    parked_ = value;
+  }
+  /**
+   * <pre>
+   * Why the epic is parked, empty when it is not parked.
+   * </pre>
+   *
+   * <code>string parked = 21 [json_name = "parked"];</code>
+   */
+  private void clearParked() {
+
+    parked_ = getDefaultInstance().getParked();
+  }
+  /**
+   * <pre>
+   * Why the epic is parked, empty when it is not parked.
+   * </pre>
+   *
+   * <code>string parked = 21 [json_name = "parked"];</code>
+   * @param value The bytes for parked to set.
+   */
+  private void setParkedBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    parked_ = value.toStringUtf8();
+
+  }
+
+  public static final int OPEN_QUESTIONS_FIELD_NUMBER = 22;
+  private int openQuestions_;
+  /**
+   * <pre>
+   * How many of the epic's questions are open.
+   * </pre>
+   *
+   * <code>int32 open_questions = 22 [json_name = "openQuestions"];</code>
+   * @return The openQuestions.
+   */
+  @java.lang.Override
+  public int getOpenQuestions() {
+    return openQuestions_;
+  }
+  /**
+   * <pre>
+   * How many of the epic's questions are open.
+   * </pre>
+   *
+   * <code>int32 open_questions = 22 [json_name = "openQuestions"];</code>
+   * @param value The openQuestions to set.
+   */
+  private void setOpenQuestions(int value) {
+    
+    openQuestions_ = value;
+  }
+  /**
+   * <pre>
+   * How many of the epic's questions are open.
+   * </pre>
+   *
+   * <code>int32 open_questions = 22 [json_name = "openQuestions"];</code>
+   */
+  private void clearOpenQuestions() {
+
+    openQuestions_ = 0;
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.Epic parseFrom(
@@ -2027,6 +2380,367 @@ public  final class Epic extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The id of the session that steers the orreryd epic; empty when it has none or for a record epic. It may name a
+     * session whose row is gone.
+     * </pre>
+     *
+     * <code>string steering = 17 [json_name = "steering"];</code>
+     * @return The steering.
+     */
+    @java.lang.Override
+    public java.lang.String getSteering() {
+      return instance.getSteering();
+    }
+    /**
+     * <pre>
+     * The id of the session that steers the orreryd epic; empty when it has none or for a record epic. It may name a
+     * session whose row is gone.
+     * </pre>
+     *
+     * <code>string steering = 17 [json_name = "steering"];</code>
+     * @return The bytes for steering.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getSteeringBytes() {
+      return instance.getSteeringBytes();
+    }
+    /**
+     * <pre>
+     * The id of the session that steers the orreryd epic; empty when it has none or for a record epic. It may name a
+     * session whose row is gone.
+     * </pre>
+     *
+     * <code>string steering = 17 [json_name = "steering"];</code>
+     * @param value The steering to set.
+     * @return This builder for chaining.
+     */
+    public Builder setSteering(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setSteering(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The id of the session that steers the orreryd epic; empty when it has none or for a record epic. It may name a
+     * session whose row is gone.
+     * </pre>
+     *
+     * <code>string steering = 17 [json_name = "steering"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearSteering() {
+      copyOnWrite();
+      instance.clearSteering();
+      return this;
+    }
+    /**
+     * <pre>
+     * The id of the session that steers the orreryd epic; empty when it has none or for a record epic. It may name a
+     * session whose row is gone.
+     * </pre>
+     *
+     * <code>string steering = 17 [json_name = "steering"];</code>
+     * @param value The bytes for steering to set.
+     * @return This builder for chaining.
+     */
+    public Builder setSteeringBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setSteeringBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The absolute path of the orreryd epic's repository; empty for a record epic.
+     * </pre>
+     *
+     * <code>string path = 18 [json_name = "path"];</code>
+     * @return The path.
+     */
+    @java.lang.Override
+    public java.lang.String getPath() {
+      return instance.getPath();
+    }
+    /**
+     * <pre>
+     * The absolute path of the orreryd epic's repository; empty for a record epic.
+     * </pre>
+     *
+     * <code>string path = 18 [json_name = "path"];</code>
+     * @return The bytes for path.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getPathBytes() {
+      return instance.getPathBytes();
+    }
+    /**
+     * <pre>
+     * The absolute path of the orreryd epic's repository; empty for a record epic.
+     * </pre>
+     *
+     * <code>string path = 18 [json_name = "path"];</code>
+     * @param value The path to set.
+     * @return This builder for chaining.
+     */
+    public Builder setPath(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setPath(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The absolute path of the orreryd epic's repository; empty for a record epic.
+     * </pre>
+     *
+     * <code>string path = 18 [json_name = "path"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearPath() {
+      copyOnWrite();
+      instance.clearPath();
+      return this;
+    }
+    /**
+     * <pre>
+     * The absolute path of the orreryd epic's repository; empty for a record epic.
+     * </pre>
+     *
+     * <code>string path = 18 [json_name = "path"];</code>
+     * @param value The bytes for path to set.
+     * @return This builder for chaining.
+     */
+    public Builder setPathBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setPathBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * Whether the orreryd epic is paused. A paused epic starts no planner turn until it is resumed.
+     * </pre>
+     *
+     * <code>bool paused = 19 [json_name = "paused"];</code>
+     * @return The paused.
+     */
+    @java.lang.Override
+    public boolean getPaused() {
+      return instance.getPaused();
+    }
+    /**
+     * <pre>
+     * Whether the orreryd epic is paused. A paused epic starts no planner turn until it is resumed.
+     * </pre>
+     *
+     * <code>bool paused = 19 [json_name = "paused"];</code>
+     * @param value The paused to set.
+     * @return This builder for chaining.
+     */
+    public Builder setPaused(boolean value) {
+      copyOnWrite();
+      instance.setPaused(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Whether the orreryd epic is paused. A paused epic starts no planner turn until it is resumed.
+     * </pre>
+     *
+     * <code>bool paused = 19 [json_name = "paused"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearPaused() {
+      copyOnWrite();
+      instance.clearPaused();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * Why the orreryd epic is paused, 'owner' or 'limit' while it is paused, empty otherwise.
+     * </pre>
+     *
+     * <code>string pause_source = 20 [json_name = "pauseSource"];</code>
+     * @return The pauseSource.
+     */
+    @java.lang.Override
+    public java.lang.String getPauseSource() {
+      return instance.getPauseSource();
+    }
+    /**
+     * <pre>
+     * Why the orreryd epic is paused, 'owner' or 'limit' while it is paused, empty otherwise.
+     * </pre>
+     *
+     * <code>string pause_source = 20 [json_name = "pauseSource"];</code>
+     * @return The bytes for pauseSource.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getPauseSourceBytes() {
+      return instance.getPauseSourceBytes();
+    }
+    /**
+     * <pre>
+     * Why the orreryd epic is paused, 'owner' or 'limit' while it is paused, empty otherwise.
+     * </pre>
+     *
+     * <code>string pause_source = 20 [json_name = "pauseSource"];</code>
+     * @param value The pauseSource to set.
+     * @return This builder for chaining.
+     */
+    public Builder setPauseSource(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setPauseSource(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Why the orreryd epic is paused, 'owner' or 'limit' while it is paused, empty otherwise.
+     * </pre>
+     *
+     * <code>string pause_source = 20 [json_name = "pauseSource"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearPauseSource() {
+      copyOnWrite();
+      instance.clearPauseSource();
+      return this;
+    }
+    /**
+     * <pre>
+     * Why the orreryd epic is paused, 'owner' or 'limit' while it is paused, empty otherwise.
+     * </pre>
+     *
+     * <code>string pause_source = 20 [json_name = "pauseSource"];</code>
+     * @param value The bytes for pauseSource to set.
+     * @return This builder for chaining.
+     */
+    public Builder setPauseSourceBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setPauseSourceBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * Why the epic is parked, empty when it is not parked.
+     * </pre>
+     *
+     * <code>string parked = 21 [json_name = "parked"];</code>
+     * @return The parked.
+     */
+    @java.lang.Override
+    public java.lang.String getParked() {
+      return instance.getParked();
+    }
+    /**
+     * <pre>
+     * Why the epic is parked, empty when it is not parked.
+     * </pre>
+     *
+     * <code>string parked = 21 [json_name = "parked"];</code>
+     * @return The bytes for parked.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getParkedBytes() {
+      return instance.getParkedBytes();
+    }
+    /**
+     * <pre>
+     * Why the epic is parked, empty when it is not parked.
+     * </pre>
+     *
+     * <code>string parked = 21 [json_name = "parked"];</code>
+     * @param value The parked to set.
+     * @return This builder for chaining.
+     */
+    public Builder setParked(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setParked(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Why the epic is parked, empty when it is not parked.
+     * </pre>
+     *
+     * <code>string parked = 21 [json_name = "parked"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearParked() {
+      copyOnWrite();
+      instance.clearParked();
+      return this;
+    }
+    /**
+     * <pre>
+     * Why the epic is parked, empty when it is not parked.
+     * </pre>
+     *
+     * <code>string parked = 21 [json_name = "parked"];</code>
+     * @param value The bytes for parked to set.
+     * @return This builder for chaining.
+     */
+    public Builder setParkedBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setParkedBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * How many of the epic's questions are open.
+     * </pre>
+     *
+     * <code>int32 open_questions = 22 [json_name = "openQuestions"];</code>
+     * @return The openQuestions.
+     */
+    @java.lang.Override
+    public int getOpenQuestions() {
+      return instance.getOpenQuestions();
+    }
+    /**
+     * <pre>
+     * How many of the epic's questions are open.
+     * </pre>
+     *
+     * <code>int32 open_questions = 22 [json_name = "openQuestions"];</code>
+     * @param value The openQuestions to set.
+     * @return This builder for chaining.
+     */
+    public Builder setOpenQuestions(int value) {
+      copyOnWrite();
+      instance.setOpenQuestions(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * How many of the epic's questions are open.
+     * </pre>
+     *
+     * <code>int32 open_questions = 22 [json_name = "openQuestions"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearOpenQuestions() {
+      copyOnWrite();
+      instance.clearOpenQuestions();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.Epic)
   }
   @java.lang.Override
@@ -2060,11 +2774,18 @@ public  final class Epic extends
             "seen_",
             "archived_",
             "revision_",
+            "steering_",
+            "path_",
+            "paused_",
+            "pauseSource_",
+            "parked_",
+            "openQuestions_",
           };
           java.lang.String info =
-              "\u0000\u0010\u0000\u0000\u0001\u0010\u0010\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
+              "\u0000\u0016\u0000\u0000\u0001\u0016\u0016\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
               "\u0003\u0208\u0004\u0208\u0005\u0002\u0006\u0007\u0007\u001b\b\u0004\t\u0208\n\u0208" +
-              "\u000b\u0208\f\u0007\r\u0002\u000e\u0002\u000f\u0007\u0010\u0002";
+              "\u000b\u0208\f\u0007\r\u0002\u000e\u0002\u000f\u0007\u0010\u0002\u0011\u0208\u0012" +
+              "\u0208\u0013\u0007\u0014\u0208\u0015\u0208\u0016\u0004";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

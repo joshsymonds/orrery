@@ -33,7 +33,7 @@ func (*releaseReviewers) Epic(store.EpicRow) []kinds.Reviewer {
 
 // Start records the call, then returns the release reviewer's read-only step at the revision it was given, or the refusal.
 func (r *releaseReviewers) Start(
-	_ context.Context, epic store.EpicRow, name, base, revision string, doneGates []store.NodeCheck,
+	_ context.Context, epic store.EpicRow, name, base, revision string, doneGates, _ []store.NodeCheck,
 ) (enginehost.StepStart, error) {
 	r.calls = append(r.calls, reviewWorkCall{name: name, base: base, revision: revision, doneGates: doneGates})
 	if r.refuse != nil {
@@ -297,7 +297,7 @@ func TestReleaseReviewerRunsAgainOnRetry(t *testing.T) {
 	w.pass()
 	w.stopAtFirstStep()
 
-	if err := w.s.ReleaseEpic(w.t.Context(), runEpic, nil, runClock()); err != nil {
+	if err := w.s.ReleaseEpic(w.t.Context(), runEpic, nil, store.Maker{}, runClock()); err != nil {
 		t.Fatalf("ReleaseEpic: %v", err)
 	}
 	w.pass()
@@ -358,7 +358,7 @@ func TestReleaseReviewerStartPromptNamesDestination(t *testing.T) {
 		Exclusions:  []string{"no new dependency"},
 		Reviewers:   defaultReleaseReviewer(t, true),
 	}
-	got, err := NewEpicReviewers().Start(context.Background(), epic, releaseReviewerName, "base111", "cand333", nil)
+	got, err := NewEpicReviewers().Start(context.Background(), epic, releaseReviewerName, "base111", "cand333", nil, nil)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}

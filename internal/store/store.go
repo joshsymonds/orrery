@@ -42,6 +42,14 @@ type Store struct {
 	callerEvent atomic.Pointer[func()]
 	// epicsChanged is the hook OnEpicsChanged sets, nil when none is set.
 	epicsChanged atomic.Pointer[func(epics []string)]
+	// sessionEvents is the hook OnSessionEvents sets, nil when none is set.
+	sessionEvents atomic.Pointer[func(seq int64, sessions []string)]
+	// epicStored, epicEnded, firstPrompt and turnEnded are the hooks OnEpicStored, OnEpicEnded, OnFirstPrompt and
+	// OnTurnEnded set, nil when none is set.
+	epicStored  atomic.Pointer[func(epic string)]
+	epicEnded   atomic.Pointer[func(epic string)]
+	firstPrompt atomic.Pointer[func(session string)]
+	turnEnded   atomic.Pointer[func(session string)]
 }
 
 // SetEngineLive sets the function that SyncServer's prune calls, once per run, for the ids of the engine
@@ -82,6 +90,78 @@ func (s *Store) OnCallerEvent(fn func()) {
 func (s *Store) fireCallerEvent() {
 	if fn := s.callerEvent.Load(); fn != nil {
 		(*fn)()
+	}
+}
+
+// OnEpicStored sets fn as the hook that a store write creating an epic calls, once, with the epic's id, synchronously,
+// right after it commits and its connection is free again. A write that rolls back or fails to commit calls nothing. A
+// nil fn clears the hook. It is safe to call while writes run.
+func (s *Store) OnEpicStored(fn func(epic string)) {
+	if fn == nil {
+		s.epicStored.Store(nil)
+		return
+	}
+	s.epicStored.Store(&fn)
+}
+
+// OnEpicEnded sets fn as the hook that a store write setting an epic to a phase ListUnreportedEpics reports calls, once
+// for the epic, with its id, synchronously, right after it commits and its connection is free again. A write of any
+// other phase, and a write that rolls back or fails to commit, calls nothing. A nil fn clears the hook. It is safe to
+// call while writes run.
+func (s *Store) OnEpicEnded(fn func(epic string)) {
+	if fn == nil {
+		s.epicEnded.Store(nil)
+		return
+	}
+	s.epicEnded.Store(&fn)
+}
+
+// OnFirstPrompt sets fn as the hook that a store write appending an engine session's first prompt calls, once, with
+// the session's id, synchronously, right after it commits and its connection is free again. A later prompt, a prompt of
+// a step session, and a write that rolls back or fails to commit call nothing. A nil fn clears the hook. It is safe to
+// call while writes run.
+func (s *Store) OnFirstPrompt(fn func(session string)) {
+	if fn == nil {
+		s.firstPrompt.Store(nil)
+		return
+	}
+	s.firstPrompt.Store(&fn)
+}
+
+// OnTurnEnded sets fn as the hook that a store write appending an engine session's turn end calls, once for each
+// session it ends a turn of, with the session's id, synchronously, right after it commits and its connection is free
+// again. A step session's turn end, and a write that rolls back or fails to commit, call nothing. A nil fn clears the
+// hook. It is safe to call while writes run.
+func (s *Store) OnTurnEnded(fn func(session string)) {
+	if fn == nil {
+		s.turnEnded.Store(nil)
+		return
+	}
+	s.turnEnded.Store(&fn)
+}
+
+// fireHousekeep calls, in order, the hook each mark names with the mark's id, when that hook is set. It takes no store
+// lock.
+func (s *Store) fireHousekeep(marks []housekeepMark) {
+	for _, mark := range marks {
+		switch mark.hook {
+		case hookEpicStored:
+			if fn := s.epicStored.Load(); fn != nil {
+				(*fn)(mark.id)
+			}
+		case hookEpicEnded:
+			if fn := s.epicEnded.Load(); fn != nil {
+				(*fn)(mark.id)
+			}
+		case hookFirstPrompt:
+			if fn := s.firstPrompt.Load(); fn != nil {
+				(*fn)(mark.id)
+			}
+		case hookTurnEnded:
+			if fn := s.turnEnded.Load(); fn != nil {
+				(*fn)(mark.id)
+			}
+		}
 	}
 }
 

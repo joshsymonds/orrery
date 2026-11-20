@@ -28,7 +28,7 @@ import type { EpicHistoryEntry, EpicsGetResponse, EpicStep } from "./gen/orrery/
 import type { InAppNotice, NoticeKey } from "./gen/orrery/v1/notice_pb";
 import type { HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
 import { Handover } from "./handover";
-import { HelpPanel } from "./helppanel";
+import { KeyList } from "./helppanel";
 import { type Answer, InboxRow, isLinkClick, optionText, readerQuestion, stateWaiting } from "./inboxrow";
 import {
   type BoxOpen,
@@ -48,7 +48,7 @@ import { NoticeBanner } from "./notices";
 import { PhaseOutputPage } from "./phaseoutput";
 import { phaseOutputOf } from "./phaserows";
 import type { Phase } from "./phases";
-import { PickerPalette } from "./picker";
+import { NewPanel } from "./picker";
 import { type Viewing, viewingOf } from "./presence";
 import type { ReaderHandle } from "./reader";
 import { type Address, type Entry, formatAddress, type PageView } from "./router";
@@ -1412,8 +1412,11 @@ export function App({
             <div class="brand">
               <Mark />
               orrery
-              <button type="button" onClick={() => setPickerOpen(true)}>
-                + Ask
+              <button type="button" title="Start a session, or find one  N" onClick={() => setPickerOpen(true)}>
+                <svg class="icon" viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M8 3v10M3 8h10" />
+                </svg>
+                New
               </button>
             </div>
             <div class="filter">
@@ -1437,9 +1440,11 @@ export function App({
                 <kbd>v</kbd>Archived
               </span>
             </div>
-            <span class="keys-hint">
-              <kbd>?</kbd> keys
-            </span>
+            <button type="button" class="keys-hint" aria-label="Keys" title="Keys  ?" onClick={() => setHelpOpen(true)}>
+              <svg class="icon" viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M3.5 4h9A1.5 1.5 0 0 1 14 5.5v5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 10.5v-5A1.5 1.5 0 0 1 3.5 4zM5 7h.5M7.8 7h.5M10.6 7h.5M5.5 9.5h5" />
+              </svg>
+            </button>
             {error !== "" && (
               <p class="error" role="alert">
                 {error}
@@ -1666,9 +1671,10 @@ export function App({
         </section>
       </div>
       {pickerOpen && (
-        <PickerPalette
+        <NewPanel
           clients={clients}
           rows={rows}
+          sheet={!wide}
           onRun={(pane) => {
             setPickerOpen(false);
             setPending({ kind: "pane", id: pane });
@@ -1680,7 +1686,7 @@ export function App({
           onClose={() => setPickerOpen(false)}
         />
       )}
-      {helpOpen && <HelpPanel />}
+      {helpOpen && <KeyList onClose={() => setHelpOpen(false)} />}
     </main>
   );
 }

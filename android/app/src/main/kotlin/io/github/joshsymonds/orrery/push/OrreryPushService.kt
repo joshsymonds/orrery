@@ -3,7 +3,6 @@ package io.github.joshsymonds.orrery.push
 import android.util.Log
 import io.github.joshsymonds.orrery.BackgroundWork
 import io.github.joshsymonds.orrery.ServerSettings
-import io.github.joshsymonds.orrery.api.OrreryClient
 import org.json.JSONException
 import org.json.JSONObject
 import org.unifiedpush.android.connector.FailedReason
@@ -22,7 +21,7 @@ class OrreryPushService : PushService() {
             Log.w(TAG, "endpoint without keys; not registering")
             return
         }
-        val registration = PushRegistration(OrreryClient(ServerSettings(this).serverUrl))
+        val registration = PushRegistration(ServerSettings(this), PushPreferences(this))
         BackgroundWork.run("push registration") {
             registration.register(endpoint.url, keys.pubKey, keys.auth)
         }
@@ -75,6 +74,9 @@ class OrreryPushService : PushService() {
                 label = json.getString("label"),
                 question = json.getString("question"),
                 questionHash = json.getString("question_hash"),
+                options = json.optJSONArray("options")?.let { array -> List(array.length()) { array.optString(it) } }
+                    .orEmpty(),
+                request = json.optString("request"),
                 session = json.optString("session"),
                 epic = json.optString("epic"),
                 limit = json.optString("limit"),

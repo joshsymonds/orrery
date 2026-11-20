@@ -123,6 +123,7 @@ subcommands:
   epic stop ID                                  pause an epic and stop the step of its running turn; an epic
                                                 holding its repository's release slot frees the slot and stops
                                                 its open release step instead, and is not paused
+  epic steer ID                                 move an epic's steering to this conversation, which takes it over
   epic kick ID TEXT                             record TEXT as your decision on an idle epic and wake its planner
                                                 with it at the epic's next plan run; refused for a paused, parked
                                                 or ended epic
@@ -599,6 +600,7 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 		evidence     server.EvidenceClient
 		pools        enginev1connect.PoolsClient
 		notices      enginev1connect.NoticesClient
+		changes      enginev1connect.ChangesClient
 	)
 	if daemonSocket, sockErr := protocol.SocketPath(opts.daemonSocket, getenv); sockErr == nil {
 		sessionClient := cli.SessionHTTPClient(protocol.SessionSocketPath(daemonSocket))
@@ -609,6 +611,7 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 			enginev1connect.NewEvidenceClient(sessionClient, cli.SessionBaseURL)
 		pools = enginev1connect.NewPoolsClient(sessionClient, cli.SessionBaseURL)
 		notices = enginev1connect.NewNoticesClient(sessionClient, cli.SessionBaseURL)
+		changes = enginev1connect.NewChangesClient(sessionClient, cli.SessionBaseURL)
 	}
 	// Without a HOME the record root stays empty: os.DirFS refuses an empty root, so Epics fails its reads rather than
 	// reading the working directory's .gambit.
@@ -634,6 +637,7 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 		Steps:          steps,
 		Pools:          pools,
 		Notices:        notices,
+		Changes:        changes,
 		Records:        records,
 		EpicStore:      epicStore,
 		EpicCommands:   epicCommands,

@@ -61,6 +61,7 @@ func epicTaskReviewMessages(reviews []*enginev1.EpicTaskReview) []*orreryv1.Epic
 			Step:     review.GetStep(),
 			Verdict:  review.GetVerdict(),
 			Findings: findings,
+			Reason:   redact.Text(review.GetReason()),
 		})
 	}
 	return out

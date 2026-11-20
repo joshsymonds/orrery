@@ -32,10 +32,13 @@ const (
 const decisionLimit = 3
 
 // The decisions an orchestrator's return makes. A cannot_meet decision confirms that the task's spec cannot be met as
-// written, and climbs the task straight to rescue, as carry gives it; a fail climbs the task off its failure.
+// written, and climbs the task straight to the recarve, as carry gives it; a fail climbs the task off its failure. A
+// re_brief decision reruns the task's rung with a version that may add and remove files, once per failure, and spends
+// no attempt.
 const (
 	decisionRerun      = "rerun"
 	decisionGrant      = "grant"
+	decisionReBrief    = "re_brief"
 	decisionCannotMeet = "cannot_meet"
 	decisionFail       = "fail"
 	decisionAsk        = "ask"
@@ -76,12 +79,12 @@ const (
 )
 
 // OrchestratorSchema is the schema an orchestrator step's return must match: one flat object, every field required and
-// left empty when its decision does not use it. A rerun or grant decision returns version, the task's new spec version,
-// which every agent on the task reads as standing spec: a version may change any field of the task's spec but never the
-// contract.
+// left empty when its decision does not use it. A rerun, grant or re_brief decision returns version, the task's new spec
+// version, which every agent on the task reads as standing spec: a version may change any field of the task's spec but
+// never the contract.
 const OrchestratorSchema = `{
   "title": "Implementer request decision",
-  "description": "A rerun or grant decision returns version, the task's new spec version, which every agent on the task reads, written as standing spec. A version may change any field of the task's spec (deliverable, files, test_changes, gate, evidence; an evidence change is red-checked at the task's base) but never the contract.",
+  "description": "A rerun, grant or re_brief decision returns version, the task's new spec version, which every agent on the task reads, written as standing spec. A version may change any field of the task's spec (deliverable, files, test_changes, gate, evidence; an evidence change is red-checked at the task's base) but never the contract. files adds the files it names to the task and remove drops the files it names from the task.",
   "type": "object",
   "additionalProperties": false,
   "required": ["status", "evidence", "decision", "version", "after_tasks", "failure", "needs_files", "question",
@@ -90,16 +93,17 @@ const OrchestratorSchema = `{
     "status": {"type": "string", "enum": ["done", "blocked"]},
     "evidence": {"type": "string",
       "description": "What the request comes down to, each fact as file:line or the exact command and its output."},
-    "decision": {"type": "string", "enum": ["", "rerun", "grant", "cannot_meet", "fail", "ask"]},
+    "decision": {"type": "string", "enum": ["", "rerun", "grant", "re_brief", "cannot_meet", "fail", "ask"]},
     "version": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["changed", "deliverable", "files", "test_changes", "gate", "evidence"],
+      "required": ["changed", "deliverable", "files", "remove", "test_changes", "gate", "evidence"],
       "properties": {
         "changed": {"type": "array",
           "items": {"type": "string", "enum": ["deliverable", "files", "test_changes", "gate", "evidence"]}},
         "deliverable": {"type": "string"},
         "files": {"type": "array", "items": {"type": "string"}},
+        "remove": {"type": "array", "items": {"type": "string"}},
         "test_changes": {"type": "array", "items": {"type": "string"}},
         "gate": {"type": "string"},
         "evidence": {
@@ -167,13 +171,14 @@ func (q orchestratorQuestion) empty() bool {
 		q.Confidence == "" && q.Catastrophe == ""
 }
 
-// orchestratorVersion is the version an orchestrator's rerun or grant returns: the fields it changes, and the value of
-// each. Changed names the fields, Files are the files the version adds to the task, and TestChanges is read apart from
-// its key, test_changes (decodeOrchestratorReturn).
+// orchestratorVersion is the version an orchestrator's rerun, grant or re_brief returns: the fields it changes, and the
+// value of each. Changed names the fields, Files are the files the version adds to the task, Remove the files it drops
+// from the task, and TestChanges is read apart from its key, test_changes (decodeOrchestratorReturn).
 type orchestratorVersion struct {
 	Changed     []string      `json:"changed"`
 	Deliverable string        `json:"deliverable"`
 	Files       []string      `json:"files"`
+	Remove      []string      `json:"remove"`
 	TestChanges []string      `json:"-"`
 	Gate        string        `json:"gate"`
 	Evidence    evidence.Item `json:"evidence"`
@@ -182,8 +187,8 @@ type orchestratorVersion struct {
 // empty reports whether every field of the version is zero, as a fail or an ask leaves it. A list is zero when it has
 // no entries.
 func (v orchestratorVersion) empty() bool {
-	return len(v.Changed) == 0 && v.Deliverable == "" && len(v.Files) == 0 && len(v.TestChanges) == 0 &&
-		v.Gate == "" && itemEmpty(v.Evidence)
+	return len(v.Changed) == 0 && v.Deliverable == "" && len(v.Files) == 0 && len(v.Remove) == 0 &&
+		len(v.TestChanges) == 0 && v.Gate == "" && itemEmpty(v.Evidence)
 }
 
 // itemEmpty reports whether every field of item is zero, as a version that does not change its evidence leaves it.
@@ -506,10 +511,10 @@ func OrchestratorCheck(task store.EpicTask, peers []Peer) func(json.RawMessage) 
 }
 
 // shapeRefusals returns one `field: reason` line for each rule of its decision's shape that ret breaks. A blocked
-// return names no decision and gives evidence. A done return names a decision and gives a reason. A rerun or grant
-// gives a version under versionShape and leaves failure, needs_files and question empty. A fail or a cannot_meet gives
-// a failure and leaves version, after_tasks and question empty, with needs_files allowed. An ask gives every question
-// field and leaves the rest empty.
+// return names no decision and gives evidence. A done return names a decision and gives a reason. A rerun, grant or
+// re_brief gives a version under versionShape and leaves failure, needs_files and question empty. A fail or a
+// cannot_meet gives a failure and leaves version, after_tasks and question empty, with needs_files allowed. An ask gives
+// every question field and leaves the rest empty.
 func shapeRefusals(ret orchestratorReturn) []string {
 	if ret.Status == statusBlocked {
 		var refusals []string
@@ -526,7 +531,7 @@ func shapeRefusals(ret orchestratorReturn) []string {
 		refusals = append(refusals, "reason: empty")
 	}
 	switch ret.Decision {
-	case decisionRerun, decisionGrant:
+	case decisionRerun, decisionGrant, decisionReBrief:
 		refusals = append(refusals, rerunShape(ret)...)
 	case decisionFail, decisionCannotMeet:
 		refusals = append(refusals, nonEmpty("failure", ret.Failure)...)
@@ -546,8 +551,8 @@ func shapeRefusals(ret orchestratorReturn) []string {
 	return refusals
 }
 
-// rerunShape returns the shape refusals of a rerun or grant: its version (versionShape), and no failure, needs_files or
-// question.
+// rerunShape returns the shape refusals of a rerun, grant or re_brief: its version (versionShape), and no failure,
+// needs_files or question.
 func rerunShape(ret orchestratorReturn) []string {
 	return append(versionShape(ret.Decision, ret.Version), emptyFields(ret.Decision,
 		field{"failure", ret.Failure != ""}, field{keyNeedsFiles, len(ret.NeedsFiles) > 0},
@@ -555,8 +560,9 @@ func rerunShape(ret orchestratorReturn) []string {
 	)...)
 }
 
-// versionShape returns the shape refusals of the version of a rerun or grant. Each field changed names once. A field
-// changed does not name is empty. The fields a version names are checked by namedShape.
+// versionShape returns the shape refusals of the version of a rerun, grant or re_brief. Each field changed names once. A
+// field changed does not name is empty, and remove is empty unless changed names files: each file it removes is named
+// once, and is not one the version adds. The fields a version names are checked by namedShape.
 func versionShape(decision string, version orchestratorVersion) []string {
 	var refusals []string
 	for i, name := range version.Changed {
@@ -571,6 +577,17 @@ func versionShape(decision string, version orchestratorVersion) []string {
 	} {
 		if item.set && !slices.Contains(version.Changed, item.name) {
 			refusals = append(refusals, fmt.Sprintf("version.%s: not empty when changed does not name it", item.name))
+		}
+	}
+	if len(version.Remove) > 0 && !slices.Contains(version.Changed, "files") {
+		refusals = append(refusals, "version.remove: not empty when changed does not name files")
+	}
+	for i, file := range version.Remove {
+		switch {
+		case slices.Index(version.Remove, file) < i:
+			refusals = append(refusals, fmt.Sprintf("version.remove[%d]: %s is named twice", i, file))
+		case slices.Contains(version.Files, file):
+			refusals = append(refusals, fmt.Sprintf("version.remove[%d]: %s is also in version.files", i, file))
 		}
 	}
 	return append(refusals, namedShape(decision, version)...)
@@ -598,6 +615,8 @@ func namedShape(decision string, version orchestratorVersion) []string {
 		refusals = append(refusals, "version.changed: files not named on a grant")
 	case decision == decisionGrant && len(version.Files) == 0:
 		refusals = append(refusals, "version.files: empty on a grant")
+	case decision == decisionGrant && len(version.Remove) > 0:
+		refusals = append(refusals, "version.remove: not empty on a grant")
 	case decision == decisionRerun && slices.Contains(version.Changed, "files"):
 		refusals = append(refusals, "version.changed: files named on a rerun")
 	}
@@ -658,20 +677,21 @@ func emptyFields(decision string, fields ...field) []string {
 	return refusals
 }
 
-// stateRefusals returns the refusals of a rerun or grant against the epic's tasks: an after_tasks entry that is this
-// task, no task of the epic, a task that is neither open nor accepted and pending, a task that waits on this one, or a
-// task named twice; a file of version.files that planner.FileRefusal refuses, that is already the task's, that is named
-// twice, or that an open task owns or an accepted pending task changed when after_tasks does not name that task; and a
-// test change that is none of the task's files after the version. Any other decision has none. With integrated set, an
-// after_tasks entry a batch has integrated since the step started is not refused, since the wait for it is already
-// over. An ask is refused as the task's last decision, since the orchestrator that would read the answer could not run.
+// stateRefusals returns the refusals of a rerun, grant or re_brief against the epic's tasks: an after_tasks entry that is
+// this task, no task of the epic, a task that is neither open nor accepted and pending, a task that waits on this one, or
+// a task named twice; a file of version.files that planner.FileRefusal refuses, that is already the task's, that is named
+// twice, or that an open task owns or an accepted pending task changed when after_tasks does not name that task; a file
+// of version.remove that is not one of the task's; and a test change that is none of the files the task has once the
+// version removes and adds its files. Any other decision has none. With integrated set, an after_tasks entry a batch has
+// integrated since the step started is not refused, since the wait for it is already over. An ask is refused as the
+// task's last decision, since the orchestrator that would read the answer could not run.
 func stateRefusals(ret orchestratorReturn, task store.EpicTask, peers []Peer, integrated bool) []string {
 	if ret.Decision == decisionAsk && task.Build.Decisions+1 >= decisionLimit {
 		return []string{
 			"decision: an ask is the task's last decision, and no decision would be left to act on the answer",
 		}
 	}
-	if ret.Decision != decisionRerun && ret.Decision != decisionGrant {
+	if !slices.Contains([]string{decisionRerun, decisionGrant, decisionReBrief}, ret.Decision) {
 		return nil
 	}
 	var refusals []string
@@ -680,13 +700,22 @@ func stateRefusals(ret orchestratorReturn, task store.EpicTask, peers []Peer, in
 			refusals = append(refusals, fmt.Sprintf("after_tasks[%d]: %s", i, reason))
 		}
 	}
+	for i, file := range ret.Version.Remove {
+		if !slices.Contains(task.Files, file) {
+			refusals = append(refusals, fmt.Sprintf("version.remove[%d]: not one of the task's files", i))
+		}
+	}
 	files := ret.Version.Files
 	for i, file := range files {
 		if reason := fileRefusal(file, task, peers, ret.AfterTasks, files[:i]); reason != "" {
 			refusals = append(refusals, fmt.Sprintf("version.files[%d]: %s", i, reason))
 		}
 	}
-	whole := slices.Concat(task.Files, files)
+	kept := filesLeft(task, ret.Version.Remove)
+	if len(kept)+len(files) == 0 {
+		refusals = append(refusals, "version.remove: the task would be left no files")
+	}
+	whole := slices.Concat(kept, files)
 	for i, file := range ret.Version.TestChanges {
 		if !slices.Contains(whole, file) {
 			refusals = append(refusals, fmt.Sprintf("version.test_changes[%d]: not one of the task's files", i))
@@ -715,6 +744,11 @@ func afterRefusal(seq, self int64, peers []Peer, before []int64, integrated bool
 		return label + " waits on this task"
 	}
 	return ""
+}
+
+// filesLeft returns the files task owns that remain once the files in remove are dropped, in order.
+func filesLeft(task store.EpicTask, remove []string) []string {
+	return slices.DeleteFunc(slices.Clone(task.Files), func(file string) bool { return slices.Contains(remove, file) })
 }
 
 // fileRefusal returns why file may not be granted to task behind after, given the files before it, or "" when it may.
@@ -811,7 +845,15 @@ func decideOrchestrate(view View) Action {
 		}
 		return Action{
 			Kind: ActStartStep, Unit: StageOrchestrate,
-			ID: StepID(view.Epic, view.Task.Seq, StageOrchestrate, build.Attempt, build.Rerun, build.Decisions, 0),
+			ID: StepID(
+				unitScope(view.Epic, view.Task),
+				view.Task.Seq,
+				StageOrchestrate,
+				build.Attempt,
+				build.Rerun,
+				build.Decisions,
+				0,
+			),
 		}
 	}
 	switch step.End {
@@ -829,21 +871,26 @@ func decideOrchestrate(view View) Action {
 	return requestFallback(view)
 }
 
-// carry returns the action that carries out ret, an orchestrator's done return, on the task of view. The state its rerun
-// or grant names is checked again against the peers now, and a refusal settles the request as fallback does, with the
-// refusal added to its reason. Every decision counts one more decision on the build and records an epic decision
-// (decisionText). A rerun or grant moves the build to implement at its next rerun, with no step and the failure
-// fallbackText gives, which on a needs_context request also says what the version granted (grantedText), held waiting
-// when it names tasks to wait for, and stores the version it returns (versionInput). A rerun, grant or fail of a
-// needs_context request refuses the files it named that the task does not own and the version does not add
+// carry returns the action that carries out ret, an orchestrator's done return, on the task of view. The state its
+// rerun, grant or re_brief names is checked again against the peers now, and a refusal settles the request as fallback
+// does, with the refusal added to its reason. Every decision counts one more decision on the build and records an epic
+// decision (decisionText). A rerun, grant or re_brief moves the build to implement at its next rerun, with no step and
+// the failure fallbackText gives, which on a needs_context request also says what the version granted (grantedText),
+// held waiting when it names tasks to wait for, and stores the version it returns (versionInput). A rerun, grant or
+// fail of a needs_context request refuses the files it named that the task does not own and the version does not add
 // (requestRefusals), and the decision records them. A rerun that changes the evidence moves the build to red at that
 // rerun instead, so the new evidence is judged at the base before the implementer runs again, and keeps its attempt. A
 // fail climbs the task off its failure and needs_files, moved by a fail decision. A cannot_meet climbs it the same way,
-// moved by a cannot_meet decision, to rescue when the task is below rescue and one rung up otherwise. An ask holds the
-// build until the owner answers its question.
+// moved by a cannot_meet decision, to the recarve when the task is below it and one rung up otherwise. An ask holds the
+// build until the owner answers its question. A re_brief spends no attempt, as a rerun does, and records the first line
+// of the failure it answers, so a re_brief on a first line the task already answered is refused.
 func carry(view View, ret orchestratorReturn, fallback Action) Action {
 	if refusals := stateRefusals(ret, view.Task, view.Peers, true); len(refusals) > 0 {
 		return refused(fallback, ret.Decision, refusals)
+	}
+	line := rebriefLine(fallbackText(fallback))
+	if ret.Decision == decisionReBrief && view.Task.Build.ReBriefed(line) {
+		return refused(fallback, ret.Decision, []string{"already re-briefed on this failure"})
 	}
 	seq := view.Task.Seq
 	next := view.Task.Build
@@ -860,8 +907,8 @@ func carry(view View, ret orchestratorReturn, fallback Action) Action {
 		}
 	case decisionCannotMeet:
 		var to int64
-		if store.RungOf(view.Task.Build) < store.RescueRung {
-			to = store.RescueRung
+		if store.RungOf(view.Task.Build) < store.ApproachRung {
+			to = store.ApproachRung
 		}
 		return Action{
 			Kind: ActFail, Reason: ret.Failure, NeedsFiles: ret.NeedsFiles, Decision: decision,
@@ -880,13 +927,16 @@ func carry(view View, ret orchestratorReturn, fallback Action) Action {
 		}
 	}
 	next.Stage = StageImplement
-	if ret.Decision == decisionRerun && slices.Contains(ret.Version.Changed, "evidence") {
+	if slices.Contains(ret.Version.Changed, "evidence") {
 		next.Stage = StageRed
 	}
 	next.Rerun++
 	next.NoVerdict = 0
 	next.Step = ""
 	next.Failure = fallbackText(fallback)
+	if ret.Decision == decisionReBrief {
+		next = next.WithReBrief(line)
+	}
 	if requestsContext(view) {
 		next.Failure += "; " + grantedText(ret.Version.Files)
 	}
@@ -908,6 +958,12 @@ func fallbackText(fallback Action) string {
 		return fallback.Next.Failure
 	}
 	return fallback.Reason
+}
+
+// rebriefLine returns the first line of failure, the failure a re_brief answers, as TaskBuild.ReBriefed reads it.
+func rebriefLine(failure string) string {
+	line, _, _ := strings.Cut(failure, "\n")
+	return line
 }
 
 // requestsContext reports whether the implementer step an orchestrate unit decides ended returned with needs_context,
@@ -948,6 +1004,7 @@ func versionInput(view View, ret orchestratorReturn) store.TaskVersionInput {
 	version := ret.Version
 	in := store.TaskVersionInput{
 		Source: store.SourceOrchestrator, Step: view.Step.ID, Reason: ret.Reason, Files: version.Files,
+		Remove: version.Remove,
 	}
 	if slices.Contains(version.Changed, "deliverable") {
 		in.Deliverable = &version.Deliverable

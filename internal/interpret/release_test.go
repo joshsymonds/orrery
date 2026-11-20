@@ -385,7 +385,7 @@ func TestReleaseEndedWithGapsReleasesOnOwnersWordAndNamesGaps(t *testing.T) {
 		t.Fatalf("EndEpic calls = %+v before the owner releases, want none", ending.calls)
 	}
 
-	if err := w.s.ReleaseEpic(t.Context(), runEpic, nil, runClock()); err != nil {
+	if err := w.s.ReleaseEpic(t.Context(), runEpic, nil, store.Maker{}, runClock()); err != nil {
 		t.Fatalf("ReleaseEpic: %v", err)
 	}
 	w.pass()

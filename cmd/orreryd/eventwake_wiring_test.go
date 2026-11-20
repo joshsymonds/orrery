@@ -3,12 +3,14 @@ package main
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -290,11 +292,37 @@ func recordWakeCreator(t *testing.T, st *store.Store, session string) {
 	}
 }
 
+// steerWakeEpic makes session the steerer of the synthetic epic by a direct update of its row, for a session whose id
+// exists only once it has started, after the epic is stored. No store write sets a steerer. The update waits out a
+// store write of the host, as the store's own connections do.
+func steerWakeEpic(t *testing.T, path, session string) {
+	t.Helper()
+	dsn := (&url.URL{Scheme: "file", Path: path, RawQuery: "_busy_timeout=5000"}).String()
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatalf("open %s: %v", path, err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("close %s: %v", path, err)
+		}
+	})
+	if _, err = db.ExecContext(t.Context(), `UPDATE epics SET steerer = ? WHERE id = ?`,
+		session, attentionWiringEpic); err != nil {
+		t.Fatalf("steer epic %s by %s: %v", attentionWiringEpic, session, err)
+	}
+}
+
 // pauseAttentionEpic pauses the synthetic epic, so the planner takes no action for it and the events under test are the
 // only ones the caller-event passes send.
 func pauseAttentionEpic(t *testing.T, st *store.Store) {
 	t.Helper()
-	if err := st.PauseEpic(t.Context(), attentionWiringEpic); err != nil {
+	if err := st.PauseEpic(
+		t.Context(),
+		attentionWiringEpic,
+		store.Maker{By: store.MakerOwner},
+		time.Unix(1700000000, 0),
+	); err != nil {
 		t.Fatalf("pause epic %s: %v", attentionWiringEpic, err)
 	}
 }
@@ -559,12 +587,12 @@ func TestStepEndPushWiringPaneStopFrame(t *testing.T) {
 	}
 }
 
-// TestEpicEventPushWiringQuestionAndPhase checks that a question and a phase change stored for an epic whose creator is
-// an idle headless session are each delivered to the creator exactly once, with no wake from the test. The epic is
+// TestEpicEventPushWiringQuestionAndPhase checks that a question and a phase change stored for an epic whose steerer is
+// an idle headless session are each delivered to the steerer exactly once, with no wake from the test. The epic is
 // paused, so the planner takes no action for it, and each store write wakes the round that delivers its event.
 func TestEpicEventPushWiringQuestionAndPhase(t *testing.T) {
 	st, getenv, path := openEventWakeStore(t)
-	createAttentionEpic(t, st)
+	createAttentionEpic(t, st, "")
 	pauseAttentionEpic(t, st)
 	passed := make(chan struct{}, eventWakeSignals)
 	host, stop := startEventWakeHost(t, st, getenv, path, eventWakeRig{sessionCap: defaultSessionCap, passed: passed})
@@ -573,6 +601,7 @@ func TestEpicEventPushWiringQuestionAndPhase(t *testing.T) {
 	creator := startSession(t, host, "hi")
 	awaitTurnDone(t, path, creator)
 	recordWakeCreator(t, st, creator)
+	steerWakeEpic(t, path, creator)
 
 	question := store.EpicQuestionEvent(attentionWiringEpic, openOwnerPark(t, st))
 	awaitMarked(t, st, passed, question, creator)
@@ -598,7 +627,7 @@ func TestEpicEventPushWiringQuestionAndPhase(t *testing.T) {
 // is stored while the creator is quiet, so its round holds the event, and the Say's wake sends it.
 func TestEpicEventPushWiringQuietCreatorAfterSay(t *testing.T) {
 	st, getenv, path := openEventWakeStore(t)
-	createAttentionEpic(t, st)
+	createAttentionEpic(t, st, "")
 	pauseAttentionEpic(t, st)
 	passed := make(chan struct{}, eventWakeSignals)
 	host, stop := startEventWakeHost(t, st, getenv, path, eventWakeRig{sessionCap: defaultSessionCap, passed: passed})
@@ -611,6 +640,7 @@ func TestEpicEventPushWiringQuietCreatorAfterSay(t *testing.T) {
 	}
 	awaitTurnDone(t, path, creator)
 	recordWakeCreator(t, st, creator)
+	steerWakeEpic(t, path, creator)
 
 	endAttentionEpic(t, st, "done")
 	awaitCallerRound(passed)

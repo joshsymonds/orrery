@@ -87,7 +87,7 @@ func seedOpenSteps(t *testing.T, s *store.Store, ids ...string) {
 // test's own. It is closed at cleanup.
 func newBatchRestartSteps(t *testing.T, s *store.Store, writer *Writer) *Steps {
 	t.Helper()
-	steps, err := NewSteps(StepsConfig{
+	steps := NewSteps(StepsConfig{
 		Sessions:     &stepCtlSessions{stepStartSessions: &stepStartSessions{writer: writer}},
 		Store:        s,
 		Writer:       writer,
@@ -95,9 +95,6 @@ func newBatchRestartSteps(t *testing.T, s *store.Store, writer *Writer) *Steps {
 		Logger:       slog.New(slog.DiscardHandler),
 		GateStateDir: gateShortStateDir(t),
 	})
-	if err != nil {
-		t.Fatalf("NewSteps: %v", err)
-	}
 	t.Cleanup(steps.Close)
 	return steps
 }
@@ -105,56 +102,45 @@ func newBatchRestartSteps(t *testing.T, s *store.Store, writer *Writer) *Steps {
 func TestStepsReconcileEndsSixtyFourOpenRowsInOneApplyEngineCall(t *testing.T) {
 	t.Parallel()
 	const rows = 64
-	for _, tc := range []struct {
-		name string
-		tick time.Duration
-	}{
-		{name: "1ms tick", tick: time.Millisecond},
-		{name: "default tick"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			s, _ := openStore(t)
-			ids := make([]string, rows)
-			for i := range ids {
-				ids[i] = fmt.Sprintf("%032d", i)
-			}
-			seedOpenSteps(t, s, ids...)
-			applier := &restartEndApplier{inner: s}
-			writer := NewWriter(WriterConfig{Applier: applier, Tick: tc.tick})
-			startRun(t, writer)
-			steps := newBatchRestartSteps(t, s, writer)
+	s, _ := openStore(t)
+	ids := make([]string, rows)
+	for i := range ids {
+		ids[i] = fmt.Sprintf("%032d", i)
+	}
+	seedOpenSteps(t, s, ids...)
+	applier := &restartEndApplier{inner: s}
+	writer := NewWriter(WriterConfig{Applier: applier})
+	startRun(t, writer)
+	steps := newBatchRestartSteps(t, s, writer)
 
-			if err := steps.Reconcile(t.Context()); err != nil {
-				t.Fatalf("Reconcile: %v", err)
-			}
+	if err := steps.Reconcile(t.Context()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
 
-			var restartedEnds []int
-			for _, call := range applier.recorded() {
-				n := 0
-				for _, op := range call {
-					if end, ok := op.(store.StepEnd); ok && end.End == stepRestartedEnd {
-						n++
-					}
-				}
-				if n > 0 {
-					restartedEnds = append(restartedEnds, n)
-				}
+	var restartedEnds []int
+	for _, call := range applier.recorded() {
+		n := 0
+		for _, op := range call {
+			if end, ok := op.(store.StepEnd); ok && end.End == stepRestartedEnd {
+				n++
 			}
-			if !slices.Equal(restartedEnds, []int{rows}) {
-				t.Errorf("ApplyEngine calls storing engine_restarted ends carry %v ends, want one call with %d",
-					restartedEnds, rows)
-			}
-			for _, id := range ids {
-				row, err := steps.Status(t.Context(), id)
-				if err != nil {
-					t.Fatalf("Status %s: %v", id, err)
-				}
-				if row.End != stepRestartedEnd {
-					t.Errorf("step %s end = %q, want %s", id, row.End, stepRestartedEnd)
-				}
-			}
-		})
+		}
+		if n > 0 {
+			restartedEnds = append(restartedEnds, n)
+		}
+	}
+	if !slices.Equal(restartedEnds, []int{rows}) {
+		t.Errorf("ApplyEngine calls storing engine_restarted ends carry %v ends, want one call with %d",
+			restartedEnds, rows)
+	}
+	for _, id := range ids {
+		row, err := steps.Status(t.Context(), id)
+		if err != nil {
+			t.Fatalf("Status %s: %v", id, err)
+		}
+		if row.End != stepRestartedEnd {
+			t.Errorf("step %s end = %q, want %s", id, row.End, stepRestartedEnd)
+		}
 	}
 }
 
@@ -164,7 +150,7 @@ func TestStepsReconcileCleansUpOtherRowsWhenOneEndIsDropped(t *testing.T) {
 	ids := []string{fmt.Sprintf("%032d", 0), fmt.Sprintf("%032d", 1), fmt.Sprintf("%032d", 2)}
 	dropped := ids[1]
 	applier := &restartEndApplier{inner: s, dropID: dropped}
-	writer := NewWriter(WriterConfig{Applier: applier, Tick: time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: applier})
 	startRun(t, writer)
 	steps := newBatchRestartSteps(t, s, writer)
 	// Readopt runs while no row is open, so it registers the adopter and rebuilds no run.

@@ -36,7 +36,7 @@ const epicLineageForm = "lineage [--epic ID] [--escalated]"
 
 // epicForms names every form of `orrery epic`, for the usage error of a missing or unknown verb.
 const epicForms = "create FILE|-, get ID, list, follow, answer EPIC --id ID [--question QN] [--choice C] [TEXT], " +
-	"pause ID, resume ID, stop ID, " + epicKickForm + ", " + epicRetryForm + ", " + epicReleaseForm + ", " +
+	"pause ID, resume ID, stop ID, steer ID, " + epicKickForm + ", " + epicRetryForm + ", " + epicReleaseForm + ", " +
 	epicCloseForm + ", " + epicAmendForm + ", " + epicLineageForm
 
 // epicAnswerForm names the form of `orrery epic answer`.
@@ -115,7 +115,7 @@ func epicCommand(
 		return epicNoArgs(ctx, epics, verb, "epic_list", map[string]string{}, rest, stdout)
 	case "follow":
 		return epicNoArgs(ctx, epics, verb, "epic_follow", struct{}{}, rest, stdout)
-	case "get", "pause", "resume", "stop":
+	case "get", "pause", "resume", "stop", "steer":
 		if len(rest) != 1 {
 			return epicForm(verb + " ID")
 		}

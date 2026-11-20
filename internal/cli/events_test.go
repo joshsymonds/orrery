@@ -15,6 +15,8 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/joshsymonds/orrery/internal/cli"
+	"github.com/joshsymonds/orrery/internal/enginehost"
+	enginev1connect "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
 	"github.com/joshsymonds/orrery/internal/push"
@@ -32,8 +34,6 @@ const (
 	eventsWatchPath = "/" + orreryv1connect.EventsName + "/Watch"
 	// eventsAt is the unix second every test event is stored at.
 	eventsAt = 1_700_000_000
-	// eventsPoll is the Watch poll interval the tests inject.
-	eventsPoll = 10 * time.Millisecond
 	// eventsServer is the synthetic tmux server name the store rows belong to.
 	eventsServer = "-L events"
 )
@@ -169,8 +169,9 @@ func eventsStored(t *testing.T, path string) []store.Event {
 
 // serveEvents serves the guarded handler for the store at path on an httptest server, and returns its URL. The
 // handler plays tailscale serve by setting the login header, and it sends on watched each Watch request it passes
-// on. Closing the returned stop function ends every open stream, so the server never waits on one at cleanup.
-func serveEvents(t *testing.T, path string, watched chan<- struct{}) (string, func()) {
+// on. The change feed wakes its streams on each write of the writer s, or of no writer when s is nil. Closing the
+// returned stop function ends every open stream, so the server never waits on one at cleanup.
+func serveEvents(t *testing.T, path string, s *store.Store, watched chan<- struct{}) (string, func()) {
 	t.Helper()
 	tmux, err := tmuxctl.New(tmuxctl.Server{Name: "orrery-events-test"})
 	if err != nil {
@@ -180,14 +181,21 @@ func serveEvents(t *testing.T, path string, watched chan<- struct{}) (string, fu
 	if err != nil {
 		t.Fatalf("push.NewStore: %v", err)
 	}
+	feed := enginehost.NewChangeFeed()
+	if s != nil {
+		s.OnSessionEvents(feed.Publish)
+	}
+	_, changesHandler := enginehost.NewChangesHandler(feed)
+	changesSrv := httptest.NewServer(changesHandler)
+	t.Cleanup(changesSrv.Close)
 	shutdown := make(chan struct{})
 	handler, err := server.New(server.Config{
-		Logins:    []string{eventsLogin},
-		Tmux:      tmux,
-		Push:      pushStore,
-		Sessions:  store.NewReader(path),
-		EventPoll: eventsPoll,
-		Shutdown:  shutdown,
+		Logins:   []string{eventsLogin},
+		Tmux:     tmux,
+		Push:     pushStore,
+		Sessions: store.NewReader(path),
+		Changes:  enginev1connect.NewChangesClient(http.DefaultClient, changesSrv.URL),
+		Shutdown: shutdown,
 	})
 	if err != nil {
 		t.Fatalf("server.New: %v", err)
@@ -244,7 +252,7 @@ func TestEventsAfterWithoutFollowWritesThroughNewest(t *testing.T) {
 	if len(stored) != 3 {
 		t.Fatalf("store holds %d events, want 3", len(stored))
 	}
-	url, _ := serveEvents(t, path, nil)
+	url, _ := serveEvents(t, path, nil, nil)
 
 	call := startEvents(t, "--url", url, "--after", "1")
 	if err := call.wait(t); err != nil {
@@ -262,7 +270,7 @@ func TestEventsWithoutAfterOrFollowWritesNothing(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	seedEvents(t, openEventsStore(t, path))
-	url, _ := serveEvents(t, path, nil)
+	url, _ := serveEvents(t, path, nil, nil)
 
 	// A caught-up Watch does not return until the next event, so this call returns only if it opens no stream.
 	call := startEvents(t, "--url", url)
@@ -280,7 +288,7 @@ func TestEventsFollowWithoutAfterWritesOnlyEventsAfterList(t *testing.T) {
 	s := openEventsStore(t, path)
 	seedEvents(t, s)
 	watched := make(chan struct{}, 1)
-	url, stop := serveEvents(t, path, watched)
+	url, stop := serveEvents(t, path, s, watched)
 
 	// Each retry wait moves the clock a whole window, so serve's Unavailable end is retried once and then given up.
 	call := startEventsOnClock(t, rpcretry.Window, "--url", url, "--follow")
@@ -313,7 +321,7 @@ func TestEventsCursorPastEndIsAnError(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	seedEvents(t, openEventsStore(t, path))
-	url, _ := serveEvents(t, path, nil)
+	url, _ := serveEvents(t, path, nil, nil)
 
 	call := startEvents(t, "--url", url, "--after", "99")
 	err := call.wait(t)

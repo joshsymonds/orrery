@@ -203,7 +203,7 @@ func TestEngineFinishesOnlyWhenEveryPartHasNoWork(t *testing.T) {
 		t.Fatal("an engine with no parts finished")
 	}
 
-	w := NewWriter(WriterConfig{Tick: time.Hour})
+	w := NewWriter(WriterConfig{})
 	run := &stepRun{stepRunConfig: stepRunConfig{writer: w}, runDone: make(chan struct{})}
 	if engineOf(run).finished() {
 		t.Fatal("the engine of a running step run finished")
@@ -252,7 +252,7 @@ func TestWriterIsUnfinishedWhileAFlushApplies(t *testing.T) {
 	s, _ := openStore(t)
 	addSessions(t, s, "a")
 	applier := &gatedApplier{store: s, entered: make(chan struct{}), release: make(chan struct{})}
-	w := NewWriter(WriterConfig{Applier: applier, Tick: time.Hour})
+	w := NewWriter(WriterConfig{Applier: applier})
 	if err := w.Put(t.Context(), "a", prompt("a", "queued")); err != nil {
 		t.Fatalf("Put: %v", err)
 	}

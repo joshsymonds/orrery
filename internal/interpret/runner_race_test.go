@@ -43,8 +43,22 @@ func TestTurnCommittedAfterEpicReadBuildsItsTasks(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openRunStore(t)
-	createRunEpic(t, s, builtinPin(t))
-	newRunner(s, &fakePlanner{known: []string{runEpic}}, &fakeBuilder{}).Pass(ctx)
+	// The built-in epic's cost run prepares at the base and starts its check, so the epic is on a repository that exists
+	// and the runners are given the checks.
+	repo, base := nodeRepo(t)
+	if err := s.CreateEpic(ctx, store.EpicRow{
+		ID: runEpic, Repository: repo, Base: base, Title: "Run the workflow", Phase: runPhase,
+		Created: runClock(), Changed: runClock(), Workflow: builtinPin(t),
+	}); err != nil {
+		t.Fatalf("CreateEpic: %v", err)
+	}
+	fakes := newNodeFakes(s)
+	runWith := func(st Store, planner Planner, builder Builder) *Runner {
+		cfg := nodeConfig(st, fakes)
+		cfg.Planner, cfg.Builder = planner, builder
+		return New(cfg)
+	}
+	runWith(s, &fakePlanner{known: []string{runEpic}}, &fakeBuilder{}).Pass(ctx)
 	turn, err := s.ClaimTurn(ctx, runEpic, runClock())
 	if err != nil {
 		t.Fatalf("ClaimTurn: %v", err)
@@ -52,7 +66,7 @@ func TestTurnCommittedAfterEpicReadBuildsItsTasks(t *testing.T) {
 
 	hook := &turnCommit{Store: s, s: s, turn: turn.Seq, plan: runPlan("complete")}
 	builder := &fakeBuilder{}
-	runner := newRunner(hook, &fakePlanner{known: []string{runEpic}}, builder)
+	runner := runWith(hook, &fakePlanner{known: []string{runEpic}}, builder)
 	runner.Pass(ctx)
 	if hook.err != nil {
 		t.Fatalf("CompleteTurn between the reads: %v", hook.err)

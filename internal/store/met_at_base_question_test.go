@@ -4,6 +4,7 @@ import (
 	"context"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
@@ -121,7 +122,7 @@ func TestMetAtBaseQuestionRetryRerunsTheRunAtNextAttemptAndUnparks(t *testing.T)
 	createEpic(t, s, fullEpic(claimEpic))
 	parkRedMetAtBase(t, s)
 
-	answer, err := s.AnswerQuestion(context.Background(), claimEpic, "D3", "", 1, ChoiceRetry, claimedAt())
+	answer, err := s.AnswerQuestion(context.Background(), claimEpic, "D3", "", 1, ChoiceRetry, Maker{}, claimedAt())
 	if err != nil {
 		t.Fatalf("AnswerQuestion retry: %v", err)
 	}
@@ -157,8 +158,9 @@ func TestMetAtBaseQuestionDropMarksRequirementsDroppedAndRerunsAndUnparks(t *tes
 	createEpic(t, s, fullEpic(claimEpic))
 	parkRedMetAtBase(t, s)
 
-	answer, err := s.AnswerQuestion(context.Background(), claimEpic, "D3", "R1 is already met", 1, ChoiceDrop,
+	answer, err := s.AnswerQuestion(context.Background(), claimEpic, "D3", "R1 is already met", 1, ChoiceDrop, Maker{},
 		claimedAt())
+
 	if err != nil {
 		t.Fatalf("AnswerQuestion drop: %v", err)
 	}
@@ -196,7 +198,7 @@ func TestMetAtBaseQuestionEndSetsPhaseAndStaysParked(t *testing.T) {
 	createEpic(t, s, fullEpic(claimEpic))
 	parkRedMetAtBase(t, s)
 
-	if _, err := s.AnswerQuestion(ctx, claimEpic, "D3", "", 1, ChoiceEnd, claimedAt()); err != nil {
+	if _, err := s.AnswerQuestion(ctx, claimEpic, "D3", "", 1, ChoiceEnd, Maker{}, claimedAt()); err != nil {
 		t.Fatalf("AnswerQuestion end: %v", err)
 	}
 	row := storedEpicRow(t, s)
@@ -212,8 +214,8 @@ func TestMetAtBaseQuestionEndSetsPhaseAndStaysParked(t *testing.T) {
 		}
 	}
 	want := "epic " + claimEpic + " is parked for good: " + metAtBaseParkReason
-	requireRefusal(t, s.RetryEpic(ctx, claimEpic), want)
-	requireRefusal(t, s.RetryNode(ctx, claimEpic, "red"), want)
+	requireRefusal(t, s.RetryEpic(ctx, claimEpic, Maker{By: MakerOwner}, time.Unix(1700000000, 0)), want)
+	requireRefusal(t, s.RetryNode(ctx, claimEpic, "red", Maker{By: MakerOwner}, time.Unix(1700000000, 0)), want)
 }
 
 // TestMetAtBaseQuestionRetryEpicAndRetryNodeAreAcceptedAndRerunTheRun checks that RetryEpic and RetryNode on an epic
@@ -222,8 +224,12 @@ func TestMetAtBaseQuestionEndSetsPhaseAndStaysParked(t *testing.T) {
 func TestMetAtBaseQuestionRetryEpicAndRetryNodeAreAcceptedAndRerunTheRun(t *testing.T) {
 	t.Parallel()
 	retries := map[string]func(s *Store) error{
-		"RetryEpic": func(s *Store) error { return s.RetryEpic(context.Background(), claimEpic) },
-		"RetryNode": func(s *Store) error { return s.RetryNode(context.Background(), claimEpic, "red") },
+		"RetryEpic": func(s *Store) error {
+			return s.RetryEpic(context.Background(), claimEpic, Maker{By: MakerOwner}, time.Unix(1700000000, 0))
+		},
+		"RetryNode": func(s *Store) error {
+			return s.RetryNode(context.Background(), claimEpic, "red", Maker{By: MakerOwner}, time.Unix(1700000000, 0))
+		},
 	}
 	for name, retry := range retries {
 		t.Run(name, func(t *testing.T) {

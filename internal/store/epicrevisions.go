@@ -151,12 +151,20 @@ type epicMoves struct {
 	runs       map[string]struct{}
 	unresolved []unresolvedRow
 	outside    map[string]int
+	// sessionRows are the rows of the session feed's tables the armed write wrote (see recordSession), and sessionErr is
+	// the error the hook met reading one. sessionColumns is the column that holds each table's session, by table, once
+	// read; only the write running on the connection reads it.
+	sessionRows    []sessionRow
+	sessionErr     error
+	sessionColumns map[string]int
 }
 
 // hook is the connection's pre-update hook. A row of a table whose key is read records the epic or the run it names:
 // the new row's for an insert or an update, since no update moves a row to another epic, and the old row's for a
-// delete. A row of a table whose key is not read yet is kept for the flush to resolve.
+// delete. A row of a table whose key is not read yet is kept for the flush to resolve. The session feed's rows are
+// recorded first, before the early returns below, which skip the tables that name no epic.
 func (m *epicMoves) hook(data sqlite.SQLitePreUpdateData) {
+	m.recordSession(&data)
 	if data.DatabaseName != "main" || !m.counting() || revisionUncounted(data.TableName) {
 		return
 	}
@@ -242,6 +250,7 @@ func (m *epicMoves) arm() {
 	defer m.mu.Unlock()
 	m.armed = true
 	m.epics, m.runs, m.unresolved = nil, nil, nil
+	m.sessionRows, m.sessionErr = nil, nil
 }
 
 // disarm ends the write's recording and drops what it recorded, as a write that rolls back does.
@@ -250,6 +259,7 @@ func (m *epicMoves) disarm() {
 	defer m.mu.Unlock()
 	m.armed = false
 	m.epics, m.runs, m.unresolved = nil, nil, nil
+	m.sessionRows, m.sessionErr = nil, nil
 }
 
 // take ends the write's recording and returns what it recorded.

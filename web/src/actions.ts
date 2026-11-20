@@ -90,9 +90,10 @@ export async function interrupt(clients: Clients, row: Row): Promise<string[]> {
   return reply.texts;
 }
 
-// ask sends the words to Picker.Ask, exactly as typed, and resolves the rows that match them.
+// ask sends the words to Picker.Ask, exactly as typed, and resolves the rows that match them. The call waits 90 seconds
+// at most, then fails with DeadlineExceeded.
 export async function ask(clients: Clients, words: string): Promise<PickerRow[]> {
-  const reply = await clients.picker.ask({ text: words });
+  const reply = await clients.picker.ask({ text: words }, { timeoutMs: 90_000 });
   return reply.rows;
 }
 

@@ -58,7 +58,7 @@ func TestUnbuiltReadsTheProofOfAnAmendment(t *testing.T) {
 	other := reproItem("the suite passes")
 	other.Capture = []string{"make", "other"}
 	reproExit1 := store.NodeCheck{ID: "repro-1", State: store.NodeEnded, Exit: 1}
-	const noRed = "R1 has no red at the epic's base base-1"
+	const notGreen = "R1 is not green at the stored base stored-2"
 	cases := []struct {
 		name string
 		rows Rows
@@ -80,13 +80,13 @@ func TestUnbuiltReadsTheProofOfAnAmendment(t *testing.T) {
 			name: "a checking amendment proves nothing",
 			rows: amendedRows(item, []store.EvidenceAmendment{amendmentProof(item, store.AmendmentChecking)},
 				proofRuns(), reproExit1),
-			want: []string{noRed},
+			want: []string{notGreen},
 		},
 		{
 			name: "an amendment to an item R1 no longer holds proves nothing",
 			rows: amendedRows(other, []store.EvidenceAmendment{amendmentProof(item, store.AmendmentApplied)},
 				proofRuns(), reproExit1),
-			want: []string{noRed},
+			want: []string{notGreen},
 		},
 		{
 			name: "a later refused amendment leaves the applied one's proof",
@@ -106,17 +106,16 @@ func TestUnbuiltReadsTheProofOfAnAmendment(t *testing.T) {
 			want: []string{"R1 is not green at the stored base stored-2"},
 		},
 		{
-			name: "the stale reproduction of an amended item is not read, so a missing one is named",
+			name: "an applied amendment's green holds without a reproduction, which nothing requires",
 			rows: amendedRows(item, []store.EvidenceAmendment{amendmentProof(item, store.AmendmentApplied)},
 				proofRuns()),
-			want: []string{"R1 has no reproduction at the epic's base base-1"},
+			want: nil,
 		},
 		{
-			name: "the amendment's own reproduction that exited 0 is a disagreement",
+			name: "the amendment's own reproduction that exited 0 holds nothing",
 			rows: amendedRows(item, []store.EvidenceAmendment{amendmentProof(item, store.AmendmentApplied)},
 				proofRuns(), store.NodeCheck{ID: "repro-1", State: store.NodeEnded, Exit: 0}),
-			want: []string{"R1 judge and exit disagree at the epic's base base-1: red was judged fails, but its " +
-				"reproduction with the candidate's tests exited 0"},
+			want: nil,
 		},
 	}
 	for _, tc := range cases {

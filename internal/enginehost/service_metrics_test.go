@@ -35,7 +35,7 @@ func TestServeRecordsCallMetricsForEveryService(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		done <- Serve(ctx, ln, nil, nil, nil, nil, nil, nil, nil, provider.HandlerOptions()...)
+		done <- Serve(ctx, ln, nil, nil, nil, nil, nil, nil, nil, nil, nil, provider.HandlerOptions()...)
 	}()
 	t.Cleanup(func() {
 		cancel()

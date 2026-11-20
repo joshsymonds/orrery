@@ -174,7 +174,7 @@ func TestPassReadsEndedWithGapsEpicAgainOnceReleased(t *testing.T) {
 		}
 	}
 
-	if err := w.s.ReleaseEpic(t.Context(), runEpic, nil, runClock()); err != nil {
+	if err := w.s.ReleaseEpic(t.Context(), runEpic, nil, store.Maker{}, runClock()); err != nil {
 		t.Fatalf("ReleaseEpic: %v", err)
 	}
 	reads.reset()
@@ -277,7 +277,7 @@ func TestRestsAgreesWithDecide(t *testing.T) {
 		}
 		return runs
 	}
-	head := ended("red", "plan", "review", "correct", "conclude")
+	head := ended("red", "cost", "plan", "review", "correct", "conclude")
 	release := store.NodeRun{Path: releaseNodePath, Kind: kindRelease, State: store.NodeRunning, Attempt: 1}
 	replan := store.NodeRun{
 		Path: kinds.ReplanPrefix(releaseNodePath, 1) + "fix", Kind: kindPlan, State: store.NodeRunning,
@@ -294,23 +294,26 @@ func TestRestsAgreesWithDecide(t *testing.T) {
 		{"red ended failed", "accepted", []store.NodeRun{{
 			Path: "red", State: store.NodeEnded, Outcome: outcomeFailed,
 		}}, true},
-		{"every node ended", "released", ended("red", "plan", "review", "correct", "conclude", "release"), true},
+		{
+			"every node ended", "released",
+			ended("red", "cost", "plan", "review", "correct", "conclude", "release"), true,
+		},
 		{"release still to start", "ended_with_gaps", head, false},
 		{"release running while released", "released", append(head[:len(head):len(head)], release), false},
 		{"release waiting with gaps", "ended_with_gaps", append(head[:len(head):len(head)], release), true},
 		{"release replanning with gaps", "ended_with_gaps", append(head[:len(head):len(head)], release, replan), false},
-		{"review running unregistered", "reviewing", append(ended("red", "plan"), store.NodeRun{
+		{"review running unregistered", "reviewing", append(ended("red", "cost", "plan"), store.NodeRun{
 			Path: "review", Kind: reviewNodeKind, State: store.NodeRunning,
 		}), true},
-		{"correct loop running", "correcting", append(ended("red", "plan", "review"), store.NodeRun{
+		{"correct loop running", "correcting", append(ended("red", "cost", "plan", "review"), store.NodeRun{
 			Path: "correct", Kind: kindLoop, State: store.NodeRunning, LoopRound: 1,
 		}), false},
 		{"batch rerun under the ended plan of a finished flow", "released", append(
-			ended("red", "plan", "review", "correct", "conclude", "release", "correct@1/fix"), store.NodeRun{
+			ended("red", "cost", "plan", "review", "correct", "conclude", "release", "correct@1/fix"), store.NodeRun{
 				Path: "correct@1/fix/S49/reintegrate", Kind: kindIntegrate, State: store.NodeRunning, Attempt: 1,
 			}), false},
 		{"batch parked under the ended plan of a finished flow", "released", append(
-			ended("red", "plan", "review", "correct", "conclude", "release", "correct@1/fix"), store.NodeRun{
+			ended("red", "cost", "plan", "review", "correct", "conclude", "release", "correct@1/fix"), store.NodeRun{
 				Path: "correct@1/fix/S49/reintegrate", Kind: kindIntegrate, State: store.NodeParked, Attempt: 1,
 			}), true},
 	}

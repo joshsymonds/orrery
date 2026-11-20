@@ -50,6 +50,10 @@ func (r *Runner) record(ctx context.Context, epic store.EpicRow, view View, acti
 	seq, from := view.Task.Seq, view.Task.Build
 	switch action.Kind {
 	case ActMove:
+		if action.Notes != nil {
+			err := r.store.SetTaskBuildNotes(ctx, epic.ID, seq, from, action.Next, action.Notes, action.Tells, r.now())
+			return r.written(ctx, epic.ID, seq, "move build with notes", err)
+		}
 		return r.written(ctx, epic.ID, seq, "move build", r.store.SetTaskBuild(ctx, epic.ID, seq, from, action.Next))
 	case ActSettleVersion:
 		err := r.store.SettleTaskVersion(ctx, epic.ID, seq, from, action.Next, *action.Settle, r.now())
@@ -193,7 +197,7 @@ func (r *Runner) carry(
 	if newBase == "" || newBase == from.Base {
 		return next, nil, true
 	}
-	path, wip := ImplementWorktree(r.stateDir, epic.ID, seq), WipRef(epic.ID, seq)
+	path, wip := ImplementWorktree(r.stateDir, epic.ID, view.Task), WipRef(epic.ID, seq)
 	moveErr := r.git.MoveWorktree(ctx, path, wip, newBase)
 	if moveErr == nil {
 		next.Base = newBase
@@ -238,10 +242,10 @@ func (r *Runner) grant(ctx context.Context, epic store.EpicRow, view View, actio
 	return r.written(ctx, epic.ID, seq, "grant files", err)
 }
 
-// decide carries out an orchestrator's rerun or grant: in one write the task's version, action's Version, is stored
-// with the files it adds, its build moves to action's, and the decision is recorded (store.Store.RerunTask). When an
-// open task the build does not wait for owns one of the files, the store writes nothing, and the request is settled as
-// action's fallback, with the refusal added.
+// decide carries out an orchestrator's rerun, grant or re-brief: in one write the task's version, action's Version, is
+// stored with the files it adds and removes, its build moves to action's, and the decision is recorded
+// (store.Store.RerunTask). When an open task the build does not wait for owns one of the files, the store writes
+// nothing, and the request is settled as action's fallback, with the refusal added.
 func (r *Runner) decide(ctx context.Context, epic store.EpicRow, view View, action Action) bool {
 	seq := view.Task.Seq
 	err := r.store.RerunTask(
@@ -274,7 +278,7 @@ func (r *Runner) ask(ctx context.Context, epic store.EpicRow, view View, action 
 // fail then tries the carry onto that base, and when git refuses it again, keeps the work with a carry version.
 func (r *Runner) resume(ctx context.Context, epic store.EpicRow, view View, action Action) bool {
 	seq, from := view.Task.Seq, view.Task.Build
-	path := ImplementWorktree(r.stateDir, epic.ID, seq)
+	path := ImplementWorktree(r.stateDir, epic.ID, view.Task)
 	if err := r.git.MoveWorktree(ctx, path, WipRef(epic.ID, seq), action.Revision); err != nil {
 		reason := fmt.Sprintf("%s could not move onto the new base %s: %v", taskLabel(seq), action.Revision, err)
 		return r.fail(ctx, epic, view, Action{Kind: ActFail, Reason: reason})

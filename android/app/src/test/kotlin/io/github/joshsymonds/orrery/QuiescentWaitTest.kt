@@ -1,5 +1,6 @@
 package io.github.joshsymonds.orrery
 
+import android.content.Context
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
@@ -11,6 +12,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
+import androidx.test.core.app.ApplicationProvider
 import com.connectrpc.Code
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
@@ -20,6 +22,7 @@ import io.github.joshsymonds.orrery.api.StreamEnd
 import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.RegisterResponse
+import io.github.joshsymonds.orrery.push.PushPreferences
 import io.github.joshsymonds.orrery.push.PushRegistration
 import io.github.joshsymonds.orrery.ui.PaneScreen
 import java.util.Timer
@@ -238,9 +241,11 @@ class QuiescentWaitTest {
         // OrreryPushServiceTest's leak, forced: the server refuses, so the registration sleeps before its retry.
         FakeOrreryServer().use { server ->
             server.fail(REGISTER_PATH, Code.UNAVAILABLE, "synthetic refusal")
+            val context = ApplicationProvider.getApplicationContext<Context>()
+            val settings = ServerSettings(context).apply { saveServerUrl(server.baseUrl) }
             BackgroundWork.run("push registration") {
                 // A short retry sleep: the end judges the sleep itself, not its length.
-                PushRegistration(OrreryClient(server.baseUrl), sleep = { Thread.sleep(RETRY_SLEEP_MILLIS) })
+                PushRegistration(settings, PushPreferences(context), sleep = { Thread.sleep(RETRY_SLEEP_MILLIS) })
                     .register("https://push.example.com/up", "key", "auth")
             }
 

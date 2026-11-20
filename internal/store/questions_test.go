@@ -431,7 +431,7 @@ func questionsOf(t *testing.T, s *Store) []EpicQuestion {
 	return epic.Questions
 }
 
-func TestThreeFailedTurnsInARowOpenAParkQuestion(t *testing.T) {
+func TestPlannerInfoThreeFailedTurnsInARowOpenNoParkQuestion(t *testing.T) {
 	t.Parallel()
 	s := openEpicStore(t)
 	createEpic(t, s, fullEpic(claimEpic))
@@ -440,9 +440,8 @@ func TestThreeFailedTurnsInARowOpenAParkQuestion(t *testing.T) {
 	claimAndFail(t, s, "second failure")
 	claimAndFail(t, s, "third failure")
 
-	want := []EpicQuestion{parkQuestionOf(1, parkPrefix+"third failure")}
-	if got := questionsOf(t, s); !reflect.DeepEqual(got, want) {
-		t.Errorf("questions after the third failure = %+v, want %+v", got, want)
+	if got := questionsOf(t, s); len(got) != 0 {
+		t.Errorf("questions after the third failure = %+v, want none: a failed turn parks nothing", got)
 	}
 }
 

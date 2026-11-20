@@ -44,7 +44,7 @@ func TestSessionWatchTurnBehindQueuedWaitsTurnWhileWorking(t *testing.T) {
 		ownerMessage("p-1", "w-1", "fix the bug"),
 		setPromptState("w-1", store.PromptQueued),
 	)
-	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, 0))
+	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, nil, 0))
 
 	msg := openSessionStream(t, client, sessionReq(eventEngine, 0, 0)).next(t)
 	wantQueued(t, msg.GetQueued(), []*orreryv1.QueuedMessage{
@@ -65,7 +65,7 @@ func TestSessionWatchTurnBehindQueuedWaitsStartWhenTurnEnds(t *testing.T) {
 		ownerMessage("p-1", "w-1", "fix the bug"),
 		setPromptState("w-1", store.PromptQueued),
 	)
-	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, 0))
+	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), s, nil, 0))
 	stream := openSessionStream(t, client, sessionReq(eventEngine, 0, 0))
 	stream.next(t)
 
@@ -85,7 +85,7 @@ func TestSessionWatchTurnBehindSayWhileTurnRunsQueuesAtOnce(t *testing.T) {
 	s := openEventStore(t, path)
 	addEngine(t, s)
 	applyEngineOps(t, s, interruptMarkSetState("working"))
-	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, 0))
+	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), s, nil, 0))
 	stream := openSessionStream(t, client, sessionReq(eventEngine, 0, 0))
 	stream.next(t)
 

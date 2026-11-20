@@ -118,8 +118,8 @@ func TestQuietImplementerTellAfterAnAnsweredQuestionLeavesTheEpicNeedingNothing(
 		t.Fatalf("notices before the answer = %d, want the question's one", len(router.notices))
 	}
 	if _, err := s.AnswerQuestion(
-		ctx, runnerEpicID, "answer-1", "use the store", 1, store.ChoiceOther, claimedAt(),
-	); err != nil {
+		ctx, runnerEpicID, "answer-1", "use the store", 1, store.ChoiceOther, store.Maker{},
+		claimedAt()); err != nil {
 		t.Fatalf("AnswerQuestion: %v", err)
 	}
 	tellRunner(t, s, implementerMoveText, claimedAt().Add(time.Second))

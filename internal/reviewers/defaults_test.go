@@ -48,14 +48,10 @@ func TestDefaultsMerge(t *testing.T) {
 			Name:  "floor",
 			Stage: []string{StageTask},
 			Must: []string{
-				"The task's own tests would fail if the behavior they cover were removed.",
+				"The change does what the task asked, leaves the checks that judge it intact, and the tests it adds " +
+					"or changes would fail if the behavior they cover were removed.",
 			},
 			MustNot: []string{
-				"The change suppresses, skips or disables a check.",
-				"The change weakens a test or makes one tautological.",
-				"The change adds dead code.",
-				"The change leaves an error unhandled.",
-				"The change does something the task did not ask for.",
 				"The change introduces a security or data-loss failure with a reachable precondition.",
 			},
 			Model:   "opus",
@@ -93,7 +89,7 @@ func TestDefaultsMerge(t *testing.T) {
 		},
 		{
 			Name:  "test_parsimony",
-			Stage: []string{StageTask, StageEpic},
+			Stage: []string{StageEpic},
 			MustNot: []string{
 				"The change adds a test that uses a real wait or a real clock.",
 				"The change adds a test that starts its own real resource where a shared one exists.",
@@ -133,8 +129,9 @@ func TestDefaultsMerge(t *testing.T) {
 const releaseMustNot = "The candidate carries a clear danger to the release's destination that the contract did not anticipate."
 
 // testCostMustNot is the test_parsimony must_not that judges what the tests a change adds cost.
-const testCostMustNot = "The change adds or changes tests that push a package over its test CPU budget (a test-budget " +
-	"line in Test cost), or a test whose own run is slow (seconds, not milliseconds), without a stated reason in the task."
+const testCostMustNot = "The change adds or changes tests that push a package's test CPU cost over its base (a Test " +
+	"cost line marked over), or, for a package with no base measurement, over its budget (a test-budget line in Test " +
+	"cost), or a test whose own run is slow (seconds, not milliseconds), without a stated reason in the task."
 
 // TestTestParsimonyGateAssertsTestCost: the test_parsimony reviewer's compiled gate carries the test cost must_not, so
 // a review can fail a change on what its tests cost.
@@ -162,7 +159,7 @@ func TestTestParsimonyRoleAdmitsTestCost(t *testing.T) {
 		}
 	}
 	for _, phrase := range []string{
-		"push a package over its test CPU budget (a test-budget line in Test cost)",
+		"push a package's test CPU cost over its base (a `, over` line in Test cost)",
 		"a test whose own run is slow (seconds, not milliseconds), without a stated reason in the task (rule 5)",
 	} {
 		if !strings.Contains(admissible, phrase) {
@@ -200,7 +197,7 @@ func TestDefaultsForStage(t *testing.T) {
 		stage string
 		want  []string
 	}{
-		{stage: StageTask, want: []string{"floor", "test_parsimony"}},
+		{stage: StageTask, want: []string{"floor"}},
 		{stage: StageEpic, want: []string{"conformance", "integration", "security", "test_parsimony"}},
 		{stage: StageRelease, want: []string{"release"}},
 	}
@@ -211,6 +208,38 @@ func TestDefaultsForStage(t *testing.T) {
 				t.Errorf("ForStage(%s) = %v, want %v", tc.stage, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestFloorOneQuestionAsksTheHolisticQuestionAndTheSecurityClaim: the floor's gate asserts one holistic question as its
+// must, whether the change does what the task asked, leaves the checks that judge it intact and would be caught by its
+// own tests, and one must_not, the introduced security or data-loss failure.
+func TestFloorOneQuestionAsksTheHolisticQuestionAndTheSecurityClaim(t *testing.T) {
+	t.Parallel()
+	rs := mergedDefaults(t)
+	i := slices.Index(names(rs), "floor")
+	if i < 0 {
+		t.Fatalf("no floor reviewer in %v", names(rs))
+	}
+	var musts, mustNots []string
+	for _, a := range rs[i].Gate().Assertions {
+		switch a.Kind {
+		case gates.KindMust:
+			musts = append(musts, a.Text)
+		case gates.KindMustNot:
+			mustNots = append(mustNots, a.Text)
+		}
+	}
+	wantMust := []string{
+		"The change does what the task asked, leaves the checks that judge it intact, and the tests it adds " +
+			"or changes would fail if the behavior they cover were removed.",
+	}
+	wantMustNot := []string{"The change introduces a security or data-loss failure with a reachable precondition."}
+	if !slices.Equal(musts, wantMust) {
+		t.Errorf("floor must-assertions = %q, want %q", musts, wantMust)
+	}
+	if !slices.Equal(mustNots, wantMustNot) {
+		t.Errorf("floor must-not-assertions = %q, want %q", mustNots, wantMustNot)
 	}
 }
 

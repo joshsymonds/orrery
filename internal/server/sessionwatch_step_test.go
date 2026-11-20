@@ -65,17 +65,17 @@ func (f *stepStatusFake) calls() int {
 	return f.statusCalls
 }
 
-// watchHandler returns the guarded handler that reads sessions from reader and asks steps about step sessions. A nil
-// steps is the serve that has no step client.
-func watchHandler(t *testing.T, reader *store.Reader, steps server.StepClient) http.Handler {
+// watchHandler returns the guarded handler that reads sessions from reader and asks steps about step sessions. Its
+// change feed is the feed of s when s is not nil (see storeFeed). A nil steps is the serve that has no step client.
+func watchHandler(t *testing.T, reader *store.Reader, s *store.Store, steps server.StepClient) http.Handler {
 	t.Helper()
 	handler, err := server.New(server.Config{
 		Logins:                []string{allowedLogin},
 		Tmux:                  newTmuxClient(t),
 		Push:                  newPushStore(t),
 		Sessions:              reader,
+		Changes:               storeFeed(t, s),
 		Steps:                 steps,
-		ConversationPoll:      convPoll,
 		ConversationKeepalive: convKeepalive,
 	})
 	if err != nil {
@@ -123,7 +123,7 @@ func TestSessionWatchStreamsLabeledStepFirstDelta(t *testing.T) {
 	s := openEventStore(t, path)
 	addStepSession(t, s, stepSessionName)
 	steps := &stepStatusFake{}
-	client := sessionsWatchClient(t, watchHandler(t, store.NewReader(path), steps))
+	client := sessionsWatchClient(t, watchHandler(t, store.NewReader(path), nil, steps))
 
 	stream := openSessionStream(t, client, sessionReq(stepSessionName, 0, 0))
 	wantStreamMessage(t, stream.next(t), &orreryv1.SessionsWatchConversationResponse{
@@ -162,7 +162,7 @@ func TestSessionWatchStepWithoutLabelAnswersNotFound(t *testing.T) {
 			addStepSession(t, s, stepSessionName)
 			addStepSession(t, s, stepStatusUnlabeled)
 			addStepSession(t, s, stepStatusAbsent)
-			client := sessionsWatchClient(t, watchHandler(t, store.NewReader(path), tc.steps))
+			client := sessionsWatchClient(t, watchHandler(t, store.NewReader(path), nil, tc.steps))
 
 			stream := openSessionStream(t, client, sessionReq(tc.id, 0, 0))
 			wantWatchError(t, stream.end(t), connect.CodeNotFound, "session not found")
@@ -178,14 +178,14 @@ func TestSessionWatchStepStatusFailureAnswersUnavailable(t *testing.T) {
 	s := openEventStore(t, path)
 	addStepSession(t, s, stepSessionName)
 	steps := &stepStatusFake{statusErr: errors.New("synthetic status failure")}
-	client := sessionsWatchClient(t, watchHandler(t, store.NewReader(path), steps))
+	client := sessionsWatchClient(t, watchHandler(t, store.NewReader(path), nil, steps))
 
 	stream := openSessionStream(t, client, sessionReq(stepSessionName, 0, 0))
 	wantWatchError(t, stream.end(t), connect.CodeUnavailable, "step service unavailable")
 }
 
 // TestSessionWatchAsksStepStatusOncePerStream streams a labeled step through a second delta. The second delta can
-// only follow a poll after the first, so StepStatus would be asked again on every poll if the stream asked it each
+// only follow a wake after the first, so StepStatus would be asked again on every wake if the stream asked it each
 // time.
 func TestSessionWatchAsksStepStatusOncePerStream(t *testing.T) {
 	t.Parallel()
@@ -193,7 +193,7 @@ func TestSessionWatchAsksStepStatusOncePerStream(t *testing.T) {
 	s := openEventStore(t, path)
 	addStepSession(t, s, stepSessionName)
 	steps := &stepStatusFake{}
-	client := sessionsWatchClient(t, watchHandler(t, store.NewReader(path), steps))
+	client := sessionsWatchClient(t, watchHandler(t, store.NewReader(path), s, steps))
 	stream := openSessionStream(t, client, sessionReq(stepSessionName, 0, 0))
 	stream.next(t)
 
@@ -219,7 +219,7 @@ func TestSessionWatchEngineSessionNeverAsksStepStatus(t *testing.T) {
 	addEngine(t, s)
 	seedSessionReplies(t, s, 1)
 	steps := &stepStatusFake{}
-	client := sessionsWatchClient(t, watchHandler(t, store.NewReader(path), steps))
+	client := sessionsWatchClient(t, watchHandler(t, store.NewReader(path), nil, steps))
 
 	stream := openSessionStream(t, client, sessionReq(eventEngine, 0, 0))
 	wantStreamMessage(t, stream.next(t), &orreryv1.SessionsWatchConversationResponse{

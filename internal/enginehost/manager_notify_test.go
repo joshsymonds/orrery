@@ -132,7 +132,7 @@ func newNoticeManager(t *testing.T, claude string, sink NoticeSink) (*Manager, s
 		t.Fatalf("find sh: %v", err)
 	}
 	s, path := openStore(t)
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	m := NewManager(Config{
 		Shell:    sh,
@@ -453,7 +453,7 @@ func TestSeenFailedWriteReportsNothing(t *testing.T) {
 	s, _ := openStore(t)
 	id := "0123456789abcdef0123456789abcdef"
 	addSessions(t, s, id)
-	writer := NewWriter(WriterConfig{Applier: droppingApplier{}, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: droppingApplier{}})
 	startRun(t, writer)
 	m := NewManager(Config{Writer: writer, Now: fixedClock, Notifier: sink, Store: s})
 

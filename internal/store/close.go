@@ -62,13 +62,21 @@ type closeEnd struct {
 // it, and one that is capturing, whose item is applied already, is applied. A planner close also adds one tell, which says the epic is closed and is the ending the owner is told;
 // an owner close adds none.
 //
+// The write appends one close action made by maker at at.
+//
 // An unknown epic is ErrNoEpic. A close the store refuses is a RefusalError and writes nothing: an unknown kind, and a
 // superseded close without by. An unknown closer is an error and writes nothing.
-func (s *Store) CloseEpic(ctx context.Context, epic, kind, by, closer string, at time.Time) (string, error) {
+func (s *Store) CloseEpic(
+	ctx context.Context, epic, kind, by, closer string, maker Maker, at time.Time,
+) (string, error) {
 	var step string
 	err := s.write(ctx, func(queries *sqlcgen.Queries) error {
 		var err error
 		step, err = closeEpicIn(ctx, queries, epic, kind, by, closer, at)
+		if err != nil {
+			return err
+		}
+		_, err = appendEpicAction(ctx, queries, epic, ActionClose, maker, "", "", at)
 		return err
 	})
 	if err != nil {

@@ -57,7 +57,7 @@ const (
 	runnerEpicID = "orrery-1a2b3c4/planner-runner"
 	runnerRepo   = "/work/synthetic-repo"
 	runnerAgent  = "planner-agent"
-	runnerTick   = 5 * time.Millisecond
+	runnerRetry  = 5 * time.Millisecond
 )
 
 // claimedAt is the time the runner's clock reads, so every claim and end is stamped at a known second.
@@ -328,33 +328,32 @@ func agentReturning(agent string, err error, reads *atomic.Int64) func() (string
 	}
 }
 
-// runnerConfig returns the Config of a runner over s and steps, read through agent, at the runner tick.
+// runnerConfig returns the Config of a runner over s and steps, read through agent, at the runner retry.
 func runnerConfig(s *store.Store, steps Steps, agent func() (string, error)) Config {
 	return Config{
-		Store: s, Steps: steps, Agent: agent, Tick: runnerTick,
+		Store: s, Steps: steps, Agent: agent, Retry: runnerRetry,
 		Now: claimedAt, Resolve: testResolver{},
 	}
 }
 
-// startRunner runs a Runner built from cfg in its own goroutine. Cancel ends Run, and finished closes when Run returns.
-func startRunner(cfg Config) (context.CancelFunc, <-chan struct{}) {
-	ctx, cancel := context.WithCancel(context.Background())
-	finished := make(chan struct{})
-	go func() {
-		defer close(finished)
-		New(cfg).Run(ctx)
-	}()
-	return cancel, finished
+// passRunner passes runner n times, so the epics it decides are decided n more times before the test looks at them.
+func passRunner(t *testing.T, runner *Runner, n int) {
+	t.Helper()
+	for range n {
+		runner.Pass(t.Context())
+	}
 }
 
-// runRunner runs a Runner built from cfg until the test ends, then waits for Run to return.
-func runRunner(t *testing.T, cfg Config) {
+// runRunner starts a Runner built from cfg as orreryd starts one: it settles the turns a previous orreryd left running,
+// then passes once. It returns the Runner, so a test passes again once an event the runner waits on has happened. The
+// turns the runner started settle before the test ends, since the test's context ends first.
+func runRunner(t *testing.T, cfg Config) *Runner {
 	t.Helper()
-	cancel, finished := startRunner(cfg)
-	t.Cleanup(func() {
-		cancel()
-		<-finished
-	})
+	runner := New(cfg)
+	runner.Recover(t.Context())
+	runner.Pass(t.Context())
+	t.Cleanup(runner.WaitTurns)
+	return runner
 }
 
 // waitFor polls cond until it holds; what names the condition. It has no deadline of its own: the runner's store work
@@ -519,15 +518,24 @@ func TestRunnerPromptOfNextTurnShowsTheFollowCountOfAnsweredRecommendation(t *te
 	createRunnerEpic(t, s)
 	steps := newFakeSteps()
 	var reads atomic.Int64
-	runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
+	runner := runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
 	waitFor(t, "a planner step to start", func() bool { return len(steps.started()) == 1 })
 	steps.end("step-1", store.StepRow{End: "done", Result: validPlan})
 	waitFor(t, "turn 1 to succeed", func() bool { return epicOf(t, s).Turns[0].State == "succeeded" })
 
-	if _, err := s.AnswerQuestion(context.Background(), runnerEpicID, "answer-1", "use sqlite", 1, "sqlite",
-		claimedAt()); err != nil {
+	if _, err := s.AnswerQuestion(
+		context.Background(),
+		runnerEpicID,
+		"answer-1",
+		"use sqlite",
+		1,
+		"sqlite",
+		store.Maker{},
+		claimedAt(),
+	); err != nil {
 		t.Fatalf("AnswerQuestion: %v", err)
 	}
+	runner.Pass(t.Context())
 	waitFor(t, "a second planner step to start", func() bool { return len(steps.started()) == 2 })
 
 	want := "## Advice followed\n- which-store: 1 of 1 answers took the recommendation\n"
@@ -542,12 +550,11 @@ func TestRunnerPassWhileTurnRunsStartsNoSecondStep(t *testing.T) {
 	createRunnerEpic(t, s)
 	steps := newFakeSteps()
 	var reads atomic.Int64
-	runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
+	runner := runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
 	waitFor(t, "a planner step to start", func() bool { return len(steps.started()) == 1 })
 	waitFor(t, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
 
-	passesAtStart := reads.Load()
-	waitFor(t, "three more passes", func() bool { return reads.Load() >= passesAtStart+3 })
+	passRunner(t, runner, 3)
 	if n := len(steps.started()); n != 1 {
 		t.Errorf("steps started = %d while turn 1 runs, want 1", n)
 	}
@@ -570,8 +577,8 @@ func TestRunnerPausedEpicGetsNoTurn(t *testing.T) {
 	}
 	steps := newFakeSteps()
 	var reads atomic.Int64
-	runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
-	waitFor(t, "three passes", func() bool { return reads.Load() >= 3 })
+	runner := runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
+	passRunner(t, runner, 2)
 
 	if n := len(steps.started()); n != 0 {
 		t.Errorf("steps started for a paused epic = %d, want 0", n)
@@ -592,12 +599,14 @@ func TestRunnerChecksFailedEndFailsTurnWithReasonAndFreesTrigger(t *testing.T) {
 	createRunnerEpic(t, s)
 	steps := newFakeSteps()
 	var reads atomic.Int64
-	runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
+	runner := runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
 	waitFor(t, "a planner step to start", func() bool { return len(steps.started()) == 1 })
 	waitFor(t, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
 
 	const reason = `tasks[0] "Build it" requirements[0]: not a Requirement of the epic`
 	steps.end("step-1", store.StepRow{End: "checks_failed", Reason: reason})
+	waitFor(t, "turn 1 to fail", func() bool { return epicOf(t, s).Turns[0].State == "failed" })
+	runner.Pass(t.Context())
 	waitFor(t, "a second planner step to start on the freed trigger", func() bool {
 		return len(steps.started()) == 2
 	})
@@ -724,16 +733,14 @@ func TestRunnerLeavesTurnRunningWhenItsContextEnds(t *testing.T) {
 	createRunnerEpic(t, s)
 	steps := newFakeSteps()
 	var reads atomic.Int64
-	cancel, finished := startRunner(runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
-	t.Cleanup(func() {
-		cancel()
-		<-finished
-	})
+	runner := New(runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
+	ctx, cancel := context.WithCancel(t.Context())
+	runner.Pass(ctx)
 	waitFor(t, "a planner step to start", func() bool { return len(steps.started()) == 1 })
 	waitFor(t, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
 
 	cancel()
-	<-finished
+	runner.WaitTurns()
 	turn := epicOf(t, s).Turns[0]
 	if turn.State != "running" || turn.Step != "step-1" {
 		t.Errorf("turn 1 after its context ended = state %q step %q, want running step-1", turn.State, turn.Step)

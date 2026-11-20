@@ -17,7 +17,7 @@ const integrateThirdBatch = "plan/S6/integrate"
 // is still running.
 func (w *integrateWorld) kick() {
 	w.t.Helper()
-	if err := w.s.KickEpic(context.Background(), runEpic, "plan more", runClock()); err != nil {
+	if err := w.s.KickEpic(context.Background(), runEpic, "plan more", store.Maker{}, runClock()); err != nil {
 		w.t.Fatalf("KickEpic: %v", err)
 	}
 }

@@ -202,7 +202,10 @@ func (w *crashWorld) parked(ctx context.Context) bool {
 // retry is the operator's retry of the park, one write of the world.
 func (w *crashWorld) retry(ctx context.Context) error {
 	return w.act("RetryEpic", func() error {
-		return crashWrap("retry epic", w.store.RetryEpic(ctx, runEpic))
+		return crashWrap(
+			"retry epic",
+			w.store.RetryEpic(ctx, runEpic, store.Maker{By: store.MakerOwner}, time.Unix(1700000000, 0)),
+		)
 	})
 }
 

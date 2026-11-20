@@ -79,17 +79,17 @@ class OrreryPushServiceEpicTest {
     }
 
     @Test
-    fun epicNoticeAddsNoAction() {
+    fun epicNoticeAddsOnlyOpen() {
         push(notice)
 
-        assertEquals(0, posted().actions.orEmpty().size)
+        assertEquals(listOf("Open"), posted().actions.orEmpty().map { it.title.toString() })
     }
 
     @Test
     fun epicNoticeWithQuestionAddsNoKeyAction() {
         push(JSONObject(notice.toString()).put("question", "Run synthetic tests?"))
 
-        assertEquals(0, posted().actions.orEmpty().size)
+        assertEquals(listOf("Open"), posted().actions.orEmpty().map { it.title.toString() })
     }
 
     @Test

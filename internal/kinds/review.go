@@ -17,16 +17,18 @@ type Review struct{}
 // The ends of a step the try chains read, the status a finished gate return has, and the results and verdicts a review
 // stores.
 const (
-	reviewEndEngineRestarted = "engine_restarted"
-	reviewEndStopped         = "stopped"
-	reviewEndGateFailed      = "gate_failed"
-	reviewStatusDone         = "done"
-	reviewVerdictHolds       = "holds"
-	reviewVerdictFails       = "fails"
-	reviewVerdictGap         = "gap"
-	reviewResultConfirmed    = "confirmed"
-	reviewResultDropped      = "dropped"
-	reviewResultUndetermined = "undetermined"
+	reviewEndEngineRestarted  = "engine_restarted"
+	reviewEndStopped          = "stopped"
+	reviewEndGateFailed       = "gate_failed"
+	reviewStatusDone          = "done"
+	reviewVerdictHolds        = "holds"
+	reviewVerdictFails        = "fails"
+	reviewVerdictGap          = "gap"
+	reviewVerdictUndetermined = "undetermined"
+	reviewResultConfirmed     = "confirmed"
+	reviewResultDropped       = "dropped"
+	reviewResultUndetermined  = "undetermined"
+	reviewResultFails         = "fails"
 )
 
 // reviewGapEnds is the number of costly step ends at which a part of a review run is a gap.
@@ -117,23 +119,59 @@ func reviewFailedFindings(result string) ([]map[string]string, bool) {
 	if ret.Status != reviewStatusDone || len(ret.Findings) == 0 {
 		return nil, false
 	}
+	fails, undetermined := false, false
 	for _, assertion := range ret.Results {
-		if assertion.Result == reviewResultUndetermined {
-			return nil, false
+		switch assertion.Result {
+		case reviewResultFails:
+			fails = true
+		case reviewResultUndetermined:
+			undetermined = true
 		}
+	}
+	if undetermined && !fails {
+		return nil, false
 	}
 	return ret.Findings, true
 }
 
-// reviewIsReviewerVerdict reports whether a reviewer step's end gives a verdict: a done step holds, and a gate_failed step
-// whose return failed with findings fails.
+// reviewUndetermined reports whether a gate return finished with an undetermined result: its status is done and one of
+// its assertions is undetermined, whatever findings it raised. The review records that as the reviewer's verdict with
+// the step's reason, which names every assertion that is not holds. It is not a costly end.
+func reviewUndetermined(result string) bool {
+	var ret reviewGateReturn
+	if err := json.Unmarshal([]byte(result), &ret); err != nil || ret.Status != reviewStatusDone {
+		return false
+	}
+	undetermined := false
+	for _, assertion := range ret.Results {
+		switch assertion.Result {
+		case reviewResultFails:
+			return false
+		case reviewResultUndetermined:
+			undetermined = true
+		}
+	}
+	return undetermined
+}
+
+// reviewRaisedFindings returns the findings a done return raised, whatever its results say, or nil when it does not read.
+func reviewRaisedFindings(result string) []map[string]string {
+	var ret reviewGateReturn
+	if err := json.Unmarshal([]byte(result), &ret); err != nil || ret.Status != reviewStatusDone {
+		return nil
+	}
+	return ret.Findings
+}
+
+// reviewIsReviewerVerdict reports whether a reviewer step's end gives a verdict: a done step holds, and a gate_failed
+// step whose return failed with findings fails, or whose return is undetermined.
 func reviewIsReviewerVerdict(step store.StepRow) bool {
 	switch step.End {
 	case stepDone:
 		return true
 	case reviewEndGateFailed:
 		_, failed := reviewFailedFindings(step.Result)
-		return failed
+		return failed || reviewUndetermined(step.Result)
 	}
 	return false
 }
@@ -164,10 +202,12 @@ func reviewIsVerifierVerdict(step store.StepRow) bool {
 }
 
 // reviewPass is one walk of a review run's try chains. It holds the units the walk asks to start, the hold it asks for
-// first, whether a chain waits, and the verdicts and findings the chains have settled.
+// first, whether a chain waits, and the verdicts and findings the chains have settled. after is the position the
+// ledger's findings run on from: 0 for a review, which numbers its findings from 1.
 type reviewPass struct {
 	run      store.NodeRun
 	rows     Rows
+	after    int64
 	starts   []Unit
 	hold     *Action
 	waiting  bool
@@ -176,8 +216,7 @@ type reviewPass struct {
 }
 
 // Decide decides a review run. Without a revision it prepares the run. Otherwise it walks each reviewer's try chain and
-// the verifier chains of the findings reviewers raise. It then holds the epic for a stopped step, starts the work the
-// chains ask for, waits while a chain runs, or ends passed with what the chains settled.
+// the verifier chains of the findings reviewers raise, and decides what the walk asks for.
 func (Review) Decide(node Node, rows Rows) Action {
 	if node.Run.Revision == "" {
 		return prepare(rows)
@@ -186,29 +225,36 @@ func (Review) Decide(node Node, rows Rows) Action {
 	for i, reviewer := range rows.Reviewers {
 		pass.settleReviewer(i+1, reviewer)
 	}
+	return pass.decide()
+}
+
+// decide holds the epic for the first stopped step the walk asks to hold for, starts the work the chains ask for, waits
+// while a chain runs, or ends passed with the verdicts and the ledger the chains settled.
+func (p *reviewPass) decide() Action {
 	switch {
-	case pass.hold != nil:
-		return *pass.hold
-	case len(pass.starts) > 0:
-		if rows.Epic.Paused || rows.Epic.Parked != "" {
+	case p.hold != nil:
+		return *p.hold
+	case len(p.starts) > 0:
+		if p.rows.Epic.Paused || p.rows.Epic.Parked != "" {
 			return Action{Kind: ActNone}
 		}
-		ids := make([]string, 0, len(pass.starts))
-		for _, unit := range pass.starts {
+		ids := make([]string, 0, len(p.starts))
+		for _, unit := range p.starts {
 			ids = append(ids, unit.ID)
 		}
-		return Action{Kind: ActStart, IDs: ids, Units: pass.starts}
-	case pass.waiting:
+		return Action{Kind: ActStart, IDs: ids, Units: p.starts}
+	case p.waiting:
 		return Action{Kind: ActNone}
 	}
 	return Action{
-		Kind: ActEnd, Outcome: outcomePassed, Output: reviewLines(pass.verdicts), Verdicts: pass.verdicts,
-		Ledger: pass.ledger(),
+		Kind: ActEnd, Outcome: outcomePassed, Output: reviewLines(p.verdicts), Verdicts: p.verdicts,
+		Ledger: p.ledger(),
 	}
 }
 
-// settleReviewer walks the try chain of the reviewer at position. A done step holds. A gate_failed step with findings
-// fails, and each of its findings is settled. A gap is a verdict too.
+// settleReviewer walks the try chain of the reviewer at position. A done step holds. A gate_failed step whose return is
+// undetermined is undetermined, with the step's reason. A gate_failed step with findings fails, and each of its
+// findings is settled. A gap is a verdict too.
 func (p *reviewPass) settleReviewer(position int, reviewer Reviewer) {
 	part := fmt.Sprintf("reviewer %d", position)
 	chain := walkTries(p.run, part, p.rows, reviewIsReviewerVerdict)
@@ -221,8 +267,16 @@ func (p *reviewPass) settleReviewer(position int, reviewer Reviewer) {
 		p.pending(chain, Unit{Part: part, Reviewer: reviewer.Name})
 	case chain.verdict.End == stepDone:
 		p.addVerdict(position, reviewer, store.ReviewVerdict{Step: chain.verdict.ID, Verdict: reviewVerdictHolds})
+	case reviewUndetermined(chain.verdict.Result):
+		p.addVerdict(position, reviewer, store.ReviewVerdict{
+			Step: chain.verdict.ID, Verdict: reviewVerdictUndetermined, Reason: chain.verdict.Reason,
+		})
+		// A finding raised beside an undetermined result is still a candidate defect: it is settled like any other.
+		for i, raised := range reviewRaisedFindings(chain.verdict.Result) {
+			p.settleFinding(position, reviewer, i+1, raised)
+		}
 	default:
-		// reviewIsReviewerVerdict has parsed this return, so the findings are read without a second check.
+		// reviewIsReviewerVerdict has read this return as one with findings, so the findings are read without a second check.
 		findings, _ := reviewFailedFindings(chain.verdict.Result)
 		p.addVerdict(position, reviewer, store.ReviewVerdict{Step: chain.verdict.ID, Verdict: reviewVerdictFails})
 		for i, raised := range findings {
@@ -287,10 +341,10 @@ func (p *reviewPass) pending(chain tries, unit Unit) {
 	}
 }
 
-// ledger returns the findings in ledger order, each with its place in the ledger.
+// ledger returns the findings in ledger order, each with its place in the ledger: the places run on from after.
 func (p *reviewPass) ledger() []store.LedgerFinding {
 	for i := range p.findings {
-		p.findings[i].Position = int64(i + 1)
+		p.findings[i].Position = p.after + int64(i+1)
 	}
 	return p.findings
 }

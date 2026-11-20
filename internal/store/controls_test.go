@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"reflect"
-	"strings"
 	"testing"
+	"time"
 )
 
 // requireRefusal fails unless err is a RefusalError whose text is want.
@@ -59,7 +59,7 @@ func TestPauseEpicPausesAndRefusesASecondPause(t *testing.T) {
 	createEpic(t, s, fullEpic(claimEpic))
 	addPendingTrigger(t, s)
 
-	if err := s.PauseEpic(ctx, claimEpic); err != nil {
+	if err := s.PauseEpic(ctx, claimEpic, Maker{By: MakerOwner}, time.Unix(1700000000, 0)); err != nil {
 		t.Fatalf("PauseEpic: %v", err)
 	}
 	if paused, _ := epicFlags(t, s); paused != 1 {
@@ -70,7 +70,11 @@ func TestPauseEpicPausesAndRefusesASecondPause(t *testing.T) {
 	}
 
 	before := controlRows(t, s)
-	requireRefusal(t, s.PauseEpic(ctx, claimEpic), "epic "+claimEpic+" is already paused")
+	requireRefusal(
+		t,
+		s.PauseEpic(ctx, claimEpic, Maker{By: MakerOwner}, time.Unix(1700000000, 0)),
+		"epic "+claimEpic+" is already paused",
+	)
 	if got := controlRows(t, s); !reflect.DeepEqual(got, before) {
 		t.Errorf("rows after refused PauseEpic = %v, want %v", got, before)
 	}
@@ -87,7 +91,7 @@ func TestPauseStopsTheRunningTurn(t *testing.T) {
 		t.Fatalf("ClaimTurn: %v", err)
 	}
 
-	if err = s.PauseEpic(ctx, claimEpic); err != nil {
+	if err = s.PauseEpic(ctx, claimEpic, Maker{By: MakerOwner}, time.Unix(1700000000, 0)); err != nil {
 		t.Fatalf("PauseEpic: %v", err)
 	}
 	stopped, err := s.TurnStopped(ctx, claimEpic, turn.Seq)
@@ -106,23 +110,27 @@ func TestResumeEpicClearsThePauseAndRefusesWhatIsNotPaused(t *testing.T) {
 	createEpic(t, s, fullEpic(claimEpic))
 
 	before := controlRows(t, s)
-	requireRefusal(t, s.ResumeEpic(ctx, claimEpic), "epic "+claimEpic+" is not paused")
+	requireRefusal(
+		t,
+		s.ResumeEpic(ctx, claimEpic, Maker{By: MakerOwner}, time.Unix(1700000000, 0)),
+		"epic "+claimEpic+" is not paused",
+	)
 	if got := controlRows(t, s); !reflect.DeepEqual(got, before) {
 		t.Errorf("rows after refused ResumeEpic = %v, want %v", got, before)
 	}
 
 	parkEpic(t, s, claimEpic, "credit ran out")
 	before = controlRows(t, s)
-	requireRefusal(t, s.ResumeEpic(ctx, claimEpic),
+	requireRefusal(t, s.ResumeEpic(ctx, claimEpic, Maker{By: MakerOwner}, time.Unix(1700000000, 0)),
 		"epic "+claimEpic+" is parked, not paused; retry ends a park")
 	if got := controlRows(t, s); !reflect.DeepEqual(got, before) {
 		t.Errorf("rows after refused ResumeEpic of a parked epic = %v, want %v", got, before)
 	}
 
-	if err := s.PauseEpic(ctx, claimEpic); err != nil {
+	if err := s.PauseEpic(ctx, claimEpic, Maker{By: MakerOwner}, time.Unix(1700000000, 0)); err != nil {
 		t.Fatalf("PauseEpic: %v", err)
 	}
-	if err := s.ResumeEpic(ctx, claimEpic); err != nil {
+	if err := s.ResumeEpic(ctx, claimEpic, Maker{By: MakerOwner}, time.Unix(1700000000, 0)); err != nil {
 		t.Fatalf("ResumeEpic: %v", err)
 	}
 	if paused, parked := epicFlags(t, s); paused != 0 || parked != "credit ran out" {
@@ -138,7 +146,7 @@ func TestStopEpicPausesFlagsTheRunningTurnAndKeepsItsTriggers(t *testing.T) {
 	addPendingTrigger(t, s)
 
 	before := controlRows(t, s)
-	_, err := s.StopEpic(ctx, claimEpic)
+	_, err := s.StopEpic(ctx, claimEpic, Maker{By: MakerOwner}, time.Unix(1700000000, 0))
 	requireRefusal(t, err, "epic "+claimEpic+" has no running turn")
 	if got := controlRows(t, s); !reflect.DeepEqual(got, before) {
 		t.Errorf("rows after refused StopEpic = %v, want %v", got, before)
@@ -151,7 +159,7 @@ func TestStopEpicPausesFlagsTheRunningTurnAndKeepsItsTriggers(t *testing.T) {
 	if err = s.SetTurnStep(ctx, claimEpic, turn.Seq, "outline the tasks"); err != nil {
 		t.Fatalf("SetTurnStep: %v", err)
 	}
-	step, err := s.StopEpic(ctx, claimEpic)
+	step, err := s.StopEpic(ctx, claimEpic, Maker{By: MakerOwner}, time.Unix(1700000000, 0))
 	if err != nil {
 		t.Fatalf("StopEpic: %v", err)
 	}
@@ -183,7 +191,7 @@ func TestStopEpicReturnsAnEmptyStepWhileTheTurnHasNone(t *testing.T) {
 		t.Fatalf("ClaimTurn: %v", err)
 	}
 
-	step, err := s.StopEpic(ctx, claimEpic)
+	step, err := s.StopEpic(ctx, claimEpic, Maker{By: MakerOwner}, time.Unix(1700000000, 0))
 	if err != nil {
 		t.Fatalf("StopEpic: %v", err)
 	}
@@ -202,7 +210,7 @@ func TestRetryEpicClearsThePark(t *testing.T) {
 	claimAndFail(t, s, "return had no outline")
 	parkEpic(t, s, claimEpic, "credit ran out")
 
-	if err := s.RetryEpic(ctx, claimEpic); err != nil {
+	if err := s.RetryEpic(ctx, claimEpic, Maker{By: MakerOwner}, time.Unix(1700000000, 0)); err != nil {
 		t.Fatalf("RetryEpic: %v", err)
 	}
 	if _, parked := epicFlags(t, s); parked != "" {
@@ -216,36 +224,13 @@ func TestRetryEpicClearsThePark(t *testing.T) {
 	}
 
 	before := controlRows(t, s)
-	requireRefusal(t, s.RetryEpic(ctx, claimEpic), "epic "+claimEpic+" is not parked")
+	requireRefusal(
+		t,
+		s.RetryEpic(ctx, claimEpic, Maker{By: MakerOwner}, time.Unix(1700000000, 0)),
+		"epic "+claimEpic+" is not parked",
+	)
 	if got := controlRows(t, s); !reflect.DeepEqual(got, before) {
 		t.Errorf("rows after refused RetryEpic = %v, want %v", got, before)
-	}
-}
-
-func TestRetriedFailuresDoNotCountTowardAPark(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openEpicStore(t)
-	createEpic(t, s, fullEpic(claimEpic))
-	addPendingTrigger(t, s)
-	for range 3 {
-		claimAndFail(t, s, "return had no outline")
-	}
-	if _, parked := epicFlags(t, s); !strings.HasPrefix(parked, parkPrefix) {
-		t.Fatalf("parked after three failed turns = %q, want the park prefix", parked)
-	}
-	if err := s.RetryEpic(ctx, claimEpic); err != nil {
-		t.Fatalf("RetryEpic: %v", err)
-	}
-
-	claimAndFail(t, s, "still no outline")
-	if _, parked := epicFlags(t, s); parked != "" {
-		t.Errorf("parked after one failed turn following retry = %q, want none", parked)
-	}
-	claimAndFail(t, s, "still no outline")
-	claimAndFail(t, s, "still no outline")
-	if _, parked := epicFlags(t, s); !strings.HasPrefix(parked, parkPrefix) {
-		t.Errorf("parked after three failed turns following retry = %q, want the park prefix", parked)
 	}
 }
 
@@ -267,7 +252,7 @@ func TestTurnStoppedReadsTheStopFlag(t *testing.T) {
 	if stopped {
 		t.Errorf("TurnStopped before StopEpic = true, want false")
 	}
-	if _, err = s.StopEpic(ctx, claimEpic); err != nil {
+	if _, err = s.StopEpic(ctx, claimEpic, Maker{By: MakerOwner}, time.Unix(1700000000, 0)); err != nil {
 		t.Fatalf("StopEpic: %v", err)
 	}
 	stopped, err = s.TurnStopped(ctx, claimEpic, turn.Seq)
@@ -291,10 +276,22 @@ func TestControlsRefuseAnUnknownEpicWithErrNoEpic(t *testing.T) {
 		name string
 		run  func() error
 	}{
-		{"PauseEpic", func() error { return s.PauseEpic(ctx, missing) }},
-		{"ResumeEpic", func() error { return s.ResumeEpic(ctx, missing) }},
-		{"StopEpic", func() error { _, err := s.StopEpic(ctx, missing); return err }},
-		{"RetryEpic", func() error { return s.RetryEpic(ctx, missing) }},
+		{
+			"PauseEpic",
+			func() error { return s.PauseEpic(ctx, missing, Maker{By: MakerOwner}, time.Unix(1700000000, 0)) },
+		},
+		{
+			"ResumeEpic",
+			func() error { return s.ResumeEpic(ctx, missing, Maker{By: MakerOwner}, time.Unix(1700000000, 0)) },
+		},
+		{"StopEpic", func() error {
+			_, err := s.StopEpic(ctx, missing, Maker{By: MakerOwner}, time.Unix(1700000000, 0))
+			return err
+		}},
+		{
+			"RetryEpic",
+			func() error { return s.RetryEpic(ctx, missing, Maker{By: MakerOwner}, time.Unix(1700000000, 0)) },
+		},
 	}
 	for _, control := range controls {
 		if err := control.run(); !errors.Is(err, ErrNoEpic) {

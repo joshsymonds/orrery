@@ -50,7 +50,9 @@ func TestEpicCallRecordRefusedBusyIsTriedAgainBeforeTheCallAnswers(t *testing.T)
 	clock := endRetryClock{waits: make(chan time.Duration, 2), tick: make(chan time.Time)}
 	st := epicTestStore(t)
 	interceptor := EpicCallInterceptor(rec, epicCallAt, clock.after, slog.New(slog.DiscardHandler))
-	path, handler := enginev1connect.NewEpicsHandler(&epicService{epics: st}, connect.WithInterceptors(interceptor))
+	path, handler := enginev1connect.NewEpicsHandler(
+		&epicService{epics: st, steering: fixedSteering{}}, connect.WithInterceptors(interceptor),
+	)
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)
 	srv := httptest.NewServer(mux)

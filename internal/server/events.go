@@ -17,9 +17,6 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// defaultEventPoll is the Watch poll interval when Config.EventPoll is zero.
-const defaultEventPoll = 250 * time.Millisecond
-
 // defaultEventSendTimeout is the Watch send deadline when Config.EventSendTimeout is zero.
 const defaultEventSendTimeout = 10 * time.Second
 
@@ -33,19 +30,25 @@ const eventPageSize = 100
 // responseWriterKey is the context key of the ResponseWriter net/http hands the Events handler.
 type responseWriterKey struct{}
 
-// eventsServer answers orrery.v1.Events from the store reader. A nil reader answers unavailable. Closing shutdown
-// ends every open stream with Unavailable, and a nil shutdown never closes.
+// eventReader is the store read Watch makes for each page. *store.Reader satisfies it.
+type eventReader interface {
+	Events(ctx context.Context, after int64, limit int) (store.EventPage, error)
+}
+
+// eventsServer answers orrery.v1.Events from the store reader. A nil reader answers unavailable. Each stream waits
+// on changes for a change to the store between its reads. Closing shutdown ends every open stream with Unavailable,
+// and a nil shutdown never closes.
 type eventsServer struct {
-	reader      *store.Reader
-	poll        time.Duration
+	reader      eventReader
+	changes     *changeHub
 	sendTimeout time.Duration
 	shutdown    <-chan struct{}
 }
 
 // Watch sends every event after the request's cursor in seq order as its typed message, then each event stored after
-// that, polling the store every poll interval. After each read that is not a full page, it also sends the text so far
-// of each unfinished engine block whose text this stream has not sent yet (see sendTexts). Each page is read in its
-// own store read, so no read is held across a send or a poll.
+// that, reading again each time the change feed reports a change to the store. After each read that is not a full
+// page, it also sends the text so far of each unfinished engine block whose text this stream has not sent yet (see
+// sendTexts). Each page is read in its own store read, so no read is held across a send or a wait.
 // Each send must complete within sendTimeout, set as a write deadline on the connection, so a send that stays
 // blocked ends this stream and no other. Connect writes the end of the stream after Watch returns, so that write
 // gets the same deadline, armed when Watch returns. Once the shutdown signal has closed, a blocked send and that end
@@ -67,8 +70,8 @@ func (e eventsServer) watch(
 	if e.reader == nil {
 		return listError(connect.CodeUnavailable, "store unavailable")
 	}
-	ticker := time.NewTicker(e.poll)
-	defer ticker.Stop()
+	wake, cancel := e.changes.subscribe(ctx)
+	defer cancel()
 	sent := map[textKey]string{}
 	for {
 		page, err := e.reader.Events(ctx, after, eventPageSize)
@@ -97,7 +100,7 @@ func (e eventsServer) watch(
 			return fmt.Errorf("watch events: %w", ctx.Err())
 		case <-e.shutdown:
 			return shutdownError()
-		case <-ticker.C:
+		case <-wake:
 		}
 	}
 }
@@ -405,15 +408,20 @@ func engineChanged(payload string) (*orreryv1.EngineChanged, error) {
 	return body, nil
 }
 
-// newEventsHandler returns the path and handler that serve Events.Watch over reader, polling every poll, bounding
-// each send by sendTimeout, and ending every stream when shutdown closes.
+// newEventsHandler returns the path and handler that serve Events.Watch over reader, waking each stream from changes,
+// bounding each send by sendTimeout, and ending every stream when shutdown closes. A nil reader answers unavailable.
 func newEventsHandler(
 	reader *store.Reader,
-	poll, sendTimeout time.Duration,
+	changes *changeHub,
+	sendTimeout time.Duration,
 	shutdown <-chan struct{},
 	opts ...connect.HandlerOption,
 ) (string, http.Handler) {
-	service := eventsServer{reader: reader, poll: poll, sendTimeout: sendTimeout, shutdown: shutdown}
+	service := eventsServer{changes: changes, sendTimeout: sendTimeout, shutdown: shutdown}
+	// A nil *store.Reader stays a nil reader: a typed nil in the interface would not be nil.
+	if reader != nil {
+		service.reader = reader
+	}
 	path, handler := orreryv1connect.NewEventsHandler(service, opts...)
 	return path, withResponseWriter(handler)
 }

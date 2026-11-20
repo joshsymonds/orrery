@@ -14,7 +14,7 @@ const (
 	ladderApproachDeliverable = "the change made another way"
 )
 
-// ladderApproachOnRung5 creates climbEpic with task 1 climbed from rung 4 onto rung 5, the approach rung, by the
+// ladderApproachOnRung5 creates climbEpic with task 1 climbed from rung 3 onto rung 4, the approach rung, by the
 // orchestrator's fail decision. version, when not nil, is stored with the climb as the task's version.
 func ladderApproachOnRung5(t *testing.T, s *Store, version *TaskVersionInput) {
 	t.Helper()
@@ -37,6 +37,28 @@ func ladderApproachAction(t *testing.T, s *Store, seq int64, item evidence.Item)
 		Kind: ActionChangeApproach, Task: seq, Deliverable: ladderApproachDeliverable, Item: item,
 		Reason: ladderApproachReason,
 	})[0]
+}
+
+// ladderApproachFilesAction stores a change_approach action of task seq that adds files and removes remove, with no
+// evidence item, as the pending action of climbEpic, and returns it.
+func ladderApproachFilesAction(t *testing.T, s *Store, seq int64, files, remove []string) PlannerAction {
+	t.Helper()
+	return storeActions(t, s, climbEpic, EpicActionInput{
+		Kind: ActionChangeApproach, Task: seq, Deliverable: ladderApproachDeliverable, Files: files, Remove: remove,
+		Reason: ladderApproachReason,
+	})[0]
+}
+
+// ladderApproachOwn gives task seq of climbEpic the files paths, in order.
+func ladderApproachOwn(t *testing.T, s *Store, seq int64, paths ...string) {
+	t.Helper()
+	ctx := context.Background()
+	for i, path := range paths {
+		if _, err := s.fixtureExec(ctx, `INSERT INTO epic_task_files (epic, task, position, path) VALUES (?, ?, ?, ?)`,
+			climbEpic, seq, i, path); err != nil {
+			t.Fatalf("give task %d the file %s: %v", seq, path, err)
+		}
+	}
 }
 
 // ladderApproachVersions returns how many task spec versions climbEpic stores, over all its tasks.
@@ -127,6 +149,8 @@ func TestTaskLadderChangeApproachStoresVersion(t *testing.T) {
 		name    string
 		seed    func(t *testing.T, s *Store)
 		task    int64
+		files   []string
+		remove  []string
 		summary string
 		refusal string
 	}{
@@ -140,7 +164,7 @@ func TestTaskLadderChangeApproachStoresVersion(t *testing.T) {
 			},
 			task:    1,
 			summary: "change approach of task 1",
-			refusal: "task 1 of epic " + climbEpic + " is on rung 2, not rung 5",
+			refusal: "task 1 of epic " + climbEpic + " is on rung 2, not rung 4",
 		},
 		{
 			name: "a task that is not open",
@@ -176,6 +200,72 @@ func TestTaskLadderChangeApproachStoresVersion(t *testing.T) {
 			summary: "change approach of task 1",
 			refusal: "task 1 of epic " + climbEpic + " already has a change of approach",
 		},
+		{
+			name: "a file the task already owns",
+			seed: func(t *testing.T, s *Store) {
+				t.Helper()
+				ladderApproachOnRung5(t, s, nil)
+				ladderApproachOwn(t, s, 1, "thing.go")
+			},
+			task:    1,
+			files:   []string{"thing.go"},
+			summary: "change approach of task 1",
+			refusal: "thing.go is already one of task 1's files",
+		},
+		{
+			name: "a file to remove the task does not own",
+			seed: func(t *testing.T, s *Store) {
+				t.Helper()
+				ladderApproachOnRung5(t, s, nil)
+				ladderApproachOwn(t, s, 1, "thing.go")
+			},
+			task:    1,
+			remove:  []string{"nope.go"},
+			summary: "change approach of task 1",
+			refusal: "nope.go is not one of task 1's files",
+		},
+		{
+			name: "a file both added and removed",
+			seed: func(t *testing.T, s *Store) {
+				t.Helper()
+				ladderApproachOnRung5(t, s, nil)
+				ladderApproachOwn(t, s, 1, "thing.go")
+			},
+			task:    1,
+			files:   []string{"b.go"},
+			remove:  []string{"b.go"},
+			summary: "change approach of task 1",
+			refusal: "file b.go is named twice",
+		},
+		{
+			name: "a file an open task owns",
+			seed: func(t *testing.T, s *Store) {
+				t.Helper()
+				ladderApproachOnRung5(t, s, nil)
+				ladderApproachOwn(t, s, 1, "thing.go")
+				if _, err := s.fixtureExec(context.Background(), `INSERT INTO epic_tasks (epic, seq, turn, title,
+					deliverable, status) VALUES (?, 2, 1, 'Other', 'the other change', 'open')`, climbEpic); err != nil {
+					t.Fatalf("insert task 2: %v", err)
+				}
+				ladderApproachOwn(t, s, 2, "held.go")
+			},
+			task:    1,
+			files:   []string{"held.go"},
+			summary: "change approach of task 1",
+			refusal: "held.go is owned by open T2",
+		},
+		{
+			name: "a change that would leave the task no files",
+			seed: func(t *testing.T, s *Store) {
+				t.Helper()
+				ladderApproachOnRung5(t, s, nil)
+				ladderApproachOwn(t, s, 1, "thing.go")
+			},
+			task:    1,
+			remove:  []string{"thing.go"},
+			summary: "change approach of task 1",
+			refusal: "task 1 of epic " + climbEpic + " would be left no files",
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -184,7 +274,7 @@ func TestTaskLadderChangeApproachStoresVersion(t *testing.T) {
 			s := openEpicStore(t)
 			c.seed(t, s)
 			versions := ladderApproachVersions(t, s)
-			action := ladderApproachAction(t, s, c.task, evidence.Item{})
+			action := ladderApproachFilesAction(t, s, c.task, c.files, c.remove)
 
 			stop, err := s.CarryOutAction(ctx, action, closeAt())
 			if err != nil || stop != nil {

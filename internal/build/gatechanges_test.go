@@ -72,15 +72,17 @@ func TestGuardPassStoresTheDeclaredGateChangesAndMovesToGreen(t *testing.T) {
 	}
 }
 
-// TestGuardRefusalStoresNoDeclaredGateChange: a declared gate-needed change does not lift the guard. A commit that lowers
-// a guarded test's assertions is refused though its return declares the file, and the task holds no declared change.
+// TestGuardRefusalStoresNoDeclaredGateChange: a declared gate-needed change does not lift the guard. A commit that changes
+// the capture file is refused though its return declares a file it changed, and the task holds no declared change.
 func TestGuardRefusalStoresNoDeclaredGateChange(t *testing.T) {
 	t.Parallel()
 	f := newGuardFixture(t)
 	guardStartImplementer(f)
 	worktree := f.addTaskWorktree(passStep(StageImplement, 1, 0))
-	lowered := guardCommitIn(t, worktree, guardOneAssert)
-	f.setStep(passStep(StageImplement, 1, 0), "done", guardDoneDeclaring(lowered, "the gate fails on the b assertion"))
+	changed := guardCommitFiles(t, worktree, map[string]string{
+		guardCapture: guardCaptureChanged, guardTestFile: guardTwoAsserts,
+	})
+	f.setStep(passStep(StageImplement, 1, 0), "done", guardDoneDeclaring(changed, "the gate fails on the capture"))
 	f.pass()
 	task := f.task()
 	if task.Build.Stage != StageImplement || task.Build.Attempt != 2 || task.Build.Guard != guardRefusal {

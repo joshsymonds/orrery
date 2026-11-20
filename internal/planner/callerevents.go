@@ -10,23 +10,25 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// EpicCallerStore is the store an EpicCallerEvents reads the epics, their creators and the marks of their events
+// EpicCallerStore is the store an EpicCallerEvents reads the epics, their steerers and the marks of their events
 // through. *store.Store satisfies it.
 type EpicCallerStore interface {
+	ActionEvents(ctx context.Context) ([]store.ActionEvent, error)
 	Attention(ctx context.Context) ([]store.EpicAttention, error)
-	EpicCreator(ctx context.Context, epic string) (store.CallerSession, bool, error)
+	Epic(ctx context.Context, id string) (store.EpicRow, error)
+	EpicSteerer(ctx context.Context, epic string) (store.CallerSession, bool, error)
 	CallerEventMarked(ctx context.Context, event, session string) (bool, error)
 }
 
-// EpicCallerEventsConfig configures an EpicCallerEvents. Store lists the epics and their marks, and Sender sends their
-// events.
+// EpicCallerEventsConfig configures an EpicCallerEvents. Store lists the epics, their actions and their marks, and Sender
+// sends their events.
 type EpicCallerEventsConfig struct {
 	Store  EpicCallerStore
 	Sender *enginehost.CallerSender
 }
 
-// EpicCallerEvents tells the session that created each epic, once, when the epic parks, asks a question, releases or
-// ends.
+// EpicCallerEvents tells the session that steers each epic, once, of each move and owner action on it, and when the epic
+// parks, asks a question, releases or ends.
 type EpicCallerEvents struct {
 	store  EpicCallerStore
 	sender *enginehost.CallerSender
@@ -37,27 +39,123 @@ func NewEpicCallerEvents(cfg EpicCallerEventsConfig) *EpicCallerEvents {
 	return &EpicCallerEvents{store: cfg.Store, sender: cfg.Sender}
 }
 
-// Pass sends the events of each epic that Store.Attention lists to its creator. An epic with no creator sends nothing.
-// It returns the read error of the epics, or else the errors of the reads and sends that failed, joined. A failure does
-// not stop the pass: it goes on to the next event.
+// Pass sends the action events that Store.ActionEvents lists, each to its recipient, then the events of each epic that
+// Store.Attention lists to its steerer. An epic with no steerer sends nothing. It returns the errors of the reads and
+// sends that failed, joined. A failure does not stop the pass: it goes on to the next event.
 func (e *EpicCallerEvents) Pass(ctx context.Context) error {
+	var errs []error
+	actions, err := e.store.ActionEvents(ctx)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("read action events for caller events: %w", err))
+	}
+	for _, event := range actions {
+		errs = append(errs, e.sendAction(ctx, event))
+	}
 	entries, err := e.store.Attention(ctx)
 	if err != nil {
-		return fmt.Errorf("read attention for caller events: %w", err)
+		return errors.Join(append(errs, fmt.Errorf("read attention for caller events: %w", err))...)
 	}
-	errs := make([]error, 0, len(entries))
 	for _, entry := range entries {
 		errs = append(errs, e.attend(ctx, entry))
 	}
 	return errors.Join(errs...)
 }
 
-// attend sends the events of one epic to its creator: each open question in seq order, then the end of its phase. It
-// returns the errors of the creator read and of the sends, joined.
-func (e *EpicCallerEvents) attend(ctx context.Context, entry store.EpicAttention) error {
-	creator, ok, err := e.store.EpicCreator(ctx, entry.Epic)
+// sendAction sends one action event to its recipient. ActionEvents lists only the events no mark holds under their
+// recipient, and the CallerSender marks each one it finishes, so a sent event is not sent again.
+func (e *EpicCallerEvents) sendAction(ctx context.Context, event store.ActionEvent) error {
+	body, err := e.actionBody(ctx, event)
 	if err != nil {
-		return fmt.Errorf("read creator of epic %s: %w", entry.Epic, err)
+		return fmt.Errorf("build action event %s of epic %s: %w", event.ID, event.Epic, err)
+	}
+	text := store.CallerEventBlock(event.Kind, event.ID, nil, body)
+	if _, err = e.sender.Send(ctx, event.Recipient, event.ID, text); err != nil {
+		return fmt.Errorf("send action event %s of epic %s to session %s: %w",
+			event.ID, event.Epic, event.Recipient.ID, err)
+	}
+	return nil
+}
+
+// actionBody returns the body of an action event. The session that takes an epic is sent the steering prompt of the
+// epic's stored row, so its first line is the steering instruction; every other event's body is actionLine.
+func (e *EpicCallerEvents) actionBody(ctx context.Context, event store.ActionEvent) (string, error) {
+	if !event.Taken {
+		return actionLine(event), nil
+	}
+	row, err := e.store.Epic(ctx, event.Epic)
+	if err != nil {
+		return "", fmt.Errorf("read epic %s: %w", event.Epic, err)
+	}
+	lines, err := SteeringLines(row)
+	if err != nil {
+		return "", err
+	}
+	return enginehost.SteeringPrompt(event.Epic, lines), nil
+}
+
+// actionLine returns the body of an action event that is not a taker's steering prompt. A move names the epic, the session
+// it went to and who moved it. Any other action names the epic and what the owner did to it, and a decision adds its text
+// cut to decisionTextRunes.
+func actionLine(event store.ActionEvent) string {
+	if event.Kind == store.CallerKindMoved {
+		return fmt.Sprintf("Epic %s (%s) moved to session %s, by %s.",
+			event.Epic, event.Title, event.To, moverOf(event.Maker))
+	}
+	line := fmt.Sprintf("Epic %s (%s): the owner %s.", event.Epic, event.Title, actionPhrase(event))
+	switch event.Action {
+	case "answer", "kick":
+		return line + "\ntext: " + cutRunes(event.Text, decisionTextRunes)
+	}
+	return line
+}
+
+// actionPhrase returns what the owner's action did to the epic, after "the owner": the verb of an epic action, or for a
+// decision, the question it answered, a note, or a kick.
+func actionPhrase(event store.ActionEvent) string {
+	switch event.Action {
+	case store.ActionPause:
+		return "paused the epic"
+	case store.ActionResume:
+		return "resumed the epic"
+	case store.ActionStop:
+		return "stopped the epic"
+	case store.ActionRetry:
+		return "retried the epic"
+	case store.ActionRelease:
+		return "released the epic"
+	case store.ActionClose:
+		return "closed the epic"
+	case store.ActionAmend:
+		return "amended the epic's evidence"
+	case "kick":
+		return "kicked the epic"
+	case "answer":
+		if event.Question > 0 {
+			return fmt.Sprintf("answered Q%d", event.Question)
+		}
+		return "added a note"
+	}
+	return "made " + event.Action
+}
+
+// moverOf names who made a move: the owner, the session of a conversation, or orreryd.
+func moverOf(maker store.Maker) string {
+	switch maker.By {
+	case store.MakerOwner:
+		return "the owner"
+	case store.MakerConversation:
+		return "session " + maker.Session
+	}
+	return store.MakerOrreryd
+}
+
+// attend sends the events of one epic to its steerer: each open question in seq order, then the end of its phase. It
+// returns the errors of the steerer read and of the sends, joined. An epic whose steerer has no sessions row sends
+// nothing.
+func (e *EpicCallerEvents) attend(ctx context.Context, entry store.EpicAttention) error {
+	steerer, ok, err := e.store.EpicSteerer(ctx, entry.Epic)
+	if err != nil {
+		return fmt.Errorf("read steerer of epic %s: %w", entry.Epic, err)
 	}
 	if !ok {
 		return nil
@@ -66,22 +164,22 @@ func (e *EpicCallerEvents) attend(ctx context.Context, entry store.EpicAttention
 	for _, question := range entry.Open {
 		kind, body := questionEventOf(entry, question)
 		event := store.EpicQuestionEvent(entry.Epic, question.Seq)
-		errs = append(errs, e.send(ctx, entry.Epic, creator, event, kind, body))
+		errs = append(errs, e.send(ctx, entry.Epic, steerer, event, kind, body))
 	}
 	if kind, sends := store.EpicPhaseEventKind(entry.Phase); sends {
 		event := store.EpicPhaseEvent(entry.Epic, entry.Phase)
-		errs = append(errs, e.send(ctx, entry.Epic, creator, event, kind, phaseEventBody(entry)))
+		errs = append(errs, e.send(ctx, entry.Epic, steerer, event, kind, phaseEventBody(entry)))
 	}
 	return errors.Join(errs...)
 }
 
-// send sends the event with id event, of kind and body, to creator, unless the creator's mark shows it was sent. The
-// CallerSender marks the event once it is finished, and holds it while the creator is busy or stopped, so a later pass
+// send sends the event with id event, of kind and body, to steerer, unless the steerer's mark shows it was sent. The
+// CallerSender marks the event once it is finished, and holds it while the steerer is busy or stopped, so a later pass
 // sends it. It returns the error of the mark read or of the send.
 func (e *EpicCallerEvents) send(
-	ctx context.Context, epic string, creator store.CallerSession, event, kind, body string,
+	ctx context.Context, epic string, steerer store.CallerSession, event, kind, body string,
 ) error {
-	marked, err := e.store.CallerEventMarked(ctx, event, creator.ID)
+	marked, err := e.store.CallerEventMarked(ctx, event, steerer.ID)
 	if err != nil {
 		return fmt.Errorf("read caller event mark of %s: %w", event, err)
 	}
@@ -89,8 +187,8 @@ func (e *EpicCallerEvents) send(
 		return nil
 	}
 	text := store.CallerEventBlock(kind, event, nil, body)
-	if _, err = e.sender.Send(ctx, creator, event, text); err != nil {
-		return fmt.Errorf("send epic event %s of epic %s to caller %s: %w", event, epic, creator.ID, err)
+	if _, err = e.sender.Send(ctx, steerer, event, text); err != nil {
+		return fmt.Errorf("send epic event %s of epic %s to caller %s: %w", event, epic, steerer.ID, err)
 	}
 	return nil
 }
@@ -103,6 +201,7 @@ const (
 	choiceTextRunes   = 160
 	recommendWhyRunes = 200
 	parkedLineRunes   = 300
+	decisionTextRunes = 600
 	cutEllipsis       = "…"
 	epicReportLine    = "epic_get with part report reads its report."
 )

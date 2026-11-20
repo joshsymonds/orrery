@@ -90,7 +90,7 @@ func startControlServer(t *testing.T, epics EpicCommands, steps StepCommands) st
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
-	go func() { done <- Serve(ctx, ln, nil, steps, epics, nil, nil, nil, nil) }()
+	go func() { done <- Serve(ctx, ln, nil, steps, epics, fixedSteering{}, nil, nil, nil, nil, nil) }()
 	t.Cleanup(func() {
 		cancel()
 		if err := <-done; err != nil {

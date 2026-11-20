@@ -101,7 +101,8 @@ func batchBase(ctx context.Context, epic store.EpicRow) (string, error) {
 
 // strandedTasks returns, in seq order, the done tasks of epic whose work a failed batch composed and base does not
 // hold: the integrate run that claimed the task ended failed, no other integrate run that composed it is still running
-// or parked, and no commit an integrate run composed it into is base or an ancestor of it. A failed batch whose
+// or parked, and no commit an integrate run composed it into since a send_back last reopened it is base or an ancestor
+// of it. An open task is not stranded: a send_back reopened it, and its work is the next batch's to compose. A failed batch whose
 // revision did not join the stored base, or whose candidate a passed batch cleared without holding it, leaves such
 // tasks. The integrate run at path, the one being prepared, is not read.
 func strandedTasks(
@@ -126,18 +127,24 @@ func strandedTasks(
 }
 
 // batches is what strandedTasks reads of an epic's integrate runs: each run by its path, the commits the runs composed
-// each task into, and the tasks a run that has not ended composed.
+// each task into with the start of the run that composed it, and the tasks a run that has not ended composed.
 type batches struct {
 	runs     map[string]store.NodeRun
-	commits  map[int64][]string
+	commits  map[int64][]composedCommit
 	inFlight map[int64]bool
+}
+
+// composedCommit is a commit an integrate run composed a task into, and when that run started.
+type composedCommit struct {
+	commit  string
+	started time.Time
 }
 
 // readBatches returns the batches of the integrate runs among runs, all but the one at path. A run whose result is not
 // a batch result composed nothing.
 func readBatches(runs []store.NodeRun, path string) batches {
 	read := batches{
-		runs: make(map[string]store.NodeRun), commits: make(map[int64][]string), inFlight: make(map[int64]bool),
+		runs: make(map[string]store.NodeRun), commits: make(map[int64][]composedCommit), inFlight: make(map[int64]bool),
 	}
 	for _, run := range runs {
 		if run.Kind != kindIntegrate || run.Path == path {
@@ -149,19 +156,46 @@ func readBatches(runs []store.NodeRun, path string) batches {
 			continue
 		}
 		for _, composed := range result.Composed {
-			read.commits[composed.Task] = append(read.commits[composed.Task], composed.Commit)
+			read.commits[composed.Task] = append(
+				read.commits[composed.Task], composedCommit{commit: composed.Commit, started: run.Started},
+			)
 			read.inFlight[composed.Task] = read.inFlight[composed.Task] || run.State != store.NodeEnded
 		}
 	}
 	return read
 }
 
-// failedWork returns the commits the integrate runs composed task into, and true, when task is done, the run that
-// claimed it ended failed, and no run that composed it is still running or parked.
+// commitsSince returns the commits the integrate runs composed task into since a send_back last reopened it. A run that
+// started at or before that reopen composed the task's work from before it, which the task no longer holds, so a base
+// that holds such a commit does not hold the task's correction.
+func (b batches) commitsSince(task store.EpicTask) []string {
+	reopened := reopenedAt(task)
+	var commits []string
+	for _, composed := range b.commits[task.Seq] {
+		if composed.started.After(reopened) {
+			commits = append(commits, composed.commit)
+		}
+	}
+	return commits
+}
+
+// reopenedAt returns when a send_back last reopened task, or the zero time when none did.
+func reopenedAt(task store.EpicTask) time.Time {
+	var at time.Time
+	for _, version := range task.Versions {
+		if version.Source == store.SourceSendBack {
+			at = version.Created
+		}
+	}
+	return at
+}
+
+// failedWork returns the commits the integrate runs composed task into since it was last reopened, and true, when task is
+// done, the run that claimed it ended failed, and no run that composed it is still running or parked.
 func (b batches) failedWork(task store.EpicTask) ([]string, bool) {
 	claim, claimed := b.runs[task.Batch]
 	failed := claimed && claim.State == store.NodeEnded && claim.Outcome == outcomeFailed
-	commits := b.commits[task.Seq]
+	commits := b.commitsSince(task)
 	if task.Status != taskDone || !failed || b.inFlight[task.Seq] || len(commits) == 0 {
 		return nil, false
 	}

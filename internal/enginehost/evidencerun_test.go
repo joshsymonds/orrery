@@ -121,7 +121,12 @@ func evidenceRunResumeEpic(t *testing.T, eng engine, st *store.Store, waits *evi
 	t.Helper()
 	evidenceRunEventually(t, eng, "a judge waits on its paused epic", func() bool { return len(waits.announced) > 0 })
 	<-waits.announced
-	if err := st.ResumeEpic(t.Context(), evidenceRunEpic); err != nil {
+	if err := st.ResumeEpic(
+		t.Context(),
+		evidenceRunEpic,
+		store.Maker{By: store.MakerOwner},
+		time.Unix(1700000000, 0),
+	); err != nil {
 		t.Fatalf("ResumeEpic: %v", err)
 	}
 	waits.ticks <- time.Time{}
@@ -192,7 +197,12 @@ func evidenceRunStoppedByPause(t *testing.T, st *store.Store) evidenceRunJudge {
 	return evidenceRunJudge{
 		end: store.StepRow{End: stepStoppedEnd},
 		beforeEnd: func() {
-			if err := st.PauseEpic(t.Context(), evidenceRunEpic); err != nil {
+			if err := st.PauseEpic(
+				t.Context(),
+				evidenceRunEpic,
+				store.Maker{By: store.MakerOwner},
+				time.Unix(1700000000, 0),
+			); err != nil {
 				t.Errorf("PauseEpic: %v", err)
 			}
 		},

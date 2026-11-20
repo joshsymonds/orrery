@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	enginev1connect "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	"github.com/joshsymonds/orrery/internal/server"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -25,16 +26,22 @@ const contextAssistantLine = `{"type":"assistant","message":{"usage":{"input_tok
 const contextBoundaryLine = `{"type":"system","subtype":"compact_boundary","compactMetadata":` +
 	`{"trigger":"auto","preTokens":91234,"postTokens":4321}}` + "\n"
 
-// contextHandler returns the guarded handler that reads sessions from reader, with home as its Config.Home.
-func contextHandler(t *testing.T, reader *store.Reader, home string) http.Handler {
+// contextHandler returns the guarded handler that reads sessions from reader, with home as its Config.Home, and wakes
+// its WatchConversation streams from changes, or from no feed when changes is nil.
+func contextHandler(
+	t *testing.T,
+	reader *store.Reader,
+	changes enginev1connect.ChangesClient,
+	home string,
+) http.Handler {
 	t.Helper()
 	handler, err := server.New(server.Config{
 		Logins:                []string{allowedLogin},
 		Tmux:                  newTmuxClient(t),
 		Push:                  newPushStore(t),
 		Sessions:              reader,
+		Changes:               changes,
 		Home:                  home,
-		ConversationPoll:      convPoll,
 		ConversationKeepalive: convKeepalive,
 	})
 	if err != nil {
@@ -87,7 +94,7 @@ func TestSessionWatchHeadlessContextFigure(t *testing.T) {
 	s := openEventStore(t, path)
 	addContextSession(t, s)
 	writeContextTranscript(t, home, contextAssistantLine)
-	client := sessionsWatchClient(t, contextHandler(t, store.NewReader(path), home))
+	client := sessionsWatchClient(t, contextHandler(t, store.NewReader(path), nil, home))
 	stream := openSessionStream(t, client, sessionReq(eventEngine, 0, 0))
 
 	wantFigure(t, stream.next(t).GetState().GetContext(), 1234, convContextWindow)
@@ -102,11 +109,13 @@ func TestSessionWatchHeadlessContextHonoursCompaction(t *testing.T) {
 	s := openEventStore(t, path)
 	addContextSession(t, s)
 	writeContextTranscript(t, home, contextAssistantLine)
-	client := sessionsWatchClient(t, contextHandler(t, store.NewReader(path), home))
+	feed, changes := startChanges(t, nil)
+	client := sessionsWatchClient(t, contextHandler(t, store.NewReader(path), changes, home))
 	stream := openSessionStream(t, client, sessionReq(eventEngine, 0, 0))
 	wantFigure(t, stream.next(t).GetState().GetContext(), 1234, convContextWindow)
 
 	appendTranscript(t, contextTranscriptPath(home), contextBoundaryLine)
+	feed.Publish(0, []string{eventEngine})
 	wantFigure(t, stream.nextDelta(t).GetState().GetContext(), 4321, convContextWindow)
 }
 
@@ -119,7 +128,7 @@ func TestSessionWatchHeadlessContextMissingTranscriptServesZeroFigure(t *testing
 	s := openEventStore(t, path)
 	addContextSession(t, s)
 	applyEngineOps(t, s, replyBlock(1))
-	client := sessionsWatchClient(t, contextHandler(t, store.NewReader(path), home))
+	client := sessionsWatchClient(t, contextHandler(t, store.NewReader(path), nil, home))
 	stream := openSessionStream(t, client, sessionReq(eventEngine, 0, 0))
 
 	msg := stream.next(t)

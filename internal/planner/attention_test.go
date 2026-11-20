@@ -240,8 +240,8 @@ func TestAttentionClearsTheNoticeOnceTheLastQuestionIsAnswered(t *testing.T) {
 		t.Fatalf("seen reports before the answer = %d, want none", len(router.seens))
 	}
 	if _, err := s.AnswerQuestion(
-		ctx, runnerEpicID, "answer-1", "use the store", 1, store.ChoiceOther, claimedAt(),
-	); err != nil {
+		ctx, runnerEpicID, "answer-1", "use the store", 1, store.ChoiceOther, store.Maker{},
+		claimedAt()); err != nil {
 		t.Fatalf("AnswerQuestion: %v", err)
 	}
 

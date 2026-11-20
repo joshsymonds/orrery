@@ -165,7 +165,7 @@ func TestClaimTurnNumbersTurnsAndSeesTheLatestDecision(t *testing.T) {
 	); err != nil {
 		t.Fatalf("finish turn: %v", err)
 	}
-	if _, err := s.AnswerEpic(ctx, id, "D3", "Answered after turn 1", claimedAt()); err != nil {
+	if _, err := s.AnswerEpic(ctx, id, "D3", "Answered after turn 1", Maker{}, claimedAt()); err != nil {
 		t.Fatalf("AnswerEpic: %v", err)
 	}
 	addPendingTrigger(t, s)

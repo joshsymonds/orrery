@@ -90,11 +90,11 @@ type stepHoldFixture struct {
 func newStepHoldFixture(t *testing.T) *stepHoldFixture {
 	t.Helper()
 	s, _ := openStore(t)
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	sessions := &holdSessions{stepStartSessions: &stepStartSessions{writer: writer}}
 	worktrees := t.TempDir()
-	steps, err := NewSteps(StepsConfig{
+	steps := NewSteps(StepsConfig{
 		Sessions:     sessions,
 		Store:        s,
 		Writer:       writer,
@@ -103,9 +103,6 @@ func newStepHoldFixture(t *testing.T) *stepHoldFixture {
 		Logger:       slog.New(slog.DiscardHandler),
 		GateStateDir: gateShortStateDir(t),
 	})
-	if err != nil {
-		t.Fatalf("NewSteps: %v", err)
-	}
 	t.Cleanup(steps.Close)
 	return &stepHoldFixture{steps: steps, sessions: sessions, store: s, writer: writer, worktrees: worktrees}
 }

@@ -2776,7 +2776,7 @@ export type PendingEvent = Message<"orrery.v1.PendingEvent"> & {
   id: string;
 
   /**
-   * The event's kind: step_end, question, park, release or end.
+   * The event's kind: step_end, question, park, release, end, moved or action.
    *
    * @generated from field: string kind = 2;
    */

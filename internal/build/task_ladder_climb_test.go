@@ -219,8 +219,8 @@ func TestTaskLadderExecuteClimbs(t *testing.T) {
 	})
 }
 
-// TestTaskLadderClimbFromLastRungRemovesWorktrees: a fail on rung 6 climbs the task onto the gap rung, which ends the
-// task as a gap with its gap trigger pending and removes its task directory.
+// TestTaskLadderClimbFromLastRungRemovesWorktrees: a fail on the last rung, rung 5, climbs the task onto the gap rung,
+// which ends the task as a gap with its gap trigger pending and removes its task directory.
 func TestTaskLadderClimbFromLastRungRemovesWorktrees(t *testing.T) {
 	t.Parallel()
 	f := newPassFixture(t)

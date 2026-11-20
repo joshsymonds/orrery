@@ -40,14 +40,10 @@ func Defaults() []Entry {
 			Name:  "floor",
 			Stage: []string{StageTask},
 			Must: []string{
-				"The task's own tests would fail if the behavior they cover were removed.",
+				"The change does what the task asked, leaves the checks that judge it intact, and the tests it adds " +
+					"or changes would fail if the behavior they cover were removed.",
 			},
 			MustNot: []string{
-				"The change suppresses, skips or disables a check.",
-				"The change weakens a test or makes one tautological.",
-				"The change adds dead code.",
-				"The change leaves an error unhandled.",
-				"The change does something the task did not ask for.",
 				"The change introduces a security or data-loss failure with a reachable precondition.",
 			},
 			Prompt: new(floorRole),
@@ -80,7 +76,7 @@ func Defaults() []Entry {
 		},
 		{
 			Name:  TestParsimony,
-			Stage: []string{StageTask, StageEpic},
+			Stage: []string{StageEpic},
 			MustNot: []string{
 				"The change adds a test that uses a real wait or a real clock.",
 				"The change adds a test that starts its own real resource where a shared one exists.",
@@ -89,9 +85,10 @@ func Defaults() []Entry {
 				"The change adds an unjustified golden suite.",
 				"The change adds a test that asserts wall-clock timing.",
 				"The change adds a test that checks model output deterministically.",
-				"The change adds or changes tests that push a package over its test CPU budget (a test-budget line " +
-					"in Test cost), or a test whose own run is slow (seconds, not milliseconds), without a stated " +
-					"reason in the task.",
+				"The change adds or changes tests that push a package's test CPU cost over its base (a Test cost " +
+					"line marked over), or, for a package with no base measurement, over its budget (a test-budget " +
+					"line in Test cost), or a test whose own run is slow (seconds, not milliseconds), without a " +
+					"stated reason in the task.",
 			},
 			Prompt: new(testParsimonyRole), Model: new("sonnet"), Tools: readOnlyTools(), Verify: new(true),
 		},

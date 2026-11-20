@@ -57,7 +57,7 @@ func gatedManager(t *testing.T, match func(store.EngineOp) bool) (*Manager, *mat
 	}
 	s, path := openStore(t)
 	gate := &matchGate{inner: s, match: match, entered: make(chan struct{}), release: make(chan struct{})}
-	writer := NewWriter(WriterConfig{Applier: gate, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: gate})
 	startRun(t, writer)
 	m := NewManager(Config{
 		Shell:   sh,
@@ -320,7 +320,7 @@ func TestRetryOfSayFailedBeforeRestartReturnsItsReason(t *testing.T) {
 		t.Fatalf("find sh: %v", err)
 	}
 	s, path := openStore(t)
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	config := Config{
 		Shell:   sh,

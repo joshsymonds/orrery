@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -195,7 +196,12 @@ func TestReleasePrepareResultSetPreparesRecordedCandidate(t *testing.T) {
 	w := newMergeWorld(t)
 	origin := mergeRemote(t, w.repo)
 	tip := nodeEpicBranch(t, w.repo, "epic.txt")
-	if err := w.s.PauseEpic(w.t.Context(), runEpic); err != nil {
+	if err := w.s.PauseEpic(
+		w.t.Context(),
+		runEpic,
+		store.Maker{By: store.MakerOwner},
+		time.Unix(1700000000, 0),
+	); err != nil {
 		t.Fatalf("PauseEpic: %v", err)
 	}
 	w.pass()
@@ -212,7 +218,12 @@ func TestReleasePrepareResultSetPreparesRecordedCandidate(t *testing.T) {
 		t.Fatalf("RecordNodeResult: %v", err)
 	}
 	moved := mergeOriginCommit(t, origin, "origin.txt")
-	if err = w.s.ResumeEpic(w.t.Context(), runEpic); err != nil {
+	if err = w.s.ResumeEpic(
+		w.t.Context(),
+		runEpic,
+		store.Maker{By: store.MakerOwner},
+		time.Unix(1700000000, 0),
+	); err != nil {
 		t.Fatalf("ResumeEpic: %v", err)
 	}
 	w.pass()

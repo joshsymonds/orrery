@@ -4,6 +4,7 @@ import (
 	"context"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -23,7 +24,13 @@ func retryFailedIntegrateDoneGateRerunsOnCandidateAndAdvancesBranch(images *worl
 			t.Fatalf("batch = %+v, want ended failed before the rerun", run)
 		}
 
-		if err := w.s.RetryNode(ctx, runEpic, "integrate"); err != nil {
+		if err := w.s.RetryNode(
+			ctx,
+			runEpic,
+			"integrate",
+			store.Maker{By: store.MakerOwner},
+			time.Unix(1700000000, 0),
+		); err != nil {
 			t.Fatalf("RetryNode of the failed batch: %v", err)
 		}
 		w.pass()

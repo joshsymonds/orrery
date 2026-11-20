@@ -70,9 +70,8 @@ const briefRules = "Do not edit any other file. When the work needs a file that 
 	"back to this same worktree with your work kept.\n"
 
 // briefGuardAndGate are the guard line and the gate line for briefGate, then the line on a gate-needed change.
-const briefGuardAndGate = "Outside those test changes, orreryd's guard refuses a commit that deletes or renames a guarded " +
-	"test file, removes a test present at the base, lowers a test's assertions, adds a skip, or changes a file a " +
-	"capture runs.\n" +
+const briefGuardAndGate = "Outside those test changes, orreryd's guard refuses a commit that changes a file a capture " +
+	"runs.\n" +
 	"Gate: check. After you return done, orreryd runs `scripts/in-devenv -c 'just remote just check'` on your commit. " +
 	"Do not run the gate yourself. When it fails, orreryd sends you its output: fix the cause, commit the fix on top, " +
 	"and return done again.\n" +
@@ -82,9 +81,10 @@ const briefGuardAndGate = "Outside those test changes, orreryd's guard refuses a
 	"the reason the gate or Capture needs it. When the Deliverable itself fixes a gate failure the Requirements do " +
 	"not name, such as a flake the epic's gates failed on, declare each file it changes the same way. Reviewers judge " +
 	"a declared gate-needed change in scope when the gate needs it and it is no larger than that need, and an " +
-	"undeclared change the Deliverable does not ask for fails review. The guard still judges a gate-needed change, " +
-	"so it never removes a test, lowers its assertions or adds a skip. For a gate-needed change in a file outside " +
-	"the owned files, return needs_context naming the file in needs_files, with the reason in summary.\n"
+	"undeclared change the Deliverable does not ask for fails review. The guard still judges a gate-needed change: " +
+	"it refuses a changed capture file, and a removed test, a lowered assertion or an added skip goes to the floor " +
+	"reviewer. For a gate-needed change in a file outside the owned files, return needs_context naming the file in " +
+	"needs_files, with the reason in summary.\n"
 
 // reviewDeclared heads the declared gate-needed changes in the prompts of a task's reviewers and verifiers.
 const reviewDeclared = "Gate-needed changes the implementer declared (each is in scope, though the Deliverable does not " +
@@ -295,7 +295,7 @@ func TestReviewPromptNamesRangeFilesAndRequirements(t *testing.T) {
 	t.Parallel()
 	task := briefTask()
 	task.TestChanges = nil
-	got := ReviewPrompt(briefEpic(), task, "floor", "base1", "rev1", store.StepCheck{})
+	got := ReviewPrompt(briefEpic(), task, "floor", "base1", "rev1", store.StepCheck{}, nil)
 	want := "Task T4 of epic repo/epic-x (Build the task): Render brief\n" +
 		"Deliverable: brief.go\n" +
 		"Owned files:\n" +
@@ -335,7 +335,7 @@ func TestReviewPromptListsOnlyTheTasksOwnEvidence(t *testing.T) {
 	task := briefTask()
 	task.Evidence = evidence.Item{}
 	task.Requirements = []string{"R1", "R9", "R2", "R3", "R4"}
-	got := ReviewPrompt(epic, task, "floor", "base1", "rev1", store.StepCheck{})
+	got := ReviewPrompt(epic, task, "floor", "base1", "rev1", store.StepCheck{}, nil)
 	want := "Requirements:\n" +
 		"- R1: one\n" +
 		"- R2: two\n" +
@@ -359,7 +359,7 @@ func TestReviewPromptEmptySectionsPrintNone(t *testing.T) {
 	t.Parallel()
 	epic := store.EpicRow{ID: "repo/epic-x", Title: "Build the task"}
 	task := store.EpicTask{Seq: 4, Title: "Render brief", Deliverable: "brief.go"}
-	got := ReviewPrompt(epic, task, "floor", "base1", "rev1", store.StepCheck{})
+	got := ReviewPrompt(epic, task, "floor", "base1", "rev1", store.StepCheck{}, nil)
 	want := "Task T4 of epic repo/epic-x (Build the task): Render brief\n" +
 		"Deliverable: brief.go\n" +
 		"Owned files:\n" +
@@ -414,9 +414,9 @@ func TestReviewPromptEndsTestParsimonyWithTheGatesTestCost(t *testing.T) {
 			},
 		},
 		{
-			name: "exceeded budget on stderr",
+			name: "check-changed exceeded line is no budget line",
 			gate: exceeded,
-			want: []string{"- check-changed: exceeded 240s budget (Go tests was running)"},
+			want: []string{"- no budget lines"},
 		},
 		{
 			name: "output without budget lines",
@@ -428,8 +428,8 @@ func TestReviewPromptEndsTestParsimonyWithTheGatesTestCost(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := ReviewPrompt(briefEpic(), briefTask(), reviewers.TestParsimony, "base1", "rev1", tc.gate)
-			plain := ReviewPrompt(briefEpic(), briefTask(), "floor", "base1", "rev1", tc.gate)
+			got := ReviewPrompt(briefEpic(), briefTask(), reviewers.TestParsimony, "base1", "rev1", tc.gate, nil)
+			plain := ReviewPrompt(briefEpic(), briefTask(), "floor", "base1", "rev1", tc.gate, nil)
 			want := strings.Join(append([]string{plain, reviewers.TestCostHeading}, tc.want...), "\n")
 			if got != want {
 				t.Fatalf("review prompt\n got:\n%s\nwant:\n%s", got, want)
@@ -443,7 +443,7 @@ func TestReviewPromptEndsTestParsimonyWithTheGatesTestCost(t *testing.T) {
 func TestReviewPromptGivesNoOtherReviewerTheTestCost(t *testing.T) {
 	t.Parallel()
 	gate := store.StepCheck{Name: "gate", OK: true, Stdout: "test-budget: internal/store 212 cpu-s > 160 (+33%)\n"}
-	got := ReviewPrompt(briefEpic(), briefTask(), "floor", "base1", "rev1", gate)
+	got := ReviewPrompt(briefEpic(), briefTask(), "floor", "base1", "rev1", gate, nil)
 	if strings.Contains(got, "Test cost") || strings.Contains(got, "test-budget") {
 		t.Fatalf("floor review prompt carries the Test cost section:\n%s", got)
 	}
@@ -566,7 +566,7 @@ func TestStepSendBackReviewPromptCarriesTestChanges(t *testing.T) {
 		t.Parallel()
 		task := briefTask()
 		task.TestChanges = []string{"internal/build/brief_test.go", "internal/build/floor_test.go"}
-		got := ReviewPrompt(briefEpic(), task, "floor", "base1", "rev1", store.StepCheck{})
+		got := ReviewPrompt(briefEpic(), task, "floor", "base1", "rev1", store.StepCheck{}, nil)
 		want := "Owned files:\n" +
 			"- internal/build/brief.go\n" +
 			"- internal/build/brief_test.go\n" +
@@ -591,7 +591,7 @@ func TestStepSendBackReviewPromptCarriesTestChanges(t *testing.T) {
 					Reason: "the wake moves the delivery this test expects",
 				},
 			}
-			got := ReviewPrompt(briefEpic(), task, "floor", "base1", "rev1", store.StepCheck{})
+			got := ReviewPrompt(briefEpic(), task, "floor", "base1", "rev1", store.StepCheck{}, nil)
 			want := "- internal/build/brief_test.go\n" +
 				reviewDeclared + "\n" +
 				"- cmd/orreryd/callerevent_wiring_test.go: the wake moves the delivery this test expects\n" +
@@ -654,7 +654,7 @@ func TestBriefPromptsTightened(t *testing.T) {
 	})
 	t.Run("ReviewPrompt heads its file list as owned files", func(t *testing.T) {
 		t.Parallel()
-		got := ReviewPrompt(briefEpic(), briefTask(), "floor", "base1", "rev1", store.StepCheck{})
+		got := ReviewPrompt(briefEpic(), briefTask(), "floor", "base1", "rev1", store.StepCheck{}, nil)
 		assertHeadedBy(t, got, "Owned files:", briefTask().Files, "Files:")
 	})
 }

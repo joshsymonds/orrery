@@ -200,7 +200,7 @@ func TestStepLoopSaveFailedPutIsLoggedAndLoopGoesOn(t *testing.T) {
 	f := newStepLoopFixture(t, nil)
 	var logs bytes.Buffer
 	f.run.logger = slog.New(slog.NewTextHandler(&logs, nil))
-	stopped := NewWriter(WriterConfig{Applier: f.store, Tick: 5 * time.Millisecond})
+	stopped := NewWriter(WriterConfig{Applier: f.store})
 	stop := startRun(t, stopped)
 	stop()
 	f.run.writer = stopped

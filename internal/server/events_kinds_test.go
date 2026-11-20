@@ -25,7 +25,7 @@ func TestEngineEventKindsWatchServesTypedMembers(t *testing.T) {
 			OwnerInterrupted: true,
 		},
 	)
-	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path))
+	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path, nil))
 
 	at := int64(eventAt)
 	want := []*orreryv1.WatchResponse{

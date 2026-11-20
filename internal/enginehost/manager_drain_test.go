@@ -50,7 +50,7 @@ func newDrainManager(t *testing.T, s Store, writer *Writer, sink NoticeSink, roo
 func restartDrain(t *testing.T, rig crashRig, applier Applier, version int) (*Manager, *fakeSink) {
 	t.Helper()
 	rig.manager.Close()
-	writer := NewWriter(WriterConfig{Applier: applier, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: applier})
 	startRun(t, writer)
 	sink := &fakeSink{}
 	return newDrainManager(t, rig.store, writer, sink, rig.root, version), sink

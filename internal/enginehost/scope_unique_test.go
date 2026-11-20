@@ -8,7 +8,6 @@ import (
 	"slices"
 	"syscall"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/holder"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -139,7 +138,7 @@ func TestReconcileScopeUniqueReattachStopsItsOwnScope(t *testing.T) {
 	t.Parallel()
 	root := holderRoot(t)
 	s, path := openStore(t)
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	scope := fakeSystemdRunPath(t)
 	first := newStateManager(t, s, writer, &fakeSink{}, scope, root, nil)
