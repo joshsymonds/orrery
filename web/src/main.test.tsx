@@ -797,6 +797,7 @@ test("the page calls only the list, get and watch paths it reads", (t) =>
       assert.deepEqual(
         [...server.paths].sort(),
         [
+          "/orrery.v1.Contracts/List",
           epicsGetPath,
           epicsListPath,
           "/orrery.v1.Epics/History",
@@ -1017,7 +1018,7 @@ test("ChangedEpicsOnly: a poll tick asks for the epic the page shows even when i
     const server = fakeServer("api", true);
     server.gate = Promise.resolve();
     server.epics = [liveEpic("draft"), liveGamma("draft")];
-    window.history.replaceState(null, "", "#/attention/epic/repo-a%2Falpha");
+    window.history.replaceState(null, "", "#/inbox/epic/repo-a%2Falpha");
     const stop = start(root, clientsFor(server), pollMs, mockedRetryMs);
     try {
       await until(t.signal, () => epicPageDrawn(root) && server.watches.length === 1, "the epic page", {
@@ -1331,9 +1332,9 @@ function rowDrawn(root: HTMLElement, key: string): boolean {
   return root.querySelector(`[data-key="${key}"]`) !== null;
 }
 
-// viewOn is the text of the view tab that is on, which names the order the page shows.
+// viewOn is the view the list shows, which its rows name in data-list.
 function viewOn(root: HTMLElement): string {
-  return root.querySelector(".views .view.on")?.textContent ?? "";
+  return root.querySelector(".rows")?.getAttribute("data-list") ?? "";
 }
 
 // epicPageDrawn is whether the epic page section holds the epic page itself.
@@ -1404,7 +1405,7 @@ async function openAfterArrival(
 test("HashRoute: a loaded session address opens its row once the rows arrive after the first render", (t) => {
   mockTimers(t, ["setTimeout", "setInterval"]);
   return withPage(t.signal, (root, start) =>
-    openAfterArrival(t.signal, root, start, fakeServer("api"), "#/attention/session/s1", "session:s1"),
+    openAfterArrival(t.signal, root, start, fakeServer("api"), "#/inbox/session/s1", "session:s1"),
   );
 });
 
@@ -1413,7 +1414,7 @@ test("HashRoute: a loaded pane address whose id is %3 opens its row once the row
   return withPage(t.signal, (root, start) => {
     const server = fakeServer("api");
     server.extraPanes = [paneOf("%3", "three")];
-    return openAfterArrival(t.signal, root, start, server, "#/attention/pane/box/%253", "pane:box:%3");
+    return openAfterArrival(t.signal, root, start, server, "#/inbox/pane/box/%253", "pane:box:%3");
   });
 });
 
@@ -1422,7 +1423,7 @@ test("HashRoute: a loaded step address opens its step once the epics arrive afte
   return withPage(t.signal, (root, start) => {
     const server = fakeServer("api");
     server.epics = [liveEpic("first step")];
-    return openAfterArrival(t.signal, root, start, server, "#/attention/step/step-1", "step:step-1");
+    return openAfterArrival(t.signal, root, start, server, "#/inbox/step/step-1", "step:step-1");
   });
 });
 
@@ -1431,7 +1432,7 @@ test("HashRoute: a loaded epic address whose id holds a slash opens its epic pag
   return withPage(t.signal, async (root, start) => {
     const server = fakeServer("api");
     server.epics = [liveEpic("first step")];
-    await openAfterArrival(t.signal, root, start, server, "#/attention/epic/repo-a%2Falpha", "epic:repo-a/alpha");
+    await openAfterArrival(t.signal, root, start, server, "#/inbox/epic/repo-a%2Falpha", "epic:repo-a/alpha");
     assert.equal(epicPageDrawn(root), true, "the epic page is not drawn");
   });
 });
@@ -1447,7 +1448,7 @@ test("HashRoute: a loaded contract address opens its epic's contract page once t
       root,
       start,
       server,
-      "#/attention/epic/repo-a%2Falpha/contract",
+      "#/inbox/epic/repo-a%2Falpha/contract",
       "epic:repo-a/alpha",
     );
     await until(
@@ -1459,27 +1460,27 @@ test("HashRoute: a loaded contract address opens its epic's contract page once t
   });
 });
 
-test("HashRoute: a pane address the answered rows lack opens its order's inbox, and the hash becomes that order", (t) => {
+test("InboxTree: an old project address whose pane the answered rows lack opens the inbox, and the hash becomes the inbox", (t) => {
   mockTimers(t, ["setTimeout", "setInterval"]);
   return withPage(t.signal, async (root, start) => {
     const before = window.history.length;
     window.history.replaceState(null, "", "#/project/pane/box/%259");
     start(root, clientsFor(answeringServer()), longPollMs);
-    await until(t.signal, () => window.location.hash === "#/project", "the hash rewritten to its order", {
+    await until(t.signal, () => window.location.hash === "#/inbox", "the hash rewritten to the inbox", {
       step: settle,
     });
-    assert.equal(viewOn(root), "pBy project", "the page does not show the project order");
+    assert.equal(viewOn(root), "inbox", "the page does not show the inbox");
     assert.equal(window.history.length, before, "the fallback added a history entry");
   });
 });
 
-test("HashRoute: a malformed percent escape in the hash opens the attention inbox", (t) => {
+test("HashRoute: a malformed percent escape in the hash opens the inbox", (t) => {
   mockTimers(t, ["setTimeout", "setInterval"]);
   return withPage(t.signal, async (root, start) => {
     window.history.replaceState(null, "", "#/archived/session/%E0%A4%A");
     start(root, clientsFor(answeringServer()), longPollMs);
     await until(t.signal, () => rowDrawn(root, "pane:box:%1"), "the rows", { step: settle });
-    assert.equal(viewOn(root), "aBy attention", "the page does not show the attention inbox");
+    assert.equal(viewOn(root), "inbox", "the page does not show the inbox");
   });
 });
 
@@ -1508,7 +1509,7 @@ test("HashRoute: a row click and three j keys leave two entries, and Back return
     window.history.back();
     await until(
       t.signal,
-      () => window.location.hash === "#/attention/pane/box/%253" && cursorKey(root) === "pane:box:%3",
+      () => window.location.hash === "#/inbox/pane/box/%253" && cursorKey(root) === "pane:box:%3",
       "Back to the clicked row",
       { step: settle },
     );
@@ -1518,7 +1519,7 @@ test("HashRoute: a row click and three j keys leave two entries, and Back return
 test("HashRoute: after a loaded session address opens and a click opens another row, Back reopens the loaded row", (t) => {
   mockTimers(t, ["setTimeout", "setInterval"]);
   return withPage(t.signal, async (root, start) => {
-    window.history.replaceState(null, "", "#/attention/session/s1");
+    window.history.replaceState(null, "", "#/inbox/session/s1");
     start(root, clientsFor(answeringServer()), longPollMs);
     await until(t.signal, () => cursorKey(root) === "session:s1", "the loaded session under the cursor", {
       step: settle,
@@ -1530,7 +1531,7 @@ test("HashRoute: after a loaded session address opens and a click opens another 
     window.history.back();
     await until(
       t.signal,
-      () => window.location.hash === "#/attention/session/s1" && cursorKey(root) === "session:s1",
+      () => window.location.hash === "#/inbox/session/s1" && cursorKey(root) === "session:s1",
       "Back to the loaded session",
       { step: settle },
     );

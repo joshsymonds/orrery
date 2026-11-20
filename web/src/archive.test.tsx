@@ -241,6 +241,15 @@ function cursorKey(container: HTMLElement): string | null {
   return container.querySelector(".b-row.cur")?.getAttribute("data-key") ?? null;
 }
 
+// back presses the foot's Back to the inbox, which leaves the Archived view for the inbox.
+async function back(container: HTMLElement): Promise<void> {
+  const button = [...container.querySelectorAll(".inbox-foot button")].find(
+    (candidate) => candidate.textContent === "Back to the inbox",
+  );
+  assert.ok(button, "the foot draws Back to the inbox");
+  await click(button);
+}
+
 function dataList(container: HTMLElement): string | null {
   return container.querySelector(".rows")?.getAttribute("data-list") ?? null;
 }
@@ -253,7 +262,7 @@ function sectionTitles(container: HTMLElement): (string | null)[] {
   return [...container.querySelectorAll(".b-sec")].map((element) => element.querySelector(".title")?.textContent ?? null);
 }
 
-test("ArchiveView: Archive on a session row sends Epics.Archive with its kind and id, and the row leaves By attention", (t) =>
+test("ArchiveView: Archive on a session row sends Epics.Archive with its kind and id, and the row leaves the inbox", (t) =>
   withArchive(
     t.signal,
     { rows: [row({ key: "p", label: "pane" }), session({ key: "s1", id: "s1", label: "notes" })] },
@@ -290,15 +299,15 @@ test("ArchiveView: the A key archives the cursor's headless row, as kind headles
     },
   ));
 
-test("ArchiveView: lowercase a selects By attention and archives nothing", (t) =>
+test("ArchiveView: lowercase a and p do nothing and archive nothing", (t) =>
   withArchive(
     t.signal,
     { rows: [headless({ key: "h1", id: "h1", label: "docs", state: "waiting" }), row({ key: "p", label: "pane" })] },
     async (container, fake) => {
       await press("p");
-      assert.equal(dataList(container), "project");
+      assert.equal(dataList(container), "inbox");
       await press("a");
-      assert.equal(dataList(container), "attention");
+      assert.equal(dataList(container), "inbox");
       await flush();
       assert.deepEqual(archiveCalls(fake), []);
       assert.deepEqual(rowKeys(container), ["h1", "p"]);
@@ -316,17 +325,19 @@ test("ArchiveView: the Archived view lists the archived row and epic with Unarch
       ),
     },
     async (container) => {
+      assert.deepEqual(rowKeys(container), ["p"], "the inbox leaves the archived row and epic out");
       await press("v");
       assert.equal(dataList(container), "archived");
       assert.deepEqual(rowKeys(container), ["epic:w/old", "ha"]);
       assert.equal((await openMenu(container, "ha")).textContent, "Unarchive");
       assert.equal((await openMenu(container, "epic:w/old")).textContent, "Unarchive");
-      await press("a");
+      await back(container);
+      assert.equal(dataList(container), "inbox");
       assert.deepEqual(rowKeys(container), ["p"]);
     },
   ));
 
-test("RowMenu: the Archived view's menu holds Unarchive and sends Epics.Unarchive with the row's kind and id, and the row returns to By attention", (t) =>
+test("RowMenu: the Archived view's menu holds Unarchive and sends Epics.Unarchive with the row's kind and id, and the row returns to the inbox", (t) =>
   withArchive(
     t.signal,
     { rows: [row({ key: "p", label: "pane" }), headless({ key: "ha", id: "ha", label: "old docs", archived: true })] },
@@ -338,12 +349,12 @@ test("RowMenu: the Archived view's menu holds Unarchive and sends Epics.Unarchiv
       await until(t.signal, () => fake.callsTo(unarchivePath).length === 1, "the unarchive call");
       assert.deepEqual(fake.callsTo(unarchivePath)[0].body, { kind: "headless", id: "ha" });
       await until(t.signal, () => lineOf(container, "ha") === null, "the row leaving the Archived view");
-      await press("a");
+      await back(container);
       assert.deepEqual(rowKeys(container), ["ha", "p"]);
     },
   ));
 
-test("ArchiveView: Unarchive on an archived live epic returns its line to By attention", (t) => {
+test("ArchiveView: Unarchive on an archived live epic returns its line to the inbox", (t) => {
   const live = epic({ id: "w/live", slug: "live", archived: true });
   const epics = epicsView([live], new Map([[live.id, create(EpicsGetResponseSchema, { epic: live })]]));
   return withArchive(t.signal, { epics }, async (container, fake) => {
@@ -352,8 +363,8 @@ test("ArchiveView: Unarchive on an archived live epic returns its line to By att
     await until(t.signal, () => fake.callsTo(unarchivePath).length === 1, "the unarchive call");
     assert.deepEqual(fake.callsTo(unarchivePath)[0].body, { kind: "epic", id: "w/live" });
     await until(t.signal, () => lineOf(container, "epic:w/live") === null, "the line leaving the Archived view");
-    await press("a");
-    assert.ok(lineOf(container, "epic:w/live"), "the line is back in By attention");
+    await back(container);
+    assert.ok(lineOf(container, "epic:w/live"), "the line is back in the inbox");
   });
 });
 
@@ -366,7 +377,7 @@ test("ArchiveView: an archived live epic's needs leave Needs you", (t) => {
   const epics = epicsView([asked], new Map([[asked.id, detail]]));
   return withArchive(t.signal, { epics }, (container) => {
     assert.equal(sectionTitles(container).includes("Needs you"), false, "no Needs you section names the archived epic");
-    assert.equal(lineOf(container, "epic:w/asked"), null, "the archived epic has no line in By attention");
+    assert.equal(lineOf(container, "epic:w/asked"), null, "the archived epic has no line in the inbox");
   });
 });
 
@@ -405,7 +416,7 @@ test("ArchivePaneRow: A archives the cursor pane row with an orrery_id, sending 
     },
   ));
 
-test("ArchivePaneRow: a pane whose Session is archived leaves By attention, and shows in Archived with Unarchive that sends kind session and its orrery_id", (t) => {
+test("ArchivePaneRow: a pane whose Session is archived leaves the inbox, and shows in Archived with Unarchive that sends kind session and its orrery_id", (t) => {
   const rows = rowsFrom(
     [
       create(PaneSchema, {
@@ -421,7 +432,7 @@ test("ArchivePaneRow: a pane whose Session is archived leaves By attention, and 
     [create(SessionSchema, { id: "sess-7", pane: "%3", archived: true })],
   );
   return withArchive(t.signal, { rows }, async (container, fake) => {
-    assert.equal(lineOf(container, "pane:box:%3"), null, "the archived pane has no line in By attention");
+    assert.equal(lineOf(container, "pane:box:%3"), null, "the archived pane has no line in the inbox");
     await press("v");
     assert.equal(dataList(container), "archived");
     assert.deepEqual(rowKeys(container), ["pane:box:%3"]);
@@ -431,7 +442,7 @@ test("ArchivePaneRow: a pane whose Session is archived leaves By attention, and 
     await until(t.signal, () => fake.callsTo(unarchivePath).length === 1, "the unarchive call");
     assert.deepEqual(fake.callsTo(unarchivePath)[0].body, { kind: "session", id: "sess-7" });
     await until(t.signal, () => lineOf(container, "pane:box:%3") === null, "the row leaving the Archived view");
-    await press("a");
+    await back(container);
     assert.deepEqual(rowKeys(container), ["pane:box:%3"]);
   });
 });
@@ -570,7 +581,7 @@ test("RowMenu: a menu whose row leaves the list counts as closed, and does not r
     await openMenu(container, "s1");
     await press("v");
     assert.ok(lineOf(container, "s1") === null, "s1 is not drawn in the Archived view");
-    await press("a");
+    await back(container);
     assert.ok(lineOf(container, "s1") !== null, "s1 is drawn again");
     assert.equal(menuOpen(container), false, "its menu stays closed");
     assert.equal(moreButtonOf(container, "s1").getAttribute("aria-expanded"), "false");

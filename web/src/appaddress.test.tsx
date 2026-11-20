@@ -9,7 +9,7 @@ import { App } from "./app";
 import { createClients, createTransport } from "./client";
 import { type EpicsView, epicsView } from "./epics";
 import { EpicSchema, EpicStepSchema, EpicsGetResponseSchema } from "./gen/orrery/v1/epics_pb";
-import type { Address, Order } from "./router";
+import type { Address, View } from "./router";
 import type { Row } from "./rows";
 import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
 
@@ -60,7 +60,7 @@ function row(init: Partial<Row> & Pick<Row, "key">): Row {
   };
 }
 
-// waitingRow is a session row that needs its answer, which the attention list draws first. The cursor rests on the
+// waitingRow is a session row that needs its answer, which the inbox draws first. The cursor rests on the
 // first entry it draws, so a test's address is never the entry App shows with no address at all.
 function waitingRow(): Row {
   return row({
@@ -178,9 +178,9 @@ async function withApp(
   }
 }
 
-// selectedViews is the text of each view tab that is on, which names the order App shows.
-function selectedViews(container: HTMLElement): string[] {
-  return [...container.querySelectorAll(".views .view.on")].map((tab) => tab.textContent ?? "");
+// shownView is the view the list draws, which its rows name in data-list.
+function shownView(container: HTMLElement): string | null {
+  return container.querySelector(".rows")?.getAttribute("data-list") ?? null;
 }
 
 // cursorKey is the key of the entry the cursor rests on, or null when no entry is drawn as the cursor's.
@@ -224,30 +224,24 @@ async function backFromPage(container: HTMLElement): Promise<void> {
   await clickButton(container, 'section.page[aria-label="epic"] .title-row', "‹");
 }
 
-// The attention order is App's default view, so its test reaches it from another order's tab. The other two mount on
-// their own address.
-const orders: [Order, string][] = [
-  ["project", "pBy project"],
-  ["archived", "vArchived"],
-];
-for (const [order, tab] of orders) {
-  test(`HashRoute: an address of ${order} with no entry selects that order's view tab`, (t) =>
-    withApp(t.signal, { rows: rows(), address: { order, entry: null } }, (container) => {
-      assert.deepEqual(selectedViews(container), [tab]);
-    }));
-}
+// The inbox is App's default view, so its test reaches it from the archived view. The archived view mounts on its own
+// address.
+test("InboxTree: an archived address with no entry shows the archived view", (t) =>
+  withApp(t.signal, { rows: rows(), address: { view: "archived", entry: null } }, (container) => {
+    assert.equal(shownView(container), "archived");
+  }));
 
-test("HashRoute: an address of attention with no entry selects the attention view tab from another order's tab", (t) =>
-  withApp(t.signal, { rows: rows(), address: { order: "archived", entry: null } }, async (container, rerender) => {
-    assert.deepEqual(selectedViews(container), ["vArchived"]);
-    await rerender({ order: "attention", entry: null });
-    assert.deepEqual(selectedViews(container), ["aBy attention"]);
+test("InboxTree: an inbox address with no entry shows the inbox from the archived view", (t) =>
+  withApp(t.signal, { rows: rows(), address: { view: "archived", entry: null } }, async (container, rerender) => {
+    assert.equal(shownView(container), "archived");
+    await rerender({ view: "inbox", entry: null });
+    assert.equal(shownView(container), "inbox");
   }));
 
 test("HashRoute: a session address puts the cursor on that session's row and shows its reader", (t) =>
   withApp(
     t.signal,
-    { rows: rows(), address: { order: "attention", entry: { kind: "session", id: "s1" } } },
+    { rows: rows(), address: { view: "inbox", entry: { kind: "session", id: "s1" } } },
     (container) => {
       assert.equal(cursorKey(container), "session:s1");
       assert.equal(readerShown(container), true);
@@ -257,7 +251,7 @@ test("HashRoute: a session address puts the cursor on that session's row and sho
 test("HashRoute: a pane address with pane id %3 puts the cursor on that pane's row and shows its reader", (t) =>
   withApp(
     t.signal,
-    { rows: rows(), address: { order: "attention", entry: { kind: "pane", host: "box", pane: "%3" } } },
+    { rows: rows(), address: { view: "inbox", entry: { kind: "pane", host: "box", pane: "%3" } } },
     (container) => {
       assert.equal(cursorKey(container), "pane:box:%3");
       assert.equal(readerShown(container), true);
@@ -270,7 +264,7 @@ test("HashRoute: a step address puts the cursor on that step", (t) =>
     {
       rows: [waitingRow()],
       epics: firstEpic(),
-      address: { order: "attention", entry: { kind: "step", id: "s1" } },
+      address: { view: "inbox", entry: { kind: "step", id: "s1" } },
     },
     (container) => {
       assert.equal(cursorKey(container), "step:s1");
@@ -283,7 +277,7 @@ test("HashRoute: an epic address whose id holds a slash shows the epic page", (t
     {
       rows: [waitingRow()],
       epics: firstEpic(),
-      address: { order: "attention", entry: { kind: "epic", id: widgetsFirst, page: { kind: "epic" } } },
+      address: { view: "inbox", entry: { kind: "epic", id: widgetsFirst, page: { kind: "epic" } } },
     },
     (container) => {
       assert.equal(cursorKey(container), widgetsFirstKey);
@@ -298,7 +292,7 @@ test("HashRoute: a contract address shows the contract page over the epic page",
     {
       rows: [waitingRow()],
       epics: firstEpic({ summary: "Ship the demo", contract: acceptedContract }),
-      address: { order: "attention", entry: { kind: "epic", id: widgetsFirst, page: { kind: "contract" } } },
+      address: { view: "inbox", entry: { kind: "epic", id: widgetsFirst, page: { kind: "contract" } } },
     },
     async (container) => {
       assert.equal(epicPageShown(container), true);
@@ -315,7 +309,7 @@ test("HashRoute: a phase output address shows that phase's output over the epic 
       rows: [waitingRow()],
       epics: phaseEpic(),
       address: {
-        order: "attention",
+        view: "inbox",
         entry: { kind: "epic", id: widgetsFirst, page: { kind: "phase", task: "T1", phase: "checking" } },
       },
     },
@@ -337,7 +331,7 @@ test("HashRoute: a worker session address shows that session over the epic page"
       rows: [waitingRow()],
       epics: phaseEpic(),
       address: {
-        order: "attention",
+        view: "inbox",
         entry: {
           kind: "epic",
           id: widgetsFirst,
@@ -358,7 +352,7 @@ test("HashRoute: an epic in the ended earlier line opens its line and shows its 
     {
       epics: shippedEpic(),
       now: endedNow,
-      address: { order: "attention", entry: { kind: "epic", id: `${widgetsRepo}/shipped`, page: { kind: "epic" } } },
+      address: { view: "inbox", entry: { kind: "epic", id: `${widgetsRepo}/shipped`, page: { kind: "epic" } } },
     },
     (container) => {
       assert.equal(cursorKey(container), `epic:${widgetsRepo}/shipped`);
@@ -369,20 +363,20 @@ test("HashRoute: an epic in the ended earlier line opens its line and shows its 
 test("HashRoute: an address whose session the list does not hold yet opens once the rows arrive", (t) =>
   withApp(
     t.signal,
-    { rows: [], address: { order: "attention", entry: { kind: "session", id: "s1" } } },
+    { rows: [], address: { view: "inbox", entry: { kind: "session", id: "s1" } } },
     async (container, rerender) => {
       assert.equal(readerShown(container), false, "no row yet to open");
-      await rerender({ order: "attention", entry: { kind: "session", id: "s1" } }, { rows: rows() });
+      await rerender({ view: "inbox", entry: { kind: "session", id: "s1" } }, { rows: rows() });
       assert.equal(cursorKey(container), "session:s1");
       assert.equal(readerShown(container), true);
     },
   ));
 
 test("HashRoute: a rerender with a different address moves App to it", (t) =>
-  withApp(t.signal, { rows: rows(), address: { order: "attention", entry: null } }, async (container, rerender) => {
-    assert.deepEqual(selectedViews(container), ["aBy attention"]);
-    await rerender({ order: "project", entry: { kind: "session", id: "s1" } });
-    assert.deepEqual(selectedViews(container), ["pBy project"]);
+  withApp(t.signal, { rows: rows(), address: { view: "archived", entry: null } }, async (container, rerender) => {
+    assert.equal(shownView(container), "archived");
+    await rerender({ view: "inbox", entry: { kind: "session", id: "s1" } });
+    assert.equal(shownView(container), "inbox");
     assert.equal(cursorKey(container), "session:s1");
   }));
 
@@ -392,12 +386,12 @@ test("HashRoute: a rerender with the address App already shows changes nothing",
     {
       rows: [waitingRow()],
       epics: firstEpic({ summary: "Ship the demo", contract: acceptedContract }),
-      address: { order: "attention", entry: { kind: "epic", id: widgetsFirst, page: { kind: "epic" } } },
+      address: { view: "inbox", entry: { kind: "epic", id: widgetsFirst, page: { kind: "epic" } } },
     },
     async (container, rerender) => {
       await clickButton(container, ".epic-page", "Ship the demo");
       assert.equal(pageClass(container), "page drill", "the page drills into the contract");
-      await rerender({ order: "attention", entry: { kind: "epic", id: widgetsFirst, page: { kind: "contract" } } });
+      await rerender({ view: "inbox", entry: { kind: "epic", id: widgetsFirst, page: { kind: "contract" } } });
       assert.equal(pageClass(container), "page drill", "the address App shows is not opened again");
       assert.equal(container.querySelector('section.page[aria-label="epic"] article.contract') !== null, true);
     },
@@ -409,11 +403,11 @@ test("HashRoute: a rerender to an address with no entry closes an open epic page
     {
       rows: [waitingRow()],
       epics: firstEpic(),
-      address: { order: "attention", entry: { kind: "epic", id: widgetsFirst, page: { kind: "epic" } } },
+      address: { view: "inbox", entry: { kind: "epic", id: widgetsFirst, page: { kind: "epic" } } },
     },
     async (container, rerender) => {
       assert.equal(epicPageShown(container), true);
-      await rerender({ order: "attention", entry: null });
+      await rerender({ view: "inbox", entry: null });
       assert.equal(epicPageShown(container), false);
     },
   ));

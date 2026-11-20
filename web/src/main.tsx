@@ -125,7 +125,7 @@ function joinRefetch(held: Refetch | null, next: Refetch): Refetch {
 // the view App shows, and a failed report is dropped. The returned function stops reloading, aborts the stream, stops
 // the presence watch, aborts the notices watch and unmounts App. The page also watches the in-app notices its banner
 // shows until each ends; a notices stream that fails reopens after retryMs. The page's address is bound to the URL
-// hash: a loaded hash is given to App once the list its entry is in has answered, and falls back to its order when that
+// hash: a loaded hash is given to App once the list its entry is in has answered, and falls back to its view when that
 // list lacks the entry. App's reports are written to the history, and a popstate applies the address Back or Forward
 // lands on.
 //
@@ -198,7 +198,7 @@ export function start(
     entry.kind === "session" || entry.kind === "pane" ? rowsAnswered : epicsAnswered;
 
   // settleAddress decides the held address once the list its entry is in has answered. If that list holds the entry,
-  // the address stays as the prop and App opens it. If not, the prop becomes the address's order with no entry, and the
+  // the address stays as the prop and App opens it. If not, the prop becomes the address's view with no entry, and the
   // URL is replaced with that form.
   const settleAddress = () => {
     if (holding === null || !listAnswered(holding.entry)) {
@@ -210,7 +210,7 @@ export function start(
       address = pending;
       return;
     }
-    address = { order: pending.order, entry: null };
+    address = { view: pending.view, entry: null };
     window.history.replaceState(null, "", formatAddress(address));
   };
 
@@ -221,7 +221,7 @@ export function start(
       address = next;
       return;
     }
-    holding = { order: next.order, entry: next.entry };
+    holding = { view: next.view, entry: next.entry };
     settleAddress();
   };
 

@@ -11,7 +11,7 @@ import {
   type Pane,
   type Session,
 } from "./gen/orrery/v1/orrery_pb";
-import { byAttention, byProject, rowsFrom, splitArchived, type Row, type Section } from "./rows";
+import { byAttention, rowsFrom, splitArchived, type Row, type Section } from "./rows";
 
 function makePane(init: MessageInitShape<typeof PaneSchema>): Pane {
   return create(PaneSchema, { host: "box", session: "work", cwd: "/work/app", ...init });
@@ -296,7 +296,7 @@ test("byAttention omits sections with no rows", () => {
   assert.deepEqual(keysOf(byAttention(rows)), [["Seen", ["pane:box:%1"]]]);
 });
 
-test("byAttention and byProject leave the input rows in their original order", () => {
+test("byAttention leaves the input rows in their original order", () => {
   const rows = rowsFrom(
     [
       makePane({ id: "%1", state: "done", changed: 1n, seen: 1n }),
@@ -307,7 +307,6 @@ test("byAttention and byProject leave the input rows in their original order", (
   const before = rows.map((row) => row.key);
 
   byAttention(rows);
-  byProject(rows);
 
   assert.deepEqual(
     rows.map((row) => row.key),
@@ -315,25 +314,3 @@ test("byAttention and byProject leave the input rows in their original order", (
   );
 });
 
-test("byProject groups panes by directory and session rows under Sessions, in rank order", () => {
-  const rows = rowsFrom(
-    [
-      makePane({ id: "%1", host: "box", cwd: "/b/proj", label: "b-done", state: "done", changed: 1n, seen: 1n }),
-      makePane({ id: "%2", host: "box", cwd: "/a/proj", label: "a-wait", state: "waiting", changed: 1n, seen: 1n }),
-      makePane({ id: "%3", host: "box", cwd: "/b/proj", state: "working", changed: 9n, seen: 1n }),
-      makePane({ id: "%4", host: "box", cwd: "/c/quiet", state: "done", changed: 1n, seen: 1n }),
-      makePane({ id: "%5", host: "alpha", cwd: "/a/proj", label: "a-wait", state: "waiting", changed: 1n, seen: 1n }),
-      makePane({ id: "%6", host: "box", cwd: "/b/idle", state: "", changed: 0n, seen: 0n }),
-      makePane({ id: "%7", host: "box", cwd: "/a/proj", label: "a-wait", state: "waiting", changed: 1n, seen: 1n }),
-    ],
-    [makeSession({ id: "s-one", pane: "", state: "working", changed: "3", seen: "3" })],
-  );
-
-  assert.deepEqual(keysOf(byProject(rows)), [
-    ["/a/proj", ["pane:alpha:%5", "pane:box:%2", "pane:box:%7"]],
-    ["/b/proj", ["pane:box:%3", "pane:box:%1"]],
-    ["Sessions", ["session:s-one"]],
-    ["/b/idle", ["pane:box:%6"]],
-    ["/c/quiet", ["pane:box:%4"]],
-  ]);
-});

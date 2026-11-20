@@ -46,8 +46,6 @@ const shellSessionPrefix = "_orrery-shell-";
 // A Sessions.List row with no label reads this word as its line.
 const sessionLabel = "session";
 
-const sessionsTitle = "Sessions";
-
 const stateWaiting = "waiting";
 const stateWorking = "working";
 
@@ -168,36 +166,6 @@ export function byAttention(rows: Row[]): Section[] {
   return result;
 }
 
-// Arranges rows into one section per project directory, with session rows under Sessions.
-export function byProject(rows: Row[]): Section[] {
-  const projects = new Map<string, Row[]>();
-  const sessionRows: Row[] = [];
-  for (const row of rows) {
-    if (row.kind === "session") {
-      sessionRows.push(row);
-      continue;
-    }
-    const group = projects.get(row.project);
-    if (group) {
-      group.push(row);
-    } else {
-      projects.set(row.project, [row]);
-    }
-  }
-
-  const sections: Section[] = [...projects].map(([title, sectionRows]) => ({
-    title,
-    rows: sectionRows.sort(compareProjectRows),
-  }));
-  if (sessionRows.length > 0) {
-    sections.push({ title: sessionsTitle, rows: sessionRows.sort(compareProjectRows) });
-  }
-  return sections.sort(
-    (left, right) =>
-      rank(left.rows[0]) - rank(right.rows[0]) || compareStrings(left.title, right.title),
-  );
-}
-
 function isUnseen(state: string, changed: number, seen: number): boolean {
   return state !== "" && changed > seen;
 }
@@ -215,23 +183,7 @@ function rank(row: Row): number {
   return rankRest;
 }
 
-function compareProjectRows(left: Row, right: Row): number {
-  return (
-    rank(left) - rank(right) ||
-    compareStrings(left.host, right.host) ||
-    compareStrings(left.label, right.label) ||
-    compareStrings(left.key, right.key)
-  );
-}
-
 // parseSeconds reads a decimal session timestamp; anything non-numeric reads as zero.
 function parseSeconds(value: string): number {
   return /^\d+$/.test(value) ? Number(value) : 0;
-}
-
-function compareStrings(left: string, right: string): number {
-  if (left < right) {
-    return -1;
-  }
-  return left > right ? 1 : 0;
 }

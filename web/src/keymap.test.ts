@@ -148,3 +148,16 @@ test("AppSplit: a key typed in a textarea does nothing but Escape and Shift+Tab"
     box.remove();
   }
 });
+
+test("InboxTree: a and p do nothing, and v opens the archived view", () => {
+  for (const name of ["a", "p"]) {
+    const fake = fakeContext({ index: 0, flat: three });
+    const event = key(name);
+    handleKey(event, fake.context);
+    assert.deepEqual(fake.calls, [], `the ${name} key`);
+    assert.equal(event.defaultPrevented, false, `the ${name} key`);
+  }
+  const fake = fakeContext({ index: 0, flat: three });
+  handleKey(key("v"), fake.context);
+  assert.deepEqual(fake.calls, [["setView", "archived"]]);
+});

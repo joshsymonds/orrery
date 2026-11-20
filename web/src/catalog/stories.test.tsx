@@ -25,7 +25,7 @@ const wideWidth = 1280;
 // settleTurns is how many turns in a row the root's innerHTML must hold still before a story counts as settled.
 const settleTurns = 5;
 
-const attention: Address = { order: "attention", entry: null };
+const inbox: Address = { view: "inbox", entry: null };
 
 // storyDrew reports whether a story has drawn into root. The root must hold an element, and when PageStory's wrapper is
 // drawn, the wrapper must hold an element of its own that is not a failure. An empty wrapper, which PageStory draws when
@@ -273,7 +273,7 @@ test("StoryRenders: a page story whose fixture is called for a procedure it does
   const fixture = createFixtureTransport();
   const story = () => (
     <PageStory
-      address={attention}
+      address={inbox}
       fixture={fixture}
       after={async () => {
         // The fixture refuses the call and records it. The refusal is what the story is checked for, so the rejection is

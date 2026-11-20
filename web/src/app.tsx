@@ -18,7 +18,6 @@ import {
   epicsView,
   keepUnderCursor,
   noEpics,
-  placeEpics,
   type StepItem,
   withEpicsGroup,
 } from "./epics";
@@ -38,7 +37,6 @@ import {
   type Item,
   type KeyContext,
   type Popout,
-  type View,
 } from "./keymap";
 import { listHolds, listsEpic } from "./listholds";
 import { Mark } from "./mark";
@@ -51,8 +49,8 @@ import type { Phase } from "./phases";
 import { NewPanel } from "./picker";
 import { type Viewing, viewingOf } from "./presence";
 import type { ReaderHandle } from "./reader";
-import { type Address, type Entry, formatAddress, type PageView } from "./router";
-import { byAttention, byProject, type Row, type Section, splitArchived } from "./rows";
+import { type Address, type Entry, formatAddress, type PageView, type View } from "./router";
+import { byAttention, type Row, type Section, splitArchived } from "./rows";
 import { type SeenClock, type SeenWindow, watchSeen } from "./seen";
 import { type SendKind, type Sending, type SentText, sendingEntry, unsentEntries, withoutTexts } from "./sending";
 import { type FindState, headState, ReaderColumn, stepCalls } from "./readercolumn";
@@ -128,10 +126,10 @@ interface OpenedEpic {
   entry: Extract<Entry, { kind: "epic" }>;
 }
 
-// A pending open is the entry an opened address names, with the order it names. The entry is decided only in a pass whose
-// view is that order.
+// A pending open is the entry an opened address names, with the view it names. The entry is decided only in a pass whose
+// view is that view.
 interface PendingOpen {
-  order: View;
+  view: View;
   entry: Entry;
 }
 
@@ -191,7 +189,7 @@ export function App({
   address?: Address;
   onAddress?: (address: Address, mode: "push" | "replace") => void;
 }) {
-  const [view, setView] = useState<View>("attention");
+  const [view, setView] = useState<View>("inbox");
   const [cursor, setCursor] = useState<Cursor>({ key: "", index: 0 });
   const [filter, setFilter] = useState("");
   const [helpOpen, setHelpOpen] = useState(false);
@@ -326,7 +324,7 @@ export function App({
   // address is never carried to a later change. armed is whether the next cursor key pushes, and engaged whether any
   // cause has come since mount, which a change with no cause waits for. applied is set when an address is applied, and
   // the report after it takes the form App shows without reporting it. pendingOpen is the entry an address names, with its
-  // order, until it is applied or dropped, and pageCursor is the cursor key the epic page was last reset for.
+  // view, until it is applied or dropped, and pageCursor is the cursor key the epic page was last reset for.
   const lastForm = useRef<string | null>(null);
   const cause = useRef<"push" | "replace" | null>(null);
   const armed = useRef(false);
@@ -390,15 +388,14 @@ export function App({
   const cursorEpicId = endedOpen ? "" : (seenView.endedEarlier.find((item) => item.key === cursor.key)?.id ?? "");
   const kept = keepUnderCursor(seenView, cursorEpicId);
   // The needs of the live epics, in list order: a live epic's Get answer carries its Epic, and the details hold exactly
-  // the live epics. An archived epic's needs are left out. Only the attention view has the Needs you section that draws
-  // them.
+  // the live epics. An archived epic's needs are left out. Only the inbox has the Needs you section that draws them.
   const archivedIds = new Set(kept.archived.map((item) => item.id));
   const detailEpics = [...epics.details.values()].flatMap((detail) =>
     detail.epic === undefined || archivedIds.has(detail.epic.id) ? [] : [detail.epic],
   );
-  // The live epics' needs, which the mark counts in every view. Only the attention view draws them in its section.
+  // The live epics' needs, which the mark counts in every view. Only the inbox draws them in its section.
   const liveNeeds = epicNeeds(detailEpics, epics.details);
-  const needs = view === "attention" ? liveNeeds : [];
+  const needs = view === "inbox" ? liveNeeds : [];
   // The mark's count: the loaded rows that need you and are not archived, and the live epics' needs. It reads the same
   // in every view and under any filter, as the list reads every loaded row after seen writes.
   const markNeeds =
@@ -418,11 +415,9 @@ export function App({
   const inboxHidden = inboxState === "hidden";
   const keyPopped = inboxState === "flyout" && popout === "key";
   const sections =
-    view === "attention"
+    view === "inbox"
       ? withEpicsGroup(withNeedsSection(byAttention(defaultRows), needs.length > 0), kept)
-      : view === "project"
-        ? placeEpics(byProject(defaultRows), kept.blocks)
-        : [archivedSection(kept.archived, archivedRows)];
+      : [archivedSection(kept.archived, archivedRows)];
   const flat = sections.flatMap((section) => entriesOf(section, waitingOpen, endedOpen));
   // The open ⋯ menu's entry, when the list draws it: a menu whose entry is not drawn counts as closed.
   const menuDrawn = menuKey !== null && flat.some((item) => item.key === menuKey);
@@ -468,7 +463,7 @@ export function App({
   // cursor. So a render that moves the cursor reads the open page, and the page the cursor left is shown only once that
   // reset has run.
   const shownPage = pageCursor.current === cursorKey ? epicPage : openEpicPage;
-  const shownAddress: Address = { order: view, entry: shownEntry(cursorItem, shownPage) };
+  const shownAddress: Address = { view, entry: shownEntry(cursorItem, shownPage) };
   const shownForm = formatAddress(shownAddress);
 
   // The held cursor follows the entry shown, so a first render or a clamp does not leave it on a stale key.
@@ -1006,7 +1001,7 @@ export function App({
     moveTo(flat.findIndex((candidate) => candidate.key === item.key));
   });
 
-  // openView sets the order, as a view tab or the a, p and v keys do. It is an open.
+  // openView sets the view, as the v key and the foot's Archived and Back to the inbox do. It is an open.
   const openView = navigated(setView);
 
   // App reports its address after each render, once, when the form it shows differs from the one it last reported or
@@ -1084,8 +1079,8 @@ export function App({
       lastForm.current = shownForm;
       return;
     }
-    setView(address.order);
-    pendingOpen.current = address.entry === null ? null : { order: address.order, entry: address.entry };
+    setView(address.view);
+    pendingOpen.current = address.entry === null ? null : { view: address.view, entry: address.entry };
     if (address.entry === null && !first && epicEntry !== null) {
       setEpicPage(closedEpicPage);
     }
@@ -1094,7 +1089,7 @@ export function App({
     }
   }, [addressForm]);
 
-  // The pending entry is decided in the first pass whose view is its address's order, so a pass still on the old view
+  // The pending entry is decided in the first pass whose view is its address's view, so a pass still on the old view
   // decides nothing. Until the loaded list holds the entry, App keeps waiting: the rows and epics it is given, unfiltered
   // and unmarked, are the check start() makes. Once they hold it, the view either shows it or hides it. A shown entry
   // opens: a row or step moves the cursor to its key and opens the row, as a click does, with no seen write and no reply
@@ -1104,7 +1099,7 @@ export function App({
   // declared after the held cursor's effect, so its cursor move wins over that effect in the commit it applies.
   useEffect(() => {
     const pending = pendingOpen.current;
-    if (pending === null || pending.order !== view) {
+    if (pending === null || pending.view !== view) {
       return;
     }
     if (!listHolds(pending, rows, epics)) {
@@ -1417,17 +1412,6 @@ export function App({
                 onInput={(event) => setFilter(event.currentTarget.value)}
               />
             </div>
-            <div class="views">
-              <span class={view === "attention" ? "view on" : "view"} onClick={() => openView("attention")}>
-                <kbd>a</kbd>By attention
-              </span>
-              <span class={view === "project" ? "view on" : "view"} onClick={() => openView("project")}>
-                <kbd>p</kbd>By project
-              </span>
-              <span class={view === "archived" ? "view on" : "view"} onClick={() => openView("archived")}>
-                <kbd>v</kbd>Archived
-              </span>
-            </div>
             <button type="button" class="keys-hint" aria-label="Keys" title="Keys  ?" onClick={() => setHelpOpen(true)}>
               <svg class="icon" viewBox="0 0 16 16" aria-hidden="true">
                 <path d="M3.5 4h9A1.5 1.5 0 0 1 14 5.5v5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 10.5v-5A1.5 1.5 0 0 1 3.5 4zM5 7h.5M7.8 7h.5M10.6 7h.5M5.5 9.5h5" />
@@ -1569,6 +1553,18 @@ export function App({
               </div>
             ))}
           </div>
+          <footer class="inbox-foot">
+            {view === "archived" ? (
+              <button type="button" class="btn quiet" onClick={() => openView("inbox")}>
+                <span>Back to the inbox</span>
+              </button>
+            ) : (
+              <button type="button" class="btn quiet" onClick={() => openView("archived")}>
+                <span>Archived</span>
+                <kbd>v</kbd>
+              </button>
+            )}
+          </footer>
         </div>
         <ReaderColumn
           column="cursor"

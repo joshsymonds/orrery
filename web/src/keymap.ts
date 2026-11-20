@@ -5,9 +5,7 @@ import type { Pane } from "./gen/orrery/v1/orrery_pb";
 import { stateWaiting } from "./inboxrow";
 import { headState } from "./readercolumn";
 import type { Row } from "./rows";
-
-// The views the list shows, which a, p and v choose.
-export type View = "attention" | "project" | "archived";
+import type { View } from "./router";
 
 // How a hidden inbox came out over the page: by the pointer on the mark, or by a key. Only a key pop-out is tucked by
 // Escape.
@@ -30,7 +28,7 @@ export interface BoxOpen {
 }
 
 // The keys that act on the list. While the inbox is hidden, one of them pops it out by key and does nothing else.
-const inboxListKeys = new Set(["j", "k", "ArrowDown", "ArrowUp", "g", "G", "/", "a", "p", "v"]);
+const inboxListKeys = new Set(["j", "k", "ArrowDown", "ArrowUp", "g", "G", "/", "v"]);
 
 // isRow tells a row from an epic or step entry by its kind.
 export function isRow(item: Item): item is Row {
@@ -225,12 +223,6 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
       break;
     case "G":
       moveTo(flat.length - 1);
-      break;
-    case "a":
-      setView("attention");
-      break;
-    case "p":
-      setView("project");
       break;
     case "v":
       setView("archived");

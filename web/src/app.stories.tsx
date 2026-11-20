@@ -1,4 +1,4 @@
-// The stories of App: the three inbox orders, and each kind of page App shows, each drawn by PageStory at an address
+// The stories of App: the inbox and the archived view, and each kind of page App shows, each drawn by PageStory at an address
 // over the fixture slices. Page holds the states of the live scenarios: the address that names a state draws it, and
 // where none does, an after step clicks the way there.
 
@@ -16,11 +16,11 @@ const holder = "orrery/holder-scopes";
 const headlessSession = "4be0c6d2-8f3a-4c71-9e25-ephemeris001";
 const workerStep = "st-rota-t2-impl";
 
-const attention: Address = { order: "attention", entry: null };
+const inbox: Address = { view: "inbox", entry: null };
 
-// epicAt is the address of an epic's page, or of a sub-page under it, in the attention inbox.
+// epicAt is the address of an epic's page, or of a sub-page under it, in the inbox.
 function epicAt(id: string, page: PageView): Address {
-  return { order: "attention", entry: { kind: "epic", id, page } };
+  return { view: "inbox", entry: { kind: "epic", id, page } };
 }
 
 // immediate is the process's own setImmediate, where there is one, taken when this module loads. A test's act holds the
@@ -139,12 +139,11 @@ const rosterRows: PickerRowInit[] = [
 ];
 
 export const App: Stories = {
-  attention: () => <PageStory address={attention} />,
-  project: () => <PageStory address={{ order: "project", entry: null }} />,
-  archived: () => <PageStory address={{ order: "archived", entry: null }} />,
-  session: () => <PageStory address={{ order: "attention", entry: { kind: "session", id: headlessSession } }} />,
-  pane: () => <PageStory address={{ order: "attention", entry: { kind: "pane", host: "halyard", pane: "%13" } }} />,
-  step: () => <PageStory address={{ order: "attention", entry: { kind: "step", id: workerStep } }} />,
+  inbox: () => <PageStory address={inbox} />,
+  archived: () => <PageStory address={{ view: "archived", entry: null }} />,
+  session: () => <PageStory address={{ view: "inbox", entry: { kind: "session", id: headlessSession } }} />,
+  pane: () => <PageStory address={{ view: "inbox", entry: { kind: "pane", host: "halyard", pane: "%13" } }} />,
+  step: () => <PageStory address={{ view: "inbox", entry: { kind: "step", id: workerStep } }} />,
   epic: () => <PageStory address={epicAt(rota, { kind: "epic" })} />,
   contract: () => <PageStory address={epicAt(rota, { kind: "contract" })} />,
   phase: () => <PageStory address={epicAt(rota, { kind: "phase", task: "T2", phase: "implementing" })} />,
@@ -154,10 +153,10 @@ export const App: Stories = {
 };
 
 // convoWorkingAt is the reader of pane %11, the page the New session and the key list are drawn over.
-const convoWorkingAt: Address = { order: "attention", entry: { kind: "pane", host: "halyard", pane: "%11" } };
+const convoWorkingAt: Address = { view: "inbox", entry: { kind: "pane", host: "halyard", pane: "%11" } };
 
 export const Page: Stories = {
-  "inbox-home": () => <PageStory address={attention} />,
+  "inbox-home": () => <PageStory address={inbox} />,
   "epic-question": () => <PageStory address={epicAt(rota, { kind: "epic" })} />,
   "epic-shipped": () => <PageStory address={epicAt(holder, { kind: "epic" })} />,
   "contract-to-accept": () => <PageStory address={epicAt(tide, { kind: "contract" })} />,
@@ -181,7 +180,7 @@ export const Page: Stories = {
   "convo-working": () => <PageStory address={convoWorkingAt} />,
   "ask-session": () => (
     <PageStory
-      address={attention}
+      address={inbox}
       after={(root) => clickWhen(root, '.list .b-row[data-key="pane:halyard:%12"]')}
     />
   ),

@@ -56,7 +56,7 @@ function row(init: Partial<Row> & Pick<Row, "key">): Row {
   };
 }
 
-// fixture has one row that needs you, one working and one done, in attention order.
+// fixture has one row that needs you, one working and one done, in inbox order.
 function fixture(): Row[] {
   return [
     row({
@@ -205,7 +205,7 @@ test("InboxFlyout: Enter on the cursor's row hides the inbox as a click does", (
     assert.equal(paneState(container), "hidden");
   }));
 
-test("InboxFlyout: the mark's count is the waiting rows not archived plus the live epics' needs, and holds in the project view and under a filter", (t) => {
+test("InboxFlyout: the mark's count is the waiting rows not archived plus the live epics' needs, and holds under a filter", (t) => {
   const epic = makeEpic("first");
   const detail = create(EpicsGetResponseSchema, { epic, questions: [{ id: "Q1", text: "Which way?" }] });
   const epics = epicsView([epic], new Map([[epic.id, detail]]));
@@ -220,8 +220,6 @@ test("InboxFlyout: the mark's count is the waiting rows not archived plus the li
   });
   return withInbox(t.signal, { rows: [...fixture(), archived], epics }, async (container) => {
     assert.equal(markCount(container), "2", "one waiting row and one epic need");
-    await press("p");
-    assert.equal(markCount(container), "2", "the project view");
     await press("/");
     await act(() => {
       const input = container.querySelector<HTMLInputElement>('input[aria-label="filter rows"]');

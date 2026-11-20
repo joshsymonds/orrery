@@ -307,7 +307,7 @@ function row(init: Partial<Row> & Pick<Row, "key">): Row {
   };
 }
 
-// Attention order: a (needs you), c (new), b (working), d (seen). Project order: a, d, c, b.
+// Inbox order: a (needs you), c (new), b (working), d (seen).
 function fixture(): Row[] {
   return [
     row({
@@ -697,27 +697,6 @@ test("G goes to the last row", (t) =>
     assert.equal(cursorKey(container), "d");
   }));
 
-test("a shows rows by attention and keeps the cursor's row", (t) =>
-  withApp(t.signal, {}, async (container) => {
-    await press("p");
-    await press("j");
-    assert.equal(cursorKey(container), "d");
-    await press("a");
-    assert.deepEqual(rowKeys(container), ["a", "c", "b", "d"]);
-    assert.equal(cursorKey(container), "d");
-    assert.deepEqual(sectionTitles(container), ["Needs you", "New since you looked", "Working", "Seen"]);
-  }));
-
-test("p shows rows by project and keeps the cursor's row", (t) =>
-  withApp(t.signal, {}, async (container) => {
-    await press("j");
-    assert.equal(cursorKey(container), "c");
-    await press("p");
-    assert.deepEqual(rowKeys(container), ["a", "d", "c", "b"]);
-    assert.equal(cursorKey(container), "c");
-    assert.deepEqual(sectionTitles(container), ["/work/api", "/work/docs", "/work/web"]);
-  }));
-
 test("w goes to the first waiting row and does nothing when no row waits", (t) =>
   withApp(t.signal, {}, async (container, fake) => {
     await press("G");
@@ -993,30 +972,18 @@ test("reply text renders as text, never as markup", (t) =>
     },
   ));
 
-test("an empty project title shows the row's host", (t) =>
-  withApp(t.signal, { rows: [row({ key: "p", project: "", host: "box", state: "working" })] }, async (container) => {
-    await press("p");
-    assert.deepEqual(sectionTitles(container), ["box"]);
-  }));
-
-test("an empty project title with no host shows no directory", (t) =>
-  withApp(t.signal, { rows: [row({ key: "p", project: "", host: "", state: "working" })] }, async (container) => {
-    await press("p");
-    assert.deepEqual(sectionTitles(container), ["no directory"]);
-  }));
-
-test("the brand, filter, and views sit inside the list, above its rows, and no top block is outside it", (t) =>
+test("the brand and filter sit inside the list, above its rows, the foot under them, and no top block is outside it", (t) =>
   withApp(t.signal, {}, (container) => {
-    assert.deepEqual(listChildren(container), ["top", "rows"]);
-    assert.deepEqual(topChildren(container), ["brand", "filter", "views", "keys-hint"]);
+    assert.deepEqual(listChildren(container), ["top", "rows", "inbox-foot"]);
+    assert.deepEqual(topChildren(container), ["brand", "filter", "keys-hint"]);
     assert.deepEqual(outsideList(container, ".top, .error"), []);
   }));
 
 test("a non-empty error shows one line in the top block, above the rows", (t) =>
   withApp(t.signal, { error: "list unavailable" }, (container) => {
     assert.equal(container.querySelector('[role="alert"]')?.textContent, "list unavailable");
-    assert.deepEqual(topChildren(container), ["brand", "filter", "views", "keys-hint", "error"]);
-    assert.deepEqual(listChildren(container), ["top", "rows"]);
+    assert.deepEqual(topChildren(container), ["brand", "filter", "keys-hint", "error"]);
+    assert.deepEqual(listChildren(container), ["top", "rows", "inbox-foot"]);
     assert.deepEqual(outsideList(container, ".error"), []);
   }));
 
@@ -2707,20 +2674,12 @@ test("a double click on a row writes seen for that row, as Enter does for the cu
     assert.deepEqual(fake.callsTo(markPanePath)[0].body, { pane: "c" });
   }));
 
-test("a click on the view labels switches the view as a and p do", (t) =>
+test("InboxTree: the list draws no view tabs, and v opens the archived view", (t) =>
   withApp(t.signal, {}, async (container) => {
-    const labels = container.querySelectorAll<HTMLElement>(".views .view");
-    assert.equal(labels.length, 3);
-    await act(() => {
-      labels[1].dispatchEvent(clickEvent());
-    });
-    assert.equal(container.querySelector(".rows")?.getAttribute("data-list"), "project");
-    assert.deepEqual(rowKeys(container), ["a", "d", "c", "b"]);
-    await act(() => {
-      labels[0].dispatchEvent(clickEvent());
-    });
-    assert.equal(container.querySelector(".rows")?.getAttribute("data-list"), "attention");
-    assert.deepEqual(rowKeys(container), ["a", "c", "b", "d"]);
+    assert.equal(container.querySelector(".views"), null, "the list draws no view tabs");
+    assert.equal(container.querySelector(".rows")?.getAttribute("data-list"), "inbox");
+    await press("v");
+    assert.equal(container.querySelector(".rows")?.getAttribute("data-list"), "archived");
   }));
 
 const linkedRows = fixture().map((item) =>
@@ -3105,7 +3064,7 @@ test("TitleParts: a Sessions.List row with no label shows the word session as it
     },
   ));
 
-test("TitleParts: in the by-project view a session row and a pane row still draw their directory, and no display: none rule in style.css hides .title-dir", (t) =>
+test("TitleParts: in the inbox a session row and a pane row still draw their directory, and no display: none rule in style.css hides .title-dir", (t) =>
   withApp(
     t.signal,
     {
@@ -3115,8 +3074,7 @@ test("TitleParts: in the by-project view a session row and a pane row still draw
       ],
     },
     async (container) => {
-      await press("p");
-      assert.equal(container.querySelector(".rows")?.getAttribute("data-list"), "project");
+      assert.equal(container.querySelector(".rows")?.getAttribute("data-list"), "inbox");
       assert.equal(rowElement(container, "p").querySelector(".title-dir")?.textContent, "api");
       assert.equal(rowElement(container, "s").querySelector(".title-dir")?.textContent, "app");
       const css = readFileSync(new URL("../src/style.css", import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
@@ -3650,29 +3608,6 @@ test("a held step draws its mark, and reads held with its reason, or held alone 
     assert.equal(reasoned.querySelector(".held")?.textContent, "held · waiting on review");
     assert.equal(reasoned.querySelector(".reply") === null, true, "a held step shows no doing text");
     assert.equal(rowElement(container, "step:s2").querySelector(".held")?.textContent, "held");
-  });
-});
-
-test("by project, an epic sits atop its folder, and an epic with no folder gets a section of its own", (t) => {
-  const rows = [
-    row({ key: "p", project: "/work/orrery", state: "working" }),
-    row({ key: "q", project: "/work/api", state: "working" }),
-  ];
-  const shipping = makeEpic("orrery-5d0c1a7", "ship");
-  const stray = makeEpic(gadgetsRepo, "second");
-  const epics = epicsView([shipping, stray], new Map());
-  return withApp(t.signal, { rows, epics }, async (container) => {
-    await press("p");
-    assert.deepEqual(sectionTitles(container), ["/work/api", "/work/orrery", gadgetsRepo]);
-    assert.deepEqual(rowKeys(container), ["q", epicKey(shipping), "p", epicKey(stray)]);
-  });
-});
-
-test("an unmatched epic with no repository name is titled no directory in project view", (t) => {
-  const epics = epicsView([makeEpic("", "loose")], new Map());
-  return withApp(t.signal, { rows: [], epics }, async (container) => {
-    await press("p");
-    assert.deepEqual(sectionTitles(container), ["no directory"]);
   });
 });
 
@@ -4373,9 +4308,9 @@ test("keys typed in the Something else box are text: j and p do nothing there, a
     await clickCard(container, 3);
     const box = container.querySelector<HTMLTextAreaElement>('.now-block textarea[aria-label="answer"]');
     assert.ok(box, "Something else shows its text box");
-    const viewOn = () => container.querySelector(".views .view.on")?.textContent ?? null;
+    const viewOn = () => container.querySelector(".rows")?.getAttribute("data-list") ?? null;
     const cursor = cursorKey(container);
-    assert.equal(viewOn(), "aBy attention", "the view starts by attention");
+    assert.equal(viewOn(), "inbox", "the view starts on the inbox");
     await act(() => {
       box.focus();
     });
@@ -4385,7 +4320,7 @@ test("keys typed in the Something else box are text: j and p do nothing there, a
     assert.equal(epicPageShown(container), true, "j in the answer box leaves the epic page open");
     assert.equal(jEvent.defaultPrevented, false, "j in the answer box is text, not a handled key");
     await pressIn(box, "p");
-    assert.equal(viewOn(), "aBy attention", "p in the answer box leaves the view");
+    assert.equal(viewOn(), "inbox", "p in the answer box leaves the view");
     assert.equal(document.activeElement === box, true, "the answer box keeps focus through list keys");
     await pressIn(box, "Escape");
     assert.equal(document.activeElement === box, false, "Escape blurs the answer box");
