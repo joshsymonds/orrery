@@ -1271,7 +1271,7 @@ button.tr:hover { background: var(--o-surface-well); }
 .contract .tbl:has(> .tr[data-row^="P"]) { --cols: auto minmax(0, 1fr) minmax(0, 1fr); --cols-touch: auto minmax(0, 1fr); }
 .contract .tbl:has(> .tr[data-row^="D"]) { --cols: auto minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr); --cols-touch: auto minmax(0, 1fr); }
 .contract .tbl:has(> .tr > .id:first-child) { --cols: auto minmax(0, 1.4fr) minmax(0, 1fr) auto; --cols-touch: auto minmax(0, 1fr) auto; }
-.contract .tbl:has(> .tr > span:first-child > .chip) { --cols: auto auto minmax(0, 1fr) minmax(0, 1.6fr); --cols-touch: auto minmax(0, 1fr); }
+.contract .tbl.versions { --cols: auto auto minmax(0, 1fr) minmax(0, 1.6fr); --cols-touch: auto minmax(0, 1fr); }
 
 /* A button: raised by default, quiet with no fill, primary for the one action, and dimmed in ink when disabled. */
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--o-space-8); flex: none; max-width: 100%; min-width: 0; height: var(--o-size-control-desk); padding: 0 var(--o-space-12); border: 0; border-radius: var(--o-radius-2); background: var(--o-surface-raised); color: var(--o-ink-1); font: var(--o-type-small); white-space: nowrap; transition: background var(--o-move-press), transform var(--o-move-press); }
@@ -1286,7 +1286,7 @@ button.link { min-height: 0; padding: 0; border: 0; border-radius: 0; background
 
 /* The record: its document, the older-version banner, and the command bar that accepts, sets aside or reopens it. */
 .contract-record { display: grid; gap: var(--o-space-32); min-width: 0; }
-.cmdbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-8); flex: none; padding: var(--o-space-8); border-top: var(--o-size-hairline) solid var(--o-line-soft); background: var(--o-surface-well); }
+.cmdbar { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-8); flex: none; padding: var(--o-space-8); border-top: var(--o-size-hairline) solid var(--o-line-soft); background: var(--o-surface-well); }
 .cmdbar .inote { min-width: 0; }
 .cmdbar .end { display: inline-flex; flex-wrap: wrap; gap: var(--o-space-4); margin-left: auto; flex: none; }
 

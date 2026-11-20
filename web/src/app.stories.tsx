@@ -289,7 +289,9 @@ export const Page: Stories = {
           section.scrollIntoView(),
         );
         await whenDrawn(root, ".cmdbar", "Nothing is left to settle.", () => {});
-        await whenDrawn(root, "section.dline", "", (line) => line.scrollIntoView());
+        await whenDrawn(root, ".rcard", "", (panel) => {
+          panel.scrollTop = 0;
+        });
       }}
     />
   ),
