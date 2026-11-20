@@ -132,6 +132,14 @@ class DockQueueTrayTest {
     }
 
     @Test
+    fun paneWithOnlyCancelledRowsDrawsNoTakeAllBack() {
+        tray(listOf(row("row-a", "gone", cancelled = true)), pane = true)
+
+        composeRule.onNodeWithText("dropped when the turn was cancelled").assertIsDisplayed()
+        composeRule.onAllNodesWithTag("dock-take-all-back").assertCountEquals(0)
+    }
+
+    @Test
     fun paneLiveRowDrawsNoRowControl() {
         tray(listOf(row("row-a", "live")), pane = true)
 

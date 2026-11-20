@@ -41,12 +41,13 @@ class DockStateWordsTest {
         held: Boolean,
         turnSince: Long = 0L,
         tool: DockTool? = null,
+        doing: String = "",
     ) = facts(
         kind = DockKind.STEP,
         state = "working",
         turnSince = turnSince,
         tool = tool,
-        step = DockStep("the build step", held),
+        step = DockStep("the build step", held, doing),
     )
 
     private fun line(facts: DockFacts, zone: java.time.ZoneId = this.zone) = stateLine(facts, now, zone)
@@ -56,6 +57,14 @@ class DockStateWordsTest {
         assertEquals(
             StateLine("held", "held", "", "", "", DockControl.NONE),
             line(stepFacts(held = true)),
+        )
+    }
+
+    @Test
+    fun heldStepSaysWhatTheStepIsDoing() {
+        assertEquals(
+            StateLine("held", "held", "", "running the build", "", DockControl.NONE),
+            line(stepFacts(held = true, doing = "running the build")),
         )
     }
 

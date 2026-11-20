@@ -1,22 +1,34 @@
 package io.github.joshsymonds.orrery.ui
 
+import androidx.activity.ComponentActivity
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.PendingItem
+import io.github.joshsymonds.orrery.api.Reply
+import io.github.joshsymonds.orrery.api.StreamEnd
 import io.github.joshsymonds.orrery.awaitUntil
-import io.github.joshsymonds.orrery.mainThreadComposeRule
+import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationItem as ConversationItemProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState
+import io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession
+import io.github.joshsymonds.orrery.gen.orrery.v1.PendingEvent
+import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationResponse
+import io.github.joshsymonds.orrery.mainThreadAndroidComposeRule
 import java.util.concurrent.CopyOnWriteArrayList
-import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -29,12 +41,14 @@ private const val SPEAK_ONE = "1 event waits until you speak"
 private const val SPEAK_TWO = "2 events wait until you speak"
 private const val REQUEST_ONE = "1 event waits on the question you put off"
 private const val REPLY = "a reply"
+private const val WATCH_PATH = "/orrery.v1.Sessions/WatchConversation"
+private const val TRANSCRIPT_ID = "0123456789abcdef0123456789abcdef"
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class DockWaitsTest {
     @get:Rule
-    val composeRule = mainThreadComposeRule()
+    val composeRule = mainThreadAndroidComposeRule<ComponentActivity>()
 
     private val sent = CopyOnWriteArrayList<String>()
 
@@ -106,6 +120,50 @@ class DockWaitsTest {
             composeRule.onAllNodesWithTag(WAITS_TAG).fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithTag(WAITS_TAG).assertTextEquals(SPEAK_TWO)
+    }
+
+    @Test
+    fun pendingEventsDrawNoTranscriptEntryWhileTheWaitsLineShows() {
+        FakeOrreryServer().use { server ->
+            server.route(WATCH_PATH) { Reply.Stream(listOf(transcriptDelta()), StreamEnd.Open) }
+            composeRule.setContent {
+                MaterialTheme {
+                    SessionScreen(TRANSCRIPT_ID, OrreryClient(server.baseUrl))
+                }
+            }
+
+            composeRule.awaitUntil("the reply is drawn") {
+                composeRule.onAllNodesWithText(REPLY).fetchSemanticsNodes().isNotEmpty()
+            }
+            composeRule.onNodeWithTag(WAITS_TAG).assertTextEquals(SPEAK_ONE)
+            composeRule.onAllNodes(entryRow).assertCountEquals(1)
+        }
+    }
+
+    private fun transcriptDelta(): SessionsWatchConversationResponse =
+        SessionsWatchConversationResponse.newBuilder()
+            .setTranscript(TRANSCRIPT_ID)
+            .setSeq(1L)
+            .addItems(ConversationItemProto.newBuilder().setKind("reply").setText(REPLY).build())
+            .setState(
+                ConversationState.newBuilder()
+                    .setOrigin("synthetic origin")
+                    .setSession(
+                        HeadlessSession.newBuilder()
+                            .setId(TRANSCRIPT_ID)
+                            .setDir("/home/user/project")
+                            .setLabel("example-label")
+                            .setState("done"),
+                    )
+                    .addPending(
+                        PendingEvent.newBuilder().setId("synthetic-event").setKind("step_end").setWaits("speak"),
+                    ),
+            )
+            .build()
+
+    /** One transcript entry, drawn under the tag the conversation gives each row. */
+    private val entryRow = SemanticsMatcher("a transcript entry") { node ->
+        node.config.getOrNull(SemanticsProperties.TestTag)?.startsWith("entry-row:") == true
     }
 
     private fun event(waits: String) = PendingItem(id = "synthetic-event", kind = "message", waits = waits)

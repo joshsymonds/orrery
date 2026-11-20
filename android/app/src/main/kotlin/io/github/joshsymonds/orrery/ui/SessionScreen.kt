@@ -43,9 +43,10 @@ private fun unfinishedReplies(held: StreamedConversation): List<ConvoEntry> =
 
 /**
  * A labelled step's session on the step screen: its owner's calls are Hold and Stop, and a message to it
- * is a nudge. [held] is the step's held state, so a held step shows no Hold. [label] names the step in the dock.
+ * is a nudge. [held] is the step's held state, so a held step shows no Hold. [label] names the step in the dock,
+ * and [doing] says what the step is doing there.
  */
-data class StepMode(val held: Boolean, val label: String)
+data class StepMode(val held: Boolean, val label: String, val doing: String = "")
 
 /**
  * A headless session's screen: its conversation, streamed while the screen is started. Each delta is
@@ -174,7 +175,7 @@ fun SessionScreen(
                 pane = pane,
                 streamed = held,
                 reason = reason,
-                step = step?.let { DockStep(it.label, it.held) },
+                step = step?.let { DockStep(it.label, it.held, it.doing) },
             ),
             nowSeconds = nowSeconds,
             client = client,

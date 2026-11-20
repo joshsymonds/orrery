@@ -38,7 +38,8 @@ data class DockTrayRow(val key: String, val text: String, val cancelled: Boolean
 /**
  * The queued messages on the dock, oldest first, under a head with the tray's label and why. A session's
  * live row can be taken back into the box, a discarded one put back; a pane's rows come back all together
- * from the head. Send now is drawn on a session's head only while it is working. Nothing is drawn with no rows.
+ * from the head, and Take all back is drawn there only while a row is not cancelled. Send now is drawn on a session's
+ * head only while it is working. Nothing is drawn with no rows.
  */
 @Composable
 fun DockTray(
@@ -94,7 +95,9 @@ private fun TrayHead(
             style = OrreryTokens.Type.small,
         )
         if (pane) {
-            TrayTextControl(label = "Take all back", tag = "dock-take-all-back", onClick = onTakeAllBack)
+            if (rows.any { !it.cancelled }) {
+                TrayTextControl(label = "Take all back", tag = "dock-take-all-back", onClick = onTakeAllBack)
+            }
         } else if (working && onSendNow != null) {
             TrayTextControl(label = "Send now", tag = "dock-send-now", onClick = onSendNow)
         }

@@ -234,6 +234,50 @@ class DockQueueTest {
     }
 
     @Test
+    fun refusedSecondSayAfterATypedDraftLeavesTheSecondAndThirdAfterIt() {
+        server.respond(INTERRUPT_PATH, InterruptResponse.newBuilder().addAllTexts(LIST_OF_THREE).build())
+        server.route(SAY_PATH) { request ->
+            if (SayRequest.parseFrom(request.body).text == "second") {
+                Reply.Failure(Code.FAILED_PRECONDITION, REFUSAL_REASON, 0L)
+            } else {
+                Reply.Message(SayResponse.getDefaultInstance(), 0L)
+            }
+        }
+        val draft = typedDraft()
+        setDock(draft = draft, facts = workingSession(), queued = listOf(queued(PROMPT_ID, LIVE_TEXT)))
+
+        composeRule.onNodeWithTag(SEND_NOW_TAG).performClick()
+        composeRule.awaitUntil("the held texts are after the draft") { draft.text == "$TYPED\n\nsecond\n\nthird" }
+        composeRule.waitForIdle()
+
+        assertEquals(listOf(INTERRUPT_PATH, SAY_PATH, SAY_PATH), server.requests.map { it.rawPath })
+        assertEquals(listOf("first", "second"), server.requests.drop(1).map { SayRequest.parseFrom(it.body).text })
+        composeRule.onNodeWithText(DockLines.sendNowHeld(2)).assertIsDisplayed()
+    }
+
+    @Test
+    fun unansweredSecondSayAfterATypedDraftLeavesTheSecondAndThirdAfterIt() {
+        server.respond(INTERRUPT_PATH, InterruptResponse.newBuilder().addAllTexts(LIST_OF_THREE).build())
+        server.route(SAY_PATH) { request ->
+            if (SayRequest.parseFrom(request.body).text == "second") {
+                Reply.Drop
+            } else {
+                Reply.Message(SayResponse.getDefaultInstance(), 0L)
+            }
+        }
+        val draft = typedDraft()
+        setDock(draft = draft, facts = workingSession(), queued = listOf(queued(PROMPT_ID, LIVE_TEXT)))
+
+        composeRule.onNodeWithTag(SEND_NOW_TAG).performClick()
+        composeRule.awaitUntil("the held texts are after the draft") { draft.text == "$TYPED\n\nsecond\n\nthird" }
+        composeRule.waitForIdle()
+
+        assertEquals(listOf(INTERRUPT_PATH, SAY_PATH, SAY_PATH), server.requests.map { it.rawPath })
+        assertEquals(listOf("first", "second"), server.requests.drop(1).map { SayRequest.parseFrom(it.body).text })
+        composeRule.onNodeWithText(DockLines.sendNowHeld(2)).assertIsDisplayed()
+    }
+
+    @Test
     fun interruptTextsLandInTheBoxInOrder() {
         server.respond(INTERRUPT_PATH, InterruptResponse.newBuilder().addTexts("alpha").addTexts("beta").build())
         val draft = DockDraft()

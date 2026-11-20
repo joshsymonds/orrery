@@ -146,6 +146,7 @@ class MainActivity : ComponentActivity() {
                                                     held = it.held,
                                                     back = current,
                                                     label = it.task.ifEmpty { it.agent },
+                                                    doing = it.doing,
                                                 )
                                             },
                                             onOpenContract = { screen = Screen.Contract(current.id) },
@@ -184,6 +185,7 @@ class MainActivity : ComponentActivity() {
                                                     held = it.held,
                                                     back = current,
                                                     label = it.task.ifEmpty { it.agent },
+                                                    doing = it.doing,
                                                 )
                                             },
                                         )
@@ -203,7 +205,11 @@ class MainActivity : ComponentActivity() {
                                             sessionId = current.id,
                                             client = client,
                                             onBack = { screen = current.back },
-                                            step = StepMode(held = current.held, label = current.label),
+                                            step = StepMode(
+                                                held = current.held,
+                                                label = current.label,
+                                                doing = current.doing,
+                                            ),
                                         )
                                     }
                                     is Screen.Talk -> {
@@ -370,9 +376,16 @@ class MainActivity : ComponentActivity() {
 
         /**
          * A step's session, reached from its epic or from a task's phase output: back returns to [back]. [held] is the
-         * step's held state when it was opened, and [label] names the step in its dock.
+         * step's held state when it was opened, and [label] and [doing] name the step and say what it is doing in its
+         * dock.
          */
-        data class Step(val id: String, val held: Boolean, val back: Screen, val label: String) : Screen
+        data class Step(
+            val id: String,
+            val held: Boolean,
+            val back: Screen,
+            val label: String,
+            val doing: String,
+        ) : Screen
 
         /** An epic's Talk list, reached from the epic's title row: back returns to the epic. */
         data class Talk(val epicId: String) : Screen

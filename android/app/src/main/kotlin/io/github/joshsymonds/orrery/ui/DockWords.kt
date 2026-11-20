@@ -7,7 +7,8 @@ enum class DockKind { SESSION, PANE, SHELL, STEP }
 
 data class DockTool(val name: String, val arg: String, val start: Long)
 
-data class DockStep(val label: String, val held: Boolean)
+/** A step's dock facts: [doing] is what the step is doing, which a held step's state line says. */
+data class DockStep(val label: String, val held: Boolean, val doing: String = "")
 
 data class DockFacts(
     val kind: DockKind,
@@ -40,7 +41,7 @@ fun stateLine(facts: DockFacts, nowSeconds: Long, zone: ZoneId): StateLine {
     val step = facts.step
     val tool = facts.tool
     return when {
-        step != null && step.held -> StateLine("held", "held", "", "", "", DockControl.NONE)
+        step != null && step.held -> StateLine("held", "held", "", step.doing, "", DockControl.NONE)
         step != null -> StateLine(
             "working",
             "running",
