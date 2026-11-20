@@ -703,6 +703,12 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 /* The quote: what a message is about, above the input. */
 .quote { display: flex; align-items: center; gap: var(--o-space-8); min-width: 0; padding: var(--o-space-4) var(--o-space-8) var(--o-space-4) var(--o-space-12); color: var(--o-ink-2); font: var(--o-type-small); }
 .quote .text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* An id chip: an item's id, tinted by its kind's first letter (R requirement, F failure, P premise, A addition). */
+.idc { display: inline-flex; align-items: center; flex: none; padding: 0 var(--o-space-4); border-radius: var(--o-radius-1); background: var(--o-surface-raised); color: var(--o-ink-2); font: var(--o-type-small); font-weight: var(--o-font-weight-bold); white-space: nowrap; }
+.idc[data-k="R"] { background: var(--o-series-4-fill); color: var(--o-series-4); }
+.idc[data-k="F"] { background: var(--o-series-3-fill); color: var(--o-series-3); }
+.idc[data-k="P"] { background: var(--o-series-1-fill); color: var(--o-series-1); }
+.idc[data-k="A"] { background: var(--o-series-2-fill); color: var(--o-series-2); }
 
 /* The trays: rows that have not happened yet. Each row's rail is dashed, in the tone of who it belongs to. */
 .tray { display: grid; padding: var(--o-space-4) 0; }

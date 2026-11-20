@@ -1625,6 +1625,17 @@ test("DockSend: a shell's box says Type a command… and sends what is typed", a
   );
 });
 
+test("DockSend: the about line leads with the chat icon, and an about id draws as its chip before the words", async () => {
+  await withDock({ about: "The harbour office gets the same alert many times.", aboutId: "F2" }, async (_box, container) => {
+    const quote = container.querySelector(".quote");
+    assert.equal(quote?.firstElementChild?.getAttribute("data-icon"), "chat", "the about line leads with the chat icon");
+    const chip = quote?.querySelector(".text .idc");
+    assert.equal(chip?.textContent, "F2", "the id draws as a chip");
+    assert.equal(chip?.getAttribute("data-k"), "F", "the chip is keyed by its id's first letter");
+    assert.equal(textOf(container, ".quote .text"), "about F2 The harbour office gets the same alert many times.");
+  });
+});
+
 test("DockSend: the about line says what the message is about, and Not about this clears it and calls onClearAbout", async () => {
   let cleared = 0;
   await withRerenderableDock(

@@ -96,7 +96,8 @@ function AboutDraft() {
     <dock.Dock
       {...base}
       facts={facts({ state: "waiting" })}
-      about="F2 The harbour office gets the same alert many times."
+      about="The harbour office gets the same alert many times."
+      aboutId="F2"
       inputRef={field}
     />
   );

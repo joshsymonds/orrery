@@ -68,9 +68,10 @@ function pendingKey(pending: readonly PendingEvent[]): string {
 }
 
 // lineIcons are the drawings of the icons the dock's lines lead with, from the round-6 wireframe's icons.js: the bell of
-// the waits line and the warning of an error note.
+// the waits line, the chat of the about line and the warning of an error note.
 const lineIcons = {
   bell: "M4 11V7.5a4 4 0 0 1 8 0V11l1 1.5H3zM6.5 13.5a1.5 1.5 0 0 0 3 0",
+  chat: "M3 3h10v7H8l-3 3v-3H3z",
   warn: "M8 2.5l6 10.5H2zM8 6.5v3M8 11.2v.3",
 } as const;
 
@@ -132,6 +133,7 @@ export function Dock(props: {
   resume?: () => Promise<void>; // the state line's Resume on a cut-off session; no Resume control when absent
   pending?: PendingEvent[]; // the session's pending events, for the waits line
   about?: string; // what the message is about; no about line when absent
+  aboutId?: string; // the id of what the message is about, such as F2, drawn as its chip before the words
   onClearAbout?: () => void; // Not about this: the about line is cleared, and this is called
   stepCalls?: { hold: () => Promise<void>; stop: () => Promise<void> }; // a step's hold and stop; its send nudges it
 }): JSX.Element {
@@ -156,6 +158,7 @@ export function Dock(props: {
     resume,
     pending = noEvents,
     about,
+    aboutId,
     onClearAbout,
     stepCalls,
   } = props;
@@ -589,7 +592,18 @@ export function Dock(props: {
         )}
         {shownAbout !== null && (
           <div class="quote">
-            <span class="text">{`about ${shownAbout}`}</span>
+            <LineIcon name="chat" />
+            <span class="text">
+              {"about "}
+              {aboutId !== undefined && (
+                <>
+                  <span class="idc" data-k={aboutId.charAt(0)}>
+                    {aboutId}
+                  </span>{" "}
+                </>
+              )}
+              {shownAbout}
+            </span>
             <Ctl
               only
               label="Not about this"
