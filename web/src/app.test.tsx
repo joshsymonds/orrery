@@ -20,7 +20,7 @@ import {
   type EpicsGetResponse,
   EpicsGetResponseSchema,
 } from "./gen/orrery/v1/epics_pb";
-import type { HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
+import { type HostStatusResponse, HostStatusResponseSchema } from "./gen/orrery/v1/orrery_pb";
 import type { Viewing } from "./presence";
 import type { Row } from "./rows";
 import type { SeenClock, SeenWindow } from "./seen";
@@ -4093,6 +4093,33 @@ test("EpicCommands: an epic the server could not read says so with Try again, wh
     assert.equal(cursorKey(container), "step:s1");
     assert.equal(epicPageShown(container), false, "a step shows no page");
   }));
+
+test("EpicRecord: under 760px the loading epic's title row draws no host strip, as the page's does not", (t) =>
+  withApp(
+    t.signal,
+    { epics: oneEpic(), host: create(HostStatusResponseSchema, { host: "box" }) },
+    async (container, fake) => {
+      let answer: () => void = () => {};
+      fake.holds.set(
+        getEpicPath,
+        new Promise<void>((resolve) => {
+          answer = resolve;
+        }),
+      );
+      await press("j");
+      try {
+        assert.equal(epicReadText(container), "loading the epic…");
+        const row = container.querySelector('section.page[aria-label="epic"] header.title-row');
+        assert.ok(row, "the loading page draws its title row");
+        assert.equal(row.lastElementChild?.className, "acts", "nothing follows the commands: no strip");
+      } finally {
+        fake.replies.set(getEpicPath, [epicReply(widgetsFirst, "first")]);
+        answer();
+      }
+      await until(t.signal, () => epicPageDrawn(container), "the page the answer holds");
+    },
+    412,
+  ));
 
 test("EpicRecord: under 760px with the epic page shown, no inbox list and no reader column is drawn", (t) =>
   withApp(t.signal, { epics: pageEpic() }, async (container) => {

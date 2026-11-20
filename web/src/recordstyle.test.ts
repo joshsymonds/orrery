@@ -195,3 +195,14 @@ test("EpicWords: at phone width the track's stages take the full column, so a na
 test("EpicWords: at phone width the track hides a done stage's check, which would cut its name", () => {
   assert.equal(declaredValue(phone, ".epic-page .stage .nm > span", "display"), "none");
 });
+
+test("EpicWords: at the desk Just happened sets its clock in a right-aligned gutter, a gap before its words", () => {
+  const desk = rulesUnder(css, "(min-width: 760px)");
+  assert.equal(declaredValue(desk, ".epic-page .happen li .at", "min-width"), "var(--o-layout-gutter-ch)");
+  assert.equal(declaredValue(desk, ".epic-page .happen li .at", "margin-right"), "var(--o-space-16)");
+  assert.equal(declaredValue(desk, ".epic-page .happen li .at", "text-align"), "right");
+});
+
+test("EpicWords: Resume now sits at its own width under Now's sentence, not across the section", () => {
+  assert.equal(declaredValue(rules, ".epic-page section.now > .act", "justify-self"), "start");
+});

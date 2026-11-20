@@ -1596,7 +1596,7 @@ export function App({
             crumbs={[{ label: entry.slug }]}
             onBack={closeEpicPage}
             mark={inboxMark}
-            strip={pageStrip(null, null)}
+            strip={wide ? pageStrip(null, null) : undefined}
           />
           {failedEpicReads.has(entry.id) ? (
             <>

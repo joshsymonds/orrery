@@ -969,6 +969,8 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 .epic-page .stage.now .nm { color: var(--tone, var(--o-role-live)); }
 /* Now: the sentence the epic is on, then what asks. */
 .epic-page section.now { display: grid; gap: var(--o-space-8); min-width: 0; }
+/* Resume now is one button at its own width under the sentence, not a bar across Now. */
+.epic-page section.now > .act { justify-self: start; }
 .epic-page .now-sentence { margin: 0; color: var(--o-ink-1); font: var(--o-type-title); overflow-wrap: anywhere; }
 /* The park block: an owner's park asks what to do, drawn as an ask in the attention role: its reason, then Retry and Stop. */
 .epic-page .ask.epic.park {
@@ -1024,6 +1026,10 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 .epic-page .happen li.open { cursor: pointer; }
 .epic-page .happen.just li { transition: opacity var(--o-move-layout), transform var(--o-move-layout); }
 @starting-style { .epic-page .happen.just li { opacity: 0; transform: translateY(calc(-1 * var(--o-space-4))); } }
+/* At the desk a line's clock sits in a right-aligned gutter, a gap before its words, as the happenings draw it. */
+@media (min-width: 760px) {
+  .epic-page .happen li .at { display: inline-block; min-width: var(--o-layout-gutter-ch); margin-right: var(--o-space-16); color: var(--o-ink-4); text-align: right; }
+}
 .epic-page .happen .more { min-height: var(--o-space-24); padding: 0; border: 0; background: none; cursor: pointer; font: var(--o-type-small); color: var(--o-ink-3); appearance: none; -webkit-appearance: none; }
 /* An evidence run is one line: its sentence, its verdict chip, its meta, and its log toggle at the end. The log and the
    artifacts fold under it. */
