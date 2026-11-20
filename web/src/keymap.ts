@@ -81,7 +81,7 @@ export interface KeyContext {
   // openCursorPage opens the cursor's epic or step page as Enter on a row opens its page: under 760px it then draws
   // alone. At 760px and wider the page already stands beside the inbox, so it changes nothing there.
   openCursorPage: () => void;
-  answerCursor: (choice: 1 | 2 | 3) => void;
+  answerCursor: (choice: number) => void;
   toggleOpen: () => void;
   closePin: () => void;
   togglePin: () => void;
@@ -318,13 +318,15 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
       }
       break;
     case "1":
-      answerCursor(1);
-      break;
     case "2":
-      answerCursor(2);
-      break;
     case "3":
-      answerCursor(3);
+    case "4":
+    case "5":
+    case "6":
+    case "7":
+    case "8":
+    case "9":
+      answerCursor(Number(event.key));
       break;
     case "o":
       toggleOpen();

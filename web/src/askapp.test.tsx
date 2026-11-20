@@ -19,6 +19,8 @@ const notNowPath = "/orrery.v1.Control/NotNow";
 const bringBackPath = "/orrery.v1.Control/BringBack";
 const declinePath = "/orrery.v1.Control/Decline";
 const archivePath = "/orrery.v1.Epics/Archive";
+const epicGetPath = "/orrery.v1.Epics/Get";
+const epicAnswerPath = "/orrery.v1.Epics/Answer";
 const sendKeysPath = "/orrery.v1.Panes/SendKeys";
 const paneWatchPath = "/orrery.v1.Panes/WatchConversation";
 const sessionWatchPath = "/orrery.v1.Sessions/WatchConversation";
@@ -40,6 +42,8 @@ interface Call {
 class FakeServer {
   readonly calls: Call[] = [];
   readonly refuseNext = new Map<string, string>();
+  // replies holds the body a unary call to a path answers with, which is an empty message when none is set.
+  readonly replies = new Map<string, object>();
   private readonly holds = new Map<string, Promise<void>>();
 
   readonly fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
@@ -72,7 +76,8 @@ class FakeServer {
         headers: { "content-type": "application/json" },
       });
     }
-    return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+    const reply = this.replies.get(path) ?? {};
+    return new Response(JSON.stringify(reply), { status: 200, headers: { "content-type": "application/json" } });
   };
 
   readonly clients = createClients(createTransport({ baseUrl: "https://orrery.test", fetch: this.fetch }));
@@ -308,16 +313,108 @@ test("AskAnswer: a tap on a pane's option sends its digit with the question hash
     assert.deepEqual(fake.callsTo(sendKeysPath)[0].body, { pane: "a", keys: ["2"], expectQuestion: "qh-1" });
   }));
 
-test("AskAnswer: key 2 answers the conversation's question with that option in one press", (t) =>
+// digits are the keys a conversation answers with: 1 to 9.
+const digits = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+// nineOptions are the labels of a question with nine options, Option 1 to Option 9.
+const nineOptions = digits.map((digit) => `Option ${digit}`);
+// nineOptionStream is a headless session's stream holding one question with nine options.
+const nineOptionStream = {
+  ...requestStream,
+  state: { request: { id: "req-7", kind: "question", question: "Pick one", options: nineOptions } },
+};
+// nineOptionPane is a waiting pane whose stored question offers nine options.
+const nineOptionPane = JSON.stringify({
+  questions: [
+    {
+      question: "Which fruit?",
+      options: nineOptions.map((label) => ({ label, description: "" })),
+    },
+  ],
+});
+
+for (const digit of digits) {
+  test(`AskAnswer: key ${digit} answers the conversation's question with option ${digit} in one press`, (t) =>
+    withApp(t.signal, [headless({ key: "s1", id: "s1", label: "notes" })], async (container, fake) => {
+      await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+      fake.emit(fake.callsTo(sessionWatchPath)[0], nineOptionStream);
+      await flush();
+      assert.ok(askOf(container) !== null, "the Ask is drawn");
+      await press(String(digit));
+      await flush();
+      assert.deepEqual(
+        fake.callsTo(answerPath).map((call) => call.body),
+        [{ id: "s1", requestId: "req-7", answer: nineOptions[digit - 1] }],
+        "the answer with that option was sent once",
+      );
+    }));
+
+  test(`AskAnswer: key ${digit} on a pane sends that digit with the question hash by Panes.SendKeys`, (t) =>
+    withApp(t.signal, [pane({ key: "a", question: nineOptionPane })], async (container, fake) => {
+      await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+      fake.emit(fake.callsTo(paneWatchPath)[0], { transcript: "t1", seq: "1", reset: true, items: [] });
+      await flush();
+      assert.ok(askOf(container) !== null, "the Ask is drawn");
+      await press(String(digit));
+      await flush();
+      assert.deepEqual(
+        fake.callsTo(sendKeysPath).map((call) => call.body),
+        [{ pane: "a", keys: [String(digit)], expectQuestion: "qh-1" }],
+        "the digit was sent once with the question hash",
+      );
+    }));
+}
+
+// epicQuestionBlock is the transcript's event that an epic asked its question Q1 with, as the server writes it.
+const epicQuestionBlock = `<orrery-event kind="question" id="epic:orrery-1a2b3c4/planner-runner:Q1">
+orrery-1a2b3c4/planner-runner (Plan the runner) asks a question.
+Q1 which-store: which store?
+</orrery-event>`;
+
+// epicGetReply is the epic's read: it is live and holds Q1 open, with two choices.
+const epicGetReply = {
+  epic: {
+    id: "orrery-1a2b3c4/planner-runner",
+    repository: "orrery-1a2b3c4",
+    slug: "planner-runner",
+    outcome: "accepted",
+    live: true,
+    source: "orreryd",
+  },
+  questions: [
+    {
+      id: "Q1",
+      text: "Which index should it add?",
+      turn: "1",
+      asked: "1",
+      label: "which-store",
+      choices: [
+        { id: "composite", does: "Add a composite index." },
+        { id: "none", does: "Leave the table as it is." },
+      ],
+    },
+  ],
+};
+
+test("AskAnswer: with an epic question's Ask in the transcript, key 7 answers the conversation's question and picks nothing in the epic's Ask", (t) =>
   withApp(t.signal, [headless({ key: "s1", id: "s1", label: "notes" })], async (container, fake) => {
+    fake.replies.set(epicGetPath, epicGetReply);
     await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
-    fake.emit(fake.callsTo(sessionWatchPath)[0], requestStream);
+    fake.emit(fake.callsTo(sessionWatchPath)[0], {
+      ...nineOptionStream,
+      items: [{ kind: "prompt", time: "1", text: epicQuestionBlock }],
+    });
     await flush();
-    assert.ok(askOf(container) !== null, "the Ask is drawn");
-    await press("2");
+    assert.ok(container.querySelector(".now-block .ask") !== null, "the epic's Ask is drawn in the transcript");
+    assert.ok(askOf(container) !== null, "the conversation's Ask is drawn");
+    await press("7");
     await flush();
-    assert.equal(fake.callsTo(answerPath).length, 1, "the answer was sent");
-    assert.deepEqual(fake.callsTo(answerPath)[0].body, { id: "s1", requestId: "req-7", answer: "No" });
+    assert.deepEqual(
+      fake.callsTo(answerPath).map((call) => call.body),
+      [{ id: "s1", requestId: "req-7", answer: "Option 7" }],
+      "the conversation's question was answered with option 7",
+    );
+    assert.deepEqual(fake.callsTo(epicAnswerPath), [], "no epic answer was sent");
+    assert.equal(container.querySelector(".now-block .opt.picked"), null, "the epic's Ask picked nothing");
   }));
 
 test("AskAnswer: a digit past the last option sends nothing", (t) =>
