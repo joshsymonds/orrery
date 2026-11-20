@@ -236,6 +236,17 @@ test("InboxTree Inbox: an error says the server did not answer and offers Try no
   assert.equal(retries, 1, "Try now does not call onRetry once");
 });
 
+test("InboxTree Inbox: the chips draw only with the tree, not while loading or after a failed read", async () => {
+  const counts = { waiting: 2, fresh: 3 };
+  const chipsDrawn: Record<string, boolean> = {};
+  for (const state of ["ready", "loading", "error"] as const) {
+    await withInbox({ state, counts }, (container) => {
+      chipsDrawn[state] = container.querySelector(".inbox-attn") !== null;
+    });
+  }
+  assert.deepEqual(chipsDrawn, { ready: true, loading: false, error: false });
+});
+
 test("InboxTree Inbox: a search with no project names the words searched", () =>
   withInbox({ search: "ship it", projects: [] }, (container) => {
     assert.ok(

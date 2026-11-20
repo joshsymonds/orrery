@@ -53,8 +53,13 @@ export const EpicRow: Stories = {
   parked: () => rowOf(epicOf(listedOf("orrery/notices-usable"))),
   // paused is an epic the owner paused.
   paused: () => rowOf(epicOf(listedOf("orrery/harbour-map"))),
-  // planning is an epic with no tasks yet.
-  planning: () => rowOf(epicOf(listedOf("tidepool/buoy-feeds"))),
+  // planning is an epic with no tasks yet and nothing asked, as round 6 draws it: the fixture's buoy-feeds with its
+  // question left out.
+  planning: () => {
+    const listed = listedOf("tidepool/buoy-feeds");
+    const detail = gets.get(listed.id);
+    return rowOf(epicOf(listed, detail === undefined ? undefined : { ...detail, questions: [] }));
+  },
   // release-failed is an epic whose release step failed, which its blocker names.
   "release-failed": () => rowOf(epicOf(listedOf("tidepool/offline-tables"))),
   // releasing is an epic whose tag is being pushed.

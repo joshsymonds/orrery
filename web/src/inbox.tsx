@@ -59,7 +59,9 @@ export function Inbox({
   onKeys,
   notes,
 }: InboxProps): JSX.Element {
-  const showChips = view === "inbox" && (counts.waiting > 0 || counts.fresh > 0);
+  // The chips count the drawn tree, so they draw only while it is drawn: not while loading or after a failed read, as on
+  // Android's home.
+  const showChips = view === "inbox" && state === "ready" && (counts.waiting > 0 || counts.fresh > 0);
   return (
     <nav class="inbox" aria-label="inbox">
       <header class="inbox-head">

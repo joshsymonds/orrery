@@ -350,7 +350,7 @@ test("ArchiveView: the Archived view lists the archived row and epic, and the de
     },
   ));
 
-test("RowMenu: the Archived view's menu holds Unarchive and sends Epics.Unarchive with the row's kind and id, and the row returns to the inbox", (t) =>
+test("InboxTree: RowMenu: the Archived view's menu holds Unarchive and sends Epics.Unarchive with the row's kind and id, and the row returns to the inbox", (t) =>
   withArchive(
     t.signal,
     { rows: [row({ key: "p", label: "pane" }), headless({ key: "ha", id: "ha", label: "old docs", archived: true })] },
