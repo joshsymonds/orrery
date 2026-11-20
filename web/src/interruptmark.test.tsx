@@ -13,9 +13,12 @@ import type { Row } from "./rows";
 import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
 import { turn, until as waitUntil } from "./testwait";
 
-// The interrupt over the fake transport: Escape on a working headless session calls Control.Interrupt, and a failed one
-// shows its line. The reader draws a line for an interrupted item and none for a turn that ended without one. Each
-// test's name carries the token InterruptMark.
+// The interrupt mark over the fake transport: Escape on a working headless session marks its dock's line interrupting
+// at once, the mark holds while the state is working, and it clears when the state leaves working or the interrupt
+// fails. A working session whose served ConversationState carries interrupting reads interrupting on its dock's line
+// with no Escape pressed, and the line reads the served state again once a delta clears the mark. The reader draws a
+// line for an interrupted item and none for a turn that ended without one. Each test's name carries the token
+// InterruptMark.
 
 const now = 1000;
 const sessionWatchPath = "/orrery.v1.Sessions/WatchConversation";
@@ -167,6 +170,7 @@ const sessionRow = row({
 interface Page {
   container: HTMLElement;
   fake: FakeServer;
+  show(rows: Row[]): Promise<void>;
 }
 
 // withPage mounts the App over a fake server in a fresh DOM with rows, and runs check. The App is unmounted, its streams
@@ -191,7 +195,7 @@ async function withPage(signal: AbortSignal, rows: Row[], check: (page: Page) =>
   });
   try {
     await show(rows);
-    await check({ container, fake });
+    await check({ container, fake, show });
   } finally {
     await teardown();
   }
@@ -209,6 +213,19 @@ function until(signal: AbortSignal, check: () => boolean, what: string): Promise
   return waitUntil(signal, check, what, { step: () => act(turn) });
 }
 
+// dockBox is the box of the dock the cursor's reader shows, whose state line reads the cursor's row.
+function dockBox(container: HTMLElement): Element | null {
+  return container.querySelector('[aria-label="reader"] .send > div:not([hidden]) .dock-box');
+}
+
+function dockWord(container: HTMLElement): string {
+  return dockBox(container)?.querySelector(".statebar .word")?.textContent ?? "";
+}
+
+function dockIsInterrupting(container: HTMLElement): boolean {
+  return dockBox(container)?.getAttribute("data-state") === "interrupting";
+}
+
 function alertTexts(container: HTMLElement): string[] {
   return [...container.querySelectorAll('[role="alert"]')].map((element) => element.textContent ?? "");
 }
@@ -223,14 +240,62 @@ function readerNoticeKinds(container: HTMLElement): string[] {
   return [...container.querySelectorAll('[aria-label="reader"] .notice-kind')].map((element) => element.textContent ?? "");
 }
 
-test("InterruptMark: a failed Interrupt shows the failure line", (t) =>
+// sessionReset is the session stream's first message: a reset that holds the given served state and one reply, which
+// the reader draws, so a test can wait until the message has been applied.
+function sessionReset(state: object): object {
+  return { transcript: "s1.jsonl", seq: "2", reset: true, items: [replyItem("still going", "1700000001")], state };
+}
+
+function replyItem(text: string, time: string): object {
+  return { kind: "reply", text, time };
+}
+
+test("InterruptMark: Escape on a working session shows the interrupting line while the Interrupt reply is held open", (t) =>
+  withPage(t.signal, [sessionRow], async ({ container, fake }) => {
+    const release = fake.hold(interruptPath);
+    await press("Escape");
+    await until(t.signal, () => fake.callsTo(interruptPath).length === 1, "the interrupt");
+    assert.equal(dockWord(container), "interrupting…", "the dock's line reads the mark before the reply lands");
+    assert.equal(dockIsInterrupting(container), true);
+    release();
+  }));
+
+test("DockState: Escape on a working session draws interrupting on the dock's line and no state word or pill on the head", (t) =>
+  withPage(t.signal, [sessionRow], async ({ container, fake }) => {
+    const release = fake.hold(interruptPath);
+    await press("Escape");
+    await until(t.signal, () => fake.callsTo(interruptPath).length === 1, "the interrupt");
+    assert.equal(dockWord(container), "interrupting…");
+    const head = container.querySelector('[aria-label="reader"] > .convo-head');
+    assert.ok(head !== null, "the reader draws its head");
+    assert.equal(head.querySelector(".title-row .state") === null, true, "the head draws no state word");
+    assert.equal(head.querySelector(".pill") === null, true, "the head draws no pill");
+    release();
+  }));
+
+test("InterruptMark: the dock's line reads the mark while the row is working, and returns to the served state once it leaves working", (t) =>
+  withPage(t.signal, [sessionRow], async ({ container, fake, show }) => {
+    await press("Escape");
+    await until(t.signal, () => fake.callsTo(interruptPath).length === 1, "the interrupt");
+    assert.equal(dockWord(container), "interrupting…");
+    await show([{ ...sessionRow, state: "interrupted" }]);
+    assert.equal(dockWord(container), "cut off", "the served state shows once the row leaves working");
+    assert.equal(dockIsInterrupting(container), false);
+    await show([{ ...sessionRow, state: "working" }]);
+    assert.equal(dockWord(container), "working", "a later turn does not inherit the mark");
+  }));
+
+test("InterruptMark: a failed Interrupt clears the mark and shows the failure line", (t) =>
   withPage(t.signal, [sessionRow], async ({ container, fake }) => {
     const release = fake.hold(interruptPath);
     fake.failNext.add(interruptPath);
     await press("Escape");
     await until(t.signal, () => fake.callsTo(interruptPath).length === 1, "the interrupt");
+    assert.equal(dockWord(container), "interrupting…", "the mark holds while the reply is held open");
     release();
     await until(t.signal, () => alertTexts(container).includes(interruptFailedText), "the failure line");
+    assert.equal(dockWord(container), "working", "the failed interrupt clears the mark");
+    assert.equal(dockIsInterrupting(container), false);
   }));
 
 test("InterruptMark: the reader draws Interrupted by you for an interrupted item", (t) =>
@@ -279,3 +344,43 @@ test("InterruptMark: find does not search the interrupted line", () => {
   assert.deepEqual(findMatches(items, "Interrupted"), []);
   assert.deepEqual(findMatches(items, "still"), [{ item: 0, start: 0 }]);
 });
+
+test("InterruptMark: a working session whose served state carries interrupting reads interrupting with no Escape pressed", (t) =>
+  withPage(t.signal, [sessionRow], async ({ container, fake }) => {
+    await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    const stream = fake.callsTo(sessionWatchPath)[0];
+    assert.equal(dockWord(container), "working", "the dock's line reads the list's state before the served mark arrives");
+    fake.emit(stream, sessionReset({ interrupting: true }));
+    await until(t.signal, () => dockWord(container) === "interrupting…", "the served mark on the dock's line");
+    assert.equal(dockIsInterrupting(container), true);
+    assert.equal(fake.callsTo(interruptPath).length, 0, "no Interrupt was sent: the mark came from the served state");
+  }));
+
+test("InterruptMark: the dock's line reads the served state again once a delta clears the served mark", (t) =>
+  withPage(t.signal, [sessionRow], async ({ container, fake }) => {
+    await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    const stream = fake.callsTo(sessionWatchPath)[0];
+    fake.emit(stream, sessionReset({ interrupting: true }));
+    await until(t.signal, () => dockWord(container) === "interrupting…", "the served mark on the dock's line");
+    fake.emit(stream, { transcript: "s1.jsonl", seq: "3", reset: false, items: [replyItem("more", "1700000002")] });
+    await until(t.signal, () => container.textContent?.includes("more") === true, "the delta with no state");
+    assert.equal(dockIsInterrupting(container), true, "a delta that leaves the state unset keeps the mark");
+    fake.emit(stream, {
+      transcript: "s1.jsonl",
+      seq: "4",
+      reset: false,
+      items: [replyItem("done", "1700000003")],
+      state: { interrupting: false },
+    });
+    await until(t.signal, () => dockWord(container) === "working", "the served state once the mark clears");
+    assert.equal(dockIsInterrupting(container), false);
+  }));
+
+test("InterruptMark: a served mark on a row that is not working leaves the dock's line at the row's state", (t) =>
+  withPage(t.signal, [{ ...sessionRow, state: "waiting" }], async ({ container, fake }) => {
+    await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    fake.emit(fake.callsTo(sessionWatchPath)[0], sessionReset({ interrupting: true }));
+    await until(t.signal, () => container.textContent?.includes("still going") === true, "the reply");
+    assert.equal(dockWord(container), "waiting on you", "the dock's line reads the row's state");
+    assert.equal(dockIsInterrupting(container), false, "only a working row reads interrupting");
+  }));

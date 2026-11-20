@@ -32,7 +32,7 @@ func plannedBuildEpic(t *testing.T) (*store.Store, enginev1connect.EpicsClient) 
 	ctx := t.Context()
 	st, _ := openPlannerStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 	turn, err := st.ClaimTurn(ctx, epicServiceID, time.Unix(turnStarted, 0))
 	if err != nil {
 		t.Fatalf("ClaimTurn: %v", err)
@@ -234,7 +234,7 @@ func TestEpicGetReadsStoredBranchState(t *testing.T) {
 	ctx := t.Context()
 	st := epicTestStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 	if got := getEpicOK(t, client).GetBranch(); got != "" {
 		t.Fatalf("branch = %q before any branch write, want empty", got)
 	}

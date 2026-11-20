@@ -7,12 +7,12 @@ import { type JSX, render } from "preact";
 import { act } from "preact/test-utils";
 
 import { QuestionCard } from "./blocker";
-import { Composer } from "./composer";
+import { Dock } from "./dock";
+import type { DockFacts } from "./dockwords";
 import { EpicQuestionSchema } from "./gen/orrery/v1/epics_pb";
 import { type Chord, keyGroups, type Where } from "./keys";
 import { type EscapeTarget, handleKey, type KeyContext } from "./keymap";
 import type { Row } from "./rows";
-import { StepBox } from "./stepbox";
 import { mockTimers } from "./testclock";
 import { assertSame, installTestDom, removeTestDom } from "./testdom";
 import { type Call, type Fake, fakeContext } from "./testkeys";
@@ -226,14 +226,32 @@ async function pressTextarea(
   }
 }
 
-// composerPress presses in a Composer whose box holds text. Its send and pull never settle, so the box keeps its text.
+// dockFacts are the facts of a dock in the sweep: a session's done, or a running step's.
+function dockFacts(step: DockFacts["step"]): DockFacts {
+  return {
+    kind: step === null ? "session" : "step",
+    name: step === null ? "web" : step.label,
+    state: step === null ? "done" : "working",
+    interrupting: false,
+    interruptingSince: 0,
+    turnSince: 0,
+    tool: null,
+    changed: 0,
+    reason: "",
+    interruptedAt: 0,
+    putOff: false,
+    step,
+  };
+}
+
+// composerPress presses in a Dock whose box holds text. Its send and pull never settle, so the box keeps its text.
 function composerPress(text: string): Press {
   return (key, modifier) =>
     pressTextarea(
       (calls) => (
-        <Composer
-          label="web"
-          state="done"
+        <Dock
+          facts={dockFacts(null)}
+          now={0}
           send={(sent, promptId) => {
             calls.push(["send", sent, promptId]);
             return new Promise<void>(() => {});
@@ -258,20 +276,21 @@ function composerPress(text: string): Press {
     );
 }
 
-// stepPress presses in a StepBox whose box holds text. Its nudge never settles, so the box keeps its text.
+// stepPress presses in a step's Dock whose box holds text. Its nudge never settles, so the box keeps its text.
 function stepPress(text: string): Press {
   return (key, modifier) =>
     pressTextarea(
       (calls) => (
-        <StepBox
-          label="api"
-          held={false}
-          nudge={(sent) => {
+        <Dock
+          facts={dockFacts({ label: "api", held: false, doing: "" })}
+          now={0}
+          send={(sent) => {
             calls.push(["nudge", sent]);
             return new Promise<void>(() => {});
           }}
-          hold={() => Promise.resolve()}
-          stop={() => Promise.resolve()}
+          pull={null}
+          newPromptId={() => "prompt"}
+          stepCalls={{ hold: () => Promise.resolve(), stop: () => Promise.resolve() }}
         />
       ),
       text,

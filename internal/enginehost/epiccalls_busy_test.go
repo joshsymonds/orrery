@@ -58,7 +58,7 @@ func TestEpicCallRecordRefusedBusyIsTriedAgainBeforeTheCallAnswers(t *testing.T)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	client := enginev1connect.NewEpicsClient(srv.Client(), srv.URL)
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 
 	req := connect.NewRequest(&v1.GetEpicRequest{Id: epicServiceID})
 	req.Header().Set(protocol.HeaderSession, epicCallSession)

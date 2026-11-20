@@ -6,7 +6,7 @@ import * as actions from "./actions";
 import type { Clients } from "./actions";
 import { askingWords, askLines, headBadges, ownAsks, steeredEpics } from "./asks";
 import { epicCallsOf } from "./card";
-import type { ComposerHandle } from "./composer";
+import type { DockHandle } from "./dock";
 import { ContractBody } from "./contract";
 import { type Conversation, shownConversation } from "./conversation";
 import { type ArchiveControl, EpicLine } from "./epicline";
@@ -283,8 +283,8 @@ export function App({
   const composerInputs = useRef(new Map<string, HTMLTextAreaElement>());
   const stepInputs = useRef(new Map<string, HTMLTextAreaElement>());
   // The handles of the cursor's and the pinned row's composers, by row key, which an Escape calls.
-  const composerHandles = useRef(new Map<string, ComposerHandle>());
-  const pinnedHandles = useRef(new Map<string, ComposerHandle>());
+  const composerHandles = useRef(new Map<string, DockHandle>());
+  const pinnedHandles = useRef(new Map<string, DockHandle>());
   // The handles of the cursor's and the pinned column's readers. An empty reply box's Page Up and Page Down page them.
   const cursorReader = useRef<ReaderHandle | null>(null);
   const pinnedReader = useRef<ReaderHandle | null>(null);
@@ -315,6 +315,11 @@ export function App({
   const [answerError, setAnswerError] = useState("");
   // The fixed line an Escape leaves when taking queued messages back or interrupting a row fails.
   const [escapeError, setEscapeError] = useState("");
+  // The headless session rows the owner has interrupted, by row key, each with the turn_since its stream held at the press
+  // (0 when no stream held one). A marked row reads interrupting on its dock's line while the list still says it is
+  // working. The mark clears once the row's stream reports interrupting or a turn other than the one held, or once the
+  // list no longer says working.
+  const [interrupts, setInterrupts] = useState<Map<string, number>>(() => new Map());
   const [archiveError, setArchiveError] = useState("");
   // The per-device store the hidden header is kept in, read once, and whether the header is hidden now. The note a More
   // menu's archive left is under the title row of the row it names.
@@ -551,7 +556,10 @@ export function App({
     if (target === null) {
       return undefined;
     }
-    const followed = follow(clients, target, (conversation) => setStream({ key: readerKey, conversation }));
+    const followed = follow(clients, target, (conversation) => {
+      setStream({ key: readerKey, conversation });
+      setInterrupts((previous) => withoutTakenOver(previous, readerKey, conversation));
+    });
     cursorOlder.current = followed.older;
     return followed.stop;
   }, [readerKey, clients]);
@@ -605,9 +613,10 @@ export function App({
     if (pinned === null) {
       return undefined;
     }
-    const followed = follow(clients, { kind: pinned.kind, id: pinned.id }, (conversation) =>
-      setPinStream({ key: pinned.key, conversation }),
-    );
+    const followed = follow(clients, { kind: pinned.kind, id: pinned.id }, (conversation) => {
+      setPinStream({ key: pinned.key, conversation });
+      setInterrupts((previous) => withoutTakenOver(previous, pinned.key, conversation));
+    });
     pinnedOlder.current = followed.older;
     return followed.stop;
   }, [pinnedKey, clients]);
@@ -615,6 +624,20 @@ export function App({
   // A pinned row keeps its last shape while it is missing from the list, as a visited row does.
   useEffect(() => {
     setPinned((previous) => (previous === null ? null : (rows.find((row) => row.key === previous.key) ?? previous)));
+  }, [rows]);
+
+  // An interrupt mark clears once its row is in the list and no longer working. A row missing from the list keeps its
+  // mark, as a pinned row keeps its last shape.
+  useEffect(() => {
+    setInterrupts((previous) => {
+      const kept = new Map(
+        [...previous].filter(([key]) => {
+          const row = rows.find((item) => item.key === key);
+          return row === undefined || row.state === stateWorking;
+        }),
+      );
+      return kept.size === previous.size ? previous : kept;
+    });
   }, [rows]);
 
   // A find bar closes when its column's row changes: the cursor moves to another entry, or the pin closes or moves.
@@ -917,16 +940,28 @@ export function App({
       (column === "pinned" ? pinnedHandles : composerHandles).current.get(row.key)?.append(texts);
     }
   };
+  // markAtPress sets a row's interrupt mark at the press, holding the turn_since its stream holds: the cursor's or the
+  // pin's, whichever streams the row, and 0 when neither does.
+  const markAtPress = (key: string) => {
+    const conversation = key === cursorRowKey ? cursorConversation : key === pinnedKey ? pinnedConversation : null;
+    const turn = Number(conversation?.state?.turnSince ?? 0n);
+    setInterrupts((previous) => new Map(previous).set(key, turn));
+  };
   // escapeRow takes back a row's queued messages and interrupts it when it was working at the press. A pane pulls its
   // queued input back, then gets the Escape key. A session takes back nothing by itself: its interrupt answers the
   // texts of the queued messages Claude cancelled, and those are taken back. A session that is not working is not
-  // interrupted and takes nothing back. A failed take back shows its line, and a pane's interrupt still goes out. A
-  // failed interrupt shows its line. The composer keeps focus when it interrupted or took messages back, and otherwise
+  // interrupted and takes nothing back. A headless session's interrupt is marked on the page at once, before the calls
+  // below are made. A failed take back shows its line, and a pane's interrupt still goes out. A failed interrupt shows
+  // its line and clears the mark. The composer keeps focus when it interrupted or took messages back, and otherwise
   // leaves it, as Escape does.
   const escapeRow = async (target: EscapeTarget, box: HTMLElement | null): Promise<void> => {
     const { row, state } = target;
     const interrupting = state === stateWorking;
+    const marked = interrupting && row.kind === "session";
     const failures: string[] = [];
+    if (marked) {
+      markAtPress(row.key);
+    }
     let texts: string[] = [];
     if (row.kind === "pane") {
       try {
@@ -942,12 +977,26 @@ export function App({
         cancelled = await actions.interrupt(clients, row);
       } catch {
         failures.push(interruptFailedText);
+        if (marked) {
+          setInterrupts((previous) => withoutKey(previous, row.key));
+        }
       }
       takeBack(target, cancelled);
     }
     setEscapeError(failures.join(" "));
     if (box !== null && !interrupting && texts.length === 0) {
       box.blur();
+    }
+  };
+  // interruptRow is Send now's interrupt on a session row: the row's interrupt mark is set at once, as Escape sets it, and
+  // cleared when the interrupt is refused. It resolves the texts the interrupt cancelled.
+  const interruptRow = async (row: Row): Promise<string[]> => {
+    markAtPress(row.key);
+    try {
+      return await actions.interrupt(clients, row);
+    } catch (failure) {
+      setInterrupts((previous) => withoutKey(previous, row.key));
+      throw failure;
     }
   };
   const toggleOpen = () => setOpen((value) => !value);
@@ -1336,10 +1385,10 @@ export function App({
   // state at the press. A step's box and any other box are none.
   const replyBoxTarget = (box: HTMLElement): EscapeTarget | null => {
     if (middleRow !== null && composerInputs.current.get(middleRow.key) === box) {
-      return { row: middleRow, column: "cursor", state: headState(middleRow, cursorConversation?.state?.pane) };
+      return { row: middleRow, column: "cursor", state: headState(middleRow, cursorConversation) };
     }
     if (pinned !== null && pinnedInputs.current.get(pinned.key) === box) {
-      return { row: pinned, column: "pinned", state: headState(pinned, pinnedConversation?.state?.pane) };
+      return { row: pinned, column: "pinned", state: headState(pinned, pinnedConversation) };
     }
     return null;
   };
@@ -1472,7 +1521,7 @@ export function App({
     cursorRowKey,
     cursorStep,
     cursorStepKey,
-    cursorPane: cursorConversation?.state?.pane,
+    cursorConversation,
     pinned,
     inputRef,
     composerInputs,
@@ -1571,6 +1620,7 @@ export function App({
       return (
         <WorkerSessionPage
           conversation={sessionStream !== null && sessionStream.key === page.step ? sessionShown : null}
+          now={now}
           step={step}
           epic={detail.epic?.slug ?? ""}
           task={page.task}
@@ -1811,6 +1861,7 @@ export function App({
           row={epicPageShown ? null : middleRow}
           conversation={cursorConversation}
           rows={visited}
+          interrupts={interrupts}
           mark={inboxMark}
           pageStrip={pageStrip}
           head={(row, conversation) => headOf(row, conversation, true)}
@@ -1835,6 +1886,10 @@ export function App({
           open={open}
           onToggleOpen={toggleOpen}
           onAnswer={answerCursor}
+          onInterrupt={(row) =>
+            void escapeRow({ row, column: "cursor", state: headState(row, cursorConversation) }, null)
+          }
+          interrupt={interruptRow}
           step={cursorStep}
           steps={visitedSteps}
           stepInputs={stepInputs}
@@ -1851,6 +1906,7 @@ export function App({
           row={pinned}
           conversation={pinnedConversation}
           rows={pinnedRows}
+          interrupts={interrupts}
           mark={inboxMark}
           pageStrip={pageStrip}
           head={headOf}
@@ -1873,6 +1929,10 @@ export function App({
           addSending={addSending}
           retractSending={retractSending}
           open={false}
+          interrupt={interruptRow}
+          onInterrupt={(row) =>
+            void escapeRow({ row, column: "pinned", state: headState(row, pinnedConversation) }, null)
+          }
         />
         {epicEntry !== null && panelOpen && wide && (
           <SidePanel label="epic" tone={panelTone} href={shownForm} onClose={closePanel}>
@@ -2086,6 +2146,29 @@ function stripHost(row: Row | null, host: HostStatusResponse | null): StripHost 
 function failureReason(error: unknown): string {
   const failure = ConnectError.from(error);
   return noAnswerCodes.has(failure.code) ? noAnswerText : failure.rawMessage;
+}
+
+// withoutKey is a copy of marks without key.
+function withoutKey(marks: Map<string, number>, key: string): Map<string, number> {
+  const next = new Map(marks);
+  next.delete(key);
+  return next;
+}
+
+// withoutTakenOver drops key's interrupt mark once conversation, the stream the page holds for that row, takes over from
+// it: the stream reports interrupting, or a turn other than the one the mark held at the press. A stream with no state
+// yet keeps the mark, and marks comes back as it is when key holds none.
+function withoutTakenOver(
+  marks: Map<string, number>,
+  key: string,
+  conversation: Conversation | null,
+): Map<string, number> {
+  const held = marks.get(key);
+  const state = conversation?.state;
+  if (held === undefined || state === undefined || (!state.interrupting && Number(state.turnSince) === held)) {
+    return marks;
+  }
+  return withoutKey(marks, key);
 }
 
 // pruneSent drops the sent entries of each row whose conversation is held, and returns previous itself when none is sent.

@@ -88,10 +88,34 @@ func newEpicsClient(t *testing.T, path string) enginev1connect.EpicsClient {
 	return enginev1connect.NewEpicsClient(unixHTTPClient(t, path), "http://epics.invalid")
 }
 
-// fullEpicRequest returns a create request for a synthetic contract with id and every section at two or more rows,
-// naming the git repository repo and based at its HEAD. Its seed decisions are D1, D2 and D3.
-func fullEpicRequest(repo, id string) *v1.CreateEpicRequest {
+// epicCreate is a contract to propose and accept in a test's store, and the decisions and workflow of the epic_create
+// that makes an epic of it.
+type epicCreate struct {
+	Contract  *v1.EpicContract
+	Decisions []*v1.EpicDecisionInput
+	Workflow  string
+}
+
+// GetContract returns the contract c makes an epic of.
+func (c *epicCreate) GetContract() *v1.EpicContract { return c.Contract }
+
+// GetDecisions returns the seed decisions of the epic c makes.
+func (c *epicCreate) GetDecisions() []*v1.EpicDecisionInput { return c.Decisions }
+
+// request returns the CreateEpicRequest naming c's contract by its id, with its base, decisions and workflow.
+func (c *epicCreate) request() *v1.CreateEpicRequest {
 	return &v1.CreateEpicRequest{
+		Id:        c.Contract.GetId(),
+		Base:      c.Contract.GetBase(),
+		Decisions: c.Decisions,
+		Workflow:  c.Workflow,
+	}
+}
+
+// fullEpicRequest returns an epic create for a synthetic contract with id and every section at two or more rows,
+// naming the git repository repo and based at its HEAD. Its seed decisions are D1, D2 and D3.
+func fullEpicRequest(repo, id string) *epicCreate {
+	return &epicCreate{
 		Contract: &v1.EpicContract{
 			Id:         id,
 			Repository: repo,
@@ -161,12 +185,44 @@ func wantConnectError(t *testing.T, err error, code connect.Code, message string
 	}
 }
 
-// createEpicOK creates req through client and returns the stored epic the reply carries. It fails the test on error.
-func createEpicOK(t *testing.T, client enginev1connect.EpicsClient, req *v1.CreateEpicRequest) *v1.StoredEpic {
+// contractEpicWriter is the session that proposes the contracts the tests accept.
+const contractEpicWriter = "contract-epic-writer"
+
+// contractEpicAt is the unix time the tests propose and accept their contracts at.
+const contractEpicAt = 1700002000
+
+// storeProposedContract stores contract in st as version 1 of a contract by contractEpicWriter. It fails the test on error.
+func storeProposedContract(t *testing.T, st *store.Store, contract *v1.EpicContract) {
 	t.Helper()
-	created, err := client.CreateEpic(t.Context(), connect.NewRequest(req))
+	id := contract.GetId()
+	version, err := contractVersionOf(id, contract, nil, "Synthetic words.", contractEpicWriter, contractEpicAt)
 	if err != nil {
-		t.Fatalf("CreateEpic %s: %v", req.GetContract().GetId(), err)
+		t.Fatalf("contractVersionOf %s: %v", id, err)
+	}
+	if err = st.ProposeContract(t.Context(), id, version); err != nil {
+		t.Fatalf("ProposeContract %s: %v", id, err)
+	}
+}
+
+// acceptEpicContract stores contract in st as version 1 of a contract by contractEpicWriter, then accepts it as the owner.
+// It fails the test on error.
+func acceptEpicContract(t *testing.T, st *store.Store, contract *v1.EpicContract) {
+	t.Helper()
+	storeProposedContract(t, st, contract)
+	id := contract.GetId()
+	if err := st.AcceptContract(t.Context(), id, store.ContractChange{At: contractEpicAt}); err != nil {
+		t.Fatalf("AcceptContract %s: %v", id, err)
+	}
+}
+
+// createEpicOK accepts c's contract in st, creates its epic through client with c.request(), and returns the stored
+// epic the reply carries. It fails the test on error.
+func createEpicOK(t *testing.T, st *store.Store, client enginev1connect.EpicsClient, c *epicCreate) *v1.StoredEpic {
+	t.Helper()
+	acceptEpicContract(t, st, c.Contract)
+	created, err := client.CreateEpic(t.Context(), connect.NewRequest(c.request()))
+	if err != nil {
+		t.Fatalf("CreateEpic %s: %v", c.Contract.GetId(), err)
 	}
 	return created.Msg.GetEpic()
 }
@@ -188,7 +244,7 @@ func TestEpicCreateThenGetRoundTripsContract(t *testing.T) {
 	repo := stepGitTestRepo(t)
 	req := fullEpicRequest(repo, epicServiceID)
 
-	stored := createEpicOK(t, client, req)
+	stored := createEpicOK(t, st, client, req)
 
 	want := fullEpicRequest(repo, epicServiceID).GetContract()
 	// A stored Requirement reads with the state its runs give; none has run yet.
@@ -241,52 +297,63 @@ func TestEpicCreateThenGetRoundTripsContract(t *testing.T) {
 	}
 }
 
-func TestEpicCreateOfStoredIDIsAlreadyExists(t *testing.T) {
+func TestContractEpicCreateRefusesAnHeldIDAndStoresNothing(t *testing.T) {
 	t.Parallel()
 	st := epicTestStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
-	req := fullEpicRequest(stepGitTestRepo(t), epicServiceID)
-	createEpicOK(t, client, req)
+	c := fullEpicRequest(stepGitTestRepo(t), epicServiceID)
+	createEpicOK(t, st, client, c)
 
-	_, err := client.CreateEpic(t.Context(), connect.NewRequest(req))
+	_, err := client.CreateEpic(t.Context(), connect.NewRequest(&v1.CreateEpicRequest{
+		Id:        epicServiceID,
+		Base:      c.Contract.GetBase(),
+		Decisions: []*v1.EpicDecisionInput{{Id: "D9", Text: "Synthetic decision nine."}},
+	}))
 	wantConnectError(t, err, connect.CodeAlreadyExists, "id: "+epicServiceID+" is already in the database")
+	row, err := st.Epic(t.Context(), epicServiceID)
+	if err != nil {
+		t.Fatalf("store Epic: %v", err)
+	}
+	if len(row.Decisions) != len(c.Decisions) {
+		t.Fatalf("stored decisions = %d, want the first create's %d", len(row.Decisions), len(c.Decisions))
+	}
 }
 
-func TestEpicCreateRefusesWhatCheckEpicRefuses(t *testing.T) {
+func TestContractEpicCreateRefusesWhatCheckEpicRefuses(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		name   string
-		mutate func(req *v1.CreateEpicRequest)
+		mutate func(req *epicCreate)
 		want   string
 	}{
 		{
 			name:   "intent blank",
-			mutate: func(req *v1.CreateEpicRequest) { req.Contract.Intent = "  " },
+			mutate: func(req *epicCreate) { req.Contract.Intent = "  " },
 			want:   "intent: empty",
 		},
 		{
 			name:   "base blank",
-			mutate: func(req *v1.CreateEpicRequest) { req.Contract.Base = " " },
+			mutate: func(req *epicCreate) { req.Contract.Base = " " },
 			want:   "base: empty",
 		},
 		{
 			name:   "requirement item missing",
-			mutate: func(req *v1.CreateEpicRequest) { req.Contract.Requirements[0].Item = nil },
+			mutate: func(req *epicCreate) { req.Contract.Requirements[0].Item = nil },
 			want:   "requirements[0].item: missing",
 		},
 		{
 			name:   "release undo empty",
-			mutate: func(req *v1.CreateEpicRequest) { req.Contract.ReleaseSteps[0].Undo = "" },
+			mutate: func(req *epicCreate) { req.Contract.ReleaseSteps[0].Undo = "" },
 			want:   "release_steps[0].undo: empty",
 		},
 		{
 			name:   "care not a level",
-			mutate: func(req *v1.CreateEpicRequest) { req.Contract.Care = "dire" },
+			mutate: func(req *epicCreate) { req.Contract.Care = "dire" },
 			want:   "care: not limited, serious or severe",
 		},
 		{
 			name:   "review gates set",
-			mutate: func(req *v1.CreateEpicRequest) { req.Contract.ReviewGates = []string{"review"} },
+			mutate: func(req *epicCreate) { req.Contract.ReviewGates = []string{"review"} },
 			want:   "review_gates: refused, the reviewers fill the review list",
 		},
 	}
@@ -297,8 +364,9 @@ func TestEpicCreateRefusesWhatCheckEpicRefuses(t *testing.T) {
 			client := newEpicsClient(t, startEpicServer(t, st))
 			req := fullEpicRequest(stepGitTestRepo(t), epicServiceID)
 			tc.mutate(req)
+			acceptEpicContract(t, st, req.Contract)
 
-			_, err := client.CreateEpic(t.Context(), connect.NewRequest(req))
+			_, err := client.CreateEpic(t.Context(), connect.NewRequest(req.request()))
 			wantConnectError(t, err, connect.CodeInvalidArgument, tc.want)
 			if _, err = st.Epic(t.Context(), epicServiceID); !errors.Is(err, store.ErrNoEpic) {
 				t.Fatalf("refused epic stored: Epic err = %v, want ErrNoEpic", err)
@@ -343,7 +411,7 @@ func TestEpicCreateStoresMergedReviewers(t *testing.T) {
 		{Name: "security", Enabled: new(false)},
 	}
 
-	stored := createEpicOK(t, client, req)
+	stored := createEpicOK(t, st, client, req)
 	got := getEpicOK(t, client)
 	if !proto.Equal(got, stored) {
 		t.Fatalf("GetEpic = %v, want the created epic %v", got, stored)
@@ -422,7 +490,9 @@ func TestEpicCreateRefusesBadReviewerEntry(t *testing.T) {
 			req := fullEpicRequest(repo, epicServiceID)
 			req.Contract.Reviewers = tc.declared
 
-			_, err := client.CreateEpic(t.Context(), connect.NewRequest(req))
+			acceptEpicContract(t, st, req.Contract)
+
+			_, err := client.CreateEpic(t.Context(), connect.NewRequest(req.request()))
 			wantConnectError(t, err, connect.CodeInvalidArgument, tc.want(repo))
 			if _, err = st.Epic(t.Context(), epicServiceID); !errors.Is(err, store.ErrNoEpic) {
 				t.Fatalf("refused epic stored: Epic err = %v, want ErrNoEpic", err)
@@ -475,7 +545,8 @@ func TestEpicGetShowsUnverifiedFinding(t *testing.T) {
 
 func TestEpicGetUnknownIsNotFound(t *testing.T) {
 	t.Parallel()
-	client := newEpicsClient(t, startEpicServer(t, epicTestStore(t)))
+	st := epicTestStore(t)
+	client := newEpicsClient(t, startEpicServer(t, st))
 
 	_, err := client.GetEpic(t.Context(), connect.NewRequest(&v1.GetEpicRequest{Id: epicServiceID}))
 	wantConnectError(t, err, connect.CodeNotFound, "id: no epic "+epicServiceID)
@@ -520,10 +591,11 @@ func TestEpicGetShowsStoredReportOnceWritten(t *testing.T) {
 
 func TestEpicListReturnsSummariesByID(t *testing.T) {
 	t.Parallel()
-	client := newEpicsClient(t, startEpicServer(t, epicTestStore(t)))
+	st := epicTestStore(t)
+	client := newEpicsClient(t, startEpicServer(t, st))
 	repo := stepGitTestRepo(t)
-	zeta := createEpicOK(t, client, fullEpicRequest(repo, "synthetic-repo-1111111/zeta"))
-	alpha := createEpicOK(t, client, fullEpicRequest(repo, "synthetic-repo-0000000/alpha"))
+	zeta := createEpicOK(t, st, client, fullEpicRequest(repo, "synthetic-repo-1111111/zeta"))
+	alpha := createEpicOK(t, st, client, fullEpicRequest(repo, "synthetic-repo-0000000/alpha"))
 
 	listed, err := client.ListEpics(t.Context(), connect.NewRequest(&v1.ListEpicsRequest{}))
 	if err != nil {
@@ -574,7 +646,7 @@ func TestEpicAnswerAppendsOnceAndRepeatsStoredDecision(t *testing.T) {
 	t.Parallel()
 	st := epicTestStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 	answer := &v1.AnswerEpicRequest{EpicId: epicServiceID, Id: "A1", Text: "Ship it."}
 
 	first, err := client.AnswerEpic(t.Context(), connect.NewRequest(answer))
@@ -615,8 +687,9 @@ func TestEpicAnswerAppendsOnceAndRepeatsStoredDecision(t *testing.T) {
 
 func TestEpicAnswerWithOtherTextIsAlreadyExists(t *testing.T) {
 	t.Parallel()
-	client := newEpicsClient(t, startEpicServer(t, epicTestStore(t)))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	st := epicTestStore(t)
+	client := newEpicsClient(t, startEpicServer(t, st))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 	_, err := client.AnswerEpic(t.Context(), connect.NewRequest(
 		&v1.AnswerEpicRequest{EpicId: epicServiceID, Id: "A1", Text: "Ship it."},
 	))
@@ -637,7 +710,8 @@ func TestEpicAnswerWithOtherTextIsAlreadyExists(t *testing.T) {
 
 func TestEpicAnswerUnknownEpicIsNotFound(t *testing.T) {
 	t.Parallel()
-	client := newEpicsClient(t, startEpicServer(t, epicTestStore(t)))
+	st := epicTestStore(t)
+	client := newEpicsClient(t, startEpicServer(t, st))
 
 	_, err := client.AnswerEpic(t.Context(), connect.NewRequest(
 		&v1.AnswerEpicRequest{EpicId: epicServiceID, Id: "A1", Text: "Ship it."},
@@ -646,8 +720,9 @@ func TestEpicAnswerUnknownEpicIsNotFound(t *testing.T) {
 }
 
 func TestEpicAnswerNamesEmptyField(t *testing.T) {
-	client := newEpicsClient(t, startEpicServer(t, epicTestStore(t)))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	st := epicTestStore(t)
+	client := newEpicsClient(t, startEpicServer(t, st))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 	cases := []struct {
 		name string
 		req  *v1.AnswerEpicRequest
@@ -691,7 +766,7 @@ func TestEpicServiceWithoutStoreIsUnavailable(t *testing.T) {
 	ctx := t.Context()
 	repo := stepGitTestRepo(t)
 
-	_, err := client.CreateEpic(ctx, connect.NewRequest(fullEpicRequest(repo, epicServiceID)))
+	_, err := client.CreateEpic(ctx, connect.NewRequest(fullEpicRequest(repo, epicServiceID).request()))
 	wantConnectError(t, err, connect.CodeUnavailable, "epic store unavailable")
 	_, err = client.GetEpic(ctx, connect.NewRequest(&v1.GetEpicRequest{Id: epicServiceID}))
 	wantConnectError(t, err, connect.CodeUnavailable, "epic store unavailable")

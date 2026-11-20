@@ -1007,13 +1007,17 @@ message ConversationItem {
   // not a headless prompt.
   string prompt_id = 13;
 
-  // The id of the epic a tool item's call creates: the contract id of an epic_create call, or empty when the item is
-  // not an epic_create call or its contract names no id.
+  // The id of the epic a tool item's call creates: the id input of an epic_create call, or the id of its inline contract
+  // for a call made before epic_create took an id; empty when the item is not an epic_create call or names no id.
   string epic = 14;
 
   // The facts of the step a prompt item is for, set on a prompt item whose prompt_id is step:<id>, read from that
   // step's row.
   StepFacts step_facts = 15;
+
+  // The id of the contract a tool item's call writes: the id input of a contract_propose or contract_revise call; empty
+  // when the item is not one of those calls or its input names no id.
+  string contract = 16;
 }
 
 // ConversationContext is the context figure of a conversation: its tokens out of the window they are measured

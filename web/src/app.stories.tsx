@@ -6,8 +6,9 @@ import { Code } from "@connectrpc/connect";
 
 import { PageStory } from "./catalog/pagestory";
 import type { Stories } from "./catalog/story";
+import { dockSlices, gatesSession, warmupSession } from "./fixtures/dock";
+import { type AskAnswer, type PickerRowInit, type Slices, shippedSlices } from "./fixtures/slices";
 import { handoverSlices } from "./fixtures/steer";
-import { type AskAnswer, type PickerRowInit, shippedSlices } from "./fixtures/slices";
 import { createFixtureTransport, type FixtureTransport } from "./fixtures/transport";
 import type { Address, ListPanelKind, PageView } from "./router";
 
@@ -42,10 +43,23 @@ function paneAt(pane: string): Address {
 // page's renders until its turn ends, and that turn is a setImmediate turn, so a round that waits for one sees them.
 const immediate = (globalThis as { setImmediate?: (callback: () => void) => unknown }).setImmediate;
 
-// nextRound lets the page draw what it has queued before the story looks again. A browser draws in a microtask, which
-// is all the round needs there.
+// macrotask resolves after one macrotask turn: a message posted on a MessageChannel is delivered after the promise jobs
+// queued before it, so the effects a page runs after its draw have run too. It arms no timer.
+function macrotask(): Promise<void> {
+  return new Promise((resolve) => {
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => {
+      channel.port1.close();
+      resolve();
+    };
+    channel.port2.postMessage(null);
+  });
+}
+
+// nextRound lets the page draw what it has queued, and run the effects that follow a draw, before the story looks
+// again: one setImmediate turn where the process has one, else one macrotask turn, which a stream's first frame needs.
 function nextRound(): Promise<void> {
-  return immediate === undefined ? Promise.resolve() : new Promise((resolve) => immediate(resolve));
+  return immediate === undefined ? macrotask() : new Promise((resolve) => immediate(resolve));
 }
 
 // whenDrawn calls act with the first element of root that matches selector and, with text, includes it, and resolves
@@ -105,6 +119,44 @@ async function openSteer(root: HTMLElement): Promise<void> {
   await clickWhen(root, "section.page .title-row .icon.more");
   await clickWhen(root, "section.page .title-row .head-menu button", "Steer it from another conversation");
 }
+
+// shownDockBox is the textarea of the dock that is shown: one per column, and the cursor's column is section.read.
+const shownDockBox = "section.read .send > div:not([hidden]) textarea";
+
+// warmupReply is a line of the warm-up's transcript, which is drawn once the conversation's first frame is. A dock the
+// frame has not yet drawn is redrawn by it, and what was typed into the dock is lost.
+const warmupReply = "The cache is warm for all 14 ports";
+
+// typeInShownDock types text into the shown dock once the conversation's first frame is drawn, and focuses it.
+async function typeInShownDock(root: HTMLElement, text: string): Promise<void> {
+  await drawnWhen(root, "section.read", warmupReply);
+  const box = await typeInto(root, shownDockBox, text);
+  box.focus();
+}
+
+// pressInShownDock focuses the shown dock's textarea, once the conversation's first frame is drawn, and presses key in it.
+async function pressInShownDock(root: HTMLElement, key: string): Promise<void> {
+  await drawnWhen(root, "section.read", warmupReply);
+  const box = await drawnWhen(root, shownDockBox);
+  box.focus();
+  press(box, key);
+}
+
+// sendInShownDock types text into the shown dock and presses Enter once the typing has drawn.
+async function sendInShownDock(root: HTMLElement, text: string): Promise<void> {
+  await typeInShownDock(root, text);
+  await pressInShownDock(root, "Enter");
+}
+
+// dockStory draws App at address over one dock scenario's slices, and runs after, when given, once it has drawn.
+const dockStory =
+  (address: Address, slices: Slices, after?: (root: HTMLElement) => Promise<void>) => () => (
+    <PageStory address={address} fixture={createFixtureTransport(slices)} after={after} />
+  );
+
+const warmupAt: Address = { order: "attention", entry: { kind: "session", id: warmupSession } };
+const gatesAt: Address = { order: "attention", entry: { kind: "session", id: gatesSession } };
+const pane17At: Address = { order: "attention", entry: { kind: "pane", host: "halyard", pane: "%17" } };
 
 // newField is New session's one field.
 const newField = 'input[aria-label="New session"]';
@@ -276,6 +328,29 @@ export const Page: Stories = {
       }}
     />
   ),
+  "dock-idle": dockStory(warmupAt, dockSlices["dock-idle"]),
+  "dock-queued": dockStory(warmupAt, dockSlices["dock-queued"]),
+  "dock-draft": dockStory(warmupAt, dockSlices["dock-draft"], (root) =>
+    typeInShownDock(root, "And skip ports that are already warm."),
+  ),
+  "dock-interrupting": dockStory(warmupAt, dockSlices["dock-interrupting"], (root) =>
+    pressInShownDock(root, "Escape"),
+  ),
+  "dock-interrupted": dockStory(warmupAt, dockSlices["dock-interrupted"]),
+  "dock-interrupt-queue": dockStory(warmupAt, dockSlices["dock-interrupt-queue"]),
+  "dock-cut-off": dockStory({ order: "attention", entry: { kind: "session", id: headlessSession } }, dockSlices["dock-cut-off"]),
+  "dock-pane-queue": dockStory(pane17At, dockSlices["dock-pane-queue"]),
+  "dock-waiting": dockStory(warmupAt, dockSlices["dock-waiting"]),
+  "dock-failed": dockStory(warmupAt, dockSlices["dock-failed"]),
+  "dock-stopped": dockStory(warmupAt, dockSlices["dock-stopped"]),
+  "dock-send-error": dockStory(warmupAt, dockSlices["dock-send-error"], (root) =>
+    sendInShownDock(root, "Run it for January too."),
+  ),
+  "dock-send-unknown": dockStory(warmupAt, dockSlices["dock-send-unknown"], (root) =>
+    sendInShownDock(root, "Run it for January too."),
+  ),
+  "dock-cancelled": dockStory(pane17At, dockSlices["dock-cancelled"]),
+  "ask-later": dockStory(gatesAt, dockSlices["ask-later"]),
   keys: () => (
     <PageStory
       address={convoWorkingAt}

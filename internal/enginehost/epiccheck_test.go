@@ -52,8 +52,8 @@ func epicTestGetenv(key string) string {
 
 // epicTestRequest returns a valid contract for the git repository at repo, based at the repository's HEAD. Every
 // refusal test mutates its own copy.
-func epicTestRequest(repo string) *v1.CreateEpicRequest {
-	return &v1.CreateEpicRequest{
+func epicTestRequest(repo string) *epicCreate {
+	return &epicCreate{
 		Contract: &v1.EpicContract{
 			Id:         "demo-repo-0a1b2c3/epic-check",
 			Repository: repo,
@@ -95,7 +95,7 @@ func epicTestRequest(repo string) *v1.CreateEpicRequest {
 // epicRefusal is one mutation of the valid contract and the exact message checkEpic refuses it with.
 type epicRefusal struct {
 	name   string
-	mutate func(req *v1.CreateEpicRequest)
+	mutate func(req *epicCreate)
 	want   string
 }
 
@@ -108,7 +108,7 @@ func runEpicRefusals(t *testing.T, repo string, refusals []epicRefusal) {
 			t.Parallel()
 			req := epicTestRequest(repo)
 			tc.mutate(req)
-			err := checkEpic(t.Context(), req, epicTestGetenv)
+			err := checkEpic(t.Context(), req.Contract, req.Decisions, epicTestGetenv)
 			if err == nil {
 				t.Fatalf("checkEpic accepted the contract, want refusal %q", tc.want)
 			}
@@ -128,7 +128,8 @@ func runEpicRefusals(t *testing.T, repo string, refusals []epicRefusal) {
 func TestCheckEpicAcceptsValidContract(t *testing.T) {
 	t.Parallel()
 	repo := stepGitTestRepo(t)
-	if err := checkEpic(t.Context(), epicTestRequest(repo), epicTestGetenv); err != nil {
+	req := epicTestRequest(repo)
+	if err := checkEpic(t.Context(), req.Contract, req.Decisions, epicTestGetenv); err != nil {
 		t.Fatalf("checkEpic refused a valid contract: %v", err)
 	}
 }
@@ -141,7 +142,7 @@ func TestCheckEpicResolvesDoneGateFromProjectFile(t *testing.T) {
 	stepGitTestWrite(t, repo, ".orrery/project.toml", "[gates.project_check]\nargv = [\"scripts/check\"]\nlimit = 60\n")
 	req := epicTestRequest(repo)
 	req.Contract.DoneGates = []string{"project_check"}
-	if err := checkEpic(t.Context(), req, epicTestGetenv); err != nil {
+	if err := checkEpic(t.Context(), req.Contract, req.Decisions, epicTestGetenv); err != nil {
 		t.Fatalf("checkEpic refused a done gate the project file defines: %v", err)
 	}
 }
@@ -152,40 +153,35 @@ func TestCheckEpicRefusesContractHead(t *testing.T) {
 	notRepo := t.TempDir()
 	runEpicRefusals(t, repo, []epicRefusal{
 		{
-			name:   "contract missing",
-			mutate: func(req *v1.CreateEpicRequest) { req.Contract = nil },
-			want:   "contract: missing",
-		},
-		{
 			name:   "id bad form",
-			mutate: func(req *v1.CreateEpicRequest) { req.Contract.Id = "demo-repo/epic-check" },
+			mutate: func(req *epicCreate) { req.Contract.Id = "demo-repo/epic-check" },
 			want:   "id: bad form, want <repo-id>-<7 hex>/<slug>",
 		},
 		{
 			name: "id over 128 bytes",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.Id = strings.Repeat("a", epicIDMaxBytes) + "-0a1b2c3/epic-check"
 			},
 			want: "id: over 128 bytes",
 		},
 		{
 			name:   "repository not absolute",
-			mutate: func(req *v1.CreateEpicRequest) { req.Contract.Repository = "demo-repo" },
+			mutate: func(req *epicCreate) { req.Contract.Repository = "demo-repo" },
 			want:   "repository: not absolute",
 		},
 		{
 			name:   "repository not a git work tree",
-			mutate: func(req *v1.CreateEpicRequest) { req.Contract.Repository = notRepo },
+			mutate: func(req *epicCreate) { req.Contract.Repository = notRepo },
 			want:   "repository: not inside a git work tree",
 		},
 		{
 			name:   "intent empty",
-			mutate: func(req *v1.CreateEpicRequest) { req.Contract.Intent = " \t " },
+			mutate: func(req *epicCreate) { req.Contract.Intent = " \t " },
 			want:   "intent: empty",
 		},
 		{
 			name:   "care bad",
-			mutate: func(req *v1.CreateEpicRequest) { req.Contract.Care = "minor" },
+			mutate: func(req *epicCreate) { req.Contract.Care = "minor" },
 			want:   "care: not limited, serious or severe",
 		},
 	})
@@ -197,17 +193,17 @@ func TestCheckEpicRefusesBase(t *testing.T) {
 	runEpicRefusals(t, repo, []epicRefusal{
 		{
 			name:   "base empty",
-			mutate: func(req *v1.CreateEpicRequest) { req.Contract.Base = "" },
+			mutate: func(req *epicCreate) { req.Contract.Base = "" },
 			want:   "base: empty",
 		},
 		{
 			name:   "base blank",
-			mutate: func(req *v1.CreateEpicRequest) { req.Contract.Base = " \t " },
+			mutate: func(req *epicCreate) { req.Contract.Base = " \t " },
 			want:   "base: empty",
 		},
 		{
 			name:   "base not a commit",
-			mutate: func(req *v1.CreateEpicRequest) { req.Contract.Base = "0123456789abcdef0123456789abcdef01234567" },
+			mutate: func(req *epicCreate) { req.Contract.Base = "0123456789abcdef0123456789abcdef01234567" },
 			want:   "base: not a commit in the repository",
 		},
 	})
@@ -219,36 +215,36 @@ func TestCheckEpicRefusesGates(t *testing.T) {
 	runEpicRefusals(t, repo, []epicRefusal{
 		{
 			name:   "gate name bad form",
-			mutate: func(req *v1.CreateEpicRequest) { req.Contract.Gates[0].Name = "Check" },
+			mutate: func(req *epicCreate) { req.Contract.Gates[0].Name = "Check" },
 			want:   `gates[0]: gate "Check": name must match [a-z][a-z0-9_]*`,
 		},
 		{
 			name:   "gate argv without a path",
-			mutate: func(req *v1.CreateEpicRequest) { req.Contract.Gates[0].Argv = []string{"check"} },
+			mutate: func(req *epicCreate) { req.Contract.Gates[0].Argv = []string{"check"} },
 			want:   `gates[0]: gate "check": argv[0] "check" must be a path with a / in it, never looked up on PATH`,
 		},
 		{
 			name:   "gate limit below one second",
-			mutate: func(req *v1.CreateEpicRequest) { req.Contract.Gates[0].Limit = 0 },
+			mutate: func(req *epicCreate) { req.Contract.Gates[0].Limit = 0 },
 			want:   `gates[0]: gate "check": limit 0 is outside 1 to 9223372036 seconds`,
 		},
 		{
 			name: "gate needs bad pool",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.Gates[0].Needs = []*v1.EpicGateNeed{{Pool: "GPU", Count: 1}}
 			},
 			want: `gates[0]: gate "check": pool "GPU" in needs must match [a-z][a-z0-9_]*`,
 		},
 		{
 			name: "gate argv beside agent",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.Gates[1].Argv = []string{"scripts/check"}
 			},
 			want: `gates[1]: gate "review": argv cannot sit beside agent`,
 		},
 		{
 			name: "gate name duplicate",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.Gates = append(req.Contract.Gates,
 					&v1.EpicGate{Name: "check", Argv: []string{"scripts/check"}, Limit: 60})
 			},
@@ -265,22 +261,22 @@ func TestCheckEpicRefusesDoneGatesAndReviewGates(t *testing.T) {
 	runEpicRefusals(t, repo, []epicRefusal{
 		{
 			name:   "done gate defined nowhere",
-			mutate: func(req *v1.CreateEpicRequest) { req.Contract.DoneGates = []string{"missing"} },
+			mutate: func(req *epicCreate) { req.Contract.DoneGates = []string{"missing"} },
 			want:   `done_gates[0]: gate "missing": unknown gate: searched the epic's gates`,
 		},
 		{
 			name:   "second done gate defined nowhere",
-			mutate: func(req *v1.CreateEpicRequest) { req.Contract.DoneGates = []string{"check", "missing"} },
+			mutate: func(req *epicCreate) { req.Contract.DoneGates = []string{"check", "missing"} },
 			want:   `done_gates[1]: gate "missing": unknown gate: searched the epic's gates`,
 		},
 		{
 			name:   "done gate is an agent gate",
-			mutate: func(req *v1.CreateEpicRequest) { req.Contract.DoneGates = []string{"review"} },
+			mutate: func(req *epicCreate) { req.Contract.DoneGates = []string{"review"} },
 			want:   "done_gates[0]: not a command gate",
 		},
 		{
 			name:   "review gates set",
-			mutate: func(req *v1.CreateEpicRequest) { req.Contract.ReviewGates = []string{"review"} },
+			mutate: func(req *epicCreate) { req.Contract.ReviewGates = []string{"review"} },
 			want:   "review_gates: refused, the reviewers fill the review list",
 		},
 	})
@@ -292,12 +288,12 @@ func TestCheckEpicRefusesFailures(t *testing.T) {
 	runEpicRefusals(t, repo, []epicRefusal{
 		{
 			name:   "failure id wrong form",
-			mutate: func(req *v1.CreateEpicRequest) { req.Contract.Failures[0].Id = "F0" },
+			mutate: func(req *epicCreate) { req.Contract.Failures[0].Id = "F0" },
 			want:   "failures[0].id: unknown id",
 		},
 		{
 			name: "failure id duplicate",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.Failures = append(req.Contract.Failures,
 					&v1.EpicFailure{Id: "F1", Text: "Synthetic.", Rating: "limited", Response: "Synthetic."})
 			},
@@ -305,7 +301,7 @@ func TestCheckEpicRefusesFailures(t *testing.T) {
 		},
 		{
 			name:   "failure rating bad",
-			mutate: func(req *v1.CreateEpicRequest) { req.Contract.Failures[0].Rating = "minor" },
+			mutate: func(req *epicCreate) { req.Contract.Failures[0].Rating = "minor" },
 			want:   "failures[0].rating: not limited, serious or severe",
 		},
 	})
@@ -317,17 +313,17 @@ func TestCheckEpicRefusesRequirements(t *testing.T) {
 	runEpicRefusals(t, repo, []epicRefusal{
 		{
 			name:   "no requirements",
-			mutate: func(req *v1.CreateEpicRequest) { req.Contract.Requirements = nil },
+			mutate: func(req *epicCreate) { req.Contract.Requirements = nil },
 			want:   "requirements: none",
 		},
 		{
 			name:   "requirement id wrong form",
-			mutate: func(req *v1.CreateEpicRequest) { req.Contract.Requirements[0].Id = "R0" },
+			mutate: func(req *epicCreate) { req.Contract.Requirements[0].Id = "R0" },
 			want:   "requirements[0].id: unknown id",
 		},
 		{
 			name: "requirement id duplicate",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.Requirements = append(req.Contract.Requirements,
 					&v1.EpicRequirement{Id: "R1", Text: "Synthetic.", Item: epicTestItem()})
 			},
@@ -335,12 +331,12 @@ func TestCheckEpicRefusesRequirements(t *testing.T) {
 		},
 		{
 			name:   "requirement item missing",
-			mutate: func(req *v1.CreateEpicRequest) { req.Contract.Requirements[0].Item = nil },
+			mutate: func(req *epicCreate) { req.Contract.Requirements[0].Item = nil },
 			want:   "requirements[0].item: missing",
 		},
 		{
 			name: "second requirement item missing",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.Requirements = append(req.Contract.Requirements,
 					&v1.EpicRequirement{Id: "R2", Text: "Synthetic."})
 			},
@@ -348,40 +344,40 @@ func TestCheckEpicRefusesRequirements(t *testing.T) {
 		},
 		{
 			name: "item names no capture or supplied files",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.Requirements[0].Item = &v1.EvidenceItem{Conclusion: "Synthetic.", Judge: "reviewer"}
 			},
 			want: "requirements[0].item.capture: none, name a capture or supplied files",
 		},
 		{
 			name: "item judge blank",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.Requirements[0].Item.Judge = " "
 			},
 			want: "requirements[0].item.judge: empty or blank",
 		},
 		{
 			name: "item kind none",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.Requirements[0].Item.Kind = ""
 			},
 			want: "requirements[0].item.kind: none, name test, capture or supplied",
 		},
 		{
 			name: "item artifact not normalized",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.Requirements[0].Item.Artifacts = []string{"../out.txt"}
 			},
 			want: "requirements[0].item.artifacts[0]: not a normalized repository-relative file path",
 		},
 		{
 			name:   "evidence set beside item",
-			mutate: func(req *v1.CreateEpicRequest) { req.Contract.Requirements[0].Evidence = "Synthetic check." },
+			mutate: func(req *epicCreate) { req.Contract.Requirements[0].Evidence = "Synthetic check." },
 			want:   "requirements[0].evidence: set beside an item",
 		},
 		{
 			name:   "kind set beside item",
-			mutate: func(req *v1.CreateEpicRequest) { req.Contract.Requirements[0].Kind = "check" },
+			mutate: func(req *epicCreate) { req.Contract.Requirements[0].Kind = "check" },
 			want:   "requirements[0].kind: set beside an item",
 		},
 	})
@@ -393,12 +389,12 @@ func TestCheckEpicRefusesPremisesAndAdditions(t *testing.T) {
 	runEpicRefusals(t, repo, []epicRefusal{
 		{
 			name:   "premise id wrong form",
-			mutate: func(req *v1.CreateEpicRequest) { req.Contract.Premises[0].Id = "P0" },
+			mutate: func(req *epicCreate) { req.Contract.Premises[0].Id = "P0" },
 			want:   "premises[0].id: unknown id",
 		},
 		{
 			name: "premise id duplicate",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.Premises = append(req.Contract.Premises,
 					&v1.EpicPremise{Id: "P1", Text: "Synthetic.", IfWrong: "Synthetic."})
 			},
@@ -406,17 +402,17 @@ func TestCheckEpicRefusesPremisesAndAdditions(t *testing.T) {
 		},
 		{
 			name:   "addition names unknown R",
-			mutate: func(req *v1.CreateEpicRequest) { req.Contract.Additions[0].Location = "R9" },
+			mutate: func(req *epicCreate) { req.Contract.Additions[0].Location = "R9" },
 			want:   "additions[0].location: unknown id",
 		},
 		{
 			name:   "addition names unknown F",
-			mutate: func(req *v1.CreateEpicRequest) { req.Contract.Additions[0].Location = "F9" },
+			mutate: func(req *epicCreate) { req.Contract.Additions[0].Location = "F9" },
 			want:   "additions[0].location: unknown id",
 		},
 		{
 			name:   "addition names unknown P",
-			mutate: func(req *v1.CreateEpicRequest) { req.Contract.Additions[0].Location = "P9" },
+			mutate: func(req *epicCreate) { req.Contract.Additions[0].Location = "P9" },
 			want:   "additions[0].location: unknown id",
 		},
 	})
@@ -428,24 +424,24 @@ func TestCheckEpicRefusesReleaseAndDecisions(t *testing.T) {
 	runEpicRefusals(t, repo, []epicRefusal{
 		{
 			name:   "release step undo empty",
-			mutate: func(req *v1.CreateEpicRequest) { req.Contract.ReleaseSteps[0].Undo = " " },
+			mutate: func(req *epicCreate) { req.Contract.ReleaseSteps[0].Undo = " " },
 			want:   "release_steps[0].undo: empty",
 		},
 		{
 			name:   "seed decision id empty",
-			mutate: func(req *v1.CreateEpicRequest) { req.Decisions[0].Id = "" },
+			mutate: func(req *epicCreate) { req.Decisions[0].Id = "" },
 			want:   "decisions[0].id: empty",
 		},
 		{
 			name: "seed decision id duplicate",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Decisions = append(req.Decisions, &v1.EpicDecisionInput{Id: "D1", Text: "Synthetic."})
 			},
 			want: "decisions[1].id: duplicate",
 		},
 		{
 			name:   "seed decision text empty",
-			mutate: func(req *v1.CreateEpicRequest) { req.Decisions[0].Text = "" },
+			mutate: func(req *epicCreate) { req.Decisions[0].Text = "" },
 			want:   "decisions[0].text: empty",
 		},
 	})
@@ -458,7 +454,7 @@ func TestCheckEpicRefusesFirstFailureOnly(t *testing.T) {
 	runEpicRefusals(t, repo, []epicRefusal{
 		{
 			name: "id before repository",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.Id = "demo-repo/epic-check"
 				req.Contract.Repository = "demo-repo"
 			},
@@ -466,7 +462,7 @@ func TestCheckEpicRefusesFirstFailureOnly(t *testing.T) {
 		},
 		{
 			name: "repository before intent",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.Repository = "demo-repo"
 				req.Contract.Intent = ""
 			},
@@ -474,7 +470,7 @@ func TestCheckEpicRefusesFirstFailureOnly(t *testing.T) {
 		},
 		{
 			name: "intent before care",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.Intent = ""
 				req.Contract.Care = "minor"
 			},
@@ -482,7 +478,7 @@ func TestCheckEpicRefusesFirstFailureOnly(t *testing.T) {
 		},
 		{
 			name: "head before base",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.Intent = ""
 				req.Contract.Base = ""
 			},
@@ -490,7 +486,7 @@ func TestCheckEpicRefusesFirstFailureOnly(t *testing.T) {
 		},
 		{
 			name: "base before gates",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.Base = ""
 				req.Contract.Gates[0].Name = "Check"
 			},
@@ -498,7 +494,7 @@ func TestCheckEpicRefusesFirstFailureOnly(t *testing.T) {
 		},
 		{
 			name: "gates before done gates",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.Gates[0].Name = "Check"
 				req.Contract.DoneGates = []string{"missing"}
 			},
@@ -506,7 +502,7 @@ func TestCheckEpicRefusesFirstFailureOnly(t *testing.T) {
 		},
 		{
 			name: "done gates before failures",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.DoneGates = []string{"missing"}
 				req.Contract.Failures[0].Rating = "minor"
 			},
@@ -514,7 +510,7 @@ func TestCheckEpicRefusesFirstFailureOnly(t *testing.T) {
 		},
 		{
 			name: "failures before requirements",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.Failures[0].Rating = "minor"
 				req.Contract.Requirements = nil
 			},
@@ -522,7 +518,7 @@ func TestCheckEpicRefusesFirstFailureOnly(t *testing.T) {
 		},
 		{
 			name: "requirement item before evidence",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.Requirements[0].Item = nil
 				req.Contract.Requirements[0].Evidence = "Synthetic check."
 			},

@@ -379,7 +379,7 @@ async function clickRow(container: HTMLElement, key: string): Promise<void> {
 
 // composer is the cursor row's reply box, the one that is drawn.
 function composer(container: HTMLElement): HTMLTextAreaElement {
-  const box = container.querySelector<HTMLTextAreaElement>(".reply:not([hidden]) .composer textarea");
+  const box = container.querySelector<HTMLTextAreaElement>(".reply:not([hidden]) textarea");
   assert.ok(box, "the cursor's row has a reply box");
   return box;
 }

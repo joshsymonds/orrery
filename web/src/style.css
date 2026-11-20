@@ -427,22 +427,14 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
    and its padding comes from the wide block with the head's. */
 .convo-head > .title-row { font: var(--o-type-small); }
 .convo-head .phone-ctx { display: none; }
-/* The pill names the reader's state. Its tone sets the text, the tint and the outline; idle is ink.3 on surface.raised. */
+/* The epic card's status pill: its tone sets the text, the tint and the outline; idle is ink.3 on surface.raised. */
 .pill {
   display: inline-flex; flex: none; align-items: center; gap: var(--o-space-8); padding: var(--o-space-2) var(--o-space-8); border-radius: var(--o-radius-round);
   font: var(--o-type-small); color: var(--tone);
   background: var(--tone-fill); box-shadow: 0 0 0 var(--o-size-hairline) var(--tone-line);
 }
-.pill .g { flex: none; width: var(--o-size-glyph); height: var(--o-size-glyph); margin: 0; border-radius: var(--o-radius-round); }
-.pill .tool { color: var(--o-role-ref); }
-.pill .g-working { animation: rot var(--o-loop-spin) linear infinite; }
 .pill.tone-working { --tone: var(--o-role-live); --tone-fill: var(--o-role-live-fill); --tone-line: var(--o-role-live-line); }
-.pill.tone-waiting, .pill.tone-held { --tone: var(--o-role-attention); --tone-fill: var(--o-role-attention-fill); --tone-line: var(--o-role-attention-line); }
-.pill.tone-done { --tone: var(--o-role-ok); --tone-fill: var(--o-role-ok-fill); --tone-line: var(--o-role-ok-line); }
-.pill.tone-interrupted { --tone: var(--o-role-halt); --tone-fill: var(--o-role-halt-fill); --tone-line: var(--o-role-halt-line); }
-.pill.tone-interrupting { --tone: var(--o-role-halt); --tone-fill: var(--o-role-halt-fill); --tone-line: var(--o-role-halt-line); }
-.pill.tone-ended { --tone: var(--o-role-bad); --tone-fill: var(--o-role-bad-fill); --tone-line: var(--o-role-bad-line); }
-.pill.tone-stopped { color: var(--o-ink-3); background: var(--o-surface-raised); box-shadow: 0 0 0 var(--o-size-hairline) var(--o-line-firm); }
+.pill.tone-waiting { --tone: var(--o-role-attention); --tone-fill: var(--o-role-attention-fill); --tone-line: var(--o-role-attention-line); }
 .pill.tone-idle { color: var(--o-ink-3); background: var(--o-surface-raised); box-shadow: 0 0 0 var(--o-size-hairline) var(--o-line-firm); }
 .reader { min-width: 0; padding: var(--o-space-4) 0 var(--o-space-8); }
 .reader-loading { margin: 0; color: var(--o-ink-3); }
@@ -638,10 +630,6 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
   margin: var(--o-space-4) 0 0; padding: var(--o-space-8); border-radius: var(--o-radius-2); background: var(--o-surface-well); color: var(--o-ink-2);
   font: var(--o-type-small); white-space: pre-wrap; overflow-wrap: anywhere;
 }
-/* A caller event the session holds and has not taken draws in a lower ink, until its prompt arrives or the session takes it. */
-.reader .step-card.waiting, .reader .event-ring.waiting { --o-ink-1: var(--o-ink-3); --o-ink-2: var(--o-ink-3); }
-.reader .event-ring.waiting .ring-line { cursor: default; }
-.reader .wait-label { display: block; font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; color: var(--o-ink-3); }
 /* A background task's row: its type, its description and latest activity on the line, and its status once it has ended,
    red when it failed. The type is blue only on an agent task's row, which is a button reset to the line and opens its Agent call. */
 .reader .background-row { display: flex; gap: var(--o-space-8); min-width: 0; padding: var(--o-space-2) var(--o-space-8); font: var(--o-type-small); color: var(--o-ink-3); }
@@ -652,29 +640,6 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 .reader .background-row .bg-status { flex: none; color: var(--o-ink-3); }
 .reader .background-row .bg-status.failed { color: var(--o-role-bad); }
 .reader button.background-row { width: 100%; min-height: var(--o-space-24); margin: 0; border: 0; background: none; text-align: left; cursor: pointer; appearance: none; -webkit-appearance: none; }
-
-/* The send foot's queue docks onto the composer under it: the queue's top corners and the composer's bottom corners are
-   rounded, so the two read as one box. The head counts the rows quietly. A queued message is a ghost of the owner's
-   turn: a dashed edge in the owner's colour, dim text, and its line breaks kept. */
-.compose .queue { min-width: 0; margin: 0; padding: 0; list-style: none; border-radius: var(--o-radius-3) var(--o-radius-3) 0 0; background: var(--o-surface-well); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm); }
-.compose .queue + .composer { border-radius: 0 0 var(--o-radius-3) var(--o-radius-3); }
-.compose .queue-head { display: block; min-width: 0; padding: var(--o-space-4) var(--o-space-12) 0; font: var(--o-type-small); color: var(--o-ink-3); }
-.compose .queued { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; padding: var(--o-space-4) var(--o-space-12); border-left: var(--o-size-rail) dashed var(--o-role-you); }
-.compose .queued > .tag { display: block; font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; color: var(--o-ink-3); }
-.compose .queued > .text { min-width: 0; color: var(--o-ink-3); font: var(--o-type-body); white-space: pre-wrap; overflow-wrap: anywhere; }
-.compose .queued.canceled > .text { color: var(--o-ink-3); text-decoration: line-through; }
-.compose .queued.canceled > .tag { color: var(--o-role-halt); }
-/* A session's queued message says what Claude does with it, and carries a withdraw that takes it back into the box. A
-   discarded message never reached Claude: its halt edge and tag mark it, and its control puts it back in the box. */
-.compose .queued > .note { display: block; min-width: 0; font: var(--o-type-small); color: var(--o-ink-3); }
-.compose .queued > .withdraw, .compose .undelivered > .put-back {
-  justify-self: start; min-height: var(--o-space-24); margin-top: var(--o-space-4); padding: 0 var(--o-space-8); border: 0; border-radius: var(--o-radius-2); cursor: pointer;
-  background: var(--o-surface-raised); font: var(--o-type-small); color: var(--o-ink-2);
-  appearance: none; -webkit-appearance: none;
-}
-.compose .undelivered { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; padding: var(--o-space-4) var(--o-space-12); border-left: var(--o-size-rail) solid var(--o-role-halt); }
-.compose .undelivered > .tag { display: block; font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; color: var(--o-role-halt); }
-.compose .undelivered > .text { min-width: 0; color: var(--o-ink-2); font: var(--o-type-body); white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* The find bar is a well field over the transcript, its query in mono and its count in ink.3 at the right. It takes
    the focus ring while it has focus, as the composer does. */
@@ -687,71 +652,109 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 .reader mark { padding: 0 var(--o-space-2); border-radius: var(--o-radius-1); background: var(--o-role-mark-line); color: inherit; }
 .reader mark.current { background: var(--o-role-mark); color: var(--o-ink-on-accent); }
 
-.composer {
-  position: relative; display: flex; flex: 1 1 auto; align-items: center; gap: var(--o-space-8); min-width: 0; padding: var(--o-space-8) var(--o-space-8) var(--o-space-8) var(--o-space-12);
-  border-radius: var(--o-radius-3); overflow: hidden;
-  background: var(--o-surface-well); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm);
-}
-/* The composer's left edge names its conversation's state: live while working, attention when waiting or held, and no edge
-   when idle. The focus ring stays in the focus role, and a focused composer keeps its edge under the ring. */
-.composer.edge-working { box-shadow: inset var(--o-size-rail) 0 0 var(--o-role-live), inset 0 0 0 var(--o-size-hairline) var(--o-line-firm); }
-.composer.edge-waiting, .composer.edge-held { box-shadow: inset var(--o-size-rail) 0 0 var(--o-role-attention), inset 0 0 0 var(--o-size-hairline) var(--o-line-firm); }
-.composer:focus-within { box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-role-focus); }
-.composer.edge-working:focus-within { box-shadow: inset var(--o-size-rail) 0 0 var(--o-role-live), inset 0 0 0 var(--o-size-hairline) var(--o-role-focus); }
-.composer.edge-waiting:focus-within, .composer.edge-held:focus-within { box-shadow: inset var(--o-size-rail) 0 0 var(--o-role-attention), inset 0 0 0 var(--o-size-hairline) var(--o-role-focus); }
-.composer textarea {
-  flex: 1 1 auto; min-width: 0; padding: 0; resize: vertical;
-  background: none; border: 0; outline: 0; font: var(--o-type-body);
+/* The dock: one box at the foot of a conversation, after round 6. The state's rail is its left edge. Top to bottom, each part
+   only when it has rows: the state bar, the waits line, the trays, the quote and the input. The notes sit under the box. */
+.dock { flex: none; padding: 0 var(--o-layout-page-pad-desk) var(--o-space-16); }
+.dock-box { --state: var(--o-line-firm); display: grid; min-width: 0; border-left: var(--o-size-rail) solid var(--state); border-radius: var(--o-radius-3); background: var(--o-surface-well); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm); overflow: hidden; }
+.dock-box[data-state="working"] { --state: var(--o-state-working); }
+.dock-box[data-state="waiting"] { --state: var(--o-state-waiting); }
+.dock-box[data-state="held"] { --state: var(--o-state-held); }
+.dock-box[data-state="done"] { --state: var(--o-state-done); }
+.dock-box[data-state="interrupted"], .dock-box[data-state="interrupting"] { --state: var(--o-state-interrupted); }
+.dock-box[data-state="failed"] { --state: var(--o-state-failed); }
+.dock-box[data-state="stopped"], .dock-box[data-state="idle"] { --state: var(--o-line-firm); }
+.dock-box:focus-within, .dock-box.focused { box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-role-focus); }
+.dock-box > * + * { border-top: var(--o-size-hairline) solid var(--o-line-soft); }
+
+/* The state bar: the state, once, beside the controls that change it. */
+.statebar { display: flex; align-items: center; gap: var(--o-space-8); min-width: 0; min-height: var(--o-size-control-desk); padding: var(--o-space-4) var(--o-space-4) var(--o-space-4) var(--o-space-12); font: var(--o-type-small); color: var(--o-ink-2); }
+.statebar .word { flex: none; color: var(--state); font-weight: var(--o-font-weight-bold); }
+.dock-box[data-state="done"] .statebar .word, .dock-box[data-state="idle"] .statebar .word, .dock-box[data-state="stopped"] .statebar .word { color: var(--o-ink-2); font-weight: var(--o-font-weight-regular); }
+.statebar .what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.statebar .what .name { color: var(--o-role-ref); }
+.statebar .clock { flex: none; color: var(--state); }
+.statebar .end { display: inline-flex; align-items: center; gap: var(--o-space-4); margin-left: auto; flex: none; }
+.statebar .g-working { color: var(--state); animation: rot var(--o-loop-spin) linear infinite; }
+
+/* The waits line: what the session waits on, under the state bar. */
+.dock-waits { display: flex; align-items: center; gap: var(--o-space-8); padding: var(--o-space-4) var(--o-space-12); border-top: var(--o-size-hairline) solid var(--o-line-soft); color: var(--o-role-engine); font: var(--o-type-small); }
+
+/* Ctl: a control inside a line of the dock or a tray. It is the height of the line's text, the same at the desk and on
+   touch; its touch target is the line it sits in. Its key hint is drawn at the desk only. */
+.ctl { display: inline-flex; align-items: center; gap: var(--o-space-4); flex: none; height: var(--o-space-24); min-height: 0; padding: 0 var(--o-space-8); border: 0; border-radius: var(--o-radius-1); background: none; cursor: pointer; color: var(--o-ink-2); font: var(--o-type-small); white-space: nowrap; appearance: none; -webkit-appearance: none; }
+.ctl:hover, .ctl.hover { background: var(--o-surface-raised); color: var(--o-ink-1); }
+.ctl.bad .icon { color: var(--o-role-bad); }
+.ctl.go .icon { color: var(--o-role-ok); }
+.ctl:disabled { color: var(--o-ink-4); }
+.ctl.only { padding: 0 var(--o-space-4); }
+/* The Stop question under a step's dock: its words, then Stop {label} and Keep it running, in round 6's confirm. */
+.dock .confirm { display: inline-flex; align-items: center; gap: var(--o-space-8); font: var(--o-type-small); color: var(--o-ink-2); }
+
+/* The icon: stroked in the current colour unless a part is filled. */
+.icon { width: var(--o-size-icon); height: var(--o-size-icon); fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+
+/* The quote: what a message is about, above the input. */
+.quote { display: flex; align-items: center; gap: var(--o-space-8); min-width: 0; padding: var(--o-space-4) var(--o-space-8) var(--o-space-4) var(--o-space-12); color: var(--o-ink-2); font: var(--o-type-small); }
+.quote .text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* An id chip: an item's id, tinted by its kind's first letter (R requirement, F failure, P premise, A addition). */
+.idc { display: inline-flex; align-items: center; flex: none; padding: 0 var(--o-space-4); border-radius: var(--o-radius-1); background: var(--o-surface-raised); color: var(--o-ink-2); font: var(--o-type-small); font-weight: var(--o-font-weight-bold); white-space: nowrap; }
+.idc[data-k="R"] { background: var(--o-series-4-fill); color: var(--o-series-4); }
+.idc[data-k="F"] { background: var(--o-series-3-fill); color: var(--o-series-3); }
+.idc[data-k="P"] { background: var(--o-series-1-fill); color: var(--o-series-1); }
+.idc[data-k="A"] { background: var(--o-series-2-fill); color: var(--o-series-2); }
+
+/* The trays: rows that have not happened yet. Each row's rail is dashed, in the tone of who it belongs to. */
+.tray { display: grid; padding: var(--o-space-4) 0; }
+.tray-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--o-space-8); padding: var(--o-space-2) var(--o-space-12); font: var(--o-type-small); color: var(--o-ink-3); }
+.tray-head .lbl { flex: none; font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+.tray-head .why { flex: 1 1 auto; min-width: 0; }
+.tray-head .end { display: inline-flex; align-items: center; gap: var(--o-space-8); margin-left: auto; flex: none; }
+.tray-row { --rail: var(--o-line-firm); display: flex; align-items: center; gap: var(--o-space-8); min-width: 0; margin-left: var(--o-space-12); padding: var(--o-space-2) var(--o-space-12) var(--o-space-2) var(--o-space-8); border-left: var(--o-size-rail) dashed var(--rail); font: var(--o-type-small); color: var(--o-ink-2); }
+.tray-row.you { --rail: var(--o-role-you); color: var(--o-ink-1); font: var(--o-type-body); }
+.tray-row.cancelled { --rail: var(--o-role-halt); color: var(--o-ink-3); text-decoration: line-through; }
+.tray-row .lbl { display: inline-block; flex: none; color: var(--rail); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; text-decoration: none; }
+.tray-row .text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tray-row .text.wrap { white-space: pre-wrap; }
+.tray-row .note { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-ink-3); }
+.tray-row .end { display: inline-flex; align-items: center; gap: var(--o-space-4); margin-left: auto; flex: none; color: var(--o-ink-3); font: var(--o-type-small); }
+.tray-more { margin-left: var(--o-space-12); padding: var(--o-space-2) var(--o-space-12); font: var(--o-type-small); color: var(--o-ink-3); }
+
+/* The notes under the box: what happened to a send, a take-back or a resume, in red when it failed. */
+.dock .inote { display: flex; align-items: center; gap: var(--o-space-8); margin: var(--o-space-4) 0 0; font: var(--o-type-small); color: var(--o-ink-3); }
+.dock .inote.error { color: var(--o-role-bad); }
+
+/* The input: what you type, and Send. The placeholder says what a send will do in this state. */
+.dock-input { display: flex; align-items: flex-end; gap: var(--o-space-8); padding: var(--o-space-8) var(--o-space-8) var(--o-space-8) var(--o-space-12); }
+.dock-input textarea {
+  flex: 1 1 auto; min-width: 0; min-height: var(--o-size-control-desk); padding: var(--o-space-4) 0; resize: none;
+  border: 0; outline: 0; background: none; color: var(--o-ink-1); font: var(--o-type-body);
   field-sizing: content; max-height: calc(8 * var(--o-type-body-line)); overflow-y: auto;
 }
-.composer textarea::placeholder { color: var(--o-ink-4); }
-.composer .go {
-  flex: none; width: var(--o-size-control-desk); height: var(--o-size-control-desk); padding: 0; border: 0; border-radius: var(--o-radius-2); cursor: pointer;
-  background: var(--o-role-primary); color: var(--o-ink-on-accent); font: var(--o-type-small); font-weight: var(--o-font-weight-bold); text-align: center;
+.dock-input textarea::placeholder { color: var(--o-ink-4); }
+.dock-input button.go {
+  flex: none; display: inline-flex; align-items: center; justify-content: center; width: var(--o-size-control-desk); height: var(--o-size-control-desk); padding: 0; border: 0; border-radius: var(--o-radius-2); cursor: pointer;
+  background: var(--o-role-primary); color: var(--o-ink-on-accent);
   appearance: none; -webkit-appearance: none;
 }
-.composer-error {
-  margin: 0 0 var(--o-space-8); padding: var(--o-space-4) var(--o-space-8); border-radius: var(--o-radius-2); color: var(--o-role-bad);
-  overflow-wrap: anywhere;
-}
 
-/* The ended dock: where a conversation's dock was when the conversation steering a live epic has ended. It is round 6's
-   dock box in the stopped state, a well with its rail, its lead above the two ways on. Nothing in it is dimmed, so a
-   disabled control keeps its shape and takes the ink.4 text. */
-.ended-bar { flex: none; padding: 0 var(--o-layout-page-pad-desk) var(--o-space-16); }
-.ended-bar .dock-box { display: grid; min-width: 0; border-left: var(--o-size-rail) solid var(--o-line-firm); border-radius: var(--o-radius-3); background: var(--o-surface-well); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm); overflow: hidden; }
-.ended-bar .dock-box > * + * { border-top: var(--o-size-hairline) solid var(--o-line-soft); }
+/* The ended dock: where a conversation's dock was when the conversation steering a live epic has ended. It is the dock's
+   box in the stopped state, its lead above the two ways on. Nothing in it is dimmed, so a disabled control keeps its
+   shape and takes the ink.4 text. */
 .ended-bar .ended-lead { margin: 0; padding: var(--o-space-8) var(--o-space-12) 0; color: var(--o-ink-2); font: var(--o-type-small); overflow-wrap: anywhere; }
 .ended-bar .acts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-8); padding: var(--o-space-8) var(--o-space-12) var(--o-space-12); }
 .ended-bar .acts button.act { min-height: var(--o-size-control-desk); }
 .ended-bar .acts button.act:not(.primary) { background: none; color: var(--o-ink-2); }
 .ended-bar .acts button.act:disabled { background: none; color: var(--o-ink-4); cursor: default; transform: none; }
 
-/* The step foot under a step's reader: Interrupt, the nudge input beside it, and the more button. The more button opens
-   the menu, where Stop asks first, and the outcome line sits under both. */
-.stepbox .line { display: flex; gap: var(--o-space-8); }
-.stepbox .interrupt {
-  flex: none; display: inline-flex; align-items: center; gap: var(--o-space-8); padding: 0 var(--o-space-12); border: 0; border-radius: var(--o-radius-2); cursor: pointer;
-  background: var(--o-surface-raised); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm);
-  font: var(--o-type-small); font-weight: var(--o-font-weight-bold); color: var(--o-ink-2);
-  appearance: none; -webkit-appearance: none;
+/* On a phone the dock takes the screen's edges, its input takes the touch height, and a Ctl's key hint is not drawn. */
+@media (width < 760px) {
+  .dock { padding: 0 var(--o-space-8) var(--o-space-8); }
+  .dock-input textarea { min-height: var(--o-size-control-touch); padding: var(--o-space-12) 0; }
+  .ctl kbd { display: none; }
 }
-.stepbox .interrupt::before { content: ""; width: var(--o-size-dot); height: var(--o-size-dot); border-radius: var(--o-radius-1); background: var(--o-ink-2); }
-.stepbox .more {
-  flex: none; width: calc(var(--o-space-32) + var(--o-space-4)); padding: 0; border: 0; border-radius: var(--o-radius-2); cursor: pointer; text-align: center;
-  background: var(--o-surface-raised); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm);
-  font: var(--o-type-small); color: var(--o-ink-3);
-  appearance: none; -webkit-appearance: none;
+@media (prefers-reduced-motion: reduce) {
+  .statebar .g-working { animation: none; }
 }
-.stepbox-menu { display: flex; flex-wrap: wrap; gap: var(--o-space-8); margin: var(--o-space-8) 0 0; }
-.stepbox-menu button {
-  padding: var(--o-space-4) var(--o-space-12); border: 0; border-radius: var(--o-radius-2); cursor: pointer;
-  background: var(--o-surface-raised); color: var(--o-ink-1); font: var(--o-type-small);
-  appearance: none; -webkit-appearance: none;
-}
-.stepbox-menu button.stop-confirm { background: var(--o-surface-raised); color: var(--o-ink-1); }
-.stepbox-notice { margin: var(--o-space-8) 0 0; padding: var(--o-space-4) var(--o-space-8); border-radius: var(--o-radius-2); color: var(--o-ink-2); overflow-wrap: anywhere; }
-.stepbox-notice.err { color: var(--o-role-bad); }
 
 /* The live line's caret, after the wireframe. */
 @keyframes blink { 0%, 55% { opacity: 1; } 56%, 100% { opacity: 0; } }
@@ -1206,6 +1209,6 @@ button.subj:hover { background: var(--o-surface-raised); }
 @media (prefers-reduced-motion: reduce) {
   section.page.drill { animation: move-fade var(--o-move-drill); }
   section.page.leave { animation: move-fade var(--o-move-leave); }
-  .pill .g-working, .b-row .g-working, .strip i.k-now::before, .pips i.k-now::before { animation: none; }
+  .b-row .g-working, .strip i.k-now::before, .pips i.k-now::before { animation: none; }
   .orrery .glow { animation: none; }
 }

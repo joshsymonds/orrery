@@ -41,8 +41,8 @@ private const val NOW = 1_700_000_000L
 private const val PANES_PATH = "/orrery.v1.Panes/List"
 private const val PANE_ROW_TAG = "pane-row:%1"
 private const val HEAD_TEXT_TAG = "head-text"
-private const val STATUS_LINE_TAG = "status-line"
-private const val COMPOSER_TAG = "composer"
+private const val STATUS_LINE_TAG = "dock-state"
+private const val DOCK_TAG = "dock"
 private const val CONVERSATION_PATH = "/orrery.v1.Panes/Conversation"
 private const val SEEN_PATH = "/orrery.v1.Panes/MarkSeen"
 private const val REPLY_TEXT = "synthetic reply"
@@ -177,7 +177,7 @@ class MainActivityInsetsTest {
 
     private fun editField(controller: ActivityController<MainActivity>): EditText =
         checkNotNull(findEditText(controller.get().window.decorView)) {
-            "ComposeBox must host an EditText"
+            "DockBox must host an EditText"
         }
 
     private fun findEditText(view: View): EditText? {
@@ -192,16 +192,16 @@ class MainActivityInsetsTest {
         return null
     }
 
-    /** The status line sits inside the composer's bounds and its bottom is at or above the draft field's top. */
+    /** The dock's state line sits inside the dock's bounds and its bottom is at or above the draft field's top. */
     private fun assertStatusAboveDraft(controller: ActivityController<MainActivity>) {
         composeRule.onNodeWithTag(STATUS_LINE_TAG, useUnmergedTree = true).assertIsDisplayed()
         val status = composeRule.onNodeWithTag(STATUS_LINE_TAG, useUnmergedTree = true)
             .fetchSemanticsNode().boundsInWindow
-        val composer = composeRule.onNodeWithTag(COMPOSER_TAG, useUnmergedTree = true)
+        val composer = composeRule.onNodeWithTag(DOCK_TAG, useUnmergedTree = true)
             .fetchSemanticsNode().boundsInWindow
         val fieldOrigin = IntArray(2).also { editField(controller).getLocationInWindow(it) }
         assertTrue(
-            "status $status should be inside composer $composer",
+            "status $status should be inside the dock $composer",
             status.top >= composer.top && status.bottom <= composer.bottom,
         )
         assertTrue(

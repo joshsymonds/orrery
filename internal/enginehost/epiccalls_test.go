@@ -99,8 +99,10 @@ func wantNoEpicCall(t *testing.T, rec *fakeEpicRecorder, what string) {
 func TestEpicCallCreateRecordsTheContractsEpic(t *testing.T) {
 	t.Parallel()
 	rec := &fakeEpicRecorder{}
-	_, client := epicCallFixture(t, rec)
-	req := connect.NewRequest(fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	st, client := epicCallFixture(t, rec)
+	c := fullEpicRequest(stepGitTestRepo(t), epicServiceID)
+	acceptEpicContract(t, st, c.Contract)
+	req := connect.NewRequest(c.request())
 	req.Header().Set(protocol.HeaderSession, epicCallSession)
 
 	if _, err := client.CreateEpic(t.Context(), req); err != nil {
@@ -114,8 +116,8 @@ func TestEpicCallCreateRecordsTheContractsEpic(t *testing.T) {
 func TestEpicCallGetRecordsTheSessionOfItsCaller(t *testing.T) {
 	t.Parallel()
 	rec := &fakeEpicRecorder{}
-	_, client := epicCallFixture(t, rec)
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	st, client := epicCallFixture(t, rec)
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 
 	req := connect.NewRequest(&v1.GetEpicRequest{Id: epicServiceID})
 	req.Header().Set(protocol.HeaderSession, epicCallSession)
@@ -130,8 +132,8 @@ func TestEpicCallGetRecordsTheSessionOfItsCaller(t *testing.T) {
 func TestEpicCallAnswerRecordsTheTmuxPaneOfItsCaller(t *testing.T) {
 	t.Parallel()
 	rec := &fakeEpicRecorder{}
-	_, client := epicCallFixture(t, rec)
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	st, client := epicCallFixture(t, rec)
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 
 	req := connect.NewRequest(&v1.AnswerEpicRequest{EpicId: epicServiceID, Id: "D4", Text: "Synthetic note."})
 	req.Header().Set(protocol.HeaderTmux, "/tmp/tmux-1000/orrery,4242,0")
@@ -150,8 +152,8 @@ func TestEpicCallAnswerRecordsTheTmuxPaneOfItsCaller(t *testing.T) {
 func TestEpicKickIsRecordedAsEpicKick(t *testing.T) {
 	t.Parallel()
 	rec := &fakeEpicRecorder{}
-	_, client := epicCallFixture(t, rec)
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	st, client := epicCallFixture(t, rec)
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 
 	req := connect.NewRequest(&v1.KickEpicRequest{Id: epicServiceID, Text: "Synthetic kick."})
 	req.Header().Set(protocol.HeaderSession, epicCallSession)
@@ -166,8 +168,8 @@ func TestEpicKickIsRecordedAsEpicKick(t *testing.T) {
 func TestCloseEpicRPCIsRecordedAsEpicClose(t *testing.T) {
 	t.Parallel()
 	rec := &fakeEpicRecorder{}
-	_, client := epicCallFixture(t, rec)
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	st, client := epicCallFixture(t, rec)
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 
 	req := connect.NewRequest(&v1.CloseEpicRequest{Id: epicServiceID, Kind: "abandoned"})
 	req.Header().Set(protocol.HeaderSession, epicCallSession)
@@ -182,8 +184,8 @@ func TestCloseEpicRPCIsRecordedAsEpicClose(t *testing.T) {
 func TestEpicCallRecordsNothingForRefusedOrUnnamedCalls(t *testing.T) {
 	t.Parallel()
 	rec := &fakeEpicRecorder{}
-	_, client := epicCallFixture(t, rec)
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	st, client := epicCallFixture(t, rec)
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 
 	refused := connect.NewRequest(&v1.GetEpicRequest{Id: "no-such-epic"})
 	refused.Header().Set(protocol.HeaderSession, epicCallSession)
@@ -209,7 +211,7 @@ func TestEpicCallRecorderErrorLeavesTheAnswerUnchanged(t *testing.T) {
 	t.Parallel()
 	failing := &fakeEpicRecorder{err: errors.New("store closed")}
 	st, client := epicCallFixture(t, failing)
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 	want := getEpicOK(t, newEpicsClient(t, startEpicServer(t, st)))
 
 	req := connect.NewRequest(&v1.GetEpicRequest{Id: epicServiceID})

@@ -18,6 +18,7 @@ import {
   Picker,
   Presence,
   Sessions,
+  type SessionsWatchConversationResponse,
 } from "../gen/orrery/v1/orrery_pb";
 import { type Slices, shippedSlices } from "./slices";
 
@@ -58,6 +59,18 @@ export function createFixtureTransport(slices: Slices = shippedSlices): FixtureT
   // notFound is the error a read of an id the slices do not hold fails with.
   const notFound = (message: string) => new ConnectError(message, Code.NotFound);
 
+  // say answers Control.Say as the slices choose: absorbed when they set no say, and failed as a refusal or as a call
+  // with no answer when they set one.
+  const say = () => {
+    if (slices.say === "refused") {
+      throw new ConnectError("the session is not taking messages", Code.FailedPrecondition);
+    }
+    if (slices.say === "unanswered") {
+      throw new ConnectError("no answer", Code.Unavailable);
+    }
+    return {};
+  };
+
   // held waits until the call's signal aborts, so a stream stays open until its client ends it.
   const held = (signal: AbortSignal) =>
     new Promise<void>((resolve) => {
@@ -67,6 +80,46 @@ export function createFixtureTransport(slices: Slices = shippedSlices): FixtureT
         signal.addEventListener("abort", () => resolve(), { once: true });
       }
     });
+
+  // wakers holds, for each session id, the wake of each open conversation stream of that session. A Control.Interrupt of
+  // the session calls each one with the slices' then frame.
+  const wakers = new Map<string, Set<(frame?: SessionsWatchConversationResponse) => void>>();
+
+  // interrupted holds an open conversation stream of session id until its call aborts or an interrupt of the session
+  // wakes it. It resolves with the frame the interrupt sends, or with undefined once the call aborts.
+  function interrupted(id: string, signal: AbortSignal): Promise<SessionsWatchConversationResponse | undefined> {
+    return new Promise((resolve) => {
+      if (signal.aborted) {
+        resolve(undefined);
+        return;
+      }
+      const waiting = wakers.get(id) ?? new Set<(frame?: SessionsWatchConversationResponse) => void>();
+      wakers.set(id, waiting);
+      const finish = (frame?: SessionsWatchConversationResponse) => {
+        waiting.delete(finish);
+        signal.removeEventListener("abort", aborted);
+        resolve(frame);
+      };
+      const aborted = () => finish();
+      waiting.add(finish);
+      signal.addEventListener("abort", aborted, { once: true });
+    });
+  }
+
+  // interrupt answers Control.Interrupt as the slices choose: absorbed when they set no interrupt, and otherwise answered
+  // with their texts, with their then frame sent to each open conversation stream of the session when they set one.
+  const interrupt = (id: string) => {
+    const answer = slices.interrupt;
+    if (answer === undefined) {
+      return {};
+    }
+    if (answer.then !== undefined) {
+      for (const wake of [...(wakers.get(id) ?? [])]) {
+        wake(answer.then);
+      }
+    }
+    return { texts: answer.texts };
+  };
 
   // quiet is a stream that sends no frame, and stays open until its call aborts.
   async function* quiet(_request: unknown, context: HandlerContext): AsyncGenerator<never, void> {
@@ -97,21 +150,26 @@ export function createFixtureTransport(slices: Slices = shippedSlices): FixtureT
       list: () => slices.sessions,
       listHeadless: () => slices.headless,
       older: refuse,
-      // A reconnect, which names a seq past 0, gets no frame and stays open.
+      // A reconnect, which names a seq past 0, gets no frame and stays open. Each interrupt of the session sends its then
+      // frame, if the slices give one, and the stream stays open until its call aborts.
       watchConversation: async function* (request, context) {
         const session = slices.sessionStreams.get(request.id);
         if (session !== undefined && request.after <= 0n) {
           yield session;
         }
-        await held(context.signal);
+        let frame = await interrupted(request.id, context.signal);
+        while (frame !== undefined) {
+          yield frame;
+          frame = await interrupted(request.id, context.signal);
+        }
       },
     });
     router.service(Events, { watch: quiet });
     router.service(Control, {
       start: () => ({ id: "fixture-new-session" }),
-      say: absorb,
+      say,
       answer: absorb,
-      interrupt: absorb,
+      interrupt: (request) => interrupt(request.id),
       stop: absorb,
       seen: absorb,
       resume: absorb,

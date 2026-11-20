@@ -21,7 +21,7 @@ func TestContractLintArgvRefusesElements(t *testing.T) {
 	runEpicRefusals(t, repo, []epicRefusal{
 		{
 			name: "capture element holds white space",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.Requirements[0].Item.Capture = []string{"scripts/in-devenv", "go test -run X ./pkg/"}
 			},
 			want: "requirements[0].item.capture[1]: holds white space: split the element into argv elements, " +
@@ -29,7 +29,7 @@ func TestContractLintArgvRefusesElements(t *testing.T) {
 		},
 		{
 			name: "capture element holds an unclosed quote after -c",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.Requirements[0].Item.Capture = []string{"scripts/in-devenv", "-c", "echo 'open"}
 			},
 			want: "requirements[0].item.capture[2]: holds a quote the shell cannot close: split the element into " +
@@ -37,7 +37,7 @@ func TestContractLintArgvRefusesElements(t *testing.T) {
 		},
 		{
 			name: "gate argv element holds white space",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.Gates[0].Argv = []string{"scripts/check", "go test ./pkg/"}
 			},
 			want: "gates[0].argv[1]: holds white space: split the element into argv elements, " +
@@ -45,7 +45,7 @@ func TestContractLintArgvRefusesElements(t *testing.T) {
 		},
 		{
 			name: "white space after clustered -lc",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.Requirements[0].Item.Capture = []string{
 					"scripts/in-devenv", "-lc", "go test -run X ./pkg/",
 				}
@@ -72,7 +72,7 @@ func TestContractLintArgvAcceptsLineAfterDashC(t *testing.T) {
 			t.Parallel()
 			req := epicTestRequest(repo)
 			req.Contract.Requirements[0].Item.Capture = tc.capture
-			if err := checkEpic(t.Context(), req, epicTestGetenv); err != nil {
+			if err := checkEpic(t.Context(), req.Contract, req.Decisions, epicTestGetenv); err != nil {
 				t.Fatalf("checkEpic refused %q: %v", tc.capture, err)
 			}
 			t.Logf("checkEpic accepted capture %q", tc.capture)
@@ -130,15 +130,15 @@ func TestContractLintArgvSplitsShellWords(t *testing.T) {
 // epicWarningCase is one mutation of the valid contract and the warnings the lint gives it, in order.
 type epicWarningCase struct {
 	name   string
-	mutate func(req *v1.CreateEpicRequest)
+	mutate func(req *epicCreate)
 	want   []string
 }
 
 // epicWarnings returns the warnings of req. checkEpic must accept req first, since the lint warns only a contract that
 // stores. It fails the test when checkEpic refuses req or the lint returns an error.
-func epicWarnings(t *testing.T, req *v1.CreateEpicRequest) []string {
+func epicWarnings(t *testing.T, req *epicCreate) []string {
 	t.Helper()
-	if err := checkEpic(t.Context(), req, epicTestGetenv); err != nil {
+	if err := checkEpic(t.Context(), req.Contract, req.Decisions, epicTestGetenv); err != nil {
 		t.Fatalf("checkEpic refused the contract: %v", err)
 	}
 	warnings, err := contractLintWarnings(t.Context(), req.GetContract())
@@ -190,7 +190,7 @@ func TestContractLintRunWarnsGoTestAtBase(t *testing.T) {
 	runEpicWarnings(t, repo, []epicWarningCase{
 		{
 			name: "env runs go test in argv",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.Requirements[0].Item.Capture = []string{
 					"/usr/bin/env", "go", "test", "-run", "X", "./pkg/",
 				}
@@ -199,7 +199,7 @@ func TestContractLintRunWarnsGoTestAtBase(t *testing.T) {
 		},
 		{
 			name: "shell line runs go test after -c",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.Requirements[0].Item.Capture = []string{
 					"scripts/in-devenv", "-c", "go test -race -count=1 -v -run X ./pkg/",
 				}
@@ -208,14 +208,14 @@ func TestContractLintRunWarnsGoTestAtBase(t *testing.T) {
 		},
 		{
 			name: "-run=X joined to its value",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.Requirements[0].Item.Capture = []string{"/usr/bin/env", "go", "test", "-run=X", "./pkg/"}
 			},
 			want: []string{contractLintRunWarning("X")},
 		},
 		{
 			name: "--run X with two dashes",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.Requirements[0].Item.Capture = []string{
 					"/usr/bin/env", "go", "test", "--run", "X", "./pkg/",
 				}
@@ -224,14 +224,14 @@ func TestContractLintRunWarnsGoTestAtBase(t *testing.T) {
 		},
 		{
 			name: "./... names every package",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.Requirements[0].Item.Capture = []string{"/usr/bin/env", "go", "test", "-run", "X", "./..."}
 			},
 			want: []string{contractLintRunWarning("X")},
 		},
 		{
 			name: "subtest of a matching top-level test",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.Requirements[0].Item.Capture = []string{
 					"/usr/bin/env", "go", "test", "-run", "X/Sub", "./pkg/",
 				}
@@ -346,7 +346,7 @@ func TestContractLintReleaseWarnsSteps(t *testing.T) {
 	runEpicWarnings(t, repo, []epicWarningCase{
 		{
 			name: "lowercase merge",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.ReleaseSteps = contractLintReleaseSteps(
 					"Push main to origin, then merge the release branch.",
 				)
@@ -356,7 +356,7 @@ func TestContractLintReleaseWarnsSteps(t *testing.T) {
 		},
 		{
 			name: "capitalised Merge",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.ReleaseSteps = contractLintReleaseSteps("Merge the release candidate into main.")
 			},
 			want: []string{contractLintReleaseWarning(
@@ -364,7 +364,7 @@ func TestContractLintReleaseWarnsSteps(t *testing.T) {
 		},
 		{
 			name: "negated merge",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.ReleaseSteps = contractLintReleaseSteps("Fast-forward main; do not merge.")
 			},
 			want: []string{contractLintReleaseWarning(
@@ -372,7 +372,7 @@ func TestContractLintReleaseWarnsSteps(t *testing.T) {
 		},
 		{
 			name: "fixed version v0.86.3",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.ReleaseSteps = contractLintReleaseSteps(
 					"Tag v0.86.3 at the release candidate, then push it.",
 				)
@@ -383,7 +383,7 @@ func TestContractLintReleaseWarnsSteps(t *testing.T) {
 		},
 		{
 			name: "versioned path rel/v0.86.2",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.ReleaseSteps = contractLintReleaseSteps("Push rel/v0.86.2 to origin.")
 			},
 			want: []string{contractLintReleaseWarning(
@@ -392,7 +392,7 @@ func TestContractLintReleaseWarnsSteps(t *testing.T) {
 		},
 		{
 			name: "so CI runs",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.ReleaseSteps = contractLintReleaseSteps("Push main to origin, so CI runs.")
 			},
 			want: []string{contractLintReleaseWarning(
@@ -400,7 +400,7 @@ func TestContractLintReleaseWarnsSteps(t *testing.T) {
 		},
 		{
 			name: "Merge, v0.86.3 and so CI runs",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.ReleaseSteps = contractLintReleaseSteps("Merge v0.86.3 into main, so CI runs.")
 			},
 			want: []string{contractLintReleaseWarning(
@@ -408,7 +408,7 @@ func TestContractLintReleaseWarnsSteps(t *testing.T) {
 		},
 		{
 			name: "tag v0.86.3 and so CI runs",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.ReleaseSteps = contractLintReleaseSteps("Tag v0.86.3, so CI runs.")
 			},
 			want: []string{contractLintReleaseWarning(
@@ -417,7 +417,7 @@ func TestContractLintReleaseWarnsSteps(t *testing.T) {
 		},
 		{
 			name: "two steps each warned",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.ReleaseSteps = []*v1.EpicReleaseStep{
 					{Step: "Merge the release candidate into main.", Target: "origin", Undo: "Synthetic undo."},
 					{Step: "Push main to origin, so CI runs.", Target: "origin", Undo: "Synthetic undo."},
@@ -472,7 +472,9 @@ func TestEpicCreateReleaseContinueStoresRunPatternWarning(t *testing.T) {
 	capture := []string{"/usr/bin/env", "go", "test", "-run", "X", "./pkg/"}
 	req.Contract.Requirements[0].Item.Capture = capture
 
-	created, err := client.CreateEpic(t.Context(), connect.NewRequest(req))
+	acceptEpicContract(t, st, req.Contract)
+
+	created, err := client.CreateEpic(t.Context(), connect.NewRequest(req.request()))
 	if err != nil {
 		t.Fatalf("CreateEpic: %v", err)
 	}
@@ -520,7 +522,9 @@ func TestEpicCreateReleaseContinueStoresReleaseStepWarning(t *testing.T) {
 				{Step: tc.step, Target: "origin", Undo: "Synthetic undo."},
 			}
 
-			created, err := client.CreateEpic(t.Context(), connect.NewRequest(req))
+			acceptEpicContract(t, st, req.Contract)
+
+			created, err := client.CreateEpic(t.Context(), connect.NewRequest(req.request()))
 			if err != nil {
 				t.Fatalf("CreateEpic: %v", err)
 			}
@@ -543,7 +547,9 @@ func TestEpicCreateReleaseContinueRefusesBadArgv(t *testing.T) {
 	req := fullEpicRequest(stepGitTestRepo(t), epicServiceID)
 	req.Contract.Requirements[0].Item.Capture = []string{"scripts/in-devenv", "go test -run X ./pkg/"}
 
-	_, err := client.CreateEpic(t.Context(), connect.NewRequest(req))
+	acceptEpicContract(t, st, req.Contract)
+
+	_, err := client.CreateEpic(t.Context(), connect.NewRequest(req.request()))
 	wantConnectError(t, err, connect.CodeInvalidArgument,
 		"requirements[0].item.capture[1]: holds white space: split the element into argv elements, "+
 			"or pass the line to a shell after -c")

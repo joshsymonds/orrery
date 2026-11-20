@@ -122,8 +122,9 @@ internal fun otherHostOf(paneHost: String, servingHost: String): String? =
  * A pane, followed while the screen is at least started: its conversation stream delivers each change,
  * and once that stream gives up for this start, the pane is read every second instead. Each poll also reads the
  * epics the pane steers and the host. A pane with a conversation shows it, with the question card after the last
- * item; a pane without one shows a line saying so, with the card below it. Each newer read time the conversation
- * reports is sent to the server as the pane's read-up-to time.
+ * item; a pane without one shows a line saying so, with the card below it. The pane's dock sits at the foot of the
+ * screen, always in view, and says the pane's state. Each newer read time the conversation reports is sent to the
+ * server as the pane's read-up-to time.
  *
  * The head overlays the body, clipped to the body's bounds. It opens at the newest line, folds to its one line
  * while the reader is away from the newest line, and stays folded when the owner hides it until the owner taps
@@ -303,7 +304,6 @@ fun PaneScreen(
                 }
                 ConversationView(
                     entries,
-                    waiting = conversation?.waiting.orEmpty(),
                     listState = listState,
                     onFollowing = { atNewest = it },
                     contentPadding = PaddingValues(top = bodyTop),
@@ -398,23 +398,23 @@ fun PaneScreen(
                 }
             }
         }
-        ComposeBox(
-            paneId,
-            client,
+        val draft = rememberDockDraft(paneId)
+        Dock(
+            facts = dockFactsOf(
+                kind = if (current?.state.orEmpty().isEmpty()) DockKind.SHELL else DockKind.PANE,
+                name = current?.cwd.orEmpty().trimEnd('/').substringAfterLast('/'),
+                pane = current,
+                streamed = held,
+            ),
+            nowSeconds = nowSeconds,
+            client = client,
+            draft = draft,
+            send = { text -> client.sendComposed(paneId, text) },
+            paneId = paneId,
+            waiting = conversation?.waiting.orEmpty(),
             maxFieldHeight = composeCap,
-            edge = composeEdgeOf(current?.state.orEmpty()),
-            hint = when {
-                current == null -> ""
-                current.state.isEmpty() -> "Type a command…"
-                current.state == "working" -> "Queue for Claude…"
-                current.state == "waiting" -> "Answer Claude…"
-                else -> "Message Claude…"
-            },
             onDraftPresent = { draftPresent = it },
             onSend = { endRequests++ },
-            status = current?.takeIf { conversation != null }?.let { shown ->
-                { StatusLine(shown, nowSeconds) }
-            },
         )
         AnimatedVisibility(
             visible = !draftPresent,

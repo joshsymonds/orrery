@@ -49,13 +49,13 @@ const nodesRevision = "synthetic-revision"
 
 // createNodesEpic creates epicServiceID through client, pinned to nodesWorkflowFile committed at the base of a new
 // repository. It fails the test on error.
-func createNodesEpic(t *testing.T, client enginev1connect.EpicsClient) {
+func createNodesEpic(t *testing.T, st *store.Store, client enginev1connect.EpicsClient) {
 	t.Helper()
 	repo := stepGitTestRepo(t)
 	stepGitTestCommit(t, repo, map[string]string{".orrery/workflows/nodes.yaml": nodesWorkflowFile})
 	req := fullEpicRequest(repo, epicServiceID)
 	req.Workflow = "nodes"
-	createEpicOK(t, client, req)
+	createEpicOK(t, st, client, req)
 }
 
 // planTwoTurns plans two turns of epicServiceID with plannedReturn: turn 1 plans tasks 1 and 2, and turn 2, claimed
@@ -110,7 +110,7 @@ func TestEpicGetNodeRunsReturnTheRowsOfEachKind(t *testing.T) {
 	ctx := t.Context()
 	st := epicTestStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
-	createNodesEpic(t, client)
+	createNodesEpic(t, st, client)
 	planTwoTurns(t, st)
 	startNodesRuns(t, st)
 	at := time.Unix(turnFreed, 0)
@@ -198,8 +198,9 @@ func TestEpicGetNodeRunsReturnTheRowsOfEachKind(t *testing.T) {
 // TestEpicGetWithNoNodeRunsHasNoNodes checks that an epic with no node runs returns no nodes.
 func TestEpicGetWithNoNodeRunsHasNoNodes(t *testing.T) {
 	t.Parallel()
-	client := newEpicsClient(t, startEpicServer(t, epicTestStore(t)))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	st := epicTestStore(t)
+	client := newEpicsClient(t, startEpicServer(t, st))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 
 	wantProtos(t, "GetEpic nodes", getEpicOK(t, client).GetNodes(), []*v1.EpicNode{})
 }
@@ -211,7 +212,7 @@ func TestEpicGetNodeRunOfNodeOutsidePinnedWorkflowComesLast(t *testing.T) {
 	ctx := t.Context()
 	st := epicTestStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
-	createNodesEpic(t, client)
+	createNodesEpic(t, st, client)
 	runs := []store.NodeRun{
 		{Path: "ghost", ID: "run-ghost", Node: "ghost", Kind: "gate", Attempt: 1},
 		{Path: "review", ID: "run-review", Node: "review", Kind: "agent", Attempt: 1},
@@ -238,7 +239,13 @@ func TestEpicGetUnpinnedEpicOrdersNodesByTheBuiltInWorkflow(t *testing.T) {
 	st := epicTestStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
 	req := fullEpicRequest(stepGitTestRepo(t), epicServiceID)
-	row := epicRowOf(req, req.GetContract().GetBase(), store.EpicWorkflow{}, time.Unix(turnStarted, 0))
+	row := epicRowOf(
+		req.Contract,
+		req.Decisions,
+		req.Contract.GetBase(),
+		store.EpicWorkflow{},
+		time.Unix(turnStarted, 0),
+	)
 	if err := st.CreateEpic(ctx, row); err != nil {
 		t.Fatalf("CreateEpic unpinned: %v", err)
 	}
@@ -264,7 +271,7 @@ func TestEpicGetEvidenceNodeListsTheRerunThatDecides(t *testing.T) {
 	ctx := t.Context()
 	st := epicTestStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
-	createNodesEpic(t, client)
+	createNodesEpic(t, st, client)
 	at := time.Unix(turnStarted, 0)
 	run := store.NodeRun{Path: "evidence", ID: "run-evidence", Node: "evidence", Kind: "evidence", Attempt: 1}
 	if err := st.StartNodes(ctx, epicServiceID, []store.NodeRun{run}, nil, at); err != nil {

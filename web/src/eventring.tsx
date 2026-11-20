@@ -3,7 +3,6 @@ import { useRef, useState } from "preact/hooks";
 
 import { QuestionCard } from "./blocker";
 import { type EpicCalls, useEpicReading } from "./card";
-import type { PendingEvent } from "./gen/orrery/v1/orrery_pb";
 
 // The kinds an epic's event names, as its orrery-event block gives them.
 const eventKinds = ["question", "park", "release", "end", "moved"] as const;
@@ -26,7 +25,7 @@ export interface EpicEvent {
 
 // StepEvent is a step's end: the step's id, the agent that ran it (empty when the block names none), how it ended and
 // its status, the epic that holds it and the task it ran (each empty when the block names none), and the brief the
-// block gives, one string a line. A pending step_end has these fields too, its brief its one summary.
+// block gives, one string a line.
 export interface StepEvent {
   step: string;
   agent: string;
@@ -248,17 +247,8 @@ type ReturnLoad = { result: string } | "failed" | null;
 // status, then each line of the brief as a line of text. With epic calls it holds a return fold under the brief, closed
 // until it is opened. The first time the fold is opened, the step's full return is read through calls.stepResult. It
 // draws pretty-printed when it is JSON, and a read that fails draws a fixed line. A click on the head opens the step's
-// page through calls.openStep when the event names its epic and the reader holds epic calls. waiting, when set, dims
-// the card and labels it, as a waiting card does.
-export function StepCard({
-  event,
-  calls,
-  waiting = "",
-}: {
-  event: StepEvent;
-  calls?: EpicCalls;
-  waiting?: string;
-}): JSX.Element {
+// page through calls.openStep when the event names its epic and the reader holds epic calls.
+export function StepCard({ event, calls }: { event: StepEvent; calls?: EpicCalls }): JSX.Element {
   const [loaded, setLoaded] = useState<ReturnLoad>(null);
   const asked = useRef(false);
   const onClick = () => {
@@ -277,7 +267,7 @@ export function StepCard({
     );
   };
   return (
-    <div class={waiting === "" ? "step-card" : "step-card waiting"}>
+    <div class="step-card">
       <button type="button" class="step-head" onClick={onClick}>
         {event.agent !== "" && <b class="step-agent">{event.agent}</b>}
         <span class="step-end">end {event.end}</span>
@@ -295,38 +285,6 @@ export function StepCard({
           {loaded !== null && loaded !== "failed" && <pre>{returnBody(loaded.result)}</pre>}
         </details>
       )}
-      {waiting !== "" && <small class="wait-label">{waiting}</small>}
-    </div>
-  );
-}
-
-// WaitingCard draws a caller event the session holds and has not taken: a step's end as a step card, or an epic's event
-// as its line, dimmed and labelled with how it waits. speak waits for the owner to speak; any other value waits for the
-// session to be free. A pending event of a kind the reader does not know draws nothing.
-export function WaitingCard({ event, calls }: { event: PendingEvent; calls?: EpicCalls }): JSX.Element | null {
-  const label = event.waits === "speak" ? "arrives when you next speak" : "arrives when the session is free";
-  if (event.kind === stepKind) {
-    const step: StepEvent = {
-      step: event.step,
-      agent: event.agent,
-      end: event.end,
-      status: event.status,
-      epic: event.epic,
-      task: "",
-      brief: event.brief === "" ? [] : dropMore(event.brief.split("\n")),
-    };
-    return <StepCard event={step} calls={calls} waiting={label} />;
-  }
-  const kind = event.kind;
-  if (!isEventKind(kind)) {
-    return null;
-  }
-  return (
-    <div class="event-ring waiting">
-      <div class="ring-line">
-        <RingParts kind={kind} sentence={event.title} epic={event.epic} />
-      </div>
-      <small class="wait-label">{label}</small>
     </div>
   );
 }

@@ -98,7 +98,7 @@ func (s *Store) AcceptContract(ctx context.Context, id string, change ContractCh
 		if len(open) > 0 {
 			return fmt.Errorf("contract %s: %w: %s", id, ErrOpenDecisions, strings.Join(open, ", "))
 		}
-		return appendContractState(ctx, queries, id, ContractAccepted, listing.Version, change)
+		return appendContractState(withEpicEvent(ctx), queries, id, ContractAccepted, listing.Version, change)
 	})
 }
 
@@ -123,7 +123,7 @@ func (s *Store) SetAsideContract(ctx context.Context, id string, change Contract
 				return fmt.Errorf("contract %s: %w", id, ErrContractEpic)
 			}
 		}
-		return appendContractState(ctx, queries, id, ContractSetAside, listing.Version, change)
+		return appendContractState(withEpicEvent(ctx), queries, id, ContractSetAside, listing.Version, change)
 	})
 }
 
@@ -138,7 +138,7 @@ func (s *Store) ReopenContract(ctx context.Context, id string, change ContractCh
 		if listing.State != ContractSetAside {
 			return fmt.Errorf("contract %s is %s: %w", id, listing.State, ErrContractState)
 		}
-		return appendContractState(ctx, queries, id, ContractProposed, listing.Version, change)
+		return appendContractState(withEpicEvent(ctx), queries, id, ContractProposed, listing.Version, change)
 	})
 }
 

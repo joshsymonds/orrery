@@ -43,14 +43,12 @@ type epicFieldError struct {
 
 func (e *epicFieldError) Error() string { return e.field + ": " + e.reason }
 
-// checkEpic returns the first refusal of a CreateEpic request, checked in the order E1-D5 lists them, or nil when
-// the request passes. It runs git in the contract's repository, reads the project file for the repository through
-// getenv, and does not check the database.
-func checkEpic(ctx context.Context, req *v1.CreateEpicRequest, getenv func(string) string) error {
-	contract := req.GetContract()
-	if contract == nil {
-		return &epicFieldError{field: "contract", reason: epicReasonMissing}
-	}
+// checkEpic returns the first refusal of contract with its seed decisions, checked in the order E1-D5 lists them, or nil
+// when they pass. It runs git in the contract's repository, reads the project file for the repository through getenv,
+// and does not check the database.
+func checkEpic(
+	ctx context.Context, contract *v1.EpicContract, decisions []*v1.EpicDecisionInput, getenv func(string) string,
+) error {
 	if err := checkEpicHead(ctx, contract); err != nil {
 		return err
 	}
@@ -63,7 +61,7 @@ func checkEpic(ctx context.Context, req *v1.CreateEpicRequest, getenv func(strin
 	if err := checkEpicSections(contract); err != nil {
 		return err
 	}
-	if err := checkEpicDecisions(req.GetDecisions()); err != nil {
+	if err := checkEpicDecisions(decisions); err != nil {
 		return err
 	}
 	return checkContractLint(contract)

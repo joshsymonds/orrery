@@ -22,7 +22,7 @@ func TestTaskVersionGetEpicServesEachTasksCurrentVersionAndHistory(t *testing.T)
 	ctx := t.Context()
 	st, _ := openPlannerStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 
 	first, err := st.ClaimTurn(ctx, epicServiceID, time.Unix(turnStarted, 0))
 	if err != nil {

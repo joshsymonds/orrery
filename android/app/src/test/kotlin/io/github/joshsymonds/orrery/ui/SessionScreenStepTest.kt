@@ -53,14 +53,12 @@ private val SESSION_CONTROL_PATHS = listOf(INTERRUPT_PATH, SAY_PATH, ANSWER_PATH
 private const val HOLD_PATH = "/orrery.v1.Steps/Hold"
 private const val NUDGE_PATH = "/orrery.v1.Steps/Nudge"
 private const val STEPS_STOP_PATH = "/orrery.v1.Steps/Stop"
-private const val INTERRUPT_TAG = "session-interrupt"
-private const val CONTROL_STOP_TAG = "session-stop"
 private const val REQUEST_TAG = "session-request"
-private const val HOLD_TAG = "step-hold"
-private const val STOP_TAG = "step-stop"
-private const val CONFIRM_TAG = "step-stop-confirm"
-private const val NUDGE_RUNNING_HINT = "Nudge the step: it interrupts the turn, then prompts"
-private const val NUDGE_HELD_HINT = "Nudge the step: it resumes with your text"
+private const val HOLD_TAG = "dock-interrupt"
+private const val STOP_TAG = "dock-more"
+private const val CONFIRM_TAG = "dock-stop-confirm"
+private const val NUDGE_RUNNING_HINT = "Nudge synthetic step. It interrupts the turn, then gives it your words"
+private const val NUDGE_HELD_HINT = "Nudge synthetic step. It resumes with your words"
 private const val NUDGE_NOTE = "A message to a step is a nudge."
 private const val NUDGE_LANDED = "nudge landed"
 private const val REFUSAL_REASON = "synthetic refusal"
@@ -81,7 +79,7 @@ class SessionScreenStepTest {
     private fun setStepScreen(server: FakeOrreryServer, held: Boolean = false) {
         val client = OrreryClient(server.baseUrl)
         composeRule.setContent {
-            MaterialTheme { SessionScreen(STEP_SESSION_ID, client, step = StepMode(held = held)) }
+            MaterialTheme { SessionScreen(STEP_SESSION_ID, client, step = StepMode(held = held, label = "synthetic step")) }
         }
     }
 
@@ -160,15 +158,13 @@ class SessionScreenStepTest {
     }
 
     @Test
-    fun holdAndStopReplaceInterruptAndStopAndHoldPostsToSteps() {
+    fun interruptHoldsThroughStepsAndStopIsBehindMoreHoldPostsToSteps() {
         FakeOrreryServer().use { server ->
             serveStream(server, streamOf(delta(seq = 1L, state = stateOf("working"))))
             server.respond(HOLD_PATH, StepsHoldResponse.getDefaultInstance())
             setStepScreen(server)
 
             composeRule.awaitExactlyOne(hasTestTag(HOLD_TAG))
-            assertTrue(composeRule.onAllNodesWithTag(INTERRUPT_TAG).fetchSemanticsNodes().isEmpty())
-            assertTrue(composeRule.onAllNodesWithTag(CONTROL_STOP_TAG).fetchSemanticsNodes().isEmpty())
             composeRule.onNodeWithTag(STOP_TAG).assertIsDisplayed()
 
             composeRule.onNodeWithTag(HOLD_TAG).performClick()
@@ -181,7 +177,7 @@ class SessionScreenStepTest {
     }
 
     @Test
-    fun stepStopAsksFirstThenPostsToStepsNotControl() {
+    fun stepMoreAsksFirstThenPostsToStepsNotControl() {
         FakeOrreryServer().use { server ->
             serveStream(server, streamOf(delta(seq = 1L, state = stateOf("working"))))
             server.respond(STEPS_STOP_PATH, StepsStopResponse.getDefaultInstance())

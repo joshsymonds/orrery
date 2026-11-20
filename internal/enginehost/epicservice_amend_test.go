@@ -34,7 +34,7 @@ func TestAmendShownEvidenceRPCAppliesAndShowsItOnTheEpic(t *testing.T) {
 	ctx := t.Context()
 	st, _ := openPlannerStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
-	created := createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	created := createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 
 	amended, err := client.AmendEvidence(ctx, connect.NewRequest(&v1.AmendEvidenceRequest{
 		Id: epicServiceID, Requirement: "R1", Item: amendTestItem(), Reason: "the test moved",
@@ -117,7 +117,7 @@ func TestAmendEvidenceRPCRefusals(t *testing.T) {
 			t.Parallel()
 			st, _ := openPlannerStore(t)
 			client := newEpicsClient(t, startEpicServer(t, st))
-			createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+			createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 			_, err := client.AmendEvidence(t.Context(), connect.NewRequest(tc.req))
 			wantConnectError(t, err, tc.code, tc.message)
 			if amendments := getEpicOK(t, client).GetAmendments(); len(amendments) != 0 {
@@ -157,7 +157,7 @@ func TestAmendEvidenceRPCIsTheOwnersAlone(t *testing.T) {
 		"step-other": {ID: "step-other", Epic: "synthetic-repo-0a1b2c3/epic-other", Task: "T1"},
 	}}
 	client := newEpicsClient(t, startControlServer(t, st, steps))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 	turn, err := st.ClaimTurn(ctx, epicServiceID, time.Unix(turnStarted, 0))
 	if err != nil {
 		t.Fatalf("ClaimTurn: %v", err)
@@ -201,8 +201,8 @@ func TestAmendEvidenceRPCIsTheOwnersAlone(t *testing.T) {
 func TestAmendEvidenceRPCIsRecordedAsEpicAmend(t *testing.T) {
 	t.Parallel()
 	rec := &fakeEpicRecorder{}
-	_, client := epicCallFixture(t, rec)
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	st, client := epicCallFixture(t, rec)
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 
 	req := connect.NewRequest(&v1.AmendEvidenceRequest{Id: epicServiceID, Requirement: "R1", Item: amendTestItem()})
 	req.Header().Set(protocol.HeaderSession, epicCallSession)

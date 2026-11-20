@@ -1,32 +1,9 @@
 package io.github.joshsymonds.orrery.ui
 
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.testTag
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.StepCallResult
-import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import java.io.IOException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 private const val HOLD_LANDED = "hold landed"
 private const val NUDGE_LANDED = "nudge landed"
@@ -79,43 +56,3 @@ class StepCalls(private val client: OrreryClient, private val stepId: String) {
 }
 
 class NudgeRefusedException(message: String) : IOException(message)
-
-/** Hold, and Stop behind a second tap on Confirm stop, for one step; the outcome line below them. */
-@Composable
-fun StepActions(calls: StepCalls, held: Boolean) {
-    val scope = rememberCoroutineScope()
-    var confirming by remember(calls) { mutableStateOf(false) }
-
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Row(horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight)) {
-            if (!held) {
-                StepButton("Hold", "step-hold") {
-                    scope.launch { withContext(Dispatchers.IO) { calls.hold() } }
-                }
-            }
-            StepButton("Stop", "step-stop") { confirming = true }
-            if (confirming) {
-                StepButton("Confirm stop", "step-stop-confirm") {
-                    confirming = false
-                    scope.launch { withContext(Dispatchers.IO) { calls.stop() } }
-                }
-            }
-        }
-        calls.outcome?.let { Text(it, modifier = Modifier.padding(top = OrreryTokens.Space.four)) }
-    }
-}
-
-@Composable
-private fun StepButton(label: String, tag: String, onClick: () -> Unit) {
-    Button(
-        onClick = onClick,
-        modifier = Modifier.testTag(tag).height(OrreryTokens.Size.gauge),
-        shape = RoundedCornerShape(OrreryTokens.Radius.two),
-        colors = ButtonDefaults.buttonColors(containerColor = OrreryTokens.Surface.raised, contentColor = OrreryTokens.Ink.one),
-        border = BorderStroke(OrreryTokens.Size.hairline, OrreryTokens.Line.firm),
-        elevation = null,
-        contentPadding = PaddingValues(horizontal = OrreryTokens.Space.twelve, vertical = OrreryTokens.Space.two),
-    ) {
-        Text(label)
-    }
-}

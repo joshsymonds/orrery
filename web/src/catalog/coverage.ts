@@ -29,7 +29,6 @@ export const storyRenames: Renames = {
   "backgroundrow.tsx": { BackgroundRow: "TaskLine" },
   "blocker.tsx": { QuestionCard: "Ask", AskFirst: "ConfirmButton" },
   "card.tsx": { EpicWidget: "WorkCard" },
-  "composer.tsx": { Composer: "Dock" },
   "endedbar.tsx": { EndedBar: { module: "app.stories.tsx", story: "Page" } },
   "epicline.tsx": { EpicLine: "EpicRow" },
   "eventring.tsx": { EventRing: "EpicEventBlock", StepCard: "StepEndBlock" },
@@ -41,7 +40,6 @@ export const storyRenames: Renames = {
   "picker.tsx": { NewPanel: { module: "app.stories.tsx", story: "Page" } },
   "sidepanel.tsx": { SidePanel: "ListPanel" },
   "steermenu.tsx": { SteerMenu: { module: "app.stories.tsx", story: "Page" } },
-  "stepbox.tsx": { StepBox: "Dock" },
   "strip.tsx": { PaneStrip: "MeterStrip" },
 };
 

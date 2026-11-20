@@ -4699,6 +4699,59 @@ func (q *Queries) ListCallerSteps(ctx context.Context) ([]ListCallerStepsRow, er
 	return items, nil
 }
 
+const listContractChangeEvents = `-- name: ListContractChangeEvents :many
+SELECT states.contract, states.seq, states.state, states.version, states.session, states.words,
+       entered.title, opening.writer AS conversation
+FROM contract_states AS states
+JOIN contract_versions AS entered ON entered.contract = states.contract AND entered.version = states.version
+JOIN contract_versions AS opening ON opening.contract = states.contract AND opening.version = 1
+WHERE states.session <> opening.writer
+ORDER BY states.at, states.contract, states.seq
+`
+
+type ListContractChangeEventsRow struct {
+	Contract     string
+	Seq          int64
+	State        string
+	Version      int64
+	Session      string
+	Words        string
+	Title        string
+	Conversation string
+}
+
+func (q *Queries) ListContractChangeEvents(ctx context.Context) ([]ListContractChangeEventsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listContractChangeEvents)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListContractChangeEventsRow
+	for rows.Next() {
+		var i ListContractChangeEventsRow
+		if err := rows.Scan(
+			&i.Contract,
+			&i.Seq,
+			&i.State,
+			&i.Version,
+			&i.Session,
+			&i.Words,
+			&i.Title,
+			&i.Conversation,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listContractListings = `-- name: ListContractListings :many
 SELECT contracts.id, contracts.created,
        newest.repository, newest.title, newest.care, newest.version, newest.open_decisions,

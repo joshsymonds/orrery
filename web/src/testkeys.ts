@@ -31,7 +31,7 @@ export function fakeContext(init: Partial<KeyContext> = {}): Fake {
     cursorRowKey: "",
     cursorStep: null,
     cursorStepKey: "",
-    cursorPane: undefined,
+    cursorConversation: null,
     pinned: null,
     inputRef: { current: null },
     composerInputs: { current: new Map() },

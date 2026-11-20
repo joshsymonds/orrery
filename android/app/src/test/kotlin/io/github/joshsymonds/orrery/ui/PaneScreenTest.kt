@@ -75,12 +75,13 @@ private const val OLDER_REPLY_TIME = 1_700_000_000L
 private const val NEWER_REPLY_TIME = 1_700_001_000L
 private const val SEEN_BETWEEN_REPLIES = 1_700_000_500L
 private const val SEEN_AFTER_REPLIES = 1_700_002_000L
-private const val STATUS_LINE_TAG = "status-line"
 private const val SYNTHETIC_DRAFT = "synthetic draft"
-private const val CLAUDE_HINT = "Message Claude…"
+private const val CLAUDE_HINT = "Message project"
 private const val SHELL_HINT = "Type a command…"
-private const val WORKING_HINT = "Queue for Claude…"
-private const val WAITING_HINT = "Answer Claude…"
+private const val WORKING_HINT = "Queue for project"
+private const val WAITING_HINT = "Answer project"
+private const val DOCK_STATE_TAG = "dock-state"
+private const val DOCK_WORD_TAG = "dock-word"
 private const val BAND_GOAL_TAG = "band-goal"
 private const val NO_CONVERSATION_TAG = "no-conversation"
 private const val HOST_METERS_TAG = "host-meters"
@@ -543,14 +544,14 @@ class PaneScreenTest {
     }
 
     @Test
-    fun noPaneHintIsEmpty() {
+    fun noPaneHintIsTheShellHint() {
         FakeOrreryServer().use { server ->
             server.respond(PANES_PATH, PanesListResponse.getDefaultInstance())
             setScreen(server)
             composeRule.awaitUntil { paneListRequests(server) >= 1 }
             composeRule.waitForIdle()
 
-            assertEquals("", editField().hint?.toString().orEmpty())
+            assertEquals(SHELL_HINT, editField().hint?.toString().orEmpty())
         }
     }
 
@@ -567,14 +568,14 @@ class PaneScreenTest {
     fun shellPaneHintNamesACommand() = assertPaneHint(state = "", expected = SHELL_HINT)
 
     @Test
-    fun shellPaneDrawsNoStatusLine() {
+    fun shellPaneDocksAsIdle() {
         FakeOrreryServer().use { server ->
             servePane(server, state = "")
             setScreen(server)
             composeRule.awaitExactlyOne(hasTestTag(NO_CONVERSATION_TAG))
             composeRule.onNodeWithTag(HEAD_TAG).assertExists()
 
-            composeRule.onAllNodesWithTag(STATUS_LINE_TAG).assertCountEquals(0)
+            composeRule.onNodeWithTag(DOCK_WORD_TAG).assertTextEquals("idle")
         }
     }
 
@@ -631,7 +632,7 @@ class PaneScreenTest {
 
             composeRule.awaitExactlyOne(hasTestTag(NO_CONVERSATION_TAG))
             composeRule.onNodeWithTag(HEAD_TAG).assertExists()
-            composeRule.onAllNodesWithTag(STATUS_LINE_TAG).assertCountEquals(0)
+            composeRule.onNodeWithTag(DOCK_WORD_TAG).assertTextEquals("idle")
             assertEquals(0, conversationRequests(server))
         }
     }
@@ -836,10 +837,10 @@ class PaneScreenTest {
             composeRule.awaitExactlyOne(hasText("synthetic queued message"))
             composeRule.onAllNodesWithText("Claude is still working").assertCountEquals(0)
             composeRule.onAllNodesWithTag("composer-edge:working").assertCountEquals(1)
-            composeRule.onNodeWithTag("waiting-row").assertIsDisplayed()
-            composeRule.onNodeWithTag(STATUS_LINE_TAG).assertIsDisplayed()
+            composeRule.onNodeWithTag("dock-tray-row").assertIsDisplayed()
+            composeRule.onNodeWithTag(DOCK_STATE_TAG).assertIsDisplayed()
             val reply = composeRule.onNodeWithText("synthetic reply").fetchSemanticsNode().boundsInRoot
-            val waiting = composeRule.onNodeWithTag("waiting-row").fetchSemanticsNode().boundsInRoot
+            val waiting = composeRule.onNodeWithTag("dock-tray-row").fetchSemanticsNode().boundsInRoot
             assertTrue(waiting.top >= reply.bottom - EDGE_TOLERANCE_PX)
         }
     }
@@ -904,7 +905,7 @@ class PaneScreenTest {
             setClockedScreen(server)
 
             composeRule.awaitExactlyOne(hasText("synthetic reply"))
-            composeRule.onNodeWithTag(STATUS_LINE_TAG).assertIsDisplayed()
+            composeRule.onNodeWithTag(DOCK_STATE_TAG).assertIsDisplayed()
             composeRule.onAllNodesWithTag(BAND_GOAL_TAG).assertCountEquals(0)
         }
     }

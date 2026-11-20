@@ -155,7 +155,7 @@ async function press(key: string): Promise<void> {
 // the focus to the list's cursor row.
 async function leavePinnedBox(container: HTMLElement): Promise<void> {
   const box = container.querySelector<HTMLTextAreaElement>(
-    'section[aria-label="pinned reader"] .pin-reply:not([hidden]) .composer textarea',
+    'section[aria-label="pinned reader"] .pin-reply:not([hidden]) textarea',
   );
   if (box === null) {
     assert.fail("the pinned reader has its reply box");
