@@ -87,7 +87,7 @@ test("Shapes: an engine event draws an EventBlock: the engine tone, the gear ico
     assert.equal(textOf(root, ".words"), "from the engine");
     assert.equal(root.querySelector(".head")?.innerHTML.includes(gear), true, "the head does not draw the gear icon");
     assert.equal(root.querySelector("strong")?.textContent, "start");
-    assert.equal(textOf(root, ".at"), "13:58");
+    assert.equal(textOf(root, ".at"), clock(at("@13:58")));
   });
 });
 
