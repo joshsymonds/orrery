@@ -138,7 +138,7 @@ class MainActivity : ComponentActivity() {
                                                 id,
                                                 back = Screen.Panes,
                                                 live = conversationLive(conversation),
-                                                talk = conversation?.let(::paneScreen) ?: Screen.Panes,
+                                                talk = conversation?.let { paneScreen(it) } ?: Screen.Panes,
                                             )
                                         },
                                         onOpenSettings = { screen = Screen.Settings },
@@ -151,8 +151,8 @@ class MainActivity : ComponentActivity() {
                                             client = client,
                                             projectKey = current.key,
                                             state = paneListState,
-                                            onOpenPane = { screen = paneScreen(it) },
-                                            onOpenEpic = { screen = Screen.Epic(it) },
+                                            onOpenPane = { screen = paneScreen(it, back = current) },
+                                            onOpenEpic = { screen = Screen.Epic(it, back = current) },
                                             onNewHere = { pickerDir = it },
                                             onBack = { screen = Screen.Panes },
                                             onOpenContract = { id, conversation ->
@@ -160,17 +160,17 @@ class MainActivity : ComponentActivity() {
                                                     id,
                                                     back = current,
                                                     live = conversationLive(conversation),
-                                                    talk = conversation?.let(::paneScreen) ?: current,
+                                                    talk = conversation?.let { paneScreen(it, current) } ?: current,
                                                 )
                                             },
                                         )
                                     }
                                     is Screen.Epic -> {
-                                        BackHandler { screen = Screen.Panes }
+                                        BackHandler { screen = current.back }
                                         EpicScreen(
                                             client = client,
                                             epicId = current.id,
-                                            onBack = { screen = Screen.Panes },
+                                            onBack = { screen = current.back },
                                             onOpenStep = {
                                                 screen = Screen.Step(
                                                     it.id,
@@ -180,9 +180,16 @@ class MainActivity : ComponentActivity() {
                                                     doing = it.doing,
                                                 )
                                             },
-                                            onOpenContract = { screen = Screen.Contract(current.id) },
+                                            onOpenContract = {
+                                                screen = Screen.Contract(current.id, back = current.copy(open = null))
+                                            },
                                             onOpenPhase = { task, phase ->
-                                                screen = Screen.Phase(current.id, task, phase)
+                                                screen = Screen.Phase(
+                                                    current.id,
+                                                    task,
+                                                    phase,
+                                                    back = current.copy(open = null),
+                                                )
                                             },
                                             onTalk = openSteerer,
                                             listedSteerer = listedSteerer,
@@ -192,17 +199,17 @@ class MainActivity : ComponentActivity() {
                                         )
                                     }
                                     is Screen.Phase -> {
-                                        BackHandler { screen = Screen.Epic(current.epicId) }
+                                        BackHandler { screen = current.back }
                                         PhaseOutputScreen(
                                             client = client,
                                             epicId = current.epicId,
                                             epic = current.epicId.substringAfterLast('/'),
                                             task = current.task,
                                             phase = current.phase,
-                                            onBack = { screen = Screen.Epic(current.epicId) },
+                                            onBack = { screen = current.back },
                                             onGoHome = { screen = Screen.Panes },
                                             onOpenPhase = { task, phase ->
-                                                screen = Screen.Phase(current.epicId, task, phase)
+                                                screen = Screen.Phase(current.epicId, task, phase, back = current.back)
                                             },
                                             onOpenSession = {
                                                 screen = Screen.Step(
@@ -255,11 +262,11 @@ class MainActivity : ComponentActivity() {
                                         )
                                     }
                                     is Screen.Pane -> {
-                                        BackHandler { screen = Screen.Panes }
+                                        BackHandler { screen = current.back }
                                         PaneScreen(
                                             paneId = current.id,
                                             client = client,
-                                            onBack = { screen = Screen.Panes },
+                                            onBack = { screen = current.back },
                                             onOpenEpic = { screen = Screen.Epic(it) },
                                             about = aboutOf(current),
                                             onClearAbout = { conversationAbout = null },
@@ -269,11 +276,11 @@ class MainActivity : ComponentActivity() {
                                         )
                                     }
                                     is Screen.Session -> {
-                                        BackHandler { screen = Screen.Panes }
+                                        BackHandler { screen = current.back }
                                         SessionScreen(
                                             sessionId = current.id,
                                             client = client,
-                                            onBack = { screen = Screen.Panes },
+                                            onBack = { screen = current.back },
                                             reason = current.reason,
                                             onOpenEpic = { screen = Screen.Epic(it) },
                                             about = aboutOf(current),
@@ -393,9 +400,16 @@ class MainActivity : ComponentActivity() {
         return if (pane == null) Screen.Session(id) else Screen.Pane(pane.id)
     }
 
-    /** The screen a conversation's pane opens: its session screen when headless, else its pane screen. */
-    private fun paneScreen(pane: Pane): Screen =
-        if (pane.headless) Screen.Session(pane.id, reason = pane.summary) else Screen.Pane(pane.id)
+    /**
+     * The screen a conversation's pane opens: its session screen when headless, else its pane screen, returning to
+     * [back].
+     */
+    private fun paneScreen(pane: Pane, back: Screen = Screen.Panes): Screen =
+        if (pane.headless) {
+            Screen.Session(pane.id, reason = pane.summary, back = back)
+        } else {
+            Screen.Pane(pane.id, back = back)
+        }
 
     /** The About set on [conversation], the screen a contract's row returned to, or null. */
     private fun aboutOf(conversation: Screen): RowAbout? = conversationAbout?.takeIf { it.screen == conversation }?.about
@@ -413,14 +427,17 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * How deep a screen sits: the home list is 0; a project's page, a pane, a session, the pools, the settings or an epic
-     * is 1; an epic's contract or a task's phase output is 2; a step's session is one deeper than the screen it opened
-     * from.
+     * How deep a screen sits: the home list is 0; a project's page, the pools or the settings is 1; an epic's contract or
+     * a task's phase output is 2; a pane, a session, an epic or a step's session is one deeper than the screen it
+     * opened from.
      */
     private val Screen.depth: Int
         get() = when (this) {
             Screen.Panes -> 0
-            Screen.Pools, Screen.Settings, is Screen.Project, is Screen.Pane, is Screen.Session, is Screen.Epic -> 1
+            Screen.Pools, Screen.Settings, is Screen.Project -> 1
+            is Screen.Pane -> back.depth + 1
+            is Screen.Session -> back.depth + 1
+            is Screen.Epic -> back.depth + 1
             is Screen.Contract, is Screen.Phase -> 2
             is Screen.Step -> back.depth + 1
         }
@@ -432,13 +449,19 @@ class MainActivity : ComponentActivity() {
         data object Panes : Screen
         data object Settings : Screen
         data object Pools : Screen
-        data class Pane(val id: String) : Screen
-        data class Session(val id: String, val reason: String = "") : Screen
+        /** A conversation's pane, reached from the home tree or a project's page: back returns to [back]. */
+        data class Pane(val id: String, val back: Screen = Panes) : Screen
+
+        /** A headless conversation, reached like [Pane]: back returns to [back]. */
+        data class Session(val id: String, val reason: String = "", val back: Screen = Panes) : Screen
 
         /** One project of the home tree as its page, reached from its name there: back returns to the tree. */
         data class Project(val key: String) : Screen
-        /** An epic, at its top or, when [open] is set, at that section. */
-        data class Epic(val id: String, val open: EpicOpening? = null) : Screen
+        /**
+         * An epic, at its top or, when [open] is set, at that section. Back returns to [back], which is the home tree
+         * unless a project's page opened it.
+         */
+        data class Epic(val id: String, val open: EpicOpening? = null, val back: Screen = Panes) : Screen
 
         /**
          * A contract, reached from its epic's summary, a notice's contract block, a conversation's tile, band line or
@@ -454,8 +477,8 @@ class MainActivity : ComponentActivity() {
             val talk: Screen = back,
         ) : Screen
 
-        /** A task's phase output, reached from its epic: back returns to the epic, and [phase] is open. */
-        data class Phase(val epicId: String, val task: String, val phase: TaskPhase) : Screen
+        /** A task's phase output, reached from its epic: back returns to [back], the epic, and [phase] is open. */
+        data class Phase(val epicId: String, val task: String, val phase: TaskPhase, val back: Screen) : Screen
 
         /**
          * A step's session, reached from its epic or from a task's phase output: back returns to [back]. [held] is the
