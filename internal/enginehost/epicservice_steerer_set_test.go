@@ -59,17 +59,27 @@ func steererSetClient(t *testing.T, m *Manager) enginev1connect.EpicsClient {
 	return newEpicsClient(t, serveEpicsWith(t, concreteStore(t, m), steering))
 }
 
-// steererSetCreate accepts the contract of repo in st, then creates its epic through client as the caller whose headers
-// are caller, and returns the error.
+// steererSetCreate proposes the contract of repo in st under the conversation the caller whose headers are caller is,
+// when it is one, and under contractEpicWriter otherwise. It accepts the contract, then creates its epic through
+// client as that caller, and returns the error.
 func steererSetCreate(
 	t *testing.T, st *store.Store, client enginev1connect.EpicsClient, repo string, caller http.Header,
 ) error {
 	t.Helper()
 	c := fullEpicRequest(repo, epicServiceID)
-	acceptEpicContract(t, st, c.Contract)
+	callerOf, _ := epicCallerOf(caller)
+	maker, err := st.CallerMaker(t.Context(), callerOf)
+	if err != nil {
+		t.Fatalf("CallerMaker: %v", err)
+	}
+	writer := contractEpicWriter
+	if maker.By == store.MakerConversation {
+		writer = maker.Session
+	}
+	proposeAcceptedBy(t, st, c.Contract, writer)
 	req := connect.NewRequest(c.request())
 	maps.Copy(req.Header(), caller)
-	_, err := client.CreateEpic(t.Context(), req)
+	_, err = client.CreateEpic(t.Context(), req)
 	return err
 }
 

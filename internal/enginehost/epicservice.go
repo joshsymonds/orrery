@@ -48,6 +48,7 @@ type EpicCommands interface {
 	Epics(ctx context.Context) ([]store.EpicRow, error)
 	EpicListings(ctx context.Context) ([]store.EpicRow, error)
 	CallerMaker(ctx context.Context, caller store.EpicCaller) (store.Maker, error)
+	CallerSession(ctx context.Context, caller store.EpicCaller) (string, bool, error)
 	AnswerEpic(
 		ctx context.Context, epic, id, text string, maker store.Maker, at time.Time,
 	) (store.EpicDecision, error)
@@ -155,10 +156,10 @@ func (s *epicService) controlMaker(ctx context.Context, epic string, header http
 // contract no one holds, one that is not accepted, a reviewer no layer can hold, and a workflow that does not load at
 // the base are refused, and nothing is stored.
 //
-// The seed decisions are made by the caller. The steerer of the epic is the caller's session when the caller is a
-// conversation. Otherwise the id of an epic already stored is refused first, and then one steering session is started
-// for the epic. A start that is refused, or a store that fails after the start, refuses the create, and the started
-// session is stopped.
+// The seed decisions are made by the caller. The steerer of the epic is the contract's conversation, the writer of its
+// first version, whichever caller makes the create, when that conversation's sessions row is stored. Otherwise the id
+// of an epic already stored is refused first, and then one steering session is started for the epic. A start that is
+// refused, or a store that fails after the start, refuses the create, and the started session is stopped.
 func (s *epicService) CreateEpic(
 	ctx context.Context,
 	req *connect.Request[v1.CreateEpicRequest],
@@ -170,7 +171,7 @@ func (s *epicService) CreateEpic(
 	if getenv == nil {
 		getenv = os.Getenv
 	}
-	contract, err := s.acceptedContract(ctx, req.Msg.GetId(), req.Msg.GetBase())
+	contract, conversation, err := s.acceptedContract(ctx, req.Msg.GetId(), req.Msg.GetBase())
 	if err != nil {
 		return nil, err
 	}
@@ -203,7 +204,7 @@ func (s *epicService) CreateEpic(
 	for i := range row.Decisions {
 		row.Decisions[i].Maker = maker
 	}
-	steerer, started, err := s.steererOf(ctx, row, maker)
+	steerer, started, err := s.steererOf(ctx, row, conversation)
 	if err != nil {
 		return nil, err
 	}
@@ -218,18 +219,18 @@ func (s *epicService) CreateEpic(
 	return connect.NewResponse(&v1.CreateEpicResponse{Epic: message, Warnings: warnings}), nil
 }
 
-// acceptedContract returns the body of the accepted version of the contract id, with its base set to base. An id no
-// contract holds is refused as not found, and a contract whose newest state is not accepted is refused as a failed
-// precondition that names the state.
-func (s *epicService) acceptedContract(ctx context.Context, id, base string) (*v1.EpicContract, error) {
+// acceptedContract returns the body of the accepted version of the contract id, with its base set to base, and the
+// contract's conversation, the writer of its version 1. An id no contract holds is refused as not found, and a contract
+// whose newest state is not accepted is refused as a failed precondition that names the state.
+func (s *epicService) acceptedContract(ctx context.Context, id, base string) (*v1.EpicContract, string, error) {
 	record, err := s.epics.Contract(ctx, id)
 	switch {
 	case errors.Is(err, store.ErrNoContract):
-		return nil, contractNotFound(id)
+		return nil, "", contractNotFound(id)
 	case err != nil:
-		return nil, epicStoreError(err)
+		return nil, "", epicStoreError(err)
 	case record.State != store.ContractAccepted:
-		return nil, refuseEpic(connect.CodeFailedPrecondition, fmt.Sprintf("state: %s, not accepted", record.State))
+		return nil, "", refuseEpic(connect.CodeFailedPrecondition, fmt.Sprintf("state: %s, not accepted", record.State))
 	}
 	newest := record.States[len(record.States)-1]
 	for _, version := range record.Versions {
@@ -238,15 +239,15 @@ func (s *epicService) acceptedContract(ctx context.Context, id, base string) (*v
 		}
 		message, convertErr := contractVersionMessage(version)
 		if convertErr != nil {
-			return nil, epicStoreError(
+			return nil, "", epicStoreError(
 				fmt.Errorf("read version %d of contract %s: %w", version.Version, id, convertErr),
 			)
 		}
 		contract := message.GetContract()
 		contract.Base = base
-		return contract, nil
+		return contract, record.Conversation, nil
 	}
-	return nil, epicStoreError(fmt.Errorf("contract %s has no version %d", id, newest.Version))
+	return nil, "", epicStoreError(fmt.Errorf("contract %s has no version %d", id, newest.Version))
 }
 
 // storedRefusal returns the refusal of a create whose id, id, is already stored.
@@ -267,15 +268,20 @@ func (s *epicService) refuseStored(ctx context.Context, id string) error {
 	}
 }
 
-// steererOf returns the steerer that a create of row by maker stores, and the id of the steering session the create
-// started, which is "" when it started none. An id already stored is refused first. A conversation maker is the
-// steerer, and otherwise one steering session is started for row.
-func (s *epicService) steererOf(ctx context.Context, row store.EpicRow, maker store.Maker) (string, string, error) {
+// steererOf returns the steerer that a create of row stores, given conversation, the contract's conversation, and the
+// id of the steering session the create started, which is "" when it started none. An id already stored is refused
+// first. When conversation has a sessions row, it is the steerer. Otherwise one steering session is started for row,
+// as it is for an epic a shell or the CLI makes.
+func (s *epicService) steererOf(ctx context.Context, row store.EpicRow, conversation string) (string, string, error) {
 	if err := s.refuseStored(ctx, row.ID); err != nil {
 		return "", "", err
 	}
-	if maker.By == store.MakerConversation {
-		return maker.Session, "", nil
+	session, ok, err := s.epics.CallerSession(ctx, store.EpicCaller{Session: conversation})
+	if err != nil {
+		return "", "", epicStoreError(err)
+	}
+	if ok {
+		return session, "", nil
 	}
 	started, err := s.startSteering(ctx, row)
 	if err != nil {
