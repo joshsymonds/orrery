@@ -1,6 +1,8 @@
 package io.github.joshsymonds.orrery.ui
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
@@ -9,6 +11,7 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextReplacement
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicQuestionRow
 import io.github.joshsymonds.orrery.api.EpicRow
@@ -113,6 +116,32 @@ class EpicAskTest {
         val sentence = composeRule.onNodeWithTag("now-sentence").fetchSemanticsNode().boundsInRoot
         val ask = composeRule.onNodeWithTag("blocker-question").fetchSemanticsNode().boundsInRoot
         assertTrue(sentence.bottom <= ask.top)
+    }
+
+    @Test
+    fun aDifferentOpenQuestionStartsWithAnEmptyAnswerBox() {
+        val first = EpicQuestionRow(id = "q1", text = "Which branch should it build on?", turn = 1L, asked = BASE)
+        val later = EpicQuestionRow(id = "q2", text = "Which lane should it use?", turn = 2L, asked = BASE)
+        val current = mutableStateOf(detail(questions = listOf(first)))
+        composeRule.setContent {
+            MaterialTheme {
+                NowAsk(
+                    detail = current.value,
+                    onAnswer = { _, _ -> "" },
+                    onRetry = {},
+                    onStop = {},
+                    onResume = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("blocker-answer").performTextReplacement("Use main")
+        composeRule.runOnIdle { current.value = detail(questions = listOf(later)) }
+        composeRule.waitForIdle()
+
+        composeRule.onNodeWithTag("blocker-question").assertTextEquals("Which lane should it use?")
+        val typed = composeRule.onNodeWithTag("blocker-answer").fetchSemanticsNode().config[SemanticsProperties.EditableText]
+        assertEquals("", typed.text)
     }
 
     @Test

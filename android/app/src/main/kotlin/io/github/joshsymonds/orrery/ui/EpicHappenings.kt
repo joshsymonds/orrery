@@ -14,11 +14,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
 import io.github.joshsymonds.orrery.api.EpicHistoryRow
 import io.github.joshsymonds.orrery.api.EpicTurnRow
 import io.github.joshsymonds.orrery.api.EvidenceRunRow
@@ -31,52 +28,6 @@ import java.time.ZoneId
 
 // SHOWN_FIRST is how many of the newest history entries show before the +n button opens the rest.
 private const val SHOWN_FIRST = 3
-
-/**
- * The tasks in flight: each wedge in a phase that runs or is held by the owner, with its phase and how long it has been
- * there, as of [now]. A tap calls [onOpenPhase] with the row's task and the phase it is in; without it rows take no tap.
- */
-@Composable
-fun NowRows(wedges: List<Wedge>, now: Long, onOpenPhase: ((task: String, phase: Phase) -> Unit)? = null) {
-    val rows = wedges.filter(::inFlight).mapNotNull { wedge -> nowSliceOf(wedge)?.let { wedge to it } }
-    Column(modifier = Modifier.fillMaxWidth()) {
-        HappenHeading("Now")
-        rows.forEachIndexed { index, (wedge, slice) ->
-            val onTap = onOpenPhase?.let { open -> { open(wedge.task, slice.phase) } }
-            Text(
-                AnnotatedString(nowText(wedge, slice.since, now), SpanStyle(color = toneColourOf(wedge))),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("now-row:$index")
-                    .padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.four)
-                    .tapping(onTap),
-            )
-        }
-    }
-}
-
-/**
- * The tasks not started: each planned wedge, with its title. A tap calls [onOpenPhase] with the row's task and the
- * implementing phase; without it rows take no tap.
- */
-@Composable
-fun NextRows(wedges: List<Wedge>, onOpenPhase: ((task: String, phase: Phase) -> Unit)? = null) {
-    val planned = wedges.filter { it.place == WedgePlace.PLANNED }
-    Column(modifier = Modifier.fillMaxWidth()) {
-        HappenHeading("Next")
-        planned.forEachIndexed { index, wedge ->
-            val onTap = onOpenPhase?.let { open -> { open(wedge.task, Phase.IMPLEMENTING) } }
-            Text(
-                "${wedge.task} · ${wedge.title}",
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("next-row:$index")
-                    .padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.four)
-                    .tapping(onTap),
-            )
-        }
-    }
-}
 
 /**
  * The newest history entries, newest first: the first three, then a "+n earlier" button that opens the rest in place.
@@ -157,29 +108,6 @@ private fun CheckTails(tag: String, check: StepCheckRow) {
             Text(check.stderr, style = OrreryTokens.Type.small, color = OrreryTokens.Role.halt)
         }
     }
-}
-
-// inFlight is whether a wedge is in a phase and running, held by the owner, or waiting on a usage limit.
-private fun inFlight(wedge: Wedge): Boolean =
-    (wedge.tone == WedgeTone.RUN || wedge.tone == WedgeTone.MINE || wedge.tone == WedgeTone.LIMITED) &&
-        wedge.place != WedgePlace.PLANNED &&
-        wedge.place != WedgePlace.INTEGRATED
-
-// nowSliceOf is the slice of the phase a wedge is in, null when no phase is now.
-private fun nowSliceOf(wedge: Wedge): PhaseSlice? = wedge.slices.find { it.state == SliceState.NOW }
-
-// toneColourOf is a now row's colour, as the web's k-now and k-held: yellow while a step runs, peach while the
-// owner holds it, grey while a usage limit holds it. inFlight admits no other tone.
-private fun toneColourOf(wedge: Wedge): Color = when (wedge.tone) {
-    WedgeTone.MINE -> OrreryTokens.Role.attention
-    WedgeTone.LIMITED -> OrreryTokens.Ink.three
-    else -> OrreryTokens.Role.live
-}
-
-// nowText is a row's text: its task and place, then how long it has been in the phase once the clock has started it.
-private fun nowText(wedge: Wedge, since: Long, now: Long): String {
-    val head = "${wedge.task} · ${wedge.place.name.lowercase()}"
-    return if (since > 0) "$head · ${durationText(now - since)}" else head
 }
 
 // tapping makes a row clickable when it has a tap, and leaves it without a click action when it has none.

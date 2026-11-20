@@ -1,10 +1,7 @@
 package io.github.joshsymonds.orrery.ui
 
-import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.SemanticsActions
-import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
@@ -24,7 +21,6 @@ import io.github.joshsymonds.orrery.api.EvidenceRunRow
 import io.github.joshsymonds.orrery.api.StepCheckRow
 import io.github.joshsymonds.orrery.api.StepRow
 import io.github.joshsymonds.orrery.mainThreadComposeRule
-import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -37,29 +33,11 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.util.TimeZone
 
-// The time Now measures its rows from, in unix seconds.
-private const val NOW = 10_000L
-
 // 1_700_000_000 is 22:13:20 in UTC, the zone these tests run in. at(n) is n minutes after it, so its clock text is
 // 22:13 plus n minutes.
 private const val BASE = 1_700_000_000L
 
 private fun at(minute: Int): Long = BASE + 60L * minute
-
-private fun wedge(task: String, title: String, place: WedgePlace, tone: WedgeTone, since: Long = 0L): Wedge {
-    val nowPhase = Phase.entries.find { it.name == place.name }
-    val slices = Phase.entries.map { phase ->
-        val isNow = phase == nowPhase
-        PhaseSlice(
-            phase = phase,
-            state = if (isNow) SliceState.NOW else SliceState.AHEAD,
-            summary = "",
-            since = if (isNow) since else 0L,
-            seconds = 0L,
-        )
-    }
-    return Wedge(task = task, title = title, requirements = emptyList(), place = place, tone = tone, slices = slices)
-}
 
 private fun stepRow(
     id: String,
@@ -129,116 +107,6 @@ class EpicHappeningsTest {
     @After
     fun restoreZone() {
         TimeZone.setDefault(originalZone)
-    }
-
-    @Test
-    fun nowListsOnlyTheWedgesRunningOrHeldWithTheirPhaseAndTime() {
-        val wedges = listOf(
-            wedge("b1", "build one", WedgePlace.IMPLEMENTING, WedgeTone.RUN, since = NOW - 90),
-            wedge("b2", "build two", WedgePlace.CHECKING, WedgeTone.MINE, since = NOW - 7_500),
-            wedge("b3", "build three", WedgePlace.REVIEWING, WedgeTone.BAD, since = NOW - 60),
-            wedge("b4", "build four", WedgePlace.PLANNED, WedgeTone.PLAN),
-            wedge("b5", "build five", WedgePlace.INTEGRATED, WedgeTone.OK),
-            wedge("b6", "build six", WedgePlace.INTEGRATING, WedgeTone.ACC, since = NOW - 60),
-            wedge("b7", "build seven", WedgePlace.REVIEWING, WedgeTone.RUN),
-        )
-        composeRule.setContent {
-            MaterialTheme { NowRows(wedges = wedges, now = NOW) }
-        }
-
-        composeRule.onNodeWithText("NOW").assertIsDisplayed()
-        composeRule.onNodeWithTag("now-row:0").assertTextEquals("b1 · implementing · 1 min")
-        composeRule.onNodeWithTag("now-row:1").assertTextEquals("b2 · checking · 2 h 5 min")
-        composeRule.onNodeWithTag("now-row:2").assertTextEquals("b7 · reviewing")
-        assertTrue(composeRule.onAllNodesWithTag("now-row:3").fetchSemanticsNodes().isEmpty())
-    }
-
-    @Test
-    fun nowRowsAreColouredByTheirToneYellowWhileRunningAndPeachWhenHeld() {
-        val wedges = listOf(
-            wedge("b1", "build one", WedgePlace.IMPLEMENTING, WedgeTone.RUN, since = NOW - 90),
-            wedge("b2", "build two", WedgePlace.CHECKING, WedgeTone.MINE, since = NOW - 30),
-        )
-        composeRule.setContent {
-            MaterialTheme { NowRows(wedges = wedges, now = NOW) }
-        }
-
-        assertEquals(listOf(OrreryTokens.Role.live), colourSpansOf("now-row:0"))
-        assertEquals(listOf(OrreryTokens.Role.attention), colourSpansOf("now-row:1"))
-    }
-
-    @Test
-    fun nowRowTapCallsOnOpenPhaseWithItsTaskAndNowPhase() {
-        val opened = mutableListOf<Pair<String, Phase>>()
-        val wedges = listOf(
-            wedge("b1", "build one", WedgePlace.IMPLEMENTING, WedgeTone.RUN, since = NOW - 90),
-            wedge("b2", "build two", WedgePlace.CHECKING, WedgeTone.MINE, since = NOW - 30),
-        )
-        composeRule.setContent {
-            MaterialTheme {
-                NowRows(wedges = wedges, now = NOW, onOpenPhase = { task, phase -> opened.add(task to phase) })
-            }
-        }
-
-        composeRule.onNodeWithTag("now-row:0").performClick()
-        composeRule.onNodeWithTag("now-row:1").performClick()
-
-        assertEquals(listOf("b1" to Phase.IMPLEMENTING, "b2" to Phase.CHECKING), opened)
-    }
-
-    @Test
-    fun nextListsOnlyThePlannedWedgesWithTaskAndTitle() {
-        val wedges = listOf(
-            wedge("n1", "first", WedgePlace.PLANNED, WedgeTone.PLAN),
-            wedge("b1", "building", WedgePlace.IMPLEMENTING, WedgeTone.RUN, since = NOW - 30),
-            wedge("n2", "second", WedgePlace.PLANNED, WedgeTone.PLAN),
-            wedge("b2", "done", WedgePlace.INTEGRATED, WedgeTone.OK),
-        )
-        composeRule.setContent {
-            MaterialTheme { NextRows(wedges = wedges) }
-        }
-
-        composeRule.onNodeWithText("NEXT").assertIsDisplayed()
-        composeRule.onNodeWithTag("next-row:0").assertTextEquals("n1 · first")
-        composeRule.onNodeWithTag("next-row:1").assertTextEquals("n2 · second")
-        assertTrue(composeRule.onAllNodesWithTag("next-row:2").fetchSemanticsNodes().isEmpty())
-    }
-
-    @Test
-    fun nextRowTapCallsOnOpenPhaseWithItsTaskAndImplementing() {
-        val opened = mutableListOf<Pair<String, Phase>>()
-        val wedges = listOf(
-            wedge("n1", "first", WedgePlace.PLANNED, WedgeTone.PLAN),
-            wedge("n2", "second", WedgePlace.PLANNED, WedgeTone.PLAN),
-        )
-        composeRule.setContent {
-            MaterialTheme {
-                NextRows(wedges = wedges, onOpenPhase = { task, phase -> opened.add(task to phase) })
-            }
-        }
-
-        composeRule.onNodeWithTag("next-row:1").performClick()
-
-        assertEquals(listOf("n2" to Phase.IMPLEMENTING), opened)
-    }
-
-    @Test
-    fun rowsHaveNoClickActionWithoutAnOnOpenPhase() {
-        val wedges = listOf(
-            wedge("b1", "build one", WedgePlace.IMPLEMENTING, WedgeTone.RUN, since = NOW - 90),
-            wedge("n1", "first", WedgePlace.PLANNED, WedgeTone.PLAN),
-        )
-        composeRule.setContent {
-            MaterialTheme {
-                Column {
-                    NowRows(wedges = wedges, now = NOW)
-                    NextRows(wedges = wedges)
-                }
-            }
-        }
-
-        assertFalse(hasClickAction("now-row:0"))
-        assertFalse(hasClickAction("next-row:0"))
     }
 
     @Test
@@ -471,10 +339,4 @@ class EpicHappeningsTest {
 
     private fun hasClickAction(tag: String): Boolean =
         composeRule.onNodeWithTag(tag).fetchSemanticsNode().config.contains(SemanticsActions.OnClick)
-
-    private fun colourSpansOf(tag: String): List<Color> =
-        composeRule.onNodeWithTag(tag).fetchSemanticsNode().config[SemanticsProperties.Text]
-            .single()
-            .spanStyles
-            .map { it.item.color }
 }
