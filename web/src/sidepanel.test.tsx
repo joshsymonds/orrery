@@ -150,3 +150,16 @@ test("WorkLists: shell rows sit under the Left running head and its lead line, a
     assert.ok(!rows[0].classList.contains("live"), "a shell row is live");
   });
 });
+
+test("WorkLists: a list drawn without its head keeps its lead line and rows and draws no head", async () => {
+  const tasks = [
+    task({ description: "Map the rota", subagentType: "Explore", activity: "Reading the rota", started: "@14:37:58" }),
+  ];
+  await withDom(<ListPanel kind="agents" tasks={tasks} now={now} headless />, (container) => {
+    assert.ok(container.querySelector(".plist h2") === null, "the list draws a head the sheet already names");
+    assert.equal(container.querySelector(".plist .inote")?.textContent, "These run for this conversation.");
+    const rows = rowsOf(container);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].querySelector(".title")?.textContent, "Map the rota");
+  });
+});

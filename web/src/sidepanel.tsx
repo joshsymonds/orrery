@@ -53,11 +53,22 @@ export function listHead(kind: "agents" | "running"): string {
 
 // ListPanel draws a conversation's running sub-agents, or its shells left running, as one row per task it is given: its
 // description, its activity, and its clock from when it started. An agent row leads its activity with its sub-agent type.
-export function ListPanel({ kind, tasks, now }: { kind: "agents" | "running"; tasks: BackgroundTask[]; now: number }) {
+// headless leaves out the head, for a list in a sheet whose title already names it.
+export function ListPanel({
+  kind,
+  tasks,
+  now,
+  headless = false,
+}: {
+  kind: "agents" | "running";
+  tasks: BackgroundTask[];
+  now: number;
+  headless?: boolean;
+}) {
   const list = lists[kind];
   return (
     <div class="plist">
-      <h2>{list.head}</h2>
+      {headless ? null : <h2>{list.head}</h2>}
       <p class="inote">{list.lead}</p>
       <ul>
         {tasks.map((task) => (
