@@ -1,6 +1,6 @@
-// The stories of RowMenu and EpicRow: the ⋯ menu shut and open, and an epic's line in each way the list draws it. The
+// The stories of RowMenu and EpicLine: the ⋯ menu shut and open, and an epic's line in each way the list draws it. The
 // lines are the fixture epics' items as the app's list reads them, with no-op actions. No fixture epic holds record
-// tasks, so no line here draws its strip.
+// tasks, so no line here draws its strip. EpicRow's stories are in epicrow.stories.tsx.
 
 import type { Stories } from "./catalog/story";
 import { type ArchiveControl, EpicLine as Line, RowMenu as Menu } from "./epicline";
@@ -44,7 +44,7 @@ export const RowMenu: Stories = {
   "unarchive-open": () => <Menu control={control(true, true)} />,
 };
 
-export const EpicRow: Stories = {
+export const EpicLine: Stories = {
   // building is a building epic's line, with its orrery and its count and state. Its block is full, as the app passes
   // block.full.
   building: () => (

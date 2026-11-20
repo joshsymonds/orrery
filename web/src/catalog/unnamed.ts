@@ -83,10 +83,9 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   "dock/pane": { replacement: "Dock", epic: "F3" },
   "dock/session-worker": { replacement: "Dock", epic: "F3" },
   "dock/session-loading": { replacement: "Dock", epic: "F3" },
-  // EpicRow draws an epic's line: the cursor on it, its ⋯ menu shut, and an epic with no detail, so no orrery.
-  "epic-row/current": { replacement: "EpicRow", epic: "F2" },
-  "epic-row/with-menu": { replacement: "EpicRow", epic: "F2" },
-  "epic-row/no-detail": { replacement: "EpicRow", epic: "F2" },
+  // EpicLine draws an epic's line as the list draws it today: the cursor on it, its ⋯ menu shut, and an epic with no detail,
+  // so no orrery. Round 6's EpicRow replaces it, and this line stays until the list moves to EpicRow.
+  "epic-line": { replacement: "EpicRow", epic: "F2" },
   // EpicEventBlock draws an epic's question event whose epic holds no open question, so the event reads it as settled.
   "epic-event-block/question-settled": { replacement: "EpicEventBlock", epic: "F3" },
   // StepEndBlock draws a step that ended with no agent named and a looping reason, and a step's end that waits to be spoken.
