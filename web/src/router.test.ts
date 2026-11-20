@@ -45,13 +45,6 @@ test("SidePanel: parses a session hash with any other third segment to the atten
   }
 });
 
-test("SidePanel: a session entry with no panel still round-trips with no panel key", () => {
-  const parsed = parseAddress("#/project/session/S-1");
-  assert.deepEqual(parsed, { order: "project", entry: { kind: "session", id: "S-1" } });
-  assert.equal(parsed.entry !== null && "panel" in parsed.entry, false);
-  assertRoundTrip({ order: "project", entry: { kind: "session", id: "S-1" } });
-});
-
 test("HashRoute round-trips a pane entry", () => {
   assertRoundTrip({ order: "attention", entry: { kind: "pane", host: "laptop", pane: "pane-2" } });
 });

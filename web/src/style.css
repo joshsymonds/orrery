@@ -159,7 +159,6 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
   .head, .read > .title-row { padding: var(--o-space-12) var(--o-space-24) var(--o-space-12); }
   .send { min-width: 0; padding: 0 var(--o-space-24) var(--o-space-12); }
   .rcard > section.page { min-height: 0; flex: 1 1 auto; overflow-y: auto; padding: var(--o-space-16) var(--o-space-24) var(--o-space-8); }
-  .dock { min-height: 0; overflow-y: auto; border-left: var(--o-size-hairline) solid var(--o-line-soft); }
 }
 
 /* The flyout over the page is the narrow list at 1250px and under. */

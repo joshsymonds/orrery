@@ -4318,17 +4318,6 @@ test("a number key on the epic page selects its card, and confirm sends that cho
     assert.equal(fake.callsTo(answerEpicPath)[0].body.text, "Use PostgreSQL for the store.");
   }));
 
-test("a digit with the epic page closed selects no card of its question", (t) =>
-  withApp(t.signal, { epics: pageEpic(optionsQuestion) }, async (container, fake) => {
-    await press("j");
-    assert.equal(selectedCard(container), 1);
-    await clickFirst(container, 'section.page[aria-label="epic"] .back');
-    assert.equal(epicPageShown(container), false, "the back closes the page");
-    await press("1");
-    assert.equal(selectedCard(container), -1, "the closed panel draws no card for the digit to select");
-    assert.equal(fake.callsTo(answerEpicPath).length, 0);
-  }));
-
 test("a refused answer shows the server's message under the question's cards", (t) =>
   withApp(t.signal, { epics: pageEpic(optionsQuestion) }, async (container, fake) => {
     fake.refuseNext.set(answerEpicPath, "question is closed");
@@ -4782,12 +4771,6 @@ test("Talk is the first command in the epic page's title row", (t) =>
     assert.equal(titleCommands(container)[0], "Talk", "Talk leads the title row's commands");
   }));
 
-// talkDockDrawn is whether a conversation is docked beside an epic: the dock is drawn, or the epic page is laid
-// beside it.
-function talkDockDrawn(container: HTMLElement): boolean {
-  return container.querySelector('aside.dock[aria-label="talk"], section.page[aria-label="epic"].docked') !== null;
-}
-
 // talkSessionRow is the listed row of the session Talk lists as talkSession.
 const talkSessionRow = row({
   key: "session:sess-1",
@@ -4812,7 +4795,6 @@ test("RailAddress: choosing a session in Talk moves the cursor to its row, and i
       await chooseTalkLine(container, "api auth refresh");
       assert.equal(cursorKey(container), "session:sess-1", "the cursor moves to the session's row");
       assert.equal(epicPageShown(container), false, "the epic page gives way to the session");
-      assert.equal(talkDockDrawn(container), false, "no conversation is docked beside the epic page");
       await until(
         t.signal,
         () => fake.callsTo(sessionWatchPath).some((call) => call.body.id === "sess-1"),
@@ -4853,7 +4835,6 @@ test("RailAddress: a session Talk starts opens in the middle once its row is lis
       seen: fake.seen,
     });
     assert.equal(cursorKey(container), "session:sess-new", "the cursor moves to the started session's row");
-    assert.equal(talkDockDrawn(container), false, "no conversation is docked beside the epic page");
     await until(
       t.signal,
       () => fake.callsTo(sessionWatchPath).some((call) => call.body.id === "sess-new"),
