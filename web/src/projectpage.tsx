@@ -3,7 +3,7 @@ import { useState } from "preact/hooks";
 
 import { standInWords } from "./convorow";
 import { Icon, StateGlyph } from "./glyphs";
-import { ageText, clockText, parseTool, shortName, stateWaiting, waitingText } from "./inboxrow";
+import { ageText, clockText, parseTool, quietRow, shortName, stateWaiting, waitingText } from "./inboxrow";
 import type { Row } from "./rows";
 import { type InboxMark, TitleRow } from "./titlerow";
 import { type Convo, changedOf, type Project } from "./tree";
@@ -122,13 +122,14 @@ function NewHereButton({ grow, onClick }: { grow: boolean; onClick: () => void }
 
 // ConvoLine draws one conversation of the page: a button that opens it, with its state's glyph, its title, what it last
 // said or asks, and its age, and under it a WorkCard for each thing the tree hung under it. A stand-in has no row, so its
-// title is what its conversation is, and it says nothing it last said.
+// title is what its conversation is, and it says nothing it last said. A quiet row, waiting but put off or archived, draws
+// the idle glyph, as the inbox row does.
 function ConvoLine({ convo, now, onOpen }: { convo: Convo; now: number; onOpen: (key: string) => void }): JSX.Element {
   const row = convo.row;
   return (
     <div class="pconv">
       <button type="button" class="pc-row" data-key={convo.key} onClick={() => onOpen(convo.key)}>
-        <StateGlyph state={row?.state ?? ""} />
+        <StateGlyph state={row === null ? "" : quietRow(row) ? "idle" : row.state} />
         <span class="t">{row !== null ? row.label : standInWords(convo.standIn)}</span>
         {row !== null && <Said row={row} now={now} />}
         <span class="end">
@@ -150,13 +151,13 @@ function ConvoLine({ convo, now, onOpen }: { convo: Convo; now: number; onOpen: 
 }
 
 // Said draws what a row last said or asks, in the inbox row's words: a waiting row's question, led by its icon, or else
-// what it waits on; a working pane's tool, its argument and its clock; a terminal with no conversation; a session's
-// summary. Any other row says nothing.
+// what it waits on, in the asks style unless the row is quiet; a working pane's tool, its argument and its clock; a
+// terminal with no conversation; a session's summary. Any other row says nothing.
 function Said({ row, now }: { row: Row; now: number }): JSX.Element | null {
   if (row.state === stateWaiting) {
     const asks = row.question !== "";
     return (
-      <span class={asks ? "said asked" : "said"}>
+      <span class={asks && !quietRow(row) ? "said asked" : "said"}>
         {asks && <Icon name="question" />}
         {waitingText(row)}
       </span>

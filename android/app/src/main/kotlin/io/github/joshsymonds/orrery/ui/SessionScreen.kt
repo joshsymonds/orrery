@@ -81,12 +81,12 @@ data class StepMode(val held: Boolean, val label: String, val doing: String = ""
  *
  * The screen shows the session's head, under it while it is open the rail strip of the epics the session steers and
  * its running tasks (a tile of an epic calls [onOpenEpic] with its id), its conversation with each unfinished main-thread text block
- * as a reply after the items, and the open request as a card after the last item. The head's epics and
+ * as a reply after the items, and the open request's Ask after the last item. The head's epics and
  * host are read while the screen is started, and the head folds as the pane screen's does. The dock under the
  * conversation says the session's state from the stream, with its controls and its queue; Send posts the
  * draft as a prompt through [SessionSender]. Reading the conversation marks the session seen.
  *
- * With [step] set the screen is a step's: the dock's Hold and Stop post to the step, the open request card
+ * With [step] set the screen is a step's: the dock's Hold and Stop post to the step, the open request's Ask
  * is not drawn, and Send posts the draft as a nudge through [StepCalls]. [reason] is the listed row's summary,
  * which the dock shows when the session failed.
  *
@@ -205,11 +205,12 @@ fun SessionScreen(
     val entries = remember(held) {
         held?.let { foldConversation(it.shownItems()) + unfinishedReplies(it) }.orEmpty()
     }
-    val footer: (@Composable () -> Unit)? = held?.request?.takeIf { step == null }?.let { open ->
-        val content: @Composable () -> Unit = {
-            SessionRequestCard(sessionId, open.id, open.question, open.options, client, onAnswered = {})
-        }
-        content
+    val ask = if (step == null) held?.request?.let { open -> pane?.let { sessionAsk(it, open) } } else null
+    // The stream redraws the session once its answer lands, so the Ask needs no refresh of its own.
+    // The Ask's answer lives per session, outside the footer item that draws the Ask, so scrolling that item away keeps it.
+    val askLife = rememberAskLife(sessionId)
+    val footer: @Composable () -> Unit = {
+        AskHost(model = ask, client = client, now = nowSeconds, onRefresh = {}, life = askLife)
     }
     val draft = rememberDockDraft(sessionId)
 

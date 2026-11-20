@@ -25,6 +25,7 @@ function makeRow(init: Partial<Row> & Pick<Row, "key" | "label">): Row {
     seen: 0,
     unseen: false,
     archived: false,
+    putOff: false,
     archiveKind: "session",
     tool: "",
     ...init,

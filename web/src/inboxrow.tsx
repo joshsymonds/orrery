@@ -1,11 +1,10 @@
 import type { JSX } from "preact";
 import { useLayoutEffect, useRef } from "preact/hooks";
 
-import type { Conversation } from "./conversation";
 import { Icon, StateGlyph } from "./glyphs";
 import { Menu, type MenuEntry } from "./menu";
-import { type ParsedQuestion, parseQuestion } from "./question";
-import type { Row } from "./rows";
+import { parseQuestion } from "./question";
+import { type Row, waitsOnYou } from "./rows";
 import { ReplyText } from "./text";
 
 export const stateWaiting = "waiting";
@@ -67,7 +66,7 @@ export function InboxRow({
       }}
     >
       <span class="dot" title={row.unseen ? "new since you looked" : undefined} />
-      <StateGlyph state={row.state} />
+      <StateGlyph state={quietRow(row) ? "idle" : row.state} />
       <div class="main">
         <div class="l1">
           <span class="title">
@@ -82,23 +81,16 @@ export function InboxRow({
   );
 }
 
-// readerQuestion is the question the cursor's reader draws: a waiting pane row's stored question, or a session's open
-// request as its stream holds it. A row with no question draws none.
-export function readerQuestion(row: Row, conversation: Conversation | null): ParsedQuestion | null {
-  if (row.kind === "pane") {
-    return row.state === stateWaiting && row.question !== "" ? parseQuestion(row.question) : null;
-  }
-  const request = conversation?.state?.request;
-  if (request === undefined) {
-    return null;
-  }
-  return { title: request.question, options: request.options.map((label) => ({ label, description: "" })) };
-}
-
 // rowClass is a row's class: the row, cur for the cursor, open while its page is open, menu-open while its More menu is
 // open, and hover while it is drawn hovered.
 function rowClass(cursor: boolean, open: boolean, hover: boolean, menuOpen: boolean): string {
   return ["b-row", "row", cursor && "cur", open && "open", menuOpen && "menu-open", hover && "hover"].filter(Boolean).join(" ");
+}
+
+// quietRow is whether a row reads quiet: a waiting row that does not wait on the owner, because it is archived or its
+// owner put it off. It draws the idle glyph and its second line without the asks style, and its words stay as they are.
+export function quietRow(row: Row): boolean {
+  return row.state === stateWaiting && !waitsOnYou(row);
 }
 
 // SecondLine draws a row's second line. A waiting row says what it asks, led by a question mark when it holds a question.
@@ -108,7 +100,7 @@ function SecondLine({ row, now }: { row: Row; now: number }): JSX.Element | null
   const line = row.unseen ? "l2" : "l2 one";
   if (row.state === stateWaiting) {
     return (
-      <div class={row.question !== "" ? `${line} asks` : line}>
+      <div class={row.question !== "" && !quietRow(row) ? `${line} asks` : line}>
         {row.question !== "" && <Icon name="question" />}
         <ReplyText text={waitingText(row)} />
       </div>

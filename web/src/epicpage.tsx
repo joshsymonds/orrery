@@ -253,6 +253,7 @@ export function EpicPage(props: {
       <NowSection
         detail={detail}
         now={now}
+        narrow={narrow}
         numberKeys={numberKeys}
         onAnswer={commands.answer}
         onRetry={() => commands.retry()}

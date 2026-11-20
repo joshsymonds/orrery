@@ -12,6 +12,7 @@ const serving = "halyard";
 
 function makeRow(init: Partial<Row> & Pick<Row, "key" | "label">): Row {
   return {
+    putOff: false,
     id: "%3",
     archiveId: "",
     kind: "pane",
@@ -596,4 +597,22 @@ test("InboxTree keeps an ended epic that carries a proposed contract in the tree
   assert.deepEqual(layout(app.convos), { a: ["epic:repo-a/alpha"] });
   assert.deepEqual(app.ended, []);
   assert.equal(convoWaits(app.convos[0]), true);
+});
+
+test("WaitsOnYou: a put-off waiting conversation ranks by its state, not as waiting", () => {
+  const rows = [
+    makeRow({ key: "put-off", label: "put off", state: "waiting", putOff: true, changed: 10, seen: 10 }),
+    makeRow({ key: "working", label: "working", state: "working", changed: 1, seen: 1 }),
+    makeRow({ key: "rest", label: "rest", state: "done", changed: 40, seen: 40 }),
+  ];
+  assert.deepEqual(labelsOf(treeOf(rows)[0]), ["working", "rest", "put off"]);
+});
+
+test("WaitsOnYou: an archived waiting conversation ranks by its state in the archived view, not as waiting", () => {
+  const rows = [
+    makeRow({ key: "waiting", label: "waiting", archiveId: "sess-w", state: "waiting", archived: true, changed: 10, seen: 10 }),
+    makeRow({ key: "working", label: "working", archiveId: "sess-k", state: "working", archived: true, changed: 1, seen: 1 }),
+    makeRow({ key: "rest", label: "rest", archiveId: "sess-r", state: "done", archived: true, changed: 40, seen: 40 }),
+  ];
+  assert.deepEqual(labelsOf(treeOf(rows, "archived")[0]), ["working", "rest", "waiting"]);
 });

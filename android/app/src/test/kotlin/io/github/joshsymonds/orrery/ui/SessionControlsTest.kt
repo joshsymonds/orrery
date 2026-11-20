@@ -2,18 +2,16 @@ package io.github.joshsymonds.orrery.ui
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.onAllNodesWithTag
-import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.connectrpc.Code
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
-import io.github.joshsymonds.orrery.api.RecordedRequest
+import io.github.joshsymonds.orrery.api.Pane
+import io.github.joshsymonds.orrery.api.SessionRequest
 import io.github.joshsymonds.orrery.awaitUntil
-import io.github.joshsymonds.orrery.gen.orrery.v1.AnswerRequest
-import io.github.joshsymonds.orrery.gen.orrery.v1.AnswerResponse
 import io.github.joshsymonds.orrery.mainThreadComposeRule
 import java.util.concurrent.atomic.AtomicInteger
 import org.junit.After
@@ -29,12 +27,14 @@ private const val SESSION_ID = "0123456789abcdef0123456789abcdef"
 private const val REQUEST_ID = "synthetic-request"
 private const val QUESTION = "Pick a synthetic option?"
 private const val OPTION_ONE = "Synthetic one"
-private const val OPTION_TWO = "Synthetic two"
 private const val ANSWER_PATH = "/orrery.v1.Control/Answer"
-private const val NOT_ANSWERABLE = "not answerable"
-private const val NOT_SENT = "not sent"
-private const val REQUEST_TAG = "session-request"
+private const val NOW = 1_700_000_000L
+private const val UNANSWERABLE = "This question cannot be answered from here. Reply in words below."
+private const val REFUSED_NOTE =
+    "Not answered: the question changed before your answer arrived. This is what it asks now."
 
+// A headless session's Ask in the AskHost that answers it: a request with no options is not answerable from the phone,
+// and an answer the server refuses as invalid is refused with the Ask's note and no refresh.
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class SessionControlsTest {
@@ -49,77 +49,58 @@ class SessionControlsTest {
     }
 
     @Test
-    fun tappingAnOptionPostsItsAnswerThenCallsBack() {
-        server.respond(ANSWER_PATH, AnswerResponse.getDefaultInstance())
-        val answered = AtomicInteger()
-        setCard(listOf(OPTION_ONE, OPTION_TWO)) { answered.incrementAndGet() }
+    fun emptyOptionsShowUnanswerableAndPostNothing() {
+        setAsk(emptyList()) {}
 
-        composeRule.onNodeWithTag(REQUEST_TAG).assertIsDisplayed()
-        composeRule.onNodeWithText(QUESTION).assertIsDisplayed()
-        composeRule.onNodeWithTag("session-option:$OPTION_TWO").performClick()
-        composeRule.awaitUntil { answered.get() == 1 }
-
-        assertEquals(1, server.requests.size)
-        val request = server.requests.single()
-        assertAnswerRequest(request, OPTION_TWO)
-        assertEquals(1, answered.get())
-    }
-
-    @Test
-    fun emptyOptionsShowNotAnswerableAndPostNothing() {
-        setCard(emptyList()) {}
-
-        composeRule.onNodeWithText(NOT_ANSWERABLE).assertIsDisplayed()
+        composeRule.onNodeWithTag("ask-unanswerable").assertTextEquals(UNANSWERABLE)
+        composeRule.onNodeWithTag("ask-question").assertTextEquals(QUESTION)
         composeRule.waitForIdle()
-        assertTrue(composeRule.onAllNodesWithTag("session-option:$OPTION_ONE").fetchSemanticsNodes().isEmpty())
+        assertTrue(composeRule.onAllNodesWithTag("ask-option:1").fetchSemanticsNodes().isEmpty())
         assertTrue(server.requests.isEmpty())
     }
 
     @Test
-    fun invalidArgumentAnswerShowsNotAnswerableAndDoesNotCallBack() {
+    fun invalidArgumentAnswerLeavesTheAskWithItsNoteAndDoesNotRefresh() {
         server.fail(ANSWER_PATH, Code.INVALID_ARGUMENT, "synthetic refusal")
-        val answered = AtomicInteger()
-        setCard(listOf(OPTION_ONE)) { answered.incrementAndGet() }
+        val refreshes = AtomicInteger()
+        setAsk(listOf(OPTION_ONE)) { refreshes.incrementAndGet() }
 
-        composeRule.onNodeWithTag("session-option:$OPTION_ONE").performClick()
+        composeRule.onNodeWithTag("ask-option:1").performClick()
         composeRule.awaitUntil {
-            composeRule.onAllNodesWithText(NOT_ANSWERABLE).fetchSemanticsNodes().isNotEmpty()
+            composeRule.onAllNodesWithTag("ask-note").fetchSemanticsNodes().isNotEmpty()
         }
 
+        composeRule.onNodeWithTag("ask-note").assertTextEquals(REFUSED_NOTE)
+        composeRule.onNodeWithTag("ask-question").assertIsDisplayed()
         assertEquals(1, server.requests.size)
-        assertEquals(0, answered.get())
+        assertEquals(0, refreshes.get())
     }
 
-    @Test
-    fun otherAnswerFailureShowsNotSent() {
-        server.fail(ANSWER_PATH, Code.INTERNAL_ERROR, "synthetic failure")
-        val answered = AtomicInteger()
-        setCard(listOf(OPTION_ONE)) { answered.incrementAndGet() }
-
-        composeRule.onNodeWithTag("session-option:$OPTION_ONE").performClick()
-        composeRule.awaitUntil {
-            composeRule.onAllNodesWithText(NOT_SENT).fetchSemanticsNodes().isNotEmpty()
-        }
-
-        assertEquals(0, answered.get())
-        assertTrue(composeRule.onAllNodesWithText(NOT_ANSWERABLE).fetchSemanticsNodes().isEmpty())
-    }
-
-    private fun setCard(options: List<String>, onAnswered: () -> Unit) {
+    private fun setAsk(options: List<String>, onRefresh: () -> Unit) {
         val client = OrreryClient(server.baseUrl)
+        val model = sessionAsk(pane(), SessionRequest(id = REQUEST_ID, kind = "question", question = QUESTION, options = options))
         composeRule.setContent {
             MaterialTheme {
-                SessionRequestCard(SESSION_ID, REQUEST_ID, QUESTION, options, client, onAnswered)
+                AskHost(model = model, client = client, now = NOW, onRefresh = onRefresh)
             }
         }
     }
 
-    private fun assertAnswerRequest(request: RecordedRequest, label: String) {
-        assertEquals("POST", request.method)
-        assertEquals(ANSWER_PATH, request.rawPath)
-        assertEquals(
-            AnswerRequest.newBuilder().setId(SESSION_ID).setRequestId(REQUEST_ID).setAnswer(label).build(),
-            AnswerRequest.parseFrom(request.body),
-        )
-    }
+    private fun pane(): Pane = Pane(
+        id = SESSION_ID,
+        host = "",
+        session = "",
+        window = 0,
+        pane = 0,
+        cwd = "/home/user/project",
+        command = "",
+        state = "waiting",
+        summary = "",
+        label = "example-label",
+        changed = NOW - 60,
+        seen = 0L,
+        question = "",
+        questionHash = "",
+        headless = true,
+    )
 }

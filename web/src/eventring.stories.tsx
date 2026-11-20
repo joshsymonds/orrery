@@ -7,12 +7,15 @@ import { type EpicCalls, epicCallsOf } from "./card";
 import { noEpics } from "./epics";
 import * as eventring from "./eventring";
 import type { EpicEvent, StepEvent } from "./eventring";
+import { liveEpoch } from "./fixtures/clock";
 import { createFixtureTransport } from "./fixtures/transport";
 
 const noop = () => {};
 const fixture = createFixtureTransport();
+// The fixtures' instant, in unix seconds, is the clock the rings' asks age from.
+const fixtureNow = Date.parse(liveEpoch) / 1000;
 // The calls hold none of the poll's epics, so each ring reads its question's epic through the fixture.
-const calls: EpicCalls = epicCallsOf(fixture.clients, noop, noop, noEpics);
+const calls: EpicCalls = epicCallsOf(fixture.clients, noop, noop, fixtureNow, noEpics);
 
 const rota = "lighthouse/rota-export";
 

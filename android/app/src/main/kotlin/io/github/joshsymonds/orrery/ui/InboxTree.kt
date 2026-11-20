@@ -310,9 +310,12 @@ internal fun waits(hung: Hung): Boolean = when (hung) {
     is ContractNode -> hung.contract.state == CONTRACT_PROPOSED
 }
 
+/** Whether a pane waits on you: it is waiting, not archived, and its owner has not put its question off. */
+internal fun waitsOnYou(pane: Pane): Boolean = pane.state == STATE_WAITING && !pane.archived && !pane.putOff
+
 /** Whether a conversation waits on you: its own row waits, or something hung under it does. */
 internal fun convoWaits(convo: Convo): Boolean =
-    convo.pane?.state == STATE_WAITING || convo.hung.any { waits(it) }
+    convo.pane?.let { waitsOnYou(it) } == true || convo.hung.any { waits(it) }
 
 private fun rankOf(convo: Convo): Int = when {
     convoWaits(convo) -> RANK_WAITING

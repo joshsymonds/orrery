@@ -14,14 +14,17 @@ import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 
 /**
- * The top of Now: its one sentence, then what asks, placed first under it. An open question draws its Ask; an owner's
- * park draws its reason with Retry and Stop…; the planner's park draws one grey line with no control; a limit wait
- * draws Resume now. [onStop] only opens Stop's confirm; the screen makes the call after the confirm.
+ * The top of Now: its one sentence, then what asks, placed first under it. An open question draws its Ask, to pick a
+ * choice and confirm it; an owner's park draws its Ask with the one answer that runs the parked work again, then Stop…;
+ * the planner's park draws one grey line with no control; a limit wait draws Resume now. [onAnswer] receives the
+ * question's id, the chosen choice's id or "other", and the text sent with it; the caller makes the call off the main
+ * thread. [onStop] only opens Stop's confirm; the screen makes the call after the confirm.
  */
 @Composable
 fun NowAsk(
     detail: EpicDetail,
-    onAnswer: (questionId: String, text: String) -> String,
+    now: Long,
+    onAnswer: (questionId: String, choice: String, text: String) -> Unit,
     onRetry: () -> Unit,
     onStop: () -> Unit,
     onResume: () -> Unit,
@@ -30,17 +33,43 @@ fun NowAsk(
         Text(nowSentenceOf(detail), modifier = Modifier.testTag("now-sentence"))
         when (val asking = askingOf(detail)) {
             is Asking.Question -> key(asking.question.id) {
-                AnswerForm(asking.question, onAnswer = onAnswer)
+                Ask(
+                    model = epicAsk(detail.epic, asking.question),
+                    now = now,
+                    phase = AskPhase.OPEN,
+                    picked = null,
+                    note = "",
+                    onAnswer = null,
+                    onNotNow = null,
+                    onBringBack = null,
+                    onDecline = null,
+                    onArchive = null,
+                    onConfirm = { choice, text ->
+                        onAnswer(asking.question.id, choice, text)
+                        ""
+                    },
+                )
             }
             is Asking.Park -> Column(
                 modifier = Modifier.fillMaxWidth().testTag("epic-park"),
                 verticalArrangement = Arrangement.spacedBy(OrreryTokens.Space.four),
             ) {
-                Text("It asks you what to do")
-                Text(asking.reason, modifier = Modifier.testTag("epic-park-reason"))
-                TextButton(onClick = onRetry, modifier = Modifier.testTag("epic-park-retry")) {
-                    Text("Retry")
-                }
+                Ask(
+                    model = parkAsk(detail.epic, asking.reason),
+                    now = now,
+                    phase = AskPhase.OPEN,
+                    picked = null,
+                    note = "",
+                    onAnswer = null,
+                    onNotNow = null,
+                    onBringBack = null,
+                    onDecline = null,
+                    onArchive = null,
+                    onConfirm = { _, _ ->
+                        onRetry()
+                        ""
+                    },
+                )
                 TextButton(onClick = onStop, modifier = Modifier.testTag("epic-park-stop")) {
                     Text("Stop…")
                 }

@@ -1,4 +1,4 @@
-// The fixture slices of the dock pages: each scenario of round 6's dock and ask-later pages, as the fixture transport
+// The fixture slices of the dock pages: each scenario of round 6's dock pages, as the fixture transport
 // answers it. Each is the shipped slices with the one session or pane the scenario is about set to the facts the scenario
 // gives, and nothing else changed. The shipped slices are never written to.
 
@@ -6,14 +6,10 @@ import { create } from "@bufbuild/protobuf";
 
 import {
   ConversationItemSchema,
-  ConversationStateSchema,
-  HeadlessSessionSchema,
-  OpenRequestSchema,
   PendingEventSchema,
   QueuedMessageSchema,
   SessionsWatchConversationResponseSchema,
   WaitingMessageSchema,
-  type ListHeadlessResponse,
   type Pane,
   type PendingEvent,
   type QueuedMessage,
@@ -27,14 +23,14 @@ import { type Slices, shippedSlices } from "./slices";
 
 // warmupSession is the headless session of Tide table cache warm-up, which the dock pages mostly draw.
 export const warmupSession = "9b5e1a47-2c0d-4e8f-8a31-6d7c0f5b2e90";
-// gatesSession is the headless session of Merging main into the story-out client branch, whose question is put off.
+// gatesSession is the headless session of Merging main into the story-out client branch, whose question is put off; its
+// slices are page/ask-later's, in fixtures/ask.ts.
 export const gatesSession = "c0ffee00-1a2b-4c3d-8e4f-5a6b7c8d9e0f";
 // almanacSession is the headless session of The 2027 ephemeris import, which the server cut off mid-turn.
 const almanacSession = "4be0c6d2-8f3a-4c71-9e25-ephemeris001";
 
 const q1 = "Also log the batch id whenever a batch is spooled.";
 const q2 = "Then put the 5-minute cap in the README.";
-const gatesQuestion = "The AWS fleet won’t launch. How should the gates run?";
 const warmTool = JSON.stringify({
   id: "toolu_warm",
   name: "Bash",
@@ -191,42 +187,6 @@ function almanacSlices(): Slices {
   };
 }
 
-// gatesSlices is the shipped slices with the question-put-off session added to the headless list, with its stream: the
-// question waits, put off, and the session takes no events until it is answered.
-function gatesSlices(): Slices {
-  const session = create(HeadlessSessionSchema, {
-    id: gatesSession, dir: "/home/owner/code/commonframe", label: "Merging main into the story-out client branch",
-    headline: "Merging main into the story-out client branch", state: "waiting", changed: at("@-2d 14:41"),
-    seen: at("@-2d 14:42"), summary: "", question: "", newestReply: at("@-2d 14:41"), putOff: true,
-  });
-  const headless: ListHeadlessResponse = {
-    ...shipped.headless,
-    sessions: [...shipped.headless.sessions, session],
-  };
-  const stream = create(SessionsWatchConversationResponseSchema, {
-    transcript: `${gatesSession}.jsonl`,
-    seq: 1n,
-    reset: true,
-    items: messages([reply(at("@-2d 14:41"), "No fleet boxes are running at all, so the likely blocker is the budget pace check.")]),
-    state: create(ConversationStateSchema, {
-      session,
-      request: create(OpenRequestSchema, {
-        id: "req-gates", kind: "question", question: gatesQuestion,
-        options: ["Raise the budget line by $100", "Run the gates locally"], putOff: true,
-      }),
-      pending: [create(PendingEventSchema, { id: "ev-gates", kind: "question", waits: "request" })],
-    }),
-  });
-  return {
-    ...shipped,
-    headless,
-    sessionStreams: new Map<string, SessionsWatchConversationResponse>([
-      ...shipped.sessionStreams,
-      [gatesSession, stream],
-    ]),
-  };
-}
-
 // dockSlices holds each dock page's slices, by its scenario id.
 export const dockSlices = {
   "dock-idle": warmupSlices({ state: "done", changed: at("@14:37"), summary: "" }),
@@ -281,5 +241,4 @@ export const dockSlices = {
     tool: "",
     waiting: [waitingMessage(q2, at("@14:38:40"), true)],
   }),
-  "ask-later": gatesSlices(),
 };

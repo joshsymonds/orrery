@@ -23,6 +23,7 @@ after(async () => {
 // row is a pane row with the key, as the list holds it.
 function row(key: string): Row {
   return {
+    putOff: false,
     tool: "",
     key,
     id: key,

@@ -687,19 +687,19 @@ class EpicRecordScreenTest {
             awaitLoaded()
 
             sectionIndex(listState, "now")
-            assertEquals(1, countIn("epic-section:now", hasTestTag("blocker-question") and hasText("Example question?")))
-            assertEquals(1, countIn("epic-section:now", hasTestTag("blocker-answer-send")))
-            assertEquals(1, countNodes(hasTestTag("blocker-question")))
+            assertEquals(1, countIn("epic-section:now", hasTestTag("ask-question") and hasText("Example question?")))
+            assertEquals(1, countIn("epic-section:now", hasTestTag("ask-confirm")))
+            assertEquals(1, countNodes(hasTestTag("ask-question")))
             val sentenceTop = composeRule.onNodeWithTag("now-sentence", useUnmergedTree = true)
                 .fetchSemanticsNode().boundsInRoot.top
-            val askTop = composeRule.onNodeWithTag("blocker-question", useUnmergedTree = true)
+            val askTop = composeRule.onNodeWithTag("ask-question", useUnmergedTree = true)
                 .fetchSemanticsNode().boundsInRoot.top
             assertTrue("the Ask is drawn under the sentence", sentenceTop < askTop)
         }
     }
 
     @Test
-    fun epicAskAnOwnersParkIsDrawnInNowWithItsReasonAndTwoChoices() {
+    fun epicAskAnOwnersParkIsDrawnInNowAsItsAskWithItsReasonRetryAndStop() {
         val listState = LazyListState()
         FakeOrreryServer().use { server ->
             serve(server, body(outcome = "built", parked = "rate limit"))
@@ -708,12 +708,13 @@ class EpicRecordScreenTest {
 
             sectionIndex(listState, "now")
             assertEquals(1, countIn("epic-section:now", hasTestTag("epic-park")))
-            assertEquals(1, countIn("epic-section:now", hasText("It asks you what to do")))
-            assertEquals(1, countIn("epic-section:now", hasTestTag("epic-park-reason") and hasText("Rate limit.")))
-            composeRule.onNodeWithTag("epic-park-retry").assertTextEquals("Retry")
+            assertEquals(1, countIn("epic-section:now", hasTestTag("ask-label") and hasText("ASKS YOU")))
+            assertEquals(1, countIn("epic-section:now", hasTestTag("ask-question") and hasText("Rate limit.")))
+            composeRule.onNodeWithTag("ask-option:1").assertTextContains("Retry")
             composeRule.onNodeWithTag("epic-park-stop").assertTextEquals("Stop…")
-            assertEquals(2, countIn("epic-section:now", hasClickAction() and hasAnyAncestor(hasTestTag("epic-park"))))
-            assertEquals(0, countNodes(hasTestTag("blocker-question")))
+            // The park's one answer, its confirm, and Stop…; a park has no Something else.
+            assertEquals(3, countIn("epic-section:now", hasClickAction() and hasAnyAncestor(hasTestTag("epic-park"))))
+            assertEquals(0, countNodes(hasTestTag("ask-other")))
         }
     }
 
@@ -735,9 +736,9 @@ class EpicRecordScreenTest {
                 ),
             )
             assertEquals(0, countNodes(hasTestTag("epic-park")))
-            assertEquals(0, countNodes(hasTestTag("epic-park-retry")))
+            assertEquals(0, countNodes(hasTestTag("ask")))
             assertEquals(0, countNodes(hasTestTag("epic-park-stop")))
-            assertEquals(0, countNodes(hasTestTag("blocker-question")))
+            assertEquals(0, countNodes(hasTestTag("ask-question")))
         }
     }
 
@@ -1047,9 +1048,11 @@ class EpicRecordScreenTest {
             serve(server, body(outcome = "built", parked = "rate limit"))
             server.respond(EPICS_RETRY, EpicsRetryResponse.getDefaultInstance())
             setScreen(server)
-            awaitTag("epic-park-retry")
+            awaitTag("ask-option:1")
 
-            clickTag("epic-park-retry")
+            clickTag("ask-option:1")
+            assertEquals(0, requestsTo(server, EPICS_RETRY).size)
+            clickTag("ask-confirm")
 
             composeRule.awaitUntil { requestsTo(server, EPICS_RETRY).isNotEmpty() }
             assertEquals(1, requestsTo(server, EPICS_RETRY).size)
@@ -1128,9 +1131,10 @@ class EpicRecordScreenTest {
             serve(server, body(outcome = "built", parked = "rate limit"))
             server.fail(EPICS_RETRY, Code.FAILED_PRECONDITION, "epic is closed")
             setScreen(server)
-            awaitTag("epic-park-retry")
+            awaitTag("ask-option:1")
 
-            clickTag("epic-park-retry")
+            clickTag("ask-option:1")
+            clickTag("ask-confirm")
 
             awaitTag("epic-notice")
             composeRule.onNodeWithTag("epic-notice", useUnmergedTree = true)

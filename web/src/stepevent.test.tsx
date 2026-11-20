@@ -8,6 +8,7 @@ import { act } from "preact/test-utils";
 import type { EpicCalls } from "./card";
 import type { Conversation } from "./conversation";
 import { noEpics } from "./epics";
+import { liveEpoch } from "./fixtures/clock";
 import { type ConversationItem, ConversationItemSchema } from "./gen/orrery/v1/orrery_pb";
 import { Reader } from "./reader";
 import { installTestDom, removeTestDom } from "./testdom";
@@ -67,6 +68,7 @@ function readerCalls(stepResult: (id: string) => Promise<string>): EpicCalls {
     openEpic: () => {},
     openStep: () => {},
     stepResult,
+    now: Date.parse(liveEpoch) / 1000,
     epics: noEpics,
   };
 }

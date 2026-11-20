@@ -80,3 +80,21 @@ test("InboxTree Menu: a press on an item calls that item's onSelect once and no 
     assert.deepEqual(counts, [1, 1, 1], "a press on Open in a new window did not call only its own onSelect once");
   });
 });
+
+test("InboxTree Menu: a danger item draws its danger class and its sub-text, and a plain item draws neither", () =>
+  withMenu(
+    <Menu
+      items={[
+        { label: "Decline and end the turn", icon: "stop", sub: "denies the request", danger: true, onSelect: () => {} },
+        { label: "Mark seen", icon: "check", onSelect: () => {} },
+      ]}
+    />,
+    (container) => {
+      const [danger, plain] = Array.from(container.querySelectorAll<HTMLElement>("button.menu-item"));
+      assert.ok(danger && plain, "the two items are not drawn");
+      assert.equal(danger.className, "menu-item danger", "a danger item does not draw the danger class");
+      assert.equal(danger.querySelector(".sub")?.textContent, "denies the request", "a sub item does not draw its sub-text");
+      assert.equal(plain.className, "menu-item", "a plain item draws a class other than menu-item");
+      assert.equal(plain.querySelector(".sub"), null, "a plain item draws sub-text");
+    },
+  ));

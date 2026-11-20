@@ -149,7 +149,7 @@ class PushNotifier(private val context: Context) {
         return paneAsk(event.question) ?: UNREADABLE_ASK
     }
 
-    // paneAsk reads a pane's stored question the way QuestionCard does: its first question's text, else its tool.
+    // paneAsk reads a pane's stored question the way the Ask does: its first question's text, else its tool.
     private fun paneAsk(stored: String): String? {
         val json = try {
             JSONObject(stored)

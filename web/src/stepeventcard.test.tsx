@@ -9,6 +9,7 @@ import type { EpicCalls } from "./card";
 import { createClients, createTransport } from "./client";
 import type { Conversation } from "./conversation";
 import { noEpics } from "./epics";
+import { liveEpoch } from "./fixtures/clock";
 import { follow } from "./follow";
 import { Reader } from "./reader";
 import { installTestDom, removeTestDom } from "./testdom";
@@ -116,6 +117,7 @@ function openersOf(): Openers {
         returned.push(id);
         return fullReturns[id] ?? "";
       },
+      now: Date.parse(liveEpoch) / 1000,
       epics: noEpics,
     },
   };

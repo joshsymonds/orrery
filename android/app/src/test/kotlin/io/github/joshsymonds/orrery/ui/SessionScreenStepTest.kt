@@ -53,7 +53,7 @@ private val SESSION_CONTROL_PATHS = listOf(INTERRUPT_PATH, SAY_PATH, ANSWER_PATH
 private const val HOLD_PATH = "/orrery.v1.Steps/Hold"
 private const val NUDGE_PATH = "/orrery.v1.Steps/Nudge"
 private const val STEPS_STOP_PATH = "/orrery.v1.Steps/Stop"
-private const val REQUEST_TAG = "session-request"
+private const val ASK_TAG = "ask"
 private const val HOLD_TAG = "dock-interrupt"
 private const val STOP_TAG = "dock-more"
 private const val CONFIRM_TAG = "dock-stop-confirm"
@@ -261,7 +261,7 @@ class SessionScreenStepTest {
     }
 
     @Test
-    fun noOpenRequestCardIsDrawnInStepMode() {
+    fun noAskIsDrawnInStepMode() {
         FakeOrreryServer().use { server ->
             val request = OpenRequest.newBuilder()
                 .setId(REQUEST_ID)
@@ -282,7 +282,7 @@ class SessionScreenStepTest {
             setStepScreen(server)
 
             composeRule.awaitExactlyOne(hasText(STEP_REPLY))
-            assertTrue(composeRule.onAllNodesWithTag(REQUEST_TAG).fetchSemanticsNodes().isEmpty())
+            assertTrue(composeRule.onAllNodesWithTag(ASK_TAG).fetchSemanticsNodes().isEmpty())
         }
     }
 }

@@ -24,8 +24,6 @@ import io.github.joshsymonds.orrery.api.Reply
 import io.github.joshsymonds.orrery.api.StreamEnd
 import io.github.joshsymonds.orrery.awaitExactlyOne
 import io.github.joshsymonds.orrery.awaitUntil
-import io.github.joshsymonds.orrery.gen.orrery.v1.AnswerRequest
-import io.github.joshsymonds.orrery.gen.orrery.v1.AnswerResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationItem as ConversationItemProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState
 import io.github.joshsymonds.orrery.gen.orrery.v1.EngineText
@@ -51,7 +49,6 @@ import org.robolectric.annotation.Config
 private const val SESSION_ID = "0123456789abcdef0123456789abcdef"
 private const val WATCH_PATH = "/orrery.v1.Sessions/WatchConversation"
 private const val SAY_PATH = "/orrery.v1.Control/Say"
-private const val ANSWER_PATH = "/orrery.v1.Control/Answer"
 private const val SEEN_PATH = "/orrery.v1.Control/Seen"
 private const val FIXTURE_CHANGED = 4102444800L
 private const val FIXTURE_SEEN = 4102444900L
@@ -65,7 +62,7 @@ private const val QUESTION = "Pick a synthetic option?"
 private const val OPTION_ONE = "Synthetic one"
 private const val OPTION_TWO = "Synthetic two"
 private const val REFRESH_FAILED = "could not refresh"
-private const val REQUEST_TAG = "session-request"
+private const val ASK_TAG = "ask"
 private const val QUEUE_HINT = "Queue for project"
 private const val ANSWER_HINT = "Answer project"
 private const val MESSAGE_HINT = "Message project"
@@ -273,7 +270,7 @@ class SessionScreenTest {
 
     @Config(sdk = [35], qualifiers = "w400dp-h1000dp")
     @Test
-    fun waitingSessionHintsAnswerAndItsRequestCardAnswersThroughAnswer() {
+    fun waitingSessionHintsAnswerAndDrawsItsAsk() {
         FakeOrreryServer().use { server ->
             val request = OpenRequest.newBuilder()
                 .setId(REQUEST_ID)
@@ -282,23 +279,10 @@ class SessionScreenTest {
                 .addAllOptions(listOf(OPTION_ONE, OPTION_TWO))
                 .build()
             serveStreams(server, streamOf(delta(seq = 1L, state = stateOf("waiting", request))))
-            server.respond(ANSWER_PATH, AnswerResponse.getDefaultInstance())
             setScreen(server)
 
-            composeRule.awaitExactlyOne(hasTestTag(REQUEST_TAG))
+            composeRule.awaitExactlyOne(hasTestTag(ASK_TAG))
             assertEquals(ANSWER_HINT, editField().hint.toString())
-            composeRule.onNodeWithTag("session-option:$OPTION_TWO").performClick()
-            composeRule.awaitUntil { countPosts(server, ANSWER_PATH) == 1 }
-
-            val sent = server.requests.single { it.rawPath == ANSWER_PATH }
-            assertEquals(
-                AnswerRequest.newBuilder()
-                    .setId(SESSION_ID)
-                    .setRequestId(REQUEST_ID)
-                    .setAnswer(OPTION_TWO)
-                    .build(),
-                AnswerRequest.parseFrom(sent.body),
-            )
         }
     }
 

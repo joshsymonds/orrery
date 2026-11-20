@@ -27,6 +27,7 @@ import {
   Presence,
   Sessions,
   type SessionsWatchConversationResponse,
+  type WatchConversationResponse,
 } from "../gen/orrery/v1/orrery_pb";
 import { evidenceArtifactKey } from "./epics";
 import { type Slices, shippedSlices } from "./slices";
@@ -42,6 +43,9 @@ export type FixtureTransport = {
   // onUnserved registers a listener, called with the procedure each time one is added to unserved. It returns the
   // function that unregisters the listener.
   onUnserved(listener: (procedure: string) => void): () => void;
+  // onRowsChanged registers a listener, called each time a call changes what Panes.List serves, as an event the page
+  // reloads its rows on does. It returns the function that unregisters the listener.
+  onRowsChanged(listener: () => void): () => void;
 };
 
 type Listener = (procedure: string) => void;
@@ -51,6 +55,9 @@ type Listener = (procedure: string) => void;
 export function createFixtureTransport(slices: Slices = shippedSlices): FixtureTransport {
   const unserved: string[] = [];
   const listeners = new Set<Listener>();
+  const rowsListeners = new Set<() => void>();
+  // panes is what Panes.List serves: the slices' panes, with each pane a SendKeys frame moves on set to that frame's state.
+  let panes = slices.panes;
 
   // refuse records the procedure of a call the fixture does not serve, tells each listener, and fails the call.
   const refuse = (_request: unknown, context: HandlerContext): never => {
@@ -113,20 +120,26 @@ export function createFixtureTransport(slices: Slices = shippedSlices): FixtureT
   };
 
   // wakers holds, for each session id, the wake of each open conversation stream of that session. A Control.Interrupt of
-  // the session calls each one with the slices' then frame.
+  // the session calls each one with the slices' then frame. paneWakers holds the same for each pane id, which a
+  // Panes.SendKeys of the pane calls with the slices' keysThen frame.
   const wakers = new Map<string, Set<(frame?: SessionsWatchConversationResponse) => void>>();
+  const paneWakers = new Map<string, Set<(frame?: WatchConversationResponse) => void>>();
 
-  // interrupted holds an open conversation stream of session id until its call aborts or an interrupt of the session
-  // wakes it. It resolves with the frame the interrupt sends, or with undefined once the call aborts.
-  function interrupted(id: string, signal: AbortSignal): Promise<SessionsWatchConversationResponse | undefined> {
+  // awaitWake holds an open conversation stream of id in wakers until its call aborts or a wake of id sends it a frame. It
+  // resolves with the frame the wake sends, or with undefined once the call aborts.
+  function awaitWake<Frame>(
+    waiters: Map<string, Set<(frame?: Frame) => void>>,
+    id: string,
+    signal: AbortSignal,
+  ): Promise<Frame | undefined> {
     return new Promise((resolve) => {
       if (signal.aborted) {
         resolve(undefined);
         return;
       }
-      const waiting = wakers.get(id) ?? new Set<(frame?: SessionsWatchConversationResponse) => void>();
-      wakers.set(id, waiting);
-      const finish = (frame?: SessionsWatchConversationResponse) => {
+      const waiting = waiters.get(id) ?? new Set<(frame?: Frame) => void>();
+      waiters.set(id, waiting);
+      const finish = (frame?: Frame) => {
         waiting.delete(finish);
         signal.removeEventListener("abort", aborted);
         resolve(frame);
@@ -152,6 +165,26 @@ export function createFixtureTransport(slices: Slices = shippedSlices): FixtureT
     return { texts: answer.texts };
   };
 
+  // sendKeys answers Panes.SendKeys: absorbed, and then the slices' keysThen frame for the pane, if they give one. The
+  // frame's pane replaces the pane in what Panes.List serves, and each rows listener is told, before the frame is sent to
+  // each open conversation stream of the pane.
+  const sendKeys = (id: string) => {
+    const frame = slices.keysThen?.get(id);
+    if (frame !== undefined) {
+      const changed = frame.state?.pane;
+      if (changed !== undefined) {
+        panes = { ...panes, panes: panes.panes.map((listed) => (listed.id === id ? changed : listed)) };
+        for (const listener of [...rowsListeners]) {
+          listener();
+        }
+      }
+      for (const wake of [...(paneWakers.get(id) ?? [])]) {
+        wake(frame);
+      }
+    }
+    return {};
+  };
+
   // quiet is a stream that sends no frame, and stays open until its call aborts.
   async function* quiet(_request: unknown, context: HandlerContext): AsyncGenerator<never, void> {
     await held(context.signal);
@@ -159,22 +192,27 @@ export function createFixtureTransport(slices: Slices = shippedSlices): FixtureT
 
   const transport = createRouterTransport((router) => {
     router.service(Panes, {
-      list: () => slices.panes,
+      list: () => panes,
       screen: refuse,
       conversation: refuse,
       sendText: absorb,
-      sendKeys: absorb,
+      sendKeys: (request) => sendKeys(request.pane),
       markSeen: absorb,
       pullQueued: absorb,
       older: refuse,
-      // A reconnect, which names a transcript or a seq past 0, gets no frame and stays open.
+      // A reconnect, which names a transcript or a seq past 0, gets no frame. Each Panes.SendKeys of the pane sends its
+      // keysThen frame, if the slices give one, and the stream stays open until its call aborts.
       watchConversation: async function* (request, context) {
         const pane = slices.paneStreams.get(request.pane);
         const reconnect = request.transcript !== "" || request.after > 0n;
         if (pane !== undefined && !reconnect) {
           yield pane;
         }
-        await held(context.signal);
+        let frame = await awaitWake(paneWakers, request.pane, context.signal);
+        while (frame !== undefined) {
+          yield frame;
+          frame = await awaitWake(paneWakers, request.pane, context.signal);
+        }
       },
     });
     router.service(Sessions, {
@@ -188,10 +226,10 @@ export function createFixtureTransport(slices: Slices = shippedSlices): FixtureT
         if (session !== undefined && request.after <= 0n) {
           yield session;
         }
-        let frame = await interrupted(request.id, context.signal);
+        let frame = await awaitWake(wakers, request.id, context.signal);
         while (frame !== undefined) {
           yield frame;
-          frame = await interrupted(request.id, context.signal);
+          frame = await awaitWake(wakers, request.id, context.signal);
         }
       },
     });
@@ -308,6 +346,13 @@ export function createFixtureTransport(slices: Slices = shippedSlices): FixtureT
       listeners.add(registered);
       return () => {
         listeners.delete(registered);
+      };
+    },
+    onRowsChanged(listener) {
+      const registered = () => listener();
+      rowsListeners.add(registered);
+      return () => {
+        rowsListeners.delete(registered);
       };
     },
   };

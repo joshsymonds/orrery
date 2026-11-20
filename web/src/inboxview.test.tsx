@@ -18,6 +18,7 @@ const noop = () => {};
 // row is a seen row in the given state, as the tree reads a conversation's row.
 function row(init: Partial<Row> & Pick<Row, "key">): Row {
   return {
+    putOff: false,
     tool: "",
     id: init.key,
     kind: "pane",

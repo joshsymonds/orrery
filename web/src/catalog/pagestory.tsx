@@ -1,8 +1,9 @@
 // PageStory draws App as one page of a catalog. It draws App from the start, as main.tsx does before its first load has
 // answered, so the inbox says loading until then. It reads the rows, the epics and the host over a fixture transport as
 // main.tsx's start does, watches the notices showing over the same transport as main.tsx does, then gives App them at the
-// address it is given, which stays that address for the story's whole life. A list that failed is drawn as main.tsx
-// draws it. A call the fixture refuses draws a failure element that names it.
+// address it is given, which stays that address for the story's whole life. When a call the fixture serves changes the
+// rows, it reads the rows again, as main.tsx does on an event. A list that failed is drawn as main.tsx draws it. A call
+// the fixture refuses draws a failure element that names it.
 
 import type { VNode } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
@@ -31,11 +32,12 @@ interface PageStoryProps {
   fixture?: FixtureTransport;
 }
 
-// Loaded is what the first load answers with, held as main.tsx's start holds it. listFailed is whether the rows' load or
-// the epics' load failed.
+// Loaded is what the first load answers with, held as main.tsx's start holds it. rowsFailed and epicsFailed are whether
+// the rows' load and the epics' load failed.
 interface Loaded {
   rows: Row[];
-  listFailed: boolean;
+  rowsFailed: boolean;
+  epicsFailed: boolean;
   epics: EpicsView;
   contracts: Contract[];
   host: HostStatusResponse | null;
@@ -59,7 +61,8 @@ async function load(clients: ReturnType<typeof createClients>): Promise<Loaded> 
   ]);
   return {
     rows: rows.rows,
-    listFailed: rows.error !== "" || epics.error !== "",
+    rowsFailed: rows.error !== "",
+    epicsFailed: epics.error !== "",
     epics: epicsView(epics.epics, epics.details),
     contracts: epics.contracts,
     host,
@@ -79,9 +82,32 @@ export function PageStory({ address, after, fixture }: PageStoryProps): VNode {
   // The count of refused calls heard. A change of it draws the page again, which reads the unserved list.
   const [, setHeard] = useState(0);
   const root = useRef<HTMLDivElement>(null);
+  const drawn = loaded !== null;
 
   // The subscription is made before the load, so a call the load makes is heard as it is made.
   useEffect(() => transport.onUnserved(() => setHeard((count) => count + 1)), [transport]);
+
+  // A call the fixture serves that changes the rows is heard as main.tsx hears an event, and the rows are read again. A
+  // reload that fails draws the rows' list as failed, as the first load does.
+  useEffect(() => {
+    let live = true;
+    const unregister = transport.onRowsChanged(() => {
+      loadRows(transport.clients).then(
+        (next) => {
+          if (live) {
+            setLoaded((prior) => (prior === null ? prior : { ...prior, rows: next.rows, rowsFailed: next.error !== "" }));
+          }
+        },
+        (error: unknown) => {
+          console.error(`story ${formatAddress(address)}: the rows' load failed: ${messageOf(error)}`);
+        },
+      );
+    });
+    return () => {
+      live = false;
+      unregister();
+    };
+  }, [transport]);
 
   useEffect(() => {
     let live = true;
@@ -110,23 +136,23 @@ export function PageStory({ address, after, fixture }: PageStoryProps): VNode {
   // after runs once the first load has drawn. A synchronous throw from it is a rejection too, so both are reported.
   useEffect(() => {
     const element = root.current;
-    if (loaded === null || after === undefined || element === null) {
+    if (!drawn || after === undefined || element === null) {
       return;
     }
     new Promise<void>((resolve) => resolve(after(element))).catch((error: unknown) => {
       console.error(`story ${formatAddress(address)}: ${messageOf(error)}`);
     });
-  }, [loaded]);
+  }, [drawn]);
 
   const refused = transport.unserved;
-  // data-loaded is set once the first load has answered, so a test can wait for the page's data. A story reads once, so
-  // its Try now is drawn as round 6 draws it and reads nothing again.
+  // data-loaded is set once the first load has answered, so a test can wait for the page's data. Its Try now is drawn as
+  // round 6 draws it and reads nothing again.
   return (
-    <div ref={root} data-page-story="" data-loaded={loaded !== null ? "" : undefined}>
+    <div ref={root} data-page-story="" data-loaded={drawn ? "" : undefined}>
       <App
         rows={loaded?.rows ?? []}
-        answered={loaded !== null}
-        listFailed={loaded?.listFailed ?? false}
+        answered={drawn}
+        listFailed={loaded !== null && (loaded.rowsFailed || loaded.epicsFailed)}
         epics={loaded?.epics}
         contracts={loaded?.contracts}
         now={now}

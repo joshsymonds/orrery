@@ -555,7 +555,7 @@ async function clickEpicNotice(
   await until(signal, () => server.seen.length === 1, "the Seen report");
 }
 
-test("a question notice opens its epic at its Now section, with the question's option cards in the page", (t) =>
+test("a question notice opens its epic at its Now section, with the question's Ask in the page", (t) =>
   withPage(
     t.signal,
     async (root, server, scrolled) => {
@@ -565,9 +565,9 @@ test("a question notice opens its epic at its Now section, with the question's o
       assert.equal(pageCrumb(root), asking.slug);
       assert.equal(isCursored(root, epicKeyOf(asking)), true, "the cursor is not on the epic");
       assert.equal(
-        root.querySelector('[aria-label="epic"] section.now form.answer .opts > .opt') !== null,
+        root.querySelector('[aria-label="epic"] section.now .ask .opts > .opt') !== null,
         true,
-        "no option cards in the epic page",
+        "no Ask in the epic page",
       );
       assert.equal(server.seen[0].epic, asking.id);
     },
@@ -582,7 +582,12 @@ test("a release-step notice opens its epic at its Now section, where Retry and S
       await until(t.signal, () => scrolled.length === 1, "the scroll into view");
       assert.deepEqual(scrolled, ["now"]);
       assert.equal(pageCrumb(root), stuck.slug);
-      assert.equal(pageButtons(root).includes("Retry"), true, "no Retry in the page");
+      assert.equal(
+        root.querySelector('[aria-label="epic"] section.now .ask .opts > .opt .nm')?.textContent,
+        "Retry",
+        "no Retry in the page",
+      );
+      assert.equal(pageButtons(root).includes("Stop…"), true, "no Stop… in the page");
     },
     landingFixtures,
   ));

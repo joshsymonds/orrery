@@ -48,7 +48,7 @@ export interface KeyContext {
   // Whether a page covers the cursor row: a project page or the notice centre is shown and the inbox list, where the
   // row is drawn, is not on screen beside or over it. A, x and e do not act on a covered row.
   rowCovered: boolean;
-  // Whether a project page is shown. It covers the reader, so 1-3 and Escape's interrupt do nothing while it is.
+  // Whether a project page is shown. It covers the reader, so 1-9 and Escape's interrupt do nothing while it is.
   projectShown: boolean;
   // Whether the notice centre is open, and the closer that shuts it. The centre covers the reader like a project page,
   // and while it is open Escape closes it and does nothing else.
@@ -90,7 +90,7 @@ export interface KeyContext {
   // openCursorPage opens the cursor's epic or step page as Enter on a row opens its page: under 760px it then draws
   // alone. At 760px and wider the page already stands beside the inbox, so it changes nothing there.
   openCursorPage: () => void;
-  answerCursor: (choice: 1 | 2 | 3) => void;
+  answerCursor: (choice: number) => void;
   toggleOpen: () => void;
   closePin: () => void;
   togglePin: () => void;
@@ -232,7 +232,7 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
 
   const afterG = pendingG.current;
   pendingG.current = false;
-  // A project page or the notice centre covers the reader: 1-3 and Escape's interrupt do nothing while either is shown.
+  // A project page or the notice centre covers the reader: 1-9 and Escape's interrupt do nothing while either is shown.
   const readerCovered = projectShown || noticesOpen;
   // While the inbox is hidden, a list key pops it out by key and does nothing else, so the cursor never moves unseen.
   if (inboxHidden && inboxListKeys.has(event.key)) {
@@ -343,22 +343,18 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
       break;
     // The digits do nothing while the reader is covered, and do not take the key either.
     case "1":
-      if (readerCovered) {
-        return;
-      }
-      answerCursor(1);
-      break;
     case "2":
-      if (readerCovered) {
-        return;
-      }
-      answerCursor(2);
-      break;
     case "3":
+    case "4":
+    case "5":
+    case "6":
+    case "7":
+    case "8":
+    case "9":
       if (readerCovered) {
         return;
       }
-      answerCursor(3);
+      answerCursor(Number(event.key));
       break;
     case "o":
       toggleOpen();

@@ -2,7 +2,7 @@ import type { BackgroundTask } from "./gen/orrery/v1/orrery_pb";
 import type { Epic, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 import type { Conversation } from "./conversation";
 import { epicNeeds, type Need } from "./needs";
-import type { Row } from "./rows";
+import { waitsOnYou, type Row } from "./rows";
 
 // The way an ask line says its epic waits on the owner: a park is decided, a question is answered, any other need is opened.
 export type AskWay = "Answer" | "Decide" | "Open";
@@ -63,10 +63,10 @@ function withoutSlug(text: string, slug: string): string {
   return text.slice(slug.length + 1);
 }
 
-// ownAsks is whether the conversation's own question asks the owner: its row is waiting, and neither its pane nor its
-// session has its question put off.
+// ownAsks is whether the conversation's own question asks the owner: its row waits on the owner (waiting, not archived,
+// not put off), and neither its pane nor its session has its question put off.
 export function ownAsks(row: Row, conversation: Conversation | null): boolean {
-  if (row.state !== "waiting") {
+  if (!waitsOnYou(row)) {
     return false;
   }
   const state = conversation?.state;

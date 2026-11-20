@@ -66,6 +66,7 @@ const promptRow = {
 // listedPane is a listed pane row, which a picker row with the same pane id takes its title from.
 function listedPane(pane: string, project: string, label: string): Row {
   return {
+    putOff: false,
     tool: "",
     key: `pane:${pane}`,
     id: pane,

@@ -1,3 +1,4 @@
+import { waitsOnYou } from "./rows";
 import { type Convo, type Hung, type Project, waits } from "./tree";
 
 // Narrow is the chip the tree is narrowed by: none, what waits on you, or what is new (unseen).
@@ -67,15 +68,15 @@ export function search(projects: readonly Project[], words: readonly string[]): 
   return kept;
 }
 
-// countedOf is the things of a conversation that wait on you, each once (DL27): the conversation itself when its row is
-// waiting, each hung epic that raises a need of its own, and each hung proposed contract unless its conversation's own
-// row is waiting. An archived conversation counts nothing.
+// countedOf is the things of a conversation that wait on you, each once (DL27): the conversation itself when its row
+// waits on you, each hung epic that raises a need of its own, and each hung proposed contract unless its conversation's
+// own row waits on you. An archived conversation counts nothing.
 function countedOf(convo: Convo): Counted[] {
   if (convo.row?.archived) {
     return [];
   }
   const counted: Counted[] = [];
-  if (convo.row?.state === "waiting") {
+  if (convo.row !== null && waitsOnYou(convo.row)) {
     counted.push({ key: convo.row.key, changed: convo.row.changed });
   }
   for (const hung of convo.hung) {
@@ -93,7 +94,7 @@ function countsHung(convo: Convo, hung: Hung): boolean {
     return true;
   }
   const proposed = hung.kind === "contract" ? hung.contract.state === "proposed" : hung.contract?.state === "proposed";
-  return proposed && convo.row?.state !== "waiting";
+  return proposed && (convo.row === null || !waitsOnYou(convo.row));
 }
 
 function changedOf(hung: Hung): number {

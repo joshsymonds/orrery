@@ -81,6 +81,7 @@ function row(fields: Partial<Row>): Row {
     unseen: false,
     archived: false,
     archiveKind: "none",
+    putOff: false,
     ...fields,
   };
 }

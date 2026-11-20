@@ -3,7 +3,9 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 
 import * as actions from "./actions";
 import type { Clients } from "./actions";
+import { type AskTarget, conversationAsk } from "./askmodel";
 import { askingWords, askLines, headBadges, ownAsks, steeredEpics } from "./asks";
+import { type AskState, askKey, observe, press, settle } from "./askstate";
 import { epicCallsOf } from "./card";
 import type { DockHandle } from "./dock";
 import { ContractBody } from "./contract";
@@ -25,7 +27,7 @@ import { type HeadStore, memoryHeadStore } from "./headfold";
 import { KeyList } from "./helppanel";
 import { Inbox } from "./inbox";
 import { InboxRail } from "./inboxrail";
-import { ageText, InboxRow, type RowMore, stateWaiting } from "./inboxrow";
+import { ageText, InboxRow, type RowMore } from "./inboxrow";
 import {
   type BoxOpen,
   type EscapeTarget,
@@ -47,13 +49,21 @@ import type { Phase } from "./phases";
 import { NewPanel } from "./picker";
 import { type Viewing, viewingOf } from "./presence";
 import { ProjectPage } from "./projectpage";
-import type { ContractCalls, ReaderHandle } from "./reader";
+import { type ContractCalls, newestItemKey, type ReaderHandle } from "./reader";
 import { railTiles } from "./railtiles";
 import { type Address, type Entry, formatAddress, type ListPanelKind, type PageView, type View } from "./router";
-import { type Row, splitArchived } from "./rows";
+import { type Row, splitArchived, waitsOnYou } from "./rows";
 import { realClock, type SeenClock, type SeenWindow, watchSeen } from "./seen";
 import { type SendKind, type Sending, type SentText, sendingEntry, unsentEntries, withoutTexts } from "./sending";
-import { type ColumnHead, type FindState, headState, ReaderColumn, stepCalls } from "./readercolumn";
+import {
+  type AskCalls,
+  type AskNote,
+  type ColumnHead,
+  type FindState,
+  headState,
+  ReaderColumn,
+  stepCalls,
+} from "./readercolumn";
 import { Sheet } from "./sheet";
 import type { ContractBandLine } from "./subjectband";
 import { ListPanel, listHead, SidePanel } from "./sidepanel";
@@ -185,6 +195,8 @@ const noProjectText = "Nothing in the inbox is in this project.";
 const endedStates: readonly string[] = ["stopped", "failed"];
 const seenFailedText = "could not mark seen";
 const answerFailedText = "no answer was sent";
+// noAskNote is the Ask note of no call: no key, and no reason.
+const noAskNote: AskNote = { key: "", text: "" };
 const takeBackFailedText = "could not take the queued messages back";
 const interruptFailedText = "could not interrupt";
 // The reason a failed command shows when its error carries no message.
@@ -350,7 +362,9 @@ export function App({
   // The endings a seen write landed for, by endingKey. An ended epic reads as seen until a later ending.
   const [seenEpics, setSeenEpics] = useState<Set<string>>(() => new Set());
   const [seenError, setSeenError] = useState("");
-  const [answerError, setAnswerError] = useState("");
+  // The answer's life for the middle conversation's own question, and the note its Ask's last call left.
+  const [askState, setAskState] = useState<AskState>({ phase: "idle" });
+  const [askNote, setAskNote] = useState<AskNote>(noAskNote);
   // The fixed line an Escape leaves when taking queued messages back or interrupting a row fails.
   const [escapeError, setEscapeError] = useState("");
   // The headless session rows the owner has interrupted, by row key, each with the turn_since its stream held at the press
@@ -524,10 +538,10 @@ export function App({
   const detailEpics = [...epics.details.values()].flatMap((detail) =>
     detail.epic === undefined || archivedIds.has(detail.epic.id) ? [] : [detail.epic],
   );
-  // The mark's count: the loaded rows that need you and are not archived, and the live epics' needs. It reads the same
+  // The mark's count: the loaded rows that wait on you and are not archived, and the live epics' needs. It reads the same
   // in every view and under any filter, as the list reads every loaded row after seen writes.
   const markNeeds =
-    splitArchived(shownRows).rows.filter((row) => row.state === stateWaiting).length +
+    splitArchived(shownRows).rows.filter((row) => waitsOnYou(row)).length +
     epicNeeds(detailEpics, epics.details).length;
   // Under 760px the inbox is docked, whatever the row, the pin and the pop-out hold.
   const inboxState: InboxState = !wide
@@ -866,29 +880,32 @@ export function App({
 
   // setArchive archives a row or epic, or unarchives it in the Archived view, through Epics.Archive or Epics.Unarchive
   // with the kind the entry names and the id it archives by: a row's archiveId, which for a pane is its orrery_id, and
-  // an epic's id. A pane with no orrery_id has no archive kind, so it does nothing. A landed call marks the entry as the
-  // call left it, keyed by the entry's key, until the next list answer; a failed call leaves the entry where it was.
-  const setArchive = (entry: Row | EpicItem, archived: boolean) => {
+  // an epic's id. A pane with no orrery_id has no archive kind, so it does nothing. A landed call marks the entry as
+  // the call left it, keyed by the entry's key, until the next list answer; a failed call leaves the entry where it
+  // was. A refused call goes to refused with the server's reason when refused is given, and otherwise to the list's
+  // line.
+  const setArchive = (entry: Row | EpicItem, archived: boolean, refused?: (reason: string) => void) => {
     const kind = entry.kind === "epic" ? "epic" : entry.archiveKind;
     if (kind === "none") {
       return;
     }
     const request = { kind, id: entry.kind === "epic" ? entry.id : entry.archiveId };
-    void lineWrite(
-      () => (archived ? clients.epics.archive(request) : clients.epics.unarchive(request)),
-      archiveFailedText,
-      setArchiveError,
-      () => {
-        if (entry.kind === "epic") {
-          setEpicMarks((previous) => new Map(previous).set(entry.id, archived));
-        } else {
-          setRowMarks((previous) => new Map(previous).set(entry.key, archived));
-          if (archived && !wide) {
-            setToast({ row: entry });
-          }
+    const write = () => (archived ? clients.epics.archive(request) : clients.epics.unarchive(request));
+    const landed = () => {
+      if (entry.kind === "epic") {
+        setEpicMarks((previous) => new Map(previous).set(entry.id, archived));
+      } else {
+        setRowMarks((previous) => new Map(previous).set(entry.key, archived));
+        if (archived && !wide) {
+          setToast({ row: entry });
         }
-      },
-    );
+      }
+    };
+    if (refused === undefined) {
+      void lineWrite(write, archiveFailedText, setArchiveError, landed);
+    } else {
+      void write().then(landed, (error: unknown) => refused(ConnectError.from(error).rawMessage));
+    }
   };
 
   // The archive toast goes five seconds after it shows, on the App's clock, and a later archive restarts that count.
@@ -944,23 +961,6 @@ export function App({
     return () => document.removeEventListener("pointerdown", close);
   }, [menuKey]);
 
-  // answerCursor sends the choice to the middle row's waiting question through actions.answer, with the conversation
-  // the reader holds for that row only. A false result or a rejection shows a fixed line; nothing is retried. While an
-  // epic is open in the panel its question's cards take the digits, so none answers the steering conversation beside it.
-  const answerCursor = (choice: 1 | 2 | 3) => {
-    if (middleRow === null || (epicEntry !== null && !epicPage.closed)) {
-      return;
-    }
-    const row = middleRow;
-    const conversation = stream !== null && stream.key === row.key ? stream.conversation : null;
-    void actions
-      .answer(clients, row, conversation, choice)
-      .catch(() => false)
-      .then((sent) => {
-        setAnswerError(sent ? "" : answerFailedText);
-      });
-  };
-
   // The seen watch runs for the page's life: its write marks the row or ended epic it last rested on. Unmount stops it.
   useEffect(() => {
     const watch = watchSeen(
@@ -1001,6 +1001,86 @@ export function App({
   // The conversation the pinned reader holds, only when its stream belongs to the pinned row.
   const pinnedConversation =
     pinStream !== null && pinned !== null && pinStream.key === pinned.key ? pinStream.conversation : null;
+  // The middle conversation's own question, and the key that names it for the answer's life and the Ask's calls. The
+  // key is null while the stream shows no question.
+  const cursorAsk = middleRow === null ? null : conversationAsk(middleRow, cursorConversation);
+  const cursorAskKey = middleRow === null || cursorAsk === null ? null : askKey(middleRow, cursorAsk);
+  // The answer's life starts idle for each middle conversation. Once its stream is live, the life moves on with the
+  // question the stream shows: a sent answer folds to its line, and a refused one clears when the question changes.
+  useEffect(() => {
+    setAskState({ phase: "idle" });
+    setAskNote(noAskNote);
+  }, [middleKey]);
+  // shownAsk is the question the live stream shows now, which a reply that lands after the stream moved on reads.
+  const shownAsk = useRef<{ live: boolean; key: string | null }>({ live: false, key: null });
+  shownAsk.current = { live: cursorConversation !== null, key: cursorAskKey };
+  useEffect(() => {
+    if (cursorConversation === null) {
+      return;
+    }
+    setAskState((previous) => observe(previous, cursorAskKey));
+    setAskNote((previous) => (previous.key === cursorAskKey ? previous : noAskNote));
+  }, [cursorConversation, cursorAskKey]);
+  // answerCursor answers the middle conversation's own question with its option choice: a tap and a digit both come
+  // here. The press starts the answer and the server's reply settles it. A digit past the last option, or a press while
+  // an answer is in flight, sends nothing. While an epic is open in the panel its question's cards take the digits, so
+  // none answers the steering conversation beside it.
+  const answerCursor = (choice: number) => {
+    if (middleRow === null || cursorAsk === null || cursorAskKey === null || (epicEntry !== null && !epicPage.closed)) {
+      return;
+    }
+    const option = cursorAsk.options.at(choice - 1);
+    // The answered line draws after the item that is newest now, so the items that arrive after the press draw after it.
+    const started =
+      option === undefined ? null : press(askState, cursorAskKey, option, cursorAsk.question, newestItemKey(cursorConversation));
+    if (started === null) {
+      return;
+    }
+    const row = middleRow;
+    const key = cursorAskKey;
+    const conversation = stream !== null && stream.key === row.key ? stream.conversation : null;
+    setAskState(started);
+    void actions
+      .answer(clients, row, conversation, choice)
+      .catch(() => false)
+      .then((sent) =>
+        setAskState((previous) => {
+          if (previous.phase !== "sending" || previous.key !== key) {
+            return previous;
+          }
+          // The stream may have dropped the question before the reply landed: the settled answer reads it now.
+          const settled = settle(previous, sent);
+          return shownAsk.current.live ? observe(settled, shownAsk.current.key) : settled;
+        }),
+      );
+  };
+  // askCall makes one of the middle question's own calls against its target. A refused call's reason becomes the Ask's
+  // note; a call the server took draws nothing, since the stream redraws the question.
+  const askCall = (call: (target: AskTarget) => Promise<string>) => {
+    const target = cursorAsk?.target ?? null;
+    if (target === null || cursorAskKey === null) {
+      return;
+    }
+    const key = cursorAskKey;
+    void call(target).then((reason) => setAskNote({ key, text: reason }));
+  };
+  // The cursor column's Ask: its answer, its note and its calls. Archive this session archives the middle row, as the
+  // inbox menu does, and a refusal's reason is the Ask's note.
+  const askCalls: AskCalls = {
+    state: askState,
+    note: askNote,
+    onAnswer: answerCursor,
+    onNotNow: () => askCall((target) => actions.notNow(clients, target)),
+    onBringBack: () => askCall((target) => actions.bringBack(clients, target)),
+    onDecline: () => askCall((target) => actions.decline(clients, target)),
+    onArchive: () => {
+      if (middleRow === null || cursorAskKey === null) {
+        return;
+      }
+      const key = cursorAskKey;
+      setArchive(middleRow, true, (reason) => setAskNote({ key, text: reason }));
+    },
+  };
   // The More menu of a list row: its items, each acting on that row alone. Mark seen is drawn while the row is unseen, and
   // Archive, or Unarchive in the Archived view, while the row can be archived. Open in a new window opens the row's
   // address in a new window, in the view the page shows. Under 760px the menu is a sheet, under the row's title the line
@@ -2002,7 +2082,7 @@ export function App({
   // the epic through openEpic; a step card opens its step through openEpicStep. A move's line names a session by its
   // listed conversation's title.
   const epicCalls = {
-    ...epicCallsOf(clients, navigated(openEpic), navigated(openEpicStep), epics),
+    ...epicCallsOf(clients, navigated(openEpic), navigated(openEpicStep), now, epics),
     sessionTitle: (session: string) => steererRowOf(rows, session)?.label,
   };
 
@@ -2301,7 +2381,7 @@ export function App({
   );
 
   // notes are the error lines the list shows above its rows, in the order they were set.
-  const notes = [seenError, answerError, escapeError, archiveError]
+  const notes = [seenError, escapeError, archiveError]
     .filter((line) => line !== "")
     .map((line) => (
       <p class="error" role="alert" key={line}>
@@ -2361,7 +2441,7 @@ export function App({
       retractSending={retractSending}
       open={open}
       onToggleOpen={toggleOpen}
-      onAnswer={answerCursor}
+      ask={askCalls}
       onInterrupt={(row) =>
         void escapeRow({ row, column: "cursor", state: headState(row, cursorConversation) }, null)
       }

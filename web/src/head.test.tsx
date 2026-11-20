@@ -45,6 +45,7 @@ const noMark = { needs: 0, enter: noop, leave: noop, pin: noop };
 
 function makeRow(init: Partial<Row>): Row {
   return {
+    putOff: false,
     tool: "",
     key: "pane:halyard:%14",
     id: "%14",
