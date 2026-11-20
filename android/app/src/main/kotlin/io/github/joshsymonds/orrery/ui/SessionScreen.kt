@@ -207,8 +207,10 @@ fun SessionScreen(
     }
     val ask = if (step == null) held?.request?.let { open -> pane?.let { sessionAsk(it, open) } } else null
     // The stream redraws the session once its answer lands, so the Ask needs no refresh of its own.
+    // The Ask's answer lives per session, outside the footer item that draws the Ask, so scrolling that item away keeps it.
+    val askLife = rememberAskLife(sessionId)
     val footer: @Composable () -> Unit = {
-        AskHost(model = ask, client = client, now = nowSeconds, onRefresh = {})
+        AskHost(model = ask, client = client, now = nowSeconds, onRefresh = {}, life = askLife)
     }
     val draft = rememberDockDraft(sessionId)
 

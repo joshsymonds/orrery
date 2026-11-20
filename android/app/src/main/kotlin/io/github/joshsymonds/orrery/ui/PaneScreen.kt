@@ -279,6 +279,8 @@ fun PaneScreen(
     val showingConversation = conversation != null
     // Keyed by pane, so a pane switch starts at the newest line instead of where another pane was left.
     val listState = remember(paneId) { LazyListState() }
+    // The Ask's answer lives per pane, outside the footer item that draws the Ask, so scrolling that item away keeps it.
+    val askLife = rememberAskLife(paneId)
     var endRequests by remember(paneId) { mutableIntStateOf(0) }
     var headHeightPx by remember { mutableIntStateOf(0) }
     var headMeasured by remember { mutableStateOf(false) }
@@ -325,7 +327,7 @@ fun PaneScreen(
             // the conversation while the reader is at the newest end.
             if (bodyReady && showingConversation) {
                 val footer: @Composable () -> Unit = {
-                    AskHost(model = ask, client = client, now = nowSeconds, onRefresh = refresh)
+                    AskHost(model = ask, client = client, now = nowSeconds, onRefresh = refresh, life = askLife)
                 }
                 ConversationView(
                     entries,
@@ -362,7 +364,7 @@ fun PaneScreen(
                                 top = bodyTop,
                             ),
                     )
-                    AskHost(model = ask, client = client, now = nowSeconds, onRefresh = refresh)
+                    AskHost(model = ask, client = client, now = nowSeconds, onRefresh = refresh, life = askLife)
                 }
             }
             current?.let { shown ->

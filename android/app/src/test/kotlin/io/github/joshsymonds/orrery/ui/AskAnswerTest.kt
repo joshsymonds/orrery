@@ -266,4 +266,53 @@ class AskAnswerTest {
             composeRule.awaitUntil { refreshes == 1 }
         }
     }
+
+    @Test
+    fun aPaneAnswerHeldByTheServerSurvivesTheAskBeingDrawnAgain() {
+        FakeOrreryServer().use { server ->
+            val arrived = CountDownLatch(1)
+            val release = CountDownLatch(1)
+            server.route(KEYS) {
+                arrived.countDown()
+                check(release.await(HANG_GUARD_SECONDS, TimeUnit.SECONDS)) { "the test never released the answer" }
+                Reply.Message(SendKeysResponse.getDefaultInstance(), 0L)
+            }
+            var refreshes = 0
+            val drawn = mutableStateOf(true)
+            val client = OrreryClient(server.baseUrl)
+            model.value = paneAsk(pane())
+            composeRule.setContent {
+                MaterialTheme {
+                    // The screen's life outlives the Ask's composition, as the footer item's does.
+                    val life = rememberAskLife(PANE_ID)
+                    if (drawn.value) {
+                        AskHost(
+                            model = model.value,
+                            client = client,
+                            now = NOW,
+                            onRefresh = { refreshes++ },
+                            life = life,
+                        )
+                    }
+                }
+            }
+
+            composeRule.onNodeWithTag("ask-option:2").performClick()
+            composeRule.waitForIdle()
+            assertTrue(arrived.await(HANG_GUARD_SECONDS, TimeUnit.SECONDS))
+
+            // A footer item scrolled off and back again: the Ask leaves the composition and is drawn anew.
+            composeRule.runOnIdle { drawn.value = false }
+            composeRule.runOnIdle { drawn.value = true }
+
+            composeRule.onNodeWithTag("ask-sending").assertIsDisplayed()
+            composeRule.onNodeWithTag("ask-option:1").performClick()
+            release.countDown()
+            composeRule.awaitUntil { refreshes == 1 }
+            assertEquals(1, server.requests.size)
+
+            composeRule.runOnIdle { model.value = null }
+            composeRule.onNodeWithTag("ask-answered").assertIsDisplayed()
+        }
+    }
 }

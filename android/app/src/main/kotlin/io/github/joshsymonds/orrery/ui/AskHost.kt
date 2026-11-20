@@ -3,6 +3,7 @@ package io.github.joshsymonds.orrery.ui
 import androidx.compose.foundation.layout.Column
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -13,6 +14,7 @@ import io.github.joshsymonds.orrery.api.KeysResult
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.StepCallResult
 import java.io.IOException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -22,10 +24,10 @@ private const val ANSWER_REFUSED =
 private const val STEP_NOT_SENT = "Not sent."
 
 /** Where a pane's or session's answer stands: in flight, taken by the server (the stream has not shown it gone), or refused. */
-private enum class AnswerPhase { SENDING, TAKEN, REFUSED }
+internal enum class AnswerPhase { SENDING, TAKEN, REFUSED }
 
 /** The answer the phone made to the question [key] names: the option [n] of [name], to [question]. */
-private data class PendingAnswer(
+internal data class PendingAnswer(
     val key: String,
     val n: Int,
     val name: String,
@@ -34,39 +36,22 @@ private data class PendingAnswer(
 )
 
 /** The words a refusal shows for the question [key] names. */
-private data class AskNote(val key: String, val text: String)
+internal data class AskNote(val key: String, val text: String)
 
 /**
- * The Ask for [model], with the life of its answer: a tap sends its option once, taps send nothing while an answer is in
- * flight, a refusal leaves the Ask open with its words, and the answered line folds in once the model is gone. Not now,
- * Bring it back, Decline and Archive this session make their calls and show a refusal's reason. [onRefresh] runs after
- * each call the server took. An epic's or park's Ask is drawn without a call: the epic screen sends those answers.
+ * The life of a conversation's Ask: the answer in flight or taken, the refusal's words, and the scope its calls run in.
+ * A screen holds one per conversation, outside the list item that draws the Ask, so scrolling that item away and back
+ * keeps the answer. The calls run in the screen's scope, so leaving the composition does not cancel them.
  */
-@Composable
-internal fun AskHost(
-    model: AskModel?,
-    client: OrreryClient,
-    now: Long,
-    onRefresh: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val scope = rememberCoroutineScope()
-    var answer by remember { mutableStateOf<PendingAnswer?>(null) }
-    var note by remember { mutableStateOf<AskNote?>(null) }
-    val key = model?.target?.let { keyOf(it) }
+@Stable
+internal class AskLife(private val scope: CoroutineScope) {
+    internal var answer by mutableStateOf<PendingAnswer?>(null)
+        private set
+    internal var note by mutableStateOf<AskNote?>(null)
+        private set
 
-    // A question that is no longer shown ends the answer taken for it and any refusal for it. A sending answer stays.
-    LaunchedEffect(key, answer, note) {
-        val taken = answer
-        if (key != null && taken != null && taken.phase != AnswerPhase.SENDING && taken.key != key) {
-            answer = null
-        }
-        if (note?.key != key) {
-            note = null
-        }
-    }
-
-    fun pressAnswer(current: AskModel, n: Int) {
+    /** Sends option [n] of [current] unless an answer is in flight or already taken for its question. */
+    fun press(current: AskModel, client: OrreryClient, n: Int, onRefresh: () -> Unit) {
         val target = current.target ?: return
         val questionKey = keyOf(target)
         val held = answer
@@ -94,7 +79,8 @@ internal fun AskHost(
         }
     }
 
-    fun step(questionKey: String, call: () -> StepCallResult) {
+    /** Runs a Not now, Bring it back, Decline or Archive call for the question [questionKey] names. */
+    fun step(questionKey: String, onRefresh: () -> Unit, call: () -> StepCallResult) {
         scope.launch {
             val result = try {
                 withContext(Dispatchers.IO) { call() }
@@ -109,23 +95,61 @@ internal fun AskHost(
         }
     }
 
+    /** A question that is no longer shown ends the answer taken for it and any refusal for it. A sending answer stays. */
+    fun dropStale(key: String?) {
+        val taken = answer
+        if (key != null && taken != null && taken.phase != AnswerPhase.SENDING && taken.key != key) {
+            answer = null
+        }
+        if (note?.key != key) {
+            note = null
+        }
+    }
+}
+
+/** The [AskLife] for the conversation [key] names, kept while that key holds. */
+@Composable
+internal fun rememberAskLife(key: Any): AskLife {
+    val scope = rememberCoroutineScope()
+    return remember(key) { AskLife(scope) }
+}
+
+/**
+ * The Ask for [model], with the life of its answer: a tap sends its option once, taps send nothing while an answer is in
+ * flight, a refusal leaves the Ask open with its words, and the answered line folds in once the model is gone. Not now,
+ * Bring it back, Decline and Archive this session make their calls and show a refusal's reason. [onRefresh] runs after
+ * each call the server took. An epic's or park's Ask is drawn without a call: the epic screen sends those answers.
+ */
+@Composable
+internal fun AskHost(
+    model: AskModel?,
+    client: OrreryClient,
+    now: Long,
+    onRefresh: () -> Unit,
+    modifier: Modifier = Modifier,
+    life: AskLife = rememberAskLife(Unit),
+) {
+    val key = model?.target?.let { keyOf(it) }
+
+    LaunchedEffect(key, life.answer, life.note) { life.dropStale(key) }
+
     if (model != null) {
         val epic = model.kind == AskKind.EPIC || model.kind == AskKind.PARK
         val target = model.target
         val archive = model.archive
-        val ownAnswer = answer?.takeIf { it.key == key }
-        val shownNote = note?.takeIf { it.key == key }?.text.orEmpty()
-        val onAnswer: ((Int) -> Unit)? = if (epic) null else ({ n: Int -> pressAnswer(model, n) })
+        val ownAnswer = life.answer?.takeIf { it.key == key }
+        val shownNote = life.note?.takeIf { it.key == key }?.text.orEmpty()
+        val onAnswer: ((Int) -> Unit)? = if (epic) null else ({ n: Int -> life.press(model, client, n, onRefresh) })
         val onNotNow: (() -> Unit)? =
-            if (target == null || epic) null else ({ step(keyOf(target)) { notNowCall(client, target) } })
+            if (target == null || epic) null else ({ life.step(keyOf(target), onRefresh) { notNowCall(client, target) } })
         val onBringBack: (() -> Unit)? =
-            if (target == null || epic) null else ({ step(keyOf(target)) { bringBackCall(client, target) } })
+            if (target == null || epic) null else ({ life.step(keyOf(target), onRefresh) { bringBackCall(client, target) } })
         val onDecline: (() -> Unit)? =
-            if (target == null || epic) null else ({ step(keyOf(target)) { declineCall(client, target) } })
+            if (target == null || epic) null else ({ life.step(keyOf(target), onRefresh) { declineCall(client, target) } })
         val onArchive: (() -> Unit)? = if (target == null || archive == null) {
             null
         } else {
-            ({ step(keyOf(target)) { client.archive(archive.first, archive.second) } })
+            ({ life.step(keyOf(target), onRefresh) { client.archive(archive.first, archive.second) } })
         }
         Ask(
             model = model,
@@ -146,7 +170,7 @@ internal fun AskHost(
             modifier = modifier,
         )
     } else {
-        val taken = answer?.takeIf { it.phase == AnswerPhase.TAKEN }
+        val taken = life.answer?.takeIf { it.phase == AnswerPhase.TAKEN }
         if (taken != null) {
             Column(modifier = modifier) {
                 AskAnsweredLine(n = taken.n, name = taken.name, question = taken.question)
