@@ -248,6 +248,67 @@ class OrreryClientSessionStreamTest {
         ),
     )
 
+    private val promptProto = SessionsWatchConversationResponse.newBuilder()
+        .setTranscript(SESSION_ID)
+        .setSeq(14L)
+        .addItems(
+            ConversationItemProto.newBuilder()
+                .setKind("prompt")
+                .setTime(1700000500L)
+                .setText("Example brief.")
+                .setSender("brief"),
+        )
+        .addItems(
+            ConversationItemProto.newBuilder()
+                .setKind("prompt")
+                .setTime(1700000600L)
+                .setText("Example send-back.")
+                .setSender("engine")
+                .setRound(2),
+        )
+        .addItems(ConversationItemProto.newBuilder().setKind("prompt").setTime(1700000700L).setText("Example owner prompt."))
+        .build()
+
+    private val expectedPromptDelta = ConversationDelta(
+        transcript = SESSION_ID,
+        seq = 14L,
+        reset = false,
+        items = listOf(
+            ConversationItem(
+                kind = "prompt",
+                time = 1700000500L,
+                text = "Example brief.",
+                tool = "",
+                input = "",
+                id = "",
+                error = false,
+                sender = "brief",
+                round = 0,
+            ),
+            ConversationItem(
+                kind = "prompt",
+                time = 1700000600L,
+                text = "Example send-back.",
+                tool = "",
+                input = "",
+                id = "",
+                error = false,
+                sender = "engine",
+                round = 2,
+            ),
+            ConversationItem(
+                kind = "prompt",
+                time = 1700000700L,
+                text = "Example owner prompt.",
+                tool = "",
+                input = "",
+                id = "",
+                error = false,
+            ),
+        ),
+        state = null,
+    )
+
     private val thirdDeltaProto = SessionsWatchConversationResponse.newBuilder()
         .setTranscript(SESSION_ID)
         .setSeq(12L)
@@ -320,6 +381,20 @@ class OrreryClientSessionStreamTest {
                 listOf(expectedFirstDelta, expectedSecondDelta, expectedThirdDelta, expectedKeepalive),
                 received,
             )
+        }
+    }
+
+    @Test
+    fun watchSessionKeepsEachPromptItemsSenderAndRound() {
+        FakeOrreryServer().use { server ->
+            server.route(SESSION_WATCH_CONVERSATION) { Reply.Stream(listOf(promptProto), StreamEnd.Clean) }
+            val received = mutableListOf<ConversationDelta>()
+
+            runBlocking {
+                OrreryClient(server.baseUrl).watchSession(SESSION_ID, 0L) { received.add(it) }
+            }
+
+            assertEquals(listOf(expectedPromptDelta), received)
         }
     }
 

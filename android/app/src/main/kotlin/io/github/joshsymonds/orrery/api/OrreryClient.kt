@@ -224,6 +224,10 @@ data class ConversationItem(
     val promptId: String = "",
     /** The id of the contract a `tool` item's call writes; "" when the item names none, on other kinds, or from an older server. */
     val contract: String = "",
+    /** A `prompt` item's sender: `brief`, `engine`, `owner` or `event`; "" when the prompt was stored without one, on other kinds, or from an older server. */
+    val sender: String = "",
+    /** A `prompt` item's check round when it is a send-back; 0 otherwise. */
+    val round: Int = 0,
 )
 
 /** A message Claude Code's queue holds for the pane. [canceled] is true when Claude Code cleared it on cancel. */
@@ -1744,6 +1748,8 @@ class OrreryClient(
             tokens = tokens,
             promptId = promptId,
             contract = contract,
+            sender = sender,
+            round = round,
         )
 
     private fun WaitingMessage.toWaitingItem(): WaitingItem =
