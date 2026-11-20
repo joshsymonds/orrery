@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
 
-import { equals, toJson } from "@bufbuild/protobuf";
+import { create, equals, toJson } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
 import { type ComponentChild, h, render } from "preact";
 import { act } from "preact/test-utils";
@@ -12,6 +12,7 @@ import { storyName } from "../catalog/story";
 import type { Address } from "../router";
 import { EpicsGetResponseSchema, EpicsListResponseSchema, EpicsPauseResponseSchema } from "../gen/orrery/v1/epics_pb";
 import {
+  AskResponseSchema,
   HostStatusResponseSchema,
   PanesListResponseSchema,
   WatchConversationResponseSchema,
@@ -91,6 +92,21 @@ function epicHandover(root: HTMLElement): boolean {
 // epicTalk is Page/epic-talk: the talk dock is drawn with the planning conversation in it.
 function epicTalk(root: HTMLElement): boolean {
   return root.querySelector(talkDock)?.textContent.includes(rotaPrompt) === true;
+}
+
+// The words of the New session stories, which a prompt row's start form takes as its first message, and the ask
+// failure the 90-second story draws.
+const rosterWords = "roster page tidepool";
+const askFailure = "The search did not finish: the server did not answer in 90 seconds.";
+
+// newPanel is New session's panel, or null when it is not open.
+function newPanel(root: HTMLElement): HTMLElement | null {
+  return root.querySelector<HTMLElement>('[role="dialog"][aria-label="New session"]');
+}
+
+// fieldText is the text in New session's field, or null when the panel is not open.
+function fieldText(root: HTMLElement): string | null {
+  return newPanel(root)?.querySelector<HTMLInputElement>('input[aria-label="New session"]')?.value ?? null;
 }
 
 // assertNoFailure fails unless the story drew no failure element, so no call it made was refused.
@@ -173,6 +189,38 @@ test("FixtureTransport records an unserved Picker call, tells each listener unti
   stop();
   await refusal(fixture.clients.picker.run({}));
   assert.deepEqual(heard, ["orrery.v1.Picker/Ask"], "a listener that unregistered hears no more");
+});
+
+test("FixtureTransport answers Picker.Ask from its slice for the words, and refuses words with no slice", async () => {
+  const jump = { token: "tok-jump", kind: "jump", dir: "/work/api", pane: "%3", label: "auth refactor", note: "waiting on you", prompt: false };
+  const fixture = createFixtureTransport({ ...shippedSlices, asks: new Map([["auth", { rows: [jump] }]]) });
+  const reply = await fixture.clients.picker.ask({ text: "auth" });
+  assert.ok(equals(AskResponseSchema, reply, create(AskResponseSchema, { rows: [jump] })), "Picker.Ask answers the slice's rows");
+  assert.deepEqual([...fixture.unserved], [], "the answered call is no refused call");
+  const error = await refusal(fixture.clients.picker.ask({ text: "harbour pilot" }));
+  assert.equal(error.code, Code.Unimplemented);
+  assert.deepEqual([...fixture.unserved], ["orrery.v1.Picker/Ask"], "words with no slice are refused and recorded");
+});
+
+test("FixtureTransport holds a Picker.Ask its slice holds open until the call aborts, and the abort ends it", async () => {
+  const fixture = createFixtureTransport({ ...shippedSlices, asks: new Map([["roster page tidepool", { held: true }]]) });
+  const controller = new AbortController();
+  const call = fixture.clients.picker.ask({ text: "roster page tidepool" }, { signal: controller.signal });
+  assert.equal(await Promise.race([call.then(() => "answered", () => "failed"), turn().then(() => "held")]), "held", "the call is not answered");
+  controller.abort();
+  const error = await refusal(call);
+  assert.equal(error.code, Code.Canceled, "the abort ends the call");
+  assert.deepEqual([...fixture.unserved], [], "a held call is no refused call");
+});
+
+test("FixtureTransport fails a Picker.Ask its slice holds a failure for with that code, and records no refusal", async () => {
+  const fixture = createFixtureTransport({
+    ...shippedSlices,
+    asks: new Map([["roster page tidepool", { failure: Code.DeadlineExceeded }]]),
+  });
+  const error = await refusal(fixture.clients.picker.ask({ text: "roster page tidepool" }));
+  assert.equal(error.code, Code.DeadlineExceeded);
+  assert.deepEqual([...fixture.unserved], [], "a failure from the slice is no refused call");
 });
 
 test("FixtureTransport: a pane stream sends its frame and holds open, a reconnect gets no frame, and an abort ends the wait", async () => {
@@ -474,7 +522,7 @@ test("FixtureTransport: page/epic-question, page/epic-handover and page/epic-tal
   }
 });
 
-test("FixtureTransport: page's keys are exactly the 11 catalog names of its scenario states", () => {
+test("FixtureTransport: page's keys are exactly the 18 catalog names of its scenario states", () => {
   assert.deepEqual(Object.keys(Page).map((state) => storyName("Page", state)).sort(), [
     "page/ask-session",
     "page/contract-accepted",
@@ -485,9 +533,121 @@ test("FixtureTransport: page's keys are exactly the 11 catalog names of its scen
     "page/epic-shipped",
     "page/epic-talk",
     "page/inbox-home",
+    "page/keys",
+    "page/new-empty",
+    "page/new-error",
+    "page/new-form",
+    "page/new-none",
+    "page/new-results",
+    "page/new-working",
     "page/phase-implement",
     "page/worker-running",
   ]);
+});
+
+test("FixtureTransport: page/new-empty draws New session with its field empty, its hint, and no result", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["new-empty"],
+    (root) => newPanel(root) !== null && fieldText(root) === "" && (newPanel(root)?.textContent ?? "").includes("Name a directory"),
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(newPanel(root)?.querySelectorAll(".pick-row").length, 0, "no result is drawn");
+    },
+  );
+});
+
+test("FixtureTransport: page/new-working draws New session with the words typed and the ask waiting", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["new-working"],
+    (root) => fieldText(root) === rosterWords && newPanel(root)?.querySelector(".count")?.textContent === "asking…",
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(newPanel(root)?.querySelectorAll(".pick-row").length, 0, "no result is drawn while the ask runs");
+    },
+  );
+});
+
+test("FixtureTransport: page/new-results draws the four results, each with its word, and the chip on the directory that starts with the words", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["new-results"],
+    (root) => newPanel(root)?.querySelectorAll(".pick-row").length === 4,
+    (root) => {
+      assertNoFailure(root);
+      const panel = newPanel(root);
+      assert.deepEqual(
+        [...(panel?.querySelectorAll(".pick-row .k") ?? [])].map((word) => word.textContent),
+        ["go to", "resume", "start in", "start in"],
+        "each row leads with its kind's word",
+      );
+      const rows = [...(panel?.querySelectorAll(".pick-row") ?? [])];
+      assert.ok(rows[0]?.classList.contains("cur"), "the first row is current");
+      assert.deepEqual(
+        rows.map((row) => row.querySelector(".chip.live") !== null),
+        [false, false, true, false],
+        "only the directory that starts with the words has the chip",
+      );
+    },
+  );
+});
+
+test("FixtureTransport: page/new-form draws the start form for the directory, its first message the words asked", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["new-form"],
+    (root) => newPanel(root)?.querySelector<HTMLTextAreaElement>('textarea[aria-label="message"]')?.value === rosterWords,
+    (root) => {
+      assertNoFailure(root);
+      const panel = newPanel(root);
+      assert.equal(panel?.querySelector<HTMLInputElement>('input[aria-label="Directory"]')?.value, "/home/owner/code/tidepool");
+      assert.equal(panel?.querySelector(".pick-row"), null, "the results give way to the form");
+    },
+  );
+});
+
+test("FixtureTransport: page/new-none says nothing was found for the words", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["new-none"],
+    (root) => (newPanel(root)?.querySelector(".inote")?.textContent ?? "").includes("Nothing found"),
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(fieldText(root), "harbour pilot", "the field keeps the words");
+    },
+  );
+});
+
+test("FixtureTransport: page/new-error draws the ask's reason, and the field keeps the words", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["new-error"],
+    (root) => newPanel(root)?.querySelector(".inote.error")?.textContent === askFailure,
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(fieldText(root), rosterWords, "the field keeps the words");
+    },
+  );
+});
+
+test("FixtureTransport: page/keys draws the key list over the page", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page.keys,
+    (root) => root.querySelector('[role="dialog"][aria-label="Keys"]') !== null,
+    (root) => {
+      assertNoFailure(root);
+      assert.ok(root.querySelector('[role="dialog"][aria-label="Keys"]') !== null, "the key list is drawn");
+    },
+  );
 });
 
 test("FixtureTransport: a story whose after rejects draws no failure and no error, and reports the rejection once", async (t) => {
