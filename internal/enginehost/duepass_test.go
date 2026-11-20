@@ -225,6 +225,13 @@ func TestDuePassKeepsStepRowDueWhileStepCapIsFull(t *testing.T) {
 		func() bool { return stepRowOf(t, rig.steps, id).LoopLimited },
 	)
 	requireGone(t, pid)
+	// The limited step's slot is freed once the manager has read its ended process to the end, which can follow the exit,
+	// so the holder starts only once no step slot is taken.
+	waitUntil(t, engineOf(rig.manager, rig.steps), "limited step slot freed", func() bool {
+		rig.manager.mu.Lock()
+		defer rig.manager.mu.Unlock()
+		return rig.manager.stepsRunning == 0
+	})
 	writeResumeNext(t, dir)
 	holder := startLimitProbe(t, rig, repo, revision, "STEPDONE")
 	at := time.Unix(probeResetUnix, 0).Add(dueGrace)
