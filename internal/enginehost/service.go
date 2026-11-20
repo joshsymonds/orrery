@@ -52,6 +52,23 @@ func Listen(socketPath string) (net.Listener, error) {
 	return ln, nil
 }
 
+// ServeConfig is what ServeWith serves. Each field is one of the services Serve takes, and the nil rules are
+// Serve's. Options apply to each handler.
+type ServeConfig struct {
+	Commands     Commands
+	Steps        StepCommands
+	Epics        EpicCommands
+	Steering     SteeringSessions
+	Pools        PoolCommands
+	Evidence     EvidenceCommands
+	Notices      NoticeSource
+	Crons        CronCommands
+	Changes      *ChangeFeed
+	Contracts    *Contracts
+	ReleaseSlots ReleaseSlotCommands
+	Options      []connect.HandlerOption
+}
+
 // Serve answers the engine service on ln with commands, the steps service with steps, the epics service with epics and
 // steering, the pools service with pools, the evidence service with evidence, the notices service with notices, the
 // crons service with crons, the changes service with changes and the contracts service with contracts until ctx ends.
@@ -64,7 +81,8 @@ func Listen(socketPath string) (net.Listener, error) {
 // session in the Orrery-Session header, and refuses a call with no such header as InvalidArgument. With steps served,
 // the engine refuses Say, Answer, Interrupt, Stop and Resume on a step id, Decline on a headless step id, and NotNow
 // and BringBack on a headless step id, since a step is driven only through the Steps service. opts apply to each of the
-// nine handlers.
+// ten handlers. Serve serves no release slots: it is ServeWith with ReleaseSlots nil, so the ReleaseSlots service is
+// served and refuses every RPC as unavailable.
 func Serve(
 	ctx context.Context,
 	ln net.Listener,
@@ -80,19 +98,43 @@ func Serve(
 	contracts *Contracts,
 	opts ...connect.HandlerOption,
 ) error {
-	path, handler := enginev1connect.NewEngineHandler(&service{commands: commands, steps: steps}, opts...)
+	return ServeWith(ctx, ln, ServeConfig{
+		Commands:  commands,
+		Steps:     steps,
+		Epics:     epics,
+		Steering:  steering,
+		Pools:     pools,
+		Evidence:  evidence,
+		Notices:   notices,
+		Crons:     crons,
+		Changes:   changes,
+		Contracts: contracts,
+		Options:   opts,
+	})
+}
+
+// ServeWith answers the services that cfg describes on ln until ctx ends, as Serve does, and also answers the release
+// slots service with cfg.ReleaseSlots. It then shuts down within shutdownWait and returns nil. A nil cfg.ReleaseSlots
+// refuses every ReleaseSlots RPC as unavailable. The other fields keep Serve's nil rules, and cfg.Options apply to each
+// handler.
+func ServeWith(ctx context.Context, ln net.Listener, cfg ServeConfig) error {
+	opts := cfg.Options
+	path, handler := enginev1connect.NewEngineHandler(&service{commands: cfg.Commands, steps: cfg.Steps}, opts...)
 	stepsPath, stepsHandler := enginev1connect.NewStepsHandler(
-		&stepService{steps: steps},
+		&stepService{steps: cfg.Steps},
 		opts...)
 	epicsPath, epicsHandler := enginev1connect.NewEpicsHandler(
-		&epicService{epics: epics, steps: steps, steering: steering}, opts...)
-	poolsPath, poolsHandler := enginev1connect.NewPoolsHandler(&poolService{pools: pools}, opts...)
-	evidencePath, evidenceHandler := enginev1connect.NewEvidenceHandler(&evidenceService{evidence: evidence}, opts...)
-	noticesPath, noticesHandler := enginev1connect.NewNoticesHandler(&noticesService{notices: notices}, opts...)
-	cronsPath, cronsHandler := enginev1connect.NewCronsHandler(cronService{crons: crons}, opts...)
-	changesPath, changesHandler := NewChangesHandler(changes, opts...)
+		&epicService{epics: cfg.Epics, steps: cfg.Steps, steering: cfg.Steering}, opts...)
+	poolsPath, poolsHandler := enginev1connect.NewPoolsHandler(&poolService{pools: cfg.Pools}, opts...)
+	evidencePath, evidenceHandler := enginev1connect.NewEvidenceHandler(
+		&evidenceService{evidence: cfg.Evidence}, opts...)
+	noticesPath, noticesHandler := enginev1connect.NewNoticesHandler(&noticesService{notices: cfg.Notices}, opts...)
+	cronsPath, cronsHandler := enginev1connect.NewCronsHandler(cronService{crons: cfg.Crons}, opts...)
+	changesPath, changesHandler := NewChangesHandler(cfg.Changes, opts...)
 	contractsPath, contractsHandler := enginev1connect.NewContractsHandler(
-		&contractService{contracts: contracts}, opts...)
+		&contractService{contracts: cfg.Contracts}, opts...)
+	releaseSlotsPath, releaseSlotsHandler := enginev1connect.NewReleaseSlotsHandler(
+		releaseSlotService{slots: cfg.ReleaseSlots}, opts...)
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)
 	mux.Handle(stepsPath, stepsHandler)
@@ -103,6 +145,7 @@ func Serve(
 	mux.Handle(cronsPath, cronsHandler)
 	mux.Handle(changesPath, changesHandler)
 	mux.Handle(contractsPath, contractsHandler)
+	mux.Handle(releaseSlotsPath, releaseSlotsHandler)
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: readHeaderTimeout}
 
 	done := make(chan error, 1)

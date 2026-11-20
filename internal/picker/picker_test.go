@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,7 +13,6 @@ import (
 	"strings"
 	"syscall"
 	"testing"
-	"time"
 
 	"golang.org/x/sys/unix"
 
@@ -78,7 +78,7 @@ func TestPickerPane(t *testing.T) {
 		t.Fatalf("tmux client: %v", err)
 	}
 	if spec.Gate != "" {
-		waitUntil(t, "the gate", func() bool {
+		waitUntil(t, []string{filepath.Dir(spec.Gate)}, "the gate", func() bool {
 			_, err := os.Stat(spec.Gate)
 			return err == nil
 		})
@@ -165,6 +165,8 @@ type fixture struct {
 	actions       []open.Action // non-empty: the picker pane calls Choose with these instead of Run
 	spec          string
 	result        string
+	// dirs are the directories the fixture's waits watch: the fake claude's and each picker's.
+	dirs []string
 }
 
 // newFixture starts the target pane and installs the fake claude, which exits with claudeStatus and otherwise replies
@@ -194,6 +196,7 @@ func newFixture(t *testing.T, claudeStatus int) *fixture {
 
 	reply := fmt.Sprintf("pane d1\njump %s\ntask: yes\n", f.targetPane)
 	f.claude = installFake(t, "fake-claude", "claude", reply, claudeStatus)
+	f.dirs = append(f.dirs, filepath.Dir(f.claude))
 	f.hold = filepath.Join(filepath.Dir(f.claude), "hold")
 	// The fakes' dirs were made after the server, so stop it again first: a held fake claude writes into its dir.
 	t.Cleanup(func() { stopPickerServer(t, server) })
@@ -213,6 +216,8 @@ func (f *fixture) startPicker(t *testing.T) {
 	dir := t.TempDir()
 	// The picker writes its result here, so its server stops before this dir is removed.
 	t.Cleanup(func() { stopPickerServer(t, f.server) })
+	// The picker publishes its result in dir, and the pane's output is piped into dir, so waits on either watch it.
+	f.dirs = append(f.dirs, dir)
 	f.spec = filepath.Join(dir, "spec.json")
 	f.result = filepath.Join(dir, "result.json")
 	if f.gated {
@@ -241,6 +246,10 @@ func (f *fixture) startPicker(t *testing.T) {
 		childEnv, shellQuote(f.spec), shellQuote(exe), shellQuote("-test.run=^TestPickerPane$"))
 	mustRun(t, f.client, "new-session", "-d", "-s", "picker", "-x", paneWidth, "-y", paneHeight, "-c", f.root, command)
 	f.pane = trimLine(mustRun(t, f.client, "display-message", "-p", "-t", "picker", "#{pane_id}"))
+	// Each chunk of the pane's output is appended to output once tmux has applied it to the pane, so a frame wait
+	// rechecks the frame after each chunk. A '#' is doubled, since pipe-pane expands formats in its command.
+	output := filepath.Join(dir, "pane-output")
+	mustRun(t, f.client, "pipe-pane", "-t", f.pane, "cat >> "+shellQuote(strings.ReplaceAll(output, "#", "##")))
 }
 
 // frame returns the picker pane's visible text.
@@ -252,7 +261,7 @@ func (f *fixture) frame(t *testing.T) string {
 // waitForFrame waits until the picker pane shows want.
 func (f *fixture) waitForFrame(t *testing.T, want string) {
 	t.Helper()
-	waitUntil(t, fmt.Sprintf("the picker to show %q", want), func() bool {
+	waitUntil(t, f.dirs, fmt.Sprintf("the picker to show %q", want), func() bool {
 		return strings.Contains(f.frame(t), want)
 	})
 }
@@ -298,7 +307,7 @@ func claudeRunFiles(t *testing.T, claude, name string) []string {
 func (f *fixture) awaitOutcome(t *testing.T) pickerOutcome {
 	t.Helper()
 	var outcome pickerOutcome
-	waitUntil(t, "the picker outcome", func() bool {
+	waitUntil(t, f.dirs, "the picker outcome", func() bool {
 		data, err := os.ReadFile(f.result)
 		if err != nil {
 			return false
@@ -315,7 +324,7 @@ func (f *fixture) awaitOutcome(t *testing.T) pickerOutcome {
 func (f *fixture) assertNoOutcome(t *testing.T, selected string) {
 	t.Helper()
 	f.sendKeys(t, "j")
-	waitUntil(t, "the cursor to leave "+strconv.Quote(selected), func() bool {
+	waitUntil(t, f.dirs, "the cursor to leave "+strconv.Quote(selected), func() bool {
 		if _, err := os.Stat(f.result); err == nil {
 			return true
 		}
@@ -338,13 +347,33 @@ func (f *fixture) awaitQueued(t *testing.T, n int) {
 		t.Fatalf("open the picker pane's terminal %s: %v", tty, err)
 	}
 	defer file.Close()
-	waitUntil(t, fmt.Sprintf("%d queued input bytes on %s", n, tty), func() bool {
-		queued, err := unix.IoctlGetInt(int(file.Fd()), unix.TIOCINQ)
+	queued := func() int {
+		got, err := unix.IoctlGetInt(int(file.Fd()), unix.TIOCINQ)
 		if err != nil {
 			t.Fatalf("read the input queue of %s: %v", tty, err)
 		}
-		return queued >= n
-	})
+		return got
+	}
+	fds := []unix.PollFd{{Fd: int32(file.Fd()), Events: unix.POLLIN}}
+	for {
+		if queued() >= n {
+			return
+		}
+		// On a terminal in canonical mode POLLIN is raised only once a complete line is queued, so the poll returns when
+		// the input the picker reads as a line has arrived. It has no deadline of its own, and is not polled again: a
+		// poll that returned POLLIN with fewer than n bytes queued fails the test below.
+		_, err := unix.Poll(fds, -1)
+		if errors.Is(err, unix.EINTR) {
+			continue
+		}
+		if err != nil {
+			t.Fatalf("poll the input of %s: %v", tty, err)
+		}
+		if got := queued(); got < n {
+			t.Fatalf("%s has %d bytes queued after input, want %d", tty, got, n)
+		}
+		return
+	}
 }
 
 // state is the sessions, the windows, and the entries under the root. A test asserts it is unchanged to show
@@ -389,7 +418,7 @@ func TestPickerDiscardsKeysTypedBeforeRender(t *testing.T) {
 	// Intent is held in the fake claude, so the picker has not rendered. The j moves the cursor if it reaches the
 	// list. The Enter reaches the terminal as a newline (ICRNL), which the picker reads as ctrl+j, so the j is what
 	// shows whether the queued keys were discarded.
-	waitUntil(t, "the fake claude run to start", func() bool { return claudeRuns(t, f.claude) > 0 })
+	waitUntil(t, f.dirs, "the fake claude run to start", func() bool { return claudeRuns(t, f.claude) > 0 })
 	f.sendKeys(t, "j")
 	f.sendKeys(t, "Enter")
 	// The j and the newline Enter becomes are a complete line queued on the terminal before the picker draws.
@@ -558,7 +587,7 @@ func TestPickerDirFirstRowOpensPaneWithPromptOnTask(t *testing.T) {
 	if got := f.sessionDir(t, outcome.Session); got != f.dir1 {
 		t.Fatalf("new session dir = %q, want %q", got, f.dir1)
 	}
-	waitUntil(t, "the Claude pane to start with the prompt", func() bool {
+	waitUntil(t, f.dirs, "the Claude pane to start with the prompt", func() bool {
 		for _, args := range claudeRunFiles(t, f.claude, "args") {
 			if strings.Contains(args, "\n"+testText+"\n") {
 				return true
@@ -616,7 +645,7 @@ func TestPickerNewReplyShowsOnlyRootPaneRow(t *testing.T) {
 	if want := []string{"dir-01", "dir-02"}; !slices.Equal(names, want) {
 		t.Fatalf("root entries = %q, want %q", names, want)
 	}
-	waitUntil(t, "the Claude pane to start with the prompt", func() bool {
+	waitUntil(t, f.dirs, "the Claude pane to start with the prompt", func() bool {
 		for _, args := range claudeRunFiles(t, f.claude, "args") {
 			if strings.Contains(args, "\n"+testText+"\n") {
 				return true
@@ -755,7 +784,7 @@ func TestChooseResumeRowsShowAndEnterRunsResume(t *testing.T) {
 		t.Fatalf("new session dir = %q, want %q", got, dir)
 	}
 	// The Claude pane starts after tmux creates the session, so its cwd is waited for; the fake writes cwd after args.
-	waitUntil(t, "the Claude pane to start with its cwd", func() bool {
+	waitUntil(t, f.dirs, "the Claude pane to start with its cwd", func() bool {
 		return slices.ContainsFunc(claudeRunFiles(t, f.claude, "cwd"), func(cwd string) bool { return cwd != "" })
 	})
 	if n := claudeRuns(t, f.claude); n != 1 {
@@ -836,7 +865,7 @@ func TestChooseArchiveResumeOffersKeptSessionAndRunsIt(t *testing.T) {
 		t.Fatalf("new session dir = %q, want %q", got, dir)
 	}
 	// The Claude pane starts after tmux creates the session, so its cwd is waited for; the fake writes cwd after args.
-	waitUntil(t, "the Claude pane to start with its cwd", func() bool {
+	waitUntil(t, f.dirs, "the Claude pane to start with its cwd", func() bool {
 		return slices.ContainsFunc(claudeRunFiles(t, f.claude, "cwd"), func(cwd string) bool { return cwd != "" })
 	})
 	if n := claudeRuns(t, f.claude); n != 1 {
@@ -868,12 +897,67 @@ func installFake(t *testing.T, src, name, reply string, status int) string {
 	return bin
 }
 
-// waitUntil polls cond until it holds; what names the condition. It has no deadline of its own: the picker, tmux and
-// the fake claude run at the machine's pace, and the test binary's timeout ends a wait that never ends.
-func waitUntil(t *testing.T, _ string, cond func() bool) {
+// watchMask is the inotify events a wait reads: an entry created, written, closed after writing, or moved in.
+const watchMask = unix.IN_CREATE | unix.IN_MODIFY | unix.IN_CLOSE_WRITE | unix.IN_MOVED_TO
+
+// waitUntil checks cond, then blocks until a change in one of dirs and checks again after each change; what names the
+// condition. The fixtures pass the directories their fakes and pickers write into, so a change in any of them signals
+// the wait. The watches are added before each check, so a change made after a check is an event the next read returns,
+// and one made before it is seen by cond. A fake claude's calls directory and its run directories are watched with the
+// directory that holds them. It has no deadline of its own: the test binary's timeout ends a wait that never ends.
+func waitUntil(t *testing.T, dirs []string, _ string, cond func() bool) {
 	t.Helper()
-	for !cond() {
-		time.Sleep(50 * time.Millisecond)
+	fd, err := unix.InotifyInit1(unix.IN_NONBLOCK | unix.IN_CLOEXEC)
+	if err != nil {
+		t.Fatalf("inotify: %v", err)
+	}
+	// The descriptor is non-blocking, so the runtime poller serves each read and Close ends a read that is waiting.
+	inotify := os.NewFile(uintptr(fd), "wait watch")
+	defer func() {
+		if err := inotify.Close(); err != nil {
+			t.Errorf("close wait watch: %v", err)
+		}
+	}()
+	buf := make([]byte, 4096)
+	for {
+		addWatches(t, fd, dirs)
+		if cond() {
+			return
+		}
+		if _, err := inotify.Read(buf); err != nil {
+			t.Fatalf("read watch events: %v", err)
+		}
+	}
+}
+
+// addWatches adds an inotify watch on each of dirs, and on the calls directory of each fake claude in them and that
+// directory's run directories, when they exist.
+func addWatches(t *testing.T, fd int, dirs []string) {
+	t.Helper()
+	for _, dir := range dirs {
+		if _, err := unix.InotifyAddWatch(fd, dir, watchMask); err != nil {
+			t.Fatalf("watch %s: %v", dir, err)
+		}
+		calls := filepath.Join(dir, "calls")
+		entries, err := os.ReadDir(calls)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			t.Fatalf("read %s: %v", calls, err)
+		}
+		if _, err := unix.InotifyAddWatch(fd, calls, watchMask); err != nil {
+			t.Fatalf("watch %s: %v", calls, err)
+		}
+		for _, entry := range entries {
+			if !strings.HasPrefix(entry.Name(), "run.") {
+				continue
+			}
+			run := filepath.Join(calls, entry.Name())
+			if _, err := unix.InotifyAddWatch(fd, run, watchMask); err != nil {
+				t.Fatalf("watch %s: %v", run, err)
+			}
+		}
 	}
 }
 

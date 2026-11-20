@@ -42,13 +42,14 @@ func TestRunnerStopsLimitedStepOnceAndFreesTurnAndPausesEpic(t *testing.T) {
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newLimitedSteps()
+	steps.watchStore(s)
 	var reads atomic.Int64
 	runRunner(t, limitRunnerConfig(s, steps, &reads))
 	waitForStarts(t, steps.fakeSteps, 1)
-	waitFor(t, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
+	waitFor(t, &steps.changeNotice, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
 
 	steps.hold()
-	waitFor(t, "the epic to be paused", func() bool { return epicOf(t, s).Paused })
+	waitFor(t, &steps.changeNotice, "the epic to be paused", func() bool { return epicOf(t, s).Paused })
 
 	epic := epicOf(t, s)
 	if turn := epic.Turns[0]; turn.State != "free" || turn.Reason != "stopped" {
@@ -68,10 +69,11 @@ func TestRunnerLimitedStepWithRejectedRateLimitPausesWithLimitReason(t *testing.
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newLimitedSteps()
+	steps.watchStore(s)
 	var reads atomic.Int64
 	runRunner(t, limitRunnerConfig(s, steps, &reads))
 	waitForStarts(t, steps.fakeSteps, 1)
-	waitFor(t, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
+	waitFor(t, &steps.changeNotice, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
 
 	if err := s.ApplyEngine(ctx, []store.EngineOp{store.EngineRateLimited{
 		ID: "step-1", Status: "rejected", Kind: "five_hour", ResetsAt: time.Unix(1700018000, 0),
@@ -79,7 +81,7 @@ func TestRunnerLimitedStepWithRejectedRateLimitPausesWithLimitReason(t *testing.
 		t.Fatalf("ApplyEngine: %v", err)
 	}
 	steps.hold()
-	waitFor(t, "the epic to be paused", func() bool { return epicOf(t, s).Paused })
+	waitFor(t, &steps.changeNotice, "the epic to be paused", func() bool { return epicOf(t, s).Paused })
 
 	const want = "five_hour rate limit, resets 2023-11-15T03:13:20Z"
 	if turn := epicOf(t, s).Turns[0]; turn.State != "free" || turn.Reason != want {
@@ -96,10 +98,11 @@ func TestRunnerLimitedStepWithRejectedRateLimitWithoutResetPausesWithUnknownRese
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newLimitedSteps()
+	steps.watchStore(s)
 	var reads atomic.Int64
 	runRunner(t, limitRunnerConfig(s, steps, &reads))
 	waitForStarts(t, steps.fakeSteps, 1)
-	waitFor(t, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
+	waitFor(t, &steps.changeNotice, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
 
 	if err := s.ApplyEngine(ctx, []store.EngineOp{store.EngineRateLimited{
 		ID: "step-1", Status: "rejected", Kind: "five_hour",
@@ -107,7 +110,7 @@ func TestRunnerLimitedStepWithRejectedRateLimitWithoutResetPausesWithUnknownRese
 		t.Fatalf("ApplyEngine: %v", err)
 	}
 	steps.hold()
-	waitFor(t, "the epic to be paused", func() bool { return epicOf(t, s).Paused })
+	waitFor(t, &steps.changeNotice, "the epic to be paused", func() bool { return epicOf(t, s).Paused })
 
 	const want = "five_hour rate limit, reset time unknown"
 	if turn := epicOf(t, s).Turns[0]; turn.State != "free" || turn.Reason != want {
@@ -120,12 +123,18 @@ func TestRunnerNotLimitedStepIsNeverStopped(t *testing.T) {
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newLimitedSteps()
+	steps.watchStore(s)
 	var reads atomic.Int64
 	runRunner(t, limitRunnerConfig(s, steps, &reads))
 	waitForStarts(t, steps.fakeSteps, 1)
-	waitFor(t, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
+	waitFor(t, &steps.changeNotice, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
 
-	waitFor(t, "the runner to subscribe to the open step", func() bool { return steps.subscribed("step-1") })
+	waitFor(
+		t,
+		&steps.changeNotice,
+		"the runner to subscribe to the open step",
+		func() bool { return steps.subscribed("step-1") },
+	)
 	if got := steps.stopCalls(); len(got) != 0 {
 		t.Errorf("Stop calls = %q, want none: the step's row is not limited", got)
 	}
@@ -134,7 +143,12 @@ func TestRunnerNotLimitedStepIsNeverStopped(t *testing.T) {
 	}
 
 	steps.end("step-1", store.StepRow{End: "done", Result: validPlan})
-	waitFor(t, "turn 1 to succeed", func() bool { return epicOf(t, s).Turns[0].State == "succeeded" })
+	waitFor(
+		t,
+		&steps.changeNotice,
+		"turn 1 to succeed",
+		func() bool { return epicOf(t, s).Turns[0].State == "succeeded" },
+	)
 	if got := steps.stopCalls(); len(got) != 0 {
 		t.Errorf("Stop calls after the step returned = %q, want none", got)
 	}
@@ -145,19 +159,25 @@ func TestRunnerFailedStopIsTriedAgainWhileRowStaysLimited(t *testing.T) {
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newLimitedSteps()
+	steps.watchStore(s)
 	steps.stopFailures = 1
-	timers := newHandTimers()
+	timers := newHandTimers(&steps.changeNotice)
 	var reads atomic.Int64
 	cfg := limitRunnerConfig(s, steps, &reads)
 	cfg.NewTimer = timers.newTimer
 	runRunner(t, cfg)
 	waitForStarts(t, steps.fakeSteps, 1)
-	waitFor(t, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
+	waitFor(t, &steps.changeNotice, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
 
 	steps.hold()
-	waitFor(t, "the retry timer of the failed stop to be armed", func() bool { return timers.count() == 1 })
+	waitFor(
+		t,
+		&steps.changeNotice,
+		"the retry timer of the failed stop to be armed",
+		func() bool { return timers.count() == 1 },
+	)
 	timers.fire(t, 0)
-	waitFor(t, "the epic to be paused", func() bool { return epicOf(t, s).Paused })
+	waitFor(t, &steps.changeNotice, "the epic to be paused", func() bool { return epicOf(t, s).Paused })
 
 	if got := len(steps.stopCalls()); got != 2 {
 		t.Errorf("Stop calls = %d, want 2: the first fails, and the retry timer stops the held step again", got)

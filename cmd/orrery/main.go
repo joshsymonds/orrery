@@ -147,6 +147,8 @@ subcommands:
   contract accept ID [WORDS]                    accept a proposed contract, with WORDS
   contract set-aside ID WORDS                   set a contract aside, with WORDS
   contract reopen ID [WORDS]                    reopen a set-aside contract, with WORDS
+  cron list                                     print this session's orrery cron jobs
+  cron delete ID                                cancel the orrery cron job ID of this session
   run --needs POOL=N [--needs POOL=N]... -- CMD [ARGS]
                                                 run CMD under a grant of pool members from orreryd
   run status                                    print the pools orreryd runs
@@ -154,6 +156,10 @@ subcommands:
   hold [--off] MEMBER                           place an owner hold on MEMBER through orreryd, or free it with --off
   step resume ID                                resume a step a usage limit holds, through orreryd
   step status ID                                print a step as one line of JSON, through orreryd
+  release-slot hold REPO --holder LABEL --limit DURATION [--wait]
+                                                hold REPO's slot for LABEL up to DURATION, at most 2h; --wait waits
+  release-slot give REPO --holder LABEL         give back LABEL's hold on REPO's release slot
+  release-slot show REPO                        print who holds REPO's release slot, or that it is free
   evidence run EPIC ITEM REVISION PHASE         run an item's evidence at a revision for one phase, red or green
   evidence list EPIC                            list an epic's evidence runs and the artifacts each kept
   evidence get RUN [NAME]                       write an artifact's bytes to stdout, or the run's log without NAME
@@ -287,11 +293,11 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 		return runMCP(ctx, opts, args, stdin, stdout, getenv)
 	case "epic":
 		return runEpic(ctx, opts, args, stdin, stdout, stderr, getenv)
-	case "contract":
-		return runContract(ctx, opts, args, stdout, getenv)
+	case "contract", cronVerb:
+		return contractOrCron(ctx, opts, name, args, stdout, getenv)
 	case "run", "gate", "evidence":
 		return orreryCommand(ctx, opts, name, args, stdin, stdout, stderr, getenv)
-	case "hold", "step":
+	case "hold", "step", "release-slot":
 		return runOwnerAction(ctx, opts, name, args, stdout, stderr, getenv)
 	case "holder":
 		return runHolder(ctx, args, stderr, getenv)
@@ -314,10 +320,24 @@ func dispatchTmux(ctx context.Context, opts globals, name string, args []string,
 	}
 }
 
-// runOwnerAction runs `orrery hold` or `orrery step`, the owner's commands that orreryd answers over the session socket
-// and that retry a call orreryd answers Unavailable. Only step writes to stdout.
+// contractOrCron runs `orrery contract` or `orrery cron`. Both call a service on the session socket with the caller's
+// session, and dispatch names them in one case.
+func contractOrCron(ctx context.Context, opts globals, name string, args []string, stdout io.Writer,
+	getenv func(string) string) error {
+	if name == cronVerb {
+		return runCron(ctx, opts, args, stdout, getenv)
+	}
+	return runContract(ctx, opts, args, stdout, getenv)
+}
+
+// runOwnerAction runs `orrery hold`, `orrery step` or `orrery release-slot`, the owner's commands that orreryd answers
+// over the session socket. hold and step retry a call orreryd answers Unavailable, and release-slot makes each call
+// once. Only step and release-slot write to stdout.
 func runOwnerAction(ctx context.Context, opts globals, name string, args []string, stdout, stderr io.Writer,
 	getenv func(string) string) error {
+	if name == "release-slot" {
+		return runReleaseSlot(ctx, opts, args, stdout, stderr, getenv)
+	}
 	if name == "step" {
 		return runStep(ctx, opts, args, stdout, stderr, getenv)
 	}
@@ -517,9 +537,9 @@ func openServeStores(getenv func(string) string, pushHosts []string) (*push.Stor
 	return pushStore, store.NewReader(dbPath), nil
 }
 
-// runMCP runs `orrery mcp`. It serves the step, epic and evidence tools over MCP on stdin and stdout until stdin closes.
-// The step, epic and evidence services are the ones on the session socket beside the daemon socket, so the command
-// opens no listener and no store.
+// runMCP runs `orrery mcp`. It serves the step, epic, contract, evidence and cron tools over MCP on stdin and stdout
+// until stdin closes. The step, epic, contract, evidence and cron services are the ones on the session socket beside
+// the daemon socket, so the command opens no listener and no store.
 func runMCP(ctx context.Context, opts globals, args []string, stdin io.Reader, stdout io.Writer,
 	getenv func(string) string) error {
 	if len(args) > 0 {
@@ -537,7 +557,9 @@ func runMCP(ctx context.Context, opts globals, args []string, stdin io.Reader, s
 	contracts := enginev1connect.NewContractsClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL,
 		connect.WithInterceptors(stepmcp.CallerInterceptor(getenv)))
 	evidence := enginev1connect.NewEvidenceClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL)
-	server, err := stepmcp.NewServer(steps, epics, contracts, evidence)
+	crons := enginev1connect.NewCronsClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL,
+		connect.WithInterceptors(stepmcp.CallerInterceptor(getenv)))
+	server, err := stepmcp.NewServer(steps, epics, contracts, evidence, stepmcp.WithCrons(crons))
 	if err != nil {
 		return fmt.Errorf("mcp: %w", err)
 	}

@@ -15,9 +15,10 @@ func TestTurnWriteRetryFlowDeadline(t *testing.T) {
 	t.Parallel()
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
-	faulty := &faultyStore{Store: s, write: "FreeTurn", err: errSettleWrite, failures: 1}
 	steps := newFakeSteps()
-	timers := newHandTimers()
+	steps.watchStore(s)
+	faulty := &faultyStore{Store: s, changes: &steps.changeNotice, write: "FreeTurn", err: errSettleWrite, failures: 1}
+	timers := newHandTimers(&steps.changeNotice)
 	var armedFor atomic.Int64
 	var reads atomic.Int64
 	cfg := runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads))
@@ -29,11 +30,16 @@ func TestTurnWriteRetryFlowDeadline(t *testing.T) {
 	}
 	runRunner(t, cfg)
 	waitForStarts(t, steps, 1)
-	waitFor(t, "step-1 to be subscribed", func() bool { return steps.subscribed("step-1") })
+	waitFor(t, &steps.changeNotice, "step-1 to be subscribed", func() bool { return steps.subscribed("step-1") })
 
 	// The step stops, so its turn is freed: the first FreeTurn fails with a retryable error.
 	steps.end("step-1", store.StepRow{End: "stopped"})
-	waitFor(t, "the retry timer of the failed FreeTurn to be armed", func() bool { return timers.count() == 1 })
+	waitFor(
+		t,
+		&steps.changeNotice,
+		"the retry timer of the failed FreeTurn to be armed",
+		func() bool { return timers.count() == 1 },
+	)
 	if got := time.Duration(armedFor.Load()); got != turnRetryWait {
 		t.Errorf("retry timer armed for %v, want the Retry duration %v", got, turnRetryWait)
 	}
@@ -42,7 +48,7 @@ func TestTurnWriteRetryFlowDeadline(t *testing.T) {
 	}
 
 	timers.fire(t, 0)
-	waitFor(t, "turn 1 to be freed by the retried FreeTurn", func() bool {
+	waitFor(t, &steps.changeNotice, "turn 1 to be freed by the retried FreeTurn", func() bool {
 		return epicOf(t, s).Turns[0].State == "free"
 	})
 	if got := faulty.calls.Load(); got != 2 {

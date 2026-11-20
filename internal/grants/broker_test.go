@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/joshsymonds/orrery/internal/pools"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/storetest"
@@ -179,6 +181,33 @@ func makeFifo(t *testing.T, path string) {
 	}
 }
 
+// awaitWrite waits until cond holds, rechecking it after each write that closes a file in the directory of path. The
+// directory is watched before the first check, so a write between two checks is not missed. It has no deadline of its
+// own.
+func awaitWrite(t *testing.T, path string, cond func() bool) {
+	t.Helper()
+	dir := filepath.Dir(path)
+	watch, err := unix.InotifyInit1(unix.IN_CLOEXEC)
+	if err != nil {
+		t.Fatalf("inotify_init1: %v", err)
+	}
+	defer func() {
+		if err := unix.Close(watch); err != nil {
+			t.Errorf("close inotify of %s: %v", dir, err)
+		}
+	}()
+	if _, err := unix.InotifyAddWatch(watch, dir, unix.IN_CLOSE_WRITE|unix.IN_MOVED_TO); err != nil {
+		t.Fatalf("watch %s: %v", dir, err)
+	}
+	events := make([]byte, 4096)
+	for !cond() {
+		// An interrupted read reports no event, and the recheck above then sees nothing new, so the loop reads again.
+		if _, err := unix.Read(watch, events); err != nil && !errors.Is(err, unix.EINTR) {
+			t.Fatalf("read inotify events of %s: %v", dir, err)
+		}
+	}
+}
+
 // awaitSignal reads the pipe at path until the fake command that opened it for writing has written to it.
 func awaitSignal(t *testing.T, path string) {
 	t.Helper()
@@ -239,6 +268,22 @@ func runningCommands(b *Broker, pool string) int {
 		return 0
 	}
 	return use.running
+}
+
+// endSignals makes b send on the returned channel each time a member command of b ends and the broker settles after
+// it. The channel holds one pending end and the send never blocks, so a caller that rechecks its condition after each
+// receive misses no end: an end before the recheck is pending, and an end after the install is sent.
+func endSignals(b *Broker) <-chan struct{} {
+	ends := make(chan struct{}, 1)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.ended = func() {
+		select {
+		case ends <- struct{}{}:
+		default:
+		}
+	}
+	return ends
 }
 
 // TestAcquireRefusesMalformedRequestsBeforeQueueing checks that a request that cannot be granted returns its refusal
@@ -537,9 +582,7 @@ func unavailableAfterFailure(t *testing.T, b *Broker, s *store.Store, c *call, s
 	if started != "" {
 		awaitSignal(t, started)
 	}
-	for runningCommands(b, "p") != 0 {
-		time.Sleep(time.Millisecond)
-	}
+	await(t, b, func() bool { return runningCommands(b, "p") == 0 })
 	b.Close()
 	if err := c.finish(t); !errors.Is(err, ErrClosed) {
 		t.Fatalf("Acquire = %v, want ErrClosed", err)

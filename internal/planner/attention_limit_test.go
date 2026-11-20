@@ -15,17 +15,18 @@ func TestRunnerRejectedLimitWithNoResetTimeSendsOneNotice(t *testing.T) {
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newFakeSteps()
+	steps.watchStore(s)
 	var reads atomic.Int64
 	runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
 	waitForStarts(t, steps, 1)
-	waitFor(t, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
+	waitFor(t, &steps.changeNotice, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
 	if err := s.ApplyEngine(ctx, []store.EngineOp{store.EngineRateLimited{
 		ID: "step-1", Status: "rejected", Kind: "five_hour",
 	}}, claimedAt()); err != nil {
 		t.Fatalf("ApplyEngine: %v", err)
 	}
 	steps.end("step-1", store.StepRow{End: "checks_failed", Reason: "tasks[0] wrong"})
-	waitFor(t, "the epic to be paused", func() bool { return epicOf(t, s).Paused })
+	waitFor(t, &steps.changeNotice, "the epic to be paused", func() bool { return epicOf(t, s).Paused })
 	router := &fakeAttentionRouter{}
 	attention := attentionOver(s, router)
 

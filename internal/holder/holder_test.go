@@ -234,88 +234,136 @@ func requireChildGroupAlive(t *testing.T, pgid int) {
 	}
 }
 
-// awaitLockFree waits until the session lock in dir is free to take. A process forked while the lock is open holds a
-// copy of its descriptor until that process execs, so a parallel test's fork can keep the lock busy for a moment after
-// the holder has closed it. A lock the holder never released keeps the wait going until the test binary's timeout.
-func awaitLockFree(t *testing.T, dir string) {
-	t.Helper()
-	path := filepath.Join(dir, LockName)
+// flockBlocking takes an exclusive flock on fd, blocking until the kernel grants it. A signal that interrupts the wait
+// restarts it.
+func flockBlocking(fd int) error {
 	for {
-		lock, err := Lock(path)
-		if err == nil {
-			if cerr := lock.Close(); cerr != nil {
-				t.Fatalf("close session lock: %v", cerr)
-			}
-			return
+		err := syscall.Flock(fd, syscall.LOCK_EX)
+		if !errors.Is(err, syscall.EINTR) {
+			return err
 		}
-		time.Sleep(holderPoll)
 	}
 }
 
-// heldLockID returns how the kernel's lock table names the session lock file in dir, which the live holder that dir's
-// pids record names must hold: the MAJOR:MINOR:INODE field of the holder's line in /proc/locks. The device there need
-// not be the one stat reports, as on btrfs, so it is read from the holder's own line rather than computed.
-//
-// The kernel lists /proc/locks a page at a time and walks its lock lists again, by position, for each page, so a lock
-// released before the holder's line between two pages shifts that line past the next page's start and one read can miss
-// it. The holder holds its lock all along, so heldLockID reads the table again until the line is there, with no
-// deadline of its own. It fails at once if the holder has stopped running, since its lock is gone with it.
+// holdSessionLock opens the file at path with flag, waits in a blocking flock until the kernel grants it, runs use with
+// the lock held, and closes the file, which releases the lock. The wait and use run with syscall.ForkLock held for
+// reading, which Go's forks take for writing, so no fork can copy the descriptor while the lock is held and keep the
+// lock busy after the release. A copy from a fork that began earlier lasts until its child execs, and the flock waits
+// out that exec like any other holder, so the wait ends when the lock's last holder lets go. A holder that never does
+// keeps the wait going until the test binary's timeout.
+func holdSessionLock(path string, flag int, use func(file *os.File) error) error {
+	file, err := os.OpenFile(path, flag, lockFileMode)
+	if err != nil {
+		return fmt.Errorf("open session lock: %w", err)
+	}
+	syscall.ForkLock.RLock()
+	defer syscall.ForkLock.RUnlock()
+	if err = flockBlocking(int(file.Fd())); err != nil {
+		return errors.Join(fmt.Errorf("take session lock: %w", err), file.Close())
+	}
+	return errors.Join(use(file), file.Close())
+}
+
+// awaitLockFree waits until the session lock in dir is free to take, and leaves it free. A lock the holder never
+// released keeps the wait going until the test binary's timeout.
+func awaitLockFree(t *testing.T, dir string) {
+	t.Helper()
+	noUse := func(*os.File) error { return nil }
+	if err := holdSessionLock(filepath.Clean(filepath.Join(dir, LockName)), os.O_RDWR|os.O_CREATE, noUse); err != nil {
+		t.Fatalf("wait for the session lock to be free: %v", err)
+	}
+}
+
+// lockIDOnFile returns the MAJOR:MINOR:INODE field of the lock process pid holds on the file at path, as the kernel names
+// it, and false when pid holds no lock on path. The kernel writes a descriptor's lock list in its fdinfo, and that list
+// holds only the descriptor's own locks, so one read sees all of them. /proc/locks is read a page at a time and can miss
+// a line, which is why this reads the holder's descriptor instead. The device in the id need not be the one stat reports,
+// as on btrfs, so the id is read from the kernel's line rather than computed.
+func lockIDOnFile(pid int, path string) (string, bool, error) {
+	proc := filepath.Join("/proc", strconv.Itoa(pid))
+	fds, err := os.ReadDir(filepath.Join(proc, "fd"))
+	if err != nil {
+		return "", false, fmt.Errorf("list the descriptors of process %d: %w", pid, err)
+	}
+	for _, fd := range fds {
+		target, err := os.Readlink(filepath.Join(proc, "fd", fd.Name()))
+		if errors.Is(err, fs.ErrNotExist) {
+			continue // the descriptor closed while it was read
+		}
+		if err != nil {
+			return "", false, fmt.Errorf("read descriptor %s of process %d: %w", fd.Name(), pid, err)
+		}
+		if target != path {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(proc, "fdinfo", fd.Name()))
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return "", false, fmt.Errorf("read the fdinfo of descriptor %s of process %d: %w", fd.Name(), pid, err)
+		}
+		for line := range strings.Lines(string(raw)) {
+			rest, isLock := strings.CutPrefix(line, "lock:")
+			if !isLock {
+				continue
+			}
+			// The line reads: number, class, mode, access, pid, MAJOR:MINOR:INODE, start, end.
+			fields := strings.Fields(rest)
+			if len(fields) > 5 && fields[4] == strconv.Itoa(pid) {
+				return fields[5], true, nil
+			}
+		}
+	}
+	return "", false, nil
+}
+
+// heldLockID returns how the kernel names the session lock file in dir, which the live holder that dir's pids record
+// names must hold: the MAJOR:MINOR:INODE field of the holder's lock. The holder takes the lock before it writes the pids
+// record, so the lock is already held when the record is read and no wait is needed. It fails if the holder holds no
+// lock on the file, which means the holder has stopped and its lock is gone with it.
 func heldLockID(t *testing.T, dir string) string {
 	t.Helper()
 	pids, err := ReadPids(dir)
 	if err != nil {
 		t.Fatalf("read the holder's pids: %v", err)
 	}
-	info, err := os.Stat(filepath.Join(dir, LockName))
+	path, err := filepath.EvalSymlinks(filepath.Join(dir, LockName))
 	if err != nil {
-		t.Fatalf("stat session lock: %v", err)
+		t.Fatalf("resolve the session lock's path: %v", err)
 	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
+	id, ok, err := lockIDOnFile(pids.Holder, path)
+	if err != nil {
+		t.Fatalf("read the holder's lock: %v", err)
+	}
 	if !ok {
-		t.Fatalf("stat of the session lock is %T, want *syscall.Stat_t", info.Sys())
+		t.Fatalf("holder %d holds no lock on %s: it stopped, or never took the lock", pids.Holder, path)
 	}
-	inode := fmt.Sprintf(":%d", stat.Ino)
-	for {
-		for _, fields := range lockTable(t) {
-			if fields[4] == strconv.Itoa(pids.Holder) && strings.HasSuffix(fields[5], inode) {
-				return fields[5]
-			}
-		}
-		if !procRunning(t, pids.Holder, pids.HolderStart) {
-			t.Fatalf("holder %d never listed its session lock in /proc/locks: it stopped first", pids.Holder)
-		}
-		time.Sleep(holderPoll)
-	}
+	return id
 }
 
-// awaitLockUnheld waits until the kernel's lock table holds no lock on the file it names id, as heldLockID returns it,
-// with no deadline of its own. It never opens the lock file, so unlike awaitLockFree it leaves no
-// descriptor that a parallel test's fork could copy and so keep the lock held. Stop takes and releases the lock in this
-// process, and a fork in that window holds the lock for a moment after Stop returns, so a test that next probes the
-// lock waits here first.
-//
-// A read of /proc/locks can miss a line that is there (see heldLockID), so the table alone cannot show the lock gone.
-// Once Stop has returned, the only open files that can still hold the lock are copies of Stop's in children this
-// process forked and has not yet exec'd, so the lock counts as unheld only when, besides, no child of this process has
-// the lock file in dir open.
+// awaitLockUnheld waits until no open file description holds the session lock in dir, with no deadline of its own. It
+// waits by taking the lock: the blocking flock returns once the last holder lets go, which Stop's own descriptor does
+// when Run closes it, and a copy of that descriptor does at its child's exec. The lock is released again at once, and
+// the lock the wait cleared must be the one heldLockID named, id.
 func awaitLockUnheld(t *testing.T, dir, id string) {
 	t.Helper()
 	path, err := filepath.EvalSymlinks(filepath.Join(dir, LockName))
 	if err != nil {
 		t.Fatalf("resolve the session lock's path: %v", err)
 	}
-	for {
-		held := childHasOpen(t, path)
-		for _, fields := range lockTable(t) {
-			if fields[5] == id {
-				held = true
-				break
-			}
-		}
-		if !held {
-			return
-		}
-		time.Sleep(holderPoll)
+	var got string
+	var held bool
+	err = holdSessionLock(path, os.O_RDONLY, func(*os.File) error {
+		var lookErr error
+		got, held, lookErr = lockIDOnFile(os.Getpid(), path)
+		return lookErr
+	})
+	if err != nil {
+		t.Fatalf("wait for the session lock to be unheld: %v", err)
+	}
+	if !held || got != id {
+		t.Fatalf("the session lock the wait cleared is %s (held %v), want %s", got, held, id)
 	}
 }
 
@@ -346,24 +394,6 @@ func childHasOpen(t *testing.T, path string) bool {
 		}
 	}
 	return false
-}
-
-// lockTable returns the fields of each lock line of /proc/locks: number, class, mode, access, pid and
-// MAJOR:MINOR:INODE come first. A waiter's line, marked "->", is left out: a waiter holds nothing.
-func lockTable(t *testing.T) [][]string {
-	t.Helper()
-	raw, err := os.ReadFile("/proc/locks")
-	if err != nil {
-		t.Fatalf("read the kernel's lock table: %v", err)
-	}
-	var table [][]string
-	for line := range strings.Lines(string(raw)) {
-		fields := strings.Fields(line)
-		if len(fields) > 5 && fields[1] != "->" {
-			table = append(table, fields)
-		}
-	}
-	return table
 }
 
 func TestHolderHelloAnswersWireVersionAndSessionToAnyController(t *testing.T) {

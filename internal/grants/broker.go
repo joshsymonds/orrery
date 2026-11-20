@@ -153,6 +153,9 @@ type Broker struct {
 	retryStop  func() bool
 	// cancels holds the cancel of each member command in flight, by command id.
 	cancels map[uint64]context.CancelFunc
+	// ended, when set, runs under mu after each member command ends and the broker settles. Production leaves it nil;
+	// the tests set it to wait for a command to end.
+	ended func()
 }
 
 // poolUse is a pool in use: its definition, its members by name, and how many member commands run for it.
@@ -1327,6 +1330,9 @@ func (b *Broker) finish(ctx context.Context, cmd command, outcome Outcome, err e
 			"pool", cmd.use.def.Name, "member", cmd.member.name, "err", err)
 	}
 	b.settleLocked(ctx)
+	if b.ended != nil {
+		b.ended()
+	}
 }
 
 // settledState is the state a member command leaves its member in. prior is the member's state before the command

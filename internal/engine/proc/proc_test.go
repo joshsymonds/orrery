@@ -12,6 +12,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 // echoLoop copies each stdin line to stdout until stdin closes.
@@ -116,15 +118,32 @@ func readPID(t *testing.T, path string) int {
 	return pid
 }
 
-// waitGone waits until pid no longer exists. It has no deadline of its own.
+// waitGone waits until pid no longer exists. A pidfd for the process becomes readable when the process
+// exits, so the wait blocks in the kernel until then. It has no deadline of its own.
 func waitGone(t *testing.T, pid int) {
 	t.Helper()
-	for {
-		err := syscall.Kill(pid, 0)
-		if errors.Is(err, syscall.ESRCH) {
-			return
+	fd, err := unix.PidfdOpen(pid, 0)
+	if errors.Is(err, syscall.ESRCH) {
+		return
+	}
+	if err != nil {
+		t.Fatalf("open pidfd of %d: %v", pid, err)
+	}
+	defer func() {
+		if err := unix.Close(fd); err != nil {
+			t.Errorf("close pidfd of %d: %v", pid, err)
 		}
-		time.Sleep(10 * time.Millisecond)
+	}()
+	fds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}
+	for {
+		_, err := unix.Poll(fds, -1)
+		if errors.Is(err, syscall.EINTR) {
+			continue
+		}
+		if err != nil {
+			t.Fatalf("wait on pidfd of %d: %v", pid, err)
+		}
+		return
 	}
 }
 

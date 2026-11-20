@@ -19,25 +19,47 @@ import (
 	"github.com/joshsymonds/orrery/internal/rpcretry"
 )
 
+// Option configures NewServer.
+type Option func(*serverOptions)
+
+// serverOptions is what the options of NewServer set. A nil crons leaves the cron tools to answer each call with a tool
+// error.
+type serverOptions struct {
+	crons enginev1connect.CronsClient
+}
+
+// WithCrons returns the option that makes the cron tools call crons.
+func WithCrons(crons enginev1connect.CronsClient) Option {
+	return func(opts *serverOptions) {
+		opts.crons = crons
+	}
+}
+
 // NewServer returns the MCP server "orrery" whose step tools call steps, whose epic tools call epics, whose contract
-// tools call contracts and whose evidence tools call evidence.
+// tools call contracts, whose evidence tools call evidence and whose cron tools call the crons that opts set.
 func NewServer(
 	steps enginev1connect.StepsClient,
 	epics enginev1connect.EpicsClient,
 	contracts enginev1connect.ContractsClient,
 	evidence enginev1connect.EvidenceClient,
+	opts ...Option,
 ) (*Server, error) {
-	return newServer(steps, epics, contracts, evidence, rpcretry.SystemClock{})
+	var set serverOptions
+	for _, opt := range opts {
+		opt(&set)
+	}
+	return newServer(steps, epics, contracts, evidence, set.crons, rpcretry.SystemClock{})
 }
 
 // newServer returns the MCP server "orrery" whose step tools call steps and time their retries on clock, whose epic
-// tools call epics, whose contract tools call contracts and whose evidence tools call evidence. A tool name that two
-// tools share is an error.
+// tools call epics, whose contract tools call contracts, whose evidence tools call evidence and whose cron tools call
+// crons. A tool name that two tools share is an error.
 func newServer(
 	steps enginev1connect.StepsClient,
 	epics enginev1connect.EpicsClient,
 	contracts enginev1connect.ContractsClient,
 	evidence enginev1connect.EvidenceClient,
+	crons enginev1connect.CronsClient,
 	clock rpcretry.Clock,
 ) (*Server, error) {
 	stepList, err := stepTools(steps, clock)
@@ -56,7 +78,11 @@ func newServer(
 	if err != nil {
 		return nil, fmt.Errorf("new orrery server: %w", err)
 	}
-	tools := slices.Concat(stepList, epicList, contractList, evidenceList)
+	cronList, err := cronTools(crons)
+	if err != nil {
+		return nil, fmt.Errorf("new orrery server: %w", err)
+	}
+	tools := slices.Concat(stepList, epicList, contractList, evidenceList, cronList)
 	names := make(map[string]bool, len(tools))
 	for _, tool := range tools {
 		if names[tool.Name] {

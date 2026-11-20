@@ -5,12 +5,14 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/cli"
 	"github.com/joshsymonds/orrery/internal/protocol"
@@ -21,13 +23,15 @@ import (
 // Every test server starts with -f /dev/null so the user's tmux config never applies.
 const (
 	listNoConfig       = "/dev/null"
-	listTestCommand    = "sleep 300"
 	listGoldenPath     = "testdata/list.golden.json"
 	listGoldenHost     = "example-host"
 	listGoldenCwd      = "/home/user/project"
 	listGoldenActivity = "1700000300"
-	listPollEvery      = 10 * time.Millisecond
 	listExampleTool    = `{"id":"toolu_example","name":"Bash","input":"go test ./...","start":1700000400}`
+	// listExecFIFOEnv names the FIFO that a pane's exec helper opens for writing, and listExecProgramEnv names the
+	// program the helper execs.
+	listExecFIFOEnv    = "ORRERY_LIST_EXEC_FIFO"
+	listExecProgramEnv = "ORRERY_LIST_EXEC_PROGRAM"
 )
 
 // listActivityPattern matches a printed activity value, which is the session's own last-activity time.
@@ -53,13 +57,57 @@ func listNewServer(t *testing.T) *tmuxctl.Client {
 	return client
 }
 
-// listStartSession creates detached session name in dir running a long-lived command.
-func listStartSession(t *testing.T, client *tmuxctl.Client, name, dir string) {
+// listStartSession creates detached session name in dir running command.
+func listStartSession(t *testing.T, client *tmuxctl.Client, name, dir, command string) {
 	t.Helper()
 	if _, err := client.Run(t.Context(), "-f", listNoConfig, "new-session", "-d", "-s", name, "-c", dir,
-		listTestCommand); err != nil {
+		command); err != nil {
 		t.Fatalf("new-session %s: %v", name, err)
 	}
+}
+
+// listFIFO creates the FIFO that the exec helper of the pane of name opens, and returns its path.
+func listFIFO(t *testing.T, name string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), name+".fifo")
+	if err := syscall.Mkfifo(path, 0o600); err != nil {
+		t.Fatalf("mkfifo %s: %v", path, err)
+	}
+	return path
+}
+
+// listExecCommand returns the shell command of a pane that runs the exec helper, TestListExecHelper, with fifo. The
+// helper execs the sleep program, so the pane's command is sleep once it has started.
+func listExecCommand(t *testing.T, fifo string) string {
+	t.Helper()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatalf("find the test binary: %v", err)
+	}
+	sleep, err := exec.LookPath("sleep")
+	if err != nil {
+		t.Fatalf("find sleep: %v", err)
+	}
+	return fmt.Sprintf("%s='%s' %s='%s' '%s' '-test.run=^TestListExecHelper$'",
+		listExecFIFOEnv, fifo, listExecProgramEnv, sleep, exe)
+}
+
+// TestListExecHelper is not a test. A pane that listExecCommand starts re-runs the test binary with listExecFIFOEnv set
+// to run it: the helper opens the FIFO for writing, then execs the sleep program. The descriptor is close-on-exec, so
+// the kernel closes it as the exec replaces the helper. Without the variable it does nothing.
+func TestListExecHelper(_ *testing.T) {
+	fifo := os.Getenv(listExecFIFOEnv)
+	if fifo == "" {
+		return
+	}
+	// syscall.Open leaves no *os.File whose finalizer could close the descriptor before the exec.
+	if _, err := syscall.Open(fifo, syscall.O_WRONLY|syscall.O_CLOEXEC, 0); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		syscall.Exit(1)
+	}
+	err := syscall.Exec(os.Getenv(listExecProgramEnv), []string{"sleep", "300"}, os.Environ())
+	fmt.Fprintln(os.Stderr, err)
+	syscall.Exit(1)
 }
 
 // listPaneIDs returns the pane IDs of session in creation order.
@@ -72,15 +120,23 @@ func listPaneIDs(t *testing.T, client *tmuxctl.Client, session string) []string 
 	return strings.Fields(out)
 }
 
-// listWaitForExec polls pane until the pane's own process has exec'd want, and so runs it: its /proc comm is want. It
-// has no deadline of its own: tmux and the shell run at the machine's pace, and the test binary's timeout ends a wait
-// that never ends. The pane's foreground command, which tmux reports, is no such test: while the pane's shell starts,
-// tmux can report want and then the shell again before the exec, so a wait that saw want once could list the shell
-// next. An exec does not go back, and after it the pane's foreground command is want and stays so.
-func listWaitForExec(t *testing.T, client *tmuxctl.Client, pane, want string) {
+// listWaitForExec waits until the pane whose exec helper holds the write end of fifo has exec'd its sleep command. It
+// opens fifo for reading, which waits for the helper to open it for writing, then reads to the end of the file. That end
+// comes when the helper's descriptor closes at the exec, so the wait returns exactly when the pane's process has become
+// sleep. It has no deadline of its own: the test binary's timeout ends a wait that never ends.
+func listWaitForExec(t *testing.T, fifo string) {
 	t.Helper()
-	for !listPaneExeced(t, client, pane, want) {
-		time.Sleep(listPollEvery)
+	r, err := os.Open(fifo)
+	if err != nil {
+		t.Fatalf("open %s: %v", fifo, err)
+	}
+	defer func() {
+		if err := r.Close(); err != nil {
+			t.Errorf("close %s: %v", fifo, err)
+		}
+	}()
+	if _, err := io.Copy(io.Discard, r); err != nil {
+		t.Fatalf("read %s: %v", fifo, err)
 	}
 }
 
@@ -114,19 +170,28 @@ func TestListJSON(t *testing.T) {
 		t.Fatalf("EvalSymlinks: %v", err)
 	}
 
-	listStartSession(t, client, "example-a", dir)
-	if _, err := client.Run(t.Context(), "split-window", "-t", "example-a", "-c", dir, listTestCommand); err != nil {
+	fifoA := listFIFO(t, "example-a")
+	listStartSession(t, client, "example-a", dir, listExecCommand(t, fifoA))
+	fifoSplit := listFIFO(t, "example-a-split")
+	if _, err := client.Run(t.Context(), "split-window", "-t", "example-a", "-c", dir,
+		listExecCommand(t, fifoSplit)); err != nil {
 		t.Fatalf("split-window: %v", err)
 	}
-	listStartSession(t, client, "example-b", dir)
+	fifoB := listFIFO(t, "example-b")
+	listStartSession(t, client, "example-b", dir, listExecCommand(t, fifoB))
 
 	panesA := listPaneIDs(t, client, "example-a")
 	panesB := listPaneIDs(t, client, "example-b")
 	if len(panesA) != 2 || len(panesB) != 1 {
 		t.Fatalf("pane IDs example-a=%v example-b=%v, want 2 and 1", panesA, panesB)
 	}
+	for _, fifo := range []string{fifoA, fifoSplit, fifoB} {
+		listWaitForExec(t, fifo)
+	}
 	for _, pane := range append(panesA, panesB...) {
-		listWaitForExec(t, client, pane, "sleep")
+		if !listPaneExeced(t, client, pane, "sleep") {
+			t.Fatalf("pane %s has not exec'd sleep after its helper's exec", pane)
+		}
 	}
 
 	listSetOption(t, client, panesA[0], protocol.OptionState, string(protocol.StateWaiting))

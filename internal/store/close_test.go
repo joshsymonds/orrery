@@ -165,9 +165,9 @@ func TestCloseEpicFreesTheHeldReleaseSlot(t *testing.T) {
 	if _, err := s.TakeReleaseSlot(ctx, claimEpic, claimedAt()); err != nil {
 		t.Fatalf("TakeReleaseSlot: %v", err)
 	}
-	holder, err := s.fixtureQueries().GetEpicReleaseSlotHolder(ctx, row.Repository)
-	if err != nil || holder != claimEpic {
-		t.Fatalf("slot holder before the close = %q, %v; want %s", holder, err, claimEpic)
+	slot, err := s.fixtureQueries().GetEpicReleaseSlotHolder(ctx, row.Repository)
+	if err != nil || slot.Epic != claimEpic {
+		t.Fatalf("slot holder before the close = %q, %v; want %s", slot.Epic, err, claimEpic)
 	}
 
 	if _, err = s.CloseEpic(
