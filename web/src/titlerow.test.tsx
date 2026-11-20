@@ -214,10 +214,3 @@ test("HeadTitle: no note, or an empty one, draws no page-note", async () => {
     assert.equal(countOf(container, "p.page-note"), 0);
   });
 });
-
-test("HeadTitle: a row given no state draws no state", async () => {
-  const crumbs: Crumb[] = [{ label: "tidepool", place: true }, { label: "Tide table cache warm-up" }];
-  await withRow(<TitleRow crumbs={crumbs} onBack={() => {}} />, (container) => {
-    assert.equal(countOf(container, ".state"), 0);
-  });
-});

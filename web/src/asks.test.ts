@@ -66,7 +66,7 @@ function makeTask(init: MessageInitShape<typeof BackgroundTaskSchema>): Backgrou
 
 const rotaLine: AskLine = { epic: "repo-a/rota-export", slug: "rota-export", text: "asks: Use Postgres?", way: "Answer" };
 
-test("Band: steeredEpics keeps listing order and only live, unarchived epics whose steering is the id", () => {
+test("Band: steeredEpics keeps listing order and only live, unarchived epics whose steering is the id, never another conversation's", () => {
   const listed = [
     makeEpic({ id: "repo-a/zeta", slug: "zeta", steering: "conv-1" }),
     makeEpic({ id: "repo-a/archived", slug: "archived", steering: "conv-1", archived: true }),
@@ -78,11 +78,6 @@ test("Band: steeredEpics keeps listing order and only live, unarchived epics who
     steeredEpics("conv-1", listed).map((epic) => epic.id),
     ["repo-a/zeta", "repo-a/alpha"],
   );
-});
-
-test("Band: steeredEpics never keeps an epic another conversation steers", () => {
-  const other = makeEpic({ id: "repo-a/rota-export", slug: "rota-export", steering: "conv-2" });
-  assert.deepEqual(steeredEpics("conv-1", [other]), []);
 });
 
 test("Band: steeredEpics with an empty id keeps none, even an epic with no steering", () => {

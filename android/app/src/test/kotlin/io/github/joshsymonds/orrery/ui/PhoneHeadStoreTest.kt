@@ -85,17 +85,4 @@ class PhoneHeadStoreTest {
         composeRule.runOnIdle { assertTrue(hidden!!.value) }
         assertTrue(HeadStore(context).hidden)
     }
-
-    @Test
-    fun rememberHeadHiddensDestructuredSetterWritesThroughToTheStore() {
-        var set: ((Boolean) -> Unit)? = null
-        composeRule.setContent {
-            val (_, setHidden) = rememberHeadHidden()
-            set = setHidden
-        }
-
-        composeRule.runOnIdle { set!!(true) }
-
-        composeRule.runOnIdle { assertTrue(HeadStore(context).hidden) }
-    }
 }

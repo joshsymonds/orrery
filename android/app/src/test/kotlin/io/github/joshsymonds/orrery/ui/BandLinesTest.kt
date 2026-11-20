@@ -71,7 +71,7 @@ class BandLinesTest {
     private val orbit = epic("repo-a/orbit", "orbit", steering = "conv-1")
 
     @Test
-    fun steeredEpicsKeepsListingOrderAndOnlyLiveEpicsWhoseSteeringIsTheId() {
+    fun steeredEpicsKeepsListingOrderAndOnlyLiveEpicsWhoseSteeringIsTheIdNeverAnotherIds() {
         val listed = listOf(
             orbit,
             epic("repo-a/other", "other", steering = "conv-2"),
@@ -80,12 +80,6 @@ class BandLinesTest {
             rota,
         )
         assertEquals(listOf(orbit, rota), steeredEpics("conv-1", listed))
-    }
-
-    @Test
-    fun steeredEpicsNeverKeepAnotherIdsEpic() {
-        val listed = listOf(epic("repo-a/other", "other", steering = "conv-2"))
-        assertEquals(emptyList<EpicRow>(), steeredEpics("conv-1", listed))
     }
 
     @Test

@@ -57,8 +57,4 @@ private class WrittenThroughState(
             state.value = value
             store.hidden = value
         }
-
-    override fun component1(): Boolean = value
-
-    override fun component2(): (Boolean) -> Unit = { value = it }
 }
