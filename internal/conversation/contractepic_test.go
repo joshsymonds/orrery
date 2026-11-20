@@ -46,6 +46,29 @@ func TestContractEpicReadNamesTheWrittenContract(t *testing.T) {
 	}
 }
 
+// TestContractEpicReadNamesTheCreatedEpicFromEitherForm checks that a pane transcript's epic_create item names its epic
+// from the call's id input, and, for a call made before epic_create took an id, from its inline contract's id, and that
+// neither carries a contract.
+func TestContractEpicReadNamesTheCreatedEpicFromEitherForm(t *testing.T) {
+	path := writeTranscript(t,
+		`{"type":"assistant","timestamp":"`+stampAt(1)+`","message":{"content":[`+
+			`{"type":"tool_use","id":"toolu_1","name":"mcp__orrery__epic_create","input":{"id":"demo-0a1b2c3/epic-new","base":"main"}}]}}`,
+		`{"type":"assistant","timestamp":"`+stampAt(2)+`","message":{"content":[`+
+			`{"type":"tool_use","id":"toolu_2","name":"mcp__orrery__epic_create","input":{"contract":{"id":"demo-0a1b2c3/epic-old"}}}]}}`,
+	)
+
+	type named struct{ epic, contract string }
+	conv := mustRead(t, path, 10)
+	got := make([]named, 0, len(conv.Items))
+	for _, item := range conv.Items {
+		got = append(got, named{item.Epic, item.Contract})
+	}
+	want := []named{{"demo-0a1b2c3/epic-new", ""}, {"demo-0a1b2c3/epic-old", ""}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("epic_create items = %+v, want %+v", got, want)
+	}
+}
+
 // TestContractEpicWrittenContractByToolName checks that only an MCP server's contract_propose or contract_revise call
 // names a contract, and that an input naming no id, or one that does not decode, names none.
 func TestContractEpicWrittenContractByToolName(t *testing.T) {

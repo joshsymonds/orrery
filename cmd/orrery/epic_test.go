@@ -24,7 +24,7 @@ const (
 	epicTestID     = "demo-0a1b2c3/epic-login"
 	epicWarning    = "recorded as a note: it answers no question, and Q1 is open"
 	epicCreateJSON = `{"id":"demo-0a1b2c3/epic-login","base":"synthetic-base",` +
-		`"decisions":[{"id":"d1","text":"use OIDC"}]}`
+		`"decisions":[{"id":"d1","text":"use OIDC"}],"workflow":"demo"}`
 	epicRefusal = "epic demo-0a1b2c3/epic-login is already paused"
 )
 
@@ -458,9 +458,10 @@ func TestContractEpicCreateReadsFileOrStdin(t *testing.T) {
 				t.Errorf("epicCommand(%v) sent %v, want %v", tc.args, got[0], want[0])
 			}
 			req, ok := got[0].(*v1.CreateEpicRequest)
-			if !ok || req.GetId() != epicTestID || req.GetBase() != "synthetic-base" || len(req.GetDecisions()) != 1 {
-				t.Errorf("epicCommand(%v) sent %v, want the contract's id %s, base synthetic-base and one decision",
-					tc.args, got[0], epicTestID)
+			if !ok || req.GetId() != epicTestID || req.GetBase() != "synthetic-base" || len(req.GetDecisions()) != 1 ||
+				req.GetWorkflow() != "demo" {
+				t.Errorf("epicCommand(%v) sent %v, want the contract's id %s, base synthetic-base, one decision and "+
+					"workflow demo", tc.args, got[0], epicTestID)
 			}
 			if wantOut := result.Content[0].Text + "\n"; stdout != wantOut {
 				t.Errorf("stdout = %q, want %q", stdout, wantOut)

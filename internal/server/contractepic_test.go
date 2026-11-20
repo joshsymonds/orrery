@@ -93,27 +93,39 @@ func TestContractEpicSessionItemNamesTheWrittenContract(t *testing.T) {
 }
 
 // TestContractEpicSessionItemNamesTheCreatedEpicByID checks that an engine transcript's epic_create item names its epic
-// from the call's id input.
+// from the call's id input, and, for a call made before epic_create took an id, from its inline contract's id.
 func TestContractEpicSessionItemNamesTheCreatedEpicByID(t *testing.T) {
 	t.Parallel()
-	payload, err := json.Marshal(map[string]string{
-		"kind":      "tool_call",
-		"role":      "assistant",
-		"toolUseId": "toolu_1",
-		"name":      "mcp__orrery__epic_create",
-		"input":     `{"id":"demo-0a1b2c3/epic-login","base":"main"}`,
-	})
-	if err != nil {
-		t.Fatalf("marshal block: %v", err)
+	tests := []struct {
+		name, input string
+	}{
+		{name: "id input", input: `{"id":"demo-0a1b2c3/epic-login","base":"main"}`},
+		{name: "inline contract of an older call", input: `{"contract":{"id":"demo-0a1b2c3/epic-login"}}`},
 	}
-	got, ok, err := sessionItem(
-		store.EngineEvent{Seq: 1, Kind: store.EventEngineBlock, At: 200, Payload: string(payload)},
-	)
-	if err != nil || !ok {
-		t.Fatalf("sessionItem ok = %v, err = %v, want a tool item", ok, err)
-	}
-	if got.GetEpic() != "demo-0a1b2c3/epic-login" {
-		t.Fatalf("item epic %q, want %q", got.GetEpic(), "demo-0a1b2c3/epic-login")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			payload, err := json.Marshal(map[string]string{
+				"kind":      "tool_call",
+				"role":      "assistant",
+				"toolUseId": "toolu_1",
+				"name":      "mcp__orrery__epic_create",
+				"input":     tt.input,
+			})
+			if err != nil {
+				t.Fatalf("marshal block: %v", err)
+			}
+			got, ok, err := sessionItem(
+				store.EngineEvent{Seq: 1, Kind: store.EventEngineBlock, At: 200, Payload: string(payload)},
+			)
+			if err != nil || !ok {
+				t.Fatalf("sessionItem ok = %v, err = %v, want a tool item", ok, err)
+			}
+			if got.GetEpic() != "demo-0a1b2c3/epic-login" || got.GetContract() != "" {
+				t.Fatalf("item epic %q contract %q, want epic %q and no contract",
+					got.GetEpic(), got.GetContract(), "demo-0a1b2c3/epic-login")
+			}
+		})
 	}
 }
 
