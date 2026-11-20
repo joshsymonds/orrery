@@ -7,6 +7,8 @@ export interface Crumb {
   label: ComponentChildren;
   onGo?: () => void;
   place?: boolean;
+  // host, on a place crumb, is the host the directory is on; the phone layout names it after the directory.
+  host?: string;
 }
 
 // InboxMark is the inbox's hold on the mark every title row draws first: the count of what needs you, the hover that
@@ -75,13 +77,15 @@ export function TitleRow({
               {" "}
               <span class="sep">›</span>{" "}
               {index === last ? (
-                <span class={crumbClass("here", crumb.place)} aria-current="page">
+                <span class={crumbClass("here", crumb.place)} data-host={crumb.host} aria-current="page">
                   {crumb.label}
                 </span>
               ) : crumb.onGo === undefined ? (
-                <span class={crumbClass("", crumb.place)}>{crumb.label}</span>
+                <span class={crumbClass("", crumb.place)} data-host={crumb.host}>
+                  {crumb.label}
+                </span>
               ) : (
-                <button type="button" class={crumbClass("", crumb.place)} onClick={() => crumb.onGo?.()}>
+                <button type="button" class={crumbClass("", crumb.place)} data-host={crumb.host} onClick={() => crumb.onGo?.()}>
                   {crumb.label}
                 </button>
               )}

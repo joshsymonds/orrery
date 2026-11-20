@@ -135,6 +135,31 @@ test("HeadTitle: the place crumb is the row's directory, the page crumb is the t
   });
 });
 
+test("HeadTitle: the place crumb names its host for the phone layout, and the title row holds the bare context", async () => {
+  const props = headProps({
+    row: makeRow({ project: "/home/owner/code/tidepool" }),
+    conversation: conversationOf("", 174000n, 200000n),
+    host: { host: "halyard", stats: [] },
+    showStrip: true,
+  });
+  await withHead(<Head {...props} />, (container) => {
+    const place = container.querySelector(".crumb.place");
+    assert.equal(place?.getAttribute("data-host") ?? null, "halyard");
+    assert.equal(place?.textContent ?? null, "tidepool", "the host is drawn by the phone layout's style, not as text");
+    const bare = container.querySelector(".title-row .phone-ctx .ctx");
+    assert.equal(bare?.getAttribute("data-level") ?? null, "crit");
+    assert.equal(bare?.querySelector(".name"), null, "the title row's context is bare");
+  });
+});
+
+test("HeadTitle: with no host the place crumb names none, and with the strip hidden the title row holds no context", async () => {
+  const props = headProps({ conversation: conversationOf("", 174000n, 200000n), showStrip: false });
+  await withHead(<Head {...props} />, (container) => {
+    assert.equal(container.querySelector(".crumb.place")?.hasAttribute("data-host") ?? null, false);
+    assert.equal(container.querySelector(".phone-ctx"), null);
+  });
+});
+
 test("HeadTitle: find is titled Find  / and calls onFind", async () => {
   let finds = 0;
   await withHead(

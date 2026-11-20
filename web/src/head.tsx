@@ -6,7 +6,7 @@ import { CompactHead } from "./compacthead";
 import type { Conversation } from "./conversation";
 import type { Fold } from "./headfold";
 import type { Row } from "./rows";
-import { PaneStrip, type StripHost } from "./strip";
+import { ContextMeter, PaneStrip, type StripHost } from "./strip";
 import { SubjectBand } from "./subjectband";
 import { lastPathElement } from "./titleparts";
 import { type InboxMark, TitleRow } from "./titlerow";
@@ -89,15 +89,19 @@ export function Head({
   ];
   const strip = showStrip && fold === "open" ? <PaneStrip host={host} context={conversation?.state?.context} /> : undefined;
   const dirName = lastPathElement(row.project);
+  // The phone layout draws the context bare in the title row, beside More, and leaves it out of the strip.
+  const context = conversation?.state?.context;
+  const phoneContext = showStrip && fold === "open" && context !== undefined ? <ContextMeter context={context} bare /> : null;
   return (
     <div class="convo-head" data-fold={fold}>
       <TitleRow
-        crumbs={[...(dirName === "" ? [] : [{ label: dirName, place: true }]), { label: title }]}
+        crumbs={[...(dirName === "" ? [] : [{ label: dirName, place: true, host: host?.host }]), { label: title }]}
         onBack={onBack}
         mark={mark}
         note={note}
         strip={strip}
       >
+        {phoneContext !== null && <span class="phone-ctx">{phoneContext}</span>}
         <button type="button" class="icon find" aria-label="Find in this conversation" title="Find  /" onClick={() => onFind()}>
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM10 10l3.5 3.5" /></svg>
         </button>

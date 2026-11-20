@@ -433,6 +433,7 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 /* A row's conversation opens on the shared title row in the head's place: its back, crumbs and state are mono throughout,
    and its padding comes from the wide block with the head's. */
 .convo-head > .title-row { font: var(--o-type-small); }
+.convo-head .phone-ctx { display: none; }
 /* The pill names the reader's state. Its tone sets the text, the tint and the outline; idle is ink.3 on surface.raised. */
 .pill {
   display: inline-flex; flex: none; align-items: center; gap: var(--o-space-8); padding: var(--o-space-2) var(--o-space-8); border-radius: var(--o-radius-round);
@@ -851,11 +852,18 @@ button.subj:hover { background: var(--o-surface-raised); }
   .convo-head > .title-row .crumb.place { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .convo-head > .title-row .crumb.here { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; min-width: 0; overflow: hidden; white-space: normal; font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
   .convo-head .pane-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--o-space-8) var(--o-space-12); }
-  .convo-head .pane-strip .meter { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--o-space-4) var(--o-space-4); white-space: normal; }
-  .convo-head .pane-strip .meter .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .convo-head .pane-strip .meter .bar { grid-column: 1 / -1; width: 100%; }
-  .convo-head .pane-strip-host, .convo-head .pane-strip .other, .convo-head .pane-strip .ctx { grid-column: 1 / -1; }
-  .convo-head .pane-strip .ctx { margin-left: 0; }
+  /* Each meter stacks as round 6's touch meter does: its name, its value, then its bar across the cell. */
+  .convo-head .pane-strip .meter { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--o-space-2); white-space: nowrap; }
+  .convo-head .pane-strip .meter .name, .convo-head .pane-strip .meter .value { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .convo-head .pane-strip .meter .value { order: 2; }
+  .convo-head .pane-strip .meter .bar { order: 3; width: 100%; }
+  /* As round 6's touch title row: the host follows the directory ("tidepool · on halyard"), the context sits bare in
+     the title row beside More, find is in More, and the strip holds only the meters (or the other host's words). */
+  .convo-head > .title-row .crumb.place[data-host]::after { content: " · on " attr(data-host); }
+  .convo-head > .title-row .icon.find { display: none; }
+  .convo-head .phone-ctx { display: inline-flex; flex: none; align-items: center; }
+  .convo-head .pane-strip-host, .convo-head .pane-strip .ctx { display: none; }
+  .convo-head .pane-strip .other { grid-column: 1 / -1; }
 }
 /* The buttons press in the press move: a pressed button shrinks a little and darkens to surface1. */
 button.act, .back, .crumb { transition: transform var(--o-move-press), background-color var(--o-move-press); }
