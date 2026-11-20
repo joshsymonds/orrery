@@ -28,7 +28,6 @@ export const storyExemptions: Readonly<Record<string, string>> = {
 export const storyRenames: Renames = {
   "backgroundrow.tsx": { BackgroundRow: "TaskLine" },
   "blocker.tsx": { QuestionCard: "Ask", AskFirst: "ConfirmButton" },
-  "card.tsx": { EpicWidget: "WorkCard" },
   "endedbar.tsx": { EndedBar: { module: "app.stories.tsx", story: "Page" } },
   "eventring.tsx": { EventRing: "EpicEventBlock", StepCard: "StepEndBlock" },
   "evidence.tsx": { EvidenceRuns: "EvidenceRun" },
