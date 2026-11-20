@@ -101,7 +101,7 @@ class AskStatesModelTest {
     }
 
     @Test
-    fun paneOptionMarkedRecommendedIsNamedWithoutTheSuffixAndSentWithTheDigit() {
+    fun paneOptionIsNamedAsServedAndNotMarkedRecommendedFromItsLabel() {
         val stored = """
             {"tool":"AskUserQuestion","questions":[{"question":"Pick one?","options":[
              {"label":"Synthetic one (Recommended)","description":"First choice."},
@@ -112,7 +112,7 @@ class AskStatesModelTest {
 
         assertEquals(
             listOf(
-                AskOption(1, "Synthetic one", "First choice.", recommended = true, why = "", answerable = true),
+                AskOption(1, "Synthetic one (Recommended)", "First choice.", recommended = false, why = "", answerable = true),
                 AskOption(2, "Synthetic two", "", recommended = false, why = "", answerable = true),
             ),
             model.options,
@@ -214,7 +214,7 @@ class AskStatesModelTest {
     }
 
     @Test
-    fun sessionOptionMarkedRecommendedIsNamedWithoutTheSuffixButSentWithIt() {
+    fun sessionOptionIsNamedAsServedAndNotMarkedRecommendedFromItsLabel() {
         val request = SessionRequest(
             id = "req-7",
             kind = "question",
@@ -226,7 +226,7 @@ class AskStatesModelTest {
 
         assertEquals(
             listOf(
-                AskOption(1, "allow", "", recommended = true, why = "", answerable = true),
+                AskOption(1, "allow (Recommended)", "", recommended = false, why = "", answerable = true),
                 AskOption(2, "deny", "", recommended = false, why = "", answerable = true),
             ),
             model.options,

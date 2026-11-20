@@ -54,7 +54,6 @@ private const val LAST_KEYED_OPTION = 9
 private const val SECONDS_PER_DAY = 86_400L
 private const val STATE_WAITING = "waiting"
 private const val RUN_THIS_COMMAND = "Run this command?"
-private const val RECOMMENDED_SUFFIX = " (Recommended)"
 
 /** The three answers a pane permission offers, in the order keys 1, 2 and 3 send them. */
 private val panePermissionOptions = listOf(
@@ -89,7 +88,7 @@ internal fun paneAsk(pane: Pane): AskModel? {
             markdown = parsed.markdown,
             command = null,
             options = parsed.options.mapIndexed { index, option ->
-                askOptionOf(index + 1, option.label, option.description.orEmpty())
+                optionOf(index + 1, option.label, option.description.orEmpty())
             },
             target = target,
         )
@@ -129,7 +128,7 @@ internal fun sessionAsk(pane: Pane, request: SessionRequest): AskModel {
         question = if (permission) "Use ${request.question}?" else request.question,
         markdown = false,
         command = null,
-        options = request.options.mapIndexed { index, name -> askOptionOf(index + 1, name) },
+        options = request.options.mapIndexed { index, name -> optionOf(index + 1, name) },
         putOff = request.putOff || pane.putOff,
         archive = archiveOf(pane),
         target = HeadlessTarget(pane.id, request.id, request.options),
@@ -241,17 +240,6 @@ private fun epicProject(epic: EpicRow): String = directoryOf(epic.path).ifEmpty 
 
 /** The last element of a path, "" for no path. */
 private fun directoryOf(path: String): String = if (path.isEmpty()) "" else lastPathElement(path)
-
-/**
- * A pane's or session's option. Claude Code marks its recommendation by ending the label with " (Recommended)": the
- * name is drawn without it, and the option is marked recommended.
- */
-private fun askOptionOf(n: Int, label: String, does: String = ""): AskOption = optionOf(
-    n,
-    label.removeSuffix(RECOMMENDED_SUFFIX),
-    does,
-    recommended = label.endsWith(RECOMMENDED_SUFFIX),
-)
 
 private fun optionOf(
     n: Int,
