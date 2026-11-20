@@ -332,6 +332,7 @@ private fun EpicBody(
         val wedges = wedgesOf(detail)
         detail.requirements.filter { provenOf(it.id, wedges, detail.requirements) }.map { it.id }.toSet()
     }
+    val review = remember(detail) { reviewOf(detail) }
     val drawn = listOfNotNull(
         "problem".takeIf { detail.epic.problem.isNotEmpty() },
         "summary".takeIf { reached.summary },
@@ -340,6 +341,7 @@ private fun EpicBody(
         "happened".takeIf { reached.history },
         "tasks".takeIf { reached.tasks },
         "requirements".takeIf { reached.requirements },
+        "review".takeIf { review != null },
     )
     LaunchedEffect(openAt) {
         openAt?.let { opening ->
@@ -408,6 +410,9 @@ private fun EpicBody(
                 }
                 RequirementTable(requirements = detail.requirements, loadArtifact = loadArtifact)
             }
+        }
+        if (review != null) {
+            section("review") { EpicReviewSection(view = review) }
         }
     }
 }
@@ -528,7 +533,7 @@ private fun Door(label: String, line: String, tag: String, onTap: () -> Unit) {
 }
 
 @Composable
-private fun SectionHeading(title: String) {
+internal fun SectionHeading(title: String) {
     Text(
         title.inLabelCase(),
         style = OrreryTokens.Type.label,
