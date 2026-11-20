@@ -478,7 +478,7 @@ const arrived: Setup = { rows: [steererRow()], epics: view([alpha]), address: ep
 test("RailAddress: an epic's address hides the inbox at 1600, as a row's address does", (t) =>
   withRail(t.signal, 1600, { address: epicAddress("alpha") }, async (mount) => {
     await mount.rerender(arrived);
-    assert.ok(mount.container.querySelector('.panes[data-inbox="hidden"]') !== null, "the inbox is hidden");
+    assert.ok(mount.container.querySelector('.panes[data-inbox="rail"]') !== null, "the inbox is on the rail");
   }));
 
 test("RailAddress: an epic's address hides the inbox at 1000, where the panel overlays the page", (t) =>
@@ -486,7 +486,7 @@ test("RailAddress: an epic's address hides the inbox at 1000, where the panel ov
     await mount.rerender(arrived);
     await followed(mount.probe, "s1");
     assert.ok(mount.container.querySelector(".panes.overlay") !== null, "the layout is overlaid");
-    assert.ok(mount.container.querySelector('.panes[data-inbox="hidden"]') !== null, "the inbox is hidden");
+    assert.ok(mount.container.querySelector('.panes[data-inbox="rail"]') !== null, "the inbox is on the rail");
   }));
 
 test("RailAddress: at 1000 the overlaid panel starts one rail width past the inbox's track, leaving the reader beside it", (t) =>

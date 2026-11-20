@@ -23,6 +23,7 @@ import { Handover } from "./handover";
 import { type HeadStore, memoryHeadStore } from "./headfold";
 import { KeyList } from "./helppanel";
 import { Inbox } from "./inbox";
+import { InboxRail } from "./inboxrail";
 import { ageText, InboxRow, type RowMore, stateWaiting } from "./inboxrow";
 import {
   type BoxOpen,
@@ -43,6 +44,7 @@ import { NewPanel } from "./picker";
 import { type Viewing, viewingOf } from "./presence";
 import { ProjectPage } from "./projectpage";
 import type { ReaderHandle } from "./reader";
+import { railTiles } from "./railtiles";
 import { type Address, type Entry, formatAddress, type ListPanelKind, type PageView, type View } from "./router";
 import { type Row, splitArchived } from "./rows";
 import { realClock, type SeenClock, type SeenWindow, watchSeen } from "./seen";
@@ -62,9 +64,10 @@ import { type ListThing, type Thing, type WorkConversation, workOf } from "./wor
 import { WorkerSessionPage } from "./workersession";
 import { WorkRail } from "./workrail";
 
-// The inbox's state: pinned beside the page, docked beside it while no row has been opened, hidden once one has, or
-// popped out over the hidden page while the pointer is on the mark or a key has popped it out.
-type InboxState = "docked" | "pinned" | "hidden" | "flyout";
+// The inbox's state: pinned beside the page, docked beside it while no row has been opened, resting as the rail beside
+// the page once one has, or popped out over the page from the rail while the pointer is on the rail or a key has popped
+// it out.
+type InboxState = "docked" | "pinned" | "rail" | "flyout";
 
 // The conversation the reader holds, with the row key it belongs to, so a row never shows another row's transcript.
 interface Stream {
@@ -239,8 +242,8 @@ export function App({
   // Whether the strips under the title rows are drawn. m hides and shows every one of them.
   const [stripsShown, setStripsShown] = useState(true);
   // Whether an entry, a row, a step or an epic, has been opened by a click or Enter, which hides the inbox. The mark's
-  // click or B pins the inbox beside the page. A hidden inbox is popped out over the page by the pointer on the mark, or
-  // by a key, and popout records which.
+  // click or B pins the inbox beside the page. A railed inbox is popped out over the page by the pointer on the rail or
+  // the mark, or by a key, and popout records which.
   const [rowOpened, setRowOpened] = useState(false);
   const [inboxPinned, setInboxPinned] = useState(false);
   const [popout, setPopout] = useState<Popout>("none");
@@ -499,10 +502,10 @@ export function App({
         ? "docked"
         : popout !== "none"
           ? "flyout"
-          : "hidden";
-  // The inbox is hidden once a row has been opened, unless it is pinned or popped out. A key pop-out is the flyout that
-  // Escape and b tuck back.
-  const inboxHidden = inboxState === "hidden";
+          : "rail";
+  // The inbox rests as the rail once a row has been opened, unless it is pinned or popped out. A key pop-out is the flyout
+  // that Escape and b tuck back.
+  const inboxHidden = inboxState === "rail";
   const keyPopped = inboxState === "flyout" && popout === "key";
   // The Archived head's count: the archived conversations and the archived epics.
   const archivedCount = shownRows.filter((row) => row.archived).length + marked.archived.length;
@@ -1494,21 +1497,29 @@ export function App({
 
   // togglePin pins the inbox beside the page, or unpins it: the mark's click and B both do this.
   const togglePin = () => setInboxPinned((value) => !value);
+  // inboxEnter is the pointer's entry to the mark or the rail, which pops the inbox out over the page. A hover does not
+  // change a pop-out a key already made, and a narrow window takes no hover at all.
+  const inboxEnter = () => {
+    if (wide) {
+      setPopout((current) => (current === "none" ? "hover" : current));
+    }
+  };
+  // inboxLeave is the pointer's leave from the mark, the rail or the list. A leave into the inbox's list or its rail keeps
+  // the inbox out; any other leave tucks it away.
+  const inboxLeave = (to: EventTarget | null) => {
+    const within =
+      (to instanceof Node && listRef.current?.contains(to) === true) ||
+      (to instanceof Element && to.closest(".rail.start") !== null);
+    if (!within) {
+      setPopout("none");
+    }
+  };
   // inboxMark is the mark every title row draws: its count, the hover that pops the inbox out, and the click that pins
-  // it. A pointer that leaves the mark for the inbox keeps the inbox out; any other leave tucks it away. A hover does
-  // not change a pop-out a key already made, and a narrow window takes no hover at all.
+  // it. The inbox's own rules for the pointer apply to it as to the rail.
   const inboxMark: InboxMark = {
     needs: markNeeds,
-    enter: () => {
-      if (wide) {
-        setPopout((current) => (current === "none" ? "hover" : current));
-      }
-    },
-    leave: (to) => {
-      if (!(to instanceof Node) || listRef.current?.contains(to) !== true) {
-        setPopout("none");
-      }
-    },
+    enter: inboxEnter,
+    leave: inboxLeave,
     pin: togglePin,
   };
 
@@ -2026,8 +2037,28 @@ export function App({
         data-inbox={inboxState}
         data-side={panelShown ? "panel" : "rail"}
       >
+        {(inboxState === "rail" || inboxState === "flyout") && (
+          <InboxRail
+            tiles={railTiles(tree, shownProject ?? cursorKey)}
+            onMark={() => setPopout("key")}
+            onTile={openProject}
+            onNew={() => setPickerOpen(true)}
+            onSearch={() => {
+              openSearchField("");
+              setPopout("key");
+            }}
+            onKeys={() => setHelpOpen(true)}
+            onEnter={inboxEnter}
+            onLeave={inboxLeave}
+          />
+        )}
         {notices.length > 0 && <NoticeBanner notices={notices} onOpen={openNotice} onDismiss={markNoticeSeen} />}
-        <div class="list" ref={listRef} onMouseLeave={() => setPopout("none")} hidden={listHides}>
+        <div
+          class="list"
+          ref={listRef}
+          onMouseLeave={(event) => inboxLeave(event.relatedTarget)}
+          hidden={listHides}
+        >
           <Inbox
             view={view}
             state={!answered ? "loading" : listFailed ? "error" : "ready"}
@@ -2050,6 +2081,7 @@ export function App({
             onNew={() => setPickerOpen(true)}
             onKeys={() => setHelpOpen(true)}
             onOpenProject={openProject}
+            pin={wide ? { pinned: inboxPinned, onPin: togglePin } : undefined}
             notes={notes}
           />
         </div>

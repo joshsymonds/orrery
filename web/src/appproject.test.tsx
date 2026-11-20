@@ -163,7 +163,7 @@ function projectPage(container: HTMLElement): HTMLElement | null {
   return container.querySelector<HTMLElement>('section[aria-label="project"]:not([hidden])');
 }
 
-// paneState is the inbox state the app draws on the panes: docked, pinned, hidden or flyout.
+// paneState is the inbox state the app draws on the panes: docked, pinned, rail or flyout.
 function paneState(container: HTMLElement): string | null {
   return container.querySelector(".panes")?.getAttribute("data-inbox") ?? null;
 }
@@ -185,7 +185,7 @@ test("ProjectPage: a project's head opens its page beside the inbox, which takes
     assert.ok(page !== null, "the project's page is drawn");
     assert.equal(page.querySelectorAll(".pc-row").length, 2, "the page lists the project's two conversations");
     assert.equal(listHidden(container), false, "at the desk the list stays drawn beside the page");
-    assert.equal(paneState(container), "hidden", "the inbox rests as it does with any page opened");
+    assert.equal(paneState(container), "rail", "the inbox rests as it does with any page opened");
   }));
 
 test("ProjectPage: its address is the project's, written while the page is open", (t) =>

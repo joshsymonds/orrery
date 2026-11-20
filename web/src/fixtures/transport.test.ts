@@ -73,14 +73,14 @@ function inboxHome(root: HTMLElement): boolean {
   return listView(root) === "inbox" && inboxState(root) === "docked";
 }
 
-// convoWorking is Page/convo-working: the inbox hidden under the reader of pane %11.
+// convoWorking is Page/convo-working: the inbox at rest as its rail beside the reader of pane %11.
 function convoWorking(root: HTMLElement): boolean {
-  return inboxState(root) === "hidden" && (root.textContent ?? "").includes(lampFragment);
+  return inboxState(root) === "rail" && (root.textContent ?? "").includes(lampFragment);
 }
 
-// askSession is Page/ask-session: the inbox hidden under the reader of pane %12.
+// askSession is Page/ask-session: the inbox at rest as its rail beside the reader of pane %12.
 function askSession(root: HTMLElement): boolean {
-  return inboxState(root) === "hidden" && (root.textContent ?? "").includes(beaconPrompt);
+  return inboxState(root) === "rail" && (root.textContent ?? "").includes(beaconPrompt);
 }
 
 // epicQuestion is Page/epic-question: Q1 is drawn in the now block, with no steer menu drawn, and the epic panel beside
