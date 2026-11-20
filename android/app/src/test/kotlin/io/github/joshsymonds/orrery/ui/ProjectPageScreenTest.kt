@@ -7,6 +7,7 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -305,6 +306,7 @@ class ProjectPageScreenTest {
             awaitNode(hasTestTag("card:contract:$CONTRACT_ID"))
 
             composeRule.onNodeWithText("its conversation is not listed").assertExists()
+            composeRule.onNodeWithTag("project-age:standin:unlisted:$ALPHA_KEY").assertTextEquals("10m")
             composeRule.onNodeWithText("1 conversation").assertExists()
         }
     }

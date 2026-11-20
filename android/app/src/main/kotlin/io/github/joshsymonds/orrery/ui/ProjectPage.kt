@@ -188,12 +188,26 @@ private fun ConvoBlock(convo: Convo, now: Long, onOpen: (String) -> Unit) {
     val pane = convo.pane
     Column(modifier = Modifier.fillMaxWidth()) {
         if (pane == null) {
-            Text(
-                convoLineOf(convo, now),
+            Row(
                 modifier = Modifier.fillMaxWidth().testTag("project-convo:${convo.key}").padding(vertical = OrreryTokens.Space.eight),
-                style = OrreryTokens.Type.small,
-                color = OrreryTokens.Ink.three,
-            )
+                horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
+            ) {
+                Text(
+                    convoLineOf(convo, now),
+                    modifier = Modifier.weight(1f),
+                    style = OrreryTokens.Type.small,
+                    color = OrreryTokens.Ink.three,
+                )
+                val changed = convo.hung.maxOfOrNull { stampOf(it) } ?: 0L
+                if (changed != 0L) {
+                    Text(
+                        ageOf((now - changed).coerceAtLeast(0L)),
+                        modifier = Modifier.testTag("project-age:${convo.key}"),
+                        style = OrreryTokens.Type.small,
+                        color = OrreryTokens.Ink.three,
+                    )
+                }
+            }
         } else {
             Row(
                 modifier = Modifier
