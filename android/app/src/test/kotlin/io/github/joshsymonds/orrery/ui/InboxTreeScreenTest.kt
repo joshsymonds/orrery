@@ -71,7 +71,6 @@ class InboxTreeScreenTest {
         const val IDLE_SESSION = "00000000000000000000000000000003"
         const val ENDED_SESSION = "00000000000000000000000000000004"
         const val ALPHA_KEY = "|$ALPHA"
-        const val HEADLESS_SESSION = "00000000000000000000000000000005"
         const val STEP_ID = "example-step"
         const val EMPTY_HINT = "Start a session in a directory and it shows here, grouped by that directory."
         const val SEARCH_LABEL = "Search sessions and epics"
