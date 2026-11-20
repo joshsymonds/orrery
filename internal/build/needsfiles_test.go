@@ -253,7 +253,7 @@ func TestNeedsFilesPassGrantsFreeFilesAndRerunsTheImplementerInTheSameWorktree(t
 	t.Parallel()
 	f := newPassFixture(t)
 	guardStartImplementer(f)
-	worktree := ImplementWorktree(f.stateDir, passEpic, 1)
+	worktree := ImplementWorktree(f.stateDir, passEpic, store.EpicTask{Seq: 1})
 	if err := os.WriteFile(filepath.Join(worktree, "thing.go"), []byte("package thing\n"), 0o600); err != nil {
 		t.Fatalf("write earlier work: %v", err)
 	}

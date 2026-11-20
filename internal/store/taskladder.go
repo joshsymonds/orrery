@@ -25,6 +25,7 @@ const (
 	MovedByFailDecision = "fail_decision"
 	MovedByCannotMeet   = "cannot_meet"
 	MovedByFailTask     = "fail_task"
+	MovedBySendBack     = "send_back"
 )
 
 // The outcomes a rung can end with. RungGapped is the outcome 'gap', the same word as the kind RungGap.
@@ -264,7 +265,8 @@ func checkClimb(epic string, seq int64, from, to TaskBuild, move RungMove) error
 	return nil
 }
 
-// knownMovedBy reports whether movedBy is one of the MovedBy values.
+// knownMovedBy reports whether movedBy is one of the MovedBy values a climb records. A send_back is not a climb, so it is
+// not among them: sentBackBuild and restartLadder move a task onto rung 1 without a climb.
 func knownMovedBy(movedBy string) bool {
 	switch movedBy {
 	case MovedByUnit, MovedByFinding, MovedByFailDecision, MovedByCannotMeet, MovedByFailTask:
@@ -272,6 +274,40 @@ func knownMovedBy(movedBy string) bool {
 	default:
 		return false
 	}
+}
+
+// sentBackBuild returns the build a send_back of a task built from from stores: a fresh build on implement at attempt 1,
+// built on base, with cause as its failure, so the next implementer's brief carries it. The orchestrator decisions the
+// task's build carried stay counted, so a send_back does not reset the bound on them.
+func sentBackBuild(from TaskBuild, base, cause string) TaskBuild {
+	return TaskBuild{Stage: "implement", Base: base, Attempt: 1, Failure: cause, Decisions: from.Decisions}
+}
+
+// restartLadder replaces the ladder of task seq of epic with its rung 1, moved by send_back for cause, in the caller's
+// write. The task's rung rows and their outcomes are deleted first, since a rung row is kept once it is stored, so a
+// later climb writes the ladder again from rung 1. The decisions and versions that recorded the earlier climbs are kept.
+func restartLadder(
+	ctx context.Context,
+	queries *sqlcgen.Queries,
+	epic string,
+	seq int64,
+	cause string,
+	at time.Time,
+) error {
+	if err := queries.DeleteEpicTaskRungOutcomes(ctx, sqlcgen.DeleteEpicTaskRungOutcomesParams{
+		Epic: epic, Task: seq,
+	}); err != nil {
+		return fmt.Errorf("delete outcomes of rungs of task %d of epic %s: %w", seq, epic, err)
+	}
+	if err := queries.DeleteEpicTaskRungs(ctx, sqlcgen.DeleteEpicTaskRungsParams{Epic: epic, Task: seq}); err != nil {
+		return fmt.Errorf("delete rungs of task %d of epic %s: %w", seq, epic, err)
+	}
+	if _, err := queries.InsertEpicTaskRung(ctx, sqlcgen.InsertEpicTaskRungParams{
+		Epic: epic, Task: seq, Rung: 1, Kind: RungKind(1), MovedBy: MovedBySendBack, Cause: cause, Created: at.Unix(),
+	}); err != nil {
+		return fmt.Errorf("insert rung 1 of task %d of epic %s: %w", seq, epic, err)
+	}
+	return nil
 }
 
 // insertClimbRungs writes, in the caller's write, the row of rung from of task seq with its outcome failed for move's
@@ -334,19 +370,41 @@ func insertClimbEnd(
 	}
 }
 
-// insertClimbTrigger adds a pending trigger with id and cause to epic, in the caller's write.
+// insertClimbTrigger adds a pending trigger with cause to epic, in the caller's write, under id, or under the first of
+// id-2, id-3 and so on that no trigger holds. A task a send_back reopened can climb onto the same rung or end as a gap
+// again, and its trigger under id is stored already, so the planner is woken under the next free id.
 func insertClimbTrigger(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
 	epic, id, cause string,
 	at time.Time,
 ) error {
-	if err := queries.InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
-		Epic: epic, ID: id, Cause: cause, State: triggerPending, Turn: 0, Created: at.Unix(),
+	free, err := freeTriggerID(ctx, queries, epic, id)
+	if err != nil {
+		return err
+	}
+	if err = queries.InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
+		Epic: epic, ID: free, Cause: cause, State: triggerPending, Turn: 0, Created: at.Unix(),
 	}); err != nil {
-		return fmt.Errorf("insert trigger %s of epic %s: %w", id, epic, err)
+		return fmt.Errorf("insert trigger %s of epic %s: %w", free, epic, err)
 	}
 	return nil
+}
+
+// freeTriggerID returns id when epic holds no trigger under it in any state, and otherwise the first of id-2, id-3 and so
+// on that it holds none under.
+func freeTriggerID(ctx context.Context, queries *sqlcgen.Queries, epic, id string) (string, error) {
+	free := id
+	for n := 2; ; n++ {
+		stored, err := queries.CountEpicTrigger(ctx, sqlcgen.CountEpicTriggerParams{Epic: epic, ID: free})
+		if err != nil {
+			return "", fmt.Errorf("read trigger %s of epic %s: %w", free, epic, err)
+		}
+		if stored == 0 {
+			return free, nil
+		}
+		free = fmt.Sprintf("%s-%d", id, n)
+	}
 }
 
 // acceptRung ends rung of task seq of epic as accepted, in the caller's write, when the task has a row for that rung.

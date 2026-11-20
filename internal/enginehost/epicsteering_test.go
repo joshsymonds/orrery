@@ -180,5 +180,11 @@ func TestEpicSteeringStartStopsSessionWhoseRowReadFails(t *testing.T) {
 	if got := historyOf(t, path, rows[0].ID).State; got != "stopped" {
 		t.Fatalf("state of the started session = %q, want stopped", got)
 	}
-	requireGone(t, fakePID(t, repo))
+	if live := m.Live(); len(live) != 0 {
+		t.Fatalf("live sessions = %v, want none", live)
+	}
+	// The stop freed the cap's one slot, so another session starts.
+	if _, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"}); err != nil {
+		t.Fatalf("Start after the stopped steering session: %v", err)
+	}
 }

@@ -441,6 +441,7 @@ type EpicTask struct {
 	Question    int64
 	GateChanges string
 	Rebriefs    string
+	Notes       string
 }
 
 type EpicTaskContribute struct {
@@ -498,6 +499,7 @@ type EpicTaskReview struct {
 	Gate     string
 	Step     string
 	Verdict  string
+	Reason   string
 }
 
 type EpicTaskRung struct {

@@ -48,8 +48,7 @@ const ladderRoleGapTriggerSentence = "A task that ends as a gap wakes you with t
 	"without parking, and the epic ends ended_with_gaps, naming each gap."
 
 // ladderRoleClaimsSentence is the sentence on how a task on the ladder or ended as a gap holds its claims.
-const ladderRoleClaimsSentence = "A task on the ladder or ended as a gap holds its claims, so the check refuses a new " +
-	"task that claims one of its Requirements."
+const ladderRoleClaimsSentence = "A task on the ladder or ended as a gap holds its claims."
 
 // TestTaskLadderPlannerRoleDescribesLadder asserts that the role text describes the task ladder the build runs: the
 // fail_task climb, change_approach and its T<n>-approach and T<n>-gap triggers, and the rungs.

@@ -90,10 +90,20 @@ func TestDecideRedEnvironmentExit(t *testing.T) {
 			}},
 		},
 		{
-			name: "a red capture not captured for another reason fails at once",
+			name: "a red capture not captured for another reason is a note and red moves on",
 			view: View{Epic: decideEpic, Task: store.EpicTask{Seq: 3, Build: red, Evidence: capture},
 				Run: envRun(StageRed, 0, 0, 0, "the runner has no display")},
-			want: Action{Kind: ActFail, Reason: "red not captured: the runner has no display"},
+			want: Action{
+				Kind: ActMove,
+				Next: store.TaskBuild{
+					Stage:   StageImplement,
+					Base:    decideBranch,
+					Attempt: 1,
+					RedRun:  RunID(decideEpic, 3, StageRed, 0, 0),
+				},
+				Notes: []string{"T3 red: not captured: the runner has no display"},
+				Tells: []string{"T3 red: not captured: the runner has no display"},
+			},
 		},
 	})
 }

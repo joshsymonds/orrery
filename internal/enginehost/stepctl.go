@@ -189,8 +189,7 @@ func (s *Steps) readoptRun(ctx context.Context, row store.StepRow) (*stepRun, er
 
 // errStepAgentGateRestarted reports a step that runs an agent gate which Readopt does not re-adopt: the Steps has no
 // ReadoptGate, the ReadoptGate returns no gate or one that is not the gate the step runs, or the step stored its return
-// before the restart, whose verdict resume does not read. Such a step ends engine_restarted at a restart. The latch of
-// the gate's first fails restarts empty.
+// before the restart, whose verdict resume does not read. Such a step ends engine_restarted at a restart.
 var errStepAgentGateRestarted = errors.New("enginehost: an agent gate step is not re-adopted")
 
 // stepRowRunsAgentGate reports whether row is the row of a step that runs an agent gate: a named gate with no argv, as

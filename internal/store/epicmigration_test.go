@@ -18,7 +18,7 @@ import (
 // epicTableColumns returns, keyed by table, the columns in declaration order of every table migrations 00014, 00016,
 // 00019, 00028, 00030, 00035, 00036, 00037, 00038, 00040, 00041, 00043, 00044, 00049, 00051 and 00052 create, and of the
 // columns those migrations and 00020, 00021, 00022, 00025, 00029, 00033, 00034, 00035, 00039, 00040, 00042, 00044, 00045,
-// 00048, 00050, 00051, 00052, 00053, 00054, 00057, 00065 and 00070 add to epic tables.
+// 00048, 00050, 00051, 00052, 00053, 00054, 00057, 00065, 00070, 00078 and 00079 add to epic tables.
 func epicTableColumns() map[string][]string {
 	return map[string][]string{
 		"epics": {
@@ -34,7 +34,7 @@ func epicTableColumns() map[string][]string {
 			"synced",
 			// The epic's last read of origin's main, which a sync starts from, is 00054_origin_read.sql.
 			"origin_read_base", "origin_read_commit", "origin_read_state", "origin_read_at",
-			// steerer, the session that steers the epic, is 00078_epic_steerer.sql.
+			// steerer, the session that steers the epic, is 00079_epic_steerer.sql.
 			"steerer",
 		},
 		// Each epic's revision, which 00072_epic_revisions_table.sql moves out of epics.
@@ -66,6 +66,8 @@ func epicTableColumns() map[string][]string {
 			"gate_changes",
 			// The first line of each failure a re-brief answered, from 00077_gambit_ladder.sql.
 			"rebriefs",
+			// The notes a task's build holds, a JSON list, from 00078_task_review_undetermined.sql.
+			"notes",
 		},
 		"epic_task_files":        {"epic", "task", "position", "path"},
 		"epic_task_requirements": {"epic", "task", "position", "requirement"},
@@ -76,7 +78,8 @@ func epicTableColumns() map[string][]string {
 			"epic", "task", "version", "source", "decision", "step", "reason", "deliverable", "files", "test_changes",
 			"gate", "evidence", "state", "red_run", "refusal", "created", "settled",
 		},
-		"epic_task_reviews": {"epic", "task", "attempt", "position", "gate", "step", "verdict"},
+		// The reason a review gate with no holds or fails verdict ended so, from 00078_task_review_undetermined.sql.
+		"epic_task_reviews": {"epic", "task", "attempt", "position", "gate", "step", "verdict", "reason"},
 		"epic_task_findings": {
 			"epic", "task", "attempt", "review", "position", "id", "claim", "citation", "location", "evidence",
 			"verify_by", "step", "result", "reason", "unverified",
@@ -550,9 +553,10 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00078_epic_steerer.sql is the newest. The newest was
-	// 00077_gambit_ladder.sql before the steerer migration added 00078, 00076_notice_history.sql before the gambit ladder added 00077, 00075_step_facts.sql before the notice history added
-	// 00076,
+	// Open applies 00014_epics.sql and every migration after it: 00079_epic_steerer.sql is the newest. The newest was
+	// 00078_task_review_undetermined.sql before the steerer migration added 00079, 00077_gambit_ladder.sql before the
+	// undetermined task reviews added 00078, 00076_notice_history.sql before the gambit ladder added 00077,
+	// 00075_step_facts.sql before the notice history added 00076,
 	// 00074_task_repairs.sql before the step facts added 00075, 00073_session_awaited.sql before the task repairs added
 	// 00074, 00072_epic_revisions_table.sql before the awaited flag added 00073, 00071_park_question_runs.sql before the
 	// revisions table added 00072, 00070_task_ladder.sql before the
@@ -563,8 +567,8 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 	// 00064_step_indexes.sql before the gate changes added 00065, 00063_task_versions.sql before the step indexes added
 	// 00064, 00062_drop_engine_held.sql before the task versions added 00063, 00061_prompt_states.sql before the drop of
 	// engine_held added 00062, and 00060_cron_jobs.sql before the prompt states added 00061.
-	if version != 78 {
-		t.Fatalf("store version after Open = %d, want 78", version)
+	if version != 79 {
+		t.Fatalf("store version after Open = %d, want 79", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and

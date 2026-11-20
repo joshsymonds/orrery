@@ -218,7 +218,7 @@ func (s *Store) CreateEpic(ctx context.Context, row EpicRow) error {
 		if stored > 0 {
 			return fmt.Errorf("epic %s: %w", row.ID, ErrEpicExists)
 		}
-		if err = queries.InsertEpic(ctx, sqlcgen.InsertEpicParams{
+		if err = queries.InsertEpic(withHousekeepMark(ctx, hookEpicStored, row.ID), sqlcgen.InsertEpicParams{
 			ID: row.ID, Repository: row.Repository, Base: row.Base, StoredBase: row.Base, Title: row.Title,
 			Approved: row.Approved, Intent: row.Intent, Care: row.Care, Approach: row.Approach,
 			ReleaseThen: row.ReleaseThen, Checks: row.Checks, Phase: row.Phase, Created: row.Created.Unix(),

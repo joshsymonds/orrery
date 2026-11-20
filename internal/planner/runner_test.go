@@ -757,7 +757,7 @@ func TestReturnCheckRefusesFilesOfUnfinishedTasksOnly(t *testing.T) {
 			{Seq: 2, Title: "done", Files: []string{"internal/b.go"}, Status: "done"},
 		},
 	}
-	check := returnCheck(context.Background(), epic, store.Review{}, testResolver{}, nil)
+	check := returnCheck(context.Background(), epic, store.Review{}, testResolver{})
 	const touchA = `{"status":"done","decisions":[],` +
 		`"tasks":[{"title":"Touch a","deliverable":"d","files":["internal/a.go"],` +
 		`"requirements":["R1"],"gate":"check","evidence":{"capture":["scripts/check"],"limit":60,"artifacts":[],` +
