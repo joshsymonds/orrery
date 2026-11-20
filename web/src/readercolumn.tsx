@@ -74,6 +74,9 @@ export interface ReaderColumnProps {
   onAnswer?: (choice: 1 | 2 | 3) => void;
   // onInterrupt is a dock's state line Interrupt on a row: the row's Escape path. No Interrupt control is drawn without it.
   onInterrupt?: (row: Row) => void;
+  // interrupt is a session row's Send now interrupt, which resolves the texts the interrupt cancelled. No Send now is
+  // drawn without it.
+  interrupt?: (row: Row) => Promise<string[]>;
   // The cursor column's step, when the cursor rests on one: the step it draws, the step boxes it keeps, and their inputs.
   step?: StepItem | null;
   steps?: StepItem[];
@@ -111,6 +114,7 @@ export function ReaderColumn({
   onToggleOpen,
   onAnswer,
   onInterrupt,
+  interrupt,
   step = null,
   steps = [],
   stepInputs,
@@ -208,6 +212,7 @@ export function ReaderColumn({
               onPage={(direction) => reader.current?.page(direction) ?? false}
               onFind={() => onFind({ key: entry.key, query: "", current: 0 })}
               onInterrupt={onInterrupt === undefined ? undefined : () => onInterrupt(entry)}
+              interrupt={interrupt === undefined || entry.kind !== "session" ? undefined : () => interrupt(entry)}
               resume={
                 entry.kind === "session"
                   ? async () => {
@@ -221,6 +226,7 @@ export function ReaderColumn({
                 entry.kind === "session" ? (promptId) => actions.withdrawQueued(clients, entry, promptId) : undefined
               }
               items={entry.key === rowKey ? shown?.items : undefined}
+              pending={entry.key === rowKey ? conversation?.state?.pending : undefined}
               onSending={(sent) => addSending(entry.key, sent, entry.key === rowKey ? conversation : null)}
               onUnsent={(promptId) => retractSending(entry.key, promptId)}
               inputRef={(element) => {

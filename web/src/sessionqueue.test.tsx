@@ -10,17 +10,18 @@ import type { Row } from "./rows";
 import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
 import { turn, until as waitUntil } from "./testwait";
 
-// A headless session's queue over the fake transport: its queued messages draw as rows above the box, each with its note
-// and a withdraw; a discarded one draws to put back; a canceled one draws nothing; and a prompt the queue holds is not
-// drawn as sent. Each test's name carries the token QueueLifecycle or WithdrawQueued.
+// A headless session's queue over the fake transport: its queued messages draw as rows in the tray above the box, each
+// with a take back control and a note when Claude had already taken it in or the take back failed; a discarded one draws
+// as not delivered, to put back; a canceled one draws nothing; and a prompt the queue holds is not drawn as sent. Each
+// test's name carries the token QueueLifecycle or WithdrawQueued.
 
 const now = 1000;
 const sessionWatchPath = "/orrery.v1.Sessions/WatchConversation";
 const withdrawPath = "/orrery.v1.Control/Withdraw";
 const messageText = "queued words";
-const takesNextNote = "Claude takes it at its next tool call.";
+const takesNextWhy = "Claude takes them at its next tool result";
 const alreadyTookNote = "Claude already took it in.";
-const withdrawFailedNote = "Could not withdraw the message.";
+const withdrawFailedNote = "Could not take it back.";
 
 type Clients = ReturnType<typeof createClients>;
 
@@ -196,12 +197,12 @@ function composer(container: HTMLElement): HTMLTextAreaElement {
 
 // queuedRows are the session's queued rows above the cursor's box.
 function queuedRows(container: HTMLElement): Element[] {
-  return Array.from(container.querySelectorAll(".reply:not([hidden]) li.queued"));
+  return Array.from(container.querySelectorAll(".reply:not([hidden]) .tray-row:not(.cancelled)"));
 }
 
 // undeliveredRows are the discarded rows above the cursor's box.
 function undeliveredRows(container: HTMLElement): Element[] {
-  return Array.from(container.querySelectorAll(".reply:not([hidden]) li.undelivered"));
+  return Array.from(container.querySelectorAll(".reply:not([hidden]) .tray-row.cancelled"));
 }
 
 // readerText is the text the reader draws, without its composer.
@@ -211,15 +212,20 @@ function readerText(container: HTMLElement): string {
 
 // sentPrompts are the prompt rows the reader draws as sent.
 function sentPrompts(container: HTMLElement): Element[] {
-  return Array.from(container.querySelectorAll('[aria-label="reader"] .you'));
+  return Array.from(container.querySelectorAll('[aria-label="reader"] .reader .you'));
 }
 
 function noteOf(row: Element): string {
   return row.querySelector(".note")?.textContent ?? "";
 }
 
+// whyOf is the tray's why above the cursor's box: what its rows will do.
+function whyOf(container: HTMLElement): string {
+  return container.querySelector(".reply:not([hidden]) .tray-head .why")?.textContent ?? "";
+}
+
 function withdrawButton(row: Element): HTMLButtonElement | null {
-  return row.querySelector<HTMLButtonElement>('button[aria-label="withdraw"]');
+  return row.querySelector<HTMLButtonElement>('button[aria-label="Take this back into the box"]');
 }
 
 // queuedDelta is the first delta of a session stream: a reset that carries the given items and queued messages.
@@ -231,7 +237,7 @@ function queuedDelta(
   return { transcript: "s1.jsonl", seq, reset: true, items, queued };
 }
 
-test("QueueLifecycle: a session delta with a queued entry draws one li.queued row with its text and the next-tool-call note, and draws no sent prompt item for that prompt id in the reader, even though the delta's items hold that prompt item", (t) =>
+test("QueueLifecycle: a session delta with a queued entry draws one queued row with its text and the next-tool-call note, and draws no sent prompt item for that prompt id in the reader, even though the delta's items hold that prompt item", (t) =>
   withApp(t.signal, async (container, fake) => {
     await emit(
       t.signal,
@@ -244,11 +250,11 @@ test("QueueLifecycle: a session delta with a queued entry draws one li.queued ro
     await until(t.signal, () => queuedRows(container).length === 1, "the queued row");
     const [row] = queuedRows(container);
     assert.equal(row.querySelector(".text")?.textContent, messageText, "the row reads the message's text");
-    assert.equal(noteOf(row), takesNextNote, "the row says Claude takes it at its next tool call");
+    assert.equal(whyOf(container), takesNextWhy, "the tray says Claude takes it at its next tool result");
     assert.equal(sentPrompts(container).length, 0, "the queued prompt is not drawn as sent in the reader");
   }));
 
-test("QueueLifecycle: a delta with two queued entries draws one li.queued row per not-started message, each with its own text and the next-tool-call note, and no sent prompt item for either prompt", (t) =>
+test("QueueLifecycle: a delta with two queued entries draws one queued row per not-started message, each with its own text and the next-tool-call note, and no sent prompt item for either prompt", (t) =>
   withApp(t.signal, async (container, fake) => {
     await emit(
       t.signal,
@@ -271,8 +277,7 @@ test("QueueLifecycle: a delta with two queued entries draws one li.queued row pe
     assert.equal(rows.length, 2, "each not-started message draws one queued row");
     assert.equal(rows[0].querySelector(".text")?.textContent, "first queued", "the first row reads the first message");
     assert.equal(rows[1].querySelector(".text")?.textContent, "second queued", "the second row reads the second message");
-    assert.equal(noteOf(rows[0]), takesNextNote, "the first row says Claude takes it at its next tool call");
-    assert.equal(noteOf(rows[1]), takesNextNote, "the second row says Claude takes it at its next tool call");
+    assert.equal(whyOf(container), takesNextWhy, "the tray says Claude takes them at its next tool result");
     assert.ok(withdrawButton(rows[0]), "the first row has a withdraw control");
     assert.ok(withdrawButton(rows[1]), "the second row has a withdraw control");
     assert.equal(sentPrompts(container).length, 0, "neither queued prompt is drawn as sent in the reader");
@@ -292,7 +297,7 @@ test("QueueLifecycle: a fresh stream (reload) whose reset carries the queued ent
     assert.equal(queuedRows(container).length, 0, "the fresh page holds no row until its stream answers");
     await emit(t.signal, fake, 1, queuedDelta("2", [{ promptId: "p1", text: messageText, state: "queued" }]));
     await until(t.signal, () => queuedRows(container).length === 1, "the row after the reload");
-    assert.equal(noteOf(queuedRows(container)[0]), takesNextNote);
+    assert.equal(whyOf(container), takesNextWhy);
   }));
 
 test("QueueLifecycle: a later delta whose queued list no longer holds the entry drops the row, and the prompt item is drawn as sent", (t) =>
@@ -343,16 +348,16 @@ test("QueueLifecycle: a canceled entry draws no row and its prompt item stays hi
     assert.equal(queuedRows(container).length, 0, "no row is drawn after the queue drops it");
   }));
 
-test("QueueLifecycle: a discarded entry draws an li.undelivered row reading not delivered and no li.queued row, and its put-back control puts the text into the composer", (t) =>
+test("QueueLifecycle: a discarded entry draws a not-delivered row reading not delivered and no queued row, and its put-back control puts the text into the composer", (t) =>
   withApp(t.signal, async (container, fake) => {
     await emit(t.signal, fake, 0, queuedDelta("1", [{ promptId: "p1", text: messageText, state: "discarded" }]));
     await until(t.signal, () => undeliveredRows(container).length === 1, "the undelivered row");
     const [row] = undeliveredRows(container);
-    assert.equal(row.querySelector(".tag")?.textContent, "not delivered", "the row is tagged not delivered");
+    assert.equal(row.querySelector(".lbl")?.textContent, "not delivered", "the row is labeled not delivered");
     assert.equal(row.querySelector(".text")?.textContent, messageText, "the row reads the message's text");
     assert.equal(queuedRows(container).length, 0, "a discarded message draws no queued row");
 
-    const putBack = row.querySelector<HTMLButtonElement>('button[aria-label="put back"]');
+    const putBack = row.querySelector<HTMLButtonElement>('button[aria-label="Put back in the box"]');
     assert.ok(putBack, "the row has a put-back control");
     await act(() => {
       putBack.click();
@@ -394,7 +399,7 @@ test("WithdrawQueued: a reply with no texts shows the taken-in wording, the row 
     assert.equal(composer(container).value, "", "no text is put into the composer");
   }));
 
-test("WithdrawQueued: a refused withdraw makes the row read Could not withdraw the message., and puts no text into the composer", (t) =>
+test("WithdrawQueued: a refused withdraw makes the row read Could not take it back., and puts no text into the composer", (t) =>
   withApp(t.signal, async (container, fake) => {
     fake.failNext.add(withdrawPath);
     await emit(t.signal, fake, 0, queuedDelta("1", [{ promptId: "p1", text: messageText, state: "queued" }]));

@@ -584,29 +584,6 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 .reader .background-row .bg-status.failed { color: var(--o-role-bad); }
 .reader button.background-row { width: 100%; min-height: var(--o-space-24); margin: 0; border: 0; background: none; text-align: left; cursor: pointer; appearance: none; -webkit-appearance: none; }
 
-/* The send foot's queue docks onto the composer under it: the queue's top corners and the composer's bottom corners are
-   rounded, so the two read as one box. The head counts the rows quietly. A queued message is a ghost of the owner's
-   turn: a dashed edge in the owner's colour, dim text, and its line breaks kept. */
-.compose .queue { min-width: 0; margin: 0; padding: 0; list-style: none; border-radius: var(--o-radius-3) var(--o-radius-3) 0 0; background: var(--o-surface-well); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm); }
-.compose .queue + .composer { border-radius: 0 0 var(--o-radius-3) var(--o-radius-3); }
-.compose .queue-head { display: block; min-width: 0; padding: var(--o-space-4) var(--o-space-12) 0; font: var(--o-type-small); color: var(--o-ink-3); }
-.compose .queued { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; padding: var(--o-space-4) var(--o-space-12); border-left: var(--o-size-rail) dashed var(--o-role-you); }
-.compose .queued > .tag { display: block; font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; color: var(--o-ink-3); }
-.compose .queued > .text { min-width: 0; color: var(--o-ink-3); font: var(--o-type-body); white-space: pre-wrap; overflow-wrap: anywhere; }
-.compose .queued.canceled > .text { color: var(--o-ink-3); text-decoration: line-through; }
-.compose .queued.canceled > .tag { color: var(--o-role-halt); }
-/* A session's queued message says what Claude does with it, and carries a withdraw that takes it back into the box. A
-   discarded message never reached Claude: its halt edge and tag mark it, and its control puts it back in the box. */
-.compose .queued > .note { display: block; min-width: 0; font: var(--o-type-small); color: var(--o-ink-3); }
-.compose .queued > .withdraw, .compose .undelivered > .put-back {
-  justify-self: start; min-height: var(--o-space-24); margin-top: var(--o-space-4); padding: 0 var(--o-space-8); border: 0; border-radius: var(--o-radius-2); cursor: pointer;
-  background: var(--o-surface-raised); font: var(--o-type-small); color: var(--o-ink-2);
-  appearance: none; -webkit-appearance: none;
-}
-.compose .undelivered { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; padding: var(--o-space-4) var(--o-space-12); border-left: var(--o-size-rail) solid var(--o-role-halt); }
-.compose .undelivered > .tag { display: block; font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; color: var(--o-role-halt); }
-.compose .undelivered > .text { min-width: 0; color: var(--o-ink-2); font: var(--o-type-body); white-space: pre-wrap; overflow-wrap: anywhere; }
-
 /* The find bar is a well field over the transcript, its query in mono and its count in ink.3 at the right. It takes
    the focus ring while it has focus, as the composer does. */
 .find { display: flex; align-items: center; gap: var(--o-space-8); margin: 0 0 var(--o-space-4); padding: 0 var(--o-space-8); border-radius: var(--o-radius-2); background: var(--o-surface-well); box-shadow: 0 0 0 var(--o-size-hairline) var(--o-line-firm); font: var(--o-type-small); color: var(--o-ink-3); }
@@ -640,10 +617,6 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
   flex: none; width: var(--o-size-control-desk); height: var(--o-size-control-desk); padding: 0; border: 0; border-radius: var(--o-radius-2); cursor: pointer;
   background: var(--o-role-primary); color: var(--o-ink-on-accent); font: var(--o-type-small); font-weight: var(--o-font-weight-bold); text-align: center;
   appearance: none; -webkit-appearance: none;
-}
-.composer-error {
-  margin: 0 0 var(--o-space-8); padding: var(--o-space-4) var(--o-space-8); border-radius: var(--o-radius-2); color: var(--o-role-bad);
-  overflow-wrap: anywhere;
 }
 
 /* The step foot under a step's reader: Interrupt, the nudge input beside it, and the more button. The more button opens

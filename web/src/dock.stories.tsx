@@ -1,8 +1,10 @@
-// The stories of Dock: the box under a reader, with its state line and its queue above it. Each state draws the facts it
-// names, its queue or the state its props name. Its waiting messages are the fixture pane's, and its session messages are
-// built as a stream holds them.
+// The stories of Dock: the box under a reader, with its state line, its waits line, its tray and its about line. Each state
+// draws the facts it names, the tray or the lines its props name. Its waiting messages are the fixture pane's, and its
+// session messages are built as a stream holds them.
 
 import { create } from "@bufbuild/protobuf";
+import { Code, ConnectError } from "@connectrpc/connect";
+import { useEffect, useRef } from "preact/hooks";
 
 import type { Stories } from "./catalog/story";
 import { applyDelta } from "./conversation";
@@ -10,7 +12,7 @@ import * as dock from "./dock";
 import type { DockFacts } from "./dockwords";
 import { liveEpoch } from "./fixtures/clock";
 import { paneStreams } from "./fixtures/panes";
-import { QueuedMessageSchema } from "./gen/orrery/v1/orrery_pb";
+import { PendingEventSchema, QueuedMessageSchema } from "./gen/orrery/v1/orrery_pb";
 
 // must returns value, or throws naming what the fixtures do not hold.
 function must<T>(value: T | undefined, what: string): T {
@@ -52,6 +54,27 @@ const base = {
   pull: null,
   newPromptId: () => "prompt-story",
 };
+
+// refusedSend is the server's refusal of a send, as a session that is busy gives it.
+const refusedSend = () => Promise.reject(new ConnectError("session is busy", Code.FailedPrecondition));
+
+// SendRefused is a dock whose send the server refuses. It types a draft and sends it once it has drawn, so the story
+// draws the refusal the way a refused send does.
+function SendRefused() {
+  const field = useRef<HTMLTextAreaElement | null>(null);
+  useEffect(() => {
+    const box = field.current;
+    if (box === null) {
+      return;
+    }
+    box.value = "Also check the spool directory.";
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+    // The send reads the draft the input event set, which the next render holds, so Enter follows that render.
+    const timer = setTimeout(() => box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })), 0);
+    return () => clearTimeout(timer);
+  }, []);
+  return <dock.Dock {...base} facts={facts({ state: "done" })} send={refusedSend} inputRef={field} />;
+}
 
 export const Dock: Stories = {
   done: () => <dock.Dock {...base} facts={facts({ state: "done", changed: now - 300 })} />,
@@ -101,4 +124,21 @@ export const Dock: Stories = {
       sessionQueue={[queuedMessage("prompt-discarded", "Retry the upload after the spool drains.", "discarded")]}
     />
   ),
+  about: () => (
+    <dock.Dock {...base} facts={facts({ state: "done", changed: now - 300 })} about="the failing deploy check" />
+  ),
+  "events-wait": () => (
+    <dock.Dock
+      {...base}
+      facts={facts({ state: "working", turnSince: now - 83 })}
+      pending={[
+        create(PendingEventSchema, { id: "event-1", kind: "step_end", step: "step-7", waits: "speak" }),
+        create(PendingEventSchema, { id: "event-2", kind: "step_end", step: "step-8", waits: "speak" }),
+      ]}
+      onInterrupt={() => {}}
+    />
+  ),
+  "send-error": () => <SendRefused />,
+  focused: () => <dock.Dock {...base} facts={facts({ state: "done" })} inputRef={(element) => element?.focus()} />,
+  shell: () => <dock.Dock {...base} facts={facts({ kind: "shell", name: "tidepool", state: "idle" })} />,
 };

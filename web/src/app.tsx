@@ -893,6 +893,17 @@ export function App({
       box.blur();
     }
   };
+  // interruptRow is Send now's interrupt on a session row: the row's interrupt mark is set at once, as Escape sets it, and
+  // cleared when the interrupt is refused. It resolves the texts the interrupt cancelled.
+  const interruptRow = async (row: Row): Promise<string[]> => {
+    setInterrupts((previous) => new Set(previous).add(row.key));
+    try {
+      return await actions.interrupt(clients, row);
+    } catch (failure) {
+      setInterrupts((previous) => withoutKey(previous, row.key));
+      throw failure;
+    }
+  };
   const toggleOpen = () => setOpen((value) => !value);
   const toggleStrips = () => setStripsShown((value) => !value);
   // drill opens a page over the open one. The open page's scroll place is kept for the back that returns to it, and the
@@ -1594,6 +1605,7 @@ export function App({
           onInterrupt={(row) =>
             void escapeRow({ row, column: "cursor", state: headState(row, cursorConversation?.state?.pane) }, null)
           }
+          interrupt={interruptRow}
           step={cursorStep}
           steps={visitedSteps}
           stepInputs={stepInputs}
@@ -1622,6 +1634,7 @@ export function App({
           addSending={addSending}
           retractSending={retractSending}
           open={false}
+          interrupt={interruptRow}
           onInterrupt={(row) =>
             void escapeRow({ row, column: "pinned", state: headState(row, pinnedConversation?.state?.pane) }, null)
           }

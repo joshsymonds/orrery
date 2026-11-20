@@ -244,7 +244,7 @@ function cursorKey(container: HTMLElement): string | null {
 // queueTexts is the text of each message in the cursor's queue above its box, oldest first, without its tag.
 function queueTexts(container: HTMLElement): string[] {
   return Array.from(
-    container.querySelectorAll('[aria-label="reader"] .send .queue li .text'),
+    container.querySelectorAll('[aria-label="reader"] .send .tray-row .text'),
     (text) => text.textContent ?? "",
   );
 }

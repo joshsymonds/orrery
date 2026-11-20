@@ -195,9 +195,9 @@ function composer(container: HTMLElement): HTMLTextAreaElement {
   return box;
 }
 
-// queuedRows counts the li.queued rows the page draws.
+// queuedRows counts the queued rows the tray draws: those not cancelled.
 function queuedRows(container: HTMLElement): number {
-  return container.querySelectorAll("li.queued").length;
+  return container.querySelectorAll(".tray-row:not(.cancelled)").length;
 }
 
 // emitQueued waits for the session's stream to open, then sends a delta whose queued set holds each message as queued,
@@ -236,7 +236,7 @@ test("EscapeQueued: Escape on a working session calls Control.Interrupt and neve
     assert.equal(fake.callsTo(withdrawPath).length, 0, "Escape never calls Control.Withdraw");
   }));
 
-test("EscapeQueued: once the stream serves both entries canceled, no li.queued row is drawn", (t) =>
+test("EscapeQueued: once the stream serves both entries canceled, no queued row is drawn", (t) =>
   withApp(t.signal, [sessionRow("working")], async (container, fake) => {
     fake.replies.set(interruptPath, [{ texts: ["first", "second"] }]);
     await emitQueued(t.signal, container, fake, twoQueued);
@@ -251,7 +251,7 @@ test("EscapeQueued: once the stream serves both entries canceled, no li.queued r
       });
     });
     await until(t.signal, () => queuedRows(container) === 0, "the canceled entries' end");
-    assert.equal(queuedRows(container), 0, "no li.queued row is drawn");
+    assert.equal(queuedRows(container), 0, "no queued row is drawn");
   }));
 
 test("EscapeQueued: Escape on a session that is not working calls neither Control.Interrupt nor Control.Withdraw", (t) =>

@@ -492,7 +492,7 @@ function sectionChildren(section: Element | null): string[] {
 // queueTexts is the text of each message in the cursor's foot queue, oldest first, without its tag.
 function queueTexts(container: HTMLElement): string[] {
   return Array.from(
-    container.querySelectorAll('[aria-label="reader"] .send .queue li .text'),
+    container.querySelectorAll('[aria-label="reader"] .send .tray-row .text'),
     (text) => text.textContent ?? "",
   );
 }
@@ -500,7 +500,7 @@ function queueTexts(container: HTMLElement): string[] {
 // pinnedQueueTexts is the text of each message in the pinned foot queue, oldest first, without its tag.
 function pinnedQueueTexts(container: HTMLElement): string[] {
   return Array.from(
-    container.querySelectorAll('[aria-label="pinned reader"] .send .queue li .text'),
+    container.querySelectorAll('[aria-label="pinned reader"] .send .tray-row .text'),
     (text) => text.textContent ?? "",
   );
 }
@@ -1304,7 +1304,7 @@ test("the cursor's queued messages dock in its foot, oldest first, and draw nowh
     });
     await until(t.signal, () => queueTexts(container).length === 2, "the queued messages");
     assert.deepEqual(queueTexts(container), ["first waiting", "second waiting"]);
-    assert.equal(container.querySelectorAll('[aria-label="reader"] .send .queue li.canceled').length, 1);
+    assert.equal(container.querySelectorAll('[aria-label="reader"] .send .tray-row.cancelled').length, 1);
     const reader = container.querySelector('[aria-label="reader"] > .reader')?.textContent ?? "";
     assert.equal(reader.includes("first waiting"), false, "the reader draws no queued message");
     assert.equal(reader.includes("second waiting"), false, "the reader draws no canceled message");
@@ -1341,7 +1341,7 @@ test("a row's queued messages draw in no other foot: the pin keeps its own, and 
     await until(t.signal, () => queueTexts(container).includes("c waiting"), "c's queue");
     assert.deepEqual(queueTexts(container), ["c waiting"], "only c's composer draws c's queue");
     assert.deepEqual(pinnedQueueTexts(container), ["pinned waiting"]);
-    assert.equal(container.querySelector(".reply[hidden] .queue") === null, true, "a's hidden composer draws no queue");
+    assert.equal(container.querySelector(".reply[hidden] .tray") === null, true, "a's hidden composer draws no tray");
   }));
 
 test("Enter in a session's composer sends the text with Control.Say and a prompt id", (t) =>
@@ -1357,7 +1357,7 @@ test("Enter in a session's composer sends the text with Control.Say and a prompt
     assert.match(String(say.body.promptId), /^[0-9a-f-]{36}$/);
   }));
 
-const sentNotice = "Not sent. Your draft is kept; press Enter to try again.";
+const sendUnknownNote = "No answer from the server. It may have been sent: check the conversation before sending again.";
 
 test("a message sent to a headless session draws at once as a sending row, and its stored prompt replaces it", (t) =>
   withApp(t.signal, { rows: [{ ...sessionRow, state: "done" }] }, async (container, fake) => {
@@ -1450,8 +1450,8 @@ test("a failed send to a session leaves no sending row, and keeps the draft and 
     await untilTurn(t.signal, () => fake.callsTo(sayPath).length === 1, "the say");
     assert.equal(sendingRows(container).length, 1, "the row draws while the say is pending");
     releaseSay();
-    await untilTurn(t.signal, () => container.querySelector('[role="alert"]') !== null, "the failed send's line");
-    assert.equal(container.querySelector('[role="alert"]')?.textContent, sentNotice);
+    await untilTurn(t.signal, () => container.querySelector('.dock .inote') !== null, "the failed send's line");
+    assert.equal(container.querySelector('.dock .inote')?.textContent, sendUnknownNote);
     assert.equal(sendingRows(container).length, 0, "no sending row is left");
     assert.equal(composer(container).value, "keep going", "the draft is kept");
   }));
@@ -1463,10 +1463,10 @@ test("a message sent to a working session draws above the box as queued, and lea
     await pressIn(composer(container), "Enter");
     await untilTurn(t.signal, () => queueTexts(container).length === 1, "the queued send");
     assert.deepEqual(queueTexts(container), ["after the turn"]);
-    assert.equal(container.querySelector('[aria-label="reader"] .send .queue .queue-head')?.textContent, "1 queued");
-    const queued = container.querySelector('[aria-label="reader"] .send .queue li.queued');
-    assertNone(queued?.querySelector(".tag"), "a waiting row carries no per-row tag, since the head names it");
-    assertNone(queued?.querySelector(".words"), "a waiting row carries no note on when it sends");
+    assert.equal(container.querySelector('[aria-label="reader"] .send .tray-head .lbl')?.textContent, "Queued 1");
+    const queued = container.querySelector('[aria-label="reader"] .send .tray-row');
+    assertNone(queued?.querySelector(".lbl"), "a waiting row carries no label, since the head names it");
+    assertNone(queued?.querySelector(".note"), "a waiting row carries no note on when it sends");
     await mount(container, {
       rows: [{ ...sessionRow, state: "done" }],
       error: "",
@@ -1489,7 +1489,7 @@ test("a message sent to a working pane draws above the box as queued, and leaves
     await untilTurn(t.signal, () => queueTexts(container).length === 1, "the queued send");
     assert.deepEqual(queueTexts(container), ["after the turn"]);
     assertNone(
-      container.querySelector('[aria-label="reader"] .send .queue li.queued .words'),
+      container.querySelector('[aria-label="reader"] .send .tray-row .note'),
       "a waiting row carries no note on when it sends",
     );
 
@@ -1521,7 +1521,7 @@ test("a failed send keeps its prompt id when the cursor moves away and back", (t
     const box = composer(container);
     await typeInto(box, "keep going");
     await pressIn(box, "Enter");
-    await until(t.signal, () => container.querySelector('[role="alert"]') !== null, "the failed send's line");
+    await until(t.signal, () => container.querySelector('.dock .inote') !== null, "the failed send's line");
     await act(() => {
       box.blur();
     });
@@ -1545,7 +1545,7 @@ test("a failed send keeps its draft and prompt id through a poll that lists no s
     await press("i");
     await typeInto(composer(container), "keep going");
     await pressIn(composer(container), "Enter");
-    await until(t.signal, () => container.querySelector('[role="alert"]') !== null, "the failed send's line");
+    await until(t.signal, () => container.querySelector('.dock .inote') !== null, "the failed send's line");
     await act(() => {
       composer(container).blur();
     });
@@ -2551,7 +2551,7 @@ test("a failed send in the pinned column keeps its prompt id through a close and
     await typeInto(pinnedComposer(container), "keep going");
     await pressIn(pinnedComposer(container), "Enter");
     await until(t.signal, () => fake.callsTo(sayPath).length === 1, "the failed say");
-    await until(t.signal, () => pinnedColumn(container)?.querySelector('[role="alert"]') !== null, "the failed send's line");
+    await until(t.signal, () => pinnedColumn(container)?.querySelector('.dock .inote') !== null, "the failed send's line");
     await act(() => {
       pinnedComposer(container).blur();
     });

@@ -406,7 +406,7 @@ test("a message the dock's target holds draws as one queued row, and no sending 
     });
     await rendered(t.signal, () => container.querySelector(".reader .sending-row") === null, "the sending row leaves");
     assert.deepEqual(
-      [...container.querySelectorAll(".dock .queue li .text")].map((text) => text.textContent),
+      [...container.querySelectorAll(".dock .tray-row .text")].map((text) => text.textContent),
       ["held from the dock"],
       "the held message draws one queued row",
     );

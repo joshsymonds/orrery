@@ -2,21 +2,29 @@ import type { JSX, Ref } from "preact";
 import { useLayoutEffect, useRef, useState } from "preact/hooks";
 
 import { Ctl } from "./ctl";
-import { type DockFacts, dockLines, placeholder, stateLine } from "./dockwords";
+import {
+  type DockFacts,
+  type TrayRowFacts,
+  dockLines,
+  placeholder,
+  stateLine,
+  trayLabel,
+  trayWhy,
+  waitsLine,
+} from "./dockwords";
 import { useFlash } from "./flash";
-import type { ConversationItem, QueuedMessage, WaitingMessage } from "./gen/orrery/v1/orrery_pb";
+import type { ConversationItem, PendingEvent, QueuedMessage, WaitingMessage } from "./gen/orrery/v1/orrery_pb";
+import { sendNow } from "./sendnow";
 import { type Sending, type SentText, promptHeld, sameText, withoutTexts } from "./sending";
 import { outcomeOf } from "./stepbox";
 import { ReplyText } from "./text";
 
-const sendFailedLine = "Not sent. Your draft is kept; press Enter to try again.";
-const pullFailedLine = "Could not pull the message back.";
-const takesNextLine = "Claude takes it at its next tool call.";
-const alreadyTookLine = "Claude already took it in.";
-const withdrawFailedLine = "Could not withdraw the message.";
-
 // deskQuery holds at a desk width. Narrower than it, the dock says its short queue prompt.
 const deskQuery = "(min-width: 760px)";
+
+// noEvents is what a dock holds when it is given no pending events. One array serves every render, so the waits line
+// stays cleared after a send until the page passes a new list.
+const noEvents: PendingEvent[] = [];
 
 interface FailedSend {
   text: string;
@@ -24,7 +32,7 @@ interface FailedSend {
 }
 
 // A message this dock sent while its conversation was working, with the newest item the conversation held as it was
-// sent. It stays above the box until the conversation's items hold its prompt, it leaves the session queue after it was
+// sent. It stays in the tray until the conversation's items hold its prompt, it leaves the session queue after it was
 // in it (wasQueued), the turn ends or its send fails.
 interface LocalQueued extends Sending {
   wasQueued: boolean;
@@ -49,21 +57,19 @@ function settleLocal(entries: LocalQueued[], items: ConversationItem[], queue: Q
   return changed ? kept : entries;
 }
 
-// QueueRow is one line of the queue above the box that carries only its text: a waiting message or a message this
-// dock sent.
-interface QueueRow {
-  key: string;
-  text: string;
-  canceled: boolean;
-}
-
 // WithdrawOutcome is what a withdraw of a session's queued message came to, when it did not take the text back: took when
 // Claude had already taken the message in, failed when the call was refused.
 type WithdrawOutcome = "took" | "failed";
 
+// pendingKey names a set of pending events by each one's id and wait, so the same events carried by a later state read
+// as unchanged.
+function pendingKey(pending: readonly PendingEvent[]): string {
+  return pending.map((event) => `${event.id}:${event.waits}`).join("|");
+}
+
 // DockHandle is what the page calls on a dock when its row's Escape takes queued messages back. append puts their texts
-// in the box after its text, joined by blank lines. forget drops the local entry each text matches, since the session
-// queue no longer carries those messages.
+// in the box after its text, joined by blank lines, and notes that they are back in the box. forget drops the local
+// entry each text matches, since the session queue no longer carries those messages.
 export interface DockHandle {
   append: (texts: string[]) => void;
   forget: (texts: string[]) => void;
@@ -71,17 +77,19 @@ export interface DockHandle {
 
 // Dock is the box under the reader and its state line. The line and the box's placeholder read the row's facts, and the
 // box carries the line's tone as data-state. Enter and the send button send the text once; Shift+Enter or Alt+Enter puts
-// a line break at the cursor instead. A send reports itself to onSending as it starts, and to onUnsent if it rejects. A
-// failed send keeps the draft and its prompt id and is never resent by the dock. Up in an empty box pulls the newest
-// queued text back. In an empty box with no modifier held, Page Up and Page Down go to onPage, and / goes to onFind. The
-// queue draws above the box under one head that counts its queued rows, oldest first, each message as its text: the
-// conversation's waiting messages, then the session's queued messages, then the messages this dock sent while the
-// conversation was working, except those the session queue carries under their prompt id. Such a message leaves once the
-// conversation's items hold its prompt, or once it leaves the session queue it was in, so a message that became a prompt
-// is not drawn as queued while the conversation stays working. A canceled message is tagged. A session's queued message
-// carries a withdraw, which takes it back into the box, and a note on what Claude did. A session's discarded message
-// draws after the rows as not delivered, with a control that puts it back in the box. The state line's Interrupt calls
-// onInterrupt, and its Resume calls resume; a refused Resume shows its line under the box.
+// a line break at the cursor instead. A refused send shows its line under the box and keeps the draft; a send whose
+// outcome is unknown keeps the draft and shows its note. Up in an empty box pulls the newest queued text back. In an
+// empty box with no modifier held, Page Up and Page Down go to onPage, and / goes to onFind.
+//
+// The tray draws under the state line, under one head that counts its rows, oldest first: the conversation's waiting
+// messages, then the session's queued messages, then the messages this dock sent while the conversation was working,
+// except those the session queue carries under their prompt id, then the session's discarded messages. A row's words
+// say what Claude does with it. A session's queued message carries a take back, which puts its text in the box, and a
+// note when Claude had already taken it in or the take back was refused. A discarded message is marked not delivered
+// and carries a put back. The head says what the rows will do, and carries Take all back for a pane and Send now for a
+// working session that has an interrupt: Send now interrupts the turn and says each cancelled text again, and the texts
+// it could not say go back into the box. The waits line counts the pending events that wait on the owner, and the about
+// line says what the message is about until Not about this clears it.
 export function Dock(props: {
   facts: DockFacts; // the row's facts, which the state line and the placeholder read
   now: number; // unix seconds, for the state line's ages and clocks
@@ -92,14 +100,18 @@ export function Dock(props: {
   register?: (handle: DockHandle | null) => void; // gets the handle while mounted, and null once unmounted
   queued?: WaitingMessage[]; // the row's waiting and canceled messages, oldest first; none drawn when absent
   sessionQueue?: QueuedMessage[]; // the session's queued messages, oldest first; none drawn when absent
-  withdraw?: (promptId: string) => Promise<string[]>; // takes a session's queued message back, resolving its texts; no withdraw control when absent
+  withdraw?: (promptId: string) => Promise<string[]>; // takes a session's queued message back, resolving its texts; no take back control when absent
   items?: ConversationItem[]; // the conversation's items, whose prompts end the queued messages sent here
   onSending?: (entry: SentText) => void; // called as a send starts, before it is awaited
   onUnsent?: (promptId: string) => void; // called when a send rejects
   onPage?: (direction: "up" | "down") => boolean; // an empty box's Page Up or Page Down; true prevents the key
   onFind?: () => void; // an empty box's /; the key is always prevented, so no slash is typed
   onInterrupt?: () => void; // the state line's Interrupt: the row's Escape path; no Interrupt control when absent
+  interrupt?: () => Promise<string[]>; // Send now's interrupt, resolving the texts it cancelled; no Send now when absent
   resume?: () => Promise<void>; // the state line's Resume on a cut-off session; no Resume control when absent
+  pending?: PendingEvent[]; // the session's pending events, for the waits line
+  about?: string; // what the message is about; no about line when absent
+  onClearAbout?: () => void; // Not about this: the about line is cleared, and this is called
 }): JSX.Element {
   const {
     facts,
@@ -118,18 +130,32 @@ export function Dock(props: {
     onPage,
     onFind,
     onInterrupt,
+    interrupt,
     resume,
+    pending = noEvents,
+    about,
+    onClearAbout,
   } = props;
   const { state } = facts;
   const line = stateLine(facts, now);
   const narrow = !window.matchMedia(deskQuery).matches;
   const [text, setText] = useState("");
   const [error, setError] = useState("");
+  const [note, setNote] = useState("");
   const [local, setLocal] = useState<LocalQueued[]>([]);
-  // The outcome of each session message a withdraw did not take back, by prompt id.
+  // The outcome of each session message a take back did not take back, by prompt id.
   const [outcomes, setOutcomes] = useState<Map<string, WithdrawOutcome>>(() => new Map());
   // The prompt ids of the discarded messages put back in the box, whose rows are hidden for the dock's life.
   const [putBackIds, setPutBackIds] = useState<string[]>([]);
+  // The pending events, by id and wait, that the last successful send left the waits line hidden for. It is drawn again
+  // once the pending events differ from them, and not when a later state carries the same ones again.
+  const [waitsCleared, setWaitsCleared] = useState<string | null>(null);
+  // Whether a Send now is in flight: its control is spent until it settles, so a second press interrupts nothing.
+  const [sendingNow, setSendingNow] = useState(false);
+  const sendNowInFlight = useRef(false);
+  // The about text Not about this cleared. The about line is drawn again only for a different about.
+  const [aboutCleared, setAboutCleared] = useState<string | null>(null);
+  const [focused, setFocused] = useState(false);
   const inFlight = useRef(false);
   const failed = useRef<FailedSend | null>(null);
   const [flashing, flash] = useFlash();
@@ -142,10 +168,14 @@ export function Dock(props: {
     setText((current) => (current === "" ? returned : `${current}\n\n${returned}`));
   };
 
-  // The page holds the handle while this dock is mounted, and drops it when the dock unmounts.
+  // The page holds the handle while this dock is mounted, and drops it when the dock unmounts. Its append also notes
+  // that the texts are back in the box.
   useLayoutEffect(() => {
     register?.({
-      append,
+      append: (texts) => {
+        append(texts);
+        setNote(dockLines.backInBox(texts.length));
+      },
       forget: (texts) => {
         setLocal((current) => withoutTexts(current, texts));
       },
@@ -154,10 +184,10 @@ export function Dock(props: {
   }, [register]);
 
   useLayoutEffect(() => {
-    const pending = caret.current;
-    if (pending !== null) {
+    const pendingCaret = caret.current;
+    if (pendingCaret !== null) {
       caret.current = null;
-      pending.box.setSelectionRange(pending.at, pending.at);
+      pendingCaret.box.setSelectionRange(pendingCaret.at, pendingCaret.at);
     }
   }, [text]);
 
@@ -173,16 +203,27 @@ export function Dock(props: {
     setLocal((current) => settleLocal(current, items, sessionQueue));
   }, [items, sessionQueue]);
 
+  // unsentLine shows what a failed send came to: a refusal in the error line, and any other failure as the unknown note,
+  // since the send may have landed.
+  function unsentLine(failure: unknown): void {
+    if (outcomeOf(failure).outcome === "refused") {
+      setError(dockLines.sendRefused);
+    } else {
+      setNote(dockLines.sendUnknown);
+    }
+  }
+
   async function submit(): Promise<void> {
     if (inFlight.current || text.trim() === "") {
       return;
     }
     flash();
     const sent = text;
-    const pending = failed.current;
-    const promptId = pending !== null && pending.text === sent ? pending.promptId : newPromptId();
+    const pendingSend = failed.current;
+    const promptId = pendingSend !== null && pendingSend.text === sent ? pendingSend.promptId : newPromptId();
     inFlight.current = true;
     setError("");
+    setNote("");
     onSending?.({ text: sent, promptId });
     if (state === "working") {
       setLocal((current) => [...current, { promptId, text: sent, after: items.at(-1), wasQueued: false }]);
@@ -190,11 +231,12 @@ export function Dock(props: {
     try {
       await send(sent, promptId);
       failed.current = null;
+      setWaitsCleared(pendingKey(pending));
       // Text typed while the send was in flight stays in the box.
       setText((current) => (current === sent ? "" : current));
-    } catch {
+    } catch (failure) {
       failed.current = { text: sent, promptId };
-      setError(sendFailedLine);
+      unsentLine(failure);
       onUnsent?.(promptId);
       setLocal((current) => current.filter((entry) => entry.promptId !== promptId));
     } finally {
@@ -202,7 +244,8 @@ export function Dock(props: {
     }
   }
 
-  async function pullBack(): Promise<void> {
+  // pullBack puts the pulled text in the box, and shows failure as the error line when the pull is refused.
+  async function pullBack(failure: string): Promise<void> {
     if (pull === null) {
       return;
     }
@@ -213,12 +256,36 @@ export function Dock(props: {
       setText((current) => (current === "" ? pulled : `${pulled}\n${current}`));
       setError("");
     } catch {
-      setError(pullFailedLine);
+      setError(failure);
+    }
+  }
+
+  // sendNowRow interrupts the working turn and says each text it cancelled again. The texts that were not said go back
+  // into the box after the draft, with their note.
+  async function sendNowRow(interruptTurn: () => Promise<string[]>): Promise<void> {
+    if (sendNowInFlight.current) {
+      return;
+    }
+    sendNowInFlight.current = true;
+    setSendingNow(true);
+    setError("");
+    setNote("");
+    try {
+      const { held } = await sendNow(interruptTurn, send, newPromptId);
+      if (held.length > 0) {
+        append(held);
+        setNote(dockLines.sendNowHeld(held.length));
+      }
+    } catch (failure) {
+      unsentLine(failure);
+    } finally {
+      sendNowInFlight.current = false;
+      setSendingNow(false);
     }
   }
 
   // withdrawRow takes a session's queued message back through take. Its texts go to the box; none means Claude already
-  // took the message in, and a refused call is shown as its own line on the row. The row stays until the stream drops it.
+  // took the message in, and a refused call is shown as its own note on the row. The row stays until the stream drops it.
   async function withdrawRow(take: (promptId: string) => Promise<string[]>, promptId: string): Promise<void> {
     try {
       const texts = await take(promptId);
@@ -279,7 +346,7 @@ export function Dock(props: {
       }
     } else if (event.key === "ArrowUp" && text === "" && pull !== null) {
       event.preventDefault();
-      void pullBack();
+      void pullBack(dockLines.takeAllBackFailed);
     } else if (text === "" && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
       if ((event.key === "PageUp" || event.key === "PageDown") && onPage !== undefined) {
         if (onPage(event.key === "PageUp" ? "up" : "down")) {
@@ -295,78 +362,47 @@ export function Dock(props: {
   // The local messages show only while the conversation is working. A message the conversation's session queue carries
   // under its prompt id is drawn from that queue, in whatever state it is, and not from here.
   const sentHere = state === "working" ? local : [];
-  const paneRows: QueueRow[] = queued.map((message, index) => ({
+  const paneRows = queued.map((message, index) => ({
     key: `queued-${index}`,
     text: message.text,
     canceled: message.canceled,
   }));
-  const localRows: QueueRow[] = sentHere
+  const localRows = sentHere
     .filter((entry) => !sessionQueue.some((message) => message.promptId === entry.promptId))
     .filter((entry) => !queued.some((message) => !message.canceled && sameText(message.text, entry.text)))
-    .map((entry) => ({ key: `local-${entry.promptId}`, text: entry.text, canceled: false }));
+    .map((entry) => ({ key: `local-${entry.promptId}`, text: entry.text }));
+  // A session's canceled message draws nothing: only the queued ones and the discarded ones are drawn.
   const sessionRows = sessionQueue.filter((message) => message.state === "queued");
   const undelivered = sessionQueue.filter(
     (message) => message.state === "discarded" && !putBackIds.includes(message.promptId),
   );
-  const queuedCount = paneRows.length + sessionRows.length + localRows.length;
-  const plainRow = (row: QueueRow) => (
-    <li key={row.key} class={row.canceled ? "queued canceled" : "queued"}>
-      {row.canceled && <span class="tag">canceled</span>}
-      <span class="text">
-        <ReplyText text={row.text} />
+  // The facts of each drawn row, in the order drawn, for the tray's head.
+  const drawn: TrayRowFacts[] = [
+    ...paneRows.map((row) => ({ waits: "", cancelled: row.canceled })),
+    ...sessionRows.map((message) => ({ waits: message.waits, cancelled: false })),
+    ...localRows.map(() => ({ waits: "", cancelled: false })),
+    ...undelivered.map(() => ({ waits: "", cancelled: true })),
+  ];
+  const trayKind = facts.kind === "session" ? "session" : "pane";
+  // The waits line is drawn until a send resolves, and again once the pending events change.
+  const waits = waitsCleared === pendingKey(pending) ? "" : waitsLine(pending, facts.putOff);
+  const shownAbout = about !== undefined && about !== aboutCleared ? about : null;
+
+  // trayRow draws one row: its label when it is cancelled, its text, its control and its note, when it has them.
+  const trayRow = (key: string, rowText: string, cancelled: boolean, control: JSX.Element | null, rowNote: string) => (
+    <div key={key} class={cancelled ? "tray-row you cancelled" : "tray-row you"}>
+      {cancelled && <span class="lbl">{dockLines.notDelivered}</span>}
+      <span class="text wrap">
+        <ReplyText text={rowText} />
       </span>
-    </li>
+      {control !== null && <span class="end">{control}</span>}
+      {rowNote !== "" && <span class="note">{rowNote}</span>}
+    </div>
   );
 
   return (
     <div class="dock">
-      {(queuedCount > 0 || undelivered.length > 0) && (
-        <ol class="queue">
-          {queuedCount > 0 && <li class="queue-head">{`${queuedCount} queued`}</li>}
-          {paneRows.map(plainRow)}
-          {sessionRows.map((message) => {
-            const outcome = outcomes.get(message.promptId);
-            return (
-              <li key={`session-${message.promptId}`} class="queued">
-                <span class="text">
-                  <ReplyText text={message.text} />
-                </span>
-                <span class="note">
-                  {outcome === "took" ? alreadyTookLine : outcome === "failed" ? withdrawFailedLine : takesNextLine}
-                </span>
-                {withdraw !== undefined && outcome !== "took" && (
-                  <button
-                    type="button"
-                    class="withdraw"
-                    aria-label="withdraw"
-                    onClick={() => void withdrawRow(withdraw, message.promptId)}
-                  >
-                    Withdraw
-                  </button>
-                )}
-              </li>
-            );
-          })}
-          {localRows.map(plainRow)}
-          {undelivered.map((message) => (
-            <li key={`undelivered-${message.promptId}`} class="undelivered">
-              <span class="tag">not delivered</span>
-              <span class="text">
-                <ReplyText text={message.text} />
-              </span>
-              <button
-                type="button"
-                class="put-back"
-                aria-label="put back"
-                onClick={() => putBackRow(message.text, message.promptId)}
-              >
-                Put back in the box
-              </button>
-            </li>
-          ))}
-        </ol>
-      )}
-      <div class={`dock-box${flashing ? " flash" : ""}`} data-state={line.tone}>
+      <div class={`dock-box${flashing ? " flash" : ""}${focused ? " focused" : ""}`} data-state={line.tone}>
         <div class="statebar">
           <span class="word">{line.word}</span>
           {(line.tool !== "" || line.what !== "") && (
@@ -387,6 +423,72 @@ export function Dock(props: {
             )}
           </span>
         </div>
+        {waits !== "" && (
+          <div class="dock-waits">
+            <span>{waits}</span>
+          </div>
+        )}
+        {drawn.length > 0 && (
+          <div class="tray">
+            <div class="tray-head">
+              <span class="lbl">{trayLabel(drawn.length)}</span>
+              <span class="why">{trayWhy(trayKind, drawn)}</span>
+              <span class="end">
+                {pull !== null && (
+                  <Ctl label="Take all back" icon="edit" onClick={() => void pullBack(dockLines.takeAllBackFailed)} />
+                )}
+                {interrupt !== undefined && state === "working" && (
+                  <Ctl label="Send now" icon="send" disabled={sendingNow} onClick={() => void sendNowRow(interrupt)} />
+                )}
+              </span>
+            </div>
+            {paneRows.map((row) => trayRow(row.key, row.text, row.canceled, null, ""))}
+            {sessionRows.map((message) => {
+              const outcome = outcomes.get(message.promptId);
+              const rowNote =
+                outcome === "took" ? dockLines.alreadyTook : outcome === "failed" ? dockLines.takeBackFailed : "";
+              const control =
+                withdraw !== undefined && outcome !== "took" ? (
+                  <Ctl
+                    only
+                    label="Take this back into the box"
+                    icon="edit"
+                    onClick={() => void withdrawRow(withdraw, message.promptId)}
+                  />
+                ) : null;
+              return trayRow(`session-${message.promptId}`, message.text, false, control, rowNote);
+            })}
+            {localRows.map((row) => trayRow(row.key, row.text, false, null, ""))}
+            {undelivered.map((message) =>
+              trayRow(
+                `undelivered-${message.promptId}`,
+                message.text,
+                true,
+                <Ctl
+                  only
+                  label="Put back in the box"
+                  icon="edit"
+                  onClick={() => putBackRow(message.text, message.promptId)}
+                />,
+                "",
+              ),
+            )}
+          </div>
+        )}
+        {shownAbout !== null && (
+          <div class="quote">
+            <span class="text">{`about ${shownAbout}`}</span>
+            <Ctl
+              only
+              label="Not about this"
+              icon="close"
+              onClick={() => {
+                setAboutCleared(shownAbout);
+                onClearAbout?.();
+              }}
+            />
+          </div>
+        )}
         <div class="dock-input">
           <textarea
             ref={inputRef}
@@ -395,6 +497,8 @@ export function Dock(props: {
             value={text}
             onInput={(event) => setText(event.currentTarget.value)}
             onKeyDown={onKeyDown}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
           />
           <button type="button" class="go" aria-label="send" onClick={() => void submit()}>
             ↑
@@ -406,6 +510,7 @@ export function Dock(props: {
           {error}
         </p>
       )}
+      {note !== "" && <p class="inote">{note}</p>}
     </div>
   );
 }

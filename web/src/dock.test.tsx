@@ -11,8 +11,10 @@ import type { DockFacts } from "./dockwords";
 import { flashMillis } from "./flash";
 import {
   ConversationItemSchema,
+  PendingEventSchema,
   QueuedMessageSchema,
   WaitingMessageSchema,
+  type PendingEvent,
   type QueuedMessage,
   type WaitingMessage,
 } from "./gen/orrery/v1/orrery_pb";
@@ -23,8 +25,6 @@ import { assertNone, assertSame, installTestDom, removeTestDom } from "./testdom
 
 type Props = Parameters<typeof Dock>[0];
 
-const sendFailedLine = "Not sent. Your draft is kept; press Enter to try again.";
-const pullFailedLine = "Could not pull the message back.";
 const serverText = "upstream said: secret-session-7";
 
 // now is the instant every test's dock reads its state line at, in unix seconds.
@@ -175,19 +175,68 @@ function queuedMessage(text: string, canceled = false): WaitingMessage {
 }
 
 // sessionMessage is a session's queued message under promptId, in the given state.
-function sessionMessage(promptId: string, text: string, state = "queued"): QueuedMessage {
-  return create(QueuedMessageSchema, { promptId, text, state });
+function sessionMessage(promptId: string, text: string, state = "queued", waits = ""): QueuedMessage {
+  return create(QueuedMessageSchema, { promptId, text, state, waits });
 }
 
-// queuedRows reads each drawn queued message as its tag (empty when it has none), its text and whether it is marked
-// canceled. A row draws no note under its tag: words is true when it has one.
-function queuedRows(container: HTMLElement): { tag: string; words: boolean; text: string; canceled: boolean }[] {
-  return Array.from(container.querySelectorAll("li.queued"), (row) => ({
-    tag: row.querySelector(".tag")?.textContent ?? "",
-    words: row.querySelector(".words") !== null,
+// trayRow is one drawn row of the tray: its label ("" when it has none), its text, its note ("" when none), whether it
+// is cancelled, and the aria-label of its control ("" when it has none).
+interface TrayRow {
+  label: string;
+  text: string;
+  note: string;
+  cancelled: boolean;
+  control: string;
+}
+
+// trayRows reads each drawn tray row, in the order drawn.
+function trayRows(container: HTMLElement): TrayRow[] {
+  return Array.from(container.querySelectorAll(".tray-row"), (row) => ({
+    label: row.querySelector(".lbl")?.textContent ?? "",
     text: row.querySelector(".text")?.textContent ?? "",
-    canceled: row.classList.contains("canceled"),
+    note: row.querySelector(".note")?.textContent ?? "",
+    cancelled: row.classList.contains("cancelled"),
+    control: row.querySelector("button")?.getAttribute("aria-label") ?? "",
   }));
+}
+
+// trayHead reads the tray's head: its label, its why and the names of its controls, or null when no tray is drawn.
+function trayHead(container: HTMLElement): { label: string; why: string; controls: string[] } | null {
+  const head = container.querySelector(".tray-head");
+  if (head === null) {
+    return null;
+  }
+  return {
+    label: textOf(container, ".tray-head .lbl"),
+    why: textOf(container, ".tray-head .why"),
+    controls: Array.from(head.querySelectorAll("button"), (button) => controlName(button)),
+  };
+}
+
+// controlName is a control's name: its aria-label, or its text when it has none.
+function controlName(button: HTMLButtonElement): string {
+  return button.getAttribute("aria-label") ?? button.textContent ?? "";
+}
+
+// trayButton is the control of a tray row that is named label, and fails when no row carries it.
+function trayButton(container: HTMLElement, label: string): HTMLButtonElement {
+  const button = container.querySelector<HTMLButtonElement>(`.tray-row button[aria-label="${label}"]`);
+  assert.ok(button, `a tray row carries the control "${label}"`);
+  return button;
+}
+
+// headButton is the tray head's control named label, and fails when the head draws none with it.
+function headButton(container: HTMLElement, label: string): HTMLButtonElement {
+  const button = Array.from(container.querySelectorAll<HTMLButtonElement>(".tray-head button")).find(
+    (candidate) => controlName(candidate) === label,
+  );
+  assert.ok(button, `the tray head draws "${label}"`);
+  return button;
+}
+
+// noteLine is the note under the box that is not an error, or null when none is drawn.
+function noteLine(container: HTMLElement): Element | null {
+  return container.querySelector(".inote:not(.error)");
 }
 
 // settleSends lets a send that is pending resolve or reject, and the state it sets render, inside act.
@@ -308,13 +357,13 @@ test("a line break typed with Shift+Enter, then Enter, sends one message with bo
   );
 });
 
-test("a rejected send keeps the text, shows the fixed line, and is not retried by the dock", async () => {
+test("a refused send keeps the text, shows the fixed line, and is not retried by the dock", async () => {
   const promptIds: string[] = [];
   await withDock(
     {
       send: async (_text, promptId) => {
         promptIds.push(promptId);
-        throw new Error(serverText);
+        throw new ConnectError(serverText, Code.FailedPrecondition);
       },
       newPromptId: () => `id-${promptIds.length + 1}`,
     },
@@ -327,7 +376,7 @@ test("a rejected send keeps the text, shows the fixed line, and is not retried b
       const line = errorLine(container);
       assert.ok(line, "the error line is shown");
       assert.equal(line.getAttribute("role"), "alert");
-      assert.equal(line.textContent, sendFailedLine);
+      assert.equal(line.textContent, "Not sent. Your draft is kept; send again.");
       assert.equal(container.textContent?.includes("secret-session-7"), false, "server text is never shown");
       assert.deepEqual(promptIds, ["id-1"], "no call happens without a new Enter");
     },
@@ -474,7 +523,7 @@ test("a rejected pull shows the fixed line and leaves the box empty", async () =
       const line = errorLine(container);
       assert.ok(line, "the error line is shown");
       assert.equal(line.getAttribute("role"), "alert");
-      assert.equal(line.textContent, pullFailedLine);
+      assert.equal(line.textContent, "Could not take them back.");
       assert.equal(container.textContent?.includes("secret-session-7"), false, "server text is never shown");
     },
   );
@@ -927,36 +976,307 @@ test("a click on the send button with a blank box sends nothing", async () => {
   });
 });
 
-test("GhostQueued: queued messages draw below one head in the given order, no waiting row tagged, a canceled one marked", async () => {
+test("DockQueue: a pane's rows draw oldest first under one head that counts them, with the tray's why, and a canceled row says not delivered with no control", async () => {
   const queued = [queuedMessage("first"), queuedMessage("second", true), queuedMessage("third")];
-  await withDock({ queued }, async (_box, container) => {
-    assert.deepEqual(queuedRows(container), [
-      { tag: "", words: false, text: "first", canceled: false },
-      { tag: "canceled", words: false, text: "second", canceled: true },
-      { tag: "", words: false, text: "third", canceled: false },
+  await withDock({ facts: dockFacts({ kind: "pane", name: "lamp", state: "working" }), queued }, async (_box, container) => {
+    assert.deepEqual(trayRows(container), [
+      { label: "", text: "first", note: "", cancelled: false, control: "" },
+      { label: "not delivered", text: "second", note: "", cancelled: true, control: "" },
+      { label: "", text: "third", note: "", cancelled: false, control: "" },
     ]);
-    const root = container.querySelector(".dock");
-    assert.ok(root, "the dock renders its root");
-    assert.deepEqual(Array.from(root.children, (child) => child.className), ["queue", "dock-box"]);
+    assert.deepEqual(trayHead(container), { label: "Queued 3", why: "Claude Code takes them when it chooses", controls: [] });
+    assertSame(container.querySelector(".tray-head"), container.querySelector(".tray")?.firstElementChild, "the head opens the tray");
+    assert.equal(container.querySelectorAll(".tray-row").length, 3, "the head is not drawn as a row");
   });
 });
 
-test("GhostQueued: one queue head carries the count of every docked row, canceled ones included", async () => {
-  const queued = [queuedMessage("first"), queuedMessage("second", true), queuedMessage("third")];
-  await withDock({ queued }, async (_box, container) => {
-    const heads = container.querySelectorAll(".queue .queue-head");
-    assert.equal(heads.length, 1, "the queue draws one head");
-    assert.equal(heads[0]?.textContent, "3 queued", "the head counts all three rows");
-    assertSame(heads[0], container.querySelector(".queue")?.firstElementChild, "the head opens the queue");
-    assert.equal(container.querySelectorAll("li.queued").length, 3, "the head is not drawn as a row");
+test("DockQueue: a pane whose rows are all canceled says the turn was cancelled", async () => {
+  await withDock({ facts: dockFacts({ kind: "pane", name: "lamp", state: "working" }), queued: [queuedMessage("only", true)] }, async (_box, container) => {
+    assert.equal(trayHead(container)?.why, "dropped when the turn was cancelled");
   });
 });
 
-test("no queue is drawn when no message is queued", async () => {
+test("DockQueue: no tray is drawn when no message is queued", async () => {
   await withDock({ queued: [] }, async (_box, container) => {
-    assert.equal(container.querySelector(".queue") !== null, false);
-    assert.equal(container.querySelector("li.queued") !== null, false);
+    assert.equal(container.querySelector(".tray"), null);
+    assert.equal(container.querySelector(".tray-row"), null);
   });
+});
+
+test("DockQueue: a session's queued rows draw oldest first, each with a take back control, and say Claude takes them at its next tool result", async () => {
+  await withDock(
+    {
+      facts: dockFacts({ state: "working" }),
+      sessionQueue: [sessionMessage("p1", "first"), sessionMessage("p2", "second")],
+      withdraw: async () => [],
+    },
+    async (_box, container) => {
+      assert.deepEqual(trayRows(container), [
+        { label: "", text: "first", note: "", cancelled: false, control: "Take this back into the box" },
+        { label: "", text: "second", note: "", cancelled: false, control: "Take this back into the box" },
+      ]);
+      assert.deepEqual(trayHead(container), { label: "Queued 2", why: "Claude takes them at its next tool result", controls: [] });
+    },
+  );
+});
+
+test("DockQueue: a session's why counts the rows that wait for a turn, and takes no canceled row into account", async () => {
+  await withDock(
+    {
+      facts: dockFacts({ state: "working" }),
+      sessionQueue: [sessionMessage("p1", "one", "queued", "start")],
+      withdraw: async () => [],
+    },
+    async (_box, container) => {
+      assert.equal(trayHead(container)?.why, "Claude takes it as its next turn");
+    },
+  );
+  await withDock(
+    {
+      facts: dockFacts({ state: "working" }),
+      sessionQueue: [sessionMessage("p1", "one", "queued", "start"), sessionMessage("p2", "two", "queued", "start")],
+      withdraw: async () => [],
+    },
+    async (_box, container) => {
+      assert.equal(trayHead(container)?.why, "Claude takes them as its next turns");
+    },
+  );
+});
+
+test("DockQueue: a session's canceled message draws nothing, and its discarded one draws as not delivered with put back", async () => {
+  await withDock(
+    {
+      facts: dockFacts({ state: "done" }),
+      sessionQueue: [sessionMessage("p1", "gone", "canceled"), sessionMessage("p2", "dropped", "discarded")],
+    },
+    async (_box, container) => {
+      assert.deepEqual(trayRows(container), [
+        { label: "not delivered", text: "dropped", note: "", cancelled: true, control: "Put back in the box" },
+      ]);
+      assert.deepEqual(trayHead(container), { label: "Queued 1", why: "dropped when the session ended", controls: [] });
+    },
+  );
+});
+
+test("DockQueue: a take back puts the withdrawn text after the draft, and the row draws no note", async () => {
+  const taken: string[] = [];
+  await withDock(
+    {
+      facts: dockFacts({ state: "working" }),
+      sessionQueue: [sessionMessage("p1", "queued words")],
+      withdraw: async (promptId) => {
+        taken.push(promptId);
+        return ["withdrawn words"];
+      },
+    },
+    async (box, container) => {
+      await type(box, "draft");
+      await clickControl(trayButton(container, "Take this back into the box"));
+      await settle();
+      assert.deepEqual(taken, ["p1"], "the take back names the message's prompt id");
+      assert.equal(box.value, "draft\n\nwithdrawn words");
+      assert.equal(trayRows(container)[0].note, "", "a take back that returned text draws no note");
+    },
+  );
+});
+
+test("DockQueue: a take back that returns no text says Claude already took it in, and takes its control away", async () => {
+  await withDock(
+    {
+      facts: dockFacts({ state: "working" }),
+      sessionQueue: [sessionMessage("p1", "queued words")],
+      withdraw: async () => [],
+    },
+    async (box, container) => {
+      await clickControl(trayButton(container, "Take this back into the box"));
+      await settle();
+      assert.equal(trayRows(container)[0].note, "Claude already took it in.");
+      assert.equal(trayRows(container)[0].control, "", "the take back control is gone");
+      assert.equal(box.value, "");
+    },
+  );
+});
+
+test("DockQueue: a refused take back says Could not take it back. on its row, and puts no text in the box", async () => {
+  await withDock(
+    {
+      facts: dockFacts({ state: "working" }),
+      sessionQueue: [sessionMessage("p1", "queued words")],
+      withdraw: () => Promise.reject(new Error(serverText)),
+    },
+    async (box, container) => {
+      await clickControl(trayButton(container, "Take this back into the box"));
+      await settle();
+      assert.equal(trayRows(container)[0].note, "Could not take it back.");
+      assert.equal(box.value, "");
+      assert.equal(container.textContent?.includes("secret-session-7"), false, "server text is never shown");
+    },
+  );
+});
+
+test("DockQueue: put back puts a discarded message's text in the box and hides its row", async () => {
+  await withDock({ sessionQueue: [sessionMessage("p1", "dropped words", "discarded")] }, async (box, container) => {
+    await clickControl(trayButton(container, "Put back in the box"));
+    await settle();
+    assert.equal(box.value, "dropped words");
+    assert.equal(container.querySelector(".tray"), null, "the row is hidden once put back");
+  });
+});
+
+test("DockQueue: a pane's Take all back pulls its text into the box", async () => {
+  await withDock(
+    {
+      facts: dockFacts({ kind: "pane", name: "lamp", state: "working" }),
+      queued: [queuedMessage("one")],
+      pull: async () => "pulled words",
+    },
+    async (box, container) => {
+      assert.deepEqual(trayHead(container)?.controls, ["Take all back"]);
+      await clickControl(headButton(container, "Take all back"));
+      await settle();
+      assert.equal(box.value, "pulled words");
+    },
+  );
+});
+
+test("DockQueue: a refused Take all back says Could not take them back. as the error line", async () => {
+  await withDock(
+    {
+      facts: dockFacts({ kind: "pane", name: "lamp", state: "working" }),
+      queued: [queuedMessage("one")],
+      pull: () => Promise.reject(new Error(serverText)),
+    },
+    async (box, container) => {
+      await clickControl(headButton(container, "Take all back"));
+      await settle();
+      assert.equal(box.value, "");
+      assert.equal(errorLine(container)?.textContent, "Could not take them back.");
+      assert.equal(container.textContent?.includes("secret-session-7"), false, "server text is never shown");
+    },
+  );
+});
+
+test("DockQueue: Send now is drawn only for a working session with an interrupt", async () => {
+  await withRerenderableDock(
+    {
+      facts: dockFacts({ state: "working" }),
+      sessionQueue: [sessionMessage("p1", "one")],
+      withdraw: async () => [],
+      interrupt: async () => [],
+    },
+    async (_box, container, rerender) => {
+      assert.deepEqual(trayHead(container)?.controls, ["Send now"]);
+      await rerender({ facts: dockFacts({ state: "done" }) });
+      assert.deepEqual(trayHead(container)?.controls, [], "Send now is not drawn once the session is done");
+    },
+  );
+});
+
+test("DockQueue: Send now interrupts, then says each cancelled text again in order, each under a fresh prompt id", async () => {
+  const events: string[] = [];
+  let minted = 0;
+  await withDock(
+    {
+      facts: dockFacts({ state: "working" }),
+      sessionQueue: [sessionMessage("p1", "first")],
+      withdraw: async () => [],
+      interrupt: async () => {
+        events.push("interrupt");
+        return ["one", "two"];
+      },
+      send: async (text, promptId) => {
+        events.push(`say ${text} ${promptId}`);
+      },
+      newPromptId: () => `id-${++minted}`,
+    },
+    async (box, container) => {
+      await clickControl(headButton(container, "Send now"));
+      await settle();
+      assert.deepEqual(events, ["interrupt", "say one id-1", "say two id-2"]);
+      assert.equal(box.value, "", "nothing is held when every text is said");
+      assert.equal(noteLine(container), null);
+    },
+  );
+});
+
+test("DockQueue: a second Send now while the first is in flight interrupts nothing more", async () => {
+  let interrupts = 0;
+  let release: (texts: string[]) => void = () => {};
+  const said: string[] = [];
+  await withDock(
+    {
+      facts: dockFacts({ state: "working" }),
+      sessionQueue: [sessionMessage("p1", "first")],
+      withdraw: async () => [],
+      interrupt: () => {
+        interrupts += 1;
+        return new Promise<string[]>((resolve) => {
+          release = resolve;
+        });
+      },
+      send: async (text) => {
+        said.push(text);
+      },
+    },
+    async (_box, container) => {
+      await clickControl(headButton(container, "Send now"));
+      await clickControl(headButton(container, "Send now"));
+      assert.equal(interrupts, 1, "the second press interrupts nothing");
+      await act(() => release(["one"]));
+      await settle();
+      assert.deepEqual(said, ["one"], "the text is said again once");
+    },
+  );
+});
+
+test("DockQueue: a refused re-say leaves its text and the later ones in the box, with the not-sent-again note", async () => {
+  const said: string[] = [];
+  await withDock(
+    {
+      facts: dockFacts({ state: "working" }),
+      sessionQueue: [sessionMessage("p1", "first")],
+      withdraw: async () => [],
+      interrupt: async () => ["one", "two", "three"],
+      send: async (text) => {
+        said.push(text);
+        if (text === "two") {
+          throw new ConnectError("session is busy", Code.FailedPrecondition);
+        }
+      },
+    },
+    async (box, container) => {
+      await type(box, "draft");
+      await clickControl(headButton(container, "Send now"));
+      await settle();
+      assert.deepEqual(said, ["one", "two"], "the texts after the refused one are not said");
+      assert.equal(box.value, "draft\n\ntwo\n\nthree", "the refused text and the later ones are back in the box after the draft");
+      assert.equal(noteLine(container)?.textContent, "2 messages were not sent again. They are back in the box.");
+      assert.equal(errorLine(container), null, "the note is not an error");
+    },
+  );
+});
+
+test("DockQueue: Escape's texts go into the box after the draft, in order, with the back-in-the-box note", async () => {
+  const handles: DockHandle[] = [];
+  await withDock(
+    {
+      facts: dockFacts({ state: "working" }),
+      register: (handle) => {
+        if (handle !== null) {
+          handles.push(handle);
+        }
+      },
+    },
+    async (box, container) => {
+      await type(box, "draft");
+      const [handle] = handles;
+      await act(() => {
+        handle.append(["one", "two"]);
+      });
+      assert.equal(box.value, "draft\n\none\n\ntwo");
+      assert.equal(noteLine(container)?.textContent, "Your 2 queued messages are back in the box.");
+    },
+  );
 });
 
 test("Up in an empty box still pulls the text back with messages queued", async () => {
@@ -981,9 +1301,9 @@ test("Up in an empty box still pulls the text back with messages queued", async 
 test("queued text draws as text, never as markup", async () => {
   const markup = '<img src="x" onerror="alert(1)"> <b>bold</b> `code`';
   await withDock({ queued: [queuedMessage(markup)] }, async (_box, container) => {
-    assert.equal(queuedRows(container)[0].text, markup);
-    assert.equal(container.querySelector("li.queued img") !== null, false, "no image element is drawn");
-    assert.equal(container.querySelector("li.queued b") !== null, false, "no bold element is drawn");
+    assert.equal(trayRows(container)[0].text, markup);
+    assert.equal(container.querySelector(".tray-row img") !== null, false, "no image element is drawn");
+    assert.equal(container.querySelector(".tray-row b") !== null, false, "no bold element is drawn");
   });
 });
 
@@ -1013,7 +1333,7 @@ test("a send calls onSending with the text and prompt id at once, while the send
   );
 });
 
-test("a rejected send calls onUnsent, leaves no sending or queued entry, and keeps the draft and the error line", async () => {
+test("a send whose outcome is unknown calls onUnsent, leaves no sending or queued entry, keeps the draft, and shows the unknown note", async () => {
   const unsent: string[] = [];
   await withDock(
     {
@@ -1031,9 +1351,10 @@ test("a rejected send calls onUnsent, leaves no sending or queued entry, and kee
       await press(box, "Enter");
       await settleSends();
       assert.deepEqual(unsent, ["failed-1"]);
-      assert.deepEqual(queuedRows(container), [], "the failed message leaves the queue");
+      assert.deepEqual(trayRows(container), [], "the failed message leaves the queue");
       assert.equal(box.value, "hello claude", "the draft is kept");
-      assert.equal(errorLine(container)?.textContent, sendFailedLine);
+      assert.equal(noteLine(container)?.textContent, "No answer from the server. It may have been sent: check the conversation before sending again.");
+      assert.equal(errorLine(container), null, "the unknown line is a note, not an error");
       assert.equal(container.textContent?.includes("secret-session-7"), false, "server text is never shown");
     },
   );
@@ -1050,14 +1371,14 @@ for (const { kind, pull } of [
         await type(box, "hello");
         await press(box, "Enter");
         await settleSends();
-        assert.deepEqual(queuedRows(container), [{ tag: "", words: false, text: "hello", canceled: false }]);
+        assert.deepEqual(trayRows(container), [{ label: "", text: "hello", note: "", cancelled: false, control: "" }]);
         const root = container.querySelector(".dock");
         assert.ok(root, "the dock renders its root");
-        assert.equal(root.children[0]?.className, "queue", "the queue sits above the box");
+        assert.ok(container.querySelector(".dock-box .tray"), "the tray sits in the box");
         assert.equal(toneOf(container), "working");
         await rerender({ facts: dockFacts({ state: "idle" }) });
-        assert.deepEqual(queuedRows(container), [], "the message leaves when the turn ends");
-        assertNone(container.querySelector(".queue"));
+        assert.deepEqual(trayRows(container), [], "the message leaves when the turn ends");
+        assertNone(container.querySelector(".tray"));
       },
     );
   });
@@ -1071,12 +1392,12 @@ test("a pane's queued message with the text a send drew above the box is drawn o
       await press(box, "Enter");
       await settleSends();
       await rerender({ queued: [queuedMessage("hello")] });
-      assert.deepEqual(queuedRows(container), [{ tag: "", words: false, text: "hello", canceled: false }]);
+      assert.deepEqual(trayRows(container), [{ label: "", text: "hello", note: "", cancelled: false, control: "" }]);
       await rerender({ queued: [queuedMessage("hello", true)] });
       assert.deepEqual(
-        queuedRows(container).map((row) => [row.tag, row.text]),
+        trayRows(container).map((row) => [row.label, row.text]),
         [
-          ["canceled", "hello"],
+          ["not delivered", "hello"],
           ["", "hello"],
         ],
         "a canceled message with the same text does not stand for the sent one",
@@ -1092,9 +1413,9 @@ test("a held message draws one queued row, and the local entry the held set carr
       await type(box, "hello");
       await press(box, "Enter");
       await settleSends();
-      assert.equal(queuedRows(container).length, 1, "the sent message is queued");
+      assert.equal(trayRows(container).length, 1, "the sent message is queued");
       await rerender({ sessionQueue: [sessionMessage("p1", "hello")] });
-      assert.deepEqual(queuedRows(container), [{ tag: "", words: false, text: "hello", canceled: false }]);
+      assert.deepEqual(trayRows(container), [{ label: "", text: "hello", note: "", cancelled: false, control: "" }]);
     },
   );
 });
@@ -1111,11 +1432,11 @@ test("a message sent to a working session leaves the queue once the conversation
       await type(box, "hello");
       await press(box, "Enter");
       await settleSends();
-      assert.equal(queuedRows(container).length, 1, "the sent message is queued");
+      assert.equal(trayRows(container).length, 1, "the sent message is queued");
       await rerender({ items: [promptItem("earlier", "p0"), promptItem("hello", "p9")] });
-      assert.equal(queuedRows(container).length, 1, "a prompt with the same text under another prompt id is not this one");
+      assert.equal(trayRows(container).length, 1, "a prompt with the same text under another prompt id is not this one");
       await rerender({ items: [promptItem("earlier", "p0"), promptItem("hello", "p9"), promptItem("hello", "p1")] });
-      assert.deepEqual(queuedRows(container), [], "the prompt with its prompt id ends it while the state stays working");
+      assert.deepEqual(trayRows(container), [], "the prompt with its prompt id ends it while the state stays working");
     },
   );
 });
@@ -1128,9 +1449,9 @@ test("a message sent to a working session leaves the queue once it leaves the he
       await press(box, "Enter");
       await settleSends();
       await rerender({ sessionQueue: [sessionMessage("p1", "hello")] });
-      assert.equal(queuedRows(container).length, 1, "the held message draws one row");
+      assert.equal(trayRows(container).length, 1, "the held message draws one row");
       await rerender({ sessionQueue: [] });
-      assert.deepEqual(queuedRows(container), [], "a message that left the held set is not queued");
+      assert.deepEqual(trayRows(container), [], "a message that left the held set is not queued");
     },
   );
 });
@@ -1143,9 +1464,9 @@ test("a message sent to a working pane leaves the queue once a prompt with its t
       await type(box, "hello");
       await press(box, "Enter");
       await settleSends();
-      assert.equal(queuedRows(container).length, 1, "a prompt with its text before the send is not this one");
+      assert.equal(trayRows(container).length, 1, "a prompt with its text before the send is not this one");
       await rerender({ items: [...before, promptItem("hello")] });
-      assert.deepEqual(queuedRows(container), [], "the prompt after the send ends it while the state stays working");
+      assert.deepEqual(trayRows(container), [], "the prompt after the send ends it while the state stays working");
     },
   );
 });
@@ -1172,7 +1493,131 @@ test("the page's handle appends returned texts after the box's text, joined by b
         handle.forget(["hello"]);
       });
       assert.equal(box.value, "draft\n\none\n\ntwo");
-      assert.deepEqual(queuedRows(container), [], "the forgotten message leaves the queue");
+      assert.deepEqual(trayRows(container), [], "the forgotten message leaves the queue");
     },
   );
+});
+
+// pendingEvent is a pending event of a session that waits as given.
+function pendingEvent(waits: string): PendingEvent {
+  return create(PendingEventSchema, { id: `event-${waits}`, kind: "step_end", waits });
+}
+
+// waitsText is the waits line's text, or null when no line is drawn.
+function waitsText(container: HTMLElement): string | null {
+  return container.querySelector(".dock-waits")?.textContent ?? null;
+}
+
+test("DockWaits: the line counts the events that wait until you speak, else the events that wait on a question you put off", async () => {
+  await withRerenderableDock({ pending: [pendingEvent("speak"), pendingEvent("speak")] }, async (_box, container, rerender) => {
+    assert.equal(waitsText(container), "2 events wait until you speak");
+    await rerender({ pending: [pendingEvent("request")] });
+    assert.equal(waitsText(container), null, "a request waits on nothing while no question is put off");
+    await rerender({ facts: dockFacts({ putOff: true }), pending: [pendingEvent("request")] });
+    assert.equal(waitsText(container), "1 event waits on the question you put off");
+    await rerender({ facts: dockFacts({ putOff: true }), pending: [pendingEvent("free")] });
+    assert.equal(waitsText(container), null, "a free event waits on nothing");
+  });
+});
+
+test("DockWaits: the line is gone once a send resolves, and comes back when the pending events change", async () => {
+  await withRerenderableDock({ pending: [pendingEvent("speak")], send: async () => {} }, async (box, container, rerender) => {
+    assert.equal(waitsText(container), "1 event waits until you speak");
+    await type(box, "reply");
+    await press(box, "Enter");
+    await settleSends();
+    assert.equal(waitsText(container), null, "the line is gone after the send");
+    await rerender({ pending: [pendingEvent("speak"), pendingEvent("speak")] });
+    assert.equal(waitsText(container), "2 events wait until you speak", "a change to the pending events draws the line again");
+  });
+});
+
+test("DockWaits: a later state with the same pending events keeps the line gone after a send", async () => {
+  await withRerenderableDock({ pending: [pendingEvent("speak")], send: async () => {} }, async (box, container, rerender) => {
+    await type(box, "reply");
+    await press(box, "Enter");
+    await settleSends();
+    assert.equal(waitsText(container), null, "the line is gone after the send");
+    await rerender({ pending: [pendingEvent("speak")] });
+    assert.equal(waitsText(container), null, "the same events, newly delivered, do not draw it again");
+  });
+});
+
+test("DockSend: a refused send keeps the draft and shows Not sent as the error line", async () => {
+  await withDock({ send: () => Promise.reject(new ConnectError("session is busy", Code.FailedPrecondition)) }, async (box, container) => {
+    await type(box, "keep me");
+    await press(box, "Enter");
+    await settleSends();
+    assert.equal(box.value, "keep me");
+    assert.equal(errorLine(container)?.textContent, "Not sent. Your draft is kept; send again.");
+    assert.equal(noteLine(container), null, "the refusal is the only line");
+  });
+});
+
+test("DockSend: an unknown send keeps the draft and shows the unknown line as a note, not an error", async () => {
+  await withDock({ send: () => Promise.reject(new Error(serverText)) }, async (box, container) => {
+    await type(box, "keep me");
+    await press(box, "Enter");
+    await settleSends();
+    assert.equal(box.value, "keep me");
+    assert.equal(
+      noteLine(container)?.textContent,
+      "No answer from the server. It may have been sent: check the conversation before sending again.",
+    );
+    assert.equal(errorLine(container), null, "the unknown line is not an error");
+    assert.equal(container.textContent?.includes("secret-session-7"), false, "server text is never shown");
+  });
+});
+
+test("DockSend: a shell's box says Type a command… and sends what is typed", async () => {
+  const calls: string[] = [];
+  await withDock(
+    {
+      facts: dockFacts({ kind: "shell", name: "tidepool", state: "idle" }),
+      send: async (text) => {
+        calls.push(text);
+      },
+    },
+    async (box) => {
+      assert.equal(box.placeholder, "Type a command…");
+      await type(box, "ls -la");
+      await press(box, "Enter");
+      await settle();
+      assert.deepEqual(calls, ["ls -la"]);
+    },
+  );
+});
+
+test("DockSend: the about line says what the message is about, and Not about this clears it and calls onClearAbout", async () => {
+  let cleared = 0;
+  await withRerenderableDock(
+    {
+      about: "the deploy check",
+      onClearAbout: () => {
+        cleared += 1;
+      },
+    },
+    async (_box, container, rerender) => {
+      assert.equal(textOf(container, ".quote .text"), "about the deploy check");
+      await clickControl(container.querySelector<HTMLButtonElement>('.quote button[aria-label="Not about this"]'));
+      assert.equal(container.querySelector(".quote"), null, "the about line is cleared");
+      assert.equal(cleared, 1, "Not about this calls onClearAbout once");
+      await rerender({ about: "the next check" });
+      assert.equal(textOf(container, ".quote .text"), "about the next check", "a new about draws the line again");
+    },
+  );
+});
+
+test("DockSend: the box carries focused while its textarea has focus", async () => {
+  await withDock({}, async (box, container) => {
+    assert.equal(boxOf(container).classList.contains("focused"), false, "the box is not focused at first");
+    await act(() => {
+      box.dispatchEvent(new Event("focus"));
+    });
+    assert.equal(boxOf(container).classList.contains("focused"), true, "the box carries focused");
+    await act(() => {
+      box.dispatchEvent(new Event("blur"));
+    });
+    assert.equal(boxOf(container).classList.contains("focused"), false, "the box drops focused on blur");
+  });
 });
