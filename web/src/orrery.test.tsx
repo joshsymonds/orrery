@@ -68,6 +68,12 @@ const blocked: RecordTask = {
 const tasks = [integrated, implementing, planned, blocked];
 const proven: ReadonlySet<string> = new Set(["R4"]);
 
+// RECORD_GAP is the gap at 12 o'clock the record's chart opens, in degrees: wide enough that each ring's name reads whole.
+const RECORD_GAP = 62;
+const DEG = Math.PI / 180;
+// CAPTION_LINE is the line of the caption under the count: the .of label's 16px line.
+const CAPTION_LINE = 16;
+
 // turn draws what a DOM event changed: act flushes Preact's queued render without a timer.
 async function fire(target: Element, event: string): Promise<void> {
   await act(() => {
@@ -91,6 +97,11 @@ function textsOf(root: ParentNode, selector: string): (string | null)[] {
 // numbersOf reads the numbers of a path's data, in order: a ring-way path is "M x y A r r 0 0 1 x y".
 function numbersOf(d: string | null): number[] {
   return (d ?? "").match(/-?\d+(\.\d+)?/g)?.map(Number) ?? [];
+}
+
+// angleOf is a point's angle in degrees, clockwise from 12 o'clock.
+function angleOf(x: number, y: number): number {
+  return (Math.atan2(x - CENTRE, CENTRE - y) / DEG + 360) % 360;
 }
 
 async function withOrrery(
@@ -122,8 +133,8 @@ test("EpicOrrery: the five ring names read outside in, each on a textPath of its
       const radius = RING_RADII[ring];
       assert.ok(Math.abs(Math.hypot(startX - CENTRE, startY - CENTRE) - radius) < 0.01, "the way starts off its ring");
       assert.ok(Math.abs(Math.hypot(endX - CENTRE, endY - CENTRE) - radius) < 0.01, "the way ends off its ring");
-      const left = point(radius, (-GAP / 2) * (Math.PI / 180));
-      const first = point(radius, sliceStart(tasks.length, 0));
+      const left = point(radius, (-RECORD_GAP / 2) * DEG);
+      const first = point(radius, (RECORD_GAP / 2) * DEG);
       assert.ok(Math.abs(startX - left.x) < 0.01 && Math.abs(startY - left.y) < 0.01, "the way starts off the gap's left edge");
       assert.ok(Math.abs(endX - first.x) < 0.01 && Math.abs(endY - first.y) < 0.01, "the way ends off the first cell");
     });
@@ -134,7 +145,10 @@ test("EpicOrrery: each task draws five cells, one per ring, each on its ring's r
     assert.equal(container.querySelectorAll("path.cell").length, tasks.length * PLACES.length);
     tasks.forEach((task, index) => {
       PLACES.forEach((place, ring) => {
-        assert.equal(cellOf(container, task.task, place).getAttribute("d"), cellPath(tasks.length, index, ring + 1));
+        assert.equal(
+          cellOf(container, task.task, place).getAttribute("d"),
+          cellPath(tasks.length, index, ring + 1, RECORD_GAP),
+        );
       });
     });
   }));
@@ -291,5 +305,43 @@ test("EpicOrrery: each drawn chart's ring-name paths have ids no other chart in 
     render(null, first);
     render(null, second);
     await removeTestDom(window);
+  }
+});
+
+test("EpicOrrery: the record's gap at 12 o'clock is 62 degrees, so its first cell starts at +31 degrees for any count", async () => {
+  for (const count of [1, 4, 120]) {
+    const many: RecordTask[] = Array.from({ length: count }, (_, index) => ({
+      ...planned,
+      task: `unit-${index + 1}`,
+      requirements: ["R1"],
+    }));
+    await withOrrery(
+      (container) => {
+        const [x, y] = numbersOf(cellOf(container, "unit-1", "red").getAttribute("d"));
+        assert.ok(Math.abs(angleOf(x ?? 0, y ?? 0) - RECORD_GAP / 2) < 1.5, `the first cell of ${count} starts off +31 degrees`);
+      },
+      { tasks: many, proven: new Set() },
+    );
+  }
+});
+
+test("EpicOrrery: the centre count and its caption sit on their own baselines, a caption line apart, with no central baseline", () =>
+  withOrrery((container) => {
+    const [count] = container.querySelectorAll("text.count");
+    const [of] = container.querySelectorAll("text.of");
+    assert.equal(count?.getAttribute("dominant-baseline"), null);
+    assert.equal(of?.getAttribute("dominant-baseline"), null);
+    const apart = Number(of?.getAttribute("y")) - Number(count?.getAttribute("y"));
+    assert.ok(apart >= CAPTION_LINE, `the caption sits ${apart} units under the count, less than a caption line`);
+  }));
+
+test("EpicOrrery: a slice drawn with no gap, as the inbox's mini chart draws it, keeps the 16 degree gap", () => {
+  assert.equal(GAP, 16);
+  for (const count of [1, 4, 120]) {
+    assert.equal(sliceStart(count, 0), sliceStart(count, 0, GAP));
+    assert.notEqual(sliceStart(count, 0), sliceStart(count, 0, 62));
+    for (let ring = 0; ring < RING_RADII.length; ring++) {
+      assert.equal(cellPath(count, 0, ring), cellPath(count, 0, ring, GAP));
+    }
   }
 });

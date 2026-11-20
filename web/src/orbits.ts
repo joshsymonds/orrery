@@ -12,7 +12,6 @@ export const RING_RADII = [168, 151, 134, 117, 100];
 type Pt = { x: number; y: number };
 
 const DEG = Math.PI / 180;
-const SWEEP = 360 - GAP;
 
 // point is the point at radius r and angle a.
 export function point(r: number, a: number): Pt {
@@ -24,20 +23,20 @@ function printed(p: Pt): string {
   return `${p.x.toFixed(2)} ${p.y.toFixed(2)}`;
 }
 
-// sliceSpan is the angle each of n slices takes: 344 degrees shared out.
-export function sliceSpan(n: number): number {
-  return (SWEEP * DEG) / n;
+// sliceSpan is the angle each of n slices takes: the sweep, 360 degrees less the start gap, shared out.
+export function sliceSpan(n: number, gap = GAP): number {
+  return ((360 - gap) * DEG) / n;
 }
 
 // sliceStart is a0(i), where slice i starts: the start gap's half, then i slices on.
-export function sliceStart(n: number, i: number): number {
-  return (GAP / 2) * DEG + i * sliceSpan(n);
+export function sliceStart(n: number, i: number, gap = GAP): number {
+  return (gap / 2) * DEG + i * sliceSpan(n, gap);
 }
 
 // sliceGap is g, the channel of constant width between neighbouring slices: 0.16 of the slice's arc at 100 u, between
 // 0.7 and 3.
-export function sliceGap(n: number): number {
-  return Math.min(3, Math.max(0.7, 0.16 * sliceSpan(n) * 100));
+export function sliceGap(n: number, gap = GAP): number {
+  return Math.min(3, Math.max(0.7, 0.16 * sliceSpan(n, gap) * 100));
 }
 
 // sector is the annulus sector from radius ri to ro, from angle a0 to a1, with each side pulled in by g / 2 along its
@@ -75,13 +74,13 @@ export function sector(ri: number, ro: number, a0: number, a1: number, g = 0, cr
   return outer + rightSide + inner + leftSide;
 }
 
-// cellPath is the cell of section 4: ring `ring` (1 red test to 5 gate accepted) across slice i of n. It is an 11 u
-// band inset by the slice gap, with its corners rounded by at most 2.
-export function cellPath(n: number, i: number, ring: number): string {
+// cellPath is the cell of section 4: ring `ring` (1 red test to 5 gate accepted) across slice i of n, with the start gap
+// `gap`. It is an 11 u band inset by the slice gap, with its corners rounded by at most 2.
+export function cellPath(n: number, i: number, ring: number, gap = GAP): string {
   const radius = RING_RADII[ring - 1];
-  const span = sliceSpan(n);
-  const g = sliceGap(n);
-  const a0 = sliceStart(n, i);
+  const span = sliceSpan(n, gap);
+  const g = sliceGap(n, gap);
+  const a0 = sliceStart(n, i, gap);
   return sector(radius - 5.5, radius + 5.5, a0, a0 + span, g, Math.min(2, 0.3 * (span * radius - g)));
 }
 

@@ -1,7 +1,7 @@
 import type { JSX } from "preact";
 import { useState } from "preact/hooks";
 
-import { CENTRE, GAP, RING_RADII, VIEW, cellPath, point, sector, sliceGap, sliceSpan, sliceStart } from "./orbits";
+import { CENTRE, RING_RADII, VIEW, cellPath, point, sector, sliceGap, sliceSpan, sliceStart } from "./orbits";
 import type { Phase } from "./phases";
 import { PLACES, type RecordTask, phaseOfPlace } from "./record";
 
@@ -10,14 +10,18 @@ import { PLACES, type RecordTask, phaseOfPlace } from "./record";
 export const ARC_INNER = 184;
 export const ARC_OUTER = 192;
 
+// RECORD_GAP is the gap at 12 o'clock the record's chart opens, in degrees: wide enough that each ring's name reads whole
+// along its ring. The inbox's mini chart keeps orbits' default gap.
+const RECORD_GAP = 62;
+
 // The charts drawn so far: each chart's ring-name paths take ids from its own number, so no two charts share one.
 let charts = 0;
 
 // ringWay is the path a ring's name runs along: its centre radius, from the gap's left edge through the gap at 12 o'clock
 // to where the ring's first cell begins.
 function ringWay(radius: number, count: number): string {
-  const left = point(radius, (-GAP / 2) * (Math.PI / 180));
-  const first = point(radius, sliceStart(count, 0));
+  const left = point(radius, (-RECORD_GAP / 2) * (Math.PI / 180));
+  const first = point(radius, sliceStart(count, 0, RECORD_GAP));
   return `M${left.x.toFixed(2)} ${left.y.toFixed(2)}A${radius} ${radius} 0 0 1 ${first.x.toFixed(2)} ${first.y.toFixed(2)}`;
 }
 
@@ -41,8 +45,8 @@ export function Orrery(props: {
     return null;
   }
   const count = tasks.length;
-  const span = sliceSpan(count);
-  const gap = sliceGap(count);
+  const span = sliceSpan(count, RECORD_GAP);
+  const gap = sliceGap(count, RECORD_GAP);
   const done = tasks.filter((task) => task.place === "integrated").length;
   const hoveredIndex = tasks.findIndex((task) => task.task === hovered);
   const hoveredTask = tasks[hoveredIndex];
@@ -55,7 +59,13 @@ export function Orrery(props: {
           <path
             key={`req-${task.task}`}
             class={provenTask(task) ? "req proven" : "req"}
-            d={sector(ARC_INNER, ARC_OUTER, sliceStart(count, index), sliceStart(count, index) + span, gap)}
+            d={sector(
+              ARC_INNER,
+              ARC_OUTER,
+              sliceStart(count, index, RECORD_GAP),
+              sliceStart(count, index, RECORD_GAP) + span,
+              gap,
+            )}
           />
         ))}
         {tasks.flatMap((task, index) =>
@@ -69,7 +79,7 @@ export function Orrery(props: {
               <path
                 key={`${task.task}-${place}`}
                 class={`cell c-${task.cells[ring]}`}
-                d={cellPath(count, index, ring + 1)}
+                d={cellPath(count, index, ring + 1, RECORD_GAP)}
                 data-task={task.task}
                 data-place={place}
                 data-phase={phase}
@@ -87,8 +97,8 @@ export function Orrery(props: {
             d={sector(
               RING_RADII[RING_RADII.length - 1] - 5.5,
               ARC_OUTER,
-              sliceStart(count, hoveredIndex),
-              sliceStart(count, hoveredIndex) + span,
+              sliceStart(count, hoveredIndex, RECORD_GAP),
+              sliceStart(count, hoveredIndex, RECORD_GAP) + span,
             )}
           />
         )}
@@ -102,10 +112,10 @@ export function Orrery(props: {
             </textPath>
           </text>
         ))}
-        <text class="count" x={CENTRE} y={CENTRE} text-anchor="middle" dominant-baseline="central">
+        <text class="count" x={CENTRE} y={CENTRE + 10} text-anchor="middle">
           {done}
         </text>
-        <text class="of" x={CENTRE} y={CENTRE + 16} text-anchor="middle" dominant-baseline="central">
+        <text class="of" x={CENTRE} y={CENTRE + 30} text-anchor="middle">
           {`of ${count} done`}
         </text>
       </svg>
