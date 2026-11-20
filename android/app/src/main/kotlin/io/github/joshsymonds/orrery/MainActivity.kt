@@ -173,10 +173,8 @@ class MainActivity : ComponentActivity() {
                                             epicId = current.epicId,
                                             epic = current.epicId.substringAfterLast('/'),
                                             task = current.task,
-                                            phase = current.phase,
-                                            onBack = { screen = Screen.Epic(current.epicId) },
-                                            onGoHome = { screen = Screen.Panes },
-                                            onOpenPhase = { task, phase ->
+                                            onOpenEpic = { screen = Screen.Epic(current.epicId) },
+                                            onOpenTask = { task, phase ->
                                                 screen = Screen.Phase(current.epicId, task, phase)
                                             },
                                             onOpenSession = {

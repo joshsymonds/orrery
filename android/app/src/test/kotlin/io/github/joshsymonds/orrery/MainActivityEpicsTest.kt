@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.provider.Settings
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasAnyDescendant
@@ -19,6 +20,7 @@ import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.RecordedRequest
 import io.github.joshsymonds.orrery.api.Reply
 import io.github.joshsymonds.orrery.api.StreamEnd
+import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationItem as ConversationItemProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState
 import io.github.joshsymonds.orrery.gen.orrery.v1.Epic
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicAddition
@@ -79,6 +81,7 @@ private const val IMPLEMENT_STEP_ID = "step-synthetic-implement"
 private const val CHECK_STEP_ID = "step-synthetic-check"
 private const val CHECK_SESSION_LABEL = "step-check-session-label"
 private const val ENVELOPE_HEADER_BYTES = 5
+private const val BRIEF_TEXT = "Synthetic brief text."
 
 // A summary of sixty lines is taller than the screen, so a scroll leaves the summary's top above the screen and its
 // centre still under a tap.
@@ -335,6 +338,18 @@ class MainActivityEpicsTest {
         ).id
     }
 
+    /** Serves [text] as the brief: the first prompt of the conversation of the step [stepId], which then stays open. */
+    private fun serveBrief(stepId: String, text: String) {
+        val delta = SessionsWatchConversationResponse.newBuilder()
+            .setTranscript(stepId)
+            .setSeq(1L)
+            .addItems(ConversationItemProto.newBuilder().setKind("prompt").setTime(NOW).setText(text).setSender("brief"))
+            .build()
+        server.route(WATCH_PATH) { request ->
+            if (watchedId(request) == stepId) Reply.Stream(listOf(delta), StreamEnd.Open) else Reply.Failure(Code.NOT_FOUND, "", 0L)
+        }
+    }
+
     private fun launch(): ActivityController<MainActivity> {
         val intent = Intent(context, MainActivity::class.java)
         return Robolectric.buildActivity(MainActivity::class.java, intent).setup().also { launched += it }
@@ -413,9 +428,9 @@ class MainActivityEpicsTest {
         composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("epic-section:tasks"))
     }
 
-    /** The session button of the checking row, which opens the checking step's session. */
-    private fun checkingSessionButton(): SemanticsMatcher =
-        hasTestTag("open-session") and hasAnyAncestor(hasTestTag("phase-row:checking"))
+    /** The session door of the implement stage, which opens the latest writing step's session. */
+    private fun sessionDoor(): SemanticsMatcher =
+        hasTestTag("open-session") and hasAnyAncestor(hasTestTag("stage-body:implement"))
 
     @Test
     fun homeDrawsTheLiveEpicsWithTheirRunningAndHeldSteps() {
@@ -639,7 +654,7 @@ class MainActivityEpicsTest {
     }
 
     @Test
-    fun tappingATaskRowOpensThatPhasesOutput() {
+    fun tappingATaskRowOpensThatTasksRecordAtItsNowStage() {
         serveEpic(contracted = true, steps = checkingSteps(), buildTasks = listOf(taskBuild()))
         openEpicFromHome()
         showImplementation()
@@ -647,33 +662,47 @@ class MainActivityEpicsTest {
 
         composeRule.onNodeWithTag("task-row:$TASK_ID").performClick()
 
-        awaitNode(hasTestTag("phase-body:checking"))
-        composeRule.onNodeWithTag("crumb:2").assertTextEquals("$TASK_ID · checking")
+        awaitNode(hasTestTag("stage-body:green"))
+        composeRule.onNodeWithTag("crumb:1").assertTextEquals(TASK_TITLE)
         awaitNone(hasTestTag("epic-summary"))
     }
 
     @Test
-    fun tappingAPhaseRowReplacesThePhaseOpenInPlace() {
+    fun pressingAStageHeadOpensItsBodyInPlaceAndBackLeavesTheRecord() {
         serveEpic(contracted = true, steps = checkingSteps(), buildTasks = listOf(taskBuild()))
         val controller = openEpicFromHome()
         showImplementation()
         composeRule.onNodeWithTag("task-row:$TASK_ID").performClick()
-        awaitNode(hasTestTag("phase-body:checking"))
+        awaitNode(hasTestTag("stage-body:green"))
 
-        composeRule.onNode(hasTestTag("phase-row:implementing"), useUnmergedTree = true).performClick()
+        composeRule.onNode(hasTestTag("stage-head:implement"), useUnmergedTree = true).performClick()
 
-        awaitNode(hasTestTag("phase-body:implementing"))
-        awaitNone(hasTestTag("phase-body:checking"))
-        composeRule.onNodeWithTag("crumb:2").assertTextEquals("$TASK_ID · implementing")
+        awaitNode(hasTestTag("stage-body:implement"))
+        awaitNone(hasTestTag("stage-body:green"))
 
         controller.get().onBackPressedDispatcher.onBackPressed()
 
         awaitNode(hasTestTag("epic-summary"))
-        awaitNone(hasTestTag("phase-body:implementing"))
+        awaitNone(hasTestTag("stage-body:implement"))
     }
 
     @Test
-    fun openingThePhaseSessionThenBackReturnsToThePhaseThenTheEpicWithItsListAsLeft() {
+    fun theEpicCrumbGoesBackToTheEpicRecord() {
+        serveEpic(contracted = true, steps = checkingSteps(), buildTasks = listOf(taskBuild()))
+        openEpicFromHome()
+        showImplementation()
+        composeRule.onNodeWithTag("task-row:$TASK_ID").performClick()
+        awaitNode(hasTestTag("stage-body:green"))
+        awaitNone(hasTestTag("epic-summary"))
+
+        composeRule.onNodeWithTag("crumb:0").performClick()
+
+        awaitNode(hasTestTag("epic-summary"))
+        awaitNone(hasTestTag("stage-body:green"))
+    }
+
+    @Test
+    fun openingTheStepsSessionThenBackReturnsToTheRecordThenTheEpicWithItsListAsLeft() {
         serveEpic(
             contracted = true,
             summary = TALL_SUMMARY,
@@ -684,40 +713,26 @@ class MainActivityEpicsTest {
         val controller = openEpicFromHome()
         val scrolled = scrollEpicListUp("epic-section:tasks")
         composeRule.onNodeWithTag("task-row:$TASK_ID").performClick()
-        awaitNode(hasTestTag("phase-body:checking"))
-        awaitNode(checkingSessionButton())
+        awaitNode(hasTestTag("stage-body:green"))
+        composeRule.onNode(hasTestTag("stage-head:implement"), useUnmergedTree = true).performClick()
+        awaitNode(sessionDoor())
 
-        composeRule.onNode(checkingSessionButton(), useUnmergedTree = true).performClick()
+        composeRule.onNode(sessionDoor(), useUnmergedTree = true).performClick()
 
         awaitNode(titled(CHECK_SESSION_LABEL))
         controller.get().onBackPressedDispatcher.onBackPressed()
 
-        awaitNode(hasTestTag("phase-body:checking"))
+        awaitNode(hasTestTag("stage-body:green"))
         awaitNone(titled(CHECK_SESSION_LABEL))
         controller.get().onBackPressedDispatcher.onBackPressed()
 
         awaitNode(hasTestTag("epic-summary"))
-        awaitNone(hasTestTag("phase-body:checking"))
+        awaitNone(hasTestTag("stage-body:green"))
         assertEquals(scrolled, summaryTop(), 0f)
     }
 
     @Test
-    fun theOrreryCrumbGoesHomeFromThePhaseOutput() {
-        serveEpic(contracted = true, steps = checkingSteps(), buildTasks = listOf(taskBuild()))
-        openEpicFromHome()
-        showImplementation()
-        composeRule.onNodeWithTag("task-row:$TASK_ID").performClick()
-        awaitNode(hasTestTag("phase-body:checking"))
-        awaitNone(hasTestTag("epic-summary"))
-
-        composeRule.onNodeWithTag("crumb:0").performClick()
-
-        awaitNode(hasTestTag("convo:pane:example-host:%1"))
-        awaitNone(hasTestTag("phase-body:checking"))
-    }
-
-    @Test
-    fun atAnimatorScaleZeroEachPhaseMoveSnaps() {
+    fun atAnimatorScaleZeroEachStageMoveSnaps() {
         setAnimatorDurationScale(0f)
         serveEpic(contracted = true, steps = checkingSteps(), buildTasks = listOf(taskBuild()))
         serveSessions(headlessSession(CHECK_STEP_ID, CHECK_SESSION_LABEL))
@@ -728,17 +743,19 @@ class MainActivityEpicsTest {
         composeRule.onNodeWithTag("task-row:$TASK_ID").performClick()
         composeRule.mainClock.advanceTimeByFrame()
         composeRule.waitForIdle()
-        composeRule.onNodeWithTag("crumb:2").assertTextEquals("$TASK_ID · checking")
         assertAbsent(hasTestTag("epic-summary"))
 
         composeRule.mainClock.autoAdvance = true
-        awaitNode(checkingSessionButton())
+        awaitNode(hasTestTag("stage-body:green"))
+        composeRule.onNodeWithTag("crumb:1").assertTextEquals(TASK_TITLE)
+        composeRule.onNode(hasTestTag("stage-head:implement"), useUnmergedTree = true).performClick()
+        awaitNode(sessionDoor())
         composeRule.mainClock.autoAdvance = false
 
-        composeRule.onNode(checkingSessionButton(), useUnmergedTree = true).performClick()
+        composeRule.onNode(sessionDoor(), useUnmergedTree = true).performClick()
         composeRule.mainClock.advanceTimeByFrame()
         composeRule.waitForIdle()
-        assertAbsent(hasTestTag("phase-row:checking"))
+        assertAbsent(hasTestTag("stage-head:implement"))
 
         composeRule.mainClock.autoAdvance = true
         awaitNode(titled(CHECK_SESSION_LABEL))
@@ -748,20 +765,35 @@ class MainActivityEpicsTest {
         composeRule.waitForIdle()
         composeRule.mainClock.advanceTimeByFrame()
         composeRule.waitForIdle()
-        composeRule.onNodeWithTag("crumb:2").assertTextEquals("$TASK_ID · checking")
         assertAbsent(titled(CHECK_SESSION_LABEL))
 
         composeRule.mainClock.autoAdvance = true
-        awaitNode(checkingSessionButton())
+        awaitNode(hasTestTag("stage-body:green"))
+        composeRule.onNodeWithTag("crumb:1").assertTextEquals(TASK_TITLE)
         composeRule.mainClock.autoAdvance = false
 
         controller.get().onBackPressedDispatcher.onBackPressed()
         composeRule.waitForIdle()
         composeRule.mainClock.advanceTimeByFrame()
         composeRule.waitForIdle()
-        assertAbsent(hasTestTag("crumb:2"))
+        assertAbsent(hasTestTag("crumb:1"))
 
         composeRule.mainClock.autoAdvance = true
         awaitNode(hasTestTag("epic-summary"))
+    }
+
+    @Test
+    fun theRecordReadsThePlannersBriefFromTheFirstImplementersSession() {
+        serveEpic(contracted = true, steps = checkingSteps(), buildTasks = listOf(taskBuild()))
+        serveBrief(IMPLEMENT_STEP_ID, BRIEF_TEXT)
+        openEpicFromHome()
+        showImplementation()
+
+        composeRule.onNodeWithTag("task-row:$TASK_ID").performClick()
+
+        awaitNode(hasTestTag("task-brief"))
+        composeRule.onNodeWithTag("task-brief").assertTextContains(BRIEF_TEXT, substring = true)
+        composeRule.onNodeWithTag("task-requirement:R1")
+            .assertTextContains("Synthetic requirement text", substring = true)
     }
 }
