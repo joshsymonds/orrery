@@ -36,6 +36,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import io.github.joshsymonds.orrery.api.ConversationItem
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.StepCallResult
@@ -61,7 +62,8 @@ private const val BRIEF_SENDER = "brief"
  * A task's record: its title row, its band, its requirement lines and the planner's brief, its five stages with the one
  * open, and its foot bar. [onOpenEpic] is the epic crumb, the back control and the band's pin; [onOpenTask] is a chip's
  * tap, with the phase the task is in; [onOpenSession] takes the step a stage's session door names. The brief is read
- * through the step's session stream while the page is open. [now] is the clock the stages and the foot read.
+ * through the step's session stream while the page is open; a reset that holds no brief is paged back through the
+ * session's older items until one does. [now] is the clock the stages and the foot read.
  */
 @Composable
 fun PhaseOutputScreen(
@@ -100,7 +102,10 @@ fun PhaseOutputScreen(
         val session = briefStep?.id ?: return@LaunchedEffect
         try {
             client.watchSession(session, after = 0L) { delta ->
-                delta.items.firstOrNull { it.kind == BRIEF_KIND && it.sender == BRIEF_SENDER }?.let { brief = it.text }
+                delta.items.briefText()?.let { brief = it }
+                if (delta.reset && brief == null && delta.oldest > 0L) {
+                    briefBefore(client, session, delta.oldest)?.let { brief = it }
+                }
             }
         } catch (error: IOException) {
             // No brief is read: the record draws none.
@@ -282,6 +287,23 @@ internal fun PhaseOutputBody(
 private fun briefStepOf(detail: EpicDetail, task: String): StepRow? {
     val steps = detail.steps.filter { it.task == task }.sortedBy { it.started }
     return steps.firstOrNull { it.role == "implementer" } ?: steps.firstOrNull { !it.readOnly }
+}
+
+// The planner's brief among items, or null when none of them is one.
+private fun List<ConversationItem>.briefText(): String? =
+    firstOrNull { it.kind == BRIEF_KIND && it.sender == BRIEF_SENDER }?.text
+
+// The planner's brief among the pages of session's items older than before, one page at a time, newest first, until a
+// page holds it or no older item is left. Null when no page holds it.
+private suspend fun briefBefore(client: OrreryClient, session: String, before: Long): String? {
+    var cursor = before
+    while (cursor > 0L) {
+        val page = withContext(Dispatchers.IO) { client.sessionOlder(session, cursor) }
+        page.items.briefText()?.let { return it }
+        if (!page.more) return null
+        cursor = page.oldest
+    }
+    return null
 }
 
 // A refusal's reason as a sentence: its final full stop added unless it ends in one.

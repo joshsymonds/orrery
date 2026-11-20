@@ -107,6 +107,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.SayRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SeenRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendKeysRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsClient
+import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsOlderRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendTextRequest
@@ -325,8 +326,10 @@ data class UnfinishedText(
 
 /**
  * One step of a WatchConversation stream: the [items] after [seq] in [transcript]. A [reset] delta replaces what the
- * client holds. [unfinished] is the text so far of each unfinished block of a headless session, and empty on a pane
- * stream. [queued] is the whole queue of owner messages a headless session holds, and empty on a pane stream.
+ * client holds. [oldest] is the seq of the oldest item a reset carries, which the older pages are asked back from; it is
+ * 0 on a delta that is not a reset, and on a reset with no items. [unfinished] is the text so far of each unfinished
+ * block of a headless session, and empty on a pane stream. [queued] is the whole queue of owner messages a headless
+ * session holds, and empty on a pane stream.
  */
 data class ConversationDelta(
     val transcript: String,
@@ -336,7 +339,14 @@ data class ConversationDelta(
     val state: ConversationState?,
     val unfinished: List<UnfinishedText> = emptyList(),
     val queued: List<QueuedItem> = emptyList(),
+    val oldest: Long = 0L,
 )
+
+/**
+ * One page of a headless session's main-thread items, older than the seq a request gave, oldest first. [oldest] is the
+ * seq of the page's oldest item, 0 when it holds none; [more] is whether items older than the page remain.
+ */
+data class SessionOlderPage(val items: List<ConversationItem>, val oldest: Long, val more: Boolean)
 
 data class HostStat(val label: String, val value: String, val percent: Double?, val level: String)
 
@@ -999,6 +1009,24 @@ class OrreryClient(
             request,
             { it.toSessionConversationDelta() },
             onDelta,
+        )
+    }
+
+    /**
+     * One page of headless session [sessionId]'s main-thread items older than the seq [before], the newest page first.
+     * [SessionOlderPage.oldest] is the cursor to pass as before for the next page.
+     */
+    fun sessionOlder(sessionId: String, before: Long): SessionOlderPage {
+        val request = SessionsOlderRequest.newBuilder()
+            .setId(sessionId)
+            .setBefore(before)
+            .setLimit(50)
+            .build()
+        val response = call(write = false) { standard.sessions.older(request, CLIENT_HEADERS) }
+        return SessionOlderPage(
+            items = response.itemsList.map { it.toConversationItem() },
+            oldest = response.oldest,
+            more = response.more,
         )
     }
 
@@ -1869,6 +1897,7 @@ class OrreryClient(
             seq = seq,
             reset = reset,
             items = itemsList.map { it.toConversationItem() },
+            oldest = oldest,
             state = if (hasState()) {
                 state.toConversationState(
                     pane = if (state.hasPane()) state.pane.toPane() else null,
@@ -1885,6 +1914,7 @@ class OrreryClient(
             seq = seq,
             reset = reset,
             items = itemsList.map { it.toConversationItem() },
+            oldest = oldest,
             state = if (hasState()) {
                 state.toConversationState(
                     pane = if (state.hasSession()) state.session.toHeadlessPane() else null,
