@@ -102,6 +102,8 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
   .panes > .read, .panes > .sheet-off > .sheet-off > .read { grid-column: 2; }
   .panes > .read.pinned, .panes > .rpanel { grid-column: 3; }
   .panes > .rail { grid-column: -2 / -1; }
+  /* The left rail is the first column, whatever the right rail's placement is. */
+  .panes > .rail.start { grid-column: 1; }
   .panes.split { grid-template-columns: var(--inbox-track) minmax(0, 1fr) minmax(0, 1fr) var(--o-layout-rail-width); }
   .panes.split > .rpanel { grid-column: 4; }
   .panes[data-side="panel"] { grid-template-columns: var(--inbox-track) minmax(0, 1fr) minmax(0, 1.4fr) var(--o-layout-rail-width); }
@@ -118,14 +120,15 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
     grid-column: 1 / -1; position: absolute; top: 0; bottom: 0; left: calc(var(--inbox-track) + var(--o-layout-rail-width)); right: var(--o-layout-rail-width);
     z-index: var(--o-z-flyout); box-shadow: var(--o-elevation-side-end);
   }
-  /* The inbox hidden, or popped out over the page, takes no track: the list's track is nothing wide, and the conversation
-     takes the room beside it. The flyout lies over the page under the title row and above it, and is out of the grid. */
-  .panes[data-inbox="hidden"], .panes[data-inbox="flyout"] { --inbox-track: calc(var(--o-space-4) * 0); }
-  .panes[data-inbox="hidden"] > .list { display: none; }
+  /* At rest the inbox is the left rail, and popped out it is the flyout over the page beside the rail. Both keep the rail's
+     track, so the page never moves; the flyout lies over the page, out of the grid, at the rail's edge. */
+  .panes[data-inbox="rail"], .panes[data-inbox="flyout"] { --inbox-track: var(--o-layout-rail-width); }
+  .panes[data-inbox="rail"] > .list { display: none; }
   .panes[data-inbox="flyout"] > .list {
-    display: grid; position: absolute; top: calc(var(--o-space-48) + var(--o-space-4)); bottom: 0; left: 0; width: var(--o-layout-inbox-width); z-index: var(--o-z-flyout);
+    display: grid; position: absolute; top: 0; bottom: 0; left: var(--o-layout-rail-width); width: var(--o-layout-inbox-width); z-index: var(--o-z-flyout);
     box-shadow: var(--o-elevation-side);
   }
+  .panes[data-inbox="rail"] > .rail.start, .panes[data-inbox="flyout"] > .rail.start { display: flex; }
   .list, .read, .rpanel { min-height: 0; }
   .list {
     display: grid; grid-template-rows: auto minmax(0, 1fr); background: var(--o-surface-side);
@@ -165,7 +168,7 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 .inbox-search { flex: none; padding: 0 var(--o-space-12) var(--o-space-8); }
 .inbox-rows { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 var(--o-space-8) var(--o-space-16); }
 .inbox-foot { display: flex; align-items: center; gap: var(--o-space-4); flex: none; padding: var(--o-space-4) var(--o-space-8); border-top: var(--o-size-hairline) solid var(--o-line-soft); }
-.inbox-foot .icon-only { margin-left: auto; }
+.inbox-foot > :first-child { margin-right: auto; }
 .inbox .inote { padding: var(--o-space-4) var(--o-space-16); }
 
 .blank { margin: auto; display: grid; gap: var(--o-space-8); justify-items: center; max-width: 48ch; padding: var(--o-space-24); color: var(--o-ink-3); font: var(--o-type-small); text-align: center; }
@@ -258,6 +261,8 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 .dir-head .fold:hover { background: var(--o-surface-raised); color: var(--o-ink-1); }
 .dir-head .proj { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--o-space-8); align-items: center; flex: 1 1 auto; min-width: 0; padding: var(--o-space-4) var(--o-space-8); border-radius: var(--o-radius-2); }
 .dir-head .proj:hover { background: var(--o-surface-raised); }
+/* The head's project is a button: it takes no border or raised fill of the global button, and keeps the look above. */
+.dir-head button.proj { border: 0; background: none; min-height: 0; }
 .dir-head .proj > .icon { grid-row: 1 / span 2; color: var(--o-role-place); }
 .dir-head .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-role-place); font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
 .dir-head .path { grid-column: 2; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-ink-3); }
@@ -1168,6 +1173,29 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 /* A control that carries .flash shows a focus ring for a moment after a use; flash.ts adds and removes the class. */
 .flash { outline: var(--o-size-hairline) solid var(--o-role-focus); outline-offset: var(--o-space-2); }
 
+/* The left rail: the inbox at rest, the mark, a rule, a tile per project in the tree's order, then New, Search and Keys under
+   the spring. It shows while the inbox rests or flies out (data-inbox rail and flyout, at 760px and wider) and is out of
+   the grid otherwise. Its tiles are buttons, reset to the tile's own look. */
+.panes > .rail.start { display: none; }
+.rail.start {
+  flex-direction: column; align-items: center; gap: var(--o-space-4); flex: none; width: var(--o-layout-rail-width); min-height: 0;
+  padding: var(--o-space-8) 0; border-right: var(--o-size-hairline) solid var(--o-line-soft); background: var(--o-surface-side);
+}
+.rail .spring { flex: 1 1 auto; }
+.rail-sep { flex: none; width: var(--o-space-24); height: var(--o-size-hairline); margin: var(--o-space-4) 0; background: var(--o-line-soft); }
+.tile { border: 0; min-height: 0; padding: 0; }
+.tile:hover { background: var(--o-surface-raised); }
+.tile.place { color: var(--o-role-place); }
+.tile.bare { background: none; color: var(--o-ink-3); }
+.tile.bare:hover { background: var(--o-surface-well); color: var(--o-ink-1); }
+.tile.brand:hover { background: none; }
+.tile.primary { background: var(--o-role-primary); color: var(--o-ink-on-accent); }
+.tile.brand .mark { width: var(--o-space-32); height: var(--o-space-32); }
+.tile .dots { position: absolute; bottom: var(--o-space-2); left: 0; right: 0; display: flex; justify-content: center; gap: var(--o-space-2); }
+.tile .dots i { width: var(--o-space-4); height: var(--o-space-4); border-radius: var(--o-radius-round); }
+.tile .dots i.live { background: var(--o-role-live); }
+.tile .dots i.new { background: var(--o-role-new); }
+
 /* The right rail: what a conversation steers, in named groups of tiles, each tile a thing's state at a glance. A tile is lit
    while its panel is open, and its edge and its panel's top edge take the thing's tone; a shell left running is quiet,
    grey, never live. */
@@ -1337,6 +1365,60 @@ button.subj { cursor: pointer; }
 button.subj:hover { background: var(--o-surface-raised); }
 .subj.here { background: var(--o-surface-raised); }
 .subj.here .end { color: var(--o-ink-3); }
+
+/* The project page: a directory's head, its conversations, and the cards of what works in them, in the reader's column. Its
+   head, its scrolling body and its command bar are three rows. */
+.read.project { grid-template-rows: auto minmax(0, 1fr) auto; }
+.spage { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: var(--o-space-24) var(--o-layout-page-pad-desk) var(--o-space-48); }
+.spage > .inner { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--o-space-32); max-width: var(--o-layout-page-measure); margin: 0 auto; }
+.spage section { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--o-space-12); min-width: 0; }
+.proj-head { display: grid; gap: var(--o-space-4); min-width: 0; }
+.proj-head .path { color: var(--o-ink-3); font: var(--o-type-small); overflow-wrap: anywhere; }
+.proj-head .counts { display: flex; flex-wrap: wrap; gap: var(--o-space-4) var(--o-space-16); color: var(--o-ink-2); font: var(--o-type-small); }
+.proj-head .counts span { display: inline-flex; align-items: center; gap: var(--o-space-4); }
+.proj-head .counts .is-attention { color: var(--o-role-attention); font-weight: var(--o-font-weight-bold); }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(44ch, 100%), 1fr)); gap: var(--o-space-12); min-width: 0; }
+/* A project's conversations: each its row, and under it, hanging from a line, the live cards of what it steers. */
+.pconvs { display: grid; gap: var(--o-space-4); min-width: 0; }
+.pconv { display: grid; gap: var(--o-space-8); min-width: 0; padding-bottom: var(--o-space-8); border-bottom: var(--o-size-hairline) solid var(--o-line-soft); }
+.pc-row {
+  display: grid; grid-template-columns: var(--o-size-glyph) minmax(0, 1.2fr) minmax(0, 1fr) auto; align-items: start; gap: var(--o-space-12);
+  width: 100%; min-width: 0; min-height: 0; margin: 0; padding: var(--o-space-8); border: 0; border-radius: var(--o-radius-2); background: none;
+  color: var(--o-ink-2); font: var(--o-type-small); text-align: left;
+}
+.pc-row:hover { background: var(--o-surface-raised); }
+.pc-row > .glyph { margin-top: var(--o-space-4); }
+.pc-row .t { min-width: 0; color: var(--o-ink-1); font: var(--o-type-body); font-weight: var(--o-font-weight-bold); overflow-wrap: anywhere; }
+.pc-row .said { display: -webkit-box; min-width: 0; overflow: hidden; color: var(--o-ink-3); font: var(--o-type-small); -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.pc-row .said.asked { color: var(--o-role-attention); }
+.pc-row .end { display: inline-flex; align-items: center; gap: var(--o-space-8); color: var(--o-ink-3); font: var(--o-type-small); }
+.pc-kids { margin-left: var(--o-space-16); padding-left: var(--o-space-16); border-left: var(--o-size-hairline) solid var(--o-line-firm); min-width: 0; }
+@media (width < 760px) {
+  .spage { padding: var(--o-space-16) var(--o-layout-page-pad-phone) var(--o-space-32); }
+  .pc-row { grid-template-columns: var(--o-size-glyph) minmax(0, 1fr) auto; }
+  .pc-row .said { grid-column: 2 / -1; grid-row: 2; }
+}
+/* WorkCard: an epic this conversation started, live: where it is, what it is doing, what it asks. */
+.wcard { --rail: var(--o-line-firm); --tint: transparent; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--o-space-8); min-width: 0; padding: var(--o-space-12); border-left: var(--o-size-rail) solid var(--rail); border-radius: 0 var(--o-radius-2) var(--o-radius-2) 0; background: linear-gradient(var(--tint), var(--tint)), var(--o-surface-well); }
+.wcard.live { --rail: var(--o-role-live); }
+.wcard.attention { --rail: var(--o-role-attention); --tint: var(--o-role-attention-fill); }
+.wcard.ok { --rail: var(--o-role-ok); }
+.wcard.engine { --rail: var(--o-role-engine); }
+.wcard .top { display: flex; align-items: center; gap: var(--o-space-8); min-width: 0; }
+.wcard .slug { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-ink-1); font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
+.wcard .top .end { margin-left: auto; flex: none; }
+.wcard .now { margin: 0; color: var(--o-ink-2); font: var(--o-type-small); overflow-wrap: anywhere; }
+.wcard .asks { display: flex; align-items: center; gap: var(--o-space-8); color: var(--o-role-attention); font: var(--o-type-small); }
+.wcard .asks span { flex: 1 1 auto; min-width: 0; }
+.wcard .foot { display: flex; align-items: center; gap: var(--o-space-8); color: var(--o-ink-3); font: var(--o-type-small); }
+.wcard .foot .end { margin-left: auto; }
+.wcard .foot button.link { min-height: 0; padding: 0; border: 0; background: none; color: var(--o-ink-2); font: var(--o-type-small); }
+/* MiniTrack: the track's five stages as five marks. */
+.mtrack { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--o-space-2); }
+.mtrack i { height: var(--o-space-4); border-radius: var(--o-radius-round); background: var(--o-line-soft); }
+.mtrack i.done { background: var(--o-role-ok); }
+.mtrack i.now { background: var(--rail); }
+.cmdbar .btn.grow { flex: 1 1 auto; }
 
 /* ============ the contract: its document, its record and the one line that names it in a transcript. Round 6's Contract, its
    DecisionLine, SectionHead, the table rows, the chips and notes, and the record's versions, command bar and older-version

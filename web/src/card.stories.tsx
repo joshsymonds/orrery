@@ -1,4 +1,4 @@
-// The stories of WorkCard: the live card of an epic a tool call created, which EpicWidget draws, over the fixture
+// The stories of EpicWidget: the live card of an epic a tool call created, which the reader draws, over the fixture
 // transport's clients. The card reads its epic through those clients, so each state names an epic the shipped fixtures
 // hold, or one they do not.
 
@@ -15,7 +15,7 @@ const noop = () => {};
 // card reads its epic through the fixture.
 const calls = epicCallsOf(clients, noop, noop, noEpics);
 
-export const WorkCard: Stories = {
+export const EpicWidget: Stories = {
   // epic-building is an epic that is building, with its steps running.
   "epic-building": () => <Card epic="orrery/orrery-followups" calls={calls} />,
   // epic-asks is an epic with an open question, which the card draws under its track.

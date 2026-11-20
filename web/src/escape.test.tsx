@@ -454,7 +454,7 @@ test("EscapeInterrupt: a failed withdraw shows an error line, and the interrupt 
     assert.equal(container.textContent?.includes("queue unreachable"), false, "the server's text is not shown");
   }));
 
-// clickRow clicks the list's row for key, as a pointer does: the row opens, and a docked inbox is hidden.
+// clickRow clicks the list's row for key, as a pointer does: the row opens, and a docked inbox rests on the rail.
 async function clickRow(container: HTMLElement, key: string): Promise<void> {
   const element = container.querySelector(`[data-key="${key}"]`);
   assert.ok(element, `the list draws the row ${key}`);
@@ -463,7 +463,7 @@ async function clickRow(container: HTMLElement, key: string): Promise<void> {
   });
 }
 
-// hoverMark moves the pointer onto the mark, which pops a hidden inbox out over the page.
+// hoverMark moves the pointer onto the mark, which pops the rail's inbox out over the page.
 async function hoverMark(container: HTMLElement): Promise<void> {
   const mark = container.querySelector(".mark-crumb");
   assert.ok(mark, "the page draws the mark");
@@ -472,7 +472,7 @@ async function hoverMark(container: HTMLElement): Promise<void> {
   });
 }
 
-// paneState is the inbox state the app draws on the panes: docked, pinned, hidden or flyout.
+// paneState is the inbox state the app draws on the panes: docked, pinned, rail or flyout.
 function paneState(container: HTMLElement): string | null {
   return container.querySelector(".panes")?.getAttribute("data-inbox") ?? null;
 }
@@ -489,11 +489,11 @@ async function leaveComposer(container: HTMLElement): Promise<void> {
   });
 }
 
-test("EscapeInterrupt InboxPin: Escape on a working session with the inbox hidden by a click takes back its queued messages and interrupts", (t) =>
+test("EscapeInterrupt InboxPin: Escape on a working session with the inbox resting on the rail after a click takes back its queued messages and interrupts", (t) =>
   withApp(t.signal, { rows: [sessionRow] }, async (container, fake) => {
     fake.replies.set(interruptPath, [{ texts: ["first", "second"] }]);
     await clickRow(container, "s1");
-    assert.equal(paneState(container), "hidden", "the click opened the row and hid the inbox");
+    assert.equal(paneState(container), "rail", "the click opened the row and hid the inbox");
     await emitQueued(t.signal, container, fake, [
       { promptId: "p1", text: "first" },
       { promptId: "p2", text: "second" },

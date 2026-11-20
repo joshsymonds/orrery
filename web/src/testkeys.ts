@@ -24,6 +24,8 @@ export function fakeContext(init: Partial<KeyContext> = {}): Fake {
     helpOpen,
     inboxHidden: false,
     keyPopped: false,
+    rowCovered: false,
+    projectShown: false,
     index: 0,
     flat: [],
     waitKeys: [],
