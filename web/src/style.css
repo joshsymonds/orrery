@@ -569,18 +569,17 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 .reader .fold .dot.running { background: var(--o-role-live); }
 .reader .fold .dot.none { background: var(--o-ink-3); }
 .reader .fold-text { margin-top: var(--o-space-4); padding: var(--o-space-8) var(--o-space-12); border-radius: var(--o-radius-2); background: var(--o-surface-well); color: var(--o-ink-2); overflow-wrap: anywhere; }
-.reader .card { padding: var(--o-space-8) var(--o-space-12); border-radius: 0 var(--o-radius-2) var(--o-radius-2) 0; background: var(--o-surface-well); box-shadow: inset var(--o-size-rail) 0 0 var(--ink, var(--o-line-glyph)); }
-.reader .card.bad { --ink: var(--o-role-bad); }
-.reader .card.ok { --ink: var(--o-role-ok); }
-.reader .card .cap { display: flex; gap: var(--o-space-8); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; color: var(--ink, var(--o-ink-3)); }
-.reader .card .cap span { margin-left: auto; font: var(--o-type-small); letter-spacing: 0; text-transform: none; color: var(--o-ink-3); }
-.reader .card p { margin: var(--o-space-2) 0 0; font: var(--o-type-body); }
-.reader .card .note { color: var(--o-ink-3); font: var(--o-type-small); }
-.reader .card button.note { display: block; width: 100%; min-height: var(--o-space-24); margin: var(--o-space-2) 0 0; padding: 0; border: 0; background: none; text-align: left; cursor: pointer; appearance: none; -webkit-appearance: none; overflow-wrap: anywhere; }
-.reader .card .rest { margin-top: var(--o-space-2); font: var(--o-type-small); color: var(--o-ink-3); white-space: pre-wrap; overflow-wrap: anywhere; }
-.reader .chips { display: flex; flex-wrap: wrap; gap: var(--o-space-4); margin-top: var(--o-space-8); }
-.reader .chip { padding: 0 var(--o-space-8); border-radius: var(--o-radius-1); font: var(--o-type-small); color: var(--o-role-ok); background: var(--o-role-ok-fill); }
-.reader .chip.bad { color: var(--o-role-bad); background: var(--o-role-bad-fill); }
+.card { padding: var(--o-space-8) var(--o-space-12); border-radius: 0 var(--o-radius-2) var(--o-radius-2) 0; background: var(--o-surface-well); box-shadow: inset var(--o-size-rail) 0 0 var(--ink, var(--o-line-glyph)); }
+.card.bad { --ink: var(--o-role-bad); }
+.card.ok { --ink: var(--o-role-ok); }
+.card .cap { display: flex; gap: var(--o-space-8); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; color: var(--ink, var(--o-ink-3)); }
+.card .cap span { margin-left: auto; font: var(--o-type-small); letter-spacing: 0; text-transform: none; color: var(--o-ink-3); }
+.card .note { margin: var(--o-space-2) 0 0; color: var(--o-ink-3); font: var(--o-type-small); }
+.card button.note { display: block; width: 100%; min-height: var(--o-space-24); margin: var(--o-space-2) 0 0; padding: 0; border: 0; background: none; text-align: left; cursor: pointer; appearance: none; -webkit-appearance: none; overflow-wrap: anywhere; }
+.card .rest { margin-top: var(--o-space-2); font: var(--o-type-small); color: var(--o-ink-3); white-space: pre-wrap; overflow-wrap: anywhere; }
+.card .chips { display: flex; flex-wrap: wrap; gap: var(--o-space-4); margin-top: var(--o-space-8); }
+.card .chip { padding: 0 var(--o-space-8); border-radius: var(--o-radius-1); font: var(--o-type-small); white-space: nowrap; color: var(--o-role-ok); background: var(--o-role-ok-fill); }
+.card .chip.bad { color: var(--o-role-bad); background: var(--o-role-bad-fill); }
 /* The epic card a conversation draws in place of its epic_create call: its head with the slug, the status pill and the open
    control, its five parts as a track, the now sentence, each requirement as a row with the count proven, the open question,
    and the command its controls show. */
@@ -1091,73 +1090,72 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 .contract .checks { white-space: pre-wrap; }
 .contract > h2 { font: var(--o-type-display); }
 
-/* ============ the phase output and the worker session: a task's four phases as rows, the open row's output, a step's session ============ */
-/* A row's head is its phase's name, its summary and its time. A passed row's name is ok green, a now row's live yellow, and an ahead
-   row dims; its colours move over the state move. The open row's body fades in over the layout move. */
+/* ============ the task record: its band with the epic's pin and the task's chips, its five phase rows, the open row's stage bodies,
+   and the worker's session. Round 6's ContextBand, EpicPin, PhaseRow and Chip, in tokens. A row's rail is its state and tone; an
+   ahead row is greyed; a row's head is one line whose summary is cut with an ellipsis. */
+.band { display: grid; grid-template-columns: minmax(0, 1fr); flex: none; border-bottom: var(--o-size-hairline) solid var(--o-line-soft); background: var(--o-surface-well); }
+.epic-pin { display: flex; align-items: center; gap: var(--o-space-8); flex: none; width: 100%; min-width: 0; min-height: 0; margin: 0; padding: var(--o-space-4) var(--o-layout-page-pad-desk); border: 0; border-radius: 0; background: none; color: var(--o-ink-2); font: var(--o-type-small); text-align: left; cursor: pointer; appearance: none; -webkit-appearance: none; }
+.epic-pin:hover { background: var(--o-surface-well); }
+.epic-pin .slug { flex: none; color: var(--o-ink-1); font-weight: var(--o-font-weight-bold); }
+.epic-pin .words { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.epic-pin .blocker { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-role-attention); }
+.epic-pin .end { display: inline-flex; align-items: center; gap: var(--o-space-4); flex: none; margin-left: auto; color: var(--o-ink-3); }
+.tstrip { display: flex; gap: var(--o-space-4); min-width: 0; padding: 0 var(--o-layout-page-pad-desk) var(--o-space-8); overflow-x: auto; }
+.tchip { display: inline-grid; gap: var(--o-space-2); flex: none; min-width: 0; min-height: 0; margin: 0; padding: var(--o-space-4) var(--o-space-8); border: 0; border-radius: var(--o-radius-2); background: none; color: var(--o-ink-3); font: var(--o-type-small); text-align: left; white-space: nowrap; cursor: pointer; appearance: none; -webkit-appearance: none; }
+.tchip:hover { background: var(--o-surface-raised); color: var(--o-ink-1); }
+.tchip.cur { background: var(--o-surface-raised); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-role-focus); color: var(--o-ink-1); font-weight: var(--o-font-weight-bold); cursor: default; }
+
 .phase-output { display: flex; flex-direction: column; gap: var(--o-space-12); min-width: 0; }
 .phase-output p { margin: 0; }
-.phase-output .phase-task { display: flex; flex-direction: column; gap: var(--o-space-4); min-width: 0; }
-.phase-output .task-title { margin: 0; font: var(--o-type-title); color: var(--o-ink-1); overflow-wrap: anywhere; }
-.phase-output .requirements { font: var(--o-type-small); color: var(--o-ink-3); overflow-wrap: anywhere; }
-.phase-output .notice { padding: var(--o-space-4) var(--o-space-8); border-radius: var(--o-radius-2); color: var(--o-role-bad); overflow-wrap: anywhere; }
-.phase-output ol.phases { display: flex; flex-direction: column; gap: var(--o-space-4); margin: 0; padding: 0; list-style: none; }
-.phase-output .phase-row {
-  min-width: 0; border-radius: var(--o-radius-2); background: var(--o-surface-well); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-soft);
-  transition: color var(--o-move-state), background-color var(--o-move-state), box-shadow var(--o-move-state);
-}
-.phase-output .phase-row.open { box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm); }
-.phase-output .phase-row.passed { color: var(--o-role-ok); }
-.phase-output .phase-row.now { color: var(--o-role-live); }
-.phase-output .phase-row.ahead { color: var(--o-ink-3); }
-.phase-output .phase-head {
-  display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto; column-gap: var(--o-space-8); align-items: baseline;
-  width: 100%; min-height: var(--o-space-24); padding: var(--o-space-4) var(--o-space-8); border: 0; background: none; color: inherit; text-align: left; cursor: pointer;
-  font: var(--o-type-small); appearance: none; -webkit-appearance: none;
-}
+/* The requirement line and the planner's brief, above the stages. */
+.phase-output .now-sentence { color: var(--o-ink-1); font: var(--o-type-title); overflow-wrap: anywhere; }
+.phase-output .now-sentence .id { color: var(--o-ink-3); font: var(--o-type-small); white-space: nowrap; }
+.phase-output .brief { display: grid; gap: var(--o-space-4); min-width: 0; padding: var(--o-space-8) var(--o-space-12); border-left: var(--o-size-rail) solid var(--o-role-engine); border-radius: 0 var(--o-radius-2) var(--o-radius-2) 0; background: linear-gradient(var(--o-role-engine-fill), var(--o-role-engine-fill)), var(--o-surface-well); color: var(--o-ink-1); }
+.phase-output .brief .lbl { color: var(--o-role-engine); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+.phase-output .brief p { font: var(--o-type-body); overflow-wrap: anywhere; }
+/* A phase row: its rail is its state's colour, or its tone's when it is now. */
+.phase-output .phase { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; border-left: var(--o-size-rail) solid var(--o-line-soft); }
+.phase-output .phase.passed { border-left-color: var(--o-role-ok); }
+.phase-output .phase.now { border-left-color: var(--o-role-live); }
+.phase-output .phase.now.mine { border-left-color: var(--o-role-attention); }
+.phase-output .phase.now.bad { border-left-color: var(--o-role-bad); }
+.phase-output .phase.now.acc { border-left-color: var(--o-role-engine); }
+.phase-output .phase.now.ok { border-left-color: var(--o-role-ok); }
+.phase-output .phase.now.limited { border-left-color: var(--o-ink-3); }
+.phase-output .phase.now.plan { border-left-color: var(--o-tone-plan); }
+.phase-output .phase-head { display: flex; align-items: baseline; gap: var(--o-space-12); width: 100%; min-width: 0; min-height: 0; margin: 0; padding: var(--o-space-8) var(--o-space-12); border: 0; border-radius: 0; background: none; color: var(--o-ink-2); font: var(--o-type-small); text-align: left; cursor: pointer; appearance: none; -webkit-appearance: none; }
+.phase-output .phase-head:hover:not(:disabled) { background: var(--o-surface-well); }
 .phase-output .phase-head:disabled { cursor: default; }
-.phase-output .phase-name { font: var(--o-type-title); white-space: nowrap; }
-.phase-output .phase-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-ink-2); }
-.phase-output .phase-time { white-space: nowrap; color: var(--o-ink-3); }
-.phase-output .phase-row.ahead .phase-summary, .phase-output .phase-row.ahead .phase-time { color: var(--o-ink-3); }
-.phase-output .phase-body {
-  display: flex; flex-direction: column; gap: var(--o-space-8); min-width: 0; padding: var(--o-space-4) var(--o-space-8) var(--o-space-8);
-  font: var(--o-type-small); color: var(--o-ink-2); animation: move-fade var(--o-move-layout);
+.phase-output .phase-head .nm { flex: none; color: var(--o-ink-1); font: var(--o-type-body); font-weight: var(--o-font-weight-bold); white-space: nowrap; }
+.phase-output .phase-head .sum { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.phase-output .phase-head .end { flex: none; color: var(--o-ink-3); white-space: nowrap; }
+.phase-output .phase.ahead .phase-head, .phase-output .phase.ahead .phase-head .nm { color: var(--o-ink-4); font-weight: var(--o-font-weight-regular); }
+.phase-output .phase-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--o-space-12); min-width: 0; padding: var(--o-space-4) var(--o-space-12) var(--o-space-16); color: var(--o-ink-2); font: var(--o-type-small); animation: move-fade var(--o-move-layout); }
+.phase-output .phase-body .sub { color: var(--o-ink-3); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+.phase-output .attempts { display: grid; gap: var(--o-space-8); margin: 0; padding: 0; list-style: none; }
+.phase-output .attempt { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; column-gap: var(--o-space-8); align-items: baseline; min-width: 0; }
+.phase-output .attempt .n { color: var(--o-ink-3); white-space: nowrap; }
+.phase-output .attempt .words { min-width: 0; color: var(--o-ink-2); overflow-wrap: anywhere; }
+/* The review table: a review's gate, what it checks, where, and its result with the reason. */
+.phase-output .tbl { --cols: auto auto auto minmax(0, 1fr); }
+.phase-output .tr .gate { color: var(--o-ink-1); white-space: nowrap; }
+.phase-output .tr .what, .phase-output .tr .res { min-width: 0; overflow-wrap: anywhere; }
+/* The session door: the step's conversation, a link line. */
+.phase-output .door { display: inline-flex; align-items: center; gap: var(--o-space-8); justify-self: start; min-width: 0; min-height: 0; margin: 0; padding: var(--o-space-4) 0; border: 0; border-radius: 0; background: none; color: var(--o-ink-3); font: var(--o-type-small); cursor: pointer; appearance: none; -webkit-appearance: none; }
+.phase-output .door > span:first-child { color: var(--o-role-ref); }
+.phase-output .door:hover > span:first-child { text-decoration: underline; }
+.phase-output .door .chev { color: var(--o-ink-4); }
+/* The phone's foot bar: the state word takes the room it has and cuts its end; the controls keep their own width. */
+.phase-output .cmdbar .state { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--o-type-small); font-weight: var(--o-font-weight-bold); color: var(--tone, var(--o-ink-2)); }
+
+/* On a phone the pin, the chips and the phase heads take the touch heights, and the pin's open-the-epic line goes. */
+@media (width < 760px) {
+  .epic-pin { min-height: var(--o-size-control-touch); padding: var(--o-space-4) var(--o-layout-page-pad-phone); }
+  .epic-pin .open { display: none; }
+  .tstrip { padding: 0 var(--o-layout-page-pad-phone) var(--o-space-8); }
+  .phase-output .phase-head { min-height: var(--o-size-control-touch); align-items: center; }
+  .phase-output .door { min-height: var(--o-size-control-touch); }
 }
-.phase-output ol.attempts, .phase-output ol.rounds, .phase-output ul.checks, .phase-output ol.reviews,
-.phase-output ul.findings, .phase-output ul.reviewers { display: flex; flex-direction: column; gap: var(--o-space-8); margin: 0; padding: 0; list-style: none; }
-.phase-output .attempt { display: flex; flex-direction: column; gap: var(--o-space-2); min-width: 0; }
-.phase-output .attempt-doing { color: var(--o-role-live); overflow-wrap: anywhere; }
-.phase-output .attempt-end { font-weight: var(--o-font-weight-bold); color: var(--o-ink-2); }
-.phase-output .attempt-text { color: var(--o-ink-3); overflow-wrap: anywhere; }
-/* A check round is a card: its head, its checks, its gate's tails and its judge's verdict. */
-.phase-output .round { display: flex; flex-direction: column; gap: var(--o-space-4); min-width: 0; padding: var(--o-space-8); border-radius: var(--o-radius-2); background: var(--o-surface-well); }
-.phase-output .round-head { color: var(--o-ink-3); }
-.phase-output .round-no { font-weight: var(--o-font-weight-bold); color: var(--o-ink-2); }
-.phase-output .check { display: flex; flex-wrap: wrap; column-gap: var(--o-space-8); min-width: 0; }
-.phase-output .check-name { color: var(--o-ink-2); overflow-wrap: anywhere; }
-.phase-output .check-detail { flex: 1 1 100%; color: var(--o-role-bad); overflow-wrap: anywhere; }
-.phase-output .gate { display: flex; flex-direction: column; gap: var(--o-space-4); min-width: 0; }
-.phase-output .gate-name { font-weight: var(--o-font-weight-bold); color: var(--o-ink-2); }
-.phase-output .gate-result { color: var(--o-ink-3); }
-.phase-output .gate-detail { color: var(--o-ink-3); overflow-wrap: anywhere; }
-.phase-output .gate-stdout, .phase-output .gate-stderr {
-  margin: 0; max-height: calc(var(--o-space-48) * 5); overflow: auto; padding: var(--o-space-4) var(--o-space-8); border-radius: var(--o-radius-2); background: var(--o-surface-side);
-  font: var(--o-type-small); color: var(--o-ink-2); white-space: pre-wrap; overflow-wrap: anywhere;
-}
-.phase-output .gate-stderr { color: var(--o-role-halt); }
-.phase-output .judge { color: var(--o-ink-2); overflow-wrap: anywhere; }
-.phase-output .judge-verdict { font-weight: var(--o-font-weight-bold); color: var(--o-ink-1); }
-/* The reviews: each review's head, its findings as a column of claims, locations, results and reasons, then the reviewers. */
-.phase-output .review { display: flex; flex-direction: column; gap: var(--o-space-4); min-width: 0; }
-.phase-output .review-head { color: var(--o-ink-3); }
-.phase-output .review-verdict { font-weight: var(--o-font-weight-bold); color: var(--o-ink-2); }
-.phase-output .finding { display: flex; flex-direction: column; gap: var(--o-space-2); min-width: 0; padding: var(--o-space-4) var(--o-space-8); border-radius: var(--o-radius-2); box-shadow: inset var(--o-size-rail) 0 0 var(--o-line-firm); }
-.phase-output .claim { color: var(--o-ink-1); overflow-wrap: anywhere; }
-.phase-output .location { color: var(--o-ink-3); overflow-wrap: anywhere; }
-.phase-output .result { color: var(--o-ink-2); }
-.phase-output .reason { color: var(--o-ink-3); overflow-wrap: anywhere; }
-.phase-output .reviewer { color: var(--o-ink-3); overflow-wrap: anywhere; }
-.phase-output .integration { color: var(--o-ink-2); }
 /* The worker session is a column that fills its track: its title row, its reader, which alone scrolls, and its step box. */
 .worker-session { display: flex; flex-direction: column; height: 100%; min-width: 0; min-height: 0; }
 .worker-session > .reader { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
@@ -1366,6 +1364,9 @@ button.subj:hover { background: var(--o-surface-raised); }
 .chip.live { background: var(--o-role-live-fill); color: var(--o-role-live); }
 .chip.bad { background: var(--o-role-bad-fill); color: var(--o-role-bad); }
 .chip.new { background: var(--o-role-new-fill); color: var(--o-role-new); }
+.chip.ok { background: var(--o-role-ok-fill); color: var(--o-role-ok); }
+.chip.attention { background: var(--o-role-attention-fill); color: var(--o-role-attention); }
+.chip.accepted { background: var(--o-role-engine-fill); color: var(--o-role-engine); }
 
 /* A note under a control: what happened, a settled decision, or a refusal in the error role. An error shows whole, not cut to a line. */
 .inote.ok { color: var(--o-role-ok); }
