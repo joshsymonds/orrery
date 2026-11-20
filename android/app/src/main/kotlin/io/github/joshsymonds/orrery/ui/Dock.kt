@@ -90,6 +90,7 @@ fun Dock(
     pending: List<PendingItem> = emptyList(),
     stepCalls: StepCalls? = null,
     about: String? = null,
+    onClearAbout: (() -> Unit)? = null,
     zone: ZoneId = ZoneId.systemDefault(),
     maxFieldHeight: Dp = Dp.Unspecified,
     onDraftPresent: (Boolean) -> Unit = {},
@@ -312,7 +313,10 @@ fun Dock(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    NotAboutControl(onClick = { aboutCleared = true })
+                    NotAboutControl(onClick = {
+                        aboutCleared = true
+                        onClearAbout?.invoke()
+                    })
                 }
             }
             DockBox(

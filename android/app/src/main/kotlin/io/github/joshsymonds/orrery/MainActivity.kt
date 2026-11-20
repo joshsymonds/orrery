@@ -57,6 +57,7 @@ import io.github.joshsymonds.orrery.ui.PaneListState
 import io.github.joshsymonds.orrery.ui.PaneScreen
 import io.github.joshsymonds.orrery.ui.Phase as TaskPhase
 import io.github.joshsymonds.orrery.ui.PhaseOutputScreen
+import io.github.joshsymonds.orrery.ui.RowAbout
 import io.github.joshsymonds.orrery.ui.PoolsScreen
 import io.github.joshsymonds.orrery.ui.SessionScreen
 import io.github.joshsymonds.orrery.ui.SettingsScreen
@@ -86,6 +87,10 @@ class MainActivity : ComponentActivity() {
     // Each epic's list state, by epic id, kept here rather than in the epic's screen so a visit to its contract leaves
     // the list where it was.
     private val epicListStates = mutableMapOf<String, LazyListState>()
+
+    // The About a contract's row set, with the conversation screen it returns to. The screen shows it while it is the
+    // one open, and a send or Not about this clears it.
+    private var conversationAbout by mutableStateOf<ConversationAbout?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -205,12 +210,22 @@ class MainActivity : ComponentActivity() {
                                         )
                                     }
                                     is Screen.Contract -> {
-                                        BackHandler { screen = Screen.Epic(current.epicId) }
+                                        BackHandler { screen = current.back }
                                         ContractScreen(
                                             client = client,
                                             epicId = current.epicId,
-                                            onBack = { screen = Screen.Epic(current.epicId) },
+                                            onBack = { screen = current.back },
                                             onHome = { screen = Screen.Panes },
+                                            live = current.live,
+                                            onAbout = if (current.live) {
+                                                { about: RowAbout ->
+                                                    conversationAbout = ConversationAbout(current.back, about)
+                                                    screen = current.back
+                                                }
+                                            } else {
+                                                null
+                                            },
+                                            onTalk = if (current.live) { { screen = current.back } } else null,
                                         )
                                     }
                                     is Screen.Step -> {
@@ -225,6 +240,11 @@ class MainActivity : ComponentActivity() {
                                                 doing = current.doing,
                                             ),
                                             onOpenEpic = { screen = Screen.Epic(it) },
+                                            about = aboutOf(current),
+                                            onClearAbout = { conversationAbout = null },
+                                            onOpenContract = { id, live ->
+                                                screen = Screen.Contract(id, back = current, live = live)
+                                            },
                                         )
                                     }
                                     is Screen.Talk -> {
@@ -250,6 +270,11 @@ class MainActivity : ComponentActivity() {
                                             client = client,
                                             onBack = { screen = Screen.Panes },
                                             onOpenEpic = { screen = Screen.Epic(it) },
+                                            about = aboutOf(current),
+                                            onClearAbout = { conversationAbout = null },
+                                            onOpenContract = { id, live ->
+                                                screen = Screen.Contract(id, back = current, live = live)
+                                            },
                                         )
                                     }
                                     is Screen.Session -> {
@@ -260,6 +285,11 @@ class MainActivity : ComponentActivity() {
                                             onBack = { screen = Screen.Panes },
                                             reason = current.reason,
                                             onOpenEpic = { screen = Screen.Epic(it) },
+                                            about = aboutOf(current),
+                                            onClearAbout = { conversationAbout = null },
+                                            onOpenContract = { id, live ->
+                                                screen = Screen.Contract(id, back = current, live = live)
+                                            },
                                         )
                                     }
                                     Screen.Pools -> {
@@ -357,6 +387,9 @@ class MainActivity : ComponentActivity() {
         return if (pane == null) Screen.Session(id) else Screen.Pane(pane.id)
     }
 
+    /** The About set on [conversation], the screen a contract's row returned to, or null. */
+    private fun aboutOf(conversation: Screen): RowAbout? = conversationAbout?.takeIf { it.screen == conversation }?.about
+
     /**
      * The move between two screens. A deeper screen enters from the right and the one it covers leaves to the left, on
      * [Move.DRILL]; coming back is the mirror, on [Move.LEAVE]. It is used only while animations are on.
@@ -381,6 +414,9 @@ class MainActivity : ComponentActivity() {
             is Screen.Step -> back.depth + 1
         }
 
+    /** A row's About, and the conversation screen it was set on, which the About returns to. */
+    private data class ConversationAbout(val screen: Screen, val about: RowAbout)
+
     private sealed interface Screen {
         data object Panes : Screen
         data object Settings : Screen
@@ -391,10 +427,11 @@ class MainActivity : ComponentActivity() {
         data class Epic(val id: String, val open: EpicOpening? = null) : Screen
 
         /**
-         * An epic's accepted contract, reached from the epic's summary or from a notice's contract block: back returns
-         * to the epic.
+         * A contract, reached from its epic's summary, a notice's contract block, or a conversation's tile, band line or
+         * transcript line: back returns to [back], which is the epic unless a conversation opened it. [live] is whether
+         * the contract's row controls and its actions are on, which a conversation sets while it is not stopped or failed.
          */
-        data class Contract(val epicId: String) : Screen
+        data class Contract(val epicId: String, val back: Screen = Epic(epicId), val live: Boolean = false) : Screen
 
         /** A task's phase output, reached from its epic: back returns to the epic, and [phase] is open. */
         data class Phase(val epicId: String, val task: String, val phase: TaskPhase) : Screen
