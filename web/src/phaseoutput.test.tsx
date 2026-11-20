@@ -484,6 +484,14 @@ test("TaskStages: the review body is a table of each finding, and says when no r
   });
 });
 
+test("TaskStages: the review table's head row names its four columns, and its finding and what-happened cells are wide", async () => {
+  await withPage(pageProps(detailOf(false), "T1", []), (container) => {
+    assert.equal(textsOf(container, ".phase-body .tbl .tr.head > span").join(","), "gate,finding,where,what happened");
+    assert.equal(elementOf(container, ".phase-body .tbl .tr:not(.head) > .what").classList.contains("wide"), true);
+    assert.equal(elementOf(container, ".phase-body .tbl .tr:not(.head) > .res").classList.contains("wide"), true);
+  });
+});
+
 test("TaskStages: the session door of implement opens its latest attempt, and of review its latest reading step", async () => {
   const calls: string[] = [];
   await withPage(pageProps(detailOf(false), "T1", calls), async (container) => {

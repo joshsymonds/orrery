@@ -202,8 +202,43 @@ test("TaskStyle: a stage's sub label is a grey label in the label type", () => {
   assert.equal(declaredValue(desk, ".phase-output .phase-body .sub", "font"), "var(--o-type-label)");
 });
 
-test("TaskStyle: the review table's columns are gate, what, where and result", () => {
-  assert.equal(declaredValue(desk, ".phase-output .tbl", "--cols"), "auto auto auto minmax(0, 1fr)");
+test("TaskStyle: the review table's desk columns are gate, finding, where and what happened", () => {
+  assert.equal(declaredValue(desk, ".phase-output .tbl", "--cols"), "auto minmax(0, 1.4fr) auto minmax(0, 1fr)");
+});
+
+test("TaskStyle: at phone width the review table's rows stack in round 6's touch template", () => {
+  assert.equal(declaredValue(phone, ".phase-output .tbl", "--cols-touch"), "auto minmax(0, 1fr)");
+});
+
+test("TaskStyle: at phone width the worker session's leading crumbs share one line and its page crumb takes the next", () => {
+  assert.equal(declaredValue(phone, ".worker-session > .title-row .crumbs", "display"), "flex");
+  assert.equal(declaredValue(phone, ".worker-session > .title-row .crumbs", "flex-wrap"), "wrap");
+  assert.equal(declaredValue(phone, ".worker-session > .title-row .crumb.here", "flex"), "0 0 100%");
+});
+
+test("TaskStyle: at phone width the worker session's mark and the separator after it leave its title row", () => {
+  assert.equal(declaredValue(phone, ".worker-session > .title-row .mark-crumb", "display"), "none");
+  assert.equal(declaredValue(phone, ".worker-session > .title-row .mark-crumb + .sep", "display"), "none");
+});
+
+test("TaskStyle: at phone width a worker session's leading crumb ellipsizes on one line, and its page crumb wraps whole", () => {
+  assert.equal(declaredValue(phone, ".worker-session > .title-row .crumb", "white-space"), "nowrap");
+  assert.equal(declaredValue(phone, ".worker-session > .title-row .crumb", "text-overflow"), "ellipsis");
+  assert.equal(declaredValue(phone, ".worker-session > .title-row .crumb.here", "white-space"), "normal");
+  assert.equal(declaredValue(phone, ".worker-session > .title-row .crumb.here", "overflow-wrap"), "normal");
+});
+
+test("TaskStyle: a step's end card in the worker session takes the reader's well, rail and type", () => {
+  assert.equal(declaredValue(desk, ".worker-session .step-card", "background"), "var(--o-surface-well)");
+  assert.equal(declaredValue(desk, ".worker-session .step-card", "box-shadow"), "inset var(--o-size-rail) 0 0 var(--o-role-engine)");
+  assert.equal(declaredValue(desk, ".worker-session .step-card", "font"), "var(--o-type-small)");
+  assert.equal(declaredValue(desk, ".worker-session .step-card .step-summary", "white-space"), "pre-wrap");
+});
+
+test("TaskStyle: at phone width the worker session's state line wraps, so its Stop confirm is not clipped", () => {
+  assert.equal(declaredValue(phone, ".worker-session .statebar", "flex-wrap"), "wrap");
+  assert.equal(declaredValue(phone, ".worker-session .statebar .end", "flex"), "1 1 auto");
+  assert.equal(declaredValue(phone, ".worker-session .dock .confirm", "flex-wrap"), "wrap");
 });
 
 test("TaskStyle: a session door is a link line in the reference role, at phone width a touch row", () => {
@@ -266,4 +301,9 @@ test("TaskStyle: no rule is left for the removed phase-row markup or the old pha
     .flatMap((rule) => rule.selectors)
     .filter((selector) => selector.startsWith(".phase-output") && pattern.test(selector));
   assert.deepEqual(named, []);
+});
+
+test("TaskStyle: at the desk a worker's session drawn in the middle fills the reader's rows", () => {
+  assert.equal(declaredValue(desk, ".read > .worker-session", "grid-row"), "1 / -1");
+  assert.equal(declaredValue(desk, ".read > .worker-session", "min-height"), "0");
 });

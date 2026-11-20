@@ -384,12 +384,18 @@ function ReviewView({
         <WordsLine words={body.empty} />
       ) : (
         <div class="tbl">
+          <div class="tr head">
+            <span>gate</span>
+            <span>finding</span>
+            <span>where</span>
+            <span>what happened</span>
+          </div>
           {body.rows.map((row, index) => (
             <div key={index} class="tr">
               <span class="gate">{row.gate}</span>
-              <span class="what">{row.what}</span>
+              <span class="what wide">{row.what}</span>
               <span class="id">{row.where}</span>
-              <span class="res">
+              <span class="res wide">
                 <span class={`chip ${row.result.tone}`}>{row.result.text}</span> {row.reason}
               </span>
             </div>
