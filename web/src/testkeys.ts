@@ -54,6 +54,7 @@ export function fakeContext(init: Partial<KeyContext> = {}): Fake {
     },
     focusCursorRow: record("focusCursorRow"),
     backOneCrumb: record("backOneCrumb"),
+    togglePanel: record("togglePanel"),
     answerCursor: record("answerCursor"),
     toggleOpen: record("toggleOpen"),
     closePin: record("closePin"),

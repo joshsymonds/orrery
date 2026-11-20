@@ -28,9 +28,12 @@ export interface FindState {
   current: number;
 }
 
-// ColumnHead is what App gives a column's head for its row and conversation: the strip, the asks, the note and the More
-// menu. The column adds the fold, which it reads from its own reader.
-export type ColumnHead = Pick<HeadProps, "host" | "showStrip" | "lines" | "askingWords" | "badges" | "note" | "menu">;
+// ColumnHead is what App gives a column's head for its row and conversation: the strip, the asks, the note, the More
+// menu, under 760px the middle column's tiles, and the epic open in the panel beside the middle column. The column adds the fold, which it reads from its own reader.
+export type ColumnHead = Pick<
+  HeadProps,
+  "host" | "showStrip" | "lines" | "askingWords" | "badges" | "note" | "menu" | "work" | "here"
+>;
 
 // The section markup each column draws: the cursor's reader, and the pinned reader beside the list.
 const columnNames = {

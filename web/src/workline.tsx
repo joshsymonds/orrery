@@ -108,7 +108,7 @@ export function Pill({ model, now }: { model: PillModel; now: number }): JSX.Ele
 }
 
 // clock is elapsed time as m:ss, or h:mm:ss from an hour. It never reads negative.
-function clock(seconds: number): string {
+export function clock(seconds: number): string {
   const total = Math.max(seconds, 0);
   const hours = Math.floor(total / 3_600);
   const minutes = Math.floor((total % 3_600) / 60);

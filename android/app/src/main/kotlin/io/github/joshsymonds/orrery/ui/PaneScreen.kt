@@ -127,7 +127,8 @@ internal fun otherHostOf(paneHost: String, servingHost: String): String? =
  *
  * The head overlays the body, clipped to the body's bounds. It opens at the newest line, folds to its one line
  * while the reader is away from the newest line, and stays folded when the owner hides it until the owner taps
- * the folded line. While the software keyboard is up the head folds away entirely, and the draft field is capped
+ * the folded line. Open, it draws the rail strip of the epics the pane steers under the band (a tile of an epic calls
+ * [onOpenEpic] with its id). While the software keyboard is up the head folds away entirely, and the draft field is capped
  * at a third of the screen above the keyboard, so the conversation keeps the room between them. The quick keys
  * hide while the draft has text, so a reply in progress is one row above the keyboard.
  */
@@ -146,6 +147,8 @@ fun PaneScreen(
     var stats by remember(paneId) { mutableStateOf<List<HostStat>?>(null) }
     var headEpics by remember(paneId) { mutableStateOf(HeadEpics(emptyList(), emptyMap())) }
     var nowSeconds by remember(paneId) { mutableLongStateOf(0L) }
+    // Whether the strip under the band has tiles: then it, not the band, carries the control that hides the header.
+    var stripTiles by remember(paneId) { mutableStateOf(false) }
     var refreshFailed by remember(paneId) { mutableStateOf(false) }
     var seenAtOpen by remember(paneId) { mutableStateOf<Long?>(null) }
     // What the stream holds, kept across starts so the next start resumes from its transcript and seq.
@@ -353,7 +356,9 @@ fun PaneScreen(
                         exit = shrinkVertically(Move.LAYOUT.spec(animated = true)) + fadeOut(Move.LAYOUT.spec(animated = true)),
                         label = "head",
                     ) {
+                        Column {
                         Head(
+                            bandHides = !stripTiles,
                             dir = lastPathElement(shown.cwd),
                             host = shown.host.ifEmpty { servingHost },
                             title = shown.label.ifEmpty { shown.command },
@@ -375,6 +380,20 @@ fun PaneScreen(
                             },
                             modifier = Modifier.fillMaxWidth().background(OrreryTokens.Surface.page),
                         )
+                        if (fold == HeadFold.OPEN) {
+                            ConversationStrip(
+                                conversation = shown.orreryId,
+                                pane = true,
+                                background = emptyList(),
+                                now = nowSeconds,
+                                client = client,
+                                onOpenEpic = onOpenEpic,
+                                modifier = Modifier.background(OrreryTokens.Surface.page),
+                                onTiles = { stripTiles = it },
+                                end = { HideHeader { headHidden.value = true } },
+                            )
+                        }
+                        }
                     }
                 }
             }

@@ -38,9 +38,9 @@ export const storyRenames: Renames = {
   "helppanel.tsx": { KeyList: { module: "app.stories.tsx", story: "Page" } },
   "notices.tsx": { NoticeBanner: "Notice" },
   "picker.tsx": { NewPanel: { module: "app.stories.tsx", story: "Page" } },
+  "sidepanel.tsx": { SidePanel: "ListPanel" },
   "stepbox.tsx": { StepBox: "Dock" },
   "strip.tsx": { PaneStrip: "MeterStrip" },
-  "talkdock.tsx": { TalkDock: "Dock" },
 };
 
 // isComponent reports whether an export is a component: a function whose name starts with an uppercase letter.

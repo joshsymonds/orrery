@@ -7,9 +7,11 @@ import type { Conversation } from "./conversation";
 import type { Fold } from "./headfold";
 import type { Row } from "./rows";
 import { ContextMeter, contextFigure, PaneStrip, type StripHost } from "./strip";
-import { SubjectBand } from "./subjectband";
+import { foldHead, SubjectBand } from "./subjectband";
 import { lastPathElement } from "./titleparts";
 import { type InboxMark, TitleRow } from "./titlerow";
+import type { RailGroup, Thing } from "./work";
+import { WorkRail } from "./workrail";
 
 // HeadProps is what the conversation's Head draws: the row and its conversation, the strip's host and whether it shows,
 // the asks, the folded line's badges, the fold, and what each control does.
@@ -32,6 +34,18 @@ export interface HeadProps {
   onHide: () => void;
   onShow: () => void;
   menu: HeadMenu;
+  // here is the epic open in the panel beside the conversation, whose band line says so.
+  here?: string;
+  // work is the middle conversation's groups under 760px, drawn as tiles under the band: the groups, the key of the
+  // thing open, and what a tile opens. Absent, the head draws no tiles.
+  work?: HeadWork;
+}
+
+// HeadWork is what the strip of tiles under the band draws.
+export interface HeadWork {
+  groups: RailGroup[];
+  lit: string;
+  onOpen: (thing: Thing) => void;
 }
 
 // HeadMenu is what the More menu's items do.
@@ -72,6 +86,8 @@ export function Head({
   onHide,
   onShow,
   menu,
+  work,
+  here,
 }: HeadProps): JSX.Element {
   const [menuOpen, setMenuOpen] = useState(false);
   // choose runs a More menu item and closes the menu.
@@ -89,6 +105,8 @@ export function Head({
   ];
   const strip = showStrip && fold === "open" ? <PaneStrip host={host} context={conversation?.state?.context} /> : undefined;
   const dirName = lastPathElement(row.project);
+  // tiles is whether the band has the strip of tiles under it, which then carries the control that hides the header.
+  const tiles = work !== undefined && work.groups.length > 0;
   // The phone layout draws the context bare in the title row, beside More, open or folded, and leaves it out of the
   // strip.
   const context = conversation?.state?.context;
@@ -129,12 +147,24 @@ export function Head({
         )}
       </TitleRow>
       {fold === "open" ? (
-        <SubjectBand
-          goal={conversation?.state?.goal ?? ""}
-          lines={lines}
-          onOpen={onOpenEpic}
-          onHide={narrow ? onHide : undefined}
-        />
+        <>
+          <SubjectBand
+            goal={conversation?.state?.goal ?? ""}
+            lines={lines}
+            onOpen={onOpenEpic}
+            onHide={narrow && !tiles ? onHide : undefined}
+            here={here}
+          />
+          {work !== undefined && tiles && (
+            <WorkRail
+              groups={work.groups}
+              lit={work.lit}
+              layout="strip"
+              onOpen={work.onOpen}
+              end={narrow ? foldHead(onHide) : undefined}
+            />
+          )}
+        </>
       ) : (
         <CompactHead asking={askingWords} badges={badges} onOpen={onShow} />
       )}

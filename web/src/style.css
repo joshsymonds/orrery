@@ -74,9 +74,9 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
   position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--o-space-16); align-items: start;
   padding-left: max(var(--o-space-16), env(safe-area-inset-left, 0)); padding-right: max(var(--o-space-16), env(safe-area-inset-right, 0));
 }
-.list, .read, section.page { min-width: 0; }
+.list, .read, .rpanel { min-width: 0; }
 .read { display: flex; flex-direction: column; gap: var(--o-space-8); }
-.read[hidden], section.page[hidden] { display: none; }
+.read[hidden] { display: none; }
 /* The line the epic page shows when its epic's detail did not load. */
 .side-note { margin: 0; color: var(--o-ink-3); overflow-wrap: anywhere; }
 .reply { min-width: 0; }
@@ -114,37 +114,47 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
      mark, which sits just outside them. */
   body { background: var(--o-surface-page); height: 100vh; height: 100dvh; overflow: hidden; }
   #app { height: 100%; }
+  /* A page story is drawn inside the catalog's #story and its own wrapper, which take the window's height as #app does. */
+  #story, [data-page-story] { height: 100%; }
   .app { height: 100%; display: flex; flex-direction: column; }
+  /* The columns are the list, the conversation, the pinned reader with a pin, the epic panel with one open, and the rail at
+     the right. Each keeps its own track, so none moves as the others come and go. The panel takes 1.4 shares to the
+     conversation's 1, and the rail its own width. Every column sits in the one row. */
   .panes {
     flex: 1 1 auto; min-height: 0; align-items: stretch; grid-template-rows: minmax(0, 1fr); padding: 0; gap: 0;
-    grid-template-columns: var(--o-layout-inbox-width) minmax(0, 1fr) calc(var(--o-layout-inbox-width) + var(--o-space-32) + var(--o-space-8));
+    --inbox-track: var(--o-layout-inbox-width);
+    grid-template-columns: var(--inbox-track) minmax(0, 1fr) var(--o-layout-rail-width);
   }
-  /* Each column keeps its own track, and the epic page takes the reader's. Every column sits in the one row, so a column
-     placed in an earlier track than the one before it never opens a second row. */
-  .panes > .list, .panes > .read, .panes > section.page { grid-row: 1; }
+  .panes > .list, .panes > .read, .panes > .rpanel, .panes > .rail { grid-row: 1; }
   .panes > .list { grid-column: 1; }
   .panes > .read { grid-column: 2; }
-  /* With no pin the reader and the epic page take every track right of the list: no track is left empty. */
-  .panes:not(.split) > .read, .panes > section.page { grid-column: 2 / -1; }
-  .panes > .read.pinned { grid-column: 3; }
-  .panes.split { grid-template-columns: var(--o-layout-inbox-width) minmax(0, 1fr) minmax(0, 1fr); }
-  /* With a pin the epic page keeps the reader's track, and the pinned reader the third. */
-  .panes.split > section.page { grid-column: 2; }
-  /* The inbox hidden, or popped out over the page, takes no track: the reader and the epic page take the first track,
-     and a pin the second. The flyout lies over the page under the title row and above it, and is out of the grid. */
-  .panes[data-inbox="hidden"], .panes[data-inbox="flyout"] { grid-template-columns: minmax(0, 1fr); }
-  .panes[data-inbox="hidden"].split, .panes[data-inbox="flyout"].split {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  .panes > .read.pinned, .panes > .rpanel { grid-column: 3; }
+  .panes > .rail { grid-column: -2 / -1; }
+  .panes.split { grid-template-columns: var(--inbox-track) minmax(0, 1fr) minmax(0, 1fr) var(--o-layout-rail-width); }
+  .panes.split > .rpanel { grid-column: 4; }
+  .panes[data-side="panel"] { grid-template-columns: var(--inbox-track) minmax(0, 1fr) minmax(0, 1.4fr) var(--o-layout-rail-width); }
+  .panes.split[data-side="panel"] {
+    grid-template-columns: var(--inbox-track) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr) var(--o-layout-rail-width);
   }
+  /* At 1250px and under the list's track narrows to 316px, and the panel lies over the conversation from the right, beside
+     the rail, so it takes no track of its own. Its left edge sits one rail width past the list's track, so a rail width of
+     the conversation stays in the page beside it. */
+  .panes.overlay { --inbox-track: var(--o-layout-inbox-width-narrow); }
+  .panes.overlay[data-side="panel"] { grid-template-columns: var(--inbox-track) minmax(0, 1fr) var(--o-layout-rail-width); }
+  .panes.split.overlay[data-side="panel"] { grid-template-columns: var(--inbox-track) minmax(0, 1fr) minmax(0, 1fr) var(--o-layout-rail-width); }
+  .panes.overlay > .rpanel {
+    grid-column: 1 / -1; position: absolute; top: 0; bottom: 0; left: calc(var(--inbox-track) + var(--o-layout-rail-width)); right: var(--o-layout-rail-width);
+    z-index: var(--o-z-flyout); box-shadow: var(--o-elevation-side-end);
+  }
+  /* The inbox hidden, or popped out over the page, takes no track: the list's track is nothing wide, and the conversation
+     takes the room beside it. The flyout lies over the page under the title row and above it, and is out of the grid. */
+  .panes[data-inbox="hidden"], .panes[data-inbox="flyout"] { --inbox-track: calc(var(--o-space-4) * 0); }
   .panes[data-inbox="hidden"] > .list { display: none; }
-  .panes[data-inbox="hidden"] > .read, .panes[data-inbox="hidden"] > section.page,
-  .panes[data-inbox="flyout"] > .read, .panes[data-inbox="flyout"] > section.page { grid-column: 1; }
-  .panes[data-inbox="hidden"] > .read.pinned, .panes[data-inbox="flyout"] > .read.pinned { grid-column: 2; }
   .panes[data-inbox="flyout"] > .list {
     display: grid; position: absolute; top: calc(var(--o-space-48) + var(--o-space-4)); bottom: 0; left: 0; width: var(--o-layout-inbox-width); z-index: var(--o-z-flyout);
     box-shadow: var(--o-elevation-side);
   }
-  .list, .read, section.page { min-height: 0; }
+  .list, .read, .rpanel { min-height: 0; }
   .list {
     display: grid; grid-template-rows: auto minmax(0, 1fr); background: var(--o-surface-side);
     border-right: var(--o-size-hairline) solid var(--o-line-soft);
@@ -157,29 +167,12 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
   .read > .reader { min-height: 0; overflow-y: auto; padding: var(--o-space-16) var(--o-space-24) var(--o-space-8); }
   .head, .convo-head > .title-row { padding: var(--o-space-12) var(--o-space-24) var(--o-space-12); }
   .send { min-width: 0; padding: 0 var(--o-space-24) var(--o-space-12); }
-  section.page { overflow-y: auto; padding: var(--o-space-16) var(--o-space-24) var(--o-space-8); border-left: var(--o-size-hairline) solid var(--o-line-soft); }
-  /* A docked conversation takes a track beside the epic page, and the dock scrolls on its own. Narrower than this frame,
-     the dock stacks under the page. */
-  .page.docked { display: grid; grid-template-columns: minmax(0, 1fr) minmax(calc(var(--o-space-32) * 8 + var(--o-space-24)), calc(var(--o-layout-inbox-width) + var(--o-space-32) + var(--o-space-8))); grid-template-rows: minmax(0, 1fr); }
-  .dock { min-height: 0; overflow-y: auto; border-left: var(--o-size-hairline) solid var(--o-line-soft); }
+  .rcard > section.page { min-height: 0; flex: 1 1 auto; overflow-y: auto; padding: var(--o-space-16) var(--o-space-24) var(--o-space-8); }
 }
 
-@media (width > 1250px) and (max-width: 1500px) {
-  .panes { grid-template-columns: var(--o-layout-inbox-width) minmax(0, 1fr) var(--o-layout-inbox-width); }
-  .panes.split { grid-template-columns: var(--o-layout-inbox-width) minmax(0, 1fr) minmax(0, 1fr); }
-}
-
-/* At 1250px and under the inbox track narrows to 316px, and its flyout with it. */
+/* The flyout over the page is the narrow list at 1250px and under. */
 @media (min-width: 760px) and (max-width: 1250px) {
-  .panes { grid-template-columns: var(--o-layout-inbox-width-narrow) minmax(0, 1fr) var(--o-layout-inbox-width); }
-  .panes.split { grid-template-columns: var(--o-layout-inbox-width-narrow) minmax(0, 1fr) minmax(0, 1fr); }
   .panes[data-inbox="flyout"] > .list { width: var(--o-layout-inbox-width-narrow); }
-}
-
-/* From 760px to 1100px the inbox narrows to 316px, and the epic page takes the reader's track beside it. */
-@media (min-width: 760px) and (max-width: 1100px) {
-  .panes { grid-template-columns: var(--o-layout-inbox-width-narrow) minmax(0, 1fr); }
-  .panes.split { grid-template-columns: var(--o-layout-inbox-width-narrow) minmax(0, 1fr) minmax(0, 1fr); }
 }
 
 .rows { min-width: 0; }
@@ -1086,6 +1079,102 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 
 /* A control that carries .flash shows a focus ring for a moment after a use; flash.ts adds and removes the class. */
 .flash { outline: var(--o-size-hairline) solid var(--o-role-focus); outline-offset: var(--o-space-2); }
+
+/* The right rail: what a conversation steers, in named groups of tiles, each tile a thing's state at a glance. A tile is lit
+   while its panel is open, and its edge and its panel's top edge take the thing's tone; a shell left running is quiet,
+   grey, never live. */
+.rail.end { display: flex; flex: none; flex-direction: column; align-items: center; gap: 0; width: var(--o-layout-rail-width); min-height: 0; padding: var(--o-space-8) 0; border-left: var(--o-size-hairline) solid var(--o-line-soft); background: var(--o-surface-side); }
+.rgroup { position: relative; display: grid; justify-items: center; gap: var(--o-space-4); width: 100%; padding: var(--o-space-4) 0 var(--o-space-8); }
+.rgroup + .rgroup { padding-top: var(--o-space-8); border-top: var(--o-size-hairline) solid var(--o-line-soft); }
+.rlabel { max-width: 100%; overflow: hidden; color: var(--o-ink-3); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+.tile { position: relative; display: grid; place-items: center; flex: none; width: calc(var(--o-space-32) + var(--o-space-8)); height: calc(var(--o-space-32) + var(--o-space-8)); border-radius: var(--o-radius-2); background: var(--o-surface-well); color: var(--o-ink-2); font: var(--o-type-small); font-weight: var(--o-font-weight-bold); }
+.tile.cur { background: var(--o-surface-raised); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-role-focus); }
+.tile.attention { color: var(--o-role-attention); }
+.tile.live { color: var(--o-role-live); }
+.tile.quiet { color: var(--o-ink-3); }
+.tile .n { position: absolute; top: 0; right: 0; display: grid; place-items: center; min-width: var(--o-space-16); height: var(--o-space-16); padding: 0 var(--o-space-4); border-radius: var(--o-radius-round); background: var(--o-role-attention); color: var(--o-ink-on-accent); font: var(--o-type-label); }
+.tile .n.live { background: var(--o-role-live); }
+.tile .n.quiet { background: var(--o-surface-pressed); color: var(--o-ink-1); }
+.tile-w { position: relative; display: grid; justify-items: center; gap: var(--o-space-2); flex: none; width: calc(var(--o-layout-rail-width) - var(--o-space-8)); min-height: 0; padding: 0; border: 0; background: none; color: var(--o-ink-3); cursor: pointer; }
+.tile-w:hover .tile { background: var(--o-surface-raised); }
+.tile-w .cap { max-width: 100%; overflow: hidden; color: var(--o-ink-2); font: var(--o-type-label); text-overflow: ellipsis; white-space: nowrap; }
+.rail.end .tile-w.on::before { content: ""; position: absolute; top: var(--o-space-8); left: calc(var(--o-space-4) * -1); width: var(--o-size-rail); height: var(--o-space-24); border-radius: var(--o-radius-round); }
+.rail.end .tile-w.on.attention::before { background: var(--o-role-attention); }
+.rail.end .tile-w.on.live::before { background: var(--o-role-live); }
+.rail.end .tile-w.on.quiet::before { background: var(--o-ink-3); }
+.dotgrid { display: grid; grid-template-columns: repeat(3, var(--o-space-8)); gap: var(--o-space-4); }
+.dotgrid i { width: var(--o-space-8); height: var(--o-space-8); border-radius: var(--o-radius-round); background: var(--o-ink-4); }
+.dotgrid i.attention { background: var(--o-role-attention); }
+.dotgrid i.live { background: var(--o-role-live); }
+.gauge { width: var(--o-size-gauge); height: var(--o-size-gauge); flex: none; fill: none; stroke-width: var(--o-size-rail); color: var(--o-ink-3); }
+.gauge .planned { stroke: var(--o-line-firm); }
+/* The started arc is the gauge's colour as a tint's outline, never dimmed with opacity (SYSTEM.md: nothing is dimmed with
+   opacity; a tint is outlined at alpha.tintLine): an asking or live tile's role line, else the glyph line. */
+.gauge .started { stroke: var(--gauge-started, var(--o-line-glyph)); }
+.tile.attention .gauge { --gauge-started: var(--o-role-attention-line); }
+.tile.live .gauge { --gauge-started: var(--o-role-live-line); }
+.gauge .done { stroke: currentColor; }
+/* A tile's gauge takes the tile's tone, so an asking, live or quiet epic reads on its ring. */
+.tile .gauge { color: inherit; }
+/* A list tile's icon is drawn at the icon size, stroked in the tile's tone as round 6's icon is. */
+.tile > .icon { width: var(--o-size-icon); height: var(--o-size-icon); fill: none; stroke: currentColor; stroke-width: var(--o-size-hairline); stroke-linecap: round; stroke-linejoin: round; }
+.rpick { position: absolute; top: 0; right: calc(100% + var(--o-space-4)); z-index: var(--o-z-menu); display: grid; width: calc(var(--o-space-32) * 10); padding: var(--o-space-4); border-radius: var(--o-radius-2); background: var(--o-surface-overlay); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm), var(--o-elevation-overlay); }
+.menu-head { padding: var(--o-space-4) var(--o-space-12); color: var(--o-ink-3); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+.rpick-row { display: grid; grid-template-columns: var(--o-size-gauge) minmax(0, 1fr); align-items: center; gap: 0 var(--o-space-12); width: 100%; min-height: 0; padding: var(--o-space-8); border: 0; border-radius: var(--o-radius-2); background: none; text-align: left; cursor: pointer; }
+.rpick-row:hover { background: var(--o-surface-raised); }
+.rpick-row > .gauge { grid-column: 1; grid-row: 1 / span 2; }
+.rpick-row .t { grid-column: 2; color: var(--o-ink-1); font: var(--o-type-small); font-weight: var(--o-font-weight-bold); }
+.rpick-row .s { grid-column: 2; color: var(--o-ink-3); font: var(--o-type-small); }
+.tilestrip { display: flex; align-items: flex-start; gap: var(--o-space-16); flex: none; overflow-x: auto; padding: var(--o-space-8) var(--o-layout-page-pad-phone); border-bottom: var(--o-size-hairline) solid var(--o-line-soft); background: var(--o-surface-side); }
+.tilestrip .rgroup { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--o-space-4) var(--o-space-8); width: auto; padding: 0; }
+.tilestrip .rgroup + .rgroup { padding: 0; border: 0; }
+.tilestrip .rlabel { flex-basis: 100%; }
+/* Under 760px an open epic is the page in the conversation's place, and its foot bar opens the steering conversation. */
+.epic-read { display: flex; flex-direction: column; gap: var(--o-space-8); min-width: 0; }
+.epic-foot { display: flex; justify-content: center; padding-block: var(--o-space-8) var(--o-space-4); border-top: var(--o-size-hairline) solid var(--o-line-soft); }
+.epic-foot .side-note { text-align: center; }
+/* A sheet covers the window, so it lies over the page wherever the page is scrolled. */
+.sheet-scrim { position: fixed; inset: 0; z-index: var(--o-z-panel); display: flex; align-items: flex-end; background: var(--o-scrim); }
+.sheet { display: grid; gap: var(--o-space-8); width: 100%; max-height: 90%; overflow-y: auto; padding: var(--o-space-8) var(--o-space-8) var(--o-space-16); border-radius: var(--o-radius-3) var(--o-radius-3) 0 0; background: var(--o-surface-overlay); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm); }
+.sheet::before { content: ""; justify-self: center; width: var(--o-space-32); height: var(--o-space-4); border-radius: var(--o-radius-round); background: var(--o-line-firm); }
+.sheet .sheet-head { padding: var(--o-space-4) var(--o-space-12); color: var(--o-ink-2); font: var(--o-type-small); }
+.sheet .sheet-head b { display: block; color: var(--o-ink-1); font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
+.sheet .rpick { position: static; width: auto; padding: 0; background: none; box-shadow: none; }
+.rpanel { display: flex; flex-direction: column; min-height: 0; padding-top: var(--o-space-8); background: var(--o-surface-side); }
+.rcard { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; margin: 0 var(--o-space-8) var(--o-space-8); overflow-y: auto; border: var(--o-size-hairline) solid var(--o-line-firm); border-radius: var(--o-radius-3); background: var(--o-surface-page); }
+.rcard.attention { border-top: var(--o-size-rail) solid var(--o-role-attention); }
+.rcard.live { border-top: var(--o-size-rail) solid var(--o-role-live); }
+.rcard.quiet { border-top: var(--o-size-rail) solid var(--o-ink-3); }
+/* Open in a new window and Close sit at the right end of the card's title row, as round 6's record title draws them. */
+.rcard { position: relative; }
+.panel-ctl { position: absolute; top: var(--o-space-8); right: var(--o-space-8); z-index: var(--o-z-sticky); display: flex; gap: var(--o-space-4); }
+.rcard .title-row, .rcard .plist > h2 { padding-right: calc(var(--o-space-24) * 2 + var(--o-space-12)); }
+.rcard .plist > h2 { padding-bottom: var(--o-space-8); border-bottom: var(--o-size-hairline) solid var(--o-line-soft); }
+.panel-ctl a, .panel-ctl button { display: grid; place-items: center; width: var(--o-space-24); height: var(--o-space-24); min-height: var(--o-space-24); padding: 0; border: 0; border-radius: var(--o-radius-2); background: none; color: var(--o-ink-3); font: var(--o-type-small); text-decoration: none; }
+.panel-ctl a:hover, .panel-ctl button:hover { background: var(--o-surface-well); color: var(--o-ink-1); }
+.plist { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--o-space-4); padding: var(--o-space-8) var(--o-space-16) var(--o-space-16); }
+.plist h2 { margin: 0; color: var(--o-ink-1); font: var(--o-type-title); }
+.inote { display: flex; align-items: center; gap: var(--o-space-8); margin: 0; color: var(--o-ink-3); font: var(--o-type-small); }
+.plist > .inote { margin-bottom: var(--o-space-8); }
+.plist ul { display: grid; gap: var(--o-space-4); margin: 0; padding: 0; list-style: none; }
+.plist li.row { --rail: var(--o-line-firm); position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--o-space-8); align-items: baseline; min-width: 0; padding: var(--o-space-8) var(--o-space-12); border-left: var(--o-size-rail) solid var(--rail); border-radius: 0 var(--o-radius-2) var(--o-radius-2) 0; background: var(--o-surface-well); }
+.plist li.row.live { --rail: var(--o-role-live); }
+.plist li.row.quiet { --rail: var(--o-ink-3); }
+.plist li.row .title { min-width: 0; overflow: hidden; color: var(--o-ink-1); font: var(--o-type-body); text-overflow: ellipsis; white-space: nowrap; }
+.plist li.row .age { color: var(--o-ink-3); font: var(--o-type-small); white-space: nowrap; }
+.plist li.row .l2 { grid-column: 1 / -1; min-width: 0; overflow: hidden; color: var(--o-ink-3); font: var(--o-type-small); text-overflow: ellipsis; white-space: nowrap; }
+.plist li.row .name { color: var(--o-role-ref); }
+.plist li.row.quiet .title, .plist li.row.quiet .name { color: var(--o-ink-3); }
+.subj { display: flex; align-items: center; gap: var(--o-space-8); width: 100%; min-width: 0; min-height: var(--o-size-control-desk); margin: 0; padding: var(--o-space-4) var(--o-space-16); border: 0; border-left: var(--o-size-rail) solid var(--subj); background: none; color: var(--o-ink-2); font: var(--o-type-small); text-align: left; }
+.subj + .subj { border-top: var(--o-size-hairline) solid var(--o-line-soft); }
+.subj.attention { --subj: var(--o-role-attention); }
+.subj .what { flex: none; color: var(--o-ink-1); }
+.subj .st { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--subj); text-overflow: ellipsis; white-space: nowrap; }
+.subj .end { display: inline-flex; align-items: center; gap: var(--o-space-4); flex: none; color: var(--o-role-ref); }
+button.subj { cursor: pointer; }
+button.subj:hover { background: var(--o-surface-raised); }
+.subj.here { background: var(--o-surface-raised); }
+.subj.here .end { color: var(--o-ink-3); }
 
 /* Reduced motion comes last, so it wins over the rules above: each move is one 100 ms linear step, a page drills and
    leaves by a fade, and the loops hold still. */

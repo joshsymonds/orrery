@@ -81,7 +81,8 @@ data class StepMode(val held: Boolean)
  * folded into what the screen holds, and a failed stream reconnects after the seq it holds, so the
  * conversation resumes where it stopped. A stream that ends without error reconnects the same way.
  *
- * The screen shows the session's head, its conversation with each unfinished main-thread text block
+ * The screen shows the session's head, under it while it is open the rail strip of the epics the session steers and
+ * its running tasks (a tile of an epic calls [onOpenEpic] with its id), its conversation with each unfinished main-thread text block
  * as a reply after the items, and the open request as a card after the last item. The head's epics and
  * host are read while the screen is started, and the head folds as the pane screen's does. Interrupt and Stop
  * sit above the compose box while the session is working or waiting. Once an Interrupt is taken, the
@@ -104,6 +105,8 @@ fun SessionScreen(
     var refreshFailed by remember(sessionId) { mutableStateOf(false) }
     var seenAtOpen by remember(sessionId) { mutableStateOf<Long?>(null) }
     var interruptTaken by remember(sessionId) { mutableStateOf(false) }
+    // Whether the strip under the band has tiles: then it, not the band, carries the control that hides the header.
+    var stripTiles by remember(sessionId) { mutableStateOf(false) }
     var headEpics by remember(sessionId) { mutableStateOf(HeadEpics(emptyList(), emptyMap())) }
     var servingHost by remember(sessionId) { mutableStateOf("") }
     var stats by remember(sessionId) { mutableStateOf<List<HostStat>?>(null) }
@@ -208,6 +211,7 @@ fun SessionScreen(
         }
         pane?.let { shown ->
             Head(
+                bandHides = !stripTiles,
                 dir = lastPathElement(shown.cwd),
                 host = shown.host.ifEmpty { servingHost },
                 title = shown.label.ifEmpty { shown.command },
@@ -229,6 +233,18 @@ fun SessionScreen(
                 },
                 modifier = Modifier.fillMaxWidth().background(OrreryTokens.Surface.page),
             )
+            if (fold == HeadFold.OPEN) {
+                ConversationStrip(
+                    conversation = sessionId,
+                    pane = false,
+                    background = conversation?.background.orEmpty(),
+                    now = nowSeconds,
+                    client = client,
+                    onOpenEpic = onOpenEpic,
+                    onTiles = { stripTiles = it },
+                    end = { HideHeader { headHidden.value = true } },
+                )
+            }
         }
         Box(modifier = Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
             if (held != null) {

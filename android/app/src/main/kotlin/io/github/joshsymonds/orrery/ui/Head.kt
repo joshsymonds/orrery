@@ -16,6 +16,7 @@ import io.github.joshsymonds.orrery.api.HostStat
 /**
  * The conversation's header on a phone. The title row always draws. When the header is open it adds the host's meters
  * and the band; when folded (reading or hidden) it adds the compact line, with the words that ask the reader.
+ * [bandHides] false leaves the hide control off the band, for the strip of tiles under it carries it.
  */
 @Composable
 fun Head(
@@ -36,6 +37,7 @@ fun Head(
     onHide: () -> Unit,
     onShow: () -> Unit,
     modifier: Modifier = Modifier,
+    bandHides: Boolean = true,
 ) {
     var moreOpen by remember { mutableStateOf(false) }
     Column(
@@ -57,7 +59,7 @@ fun Head(
         )
         if (fold == HeadFold.OPEN) {
             HeadMeters(stats = stats, otherHost = otherHost)
-            Band(goal = goal, lines = lines, onOpen = onOpenEpic, onHide = onHide)
+            Band(goal = goal, lines = lines, onOpen = onOpenEpic, onHide = onHide.takeIf { bandHides })
         } else {
             CompactHead(asking = asking, badges = badges, onOpen = onShow)
         }

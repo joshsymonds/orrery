@@ -75,12 +75,8 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   // WorkCard draws an epic's card on a project's page when the epic has released, and when the fixtures hold no detail for it.
   "work-card/released": { replacement: "WorkCard", epic: "F2" },
   "work-card/unavailable": { replacement: "WorkCard", epic: "F2" },
-  // Dock draws the composer over a queue whose message was cancelled while the session worked, the talk dock following a pane,
-  // and the talk dock following a worker session, and one loading.
+  // Dock draws the composer over a queue whose message was cancelled while the session worked.
   "dock/canceled-queued": { replacement: "Dock", epic: "F3" },
-  "dock/pane": { replacement: "Dock", epic: "F3" },
-  "dock/session-worker": { replacement: "Dock", epic: "F3" },
-  "dock/session-loading": { replacement: "Dock", epic: "F3" },
   // EpicRow draws an epic's line: the cursor on it, its ⋯ menu shut, and an epic with no detail, so no orrery.
   "epic-row/current": { replacement: "EpicRow", epic: "F2" },
   "epic-row/with-menu": { replacement: "EpicRow", epic: "F2" },
