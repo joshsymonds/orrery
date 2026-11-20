@@ -1,0 +1,249 @@
+syntax = "proto3";
+
+package orrery.engine.v1;
+
+import "orrery/engine/v1/epic.proto";
+
+// Contracts keeps contracts in orreryd. A contract is a record of versions and state changes that only append; its id
+// is its body's id, the id the epic made from it takes. orreryd serves it on the same private socket as Epics.
+service Contracts {
+  // ProposeContract stores a new contract as its first version, in the proposed state, and returns it.
+  rpc ProposeContract(ProposeContractRequest) returns (ProposeContractResponse);
+
+  // ReviseContract appends a new version to a stored contract and returns it.
+  rpc ReviseContract(ReviseContractRequest) returns (ReviseContractResponse);
+
+  // AcceptContract moves a stored contract to the accepted state and returns it.
+  rpc AcceptContract(AcceptContractRequest) returns (AcceptContractResponse);
+
+  // SetAsideContract moves a stored contract to the set_aside state and returns it.
+  rpc SetAsideContract(SetAsideContractRequest) returns (SetAsideContractResponse);
+
+  // ReopenContract moves a stored contract back to the proposed state and returns it.
+  rpc ReopenContract(ReopenContractRequest) returns (ReopenContractResponse);
+
+  // GetContract returns one stored contract by its id, with its versions and state changes.
+  rpc GetContract(GetContractRequest) returns (GetContractResponse);
+
+  // ListContracts returns a summary of every stored contract.
+  rpc ListContracts(ListContractsRequest) returns (ListContractsResponse);
+}
+
+// ContractDecision is a decision a contract version carries, with its answer once the owner gives one.
+message ContractDecision {
+  // The decision's id, a D followed by its number.
+  string id = 1;
+
+  // The question the decision asks.
+  string question = 2;
+
+  // The options the owner may choose between.
+  repeated string options = 3;
+
+  // The option the planner recommends.
+  string recommendation = 4;
+
+  // Why the planner asks the question.
+  string reason = 5;
+
+  // The F, R or P row the decision concerns; empty when it concerns none.
+  string row = 6;
+
+  // The owner's answer; empty while the decision is open.
+  string answer = 7;
+}
+
+// ContractVersion is one stored version of a contract, with the body and decisions it had when it was written.
+message ContractVersion {
+  // The version's number, counted from 1.
+  int64 version = 1;
+
+  // The contract body of this version.
+  EpicContract contract = 2;
+
+  // The decisions of this version.
+  repeated ContractDecision decisions = 3;
+
+  // The words the writer gave with this version.
+  string words = 4;
+
+  // The sessions row id of the writer of this version.
+  string writer = 5;
+
+  // When this version was written, in unix seconds.
+  int64 time = 6;
+
+  // The F, R, P and decision ids that differ from the version before; empty for version 1.
+  repeated string changed_rows = 7;
+
+  // The section names that differ from the version before; empty for version 1.
+  repeated string changed_sections = 8;
+}
+
+// ContractStateChange is one change of a contract's state, recorded when the state moved.
+message ContractStateChange {
+  // The state the contract moved to: proposed, accepted or set_aside.
+  string state = 1;
+
+  // The current version when the change was made.
+  int64 version = 2;
+
+  // Who made the change: owner or session.
+  string by = 3;
+
+  // The sessions row id when by is session; empty for the owner.
+  string session = 4;
+
+  // The words the change was made with.
+  string words = 5;
+
+  // When the change was made, in unix seconds.
+  int64 time = 6;
+}
+
+// StoredContract is a contract as orreryd keeps it, with its current state and, when read in full, its history.
+message StoredContract {
+  // The contract's id, the id of its body.
+  string id = 1;
+
+  // The absolute path of the git repository the current version belongs to.
+  string repository = 2;
+
+  // The current version's title.
+  string title = 3;
+
+  // The current version's level of care.
+  string care = 4;
+
+  // The contract's state: proposed, accepted or set_aside.
+  string state = 5;
+
+  // The number of the newest version.
+  int64 version = 6;
+
+  // The number of decisions of the current version that have no answer.
+  int64 open_decisions = 7;
+
+  // The writer of the first version, the conversation the contract came from.
+  string conversation = 8;
+
+  // When version 1 was stored, in unix seconds.
+  int64 created = 9;
+
+  // When the newest version or state change was made, in unix seconds.
+  int64 changed = 10;
+
+  // Every version, oldest first; empty in a listing.
+  repeated ContractVersion versions = 11;
+
+  // Every state change, oldest first; empty in a listing.
+  repeated ContractStateChange states = 12;
+}
+
+// ProposeContractRequest asks for a new contract with its first version.
+message ProposeContractRequest {
+  // The id the new contract takes.
+  string id = 1;
+
+  // The contract body of the first version.
+  EpicContract contract = 2;
+
+  // The decisions of the first version.
+  repeated ContractDecision decisions = 3;
+
+  // The words the writer gives with the version.
+  string words = 4;
+}
+
+// ProposeContractResponse carries the contract stored by ProposeContract.
+message ProposeContractResponse {
+  // The stored contract.
+  StoredContract contract = 1;
+}
+
+// ReviseContractRequest asks for a new version of a stored contract.
+message ReviseContractRequest {
+  // The id of the contract to revise.
+  string id = 1;
+
+  // The contract body of the new version.
+  EpicContract contract = 2;
+
+  // The decisions of the new version.
+  repeated ContractDecision decisions = 3;
+
+  // The words the writer gives with the version.
+  string words = 4;
+}
+
+// ReviseContractResponse carries the contract stored by ReviseContract.
+message ReviseContractResponse {
+  // The stored contract.
+  StoredContract contract = 1;
+}
+
+// AcceptContractRequest asks for a stored contract to be accepted.
+message AcceptContractRequest {
+  // The id of the contract to accept.
+  string id = 1;
+
+  // The words the owner accepts the contract with.
+  string words = 2;
+}
+
+// AcceptContractResponse carries the contract stored by AcceptContract.
+message AcceptContractResponse {
+  // The stored contract.
+  StoredContract contract = 1;
+}
+
+// SetAsideContractRequest asks for a stored contract to be set aside.
+message SetAsideContractRequest {
+  // The id of the contract to set aside.
+  string id = 1;
+
+  // The words the contract is set aside with.
+  string words = 2;
+}
+
+// SetAsideContractResponse carries the contract stored by SetAsideContract.
+message SetAsideContractResponse {
+  // The stored contract.
+  StoredContract contract = 1;
+}
+
+// ReopenContractRequest asks for a stored contract to be reopened.
+message ReopenContractRequest {
+  // The id of the contract to reopen.
+  string id = 1;
+
+  // The words the contract is reopened with.
+  string words = 2;
+}
+
+// ReopenContractResponse carries the contract stored by ReopenContract.
+message ReopenContractResponse {
+  // The stored contract.
+  StoredContract contract = 1;
+}
+
+// GetContractRequest asks for one stored contract.
+message GetContractRequest {
+  // The id of the contract to read.
+  string id = 1;
+}
+
+// GetContractResponse carries the stored contract with its versions and state changes.
+message GetContractResponse {
+  // The stored contract, with its versions and state changes.
+  StoredContract contract = 1;
+}
+
+// ListContractsRequest asks for every stored contract. It has no fields.
+message ListContractsRequest {}
+
+// ListContractsResponse carries the summary of every stored contract.
+message ListContractsResponse {
+  // The stored contracts, created ascending and then by id; they carry no versions or state changes.
+  repeated StoredContract contracts = 1;
+}
