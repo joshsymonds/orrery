@@ -3,15 +3,8 @@ import { test } from "node:test";
 
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 
-import {
-  EpicRequirementSchema,
-  EpicStepSchema,
-  EpicsGetResponseSchema,
-  type EpicRequirement,
-  type EpicStep,
-  type EpicsGetResponse,
-} from "./gen/orrery/v1/epics_pb";
-import { durationText, requirementArcs, wedgesOf, type Place, type Wedge } from "./phases";
+import { EpicStepSchema, EpicsGetResponseSchema, type EpicStep, type EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
+import { durationText, wedgesOf, type Place, type Wedge } from "./phases";
 
 type StepInit = MessageInitShape<typeof EpicStepSchema>;
 
@@ -244,69 +237,6 @@ test("a task's steps are those labelled with its id", () => {
   const wedge = wedgeOf(planOf("open", "", [step({ task: "T2" })]));
   assert.equal(wedge.place, "planned");
   assert.equal(wedge.tone, "plan");
-});
-
-// Wedges for build tasks T1, T2 and so on, each naming the given requirements at the given status.
-function wedgesNaming(tasks: { requirements: string[]; status?: string }[]): Wedge[] {
-  return wedgesOf(
-    create(EpicsGetResponseSchema, {
-      buildTasks: tasks.map((task, index) => ({
-        id: `T${index + 1}`,
-        title: `Task ${index + 1}`,
-        status: task.status ?? "open",
-        requirements: task.requirements,
-      })),
-    }),
-  );
-}
-
-test("a wedge's requirements split its span, and a part continues the previous arc of its requirement", () => {
-  const arcs = requirementArcs(wedgesNaming([{ requirements: ["R1", "R2"] }, { requirements: ["R2"] }, { requirements: ["R3"] }]), []);
-  assert.equal(arcs.length, 3);
-  assert.equal(arcs[0].id, "R1");
-  assert.equal(arcs[0].start, 0);
-  assert.equal(arcs[0].end, 0.5);
-  assert.equal(arcs[1].id, "R2");
-  assert.equal(arcs[1].start, 0.5);
-  assert.equal(arcs[1].end, 2);
-  assert.equal(arcs[2].id, "R3");
-  assert.equal(arcs[2].start, 2);
-  assert.equal(arcs[2].end, 3);
-});
-
-test("an arc does not continue across a wedge with no requirement", () => {
-  const arcs = requirementArcs(wedgesNaming([{ requirements: ["R1"] }, { requirements: [] }, { requirements: ["R1"] }]), []);
-  assert.equal(arcs.length, 2);
-  assert.equal(arcs[0].start, 0);
-  assert.equal(arcs[0].end, 1);
-  assert.equal(arcs[1].start, 2);
-  assert.equal(arcs[1].end, 3);
-});
-
-test("an arc is proven when its requirement has a green run that passed", () => {
-  const requirements: EpicRequirement[] = [
-    create(EpicRequirementSchema, { id: "R1", runs: [{ phase: "red", passed: true }, { phase: "green", passed: true }] }),
-    create(EpicRequirementSchema, { id: "R2", runs: [{ phase: "red", passed: true }, { phase: "green", passed: false }] }),
-    create(EpicRequirementSchema, { id: "R3", runs: [{ phase: "red", passed: true }] }),
-  ];
-  const arcs = requirementArcs(wedgesNaming([{ requirements: ["R1"] }, { requirements: ["R2"] }, { requirements: ["R3"] }]), requirements);
-  assert.equal(arcs.map((arc) => `${arc.id}:${arc.proven}`).join(" "), "R1:true R2:false R3:false");
-});
-
-test("an arc with no matching requirement is proven when every wedge naming it is integrated", () => {
-  const allIntegrated = requirementArcs(
-    wedgesNaming([
-      { requirements: ["R9"], status: "done" },
-      { requirements: ["R9"], status: "done" },
-    ]),
-    [],
-  );
-  assert.equal(allIntegrated.length, 1);
-  assert.equal(allIntegrated[0].proven, true);
-
-  const oneOpen = requirementArcs(wedgesNaming([{ requirements: ["R9"], status: "done" }, { requirements: ["R9"] }]), []);
-  assert.equal(oneOpen.length, 1);
-  assert.equal(oneOpen[0].proven, false);
 });
 
 test("durationText gives seconds under a minute, minutes under an hour, and hours with the minutes left over", () => {

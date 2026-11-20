@@ -24,13 +24,6 @@ export interface Wedge {
   slices: PhaseSlice[];
 }
 
-export interface RequirementArc {
-  id: string;
-  start: number;
-  end: number;
-  proven: boolean;
-}
-
 // A task as a wedge reads it: a planned build task, or a record task, which has no stage.
 export interface Task {
   task: string;
@@ -213,26 +206,6 @@ export function provenOf(id: string, wedges: Wedge[], requirements: EpicRequirem
     return requirement.runs.some((run) => run.phase === "green" && run.passed);
   }
   return wedges.filter((wedge) => wedge.requirements.includes(id)).every((wedge) => wedge.place === "integrated");
-}
-
-// The arcs of the requirements around the wedges. Wedge i with k requirements gives part j the span from i + j/k to
-// i + (j+1)/k; a part continues the previous arc when it names the same requirement and starts where that arc ends.
-export function requirementArcs(wedges: Wedge[], requirements: EpicRequirement[]): RequirementArc[] {
-  const arcs: RequirementArc[] = [];
-  wedges.forEach((wedge, index) => {
-    const count = wedge.requirements.length;
-    wedge.requirements.forEach((id, part) => {
-      const start = index + part / count;
-      const end = index + (part + 1) / count;
-      const previous = arcs.at(-1);
-      if (previous !== undefined && previous.id === id && previous.end === start) {
-        previous.end = end;
-      } else {
-        arcs.push({ id, start, end, proven: provenOf(id, wedges, requirements) });
-      }
-    });
-  });
-  return arcs;
 }
 
 // A duration as text: seconds under a minute, whole minutes under an hour, then hours with any minutes left over.
