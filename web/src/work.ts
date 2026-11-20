@@ -1,3 +1,4 @@
+import type { Contract } from "./gen/orrery/v1/contracts_pb";
 import type { Epic } from "./gen/orrery/v1/epics_pb";
 import type { BackgroundTask } from "./gen/orrery/v1/orrery_pb";
 import { type EpicItem, type EpicsView, endedWords, epicLine, repositoryName } from "./epics";
@@ -21,6 +22,17 @@ export interface EpicThing {
   tone: ThingTone;
   state: string;
   gauge: Gauge;
+}
+
+export interface ContractThing {
+  kind: "contract";
+  key: string;
+  id: string;
+  slug: string;
+  short: string;
+  asks: boolean;
+  tone: ThingTone;
+  title: string;
 }
 
 export interface ListThing {
@@ -81,6 +93,29 @@ export function shortName(slug: string, repository: string): string {
   const prefix = `${repositoryName(repository)}-`;
   const rest = slug.startsWith(prefix) ? slug.slice(prefix.length) : slug;
   return rest.split("-")[0];
+}
+
+// contractThingsOf gives the contracts the session proposed, in List's order: the proposed ones whose conversation is the
+// session. A session that is empty has none. A contract asks while a decision is open.
+export function contractThingsOf(session: string, contracts: readonly Contract[]): ContractThing[] {
+  if (session === "") {
+    return [];
+  }
+  return contracts
+    .filter((contract) => contract.state === "proposed" && contract.conversation === session)
+    .map((contract) => {
+      const slug = contract.id.slice(contract.id.lastIndexOf("/") + 1);
+      return {
+        kind: "contract",
+        key: `contract:${contract.id}`,
+        id: contract.id,
+        slug,
+        short: shortName(slug, contract.repository),
+        asks: contract.openDecisions > 0n,
+        tone: "attention",
+        title: `${slug}: a contract waits for you`,
+      };
+    });
 }
 
 // The epics the session steers, in the rail's order: the blocks, then the waiting epics, then the just ended ones.
