@@ -37,7 +37,8 @@ const steeringUnavailableMessage = "steering sessions unavailable"
 
 // EpicCommands is the set of epic operations the Epics service answers with. The store satisfies it.
 type EpicCommands interface {
-	CreateEpic(ctx context.Context, row store.EpicRow) error
+	CreateContractEpic(ctx context.Context, row store.EpicRow, version int64) error
+	Contract(ctx context.Context, id string) (store.ContractRecord, error)
 	Epic(ctx context.Context, id string) (store.EpicRow, error)
 	EpicFlow(ctx context.Context, id string) (store.EpicFlow, error)
 	EpicHistory(ctx context.Context, id string) (store.EpicHistory, error)
@@ -47,6 +48,7 @@ type EpicCommands interface {
 	Epics(ctx context.Context) ([]store.EpicRow, error)
 	EpicListings(ctx context.Context) ([]store.EpicRow, error)
 	CallerMaker(ctx context.Context, caller store.EpicCaller) (store.Maker, error)
+	CallerSession(ctx context.Context, caller store.EpicCaller) (string, bool, error)
 	AnswerEpic(
 		ctx context.Context, epic, id, text string, maker store.Maker, at time.Time,
 	) (store.EpicDecision, error)
@@ -146,16 +148,18 @@ func (s *epicService) controlMaker(ctx context.Context, epic string, header http
 	))
 }
 
-// CreateEpic checks the contract with checkEpic, collects the lint's warnings, merges its reviewers, resolves its base to
-// the full commit the base names, pins the workflow the request names at that commit, then stores it accepted, with its
-// seed decisions, and returns the stored epic read back with the warnings. Its review list is the enabled task-stage
-// reviewers, in merged order. A reviewer no layer can hold, or a workflow that does not load at the base, is refused,
-// and nothing is stored.
+// CreateEpic makes the epic of the accepted contract the request names by its id. The epic takes that id, and the body
+// of the contract's accepted version with the request's base in place of the body's. It checks that contract with
+// checkEpic, collects the lint's warnings, merges its reviewers, resolves its base to the full commit the base names,
+// pins the workflow the request names at that commit, then stores it accepted, with its seed decisions, and returns the
+// stored epic read back with the warnings. Its review list is the enabled task-stage reviewers, in merged order. A
+// contract no one holds, one that is not accepted, a reviewer no layer can hold, and a workflow that does not load at
+// the base are refused, and nothing is stored.
 //
-// The seed decisions are made by the caller. The steerer of the epic is the caller's session when the caller is a
-// conversation. Otherwise the id of an epic already stored is refused first, and then one steering session is started
-// for the epic. A start that is refused, or a store that fails after the start, refuses the create, and the started
-// session is stopped.
+// The seed decisions are made by the caller. The steerer of the epic is the contract's conversation, the writer of its
+// first version, whichever caller makes the create, when that conversation's sessions row is stored. Otherwise the id
+// of an epic already stored is refused first, and then one steering session is started for the epic. A start that is
+// refused, or a store that fails after the start, refuses the create, and the started session is stopped.
 func (s *epicService) CreateEpic(
 	ctx context.Context,
 	req *connect.Request[v1.CreateEpicRequest],
@@ -167,10 +171,13 @@ func (s *epicService) CreateEpic(
 	if getenv == nil {
 		getenv = os.Getenv
 	}
-	if err := checkEpic(ctx, req.Msg, getenv); err != nil {
+	contract, conversation, version, err := s.acceptedContract(ctx, req.Msg.GetId(), req.Msg.GetBase())
+	if err != nil {
+		return nil, err
+	}
+	if err = checkEpic(ctx, contract, req.Msg.GetDecisions(), getenv); err != nil {
 		return nil, refuseEpic(connect.CodeInvalidArgument, err.Error())
 	}
-	contract := req.Msg.GetContract()
 	warnings, err := contractLintWarnings(ctx, contract)
 	if err != nil {
 		return nil, refuseEpic(connect.CodeInvalidArgument, err.Error())
@@ -191,18 +198,18 @@ func (s *epicService) CreateEpic(
 	if err != nil {
 		return nil, err
 	}
-	row := epicRowOf(req.Msg, base, workflow, time.Now())
+	row := epicRowOf(contract, req.Msg.GetDecisions(), base, workflow, time.Now())
 	row.Reviewers = merged
 	row.ReviewGates = taskReviewNames(merged)
 	for i := range row.Decisions {
 		row.Decisions[i].Maker = maker
 	}
-	steerer, started, err := s.steererOf(ctx, row, maker)
+	steerer, started, err := s.steererOf(ctx, row, conversation)
 	if err != nil {
 		return nil, err
 	}
 	row.Steerer = steerer
-	if err = s.epics.CreateEpic(ctx, row); err != nil {
+	if err = s.epics.CreateContractEpic(ctx, row, version); err != nil {
 		return nil, s.refuseCreate(ctx, row.ID, started, err)
 	}
 	message, err := s.storedEpic(ctx, row.ID)
@@ -210,6 +217,41 @@ func (s *epicService) CreateEpic(
 		return nil, epicStoreError(err)
 	}
 	return connect.NewResponse(&v1.CreateEpicResponse{Epic: message, Warnings: warnings}), nil
+}
+
+// acceptedContract returns the body of the accepted version of the contract id, with its base set to base, the
+// contract's conversation, the writer of its version 1, and the accepted version's number. An id no contract holds is
+// refused as not found, and a contract whose newest state is not accepted is refused as a failed precondition that
+// names the state.
+func (s *epicService) acceptedContract(ctx context.Context, id, base string) (*v1.EpicContract, string, int64, error) {
+	record, err := s.epics.Contract(ctx, id)
+	switch {
+	case errors.Is(err, store.ErrNoContract):
+		return nil, "", 0, contractNotFound(id)
+	case err != nil:
+		return nil, "", 0, epicStoreError(err)
+	case record.State != store.ContractAccepted:
+		return nil, "", 0, refuseEpic(
+			connect.CodeFailedPrecondition,
+			fmt.Sprintf("state: %s, not accepted", record.State),
+		)
+	}
+	newest := record.States[len(record.States)-1]
+	for _, version := range record.Versions {
+		if version.Version != newest.Version {
+			continue
+		}
+		message, convertErr := contractVersionMessage(version)
+		if convertErr != nil {
+			return nil, "", 0, epicStoreError(
+				fmt.Errorf("read version %d of contract %s: %w", version.Version, id, convertErr),
+			)
+		}
+		contract := message.GetContract()
+		contract.Base = base
+		return contract, record.Conversation, version.Version, nil
+	}
+	return nil, "", 0, epicStoreError(fmt.Errorf("contract %s has no version %d", id, newest.Version))
 }
 
 // storedRefusal returns the refusal of a create whose id, id, is already stored.
@@ -230,15 +272,20 @@ func (s *epicService) refuseStored(ctx context.Context, id string) error {
 	}
 }
 
-// steererOf returns the steerer that a create of row by maker stores, and the id of the steering session the create
-// started, which is "" when it started none. An id already stored is refused first. A conversation maker is the
-// steerer, and otherwise one steering session is started for row.
-func (s *epicService) steererOf(ctx context.Context, row store.EpicRow, maker store.Maker) (string, string, error) {
+// steererOf returns the steerer that a create of row stores, given conversation, the contract's conversation, and the
+// id of the steering session the create started, which is "" when it started none. An id already stored is refused
+// first. When conversation has a sessions row, it is the steerer. Otherwise one steering session is started for row,
+// as it is for an epic a shell or the CLI makes.
+func (s *epicService) steererOf(ctx context.Context, row store.EpicRow, conversation string) (string, string, error) {
 	if err := s.refuseStored(ctx, row.ID); err != nil {
 		return "", "", err
 	}
-	if maker.By == store.MakerConversation {
-		return maker.Session, "", nil
+	session, ok, err := s.epics.CallerSession(ctx, store.EpicCaller{Session: conversation})
+	if err != nil {
+		return "", "", epicStoreError(err)
+	}
+	if ok {
+		return session, "", nil
 	}
 	started, err := s.startSteering(ctx, row)
 	if err != nil {
@@ -263,12 +310,17 @@ func (s *epicService) startSteering(ctx context.Context, row store.EpicRow) (str
 	return id, nil
 }
 
-// refuseCreate returns the refusal of a create of the epic id that the store refused with err. When the create started
-// the steering session started, that session is stopped, even when ctx has ended, and a stop error joins the refusal.
+// refuseCreate returns the refusal of a create of the epic id that the store refused with err. A contract the store
+// finds no longer accepted, or no longer holding the version the create read, is refused as a failed precondition,
+// state: no longer accepted. When the create started the steering session started, that session is stopped, even
+// when ctx has ended, and a stop error joins the refusal.
 func (s *epicService) refuseCreate(ctx context.Context, id, started string, err error) error {
 	refusal := epicStoreError(err)
-	if errors.Is(err, store.ErrEpicExists) {
+	switch {
+	case errors.Is(err, store.ErrEpicExists):
 		refusal = storedRefusal(id)
+	case errors.Is(err, store.ErrContractState), errors.Is(err, store.ErrNoContract):
+		refusal = refuseEpic(connect.CodeFailedPrecondition, "state: no longer accepted")
 	}
 	if started == "" {
 		return refusal
@@ -996,10 +1048,15 @@ func taskReviewNames(rs []reviewers.Reviewer) []string {
 	return epicMap(reviewers.ForStage(rs, reviewers.StageTask), func(rev reviewers.Reviewer) string { return rev.Name })
 }
 
-// epicRowOf returns the store row of the contract req names, based at base, pinned to workflow and accepted at now, with
-// req's decisions as its seeds. Its reviewers and review list are the caller's to set.
-func epicRowOf(req *v1.CreateEpicRequest, base string, workflow store.EpicWorkflow, now time.Time) store.EpicRow {
-	contract := req.GetContract()
+// epicRowOf returns the store row of contract, based at base, pinned to workflow and accepted at now, with decisions as
+// its seeds. Its reviewers and review list are the caller's to set.
+func epicRowOf(
+	contract *v1.EpicContract,
+	decisions []*v1.EpicDecisionInput,
+	base string,
+	workflow store.EpicWorkflow,
+	now time.Time,
+) store.EpicRow {
 	return store.EpicRow{
 		ID:          contract.GetId(),
 		Repository:  contract.GetRepository(),
@@ -1041,7 +1098,7 @@ func epicRowOf(req *v1.CreateEpicRequest, base string, workflow store.EpicWorkfl
 		ReleaseSteps: epicMap(contract.GetReleaseSteps(), func(s *v1.EpicReleaseStep) store.EpicReleaseStep {
 			return store.EpicReleaseStep{Step: s.GetStep(), Target: s.GetTarget(), Undo: s.GetUndo()}
 		}),
-		Decisions: epicMap(req.GetDecisions(), func(d *v1.EpicDecisionInput) store.EpicDecision {
+		Decisions: epicMap(decisions, func(d *v1.EpicDecisionInput) store.EpicDecision {
 			return store.EpicDecision{ID: d.GetId(), Text: d.GetText()}
 		}),
 	}

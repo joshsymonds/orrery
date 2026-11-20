@@ -63,12 +63,13 @@ func sessionItem(event store.EngineEvent) (*orreryv1.ConversationItem, bool, err
 		case "tool_call":
 			input := protocol.ToolInputText(json.RawMessage(body.Input))
 			return &orreryv1.ConversationItem{
-				Kind:  "tool",
-				Time:  event.At,
-				Tool:  body.Name,
-				Input: input,
-				Id:    body.ToolUseId,
-				Epic:  conversation.CreatedEpic(body.Name, json.RawMessage(body.Input)),
+				Kind:     "tool",
+				Time:     event.At,
+				Tool:     body.Name,
+				Input:    input,
+				Id:       body.ToolUseId,
+				Epic:     conversation.CreatedEpic(body.Name, json.RawMessage(body.Input)),
+				Contract: conversation.WrittenContract(body.Name, json.RawMessage(body.Input)),
 			}, true, nil
 		case "tool_result":
 			return &orreryv1.ConversationItem{

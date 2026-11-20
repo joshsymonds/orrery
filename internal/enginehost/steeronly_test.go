@@ -51,7 +51,7 @@ func steerOnlyWorld(t *testing.T) enginev1connect.EpicsClient {
 		t.Fatalf("SyncPane: %v", err)
 	}
 	client := newEpicsClient(t, serveEpicsWith(t, st, fixedSteering{}))
-	if err := steererSetCreate(t, client, stepGitTestRepo(t), sessionHeader(steerOnlySteerer)); err != nil {
+	if err := steererSetCreate(t, st, client, stepGitTestRepo(t), sessionHeader(steerOnlySteerer)); err != nil {
 		t.Fatalf("CreateEpic: %v", err)
 	}
 	return client
@@ -246,7 +246,7 @@ func TestSteerOnlyUnsteeredEpicNamesNoConversation(t *testing.T) {
 		t.Fatalf("ApplyEngine: %v", err)
 	}
 	client := newEpicsClient(t, serveEpicsWith(t, st, unsteeredSteering{}))
-	if err := steererSetCreate(t, client, stepGitTestRepo(t), nil); err != nil {
+	if err := steererSetCreate(t, st, client, stepGitTestRepo(t), nil); err != nil {
 		t.Fatalf("CreateEpic: %v", err)
 	}
 

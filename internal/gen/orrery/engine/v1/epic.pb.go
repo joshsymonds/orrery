@@ -4623,15 +4623,19 @@ func (x *EpicSummary) GetOpenQuestions() int32 {
 	return 0
 }
 
-// CreateEpicRequest asks for a new epic.
+// CreateEpicRequest names the accepted contract an epic is made from, by its id, with the base the epic starts from, its
+// seed decisions and the workflow it pins. The epic takes the contract's id.
 type CreateEpicRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The contract to store.
-	Contract *EpicContract `protobuf:"bytes,1,opt,name=contract,proto3" json:"contract,omitempty"`
 	// The seed decisions, recorded in order as the epic's first decisions.
 	Decisions []*EpicDecisionInput `protobuf:"bytes,2,rep,name=decisions,proto3" json:"decisions,omitempty"`
-	// The name of the workflow the epic pins, read at the contract's base. Empty pins the built-in epic.
-	Workflow      string `protobuf:"bytes,3,opt,name=workflow,proto3" json:"workflow,omitempty"`
+	// The name of the workflow the epic pins, read at the base. Empty pins the built-in epic.
+	Workflow string `protobuf:"bytes,3,opt,name=workflow,proto3" json:"workflow,omitempty"`
+	// The id of the accepted contract the epic is made from. The epic takes the same id.
+	Id string `protobuf:"bytes,4,opt,name=id,proto3" json:"id,omitempty"`
+	// The commit the epic starts from, a name git resolves to a commit of the contract's repository. It takes the place of
+	// the base the accepted version's body holds.
+	Base          string `protobuf:"bytes,5,opt,name=base,proto3" json:"base,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4666,13 +4670,6 @@ func (*CreateEpicRequest) Descriptor() ([]byte, []int) {
 	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{40}
 }
 
-func (x *CreateEpicRequest) GetContract() *EpicContract {
-	if x != nil {
-		return x.Contract
-	}
-	return nil
-}
-
 func (x *CreateEpicRequest) GetDecisions() []*EpicDecisionInput {
 	if x != nil {
 		return x.Decisions
@@ -4683,6 +4680,20 @@ func (x *CreateEpicRequest) GetDecisions() []*EpicDecisionInput {
 func (x *CreateEpicRequest) GetWorkflow() string {
 	if x != nil {
 		return x.Workflow
+	}
+	return ""
+}
+
+func (x *CreateEpicRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *CreateEpicRequest) GetBase() string {
+	if x != nil {
+		return x.Base
 	}
 	return ""
 }
@@ -7495,11 +7506,12 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\x06paused\x18\v \x01(\bR\x06paused\x12!\n" +
 	"\fpause_source\x18\f \x01(\tR\vpauseSource\x12\x16\n" +
 	"\x06parked\x18\r \x01(\tR\x06parked\x12%\n" +
-	"\x0eopen_questions\x18\x0e \x01(\x05R\ropenQuestions\"\xae\x01\n" +
-	"\x11CreateEpicRequest\x12:\n" +
-	"\bcontract\x18\x01 \x01(\v2\x1e.orrery.engine.v1.EpicContractR\bcontract\x12A\n" +
+	"\x0eopen_questions\x18\x0e \x01(\x05R\ropenQuestions\"\xa6\x01\n" +
+	"\x11CreateEpicRequest\x12A\n" +
 	"\tdecisions\x18\x02 \x03(\v2#.orrery.engine.v1.EpicDecisionInputR\tdecisions\x12\x1a\n" +
-	"\bworkflow\x18\x03 \x01(\tR\bworkflow\"b\n" +
+	"\bworkflow\x18\x03 \x01(\tR\bworkflow\x12\x0e\n" +
+	"\x02id\x18\x04 \x01(\tR\x02id\x12\x12\n" +
+	"\x04base\x18\x05 \x01(\tR\x04baseJ\x04\b\x01\x10\x02R\bcontract\"b\n" +
 	"\x12CreateEpicResponse\x120\n" +
 	"\x04epic\x18\x01 \x01(\v2\x1c.orrery.engine.v1.StoredEpicR\x04epic\x12\x1a\n" +
 	"\bwarnings\x18\x02 \x03(\tR\bwarnings\":\n" +
@@ -7806,76 +7818,75 @@ var file_orrery_engine_v1_epic_proto_depIdxs = []int32{
 	37, // 39: orrery.engine.v1.StoredEpic.release_proof:type_name -> orrery.engine.v1.EpicReleaseProof
 	71, // 40: orrery.engine.v1.StoredEpic.amendments:type_name -> orrery.engine.v1.EpicAmendment
 	35, // 41: orrery.engine.v1.StoredEpic.actions:type_name -> orrery.engine.v1.EpicAction
-	0,  // 42: orrery.engine.v1.CreateEpicRequest.contract:type_name -> orrery.engine.v1.EpicContract
-	13, // 43: orrery.engine.v1.CreateEpicRequest.decisions:type_name -> orrery.engine.v1.EpicDecisionInput
-	34, // 44: orrery.engine.v1.CreateEpicResponse.epic:type_name -> orrery.engine.v1.StoredEpic
-	34, // 45: orrery.engine.v1.GetEpicResponse.epic:type_name -> orrery.engine.v1.StoredEpic
-	39, // 46: orrery.engine.v1.ListEpicsResponse.epics:type_name -> orrery.engine.v1.EpicSummary
-	14, // 47: orrery.engine.v1.AnswerEpicResponse.decision:type_name -> orrery.engine.v1.EpicDecision
-	34, // 48: orrery.engine.v1.MoveEpicResponse.epic:type_name -> orrery.engine.v1.StoredEpic
-	34, // 49: orrery.engine.v1.ContinueEpicResponse.epic:type_name -> orrery.engine.v1.StoredEpic
-	34, // 50: orrery.engine.v1.PauseEpicResponse.epic:type_name -> orrery.engine.v1.StoredEpic
-	34, // 51: orrery.engine.v1.ResumeEpicResponse.epic:type_name -> orrery.engine.v1.StoredEpic
-	34, // 52: orrery.engine.v1.StopEpicResponse.epic:type_name -> orrery.engine.v1.StoredEpic
-	34, // 53: orrery.engine.v1.RetryEpicResponse.epic:type_name -> orrery.engine.v1.StoredEpic
-	34, // 54: orrery.engine.v1.KickEpicResponse.epic:type_name -> orrery.engine.v1.StoredEpic
-	64, // 55: orrery.engine.v1.FollowEpicsResponse.follows:type_name -> orrery.engine.v1.EpicFollow
-	34, // 56: orrery.engine.v1.ReleaseEpicResponse.epic:type_name -> orrery.engine.v1.StoredEpic
-	34, // 57: orrery.engine.v1.CloseEpicResponse.epic:type_name -> orrery.engine.v1.StoredEpic
-	7,  // 58: orrery.engine.v1.AmendEvidenceRequest.item:type_name -> orrery.engine.v1.EvidenceItem
-	71, // 59: orrery.engine.v1.AmendEvidenceResponse.amendment:type_name -> orrery.engine.v1.EpicAmendment
-	34, // 60: orrery.engine.v1.AmendEvidenceResponse.epic:type_name -> orrery.engine.v1.StoredEpic
-	7,  // 61: orrery.engine.v1.EpicAmendment.prior_item:type_name -> orrery.engine.v1.EvidenceItem
-	7,  // 62: orrery.engine.v1.EpicAmendment.item:type_name -> orrery.engine.v1.EvidenceItem
-	9,  // 63: orrery.engine.v1.RunEvidenceResponse.run:type_name -> orrery.engine.v1.EvidenceRun
-	9,  // 64: orrery.engine.v1.ListEvidenceResponse.runs:type_name -> orrery.engine.v1.EvidenceRun
-	40, // 65: orrery.engine.v1.Epics.CreateEpic:input_type -> orrery.engine.v1.CreateEpicRequest
-	42, // 66: orrery.engine.v1.Epics.GetEpic:input_type -> orrery.engine.v1.GetEpicRequest
-	44, // 67: orrery.engine.v1.Epics.ListEpics:input_type -> orrery.engine.v1.ListEpicsRequest
-	46, // 68: orrery.engine.v1.Epics.AnswerEpic:input_type -> orrery.engine.v1.AnswerEpicRequest
-	52, // 69: orrery.engine.v1.Epics.PauseEpic:input_type -> orrery.engine.v1.PauseEpicRequest
-	54, // 70: orrery.engine.v1.Epics.ResumeEpic:input_type -> orrery.engine.v1.ResumeEpicRequest
-	56, // 71: orrery.engine.v1.Epics.StopEpic:input_type -> orrery.engine.v1.StopEpicRequest
-	58, // 72: orrery.engine.v1.Epics.RetryEpic:input_type -> orrery.engine.v1.RetryEpicRequest
-	60, // 73: orrery.engine.v1.Epics.KickEpic:input_type -> orrery.engine.v1.KickEpicRequest
-	62, // 74: orrery.engine.v1.Epics.FollowEpics:input_type -> orrery.engine.v1.FollowEpicsRequest
-	65, // 75: orrery.engine.v1.Epics.ReleaseEpic:input_type -> orrery.engine.v1.ReleaseEpicRequest
-	67, // 76: orrery.engine.v1.Epics.CloseEpic:input_type -> orrery.engine.v1.CloseEpicRequest
-	69, // 77: orrery.engine.v1.Epics.AmendEvidence:input_type -> orrery.engine.v1.AmendEvidenceRequest
-	72, // 78: orrery.engine.v1.Epics.SeeEpic:input_type -> orrery.engine.v1.SeeEpicRequest
-	74, // 79: orrery.engine.v1.Epics.ArchiveRow:input_type -> orrery.engine.v1.ArchiveRowRequest
-	76, // 80: orrery.engine.v1.Epics.UnarchiveRow:input_type -> orrery.engine.v1.UnarchiveRowRequest
-	48, // 81: orrery.engine.v1.Epics.MoveEpic:input_type -> orrery.engine.v1.MoveEpicRequest
-	50, // 82: orrery.engine.v1.Epics.ContinueEpic:input_type -> orrery.engine.v1.ContinueEpicRequest
-	78, // 83: orrery.engine.v1.Evidence.RunEvidence:input_type -> orrery.engine.v1.RunEvidenceRequest
-	80, // 84: orrery.engine.v1.Evidence.ListEvidence:input_type -> orrery.engine.v1.ListEvidenceRequest
-	82, // 85: orrery.engine.v1.Evidence.GetEvidenceArtifact:input_type -> orrery.engine.v1.GetEvidenceArtifactRequest
-	41, // 86: orrery.engine.v1.Epics.CreateEpic:output_type -> orrery.engine.v1.CreateEpicResponse
-	43, // 87: orrery.engine.v1.Epics.GetEpic:output_type -> orrery.engine.v1.GetEpicResponse
-	45, // 88: orrery.engine.v1.Epics.ListEpics:output_type -> orrery.engine.v1.ListEpicsResponse
-	47, // 89: orrery.engine.v1.Epics.AnswerEpic:output_type -> orrery.engine.v1.AnswerEpicResponse
-	53, // 90: orrery.engine.v1.Epics.PauseEpic:output_type -> orrery.engine.v1.PauseEpicResponse
-	55, // 91: orrery.engine.v1.Epics.ResumeEpic:output_type -> orrery.engine.v1.ResumeEpicResponse
-	57, // 92: orrery.engine.v1.Epics.StopEpic:output_type -> orrery.engine.v1.StopEpicResponse
-	59, // 93: orrery.engine.v1.Epics.RetryEpic:output_type -> orrery.engine.v1.RetryEpicResponse
-	61, // 94: orrery.engine.v1.Epics.KickEpic:output_type -> orrery.engine.v1.KickEpicResponse
-	63, // 95: orrery.engine.v1.Epics.FollowEpics:output_type -> orrery.engine.v1.FollowEpicsResponse
-	66, // 96: orrery.engine.v1.Epics.ReleaseEpic:output_type -> orrery.engine.v1.ReleaseEpicResponse
-	68, // 97: orrery.engine.v1.Epics.CloseEpic:output_type -> orrery.engine.v1.CloseEpicResponse
-	70, // 98: orrery.engine.v1.Epics.AmendEvidence:output_type -> orrery.engine.v1.AmendEvidenceResponse
-	73, // 99: orrery.engine.v1.Epics.SeeEpic:output_type -> orrery.engine.v1.SeeEpicResponse
-	75, // 100: orrery.engine.v1.Epics.ArchiveRow:output_type -> orrery.engine.v1.ArchiveRowResponse
-	77, // 101: orrery.engine.v1.Epics.UnarchiveRow:output_type -> orrery.engine.v1.UnarchiveRowResponse
-	49, // 102: orrery.engine.v1.Epics.MoveEpic:output_type -> orrery.engine.v1.MoveEpicResponse
-	51, // 103: orrery.engine.v1.Epics.ContinueEpic:output_type -> orrery.engine.v1.ContinueEpicResponse
-	79, // 104: orrery.engine.v1.Evidence.RunEvidence:output_type -> orrery.engine.v1.RunEvidenceResponse
-	81, // 105: orrery.engine.v1.Evidence.ListEvidence:output_type -> orrery.engine.v1.ListEvidenceResponse
-	83, // 106: orrery.engine.v1.Evidence.GetEvidenceArtifact:output_type -> orrery.engine.v1.GetEvidenceArtifactResponse
-	86, // [86:107] is the sub-list for method output_type
-	65, // [65:86] is the sub-list for method input_type
-	65, // [65:65] is the sub-list for extension type_name
-	65, // [65:65] is the sub-list for extension extendee
-	0,  // [0:65] is the sub-list for field type_name
+	13, // 42: orrery.engine.v1.CreateEpicRequest.decisions:type_name -> orrery.engine.v1.EpicDecisionInput
+	34, // 43: orrery.engine.v1.CreateEpicResponse.epic:type_name -> orrery.engine.v1.StoredEpic
+	34, // 44: orrery.engine.v1.GetEpicResponse.epic:type_name -> orrery.engine.v1.StoredEpic
+	39, // 45: orrery.engine.v1.ListEpicsResponse.epics:type_name -> orrery.engine.v1.EpicSummary
+	14, // 46: orrery.engine.v1.AnswerEpicResponse.decision:type_name -> orrery.engine.v1.EpicDecision
+	34, // 47: orrery.engine.v1.MoveEpicResponse.epic:type_name -> orrery.engine.v1.StoredEpic
+	34, // 48: orrery.engine.v1.ContinueEpicResponse.epic:type_name -> orrery.engine.v1.StoredEpic
+	34, // 49: orrery.engine.v1.PauseEpicResponse.epic:type_name -> orrery.engine.v1.StoredEpic
+	34, // 50: orrery.engine.v1.ResumeEpicResponse.epic:type_name -> orrery.engine.v1.StoredEpic
+	34, // 51: orrery.engine.v1.StopEpicResponse.epic:type_name -> orrery.engine.v1.StoredEpic
+	34, // 52: orrery.engine.v1.RetryEpicResponse.epic:type_name -> orrery.engine.v1.StoredEpic
+	34, // 53: orrery.engine.v1.KickEpicResponse.epic:type_name -> orrery.engine.v1.StoredEpic
+	64, // 54: orrery.engine.v1.FollowEpicsResponse.follows:type_name -> orrery.engine.v1.EpicFollow
+	34, // 55: orrery.engine.v1.ReleaseEpicResponse.epic:type_name -> orrery.engine.v1.StoredEpic
+	34, // 56: orrery.engine.v1.CloseEpicResponse.epic:type_name -> orrery.engine.v1.StoredEpic
+	7,  // 57: orrery.engine.v1.AmendEvidenceRequest.item:type_name -> orrery.engine.v1.EvidenceItem
+	71, // 58: orrery.engine.v1.AmendEvidenceResponse.amendment:type_name -> orrery.engine.v1.EpicAmendment
+	34, // 59: orrery.engine.v1.AmendEvidenceResponse.epic:type_name -> orrery.engine.v1.StoredEpic
+	7,  // 60: orrery.engine.v1.EpicAmendment.prior_item:type_name -> orrery.engine.v1.EvidenceItem
+	7,  // 61: orrery.engine.v1.EpicAmendment.item:type_name -> orrery.engine.v1.EvidenceItem
+	9,  // 62: orrery.engine.v1.RunEvidenceResponse.run:type_name -> orrery.engine.v1.EvidenceRun
+	9,  // 63: orrery.engine.v1.ListEvidenceResponse.runs:type_name -> orrery.engine.v1.EvidenceRun
+	40, // 64: orrery.engine.v1.Epics.CreateEpic:input_type -> orrery.engine.v1.CreateEpicRequest
+	42, // 65: orrery.engine.v1.Epics.GetEpic:input_type -> orrery.engine.v1.GetEpicRequest
+	44, // 66: orrery.engine.v1.Epics.ListEpics:input_type -> orrery.engine.v1.ListEpicsRequest
+	46, // 67: orrery.engine.v1.Epics.AnswerEpic:input_type -> orrery.engine.v1.AnswerEpicRequest
+	52, // 68: orrery.engine.v1.Epics.PauseEpic:input_type -> orrery.engine.v1.PauseEpicRequest
+	54, // 69: orrery.engine.v1.Epics.ResumeEpic:input_type -> orrery.engine.v1.ResumeEpicRequest
+	56, // 70: orrery.engine.v1.Epics.StopEpic:input_type -> orrery.engine.v1.StopEpicRequest
+	58, // 71: orrery.engine.v1.Epics.RetryEpic:input_type -> orrery.engine.v1.RetryEpicRequest
+	60, // 72: orrery.engine.v1.Epics.KickEpic:input_type -> orrery.engine.v1.KickEpicRequest
+	62, // 73: orrery.engine.v1.Epics.FollowEpics:input_type -> orrery.engine.v1.FollowEpicsRequest
+	65, // 74: orrery.engine.v1.Epics.ReleaseEpic:input_type -> orrery.engine.v1.ReleaseEpicRequest
+	67, // 75: orrery.engine.v1.Epics.CloseEpic:input_type -> orrery.engine.v1.CloseEpicRequest
+	69, // 76: orrery.engine.v1.Epics.AmendEvidence:input_type -> orrery.engine.v1.AmendEvidenceRequest
+	72, // 77: orrery.engine.v1.Epics.SeeEpic:input_type -> orrery.engine.v1.SeeEpicRequest
+	74, // 78: orrery.engine.v1.Epics.ArchiveRow:input_type -> orrery.engine.v1.ArchiveRowRequest
+	76, // 79: orrery.engine.v1.Epics.UnarchiveRow:input_type -> orrery.engine.v1.UnarchiveRowRequest
+	48, // 80: orrery.engine.v1.Epics.MoveEpic:input_type -> orrery.engine.v1.MoveEpicRequest
+	50, // 81: orrery.engine.v1.Epics.ContinueEpic:input_type -> orrery.engine.v1.ContinueEpicRequest
+	78, // 82: orrery.engine.v1.Evidence.RunEvidence:input_type -> orrery.engine.v1.RunEvidenceRequest
+	80, // 83: orrery.engine.v1.Evidence.ListEvidence:input_type -> orrery.engine.v1.ListEvidenceRequest
+	82, // 84: orrery.engine.v1.Evidence.GetEvidenceArtifact:input_type -> orrery.engine.v1.GetEvidenceArtifactRequest
+	41, // 85: orrery.engine.v1.Epics.CreateEpic:output_type -> orrery.engine.v1.CreateEpicResponse
+	43, // 86: orrery.engine.v1.Epics.GetEpic:output_type -> orrery.engine.v1.GetEpicResponse
+	45, // 87: orrery.engine.v1.Epics.ListEpics:output_type -> orrery.engine.v1.ListEpicsResponse
+	47, // 88: orrery.engine.v1.Epics.AnswerEpic:output_type -> orrery.engine.v1.AnswerEpicResponse
+	53, // 89: orrery.engine.v1.Epics.PauseEpic:output_type -> orrery.engine.v1.PauseEpicResponse
+	55, // 90: orrery.engine.v1.Epics.ResumeEpic:output_type -> orrery.engine.v1.ResumeEpicResponse
+	57, // 91: orrery.engine.v1.Epics.StopEpic:output_type -> orrery.engine.v1.StopEpicResponse
+	59, // 92: orrery.engine.v1.Epics.RetryEpic:output_type -> orrery.engine.v1.RetryEpicResponse
+	61, // 93: orrery.engine.v1.Epics.KickEpic:output_type -> orrery.engine.v1.KickEpicResponse
+	63, // 94: orrery.engine.v1.Epics.FollowEpics:output_type -> orrery.engine.v1.FollowEpicsResponse
+	66, // 95: orrery.engine.v1.Epics.ReleaseEpic:output_type -> orrery.engine.v1.ReleaseEpicResponse
+	68, // 96: orrery.engine.v1.Epics.CloseEpic:output_type -> orrery.engine.v1.CloseEpicResponse
+	70, // 97: orrery.engine.v1.Epics.AmendEvidence:output_type -> orrery.engine.v1.AmendEvidenceResponse
+	73, // 98: orrery.engine.v1.Epics.SeeEpic:output_type -> orrery.engine.v1.SeeEpicResponse
+	75, // 99: orrery.engine.v1.Epics.ArchiveRow:output_type -> orrery.engine.v1.ArchiveRowResponse
+	77, // 100: orrery.engine.v1.Epics.UnarchiveRow:output_type -> orrery.engine.v1.UnarchiveRowResponse
+	49, // 101: orrery.engine.v1.Epics.MoveEpic:output_type -> orrery.engine.v1.MoveEpicResponse
+	51, // 102: orrery.engine.v1.Epics.ContinueEpic:output_type -> orrery.engine.v1.ContinueEpicResponse
+	79, // 103: orrery.engine.v1.Evidence.RunEvidence:output_type -> orrery.engine.v1.RunEvidenceResponse
+	81, // 104: orrery.engine.v1.Evidence.ListEvidence:output_type -> orrery.engine.v1.ListEvidenceResponse
+	83, // 105: orrery.engine.v1.Evidence.GetEvidenceArtifact:output_type -> orrery.engine.v1.GetEvidenceArtifactResponse
+	85, // [85:106] is the sub-list for method output_type
+	64, // [64:85] is the sub-list for method input_type
+	64, // [64:64] is the sub-list for extension type_name
+	64, // [64:64] is the sub-list for extension extendee
+	0,  // [0:64] is the sub-list for field type_name
 }
 
 func init() { file_orrery_engine_v1_epic_proto_init() }

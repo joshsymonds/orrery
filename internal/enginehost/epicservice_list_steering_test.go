@@ -70,7 +70,7 @@ func TestEpicListSteeringUnpausedEpicCarriesItsSteererAndRepository(t *testing.T
 	st := epicTestStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
 	repo := stepGitTestRepo(t)
-	createEpicOK(t, client, fullEpicRequest(repo, epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(repo, epicServiceID))
 
 	wantEpicInbox(t, client, inboxWant{steerer: fixedSteerID, repository: repo}, 0)
 }
@@ -80,7 +80,7 @@ func TestEpicListSteeringOwnerPauseIsOwner(t *testing.T) {
 	st := epicTestStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
 	repo := stepGitTestRepo(t)
-	createEpicOK(t, client, fullEpicRequest(repo, epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(repo, epicServiceID))
 	pause := connect.NewRequest(&v1.PauseEpicRequest{Id: epicServiceID})
 	if _, err := client.PauseEpic(t.Context(), pause); err != nil {
 		t.Fatalf("PauseEpic: %v", err)
@@ -96,7 +96,7 @@ func TestEpicListSteeringUsageLimitPauseIsLimit(t *testing.T) {
 	st, _ := openPlannerStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
 	repo := stepGitTestRepo(t)
-	createEpicOK(t, client, fullEpicRequest(repo, epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(repo, epicServiceID))
 	turn, err := st.ClaimTurn(t.Context(), epicServiceID, time.Unix(turnStarted, 0))
 	if err != nil {
 		t.Fatalf("ClaimTurn: %v", err)
@@ -116,7 +116,7 @@ func TestEpicListSteeringParkIsListedWithItsReason(t *testing.T) {
 	st, _ := openPlannerStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
 	repo := stepGitTestRepo(t)
-	createEpicOK(t, client, fullEpicRequest(repo, epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(repo, epicServiceID))
 	const reason = "Synthetic park reason."
 	if err := st.ParkEpic(
 		t.Context(), epicServiceID, store.ParkClassOrchestrator, reason, time.Unix(turnFreed, 0),
@@ -133,7 +133,7 @@ func TestEpicListSteeringOpenQuestionsAreCounted(t *testing.T) {
 	st, _ := openPlannerStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
 	repo := stepGitTestRepo(t)
-	createEpicOK(t, client, fullEpicRequest(repo, epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(repo, epicServiceID))
 	askQuestions(t, st, "Synthetic question one?", "Synthetic question two?")
 
 	wantEpicInbox(t, client, inboxWant{steerer: fixedSteerID, repository: repo}, 2)

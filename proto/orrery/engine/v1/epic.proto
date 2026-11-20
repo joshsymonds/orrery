@@ -1262,16 +1262,24 @@ message EpicSummary {
   int32 open_questions = 14;
 }
 
-// CreateEpicRequest asks for a new epic.
+// CreateEpicRequest names the accepted contract an epic is made from, by its id, with the base the epic starts from, its
+// seed decisions and the workflow it pins. The epic takes the contract's id.
 message CreateEpicRequest {
-  // The contract to store.
-  EpicContract contract = 1;
+  reserved 1;
+  reserved "contract";
 
   // The seed decisions, recorded in order as the epic's first decisions.
   repeated EpicDecisionInput decisions = 2;
 
-  // The name of the workflow the epic pins, read at the contract's base. Empty pins the built-in epic.
+  // The name of the workflow the epic pins, read at the base. Empty pins the built-in epic.
   string workflow = 3;
+
+  // The id of the accepted contract the epic is made from. The epic takes the same id.
+  string id = 4;
+
+  // The commit the epic starts from, a name git resolves to a commit of the contract's repository. It takes the place of
+  // the base the accepted version's body holds.
+  string base = 5;
 }
 
 // CreateEpicResponse carries the stored epic and the warnings its contract drew. The epic is stored with them.

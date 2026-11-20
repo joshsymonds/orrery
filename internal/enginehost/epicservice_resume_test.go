@@ -56,8 +56,9 @@ func TestEpicResumeResumesLimitedTaskStepsOfUnpausedEpic(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	steps := &resumeSteps{rows: []store.StepRow{limitedStep("step-a", "task-a"), limitedStep("step-b", "task-b")}}
-	client := newEpicsClient(t, startControlServer(t, epicTestStore(t), steps))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	st := epicTestStore(t)
+	client := newEpicsClient(t, startControlServer(t, st, steps))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 
 	resumed, err := client.ResumeEpic(ctx, connect.NewRequest(&v1.ResumeEpicRequest{Id: epicServiceID}))
 	if err != nil {
@@ -84,8 +85,9 @@ func TestEpicResumeClearsPauseAndResumesLimitedStep(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	steps := &resumeSteps{rows: []store.StepRow{limitedStep("step-a", "task-a")}}
-	client := newEpicsClient(t, startControlServer(t, epicTestStore(t), steps))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	st := epicTestStore(t)
+	client := newEpicsClient(t, startControlServer(t, st, steps))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 	if _, err := client.PauseEpic(ctx, connect.NewRequest(&v1.PauseEpicRequest{Id: epicServiceID})); err != nil {
 		t.Fatalf("PauseEpic: %v", err)
 	}
@@ -116,8 +118,9 @@ func TestEpicResumeLeavesCapRefusedStepLimited(t *testing.T) {
 			"step-c": ErrStepNotRunning,
 		},
 	}
-	client := newEpicsClient(t, startControlServer(t, epicTestStore(t), steps))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	st := epicTestStore(t)
+	client := newEpicsClient(t, startControlServer(t, st, steps))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 
 	resumed, err := client.ResumeEpic(ctx, connect.NewRequest(&v1.ResumeEpicRequest{Id: epicServiceID}))
 	if err != nil {
@@ -138,8 +141,9 @@ func TestEpicResumeSkipsPlannerTurnStep(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	steps := &resumeSteps{rows: []store.StepRow{limitedStep("planner-step", ""), limitedStep("step-a", "task-a")}}
-	client := newEpicsClient(t, startControlServer(t, epicTestStore(t), steps))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	st := epicTestStore(t)
+	client := newEpicsClient(t, startControlServer(t, st, steps))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 
 	resumed, err := client.ResumeEpic(ctx, connect.NewRequest(&v1.ResumeEpicRequest{Id: epicServiceID}))
 	if err != nil {
@@ -157,8 +161,9 @@ func TestEpicResumeRefusesUnpausedEpicWithoutLimitedTaskStep(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	steps := &resumeSteps{rows: []store.StepRow{limitedStep("planner-step", "")}}
-	client := newEpicsClient(t, startControlServer(t, epicTestStore(t), steps))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	st := epicTestStore(t)
+	client := newEpicsClient(t, startControlServer(t, st, steps))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 
 	_, err := client.ResumeEpic(ctx, connect.NewRequest(&v1.ResumeEpicRequest{Id: epicServiceID}))
 	wantConnectError(t, err, connect.CodeFailedPrecondition, "epic "+epicServiceID+" is not paused")
@@ -170,7 +175,8 @@ func TestEpicResumeRefusesUnpausedEpicWithoutLimitedTaskStep(t *testing.T) {
 func TestEpicResumeUnknownEpicIsNotFound(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	client := newEpicsClient(t, startControlServer(t, epicTestStore(t), &resumeSteps{}))
+	st := epicTestStore(t)
+	client := newEpicsClient(t, startControlServer(t, st, &resumeSteps{}))
 
 	_, err := client.ResumeEpic(ctx, connect.NewRequest(&v1.ResumeEpicRequest{Id: epicServiceID}))
 	wantConnectError(t, err, connect.CodeNotFound, "id: no epic "+epicServiceID)
@@ -183,8 +189,9 @@ func TestEpicResumeReturnsOtherResumeErrors(t *testing.T) {
 		rows:    []store.StepRow{limitedStep("step-a", "task-a")},
 		replies: map[string]error{"step-a": errors.New("boom")},
 	}
-	client := newEpicsClient(t, startControlServer(t, epicTestStore(t), steps))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	st := epicTestStore(t)
+	client := newEpicsClient(t, startControlServer(t, st, steps))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 
 	_, err := client.ResumeEpic(ctx, connect.NewRequest(&v1.ResumeEpicRequest{Id: epicServiceID}))
 	wantConnectError(t, err, connect.CodeInternal, "boom")

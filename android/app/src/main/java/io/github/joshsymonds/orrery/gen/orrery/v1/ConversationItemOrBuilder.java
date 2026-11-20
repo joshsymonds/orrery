@@ -234,8 +234,8 @@ public interface ConversationItemOrBuilder extends
 
   /**
    * <pre>
-   * The id of the epic a tool item's call creates: the contract id of an epic_create call, or empty when the item is
-   * not an epic_create call or its contract names no id.
+   * The id of the epic a tool item's call creates: the id input of an epic_create call, or the id of its inline contract
+   * for a call made before epic_create took an id; empty when the item is not an epic_create call or names no id.
    * </pre>
    *
    * <code>string epic = 14 [json_name = "epic"];</code>
@@ -244,8 +244,8 @@ public interface ConversationItemOrBuilder extends
   java.lang.String getEpic();
   /**
    * <pre>
-   * The id of the epic a tool item's call creates: the contract id of an epic_create call, or empty when the item is
-   * not an epic_create call or its contract names no id.
+   * The id of the epic a tool item's call creates: the id input of an epic_create call, or the id of its inline contract
+   * for a call made before epic_create took an id; empty when the item is not an epic_create call or names no id.
    * </pre>
    *
    * <code>string epic = 14 [json_name = "epic"];</code>
@@ -274,4 +274,26 @@ public interface ConversationItemOrBuilder extends
    * @return The stepFacts.
    */
   io.github.joshsymonds.orrery.gen.orrery.v1.StepFacts getStepFacts();
+
+  /**
+   * <pre>
+   * The id of the contract a tool item's call writes: the id input of a contract_propose or contract_revise call; empty
+   * when the item is not one of those calls or its input names no id.
+   * </pre>
+   *
+   * <code>string contract = 16 [json_name = "contract"];</code>
+   * @return The contract.
+   */
+  java.lang.String getContract();
+  /**
+   * <pre>
+   * The id of the contract a tool item's call writes: the id input of a contract_propose or contract_revise call; empty
+   * when the item is not one of those calls or its input names no id.
+   * </pre>
+   *
+   * <code>string contract = 16 [json_name = "contract"];</code>
+   * @return The bytes for contract.
+   */
+  com.google.protobuf.ByteString
+      getContractBytes();
 }

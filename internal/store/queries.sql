@@ -1901,3 +1901,12 @@ SELECT CAST(COUNT(*) AS INTEGER) FROM contract_states WHERE contract = ?;
 
 -- name: GetContractVersion :one
 SELECT * FROM contract_versions WHERE contract = ? AND version = ?;
+
+-- name: ListContractChangeEvents :many
+SELECT states.contract, states.seq, states.state, states.version, states.session, states.words,
+       entered.title, opening.writer AS conversation
+FROM contract_states AS states
+JOIN contract_versions AS entered ON entered.contract = states.contract AND entered.version = states.version
+JOIN contract_versions AS opening ON opening.contract = states.contract AND opening.version = 1
+WHERE states.session <> opening.writer
+ORDER BY states.at, states.contract, states.seq;

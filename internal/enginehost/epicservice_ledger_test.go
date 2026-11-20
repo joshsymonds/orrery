@@ -25,7 +25,7 @@ func TestEpicGetReturnsLedgerOfTheReview(t *testing.T) {
 	ctx := t.Context()
 	st := epicTestStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
-	created := createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	created := createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 	at := time.Unix(turnFreed, 0)
 	review := store.NodeRun{Path: ledgerReviewPath, ID: "run-review", Node: "review", Kind: "agent", Attempt: 1}
 	if err := st.StartNodes(ctx, epicServiceID, []store.NodeRun{review}, nil, at); err != nil {
@@ -158,8 +158,9 @@ func TestEpicGetReturnsLedgerOfTheReview(t *testing.T) {
 // no frozen or clean revision.
 func TestEpicGetWithNoReviewHasEmptyLedger(t *testing.T) {
 	t.Parallel()
-	client := newEpicsClient(t, startEpicServer(t, epicTestStore(t)))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	st := epicTestStore(t)
+	client := newEpicsClient(t, startEpicServer(t, st))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 
 	got := getEpicOK(t, client)
 	if got.GetFrozen() != "" {

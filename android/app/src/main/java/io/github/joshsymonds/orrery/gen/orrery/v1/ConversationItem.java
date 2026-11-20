@@ -29,6 +29,7 @@ public  final class ConversationItem extends
     sender_ = "";
     promptId_ = "";
     epic_ = "";
+    contract_ = "";
   }
   private int bitField0_;
   public static final int KIND_FIELD_NUMBER = 1;
@@ -795,8 +796,8 @@ public  final class ConversationItem extends
   private java.lang.String epic_;
   /**
    * <pre>
-   * The id of the epic a tool item's call creates: the contract id of an epic_create call, or empty when the item is
-   * not an epic_create call or its contract names no id.
+   * The id of the epic a tool item's call creates: the id input of an epic_create call, or the id of its inline contract
+   * for a call made before epic_create took an id; empty when the item is not an epic_create call or names no id.
    * </pre>
    *
    * <code>string epic = 14 [json_name = "epic"];</code>
@@ -808,8 +809,8 @@ public  final class ConversationItem extends
   }
   /**
    * <pre>
-   * The id of the epic a tool item's call creates: the contract id of an epic_create call, or empty when the item is
-   * not an epic_create call or its contract names no id.
+   * The id of the epic a tool item's call creates: the id input of an epic_create call, or the id of its inline contract
+   * for a call made before epic_create took an id; empty when the item is not an epic_create call or names no id.
    * </pre>
    *
    * <code>string epic = 14 [json_name = "epic"];</code>
@@ -822,8 +823,8 @@ public  final class ConversationItem extends
   }
   /**
    * <pre>
-   * The id of the epic a tool item's call creates: the contract id of an epic_create call, or empty when the item is
-   * not an epic_create call or its contract names no id.
+   * The id of the epic a tool item's call creates: the id input of an epic_create call, or the id of its inline contract
+   * for a call made before epic_create took an id; empty when the item is not an epic_create call or names no id.
    * </pre>
    *
    * <code>string epic = 14 [json_name = "epic"];</code>
@@ -837,8 +838,8 @@ public  final class ConversationItem extends
   }
   /**
    * <pre>
-   * The id of the epic a tool item's call creates: the contract id of an epic_create call, or empty when the item is
-   * not an epic_create call or its contract names no id.
+   * The id of the epic a tool item's call creates: the id input of an epic_create call, or the id of its inline contract
+   * for a call made before epic_create took an id; empty when the item is not an epic_create call or names no id.
    * </pre>
    *
    * <code>string epic = 14 [json_name = "epic"];</code>
@@ -849,8 +850,8 @@ public  final class ConversationItem extends
   }
   /**
    * <pre>
-   * The id of the epic a tool item's call creates: the contract id of an epic_create call, or empty when the item is
-   * not an epic_create call or its contract names no id.
+   * The id of the epic a tool item's call creates: the id input of an epic_create call, or the id of its inline contract
+   * for a call made before epic_create took an id; empty when the item is not an epic_create call or names no id.
    * </pre>
    *
    * <code>string epic = 14 [json_name = "epic"];</code>
@@ -933,6 +934,78 @@ public  final class ConversationItem extends
   private void clearStepFacts() {
     stepFacts_ = null;
     bitField0_ = (bitField0_ & ~0x00000001);
+  }
+
+  public static final int CONTRACT_FIELD_NUMBER = 16;
+  private java.lang.String contract_;
+  /**
+   * <pre>
+   * The id of the contract a tool item's call writes: the id input of a contract_propose or contract_revise call; empty
+   * when the item is not one of those calls or its input names no id.
+   * </pre>
+   *
+   * <code>string contract = 16 [json_name = "contract"];</code>
+   * @return The contract.
+   */
+  @java.lang.Override
+  public java.lang.String getContract() {
+    return contract_;
+  }
+  /**
+   * <pre>
+   * The id of the contract a tool item's call writes: the id input of a contract_propose or contract_revise call; empty
+   * when the item is not one of those calls or its input names no id.
+   * </pre>
+   *
+   * <code>string contract = 16 [json_name = "contract"];</code>
+   * @return The bytes for contract.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getContractBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(contract_);
+  }
+  /**
+   * <pre>
+   * The id of the contract a tool item's call writes: the id input of a contract_propose or contract_revise call; empty
+   * when the item is not one of those calls or its input names no id.
+   * </pre>
+   *
+   * <code>string contract = 16 [json_name = "contract"];</code>
+   * @param value The contract to set.
+   */
+  private void setContract(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    contract_ = value;
+  }
+  /**
+   * <pre>
+   * The id of the contract a tool item's call writes: the id input of a contract_propose or contract_revise call; empty
+   * when the item is not one of those calls or its input names no id.
+   * </pre>
+   *
+   * <code>string contract = 16 [json_name = "contract"];</code>
+   */
+  private void clearContract() {
+
+    contract_ = getDefaultInstance().getContract();
+  }
+  /**
+   * <pre>
+   * The id of the contract a tool item's call writes: the id input of a contract_propose or contract_revise call; empty
+   * when the item is not one of those calls or its input names no id.
+   * </pre>
+   *
+   * <code>string contract = 16 [json_name = "contract"];</code>
+   * @param value The bytes for contract to set.
+   */
+  private void setContractBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    contract_ = value.toStringUtf8();
+
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.ConversationItem parseFrom(
@@ -1824,8 +1897,8 @@ public  final class ConversationItem extends
 
     /**
      * <pre>
-     * The id of the epic a tool item's call creates: the contract id of an epic_create call, or empty when the item is
-     * not an epic_create call or its contract names no id.
+     * The id of the epic a tool item's call creates: the id input of an epic_create call, or the id of its inline contract
+     * for a call made before epic_create took an id; empty when the item is not an epic_create call or names no id.
      * </pre>
      *
      * <code>string epic = 14 [json_name = "epic"];</code>
@@ -1837,8 +1910,8 @@ public  final class ConversationItem extends
     }
     /**
      * <pre>
-     * The id of the epic a tool item's call creates: the contract id of an epic_create call, or empty when the item is
-     * not an epic_create call or its contract names no id.
+     * The id of the epic a tool item's call creates: the id input of an epic_create call, or the id of its inline contract
+     * for a call made before epic_create took an id; empty when the item is not an epic_create call or names no id.
      * </pre>
      *
      * <code>string epic = 14 [json_name = "epic"];</code>
@@ -1851,8 +1924,8 @@ public  final class ConversationItem extends
     }
     /**
      * <pre>
-     * The id of the epic a tool item's call creates: the contract id of an epic_create call, or empty when the item is
-     * not an epic_create call or its contract names no id.
+     * The id of the epic a tool item's call creates: the id input of an epic_create call, or the id of its inline contract
+     * for a call made before epic_create took an id; empty when the item is not an epic_create call or names no id.
      * </pre>
      *
      * <code>string epic = 14 [json_name = "epic"];</code>
@@ -1867,8 +1940,8 @@ public  final class ConversationItem extends
     }
     /**
      * <pre>
-     * The id of the epic a tool item's call creates: the contract id of an epic_create call, or empty when the item is
-     * not an epic_create call or its contract names no id.
+     * The id of the epic a tool item's call creates: the id input of an epic_create call, or the id of its inline contract
+     * for a call made before epic_create took an id; empty when the item is not an epic_create call or names no id.
      * </pre>
      *
      * <code>string epic = 14 [json_name = "epic"];</code>
@@ -1881,8 +1954,8 @@ public  final class ConversationItem extends
     }
     /**
      * <pre>
-     * The id of the epic a tool item's call creates: the contract id of an epic_create call, or empty when the item is
-     * not an epic_create call or its contract names no id.
+     * The id of the epic a tool item's call creates: the id input of an epic_create call, or the id of its inline contract
+     * for a call made before epic_create took an id; empty when the item is not an epic_create call or names no id.
      * </pre>
      *
      * <code>string epic = 14 [json_name = "epic"];</code>
@@ -1973,6 +2046,80 @@ public  final class ConversationItem extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The id of the contract a tool item's call writes: the id input of a contract_propose or contract_revise call; empty
+     * when the item is not one of those calls or its input names no id.
+     * </pre>
+     *
+     * <code>string contract = 16 [json_name = "contract"];</code>
+     * @return The contract.
+     */
+    @java.lang.Override
+    public java.lang.String getContract() {
+      return instance.getContract();
+    }
+    /**
+     * <pre>
+     * The id of the contract a tool item's call writes: the id input of a contract_propose or contract_revise call; empty
+     * when the item is not one of those calls or its input names no id.
+     * </pre>
+     *
+     * <code>string contract = 16 [json_name = "contract"];</code>
+     * @return The bytes for contract.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getContractBytes() {
+      return instance.getContractBytes();
+    }
+    /**
+     * <pre>
+     * The id of the contract a tool item's call writes: the id input of a contract_propose or contract_revise call; empty
+     * when the item is not one of those calls or its input names no id.
+     * </pre>
+     *
+     * <code>string contract = 16 [json_name = "contract"];</code>
+     * @param value The contract to set.
+     * @return This builder for chaining.
+     */
+    public Builder setContract(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setContract(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The id of the contract a tool item's call writes: the id input of a contract_propose or contract_revise call; empty
+     * when the item is not one of those calls or its input names no id.
+     * </pre>
+     *
+     * <code>string contract = 16 [json_name = "contract"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearContract() {
+      copyOnWrite();
+      instance.clearContract();
+      return this;
+    }
+    /**
+     * <pre>
+     * The id of the contract a tool item's call writes: the id input of a contract_propose or contract_revise call; empty
+     * when the item is not one of those calls or its input names no id.
+     * </pre>
+     *
+     * <code>string contract = 16 [json_name = "contract"];</code>
+     * @param value The bytes for contract to set.
+     * @return This builder for chaining.
+     */
+    public Builder setContractBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setContractBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.ConversationItem)
   }
   @java.lang.Override
@@ -2005,11 +2152,12 @@ public  final class ConversationItem extends
             "promptId_",
             "epic_",
             "stepFacts_",
+            "contract_",
           };
           java.lang.String info =
-              "\u0000\u000f\u0000\u0001\u0001\u000f\u000f\u0000\u0000\u0000\u0001\u0208\u0002\u0002" +
+              "\u0000\u0010\u0000\u0001\u0001\u0010\u0010\u0000\u0000\u0000\u0001\u0208\u0002\u0002" +
               "\u0003\u0208\u0004\u0208\u0005\u0208\u0006\u0208\u0007\u0007\b\u0208\t\u0208\n\u0002" +
-              "\u000b\u0208\f\u000b\r\u0208\u000e\u0208\u000f\u1009\u0000";
+              "\u000b\u0208\f\u000b\r\u0208\u000e\u0208\u000f\u1009\u0000\u0010\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

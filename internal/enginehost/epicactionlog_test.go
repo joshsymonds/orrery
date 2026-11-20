@@ -74,7 +74,7 @@ func TestEpicActionLogPauseRecordsItsCaller(t *testing.T) {
 			// The epic is created by the case's caller, so a conversation caller steers it and may change it.
 			caller := http.Header{}
 			tc.headers(caller)
-			if err := steererSetCreate(t, client, stepGitTestRepo(t), caller); err != nil {
+			if err := steererSetCreate(t, st, client, stepGitTestRepo(t), caller); err != nil {
 				t.Fatalf("CreateEpic: %v", err)
 			}
 
