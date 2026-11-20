@@ -9,6 +9,7 @@ import { App } from "./app";
 import { createClients, createTransport } from "./client";
 import { type InAppNotice, InAppNoticeSchema } from "./gen/orrery/v1/notice_pb";
 import type { Row } from "./rows";
+import { mockTimers } from "./testclock";
 import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
 import { until } from "./testwait";
 
@@ -22,20 +23,31 @@ const webTime = 1_800_000_000;
 const now = webTime + 60;
 const limitKey = "five-hour@1800000000";
 
-// FakeServer answers the notice calls and records them: each Seen's key, each ReadAll, and each List. While listFails
-// is set, a List answers with a server error. The watch streams stay open, and every other call answers an empty
-// object.
+// ListedRow is a row of the notice log as Notices.List answers it, with the read mark the server keeps for it.
+interface ListedRow {
+  key: Record<string, string>;
+  state: string;
+  title: string;
+  body: string;
+  time: string;
+  read: boolean;
+}
+
+// FakeServer answers the notice calls and records them: each Seen's key, each ReadAll, and each List. A Seen marks the
+// log row under its key read, and a ReadAll marks every row read, so each List answers the log as the page left it.
+// While listFails is set, a List answers with a server error. The watch streams stay open, and every other call answers
+// an empty object.
 interface FakeServer {
   fetch: typeof globalThis.fetch;
   requests: { path: string; body: string }[];
-  listed: object[];
+  listed: ListedRow[];
   lists: number;
   listFails: boolean;
   seen: Record<string, string>[];
   readAlls: number;
 }
 
-function fakeServer(listed: object[]): FakeServer {
+function fakeServer(listed: ListedRow[]): FakeServer {
   const server: FakeServer = {
     fetch: async (input, init) => {
       const request = new Request(input, init);
@@ -60,10 +72,13 @@ function fakeServer(listed: object[]): FakeServer {
       if (path === noticesSeenPath) {
         const body = (await request.json()) as { key?: Record<string, string> };
         server.seen.push(body.key ?? {});
+        const sent = JSON.stringify(body.key ?? {});
+        server.listed = server.listed.map((row) => (JSON.stringify(row.key) === sent ? { ...row, read: true } : row));
         return json({});
       }
       if (path === noticesReadAllPath) {
         server.readAlls++;
+        server.listed = server.listed.map((row) => ({ ...row, read: true }));
         return json({});
       }
       return json({});
@@ -83,17 +98,17 @@ function json(body: unknown): Response {
 }
 
 // listedMessage is a row of the notice log under key, timed at time in unix seconds, read or not.
-function listedMessage(key: Record<string, string>, title: string, time: number, read: boolean): object {
+function listedMessage(key: Record<string, string>, title: string, time: number, read: boolean): ListedRow {
   return { key, state: "done", title, body: `${title} body`, time: String(time), read };
 }
 
 // readOnly is a notice log of one row, which is read.
-function readOnly(): object[] {
+function readOnly(): ListedRow[] {
   return [listedMessage({ pane: "b" }, "web finished", webTime, true)];
 }
 
 // The notice log the centre lists: an unread pane notice, an unread limit, and a read pane notice.
-function listed(): object[] {
+function listed(): ListedRow[] {
   return [
     listedMessage({ pane: "b" }, "web finished", webTime, false),
     listedMessage({ limit: limitKey }, "five-hour limit", webTime - 120, false),
@@ -150,8 +165,11 @@ function stackNotice(key: Record<string, string>, title: string): InAppNotice {
 
 interface Setup {
   width: number;
-  listed?: object[];
+  listed?: ListedRow[];
   notices?: InAppNotice[];
+  // The wait between checks while the page loads. A test whose timers are mocked passes settle, since the default wait is
+  // a timer.
+  step?: () => Promise<void>;
 }
 
 // withDesk mounts App at the setup's width over a fake server in a fresh DOM, and runs check with its container and the
@@ -178,7 +196,7 @@ async function withDesk(
     await act(() => {
       render(<App rows={rows()} now={now} clients={clients} notices={setup.notices} />, container);
     });
-    await until(signal, () => server.lists > 0, "the notice log listed");
+    await until(signal, () => server.lists > 0, "the notice log listed", { step: setup.step });
     await act(() => {});
     await check(container, server);
   } finally {
@@ -246,6 +264,39 @@ function markAllOf(container: HTMLElement): HTMLElement | undefined {
   return Array.from(container.querySelectorAll<HTMLElement>("section.ncentre button")).find(
     (button) => button.textContent === "Mark all read",
   );
+}
+
+// stackRowOf finds the stack's row whose body is body, which the fixtures give each notice as "<title> body".
+function stackRowOf(container: HTMLElement, body: string): HTMLElement | undefined {
+  return [...container.querySelectorAll<HTMLElement>(".notices > .notice")].find(
+    (element) => element.querySelector(".b")?.textContent === body,
+  );
+}
+
+// bellCount reads the unread count the head bell draws, or "" when it draws none.
+function bellCount(container: HTMLElement): string {
+  return headBell(container).querySelector(".n.new")?.textContent ?? "";
+}
+
+// settle is the wait between checks in a test whose timers are mocked. It awaits act, which applies the renders the page
+// has queued, and waits on no timer, so the mocked clock stays where the test put it.
+function settle(): Promise<void> {
+  return act(() => {});
+}
+
+// settleTurns awaits settle a fixed number of times, so a request the page has sent reaches the fake server before the
+// test looks at what the server recorded.
+async function settleTurns(): Promise<void> {
+  for (let turn = 0; turn < 50; turn++) {
+    await settle();
+  }
+}
+
+// advance moves the mocked clock forward by ms and flushes the renders its timers cause.
+async function advance(t: TestContext, ms: number): Promise<void> {
+  await act(() => {
+    t.mock.timers.tick(ms);
+  });
 }
 
 // centreRowOf finds the centre's row whose body is body, which the fixtures give each notice as "<title> body".
@@ -400,6 +451,48 @@ test("NoticeBell: a click on the rail's Notices tile opens the notice centre", (
     assert.ok(centre(container) !== null, "the centre is drawn once the rail's Notices tile is pressed");
   }));
 
+test("NoticeStack: the N more in Notices link opens the notice centre in the page", (t) =>
+  withDesk(t.signal, { width: wideWidth, notices: stackedNotices() }, async (container) => {
+    assert.equal(stackMore(container).textContent, "1 more in Notices");
+    assert.equal(centreDrawn(container), false);
+    await press(stackMore(container));
+    assert.ok(centre(container) !== null, "the centre is drawn once the link is pressed");
+  }));
+
+test("NoticeStack: a notice that leaves the stack after 8 s leaves its log row unread, so the bell still counts it", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withDesk(
+    t.signal,
+    { width: wideWidth, notices: [stackNotice({ pane: "b" }, "web finished")], step: settle },
+    async (container) => {
+      await until(t.signal, () => stackRowOf(container, "web finished body") !== undefined, "the notice in the stack", {
+        step: settle,
+      });
+      await until(t.signal, () => bellCount(container) === "2", "the bell's count of 2", { step: settle });
+      await advance(t, 8000);
+      assert.equal(stackRowOf(container, "web finished body"), undefined, "the notice is still on the stack at 8000 ms");
+      await settleTurns();
+      assert.equal(bellCount(container), "2", "the notice that left the stack no longer counts as unread");
+    },
+  );
+});
+
+test("NoticeBell: Mark read on a stack row lists the log again, and the bell's count drops by the notice it read", (t) =>
+  withDesk(t.signal, { width: wideWidth, notices: stackedNotices() }, async (container) => {
+    await until(t.signal, () => bellCount(container) === "2", "the bell's count of 2");
+    await press(stackRowOf(container, "web finished body")?.querySelector(".acts > button.quiet"));
+    await until(t.signal, () => bellCount(container) === "1", "the bell's count after Mark read");
+  }));
+
+test("NoticeBell: Mark all read in the centre lists the log again, and the bell's count clears", (t) =>
+  withDesk(t.signal, { width: wideWidth }, async (container) => {
+    await until(t.signal, () => bellCount(container) === "2", "the bell's count of 2");
+    await openCentre(container);
+    await until(t.signal, () => markAllOf(container) !== undefined, "the Mark all read control");
+    await press(markAllOf(container));
+    await until(t.signal, () => bellCount(container) === "", "the bell's count cleared");
+  }));
+
 test("NoticeCentre: its rows are the notice log's rows, each drawn with its body", (t) =>
   withDesk(t.signal, { width: wideWidth }, async (container) => {
     await openCentre(container);
@@ -450,7 +543,7 @@ test("NoticeCentre: Close closes the centre", (t) =>
     assert.equal(centreDrawn(container), false);
   }));
 
-test("NoticeCentre: a failed List keeps the rows and says so", (t) =>
+test("NoticeBell: a failed List keeps the rows and says so", (t) =>
   withDesk(t.signal, { width: wideWidth }, async (container, server) => {
     await openCentre(container);
     await until(t.signal, () => centreRows(container).length === 3, "the centre's three rows");

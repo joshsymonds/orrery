@@ -357,6 +357,24 @@ test("NoticeStack: Open on a pane notice sends Seen with its key and moves the c
     assert.equal(isCursored(root, apiRow), false, "the cursor is still on the api row");
   }));
 
+test("NoticeStack: Answer on a waiting pane notice sends Seen with its key and moves the cursor to that pane's row", (t) =>
+  withPage(t.signal, async (root, server) => {
+    sendNotice(server, {
+      shown: { key: { pane: "%2" }, state: "waiting", title: "web needs you", body: "web needs you body" },
+    });
+    await until(t.signal, () => rowOf(root, "web needs you") !== undefined, "the notice in the stack");
+    assert.equal(
+      rowOf(root, "web needs you")?.querySelector(".acts > button:not(.quiet)")?.textContent,
+      "Answer",
+      "the waiting pane notice has no Answer",
+    );
+    assert.equal(clickRowControl(root, "web needs you"), true, "no Answer control for the notice");
+    await until(t.signal, () => server.seen.length === 1, "the Seen report");
+    assert.equal(server.seen[0].pane, "%2");
+    await until(t.signal, () => isCursored(root, webRow), "the cursor on the web row");
+    assert.equal(isCursored(root, apiRow), false, "the cursor is still on the api row");
+  }));
+
 test("NoticeStack: a limit notice has no open control, and its Mark read sends Seen and moves nothing", (t) =>
   withPage(t.signal, async (root, server) => {
     assert.equal(clickRow(root, webRow), true, "no row for the web pane");
@@ -555,7 +573,7 @@ async function clickEpicNotice(
   await until(signal, () => server.seen.length === 1, "the Seen report");
 }
 
-test("a question notice opens its epic at its Now section, with the question's Ask in the page", (t) =>
+test("NoticeStack: a question notice opens its epic at its Now section, with the question's Ask in the page", (t) =>
   withPage(
     t.signal,
     async (root, server, scrolled) => {
@@ -574,7 +592,7 @@ test("a question notice opens its epic at its Now section, with the question's A
     landingFixtures,
   ));
 
-test("a release-step notice opens its epic at its Now section, where Retry and Stop… are", (t) =>
+test("NoticeStack: a release-step notice opens its epic at its Now section, where Retry and Stop… are", (t) =>
   withPage(
     t.signal,
     async (root, server, scrolled) => {
@@ -592,7 +610,7 @@ test("a release-step notice opens its epic at its Now section, where Retry and S
     landingFixtures,
   ));
 
-test("a report notice for an epic under ended earlier opens the line and brings the page's top into view", (t) =>
+test("NoticeStack: a report notice for an epic under ended earlier opens the line and brings the page's top into view", (t) =>
   withPage(
     t.signal,
     async (root, server, scrolled) => {
@@ -605,14 +623,14 @@ test("a report notice for an epic under ended earlier opens the line and brings 
     landingFixtures,
   ));
 
-test("a contract notice opens the contract page of its epic, without a scroll into view", (t) =>
+test("NoticeStack: a contract notice opens the contract page of its epic, without a scroll into view", (t) =>
   withPage(t.signal, async (root, server, scrolled) => {
     await clickEpicNotice(t.signal, root, server, asking, { kind: "contract", ref: "" });
     await until(t.signal, () => pageCrumb(root) === "contract", "the contract page");
     assert.deepEqual(scrolled, []);
   }, landingFixtures));
 
-test("a notice with no block opens its ended earlier epic at the top of the epic view", (t) =>
+test("NoticeStack: a notice with no block opens its ended earlier epic at the top of the epic view", (t) =>
   withPage(
     t.signal,
     async (root, server, scrolled) => {
@@ -625,7 +643,7 @@ test("a notice with no block opens its ended earlier epic at the top of the epic
     landingFixtures,
   ));
 
-test("a notice for an epic the list does not hold moves the cursor and the page nowhere", (t) =>
+test("NoticeStack: a notice for an epic the list does not hold moves the cursor and the page nowhere", (t) =>
   withPage(
     t.signal,
     async (root, server, scrolled) => {

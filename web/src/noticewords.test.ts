@@ -184,6 +184,25 @@ test("NoticeStack: a session names its listed directory and never its id", () =>
   assert.deepEqual(head, { lead: { kind: "glyph", state: "done" }, dir: "tidepool", what: "done" });
 });
 
+test("NoticeStack: a pane's notice words its failed, cut off and stopped states beside waiting and done", () => {
+  const states: [string, string][] = [
+    ["waiting", "waiting on you"],
+    ["done", "done"],
+    ["failed", "failed"],
+    ["interrupted", "cut off"],
+    ["stopped", "stopped"],
+  ];
+  for (const [state, want] of states) {
+    const head = noticeHead(
+      notice({ key: noticeKeyOf({ pane: "%3" }), state, title: "orrery · fix the build" }),
+      [],
+      [],
+      now,
+    );
+    assert.equal(head.what, want, `state ${state}`);
+  }
+});
+
 test("NoticeStack: a row that is not listed takes its directory from the title before the separator, or the whole title", () => {
   const withSeparator = noticeHead(
     notice({ key: noticeKeyOf({ pane: "%9" }), state: "working", title: "orrery · tidying the tests" }),
