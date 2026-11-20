@@ -715,28 +715,213 @@ test("FixtureTransport: page/contract-accepted draws the tide-alerts contract", 
   );
 });
 
-test("FixtureTransport: page/phase-implement draws the task's record with its implement stage open", (t) => {
+// openStage is the name of the stage row the task's record has open, or null when none is open.
+function openStage(root: HTMLElement): string | null {
+  return root.querySelector(".phase-output .phase-head[aria-expanded=\"true\"] .nm")?.textContent ?? null;
+}
+
+// stageRow is the stage row of the task's record that is named name, or null when the record draws none.
+function stageRow(root: HTMLElement, name: string): HTMLElement | null {
+  return (
+    [...root.querySelectorAll<HTMLElement>(".phase-output .phase")].find(
+      (row) => row.querySelector(".phase-head .nm")?.textContent === name,
+    ) ?? null
+  );
+}
+
+// bodyLines is the text of each quiet, ok, bad or accepted line the open stage draws.
+function bodyLines(root: HTMLElement): string[] {
+  return [...root.querySelectorAll<HTMLElement>(".phase-body .inote")].map((line) => line.textContent ?? "");
+}
+
+// workerDock is the step's dock under the worker session, or null when the page draws none.
+function workerDock(root: HTMLElement): HTMLElement | null {
+  return root.querySelector<HTMLElement>(".worker-session .dock");
+}
+
+test("FixtureTransport: page/phase-implement draws the implement stage open and live, its judge still to read the change", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(
     t,
     Page["phase-implement"],
-    (root) => root.querySelector(".phase-output .phase-head[aria-expanded=\"true\"] .nm") !== null,
+    (root) => openStage(root) !== null,
     (root) => {
       assertNoFailure(root);
-      assert.equal(root.querySelector(".phase-output .phase-head[aria-expanded=\"true\"] .nm")?.textContent, "implement");
+      assert.equal(openStage(root), "implement");
+      const row = stageRow(root, "implement");
+      assert.ok(row?.classList.contains("now") && row.classList.contains("run"), "implement is the now row, in the live tone");
+      assert.ok(
+        bodyLines(root).includes("The judge reads the change once the gate passes."),
+        "the implement body says the judge has not read the change",
+      );
     },
   );
 });
 
-test("FixtureTransport: page/worker-running draws the worker session", (t) => {
+test("FixtureTransport: page/phase-red opens the red stage, and implement stays the now row", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["phase-red"],
+    (root) => openStage(root) === "red",
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(openStage(root), "red");
+      assert.ok(stageRow(root, "implement")?.classList.contains("now"), "implement is still the now row");
+      const verdict = root.querySelector(".phase-output .phase-body .run .chip")?.textContent ?? "";
+      assert.ok(verdict.endsWith("fails"), "the red run's verdict is drawn");
+    },
+  );
+});
+
+test("FixtureTransport: page/phase-green draws the green stage now in the live tone, its judge reading the green run", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["phase-green"],
+    (root) => openStage(root) === "green",
+    (root) => {
+      assertNoFailure(root);
+      const row = stageRow(root, "green");
+      assert.ok(row?.classList.contains("now") && row.classList.contains("run"), "green is the now row, in the live tone");
+      assert.equal(row?.querySelector(".sum")?.textContent, "a judge is reading the green run");
+      assert.ok(
+        bodyLines(root).includes("The red test is running on the change."),
+        "the reproduction says the red test is still running on the change",
+      );
+    },
+  );
+});
+
+test("FixtureTransport: page/phase-review draws the review stage now, a verifier checking the one open finding", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["phase-review"],
+    (root) => openStage(root) === "review",
+    (root) => {
+      assertNoFailure(root);
+      const row = stageRow(root, "review");
+      assert.ok(row?.classList.contains("now") && row.classList.contains("run"), "review is the now row, in the live tone");
+      assert.equal(row?.querySelector(".sum")?.textContent, "a verifier is checking 1 finding");
+      assert.equal(root.querySelector(".phase-output .phase-body .tr .chip.live")?.textContent, "verifying");
+    },
+  );
+});
+
+test("FixtureTransport: page/phase-integrate draws the integrate stage now in the accepted tone, waiting for its merge", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["phase-integrate"],
+    (root) => openStage(root) === "integrate",
+    (root) => {
+      assertNoFailure(root);
+      const row = stageRow(root, "integrate");
+      assert.ok(row?.classList.contains("now") && row.classList.contains("acc"), "integrate is the now row, in the accepted tone");
+      assert.ok(
+        bodyLines(root).includes("Every gate took it. It waits for its merge."),
+        "the integrate body says every gate took the task",
+      );
+      assert.ok(
+        root.querySelector(".phase-output .title-row")?.textContent.includes("accepted · waits to integrate"),
+        "the state pill says so",
+      );
+    },
+  );
+});
+
+test("FixtureTransport: page/phase-refused draws Interrupt's refusal under the title row once Interrupt is pressed", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["phase-refused"],
+    (root) => root.querySelector(".page-note")?.textContent === "Interrupt was refused: the step ended a moment ago.",
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(root.querySelector(".page-note")?.textContent, "Interrupt was refused: the step ended a moment ago.");
+    },
+  );
+});
+
+test("FixtureTransport: page/worker-running draws the worker session with a live dock that interrupts the turn on a nudge", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(
     t,
     Page["worker-running"],
-    (root) => root.querySelector(".worker-session") !== null,
+    (root) => workerDock(root) !== null,
     (root) => {
       assertNoFailure(root);
-      assert.ok(root.querySelector(".worker-session") !== null, "the worker session is drawn");
+      const dock = workerDock(root);
+      assert.equal(dock?.querySelector(".dock-box")?.getAttribute("data-state"), "working");
+      assert.equal(
+        dock?.querySelector("textarea")?.getAttribute("placeholder"),
+        "Nudge export-cli. It interrupts the turn, then gives it your words",
+      );
+      assert.equal(root.querySelector(".worker-session .step-card"), null, "no step end is drawn while the step runs");
+    },
+  );
+});
+
+test("FixtureTransport: page/worker-held draws the held dock in peach, its nudge resuming the step", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["worker-held"],
+    (root) => workerDock(root)?.querySelector(".dock-box")?.getAttribute("data-state") === "held",
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(
+        workerDock(root)?.querySelector("textarea")?.getAttribute("placeholder"),
+        "Nudge tz-fixtures. It resumes with your words",
+      );
+    },
+  );
+});
+
+test("FixtureTransport: page/worker-stop-confirm opens Stop's question, behind More, when More is pressed", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["worker-stop-confirm"],
+    (root) => workerDock(root)?.querySelector(".confirm")?.textContent.includes("Stop export-cli?") === true,
+    (root) => {
+      assertNoFailure(root);
+      const buttons = [...(workerDock(root)?.querySelectorAll(".confirm button") ?? [])];
+      assert.deepEqual(
+        buttons.map((button) => button.textContent),
+        ["Stop export-cli", "Keep it running"],
+      );
+    },
+  );
+});
+
+test("FixtureTransport: page/worker-ended draws the ended step's end as the last block, with no dock", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["worker-ended"],
+    (root) => root.querySelector(".worker-session .step-card") !== null,
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(workerDock(root), null, "an ended step has no dock");
+      assert.equal(root.querySelector(".worker-session .step-card .step-end")?.textContent, "end done");
+    },
+  );
+});
+
+test("FixtureTransport: page/worker-note draws the nudge that got no answer, its text kept in the dock", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["worker-note"],
+    (root) => (workerDock(root)?.querySelector(".inote.error") ?? null) !== null,
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(
+        workerDock(root)?.querySelector(".inote.error")?.textContent,
+        "nudge not known: it may have landed; nothing was resent",
+      );
     },
   );
 });
@@ -1376,7 +1561,7 @@ test("FixtureTransport: page/epic-unavailable draws the could-not-read line with
   );
 });
 
-test("FixtureTransport: page's keys are exactly the 71 catalog names of its scenario states", () => {
+test("FixtureTransport: page's keys are exactly the 80 catalog names of its scenario states", () => {
   assert.deepEqual(Object.keys(Page).map((state) => storyName("Page", state)).sort(), [
     "page/ask-later",
     "page/ask-session",
@@ -1444,11 +1629,20 @@ test("FixtureTransport: page's keys are exactly the 71 catalog names of its scen
     "page/new-none",
     "page/new-results",
     "page/new-working",
+    "page/phase-green",
     "page/phase-implement",
+    "page/phase-integrate",
+    "page/phase-red",
+    "page/phase-refused",
+    "page/phase-review",
     "page/work-empty",
     "page/work-rail",
     "page/work-rail-group",
+    "page/worker-ended",
+    "page/worker-held",
+    "page/worker-note",
     "page/worker-running",
+    "page/worker-stop-confirm",
   ]);
 });
 
