@@ -34,8 +34,16 @@ import org.json.JSONObject
 
 internal data class QuestionOption(val label: String, val key: String, val description: String?)
 
-/** [markdown] is true when the title and options were written by the assistant and are drawn as markdown. */
-internal class ParsedQuestion(val title: String, val options: List<QuestionOption>, val markdown: Boolean = false)
+/**
+ * [markdown] is true when the title and options were written by the assistant and are drawn as markdown. [count] is how
+ * many questions the stored value asks; 1 for a tool permission and for plain text.
+ */
+internal class ParsedQuestion(
+    val title: String,
+    val options: List<QuestionOption>,
+    val markdown: Boolean = false,
+    val count: Int = 1,
+)
 
 private val toolOptions = listOf(
     QuestionOption("1 Yes", "1", null),
@@ -56,8 +64,9 @@ internal fun parseQuestion(stored: String): ParsedQuestion {
         return ParsedQuestion(stored, toolOptions)
     }
 
-    val first = json.optJSONArray("questions")?.optJSONObject(0)
-    if (first != null) {
+    val questions = json.optJSONArray("questions")
+    val first = questions?.optJSONObject(0)
+    if (questions != null && first != null) {
         val options = first.optJSONArray("options")
         val entries = options?.let { array ->
             List(array.length()) { index -> array.optJSONObject(index) }
@@ -72,6 +81,7 @@ internal fun parseQuestion(stored: String): ParsedQuestion {
                 )
             },
             markdown = true,
+            count = questions.length(),
         )
     }
 
