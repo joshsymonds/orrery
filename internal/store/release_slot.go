@@ -17,6 +17,10 @@ const (
 	ReleaseSlotOutside = "outside"
 )
 
+// ReleaseSlotOutsidePrefix begins the holder of a release slot an outside releaser holds, which is the prefix and the
+// label of the hold.
+const ReleaseSlotOutsidePrefix = "outside:"
+
 // ReleaseSlotHolder is who holds a repository's release slot. An epic holder sets Epic. An outside holder sets Label,
 // and Deadline, the instant from which the hold is freed without a give.
 type ReleaseSlotHolder struct {

@@ -179,8 +179,8 @@ func takesReleaseSlot(phase string) bool {
 	return phase == PhaseClean || phase == PhaseReleasing || phase == PhaseStopped
 }
 
-// releaseSlotHolder returns the epic that holds the release slot of repository, "outside:" and the label of an outside
-// holder, or "" when the slot is free.
+// releaseSlotHolder returns the epic that holds the release slot of repository, ReleaseSlotOutsidePrefix and the label of
+// an outside holder, or "" when the slot is free.
 func releaseSlotHolder(ctx context.Context, queries *sqlcgen.Queries, repository string) (string, error) {
 	row, err := queries.GetEpicReleaseSlotHolder(ctx, repository)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -190,7 +190,7 @@ func releaseSlotHolder(ctx context.Context, queries *sqlcgen.Queries, repository
 		return "", fmt.Errorf("read release slot of %s: %w", repository, err)
 	}
 	if row.HolderKind == ReleaseSlotOutside {
-		return "outside:" + row.Label, nil
+		return ReleaseSlotOutsidePrefix + row.Label, nil
 	}
 	return row.Epic, nil
 }
