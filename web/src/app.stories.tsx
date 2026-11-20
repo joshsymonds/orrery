@@ -29,6 +29,8 @@ const notices = "orrery/notices-usable";
 const harbour = "orrery/harbour-map";
 const buoy = "tidepool/buoy-feeds";
 const tideCache = "tidepool/tide-cache";
+const orbit = "orrery/orbit-labels";
+const offline = "tidepool/offline-tables";
 const deck = "commonframe/deck-pipeline";
 const headlessSession = "4be0c6d2-8f3a-4c71-9e25-ephemeris001";
 // The headless session that steers tidepool/buoy-feeds, which runs two sub-agents and one shell.
@@ -350,6 +352,10 @@ export const Page: Stories = {
   ),
   "epic-question": () => <PageStory address={epicAt(rota, { kind: "epic" })} />,
   "epic-shipped": () => <PageStory address={epicAt(holder, { kind: "epic" })} />,
+  "epic-reviewing": () => epicScenario(epicAt(rota, { kind: "epic" }), "reviewing"),
+  "epic-releasing": () => epicScenario(epicAt(orbit, { kind: "epic" }), "releasing"),
+  "epic-release-failed": () => epicScenario(epicAt(offline, { kind: "epic" }), "releaseFailed"),
+  "epic-ended-gaps": () => epicScenario(epicAt(tideCache, { kind: "epic" }), "endedGaps"),
   "convo-contract": () => (
     <PageStory address={paneAt("%16")} fixture={createFixtureTransport(contractStories.toAccept)} />
   ),

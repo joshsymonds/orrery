@@ -29,6 +29,8 @@ import { at, commit } from "./clock";
 type Plain<Init> = Extract<Init, { readonly $typeName?: undefined }>;
 
 type EpicInit = MessageInitShape<typeof EpicSchema>;
+// EpicRow is an epic's Epics.List row as a plain object, the shape of each row the page scenarios change.
+export type EpicRow = Plain<EpicInit>;
 type StepInit = MessageInitShape<typeof EpicStepSchema>;
 type CheckInit = MessageInitShape<typeof EpicStepCheckSchema>;
 type SliceInit = MessageInitShape<typeof EpicSliceSchema>;
@@ -601,7 +603,7 @@ const holderGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
       { step: "CI green on the tag", target: "github actions", undo: "rerun" },
       { step: "halyard runs v0.45.0", target: "halyard", undo: "switch to the previous generation" },
     ],
-    releaseThen: "Then halyard runs v0.45.0 and every holder is scoped.",
+    releaseThen: "halyard runs v0.45.0 and every holder is scoped.",
     checks: "just check; a red and a green run for R1-R3; a review for R4.",
     base: commit.holderBase,
     accepted: at("@08:04"),
@@ -947,12 +949,13 @@ const buoyGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
 // tidepool/tide-cache
 // ---------------------------------------------------------------------------------------------------------------------
 
-const tidecacheGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
-  epic: {
-    id: "tidepool/tide-cache", repository: "tidepool", path: "/home/owner/code/tidepool", slug: "tide-cache", steering: "sess-cache-20", outcome: "closed_superseded",
-    changed: at("@-4d 09:12"), live: false, runningSteps: [], endedSteps: 2, problem: "", source: "orreryd",
-    outcomeDetail: "", waiting: false, phaseAt: at("@-4d 09:12"), seen: at("@-4d 09:30"),
-  },
+const tidecacheEpic: EpicRow = {
+  id: "tidepool/tide-cache", repository: "tidepool", path: "/home/owner/code/tidepool", slug: "tide-cache", steering: "sess-cache-20", outcome: "closed_superseded",
+  changed: at("@-4d 09:12"), live: false, runningSteps: [], endedSteps: 2, problem: "", source: "orreryd",
+  outcomeDetail: "", waiting: false, phaseAt: at("@-4d 09:12"), seen: at("@-4d 09:30"),
+};
+const tidecacheGetInit: Plain<MessageInitShape<typeof EpicsGetResponseSchema>> = {
+  epic: tidecacheEpic,
   repository: "/home/owner/code/tidepool",
   requirements: [
     { id: "R1", kind: "check", text: "Tide tables are cached on disk.", runs: [] },
@@ -971,7 +974,8 @@ const tidecacheGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
     notShipped: ["R1", "R2", "R3"],
     why: "You ended it, superseded by offline-tables, which covers the same ground. Two unit branches are kept, unmerged.",
   },
-});
+};
+const tidecacheGet: EpicsGetResponse = create(EpicsGetResponseSchema, tidecacheGetInit);
 
 // ---------------------------------------------------------------------------------------------------------------------
 // almanac/moon-rounding: archived, under its archived conversation Moon phase rounding
@@ -1219,6 +1223,68 @@ export const rotaEvidence = {
   get: rotaStateGet(rotaBuildingSteps, {}, { requirements: rotaEvidenceRequirements }),
   history: create(EpicsHistoryResponseSchema, { entries: rotaBuildingHistory, next: "" }),
 };
+
+// rotaReviewingSteps are rota-export's steps once every build task is done: each one ended, and tz-fixtures' held step and
+// its red left out.
+const rotaT2Done: StepInit = { ...rotaT2Impl, end: "done", status: "ended", stage: "", doing: "", ended: at("@14:36") };
+const rotaReviewingSteps: StepInit[] = [rotaT5Try1, rotaT4Impl, rotaT5Try2, rotaT2Done, rotaT3Impl, rotaT3Review];
+
+// rotaReviewingGet is rota-export in its review: every build task done, the contract reviewer holding and the security
+// reviewer failing, and its one finding confirmed with a closure still open.
+const rotaReviewingGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
+  ...rotaGetInit,
+  epic: rotaStateEpic(rotaReviewingSteps, { outcome: "reviewing" }),
+  steps: rotaReviewingSteps,
+  questions: [],
+  buildTasks: rotaTasks.map((task) => ({ ...task, status: "done", stage: "verify" })),
+  reviews: [
+    { position: 1n, reviewer: "contract", step: "", verdict: "holds", reason: "Every requirement has a red and a green run at the stored base." },
+    { position: 2n, reviewer: "security", step: "", verdict: "fails", reason: "One finding: export writes outside the rota directory when the name holds “../”." },
+  ],
+  ledger: [{
+    id: "security-1", position: 1n, reviewer: "security",
+    claim: "Export writes outside the rota directory when the name holds “../”.",
+    location: "export.go:41", step: "", result: "confirmed", unverified: false,
+    reason: "Ran the export with a name that holds ../, and the file was written outside the rota directory.",
+    closures: [{ round: 1n, step: "", result: "open", reason: "a fix plan will close it" }],
+  }],
+});
+export const rotaReviewing = {
+  row: rotaStateEpic(rotaReviewingSteps, { outcome: "reviewing" }),
+  get: rotaReviewingGet,
+  history: create(EpicsHistoryResponseSchema, { entries: rotaBuildingHistory, next: "" }),
+};
+
+// orbitReleasing is orbit-labels releasing: its release table is orbitGet's, step 2 running, and its contract's Then line
+// is drawn under it.
+export const orbitReleasing: EpicsGetResponse = {
+  ...orbitGet,
+  contract: create(EpicContractSchema, {
+    title: "orbit-labels",
+    releaseThen: "the judge reads the tag and the notes, and the epic ends released.",
+  }),
+};
+
+// offlineStopped is offline-tables stopped at step 2, whose undo is none, so Release from step 2 is offered.
+export const offlineStopped: EpicsGetResponse = {
+  ...offlineGet,
+  releaseSteps: offlineGet.releaseSteps.map((step) => (step.position === 2n ? { ...step, undo: "none" } : step)),
+};
+
+// tidecacheGaps is tide-cache ended with gaps: its report ships none and names R1, R2 and R3 as not shipped, with the why
+// its gap was given. The Report draws the two owner calls, Release it anyway and Close as….
+// tidecacheGapsRow is tide-cache's list row ended with gaps.
+export const tidecacheGapsRow: EpicRow = { ...tidecacheEpic, outcome: "ended_with_gaps" };
+export const tidecacheGaps: EpicsGetResponse = create(EpicsGetResponseSchema, {
+  ...tidecacheGetInit,
+  epic: tidecacheGapsRow,
+  report: {
+    outcome: "ended_with_gaps",
+    shipped: [],
+    notShipped: ["R1", "R2", "R3"],
+    why: "R3 (a stale table is never served past midnight) was green on the change, but the review confirmed a finding the fix plans did not close in three rounds: the cache serves yesterday’s table for up to a minute after midnight.",
+  },
+});
 
 // noticesParked is notices-usable parked on the owner's park alone. The engine's question is left out, so the park draws
 // its own two choices, Retry and Stop, and no question's choices.
