@@ -3,19 +3,12 @@ package io.github.joshsymonds.orrery.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material3.Button
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import io.github.joshsymonds.orrery.api.EpicQuestionRow
+import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 
 /**
@@ -30,16 +23,18 @@ fun nowSentence(wedges: List<Wedge>): String {
 }
 
 /**
- * The now sentence over the epic's blocker. An open question draws its text and an answer form, a park draws its text
- * and a Retry, and any blocker has a Stop that asks first. [onAnswer] returns "" when the answer is recorded, else the
- * error to show under the form; the caller makes the call off the main thread.
+ * The now sentence over the epic's blocker. An open question draws its Ask, to pick a choice and confirm it, and a park
+ * draws its Ask with the one answer that runs the parked work again. Any blocker has a Stop that asks first. [onAnswer]
+ * receives the question's id, the chosen choice's id or "other", and the text sent with it; the caller makes the call
+ * off the main thread.
  */
 @Composable
 fun NowBlock(
     sentence: String,
     blocker: EpicBlocker?,
-    slug: String,
-    onAnswer: (questionId: String, text: String) -> String,
+    epic: EpicRow,
+    now: Long,
+    onAnswer: (questionId: String, choice: String, text: String) -> Unit,
     onRetry: () -> Unit,
     onStop: () -> Unit,
 ) {
@@ -49,61 +44,50 @@ fun NowBlock(
         }
         when (blocker) {
             is EpicBlocker.Question -> key(blocker.question.id) {
-                AnswerForm(blocker.question, onAnswer = onAnswer)
+                Ask(
+                    model = epicAsk(epic, blocker.question),
+                    now = now,
+                    phase = AskPhase.OPEN,
+                    picked = null,
+                    note = "",
+                    onAnswer = null,
+                    onNotNow = null,
+                    onBringBack = null,
+                    onDecline = null,
+                    onArchive = null,
+                    onConfirm = { choice, text ->
+                        onAnswer(blocker.question.id, choice, text)
+                        ""
+                    },
+                )
             }
-            is EpicBlocker.Parked -> {
-                Text(blocker.text, color = OrreryTokens.Role.attention)
-                TextButton(onClick = onRetry, modifier = Modifier.testTag("blocker-retry")) {
-                    Text("Retry")
-                }
-            }
+            is EpicBlocker.Parked -> Ask(
+                model = parkAsk(epic, blocker.text),
+                now = now,
+                phase = AskPhase.OPEN,
+                picked = null,
+                note = "",
+                onAnswer = null,
+                onNotNow = null,
+                onBringBack = null,
+                onDecline = null,
+                onArchive = null,
+                onConfirm = { _, _ ->
+                    onRetry()
+                    ""
+                },
+            )
             is EpicBlocker.Held, null -> Unit
         }
         if (blocker != null) {
             AskFirst(
                 label = "Stop…",
-                question = "Stop $slug?",
-                confirm = "Stop $slug",
+                question = "Stop ${epic.slug}?",
+                confirm = "Stop ${epic.slug}",
                 keep = "Keep it running",
                 tag = "blocker-stop",
                 onConfirm = onStop,
             )
         }
-    }
-}
-
-// AnswerForm answers one open question. Answer stays disabled while the trimmed answer is empty and sends the trimmed
-// answer. A returned error shows under the form and keeps the answer; an empty return clears it. hideQuestion leaves
-// out the question's own line, for a caller whose sentence already says the question.
-@Composable
-internal fun AnswerForm(
-    question: EpicQuestionRow,
-    hideQuestion: Boolean = false,
-    onAnswer: (questionId: String, text: String) -> String,
-) {
-    var text by remember { mutableStateOf("") }
-    var error by remember { mutableStateOf("") }
-    if (!hideQuestion) {
-        Text(question.text, modifier = Modifier.testTag("blocker-question"))
-    }
-    OutlinedTextField(
-        value = text,
-        onValueChange = { text = it },
-        modifier = Modifier.fillMaxWidth().testTag("blocker-answer"),
-    )
-    Button(
-        onClick = {
-            error = onAnswer(question.id, text.trim())
-            if (error.isEmpty()) {
-                text = ""
-            }
-        },
-        enabled = text.trim().isNotEmpty(),
-        modifier = Modifier.testTag("blocker-answer-send"),
-    ) {
-        Text("Answer")
-    }
-    if (error.isNotEmpty()) {
-        Text(error, color = OrreryTokens.Role.bad, modifier = Modifier.testTag("blocker-error"))
     }
 }

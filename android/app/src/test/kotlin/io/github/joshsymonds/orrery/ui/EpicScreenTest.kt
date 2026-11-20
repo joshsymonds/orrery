@@ -40,6 +40,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicContract
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicHistoryEntry
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicNode
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestionChoice
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseProof
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseStep
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicReport
@@ -204,8 +205,8 @@ class EpicScreenTest {
             .setReleaseThen("example release then")
             .build()
 
-    private fun question(id: String, text: String, asked: Long): EpicQuestion =
-        EpicQuestion.newBuilder().setId(id).setText(text).setTurn(1L).setAsked(asked).build()
+    private fun question(id: String, text: String, asked: Long, choices: List<EpicQuestionChoice> = emptyList()): EpicQuestion =
+        EpicQuestion.newBuilder().setId(id).setText(text).setTurn(1L).setAsked(asked).addAllChoices(choices).build()
 
     private fun node(path: String, kind: String): EpicNode =
         EpicNode.newBuilder()
@@ -650,10 +651,11 @@ class EpicScreenTest {
             serve(server, body(parked = "example park reason"))
             server.respond(EPICS_RETRY, EpicsRetryResponse.getDefaultInstance())
             setScreen(server)
-            awaitTag("blocker-retry")
+            awaitTag("ask-option:1")
 
+            clickTag("ask-option:1")
             val reads = getCount(server)
-            clickTag("blocker-retry")
+            clickTag("ask-confirm")
             awaitReload(server, reads)
 
             assertEquals(EPIC_ID, EpicsRetryRequest.parseFrom(requestsTo(server, EPICS_RETRY).single().body).id)
@@ -669,11 +671,12 @@ class EpicScreenTest {
             )
             server.respond(EPICS_ANSWER, EpicsAnswerResponse.getDefaultInstance())
             setScreen(server)
-            awaitTag("blocker-answer")
+            awaitTag("ask-other")
 
-            composeRule.onNodeWithTag("blocker-answer", useUnmergedTree = true).performTextInput("Example answer")
+            clickTag("ask-other")
+            composeRule.onNodeWithTag("ask-other-text", useUnmergedTree = true).performTextInput("Example answer")
             val reads = getCount(server)
-            clickTag("blocker-answer-send")
+            clickTag("ask-confirm")
             awaitReload(server, reads)
 
             val sent = EpicsAnswerRequest.parseFrom(requestsTo(server, EPICS_ANSWER).single().body)
@@ -681,6 +684,41 @@ class EpicScreenTest {
             assertEquals("example-question-1", sent.question)
             assertEquals("other", sent.choice)
             assertEquals("Example answer", sent.text)
+        }
+    }
+
+    @Test
+    fun aPickedChoiceSendsItsIdAndItsDoesTextOnlyOnConfirm() {
+        FakeOrreryServer().use { server ->
+            serve(
+                server,
+                body(
+                    questions = listOf(
+                        question(
+                            "example-question-1",
+                            "Example question?",
+                            NOW - 120,
+                            choices = listOf(
+                                EpicQuestionChoice.newBuilder().setId("example-choice").setDoes("example does").build(),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+            server.respond(EPICS_ANSWER, EpicsAnswerResponse.getDefaultInstance())
+            setScreen(server)
+            awaitTag("ask-option:1")
+
+            clickTag("ask-option:1")
+            assertEquals(0, requestsTo(server, EPICS_ANSWER).size)
+            val reads = getCount(server)
+            clickTag("ask-confirm")
+            awaitReload(server, reads)
+
+            val sent = EpicsAnswerRequest.parseFrom(requestsTo(server, EPICS_ANSWER).single().body)
+            assertEquals("example-question-1", sent.question)
+            assertEquals("example-choice", sent.choice)
+            assertEquals("example does", sent.text)
         }
     }
 
@@ -693,10 +731,11 @@ class EpicScreenTest {
             )
             server.fail(EPICS_ANSWER, Code.FAILED_PRECONDITION, "question is closed")
             setScreen(server)
-            awaitTag("blocker-answer")
+            awaitTag("ask-other")
 
-            composeRule.onNodeWithTag("blocker-answer", useUnmergedTree = true).performTextInput("Example answer")
-            clickTag("blocker-answer-send")
+            clickTag("ask-other")
+            composeRule.onNodeWithTag("ask-other-text", useUnmergedTree = true).performTextInput("Example answer")
+            clickTag("ask-confirm")
 
             awaitText("not sent: question is closed. Your answer: Example answer")
         }

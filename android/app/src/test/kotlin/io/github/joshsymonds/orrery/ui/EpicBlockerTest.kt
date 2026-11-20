@@ -8,12 +8,14 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextReplacement
 import io.github.joshsymonds.orrery.api.EpicQuestionRow
+import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.StepRow
 import io.github.joshsymonds.orrery.mainThreadComposeRule
 import org.junit.Assert.assertEquals
@@ -23,18 +25,19 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
-private const val SLUG = "api"
+private const val NOW = 1_700_000_000L
+private const val EPIC_ID = "example-repo/example-epic"
+private const val SLUG = "example-epic"
 private const val SENTENCE = "api-2 · checking · gate running"
 private const val NOW_TAG = "now-sentence"
-private const val QUESTION_TAG = "blocker-question"
-private const val ANSWER_TAG = "blocker-answer"
-private const val SEND_TAG = "blocker-answer-send"
-private const val ERROR_TAG = "blocker-error"
-private const val RETRY_TAG = "blocker-retry"
+private const val ASK_TAG = "ask"
+private const val QUESTION_TAG = "ask-question"
+private const val OTHER_TAG = "ask-other"
+private const val OTHER_TEXT_TAG = "ask-other-text"
+private const val CONFIRM_TAG = "ask-confirm"
 private const val STOP_TAG = "blocker-stop"
 private const val STOP_SURE_TAG = "blocker-stop-sure"
 private const val STOP_CONFIRM_TAG = "blocker-stop-confirm"
-private const val STOP_KEEP_TAG = "blocker-stop-keep"
 private const val PARKED_TEXT = "parked · rate limit"
 
 private val questionBlocker = EpicBlocker.Question(
@@ -127,126 +130,83 @@ class EpicBlockerTest {
     }
 
     @Test
-    fun withNoBlockerThereIsNoFormAndNoButton() {
+    fun withNoBlockerThereIsNoAskAndNoButton() {
         setBlock(null, sentence = SENTENCE)
 
+        assertEquals(0, composeRule.onAllNodesWithTag(ASK_TAG).fetchSemanticsNodes().size)
         assertEquals(0, composeRule.onAllNodesWithTag(QUESTION_TAG).fetchSemanticsNodes().size)
-        assertEquals(0, composeRule.onAllNodesWithTag(ANSWER_TAG).fetchSemanticsNodes().size)
         assertEquals(0, composeRule.onAllNodes(hasClickAction()).fetchSemanticsNodes().size)
     }
 
     @Test
-    fun anOpenQuestionDrawsItsTextAndAnAnswerFormWithADisabledAnswer() {
+    fun anOpenQuestionDrawsItsTextAndAnAskWithItsConfirmDisabledUntilPicked() {
         setBlock(questionBlocker)
 
         composeRule.onNodeWithTag(QUESTION_TAG).assertTextEquals("Which branch should it use?")
-        composeRule.onNodeWithTag(ANSWER_TAG).assertIsDisplayed()
-        composeRule.onNodeWithTag(SEND_TAG).assertIsNotEnabled()
+        composeRule.onNodeWithTag(ASK_TAG).assertIsDisplayed()
+        composeRule.onNodeWithTag(CONFIRM_TAG).assertIsNotEnabled()
     }
 
     @Test
-    fun answerIsDisabledWhileTheTrimmedAnswerIsEmptyAndEnabledOnceItHasText() {
+    fun confirmIsDisabledWhileSomethingElseIsBlankAndEnabledOnceItHasText() {
         setBlock(questionBlocker)
 
-        composeRule.onNodeWithTag(ANSWER_TAG).performTextReplacement("   ")
-        composeRule.onNodeWithTag(SEND_TAG).assertIsNotEnabled()
-        composeRule.onNodeWithTag(ANSWER_TAG).performTextReplacement("  Use main  ")
-        composeRule.onNodeWithTag(SEND_TAG).assertIsEnabled()
+        composeRule.onNodeWithTag(OTHER_TAG).performClick()
+        composeRule.onNodeWithTag(OTHER_TEXT_TAG).performTextReplacement("   ")
+        composeRule.onNodeWithTag(CONFIRM_TAG).assertIsNotEnabled()
+        composeRule.onNodeWithTag(OTHER_TEXT_TAG).performTextReplacement("  Use main  ")
+        composeRule.onNodeWithTag(CONFIRM_TAG).assertIsEnabled()
     }
 
     @Test
-    fun submittingSendsTheQuestionIdAndTheTrimmedAnswerAndClearsTheBoxWhenRecorded() {
-        val calls = mutableListOf<Pair<String, String>>()
-        setBlock(
-            questionBlocker,
-            onAnswer = { questionId, text ->
-                calls += questionId to text
-                ""
-            },
-        )
-
-        composeRule.onNodeWithTag(ANSWER_TAG).performTextReplacement("  Use main  ")
-        composeRule.onNodeWithTag(SEND_TAG).performClick()
-        composeRule.waitForIdle()
-
-        assertEquals(listOf("Q1" to "Use main"), calls)
-        assertEquals("", answerText())
-        assertEquals(0, composeRule.onAllNodesWithTag(ERROR_TAG).fetchSemanticsNodes().size)
-    }
-
-    @Test
-    fun aReturnedErrorShowsUnderTheFormAndKeepsTheAnswerAndALaterSuccessClearsIt() {
-        var attempts = 0
-        setBlock(
-            questionBlocker,
-            onAnswer = { _, _ ->
-                attempts++
-                if (attempts == 1) "question closed" else ""
-            },
-        )
-
-        composeRule.onNodeWithTag(ANSWER_TAG).performTextReplacement("Use main")
-        composeRule.onNodeWithTag(SEND_TAG).performClick()
-        composeRule.waitForIdle()
-        composeRule.onNodeWithTag(ERROR_TAG).assertTextEquals("question closed")
-        assertEquals("Use main", answerText())
-
-        composeRule.onNodeWithTag(SEND_TAG).performClick()
-        composeRule.waitForIdle()
-        assertEquals(0, composeRule.onAllNodesWithTag(ERROR_TAG).fetchSemanticsNodes().size)
-        assertEquals("", answerText())
-    }
-
-    @Test
-    fun aDifferentOpenQuestionStartsWithAnEmptyAnswerBox() {
+    fun aDifferentOpenQuestionStartsWithAnEmptySomethingElseBox() {
         val current = mutableStateOf<EpicBlocker?>(questionBlocker)
         composeRule.setContent {
             MaterialTheme {
                 NowBlock(
                     sentence = "",
                     blocker = current.value,
-                    slug = SLUG,
-                    onAnswer = { _, _ -> "" },
+                    epic = epicOf(),
+                    now = NOW,
+                    onAnswer = { _, _, _ -> },
                     onRetry = {},
                     onStop = {},
                 )
             }
         }
 
-        composeRule.onNodeWithTag(ANSWER_TAG).performTextReplacement("Use main")
+        composeRule.onNodeWithTag(OTHER_TAG).performClick()
+        composeRule.onNodeWithTag(OTHER_TEXT_TAG).performTextReplacement("Use main")
         composeRule.runOnIdle { current.value = laterQuestionBlocker }
         composeRule.waitForIdle()
 
         composeRule.onNodeWithTag(QUESTION_TAG).assertTextEquals("Which lane should it use?")
-        assertEquals("", answerText())
+        composeRule.onNodeWithTag(OTHER_TAG).performClick()
+        assertEquals("", textOf(OTHER_TEXT_TAG))
     }
 
     @Test
-    fun aParkDrawsItsTextAndARetryThatCallsOnRetryOnceWithNoAnswerForm() {
-        var retries = 0
-        setBlock(parkedBlocker, onRetry = { retries++ })
+    fun aParkDrawsItsReasonAsTheAskWithNoSomethingElseBox() {
+        setBlock(parkedBlocker)
 
         composeRule.onNodeWithText(PARKED_TEXT).assertIsDisplayed()
-        assertEquals(0, composeRule.onAllNodesWithTag(QUESTION_TAG).fetchSemanticsNodes().size)
-        assertEquals(0, composeRule.onAllNodesWithTag(ANSWER_TAG).fetchSemanticsNodes().size)
-        composeRule.onNodeWithTag(RETRY_TAG).performClick()
-        composeRule.waitForIdle()
-
-        assertEquals(1, retries)
+        composeRule.onNodeWithTag(ASK_TAG).assertIsDisplayed()
+        assertEquals(0, composeRule.onAllNodesWithTag(OTHER_TAG).fetchSemanticsNodes().size)
+        assertEquals(0, composeRule.onAllNodesWithTag(OTHER_TEXT_TAG).fetchSemanticsNodes().size)
     }
 
     @Test
     fun retryIsNotDrawnForAnOpenQuestion() {
         setBlock(questionBlocker)
 
-        assertEquals(0, composeRule.onAllNodesWithTag(RETRY_TAG).fetchSemanticsNodes().size)
+        assertEquals(0, composeRule.onAllNodes(hasText("Retry")).fetchSemanticsNodes().size)
     }
 
     @Test
     fun retryIsNotDrawnForAHeldStep() {
         setBlock(heldBlocker)
 
-        assertEquals(0, composeRule.onAllNodesWithTag(RETRY_TAG).fetchSemanticsNodes().size)
+        assertEquals(0, composeRule.onAllNodes(hasText("Retry")).fetchSemanticsNodes().size)
     }
 
     @Test
@@ -264,21 +224,29 @@ class EpicBlockerTest {
         assertStopAsksFirst(heldBlocker)
     }
 
-    private fun setBlock(
-        blocker: EpicBlocker?,
-        sentence: String = "",
-        onAnswer: (questionId: String, text: String) -> String = { _, _ -> "" },
-        onRetry: () -> Unit = {},
-        onStop: () -> Unit = {},
-    ) {
+    private fun epicOf(): EpicRow = EpicRow(
+        id = EPIC_ID,
+        repository = "example-repo",
+        slug = SLUG,
+        outcome = "",
+        changed = NOW - 30,
+        live = true,
+        runningSteps = emptyList(),
+        endedSteps = 0,
+        problem = "",
+        path = "/home/user/example-repo",
+    )
+
+    private fun setBlock(blocker: EpicBlocker?, sentence: String = "", onStop: () -> Unit = {}) {
         composeRule.setContent {
             MaterialTheme {
                 NowBlock(
                     sentence = sentence,
                     blocker = blocker,
-                    slug = SLUG,
-                    onAnswer = onAnswer,
-                    onRetry = onRetry,
+                    epic = epicOf(),
+                    now = NOW,
+                    onAnswer = { _, _, _ -> },
+                    onRetry = {},
                     onStop = onStop,
                 )
             }
@@ -301,6 +269,6 @@ class EpicBlockerTest {
         composeRule.onNodeWithTag(STOP_TAG).assertIsDisplayed()
     }
 
-    private fun answerText(): String =
-        composeRule.onNodeWithTag(ANSWER_TAG).fetchSemanticsNode().config[SemanticsProperties.EditableText].text
+    private fun textOf(tag: String): String =
+        composeRule.onNodeWithTag(tag).fetchSemanticsNode().config[SemanticsProperties.EditableText].text
 }

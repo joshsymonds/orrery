@@ -128,9 +128,8 @@ fun EpicScreen(
     val resume = { send { client.resumeEpic(epicId) } }
     val stop = { send { client.stopEpic(epicId) } }
     val retry = { send { client.retryEpic(epicId) } }
-    val onAnswer: (String, String) -> String = { questionId, text ->
-        send(answer = text) { client.answerEpic(epicId, questionId, text) }
-        ""
+    val onAnswer: (String, String, String) -> Unit = { questionId, choice, text ->
+        send(answer = text) { client.answerEpic(epicId, questionId, text, choice) }
     }
 
     val current = load
@@ -293,7 +292,7 @@ private fun EpicBody(
     onOpenStep: (StepRow) -> Unit,
     onOpenContract: () -> Unit,
     onOpenPhase: ((task: String, phase: Phase) -> Unit)?,
-    onAnswer: (questionId: String, text: String) -> String,
+    onAnswer: (questionId: String, choice: String, text: String) -> Unit,
     onRetry: () -> Unit,
     onStop: () -> Unit,
     handover: (@Composable (EpicDetail) -> Unit)?,
@@ -331,7 +330,8 @@ private fun EpicBody(
             NowBlock(
                 sentence = nowSentence(wedges),
                 blocker = blockerOf(detail),
-                slug = detail.epic.slug,
+                epic = detail.epic,
+                now = now,
                 onAnswer = onAnswer,
                 onRetry = onRetry,
                 onStop = onStop,
