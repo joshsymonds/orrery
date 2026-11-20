@@ -56,12 +56,14 @@ private const val EPICS_HISTORY_PATH = "/orrery.v1.Epics/History"
 private const val NOTICES_LIST_PATH = "/orrery.v1.Notices/List"
 private const val NOTICES_SEEN_PATH = "/orrery.v1.Notices/Seen"
 private const val NOTICES_READ_ALL_PATH = "/orrery.v1.Notices/ReadAll"
+private const val NOTICES_WATCH_PATH = "/orrery.v1.Notices/Watch"
 private const val BELL = "open-notices"
 private const val NOTICES_BACK = "notices-back"
 private const val EPIC_ID = "example-repo/example-epic"
 private const val EPIC_SLUG = "example-epic"
 private const val SESSION_ID = "a1b2c3d4e5f60718293a4b5c6d7e8f90"
 private const val PANE_ID = "%1"
+private const val SIXTY_SECONDS = 60_000L
 
 // A summary of sixty lines is taller than the screen, so the epic's now section starts below the screen's top.
 private val TALL_SUMMARY = (1..60).joinToString("\n") { "Synthetic summary line $it." }
@@ -447,5 +449,40 @@ class MainActivityNoticesTest {
         assertTrue(isShown(NOTICES_BACK))
         assertFalse(isShown("head-back"))
         assertFalse(isShown("title-back"))
+    }
+
+    @Test
+    fun theAppHoldsNoNoticesWatchStream() {
+        serveNotices(paneNotice(), sessionNotice())
+        val controller = openNoticesFromHome()
+        awaitNode(hasText("alpha"))
+
+        composeRule.onNodeWithText("alpha").performClick()
+        awaitNode(hasTestTag("head-back"))
+        controller.get().onBackPressedDispatcher.onBackPressed()
+        awaitNode(hasTestTag(NOTICES_BACK))
+
+        composeRule.onNodeWithText("Mark all read").performClick()
+        composeRule.awaitUntil("ReadAll is sent") { server.requests.any { it.rawPath == NOTICES_READ_ALL_PATH } }
+        settle()
+
+        controller.get().onBackPressedDispatcher.onBackPressed()
+        awaitNode(hasTestTag(BELL))
+        awaitNone(hasTestTag(NOTICES_BACK))
+
+        // The home list reads the history again once a minute while started, so the clock moves past one such read.
+        settle()
+        val listedBefore = server.requests.count { it.rawPath == NOTICES_LIST_PATH }
+        composeRule.mainClock.autoAdvance = false
+        composeRule.mainClock.advanceTimeBy(2 * SIXTY_SECONDS, ignoreFrameDuration = true)
+        composeRule.awaitUntil("the home list reads the notices again") {
+            server.requests.count { it.rawPath == NOTICES_LIST_PATH } > listedBefore
+        }
+        settle()
+
+        assertTrue(
+            "the app opened a Notices.Watch stream",
+            server.requests.none { it.rawPath == NOTICES_WATCH_PATH },
+        )
     }
 }
