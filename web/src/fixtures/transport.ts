@@ -16,7 +16,7 @@ import {
 import { createClients } from "../client";
 import { Contracts } from "../gen/orrery/v1/contracts_pb";
 import { Epics, EpicsContinueResponseSchema, EpicsGetResponseSchema, Evidence, Steps } from "../gen/orrery/v1/epics_pb";
-import { Notices } from "../gen/orrery/v1/notice_pb";
+import { Notices, NoticesListResponseSchema, NoticesWatchResponseSchema } from "../gen/orrery/v1/notice_pb";
 import {
   AskResponseSchema,
   Control,
@@ -283,7 +283,18 @@ export function createFixtureTransport(slices: Slices = shippedSlices): FixtureT
     });
     router.service(Steps, { hold: absorb, nudge: absorb, stop: absorb });
     router.service(Presence, { report: absorb });
-    router.service(Notices, { watch: quiet, seen: absorb });
+    router.service(Notices, {
+      list: () => create(NoticesListResponseSchema, { notices: [...slices.noticeLog] }),
+      // Watch sends the showing notices, one shown change each, in order, then stays open until its call aborts.
+      watch: async function* (_request, context) {
+        for (const notice of slices.noticesShowing) {
+          yield create(NoticesWatchResponseSchema, { change: { case: "shown", value: notice } });
+        }
+        await held(context.signal);
+      },
+      seen: absorb,
+      readAll: absorb,
+    });
     router.service(Host, { status: () => slices.host });
   }, { transport: { interceptors: [gate] } });
 

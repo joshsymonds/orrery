@@ -15,6 +15,7 @@ import {
   type EpicsListResponse,
   EpicsListResponseSchema,
 } from "../gen/orrery/v1/epics_pb";
+import type { InAppNotice, ListedNotice } from "../gen/orrery/v1/notice_pb";
 import {
   type HostStatusResponse,
   type ListHeadlessResponse,
@@ -50,6 +51,7 @@ import {
   rotaProblem,
 } from "./epics";
 import { host } from "./host";
+import { noticeHistory, noticeStack } from "./notices";
 import { panes, paneStreams } from "./panes";
 import { headless, sessions, sessionStreams } from "./sessions";
 
@@ -83,6 +85,10 @@ export interface Slices {
   readonly evidenceLogs: ReadonlyMap<string, string>;
   // evidenceArtifacts holds the bytes of each kept artifact Evidence.Artifact answers with, by evidenceArtifactKey.
   readonly evidenceArtifacts: ReadonlyMap<string, EvidenceArtifactBytes>;
+  // noticeLog is the history Notices.List answers with, newest first. noticesShowing is what Notices.Watch sends, in
+  // order, before it stays open.
+  readonly noticeLog: readonly ListedNotice[];
+  readonly noticesShowing: readonly InAppNotice[];
   // say is how the fixture answers Control.Say. refused fails it as a session that takes no messages does, and unanswered
   // fails it as a call with no answer does. Unset, the write is absorbed.
   readonly say?: "refused" | "unanswered";
@@ -114,10 +120,19 @@ export const shippedSlices: Slices = {
   sessionStreams,
   evidenceLogs,
   evidenceArtifacts,
+  noticeLog: noticeHistory,
+  noticesShowing: [],
   asks: new Map<string, AskAnswer>(),
   heldGets: new Set<string>(),
   failingEpicCommands: new Map<"pause" | "resume" | "stop" | "retry", string>(),
 };
+
+// noticeStackSlices are the shipped slices with the five notices the stack draws showing, so Notices.Watch sends
+// them.
+export const noticeStackSlices: Slices = { ...shippedSlices, noticesShowing: noticeStack };
+
+// noNoticeSlices are the shipped slices with no notice in the history and none showing.
+export const noNoticeSlices: Slices = { ...shippedSlices, noticeLog: [], noticesShowing: [] };
 
 // EpicScenario names an epic page scenario of round 6 that the page stories draw over the slices it is given.
 export type EpicScenario =

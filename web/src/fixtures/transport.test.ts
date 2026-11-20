@@ -20,6 +20,7 @@ import {
   EpicsRetryResponseSchema,
   EpicsStopResponseSchema,
 } from "../gen/orrery/v1/epics_pb";
+import { NoticesReadAllResponseSchema, NoticesSeenResponseSchema, NoticesWatchResponseSchema } from "../gen/orrery/v1/notice_pb";
 import {
   AskResponseSchema,
   HostStatusResponseSchema,
@@ -33,7 +34,7 @@ import { assertNone, installTestDom, removeTestDom, teardownOnce } from "../test
 import { loadRows } from "../load";
 import { turn, until } from "../testwait";
 import { at } from "./clock";
-import { epicScenarios, shippedSlices } from "./slices";
+import { epicScenarios, noNoticeSlices, noticeStackSlices, shippedSlices } from "./slices";
 import { createFixtureTransport } from "./transport";
 
 // wideWidth is the window width the stories draw at unless one names its own. It is past the 760px the wide layout starts
@@ -508,6 +509,90 @@ test("FixtureTransport: an open session stream sends the interrupt's then frame 
   assert.equal(await Promise.race([after.then(() => "sent"), turn().then(() => "held")]), "held", "the stream sends no more");
   stream.abort();
   assert.equal(await after.then(() => "ended", () => "aborted"), "aborted", "the abort ends the wait");
+});
+
+test("FixtureTransport answers Notices.List with the shipped history, newest first, each row with its fields set", async () => {
+  const fixture = createFixtureTransport();
+  const list = await fixture.clients.notices.list({});
+  const rows = list.notices.map((notice) => [
+    notice.key?.session || notice.key?.epic || notice.key?.limit,
+    notice.title,
+    notice.state,
+    notice.time,
+    notice.read,
+  ]);
+  assert.deepEqual(rows, [
+    ["sess-beacon-12", "tidepool · session sess-bea", "waiting", at("@14:41"), false],
+    ["lighthouse/rota-export", "lighthouse/rota-export", "waiting", at("@14:39"), false],
+    ["orrery/holder-scopes", "orrery/holder-scopes", "waiting", at("@09:52"), true],
+    ["tidepool/offline-tables", "tidepool/offline-tables", "waiting", at("@09:31"), true],
+    [`weekly@${at("@15:10")}`, "usage limit", "limited", at("@08:47"), true],
+    ["8b0e5d21-6c4a-4f19-a7e3-2d9c1b5f0a47", "orchard · session 8b0e5d21", "done", at("@-1d 18:20"), true],
+    ["c41f9a07-2e8b-4d63-9a15-7f0b3e6c2d98", "kelp · session c41f9a07", "failed", at("@-1d 16:02"), true],
+  ]);
+  assert.ok(
+    list.notices.every((notice) => notice.body !== ""),
+    "every notice has its body",
+  );
+  const [, rota, holder, offline] = list.notices;
+  assert.deepEqual([rota.block?.kind, rota.block?.ref], ["question", "Q1"], "rota-export opens on its question Q1");
+  assert.deepEqual([holder.block?.kind, holder.block?.ref], ["report", ""], "holder-scopes opens on its report");
+  assert.deepEqual([offline.block?.kind, offline.block?.ref], ["release_step", "2"], "offline-tables opens on release step 2");
+  assert.deepEqual([...fixture.unserved], [], "the list is not recorded as unserved");
+});
+
+test("FixtureTransport sends no Notices.Watch change on the shipped slices, and the stream stays open until its call aborts", async () => {
+  const fixture = createFixtureTransport();
+  const stream = new AbortController();
+  const changes = fixture.clients.notices.watch({}, { signal: stream.signal })[Symbol.asyncIterator]();
+  const first = changes.next();
+  assert.equal(await Promise.race([first.then(() => "sent"), turn().then(() => "held")]), "held", "the stream sends no change");
+  stream.abort();
+  assert.equal(await first.then(() => "ended", () => "aborted"), "aborted", "the abort ends the wait");
+  assert.deepEqual([...fixture.unserved], [], "the watch is not recorded as unserved");
+});
+
+test("FixtureTransport sends the five shown Notices.Watch changes of noticeStackSlices in order, then holds open", async () => {
+  const fixture = createFixtureTransport(noticeStackSlices);
+  const stream = new AbortController();
+  const changes = fixture.clients.notices.watch({}, { signal: stream.signal })[Symbol.asyncIterator]();
+  const titles: string[] = [];
+  for (let index = 0; index < 5; index++) {
+    const next = await changes.next();
+    assert.ok(!next.done, `change ${index + 1} is sent`);
+    const change = next.value.change;
+    assert.equal(change.case, "shown", `change ${index + 1} shows a notice`);
+    const shown = noticeStackSlices.noticesShowing[index];
+    assert.ok(
+      equals(NoticesWatchResponseSchema, next.value, create(NoticesWatchResponseSchema, { change: { case: "shown", value: shown } })),
+      `change ${index + 1} is the stack's notice ${index + 1}`,
+    );
+    titles.push(change.case === "shown" ? change.value.title : "");
+  }
+  assert.deepEqual(
+    titles,
+    ["tidepool · session sess-bea", "lighthouse/rota-export", "orrery/holder-scopes", "tidepool/offline-tables", "usage limit"],
+    "the five notices are in the order the stack draws them",
+  );
+  const sixth = changes.next();
+  assert.equal(await Promise.race([sixth.then(() => "sent"), turn().then(() => "held")]), "held", "the stream sends no sixth change");
+  stream.abort();
+  assert.equal(await sixth.then(() => "ended", () => "aborted"), "aborted", "the abort ends the wait");
+});
+
+test("FixtureTransport answers Notices.List on noNoticeSlices with no notice", async () => {
+  const fixture = createFixtureTransport(noNoticeSlices);
+  const list = await fixture.clients.notices.list({});
+  assert.deepEqual(list.notices, [], "the history is empty");
+});
+
+test("FixtureTransport absorbs Notices.Seen and Notices.ReadAll: each answers an empty message, and records no call", async () => {
+  const fixture = createFixtureTransport();
+  const seen = await fixture.clients.notices.seen({ key: { session: "sess-beacon-12" } });
+  assert.deepEqual(toJson(NoticesSeenResponseSchema, seen), {}, "Seen answers an empty message");
+  const readAll = await fixture.clients.notices.readAll({});
+  assert.deepEqual(toJson(NoticesReadAllResponseSchema, readAll), {}, "ReadAll answers an empty message");
+  assert.deepEqual([...fixture.unserved], [], "the writes are not recorded as unserved");
 });
 
 test("FixtureTransport: app/inbox draws the inbox rows, with the fixture's proposed contract on its epic", (t) => {
