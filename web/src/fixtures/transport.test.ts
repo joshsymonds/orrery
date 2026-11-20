@@ -1035,7 +1035,7 @@ test("FixtureTransport: page/epic-loading draws loading the epic, with no button
     (root) => epicNoteOf(root) === "loading the epic…",
     (root) => {
       assertNoFailure(root);
-      assert.equal(root.querySelector('section[aria-label="epic"] button'), null, "no button is drawn");
+      assertNone(root.querySelector('section[aria-label="epic"] > button'), "no button is drawn");
     },
   );
 });
@@ -1048,7 +1048,7 @@ test("FixtureTransport: page/epic-unavailable draws the could-not-read line with
     (root) => epicNoteOf(root) === "The server could not read this epic.",
     (root) => {
       assertNoFailure(root);
-      const again = root.querySelector('section[aria-label="epic"] button');
+      const again = root.querySelector('section[aria-label="epic"] > button');
       assert.equal(again?.textContent, "Try again", "the read can be tried again");
     },
   );

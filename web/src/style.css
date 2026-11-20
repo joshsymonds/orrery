@@ -77,6 +77,7 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 .list, .read, .rpanel { min-width: 0; }
 .read { display: flex; flex-direction: column; gap: var(--o-space-8); }
 .read[hidden] { display: none; }
+.list[hidden] { display: none; }
 /* The line the epic page shows when its epic's detail did not load. */
 .side-note { margin: 0; color: var(--o-ink-3); overflow-wrap: anywhere; }
 .reply { min-width: 0; }

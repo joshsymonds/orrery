@@ -1562,21 +1562,31 @@ export function App({
   // the epic through openEpic; a step card opens its step through openEpicStep.
   const epicCalls = epicCallsOf(clients, navigated(openEpic), navigated(openEpicStep), epics);
 
-  // epicPageSection draws the epic section over the epic's detail, or while the detail is not drawn, the line its read
-  // leaves: loading, or the could-not-read line with Try again.
+  // epicPageSection draws the epic section over the epic's detail, or while the detail is not drawn, the title row with
+  // the line its read leaves: loading, or the could-not-read line with Try again.
   const epicPageSection = (entry: EpicItem, detail: EpicsGetResponse | undefined) => (
     <section class={pageClasses(epicPage.move)} aria-label="epic" ref={pageRef}>
       {detail !== undefined ? (
         pageNode(entry, detail)
-      ) : failedEpicReads.has(entry.id) ? (
-        <>
-          <p class="side-note">{couldNotReadEpicText}</p>
-          <button type="button" class="act" onClick={() => retryEpicRead(entry.id)}>
-            Try again
-          </button>
-        </>
       ) : (
-        <p class="side-note">{loadingEpicText}</p>
+        <>
+          <TitleRow
+            crumbs={[{ label: entry.slug }]}
+            onBack={closeEpicPage}
+            mark={inboxMark}
+            strip={pageStrip(null, null)}
+          />
+          {failedEpicReads.has(entry.id) ? (
+            <>
+              <p class="side-note">{couldNotReadEpicText}</p>
+              <button type="button" class="act" onClick={() => retryEpicRead(entry.id)}>
+                Try again
+              </button>
+            </>
+          ) : (
+            <p class="side-note">{loadingEpicText}</p>
+          )}
+        </>
       )}
     </section>
   );
@@ -1690,7 +1700,7 @@ export function App({
         data-side={panelShown ? "panel" : "rail"}
       >
         {notices.length > 0 && <NoticeBanner notices={notices} onOpen={openNotice} onDismiss={markNoticeSeen} />}
-        <div class="list" ref={listRef} onMouseLeave={() => setPopout("none")}>
+        <div class="list" hidden={epicPageShown} ref={listRef} onMouseLeave={() => setPopout("none")}>
           <header class="top">
             <div class="brand">
               <Mark />

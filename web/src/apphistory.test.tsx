@@ -18,6 +18,8 @@ import { turn, until } from "./testwait";
 
 const now = 1000;
 
+// wideWidth is a window at or over the 760px the wide layout starts at, where the inbox list is drawn beside an epic page.
+const wideWidth = 1024;
 // narrowWidth is a window under the 760px the wide layout starts at. In the narrow layout the inbox stays docked when a
 // row is opened, so the list's keys move the cursor on their first press, as the cursor keys checked here need.
 const narrowWidth = 700;
@@ -207,10 +209,15 @@ function show(container: HTMLElement, clients: Clients, setup: Setup, reports: R
 
 // withApp mounts App in a fresh DOM over a fake transport, and runs check. The timers App arms run on the mocked clock,
 // so a test advances none of them. App is unmounted and the DOM removed when the test ends.
-async function withApp(t: TestContext, setup: Setup, check: (shown: Shown) => void | Promise<void>): Promise<void> {
+async function withApp(
+  t: TestContext,
+  setup: Setup,
+  check: (shown: Shown) => void | Promise<void>,
+  width = narrowWidth,
+): Promise<void> {
   mockTimers(t, ["setTimeout"]);
   const window = installTestDom();
-  window.happyDOM.setViewport({ width: narrowWidth, height: 800 });
+  window.happyDOM.setViewport({ width, height: 800 });
   const container = document.createElement("div");
   document.body.append(container);
   const transport = createTransport({ baseUrl: "https://orrery.test", fetch: fakeFetch(setup.items ?? []) });
@@ -365,7 +372,7 @@ test("HashRoute: a card's open control pushes the address of its epic, and the f
     assert.deepEqual(reports, [[firstAddress, "push"]]);
     assert.equal(cursorKey(container), widgetsFirstKey);
     assert.deepEqual(await cursorModes(reports), cursorKeyModes);
-  }));
+  }, wideWidth));
 
 test("HashRoute: a need pushes the address of its epic, and the first cursor key after it pushes", (t) =>
   withApp(
@@ -614,7 +621,7 @@ test("HashRoute: an epic address a local archive mark moved off the attention li
     assert.deepEqual(reports.slice(before), [["#/attention/session/s1", "replace"]], "the shown address replaces");
     await press("j");
     assert.deepEqual(reports.slice(before + 1), [["#/attention/session/s3", "push"]], "the next cursor key pushes");
-  });
+  }, wideWidth);
 });
 
 test("HashRoute: an address under archived naming an archived row opens it and records nothing", (t) => {

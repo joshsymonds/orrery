@@ -100,6 +100,24 @@ test("EpicWords: the chart's limited cells are grey, as the pips' are", () => {
   assert.equal(declaredValue(rules, ".orrery .cell.c-limited", "fill"), "var(--o-ink-3)");
 });
 
+test("EpicWords: the chart's limited cells are grey and differ from its mine cells, which take the attention peach", () => {
+  const limited = declaredValue(rules, ".orrery .cell.c-limited", "fill");
+  assert.equal(limited, "var(--o-ink-3)");
+  assert.equal(declaredValue(rules, ".orrery .cell.c-mine", "fill"), "var(--o-tone-mine)");
+  assert.notEqual(limited, declaredValue(rules, ".orrery .cell.c-mine", "fill"));
+});
+
+test("EpicWords: a task row's limited word is grey and differs from its held word, which takes the attention peach", () => {
+  const limited = declaredValue(rules, ".t-limited", "--tone");
+  assert.equal(limited, "var(--o-ink-3)");
+  assert.equal(declaredValue(rules, ".t-held", "--tone"), "var(--o-role-attention)");
+  assert.notEqual(limited, declaredValue(rules, ".t-held", "--tone"));
+});
+
+test("EpicRecord: a hidden inbox list is not drawn, as the author rule that sets .list's display would draw it", () => {
+  assert.equal(declaredValue(rules, ".list[hidden]", "display"), "none");
+});
+
 test("EpicWords: no rule names .proof-card, .release-step or .epic-foot", () => {
   const named = rules.flatMap((rule) => rule.selectors).filter((selector) => /\.(proof-card|release-step|epic-foot)(?![\w-])/.test(selector));
   assert.deepEqual(named, []);
