@@ -240,7 +240,7 @@ fun PaneListScreen(
  * Reads the lists, every live epic's detail, the contracts and the host. Null when a list or an epic did not answer. A
  * contracts read that fails keeps the contracts of [held], and a host read that fails keeps its host.
  */
-private suspend fun readTree(client: OrreryClient, held: TreeData?): TreeData? = withContext(Dispatchers.IO) {
+internal suspend fun readTree(client: OrreryClient, held: TreeData?): TreeData? = withContext(Dispatchers.IO) {
     try {
         val panes = client.panes() + client.headless()
         val archived = client.archivedSessions()
