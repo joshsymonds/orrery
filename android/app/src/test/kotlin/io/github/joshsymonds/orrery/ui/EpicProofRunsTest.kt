@@ -35,13 +35,16 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.io.IOException
 import java.util.Base64
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], qualifiers = "w400dp-h1200dp")
-class EvidenceRunsTest {
+class EpicProofRunsTest {
     private companion object {
         const val REQUIREMENT = 1
         const val REVISION = "0123456789abcdef0123456789abcdef01234567"
@@ -53,6 +56,9 @@ class EvidenceRunsTest {
         const val EVIDENCE_ARTIFACT = "/orrery.v1.Evidence/Artifact"
         const val CHANGED = 4_102_444_800L
         const val IMAGE_TAG = "evidence-image:1:0:0"
+        const val NOT_AVAILABLE = "The log is not available."
+        const val LOADING = "loading the log…"
+        const val HANG_GUARD_SECONDS = 30L
 
         // A 1x1 PNG.
         val PNG: ByteArray = Base64.getDecoder().decode(
@@ -65,15 +71,19 @@ class EvidenceRunsTest {
 
     /**
      * A loader over [files], keyed by run, name and stderr flag. It records each call and whether one ran on the main
-     * thread.
+     * thread. When [gate] is set, each call waits on it, so a test can hold a load open.
      */
-    private class Loader(private val files: Map<Triple<String, String, Boolean>, EvidenceArtifactFile>) {
+    private class Loader(
+        private val files: Map<Triple<String, String, Boolean>, EvidenceArtifactFile>,
+        private val gate: CountDownLatch? = null,
+    ) {
         val calls = ConcurrentLinkedQueue<Triple<String, String, Boolean>>()
         val onMainThread = AtomicBoolean(false)
 
         val load: (String, String, Boolean) -> EvidenceArtifactFile? = { run, name, stderr ->
             calls.add(Triple(run, name, stderr))
             if (Looper.myLooper() == Looper.getMainLooper()) onMainThread.set(true)
+            gate?.await(HANG_GUARD_SECONDS, TimeUnit.SECONDS)
             files[Triple(run, name, stderr)]
         }
     }
@@ -87,6 +97,7 @@ class EvidenceRunsTest {
         judgeReason: String = "",
         passed: Boolean = true,
         exit: Int = 0,
+        notCaptured: String = "",
         logBytes: Long = 0L,
         stderrBytes: Long = 0L,
         artifacts: List<EvidenceArtifactRow> = emptyList(),
@@ -98,7 +109,7 @@ class EvidenceRunsTest {
             state = state,
             exit = exit,
             timedOut = false,
-            notCaptured = "",
+            notCaptured = notCaptured,
             verdict = verdict,
             judgeReason = judgeReason,
             passed = passed,
@@ -116,6 +127,12 @@ class EvidenceRunsTest {
         }
     }
 
+    private fun rowTag(index: Int) = "evidence-run:$REQUIREMENT:$index"
+
+    private fun logTag(index: Int) = "evidence-log:$REQUIREMENT:$index"
+
+    private fun streamTag(index: Int, stream: String) = "evidence-stream:$REQUIREMENT:$index:$stream"
+
     private fun countAll(matcher: SemanticsMatcher): Int =
         composeRule.onAllNodes(matcher, useUnmergedTree = true).fetchSemanticsNodes().size
 
@@ -132,6 +149,20 @@ class EvidenceRunsTest {
 
     private fun clickTag(tag: String) {
         composeRule.onNodeWithTag(tag, useUnmergedTree = true).performClick()
+    }
+
+    /** The one chip of run [index] that reads [text], and the tone it is drawn in. */
+    private fun toneOf(index: Int, text: String): ChipTone =
+        composeRule.onNode(hasText(text) and hasAnyAncestor(hasTestTag(rowTag(index))), useUnmergedTree = true)
+            .fetchSemanticsNode()
+            .config[ChipToneKey]
+
+    /** Asserts run [index] reads its sentence, its verdict chip in its tone, and its meta. */
+    private fun assertLine(index: Int, sentence: String, chip: String, tone: ChipTone, meta: String) {
+        assertEquals(1, countIn(rowTag(index), hasText(sentence)))
+        assertEquals(1, countIn(rowTag(index), hasText(chip)))
+        assertEquals(tone, toneOf(index, chip))
+        assertEquals(1, countIn(rowTag(index), hasText(meta)))
     }
 
     private fun textLayoutOf(matcher: SemanticsMatcher): TextLayoutResult {
@@ -175,42 +206,119 @@ class EvidenceRunsTest {
             .build()
 
     @Test
-    fun runsRenderTheirPhaseVerdictPassedStateAndAgentSuppliedMark() {
-        val runs = listOf(
-            run("example-run-1", phase = "red", verdict = "fails", passed = true, exit = 3),
-            run(
-                "example-run-2",
-                phase = "green",
-                source = "supplied",
-                state = "judging",
-                verdict = "",
-                judgeReason = "example judge reason",
-                passed = false,
-            ),
-        )
-        setRuns(runs, Loader(emptyMap()))
+    fun epicProofCapturingRunReadsCapturingInItsSentenceAndLiveChip() {
+        setRuns(listOf(run("example-run-1", phase = "red", state = "capturing", verdict = "")), Loader(emptyMap()))
 
-        val first = "evidence-run:$REQUIREMENT:0"
-        assertEquals(1, countIn(first, hasText("RED")))
-        assertEquals(1, countIn(first, hasText("fails")))
-        assertEquals(1, countIn(first, hasText("passed")))
-        assertEquals(1, countIn(first, hasText("exit 3")))
-        assertEquals(1, countIn(first, hasText("revision 0123456789ab")))
-        assertEquals(0, countIn(first, hasText("agent-supplied")))
-        assertEquals(0, countIn(first, hasText("running")))
-
-        val second = "evidence-run:$REQUIREMENT:1"
-        assertEquals(1, countIn(second, hasText("GREEN")))
-        assertEquals(1, countIn(second, hasText("agent-supplied")))
-        assertEquals(1, countIn(second, hasText("no verdict")))
-        assertEquals(1, countIn(second, hasText("example judge reason")))
-        assertEquals(1, countIn(second, hasText("not passed")))
-        assertEquals(0, countIn(second, hasText("passed")))
-        assertEquals(1, countIn(second, hasText("running")))
+        assertLine(0, "Red run: capturing the output…", "capturing", ChipTone.Live, "captured")
+        assertEquals(0, countIn(rowTag(0), hasText("exit", substring = true)))
     }
 
     @Test
-    fun tappingStdoutShowsTheLogInMonospaceLoadedOffTheMainThread() {
+    fun epicProofJudgingRunReadsAJudgeIsReadingTheOutputAndLiveChip() {
+        setRuns(
+            listOf(run("example-run-1", phase = "green", source = "supplied", state = "judging", verdict = "")),
+            Loader(emptyMap()),
+        )
+
+        assertLine(0, "Green run: a judge is reading the output…", "judging", ChipTone.Live, "supplied by the agent")
+        assertEquals(0, countIn(rowTag(0), hasText("exit", substring = true)))
+    }
+
+    @Test
+    fun epicProofNotCapturedRunSaysWhyItsOutputIsMissingAndReadsNoVerdict() {
+        setRuns(
+            listOf(run("example-run-1", phase = "red", notCaptured = "the output was too large", verdict = "", passed = false)),
+            Loader(emptyMap()),
+        )
+
+        assertLine(
+            0,
+            "Red run: the output was not captured: the output was too large.",
+            "no verdict",
+            ChipTone.Neutral,
+            "captured · exit 0",
+        )
+    }
+
+    @Test
+    fun epicProofRedRunThatPassedReadsTheTestFailsBeforeAnyChange() {
+        setRuns(listOf(run("example-run-1", phase = "red", verdict = "holds", passed = true, exit = 3)), Loader(emptyMap()))
+
+        assertLine(
+            0,
+            "Red run: the test fails before any change, as it should.",
+            "✓ holds",
+            ChipTone.Ok,
+            "captured · exit 3",
+        )
+    }
+
+    @Test
+    fun epicProofRedRunThatDidNotPassReadsTheTestPassesBeforeAnyChange() {
+        setRuns(listOf(run("example-run-1", phase = "red", verdict = "fails", passed = false)), Loader(emptyMap()))
+
+        assertLine(
+            0,
+            "Red run: the test passes before any change. It should fail.",
+            "✗ fails",
+            ChipTone.Bad,
+            "captured · exit 0",
+        )
+    }
+
+    @Test
+    fun epicProofGreenRunThatPassedReadsTheTestPassesOnTheChange() {
+        setRuns(listOf(run("example-run-1", phase = "green", verdict = "holds", passed = true)), Loader(emptyMap()))
+
+        assertLine(0, "Green run: the test passes on the change.", "✓ holds", ChipTone.Ok, "captured · exit 0")
+    }
+
+    @Test
+    fun epicProofGreenRunThatDidNotPassReadsTheTestStillFailsOnTheChange() {
+        setRuns(listOf(run("example-run-1", phase = "green", verdict = "fails", passed = false)), Loader(emptyMap()))
+
+        assertLine(0, "Green run: the test still fails on the change.", "✗ fails", ChipTone.Bad, "captured · exit 0")
+    }
+
+    @Test
+    fun epicProofRunWithoutAVerdictReadsNoVerdictFollowedByTheJudgeReason() {
+        setRuns(
+            listOf(run("example-run-1", phase = "green", verdict = "", judgeReason = "example judge reason")),
+            Loader(emptyMap()),
+        )
+
+        assertLine(
+            0,
+            "Green run: the test passes on the change.",
+            "no verdict · example judge reason",
+            ChipTone.Neutral,
+            "captured · exit 0",
+        )
+    }
+
+    @Test
+    fun epicProofMetaShowsExitOnlyOnceTheRunHasEndedAndNamesASuppliedRun() {
+        setRuns(
+            listOf(
+                run("example-run-1", phase = "green", source = "supplied", verdict = "holds", passed = true, exit = 7),
+            ),
+            Loader(emptyMap()),
+        )
+
+        assertEquals(1, countIn(rowTag(0), hasText("supplied by the agent · exit 7")))
+    }
+
+    @Test
+    fun epicProofRunShowsNoRevisionOrItsHash() {
+        setRuns(listOf(run("example-run-1")), Loader(emptyMap()))
+
+        assertEquals(0, countIn(rowTag(0), hasText("revision", substring = true)))
+        assertEquals(0, countIn(rowTag(0), hasText(REVISION.take(12), substring = true)))
+        assertEquals(0, countIn(rowTag(0), hasText(REVISION, substring = true)))
+    }
+
+    @Test
+    fun epicProofLogToggleOpensTheLogAndHidesItWhenOpen() {
         val loader = Loader(
             mapOf(
                 Triple("example-run-1", "", false) to EvidenceArtifactFile(LOG.toByteArray(Charsets.UTF_8), "text/plain"),
@@ -218,63 +326,132 @@ class EvidenceRunsTest {
         )
         setRuns(listOf(run("example-run-1", logBytes = LOG.length.toLong())), loader)
 
-        clickTag("evidence-log:$REQUIREMENT:0:stdout")
+        assertEquals(1, countIn(logTag(0), hasText("log")))
+        clickTag(logTag(0))
+
+        awaitIn(logTag(0), hasText("hide the log"))
+        awaitIn(streamTag(0, "stdout"), hasText("example log line two", substring = true))
+
+        clickTag(logTag(0))
+
+        awaitIn(logTag(0), hasText("log"))
+        assertEquals(0, countIn(logTag(0), hasText("hide the log")))
+        assertEquals(0, countAll(hasTestTag(streamTag(0, "stdout"))))
+    }
+
+    @Test
+    fun epicProofOpeningTheLogLoadsItOffTheMainThreadInMonospace() {
+        val loader = Loader(
+            mapOf(
+                Triple("example-run-1", "", false) to EvidenceArtifactFile(LOG.toByteArray(Charsets.UTF_8), "text/plain"),
+            ),
+        )
+        setRuns(listOf(run("example-run-1", logBytes = LOG.length.toLong())), loader)
+
+        clickTag(logTag(0))
 
         awaitAll(hasText("example log line two", substring = true))
         assertEquals(listOf(Triple("example-run-1", "", false)), loader.calls.toList())
         assertFalse(loader.onMainThread.get())
-        assertEquals(OrreryTokens.Type.small.fontFamily, textLayoutOf(hasText("example log line two", substring = true)).layoutInput.style.fontFamily)
+        assertEquals(
+            OrreryTokens.Type.small.fontFamily,
+            textLayoutOf(hasText("example log line two", substring = true)).layoutInput.style.fontFamily,
+        )
     }
 
     @Test
-    fun eachLogLoadsUnderItsOwnToggleAndOnlyTheStderrLoadSetsTheStderrFlag() {
+    fun epicProofLogShowsLoadingTheLogUntilItArrives() {
+        val gate = CountDownLatch(1)
+        val loader = Loader(
+            mapOf(
+                Triple("example-run-1", "", false) to EvidenceArtifactFile(LOG.toByteArray(Charsets.UTF_8), "text/plain"),
+            ),
+            gate,
+        )
+        setRuns(listOf(run("example-run-1", logBytes = LOG.length.toLong())), loader)
+
+        clickTag(logTag(0))
+
+        assertEquals(1, countIn(rowTag(0), hasText(LOADING)))
+
+        gate.countDown()
+        awaitIn(streamTag(0, "stdout"), hasText("example log line two", substring = true))
+        assertEquals(0, countIn(rowTag(0), hasText(LOADING)))
+    }
+
+    @Test
+    fun epicProofLogSaysItIsNotAvailableWhenTheServerHasNoLog() {
+        setRuns(listOf(run("example-run-1", logBytes = LOG.length.toLong())), Loader(emptyMap()))
+
+        clickTag(logTag(0))
+
+        awaitIn(rowTag(0), hasText(NOT_AVAILABLE))
+        assertEquals(1, countIn(rowTag(0), hasText(NOT_AVAILABLE)))
+    }
+
+    @Test
+    fun epicProofLogSaysItIsNotAvailableWhenItsLoadFails() {
+        val failing: ArtifactLoader = { _, _, _ -> throw IOException("example failure") }
+        composeRule.setContent {
+            EvidenceRuns(
+                requirement = REQUIREMENT,
+                runs = listOf(run("example-run-1", logBytes = LOG.length.toLong())),
+                loadArtifact = failing,
+            )
+        }
+
+        clickTag(logTag(0))
+
+        awaitIn(rowTag(0), hasText(NOT_AVAILABLE))
+        assertEquals(1, countIn(rowTag(0), hasText(NOT_AVAILABLE)))
+    }
+
+    @Test
+    fun epicProofLogReadsStdoutThenStderrOnlyForARunThatHasStderr() {
         val loader = Loader(
             mapOf(
                 Triple("example-run-1", "", false) to EvidenceArtifactFile(LOG.toByteArray(Charsets.UTF_8), "text/plain"),
                 Triple("example-run-1", "", true) to EvidenceArtifactFile(STDERR.toByteArray(Charsets.UTF_8), "text/plain"),
+                Triple("example-run-2", "", false) to EvidenceArtifactFile(LOG.toByteArray(Charsets.UTF_8), "text/plain"),
             ),
         )
-        setRuns(listOf(run("example-run-1", logBytes = LOG.length.toLong(), stderrBytes = STDERR.length.toLong())), loader)
+        setRuns(
+            listOf(
+                run("example-run-1", logBytes = LOG.length.toLong(), stderrBytes = STDERR.length.toLong()),
+                run("example-run-2", logBytes = LOG.length.toLong(), stderrBytes = 0L),
+            ),
+            loader,
+        )
 
-        val stdout = "evidence-stream:$REQUIREMENT:0:stdout"
-        val stderr = "evidence-stream:$REQUIREMENT:0:stderr"
+        clickTag(logTag(0))
+        awaitIn(streamTag(0, "stderr"), hasText("example stderr line one", substring = true))
 
-        clickTag("evidence-log:$REQUIREMENT:0:stdout")
-        awaitIn(stdout, hasText("example log line two", substring = true))
-        assertEquals(1, countIn(stdout, hasText("example log line two", substring = true)))
-        assertEquals(0, countIn(stderr, hasText("example log line two", substring = true)))
+        assertEquals(1, countIn(streamTag(0, "stdout"), hasText("example log line two", substring = true)))
+        assertEquals(0, countIn(streamTag(0, "stdout"), hasText("example stderr line one", substring = true)))
+        assertEquals(0, countIn(streamTag(0, "stderr"), hasText("example log line two", substring = true)))
+        val stdoutTop = composeRule.onNodeWithTag(streamTag(0, "stdout"), useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot.top
+        val stderrTop = composeRule.onNodeWithTag(streamTag(0, "stderr"), useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot.top
+        assertTrue(stdoutTop < stderrTop)
 
-        clickTag("evidence-log:$REQUIREMENT:0:stderr")
-        awaitIn(stderr, hasText("example stderr line one", substring = true))
-        assertEquals(1, countIn(stderr, hasText("example stderr line one", substring = true)))
-        assertEquals(0, countIn(stderr, hasText("example log line two", substring = true)))
-        assertEquals(0, countIn(stdout, hasText("example stderr line one", substring = true)))
+        clickTag(logTag(1))
+        awaitIn(streamTag(1, "stdout"), hasText("example log line two", substring = true))
 
+        assertEquals(0, countAll(hasTestTag(streamTag(1, "stderr"))))
         assertEquals(
-            listOf(Triple("example-run-1", "", false), Triple("example-run-1", "", true)),
+            listOf(
+                Triple("example-run-1", "", false),
+                Triple("example-run-1", "", true),
+                Triple("example-run-2", "", false),
+            ),
             loader.calls.toList(),
         )
         assertFalse(loader.onMainThread.get())
     }
 
     @Test
-    fun aStderrToggleShowsOnlyForARunThatHasStderr() {
-        setRuns(
-            listOf(
-                run("example-run-1", logBytes = LOG.length.toLong(), stderrBytes = STDERR.length.toLong()),
-                run("example-run-2", logBytes = LOG.length.toLong(), stderrBytes = 0L),
-            ),
-            Loader(emptyMap()),
-        )
-
-        assertEquals(1, countAll(hasTestTag("evidence-log:$REQUIREMENT:0:stdout")))
-        assertEquals(1, countAll(hasTestTag("evidence-log:$REQUIREMENT:0:stderr")))
-        assertEquals(1, countAll(hasTestTag("evidence-log:$REQUIREMENT:1:stdout")))
-        assertEquals(0, countAll(hasTestTag("evidence-log:$REQUIREMENT:1:stderr")))
-    }
-
-    @Test
-    fun aKeptImageArtifactRendersAnImageNode() {
+    fun epicProofKeptImageFoldsWithItsLogAndIsDrawn() {
         val artifact = EvidenceArtifactRow(
             path = "example/screenshot.png",
             state = "kept",
@@ -286,15 +463,19 @@ class EvidenceRunsTest {
         )
         setRuns(listOf(run("example-run-1", artifacts = listOf(artifact))), loader)
 
+        assertEquals(0, countAll(hasTestTag(IMAGE_TAG)))
+        clickTag(logTag(0))
+
         awaitAll(hasTestTag(IMAGE_TAG))
 
         assertEquals(1, countAll(hasTestTag(IMAGE_TAG)))
-        assertEquals(listOf(Triple("example-run-1", "example/screenshot.png", false)), loader.calls.toList())
+        assertEquals(1, countIn(rowTag(0), hasText("example/screenshot.png · kept · ${PNG.size} bytes")))
+        assertTrue(loader.calls.contains(Triple("example-run-1", "example/screenshot.png", false)))
         assertTrue(composeRule.onNodeWithTag(IMAGE_TAG, useUnmergedTree = true).fetchSemanticsNode().size.width > 0)
     }
 
     @Test
-    fun aMissingArtifactSaysMissing() {
+    fun epicProofMissingArtifactLineSaysMissingOnceTheLogIsOpen() {
         val artifact = EvidenceArtifactRow(
             path = "example/screenshot.png",
             state = "missing",
@@ -303,18 +484,20 @@ class EvidenceRunsTest {
         )
         val loader = Loader(emptyMap())
         setRuns(listOf(run("example-run-1", artifacts = listOf(artifact))), loader)
+        val line = "example/screenshot.png · missing · 0 bytes"
 
-        awaitAll(hasText("missing"))
+        assertEquals(0, countIn(rowTag(0), hasText(line)))
+        clickTag(logTag(0))
 
-        val row = "evidence-run:$REQUIREMENT:0"
-        assertEquals(1, countIn(row, hasText("missing")))
-        assertEquals(1, countIn(row, hasText("example/screenshot.png")))
+        awaitIn(rowTag(0), hasText(line))
+
+        assertEquals(1, countIn(rowTag(0), hasText(line)))
         assertEquals(0, countAll(hasTestTag(IMAGE_TAG)))
-        assertEquals(0, loader.calls.size)
+        assertEquals(0, loader.calls.count { it.second == "example/screenshot.png" })
     }
 
     @Test
-    fun anOverCapArtifactSaysOverCap() {
+    fun epicProofOverCapArtifactLineSaysTooLargeToKeepOnceTheLogIsOpen() {
         val artifact = EvidenceArtifactRow(
             path = "example/report.json",
             state = "over_cap",
@@ -323,15 +506,19 @@ class EvidenceRunsTest {
         )
         val loader = Loader(emptyMap())
         setRuns(listOf(run("example-run-1", artifacts = listOf(artifact))), loader)
+        val line = "example/report.json · too large to keep · 9000000 bytes"
 
-        awaitAll(hasText("over cap"))
+        assertEquals(0, countIn(rowTag(0), hasText(line)))
+        clickTag(logTag(0))
 
-        assertEquals(1, countIn("evidence-run:$REQUIREMENT:0", hasText("over cap")))
-        assertEquals(0, loader.calls.size)
+        awaitIn(rowTag(0), hasText(line))
+
+        assertEquals(1, countIn(rowTag(0), hasText(line)))
+        assertEquals(0, loader.calls.count { it.second == "example/report.json" })
     }
 
     @Test
-    fun aKeptImageTheServerNoLongerHoldsSaysMissing() {
+    fun epicProofKeptImageTheServerNoLongerHoldsSaysMissing() {
         val artifact = EvidenceArtifactRow(
             path = "example/screenshot.png",
             state = "kept",
@@ -340,14 +527,16 @@ class EvidenceRunsTest {
         )
         setRuns(listOf(run("example-run-1", artifacts = listOf(artifact))), Loader(emptyMap()))
 
-        awaitAll(hasText("missing"))
+        clickTag(logTag(0))
 
-        assertEquals(1, countIn("evidence-run:$REQUIREMENT:0", hasText("missing")))
+        awaitIn(rowTag(0), hasText("missing"))
+
+        assertEquals(1, countIn(rowTag(0), hasText("missing")))
         assertEquals(0, countAll(hasTestTag(IMAGE_TAG)))
     }
 
     @Test
-    fun aLegacyRequirementShowsNoRuns() {
+    fun epicProofALegacyRequirementShowsNoRuns() {
         FakeOrreryServer().use { server ->
             server.respond(
                 EPICS_GET,
@@ -364,12 +553,12 @@ class EvidenceRunsTest {
             awaitAll(hasText("Example legacy requirement."))
 
             assertEquals(0, countAll(hasTestTag("evidence-run:0:0")))
-            assertEquals(0, countAll(hasText("stdout")))
+            assertEquals(0, countAll(hasTestTag("evidence-log:0:0")))
         }
     }
 
     @Test
-    fun epicScreenShowsEachRequirementsConclusionAndRunsAndFetchesTheLogOverItsClient() {
+    fun epicProofScreenOpensTheLogOverItsClientAndFetchesIt() {
         val redRun = EvidenceRun.newBuilder()
             .setId("example-run-1")
             .setPhase("red")
@@ -406,11 +595,10 @@ class EvidenceRunsTest {
             setScreen(server)
             awaitAll(hasText("Example requirement."))
             clickTag("req-row:R1")
-            awaitIn("evidence-run:0:0", hasText("fails"))
+            awaitIn("evidence-run:0:0", hasText("Red run: the test fails before any change, as it should."))
 
-            assertEquals(1, countIn("evidence-run:0:0", hasText("fails")))
-            clickTag("evidence-log:0:0:stdout")
-            awaitAll(hasText("example log line two", substring = true))
+            clickTag("evidence-log:0:0")
+            awaitIn("evidence-stream:0:0:stdout", hasText("example log line two", substring = true))
 
             val request = server.requests.last { it.rawPath == EVIDENCE_ARTIFACT }
             val sent = EvidenceArtifactRequest.parseFrom(request.body)
@@ -420,7 +608,7 @@ class EvidenceRunsTest {
     }
 
     @Test
-    fun epicScreenFetchesTheStderrLogWithTheStderrFlagAndShowsItUnderItsToggle() {
+    fun epicProofScreenFetchesTheStderrLogWithItsFlagAndShowsItUnderTheLog() {
         val redRun = EvidenceRun.newBuilder()
             .setId("example-run-1")
             .setPhase("red")
@@ -462,15 +650,14 @@ class EvidenceRunsTest {
             setScreen(server)
             awaitAll(hasText("Example requirement."))
             clickTag("req-row:R1")
-            awaitIn("evidence-run:0:0", hasText("fails"))
+            awaitIn("evidence-run:0:0", hasText("Red run: the test fails before any change, as it should."))
 
-            clickTag("evidence-log:0:0:stdout")
-            awaitIn("evidence-stream:0:0:stdout", hasText("example log line two", substring = true))
-            clickTag("evidence-log:0:0:stderr")
+            clickTag("evidence-log:0:0")
             awaitIn("evidence-stream:0:0:stderr", hasText("example stderr line one", substring = true))
 
+            assertEquals(1, countIn("evidence-stream:0:0:stdout", hasText("example log line two", substring = true)))
             assertEquals(1, countIn("evidence-stream:0:0:stderr", hasText("example stderr line one", substring = true)))
-            assertEquals(0, countIn("evidence-stream:0:0:stdout", hasText("example stderr line one", substring = true)))
+            assertEquals(0, countIn("evidence-stream:0:0:stderr", hasText("example log line two", substring = true)))
             val sent = server.requests
                 .filter { it.rawPath == EVIDENCE_ARTIFACT }
                 .map { EvidenceArtifactRequest.parseFrom(it.body) }

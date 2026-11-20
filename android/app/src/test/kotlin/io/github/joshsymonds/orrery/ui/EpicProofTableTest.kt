@@ -220,11 +220,11 @@ class EpicProofTableTest {
 
         composeRule.onAllNodesWithTag("req-runs:R1", useUnmergedTree = true).assertCountEquals(1)
         composeRule.onNodeWithTag("evidence-run:0:0", useUnmergedTree = true)
-            .assert(hasAnyDescendant(hasText("RED")) and hasAnyDescendant(hasText("passed")))
+            .assert(hasAnyDescendant(hasText("Red run: the test fails before any change, as it should.")))
         composeRule.onNodeWithTag("evidence-run:0:1", useUnmergedTree = true)
-            .assert(hasAnyDescendant(hasText("RED")) and hasAnyDescendant(hasText("not passed")))
+            .assert(hasAnyDescendant(hasText("Red run: the test passes before any change. It should fail.")))
         composeRule.onNodeWithTag("evidence-run:0:2", useUnmergedTree = true)
-            .assert(hasAnyDescendant(hasText("GREEN")))
+            .assert(hasAnyDescendant(hasText("Green run: the test passes on the change.")))
 
         composeRule.onNodeWithTag("req-row:R1").performClick()
 

@@ -4,19 +4,18 @@ import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -25,11 +24,11 @@ import io.github.joshsymonds.orrery.api.EvidenceArtifactFile
 import io.github.joshsymonds.orrery.api.EvidenceArtifactRow
 import io.github.joshsymonds.orrery.api.EvidenceRunRow
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
-import io.github.joshsymonds.orrery.ui.theme.inLabelCase
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.IOException
+
+private const val LOG_NOT_AVAILABLE = "The log is not available."
 
 /**
  * Fetches an artifact of a run by its path, or one of the run's logs when the name is empty: its stderr log when
@@ -45,12 +44,13 @@ private sealed interface Fetch<out T> {
     data class Failed(val message: String) : Fetch<Nothing>
 }
 
+/** A run's log as text: its stdout, and its stderr when the run has stderr bytes. */
+private data class LogText(val stdout: String, val stderr: String?)
+
 /**
- * The evidence runs of requirement [requirement], oldest first. A run shows its phase, "agent-supplied" when an agent
- * supplied it, its verdict or "no verdict" with the judge's reason, whether it passed, its exit, the first 12
- * characters of its revision, and "running" while it has not ended. Its stdout log loads when asked for, and its stderr
- * log too when it has one. Each artifact it kept is named: a kept image is drawn, and a missing or over-cap artifact
- * says so.
+ * The evidence runs of requirement [requirement], oldest first. Each run draws as one line: its sentence, its verdict
+ * chip and its meta. Under it, a `log` toggle opens the run's log, stdout then stderr when it has bytes, and its
+ * artifacts, which fold with the log. A kept image is drawn in that fold.
  */
 @Composable
 fun EvidenceRuns(
@@ -68,75 +68,113 @@ fun EvidenceRuns(
 
 @Composable
 private fun EvidenceRunView(position: String, run: EvidenceRunRow, loadArtifact: ArtifactLoader) {
+    val (verdict, tone) = verdictOf(run)
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("evidence-run:$position")
             .padding(vertical = OrreryTokens.Space.four),
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight), verticalAlignment = Alignment.CenterVertically) {
-            Text(run.phase.inLabelCase(), style = OrreryTokens.Type.label)
-            if (run.source == "supplied") {
-                Text("agent-supplied", style = OrreryTokens.Type.small)
-            }
-            if (run.state != "ended") {
-                Text("running", style = OrreryTokens.Type.small)
-            }
-        }
-        Text(run.verdict.ifEmpty { "no verdict" }, style = OrreryTokens.Type.body)
-        if (run.judgeReason.isNotEmpty()) {
-            Text(run.judgeReason, style = OrreryTokens.Type.body)
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight)) {
-            Text(if (run.passed) "passed" else "not passed", style = OrreryTokens.Type.small)
-            Text("exit ${run.exit}", style = OrreryTokens.Type.small)
-            Text("revision ${run.revision.take(12)}", style = OrreryTokens.Type.small)
-        }
-        RunLog(position = position, runId = run.id, stderr = false, loadArtifact = loadArtifact)
-        if (run.stderrBytes > 0) {
-            RunLog(position = position, runId = run.id, stderr = true, loadArtifact = loadArtifact)
-        }
-        run.artifacts.forEachIndexed { artifactIndex, artifact ->
-            ArtifactView(
-                position = position,
-                artifactIndex = artifactIndex,
-                runId = run.id,
-                artifact = artifact,
-                loadArtifact = loadArtifact,
-            )
-        }
-    }
-}
-
-/** The toggle of one log of one run, stdout or stderr, and the log once it has loaded under the toggle. */
-@Composable
-private fun RunLog(position: String, runId: String, stderr: Boolean, loadArtifact: ArtifactLoader) {
-    val stream = if (stderr) "stderr" else "stdout"
-    var log by remember { mutableStateOf<Fetch<String>?>(null) }
-    val scope = rememberCoroutineScope()
-    Column(modifier = Modifier.fillMaxWidth().testTag("evidence-stream:$position:$stream")) {
-        TextButton(
-            onClick = {
-                log = Fetch.Loading
-                scope.launch { log = fetchLog(runId, stderr, loadArtifact) }
-            },
-            modifier = Modifier.testTag("evidence-log:$position:$stream"),
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
+            verticalArrangement = Arrangement.spacedBy(OrreryTokens.Space.four),
         ) {
-            Text(stream)
+            Text(sentenceOf(run), style = OrreryTokens.Type.body)
+            Chip(verdict, tone)
+            Text(metaOf(run), style = OrreryTokens.Type.small)
         }
-        when (val current = log) {
-            null -> Unit
-            Fetch.Loading -> Text("loading log", style = OrreryTokens.Type.small)
-            Fetch.Missing -> Text("log missing", style = OrreryTokens.Type.small)
-            is Fetch.Failed -> Text(current.message, color = OrreryTokens.Role.bad, style = OrreryTokens.Type.small)
-            is Fetch.Loaded -> Text(
-                current.value,
-                style = OrreryTokens.Type.small,
-            )
+        RunLogFold(position = position, run = run, loadArtifact = loadArtifact)
+    }
+}
+
+/**
+ * The toggle of a run's log: `log` opens the fold and `hide the log` closes it. Open, the fold holds the stdout log, then
+ * the stderr log when the run has stderr bytes, then the run's artifacts.
+ */
+@Composable
+private fun RunLogFold(position: String, run: EvidenceRunRow, loadArtifact: ArtifactLoader) {
+    var open by remember { mutableStateOf(false) }
+    var log by remember { mutableStateOf<Fetch<LogText>>(Fetch.Loading) }
+    val hasStderr = run.stderrBytes > 0
+    LaunchedEffect(open, run.id, hasStderr) {
+        if (open) {
+            log = Fetch.Loading
+            log = fetchLog(run.id, hasStderr, loadArtifact)
+        }
+    }
+    Column(modifier = Modifier.fillMaxWidth()) {
+        TextButton(
+            onClick = { open = !open },
+            modifier = Modifier.testTag("evidence-log:$position"),
+        ) {
+            Text(if (open) "hide the log" else "log")
+        }
+        if (open) {
+            when (val current = log) {
+                Fetch.Loading -> Text("loading the log…", style = OrreryTokens.Type.small)
+                is Fetch.Loaded -> {
+                    Column(modifier = Modifier.fillMaxWidth().testTag("evidence-stream:$position:stdout")) {
+                        Text(current.value.stdout, style = OrreryTokens.Type.small)
+                    }
+                    current.value.stderr?.let { stderr ->
+                        Column(modifier = Modifier.fillMaxWidth().testTag("evidence-stream:$position:stderr")) {
+                            Text(stderr, style = OrreryTokens.Type.small)
+                        }
+                    }
+                }
+                Fetch.Missing, is Fetch.Failed -> Text(LOG_NOT_AVAILABLE, style = OrreryTokens.Type.small)
+            }
+            run.artifacts.forEachIndexed { artifactIndex, artifact ->
+                ArtifactView(
+                    position = position,
+                    artifactIndex = artifactIndex,
+                    runId = run.id,
+                    artifact = artifact,
+                    loadArtifact = loadArtifact,
+                )
+            }
         }
     }
 }
 
+/**
+ * The one sentence a run draws, from its state, its capture and its result: the phase is "Red" or "Green", and the result
+ * is whether the run passed its phase.
+ */
+private fun sentenceOf(run: EvidenceRunRow): String {
+    val phase = run.phase.replaceFirstChar { it.uppercase() }
+    return when {
+        run.state == "capturing" -> "$phase run: capturing the output…"
+        run.state == "judging" -> "$phase run: a judge is reading the output…"
+        run.notCaptured.isNotEmpty() -> "$phase run: the output was not captured: ${run.notCaptured}."
+        run.phase == "red" && run.passed -> "Red run: the test fails before any change, as it should."
+        run.phase == "red" -> "Red run: the test passes before any change. It should fail."
+        run.passed -> "Green run: the test passes on the change."
+        else -> "Green run: the test still fails on the change."
+    }
+}
+
+/**
+ * The verdict chip of a run and its tone: its state while it captures or is judged, else its verdict, else no verdict with
+ * the judge's reason when the judge gave one.
+ */
+private fun verdictOf(run: EvidenceRunRow): Pair<String, ChipTone> = when (run.state) {
+    "capturing" -> "capturing" to ChipTone.Live
+    "judging" -> "judging" to ChipTone.Live
+    else -> when (run.verdict) {
+        "holds" -> "✓ holds" to ChipTone.Ok
+        "fails" -> "✗ fails" to ChipTone.Bad
+        else -> (if (run.judgeReason.isEmpty()) "no verdict" else "no verdict · ${run.judgeReason}") to ChipTone.Neutral
+    }
+}
+
+/** The meta of a run: its source, and its exit once it has ended. */
+private fun metaOf(run: EvidenceRunRow): String {
+    val source = if (run.source == "supplied") "supplied by the agent" else "captured"
+    return if (run.state == "ended") "$source · exit ${run.exit}" else source
+}
+
+/** An artifact's line under the log: its path, its state and its size. */
 @Composable
 private fun ArtifactView(
     position: String,
@@ -145,17 +183,21 @@ private fun ArtifactView(
     artifact: EvidenceArtifactRow,
     loadArtifact: ArtifactLoader,
 ) {
-    Text(artifact.path, style = OrreryTokens.Type.small)
-    when {
-        artifact.state == "missing" -> Text("missing", style = OrreryTokens.Type.small)
-        artifact.state == "over_cap" -> Text("over cap", style = OrreryTokens.Type.small)
-        artifact.state == "kept" && artifact.mediaType.startsWith("image/") -> ArtifactImage(
+    Text("${artifact.path} · ${stateWordOf(artifact.state)} · ${artifact.size} bytes", style = OrreryTokens.Type.small)
+    if (artifact.state == "kept" && artifact.mediaType.startsWith("image/")) {
+        ArtifactImage(
             runId = runId,
             path = artifact.path,
             tag = "evidence-image:$position:$artifactIndex",
             loadArtifact = loadArtifact,
         )
     }
+}
+
+/** An artifact's state as its line names it: kept and missing as they are, an over-cap artifact as too large to keep. */
+private fun stateWordOf(state: String): String = when (state) {
+    "over_cap" -> "too large to keep"
+    else -> state
 }
 
 @Composable
@@ -175,12 +217,20 @@ private fun ArtifactImage(runId: String, path: String, tag: String, loadArtifact
     }
 }
 
-private suspend fun fetchLog(runId: String, stderr: Boolean, loadArtifact: ArtifactLoader): Fetch<String> =
+private suspend fun fetchLog(runId: String, hasStderr: Boolean, loadArtifact: ArtifactLoader): Fetch<LogText> =
     try {
-        val file = withContext(Dispatchers.IO) { loadArtifact(runId, "", stderr) }
-        if (file == null) Fetch.Missing else Fetch.Loaded(String(file.data, Charsets.UTF_8))
+        withContext(Dispatchers.IO) {
+            val stdout = loadArtifact(runId, "", false) ?: return@withContext Fetch.Missing
+            val stderr = if (hasStderr) (loadArtifact(runId, "", true) ?: return@withContext Fetch.Missing) else null
+            Fetch.Loaded(
+                LogText(
+                    stdout = String(stdout.data, Charsets.UTF_8),
+                    stderr = stderr?.let { String(it.data, Charsets.UTF_8) },
+                ),
+            )
+        }
     } catch (error: IOException) {
-        Fetch.Failed("could not load log")
+        Fetch.Failed(LOG_NOT_AVAILABLE)
     }
 
 private suspend fun fetchImage(runId: String, path: String, loadArtifact: ArtifactLoader): Fetch<ImageBitmap> =
