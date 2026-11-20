@@ -25,6 +25,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 	"github.com/joshsymonds/orrery/internal/tmuxtest"
+	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
 const (
@@ -35,8 +36,11 @@ const (
 	// paneFeedOrreryP and paneFeedOrreryQ are the @orrery_id of the two panes the feed tests stream, P and Q.
 	paneFeedOrreryP = "orrery-feed-p"
 	paneFeedOrreryQ = "orrery-feed-q"
-	// paneFeedCommand keeps a pane's session alive until its test server is killed at cleanup.
-	paneFeedCommand = "sleep 300"
+	// paneFeedCommand and paneFeedSeconds keep a pane's session alive until its test server is killed at cleanup. They
+	// are passed to tmux as separate arguments, so tmux execs the command with no shell between: the pane's command goes
+	// from tmux's own forked child to paneFeedCommand once, and never changes again.
+	paneFeedCommand = "sleep"
+	paneFeedSeconds = "300"
 	// paneFeedNoConfig keeps the user's tmux config away from the feed tests' servers.
 	paneFeedNoConfig = "/dev/null"
 	// paneFeedPrompt is the first line of every feed test's transcript.
@@ -64,12 +68,24 @@ func paneFeedTmux(t *testing.T) *tmuxctl.Client {
 }
 
 // paneFeedPane starts a session named session on a pane running paneFeedCommand, sets the pane's state to working, its
-// transcript to the file at path and its @orrery_id to id, and returns the pane's ID.
+// transcript to the file at path and its @orrery_id to id, waits until the pane's command is paneFeedCommand, and returns
+// the pane's ID. A stream reads the pane's command as part of its state, so a pane still starting would change its state
+// between two reads, and a stream would rightly send that change: the wait keeps the panes the tests stream unchanged.
 func paneFeedPane(t *testing.T, tmux *tmuxctl.Client, session, path, id string) string {
 	t.Helper()
 	ctx := t.Context()
 	if _, err := tmux.Run(
-		ctx, "-f", paneFeedNoConfig, "new-session", "-d", "-s", session, "-c", t.TempDir(), paneFeedCommand,
+		ctx,
+		"-f",
+		paneFeedNoConfig,
+		"new-session",
+		"-d",
+		"-s",
+		session,
+		"-c",
+		t.TempDir(),
+		paneFeedCommand,
+		paneFeedSeconds,
 	); err != nil {
 		t.Fatalf("new-session %s: %v", session, err)
 	}
@@ -88,6 +104,13 @@ func paneFeedPane(t *testing.T, tmux *tmuxctl.Client, session, path, id string) 
 			t.Fatalf("SetPaneOption(%s, %s): %v", pane, name, err)
 		}
 	}
+	waittest.Until(t, nil, "pane "+pane+" runs "+paneFeedCommand, func() bool {
+		command, err := tmux.Run(ctx, "display-message", "-p", "-t", pane, "#{pane_current_command}")
+		if err != nil {
+			t.Fatalf("read the command of pane %s: %v", pane, err)
+		}
+		return strings.TrimSpace(command) == paneFeedCommand
+	})
 	return pane
 }
 
