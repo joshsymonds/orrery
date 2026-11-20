@@ -201,6 +201,9 @@ type Config struct {
 	// EpicCommands is orreryd's Epics client, which Pause, Resume, Stop, Retry and Answer forward the owner's commands
 	// to, or nil, which answers unavailable.
 	EpicCommands enginev1connect.EpicsClient
+	// ContractCommands is orreryd's Contracts client, which Accept, SetAside and Reopen forward the owner's commands
+	// to, or nil, which answers unavailable.
+	ContractCommands enginev1connect.ContractsClient
 	// Evidence is orreryd's Evidence client, which Epics.Get reads each Requirement's runs from and Evidence.Artifact
 	// reads artifacts from, or nil for no runs and no artifacts.
 	Evidence EvidenceClient
@@ -275,7 +278,7 @@ func New(cfg Config) (http.Handler, error) {
 		cfg.Engine, cfg.ControlTimeout, cfg.Home, cfg.Steps, cfg.HandlerOptions...,
 	)
 	mux.Handle(controlPath, control)
-	epicsPath, evidencePath := registerEpicServices(mux, cfg, now)
+	epicsPath, evidencePath, contractsPath := registerEpicServices(mux, cfg, now)
 	stepsPath, stepsService := newStepsHandler(
 		cfg.Steps, cfg.ControlTimeout, rpcretry.SystemClock{}, cfg.HandlerOptions...,
 	)
@@ -300,7 +303,7 @@ func New(cfg Config) (http.Handler, error) {
 	}
 	connectPaths := []string{
 		sessionsPath, eventsPath, controlPath, epicsPath, evidencePath, stepsPath, poolsPath, noticesPath, panesPath,
-		hostPath, pushPath, pickerPath, presencePath,
+		hostPath, pushPath, pickerPath, presencePath, contractsPath,
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := allowed[r.Header.Get(HeaderLogin)]; !ok {
@@ -315,10 +318,10 @@ func New(cfg Config) (http.Handler, error) {
 	}), nil
 }
 
-// registerEpicServices mounts the Epics service and the Evidence service on mux, both over the records, steps, epic
-// store, epic commands and evidence client of cfg, and returns their paths. The Epics service also lists the sessions
-// of cfg's store reader, and dates its records from now.
-func registerEpicServices(mux *http.ServeMux, cfg Config, now func() time.Time) (string, string) {
+// registerEpicServices mounts the Epics service, the Evidence service and the Contracts service on mux, all over the
+// records, steps, epic store, epic commands, evidence client, contract commands and store reader of cfg, and returns
+// their paths. The Epics service also lists the sessions of cfg's store reader, and dates its records from now.
+func registerEpicServices(mux *http.ServeMux, cfg Config, now func() time.Time) (string, string, string) {
 	epicsPath, epicsService := newEpicsHandler(
 		cfg.Records, cfg.Steps, cfg.EpicStore, cfg.EpicCommands, cfg.Evidence, cfg.Sessions, cfg.ControlTimeout, now,
 		rpcretry.SystemClock{}, cfg.HandlerOptions...,
@@ -326,7 +329,11 @@ func registerEpicServices(mux *http.ServeMux, cfg Config, now func() time.Time) 
 	mux.Handle(epicsPath, epicsService)
 	evidencePath, evidenceService := newEvidenceHandler(cfg.Evidence, cfg.ControlTimeout, cfg.HandlerOptions...)
 	mux.Handle(evidencePath, evidenceService)
-	return epicsPath, evidencePath
+	contractsPath, contractsService := newContractsHandler(
+		cfg.Sessions, cfg.ContractCommands, cfg.ControlTimeout, rpcretry.SystemClock{}, cfg.HandlerOptions...,
+	)
+	mux.Handle(contractsPath, contractsService)
+	return epicsPath, evidencePath, contractsPath
 }
 
 // registerNotices mounts the Notices service on mux, forwarding to cfg.Notices with each Watch send bounded by

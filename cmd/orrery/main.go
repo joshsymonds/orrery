@@ -601,6 +601,7 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 		evidence     server.EvidenceClient
 		pools        enginev1connect.PoolsClient
 		notices      enginev1connect.NoticesClient
+		contracts    enginev1connect.ContractsClient
 	)
 	if daemonSocket, sockErr := protocol.SocketPath(opts.daemonSocket, getenv); sockErr == nil {
 		sessionClient := cli.SessionHTTPClient(protocol.SessionSocketPath(daemonSocket))
@@ -611,6 +612,7 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 			enginev1connect.NewEvidenceClient(sessionClient, cli.SessionBaseURL)
 		pools = enginev1connect.NewPoolsClient(sessionClient, cli.SessionBaseURL)
 		notices = enginev1connect.NewNoticesClient(sessionClient, cli.SessionBaseURL)
+		contracts = enginev1connect.NewContractsClient(sessionClient, cli.SessionBaseURL)
 	}
 	// Without a HOME the record root stays empty: os.DirFS refuses an empty root, so Epics fails its reads rather than
 	// reading the working directory's .gambit.
@@ -625,27 +627,28 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 	}
 	shutdown := make(chan struct{})
 	handler, err := server.New(server.Config{
-		HandlerOptions: handlerOptions,
-		Logins:         logins,
-		Tmux:           tmux,
-		Push:           pushStore,
-		HostStatus:     hostStatus,
-		Sessions:       sessions,
-		Shutdown:       shutdown,
-		Engine:         engine,
-		Steps:          steps,
-		Pools:          pools,
-		Notices:        notices,
-		Records:        records,
-		EpicStore:      epicStore,
-		EpicCommands:   epicCommands,
-		Evidence:       evidence,
-		Home:           home,
-		Picker:         servePickerConfig(tmux, getenv),
-		ReportSeen:     seenReporter(opts.daemonSocket, getenv),
-		ReportRead:     readReporter(opts.daemonSocket, getenv),
-		ReportInput:    inputReporter(opts.daemonSocket, getenv),
-		Web:            webui.FS(),
+		HandlerOptions:   handlerOptions,
+		Logins:           logins,
+		Tmux:             tmux,
+		Push:             pushStore,
+		HostStatus:       hostStatus,
+		Sessions:         sessions,
+		Shutdown:         shutdown,
+		Engine:           engine,
+		Steps:            steps,
+		Pools:            pools,
+		Notices:          notices,
+		Records:          records,
+		EpicStore:        epicStore,
+		EpicCommands:     epicCommands,
+		ContractCommands: contracts,
+		Evidence:         evidence,
+		Home:             home,
+		Picker:           servePickerConfig(tmux, getenv),
+		ReportSeen:       seenReporter(opts.daemonSocket, getenv),
+		ReportRead:       readReporter(opts.daemonSocket, getenv),
+		ReportInput:      inputReporter(opts.daemonSocket, getenv),
+		Web:              webui.FS(),
 	})
 	if err != nil {
 		return fmt.Errorf("serve: %w", err)
