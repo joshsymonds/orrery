@@ -542,7 +542,7 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
    body text at regular weight; the options are numbered rows. Under 760px options and buttons take the touch height and
    key caps are not drawn. */
 .ask { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--o-space-12); min-width: 0; padding: var(--o-space-12) var(--o-space-16); border-left: var(--o-size-rail) solid var(--o-role-attention); border-radius: 0 var(--o-radius-3) var(--o-radius-3) 0; background: var(--o-role-attention-fill); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-role-attention-line); }
-.ask > .head { display: flex; align-items: center; gap: var(--o-space-8); min-width: 0; color: var(--o-ink-2); font: var(--o-type-small); }
+.ask > .head { display: flex; align-items: center; gap: var(--o-space-8); min-width: 0; padding: 0; border-bottom: 0; color: var(--o-ink-2); font: var(--o-type-small); white-space: normal; }
 .ask > .head .lbl { flex: none; color: var(--o-role-attention); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
 .ask > .head .cut { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ask > .head .age { flex: none; color: var(--o-ink-3); white-space: nowrap; }
@@ -583,7 +583,7 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 .menu-item .sub { margin-left: auto; color: var(--o-ink-3); }
 @media (width < 760px) {
   .ask > .head { flex-wrap: wrap; }
-  .ask > .head .cut { flex-basis: 100%; order: 3; }
+  .ask > .head .cut { flex-basis: 100%; order: 3; white-space: normal; }
   .ask .opt { grid-template-columns: minmax(0, 1fr) auto; min-height: var(--o-size-control-touch); align-content: center; }
   .ask .opt .ds { grid-column: 1 / -1; }
   .ask .opt .field.area { grid-column: 1 / -1; }
