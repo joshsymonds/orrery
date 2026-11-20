@@ -428,7 +428,7 @@ export function briefStepOf(detail: EpicsGetResponse, task: string): EpicStep | 
 
 // briefOf is the planner's brief: the text of the conversation's first prompt sent as the brief, undefined while the
 // conversation holds none.
-function briefOf(conversation: Conversation | null): string | undefined {
+export function briefOf(conversation: Conversation | null): string | undefined {
   return conversation?.items.find((item) => item.kind === "prompt" && item.sender === "brief")?.text;
 }
 

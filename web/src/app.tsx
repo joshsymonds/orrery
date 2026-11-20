@@ -40,7 +40,7 @@ import {
 import { listHolds, listsEpic } from "./listholds";
 import { epicNeeds } from "./needs";
 import { NoticeBanner } from "./notices";
-import { briefStepOf, PhaseOutputPage } from "./phaseoutput";
+import { briefOf, briefStepOf, PhaseOutputPage } from "./phaseoutput";
 import type { Phase } from "./phases";
 import { NewPanel } from "./picker";
 import { type Viewing, viewingOf } from "./presence";
@@ -699,6 +699,18 @@ export function App({
     sessionOlder.current = followed.older;
     return followed.stop;
   }, [shownSession, clients]);
+
+  // The record's brief step is paged back while its conversation holds no brief and has older items: each page is asked
+  // for once the last one is drawn, until the brief is held or no older item is left.
+  useEffect(() => {
+    if (briefed === "" || sessionStream === null || sessionStream.key !== briefed) {
+      return;
+    }
+    const { conversation } = sessionStream;
+    if (briefOf(conversation) === undefined && conversation.more) {
+      sessionOlder.current();
+    }
+  }, [sessionStream, briefed]);
 
   useEffect(() => {
     setVisited((previous) => keepEntries(previous, rows, middleRow));

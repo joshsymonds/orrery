@@ -4304,6 +4304,23 @@ test("the record follows its brief step's session, and draws the planner's brief
     assert.equal(container.querySelector(".brief p")?.textContent, "Parse the lines of the rota.");
   }));
 
+test("TaskBand: the record pages back through the brief step's conversation until it holds the planner's brief", (t) =>
+  withApp(t.signal, { epics: phaseEpic() }, async (container, fake) => {
+    await openCheckingPhase(container);
+    await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the brief step's stream");
+    const [stream] = fake.callsTo(sessionWatchPath);
+    const later = Array.from({ length: 40 }, (_, index) => ({ kind: "assistant", text: `reply ${index}` }));
+    fake.replies.set(sessionOlderPath, [
+      { items: [{ kind: "prompt", sender: "brief", text: "Parse the lines of the rota." }], oldest: "0", more: false },
+    ]);
+    fake.emit(stream, { transcript: "t1", seq: "50", reset: true, oldest: "100", items: later });
+    await until(t.signal, () => fake.callsTo(sessionOlderPath).length === 1, "the older request");
+    assert.deepEqual(fake.callsTo(sessionOlderPath)[0].body, { id: "run1", before: "100" }, "the page before the oldest item is asked");
+    await until(t.signal, () => container.querySelector(".brief p") !== null, "the planner's brief");
+    assert.equal(container.querySelector(".brief p")?.textContent, "Parse the lines of the rota.");
+    assert.equal(fake.callsTo(sessionOlderPath).length, 1, "no older page is asked once the brief is held");
+  }));
+
 test("‹ on the session returns to the phase output, and ‹ again to the epic page at its scroll place", (t) =>
   withApp(t.signal, { epics: phaseEpic() }, async (container, fake) => {
     await press("j");
