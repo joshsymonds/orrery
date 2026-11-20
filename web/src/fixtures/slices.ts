@@ -47,6 +47,10 @@ export interface Slices {
   readonly sessionStreams: ReadonlyMap<string, SessionsWatchConversationResponse>;
   readonly evidenceLogs: ReadonlyMap<string, string>;
   readonly asks: ReadonlyMap<string, AskAnswer>;
+  // heldGets names the epics whose Epics.Get stays open until its call aborts.
+  readonly heldGets: ReadonlySet<string>;
+  // failingEpicCommands names the epic commands that fail, each with the reason its error carries.
+  readonly failingEpicCommands: ReadonlyMap<"pause" | "resume" | "stop" | "retry", string>;
 }
 
 // shippedSlices is the data the fixture transport serves when it is given no slices.
@@ -62,4 +66,6 @@ export const shippedSlices: Slices = {
   sessionStreams,
   evidenceLogs,
   asks: new Map<string, AskAnswer>(),
+  heldGets: new Set<string>(),
+  failingEpicCommands: new Map<"pause" | "resume" | "stop" | "retry", string>(),
 };

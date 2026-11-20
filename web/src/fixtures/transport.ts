@@ -7,7 +7,7 @@ import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError, createRouterTransport, type HandlerContext, type Transport } from "@connectrpc/connect";
 
 import { createClients } from "../client";
-import { Epics, Evidence, Steps } from "../gen/orrery/v1/epics_pb";
+import { Epics, EpicsGetResponseSchema, Evidence, Steps } from "../gen/orrery/v1/epics_pb";
 import { Notices } from "../gen/orrery/v1/notice_pb";
 import {
   AskResponseSchema,
@@ -54,6 +54,15 @@ export function createFixtureTransport(slices: Slices = shippedSlices): FixtureT
 
   // absorb answers a write with an empty message. The fixture takes the write and records nothing.
   const absorb = () => ({});
+
+  // epicCommand answers an epic command with an empty message, or fails it with the reason the slices name for it.
+  const epicCommand = (name: "pause" | "resume" | "stop" | "retry") => () => {
+    const reason = slices.failingEpicCommands.get(name);
+    if (reason !== undefined) {
+      throw new ConnectError(reason, Code.Unavailable);
+    }
+    return {};
+  };
 
   // notFound is the error a read of an id the slices do not hold fails with.
   const notFound = (message: string) => new ConnectError(message, Code.NotFound);
@@ -137,7 +146,12 @@ export function createFixtureTransport(slices: Slices = shippedSlices): FixtureT
     });
     router.service(Epics, {
       list: () => slices.epics,
-      get: (request) => {
+      // A held Get stays open until its call aborts, as a Picker.Ask its slices hold open does.
+      get: async (request, context) => {
+        if (slices.heldGets.has(request.id)) {
+          await held(context.signal);
+          return create(EpicsGetResponseSchema);
+        }
         const epic = slices.gets.get(request.id);
         if (epic === undefined) {
           throw notFound(`epic ${request.id} not found`);
@@ -145,10 +159,10 @@ export function createFixtureTransport(slices: Slices = shippedSlices): FixtureT
         return epic;
       },
       history: (request) => slices.histories.get(request.id) ?? { entries: [], next: "" },
-      pause: absorb,
-      resume: absorb,
-      stop: absorb,
-      retry: absorb,
+      pause: epicCommand("pause"),
+      resume: epicCommand("resume"),
+      stop: epicCommand("stop"),
+      retry: epicCommand("retry"),
       kick: refuse,
       answer: absorb,
       seen: absorb,

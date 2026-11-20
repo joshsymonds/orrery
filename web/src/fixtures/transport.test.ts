@@ -10,7 +10,14 @@ import { App, Page } from "../app.stories";
 import { PageStory } from "../catalog/pagestory";
 import { storyName } from "../catalog/story";
 import type { Address } from "../router";
-import { EpicsGetResponseSchema, EpicsListResponseSchema, EpicsPauseResponseSchema } from "../gen/orrery/v1/epics_pb";
+import {
+  EpicsGetResponseSchema,
+  EpicsListResponseSchema,
+  EpicsPauseResponseSchema,
+  EpicsResumeResponseSchema,
+  EpicsRetryResponseSchema,
+  EpicsStopResponseSchema,
+} from "../gen/orrery/v1/epics_pb";
 import {
   AskResponseSchema,
   HostStatusResponseSchema,
@@ -280,6 +287,41 @@ test("FixtureTransport fails a Picker.Ask its slice holds a failure for with tha
   const error = await refusal(fixture.clients.picker.ask({ text: "roster page tidepool" }));
   assert.equal(error.code, Code.DeadlineExceeded);
   assert.deepEqual([...fixture.unserved], [], "a failure from the slice is no refused call");
+});
+
+test("EpicCommands: a held Epics.Get stays open until its call aborts, while another epic's Get answers", async () => {
+  const fixture = createFixtureTransport({ ...shippedSlices, heldGets: new Set(["lighthouse/rota-export"]) });
+  const controller = new AbortController();
+  const held = fixture.clients.epics.get({ id: "lighthouse/rota-export" }, { signal: controller.signal });
+  assert.equal(await Promise.race([held.then(() => "answered", () => "failed"), turn().then(() => "held")]), "held", "the held epic's Get is not answered");
+  const other = await fixture.clients.epics.get({ id: "tidepool/tide-alerts" });
+  const wanted = shippedSlices.gets.get("tidepool/tide-alerts");
+  assert.ok(wanted !== undefined && equals(EpicsGetResponseSchema, other, wanted), "another epic's Get is answered");
+  controller.abort();
+  const error = await refusal(held);
+  assert.equal(error.code, Code.Canceled, "the abort ends the held Get");
+  assert.deepEqual([...fixture.unserved], [], "a held Get is no refused call");
+});
+
+test("EpicCommands: a failing pause rejects with Unavailable and its reason, while resume still answers", async () => {
+  const reason = "the halyard did not take the pause";
+  const fixture = createFixtureTransport({ ...shippedSlices, failingEpicCommands: new Map([["pause", reason]]) });
+  const error = await refusal(fixture.clients.epics.pause({ id: "lighthouse/rota-export" }));
+  assert.equal(error.code, Code.Unavailable, "the failed command is Unavailable");
+  assert.equal(error.rawMessage, reason, "the error carries the reason");
+  const resumed = await fixture.clients.epics.resume({ id: "lighthouse/rota-export" });
+  assert.deepEqual(toJson(EpicsResumeResponseSchema, resumed), {}, "resume still answers with an empty message");
+  assert.deepEqual([...fixture.unserved], [], "a failed command is no refused call");
+});
+
+test("EpicCommands: with the shipped slices every epic command answers with an empty message", async () => {
+  const fixture = createFixtureTransport();
+  const id = "lighthouse/rota-export";
+  assert.deepEqual(toJson(EpicsPauseResponseSchema, await fixture.clients.epics.pause({ id })), {}, "pause answers");
+  assert.deepEqual(toJson(EpicsResumeResponseSchema, await fixture.clients.epics.resume({ id })), {}, "resume answers");
+  assert.deepEqual(toJson(EpicsStopResponseSchema, await fixture.clients.epics.stop({ id })), {}, "stop answers");
+  assert.deepEqual(toJson(EpicsRetryResponseSchema, await fixture.clients.epics.retry({ id })), {}, "retry answers");
+  assert.deepEqual([...fixture.unserved], [], "no epic command is refused");
 });
 
 test("FixtureTransport: a pane stream sends its frame and holds open, a reconnect gets no frame, and an abort ends the wait", async () => {
