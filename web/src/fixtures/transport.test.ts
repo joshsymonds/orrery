@@ -22,9 +22,13 @@ import { turn, until } from "../testwait";
 import { shippedSlices } from "./slices";
 import { createFixtureTransport } from "./transport";
 
-// wideWidth is the window width the stories draw at. It is past the 760px the wide layout starts at, so the inbox is
-// docked or hidden as its state has it, not stacked under the page.
+// wideWidth is the window width the stories draw at unless one names its own. It is past the 760px the wide layout starts
+// at, so the inbox is docked or hidden as its state has it, not stacked under the page.
 const wideWidth = 1280;
+
+// overlayWidth is the width the epic panel lies over the conversation at: the 1000px round 6 draws epic-talk at, which
+// is at 1250px or narrower.
+const overlayWidth = 1000;
 
 const attention: Address = { order: "attention", entry: null };
 
@@ -73,11 +77,13 @@ function askSession(root: HTMLElement): boolean {
   return inboxState(root) === "hidden" && (root.textContent ?? "").includes(beaconPrompt);
 }
 
-// epicQuestion is Page/epic-question: Q1 is drawn in the now block, with no Talk menu drawn.
+// epicQuestion is Page/epic-question: Q1 is drawn in the now block, with no Talk menu drawn, and the epic panel beside the
+// conversation rather than over it, which is epic-talk's layout.
 function epicQuestion(root: HTMLElement): boolean {
   return (
     root.querySelector(".now-block .answer .question")?.textContent.includes(rotaQuestion) === true &&
-    root.querySelector("ul.talk") === null
+    root.querySelector("ul.talk") === null &&
+    root.querySelector(".panes.overlay") === null
   );
 }
 
@@ -86,12 +92,62 @@ function epicHandover(root: HTMLElement): boolean {
   return root.querySelector("ul.talk") !== null;
 }
 
-// epicTalk is Page/epic-talk: the cursor's reader holds the planning conversation that Talk's first line opened, and no
-// epic panel is drawn beside it, since that line moves the cursor to the conversation.
+// epicTalk is Page/epic-talk: under 1250px the epic panel lies over the conversation, and the conversation's reader holds
+// the planning prompt beneath it.
 function epicTalk(root: HTMLElement): boolean {
   return (
-    root.querySelector('section[aria-label="reader"]')?.textContent.includes(rotaPrompt) === true &&
+    root.querySelector(".panes.overlay aside.rpanel") !== null &&
+    root.querySelector('section[aria-label="reader"]')?.textContent.includes(rotaPrompt) === true
+  );
+}
+
+// railKinds is the kind of each group the right rail draws, in order: epic, agents or running.
+function railKinds(root: HTMLElement): string[] {
+  return [...root.querySelectorAll(".rail .rgroup")].map((group) => group.classList[1]);
+}
+
+// workRail is Page/work-rail: the buoy session's rail draws its three groups, epic, agents and running, and no panel is open.
+function workRail(root: HTMLElement): boolean {
+  const kinds = railKinds(root);
+  return (
+    kinds.length === 3 &&
+    kinds[0] === "epic" &&
+    kinds[1] === "agents" &&
+    kinds[2] === "running" &&
     root.querySelector("aside.rpanel") === null
+  );
+}
+
+// workRailGroup is Page/work-rail-group: pane %22's rail has its dots tile pressed, so its picker is open with four rows.
+function workRailGroup(root: HTMLElement): boolean {
+  return root.querySelectorAll(".rail .rpick .rpick-row").length === 4;
+}
+
+// orchardTitle is pane %13's line, which its reader draws once the fixture world has loaded.
+const orchardTitle = "Parser tests for nested scion grafting";
+
+// workEmpty is Page/work-empty: pane %13's conversation is drawn, and its rail with no tile in it.
+function workEmpty(root: HTMLElement): boolean {
+  return (
+    root.querySelector('section[aria-label="reader"]')?.textContent.includes(orchardTitle) === true &&
+    root.querySelector("aside.rail") !== null &&
+    root.querySelectorAll(".rail .tile-w").length === 0
+  );
+}
+
+// dockRunning is Page/dock-running: the Sub-agents panel is open beside the buoy session, with a row for each agent.
+function dockRunning(root: HTMLElement): boolean {
+  return (
+    root.querySelector("aside.rpanel")?.getAttribute("aria-label") === "Sub-agents" &&
+    root.querySelectorAll(".rpanel .plist li.row.live").length === 2
+  );
+}
+
+// dockBackground is Page/dock-background: the Left running panel is open beside the buoy session, with its grey rows.
+function dockBackground(root: HTMLElement): boolean {
+  return (
+    root.querySelector("aside.rpanel")?.getAttribute("aria-label") === "Left running" &&
+    root.querySelectorAll(".rpanel .plist li.row.quiet").length === 1
   );
 }
 
@@ -105,17 +161,18 @@ function settle(signal: AbortSignal, check: () => boolean, what: string): Promis
   return until(signal, check, what, { step: () => act(turn) });
 }
 
-// withStory mounts story into a fresh DOM at the wide width, waits until drawn holds on its root, then runs check. The
-// story is unmounted and its DOM removed when the test ends, or as soon as the test's signal aborts. The test must call
-// mockTimers first.
+// withStory mounts story into a fresh DOM at width, the wide width when none is given, waits until drawn holds on its root,
+// then runs check. The story is unmounted and its DOM removed when the test ends, or as soon as the test's signal aborts.
+// The test must call mockTimers first.
 async function withStory(
   t: TestContext,
   story: () => ComponentChild,
   drawn: (root: HTMLElement) => boolean,
   check: (root: HTMLElement) => void,
+  width = wideWidth,
 ): Promise<void> {
   const window = installTestDom();
-  window.innerWidth = wideWidth;
+  window.innerWidth = width;
   const root = document.createElement("div");
   document.body.append(root);
   const teardown = teardownOnce(t.signal, async () => {
@@ -433,7 +490,7 @@ test("FixtureTransport: page/worker-running draws the worker session", (t) => {
   );
 });
 
-test("FixtureTransport: page/epic-talk draws the planning conversation in the cursor's reader", (t) => {
+test("FixtureTransport: page/epic-talk draws the epic panel over the planning conversation, under 1250px wide", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(
     t,
@@ -441,7 +498,73 @@ test("FixtureTransport: page/epic-talk draws the planning conversation in the cu
     epicTalk,
     (root) => {
       assertNoFailure(root);
-      assert.ok(epicTalk(root), "the planning conversation is in the reader");
+      assert.ok(epicTalk(root), "the epic panel lies over the planning conversation");
+    },
+    overlayWidth,
+  );
+});
+
+test("FixtureTransport: page/work-rail draws the buoy session's rail with its three groups and no panel", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["work-rail"],
+    workRail,
+    (root) => {
+      assertNoFailure(root);
+      assert.ok(workRail(root), "the rail draws epic, agents and running, with no panel open");
+    },
+  );
+});
+
+test("FixtureTransport: page/work-rail-group draws pane %22's picker of four, opened by its dots tile", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["work-rail-group"],
+    workRailGroup,
+    (root) => {
+      assertNoFailure(root);
+      assert.ok(workRailGroup(root), "the picker is open with four rows");
+    },
+  );
+});
+
+test("FixtureTransport: page/work-empty draws pane %13's rail with no tile", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["work-empty"],
+    workEmpty,
+    (root) => {
+      assertNoFailure(root);
+      assert.ok(workEmpty(root), "the rail is drawn with no tile");
+    },
+  );
+});
+
+test("FixtureTransport: page/dock-running draws the Sub-agents panel with a row for each agent", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["dock-running"],
+    dockRunning,
+    (root) => {
+      assertNoFailure(root);
+      assert.ok(dockRunning(root), "the Sub-agents panel has its two rows");
+    },
+  );
+});
+
+test("FixtureTransport: page/dock-background draws the Left running panel with its grey rows", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["dock-background"],
+    dockBackground,
+    (root) => {
+      assertNoFailure(root);
+      assert.ok(dockBackground(root), "the Left running panel has its one grey row");
     },
   );
 });
@@ -461,33 +584,45 @@ test("FixtureTransport: page/epic-handover draws the Talk menu", (t) => {
 
 test("FixtureTransport: page/epic-question, page/epic-handover and page/epic-talk each draw their own state, and fail the other two predicates", async (t) => {
   mockTimers(t, ["setTimeout"]);
+  // Each state is drawn at the width round 6 draws it at: epic-talk over the conversation, the others beside it.
   const predicates = [
-    ["epic-question", epicQuestion],
-    ["epic-handover", epicHandover],
-    ["epic-talk", epicTalk],
+    ["epic-question", epicQuestion, wideWidth],
+    ["epic-handover", epicHandover, wideWidth],
+    ["epic-talk", epicTalk, overlayWidth],
   ] as const;
-  for (const [state, own] of predicates) {
-    await withStory(t, Page[state], own, (root) => {
-      assertNoFailure(root);
-      for (const [other, predicate] of predicates) {
-        assert.equal(predicate(root), other === state, `${state}: the ${other} predicate`);
-      }
-    });
+  for (const [state, own, width] of predicates) {
+    await withStory(
+      t,
+      Page[state],
+      own,
+      (root) => {
+        assertNoFailure(root);
+        for (const [other, predicate] of predicates) {
+          assert.equal(predicate(root), other === state, `${state}: the ${other} predicate`);
+        }
+      },
+      width,
+    );
   }
 });
 
-test("FixtureTransport: page's keys are exactly the 11 catalog names of its scenario states", () => {
+test("FixtureTransport: page's keys are exactly the 16 catalog names of its scenario states", () => {
   assert.deepEqual(Object.keys(Page).map((state) => storyName("Page", state)).sort(), [
     "page/ask-session",
     "page/contract-accepted",
     "page/contract-to-accept",
     "page/convo-working",
+    "page/dock-background",
+    "page/dock-running",
     "page/epic-handover",
     "page/epic-question",
     "page/epic-shipped",
     "page/epic-talk",
     "page/inbox-home",
     "page/phase-implement",
+    "page/work-empty",
+    "page/work-rail",
+    "page/work-rail-group",
     "page/worker-running",
   ]);
 });
