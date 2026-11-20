@@ -393,9 +393,13 @@ expect "a box short of room trims a Go cache entry unused for an hour" test ! -e
 expect "a box short of room keeps a Go cache entry used within the hour" test -e "$root/box/.cache/orrery/build/ab/new-a"
 expect_line "$root/err" 'trimming the Go build cache on .*under 30 GiB free' "a cache trim says so"
 
-# A box with room leaves the Go build cache alone.
+# A box with room leaves the Go build cache alone. Its df reports 1 TiB free, so the case does not read the free space
+# of the machine the test runs on.
 touch -d '3 hours ago' "$root/box/.cache/orrery/build/ab/new-a"
+printf '#!/usr/bin/env bash\nprintf "Avail\\n1073741824\\n"\n' >"$root/boxbin/df"
+chmod +x "$root/boxbin/df"
 gate "$root/out" "$root/err" true
+rm -f "$root/boxbin/df"
 expect_status 0 "a box with room runs the command"
 expect "a box with room keeps an old Go cache entry" test -e "$root/box/.cache/orrery/build/ab/new-a"
 expect_no_line "$root/err" 'trimming the Go build cache' "a box with room trims nothing"
