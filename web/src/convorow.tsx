@@ -16,7 +16,7 @@ export interface ConvoRowProps {
 }
 
 // standInWords says what a stand-in line says: its conversation is not listed, or it is archived.
-function standInWords(standIn: StandIn): string {
+export function standInWords(standIn: StandIn): string {
   if (standIn === "archived") {
     return "Its conversation is archived";
   }

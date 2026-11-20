@@ -142,7 +142,7 @@ export function WorkCard({ card, onOpen }: { card: CardModel; onOpen: (key: stri
         <div class="asks">
           <Icon name="question" />
           <span>{card.asks}</span>
-          <button type="button" class="act primary">
+          <button type="button" class="btn primary act">
             {card.act}
           </button>
         </div>
