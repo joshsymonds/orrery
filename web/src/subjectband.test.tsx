@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import { type JSX, render } from "preact";
 
-import { type BandLine, SubjectBand } from "./subjectband";
+import { type BandLine, type ContractBandLine, SubjectBand } from "./subjectband";
 import { assertNone, installTestDom, removeTestDom } from "./testdom";
 
 // withBand renders the element into a fresh test DOM, runs the check on its container, and removes the DOM.
@@ -170,4 +170,91 @@ test("OpenOnRight: the line of the epic open in the panel says it is open on the
       assert.deepEqual(opened, [], "pressing it opens nothing");
     },
   );
+});
+
+// contract is a contract line of the fixtures: the contract's id, its slug and the text of what is left to settle.
+const contract = (id: string, slug: string, text: string): ContractBandLine => ({ id, slug, text });
+
+const tide = contract("tidepool/tide-alerts", "tide-alerts", "1 decision is yours; read “can’t be undone” before Accept");
+
+test("ContractLines: a contract line draws its slug contract, its text, the doc icon and Read and decide, and a click calls onOpenContract with its id", async () => {
+  const opened: string[] = [];
+  await withBand(
+    <SubjectBand
+      goal=""
+      lines={[]}
+      contracts={[tide]}
+      onOpen={() => {}}
+      onOpenContract={(id) => {
+        opened.push(id);
+      }}
+    />,
+    (container) => {
+      const line = container.querySelector<HTMLButtonElement>('button.subj.attention[data-contract="tidepool/tide-alerts"]');
+      assert.ok(line !== null, "the contract's line is a button");
+      assert.equal(textOf(line, ".what b"), "tide-alerts contract");
+      assert.equal(textOf(line, ".st"), tide.text);
+      assert.equal(textOf(line, ".end"), "Read and decide ›");
+      assert.ok(line.querySelector("svg.icon") !== null, "the line draws the doc icon");
+      line.click();
+      assert.deepEqual(opened, ["tidepool/tide-alerts"]);
+    },
+  );
+});
+
+test("ContractLines: the contract open on the right draws open on the right with no button and no way in", async () => {
+  const opened: string[] = [];
+  await withBand(
+    <SubjectBand
+      goal=""
+      lines={[]}
+      contracts={[tide]}
+      onOpen={() => {}}
+      onOpenContract={(id) => {
+        opened.push(id);
+      }}
+      hereContract={tide.id}
+    />,
+    (container) => {
+      assertNone(container.querySelector('button[data-contract="tidepool/tide-alerts"]'));
+      const line = container.querySelector<HTMLElement>('div.subj.attention.here[data-contract="tidepool/tide-alerts"]');
+      assert.ok(line !== null, "the open contract's line is drawn");
+      assert.equal(textOf(line, ".what b"), "tide-alerts contract");
+      assert.equal(textOf(line, ".end"), "open on the right ›");
+      assert.equal(line.textContent?.includes("Read and decide"), false, "it offers no way in");
+      line.click();
+      assert.deepEqual(opened, [], "pressing it opens nothing");
+    },
+  );
+});
+
+test("ContractLines: contract lines come before epic lines and count toward the three shown", async () => {
+  const labels = contract("tidepool/labels-cache", "labels-cache", "2 decisions are yours");
+  await withBand(<SubjectBand goal="" lines={threeLines} contracts={[tide, labels]} onOpen={() => {}} onOpenContract={() => {}} />, (container) => {
+    const shown = [...container.querySelectorAll<HTMLElement>("button.subj")];
+    assert.deepEqual(
+      shown.map((line) => textOf(line, ".what b")),
+      ["tide-alerts contract", "labels-cache contract", "rota-export"],
+    );
+    assert.equal(textOf(container, ".more .what"), "and 2 more ask");
+    assert.equal(textOf(container, ".more .st"), "orbit-labels, notices-usable");
+  });
+});
+
+test("ContractLines: a contract past the third is named in the more line as its slug contract", async () => {
+  const labels = contract("tidepool/labels-cache", "labels-cache", "2 decisions are yours");
+  const orbit = contract("tidepool/orbit", "orbit", "1 decision is yours");
+  const fourth = contract("tidepool/x", "x", "1 decision is yours");
+  await withBand(<SubjectBand goal="" lines={[]} contracts={[tide, labels, orbit, fourth]} onOpen={() => {}} onOpenContract={() => {}} />, (container) => {
+    assert.equal(countOf(container, "button.subj"), 3);
+    assert.equal(textOf(container, ".more .what"), "and 1 more ask");
+    assert.equal(textOf(container, ".more .st"), "x contract");
+  });
+});
+
+test("ContractLines: with only a contract line and no goal the band draws", async () => {
+  await withBand(<SubjectBand goal="" lines={[]} contracts={[tide]} onOpen={() => {}} />, (container) => {
+    assert.equal(countOf(container, ".subj"), 1);
+    assert.ok(container.querySelector('[data-contract="tidepool/tide-alerts"]') !== null, "the contract's line is drawn");
+  });
 });
