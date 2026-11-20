@@ -98,8 +98,10 @@ test("fixtures/head: fullSlices' rota-export is steered by the warm-up session, 
   assert.deepEqual(detailOf(fullSlices, "rota-export").questions.map((question) => question.id), ["Q1"]);
 });
 
-test("fixtures/head: scrolledSlices' rota-export has no question", () => {
+test("fixtures/head: scrolledSlices' rota-export has no question and no need", () => {
   assert.deepEqual(detailOf(scrolledSlices, "rota-export").questions, []);
+  const rota = epicOf(scrolledSlices, "rota-export");
+  assert.deepEqual(epicNeeds([rota], new Map([[rota.id, detailOf(scrolledSlices, "rota-export")]])), []);
 });
 
 test("fixtures/head: epicSlices' pane %14 has orreryId rotaplan, which rota-export's steering names", () => {

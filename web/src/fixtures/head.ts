@@ -159,12 +159,20 @@ export const fullSlices: Slices = {
   sessionStreams: replaced(shippedSlices.sessionStreams, warmupSession, runningWarmup()),
 };
 
-// rotaNoQuestion is the rota-export detail with its open question answered and gone: nothing asks.
+// rotaNoQuestion is the rota-export detail with its open question answered and gone: the step the question held runs
+// again, so nothing asks.
 const rotaNoQuestion = clone(
   EpicsGetResponseSchema,
   must(shippedSlices.gets.get(rotaId), "Epics.Get answer of rota-export"),
 );
 rotaNoQuestion.questions = [];
+for (const step of rotaNoQuestion.steps) {
+  if (step.held) {
+    step.held = false;
+    step.status = "running";
+    step.stage = "running";
+  }
+}
 
 // scrolledSlices: fullSlices with nothing asking.
 export const scrolledSlices: Slices = {
