@@ -1170,6 +1170,31 @@ test("EpicClose: an ended-with-gaps epic's Close as… lists the listed epics on
   );
 });
 
+// endedWithOpen is an orreryd epic that ended with gaps: R1 is proven by its green run and R2 is open, and each task
+// names the requirement it proves.
+const endedWithOpen = detail({
+  ...build,
+  epic: { ...orrerydEpic, outcome: "ended_with_gaps", live: false, path: pathOf },
+  report: { outcome: "ended_with_gaps", shipped: ["R1"], notShipped: ["R2"], why: "" },
+  buildTasks: [
+    { id: "t1", title: "Login", status: "done", requirements: ["R1"] },
+    { id: "t2", title: "Logout", status: "done", requirements: ["R2"] },
+  ],
+  requirements: [
+    { id: "R1", text: "A user signs in", runs: [redRun, greenRun] },
+    { id: "R2", text: "A user signs out" },
+  ],
+});
+
+test("EpicReport: an ended-with-gaps epic's task rims read proven exactly when their requirement rows read proven", async () => {
+  await withPage(endedWithOpen, (container) => {
+    const rims = [...container.querySelectorAll(".tasks path.req")].map((rim) => rim.getAttribute("class"));
+    const words = [...container.querySelectorAll(".requirements .tbl.reqs .tr .end")].map((end) => end.textContent);
+    assert.deepEqual(words, ["proven", "open"]);
+    assert.deepEqual(rims, ["req proven", "req"], "each rim follows the row of the requirement its task names");
+  });
+});
+
 // endedReleased is an orreryd epic that released, with its Report drawn.
 const endedReleased = detail({
   ...build,

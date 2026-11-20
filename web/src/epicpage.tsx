@@ -305,7 +305,7 @@ export function EpicPage(props: {
             <h3>Requirements</h3>
             <span>{`${provenCount} of ${requirements.length} proven`}</span>
           </header>
-          <RequirementTable requirements={requirements} loadArtifact={loadArtifact} />
+          <RequirementTable requirements={requirements} loadArtifact={loadArtifact} proven={provenIds} />
         </section>
       )}
       {reviewView !== null && <EpicReview view={reviewView} />}
