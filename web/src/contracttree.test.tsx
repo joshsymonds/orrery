@@ -44,6 +44,7 @@ async function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
 
 function row(init: Partial<Row> & Pick<Row, "key">): Row {
   return {
+    putOff: false,
     id: init.key,
     kind: "session",
     label: init.key,

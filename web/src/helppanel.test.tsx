@@ -63,7 +63,7 @@ test("KeyList: the five groups are drawn in the table's order, each under its ti
 test("KeyList: the cap … is drawn dimmed, not as a key", () =>
   withPanel(<KeyList onClose={() => undefined} />, (container) => {
     const dimmed = [...container.querySelectorAll(".keyline .ks > span.ink-4")].map((cap) => cap.textContent);
-    assert.deepEqual(dimmed, ["…"]);
+    assert.deepEqual(dimmed, ["…", "…"], "one dimmed … per 1…9 line");
     const keyCaps = [...container.querySelectorAll(".keyline .ks > kbd")].map((cap) => cap.textContent);
     assert.equal(keyCaps.includes("…"), false, "no … is drawn as a key");
   }));

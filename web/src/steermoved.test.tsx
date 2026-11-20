@@ -104,6 +104,7 @@ function waitFor(probe: Probe, signal: AbortSignal, check: () => boolean, what: 
 
 function row(init: Partial<Row> & Pick<Row, "key">): Row {
   return {
+    putOff: false,
     tool: "",
     id: init.key,
     kind: "pane",

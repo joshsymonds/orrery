@@ -1,6 +1,8 @@
 import type { JSX } from "preact";
 
-import { AskFirst, QuestionCard } from "./blocker";
+import { Ask } from "./ask";
+import { epicAsk, parkAsk } from "./askmodel";
+import { AskFirst } from "./blocker";
 import type { EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 import { recordTasksOf } from "./record";
 import { type PipTone, Pips } from "./pips";
@@ -11,11 +13,14 @@ import { elapsed } from "./dockwords";
 const unreached: readonly PipTone[] = ["none", "none", "none", "none", "none"];
 
 // NowSection is the record's Now: its one sentence, what asks placed first under it, and each running step as a row. An
-// open question draws as its Ask, an owner's park as its reason with Retry and Stop that asks first, a planner's park as
-// one quiet line, and every running step limited as Resume now. Nothing here reads the clock: now is a prop.
+// open question draws as its Ask, which answers on confirm, and an owner's park as its Ask, whose one answer is Retry,
+// then Stop that asks first; a planner's park draws as one quiet line, and every running step limited as Resume now.
+// numberKeys is whether a digit key picks an option of the Ask; narrow (under 760px) draws it without key caps. Nothing
+// here reads the clock: now is a prop.
 export function NowSection({
   detail,
   now,
+  narrow,
   numberKeys,
   onAnswer,
   onRetry,
@@ -24,6 +29,7 @@ export function NowSection({
 }: {
   detail: EpicsGetResponse;
   now: number;
+  narrow: boolean;
   numberKeys: boolean;
   onAnswer: (questionId: string, choice: string, text: string) => Promise<string>;
   onRetry: () => void;
@@ -32,34 +38,53 @@ export function NowSection({
 }): JSX.Element {
   const asking = askingOf(detail);
   const tasks = recordTasksOf(detail);
-  const slug = detail.epic?.slug ?? "";
+  const epic = detail.epic;
+  const slug = epic?.slug ?? "";
   return (
     <section class="now" aria-label="Now">
       <h3>Now</h3>
       <p class="now-sentence">{nowSentenceOf(detail)}</p>
-      {asking?.kind === "question" && (
-        <QuestionCard
+      {asking?.kind === "question" && epic !== undefined && (
+        <Ask
           key={asking.question.id}
-          question={asking.question}
+          model={epicAsk(epic, asking.question)}
+          now={now}
+          phase="open"
+          picked={null}
+          note=""
+          keyCaps
+          narrow={narrow}
           numberKeys={numberKeys}
-          onAnswer={onAnswer}
+          onConfirm={(choice, text) => onAnswer(asking.question.id, choice, text)}
         />
       )}
-      {asking?.kind === "park" && (
-        <div class="ask epic park">
-          <p class="ask-head">It asks you what to do</p>
-          <p class="reason">{asking.reason}</p>
-          <button type="button" class="act" onClick={() => onRetry()}>
-            Retry
-          </button>
-          <AskFirst
-            label="Stop…"
-            question={`Stop ${slug}?`}
-            confirm={`Stop ${slug}`}
-            keep="Keep it running"
-            onConfirm={onStop}
+      {asking?.kind === "park" && epic !== undefined && (
+        <>
+          <Ask
+            key="park"
+            model={parkAsk(epic, asking.reason)}
+            now={now}
+            phase="open"
+            picked={null}
+            note=""
+            keyCaps
+            narrow={narrow}
+            numberKeys={numberKeys}
+            onConfirm={() => {
+              onRetry();
+              return Promise.resolve("");
+            }}
           />
-        </div>
+          <div class="doors">
+            <AskFirst
+              label="Stop…"
+              question={`Stop ${slug}?`}
+              confirm={`Stop ${slug}`}
+              keep="Keep it running"
+              onConfirm={onStop}
+            />
+          </div>
+        </>
       )}
       {asking?.kind === "planner" && <p class="inote quiet">{asking.line}</p>}
       {asking?.kind === "limited" && (

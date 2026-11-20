@@ -13,6 +13,7 @@ const serving = "halyard";
 
 function makeRow(init: Partial<Row> & Pick<Row, "key" | "label">): Row {
   return {
+    putOff: false,
     id: "%3",
     archiveId: "",
     kind: "pane",
@@ -347,3 +348,61 @@ function searchTree(): Project[] {
     }),
   );
 }
+
+test("WaitsOnYou: a put-off waiting conversation is left out of every waiting count, and counts again once it is not put off", () => {
+  const withRow = (putOff: boolean) =>
+    buildTree(inputOf([makeRow({ key: "p", label: "p", archiveId: "sess-p", project: "/srv/app", state: "waiting", putOff, changed: 30, seen: 30 })]));
+  const off = withRow(true);
+  assert.equal(countsOf(off).waiting, 0);
+  assert.equal(projectWaiting(projectAt(off, "|/srv/app")), 0);
+  assert.deepEqual(waitOrder(off), []);
+  assert.deepEqual(narrow(off, "waiting"), []);
+  const on = withRow(false);
+  assert.equal(countsOf(on).waiting, 1);
+  assert.equal(projectWaiting(projectAt(on, "|/srv/app")), 1);
+  assert.deepEqual(waitOrder(on), ["p"]);
+  assert.deepEqual(narrow(on, "waiting").map((project) => project.name), ["app"]);
+});
+
+test("WaitsOnYou: an archived waiting conversation is left out of projectWaiting, waitOrder and narrow", () => {
+  const projects = buildTree(
+    inputOf([
+      makeRow({ key: "a", label: "a", archiveId: "sess-a", project: "/srv/app", state: "waiting", archived: true }),
+      makeRow({ key: "b", label: "b", archiveId: "sess-b", project: "/srv/app", state: "done" }),
+    ]),
+  );
+  assert.equal(projectWaiting(projectAt(projects, "|/srv/app")), 0);
+  assert.deepEqual(waitOrder(projects), []);
+  assert.deepEqual(narrow(projects, "waiting"), []);
+});
+
+test("WaitsOnYou: an epic need hung under a put-off waiting conversation still counts, once", () => {
+  const projects = buildTree(
+    inputOf([makeRow({ key: "p", label: "p", archiveId: "sess-p", state: "waiting", putOff: true })], {
+      epics: [makeEpic({ steering: "sess-p" })],
+      details: new Map([["repo-a/alpha", threeQuestions]]),
+    }),
+  );
+  assert.equal(countsOf(projects).waiting, 1);
+  assert.deepEqual(waitOrder(projects), ["epic:repo-a/alpha"]);
+});
+
+test("WaitsOnYou: a proposed contract under a put-off waiting conversation counts, since that conversation does not wait on you", () => {
+  const projects = buildTree(
+    inputOf([makeRow({ key: "p", label: "p", archiveId: "sess-p", state: "waiting", putOff: true })], {
+      contracts: [makeContract({ conversation: "sess-p" })],
+    }),
+  );
+  assert.deepEqual(waitOrder(projects), ["contract:repo-a/beta"]);
+});
+
+test("WaitsOnYou: an archived waiting conversation in the archived view counts nothing", () => {
+  const projects = buildTree(
+    inputOf([makeRow({ key: "a", label: "a", archiveId: "sess-a", project: "/srv/app", state: "waiting", archived: true, changed: 30, seen: 30 })], {
+      view: "archived",
+    }),
+  );
+  assert.equal(countsOf(projects).waiting, 0);
+  assert.deepEqual(waitOrder(projects), []);
+  assert.deepEqual(narrow(projects, "waiting"), []);
+});

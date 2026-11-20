@@ -146,9 +146,9 @@ export const keyGroups: readonly KeyGroup[] = [
     title: "Answering and stopping",
     lines: [
       {
-        caps: ["1", "2", "3"],
+        caps: ["1", "…", "9"],
         text: "answer the cursor's question with that option",
-        acts: [{ chords: [{ key: "1" }, { key: "2" }, { key: "3" }], in: page }],
+        acts: [{ chords: Array.from({ length: 9 }, (_, index) => ({ key: String(index + 1) })), in: page }],
       },
       {
         caps: ["1", "…", "9"],

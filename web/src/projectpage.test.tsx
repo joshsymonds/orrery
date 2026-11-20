@@ -72,6 +72,7 @@ function makeRow(init: Partial<Row> & Pick<Row, "key" | "label">): Row {
     seen: 0,
     unseen: false,
     archived: false,
+    putOff: false,
     archiveKind: "session",
     tool: "",
     ...init,
@@ -255,5 +256,57 @@ test("ProjectPage under 760 px draws Back, which calls onBack, and New session h
     );
     buttonNamed(one(page, ".cmdbar"), "New session here").click();
     assert.deepEqual(calls, ["back", `new:${directory}`]);
+  });
+});
+
+// waitingProject is the project of the directory with one waiting pane in view, built as the view's tree builds it.
+function waitingProject(init: Partial<Row>, view: "inbox" | "archived"): Project {
+  const rows = [
+    makeRow({
+      key: "pane:%1",
+      id: "%1",
+      archiveId: "conv-wait",
+      label: "Tide table",
+      state: "waiting",
+      question: "Which branch should I merge?",
+      changed: 940,
+      ...init,
+    }),
+  ];
+  const projects = buildTree({ rows, epics: [], details: new Map(), contracts: [], host: serving, view });
+  const project = projects.find((candidate) => candidate.dir === directory);
+  assert.ok(project !== undefined, "the tree draws the directory");
+  return project;
+}
+
+test("WaitsOnYou: a project page draws a put-off waiting conversation quiet: the idle glyph, its words, no asks style", async () => {
+  await withDom((container) => {
+    const project = waitingProject({ putOff: true }, "inbox");
+    draw(container, <ProjectPage project={project} now={now} narrow={false} {...handlersOf([])} />);
+    const line = one(container, 'button.pc-row[data-key="pane:%1"]');
+    assert.equal(one(line, "svg.glyph").getAttribute("data-state"), "idle");
+    assert.equal(one(line, ".said").textContent, "Which branch should I merge?", "its words stay");
+    assert.equal(line.querySelector(".said.asked"), null, "a put-off question is not drawn as asking");
+    assert.equal(container.querySelector(".counts .is-attention"), null, "nothing is counted as waiting on you");
+  });
+});
+
+test("WaitsOnYou: a project page draws the same conversation not put off with the waiting glyph and the asks style", async () => {
+  await withDom((container) => {
+    const project = waitingProject({ putOff: false }, "inbox");
+    draw(container, <ProjectPage project={project} now={now} narrow={false} {...handlersOf([])} />);
+    const line = one(container, 'button.pc-row[data-key="pane:%1"]');
+    assert.equal(one(line, "svg.glyph").getAttribute("data-state"), "waiting");
+    assert.equal(one(line, ".said.asked").textContent, "Which branch should I merge?");
+  });
+});
+
+test("WaitsOnYou: a project page in the Archived view draws an archived waiting conversation quiet", async () => {
+  await withDom((container) => {
+    const project = waitingProject({ archived: true }, "archived");
+    draw(container, <ProjectPage project={project} now={now} narrow={false} {...handlersOf([])} />);
+    const line = one(container, 'button.pc-row[data-key="pane:%1"]');
+    assert.equal(one(line, "svg.glyph").getAttribute("data-state"), "idle");
+    assert.equal(line.querySelector(".said.asked"), null, "an archived question is not drawn as asking");
   });
 });

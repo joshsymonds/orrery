@@ -132,8 +132,8 @@ internal fun otherHostOf(paneHost: String, servingHost: String): String? =
 /**
  * A pane, followed while the screen is at least started: its conversation stream delivers each change,
  * and once that stream gives up for this start, the pane is read every second instead. Each poll also reads the
- * epics the pane steers and the host. A pane with a conversation shows it, with the question card after the last
- * item; a pane without one shows a line saying so, with the card below it. The pane's dock sits at the foot of the
+ * epics the pane steers and the host. A pane with a conversation shows it, with the pane's Ask after the last item; a
+ * pane without one shows a line saying so, with the Ask below it. The pane's dock sits at the foot of the
  * screen, always in view, and says the pane's state. Each newer read time the conversation reports is sent to the
  * server as the pane's read-up-to time.
  *
@@ -271,7 +271,7 @@ fun PaneScreen(
     }
 
     val current = pane
-    val question = current?.takeIf { it.question.isNotEmpty() }
+    val ask = current?.let(::paneAsk)
     val refresh: () -> Unit = { refreshRequests.trySend(Unit) }
     val entries = remember(conversation) { foldConversation(conversation?.items.orEmpty()) }
 
@@ -279,6 +279,8 @@ fun PaneScreen(
     val showingConversation = conversation != null
     // Keyed by pane, so a pane switch starts at the newest line instead of where another pane was left.
     val listState = remember(paneId) { LazyListState() }
+    // The Ask's answer lives per pane, outside the footer item that draws the Ask, so scrolling that item away keeps it.
+    val askLife = rememberAskLife(paneId)
     var endRequests by remember(paneId) { mutableIntStateOf(0) }
     var headHeightPx by remember { mutableIntStateOf(0) }
     var headMeasured by remember { mutableStateOf(false) }
@@ -324,9 +326,8 @@ fun PaneScreen(
             // Later changes of the padding (the head folding for the keyboard) are followed by
             // the conversation while the reader is at the newest end.
             if (bodyReady && showingConversation) {
-                val footer: (@Composable () -> Unit)? = question?.let { card ->
-                    val content: @Composable () -> Unit = { QuestionCard(card, client, onRefresh = refresh) }
-                    content
+                val footer: @Composable () -> Unit = {
+                    AskHost(model = ask, client = client, now = nowSeconds, onRefresh = refresh, life = askLife)
                 }
                 ConversationView(
                     entries,
@@ -363,9 +364,7 @@ fun PaneScreen(
                                 top = bodyTop,
                             ),
                     )
-                    if (question != null) {
-                        QuestionCard(question, client, onRefresh = refresh)
-                    }
+                    AskHost(model = ask, client = client, now = nowSeconds, onRefresh = refresh, life = askLife)
                 }
             }
             current?.let { shown ->

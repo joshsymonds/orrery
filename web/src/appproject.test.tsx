@@ -46,6 +46,7 @@ function row(init: Partial<Row> & Pick<Row, "key">): Row {
     seen: 0,
     unseen: false,
     archived: false,
+    putOff: false,
     archiveKind: "none",
     archiveId: "",
     ...init,
@@ -353,15 +354,15 @@ function writesOf(paths: string[]): string[] {
   return paths.filter((path) => !path.endsWith("/WatchConversation"));
 }
 
-test("ProjectPage: 1, 2 and 3 send no answer while the page covers the cursor's waiting row", (t) =>
+test("ProjectPage: 1 to 9 send no answer while the page covers the cursor's waiting row", (t) =>
   withApp(t.signal, undefined, async ({ container, calls }) => {
     await press(headOf(container, "api"));
     await pressKey("b");
     assert.equal(cursorKey(container), "a", "the cursor rests on the waiting row");
     const sentBefore = calls.length;
-    await pressKey("1");
-    await pressKey("2");
-    await pressKey("3");
+    for (const digit of ["1", "2", "3", "4", "5", "6", "7", "8", "9"]) {
+      await pressKey(digit);
+    }
     assert.deepEqual(writesOf(calls.slice(sentBefore)), [], "no answer is sent");
     assert.ok(projectPage(container) !== null, "the page stays open");
   }));

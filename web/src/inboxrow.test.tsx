@@ -32,6 +32,7 @@ const waitingQuestion = JSON.stringify({
 
 function paneRow(init: Partial<Row>): Row {
   return {
+    putOff: false,
     tool: "",
     key: "pane:box:%3",
     id: "%3",
@@ -343,3 +344,23 @@ test("InboxTree: a press on the sheet's scrim closes it and calls nothing, opens
     },
   );
 });
+
+test("WaitsOnYou: a waiting row its owner put off draws the idle glyph and its words, without the asks style", () =>
+  withRow(idleLine(paneRow({ putOff: true })), (container) => {
+    assert.equal(container.querySelector(".glyph")?.getAttribute("data-state"), "idle");
+    const line = container.querySelector(".l2");
+    assert.equal(line?.textContent, "Which way?", "the question is still the second line");
+    assert.equal(line?.classList.contains("asks"), false, "the line is not marked as a question");
+  }));
+
+test("WaitsOnYou: the same row not put off draws the waiting glyph and the asks style again", () =>
+  withRow(idleLine(paneRow({ putOff: false })), (container) => {
+    assert.equal(container.querySelector(".glyph")?.getAttribute("data-state"), "waiting");
+    assert.equal(container.querySelector(".l2")?.classList.contains("asks"), true);
+  }));
+
+test("WaitsOnYou: an archived waiting row draws the idle glyph and no asks style", () =>
+  withRow(idleLine(paneRow({ archived: true, archiveKind: "session", archiveId: "%3" })), (container) => {
+    assert.equal(container.querySelector(".glyph")?.getAttribute("data-state"), "idle");
+    assert.equal(container.querySelector(".l2")?.classList.contains("asks"), false, "the line is not marked as a question");
+  }));

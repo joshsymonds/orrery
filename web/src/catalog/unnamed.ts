@@ -42,8 +42,6 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   // TaskLine draws a background task that is still running: an agent, and a shell. Round 6 draws only ended tasks.
   "task-line/agent-running": { replacement: "TaskLine", epic: "F3" },
   "task-line/shell-running": { replacement: "TaskLine", epic: "F3" },
-  // Ask draws an open question of an epic that has no choices, so its answer is typed.
-  "ask/open-question": { replacement: "Ask", epic: "F3" },
   // EpicEventBlock draws an epic's question event whose epic holds no open question, so the event reads it as settled.
   "epic-event-block/question-settled": { replacement: "EpicEventBlock", epic: "F3" },
   // StepEndBlock draws a step that ended with no agent named and a looping reason.

@@ -13,6 +13,7 @@ import com.connectrpc.protocols.NetworkProtocol
 import io.github.joshsymonds.orrery.gen.orrery.v1.AnswerRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.AskRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.BackgroundTask as BackgroundTaskProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.BringBackRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.Contract as ContractProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.ContractDecision as ContractDecisionProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.ContractStateChange as ContractStateChangeProto
@@ -28,6 +29,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationContext as Convers
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationItem as ConversationItemProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState as ConversationStateProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.DeclineRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EngineText as EngineTextProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.Epic as EpicProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicAddition as EpicAdditionProto
@@ -82,6 +84,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.MarkSeenRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.NoticeKey
 import io.github.joshsymonds.orrery.gen.orrery.v1.NoticesClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.NoticesSeenRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.NotNowRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListRequest
@@ -681,8 +684,23 @@ data class TaskFindingRow(
     val reason: String,
 )
 
-/** One open question an orreryd epic's planner asked, in the order they were asked. */
-data class EpicQuestionRow(val id: String, val text: String, val turn: Long, val asked: Long)
+/** One choice an orreryd epic's planner question declares: its [id], the answer that chooses it, and what it [does]. */
+data class EpicQuestionChoiceRow(val id: String, val does: String)
+
+/**
+ * One open question an orreryd epic's planner asked, in the order they were asked. [choices] are the choices the
+ * question declares, in order. [recommendedChoice] is the choice the planner recommends, "" when it recommends none,
+ * and [recommendedWhy] is why.
+ */
+data class EpicQuestionRow(
+    val id: String,
+    val text: String,
+    val turn: Long,
+    val asked: Long,
+    val choices: List<EpicQuestionChoiceRow> = emptyList(),
+    val recommendedChoice: String = "",
+    val recommendedWhy: String = "",
+)
 
 /** One failure an orreryd epic's contract guards against, with its [rating] and what the epic does about it. */
 data class EpicFailureRow(val id: String, val text: String, val rating: String, val response: String)
@@ -1220,6 +1238,51 @@ class OrreryClient(
         call(write = true) { standard.control.answer(request, CLIENT_HEADERS) }
     }
 
+    /**
+     * Takes the open question named here off the owner's list until [bringBack]. [kind] is "pane" for a tmux pane, with
+     * [questionHash] its question hash and [changed] when it started waiting; "headless" for a headless session, with
+     * [requestId] its open request. A refused not-now answers [StepCallResult.Refused].
+     */
+    fun notNow(kind: String, id: String, requestId: String, questionHash: String, changed: Long): StepCallResult {
+        val request = NotNowRequest.newBuilder()
+            .setKind(kind)
+            .setId(id)
+            .setRequestId(requestId)
+            .setQuestionHash(questionHash)
+            .setChanged(changed)
+            .build()
+        return stepCall { call(write = true) { standard.control.notNow(request, CLIENT_HEADERS) } }
+    }
+
+    /**
+     * Puts back the question [notNow] took off the owner's list, named the same way. A refused bring-back answers
+     * [StepCallResult.Refused].
+     */
+    fun bringBack(kind: String, id: String, requestId: String, questionHash: String, changed: Long): StepCallResult {
+        val request = BringBackRequest.newBuilder()
+            .setKind(kind)
+            .setId(id)
+            .setRequestId(requestId)
+            .setQuestionHash(questionHash)
+            .setChanged(changed)
+            .build()
+        return stepCall { call(write = true) { standard.control.bringBack(request, CLIENT_HEADERS) } }
+    }
+
+    /**
+     * Denies the open question named here and ends its turn, named as [notNow] names it, but with no changed time. A
+     * refused decline answers [StepCallResult.Refused].
+     */
+    fun decline(kind: String, id: String, requestId: String, questionHash: String): StepCallResult {
+        val request = DeclineRequest.newBuilder()
+            .setKind(kind)
+            .setId(id)
+            .setRequestId(requestId)
+            .setQuestionHash(questionHash)
+            .build()
+        return stepCall { call(write = true) { standard.control.decline(request, CLIENT_HEADERS) } }
+    }
+
     /** Interrupts the turn a headless session is running. Returns the texts the server answers, in send order. */
     fun interrupt(sessionId: String): List<String> {
         val request = InterruptRequest.newBuilder().setId(sessionId).build()
@@ -1369,17 +1432,17 @@ class OrreryClient(
 
     /**
      * Records [text] as the owner's answer on the orreryd epic [epicId], tied to the question [questionId] names with
-     * the choice 'other', or as a note with no choice when [questionId] is empty. A refused answer answers
-     * [StepCallResult.Refused].
+     * the choice [choice] (a declared choice's id, or 'other' by default), or as a note with no choice when
+     * [questionId] is empty. A refused answer answers [StepCallResult.Refused].
      */
-    fun answerEpic(epicId: String, questionId: String, text: String): StepCallResult {
+    fun answerEpic(epicId: String, questionId: String, text: String, choice: String = CHOICE_OTHER): StepCallResult {
         // The decision id is the caller's, and orreryd refuses an empty one. A fresh id makes each answer a decision.
         val request = EpicsAnswerRequest.newBuilder()
             .setEpicId(epicId)
             .setId(UUID.randomUUID().toString())
             .setText(text)
             .setQuestion(questionId)
-            .setChoice(if (questionId.isEmpty()) "" else CHOICE_OTHER)
+            .setChoice(if (questionId.isEmpty()) "" else choice)
             .build()
         return stepCall { call(write = true) { standard.epics.answer(request, CLIENT_HEADERS) } }
     }
@@ -1646,7 +1709,15 @@ class OrreryClient(
         )
 
     private fun EpicQuestionProto.toEpicQuestionRow(): EpicQuestionRow =
-        EpicQuestionRow(id = id, text = text, turn = turn, asked = asked)
+        EpicQuestionRow(
+            id = id,
+            text = text,
+            turn = turn,
+            asked = asked,
+            choices = choicesList.map { EpicQuestionChoiceRow(id = it.id, does = it.does) },
+            recommendedChoice = recommendation.choice,
+            recommendedWhy = recommendation.why,
+        )
 
     private fun EpicContractProto.toEpicContractRow(): EpicContractRow =
         EpicContractRow(

@@ -98,6 +98,9 @@ export interface Slices {
   // next frame each open conversation stream of the session sends once the interrupt is called, after which the stream
   // stays open until its call aborts. Unset, the interrupt is absorbed and no texts come back.
   readonly interrupt?: { texts: string[]; then?: SessionsWatchConversationResponse };
+  // keysThen is the next frame each open conversation stream of a pane sends once Panes.SendKeys is called for that pane,
+  // by pane id, after which the stream stays open until its call aborts. Unset, the keys are absorbed and no frame comes.
+  readonly keysThen?: ReadonlyMap<string, WatchConversationResponse>;
   readonly asks: ReadonlyMap<string, AskAnswer>;
   // heldGets names the epics whose Epics.Get stays open until its call aborts.
   readonly heldGets: ReadonlySet<string>;

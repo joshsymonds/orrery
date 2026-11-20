@@ -71,3 +71,34 @@ function permissionDetail(input: JsonObject | undefined): string {
   }
   return "";
 }
+
+// QuestionShape is the shape of a pane's stored question: an AskUserQuestion value (askUser, with its question count),
+// a tool permission value (permission, with its tool and detail), or anything else (text). count is the number of
+// questions an AskUserQuestion value asks, and 1 for the other shapes.
+export interface QuestionShape {
+  kind: "askUser" | "permission" | "text";
+  tool: string;
+  detail: string;
+  count: number;
+}
+
+// readQuestion reads a pane's stored @orrery_question as the shape its Ask draws. It follows the rule parseQuestion
+// reads the value by: text that is not a JSON object, and an object with no tool or question, is text.
+export function readQuestion(stored: string): QuestionShape {
+  const text: QuestionShape = { kind: "text", tool: "", detail: "", count: 1 };
+  const value = parseObject(stored);
+  if (value === undefined) {
+    return text;
+  }
+
+  const questions = value.questions;
+  if (Array.isArray(questions) && asObject(questions[0]) !== undefined) {
+    return { kind: "askUser", tool: "", detail: "", count: questions.length };
+  }
+
+  const tool = asString(value.tool);
+  if (tool === "") {
+    return text;
+  }
+  return { kind: "permission", tool, detail: permissionDetail(asObject(value.input)), count: 1 };
+}

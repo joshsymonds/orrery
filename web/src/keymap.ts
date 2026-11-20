@@ -48,7 +48,7 @@ export interface KeyContext {
   // Whether a project page covers the cursor row: the page is shown and the inbox list, where the row is drawn, is not on
   // screen beside or over it. A, x and e do not act on a covered row.
   rowCovered: boolean;
-  // Whether a project page is shown. It covers the reader, so 1-3 and Escape's interrupt do nothing while it is.
+  // Whether a project page is shown. It covers the reader, so 1-9 and Escape's interrupt do nothing while it is.
   projectShown: boolean;
   // The cursor's index in the flat list, and the flat list, which G reads.
   index: number;
@@ -86,7 +86,7 @@ export interface KeyContext {
   // openCursorPage opens the cursor's epic or step page as Enter on a row opens its page: under 760px it then draws
   // alone. At 760px and wider the page already stands beside the inbox, so it changes nothing there.
   openCursorPage: () => void;
-  answerCursor: (choice: 1 | 2 | 3) => void;
+  answerCursor: (choice: number) => void;
   toggleOpen: () => void;
   closePin: () => void;
   togglePin: () => void;
@@ -328,18 +328,16 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
       }
       break;
     case "1":
-      if (!projectShown) {
-        answerCursor(1);
-      }
-      break;
     case "2":
-      if (!projectShown) {
-        answerCursor(2);
-      }
-      break;
     case "3":
+    case "4":
+    case "5":
+    case "6":
+    case "7":
+    case "8":
+    case "9":
       if (!projectShown) {
-        answerCursor(3);
+        answerCursor(Number(event.key));
       }
       break;
     case "o":

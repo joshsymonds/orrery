@@ -119,6 +119,7 @@ function envelope(flag: number, message: object): Uint8Array {
 
 // sessionRow is the headless session the page opens on: working, and seen, so it arms no seen dwell.
 const sessionRow: Row = {
+  putOff: false,
   tool: "",
   key: "s1",
   id: "s1",

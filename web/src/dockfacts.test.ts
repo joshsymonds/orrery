@@ -23,6 +23,7 @@ import { type Row } from "./rows";
 
 function row(over: Partial<Row> = {}): Row {
   return {
+    putOff: false,
     tool: "",
     key: "row",
     id: "%3",

@@ -15,7 +15,8 @@ import { controlsOf, trackPart, trackParts } from "./status";
 // loaded: a card shows the poll's detail of its epic when the poll holds one, and otherwise reads its epic itself, on
 // mount and each time the epic's listed message changes. stepResult reads a step's full return, which a step card draws
 // in its return fold. sessionTitle names a session by its listed conversation's title, for the lines that name one, and is
-// undefined when no listed conversation has that session.
+// undefined when no listed conversation has that session. now is the app's clock, in unix seconds, which an epic's Ask
+// ages its question by.
 export interface EpicCalls {
   get: (id: string) => Promise<EpicsGetResponse>;
   pause: (id: string) => Promise<unknown>;
@@ -25,6 +26,7 @@ export interface EpicCalls {
   openStep: (epic: string, step: string) => void;
   stepResult: (id: string) => Promise<string>;
   sessionTitle?: (session: string) => string | undefined;
+  now: number;
   epics: EpicsView;
 }
 
@@ -32,11 +34,12 @@ export interface EpicCalls {
 const commandFailedText = "epic command failed";
 const answerFailedText = "no answer was sent";
 
-// epicCallsOf makes the epic calls over the clients, with the app's openers and the epics its poll has loaded.
+// epicCallsOf makes the epic calls over the clients, with the app's openers, its clock and the epics its poll has loaded.
 export function epicCallsOf(
   clients: Clients,
   openEpic: (id: string) => void,
   openStep: (epic: string, step: string) => void,
+  now: number,
   epics: EpicsView,
 ): EpicCalls {
   return {
@@ -51,6 +54,7 @@ export function epicCallsOf(
     openEpic,
     openStep,
     stepResult: (id) => clients.steps.result({ id }).then((reply) => reply.result),
+    now,
     epics,
   };
 }
