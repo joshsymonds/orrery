@@ -53,7 +53,7 @@ flowchart LR
   epic -- "rows" --> store
   serve -- "reads events and sessions" --> store
   serve -- "reads panes" --> opts
-  serve -- "forwards control steps epics pools notices" --> sess
+  serve -- "forwards control steps epics contracts pools notices" --> sess
   page -- "Connect" --> serve
   app -- "Connect" --> serve
   cli -- "Connect" --> serve
@@ -152,7 +152,7 @@ The services split by where their data lives:
 
 - Read from the store: `orrery.v1.Sessions` and `orrery.v1.Events`. `Events` is the stream that clients resume from a cursor.
 - Served from tmux, local files or the daemon socket: `orrery.v1.Panes` (tmux and transcripts), `orrery.v1.Host`, `orrery.v1.Picker`, `orrery.v1.Presence` (input reports, sent to the daemon) and `orrery.v1.Push` (subscriptions in `push.json`).
-- Forwarded to `orreryd` on `sessions.sock`: `orrery.v1.Control`, `orrery.v1.Steps`, `orrery.v1.Epics`, `orrery.v1.Evidence`, `orrery.v1.Pools` and `orrery.v1.Notices`. [`controlServer.Say`](../internal/server/control.go) is one example. It refuses a step id and forwards the call with a timeout.
+- Forwarded to `orreryd` on `sessions.sock`: `orrery.v1.Control`, `orrery.v1.Steps`, `orrery.v1.Epics`, `orrery.v1.Evidence`, `orrery.v1.Pools` and `orrery.v1.Notices`. `orrery.v1.Contracts` is split: its `List` and `Get` read the store, and its `Accept`, `SetAside` and `Reopen` are forwarded. [`controlServer.Say`](../internal/server/control.go) is one example. It refuses a step id and forwards the call with a timeout.
 
 The schema is in [`orrery.v1`](../proto/orrery/v1/orrery.proto), with [`epics.proto`](../proto/orrery/v1/epics.proto) and [`notice.proto`](../proto/orrery/v1/notice.proto) beside it. The engine's own services, which `orreryd` serves on its private socket, are in [`proto/orrery/engine/v1`](../proto/orrery/engine/v1/engine.proto). `just generate` writes the Go clients to `internal/gen`, the TypeScript clients to `web/src/gen` and the Kotlin clients to the Android source tree. `just gen-diff` fails when any of them drifts from the schema.
 
@@ -278,6 +278,7 @@ Every table lives in `orrery.db`. The migrations under `internal/store/migration
 | | `epic_gates`, `epic_gate_lists` | The gates an epic defines, with their argv, limit, needs and agent, and the done and review lists that name them. |
 | | `epic_release_runs`, `epic_release_slots` | Each release run's steps, and the repository's release slot. |
 | Evidence | `evidence_runs`, `evidence_artifacts` | Each evidence run and the artifacts it kept. The bytes are in blob files. |
+| Contracts | `contracts`, `contract_versions`, `contract_states` | The contract record: each contract, its saved versions and its state changes. Rows only append. |
 
 ### tmux options
 
