@@ -43,28 +43,28 @@ func TestContractRecordBodyRefusesFields(t *testing.T) {
 	runContractBodyRefusals(t, repo, []epicRefusal{
 		{
 			name: "id without a repository prefix",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.Id = "epic-check"
 			},
 			want: "id: bad form, want <repo-id>-<7 hex>/<slug>",
 		},
 		{
 			name: "gate name gates.Define refuses",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.Gates[0].Name = "Check"
 			},
 			want: `gates[0]: gate "Check": name must match [a-z][a-z0-9_]*`,
 		},
 		{
 			name: "failure id outside F<n>",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.Failures[0].Id = "X1"
 			},
 			want: "failures[0].id: unknown id",
 		},
 		{
 			name: "capture element holds white space",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.Requirements[0].Item.Capture = []string{"scripts/in-devenv", "go test -run X ./pkg/"}
 			},
 			want: "requirements[0].item.capture[1]: holds white space: split the element into argv elements, " +
@@ -99,14 +99,14 @@ func TestContractRecordBodyAcceptsBodies(t *testing.T) {
 	repo := contractLintRunRepo(t)
 	for _, tc := range []struct {
 		name   string
-		mutate func(req *v1.CreateEpicRequest)
+		mutate func(req *epicCreate)
 	}{
-		{name: "valid body", mutate: func(*v1.CreateEpicRequest) {}},
-		{name: "base empty", mutate: func(req *v1.CreateEpicRequest) { req.Contract.Base = "" }},
-		{name: "base names no commit", mutate: func(req *v1.CreateEpicRequest) { req.Contract.Base = "no-such-commit" }},
+		{name: "valid body", mutate: func(*epicCreate) {}},
+		{name: "base empty", mutate: func(req *epicCreate) { req.Contract.Base = "" }},
+		{name: "base names no commit", mutate: func(req *epicCreate) { req.Contract.Base = "no-such-commit" }},
 		{
 			name: "release step says merge",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.ReleaseSteps = []*v1.EpicReleaseStep{
 					{Step: "Merge the release candidate into main.", Target: "origin", Undo: "Synthetic undo."},
 				}
@@ -114,7 +114,7 @@ func TestContractRecordBodyAcceptsBodies(t *testing.T) {
 		},
 		{
 			name: "go test -run matches a test at the base",
-			mutate: func(req *v1.CreateEpicRequest) {
+			mutate: func(req *epicCreate) {
 				req.Contract.Requirements[0].Item.Capture = []string{"/usr/bin/env", "go", "test", "-run", "X", "./pkg/"}
 			},
 		},

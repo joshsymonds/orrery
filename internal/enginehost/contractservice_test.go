@@ -409,7 +409,7 @@ func TestContractRecordProposeRefusesAndStoresNothing(t *testing.T) {
 			headers: headlessCaller,
 			seed: func(t *testing.T, server contractTestServer) {
 				t.Helper()
-				createEpicOK(t, server.epics, fullEpicRequest(server.repo, epicServiceID))
+				createEpicOK(t, server.st, server.epics, fullEpicRequest(server.repo, epicServiceID))
 			},
 			code:    connect.CodeAlreadyExists,
 			message: "id: " + epicServiceID + " is already held by a contract or an epic",

@@ -23,7 +23,7 @@ import (
 const (
 	epicTestID     = "demo-0a1b2c3/epic-login"
 	epicWarning    = "recorded as a note: it answers no question, and Q1 is open"
-	epicCreateJSON = `{"contract":{"id":"demo-0a1b2c3/epic-login","title":"Login"},` +
+	epicCreateJSON = `{"id":"demo-0a1b2c3/epic-login","base":"synthetic-base",` +
 		`"decisions":[{"id":"d1","text":"use OIDC"}]}`
 	epicRefusal = "epic demo-0a1b2c3/epic-login is already paused"
 )
@@ -420,9 +420,9 @@ func TestEpicRefusalReturnsTheToolsTextAndPrintsNothing(t *testing.T) {
 	}
 }
 
-// TestEpicCreateReadsFileOrStdin checks that create sends the JSON of its file, or of stdin for -, as the arguments
-// of epic_create.
-func TestEpicCreateReadsFileOrStdin(t *testing.T) {
+// TestContractEpicCreateReadsFileOrStdin checks that create sends the JSON of its file, or of stdin for -, as the
+// arguments of epic_create.
+func TestContractEpicCreateReadsFileOrStdin(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "epic.json")
 	if err := os.WriteFile(path, []byte(epicCreateJSON), 0o600); err != nil {
@@ -456,6 +456,11 @@ func TestEpicCreateReadsFileOrStdin(t *testing.T) {
 			}
 			if !proto.Equal(got[0], want[0]) {
 				t.Errorf("epicCommand(%v) sent %v, want %v", tc.args, got[0], want[0])
+			}
+			req, ok := got[0].(*v1.CreateEpicRequest)
+			if !ok || req.GetId() != epicTestID || req.GetBase() != "synthetic-base" || len(req.GetDecisions()) != 1 {
+				t.Errorf("epicCommand(%v) sent %v, want the contract's id %s, base synthetic-base and one decision",
+					tc.args, got[0], epicTestID)
 			}
 			if wantOut := result.Content[0].Text + "\n"; stdout != wantOut {
 				t.Errorf("stdout = %q, want %q", stdout, wantOut)
@@ -583,7 +588,7 @@ func TestEpicUsageNamesTheAnswerChoiceAndFollowForms(t *testing.T) {
 func TestEpicCreateNamesTheWorkflowThroughTheMCPTool(t *testing.T) {
 	t.Parallel()
 	fake := newRecordingEpics()
-	input := `{"contract":{"id":"demo-0a1b2c3/epic-login","title":"Login"},"workflow":"demo"}`
+	input := `{"id":"demo-0a1b2c3/epic-login","base":"synthetic-base","workflow":"demo"}`
 
 	if _, err := stepmcp.CallEpicTool(t.Context(), fake, "epic_create", json.RawMessage(input)); err != nil {
 		t.Fatalf("CallEpicTool(epic_create) = %v, want nil", err)

@@ -139,7 +139,7 @@ func TestEpicGetReturnsCompletedTurnPausedAndParkedEpic(t *testing.T) {
 	ctx := t.Context()
 	st, path := openPlannerStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 
 	first, err := st.ClaimTurn(ctx, epicServiceID, time.Unix(turnStarted, 0))
 	if err != nil {
@@ -239,7 +239,7 @@ func TestEpicGetShowsMetAtBaseQuestionWithItsThreeChoices(t *testing.T) {
 	ctx := t.Context()
 	st, _ := openPlannerStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 	runs := []store.NodeRun{{Path: "red", ID: "id-red", Node: "red", Kind: "evidence", Attempt: 1}}
 	if err := st.StartNodes(ctx, epicServiceID, runs, nil, time.Unix(turnStarted, 0)); err != nil {
 		t.Fatalf("StartNodes: %v", err)
@@ -275,7 +275,7 @@ func TestEpicGetShowsQuestionReplacedByAnother(t *testing.T) {
 	ctx := t.Context()
 	st, path := openPlannerStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 	askQuestions(t, st, "Synthetic question one?")
 	insertPendingTrigger(t, path, "t2")
 	second, err := st.ClaimTurn(ctx, epicServiceID, time.Unix(turnRestarted, 0))
@@ -302,7 +302,7 @@ func TestEpicFollowsCountsAnsweredRecommendationsPerLabel(t *testing.T) {
 	ctx := t.Context()
 	st, path := openPlannerStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 	turn, err := st.ClaimTurn(ctx, epicServiceID, time.Unix(turnStarted, 0))
 	if err != nil {
 		t.Fatalf("ClaimTurn: %v", err)
@@ -338,7 +338,8 @@ func TestEpicFollowsCountsAnsweredRecommendationsPerLabel(t *testing.T) {
 
 func TestEpicFollowsOfEmptyStoreIsNone(t *testing.T) {
 	t.Parallel()
-	client := newEpicsClient(t, startEpicServer(t, epicTestStore(t)))
+	st := epicTestStore(t)
+	client := newEpicsClient(t, startEpicServer(t, st))
 	reply, err := client.FollowEpics(t.Context(), connect.NewRequest(&v1.FollowEpicsRequest{}))
 	if err != nil {
 		t.Fatalf("FollowEpics: %v", err)
@@ -350,7 +351,7 @@ func TestEpicGetRunningTurnHasNoEnd(t *testing.T) {
 	t.Parallel()
 	st, _ := openPlannerStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 	if _, err := st.ClaimTurn(t.Context(), epicServiceID, time.Unix(turnStarted, 0)); err != nil {
 		t.Fatalf("ClaimTurn: %v", err)
 	}
@@ -362,8 +363,9 @@ func TestEpicGetRunningTurnHasNoEnd(t *testing.T) {
 
 func TestEpicGetWithNoPlannerStateIsEmpty(t *testing.T) {
 	t.Parallel()
-	client := newEpicsClient(t, startEpicServer(t, epicTestStore(t)))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	st := epicTestStore(t)
+	client := newEpicsClient(t, startEpicServer(t, st))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 
 	got := getEpicOK(t, client)
 	if got.GetPaused() || got.GetParked() != "" {

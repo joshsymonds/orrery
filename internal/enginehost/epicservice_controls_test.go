@@ -103,8 +103,9 @@ func startControlServer(t *testing.T, epics EpicCommands, steps StepCommands) st
 func TestEpicPauseStoresPauseAndRefusesSecond(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	client := newEpicsClient(t, startEpicServer(t, epicTestStore(t)))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	st := epicTestStore(t)
+	client := newEpicsClient(t, startEpicServer(t, st))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 
 	paused, err := client.PauseEpic(ctx, connect.NewRequest(&v1.PauseEpicRequest{Id: epicServiceID}))
 	if err != nil {
@@ -129,7 +130,7 @@ func TestEpicResumeClearsPauseAndKeepsPark(t *testing.T) {
 	ctx := t.Context()
 	st := epicTestStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 	resume := connect.NewRequest(&v1.ResumeEpicRequest{Id: epicServiceID})
 
 	_, err := client.ResumeEpic(ctx, resume)
@@ -171,7 +172,7 @@ func TestEpicStopPausesRunningTurnAndStopsItsStep(t *testing.T) {
 	st, _ := openPlannerStore(t)
 	steps := &stopRecorder{}
 	client := newEpicsClient(t, startControlServer(t, st, steps))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 	turn, err := st.ClaimTurn(ctx, epicServiceID, time.Unix(turnStarted, 0))
 	if err != nil {
 		t.Fatalf("ClaimTurn: %v", err)
@@ -208,7 +209,7 @@ func TestEpicStopWithoutRunningTurnRefusesAndStopsNothing(t *testing.T) {
 	st, _ := openPlannerStore(t)
 	steps := &stopRecorder{}
 	client := newEpicsClient(t, startControlServer(t, st, steps))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 
 	_, err := client.StopEpic(ctx, connect.NewRequest(&v1.StopEpicRequest{Id: epicServiceID}))
 	wantConnectError(t, err, connect.CodeFailedPrecondition, "epic "+epicServiceID+" has no running turn")
@@ -232,7 +233,7 @@ func TestEpicPauseStopsRunningStepsOfTheEpic(t *testing.T) {
 		{ID: "ended", Epic: epicServiceID, Task: "T1", End: "done"},
 	}}
 	client := newEpicsClient(t, startControlServer(t, st, steps))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 
 	if _, err := client.PauseEpic(ctx, connect.NewRequest(&v1.PauseEpicRequest{Id: epicServiceID})); err != nil {
 		t.Fatalf("PauseEpic: %v", err)
@@ -264,7 +265,7 @@ func TestEpicPauseStopsLeavesALimitedStepHeld(t *testing.T) {
 		{ID: "limited", Epic: epicServiceID, Task: "T1", LoopLimited: true},
 	}}
 	client := newEpicsClient(t, startControlServer(t, st, steps))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 
 	if _, err := client.PauseEpic(ctx, connect.NewRequest(&v1.PauseEpicRequest{Id: epicServiceID})); err != nil {
 		t.Fatalf("PauseEpic: %v", err)
@@ -283,7 +284,7 @@ func TestEpicPauseStopsReportsAStepThatWillNotStop(t *testing.T) {
 		failStop: map[string]error{"implementer": errors.New("synthetic stop failure")},
 	}
 	client := newEpicsClient(t, startControlServer(t, st, steps))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 
 	_, err := client.PauseEpic(ctx, connect.NewRequest(&v1.PauseEpicRequest{Id: epicServiceID}))
 	wantConnectError(t, err, connect.CodeInternal, "stop step implementer: synthetic stop failure")
@@ -294,7 +295,7 @@ func TestEpicRetryEndsParkAndRefusesUnparked(t *testing.T) {
 	ctx := t.Context()
 	st := epicTestStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 
 	_, err := client.RetryEpic(ctx, connect.NewRequest(&v1.RetryEpicRequest{Id: epicServiceID}))
 	wantConnectError(t, err, connect.CodeFailedPrecondition, "epic "+epicServiceID+" is not parked")
@@ -322,7 +323,8 @@ func TestEpicRetryEndsParkAndRefusesUnparked(t *testing.T) {
 func TestEpicControlsRefuseEmptyAndUnknownID(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	client := newEpicsClient(t, startEpicServer(t, epicTestStore(t)))
+	st := epicTestStore(t)
+	client := newEpicsClient(t, startEpicServer(t, st))
 	controls := []struct {
 		name string
 		call func(id string) error

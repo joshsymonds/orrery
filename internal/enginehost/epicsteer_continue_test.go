@@ -50,7 +50,7 @@ func newContinueEnv(t *testing.T, limit int) (moveEnv, string) {
 	client := steererSetClient(t, m)
 	repo := stepGitTestRepo(t)
 	steerer := startedIn(t, m, repo)
-	if err := steererSetCreate(t, client, repo, sessionHeader(steerer)); err != nil {
+	if err := steererSetCreate(t, st, client, repo, sessionHeader(steerer)); err != nil {
 		t.Fatalf("CreateEpic: %v", err)
 	}
 	return moveEnv{m: m, st: st, client: client, repo: repo, steerer: steerer}, path
@@ -130,7 +130,7 @@ func TestSteerContinueSpawnFailedStartedSessionRefusesNamingReasonAndMovesNothin
 		t.Fatalf("SyncPane: %v", err)
 	}
 	repo := stepGitTestRepo(t)
-	if err := steererSetCreate(t, client, repo, paneHeader("%7")); err != nil {
+	if err := steererSetCreate(t, st, client, repo, paneHeader("%7")); err != nil {
 		t.Fatalf("CreateEpic: %v", err)
 	}
 	env := moveEnv{m: m, st: st, client: client, repo: repo, steerer: pane.ID}

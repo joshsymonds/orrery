@@ -88,7 +88,7 @@ func TestEpicCreatePinsTheBuiltInEpicWhenNoWorkflowIsNamed(t *testing.T) {
 	client := newEpicsClient(t, startEpicServer(t, st))
 	req := fullEpicRequest(stepGitTestRepo(t), epicServiceID)
 
-	stored := createEpicOK(t, client, req)
+	stored := createEpicOK(t, st, client, req)
 
 	want := &v1.EpicWorkflow{Name: "epic", Text: builtInEpicText, Sha256: builtInEpicSHA256}
 	if !proto.Equal(stored.GetWorkflow(), want) {
@@ -108,7 +108,7 @@ func TestEpicCreatePinsTheWorkflowCommittedAtBaseAndKeepsItAfterAnEdit(t *testin
 	req := fullEpicRequest(repo, epicServiceID)
 	req.Workflow = "demo"
 
-	stored := createEpicOK(t, client, req)
+	stored := createEpicOK(t, st, client, req)
 
 	want := &v1.EpicWorkflow{Name: "demo", Text: demoWorkflowText, Sha256: workflowSHA256(demoWorkflowText)}
 	if !proto.Equal(stored.GetWorkflow(), want) {
@@ -131,7 +131,9 @@ func TestEpicCreateRefusesABrokenWorkflowAndStoresNothing(t *testing.T) {
 	req := fullEpicRequest(repo, epicServiceID)
 	req.Workflow = "broken"
 
-	_, err := client.CreateEpic(t.Context(), connect.NewRequest(req))
+	acceptEpicContract(t, st, req.Contract)
+
+	_, err := client.CreateEpic(t.Context(), connect.NewRequest(req.request()))
 	wantConnectError(t, err, connect.CodeInvalidArgument,
 		"workflow: at base "+base+": .orrery/workflows/broken.yaml:8: node build: key bogus: unknown key")
 	wantNoEpicStored(t, st)
@@ -146,7 +148,9 @@ func TestEpicCreateRefusesAnUnknownWorkflowAndStoresNothing(t *testing.T) {
 	req := fullEpicRequest(repo, epicServiceID)
 	req.Workflow = "missing"
 
-	_, err := client.CreateEpic(t.Context(), connect.NewRequest(req))
+	acceptEpicContract(t, st, req.Contract)
+
+	_, err := client.CreateEpic(t.Context(), connect.NewRequest(req.request()))
 	wantConnectError(t, err, connect.CodeInvalidArgument,
 		"workflow: at base "+base+": workflow \"missing\": "+
 			"no file .orrery/workflows/missing.yaml and no built-in \"missing\"")

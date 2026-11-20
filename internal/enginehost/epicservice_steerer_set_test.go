@@ -59,11 +59,15 @@ func steererSetClient(t *testing.T, m *Manager) enginev1connect.EpicsClient {
 	return newEpicsClient(t, serveEpicsWith(t, concreteStore(t, m), steering))
 }
 
-// steererSetCreate creates the epic of repo through client as the caller whose headers are caller, and returns the
-// error.
-func steererSetCreate(t *testing.T, client enginev1connect.EpicsClient, repo string, caller http.Header) error {
+// steererSetCreate accepts the contract of repo in st, then creates its epic through client as the caller whose headers
+// are caller, and returns the error.
+func steererSetCreate(
+	t *testing.T, st *store.Store, client enginev1connect.EpicsClient, repo string, caller http.Header,
+) error {
 	t.Helper()
-	req := connect.NewRequest(fullEpicRequest(repo, epicServiceID))
+	c := fullEpicRequest(repo, epicServiceID)
+	acceptEpicContract(t, st, c.Contract)
+	req := connect.NewRequest(c.request())
 	maps.Copy(req.Header(), caller)
 	_, err := client.CreateEpic(t.Context(), req)
 	return err
@@ -140,7 +144,13 @@ func TestSteererSetHeadlessConversationIsSteererWithoutStart(t *testing.T) {
 	conversation := startedConversation(t, m)
 	before := countRows(t, path, "sessions")
 
-	if err := steererSetCreate(t, client, stepGitTestRepo(t), sessionHeader(conversation)); err != nil {
+	if err := steererSetCreate(
+		t,
+		concreteStore(t, m),
+		client,
+		stepGitTestRepo(t),
+		sessionHeader(conversation),
+	); err != nil {
 		t.Fatalf("CreateEpic: %v", err)
 	}
 	if n := countRows(t, path, "sessions"); n != before {
@@ -165,7 +175,7 @@ func TestSteererSetPaneWithStateIsSteererWithoutStart(t *testing.T) {
 	}
 	before := countRows(t, path, "sessions")
 
-	if err := steererSetCreate(t, client, stepGitTestRepo(t), paneHeader("%7")); err != nil {
+	if err := steererSetCreate(t, concreteStore(t, m), client, stepGitTestRepo(t), paneHeader("%7")); err != nil {
 		t.Fatalf("CreateEpic: %v", err)
 	}
 	if n := countRows(t, path, "sessions"); n != before {
@@ -217,7 +227,7 @@ func TestSteererSetCallerWithoutConversationStartsOneSession(t *testing.T) {
 			repo := stepGitTestRepo(t)
 			before := countRows(t, path, "sessions")
 
-			if err := steererSetCreate(t, client, repo, caller); err != nil {
+			if err := steererSetCreate(t, concreteStore(t, m), client, repo, caller); err != nil {
 				t.Fatalf("CreateEpic: %v", err)
 			}
 			wantStartedSteerer(t, m, path, repo, before)
@@ -230,12 +240,20 @@ func TestSteererSetStoredIDIsRefusedBeforeAnyStart(t *testing.T) {
 	m, path := newTestManager(t, 2, fakeClaudePath(t))
 	client := steererSetClient(t, m)
 	repo := stepGitTestRepo(t)
-	if err := steererSetCreate(t, client, repo, sessionHeader(startedConversation(t, m))); err != nil {
+	if err := steererSetCreate(
+		t,
+		concreteStore(t, m),
+		client,
+		repo,
+		sessionHeader(startedConversation(t, m)),
+	); err != nil {
 		t.Fatalf("first CreateEpic: %v", err)
 	}
 	before := countRows(t, path, "sessions")
 
-	err := steererSetCreate(t, client, repo, nil)
+	_, err := client.CreateEpic(t.Context(), connect.NewRequest(&v1.CreateEpicRequest{
+		Id: epicServiceID, Base: epicTestBase(repo),
+	}))
 	wantConnectError(t, err, connect.CodeAlreadyExists, "id: "+epicServiceID+" is already in the database")
 	if n := countRows(t, path, "sessions"); n != before {
 		t.Fatalf("sessions rows = %d, want %d: a stored id starts no session", n, before)
@@ -248,7 +266,7 @@ func TestSteererSetFullCapRefusesNamingCapAndStoresNothing(t *testing.T) {
 	client := steererSetClient(t, m)
 	startedConversation(t, m)
 
-	err := steererSetCreate(t, client, stepGitTestRepo(t), nil)
+	err := steererSetCreate(t, concreteStore(t, m), client, stepGitTestRepo(t), nil)
 	if got := connect.CodeOf(err); got != connect.CodeResourceExhausted {
 		t.Fatalf("code = %v (%v), want ResourceExhausted", got, err)
 	}
@@ -264,7 +282,7 @@ func TestSteererSetSpawnFailureRefusesNamingReasonAndStoresNothing(t *testing.T)
 	m, _ := newHolderManager(t, fakeSystemdRunPath(t), holderRoot(t), "FAKE_SYSTEMD_RUN_FAIL="+reason)
 	client := steererSetClient(t, m)
 
-	err := steererSetCreate(t, client, stepGitTestRepo(t), nil)
+	err := steererSetCreate(t, concreteStore(t, m), client, stepGitTestRepo(t), nil)
 	if got := connect.CodeOf(err); got != connect.CodeUnavailable {
 		t.Fatalf("code = %v (%v), want Unavailable", got, err)
 	}
@@ -281,7 +299,7 @@ func TestSteererSetFailedStoreStopsStartedSession(t *testing.T) {
 	client := newEpicsClient(t, serveEpicsWith(t, failingCreate{concreteStore(t, m)}, steering))
 	repo := stepGitTestRepo(t)
 
-	err := steererSetCreate(t, client, repo, nil)
+	err := steererSetCreate(t, concreteStore(t, m), client, repo, nil)
 	if got := connect.CodeOf(err); got != connect.CodeInternal {
 		t.Fatalf("code = %v (%v), want Internal", got, err)
 	}

@@ -55,7 +55,7 @@ func TestEpicRetryNamingParkedNodeRerunsItAtNextAttempt(t *testing.T) {
 	ctx := t.Context()
 	st := epicTestStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 	parkTestNode(t, st, "check", "workflow node check failed: boom")
 
 	retried, err := client.RetryEpic(ctx, connect.NewRequest(&v1.RetryEpicRequest{Id: epicServiceID, Node: "check"}))
@@ -79,7 +79,7 @@ func TestEpicRetryNamingUnparkedNodeRefusesAndChangesNothing(t *testing.T) {
 	ctx := t.Context()
 	st := epicTestStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 	const reason = "workflow node build failed: boom"
 	parkTestNode(t, st, "build", reason)
 	runs := []store.NodeRun{{Path: "check", ID: "id-check", Node: "check", Kind: "gate", Attempt: 1}}
@@ -101,7 +101,8 @@ func TestEpicRetryNamingUnparkedNodeRefusesAndChangesNothing(t *testing.T) {
 func TestEpicRetryNamingNodeOfUnknownEpicIsNotFound(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	client := newEpicsClient(t, startEpicServer(t, epicTestStore(t)))
+	st := epicTestStore(t)
+	client := newEpicsClient(t, startEpicServer(t, st))
 
 	_, err := client.RetryEpic(ctx, connect.NewRequest(&v1.RetryEpicRequest{Id: epicServiceID, Node: "check"}))
 	wantConnectError(t, err, connect.CodeNotFound, "id: no epic "+epicServiceID)

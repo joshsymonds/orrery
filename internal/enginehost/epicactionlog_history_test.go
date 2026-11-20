@@ -14,7 +14,7 @@ func TestEpicActionLogHistoryReturnsMovesInSeqOrder(t *testing.T) {
 	t.Parallel()
 	st := epicTestStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 
 	if _, err := st.MoveEpic(
 		t.Context(),

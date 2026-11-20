@@ -22,7 +22,7 @@ func TestEpicActionLogResumeOfLimitedStepsRecordsOneAction(t *testing.T) {
 	}
 	steps := &resumeSteps{rows: []store.StepRow{limitedStep("step-a", "task-a")}}
 	client := newEpicsClient(t, startControlServer(t, st, steps))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 
 	resumed, err := client.ResumeEpic(ctx, connect.NewRequest(&v1.ResumeEpicRequest{Id: epicServiceID}))
 	if err != nil {

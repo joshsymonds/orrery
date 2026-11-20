@@ -111,7 +111,8 @@ subcommands:
   tmux-conf [--binary PATH]                     print the orrery tmux plugin for PATH, or for this binary
   help [--html]                                 print the help card for the tmux server, or the HTML page with --html
   mcp                                           serve the step tools over MCP on stdio until stdin closes
-  epic create FILE|-                            create an epic from the contract JSON in FILE, or on stdin for -
+  epic create FILE|-                            create an epic from the JSON in FILE, or on stdin for -: the accepted
+                                                contract's id, with base, decisions and workflow
   epic get ID                                   print a stored epic's one-screen summary
   epic list                                     print the stored epics as summaries
   epic follow                                   print how often the owner took each label's advice, across epics

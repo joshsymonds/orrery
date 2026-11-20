@@ -9,10 +9,13 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/joshsymonds/orrery/internal/cli"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
+	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/storetest"
 )
 
 // The test in this file SIGKILLs orreryd twice while an evidence run works: once while its capture runs and once
@@ -24,6 +27,9 @@ import (
 
 // evidenceKillEpic is the id of the epic the test creates. Its repository prefix has the form a contract requires.
 const evidenceKillEpic = "evidence-0123456/kill-test"
+
+// evidenceKillAt is the unix time the test proposes and accepts its contract at.
+const evidenceKillAt = 1700000000
 
 // evidenceKillConclusion is the conclusion of the item, which is the one assertion the judge checks. The fake claude's
 // JUDGEHOLDS case answers it, and the judge's prompt names it.
@@ -142,30 +148,52 @@ func (r *evidenceKillRig) steps() enginev1connect.StepsClient {
 	return enginev1connect.NewStepsClient(r.f.client, cli.SessionBaseURL)
 }
 
-// createEpic stores the rig's epic: one Requirement whose evidence is the capture, judged against its conclusion.
+// createEpic accepts the rig's contract in the store file, then creates the rig's epic by its id: one Requirement whose
+// evidence is the capture, judged against its conclusion.
 func (r *evidenceKillRig) createEpic(t *testing.T) {
 	t.Helper()
-	_, err := r.epics().CreateEpic(t.Context(), connect.NewRequest(&v1.CreateEpicRequest{
-		Workflow: evidenceKillWorkflow,
-		Contract: &v1.EpicContract{
-			Id:         evidenceKillEpic,
-			Repository: r.repo,
-			Title:      "Evidence kill test",
-			Intent:     "A SIGKILL during a capture and during its judge loses nothing and runs nothing twice.",
-			Care:       "severe",
-			Requirements: []*v1.EpicRequirement{{
-				Id:   "R1",
-				Text: "The capture runs once and its judge holds once.",
-				Item: &v1.EvidenceItem{
-					Kind:       "capture",
-					Capture:    r.capture,
-					Limit:      300,
-					Conclusion: evidenceKillConclusion,
-					Judge:      evidenceKillAgent,
-				},
-			}},
-			Base: r.base,
-		},
+	contract := &v1.EpicContract{
+		Id:         evidenceKillEpic,
+		Repository: r.repo,
+		Title:      "Evidence kill test",
+		Intent:     "A SIGKILL during a capture and during its judge loses nothing and runs nothing twice.",
+		Care:       "severe",
+		Requirements: []*v1.EpicRequirement{{
+			Id:   "R1",
+			Text: "The capture runs once and its judge holds once.",
+			Item: &v1.EvidenceItem{
+				Kind:       "capture",
+				Capture:    r.capture,
+				Limit:      300,
+				Conclusion: evidenceKillConclusion,
+				Judge:      evidenceKillAgent,
+			},
+		}},
+		Base: r.base,
+	}
+	body, err := protojson.Marshal(contract)
+	if err != nil {
+		t.Fatalf("encode contract %s: %v", evidenceKillEpic, err)
+	}
+	st, err := store.Open(t.Context(), r.f.dbPath, storetest.NoSync())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	version := store.ContractVersion{
+		Repository: r.repo, Title: contract.GetTitle(), Care: contract.GetCare(), Body: string(body),
+		At: evidenceKillAt,
+	}
+	if err = st.ProposeContract(t.Context(), evidenceKillEpic, version); err != nil {
+		t.Fatalf("propose contract %s: %v", evidenceKillEpic, err)
+	}
+	if err = st.AcceptContract(t.Context(), evidenceKillEpic, store.ContractChange{At: evidenceKillAt}); err != nil {
+		t.Fatalf("accept contract %s: %v", evidenceKillEpic, err)
+	}
+	if err = st.Close(); err != nil {
+		t.Fatalf("close store: %v", err)
+	}
+	_, err = r.epics().CreateEpic(t.Context(), connect.NewRequest(&v1.CreateEpicRequest{
+		Id: evidenceKillEpic, Base: r.base, Workflow: evidenceKillWorkflow,
 	}))
 	if err != nil {
 		t.Fatalf("create epic %s: %v", evidenceKillEpic, err)

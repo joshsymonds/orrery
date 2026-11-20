@@ -14,7 +14,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-	"unicode"
 
 	"connectrpc.com/connect"
 
@@ -402,57 +401,6 @@ func TestToolsListNamesEveryStepEpicEvidenceAndContractTool(t *testing.T) {
 	slices.Sort(names)
 	if !slices.Equal(names, want) {
 		t.Fatalf("tools/list names = %v, want %v", names, want)
-	}
-}
-
-// epicCreateContractDescription returns the description of epic_create's contract argument, as tools/list reports it.
-func epicCreateContractDescription(t *testing.T) string {
-	t.Helper()
-	p := newPeer(t, nil, &fakeEpics{})
-
-	reply := p.call("tools/list", map[string]any{})
-	var listed struct {
-		Tools []struct {
-			Name        string `json:"name"`
-			InputSchema struct {
-				Properties struct {
-					Contract struct {
-						Description string `json:"description"`
-					} `json:"contract"`
-				} `json:"properties"`
-			} `json:"inputSchema"`
-		} `json:"tools"`
-	}
-	if err := json.Unmarshal(reply.Result, &listed); err != nil {
-		t.Fatalf("decode tools/list: %v", err)
-	}
-	var description string
-	for _, tool := range listed.Tools {
-		if tool.Name == "epic_create" {
-			description = tool.InputSchema.Properties.Contract.Description
-		}
-	}
-	if description == "" {
-		t.Fatal("tools/list has no epic_create contract description")
-	}
-	return description
-}
-
-// descriptionWords splits a description into its words, each a run of letters.
-func descriptionWords(description string) []string {
-	return strings.FieldsFunc(description, func(r rune) bool { return !unicode.IsLetter(r) })
-}
-
-func TestEpicCreateContractDescriptionNamesTheEvidenceFields(t *testing.T) {
-	description := epicCreateContractDescription(t)
-	words := descriptionWords(description)
-	for _, want := range []string{
-		"base", "gates", "doneGates",
-		"item", "capture", "limit", "artifacts", "supplied", "conclusion", "judge",
-	} {
-		if !slices.Contains(words, want) {
-			t.Errorf("epic_create contract description %q does not name %s", description, want)
-		}
 	}
 }
 

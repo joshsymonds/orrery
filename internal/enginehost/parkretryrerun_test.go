@@ -42,7 +42,7 @@ func TestParkRetryRerunEpicRetryNamingParkedPathRerunsItAtNextAttempt(t *testing
 	ctx := t.Context()
 	st := epicTestStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 	parkNestedRun(t, st, "plan/S1/integrate", "workflow node plan/S1/integrate moved main (aaa to bbb)")
 
 	retried, err := client.RetryEpic(
@@ -71,7 +71,7 @@ func TestParkRetryRerunEpicRetryNamingPathWithNoParkedRunIsRefused(t *testing.T)
 	ctx := t.Context()
 	st := epicTestStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 	const reason = "workflow node plan/S1/integrate moved main (aaa to bbb)"
 	parkNestedRun(t, st, "plan/S1/integrate", reason)
 
