@@ -105,6 +105,8 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
      mark, which sits just outside them. */
   body { background: var(--o-surface-page); height: 100vh; height: 100dvh; overflow: hidden; }
   #app { height: 100%; }
+  /* A page story is drawn inside the catalog's #story and its own wrapper, which take the window's height as #app does. */
+  #story, [data-page-story] { height: 100%; }
   .app { height: 100%; display: flex; flex-direction: column; }
   /* The columns are the list, the conversation, the pinned reader with a pin, the epic panel with one open, and the rail at
      the right. Each keeps its own track, so none moves as the others come and go. The panel takes 1.4 shares to the
@@ -137,7 +139,7 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
   }
   /* The inbox hidden, or popped out over the page, takes no track: the list's track is nothing wide, and the conversation
      takes the room beside it. The flyout lies over the page under the title row and above it, and is out of the grid. */
-  .panes[data-inbox="hidden"], .panes[data-inbox="flyout"] { --inbox-track: 0; }
+  .panes[data-inbox="hidden"], .panes[data-inbox="flyout"] { --inbox-track: calc(var(--o-space-4) * 0); }
   .panes[data-inbox="hidden"] > .list { display: none; }
   .panes[data-inbox="flyout"] > .list {
     display: grid; position: absolute; top: calc(var(--o-space-48) + var(--o-space-4)); bottom: 0; left: 0; width: var(--o-layout-inbox-width); z-index: var(--o-z-flyout);
@@ -998,7 +1000,11 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 .rcard.attention { border-top: var(--o-size-rail) solid var(--o-role-attention); }
 .rcard.live { border-top: var(--o-size-rail) solid var(--o-role-live); }
 .rcard.quiet { border-top: var(--o-size-rail) solid var(--o-ink-3); }
-.panel-ctl { display: flex; flex: none; justify-content: flex-end; gap: var(--o-space-4); padding: var(--o-space-8) var(--o-space-8) 0; }
+/* Open in a new window and Close sit at the right end of the card's title row, as round 6's record title draws them. */
+.rcard { position: relative; }
+.panel-ctl { position: absolute; top: var(--o-space-8); right: var(--o-space-8); z-index: var(--o-z-sticky); display: flex; gap: var(--o-space-4); }
+.rcard .title-row, .rcard .plist > h2 { padding-right: calc(var(--o-space-24) * 2 + var(--o-space-12)); }
+.rcard .plist > h2 { padding-bottom: var(--o-space-8); border-bottom: var(--o-size-hairline) solid var(--o-line-soft); }
 .panel-ctl a, .panel-ctl button { display: grid; place-items: center; width: var(--o-space-24); height: var(--o-space-24); min-height: var(--o-space-24); padding: 0; border: 0; border-radius: var(--o-radius-2); background: none; color: var(--o-ink-3); font: var(--o-type-small); text-decoration: none; }
 .panel-ctl a:hover, .panel-ctl button:hover { background: var(--o-surface-well); color: var(--o-ink-1); }
 .plist { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--o-space-4); padding: var(--o-space-8) var(--o-space-16) var(--o-space-16); }
