@@ -1865,7 +1865,17 @@ type relay struct {
 	mirror      *daemon.Mirror   // syncs the pane each summary is written to; nil skips the sync
 	webhook     *alerts.Webhook  // the POST /alerts intake that routes to router; nil without --metrics-listen
 	summarizers map[tmuxctl.Server]*summary.Summarizer
-	views       *doneViews // each done's viewing check, handed from observe to the autoseen observer
+	views       *doneViews       // each done's viewing check, handed from observe to the autoseen observer
+	now         func() time.Time // the clock the viewing checks read; nil reads time.Now
+}
+
+// clock returns the time the relay's viewing checks compare the tmux clients' input with: r.now's, or time.Now's when
+// r.now is nil.
+func (r *relay) clock() time.Time {
+	if r.now == nil {
+		return time.Now()
+	}
+	return r.now()
 }
 
 // viewTimeout bounds the viewing check of one done transition, which runs on the hook path.
@@ -1936,7 +1946,7 @@ func (r *relay) viewDone(ctx context.Context, transition daemon.Transition) done
 	}
 	ctx, cancel := context.WithTimeout(ctx, viewTimeout)
 	defer cancel()
-	viewing, err := autoseen.Viewing(ctx, client, transition.PaneID, time.Now())
+	viewing, err := autoseen.Viewing(ctx, client, transition.PaneID, r.clock())
 	if err != nil {
 		return doneView{err: fmt.Errorf("pane viewing: %w", err)}
 	}
@@ -2209,7 +2219,7 @@ func (r *relay) judgeDone(
 // watching reports whether the transition's pane is watched: a read report named it within readWindow, or a client of
 // its tmux server shows it with recent input.
 func (r *relay) watching(ctx context.Context, transition daemon.Transition) (bool, error) {
-	now := time.Now()
+	now := r.clock()
 	if r.reads.recent(transition.PaneID, now) {
 		return true, nil
 	}
