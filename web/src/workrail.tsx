@@ -34,8 +34,8 @@ export function WorkRail({ groups, lit, layout, onOpen, end }: WorkRailProps): J
   );
 }
 
-// Tile draws one thing as a tile: an epic's gauge, its short name, and ? when it asks, or a list's icon and count. lit
-// marks the tile whose panel is open.
+// Tile draws one thing as a tile: an epic's gauge, a contract's doc, or a list's icon. An epic or a contract draws its
+// short name, and ? when it asks, and a list draws its count. lit marks the tile whose panel is open.
 export function Tile({
   thing,
   lit,
@@ -46,6 +46,12 @@ export function Tile({
   onOpen: (thing: Thing) => void;
 }): JSX.Element {
   const title = titleOf(thing);
+  const face =
+    thing.kind === "epic" ? (
+      <GaugeRing gauge={thing.gauge} />
+    ) : (
+      <Icon path={thing.kind === "contract" ? docIcon : listIcons[thing.kind]} />
+    );
   return (
     <button
       type="button"
@@ -55,14 +61,14 @@ export function Tile({
       onClick={() => onOpen(thing)}
     >
       <span class={classes("tile", thing.tone, lit && "cur")}>
-        {thing.kind === "epic" ? <GaugeRing gauge={thing.gauge} /> : <ListIcon kind={thing.kind} />}
-        {thing.kind === "epic" ? (
-          thing.asks && <span class="n attention">?</span>
-        ) : (
+        {face}
+        {thing.kind === "agents" || thing.kind === "running" ? (
           <span class={`n ${thing.tone}`}>{thing.count}</span>
+        ) : (
+          asksOf(thing) && <span class="n attention">?</span>
         )}
       </span>
-      {thing.kind === "epic" && <span class="cap">{thing.short}</span>}
+      {(thing.kind === "epic" || thing.kind === "contract") && <span class="cap">{thing.short}</span>}
     </button>
   );
 }
@@ -123,7 +129,7 @@ function GroupView({ group, lit, layout, onOpen }: GroupViewProps): JSX.Element 
   }, [picking, layout]);
 
   const head = `${group.things.length} ${group.label}`;
-  const asks = group.things.some((thing) => thing.tone === "attention");
+  const asks = group.things.some(asksOf);
   const litThing = group.things.find((thing) => thing.key === lit);
   const choose = (thing: Thing) => {
     setPicking(false);
@@ -196,19 +202,26 @@ function GaugeRing({ gauge }: { gauge: Gauge }): JSX.Element {
   );
 }
 
-// listIcons is each list's drawing, round 6's: the agents' star, and the running shell's prompt.
+// listIcons is each list's drawing, round 6's: the agents' star, and the running shell's prompt. docIcon is a
+// contract's, round 6's doc.
 const listIcons: Record<ListThing["kind"], string> = {
   agents: "M8 2l1.5 4.5L14 8l-4.5 1.5L8 14l-1.5-4.5L2 8l4.5-1.5z",
   running: "M3 4l4 4-4 4M8.5 12H13",
 };
+const docIcon = "M4 2h5l3 3v9H4zM9 2v3h3M6 8h4M6 11h4";
 
-// ListIcon draws a list's icon, stroked in the current colour, where an epic draws its gauge.
-function ListIcon({ kind }: { kind: ListThing["kind"] }): JSX.Element {
+// Icon draws a tile's icon, stroked in the current colour, where an epic draws its gauge.
+function Icon({ path }: { path: string }): JSX.Element {
   return (
     <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor">
-      <path d={listIcons[kind]} />
+      <path d={path} />
     </svg>
   );
+}
+
+// asksOf is whether a thing asks: an epic or a contract while it has an open need or decision. A list never asks.
+function asksOf(thing: Thing): boolean {
+  return thing.kind === "epic" || thing.kind === "contract" ? thing.asks : false;
 }
 
 // Arc draws one arc of a gauge's ring, share percent of the way round from the top.
@@ -226,15 +239,18 @@ function Arc({ klass, share }: { klass: string; share: number }): JSX.Element {
   );
 }
 
-// nameOf is what a thing is called: an epic's slug, or a list's key.
+// nameOf is what a thing is called: an epic's or a contract's slug, or a list's key.
 function nameOf(thing: Thing): string {
-  return thing.kind === "epic" ? thing.slug : thing.key;
+  return thing.kind === "epic" || thing.kind === "contract" ? thing.slug : thing.key;
 }
 
-// wordsOf is what a thing is doing: an epic's state, or a list's count.
+// wordsOf is what a thing is doing: an epic's state, a contract's wait, or a list's count.
 function wordsOf(thing: Thing): string {
   if (thing.kind === "epic") {
     return thing.state;
+  }
+  if (thing.kind === "contract") {
+    return "a contract waits for you";
   }
   return thing.kind === "agents" ? `${thing.count} running` : `${thing.count} left running`;
 }

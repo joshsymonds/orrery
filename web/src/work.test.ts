@@ -289,3 +289,37 @@ test("ContractTile: the contract things keep the List order", () => {
     ["contract:tidepool/b", "contract:tidepool/a", "contract:tidepool/c"],
   );
 });
+
+test("ContractTile: the contract group heads the groups, ahead of the epics and the lists", () => {
+  const view = epicsView([makeEpic("first")], new Map());
+  const groups = workOf(conversation("s1", [task("agent", "running", "a1")]), view, 0, [
+    makeContract("tidepool/tide-alerts"),
+  ]);
+
+  assert.deepEqual(
+    groups.map((group) => [group.kind, group.label]),
+    [
+      ["contract", "contract"],
+      ["epic", "epic"],
+      ["agents", "agents"],
+    ],
+  );
+  assert.deepEqual(keysOf(groups[0]), ["contract:tidepool/tide-alerts"]);
+});
+
+test("ContractTile: a conversation with no contract of its own waiting has no contract group", () => {
+  const contracts = [
+    makeContract("tidepool/theirs", { conversation: "s2" }),
+    makeContract("tidepool/done", { state: "accepted" }),
+  ];
+
+  assert.deepEqual(workOf(conversation("s1"), noEpics, 0, contracts), []);
+});
+
+test("ContractTile: more than three contracts make the contract group many", () => {
+  const contracts = ["a", "b", "c", "d"].map((slug) => makeContract(`tidepool/${slug}`));
+  const [group] = workOf(conversation("s1"), noEpics, 0, contracts);
+
+  assert.equal(group.many, true);
+  assert.equal(group.things.length, 4);
+});

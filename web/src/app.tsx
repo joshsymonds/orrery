@@ -1208,6 +1208,20 @@ export function App({
     openEpic(epic);
     setSteppedTo({ epic, step });
   };
+  // openContractPanel opens a contract's panel, as its address does: the conversation's row takes the cursor when the
+  // list shows it, as an epic's line does, so the middle, the composer and the seen watch rest on the same row. The
+  // contract stays open over the cursor's key that results.
+  const openContractPanel = (id: string) => {
+    const listed = contracts.find((candidate) => candidate.id === id);
+    const conversation = listed === undefined ? null : steererOf(shownRows, listed.conversation);
+    const conversationItem =
+      conversation === null ? undefined : flat.find((candidate) => candidate.key === conversation.key);
+    if (conversationItem !== undefined) {
+      selectItem(conversationItem);
+    }
+    setOpenedContract({ id, cursor: conversationItem?.key ?? cursorKey });
+    setRowOpened(true);
+  };
 
   // App opens the address its prop holds: on mount, and again when the prop's formatted form changes, unless that form
   // is the address App shows now. An open sets the view at once, and holds its entry in pendingOpen until the view
@@ -1257,17 +1271,7 @@ export function App({
     const { entry } = pending;
     pendingOpen.current = null;
     if (entry.kind === "contract") {
-      // The conversation's row takes the cursor when the list shows it, as an epic's line does, so the middle, the
-      // composer and the seen watch rest on the same row. The contract stays open over the cursor's key that results.
-      const listed = contracts.find((candidate) => candidate.id === entry.id);
-      const conversation = listed === undefined ? null : steererOf(shownRows, listed.conversation);
-      const conversationItem =
-        conversation === null ? undefined : flat.find((candidate) => candidate.key === conversation.key);
-      if (conversationItem !== undefined) {
-        selectItem(conversationItem);
-      }
-      setOpenedContract({ id: entry.id, cursor: conversationItem?.key ?? cursorKey });
-      setRowOpened(true);
+      openContractPanel(entry.id);
       adopt();
       return;
     }
@@ -1388,7 +1392,7 @@ export function App({
       here: middle && panelOpen && epicEntry !== null ? epicEntry.id : undefined,
       work:
         middle && !wide
-          ? { groups: workOf(workConversation(row, conversation), kept, now), lit, onOpen: openThing }
+          ? { groups: workOf(workConversation(row, conversation), kept, now, contracts), lit, onOpen: openThing }
           : undefined,
       note: headNote.key === row.key ? headNote.text : "",
       menu: {
@@ -1441,7 +1445,7 @@ export function App({
   // holds. Its groups are what it steers, from the epics the list shows.
   const railConversation: WorkConversation | null =
     middleRow === null ? null : workConversation(middleRow, cursorConversation);
-  const railGroups = workOf(railConversation, kept, now);
+  const railGroups = workOf(railConversation, kept, now, contracts);
   // The epic panel is open while the cursor rests on an epic entry and its page is not closed. Its tile is the rail's tile
   // of that epic, which is lit while the panel is open, and whose tone the card takes. An epic no conversation steers has
   // no tile, so no tile is lit and the card takes the quiet tone.
@@ -1455,14 +1459,20 @@ export function App({
     epicEntry === null
       ? undefined
       : railGroups.flatMap((group) => group.things).find((thing) => thing.key === epicEntry.key);
-  const lit = panelOpen && panelThing !== undefined ? panelThing.key : (listShown ?? "");
+  // An open contract's tile is lit under the key of its thing, contract:<id>.
+  const litContract = contract === undefined ? "" : `contract:${contract.id}`;
+  const lit =
+    contract !== undefined ? litContract : panelOpen && panelThing !== undefined ? panelThing.key : (listShown ?? "");
   const panelTone = panelThing?.tone ?? "quiet";
   // The one panel open beside the conversation is an epic's or a list's. A list's card takes its tile's tone, and its
   // rows are the tile's tasks, which are empty once the tile is gone.
   const panelShown = panelOpen || listShown !== null;
   const listThing = railGroups
     .flatMap((group) => group.things)
-    .find((thing): thing is ListThing => thing.kind !== "epic" && thing.key === listShown);
+    .find(
+      (thing): thing is ListThing =>
+        (thing.kind === "agents" || thing.kind === "running") && thing.key === listShown,
+    );
   const listTone = listThing?.tone ?? "quiet";
   const listTasks = listThing?.tasks ?? [];
   // What the panel holds while it is open: ] reopens it once it shuts. An epic is held while its panel is open, and a
@@ -1507,15 +1517,18 @@ export function App({
   // closeList shuts the list panel, from its lit tile or its Close. The cursor stays on the session's row, so the
   // address is the session's own.
   const closeList = navigated(() => setListPanel(null));
-  // closeContract shuts the contract panel, from its Close or its title row's back. The address is the cursor's entry
-  // again.
+  // closeContract shuts the contract panel, from its Close, its title row's back or its lit tile. The address is the
+  // cursor's entry again.
   const closeContract = navigated(() => setOpenedContract(null));
-  // openThing is a press on a rail tile. The lit tile shuts its panel, whether it is an epic's or a list's. Another
-  // epic's tile opens that epic as an open, and a list's tile opens the list on the session row the rail reads.
+  // openThing is a press on a rail tile. The lit tile shuts its panel, whether it is an epic's, a contract's or a
+  // list's. Another epic's tile opens that epic as an open, a contract's tile opens its panel, and a list's tile opens
+  // the list on the session row the rail reads.
   const openThing = (thing: Thing) => {
     if (thing.key === lit) {
       if (thing.kind === "epic") {
         closePanel();
+      } else if (thing.kind === "contract") {
+        closeContract();
       } else {
         closeList();
       }
@@ -1523,6 +1536,10 @@ export function App({
     }
     if (thing.kind === "epic") {
       navigated(openEpic)(thing.id);
+      return;
+    }
+    if (thing.kind === "contract") {
+      navigated(openContractPanel)(thing.id);
       return;
     }
     navigated(openList)(middleKey, thing.kind);

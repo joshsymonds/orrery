@@ -44,10 +44,10 @@ export interface ListThing {
   tasks: BackgroundTask[];
 }
 
-export type Thing = EpicThing | ListThing;
+export type Thing = EpicThing | ListThing | ContractThing;
 
 export interface RailGroup {
-  kind: "epic" | "agents" | "running";
+  kind: "contract" | "epic" | "agents" | "running";
   label: string;
   things: Thing[];
   many: boolean;
@@ -64,14 +64,23 @@ type ListKind = "agents" | "running";
 // A group with more than this many things is marked many.
 const manyThings = 3;
 
-// workOf gives a conversation's right-rail groups, in order: the epics it steers, its running sub-agents and its
-// running shells. An epic is steered when its record names the conversation's session, and a session that is empty
-// steers none. A pane has no lists. A group with no thing is left out.
-export function workOf(conversation: WorkConversation | null, epics: EpicsView, now: number): RailGroup[] {
+// workOf gives a conversation's right-rail groups, in order: the contracts it proposed, the epics it steers, its
+// running sub-agents and its running shells. An epic is steered when its record names the conversation's session, and
+// a session that is empty steers none. A pane has no lists. A group with no thing is left out.
+export function workOf(
+  conversation: WorkConversation | null,
+  epics: EpicsView,
+  now: number,
+  contracts: readonly Contract[] = [],
+): RailGroup[] {
   if (conversation === null) {
     return [];
   }
   const groups: RailGroup[] = [];
+  const contractThings = contractThingsOf(conversation.session, contracts);
+  if (contractThings.length > 0) {
+    groups.push(groupOf("contract", "contract", contractThings));
+  }
   const epicThings = epicThingsOf(conversation.session, epics, now);
   if (epicThings.length > 0) {
     groups.push(groupOf("epic", epicThings.length === 1 ? "epic" : "epics", epicThings));
