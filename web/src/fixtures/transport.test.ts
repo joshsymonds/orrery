@@ -548,12 +548,27 @@ test("FixtureTransport: page/epic-question, page/epic-handover and page/epic-tal
   }
 });
 
-test("FixtureTransport: page's keys are exactly the 11 catalog names of its scenario states", () => {
+test("FixtureTransport: page's keys are exactly the 26 catalog names of its scenario states", () => {
   assert.deepEqual(Object.keys(Page).map((state) => storyName("Page", state)).sort(), [
+    "page/ask-later",
     "page/ask-session",
     "page/contract-accepted",
     "page/contract-to-accept",
     "page/convo-working",
+    "page/dock-cancelled",
+    "page/dock-cut-off",
+    "page/dock-draft",
+    "page/dock-failed",
+    "page/dock-idle",
+    "page/dock-interrupt-queue",
+    "page/dock-interrupted",
+    "page/dock-interrupting",
+    "page/dock-pane-queue",
+    "page/dock-queued",
+    "page/dock-send-error",
+    "page/dock-send-unknown",
+    "page/dock-stopped",
+    "page/dock-waiting",
     "page/epic-handover",
     "page/epic-question",
     "page/epic-shipped",
