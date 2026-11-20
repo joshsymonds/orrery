@@ -33,7 +33,6 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicPremise as EpicPremiseProt
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion as EpicQuestionProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseStep as EpicReleaseStepProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement as EpicRequirementProto
-import io.github.joshsymonds.orrery.gen.orrery.v1.EpicSession as EpicSessionProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice as EpicSliceProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep as EpicStepProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepCheck as EpicStepCheckProto
@@ -683,17 +682,10 @@ data class EpicDetail(
     val paused: Boolean = false,
     val parked: String = "",
     val handover: EpicHandoverRow = EpicHandoverRow(),
-    val sessions: List<EpicSessionRow> = emptyList(),
     val repository: String = "",
     val releaseProof: List<EpicReleaseProofRow> = emptyList(),
     val report: EpicReportRow? = null,
 )
-
-/**
- * A session that works on an epic, with its newest epic call: [pane] is its tmux pane, empty for a headless session,
- * [call] is the tool name of that call, and [at] is when it was made, in unix seconds.
- */
-data class EpicSessionRow(val id: String, val pane: String, val label: String, val call: String, val at: Long)
 
 /** What a hold, nudge, stop or epic call came to: it landed, or orreryd refused it with its reason. */
 sealed interface StepCallResult {
@@ -975,7 +967,6 @@ class OrreryClient(
             paused = response.paused,
             parked = response.parked,
             handover = response.toEpicHandoverRow(),
-            sessions = response.sessionsList.map { it.toEpicSessionRow() },
             repository = response.repository,
             releaseProof = response.releaseStepsList.map { it.toEpicReleaseProofRow() },
             report = if (response.hasReport()) response.report.toEpicReportRow() else null,
@@ -1472,9 +1463,6 @@ class OrreryClient(
 
     private fun EpicQuestionProto.toEpicQuestionRow(): EpicQuestionRow =
         EpicQuestionRow(id = id, text = text, turn = turn, asked = asked)
-
-    private fun EpicSessionProto.toEpicSessionRow(): EpicSessionRow =
-        EpicSessionRow(id = id, pane = pane, label = label, call = call, at = at)
 
     private fun EpicContractProto.toEpicContractRow(): EpicContractRow =
         EpicContractRow(

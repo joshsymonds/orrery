@@ -15,7 +15,6 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseProof
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseStep
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicReport
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement
-import io.github.joshsymonds.orrery.gen.orrery.v1.EpicSession
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepCheck
@@ -734,54 +733,19 @@ class OrreryClientEpicsTest {
     }
 
     @Test
-    fun epicMapsEverySessionFieldInServeOrderAndTheRepository() {
+    fun epicMapsTheRepository() {
         FakeOrreryServer().use { server ->
             server.respond(
                 EPICS_GET,
                 EpicsGetResponse.newBuilder()
                     .setEpic(epicProto.toBuilder().setSource("orreryd"))
                     .setRepository("/home/user/example-repo")
-                    .addSessions(
-                        EpicSession.newBuilder()
-                            .setId("example-session-1")
-                            .setPane("%3")
-                            .setLabel("example-label")
-                            .setCall("epic_get")
-                            .setAt(4102444700L),
-                    )
-                    .addSessions(
-                        EpicSession.newBuilder()
-                            .setId("example-session-2")
-                            .setPane("")
-                            .setLabel("")
-                            .setCall("epic_history")
-                            .setAt(4102444800L),
-                    )
                     .build(),
             )
 
             val detail = OrreryClient(server.baseUrl).epic("example-repo/example-epic")
 
             assertEquals("/home/user/example-repo", detail?.repository)
-            assertEquals(
-                listOf(
-                    EpicSessionRow(
-                        id = "example-session-1",
-                        pane = "%3",
-                        label = "example-label",
-                        call = "epic_get",
-                        at = 4102444700L,
-                    ),
-                    EpicSessionRow(
-                        id = "example-session-2",
-                        pane = "",
-                        label = "",
-                        call = "epic_history",
-                        at = 4102444800L,
-                    ),
-                ),
-                detail?.sessions,
-            )
         }
     }
 
