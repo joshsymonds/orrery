@@ -172,14 +172,15 @@ type Config struct {
 	// Changes is orreryd's change feed, which wakes each Events.Watch stream when a change is stored, or is nil, which
 	// wakes none: a stream then reads only when it opens.
 	Changes enginev1connect.ChangesClient
-	// NewTimer arms the retry timer of the change feed, a timer that sends on its channel once, after a duration, and
-	// returns the timer's stop, or is nil for time.NewTimer.
+	// NewTimer arms the retry timer of the change feed and the keepalive timers of the Panes.WatchConversation streams,
+	// each a timer that sends on its channel once, after a duration, and returns the timer's stop, or is nil for
+	// time.NewTimer.
 	NewTimer func(time.Duration) (<-chan time.Time, func() bool)
 	// EventSendTimeout bounds each Events.Watch, Notices.Watch, Panes.WatchConversation and Sessions.WatchConversation
 	// send, or is zero for the default. A send that does not complete in time ends its stream, and no other.
 	EventSendTimeout time.Duration
-	// ConversationPoll is the interval at which Panes.WatchConversation and Sessions.WatchConversation poll their
-	// pane or session and transcript, or zero for the default.
+	// ConversationPoll is the interval at which Sessions.WatchConversation polls its session and transcript, or zero for
+	// the default.
 	ConversationPoll time.Duration
 	// ConversationKeepalive is the time without a delta after which Panes.WatchConversation and
 	// Sessions.WatchConversation send a keepalive, or zero for the default.
@@ -286,7 +287,7 @@ func New(cfg Config) (http.Handler, error) {
 	noticesPath := registerNotices(mux, cfg, sendTimeout)
 	panesPath, panesService := newPanesHandler(
 		cfg.Tmux, cfg.Sessions, newest, goals, queues, textLocks, seenLocks, cfg.ReportSeen, cfg.ReportRead, now,
-		conversationPoll, conversationKeepalive, sendTimeout, cfg.Shutdown, cfg.HandlerOptions...,
+		changes, cfg.NewTimer, conversationKeepalive, sendTimeout, cfg.Shutdown, cfg.HandlerOptions...,
 	)
 	mux.Handle(panesPath, panesService)
 	hostPath, hostService := newHostHandler(cfg.HostStatus, cfg.Web, cfg.HandlerOptions...)

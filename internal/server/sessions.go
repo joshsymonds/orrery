@@ -13,6 +13,9 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
+// defaultConversationPoll is the Sessions.WatchConversation poll interval when Config.ConversationPoll is zero.
+const defaultConversationPoll = 500 * time.Millisecond
+
 // sessionsServer answers orrery.v1.Sessions from the store reader. A nil reader answers unavailable. home is the home
 // directory whose Claude transcripts WatchConversation reads a session's context figure from, and an empty home reads
 // none. steps is the client WatchConversation asks about a step session, and a nil steps answers not_found for one.

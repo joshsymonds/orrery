@@ -224,7 +224,7 @@ func TestPanesOlderPagesBackFromResetOldestAcrossTheTailCap(t *testing.T) {
 	}
 	tmux := newTmuxServer(t)
 	pane := conversationPane(t, tmux, liveOptions(path))
-	client := panesClient(t, convHandler(t, tmux))
+	client := panesClient(t, convHandler(t, tmux, nil))
 
 	const resetLimit = 40
 	reset := openConversation(t, client, &orreryv1.WatchConversationRequest{Pane: pane, Limit: resetLimit}).next(t)
@@ -275,7 +275,7 @@ func TestPanesOlderRejectsStaleTranscriptAndBadRequests(t *testing.T) {
 	path, all, starts := writeOlderTranscript(t, 10, 0)
 	tmux := newTmuxServer(t)
 	pane := conversationPane(t, tmux, liveOptions(path))
-	client := panesClient(t, convHandler(t, tmux))
+	client := panesClient(t, convHandler(t, tmux, nil))
 	base := filepath.Base(path)
 
 	cases := []struct {

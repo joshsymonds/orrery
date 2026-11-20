@@ -3748,14 +3748,14 @@ Reset and resume:
 
 Timing:
 
-- The stream checks the pane every 500 ms. A delta is sent when the transcript has gained complete lines or the state has changed.
-- After 5 seconds without a message, the stream sends a keepalive: a message with only `transcript` and `seq` set. While nothing changes, it sends one about every 5 seconds, on the 500 ms ticks.
+- The stream reads the pane when it opens, whenever orreryd's change feed names the pane's `@orrery_id` (or, before the pane has one, any session), and once whenever the feed reopens. A delta is sent when the transcript has gained complete lines or the state has changed.
+- After 5 seconds without a message, the stream sends a keepalive: a message with only `transcript` and `seq` set, and it reports the pane read, without reading the pane. Each message restarts the 5 seconds, so a quiet stream sends one about every 5 seconds.
 
 The stream ends in one of these ways:
 
 - When the client leaves the stream, by cancelling the call or closing the connection. This is not an error.
 - With an error from the error table, when the pane is absent, has no live session, has no transcript, or has a transcript file that is missing. This applies at start and mid-stream.
-- When serve shuts down. On serve's shutdown, a blocked send of the stream gets 1 second, and so does the stream's end. A stream waiting for its next tick or send at shutdown ends with `unavailable`, with the message `serve is shutting down`.
+- When serve shuts down. On serve's shutdown, a blocked send of the stream gets 1 second, and so does the stream's end. A stream waiting for its next wake or send at shutdown ends with `unavailable`, with the message `serve is shutting down`.
 - When a send stalls. A send of the stream still blocked after 10 seconds ends that stream only, with an error outside the error table.
 
 The guard covers the stream. The rules of [Guard](#guard) apply to `/orrery.v1.Panes/WatchConversation` as they do to every Connect path. A GET to the stream answers 405.

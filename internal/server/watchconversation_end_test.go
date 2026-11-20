@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	enginev1connect "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
 	"github.com/joshsymonds/orrery/internal/server"
@@ -36,20 +37,22 @@ func writeLargeConversation(t *testing.T, replies int) string {
 	return path
 }
 
-// convEndHandler builds the guarded handler that admits allowedLogin and routes to tmux. Its WatchConversation
-// streams end when shutdown closes, and a send that stays blocked past sendTimeout ends its stream. A nil shutdown
-// never closes, and a zero sendTimeout takes the default.
+// convEndHandler builds the guarded handler that admits allowedLogin and routes to tmux, reading its change feed from
+// changes. Its WatchConversation streams end when shutdown closes, and a send that stays blocked past sendTimeout ends
+// its stream. A nil shutdown never closes, and a zero sendTimeout takes the default.
 func convEndHandler(
 	t *testing.T,
 	tmux *tmuxctl.Client,
 	shutdown <-chan struct{},
 	sendTimeout time.Duration,
+	changes enginev1connect.ChangesClient,
 ) http.Handler {
 	t.Helper()
 	handler, err := server.New(server.Config{
 		Logins:                []string{allowedLogin},
 		Tmux:                  tmux,
 		Push:                  newPushStore(t),
+		Changes:               changes,
 		ConversationPoll:      convPoll,
 		ConversationKeepalive: convKeepalive,
 		EventSendTimeout:      sendTimeout,
@@ -120,7 +123,7 @@ func TestWatchConversationEndsOnShutdown(t *testing.T) {
 	path := writeConversation(t, 2)
 	pane := conversationPane(t, tmux, liveOptions(path))
 	shutdown := make(chan struct{})
-	client := panesClient(t, convEndHandler(t, tmux, shutdown, 0))
+	client := panesClient(t, convEndHandler(t, tmux, shutdown, 0, nil))
 	stream := openConversation(t, client, &orreryv1.WatchConversationRequest{Pane: pane, Limit: 2})
 	stream.next(t)
 	stream.settle(t)
@@ -138,7 +141,8 @@ func TestWatchConversationEndsStalledReaderAtSendDeadline(t *testing.T) {
 	tmux := newTmuxServer(t)
 	path := writeLargeConversation(t, convLargeReplies)
 	pane := conversationPane(t, tmux, liveOptions(path))
-	url, closed, obs := startConvDeadlineServer(t, convEndHandler(t, tmux, nil, deadlineStalledSendTimeout))
+	feed, changes := startChanges(t, nil)
+	url, closed, obs := startConvDeadlineServer(t, convEndHandler(t, tmux, nil, deadlineStalledSendTimeout, changes))
 	req := &orreryv1.WatchConversationRequest{Pane: pane, Limit: convLargeReplies}
 
 	// Both connections hold their write deadlines. The stalled send's stays unapplied until the healthy stream has
@@ -157,6 +161,7 @@ func TestWatchConversationEndsStalledReaderAtSendDeadline(t *testing.T) {
 		t.Fatalf("healthy first delta reset=%v, want a reset", first.GetReset_())
 	}
 	appendTranscript(t, path, replyLine(convLargeReplies+1))
+	feed.Publish(0, []string{convChangedSession})
 	assertTexts(t, healthy.nextDelta(t).GetItems(), "synthetic reply 41")
 	assertStillOpen(t, closed, stalledAddr)
 
@@ -179,7 +184,7 @@ func TestWatchConversationShutdownEndsBlockedSendWithinGrace(t *testing.T) {
 	path := writeLargeConversation(t, convLargeReplies)
 	pane := conversationPane(t, tmux, liveOptions(path))
 	shutdown := make(chan struct{})
-	url, closed, obs := startConvDeadlineServer(t, convEndHandler(t, tmux, shutdown, stallSendTimeout))
+	url, closed, obs := startConvDeadlineServer(t, convEndHandler(t, tmux, shutdown, stallSendTimeout, nil))
 
 	dialed := make(chan net.Conn, 1)
 	stalledHTTP := &http.Client{Transport: headerTransport{base: stalledTransport(dialed), login: allowedLogin}}
