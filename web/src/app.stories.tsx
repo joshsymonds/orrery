@@ -9,6 +9,7 @@ import { PageStory } from "./catalog/pagestory";
 import type { Stories } from "./catalog/story";
 import { dockSlices, gatesSession, warmupSession } from "./fixtures/dock";
 import { type AskAnswer, type EpicScenario, epicScenarios, type PickerRowInit, type Slices, shippedSlices } from "./fixtures/slices";
+import { endedSlices, handoverSlices, movedSlices } from "./fixtures/steer";
 import { createFixtureTransport, type FixtureTransport } from "./fixtures/transport";
 import type { Address, ListPanelKind, PageView } from "./router";
 
@@ -116,7 +117,16 @@ async function typeInto(root: HTMLElement, selector: string, text: string): Prom
   return field;
 }
 
-const openTalk = (root: HTMLElement) => clickWhen(root, "section.page .title-row .acts button.act", "Talk");
+// openSteer opens the steering menu of the epic page: at the desk its steering command in the title row, and under the
+// phone's width the foot bar's More and then the More sheet's Steer item, which opens the menu in a sheet.
+async function openSteer(root: HTMLElement): Promise<void> {
+  if (window.innerWidth >= phoneWidth) {
+    await clickWhen(root, "section.page .title-row .icon.steer");
+    return;
+  }
+  await clickWhen(root, "section.page .cmdbar button", "More");
+  await clickWhen(root, '[role="dialog"] button.act', "Steer it from another conversation");
+}
 
 // scrollOpenRowIntoView brings the open requirement row to the top of the epic panel, where its runs and their logs come
 // under it. The row is drawn open by the time the story asks, so the scroll is the page's own call to the browser.
@@ -293,7 +303,21 @@ export const Page: Stories = {
   "work-empty": () => <PageStory address={paneAt("%13")} />,
   "dock-running": () => <PageStory address={sessionAt(buoySession, "agents")} />,
   "dock-background": () => <PageStory address={sessionAt(buoySession, "running")} />,
-  "epic-handover": () => <PageStory address={epicAt(rota, { kind: "epic" })} after={openTalk} />,
+  "epic-handover": () => (
+    <PageStory
+      address={epicAt(rota, { kind: "epic" })}
+      fixture={createFixtureTransport(handoverSlices)}
+      after={openSteer}
+    />
+  ),
+  "epic-moved": () => (
+    <PageStory address={epicAt(rota, { kind: "epic" })} fixture={createFixtureTransport(movedSlices)} />
+  ),
+  "epic-convo-ended": () => (
+    <PageStory address={epicAt(rota, { kind: "epic" })} fixture={createFixtureTransport(endedSlices)} />
+  ),
+  "convo-took-over": () => <PageStory address={paneAt("%11")} fixture={createFixtureTransport(movedSlices)} />,
+  "convo-handed-over": () => <PageStory address={paneAt("%14")} fixture={createFixtureTransport(movedSlices)} />,
   "epic-building": () => epicScenario(epicAt(rota, { kind: "epic" }), "building"),
   "epic-question-other": () => (
     <PageStory

@@ -8,6 +8,9 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performSemanticsAction
+import io.github.joshsymonds.orrery.api.EpicDetail
+import io.github.joshsymonds.orrery.api.EpicRow
+import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.awaitUntil
 import io.github.joshsymonds.orrery.mainThreadComposeRule
 import org.junit.Assert.assertEquals
@@ -51,6 +54,30 @@ class EpicCommandsTest {
         composeRule.awaitUntil { composeRule.onAllNodesWithTag(tag).fetchSemanticsNodes().isEmpty() }
     }
 
+    /**
+     * An epic the record keeps, steered by [steering]: no conversation can take it, so the foot reads nothing and its
+     * More holds only the commands it is given.
+     */
+    private fun detail(steering: String): EpicDetail = EpicDetail(
+        epic = EpicRow(
+            id = "example-repo/$SLUG",
+            repository = "example-repo",
+            slug = SLUG,
+            outcome = "",
+            changed = 0L,
+            live = true,
+            runningSteps = emptyList(),
+            endedSteps = 0,
+            problem = "",
+            source = "record",
+            steering = steering,
+        ),
+        tasks = emptyList(),
+        slices = emptyList(),
+        steps = emptyList(),
+        repository = "/home/user/example-repo",
+    )
+
     private fun setFoot(
         steering: String = STEERING,
         canPause: Boolean = true,
@@ -61,9 +88,10 @@ class EpicCommandsTest {
         composeRule.setContent {
             MaterialTheme {
                 EpicFoot(
-                    slug = SLUG,
-                    steering = steering,
-                    onTalk = { calls.talk.incrementAndGet() },
+                    client = OrreryClient("http://127.0.0.1:1"),
+                    detail = detail(steering),
+                    onOpenSteerer = { calls.talk.incrementAndGet() },
+                    onSteered = {},
                     canPause = canPause,
                     canResume = canResume,
                     canStop = canStop,
@@ -114,6 +142,16 @@ class EpicCommandsTest {
         composeRule.onNodeWithTag("epic-sheet-pause").assertTextEquals("Pause")
         composeRule.onAllNodesWithTag("epic-sheet-resume").assertCountEquals(0)
         composeRule.onNodeWithTag("epic-sheet-stop").assertTextEquals("Stop…")
+    }
+
+    @Test
+    fun epicCommandsMoreOfAnEpicNoConversationCanTakeListsNoSteerCommand() {
+        setFoot()
+
+        tap("epic-more")
+
+        composeRule.onNodeWithTag("epic-more-title").assertTextEquals(SLUG)
+        composeRule.onAllNodesWithTag("epic-steer").assertCountEquals(0)
     }
 
     @Test

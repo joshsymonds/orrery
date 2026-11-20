@@ -54,6 +54,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsStopRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsStopResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun
 import io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession
+import io.github.joshsymonds.orrery.gen.orrery.v1.ListHeadlessResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationRequest
@@ -93,6 +94,7 @@ class EpicRecordScreenTest {
         const val EPICS_RETRY = "/orrery.v1.Epics/Retry"
         const val PANES_LIST = "/orrery.v1.Panes/List"
         const val WATCH = "/orrery.v1.Sessions/WatchConversation"
+        const val LIST_HEADLESS = "/orrery.v1.Sessions/ListHeadless"
         const val ENVELOPE_HEADER_BYTES = 5
         const val PANE_ID = "%2"
         const val PANE_ORRERY_ID = "example-pane-orrery"
@@ -1202,6 +1204,15 @@ class EpicRecordScreenTest {
 
     private fun titled(label: String): SemanticsMatcher = hasTestTag("head-text").and(hasText(label))
 
+    /** The steering headless session, working: the foot reads it as running, so the foot keeps its Talk. */
+    private fun steeringSession(): HeadlessSession = HeadlessSession.newBuilder()
+        .setId(STEERING)
+        .setDir("/home/user/example-repo")
+        .setLabel(STEERING_LABEL)
+        .setState("working")
+        .setChanged(CHANGED)
+        .build()
+
     /** The watch stream of the steering session: its state, as the session's screen opens. */
     private fun steeringState(): SessionsWatchConversationResponse = SessionsWatchConversationResponse.newBuilder()
         .setTranscript(STEERING)
@@ -1209,14 +1220,7 @@ class EpicRecordScreenTest {
         .setState(
             ConversationState.newBuilder()
                 .setOrigin("synthetic origin")
-                .setSession(
-                    HeadlessSession.newBuilder()
-                        .setId(STEERING)
-                        .setDir("/home/user/example-repo")
-                        .setLabel(STEERING_LABEL)
-                        .setState("working")
-                        .setChanged(CHANGED),
-                ),
+                .setSession(steeringSession()),
         )
         .build()
 
@@ -1234,6 +1238,7 @@ class EpicRecordScreenTest {
             server.respond(EPICS_GET, body(outcome = "built", steering = STEERING, sessions = listOf(session(STEERING, STEERING_LABEL))))
             server.respond(EPICS_HISTORY, EpicsHistoryResponse.getDefaultInstance())
             server.respond(PANES_LIST, PanesListResponse.getDefaultInstance())
+            server.respond(LIST_HEADLESS, ListHeadlessResponse.newBuilder().addSessions(steeringSession()).build())
             server.route(WATCH) { request ->
                 if (watchedId(request) == STEERING) {
                     Reply.Stream(listOf(steeringState()), StreamEnd.Open)

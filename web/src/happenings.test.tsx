@@ -175,3 +175,94 @@ test("OutputTails draws each non-empty tail under its own label", async () => {
     assert.deepEqual(textsOf(container, ".log"), ["boom\n"]);
   });
 });
+
+// move is an epic history entry of case action whose kind is move, from the session it left to the one it went to.
+function move(init: { by: string; session?: string; from: string; to: string }): EpicHistoryEntry {
+  return entry({
+    time: 400n,
+    cursor: "m1",
+    item: { case: "action", value: { seq: 1n, kind: "move", time: 400n, session: "", ...init } },
+  });
+}
+
+// titlesOf names the sessions a map gives a title to; a session it does not name has no title.
+function titlesOf(titles: Record<string, string>): (session: string) => string | undefined {
+  return (session) => titles[session];
+}
+
+test("MoveLines: a move by the owner names both sessions by their titles", () => {
+  const titleOf = titlesOf({ "sess-lamp": "Retry backoff", "sess-rota": "Planned the rota export" });
+  const entries = [move({ by: "owner", from: "sess-rota", to: "sess-lamp" })];
+  return withRender(<JustHappened entries={entries} steps={[]} titleOf={titleOf} />, (container) => {
+    assert.deepEqual(textsOf(container, "section.happen.just .what"), [
+      "moved to “Retry backoff” from “Planned the rota export”, by you",
+    ]);
+  });
+});
+
+test("MoveLines: a session titleOf does not name is drawn as its id, and so is every session with no titleOf", async () => {
+  const entries = [move({ by: "owner", from: "sess-rota", to: "sess-lamp" })];
+  await withRender(
+    <JustHappened entries={entries} steps={[]} titleOf={titlesOf({ "sess-rota": "Planned the rota export" })} />,
+    (container) => {
+      assert.deepEqual(textsOf(container, "section.happen.just .what"), [
+        "moved to session sess-lamp from “Planned the rota export”, by you",
+      ]);
+    },
+  );
+  return withRender(<JustHappened entries={entries} steps={[]} />, (container) => {
+    assert.deepEqual(textsOf(container, "section.happen.just .what"), [
+      "moved to session sess-lamp from session sess-rota, by you",
+    ]);
+  });
+});
+
+test("MoveLines: a move by a conversation is named by its title, or by its id when titleOf does not name it", async () => {
+  const entries = [move({ by: "conversation", session: "sess-mover", from: "sess-rota", to: "sess-lamp" })];
+  await withRender(
+    <JustHappened
+      entries={entries}
+      steps={[]}
+      titleOf={titlesOf({ "sess-mover": "Mover", "sess-rota": "Planned the rota export" })}
+    />,
+    (container) => {
+      assert.deepEqual(textsOf(container, "section.happen.just .what"), [
+        "moved to session sess-lamp from “Planned the rota export”, by “Mover”",
+      ]);
+    },
+  );
+  return withRender(<JustHappened entries={entries} steps={[]} />, (container) => {
+    assert.deepEqual(textsOf(container, "section.happen.just .what"), [
+      "moved to session sess-lamp from session sess-rota, by session sess-mover",
+    ]);
+  });
+});
+
+test("MoveLines: a move by orreryd is named orreryd", () => {
+  const entries = [move({ by: "orreryd", from: "sess-rota", to: "sess-lamp" })];
+  return withRender(<JustHappened entries={entries} steps={[]} titleOf={titlesOf({})} />, (container) => {
+    assert.deepEqual(textsOf(container, "section.happen.just .what"), [
+      "moved to session sess-lamp from session sess-rota, by orreryd",
+    ]);
+  });
+});
+
+test("MoveLines: a move of an epic no conversation steered names no session it came from", () => {
+  const entries = [move({ by: "owner", from: "", to: "sess-lamp" })];
+  return withRender(<JustHappened entries={entries} steps={[]} titleOf={titlesOf({ "sess-lamp": "Retry backoff" })} />, (container) => {
+    assert.deepEqual(textsOf(container, "section.happen.just .what"), ["moved to “Retry backoff”, by you"]);
+  });
+});
+
+test("MoveLines: an action of any other kind draws no text, as before", () => {
+  const entries = [
+    entry({
+      time: 400n,
+      cursor: "a1",
+      item: { case: "action", value: { seq: 2n, kind: "pause", time: 400n, by: "owner" } },
+    }),
+  ];
+  return withRender(<JustHappened entries={entries} steps={[]} />, (container) => {
+    assert.deepEqual(textsOf(container, "section.happen.just .what"), [""]);
+  });
+});

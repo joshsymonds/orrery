@@ -409,7 +409,7 @@ test("TileStrip: an epic no conversation steers draws its foot with More and no 
     );
   }));
 
-test("TileStrip: the phone's epic page keeps its commands out of the title row, and More lists them", (t) =>
+test("TileStrip: the phone's epic page keeps its commands out of the title row, and More lists them with its steering", (t) =>
   withPhone(t.signal, onEpic, async ({ container }) => {
     assert.deepEqual(
       [...container.querySelectorAll(".title-row .acts button")]
@@ -425,8 +425,8 @@ test("TileStrip: the phone's epic page keeps its commands out of the title row, 
     await press(more);
     assert.deepEqual(
       [...container.querySelectorAll('section[role="dialog"][aria-label="alpha"] button')].map((b) => b.textContent),
-      ["Pause", "Stop…"],
-      "More lists the commands alpha allows",
+      ["Pause", "Stop…", "Steer it from another conversation"],
+      "More lists the commands alpha allows, then its steering",
     );
   }));
 

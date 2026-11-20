@@ -1,7 +1,7 @@
 import type { JSX } from "preact";
 import { useState } from "preact/hooks";
 
-import type { EpicHistoryEntry, EpicStep, EpicStepCheck, EvidenceRun } from "./gen/orrery/v1/epics_pb";
+import type { EpicAction, EpicHistoryEntry, EpicStep, EpicStepCheck, EvidenceRun } from "./gen/orrery/v1/epics_pb";
 import { clock } from "./reader";
 
 // shownFirst is how many of the newest history entries show before the +n button opens the rest.
@@ -15,8 +15,31 @@ function runResultOf(run: EvidenceRun): string {
   return run.passed ? "passed" : "failed";
 }
 
+// nameOf is a session's name in an epic's log line: its conversation's title in quotes when titleOf names it, else its id.
+function nameOf(session: string, titleOf: ((session: string) => string | undefined) | undefined): string {
+  const title = titleOf?.(session);
+  return title === undefined ? `session ${session}` : `“${title}”`;
+}
+
+// moverOf names who made a move: you for the owner, orreryd for orreryd, and the conversation's name otherwise.
+function moverOf(action: EpicAction, titleOf: ((session: string) => string | undefined) | undefined): string {
+  if (action.by === "owner") {
+    return "you";
+  }
+  if (action.by === "orreryd") {
+    return "orreryd";
+  }
+  return nameOf(action.session, titleOf);
+}
+
+// moveOf is a move's log line: where the epic went, where it came from when it had a steerer, and who moved it.
+function moveOf(action: EpicAction, titleOf: ((session: string) => string | undefined) | undefined): string {
+  const from = action.from === "" ? "" : ` from ${nameOf(action.from, titleOf)}`;
+  return `moved to ${nameOf(action.to, titleOf)}${from}, by ${moverOf(action, titleOf)}`;
+}
+
 // whatOf is an entry's text: its kind's label and its detail.
-function whatOf(entry: EpicHistoryEntry): string {
+function whatOf(entry: EpicHistoryEntry, titleOf: ((session: string) => string | undefined) | undefined): string {
   const { item } = entry;
   switch (item.case) {
     case "turn": {
@@ -34,6 +57,8 @@ function whatOf(entry: EpicHistoryEntry): string {
       return `${item.value.item} ${item.value.phase} run · ${runResultOf(item.value)}`;
     case "decision":
       return `decision · ${item.value.text}`;
+    case "action":
+      return item.value.kind === "move" ? moveOf(item.value, titleOf) : "";
     case "tell":
       return item.value.text;
     default:
@@ -81,13 +106,17 @@ function StepTails(props: { id: string; steps: EpicStep[] }): JSX.Element {
 }
 
 // HistoryRow is one entry: its clock time and its text, then a step's output tails.
-function HistoryRow(props: { entry: EpicHistoryEntry; steps: EpicStep[] }): JSX.Element {
-  const { entry, steps } = props;
+function HistoryRow(props: {
+  entry: EpicHistoryEntry;
+  steps: EpicStep[];
+  titleOf: ((session: string) => string | undefined) | undefined;
+}): JSX.Element {
+  const { entry, steps, titleOf } = props;
   const { item } = entry;
   return (
     <li>
       <span class="at">{clock(entry.time)}</span>
-      <span class="what">{whatOf(entry)}</span>
+      <span class="what">{whatOf(entry, titleOf)}</span>
       {item.case === "step" && <StepTails id={item.value.id} steps={steps} />}
     </li>
   );
@@ -95,8 +124,12 @@ function HistoryRow(props: { entry: EpicHistoryEntry; steps: EpicStep[] }): JSX.
 
 // JustHappened is the newest history entries, newest first: the first three, then a +n earlier button that opens the
 // rest in place.
-export function JustHappened(props: { entries: EpicHistoryEntry[]; steps: EpicStep[] }): JSX.Element {
-  const { entries, steps } = props;
+export function JustHappened(props: {
+  entries: EpicHistoryEntry[];
+  steps: EpicStep[];
+  titleOf?: (session: string) => string | undefined;
+}): JSX.Element {
+  const { entries, steps, titleOf } = props;
   const [open, setOpen] = useState(false);
   const newest = [...entries].reverse();
   const shown = open ? newest : newest.slice(0, shownFirst);
@@ -106,7 +139,7 @@ export function JustHappened(props: { entries: EpicHistoryEntry[]; steps: EpicSt
       <h3>Just happened</h3>
       <ul>
         {shown.map((entry) => (
-          <HistoryRow key={entry.cursor} entry={entry} steps={steps} />
+          <HistoryRow key={entry.cursor} entry={entry} steps={steps} titleOf={titleOf} />
         ))}
       </ul>
       {earlier > 0 && (

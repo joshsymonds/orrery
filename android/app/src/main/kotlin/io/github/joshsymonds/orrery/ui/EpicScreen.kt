@@ -74,10 +74,12 @@ class EpicOpening(val section: String)
  * problem is one red line at the top. The summary carries the contract and steered doors; the track, Now (its sentence,
  * what asks, and its running steps), what just happened, the tasks (chart then table) and the requirements follow. The
  * title shows the state and the blocker pills, with no commands. A command is in the foot's More sheet, and Stop asks
- * first. A command that did not land shows one line under the title until a command lands. [onTalk] is given the
- * steering session's id when Talk or the steered door is tapped. [listState] is the list's state, so the caller keeps
- * its scroll; [openAt] scrolls it to its section when the list is composed. A tap on a task calls [onOpenPhase]. An
- * ended orreryd epic the owner has not seen is marked seen once the screen has rested on it for a second while resumed.
+ * first; the sheet also steers a live orreryd epic from another conversation, and the foot is the ended bar while its
+ * steering has ended. A command that did not land shows one line under the title until a command lands. [onTalk] is
+ * given the steering session's id when Talk or the steered door is tapped, and [onSteered] each steering the foot
+ * settles on. [listState] is the list's state, so the caller keeps its scroll; [openAt] scrolls it to its section when
+ * the list is composed. A tap on a task calls [onOpenPhase]. An ended orreryd epic the owner has not seen is marked
+ * seen once the screen has rested on it for a second while resumed.
  */
 @Composable
 fun EpicScreen(
@@ -91,6 +93,7 @@ fun EpicScreen(
     listState: LazyListState = rememberLazyListState(),
     openAt: EpicOpening? = null,
     onOpenPhase: ((task: String, phase: Phase) -> Unit)? = null,
+    onSteered: (steering: String) -> Unit = {},
     now: () -> Long = { System.currentTimeMillis() / 1000 },
 ) {
     var load by remember(client, epicId) { mutableStateOf<EpicLoad>(EpicLoad.Loading) }
@@ -208,9 +211,10 @@ fun EpicScreen(
         detail?.let { loaded ->
             val controls = controlsOf(loaded)
             EpicFoot(
-                slug = loaded.epic.slug,
-                steering = loaded.epic.steering,
-                onTalk = { onTalk(loaded.epic.steering) },
+                client = client,
+                detail = loaded,
+                onOpenSteerer = { onTalk(loaded.epic.steering) },
+                onSteered = onSteered,
                 canPause = controls.pause,
                 canResume = controls.resume,
                 canStop = controls.stop,

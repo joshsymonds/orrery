@@ -5,12 +5,16 @@ import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { render } from "preact";
 import { act } from "preact/test-utils";
 
-import { type EpicCommands, EpicPage } from "./epicpage";
+import { type EpicCommands, EpicPage, type SessionTarget, type SteerSheet } from "./epicpage";
 import type { LoadArtifact } from "./evidence";
-import { type EpicsGetResponse, EpicsGetResponseSchema, EpicHistoryEntrySchema } from "./gen/orrery/v1/epics_pb";
-import { installTestDom, removeTestDom } from "./testdom";
+import {
+  type EpicHistoryEntry,
+  EpicHistoryEntrySchema,
+  type EpicsGetResponse,
+  EpicsGetResponseSchema,
+} from "./gen/orrery/v1/epics_pb";
 import type { Row } from "./rows";
-import type { TalkTarget } from "./talk";
+import { installTestDom, removeTestDom } from "./testdom";
 
 type Props = Parameters<typeof EpicPage>[0];
 
@@ -386,7 +390,7 @@ const steererRow: Row = {
 };
 
 test("EpicCommands: the Steered from door draws whenever the epic names its steerer, titled from the listed row, and opens its target", async () => {
-  const opened: TalkTarget[] = [];
+  const opened: SessionTarget[] = [];
   await withPage(
     detail({ ...build, epic: { ...orrerydEpic, steering: "s2" }, summary: "Ship the demo" }),
     async (container) => {
@@ -454,6 +458,50 @@ test("EpicWords: a page whose runs and history carry 40-character revisions show
         }),
       ],
     },
+  );
+});
+
+// row is a listed row with the fields the tests do not set at their defaults.
+function row(init: Partial<Row> & Pick<Row, "key">): Row {
+  return {
+    id: init.key,
+    kind: "session",
+    label: init.key,
+    project: "/work/app",
+    host: "box",
+    state: "done",
+    summary: "",
+    question: "",
+    questionHash: "",
+    changed: 0,
+    seen: 0,
+    unseen: false,
+    archived: false,
+    archiveKind: "session",
+    archiveId: "",
+    ...init,
+  };
+}
+
+test("MoveLines: the epic page names a session its move line mentions by its listed row's label", async () => {
+  const move: EpicHistoryEntry = create(EpicHistoryEntrySchema, {
+    time: 400n,
+    cursor: "m1",
+    item: {
+      case: "action",
+      value: { seq: 1n, kind: "move", time: 400n, by: "owner", session: "", from: "sess-rota", to: "sess-lamp" },
+    },
+  });
+  const rows = [row({ key: "session:sess-rota", archiveId: "sess-rota", label: "Planned the rota export" })];
+  await withPage(
+    detail({ ...build, epic: orrerydEpic }),
+    (container) => {
+      assert.equal(
+        textOf(container, "section.happen.just .what"),
+        "moved to session sess-lamp from “Planned the rota export”, by you",
+      );
+    },
+    { history: [move], rows },
   );
 });
 
@@ -815,5 +863,70 @@ test("EpicCommands: Stop… in More opens the confirm with its words, Keep it ru
       assert.deepEqual(dialogTitles(container), []);
     },
     { narrow: true, commands: stopping.commands },
+  );
+});
+
+// steerProbe is a steer the tests give the page: it draws a mark of the sheet it is given, open or shut, and keeps the
+// last sheet so a test can close it.
+function steerProbe(): { steer: NonNullable<Props["steer"]>; last: () => SteerSheet | undefined } {
+  let last: SteerSheet | undefined;
+  return {
+    steer: (sheet) => {
+      last = sheet;
+      return <span class={sheet.open ? "steer-probe open" : "steer-probe"} />;
+    },
+    last: () => last,
+  };
+}
+
+test("EpicCommands: at the desk the steer is drawn in the title row, shut, and the foot is not drawn", async () => {
+  const probe = steerProbe();
+  await withPage(
+    detail({ ...build }),
+    (container) => {
+      assert.ok(has(container, ".title-row .steer-probe"), "the steer is in the title row");
+      assert.equal(has(container, ".steer-probe.open"), false, "its sheet is shut");
+      assert.equal(has(container, ".foot-probe"), false, "the foot is not drawn at the desk");
+    },
+    { steer: probe.steer, foot: <p class="foot-probe" /> },
+  );
+});
+
+test("EpicCommands: narrow's More lists Steer it from another conversation after the commands, and it opens the steer's sheet in More's place", async () => {
+  const probe = steerProbe();
+  await withPage(
+    detail({ ...build }),
+    async (container) => {
+      assert.equal(has(container, ".title-row .steer-probe"), false, "the steer is not in the title row");
+      assert.ok(has(container, ".steer-probe:not(.open)"), "the steer is drawn shut");
+      await pressButton(container, ".cmdbar", "More");
+      assert.deepEqual(textsOf(container, '[aria-label="demo-epic"] button'), [
+        "Pause",
+        "Stop…",
+        "Steer it from another conversation",
+      ]);
+      await pressButton(container, '[aria-label="demo-epic"]', "Steer it from another conversation");
+      assert.deepEqual(dialogTitles(container), [], "More's sheet is closed");
+      assert.ok(has(container, ".steer-probe.open"), "the steer's sheet is open");
+      await act(() => {
+        probe.last()?.onClose();
+      });
+      assert.ok(has(container, ".steer-probe:not(.open)"), "the steer's close shuts its sheet");
+    },
+    { narrow: true, steer: probe.steer },
+  );
+});
+
+test("EpicCommands: narrow draws the foot it is given right above the foot bar, and More keeps the commands", async () => {
+  await withPage(
+    detail({ ...build }),
+    async (container) => {
+      const children = labelsOf(container, ".epic-page");
+      assert.equal(children[children.indexOf("cmdbar") - 1], "foot-probe", "the foot stands right above the foot bar");
+      assert.deepEqual(textsOf(container, ".cmdbar > *"), ["More"]);
+      await pressButton(container, ".cmdbar", "More");
+      assert.deepEqual(textsOf(container, '[aria-label="demo-epic"] button'), ["Pause", "Stop…"]);
+    },
+    { narrow: true, foot: <p class="foot-probe" /> },
   );
 });

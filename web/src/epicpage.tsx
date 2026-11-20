@@ -13,8 +13,8 @@ import { RequirementTable } from "./reqtable";
 import type { Row } from "./rows";
 import { Sheet } from "./sheet";
 import { type Blocker, controlsOf, stateOf } from "./status";
+import { steererRowOf } from "./steer";
 import { TaskTable } from "./tasktable";
-import type { TalkTarget } from "./talk";
 import { listedTitle, TitleParts } from "./titleparts";
 import { type InboxMark, TitleRow } from "./titlerow";
 import { Track } from "./track";
@@ -27,6 +27,20 @@ export interface EpicCommands {
   stop: () => void;
   retry: () => void;
   answer: (questionId: string, choice: string, text: string) => Promise<string>;
+}
+
+// SessionTarget is what a session opens: a pane, or a session by its id, with the served label that names it when no
+// listed row does.
+export interface SessionTarget {
+  kind: "pane" | "session";
+  id: string;
+  label: string;
+}
+
+// SteerSheet is the phone's steering sheet as the epic page holds it: whether it is open, and its closing.
+export interface SteerSheet {
+  open: boolean;
+  onClose: () => void;
 }
 
 // blockerLine is the blocker's text for the title row: its text, and its time once it has begun.
@@ -58,8 +72,8 @@ const landingTargets: Partial<Record<string, string>> = {
   release_step: "section.now",
 };
 
-// SteeredFrom is the Steered from door: the session that steers the epic, titled from its listed row the way app's
-// steererOf finds that row, and the opening of that conversation. A steerer no row lists is opened by its id, and its
+// SteeredFrom is the Steered from door: the session that steers the epic, titled from its listed row as steererRowOf finds
+// that row, and the opening of that conversation. A steerer no row lists is opened by its id, and its
 // title is the word session.
 function SteeredFrom({
   steering,
@@ -68,11 +82,11 @@ function SteeredFrom({
 }: {
   steering: string;
   rows: Row[];
-  onOpen: (target: TalkTarget) => void;
+  onOpen: (target: SessionTarget) => void;
 }): JSX.Element {
-  const row = rows.find((candidate) => candidate.archiveKind !== "none" && candidate.archiveId === steering);
-  const target: TalkTarget =
-    row === undefined ? { kind: "session", id: steering, label: "" } : { kind: row.kind, id: row.id, label: row.label };
+  const row = steererRowOf(rows, steering);
+  const target: SessionTarget =
+    row === null ? { kind: "session", id: steering, label: "" } : { kind: row.kind, id: row.id, label: row.label };
   const title = listedTitle(rows, target.kind, target.id, target.label);
   return (
     <button type="button" class="door steered" onClick={() => onOpen(target)}>
@@ -86,11 +100,13 @@ function SteeredFrom({
 // orreryd epic: its problem, its summary with the Contract door and the Steered from door, its track, Now, Just
 // happened, the tasks with their chart and table, and the requirements. A record epic draws only Now and its tasks. A
 // section the epic has not reached is not drawn. The commands are the ones controlsOf shows for the epic. Each phase
-// click reaches onOpenPhase. A landing brings its part of the page into view once the page is drawn. numberKeys is
-// whether a digit key picks an option of the open question. narrow moves the commands off the title row into a foot
-// bar: its Talk button, given only when a steerer is known, calls onTalk, and its More button opens a sheet of the
-// commands. Stop asks first in place: its confirm replaces the title row's commands on the desk, and it is a sheet of
-// its own on the phone.
+// click reaches onOpenPhase. Just happened names a session a move names by its listed row's label. A landing brings its
+// part of the page into view once the page is drawn. numberKeys is whether a digit key picks an option of the open
+// question. steer draws the steering control: in the title row at the desk, and under narrow the sheet that More's Steer
+// item opens. narrow moves the commands off the title row into a foot bar: its Talk button, given only when a steerer is
+// known, calls onTalk, and its More button opens a sheet of the commands, with the Steer item when steer is given. foot,
+// drawn above that bar under narrow, is the ended bar an epic no running conversation steers stands on. Stop asks first
+// in place: its confirm replaces the title row's commands on the desk, and it is a sheet of its own on the phone.
 export function EpicPage(props: {
   detail: EpicsGetResponse;
   history: EpicHistoryEntry[];
@@ -100,7 +116,7 @@ export function EpicPage(props: {
   numberKeys: boolean;
   commandError: string;
   onOpenContract: () => void;
-  onOpenSession: (target: TalkTarget) => void;
+  onOpenSession: (target: SessionTarget) => void;
   onBack: () => void;
   onOpenPhase?: (task: string, phase: Phase) => void;
   actions?: ComponentChildren;
@@ -110,6 +126,8 @@ export function EpicPage(props: {
   rows?: Row[];
   narrow?: boolean;
   onTalk?: () => void;
+  steer?: (sheet: SteerSheet) => ComponentChildren;
+  foot?: ComponentChildren;
 }): JSX.Element {
   const {
     detail,
@@ -130,6 +148,8 @@ export function EpicPage(props: {
     rows = [],
     narrow = false,
     onTalk,
+    steer,
+    foot,
   } = props;
   const { epic, contract, requirements, steps } = detail;
   const reached = reachedOf(detail, history);
@@ -153,6 +173,10 @@ export function EpicPage(props: {
   const [stopOpen, setStopOpen] = useState(false);
   // stopAsking is whether Stop's confirm is open: it is only while the epic can be stopped.
   const stopAsking = stopOpen && controls.stop;
+  const [steerOpen, setSteerOpen] = useState(false);
+  const steerSheet: SteerSheet = { open: steerOpen, onClose: () => setSteerOpen(false) };
+  // titleOf names a session by its listed row's label, for the move lines of the epic's log.
+  const titleOf = (session: string) => steererRowOf(rows, session)?.label;
   const pageRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const page = pageRef.current;
@@ -177,6 +201,7 @@ export function EpicPage(props: {
         note={commandError}
       >
         {actions}
+        {!narrow && steer?.(steerSheet)}
         {!narrow && stopAsking && (
           <>
             <span class="sure">{`Stop ${slug}?`}</span>
@@ -235,7 +260,7 @@ export function EpicPage(props: {
         onStop={() => commands.stop()}
         onResume={() => commands.resume()}
       />
-      {reached.history && <JustHappened entries={history} steps={steps} />}
+      {reached.history && <JustHappened entries={history} steps={steps} titleOf={titleOf} />}
       {reached.tasks && (
         <section class="tasks" aria-label="Tasks">
           <header class="sec-head">
@@ -255,6 +280,7 @@ export function EpicPage(props: {
           <RequirementTable requirements={requirements} loadArtifact={loadArtifact} />
         </section>
       )}
+      {narrow && foot}
       {narrow && (
         <div class="cmdbar">
           {onTalk !== undefined && (
@@ -305,8 +331,21 @@ export function EpicPage(props: {
               Stop…
             </button>
           )}
+          {steer !== undefined && (
+            <button
+              type="button"
+              class="act"
+              onClick={() => {
+                setMoreOpen(false);
+                setSteerOpen(true);
+              }}
+            >
+              Steer it from another conversation
+            </button>
+          )}
         </Sheet>
       )}
+      {narrow && steer?.(steerSheet)}
       {narrow && stopAsking && (
         <Sheet title={`Stop ${slug}?`} onClose={() => setStopOpen(false)}>
           <p>Its running steps are stopped. Nothing is released.</p>

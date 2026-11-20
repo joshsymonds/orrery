@@ -31,12 +31,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private const val TAG = "SessionScreen"
 private const val RECONNECT_DELAY_MILLIS = 1_000L
 private const val HEAD_POLL_MILLIS = 1_000L
 private const val CLOCK_TICK_MILLIS = 1_000L
 private const val TEXT_KIND = "text"
+private val ENDED_STATES = setOf(STEER_STOPPED, STEER_FAILED)
 
 /** The unfinished main-thread text blocks that have text so far, each as a reply after the items. */
 private fun unfinishedReplies(held: StreamedConversation): List<ConvoEntry> =
@@ -66,6 +68,11 @@ data class StepMode(val held: Boolean, val label: String, val doing: String = ""
  * With [step] set the screen is a step's: the dock's Hold and Stop post to the step, the open request card
  * is not drawn, and Send posts the draft as a nudge through [StepCalls]. [reason] is the listed row's summary,
  * which the dock shows when the session failed.
+ *
+ * A headless session that has stopped or failed, or a session no pane or headless session carries any more, while it
+ * steers a live orreryd epic has no way to answer that epic's questions, so the [EndedBar] of the epic takes the dock's
+ * place. [onSteered] hears each steering
+ * the bar settles on.
  */
 @Composable
 fun SessionScreen(
@@ -76,9 +83,13 @@ fun SessionScreen(
     step: StepMode? = null,
     reason: String = "",
     clock: () -> Long = { System.currentTimeMillis() / 1000 },
+    onSteered: (String) -> Unit = {},
 ) {
     var streamed by remember(sessionId) { mutableStateOf<StreamedConversation?>(null) }
     var refreshFailed by remember(sessionId) { mutableStateOf(false) }
+    // Whether no pane or headless session carries this session any more, read once its watch has failed. An unlisted
+    // session has ended (P4), so one that steers a live epic draws the ended bar.
+    var unlisted by remember(sessionId) { mutableStateOf(false) }
     var seenAtOpen by remember(sessionId) { mutableStateOf<Long?>(null) }
     // Whether the strip under the band has tiles: then it, not the band, carries the control that hides the header.
     var stripTiles by remember(sessionId) { mutableStateOf(false) }
@@ -95,6 +106,14 @@ fun SessionScreen(
         while (true) {
             nowSeconds = clock()
             delay(CLOCK_TICK_MILLIS)
+        }
+    }
+
+    LaunchedEffect(sessionId, refreshFailed) {
+        unlisted = refreshFailed && try {
+            withContext(Dispatchers.IO) { steererOf(client.panes() + client.headless(), sessionId) == null }
+        } catch (e: IOException) {
+            false
         }
     }
 
@@ -239,23 +258,41 @@ fun SessionScreen(
                 )
             }
         }
-        Dock(
-            facts = dockFactsOf(
-                kind = if (step != null) DockKind.STEP else DockKind.SESSION,
-                name = pane?.cwd.orEmpty().trimEnd('/').substringAfterLast('/'),
-                pane = pane,
-                streamed = held,
-                reason = reason,
-                step = step?.let { DockStep(it.label, it.held, it.doing) },
-            ),
-            nowSeconds = nowSeconds,
-            client = client,
-            draft = draft,
-            send = { text -> if (step != null) stepCalls.nudge(text) else sender.send(text) },
-            sessionId = sessionId,
-            queued = held?.queued.orEmpty(),
-            pending = held?.pending.orEmpty(),
-            stepCalls = if (step != null) stepCalls else null,
-        )
+        val ended = pane?.state.orEmpty() in ENDED_STATES || (pane == null && unlisted)
+        val endedEpic = if (step == null && ended) {
+            headEpics.steered.firstOrNull(::steersLive)
+        } else {
+            null
+        }
+        if (endedEpic != null) {
+            EndedBar(
+                client = client,
+                epic = endedEpic,
+                repository = headEpics.details[endedEpic.id]?.repository.orEmpty(),
+                lead = endedLead(endedEpic.slug),
+                onSteered = onSteered,
+                // The head drops the epic once it moves, and the bar with it, so its calls run in the screen's scope.
+                scope = scope,
+            )
+        } else {
+            Dock(
+                facts = dockFactsOf(
+                    kind = if (step != null) DockKind.STEP else DockKind.SESSION,
+                    name = pane?.cwd.orEmpty().trimEnd('/').substringAfterLast('/'),
+                    pane = pane,
+                    streamed = held,
+                    reason = reason,
+                    step = step?.let { DockStep(it.label, it.held, it.doing) },
+                ),
+                nowSeconds = nowSeconds,
+                client = client,
+                draft = draft,
+                send = { text -> if (step != null) stepCalls.nudge(text) else sender.send(text) },
+                sessionId = sessionId,
+                queued = held?.queued.orEmpty(),
+                pending = held?.pending.orEmpty(),
+                stepCalls = if (step != null) stepCalls else null,
+            )
+        }
     }
 }

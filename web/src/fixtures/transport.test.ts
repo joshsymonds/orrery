@@ -9,6 +9,7 @@ import { act } from "preact/test-utils";
 import { App, Page } from "../app.stories";
 import { PageStory } from "../catalog/pagestory";
 import { storyName } from "../catalog/story";
+import { endedLead } from "../endedbar";
 import type { Address } from "../router";
 import {
   EpicsGetResponseSchema,
@@ -71,8 +72,8 @@ function inboxState(root: HTMLElement): string | null {
 const beaconPrompt = "Why is the roster page slow for weeks with more than forty shifts?";
 const lampFragment = "Full jitter is in";
 
-// The open decision of the rota-export epic, and the planning conversation Talk's first line opens in the reader. The
-// Talk menu is drawn on the epic page only in the talk states, so the epic's own state checks neither.
+// The open decision of the rota-export epic, and the planning conversation the epic's first line opens in the reader.
+// The steer menu is drawn on the epic page only in the handover state, so the epic's own state checks neither.
 const rotaQuestion = "Bump the embedded tz database?";
 const rotaPrompt = "Plan the rota export as an epic.";
 
@@ -91,19 +92,19 @@ function askSession(root: HTMLElement): boolean {
   return inboxState(root) === "hidden" && (root.textContent ?? "").includes(beaconPrompt);
 }
 
-// epicQuestion is Page/epic-question: Q1 is drawn in the Now section, with no Talk menu drawn, and the epic panel beside the
-// conversation rather than over it, which is epic-talk's layout.
+// epicQuestion is Page/epic-question: Q1 is drawn in the Now section, with no steer menu drawn, and the epic panel beside
+// the conversation rather than over it, which is epic-talk's layout.
 function epicQuestion(root: HTMLElement): boolean {
   return (
     root.querySelector(".epic-page section.now .answer .question")?.textContent.includes(rotaQuestion) === true &&
-    root.querySelector("ul.talk") === null &&
+    root.querySelector(".steer-menu") === null &&
     root.querySelector(".panes.overlay") === null
   );
 }
 
-// epicHandover is Page/epic-handover: the Talk menu is drawn open.
+// epicHandover is Page/epic-handover: the steer menu is drawn open.
 function epicHandover(root: HTMLElement): boolean {
-  return root.querySelector("ul.talk") !== null;
+  return root.querySelector(".steer-menu") !== null;
 }
 
 // epicTalk is Page/epic-talk: under 1250px the epic panel lies over the conversation, and the conversation's reader holds
@@ -590,7 +591,7 @@ test("FixtureTransport: page/epic-question draws the open decision on the epic p
     epicQuestion,
     (root) => {
       assertNoFailure(root);
-      assert.ok(epicQuestion(root), "Q1 is drawn, with no Talk menu");
+      assert.ok(epicQuestion(root), "Q1 is drawn, with no steer menu");
     },
   );
 });
@@ -740,7 +741,7 @@ test("FixtureTransport: page/dock-background draws the Left running panel with i
   );
 });
 
-test("FixtureTransport: page/epic-handover draws the Talk menu", (t) => {
+test("FixtureTransport: page/epic-handover draws the steer menu", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(
     t,
@@ -748,8 +749,148 @@ test("FixtureTransport: page/epic-handover draws the Talk menu", (t) => {
     epicHandover,
     (root) => {
       assertNoFailure(root);
-      assert.ok(epicHandover(root), "the Talk menu is open");
+      assert.ok(epicHandover(root), "the steer menu is open");
     },
+  );
+});
+
+// titleRowTexts are the texts of the title row's commands, in order, the buttons of its acts.
+function titleRowTexts(root: HTMLElement): string[] {
+  return [...root.querySelectorAll<HTMLButtonElement>(".epic-page .title-row .acts button")].map(
+    (button) => button.textContent ?? "",
+  );
+}
+
+test("SteerMenu: page/epic-handover at the desk draws the menu headed Steer rota-export from, with the steerer marked and the project's conversation offered, and no Talk", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["epic-handover"],
+    epicHandover,
+    (root) => {
+      assertNoFailure(root);
+      const menu = root.querySelector(".steer-menu");
+      assert.equal(menu?.getAttribute("aria-label"), "Steer rota-export from", "the menu is headed by the epic's slug");
+      assert.equal(menu?.querySelector(".menu-head")?.textContent, "Steer rota-export from");
+      const current = menu?.querySelector(".steer-row.current");
+      assert.equal(current?.querySelector(".t")?.textContent, "Planned the rota export, and steers its epic");
+      assert.equal(current?.getAttribute("aria-current"), "true", "the steerer is marked current");
+      const offered = [...(menu?.querySelectorAll(".steer-row:not(.current):not(.new) .t") ?? [])].map((row) => row.textContent);
+      assert.ok(offered.includes("Retry backoff and jitter for the telemetry uploader"), "the project's live conversation is offered");
+      assert.equal(menu?.querySelector(".steer-row.new .t")?.textContent, "A new conversation in lighthouse");
+      assert.equal(root.querySelector("ul.talk"), null, "the Talk list is gone");
+      assert.ok(!titleRowTexts(root).includes("Talk"), "the title row has no Talk command");
+    },
+    wideWidth,
+  );
+});
+
+test("SteerMenu: at 412 wide page/epic-handover opens the menu from the foot bar's More, in a dialog", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  const dialogMenu = (root: HTMLElement) => root.querySelector('[role="dialog"][aria-label="Steer rota-export from"] .steer-menu');
+  return withStory(
+    t,
+    Page["epic-handover"],
+    (root) => dialogMenu(root) !== null,
+    (root) => {
+      assertNoFailure(root);
+      assert.ok(
+        [...root.querySelectorAll(".epic-page .cmdbar button")].some((button) => button.textContent === "More"),
+        "the foot bar holds More",
+      );
+      assert.equal(root.querySelector(".epic-page .title-row .icon"), null, "the title row holds no steering command");
+      assert.equal(root.querySelector(".steer-anchor"), null, "no desk anchor is drawn at this width");
+      assert.equal(root.querySelector('[role="dialog"][aria-label="rota-export"]'), null, "More's sheet closes once its item opens the menu");
+    },
+    412,
+  );
+});
+
+// The lines the rota-export stories draw: the log line of the owner's move, the line the conversation it left ends with,
+// and the line the conversation that took it over ends with.
+const movedLog = "moved to “Retry backoff and jitter for the telemetry uploader” from “Planned the rota export, and steers its epic”, by you";
+const leftLine = "rota-export moved to “Retry backoff and jitter for the telemetry uploader”, by you. Its questions go there now.";
+const tookOverLine = "Took over rota-export. Its questions and its ending come here now.";
+
+// logTexts are the texts of the epic page's log lines, in order.
+function logTexts(root: HTMLElement): string[] {
+  return [...root.querySelectorAll<HTMLElement>(".epic-page .what")].map((line) => line.textContent ?? "");
+}
+
+// lastLine is the text of the last event line in the middle conversation, or null when it has none.
+function lastLine(root: HTMLElement): string | null {
+  const lines = root.querySelectorAll<HTMLElement>('section[aria-label="reader"] .ring-sentence');
+  return lines.length === 0 ? null : lines[lines.length - 1].textContent;
+}
+
+// railNames are the names the right rail's tiles carry, from their labels: an epic's tile is labelled with its slug.
+function railNames(root: HTMLElement): string[] {
+  return [...root.querySelectorAll<HTMLElement>(".rail .tile-w")].map((tile) => tile.getAttribute("aria-label") ?? "");
+}
+
+test("FixtureTransport: page/epic-moved draws pane %11's conversation in the middle, the epic page in the panel, and the moved line in its log", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["epic-moved"],
+    (root) => logTexts(root).includes(movedLog),
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(root.querySelector('section[aria-label="reader"]')?.textContent.includes(lampFragment), true, "pane %11's conversation is in the middle");
+      assert.ok(root.querySelector("aside.rpanel .epic-page") !== null, "the epic page is in the panel");
+      assert.ok(logTexts(root).includes(movedLog), "the log holds the owner's move");
+    },
+  );
+});
+
+test("FixtureTransport: page/epic-convo-ended draws the stopped steerer's conversation with the ended bar where its dock was, and no dock input", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["epic-convo-ended"],
+    (root) => root.querySelector(".ended-bar") !== null,
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(
+        root.querySelector('section[aria-label="reader"]')?.textContent.includes("Planned the rota export, and steers its epic"),
+        true,
+        "the stopped steerer's conversation is in the middle",
+      );
+      assert.equal(root.querySelector(".dock-box.ended")?.getAttribute("data-state"), "stopped", "the steerer is stopped");
+      assert.equal(root.querySelector(".ended-bar .ended-lead")?.textContent, endedLead("rota-export"), "the bar's lead says the conversation ended");
+      assertNone(root.querySelector('section.read .send > div:not([hidden]) textarea'), "no dock input is drawn");
+    },
+  );
+});
+
+test("FixtureTransport: page/convo-took-over ends with the took-over line, and its rail holds rota-export", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["convo-took-over"],
+    (root) => lastLine(root) === tookOverLine,
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(lastLine(root), tookOverLine, "the taker's line ends the conversation");
+      assert.ok(railNames(root).some((name) => name.includes("rota-export")), "the rail holds rota-export");
+    },
+    wideWidth,
+  );
+});
+
+test("FixtureTransport: page/convo-handed-over ends with the left line naming where rota-export went, and its rail holds no rota-export tile", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["convo-handed-over"],
+    (root) => lastLine(root) === leftLine,
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(lastLine(root), leftLine, "the left line ends the conversation");
+      assert.ok(root.querySelector("aside.rail") !== null, "the rail is drawn");
+      assert.ok(railNames(root).every((name) => !name.includes("rota-export")), "the rail holds no rota-export tile");
+    },
+    wideWidth,
   );
 });
 
@@ -1146,12 +1287,14 @@ test("FixtureTransport: page/epic-unavailable draws the could-not-read line with
   );
 });
 
-test("FixtureTransport: page's keys are exactly the 52 catalog names of its scenario states", () => {
+test("FixtureTransport: page's keys are exactly the 56 catalog names of its scenario states", () => {
   assert.deepEqual(Object.keys(Page).map((state) => storyName("Page", state)).sort(), [
     "page/ask-later",
     "page/ask-session",
     "page/contract-accepted",
     "page/contract-to-accept",
+    "page/convo-handed-over",
+    "page/convo-took-over",
     "page/convo-working",
     "page/dock-background",
     "page/dock-cancelled",
@@ -1171,11 +1314,13 @@ test("FixtureTransport: page's keys are exactly the 52 catalog names of its scen
     "page/dock-waiting",
     "page/epic-building",
     "page/epic-command-error",
+    "page/epic-convo-ended",
     "page/epic-dense",
     "page/epic-evidence",
     "page/epic-handover",
     "page/epic-limited",
     "page/epic-loading",
+    "page/epic-moved",
     "page/epic-parked",
     "page/epic-paused",
     "page/epic-planner-parked",

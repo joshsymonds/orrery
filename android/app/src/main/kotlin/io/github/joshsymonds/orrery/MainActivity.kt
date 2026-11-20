@@ -94,6 +94,9 @@ class MainActivity : ComponentActivity() {
                     // With no server saved or built in, Welcome is the only page; the screen asked for (a
                     // notification's, say) shows once an address answers.
                     var hasServer by remember { mutableStateOf(settings.hasServer) }
+                    val scope = rememberCoroutineScope()
+                    // Opens the conversation that steers an epic once a steering settles on it.
+                    val openSteerer: (String) -> Unit = { id -> scope.launch { screen = steererScreen(client, id) } }
                     val animated = animationsOn()
                     Box(modifier = Modifier.fillMaxSize()) {
                         Box(
@@ -124,7 +127,6 @@ class MainActivity : ComponentActivity() {
                                     )
                                     is Screen.Epic -> {
                                         BackHandler { screen = Screen.Panes }
-                                        val talkScope = rememberCoroutineScope()
                                         EpicScreen(
                                             client = client,
                                             epicId = current.id,
@@ -142,9 +144,8 @@ class MainActivity : ComponentActivity() {
                                             onOpenPhase = { task, phase ->
                                                 screen = Screen.Phase(current.id, task, phase)
                                             },
-                                            onTalk = { steering ->
-                                                talkScope.launch { screen = steererScreen(client, steering) }
-                                            },
+                                            onTalk = openSteerer,
+                                            onSteered = openSteerer,
                                             listState = epicListStates.getOrPut(current.id) { LazyListState() },
                                             openAt = current.open,
                                         )
@@ -194,6 +195,7 @@ class MainActivity : ComponentActivity() {
                                                 doing = current.doing,
                                             ),
                                             onOpenEpic = { screen = Screen.Epic(it) },
+                                            onSteered = openSteerer,
                                         )
                                     }
                                     is Screen.Pane -> {
@@ -213,6 +215,7 @@ class MainActivity : ComponentActivity() {
                                             onBack = { screen = Screen.Panes },
                                             reason = current.reason,
                                             onOpenEpic = { screen = Screen.Epic(it) },
+                                            onSteered = openSteerer,
                                         )
                                     }
                                     Screen.Pools -> {
@@ -363,7 +366,5 @@ class MainActivity : ComponentActivity() {
             val label: String,
             val doing: String,
         ) : Screen
-
     }
 }
-
