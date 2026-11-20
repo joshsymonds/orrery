@@ -6,6 +6,7 @@ import { test } from "node:test";
 
 import type { Epic, EpicRequirement, EpicsGetResponse } from "../gen/orrery/v1/epics_pb";
 import { type Place, type Tone, provenOf, wedgesOf } from "../phases";
+import { rowsFrom } from "../rows";
 import { blockerOf, stateOf } from "../status";
 import { liveEpoch } from "./clock";
 import { shippedSlices } from "./slices";
@@ -66,6 +67,41 @@ test("FixtureWorld: the epic list holds the ten epics of round 6, by slug, in li
 test("FixtureWorld: every epic in the list has an Epics.Get answer that names the same epic, so its address draws", () => {
   for (const epic of shippedSlices.epics.epics) {
     assert.equal(shippedSlices.gets.get(epic.id)?.epic?.slug, epic.slug, `${epic.id} has its Epics.Get answer`);
+  }
+});
+
+// steeringOf is the id of the conversation that steers each epic in round 6 (web/visual/wireframe/round6/js/world.js,
+// W.steerers): the headless session for the buoy-feeds epic, and each pane's orrery id for the rest.
+const steeringOf: Record<string, string> = {
+  "orrery-followups": "sess-follow-22",
+  "rota-export": "sess-rota-14",
+  "tide-alerts": "sess-tide-16",
+  "offline-tables": "sess-offline-17",
+  "orbit-labels": "sess-follow-22",
+  "notices-usable": "sess-follow-22",
+  "harbour-map": "sess-follow-22",
+  "buoy-feeds": "6c2f9e14-3a7b-4d58-9b0e-2f7a1c8d4e55",
+  "holder-scopes": "sess-holder-19",
+  "tide-cache": "sess-cache-20",
+};
+
+test("FixtureWorld: each listed epic names the steering id of round 6's conversation, and that id is a listed row's id", () => {
+  const listed = new Set(
+    rowsFrom(shippedSlices.panes.panes, shippedSlices.sessions.sessions, shippedSlices.headless.sessions).map((row) => row.archiveId),
+  );
+  for (const epic of shippedSlices.epics.epics) {
+    const wanted = steeringOf[epic.slug];
+    assert.equal(epic.steering, wanted, `${epic.slug} is steered by round 6's conversation`);
+    assert.equal(shippedSlices.gets.get(epic.id)?.epic?.steering, wanted, `${epic.slug}'s Epics.Get names the same conversation`);
+    assert.ok(listed.has(wanted), `${wanted} is the id of a listed conversation`);
+  }
+});
+
+test("FixtureWorld: each epic lives in its repository's directory under /home/owner/code, in the list and in its Epics.Get answer", () => {
+  for (const epic of shippedSlices.epics.epics) {
+    const wanted = `/home/owner/code/${epic.repository}`;
+    assert.equal(epic.path, wanted, `${epic.slug} is listed with its path`);
+    assert.equal(shippedSlices.gets.get(epic.id)?.epic?.path, wanted, `${epic.slug}'s Epics.Get names its path`);
   }
 });
 

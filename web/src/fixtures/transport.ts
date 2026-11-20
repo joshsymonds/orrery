@@ -4,9 +4,17 @@
 // unserved, so a page that makes one shows it.
 
 import { create } from "@bufbuild/protobuf";
-import { Code, ConnectError, createRouterTransport, type HandlerContext, type Transport } from "@connectrpc/connect";
+import {
+  Code,
+  ConnectError,
+  createRouterTransport,
+  type HandlerContext,
+  type Interceptor,
+  type Transport,
+} from "@connectrpc/connect";
 
 import { createClients } from "../client";
+import { Contracts } from "../gen/orrery/v1/contracts_pb";
 import { Epics, Evidence, Steps } from "../gen/orrery/v1/epics_pb";
 import { Notices } from "../gen/orrery/v1/notice_pb";
 import {
@@ -68,6 +76,19 @@ export function createFixtureTransport(slices: Slices = shippedSlices): FixtureT
       }
     });
 
+  // gate is a client-side interceptor on every call: a procedure the slices name in fail answers Unavailable, and one they
+  // name in hold stays unanswered until its call aborts. Every other call goes on to the router.
+  const gate: Interceptor = (next) => async (request) => {
+    const procedure = `${request.service.typeName}/${request.method.name}`;
+    if (slices.fail?.has(procedure)) {
+      throw new ConnectError(`${procedure} failed`, Code.Unavailable);
+    }
+    if (slices.hold?.has(procedure)) {
+      await held(request.signal);
+    }
+    return next(request);
+  };
+
   // quiet is a stream that sends no frame, and stays open until its call aborts.
   async function* quiet(_request: unknown, context: HandlerContext): AsyncGenerator<never, void> {
     await held(context.signal);
@@ -105,6 +126,13 @@ export function createFixtureTransport(slices: Slices = shippedSlices): FixtureT
         }
         await held(context.signal);
       },
+    });
+    router.service(Contracts, {
+      list: () => slices.contracts,
+      get: refuse,
+      accept: refuse,
+      setAside: refuse,
+      reopen: refuse,
     });
     router.service(Events, { watch: quiet });
     router.service(Control, {
@@ -172,7 +200,7 @@ export function createFixtureTransport(slices: Slices = shippedSlices): FixtureT
     router.service(Presence, { report: absorb });
     router.service(Notices, { watch: quiet, seen: absorb });
     router.service(Host, { status: () => slices.host });
-  });
+  }, { transport: { interceptors: [gate] } });
 
   return {
     transport,

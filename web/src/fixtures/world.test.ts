@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { rowsFrom, type Row } from "../rows";
-import { liveEpoch } from "./clock";
+import { at, liveEpoch } from "./clock";
 import { shippedSlices } from "./slices";
 
 // rows are the fixture conversations, one row each, as load.ts reads the panes and the headless sessions.
@@ -48,8 +48,8 @@ test("FixtureWorld: the conversations sit in the directories lighthouse, tidepoo
   ]);
 });
 
-test("FixtureWorld: the fixtures hold the 17 conversations of round 6", () => {
-  assert.equal(rows.length, 17);
+test("FixtureWorld: the fixtures hold the 20 conversations: the 17 of round 6, the buoy-feeds steering session, and the two archived", () => {
+  assert.equal(rows.length, 20);
 });
 
 // Each conversation by its title, its state and its directory. The directory is the row's project.
@@ -70,6 +70,9 @@ const conversations: [title: string, state: string, dir: string, project: string
   ["Parser tests for nested scion grafting", "done", "orchard", "/home/owner/code/orchard"],
   ["Kelp bed survey importer", "failed", "kelp", "/home/owner/code/kelp"],
   ["Swapping the phone’s font for a subset", "waiting", "the home directory", "/home/owner"],
+  ["Steering buoy-feeds", "working", "tidepool", "/home/owner/code/tidepool"],
+  ["Moon phase rounding at the date line", "done", "almanac", "/home/owner/code/almanac"],
+  ["Leap-second table refresh", "done", "almanac", "/home/owner/code/almanac"],
 ];
 
 for (const [title, state, dir, project] of conversations) {
@@ -77,6 +80,23 @@ for (const [title, state, dir, project] of conversations) {
     const row = titled(title);
     assert.equal(row.state, state, `"${title}" is ${state}`);
     assert.equal(row.project, project, `"${title}" sits in ${project}`);
+  });
+}
+
+// The two archived sessions of almanac: each is done, archived, and seen after it changed, and its summary is the line it draws.
+const archivedSessions: [title: string, changed: string, summary: string][] = [
+  ["Moon phase rounding at the date line", "@-9d 14:00", "Fixed and merged."],
+  ["Leap-second table refresh", "@-12d 14:00", "The table is current to 2027."],
+];
+
+for (const [title, changed, summary] of archivedSessions) {
+  test(`FixtureWorld: "${title}" is an archived done session in almanac, changed ${changed} and seen after it`, () => {
+    const row = titled(title);
+    assert.deepEqual(
+      [row.archived, row.archiveKind, row.state, row.project, row.changed, row.summary],
+      [true, "headless", "done", "/home/owner/code/almanac", Number(at(changed)), summary],
+    );
+    assert.ok(row.seen > row.changed, `"${title}" is seen after it changed`);
   });
 }
 

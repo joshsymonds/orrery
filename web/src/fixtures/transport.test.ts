@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
 
 import { create, equals, toJson } from "@bufbuild/protobuf";
-import { Code, ConnectError } from "@connectrpc/connect";
+import { Code, ConnectError, createClient } from "@connectrpc/connect";
 import { type ComponentChild, h, render } from "preact";
 import { act } from "preact/test-utils";
 
@@ -10,6 +10,7 @@ import { App, Page } from "../app.stories";
 import { PageStory } from "../catalog/pagestory";
 import { storyName } from "../catalog/story";
 import type { Address } from "../router";
+import { Contracts, ContractsListResponseSchema } from "../gen/orrery/v1/contracts_pb";
 import { EpicsGetResponseSchema, EpicsListResponseSchema, EpicsPauseResponseSchema } from "../gen/orrery/v1/epics_pb";
 import {
   AskResponseSchema,
@@ -20,6 +21,7 @@ import {
 import { mockTimers } from "../testclock";
 import { assertNone, installTestDom, removeTestDom, teardownOnce } from "../testdom";
 import { turn, until } from "../testwait";
+import { at } from "./clock";
 import { shippedSlices } from "./slices";
 import { createFixtureTransport } from "./transport";
 
@@ -27,7 +29,7 @@ import { createFixtureTransport } from "./transport";
 // docked or hidden as its state has it, not stacked under the page.
 const wideWidth = 1280;
 
-const attention: Address = { order: "attention", entry: null };
+const inbox: Address = { view: "inbox", entry: null };
 
 // refusal resolves to the Connect error a call rejects with, and fails the test when the call is answered.
 async function refusal(call: Promise<unknown>): Promise<ConnectError> {
@@ -39,7 +41,7 @@ async function refusal(call: Promise<unknown>): Promise<ConnectError> {
   assert.fail("the call was answered, not refused");
 }
 
-// listView is the order the rows list draws, from its data-list attribute, or null before the list is drawn.
+// listView is the view the rows list draws, from its data-list attribute, or null before the list is drawn.
 function listView(root: HTMLElement): string | null {
   return root.querySelector(".rows")?.getAttribute("data-list") ?? null;
 }
@@ -60,9 +62,9 @@ const rotaQuestion = "Bump the embedded tz database?";
 const rotaPrompt = "Plan the rota export as an epic.";
 const talkDock = 'aside.dock[aria-label="talk"]';
 
-// inboxHome is Page/inbox-home: the attention rows, with the inbox docked beside the cursor's reader on pane %12.
+// inboxHome is Page/inbox-home: the inbox rows, with the inbox docked beside the cursor's reader on pane %12.
 function inboxHome(root: HTMLElement): boolean {
-  return listView(root) === "attention" && inboxState(root) === "docked";
+  return listView(root) === "inbox" && inboxState(root) === "docked";
 }
 
 // convoWorking is Page/convo-working: the inbox hidden under the reader of pane %11.
@@ -223,6 +225,49 @@ test("FixtureTransport fails a Picker.Ask its slice holds a failure for with tha
   assert.deepEqual([...fixture.unserved], [], "a failure from the slice is no refused call");
 });
 
+test("FixtureTransport answers Contracts.List with tide-alerts proposed by sess-tide-16", async () => {
+  const fixture = createFixtureTransport();
+  const contracts = createClient(Contracts, fixture.transport);
+  const list = await contracts.list({});
+  assert.ok(equals(ContractsListResponseSchema, list, shippedSlices.contracts), "Contracts.List answers the contract list");
+  assert.equal(list.contracts.length, 1, "one contract is listed");
+  const [tide] = list.contracts;
+  assert.deepEqual(
+    [tide.id, tide.repository, tide.title, tide.care, tide.state, tide.version, tide.openDecisions, tide.conversation, tide.created, tide.changed],
+    ["tidepool/tide-alerts", "/home/owner/code/tidepool", "Tide alerts for the harbour office", "serious", "proposed", 2n, 0n, "sess-tide-16", at("@13:58"), at("@14:15")],
+  );
+  assert.deepEqual([...fixture.unserved], [], "the list is no refused call");
+});
+
+test("FixtureTransport refuses the Contracts calls its slices do not serve, and records each", async () => {
+  const fixture = createFixtureTransport();
+  const contracts = createClient(Contracts, fixture.transport);
+  const error = await refusal(contracts.accept({ id: "tidepool/tide-alerts" }));
+  assert.equal(error.code, Code.Unimplemented);
+  assert.deepEqual([...fixture.unserved], ["orrery.v1.Contracts/Accept"], "the refused call is recorded by its procedure");
+});
+
+test("FixtureTransport fails a procedure its slices name with Unavailable, records no refusal, and serves the others", async () => {
+  const fixture = createFixtureTransport({ ...shippedSlices, fail: new Set(["orrery.v1.Panes/List"]) });
+  const error = await refusal(fixture.clients.panes.list({}));
+  assert.equal(error.code, Code.Unavailable);
+  assert.deepEqual([...fixture.unserved], [], "a failure is no refused call");
+  const list = await fixture.clients.epics.list({});
+  assert.ok(equals(EpicsListResponseSchema, list, shippedSlices.epics), "the other procedures are answered as before");
+});
+
+test("FixtureTransport holds a procedure its slices name until its call aborts, and the abort ends the call", async () => {
+  const fixture = createFixtureTransport({ ...shippedSlices, hold: new Set(["orrery.v1.Contracts/List"]) });
+  const contracts = createClient(Contracts, fixture.transport);
+  const controller = new AbortController();
+  const call = contracts.list({}, { signal: controller.signal });
+  assert.equal(await Promise.race([call.then(() => "answered", () => "failed"), turn().then(() => "held")]), "held", "the call is not answered");
+  controller.abort();
+  const error = await refusal(call);
+  assert.equal(error.code, Code.Canceled, "the abort ends the call");
+  assert.deepEqual([...fixture.unserved], [], "a held call is no refused call");
+});
+
 test("FixtureTransport: a pane stream sends its frame and holds open, a reconnect gets no frame, and an abort ends the wait", async () => {
   const fixture = createFixtureTransport();
   const first = new AbortController();
@@ -248,28 +293,15 @@ test("FixtureTransport: a pane stream sends its frame and holds open, a reconnec
   assert.equal(await reconnected.then(() => "ended", () => "aborted"), "aborted", "the reconnect's abort ends its wait");
 });
 
-test("FixtureTransport: app/attention draws the attention rows", (t) => {
+test("FixtureTransport: app/inbox draws the inbox rows", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(
     t,
-    App.attention,
-    (root) => listView(root) === "attention",
+    App.inbox,
+    (root) => listView(root) === "inbox",
     (root) => {
       assertNoFailure(root);
-      assert.equal(listView(root), "attention");
-    },
-  );
-});
-
-test("FixtureTransport: app/project draws the project rows", (t) => {
-  mockTimers(t, ["setTimeout"]);
-  return withStory(
-    t,
-    App.project,
-    (root) => listView(root) === "project",
-    (root) => {
-      assertNoFailure(root);
-      assert.equal(listView(root), "project");
+      assert.equal(listView(root), "inbox");
     },
   );
 });
@@ -657,7 +689,7 @@ test("FixtureTransport: a story whose after rejects draws no failure and no erro
   });
   const story = () =>
     h(PageStory, {
-      address: attention,
+      address: inbox,
       after: async () => {
         throw new Error("the after step broke");
       },
@@ -669,7 +701,7 @@ test("FixtureTransport: a story whose after rejects draws no failure and no erro
     (root) => {
       assertNoFailure(root);
       assertNone(root.querySelector(".error"), "App drew no error");
-      assert.deepEqual(reports, [["story #/attention: the after step broke"]], "the rejection is reported once");
+      assert.deepEqual(reports, [["story #/inbox: the after step broke"]], "the rejection is reported once");
     },
   );
 });

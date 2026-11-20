@@ -1,9 +1,10 @@
 // The sessions the fixture slices hold: the Sessions.List and Sessions.ListHeadless answers, and the conversation stream
 // each session's Sessions.WatchConversation answers with.
 
-import { create } from "@bufbuild/protobuf";
+import { create, type MessageInitShape } from "@bufbuild/protobuf";
 
 import {
+  BackgroundTaskSchema,
   ListHeadlessResponseSchema,
   ListResponseSchema,
   SessionsWatchConversationResponseSchema,
@@ -46,6 +47,37 @@ const workerItems: ItemInit[] = [
   prompt(at("@14:36:48"), "engine", workerFindingNote),
   ...call(14, at("@14:38:10"), "Edit", "cli/export.go", "Added 9 lines, removed 1 line"),
   ...call(15, at("@14:40:52"), "Bash", workerLongBash, null),
+];
+
+// The headless session that steers tidepool/buoy-feeds, which has two agents and a shell running.
+const buoyFeedsId = "6c2f9e14-3a7b-4d58-9b0e-2f7a1c8d4e55";
+const buoyFeedsItems: ItemInit[] = [
+  prompt(at("@14:20"), "owner", "Serve the buoy feeds on :8710, and check the station list against NOAA's."),
+  reply(at("@14:40"),
+    "The server is listening on :8710. Two agents are still reading the feeds and the station list, and one has counted the " +
+    "stale stations. The log tail has stopped."),
+];
+const buoyFeedsTasks: MessageInitShape<typeof BackgroundTaskSchema>[] = [
+  {
+    id: "bg-map-feeds", toolUseId: "toolu_bg_1", description: "Map the buoy feed formats", type: "agent", subagentType: "Explore",
+    status: "running", activity: "Read feeds/ndbc.go", started: at("@14:37:58"),
+  },
+  {
+    id: "bg-check-stations", toolUseId: "toolu_bg_2", description: "Check the station list against NOAA's", type: "agent",
+    status: "running", activity: "Grep station ids", started: at("@14:39:10"),
+  },
+  {
+    id: "bg-count-stale", toolUseId: "toolu_bg_3", description: "Count the stale stations", type: "agent",
+    status: "done", started: at("@14:30"), ended: at("@14:33"),
+  },
+  {
+    id: "bg-serve", toolUseId: "toolu_bg_4", description: "just serve --port 8710", type: "shell",
+    status: "running", activity: "listening on :8710", started: at("@14:20"),
+  },
+  {
+    id: "bg-tail-feeds", toolUseId: "toolu_bg_5", description: "tail -f logs/feeds.log", type: "shell",
+    status: "stopped", started: at("@14:21"), ended: at("@14:35"),
+  },
 ];
 
 // The headless session of Tide table cache warm-up, which its owner stopped.
@@ -98,6 +130,20 @@ sessionStreams.set(warmupId, create(SessionsWatchConversationResponseSchema, {
   },
 }));
 
+sessionStreams.set(buoyFeedsId, create(SessionsWatchConversationResponseSchema, {
+  transcript: `${buoyFeedsId}.jsonl`,
+  seq: 1n,
+  reset: true,
+  items: buoyFeedsItems,
+  state: {
+    background: buoyFeedsTasks,
+    session: {
+      id: buoyFeedsId, dir: "/home/owner/code/tidepool", label: "Steering buoy-feeds", state: "working",
+      changed: at("@14:40"), seen: at("@14:40"),
+    },
+  },
+}));
+
 // sessions is the Sessions.List answer: no session is listed, so the rows come from the panes and the headless sessions.
 export const sessions = create(ListResponseSchema, { sessions: [], seq: 0n });
 
@@ -111,6 +157,11 @@ export const headless = create(ListHeadlessResponseSchema, {
       summary: "Cut off mid-turn when the server restarted.", question: "", newestReply: at("@12:40:30"),
     },
     {
+      id: buoyFeedsId, dir: "/home/owner/code/tidepool",
+      label: "Steering buoy-feeds", headline: "Steering buoy-feeds",
+      state: "working", changed: at("@14:40"), seen: at("@14:40"),
+    },
+    {
       id: warmupId, dir: "/home/owner/code/tidepool",
       label: "Tide table cache warm-up", headline: "Tide table cache warm-up",
       state: "stopped", changed: at("@-2d 14:41"), seen: at("@-2d 14:42"),
@@ -121,6 +172,18 @@ export const headless = create(ListHeadlessResponseSchema, {
       label: "Swapping the phone’s font for a subset", headline: "Swapping the phone’s font for a subset",
       state: "waiting", changed: at("@14:33"), seen: at("@14:33:30"),
       summary: "Its turn ended on a question in words", question: "", newestReply: at("@14:33"),
+    },
+    {
+      id: "e7c4b2a1-5d9f-4e3a-9b61-2a8f0c4d7e13", dir: "/home/owner/code/almanac",
+      label: "Moon phase rounding at the date line", headline: "Moon phase rounding at the date line",
+      state: "done", changed: at("@-9d 14:00"), seen: at("@-9d 14:30"),
+      summary: "Fixed and merged.", question: "", newestReply: at("@-9d 13:52"), archived: true,
+    },
+    {
+      id: "a2d6f0b9-4e13-4c87-8f25-9b0e7c3d1a62", dir: "/home/owner/code/almanac",
+      label: "Leap-second table refresh", headline: "Leap-second table refresh",
+      state: "done", changed: at("@-12d 14:00"), seen: at("@-12d 14:30"),
+      summary: "The table is current to 2027.", question: "", newestReply: at("@-12d 13:48"), archived: true,
     },
   ],
 });
