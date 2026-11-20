@@ -1,4 +1,4 @@
-import type { JSX } from "preact";
+import type { JSX, RefObject } from "preact";
 import { useLayoutEffect, useRef, useState } from "preact/hooks";
 
 import type { createClients } from "./client";
@@ -81,11 +81,12 @@ export const noticeLifetimeMillis = 8000;
 // noticeRowLimit is how many rows the stack draws. The notices past it are counted in its "N more in Notices" link.
 const noticeRowLimit = 3;
 
-// placeStack sets the stack's top to the bottom of the page's title row, measured from .panes. The page's title row is
-// the visible title row outside .list whose right edge is furthest right, and its bottom takes in its strip, which the row
-// draws. With no such row the stack keeps the top style.css gives it.
-function placeStack(stack: HTMLElement): void {
-  const panes = stack.closest<HTMLElement>(".panes");
+// placeUnderTitleRow sets the element's top to the bottom of the page's title row, measured from .panes, so an overlay
+// in .panes sits under the title row and never over it. The page's title row is the visible title row outside .list
+// whose right edge is furthest right, and its bottom takes in its strip, which the row draws. With no such row, or no
+// .panes around the element, the element keeps the top style.css gives it.
+export function placeUnderTitleRow(element: HTMLElement): void {
+  const panes = element.closest<HTMLElement>(".panes");
   if (panes === null) {
     return;
   }
@@ -99,7 +100,32 @@ function placeStack(stack: HTMLElement): void {
       page = rect;
     }
   }
-  stack.style.top = page === undefined ? "" : `${page.bottom - panes.getBoundingClientRect().top}px`;
+  element.style.top = page === undefined ? "" : `${page.bottom - panes.getBoundingClientRect().top}px`;
+}
+
+// useUnderTitleRow places the element that ref holds under the page's title row after every commit, so it follows the
+// title row as the page draws it, and again when the reading area resizes: through a ResizeObserver where one is
+// present, else on the window's resize. While ref holds nothing, the element is not drawn and nothing is placed.
+export function useUnderTitleRow(ref: RefObject<HTMLElement>): void {
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (element === null) {
+      return;
+    }
+    placeUnderTitleRow(element);
+    const panes = element.closest<HTMLElement>(".panes");
+    if (panes === null) {
+      return;
+    }
+    if (typeof ResizeObserver === "function") {
+      const observer = new ResizeObserver(() => placeUnderTitleRow(element));
+      observer.observe(panes);
+      return () => observer.disconnect();
+    }
+    const onResize = () => placeUnderTitleRow(element);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  });
 }
 
 interface NoticeStackProps {
@@ -163,30 +189,7 @@ export function NoticeStack({ notices, head, age, onOpen, onRead, onMore }: Noti
     [],
   );
 
-  // The stack is placed after every commit, so it follows the title row as the page draws it.
-  useLayoutEffect(() => {
-    if (stack.current !== null) {
-      placeStack(stack.current);
-    }
-  });
-
-  // Resizing the reading area places the stack again: through a ResizeObserver where one is present, else on the window's
-  // resize.
-  useLayoutEffect(() => {
-    const element = stack.current;
-    const panes = element?.closest<HTMLElement>(".panes");
-    if (!element || !panes) {
-      return;
-    }
-    if (typeof ResizeObserver === "function") {
-      const observer = new ResizeObserver(() => placeStack(element));
-      observer.observe(panes);
-      return () => observer.disconnect();
-    }
-    const onResize = () => placeStack(element);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
+  useUnderTitleRow(stack);
 
   const readNotice = (notice: InAppNotice) => {
     const key = noticeKey(notice.key);

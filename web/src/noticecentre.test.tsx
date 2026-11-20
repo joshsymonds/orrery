@@ -70,32 +70,12 @@ function recorder(): { calls: Calls; handlers: Pick<NoticeCentreProps, "onOpen" 
   };
 }
 
-// withCentre draws the centre with props into a fresh DOM, runs check with the container, and removes the DOM.
-async function withCentre(
-  props: Partial<NoticeCentreProps>,
-  check: (container: HTMLElement) => void | Promise<void>,
-): Promise<void> {
+// withDom runs check with a fresh container in a fresh DOM, then unmounts what check drew and removes the DOM.
+async function withDom(check: (container: HTMLElement) => void | Promise<void>): Promise<void> {
   const window = installTestDom();
   const container = document.createElement("div");
   document.body.append(container);
   try {
-    await act(() => {
-      render(
-        <NoticeCentre
-          rows={rows}
-          failed={false}
-          head={head}
-          now={now}
-          timeZone="UTC"
-          narrow={false}
-          onOpen={() => undefined}
-          onReadAll={() => undefined}
-          onClose={() => undefined}
-          {...props}
-        />,
-        container,
-      );
-    });
     await check(container);
   } finally {
     await act(() => {
@@ -104,6 +84,35 @@ async function withCentre(
     container.remove();
     await removeTestDom(window);
   }
+}
+
+// centreProps are the props a test draws the centre with: the shared rows, wide, unless props say otherwise.
+function centreProps(props: Partial<NoticeCentreProps>): NoticeCentreProps {
+  return {
+    rows,
+    failed: false,
+    head,
+    now,
+    timeZone: "UTC",
+    narrow: false,
+    onOpen: () => undefined,
+    onReadAll: () => undefined,
+    onClose: () => undefined,
+    ...props,
+  };
+}
+
+// withCentre draws the centre with props into a fresh DOM, runs check with the container, and removes the DOM.
+async function withCentre(
+  props: Partial<NoticeCentreProps>,
+  check: (container: HTMLElement) => void | Promise<void>,
+): Promise<void> {
+  await withDom(async (container) => {
+    await act(() => {
+      render(<NoticeCentre {...centreProps(props)} />, container);
+    });
+    await check(container);
+  });
 }
 
 // texts reads the text of every element matching selector, in document order.
@@ -217,5 +226,103 @@ test("NoticeCentre: wide it is an overlay dialog, and narrow it is a Notices pag
     assert.equal(container.querySelector(".crumb.here")?.textContent, "Notices");
     click(container.querySelector<HTMLElement>("button.back") as HTMLElement);
     assert.equal(calls.closed, 1, "Back did not call onClose");
+  });
+});
+
+// placeRect makes the element report edges as its rectangle, so a placement reads the layout the test sets.
+function placeRect(element: Element, edges: { top: number; bottom: number; right: number }): void {
+  const rect = {
+    x: 0,
+    y: edges.top,
+    width: edges.right,
+    height: edges.bottom - edges.top,
+    top: edges.top,
+    bottom: edges.bottom,
+    left: 0,
+    right: edges.right,
+    toJSON: () => ({}),
+  };
+  Object.assign(element, { getBoundingClientRect: () => rect });
+}
+
+// drawPage renders the centre in a page as App does: .panes holds the page's title row, its strip, and the centre.
+function drawPage(container: HTMLElement, props: Partial<NoticeCentreProps>): void {
+  render(
+    <div class="panes">
+      <header class="title-row">
+        <div class="pane-strip" />
+      </header>
+      <NoticeCentre {...centreProps(props)} />
+    </div>,
+    container,
+  );
+}
+
+test("NoticeCentre: wide, the centre's top is the page's title row bottom, strip included", async () => {
+  await withDom(async (container) => {
+    await act(() => {
+      drawPage(container, {});
+    });
+    const panes = container.querySelector<HTMLElement>(".panes");
+    const page = container.querySelector<HTMLElement>(".panes > .title-row");
+    const centre = container.querySelector<HTMLElement>("section.ncentre");
+    assert.ok(panes && page && centre, "the page draws no .panes, title row or centre");
+    placeRect(panes, { top: 100, bottom: 700, right: 1000 });
+    placeRect(page, { top: 100, bottom: 260, right: 1000 });
+    await act(() => {
+      drawPage(container, {});
+    });
+    assert.equal(centre.style.top, "160px", "the centre does not start at the title row's bottom, relative to .panes");
+  });
+});
+
+test("NoticeCentre: wide, the centre is placed again when the page resizes", async () => {
+  const resized: (() => void)[] = [];
+  class FakeResizeObserver {
+    constructor(callback: () => void) {
+      resized.push(callback);
+    }
+    observe(): void {}
+    disconnect(): void {}
+    unobserve(): void {}
+  }
+  await withDom(async (container) => {
+    const previous = globalThis.ResizeObserver;
+    globalThis.ResizeObserver = FakeResizeObserver as unknown as typeof ResizeObserver;
+    try {
+      await act(() => {
+        drawPage(container, {});
+      });
+      const panes = container.querySelector<HTMLElement>(".panes");
+      const page = container.querySelector<HTMLElement>(".panes > .title-row");
+      const centre = container.querySelector<HTMLElement>("section.ncentre");
+      assert.ok(panes && page && centre, "the page draws no .panes, title row or centre");
+      placeRect(panes, { top: 100, bottom: 700, right: 1000 });
+      placeRect(page, { top: 100, bottom: 300, right: 900 });
+      for (const callback of resized) {
+        callback();
+      }
+      assert.equal(centre.style.top, "200px", "a resize did not place the centre under the title row");
+    } finally {
+      globalThis.ResizeObserver = previous;
+    }
+  });
+});
+
+test("NoticeCentre: narrow, the centre is a page in the flow and is not placed under the title row", async () => {
+  await withDom(async (container) => {
+    await act(() => {
+      drawPage(container, { narrow: true });
+    });
+    const panes = container.querySelector<HTMLElement>(".panes");
+    const page = container.querySelector<HTMLElement>(".panes > .title-row");
+    const centre = container.querySelector<HTMLElement>("section.ncentre.flat");
+    assert.ok(panes && page && centre, "the page draws no .panes, title row or narrow centre");
+    placeRect(panes, { top: 100, bottom: 700, right: 1000 });
+    placeRect(page, { top: 100, bottom: 260, right: 1000 });
+    await act(() => {
+      drawPage(container, { narrow: true });
+    });
+    assert.equal(centre.style.top, "", "the narrow page is positioned under the title row");
   });
 });

@@ -1,8 +1,9 @@
 import { Fragment, type JSX } from "preact";
+import { useRef } from "preact/hooks";
 
 import type { ListedNotice } from "./gen/orrery/v1/notice_pb";
 import { Icon } from "./glyphs";
-import { Notice } from "./notices";
+import { Notice, useUnderTitleRow } from "./notices";
 import { type NoticeHead, noticeClock, noticeDays, noticeKey } from "./noticewords";
 import { TitleRow } from "./titlerow";
 
@@ -33,6 +34,10 @@ export function NoticeCentre({
   onReadAll,
   onClose,
 }: NoticeCentreProps): JSX.Element {
+  // The wide centre is placed under the page's title row. Narrow, it is not drawn here, so the hook places nothing.
+  const overlay = useRef<HTMLElement>(null);
+  useUnderTitleRow(overlay);
+
   const unread = rows.some((listed) => !listed.read);
   const markAll = unread ? (
     <button type="button" class="btn quiet" onClick={onReadAll}>
@@ -86,7 +91,7 @@ export function NoticeCentre({
     );
   }
   return (
-    <section class="ncentre" role="dialog" aria-label="notices">
+    <section class="ncentre" role="dialog" aria-label="notices" ref={overlay}>
       <div class="head">
         <h2 class="t-title">Notices</h2>
         {markAll}
