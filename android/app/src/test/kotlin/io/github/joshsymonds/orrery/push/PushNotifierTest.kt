@@ -46,6 +46,7 @@ class PushNotifierTest {
     private val notifier = PushNotifier(context)
 
     private val pane = "%7"
+    private val donePane = "%8"
     private val host = "devbox"
     private val idleEvent = PushEvent(
         pane = pane,
@@ -629,6 +630,40 @@ class PushNotifierTest {
 
         assertEquals(0, shadowOf(manager).allNotifications.size)
         assertNull(shadowOf(manager).getNotification(null, notificationId(host, pane)))
+    }
+
+    @Test
+    fun panesSwitchOffPostsNothingOfWaitingPaneButStillPostsDonePane() {
+        PushPreferences(context).setPosts(CHANNEL_ID, false)
+
+        notifier.show(idleEvent)
+        notifier.show(idleEvent.copy(pane = donePane, state = "done"))
+
+        assertNull(shadowOf(manager).getNotification(null, notificationId(host, pane)))
+        posted(notificationId(host, donePane))
+    }
+
+    @Test
+    fun panesSilentSwitchOffPostsNothingOfDonePaneButStillPostsWaitingPane() {
+        PushPreferences(context).setPosts(SILENT_CHANNEL_ID, false)
+
+        notifier.show(idleEvent.copy(pane = donePane, state = "done"))
+        notifier.show(idleEvent)
+
+        assertNull(shadowOf(manager).getNotification(null, notificationId(host, donePane)))
+        posted(notificationId(host, pane))
+    }
+
+    @Test
+    fun bothSwitchesOnPostWaitingAndDonePanes() {
+        PushPreferences(context).setPosts(CHANNEL_ID, true)
+        PushPreferences(context).setPosts(SILENT_CHANNEL_ID, true)
+
+        notifier.show(idleEvent)
+        notifier.show(idleEvent.copy(pane = donePane, state = "done"))
+
+        posted(notificationId(host, pane))
+        posted(notificationId(host, donePane))
     }
 }
 

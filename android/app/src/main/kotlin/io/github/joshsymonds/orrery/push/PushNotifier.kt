@@ -51,6 +51,7 @@ private class PushNotice(val title: String, val text: String, val channelId: Str
 
 class PushNotifier(private val context: Context) {
     private val manager = context.getSystemService(NotificationManager::class.java)
+    private val preferences = PushPreferences(context)
 
     fun show(event: PushEvent) {
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
@@ -60,6 +61,7 @@ class PushNotifier(private val context: Context) {
         val replacedChannelId = manager.activeNotifications.firstOrNull { it.id == id }?.notification?.channelId
         val notice = noticeOf(event)
         val channelId = if (event.silent) SILENT_CHANNEL_ID else notice.channelId
+        if (!preferences.posts(channelId)) return
         val builder = Notification.Builder(context, channelId)
             .setSmallIcon(SMALL_ICON)
             .setContentTitle(notice.title)
