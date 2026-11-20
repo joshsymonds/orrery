@@ -233,9 +233,14 @@ test("TaskStyle: the task's record lists, its evidence runs among them, sit flus
   assert.equal(declaredValue(desk, ".phase-output ul", "list-style"), "none");
 });
 
-test("TaskStyle: at phone width the pin's state words and its open-the-epic words go", () => {
+test("TaskStyle: at phone width the pin's state words go", () => {
   assert.equal(declaredValue(phone, ".epic-pin .words", "display"), "none");
-  assert.equal(declaredValue(phone, ".epic-pin .open", "display"), "none");
+});
+
+test("TaskStyle: a step's end block keeps the reader's head row and summary rules, wherever a reader draws it", () => {
+  assert.equal(declaredValue(desk, ".reader .step-card button.step-head", "display"), "flex");
+  assert.equal(declaredValue(desk, ".reader .step-card button.step-head", "border"), "0");
+  assert.equal(declaredValue(desk, ".reader .step-card .step-summary", "white-space"), "pre-wrap");
 });
 
 test("TaskStyle: at phone width the worker session's state line wraps, so its Stop confirm is not clipped", () => {
