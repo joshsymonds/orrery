@@ -1,5 +1,5 @@
 import type { JSX } from "preact";
-import { useState } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks";
 
 import type { ReportView } from "./ending";
 import { type CallOutcome, useOwnerCall } from "./ownercall";
@@ -28,15 +28,39 @@ export function EpicReport(props: {
   // kind and by are Close as…'s pick. They are set while its confirm is open, and a new Close as… starts with none.
   const [kind, setKind] = useState<CloseKind | "">("");
   const [by, setBy] = useState("");
+  // gone is whether the epic picked is no longer listed: Close as… shows its line until the owner picks again.
+  const [gone, setGone] = useState(false);
   // sure is the control whose confirm is open: asking, or sending the call it asked.
   const sure = call.phase === "asking" || call.phase === "sending" ? call.asking : "";
   // closePick is the call Close as… sends: its kind and, for superseded, the epic picked. Null until the pick is complete.
   const closePick =
     kind === "" || (kind === "superseded" && by === "") ? null : { kind, by: kind === "superseded" ? by : "" };
+  // pickGone is whether the epic picked for superseded is no longer among the listed replacements.
+  const pickGone = kind === "superseded" && by !== "" && !replacements.some((replacement) => replacement.id === by);
+  const dropPick = () => {
+    setKind("");
+    setBy("");
+    setGone(true);
+  };
+  // A pick that the listed epics drop is cleared while Close as… is open, and the confirm stays disabled until the
+  // owner picks again.
+  useEffect(() => {
+    if (pickGone) {
+      dropPick();
+    }
+  }, [pickGone]);
+  // A release or close the owner asked for closes, sending nothing, when the epic is no longer ended with gaps, the
+  // same as keep does. Offered again, it is at rest.
+  useEffect(() => {
+    if (!view.gaps && call.phase === "asking") {
+      call.keep();
+    }
+  }, [view.gaps, call.phase]);
   const askClose = () => {
     if (call.phase === "rest") {
       setKind("");
       setBy("");
+      setGone(false);
     }
     call.ask("close");
   };
@@ -50,7 +74,10 @@ export function EpicReport(props: {
           value="superseded"
           disabled={replacements.length === 0}
           checked={kind === "superseded"}
-          onChange={() => setKind("superseded")}
+          onChange={() => {
+            setKind("superseded");
+            setGone(false);
+          }}
         />{" "}
         {replacements.length === 0 ? "no other epic in this repository" : "superseded by"}
       </label>
@@ -60,6 +87,7 @@ export function EpicReport(props: {
           onChange={(event) => {
             setBy(event.currentTarget.value);
             setKind("superseded");
+            setGone(false);
           }}
         >
           <option value="">pick the epic</option>
@@ -76,7 +104,10 @@ export function EpicReport(props: {
           name="close-kind"
           value="shipped"
           checked={kind === "shipped"}
-          onChange={() => setKind("shipped")}
+          onChange={() => {
+            setKind("shipped");
+            setGone(false);
+          }}
         />{" "}
         shipped outside orrery
       </label>
@@ -86,7 +117,10 @@ export function EpicReport(props: {
           name="close-kind"
           value="abandoned"
           checked={kind === "abandoned"}
-          onChange={() => setKind("abandoned")}
+          onChange={() => {
+            setKind("abandoned");
+            setGone(false);
+          }}
         />{" "}
         abandoned
       </label>
@@ -95,10 +129,19 @@ export function EpicReport(props: {
   const releaseLine = "Its gaps stay, and its release steps run.";
   const confirmRelease = () => call.confirm(() => onRelease([]));
   const confirmClose = () => {
-    if (closePick !== null) {
-      call.confirm(() => onClose(closePick.kind, closePick.by));
+    if (closePick === null) {
+      return;
     }
+    // A pick the list dropped before this press is not sent: it is cleared, and the dialog says so.
+    if (pickGone) {
+      dropPick();
+      return;
+    }
+    call.confirm(() => onClose(closePick.kind, closePick.by));
   };
+  const goneLine = gone ? (
+    <p class="inote error close-gone">The epic you picked is no longer listed. Choose again.</p>
+  ) : null;
   const releaseControl = (
     <button type="button" class="act" disabled={call.disabled} onClick={() => call.ask("release")}>
       Release it anyway
@@ -151,6 +194,7 @@ export function EpicReport(props: {
             <>
               <span class="sure">{`Close ${slug} as…`}</span>
               {choices}
+              {goneLine}
               <button
                 type="button"
                 class="act primary"
@@ -190,6 +234,7 @@ export function EpicReport(props: {
       {narrow && view.gaps && sure === "close" && (
         <Sheet title={`Close ${slug} as…`} onClose={call.keep}>
           {choices}
+          {goneLine}
           <div class="foot">
             <button type="button" class="act" disabled={call.disabled} onClick={call.keep}>
               Keep it

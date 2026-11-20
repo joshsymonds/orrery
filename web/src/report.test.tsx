@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
 
-import { render } from "preact";
+import { type JSX, render } from "preact";
 import { act } from "preact/test-utils";
 
 import type { ReportView } from "./ending";
@@ -99,25 +99,31 @@ async function withReport(check: (container: HTMLElement) => Promise<void>): Pro
   }
 }
 
+interface ReportOptions {
+  view?: ReportView;
+  narrow?: boolean;
+  replacements?: { id: string; slug: string }[];
+}
+
+// reportElement is the report for calls and options, as a render would draw it.
+function reportElement(calls: Calls, options: ReportOptions): JSX.Element {
+  return (
+    <EpicReport
+      view={options.view ?? endedView}
+      slug={slug}
+      narrow={options.narrow ?? false}
+      replacements={options.replacements ?? replacements}
+      onRelease={calls.release}
+      onClose={calls.close}
+      reread={calls.reread}
+    />
+  );
+}
+
 // draw renders the report into container, and flushes the render.
-async function draw(
-  container: HTMLElement,
-  calls: Calls,
-  options: { view?: ReportView; narrow?: boolean; replacements?: { id: string; slug: string }[] } = {},
-): Promise<void> {
+async function draw(container: HTMLElement, calls: Calls, options: ReportOptions = {}): Promise<void> {
   await act(() => {
-    render(
-      <EpicReport
-        view={options.view ?? endedView}
-        slug={slug}
-        narrow={options.narrow ?? false}
-        replacements={options.replacements ?? replacements}
-        onRelease={calls.release}
-        onClose={calls.close}
-        reread={calls.reread}
-      />,
-      container,
-    );
+    render(reportElement(calls, options), container);
   });
 }
 
@@ -440,4 +446,111 @@ test("EpicClose: narrow, both confirms are in a dialog and the group stays under
     await pick(radio(close, "abandoned"));
     await click(buttonNamed(close, "Close as abandoned"));
     assert.deepEqual(calls.closes, [{ kind: "abandoned", by: "" }]);
+  }));
+
+test("EpicClose: a replacement list that drops the picked epic clears the pick, shows the line and sends nothing", (t) =>
+  withReport(async (container) => {
+    const calls = new Calls(true);
+    await draw(container, calls);
+    await click(buttonNamed(container, "Close as…"));
+    await pick(radio(container, "superseded"));
+    await pickEpic(container, "widgets-5d0c1a7/dock");
+
+    await draw(container, calls, { replacements: [replacements[0]] });
+    assert.equal(textOf(container, ".close-gone"), "The epic you picked is no longer listed. Choose again.");
+    assert.equal(container.querySelector<HTMLSelectElement>("select")?.value, "", "the pick is cleared");
+    assert.equal(radio(container, "superseded").checked, false, "no kind is picked");
+    assert.equal(buttonLabel(container), "Close as…");
+    assert.equal(buttonNamed(container, buttonLabel(container)).disabled, true, "the confirm is disabled");
+    assert.equal(calls.closes.length, 0);
+
+    await pickEpic(container, "widgets-5d0c1a7/lamp");
+    assert.equal(container.querySelector(".close-gone"), null, "picking again removes the line");
+    await click(buttonNamed(container, "Close as superseded"));
+    await settle(t, () => isIdle(container), "the close is answered");
+    assert.deepEqual(calls.closes, [{ kind: "superseded", by: "widgets-5d0c1a7/lamp" }]);
+  }));
+
+test("EpicClose: a confirm pressed after its picked epic is dropped sends nothing and shows the line", (t) =>
+  withReport(async (container) => {
+    const calls = new Calls(true);
+    await draw(container, calls);
+    await click(buttonNamed(container, "Close as…"));
+    await pick(radio(container, "superseded"));
+    await pickEpic(container, "widgets-5d0c1a7/dock");
+
+    // The list changes and the confirm is pressed before the render's effects run, so the press sees the stale pick.
+    render(reportElement(calls, { replacements: [replacements[0]] }), container);
+    buttonNamed(container, "Close as superseded").click();
+    await act(turn);
+    assert.equal(calls.closes.length, 0, "a press with an unlisted pick sends nothing");
+    assert.equal(textOf(container, ".close-gone"), "The epic you picked is no longer listed. Choose again.");
+    assert.equal(container.querySelector<HTMLSelectElement>("select")?.value, "", "the pick is cleared");
+    assert.equal(buttonNamed(container, buttonLabel(container)).disabled, true, "the confirm is disabled");
+  }));
+
+test("EpicClose: asking Release it anyway or Close as… closes when the epic stops ending with gaps, and is at rest when offered again", () =>
+  withReport(async (container) => {
+    const calls = new Calls(false);
+    await draw(container, calls);
+    await click(buttonNamed(container, "Release it anyway"));
+    assert.equal(textOf(container, ".sure"), "Release rota anyway?");
+    await draw(container, calls, { view: { ...endedView, gaps: false } });
+    assert.ok(container.querySelector(".gaps-acts") === null, "the controls are not drawn without gaps");
+    await draw(container, calls);
+    assert.ok(container.querySelector(".sure") === null, "offered again, the release confirm is not open");
+    assert.equal(buttonNamed(container, "Release it anyway").disabled, false);
+
+    await click(buttonNamed(container, "Close as…"));
+    await pick(radio(container, "abandoned"));
+    await draw(container, calls, { view: { ...endedView, gaps: false } });
+    await draw(container, calls);
+    assert.ok(container.querySelector(".sure") === null, "offered again, the close confirm is not open");
+    await click(buttonNamed(container, "Close as…"));
+    assert.equal(radio(container, "abandoned").checked, false, "a new Close as… starts with no kind picked");
+    assert.equal(buttonNamed(container, buttonLabel(container)).disabled, true, "the confirm needs a kind");
+    assert.deepEqual(calls.releases, []);
+    assert.deepEqual(calls.closes, []);
+  }));
+
+test("EpicClose: narrow, a release dialog closes when the epic stops ending with gaps, and is not open when offered again", () =>
+  withReport(async (container) => {
+    const calls = new Calls(false);
+    await draw(container, calls, { narrow: true });
+    await click(buttonNamed(container, "Release it anyway"));
+    assert.equal(one(container, "[role='dialog']").getAttribute("aria-label"), "Release rota anyway?");
+    await draw(container, calls, { narrow: true, view: { ...endedView, gaps: false } });
+    assert.ok(container.querySelector("[role='dialog']") === null, "the dialog is gone");
+    await draw(container, calls, { narrow: true });
+    assert.ok(container.querySelector("[role='dialog']") === null, "offered again, no dialog is open");
+    assert.deepEqual(calls.releases, []);
+  }));
+
+test("EpicClose: narrow, a sheet whose picked epic is dropped clears the pick, shows the line in the dialog and sends nothing", () =>
+  withReport(async (container) => {
+    const calls = new Calls(true);
+    await draw(container, calls, { narrow: true });
+    await click(buttonNamed(container, "Close as…"));
+    const sheet = () => one(container, "[role='dialog']");
+    await pick(radio(sheet(), "superseded"));
+    await pickEpic(sheet(), "widgets-5d0c1a7/dock");
+
+    await draw(container, calls, { narrow: true, replacements: [replacements[0]] });
+    assert.equal(textOf(sheet(), ".close-gone"), "The epic you picked is no longer listed. Choose again.");
+    assert.equal(sheet().querySelector<HTMLSelectElement>("select")?.value, "", "the pick is cleared");
+    assert.equal(buttonNamed(sheet(), "Close as…").disabled, true, "the dialog's confirm is disabled");
+    assert.equal(calls.closes.length, 0);
+  }));
+
+test("EpicClose: narrow, a Close as… dialog closes when the epic stops ending with gaps, and is not open when offered again", () =>
+  withReport(async (container) => {
+    const calls = new Calls(false);
+    await draw(container, calls, { narrow: true });
+    await click(buttonNamed(container, "Close as…"));
+    await pick(radio(one(container, "[role='dialog']"), "abandoned"));
+    await draw(container, calls, { narrow: true, view: { ...endedView, gaps: false } });
+    assert.ok(container.querySelector("[role='dialog']") === null, "the dialog is gone");
+    await draw(container, calls, { narrow: true });
+    assert.ok(container.querySelector("[role='dialog']") === null, "offered again, no dialog is open");
+    assert.deepEqual(calls.closes, []);
   }));
