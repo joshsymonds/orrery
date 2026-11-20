@@ -6,7 +6,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithTag
@@ -23,6 +26,7 @@ import io.github.joshsymonds.orrery.api.StreamEnd
 import io.github.joshsymonds.orrery.gen.orrery.v1.AskResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState
 import io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession
+import io.github.joshsymonds.orrery.gen.orrery.v1.HostStatusResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.ListHeadlessResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.MarkSeenResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
@@ -34,7 +38,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.StartRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.StartResponse
 import io.github.joshsymonds.orrery.push.OrreryPushService
 import io.github.joshsymonds.orrery.push.PushNotifier
-import io.github.joshsymonds.orrery.ui.SERVER_ASK_TAG
+import io.github.joshsymonds.orrery.push.PushPreferences
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -62,6 +66,10 @@ private const val PUSH_EVENT_ACTION = "org.unifiedpush.android.connector.PUSH_EV
 private const val SESSION_ALPHA = "0123456789abcdef0123456789abcdef"
 private const val SESSION_BETA = "fedcba9876543210fedcba9876543210"
 private const val SESSION_STARTED = "aabbccddeeff00112233445566778899"
+private const val HOST_STATUS = "/orrery.v1.Host/Status"
+private const val WELCOME_QUESTION = "Which orrery server should this phone talk to?"
+private const val ADDRESS_PLACEHOLDER = "https://host.your-tailnet.ts.net"
+private const val NO_ANSWER = "No answer from that address. Nothing was changed."
 private val ID_FORM = Regex("^[0-9a-f]{32}$")
 private const val ENVELOPE_HEADER_BYTES = 5
 
@@ -277,34 +285,91 @@ class MainActivityTest {
         assertAbsent(hasTestTag("pane-row:%1"))
     }
 
-    @Test
-    fun launchWithNoServerAsksForOneBeforeAnyCallThenListsItsPanes() {
+    /** The Welcome page's title row: its one crumb, Welcome, and no Back. */
+    private val welcomeTitle: SemanticsMatcher = hasTestTag("crumb:0").and(hasText("Welcome"))
+
+    /** Forgets the saved address, so the app has none, as on a first run. */
+    private fun forgetTheServer() {
         context.getSharedPreferences("orrery-settings", Context.MODE_PRIVATE).edit().clear().commit()
+    }
+
+    @Test
+    fun firstRunShowsOnlyTheWelcomePageAndConnectWaitsForAnAddress() {
+        forgetTheServer()
         launch()
 
-        awaitNode(hasTestTag(SERVER_ASK_TAG))
+        awaitNode(welcomeTitle)
+        assertAbsent(hasTestTag("title-back"))
+        awaitNode(hasText(WELCOME_QUESTION))
+        awaitNode(hasText(ADDRESS_PLACEHOLDER))
+        composeRule.onNodeWithText("Connect").assertIsNotEnabled()
+        assertAbsent(hasText("Settings"))
         assertAbsent(hasTestTag("pane-row:%1"))
         assertEquals(0, server.requests.size)
 
         composeRule.onNodeWithTag("server-address").performTextReplacement(server.baseUrl)
-        composeRule.onNodeWithText("Save").performClick()
 
-        awaitNode(hasTestTag("pane-row:%1"))
-        assertAbsent(hasTestTag(SERVER_ASK_TAG))
-        assertEquals(server.baseUrl, ServerSettings(context).serverUrl)
+        composeRule.onNodeWithText("Connect").assertIsEnabled()
     }
 
     @Test
-    fun launchWithNoServerAndAPaneExtraOpensThatPaneOnceAnAddressIsSaved() {
-        context.getSharedPreferences("orrery-settings", Context.MODE_PRIVATE).edit().clear().commit()
+    fun systemBackLeavesTheAppOnWelcome() {
+        forgetTheServer()
+        val controller = launch()
+        awaitNode(hasText(WELCOME_QUESTION))
+
+        controller.get().onBackPressedDispatcher.onBackPressed()
+
+        assertTrue(controller.get().isFinishing)
+    }
+
+    @Test
+    fun connectSavesAnAnsweringAddressStartsPushSetupAndOpensThePanes() {
+        forgetTheServer()
+        server.respond(HOST_STATUS, HostStatusResponse.newBuilder().setHost("halyard").build())
+        launch()
+        awaitNode(hasText(WELCOME_QUESTION))
+        // Launch's push setup records that no distributor answers; clear that, so only Connect's setup sets it again.
+        PushPreferences(context).distributorMissing = false
+
+        composeRule.onNodeWithTag("server-address").performTextReplacement(server.baseUrl)
+        composeRule.onNodeWithText("Connect").performClick()
+
+        awaitNode(hasTestTag("pane-row:%1"))
+        assertAbsent(hasText(WELCOME_QUESTION))
+        assertEquals(server.baseUrl, ServerSettings(context).serverUrl)
+        assertTrue(PushPreferences(context).distributorMissing)
+    }
+
+    @Test
+    fun connectWithAnAddressThatDoesNotAnswerStaysOnWelcomeAndSaysSo() {
+        forgetTheServer()
+        server.fail(HOST_STATUS, Code.UNAVAILABLE)
+        launch()
+        awaitNode(hasText(WELCOME_QUESTION))
+
+        composeRule.onNodeWithTag("server-address").performTextReplacement(server.baseUrl)
+        composeRule.onNodeWithText("Connect").performClick()
+
+        awaitNode(hasText(NO_ANSWER))
+        awaitNode(hasTestTag("server-address").and(SemanticsMatcher.keyIsDefined(SemanticsProperties.Error)))
+        awaitNode(hasText(WELCOME_QUESTION))
+        assertFalse(ServerSettings(context).hasServer)
+        assertAbsent(hasTestTag("pane-row:%1"))
+    }
+
+    @Test
+    fun connectWithNoServerAndAPaneExtraOpensThatPaneOnceAnAddressAnswers() {
+        forgetTheServer()
+        server.respond(HOST_STATUS, HostStatusResponse.newBuilder().setHost("halyard").build())
         launch(extraPane = "%2")
 
-        awaitNode(hasTestTag(SERVER_ASK_TAG))
+        awaitNode(hasText(WELCOME_QUESTION))
         composeRule.onNodeWithTag("server-address").performTextReplacement(server.baseUrl)
-        composeRule.onNodeWithText("Save").performClick()
+        composeRule.onNodeWithText("Connect").performClick()
 
         awaitNode(titled("alpha-review"))
-        assertAbsent(hasTestTag(SERVER_ASK_TAG))
+        assertAbsent(hasText(WELCOME_QUESTION))
     }
 
     @Test

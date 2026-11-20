@@ -64,6 +64,7 @@ import io.github.joshsymonds.orrery.ui.TalkSession
 import io.github.joshsymonds.orrery.ui.TalkSessionScreen
 import io.github.joshsymonds.orrery.ui.TalkTarget
 import io.github.joshsymonds.orrery.ui.TitleRow
+import io.github.joshsymonds.orrery.ui.WelcomeScreen
 import io.github.joshsymonds.orrery.ui.theme.Move
 import io.github.joshsymonds.orrery.ui.theme.OrreryTheme
 import io.github.joshsymonds.orrery.ui.theme.animationsOn
@@ -102,10 +103,9 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background,
                 ) {
                     var client by remember { mutableStateOf(OrreryClient(settings.serverUrl)) }
-                    // With no server saved or built in, the app asks for one: settings stands in for every screen,
-                    // and the screen asked for (a notification's, say) shows once an address is saved.
+                    // With no server saved or built in, Welcome is the only page; the screen asked for (a
+                    // notification's, say) shows once an address answers.
                     var hasServer by remember { mutableStateOf(settings.hasServer) }
-                    val shown = if (hasServer) screen else Screen.Settings
                     val animated = animationsOn()
                     Box(modifier = Modifier.fillMaxSize()) {
                         Box(
@@ -237,35 +237,38 @@ class MainActivity : ComponentActivity() {
                                         )
                                     }
                                     Screen.Settings -> {
-                                        // While it asks for the server, back leaves the app as on the home list.
-                                        if (hasServer) {
-                                            BackHandler { screen = Screen.Panes }
-                                        }
+                                        BackHandler { screen = Screen.Panes }
                                         SettingsScreen(
                                             settings = settings,
                                             onBack = { screen = Screen.Panes },
                                             onSaved = {
                                                 client = OrreryClient(settings.serverUrl)
-                                                if (hasServer || screen == Screen.Settings) {
-                                                    screen = Screen.Panes
-                                                }
-                                                hasServer = settings.hasServer
+                                                screen = Screen.Panes
                                             },
                                             startPushSetup = pushSetup::start,
                                         )
                                     }
                                 }
                             }
-                            if (animated) {
+                            if (!hasServer) {
+                                WelcomeScreen(
+                                    onConnected = {
+                                        client = OrreryClient(settings.serverUrl)
+                                        hasServer = true
+                                    },
+                                    settings = settings,
+                                    startPushSetup = pushSetup::start,
+                                )
+                            } else if (animated) {
                                 AnimatedContent(
-                                    targetState = shown,
+                                    targetState = screen,
                                     modifier = Modifier.fillMaxSize(),
                                     transitionSpec = {
                                         moveBetween(deeper = targetState.depth >= initialState.depth)
                                     },
                                 ) { screenContent(it) }
                             } else {
-                                screenContent(shown)
+                                screenContent(screen)
                             }
                         }
                         // A solid band over the status bar's inset, drawn last so nothing that
