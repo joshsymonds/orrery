@@ -37,6 +37,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import com.connectrpc.Code
 import io.github.joshsymonds.orrery.api.OrreryCallException
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.PendingItem
@@ -55,6 +56,14 @@ private const val ABOUT_TAG = "dock-about"
 private const val NOT_ABOUT_TAG = "dock-not-about"
 private const val NOT_ABOUT_DESCRIPTION = "Not about this"
 private const val WAITS_TAG = "dock-waits"
+private const val STEP_MORE = "Stop this step…"
+private const val SESSION_MORE = "Stop this session…"
+
+/** The note when a session's Stop did not reach the session, as the Stop's outcome reads elsewhere in the app. */
+private const val STOP_NOT_SENT = "not sent"
+
+/** The states a session's Stop is offered in, the ones it is still working or waiting in. */
+private val LIVE_STATES = setOf("working", "waiting")
 
 /** The note when an interrupt did not reach the session or pane, in the web's words (web/src/app.tsx interruptFailedText). */
 private const val INTERRUPT_FAILED = "could not interrupt"
@@ -63,7 +72,8 @@ private const val INTERRUPT_FAILED = "could not interrupt"
  * The dock under a conversation: the state line, the waits line, the tray of queued messages, the about line and the
  * box, on one box railed in the state's colour. Each control calls the server on the IO dispatcher, and an IOException
  * from a call is handled where the call is made. The texts a call hands back go into [draft] in send order; what a
- * control could not do is said in a note above the box, or on its row.
+ * control could not do is said in a note above the box, or on its row. [onSend] hears each tap on Send, before the
+ * request goes out.
  */
 @Composable
 fun Dock(
@@ -83,6 +93,7 @@ fun Dock(
     zone: ZoneId = ZoneId.systemDefault(),
     maxFieldHeight: Dp = Dp.Unspecified,
     onDraftPresent: (Boolean) -> Unit = {},
+    onSend: () -> Unit = {},
     newPromptId: () -> String = { UUID.randomUUID().toString() },
 ) {
     val dockKey = sessionId ?: paneId ?: facts.name
@@ -129,6 +140,22 @@ fun Dock(
             }
             DockKind.STEP -> scope.launch { withContext(Dispatchers.IO) { stepCalls?.hold() } }
             DockKind.SHELL -> Unit
+        }
+    }
+
+    fun stopSession(id: String) {
+        note = null
+        scope.launch {
+            note = withContext(Dispatchers.IO) {
+                try {
+                    client.stop(id)
+                    null
+                } catch (error: OrreryCallException) {
+                    if (error.code == Code.NOT_FOUND) null else STOP_NOT_SENT
+                } catch (_: IOException) {
+                    STOP_NOT_SENT
+                }
+            }
         }
     }
 
@@ -206,6 +233,12 @@ fun Dock(
         hiddenRows.add(promptId)
     }
 
+    val stop = facts.step?.let { step ->
+        DockStop(STEP_MORE, step.label) { scope.launch { withContext(Dispatchers.IO) { stepCalls?.stop() } } }
+    } ?: sessionId?.takeIf { facts.kind == DockKind.SESSION && facts.state in LIVE_STATES }?.let { id ->
+        DockStop(SESSION_MORE, facts.name) { stopSession(id) }
+    }
+
     val sendAndHideWaits: (String) -> Unit = { text ->
         send(text)
         waitsHidden = currentPending
@@ -214,6 +247,7 @@ fun Dock(
     val shape = RoundedCornerShape(OrreryTokens.Radius.three)
     Column(
         modifier = modifier
+            .testTag("dock")
             .fillMaxWidth()
             .clip(shape)
             .background(OrreryTokens.Surface.well)
@@ -230,8 +264,7 @@ fun Dock(
                 line = line,
                 onInterrupt = { interrupt() },
                 onResume = { sessionId?.let { resume(it) } },
-                stepLabel = facts.step?.label,
-                onStopStep = { scope.launch { withContext(Dispatchers.IO) { stepCalls?.stop() } } },
+                stop = stop,
             )
             if (waits.isNotEmpty()) {
                 DockDivider()
@@ -291,6 +324,7 @@ fun Dock(
                 hint = dockPlaceholder(facts),
                 onDraftPresent = onDraftPresent,
                 status = (note ?: stepCalls?.outcome)?.let(::noteLine),
+                onSend = onSend,
                 send = sendAndHideWaits,
             )
         }

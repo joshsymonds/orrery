@@ -28,14 +28,16 @@ class DockStateLineTest {
     private var stops = 0
 
     private fun setLine(line: StateLine, stepLabel: String? = null) {
+        val stop = stepLabel?.let { label ->
+            DockStop(more = "Stop this step…", name = label, onStop = { stops++ })
+        }
         composeRule.setContent {
             MaterialTheme {
                 DockStateLine(
                     line = line,
                     onInterrupt = { interrupts++ },
                     onResume = { resumes++ },
-                    stepLabel = stepLabel,
-                    onStopStep = { stops++ },
+                    stop = stop,
                 )
             }
         }

@@ -7,7 +7,6 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -75,7 +74,6 @@ private const val STREAM_RECONNECT_MILLIS = 1_000L
  */
 private const val STREAM_FAILURES_BEFORE_POLL = 3
 private val BODY_GAP_BELOW_HEADER = OrreryTokens.Space.four + OrreryTokens.Space.two
-private val GOAL_STATUS_GAP = OrreryTokens.Space.two
 
 /** The draft field never takes more than this share of the screen above the keyboard. */
 private const val COMPOSE_MAX_SHARE = 1f / 3f
@@ -118,10 +116,9 @@ private suspend fun fetchHost(client: OrreryClient): HostRead? =
  * A pane, followed while the screen is at least started: its conversation stream delivers each change,
  * and once that stream gives up for this start, the pane is read every second instead. A pane with a conversation
  * shows it, with the question card after the last item; a pane without one shows a line saying so,
- * with the card below it. A pane with a conversation shows its status line at the top of the
- * composer band, always in view, with the pane's active goal, when it has one, on a line just
- * above it. Each newer read time the conversation reports is sent to the server as the pane's
- * read-up-to time.
+ * with the card below it. The pane's dock sits at the foot of the screen, always in view, and says
+ * the pane's state; the pane's active goal, when it has one, sits under the header. Each newer read
+ * time the conversation reports is sent to the server as the pane's read-up-to time.
  *
  * The header overlays the body, clipped to the body's bounds, and slides away while the reader
  * scrolls towards newer content; it returns on a short scroll back, and always shows at the top
@@ -303,7 +300,6 @@ fun PaneScreen(
                 }
                 ConversationView(
                     entries,
-                    waiting = conversation?.waiting.orEmpty(),
                     listState = listState,
                     contentPadding = PaddingValues(top = bodyTop),
                     footer = footer,
@@ -340,47 +336,45 @@ fun PaneScreen(
                 }
             }
             current?.let { shown ->
-                PaneHeader(
-                    pane = shown,
-                    origin = conversation?.origin,
-                    stats = stats,
-                    context = conversation?.context,
-                    onBack = onBack,
-                    compact = keyboardUp,
+                Column(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
+                        .fillMaxWidth()
                         .onSizeChanged {
                             headerHeightPx = it.height
                             headerMeasured = true
                         }
                         .offset { IntOffset(0, headerShift) },
-                )
+                ) {
+                    PaneHeader(
+                        pane = shown,
+                        origin = conversation?.origin,
+                        stats = stats,
+                        context = conversation?.context,
+                        onBack = onBack,
+                        compact = keyboardUp,
+                    )
+                    GoalLine(conversation?.goal.orEmpty())
+                }
             }
         }
         val draft = rememberDockDraft(paneId)
-        DockBox(
-            draft,
-            client,
-            paneId,
+        Dock(
+            facts = dockFactsOf(
+                kind = if (current?.state.orEmpty().isEmpty()) DockKind.SHELL else DockKind.PANE,
+                name = current?.cwd.orEmpty().trimEnd('/').substringAfterLast('/'),
+                pane = current,
+                streamed = held,
+            ),
+            nowSeconds = nowSeconds,
+            client = client,
+            draft = draft,
+            send = { text -> client.sendComposed(paneId, text) },
+            paneId = paneId,
+            waiting = conversation?.waiting.orEmpty(),
             maxFieldHeight = composeCap,
-            edge = composeEdgeOf(current?.state.orEmpty()),
-            hint = when {
-                current == null -> ""
-                current.state.isEmpty() -> "Type a command…"
-                current.state == "working" -> "Queue for Claude…"
-                current.state == "waiting" -> "Answer Claude…"
-                else -> "Message Claude…"
-            },
             onDraftPresent = { draftPresent = it },
             onSend = { endRequests++ },
-            status = current?.takeIf { conversation != null }?.let { shown ->
-                {
-                    Column(verticalArrangement = Arrangement.spacedBy(GOAL_STATUS_GAP)) {
-                        GoalLine(conversation?.goal.orEmpty())
-                        StatusLine(shown, nowSeconds)
-                    }
-                }
-            },
         )
         AnimatedVisibility(
             visible = !draftPresent,

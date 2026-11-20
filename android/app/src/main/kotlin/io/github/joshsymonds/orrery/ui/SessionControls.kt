@@ -3,12 +3,9 @@ package io.github.joshsymonds.orrery.ui
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -33,32 +30,17 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-internal val LIVE_STATES = setOf("working", "waiting")
-
-/** The one state a Resume is offered in. */
-private const val RESUMABLE_STATE = "interrupted"
-
-/** The control call a tap made. */
-enum class LiveCall { INTERRUPT, STOP, RESUME }
-
-/**
- * How a control call ended. [Sent] is the server taking it; the rest are the outcomes the screen names.
- * [Refused] is a failed_precondition answer, shown as the server's [reason].
- */
+/** How an answer to a headless session's request ended. [Sent] is the server taking it; the rest are the outcomes the card names. */
 private sealed interface ControlOutcome {
     data object Sent : ControlOutcome
     data object NotAnswerable : ControlOutcome
-    data object Stopped : ControlOutcome
     data object NotSent : ControlOutcome
-    data class Refused(val reason: String) : ControlOutcome
 }
 
 private fun ControlOutcome.label(): String = when (this) {
     ControlOutcome.Sent -> ""
     ControlOutcome.NotAnswerable -> "not answerable"
-    ControlOutcome.Stopped -> "stopped"
     ControlOutcome.NotSent -> "not sent"
-    is ControlOutcome.Refused -> reason
 }
 
 /** Posts an answer. A refused shape is [ControlOutcome.NotAnswerable]; a not_found answer is a failure like any other. */
@@ -68,28 +50,6 @@ private fun answerOutcome(client: OrreryClient, sessionId: String, requestId: St
         ControlOutcome.Sent
     } catch (e: OrreryCallException) {
         if (e.code == Code.INVALID_ARGUMENT) ControlOutcome.NotAnswerable else ControlOutcome.NotSent
-    } catch (e: IOException) {
-        ControlOutcome.NotSent
-    }
-
-/** Runs an Interrupt or Stop call. A not_found answer means the session is not live, so it reads as [ControlOutcome.Stopped]. */
-private inline fun liveCallOutcome(post: () -> Unit): ControlOutcome =
-    try {
-        post()
-        ControlOutcome.Sent
-    } catch (e: OrreryCallException) {
-        if (e.code == Code.NOT_FOUND) ControlOutcome.Stopped else ControlOutcome.NotSent
-    } catch (e: IOException) {
-        ControlOutcome.NotSent
-    }
-
-/** Posts a Resume. A failed_precondition answer is [ControlOutcome.Refused] with the server's reason; any other failure is [ControlOutcome.NotSent]. */
-private fun resumeOutcome(client: OrreryClient, sessionId: String): ControlOutcome =
-    try {
-        client.resume(sessionId)
-        ControlOutcome.Sent
-    } catch (e: OrreryCallException) {
-        if (e.code == Code.FAILED_PRECONDITION) ControlOutcome.Refused(e.message.orEmpty()) else ControlOutcome.NotSent
     } catch (e: IOException) {
         ControlOutcome.NotSent
     }
@@ -147,86 +107,5 @@ fun SessionRequestCard(
             }
         }
         shown?.label()?.takeIf { it.isNotEmpty() }?.let { Text(it, modifier = Modifier.padding(top = OrreryTokens.Space.four)) }
-    }
-}
-
-/**
- * Interrupt and Stop for a headless session, shown only while it is working or waiting, and Resume
- * only while it is interrupted. Stop asks for a second tap on its confirm button before it posts.
- * A not_found answer to Interrupt or Stop reads as stopped, and [onChanged] runs after an answer
- * that moved the session. A refused Resume shows the server's reason; any other failed Resume reads
- * as not sent. [onTaken] runs with the call a tap made once the server takes it. A tap on any button
- * gives its feedback at once; the confirm button stays on screen until its flash ends.
- */
-@Composable
-fun SessionActions(
-    sessionId: String,
-    state: String,
-    client: OrreryClient,
-    onChanged: () -> Unit,
-    onTaken: (LiveCall) -> Unit = {},
-) {
-    val scope = rememberCoroutineScope()
-    var outcome by remember(sessionId) { mutableStateOf<ControlOutcome?>(null) }
-    var confirming by remember(sessionId) { mutableStateOf(false) }
-    val interruptFeedback = rememberTapFeedback()
-    val stopFeedback = rememberTapFeedback()
-    val confirmFeedback = rememberTapFeedback()
-    val resumeFeedback = rememberTapFeedback()
-    if (state !in LIVE_STATES && state != RESUMABLE_STATE) return
-
-    fun post(kind: LiveCall, outcomeOf: () -> ControlOutcome) {
-        scope.launch {
-            val result = withContext(Dispatchers.IO) { outcomeOf() }
-            outcome = result
-            if (result == ControlOutcome.Sent) onTaken(kind)
-            if (result == ControlOutcome.Sent || result == ControlOutcome.Stopped) onChanged()
-        }
-    }
-
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Row(horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight)) {
-            if (state == RESUMABLE_STATE) {
-                ControlButton("Resume", "session-resume", resumeFeedback) {
-                    post(LiveCall.RESUME) { resumeOutcome(client, sessionId) }
-                }
-            } else {
-                ControlButton("Interrupt", "session-interrupt", interruptFeedback) {
-                    post(LiveCall.INTERRUPT) { liveCallOutcome { client.interrupt(sessionId) } }
-                }
-                ControlButton("Stop", "session-stop", stopFeedback) { confirming = true }
-                if (confirming || confirmFeedback.flashing) {
-                    ControlButton("Confirm stop", "session-stop-confirm", confirmFeedback) {
-                        if (confirming) {
-                            confirming = false
-                            post(LiveCall.STOP) { liveCallOutcome { client.stop(sessionId) } }
-                        }
-                    }
-                }
-            }
-        }
-        outcome?.label()?.takeIf { it.isNotEmpty() }?.let { Text(it, modifier = Modifier.padding(top = OrreryTokens.Space.four)) }
-    }
-}
-
-@Composable
-private fun ControlButton(label: String, tag: String, feedback: TapFeedback, onClick: () -> Unit) {
-    Button(
-        onClick = {
-            feedback.tap()
-            onClick()
-        },
-        modifier = Modifier.testTag(tag).tapFeedback(feedback).height(OrreryTokens.Size.gauge),
-        shape = RoundedCornerShape(OrreryTokens.Radius.two),
-        colors = if (feedback.flashing) {
-            tapFeedbackColors(feedback)
-        } else {
-            ButtonDefaults.buttonColors(containerColor = OrreryTokens.Surface.raised, contentColor = OrreryTokens.Ink.one)
-        },
-        border = BorderStroke(OrreryTokens.Size.hairline, OrreryTokens.Line.firm),
-        elevation = null,
-        contentPadding = PaddingValues(horizontal = OrreryTokens.Space.twelve, vertical = OrreryTokens.Space.two),
-    ) {
-        Text(label)
     }
 }

@@ -29,11 +29,15 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 
-private const val MORE_DESCRIPTION = "Stop this step…"
+/**
+ * What the dock's More stops: [more] is the More's description ("Stop this step…", "Stop this session…"), [name] is
+ * what the confirm asks about, and [onStop] is the stop itself, called once the confirm is tapped.
+ */
+data class DockStop(val more: String, val name: String, val onStop: () -> Unit)
 
 /**
  * The dock's state line: the word in its state's colour, the tool and what, the clock, then the controls at its end.
- * A step also gets More, which asks before Stop; a held step has More and no Interrupt.
+ * [stop] adds More at the end, which asks before it calls [DockStop.onStop]; a held step has More and no Interrupt.
  */
 @Composable
 fun DockStateLine(
@@ -41,10 +45,9 @@ fun DockStateLine(
     onInterrupt: () -> Unit,
     onResume: () -> Unit,
     modifier: Modifier = Modifier,
-    stepLabel: String? = null,
-    onStopStep: () -> Unit = {},
+    stop: DockStop? = null,
 ) {
-    var confirming by remember(stepLabel) { mutableStateOf(false) }
+    var confirming by remember(stop?.name) { mutableStateOf(false) }
 
     Column(modifier = modifier.fillMaxWidth()) {
         Row(
@@ -99,11 +102,11 @@ fun DockStateLine(
                 DockControl.RESUME -> DockCtl("Resume", "dock-resume", onClick = onResume)
                 DockControl.NONE -> Unit
             }
-            if (stepLabel != null) {
-                MoreButton(onClick = { confirming = true })
+            if (stop != null) {
+                MoreButton(description = stop.more, onClick = { confirming = true })
             }
         }
-        if (stepLabel != null && confirming) {
+        if (stop != null && confirming) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -112,14 +115,14 @@ fun DockStateLine(
                 horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
             ) {
                 Text(
-                    text = "Stop $stepLabel?",
+                    text = "Stop ${stop.name}?",
                     color = OrreryTokens.Ink.one,
                     style = OrreryTokens.Type.small,
                     maxLines = 1,
                 )
-                DockCtl("Stop $stepLabel", "dock-stop-confirm") {
+                DockCtl("Stop ${stop.name}", "dock-stop-confirm") {
                     confirming = false
-                    onStopStep()
+                    stop.onStop()
                 }
                 DockCtl("Keep it running", "dock-keep-running") {
                     confirming = false
@@ -162,16 +165,16 @@ private fun DockCtl(label: String, tag: String, enabled: Boolean = true, onClick
     }
 }
 
-/** The step's More: three dots, icon only. */
+/** The dock's More: three dots, icon only, named [description]. */
 @Composable
-private fun MoreButton(onClick: () -> Unit) {
+private fun MoreButton(description: String, onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .testTag("dock-more")
             .size(OrreryTokens.Space.twentyFour)
             .clip(RoundedCornerShape(OrreryTokens.Radius.one))
             .clickable(role = Role.Button, onClick = onClick)
-            .semantics { contentDescription = MORE_DESCRIPTION },
+            .semantics { contentDescription = description },
         contentAlignment = Alignment.Center,
     ) {
         Canvas(modifier = Modifier.size(OrreryTokens.Size.icon)) {
