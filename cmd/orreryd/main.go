@@ -184,6 +184,10 @@ type options struct {
 	// dueNow is a test seam: the clock the due pass reads to decide which limited steps are due. Production leaves it
 	// nil, which is time.Now. A test whose steps carry fixed reset dates sets it, so the real date never makes them due.
 	dueNow func() time.Time
+	// relayNow is a test seam: the clock the notice relay's watching and viewing checks read as now (relay.now).
+	// Production leaves it nil, which is time.Now. A test that reports a read sets it to the read's second, so a loaded
+	// machine never ages the read out of readWindow before the test ends.
+	relayNow func() time.Time
 	// cronNow is a test seam: the clock the cron answers and the cron scheduler read as now. Production leaves it nil,
 	// which is time.Now.
 	cronNow func() time.Time
@@ -341,9 +345,20 @@ func hostName(seam string) (string, error) {
 	return host, nil
 }
 
-// dueClock is the due pass's clock for the --due-at test seam: nil, which is time.Now, for zero, and otherwise a clock
-// stopped at unix second at.
-func dueClock(at int64) func() time.Time {
+// checkClockSeams refuses a negative --due-at or --relay-at as a usage error.
+func checkClockSeams(dueAt, relayAt int64) error {
+	if dueAt < 0 {
+		return usagef("--due-at must not be negative, got %d", dueAt)
+	}
+	if relayAt < 0 {
+		return usagef("--relay-at must not be negative, got %d", relayAt)
+	}
+	return nil
+}
+
+// unixClock is the clock of a test seam that names unix seconds, --due-at's or --relay-at's: nil, which is time.Now, for
+// zero, and otherwise a clock stopped at unix second at.
+func unixClock(at int64) func() time.Time {
 	if at == 0 {
 		return nil
 	}
@@ -401,6 +416,7 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	metricsListen := flags.String("metrics-listen", "", "loopback address that serves /metrics")
 	flowTicks := flags.String("flow-ticks", "", "test seam: file each flow pass appends a line to")
 	dueAt := flags.Int64("due-at", 0, "test seam: unix seconds the due pass reads as now")
+	relayAt := flags.Int64("relay-at", 0, "test seam: unix seconds the notice relay's watching checks read as now")
 	hostName := flags.String("host", "", "test seam: host name in place of the machine's")
 	judgeDelay := flags.Duration("judge-delay", route.JudgeDelay, "test seam: wait of a done before its judge")
 	writeTick := flags.Duration("write-tick", 0, "test seam: how often the engine writer stores queued ops")
@@ -421,8 +437,8 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	if err := checkLimits(*sessionCap, *stepCap, *judgeDelay, *writeTick, *storeBusy); err != nil {
 		return options{}, err
 	}
-	if *dueAt < 0 {
-		return options{}, usagef("--due-at must not be negative, got %d", *dueAt)
+	if err := checkClockSeams(*dueAt, *relayAt); err != nil {
+		return options{}, err
 	}
 	if *sessions && !filepath.IsAbs(*sessionShell) {
 		return options{}, usagef("--sessions needs an absolute --session-shell, got %q", *sessionShell)
@@ -460,7 +476,8 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 		storeBusy:     *storeBusy,
 		metricsListen: *metricsListen,
 		flowTicks:     *flowTicks,
-		dueNow:        dueClock(*dueAt),
+		dueNow:        unixClock(*dueAt),
+		relayNow:      unixClock(*relayAt),
 		host:          *hostName,
 	}, nil
 }
@@ -588,6 +605,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		webhook:     opts.webhook,
 		summarizers: make(map[tmuxctl.Server]*summary.Summarizer),
 		views:       newDoneViews(),
+		now:         opts.relayNow,
 	})
 	router := hub.router
 	pageNotices := enginehost.NewPageNotices(pages, router, router, time.Now)
