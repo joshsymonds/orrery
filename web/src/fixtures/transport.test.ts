@@ -86,9 +86,13 @@ function epicHandover(root: HTMLElement): boolean {
   return root.querySelector("ul.talk") !== null;
 }
 
-// epicTalk is Page/epic-talk: the cursor's reader holds the planning conversation that Talk's first line opened.
+// epicTalk is Page/epic-talk: the cursor's reader holds the planning conversation that Talk's first line opened, and no
+// epic panel is drawn beside it, since that line moves the cursor to the conversation.
 function epicTalk(root: HTMLElement): boolean {
-  return root.querySelector('section[aria-label="reader"]')?.textContent.includes(rotaPrompt) === true;
+  return (
+    root.querySelector('section[aria-label="reader"]')?.textContent.includes(rotaPrompt) === true &&
+    root.querySelector("aside.rpanel") === null
+  );
 }
 
 // assertNoFailure fails unless the story drew no failure element, so no call it made was refused.

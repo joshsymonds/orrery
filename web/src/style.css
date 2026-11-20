@@ -65,9 +65,9 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
   position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--o-space-16); align-items: start;
   padding-left: max(var(--o-space-16), env(safe-area-inset-left, 0)); padding-right: max(var(--o-space-16), env(safe-area-inset-right, 0));
 }
-.list, .read, section.page { min-width: 0; }
+.list, .read, .rpanel { min-width: 0; }
 .read { display: flex; flex-direction: column; gap: var(--o-space-8); }
-.read[hidden], section.page[hidden] { display: none; }
+.read[hidden] { display: none; }
 /* The line the epic page shows when its epic's detail did not load. */
 .side-note { margin: 0; color: var(--o-ink-3); overflow-wrap: anywhere; }
 .reply { min-width: 0; }
@@ -106,36 +106,43 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
   body { background: var(--o-surface-page); height: 100vh; height: 100dvh; overflow: hidden; }
   #app { height: 100%; }
   .app { height: 100%; display: flex; flex-direction: column; }
+  /* The columns are the list, the conversation, the pinned reader with a pin, the epic panel with one open, and the rail at
+     the right. Each keeps its own track, so none moves as the others come and go. The panel takes 1.4 shares to the
+     conversation's 1, and the rail its own width. Every column sits in the one row. */
   .panes {
     flex: 1 1 auto; min-height: 0; align-items: stretch; grid-template-rows: minmax(0, 1fr); padding: 0; gap: 0;
-    grid-template-columns: var(--o-layout-inbox-width) minmax(0, 1fr) calc(var(--o-layout-inbox-width) + var(--o-space-32) + var(--o-space-8));
+    --inbox-track: var(--o-layout-inbox-width);
+    grid-template-columns: var(--inbox-track) minmax(0, 1fr) var(--o-layout-rail-width);
   }
-  /* Each column keeps its own track, and the epic page takes the reader's. Every column sits in the one row, so a column
-     placed in an earlier track than the one before it never opens a second row. */
-  .panes > .list, .panes > .read, .panes > section.page { grid-row: 1; }
+  .panes > .list, .panes > .read, .panes > .rpanel, .panes > .rail { grid-row: 1; }
   .panes > .list { grid-column: 1; }
   .panes > .read { grid-column: 2; }
-  /* With no pin the reader and the epic page take every track right of the list: no track is left empty. */
-  .panes:not(.split) > .read, .panes > section.page { grid-column: 2 / -1; }
-  .panes > .read.pinned { grid-column: 3; }
-  .panes.split { grid-template-columns: var(--o-layout-inbox-width) minmax(0, 1fr) minmax(0, 1fr); }
-  /* With a pin the epic page keeps the reader's track, and the pinned reader the third. */
-  .panes.split > section.page { grid-column: 2; }
-  /* The inbox hidden, or popped out over the page, takes no track: the reader and the epic page take the first track,
-     and a pin the second. The flyout lies over the page under the title row and above it, and is out of the grid. */
-  .panes[data-inbox="hidden"], .panes[data-inbox="flyout"] { grid-template-columns: minmax(0, 1fr); }
-  .panes[data-inbox="hidden"].split, .panes[data-inbox="flyout"].split {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  .panes > .read.pinned, .panes > .rpanel { grid-column: 3; }
+  .panes > .rail { grid-column: -2 / -1; }
+  .panes.split { grid-template-columns: var(--inbox-track) minmax(0, 1fr) minmax(0, 1fr) var(--o-layout-rail-width); }
+  .panes.split > .rpanel { grid-column: 4; }
+  .panes[data-side="panel"] { grid-template-columns: var(--inbox-track) minmax(0, 1fr) minmax(0, 1.4fr) var(--o-layout-rail-width); }
+  .panes.split[data-side="panel"] {
+    grid-template-columns: var(--inbox-track) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr) var(--o-layout-rail-width);
   }
+  /* At 1250px and under the list's track narrows to 316px, and the panel lies over the conversation from the right, beside
+     the rail, so it takes no track of its own. */
+  .panes.overlay { --inbox-track: var(--o-layout-inbox-width-narrow); }
+  .panes.overlay[data-side="panel"] { grid-template-columns: var(--inbox-track) minmax(0, 1fr) var(--o-layout-rail-width); }
+  .panes.split.overlay[data-side="panel"] { grid-template-columns: var(--inbox-track) minmax(0, 1fr) minmax(0, 1fr) var(--o-layout-rail-width); }
+  .panes.overlay > .rpanel {
+    grid-column: 1 / -1; position: absolute; top: 0; bottom: 0; left: var(--inbox-track); right: var(--o-layout-rail-width);
+    z-index: var(--o-z-flyout); box-shadow: var(--o-elevation-side-end);
+  }
+  /* The inbox hidden, or popped out over the page, takes no track: the list's track is nothing wide, and the conversation
+     takes the room beside it. The flyout lies over the page under the title row and above it, and is out of the grid. */
+  .panes[data-inbox="hidden"], .panes[data-inbox="flyout"] { --inbox-track: 0; }
   .panes[data-inbox="hidden"] > .list { display: none; }
-  .panes[data-inbox="hidden"] > .read, .panes[data-inbox="hidden"] > section.page,
-  .panes[data-inbox="flyout"] > .read, .panes[data-inbox="flyout"] > section.page { grid-column: 1; }
-  .panes[data-inbox="hidden"] > .read.pinned, .panes[data-inbox="flyout"] > .read.pinned { grid-column: 2; }
   .panes[data-inbox="flyout"] > .list {
     display: grid; position: absolute; top: calc(var(--o-space-48) + var(--o-space-4)); bottom: 0; left: 0; width: var(--o-layout-inbox-width); z-index: var(--o-z-flyout);
     box-shadow: var(--o-elevation-side);
   }
-  .list, .read, section.page { min-height: 0; }
+  .list, .read, .rpanel { min-height: 0; }
   .list {
     display: grid; grid-template-rows: auto minmax(0, 1fr); background: var(--o-surface-side);
     border-right: var(--o-size-hairline) solid var(--o-line-soft);
@@ -148,26 +155,13 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
   .read > .reader { min-height: 0; overflow-y: auto; padding: var(--o-space-16) var(--o-space-24) var(--o-space-8); }
   .head, .read > .title-row { padding: var(--o-space-12) var(--o-space-24) var(--o-space-12); }
   .send { min-width: 0; padding: 0 var(--o-space-24) var(--o-space-12); }
-  section.page { overflow-y: auto; padding: var(--o-space-16) var(--o-space-24) var(--o-space-8); border-left: var(--o-size-hairline) solid var(--o-line-soft); }
+  .rcard > section.page { min-height: 0; flex: 1 1 auto; overflow-y: auto; padding: var(--o-space-16) var(--o-space-24) var(--o-space-8); }
   .dock { min-height: 0; overflow-y: auto; border-left: var(--o-size-hairline) solid var(--o-line-soft); }
 }
 
-@media (width > 1250px) and (max-width: 1500px) {
-  .panes { grid-template-columns: var(--o-layout-inbox-width) minmax(0, 1fr) var(--o-layout-inbox-width); }
-  .panes.split { grid-template-columns: var(--o-layout-inbox-width) minmax(0, 1fr) minmax(0, 1fr); }
-}
-
-/* At 1250px and under the inbox track narrows to 316px, and its flyout with it. */
+/* The flyout over the page is the narrow list at 1250px and under. */
 @media (min-width: 760px) and (max-width: 1250px) {
-  .panes { grid-template-columns: var(--o-layout-inbox-width-narrow) minmax(0, 1fr) var(--o-layout-inbox-width); }
-  .panes.split { grid-template-columns: var(--o-layout-inbox-width-narrow) minmax(0, 1fr) minmax(0, 1fr); }
   .panes[data-inbox="flyout"] > .list { width: var(--o-layout-inbox-width-narrow); }
-}
-
-/* From 760px to 1100px the inbox narrows to 316px, and the epic page takes the reader's track beside it. */
-@media (min-width: 760px) and (max-width: 1100px) {
-  .panes { grid-template-columns: var(--o-layout-inbox-width-narrow) minmax(0, 1fr); }
-  .panes.split { grid-template-columns: var(--o-layout-inbox-width-narrow) minmax(0, 1fr) minmax(0, 1fr); }
 }
 
 .rows { min-width: 0; }

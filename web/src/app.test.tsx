@@ -3856,11 +3856,11 @@ test("an epic entry shows the epic page beside the list, and no epic column rema
     assert.equal(epicPageShown(container), true, "the epic page shows on an epic entry");
     assert.equal(epicPageDrawn(container), true, "the page draws the epic page");
     assert.equal(
-      container.querySelector('.panes > section.page[aria-label="epic"]') !== null,
+      container.querySelector('aside.rpanel section.page[aria-label="epic"]') !== null,
       true,
-      "the page sits in the panes beside the list",
+      "the page sits in the panel beside the rail",
     );
-    assert.equal(container.querySelector("aside.side") === null, true, "no aside.side remains");
+    assert.equal(container.querySelector("aside.rail") !== null, true, "the rail is drawn");
     assert.equal(pageSlug(container), "first", "the page names the epic");
   }));
 
@@ -3909,7 +3909,7 @@ test("a step entry shows its reader alone, and no epic page", (t) =>
     assert.equal(cursorKey(container), "step:s1");
     assert.equal(readerHidden(container), false, "the step shows its reader");
     assert.equal(epicPageShown(container), false, "no epic page shows beside a step");
-    assert.equal(container.querySelector("aside.side") === null, true, "no aside.side remains");
+    assert.equal(container.querySelector("aside.rpanel") === null, true, "no panel is drawn beside a step");
   }));
 
 test("a pin splits the panes around a step's reader, and the epic page stays hidden", (t) =>
@@ -4325,7 +4325,7 @@ test("a digit with the epic page closed selects no card of its question", (t) =>
     await clickFirst(container, 'section.page[aria-label="epic"] .back');
     assert.equal(epicPageShown(container), false, "the back closes the page");
     await press("1");
-    assert.equal(selectedCard(container), 1, "the digit selects no card of the closed page");
+    assert.equal(selectedCard(container), -1, "the closed panel draws no card for the digit to select");
     assert.equal(fake.callsTo(answerEpicPath).length, 0);
   }));
 
