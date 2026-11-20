@@ -12,7 +12,6 @@ import (
 	"strings"
 	"syscall"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/engine/session"
 	"github.com/joshsymonds/orrery/internal/holder"
@@ -102,7 +101,7 @@ func newHolderManager(t *testing.T, scope, stateDir string, environ ...string) (
 		t.Fatalf("find sh: %v", err)
 	}
 	s, path := openStore(t)
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	m := NewManager(Config{
 		Shell:       sh,
@@ -202,7 +201,7 @@ func TestCloseWithHolderScopeLeavesSessionRunning(t *testing.T) {
 	t.Parallel()
 	root := holderRoot(t)
 	s, path := openStore(t)
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	sink := &fakeSink{}
 	m := newStateManager(t, s, writer, sink, fakeSystemdRunPath(t), root, nil)

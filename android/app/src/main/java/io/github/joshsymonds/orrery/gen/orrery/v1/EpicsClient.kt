@@ -228,4 +228,35 @@ public class EpicsClient(
     ),
   )
 
+
+  /**
+   *  Move moves the steering of the named orreryd epic to the session the request names, as the owner.
+   */
+  override suspend fun move(request: EpicsMoveRequest, headers: Headers): ResponseMessage<EpicsMoveResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "orrery.v1.Epics/Move",
+      io.github.joshsymonds.orrery.gen.orrery.v1.EpicsMoveRequest::class,
+      io.github.joshsymonds.orrery.gen.orrery.v1.EpicsMoveResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Continue starts a steering session for the named orreryd epic, moves its steering to that session as the owner, and
+   *  answers the session's id.
+   */
+  override suspend fun `continue`(request: EpicsContinueRequest, headers: Headers): ResponseMessage<EpicsContinueResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "orrery.v1.Epics/Continue",
+      io.github.joshsymonds.orrery.gen.orrery.v1.EpicsContinueRequest::class,
+      io.github.joshsymonds.orrery.gen.orrery.v1.EpicsContinueResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
 }

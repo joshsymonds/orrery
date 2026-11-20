@@ -189,24 +189,32 @@ func TestGreenReproductionStartsCheckAtOverlayOfBase(t *testing.T) {
 	}
 }
 
-// TestGreenReproductionExitZeroSpendsAttemptAsDisagreement covers R4: a reproduction that exits 0 at the base spends the
-// attempt as a judge and exit disagreement, and starts no green run.
-func TestGreenReproductionExitZeroSpendsAttemptAsDisagreement(t *testing.T) {
+// TestGreenReproductionExitZeroIsANoteAndTheGreenRunStarts: a reproduction that exits 0 is a note on the task's build,
+// not a spent attempt. The note is kept once, and the green run starts once: a later pass records no second note and
+// starts no second run.
+func TestGreenReproductionExitZeroIsANoteAndTheGreenRunStarts(t *testing.T) {
 	t.Parallel()
 	f, checks := newReproFixture(t)
 	toReproGreen(f)
 	endRepro(t, f, checks, 0)
 	f.pass()
-	build := f.task().Build
-	failure := "green not met: the judge and the exit disagree: red was judged fails at the base " + f.base +
-		", but its reproduction with the commit's tests exited 0, so those tests pass at the base without the rest of " +
-		"the commit"
-	if build.Stage != StageImplement || build.Attempt != 2 || build.Failure != failure {
-		t.Errorf("build stage %q attempt %d failure %q, want implement at attempt 2 with failure %q",
-			build.Stage, build.Attempt, build.Failure, failure)
+	task := f.task()
+	label := taskLabel(task.Seq)
+	note := label + " attempt 1 reproduction: exited 0 on the base with the commit's test files, so they " +
+		"pass without the rest of the commit"
+	if task.Build.Stage != StageGreen || task.Build.Attempt != 1 || !reflect.DeepEqual(task.Notes, []string{note}) {
+		t.Fatalf("build stage %q attempt %d notes %q, want green on attempt 1 with the note %q",
+			task.Build.Stage, task.Build.Attempt, task.Notes, note)
 	}
-	if got := guardGreenRuns(f); got != 0 {
-		t.Errorf("green runs started = %d, want none", got)
+	if got := guardGreenRuns(f); got != 1 {
+		t.Fatalf("green runs started = %d, want 1 once the note is kept", got)
+	}
+	f.pass()
+	if got := f.task().Notes; !reflect.DeepEqual(got, []string{note}) {
+		t.Errorf("notes after a second pass = %q, want the one note", got)
+	}
+	if got := guardGreenRuns(f); got != 1 {
+		t.Errorf("green runs started after a second pass = %d, want 1", got)
 	}
 }
 

@@ -7,7 +7,6 @@ import (
 	"slices"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/engine/session"
 	"github.com/joshsymonds/orrery/internal/holder"
@@ -21,7 +20,7 @@ import (
 func restartStepDrain(t *testing.T, rig crashRig, version, stepCap int) (*Manager, *fakeSink) {
 	t.Helper()
 	rig.manager.Close()
-	writer := NewWriter(WriterConfig{Applier: rig.store, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: rig.store})
 	startRun(t, writer)
 	sh, err := exec.LookPath("sh")
 	if err != nil {

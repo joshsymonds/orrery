@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -339,7 +340,7 @@ func TestMetAtBaseQuestionEndEndsTheEpic(t *testing.T) {
 			t.Errorf("gate run %+v started after end, want none", run)
 		}
 	}
-	err := w.s.RetryEpic(context.Background(), runEpic)
+	err := w.s.RetryEpic(context.Background(), runEpic, store.Maker{By: store.MakerOwner}, time.Unix(1700000000, 0))
 	if err == nil || !strings.Contains(err.Error(), "parked for good") {
 		t.Errorf("RetryEpic after end = %v, want the met-at-base refusal", err)
 	}

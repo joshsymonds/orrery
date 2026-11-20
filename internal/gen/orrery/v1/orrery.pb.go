@@ -4845,7 +4845,7 @@ type PendingEvent struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The event's id, which names its delivery mark.
 	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	// The event's kind: step_end, question, park, release or end.
+	// The event's kind: step_end, question, park, release, end, moved or action.
 	Kind string `protobuf:"bytes,2,opt,name=kind,proto3" json:"kind,omitempty"`
 	// The step the event is about, for a step_end.
 	Step string `protobuf:"bytes,3,opt,name=step,proto3" json:"step,omitempty"`

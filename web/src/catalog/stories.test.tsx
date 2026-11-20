@@ -208,6 +208,45 @@ test("StoryCoverage: an entry whose story export does not exist is reported, whe
   );
 });
 
+test("StoryCoverage: missingStories covers a component export by the story export another stories module holds, and reports it when that module or export is missing", () => {
+  const widget = () => null;
+  const renames = { "widget.tsx": { Widget: { module: "other.stories.tsx", story: "Page" } } };
+  const line = "widget.tsx export Widget has no story in other.stories.tsx";
+  assert.deepEqual(
+    missingStories({ "widget.tsx": { Widget: widget } }, { "other.stories.tsx": { Page: {} } }, renames),
+    [],
+    "the other stories module holds Page",
+  );
+  assert.deepEqual(missingStories({ "widget.tsx": { Widget: widget } }, {}, renames), [line], "the other stories module is missing");
+  assert.deepEqual(
+    missingStories({ "widget.tsx": { Widget: widget } }, { "other.stories.tsx": { Gadget: {} } }, renames),
+    [line],
+    "the other stories module lacks Page",
+  );
+  assert.deepEqual(
+    missingStories({ "widget.tsx": { Widget: widget } }, { "widget.stories.tsx": { Widget: {} } }, renames),
+    [line],
+    "the file's own stories module does not cover an export the table sends to another module",
+  );
+});
+
+test("StoryCoverage: an entry naming another stories module's export is stale when that module or export is gone, and not when both exist", () => {
+  const widget = () => null;
+  const renames = { "widget.tsx": { Widget: { module: "other.stories.tsx", story: "Page" } } };
+  const line = "widget.tsx export Widget renames to Page: other.stories.tsx exports no Page";
+  assert.deepEqual(staleRenames(renames, { "widget.tsx": { Widget: widget } }, {}), [line], "the other stories module is missing");
+  assert.deepEqual(
+    staleRenames(renames, { "widget.tsx": { Widget: widget } }, { "other.stories.tsx": { Gadget: {} } }),
+    [line],
+    "the other stories module lacks Page",
+  );
+  assert.deepEqual(
+    staleRenames(renames, { "widget.tsx": { Widget: widget } }, { "other.stories.tsx": { Page: {} } }),
+    [],
+    "the other stories module holds Page",
+  );
+});
+
 test("StoryCoverage: the real table reports no stale entry", () => {
   assert.deepEqual(staleRenames(storyRenames, componentModules, storyModules), []);
 });

@@ -104,7 +104,7 @@ func TestStepEndFactsPendingEvent(t *testing.T) {
 	s := openEventStore(t, path)
 	addCardEvents(t, s)
 	addFactsStep(t, s)
-	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, 0))
+	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, nil, 0))
 	stream := openSessionStream(t, client, sessionReq(eventEngine, 0, 0))
 
 	pending := stream.next(t).GetState().GetPending()
@@ -139,7 +139,7 @@ func TestStepEndFactsConversationItem(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	addStepEndSession(t, s)
-	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, 0))
+	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, nil, 0))
 	stream := openSessionStream(t, client, sessionReq(eventEngine, 0, 0))
 
 	msg := stream.next(t)
@@ -155,7 +155,7 @@ func TestStepEndFactsOlderPage(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	addStepEndSession(t, s)
-	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, 0))
+	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, nil, 0))
 
 	resp, err := client.Older(t.Context(), connect.NewRequest(&orreryv1.SessionsOlderRequest{
 		Id: eventEngine, Before: 1000,

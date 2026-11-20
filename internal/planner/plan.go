@@ -6,7 +6,9 @@ package planner
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"slices"
 	"strings"
 
@@ -95,29 +97,41 @@ const Schema = `{
 				"additionalProperties": false
 			}
 		},
+		"unresolvable": {"type": "string"},
 		"outcome": {"type": "string", "enum": ["work", "wait", "complete"]}
 	},
 	"required": ["status", "decisions", "tasks", "outline", "questions", "actions", "outcome"],
 	"additionalProperties": false
 }`
 
-// Return is the planner turn's return.
+// Return is the planner turn's return. Unresolvable is read by Parse from the key unresolvable, a JSON array written as a
+// string, as args is; UnresolvableError is why that string did not read as an array, and check.go refuses it.
 type Return struct {
-	Status    string         `json:"status"`
-	Decisions []string       `json:"decisions"`
-	Tasks     []Task         `json:"tasks"`
-	Outline   string         `json:"outline"`
-	Questions []Question     `json:"questions"`
-	Actions   []EngineAction `json:"actions"`
-	Outcome   string         `json:"outcome"`
+	Status            string         `json:"status"`
+	Decisions         []string       `json:"decisions"`
+	Tasks             []Task         `json:"tasks"`
+	Outline           string         `json:"outline"`
+	Questions         []Question     `json:"questions"`
+	Actions           []EngineAction `json:"actions"`
+	Unresolvable      []Unresolvable `json:"-"`
+	UnresolvableError string         `json:"-"`
+	Outcome           string         `json:"outcome"`
+}
+
+// Unresolvable is one gap of a gap trigger the planner cannot resolve without the owner: the gap's key, the reason the
+// planner gives, and the recommendation, release or correct.
+type Unresolvable struct {
+	Gap         string `json:"gap"`
+	Reason      string `json:"reason"`
+	Recommended string `json:"recommended"`
 }
 
 // EngineAction is one action the planner asks the engine to carry out: its kind, the node, task, close, replacing epic,
-// Requirement, evidence item, deliverable and files its kind uses, the undo-none positions it names, and the planner's
-// reason. check.go lists the fields each kind uses. The return carries the fields a kind uses as args, a JSON object
-// written as a string, so that the schema the model is held to stays one small fixed shape however many kinds there
-// are; Parse reads args into these fields. ArgsError is why args did not read, and Unknown lists the keys of args that
-// no kind uses; check.go refuses either.
+// Requirement, evidence item, deliverable, files and reviewer its kind uses, the undo-none positions it names, and the
+// planner's reason. check.go lists the fields each kind uses. The return carries the fields a kind uses as args, a JSON
+// object written as a string, so that the schema the model is held to stays one small fixed shape however many kinds
+// there are; Parse reads args into these fields. ArgsError is why args did not read, and Unknown lists the keys of args
+// that no kind uses; check.go refuses either.
 type EngineAction struct {
 	Kind        string        `json:"kind"`
 	Node        string        `json:"-"`
@@ -129,6 +143,7 @@ type EngineAction struct {
 	Deliverable string        `json:"-"`
 	Files       []string      `json:"-"`
 	Remove      []string      `json:"-"`
+	Reviewer    string        `json:"-"`
 	UndoNone    []int64       `json:"-"`
 	Reason      string        `json:"reason"`
 	ArgsError   string        `json:"-"`
@@ -146,12 +161,13 @@ const (
 	argDeliverable = "deliverable"
 	argFiles       = "files"
 	argRemove      = "remove"
+	argReviewer    = "reviewer"
 	argUndoNone    = "undo_none"
 )
 
 // readArgs fills action's fields from args, a JSON object written as a string. Blank args reads as no fields. args that is
 // not a JSON object, or holds a key whose value is not of its field's type, leaves the fields empty and sets ArgsError; an
-// item with a key an evidence item does not have is such a value. Keys outside the ten above are listed in Unknown.
+// item with a key an evidence item does not have is such a value. Keys outside the eleven above are listed in Unknown.
 func readArgs(action *EngineAction, args string) {
 	if strings.TrimSpace(args) == "" {
 		return
@@ -165,7 +181,7 @@ func readArgs(action *EngineAction, args string) {
 	fields := map[string]any{
 		argNode: &read.Node, argTask: &read.Task, argClose: &read.Close, argBy: &read.By,
 		argRequirement: &read.Requirement, argItem: &read.Item, argDeliverable: &read.Deliverable,
-		argFiles: &read.Files, argRemove: &read.Remove, argUndoNone: &read.UndoNone,
+		argFiles: &read.Files, argRemove: &read.Remove, argReviewer: &read.Reviewer, argUndoNone: &read.UndoNone,
 	}
 	for key, value := range keys {
 		field, known := fields[key]
@@ -185,6 +201,7 @@ func readArgs(action *EngineAction, args string) {
 		read.Node, read.Task, read.Close, read.By, read.UndoNone
 	action.Requirement, action.Item, action.Deliverable = read.Requirement, read.Item, read.Deliverable
 	action.Files, action.Remove = read.Files, read.Remove
+	action.Reviewer = read.Reviewer
 }
 
 // Question is one question the planner asks the owner: its label, its text, the choices it declares, the choice it
@@ -236,17 +253,19 @@ type Task struct {
 	Evidence     evidence.Item `json:"evidence"`
 }
 
-// Parse decodes a planner return from raw JSON. It refuses input that is not valid JSON. A task's test_changes is read by
-// its key, as the schema spells it, since the package's JSON tags are camel case, and each action's fields are read from
-// its args (readArgs).
+// Parse decodes a planner return from raw JSON. It refuses input that is not valid JSON, and an unresolvable that is not a
+// string. A task's test_changes is read by its key, as the schema spells it, since the package's JSON tags are camel case,
+// each action's fields are read from its args (readArgs), and the unresolvable list is read from its string
+// (readUnresolvable).
 func Parse(raw json.RawMessage) (Return, error) {
 	var ret Return
 	if err := json.Unmarshal(raw, &ret); err != nil {
 		return Return{}, fmt.Errorf("planner return: %w", err)
 	}
 	var keyed struct {
-		Tasks   []map[string]json.RawMessage `json:"tasks"`
-		Actions []map[string]json.RawMessage `json:"actions"`
+		Tasks        []map[string]json.RawMessage `json:"tasks"`
+		Actions      []map[string]json.RawMessage `json:"actions"`
+		Unresolvable json.RawMessage              `json:"unresolvable"`
 	}
 	if err := json.Unmarshal(raw, &keyed); err != nil {
 		return Return{}, fmt.Errorf("planner return: %w", err)
@@ -269,5 +288,45 @@ func Parse(raw json.RawMessage) (Return, error) {
 		}
 		readArgs(&ret.Actions[i], args)
 	}
+	if len(keyed.Unresolvable) > 0 {
+		var text string
+		if err := json.Unmarshal(keyed.Unresolvable, &text); err != nil {
+			return Return{}, fmt.Errorf("planner return: unresolvable: %w", err)
+		}
+		readUnresolvable(&ret, text)
+	}
 	return ret, nil
+}
+
+// readUnresolvable fills ret's Unresolvable from text, the unresolvable string of a return, a JSON array of objects with
+// gap, reason and recommended. Blank text reads as an empty list. Text that is not such an array leaves the list empty and
+// sets UnresolvableError, why it did not read.
+func readUnresolvable(ret *Return, text string) {
+	if strings.TrimSpace(text) == "" {
+		return
+	}
+	entries, err := decodeUnresolvable(text)
+	if err != nil {
+		ret.UnresolvableError = err.Error()
+		return
+	}
+	ret.Unresolvable = entries
+}
+
+// decodeUnresolvable decodes text as one JSON array of objects whose only keys are gap, reason and recommended, each
+// holding a string. A null, or any value that is not an array, is refused.
+func decodeUnresolvable(text string) ([]Unresolvable, error) {
+	decoder := json.NewDecoder(strings.NewReader(text))
+	decoder.DisallowUnknownFields()
+	var entries []Unresolvable
+	if err := decoder.Decode(&entries); err != nil {
+		return nil, fmt.Errorf("decode: %w", err)
+	}
+	if entries == nil {
+		return nil, errors.New("not a JSON array")
+	}
+	if _, err := decoder.Token(); err != io.EOF {
+		return nil, errors.New("data after the JSON array")
+	}
+	return entries, nil
 }

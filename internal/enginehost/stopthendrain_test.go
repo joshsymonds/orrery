@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/holder"
 )
@@ -75,7 +74,7 @@ func TestStopThenDrainKillsAHolderThatGaveNoAnswerWithoutAskingAgain(t *testing.
 			continue
 		}
 		found = true
-		writer := NewWriter(WriterConfig{Applier: rig.store, Tick: 5 * time.Millisecond})
+		writer := NewWriter(WriterConfig{Applier: rig.store})
 		startRun(t, writer)
 		restarted := newStateManager(t, rig.store, writer, &fakeSink{}, fakeSystemdRunPath(t), rig.root, nil)
 		noAnswer := fmt.Errorf("%w: %w", holder.ErrUnattachable, holder.ErrNoAnswer)

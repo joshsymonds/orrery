@@ -26,19 +26,25 @@ func isUndoNone(undo string) bool {
 	return strings.EqualFold(strings.TrimSpace(undo), releaseUndoNone)
 }
 
-// ReleaseEpic releases epic in one write, and returns an error matching ErrNoEpic for an id no epic has. When epic ended
-// with gaps it records the owner decision that releases it and moves it to clean, so its release run takes the release
-// slot of its repository and no tell is added; it is a RefusalError when undoNone is not empty, as such an epic has no
-// release run to name a step of. Otherwise it resumes the stopped release of epic at its first unfinished release step.
+// ReleaseEpic releases epic in one write, and returns an error matching ErrNoEpic for an id no epic has. When epic
+// ended with gaps it records the owner decision that releases it, answers its open gaps question with release, and
+// moves it to clean, so its release run takes the release slot of its repository and no tell is added; it is a
+// RefusalError when undoNone is not empty, as such an epic has no release run to name a step of. Otherwise it resumes
+// the stopped release of epic at its first unfinished release step.
 // That is a RefusalError when epic is not stopped, when epic has no parked release node run, when another epic holds the
 // release slot of its repository, when a position in undoNone is not an undo-none release step, and when the first
 // unfinished step is undo-none, has failed and is not in undoNone. Otherwise it takes the release slot when it is free,
 // stores a named release run for each distinct position in undoNone for the release node run's next attempt, records one
 // owner decision per such position, moves the release node run to that attempt and unparks epic as RetryNode does, moves
-// epic from stopped to releasing, and adds one tell that says where the release resumed.
+// epic from stopped to releasing, and adds one tell that says where the release resumed. The write appends one release
+// action made by maker at at.
 func (s *Store) ReleaseEpic(ctx context.Context, epic string, undoNone []int64, maker Maker, at time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		return resumeRelease(ctx, queries, epic, undoNone, maker, at)
+		if err := resumeRelease(ctx, queries, epic, undoNone, maker, at); err != nil {
+			return err
+		}
+		_, err := appendEpicAction(ctx, queries, epic, ActionRelease, maker, "", "", at)
+		return err
 	})
 }
 
@@ -126,9 +132,9 @@ func resumeStoppedRelease(
 	return insertTell(ctx, queries, epic, resumedReleaseText(resume.steps, resume.unfinished), at)
 }
 
-// releaseEndedWithGaps releases epic, which ended with gaps, in the caller's write: it records the owner's decision and
-// moves epic to clean, so its release run takes the release slot of its repository. It is a RefusalError when undoNone
-// names any position, since epic has not started a release.
+// releaseEndedWithGaps releases epic, which ended with gaps, in the caller's write: it records the owner's decision,
+// answers each open gaps question of epic with release, and moves epic to clean, so its release run takes the release
+// slot of its repository. It is a RefusalError when undoNone names any position, since epic has not started a release.
 func releaseEndedWithGaps(
 	ctx context.Context, queries *sqlcgen.Queries, epic string, undoNone []int64, maker Maker, at time.Time,
 ) error {
@@ -136,7 +142,10 @@ func releaseEndedWithGaps(
 		return RefusalError(fmt.Sprintf("epic %s has not started a release; name no undo-none step", epic))
 	}
 	text := fmt.Sprintf("owner released epic %s, which ended with gaps", epic)
-	if _, err := appendDecision(ctx, queries, epic, releaseEndedWithGapsID, text, 0, maker, at); err != nil {
+	if _, err := appendDecision(ctx, queries, epic, releaseEndedWithGapsID, text, 0, maker, "", at); err != nil {
+		return err
+	}
+	if err := answerOpenGapsQuestions(ctx, queries, epic, ChoiceRelease); err != nil {
 		return err
 	}
 	return setEpicPhase(ctx, queries, epic, PhaseClean, at)
@@ -202,7 +211,7 @@ func recordNamedReleases(
 		}
 		decision := fmt.Sprintf("owner named undo-none release step %d, %s, to run it again", position, step)
 		id := fmt.Sprintf("release-undo-none-%d-%d", position, attempt)
-		if _, err := appendDecision(ctx, queries, epic, id, decision, 0, maker, at); err != nil {
+		if _, err := appendDecision(ctx, queries, epic, id, decision, 0, maker, "", at); err != nil {
 			return err
 		}
 	}

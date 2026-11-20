@@ -67,8 +67,8 @@ func (n *speakNotices) Seen(_ context.Context, _ string, _ time.Time) {}
 // the owner interrupt it and then Say to it through the manager that writes the store the session stream reads. The
 // stream labels the pending event speak after the interrupt, and free again after the owner's Say.
 //
-// The test's only waits are the first turn's done notice and the stream's messages. The writer's tick is the production
-// writer loop the Manager stores through, so the test runs the Manager with a running Writer, as production does.
+// The test's only waits are the first turn's done notice and the stream's messages. The writer is the production writer
+// loop the Manager stores through, so the test runs the Manager with a running Writer, as production does.
 //
 // The test runs a real session because R6 requires an owner Say through the production Manager.Say and the waits label
 // as the session stream serves it, and only a Manager with a live session under orrery holder reaches that. The cost is
@@ -79,7 +79,7 @@ func TestSpeakLabelOwnerSayEndsWaitsSpeak(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(t.Context())
 	writer := enginehost.NewWriter(enginehost.WriterConfig{
-		Applier: s, Tick: 5 * time.Millisecond, Now: speakFixedClock,
+		Applier: s, Now: speakFixedClock,
 	})
 	writerDone := make(chan struct{})
 	go func() {
@@ -131,7 +131,7 @@ func TestSpeakLabelOwnerSayEndsWaitsSpeak(t *testing.T) {
 		store.StepEnd{ID: speakStep, End: "done", Status: "passed", Reason: "gate green"},
 	)
 	reader := store.NewReader(path)
-	client := sessionsWatchClient(t, sessionsHandler(t, reader, nil, 0))
+	client := sessionsWatchClient(t, sessionsHandler(t, reader, s, nil, 0))
 	stream := openSessionStream(t, client, sessionReq(speakSession, 0, 0))
 	wantPendingEvents(t, stream.next(t), speakPending(cardFree))
 

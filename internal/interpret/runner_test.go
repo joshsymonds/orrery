@@ -128,6 +128,7 @@ func builtinPin(t *testing.T) store.EpicWorkflow {
 		Name: pinned.Name, Text: pinned.Text, SHA256: pinned.SHA256,
 		Nodes: []store.EpicWorkflowNode{
 			{ID: "red", Kind: "evidence"},
+			{ID: "cost", Kind: "cost"},
 			{ID: "plan", Kind: "plan"},
 			{ID: "build", Parent: "plan", Kind: "build"},
 			{ID: "integrate", Parent: "plan", Kind: "integrate"},
@@ -176,10 +177,10 @@ func createRunEpic(t *testing.T, s *store.Store, pin store.EpicWorkflow) {
 	}
 }
 
-// newRunner returns a runner over s with the planner and builder given, the clock at runClock, and a tick an hour
-// long, so Run passes once unless a test ends it first.
+// newRunner returns a runner over s with the planner and builder given and the clock at runClock. It passes the epics
+// its tests pass by hand, since no wake reaches it.
 func newRunner(s Store, planner Planner, builder Builder) *Runner {
-	return New(Config{Store: s, Planner: planner, Builder: builder, Tick: time.Hour, Now: runClock})
+	return New(Config{Store: s, Planner: planner, Builder: builder, Now: runClock})
 }
 
 // epicOf returns the test epic as the store holds it.
@@ -250,16 +251,39 @@ func completeTurn(t *testing.T, s *store.Store, plan store.EpicPlan) {
 }
 
 // TestNewEpicOnBuiltInCapturesRedThenStartsPlan: a new epic pinned to the built-in epic gets its red run at base
-// captured and passed by the first pass, then its plan run stored, the planner is passed for that epic, and no build
-// run is handed out.
+// captured and passed by the first pass, then its cost run measured at base, which a check with no Done gate records
+// as not run, then its plan run stored, the planner is passed for that epic, and no build run is handed out.
 func TestNewEpicOnBuiltInCapturesRedThenStartsPlan(t *testing.T) {
 	t.Parallel()
+	ctx := context.Background()
+	// The cost node prepares its run at the epic's repository, so the epic is on a repository that exists.
+	repo, base := nodeRepo(t)
 	s := openRunStore(t)
-	createRunEpic(t, s, builtinPin(t))
+	if err := s.CreateEpic(ctx, store.EpicRow{
+		ID: runEpic, Repository: repo, Base: base, Title: "Run the workflow", Phase: runPhase,
+		Created: runClock(), Changed: runClock(), Workflow: builtinPin(t),
+	}); err != nil {
+		t.Fatalf("CreateEpic: %v", err)
+	}
 	planner, builder := &fakePlanner{known: []string{runEpic}}, &fakeBuilder{}
-	newRunner(s, planner, builder).Pass(context.Background())
+	runner := New(Config{
+		Store: s, Planner: planner, Builder: builder, Checks: &fakeChecks{store: s}, Now: runClock,
+	})
+	runner.Pass(ctx)
 
+	got := runsOf(t, s)
+	// The cost run's refs are the snapshot of the repository, which this test does not fix.
+	for i := range got {
+		if got[i].Path == "cost" {
+			got[i].Refs = ""
+		}
+	}
 	want := []store.NodeRun{
+		{
+			Path: "cost", ID: store.NodeRunID(runEpic, "cost", 0, "start"), Node: "cost", Kind: "cost",
+			State: store.NodeEnded, Outcome: "passed", Output: "no Done gate to measure at the base",
+			Revision: base, RefsChecked: true, Started: runClock(), Ended: runClock(),
+		},
 		{
 			Path: "plan", ID: store.NodeRunID(runEpic, "plan", 0, "start"), Node: "plan", Kind: "plan",
 			State: store.NodeRunning, Started: runClock(),
@@ -270,7 +294,7 @@ func TestNewEpicOnBuiltInCapturesRedThenStartsPlan(t *testing.T) {
 			Started: runClock(), Ended: runClock(),
 		},
 	}
-	if got := runsOf(t, s); !reflect.DeepEqual(got, want) {
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("node runs = %+v, want %+v", got, want)
 	}
 	if wantNamed := [][]string{{runEpic}}; !reflect.DeepEqual(planner.named, wantNamed) {

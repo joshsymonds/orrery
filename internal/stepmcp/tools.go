@@ -19,21 +19,24 @@ import (
 	"github.com/joshsymonds/orrery/internal/rpcretry"
 )
 
-// NewServer returns the MCP server "orrery" whose step tools call steps, whose epic tools call epics and whose evidence
-// tools call evidence.
+// NewServer returns the MCP server "orrery" whose step tools call steps, whose epic tools call epics, whose contract
+// tools call contracts and whose evidence tools call evidence.
 func NewServer(
 	steps enginev1connect.StepsClient,
 	epics enginev1connect.EpicsClient,
+	contracts enginev1connect.ContractsClient,
 	evidence enginev1connect.EvidenceClient,
 ) (*Server, error) {
-	return newServer(steps, epics, evidence, rpcretry.SystemClock{})
+	return newServer(steps, epics, contracts, evidence, rpcretry.SystemClock{})
 }
 
 // newServer returns the MCP server "orrery" whose step tools call steps and time their retries on clock, whose epic
-// tools call epics and whose evidence tools call evidence. A tool name that two tools share is an error.
+// tools call epics, whose contract tools call contracts and whose evidence tools call evidence. A tool name that two
+// tools share is an error.
 func newServer(
 	steps enginev1connect.StepsClient,
 	epics enginev1connect.EpicsClient,
+	contracts enginev1connect.ContractsClient,
 	evidence enginev1connect.EvidenceClient,
 	clock rpcretry.Clock,
 ) (*Server, error) {
@@ -45,11 +48,15 @@ func newServer(
 	if err != nil {
 		return nil, fmt.Errorf("new orrery server: %w", err)
 	}
+	contractList, err := contractTools(contracts)
+	if err != nil {
+		return nil, fmt.Errorf("new orrery server: %w", err)
+	}
 	evidenceList, err := evidenceTools(evidence)
 	if err != nil {
 		return nil, fmt.Errorf("new orrery server: %w", err)
 	}
-	tools := slices.Concat(stepList, epicList, evidenceList)
+	tools := slices.Concat(stepList, epicList, contractList, evidenceList)
 	names := make(map[string]bool, len(tools))
 	for _, tool := range tools {
 		if names[tool.Name] {

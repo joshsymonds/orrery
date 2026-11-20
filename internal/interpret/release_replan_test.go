@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/planner"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -273,7 +274,12 @@ func TestRetryOfIntegratorStoppedReleaseReplans(t *testing.T) {
 	if phase := w.flowOf(runEpic).Epic.Phase; phase != store.PhaseStopped {
 		t.Fatalf("epic phase = %q, want stopped", phase)
 	}
-	if err := w.s.RetryEpic(context.Background(), runEpic); err != nil {
+	if err := w.s.RetryEpic(
+		context.Background(),
+		runEpic,
+		store.Maker{By: store.MakerOwner},
+		time.Unix(1700000000, 0),
+	); err != nil {
 		t.Fatalf("RetryEpic: %v", err)
 	}
 	if logged := w.pass(); logged != "" {

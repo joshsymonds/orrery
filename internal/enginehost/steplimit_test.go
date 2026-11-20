@@ -328,25 +328,30 @@ func TestStepLimitedRunIgnoresExit(t *testing.T) {
 	}
 }
 
-// TestStepLimitedRunSkipsTicks covers R1: a limited run takes its ticks without checking the watch, so a tick past the
-// agent gate's limit ends nothing.
+// TestStepLimitedRunSkipsTicks covers R1: a limited run arms no deadline, so the agent gate's limit, passed by the
+// clock's reading, ends nothing.
 func TestStepLimitedRunSkipsTicks(t *testing.T) {
 	t.Parallel()
+	clock := &watchLoopClock{at: watchEpoch()}
+	timers := &stepDeadlineTimers{}
 	f := newStepLimitFixture(t)
-	ticks := make(chan time.Time)
-	f.run.ticks = ticks
-	f.run.now = func() time.Time { return time.Now().Add(time.Hour) }
+	f.run.newTimer = timers.newTimer
+	f.run.now = clock.now
+	f.run.started = watchEpoch()
 	f.run.agentGate = &gates.Gate{Name: "reviewer", Agent: "reviewer", Limit: time.Minute}
 	f.start(t)
 
 	limitTurn(f.run)
 	f.awaitLimited(t)
-	ticks <- time.Now()
+	clock.set(time.Hour)
 	if err := f.run.do(t.Context(), func(context.Context) error { return nil }); err != nil {
-		t.Fatalf("owner action after a tick of a limited run: %v, want the run still running", err)
+		t.Fatalf("owner action after the gate limit passed a limited run: %v, want the run still running", err)
+	}
+	if _, armed := timers.armedDuration(); armed {
+		t.Fatal("limited run has a deadline armed, want none")
 	}
 	if row := f.row(t); row.End != "" {
-		t.Fatalf("End = %q after a tick of a limited run, want open", row.End)
+		t.Fatalf("End = %q after the gate limit passed a limited run, want open", row.End)
 	}
 }
 

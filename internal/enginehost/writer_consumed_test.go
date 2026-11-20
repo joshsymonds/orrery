@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/waittest"
@@ -32,8 +31,8 @@ func TestConsumedOffsetPutNeverWaitsAtTheLimit(t *testing.T) {
 	s, _ := openStore(t)
 	addSessions(t, s, "a")
 	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
-	// A one-hour tick never fires, so session a stays at its limit of one unstored op.
-	w := NewWriter(WriterConfig{Applier: applier, Tick: time.Hour, Limit: 1})
+	// Run is not started, so session a stays at its limit of one unstored op.
+	w := NewWriter(WriterConfig{Applier: applier, Limit: 1})
 	ctx := t.Context()
 	if err := w.Put(ctx, "a", prompt("a", "a1")); err != nil {
 		t.Fatalf("Put a1 under the limit: %v", err)
@@ -52,7 +51,7 @@ func TestConsumedOffsetDoesNotCountAgainstTheLimit(t *testing.T) {
 	s, _ := openStore(t)
 	addSessions(t, s, "a")
 	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
-	w := NewWriter(WriterConfig{Applier: applier, Tick: time.Hour, Limit: 1})
+	w := NewWriter(WriterConfig{Applier: applier, Limit: 1})
 	ctx := t.Context()
 	if err := w.Put(ctx, "a", consumedAt("a", 5)); err != nil {
 		t.Fatalf("Put consumed: %v", err)
@@ -72,7 +71,7 @@ func TestQueuedConsumedOffsetsStoreAsOneOpWithLaterOffsetAndMergedFields(t *test
 	s, _ := openStore(t)
 	addSessions(t, s, "a")
 	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
-	w := NewWriter(WriterConfig{Applier: applier, Tick: time.Hour})
+	w := NewWriter(WriterConfig{Applier: applier})
 	ctx := t.Context()
 
 	first := store.EngineConsumed{
@@ -117,7 +116,7 @@ func TestConsumedOffsetOfAnotherSessionIsNotMerged(t *testing.T) {
 	s, _ := openStore(t)
 	addSessions(t, s, "a", "b")
 	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
-	w := NewWriter(WriterConfig{Applier: applier, Tick: time.Hour})
+	w := NewWriter(WriterConfig{Applier: applier})
 	ctx := t.Context()
 
 	for _, op := range []store.EngineConsumed{consumedAt("a", 5), consumedAt("b", 7), consumedAt("a", 10)} {
@@ -143,7 +142,7 @@ func TestConsumedOffsetAfterQueuedLaunchIsNotMerged(t *testing.T) {
 	s, _ := openStore(t)
 	addSessions(t, s, "a")
 	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
-	w := NewWriter(WriterConfig{Applier: applier, Tick: time.Hour})
+	w := NewWriter(WriterConfig{Applier: applier})
 	ctx := t.Context()
 
 	launch := store.EngineLaunch{ID: "a"}
@@ -175,7 +174,7 @@ func TestConsumedOffsetAfterQueuedAddIsNotMerged(t *testing.T) {
 	t.Parallel()
 	s, _ := openStore(t)
 	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
-	w := NewWriter(WriterConfig{Applier: applier, Tick: time.Hour})
+	w := NewWriter(WriterConfig{Applier: applier})
 	ctx := t.Context()
 
 	add := store.EngineAdd{ID: "a", Dir: "/work", State: "working"}
@@ -209,7 +208,7 @@ func TestCommitOfAbsorbedConsumedOffsetReturnsOnceMergedOpIsStored(t *testing.T)
 	s, _ := openStore(t)
 	addSessions(t, s, "a")
 	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
-	w := NewWriter(WriterConfig{Applier: applier, Tick: time.Hour})
+	w := NewWriter(WriterConfig{Applier: applier})
 	ctx := t.Context()
 
 	if err := w.Put(ctx, "a", consumedAt("a", 5)); err != nil {

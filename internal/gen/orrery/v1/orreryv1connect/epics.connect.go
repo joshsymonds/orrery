@@ -65,6 +65,10 @@ const (
 	EpicsReleaseProcedure = "/orrery.v1.Epics/Release"
 	// EpicsCloseProcedure is the fully-qualified name of the Epics's Close RPC.
 	EpicsCloseProcedure = "/orrery.v1.Epics/Close"
+	// EpicsMoveProcedure is the fully-qualified name of the Epics's Move RPC.
+	EpicsMoveProcedure = "/orrery.v1.Epics/Move"
+	// EpicsContinueProcedure is the fully-qualified name of the Epics's Continue RPC.
+	EpicsContinueProcedure = "/orrery.v1.Epics/Continue"
 	// StepsHoldProcedure is the fully-qualified name of the Steps's Hold RPC.
 	StepsHoldProcedure = "/orrery.v1.Steps/Hold"
 	// StepsNudgeProcedure is the fully-qualified name of the Steps's Nudge RPC.
@@ -110,6 +114,11 @@ type EpicsClient interface {
 	// Close closes the named orreryd epic as superseded, shipped by hand or abandoned, and records the owner as its
 	// closer.
 	Close(context.Context, *connect.Request[v1.EpicsCloseRequest]) (*connect.Response[v1.EpicsCloseResponse], error)
+	// Move moves the steering of the named orreryd epic to the session the request names, as the owner.
+	Move(context.Context, *connect.Request[v1.EpicsMoveRequest]) (*connect.Response[v1.EpicsMoveResponse], error)
+	// Continue starts a steering session for the named orreryd epic, moves its steering to that session as the owner, and
+	// answers the session's id.
+	Continue(context.Context, *connect.Request[v1.EpicsContinueRequest]) (*connect.Response[v1.EpicsContinueResponse], error)
 }
 
 // NewEpicsClient constructs a client for the orrery.v1.Epics service. By default, it uses the
@@ -207,6 +216,18 @@ func NewEpicsClient(httpClient connect.HTTPClient, baseURL string, opts ...conne
 			connect.WithSchema(epicsMethods.ByName("Close")),
 			connect.WithClientOptions(opts...),
 		),
+		move: connect.NewClient[v1.EpicsMoveRequest, v1.EpicsMoveResponse](
+			httpClient,
+			baseURL+EpicsMoveProcedure,
+			connect.WithSchema(epicsMethods.ByName("Move")),
+			connect.WithClientOptions(opts...),
+		),
+		_continue: connect.NewClient[v1.EpicsContinueRequest, v1.EpicsContinueResponse](
+			httpClient,
+			baseURL+EpicsContinueProcedure,
+			connect.WithSchema(epicsMethods.ByName("Continue")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -226,6 +247,8 @@ type epicsClient struct {
 	unarchive *connect.Client[v1.EpicsUnarchiveRequest, v1.EpicsUnarchiveResponse]
 	release   *connect.Client[v1.EpicsReleaseRequest, v1.EpicsReleaseResponse]
 	close     *connect.Client[v1.EpicsCloseRequest, v1.EpicsCloseResponse]
+	move      *connect.Client[v1.EpicsMoveRequest, v1.EpicsMoveResponse]
+	_continue *connect.Client[v1.EpicsContinueRequest, v1.EpicsContinueResponse]
 }
 
 // List calls orrery.v1.Epics.List.
@@ -298,6 +321,16 @@ func (c *epicsClient) Close(ctx context.Context, req *connect.Request[v1.EpicsCl
 	return c.close.CallUnary(ctx, req)
 }
 
+// Move calls orrery.v1.Epics.Move.
+func (c *epicsClient) Move(ctx context.Context, req *connect.Request[v1.EpicsMoveRequest]) (*connect.Response[v1.EpicsMoveResponse], error) {
+	return c.move.CallUnary(ctx, req)
+}
+
+// Continue calls orrery.v1.Epics.Continue.
+func (c *epicsClient) Continue(ctx context.Context, req *connect.Request[v1.EpicsContinueRequest]) (*connect.Response[v1.EpicsContinueResponse], error) {
+	return c._continue.CallUnary(ctx, req)
+}
+
 // EpicsHandler is an implementation of the orrery.v1.Epics service.
 type EpicsHandler interface {
 	// List returns every epic under the record root and in orreryd's database, one per id, live or folded.
@@ -331,6 +364,11 @@ type EpicsHandler interface {
 	// Close closes the named orreryd epic as superseded, shipped by hand or abandoned, and records the owner as its
 	// closer.
 	Close(context.Context, *connect.Request[v1.EpicsCloseRequest]) (*connect.Response[v1.EpicsCloseResponse], error)
+	// Move moves the steering of the named orreryd epic to the session the request names, as the owner.
+	Move(context.Context, *connect.Request[v1.EpicsMoveRequest]) (*connect.Response[v1.EpicsMoveResponse], error)
+	// Continue starts a steering session for the named orreryd epic, moves its steering to that session as the owner, and
+	// answers the session's id.
+	Continue(context.Context, *connect.Request[v1.EpicsContinueRequest]) (*connect.Response[v1.EpicsContinueResponse], error)
 }
 
 // NewEpicsHandler builds an HTTP handler from the service implementation. It returns the path on
@@ -424,6 +462,18 @@ func NewEpicsHandler(svc EpicsHandler, opts ...connect.HandlerOption) (string, h
 		connect.WithSchema(epicsMethods.ByName("Close")),
 		connect.WithHandlerOptions(opts...),
 	)
+	epicsMoveHandler := connect.NewUnaryHandler(
+		EpicsMoveProcedure,
+		svc.Move,
+		connect.WithSchema(epicsMethods.ByName("Move")),
+		connect.WithHandlerOptions(opts...),
+	)
+	epicsContinueHandler := connect.NewUnaryHandler(
+		EpicsContinueProcedure,
+		svc.Continue,
+		connect.WithSchema(epicsMethods.ByName("Continue")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orrery.v1.Epics/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case EpicsListProcedure:
@@ -454,6 +504,10 @@ func NewEpicsHandler(svc EpicsHandler, opts ...connect.HandlerOption) (string, h
 			epicsReleaseHandler.ServeHTTP(w, r)
 		case EpicsCloseProcedure:
 			epicsCloseHandler.ServeHTTP(w, r)
+		case EpicsMoveProcedure:
+			epicsMoveHandler.ServeHTTP(w, r)
+		case EpicsContinueProcedure:
+			epicsContinueHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -517,6 +571,14 @@ func (UnimplementedEpicsHandler) Release(context.Context, *connect.Request[v1.Ep
 
 func (UnimplementedEpicsHandler) Close(context.Context, *connect.Request[v1.EpicsCloseRequest]) (*connect.Response[v1.EpicsCloseResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Epics.Close is not implemented"))
+}
+
+func (UnimplementedEpicsHandler) Move(context.Context, *connect.Request[v1.EpicsMoveRequest]) (*connect.Response[v1.EpicsMoveResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Epics.Move is not implemented"))
+}
+
+func (UnimplementedEpicsHandler) Continue(context.Context, *connect.Request[v1.EpicsContinueRequest]) (*connect.Response[v1.EpicsContinueResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Epics.Continue is not implemented"))
 }
 
 // StepsClient is a client for the orrery.v1.Steps service.

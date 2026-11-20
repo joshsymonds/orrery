@@ -34,7 +34,16 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 .top { padding-bottom: var(--o-space-8); }
 .brand { display: flex; align-items: center; gap: var(--o-space-8); font: var(--o-type-title); }
 .brand .mark { flex: none; width: calc(var(--o-space-24) - var(--o-space-2)); height: calc(var(--o-space-24) - var(--o-space-2)); }
-.top > .keys-hint { display: flex; gap: var(--o-space-4); justify-content: flex-end; align-items: center; margin-top: var(--o-space-8); font: var(--o-type-small); color: var(--o-ink-3); }
+.brand > button {
+  display: inline-flex; align-items: center; gap: var(--o-space-8); margin-left: auto; padding: 0 var(--o-space-12); border: 0; border-radius: var(--o-radius-2);
+  background: var(--o-surface-raised); color: var(--o-ink-1); font: var(--o-type-small);
+}
+.brand > button:hover { background: var(--o-surface-pressed); }
+.top > .keys-hint {
+  display: flex; align-items: center; justify-content: center; width: var(--o-size-control-desk); height: var(--o-size-control-desk); margin: var(--o-space-8) 0 0 auto;
+  padding: 0; border: 0; border-radius: var(--o-radius-2); background: none; color: var(--o-ink-2);
+}
+.top > .keys-hint:hover { background: var(--o-surface-raised); color: var(--o-ink-1); }
 .filter {
   display: flex; align-items: center; gap: var(--o-space-8); margin-top: var(--o-space-8); padding: 0 var(--o-space-8);
   background: var(--o-surface-well); border-radius: var(--o-radius-2); box-shadow: 0 0 0 var(--o-size-hairline) var(--o-line-firm); color: var(--o-ink-3);
@@ -321,29 +330,101 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 /* A Needs you item fades in over the layout move as it enters the list. */
 .need-entry { animation: move-fade var(--o-move-layout); }
 
-/* The key list is a panel centred over the page, above the columns. It scrolls inside itself when the window is shorter
-   than it. */
-.keys {
-  position: fixed; top: 50%; left: 50%; z-index: var(--o-z-panel); transform: translate(-50%, -50%);
-  width: min(calc(var(--o-layout-page-measure) / 2), calc(100vw - var(--o-space-32))); max-height: calc(100vh - var(--o-space-32)); max-height: calc(100dvh - var(--o-space-32)); overflow-y: auto;
-  padding: var(--o-space-12) var(--o-space-16); border-radius: var(--o-radius-3); background: var(--o-surface-overlay); box-shadow: 0 0 0 var(--o-size-hairline) var(--o-line-firm);
-  font: var(--o-type-small); color: var(--o-ink-2);
+/* New session and the key list. Both are a panel over the page, dimmed under it, and New is a sheet from the foot of the
+   window below 760px. The start form and the key groups are the panel's own parts. */
+.scrim {
+  position: fixed; inset: 0; z-index: var(--o-z-panel); display: flex; align-items: flex-start; justify-content: center;
+  padding: var(--o-space-48) var(--o-space-16); background: var(--o-scrim);
 }
-.keys dl { margin: 0; }
-.keys .key { display: grid; grid-template-columns: calc(var(--o-space-48) * 2 + var(--o-space-12) + var(--o-space-2)) minmax(0, 1fr); gap: var(--o-space-8); padding: var(--o-space-2) 0; align-items: baseline; }
-.keys dt { display: flex; gap: var(--o-space-4); flex-wrap: wrap; }
-.keys dd { margin: 0; color: var(--o-ink-2); }
+.panel {
+  display: grid; gap: var(--o-space-12); width: min(76ch, 100%); max-height: 100%; overflow-y: auto; padding: var(--o-space-16);
+  border-radius: var(--o-radius-3); background: var(--o-surface-overlay); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm), var(--o-elevation-overlay);
+}
+.panel.wide { width: min(120ch, 100%); }
+.panel > .panel-body { display: grid; gap: var(--o-space-12); min-width: 0; }
+.panel > .head { display: flex; align-items: center; gap: var(--o-space-8); padding: 0; border-bottom: 0; }
+.panel > .head > .t-title { flex: 1 1 auto; }
+.panel > .head > .t-small { flex: none; color: var(--o-ink-3); }
+.panel > .head > button {
+  flex: none; width: var(--o-size-control-desk); height: var(--o-size-control-desk); padding: 0; border: 0; border-radius: var(--o-radius-2);
+  background: none; color: var(--o-ink-2);
+}
+.panel > .head > button:hover { background: var(--o-surface-raised); color: var(--o-ink-1); }
 
-@media (max-width: 480px) {
-  .keys .key { grid-template-columns: 1fr; gap: var(--o-space-2); }
+/* The field: a well with a hairline, its icon at the start and its count or key cap at the end. It takes the focus ring
+   while the field or its input has focus. */
+.field {
+  display: flex; align-items: center; gap: var(--o-space-8); min-width: 0; height: var(--o-size-control-desk); padding: 0 var(--o-space-8); border: 0;
+  border-radius: var(--o-radius-2); background: var(--o-surface-well); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-soft);
+  color: var(--o-ink-3); font: var(--o-type-body); outline: 0;
 }
+.field:focus, .field:focus-within { box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-role-focus); }
+.field input {
+  flex: 1 1 auto; width: 0; min-width: 0; min-height: 0; padding: 0; border: 0; border-radius: 0; background: none; outline: 0;
+  color: var(--o-ink-1); font: inherit;
+}
+.field input::placeholder { color: var(--o-ink-4); }
+.field .count { flex: none; font: var(--o-type-small); color: var(--o-ink-3); white-space: nowrap; }
+/* The message box: the same well for several lines, its text in the body face. */
+.field.area { display: block; width: 100%; height: auto; min-height: calc(var(--o-type-body-line) * 3 + var(--o-space-16)); padding: var(--o-space-8) var(--o-space-12); color: var(--o-ink-1); white-space: pre-wrap; resize: vertical; }
+.field.area::placeholder { color: var(--o-ink-4); }
 
-/* The palette is a panel over the page, above the notices. Its list scrolls within the panel. */
-.picker {
-  position: fixed; top: 12vh; left: 50%; z-index: var(--o-z-panel); transform: translateX(-50%);
-  width: min(calc(var(--o-layout-page-measure) / 2), calc(100vw - var(--o-space-32))); max-height: 70vh; overflow-y: auto; background: var(--o-surface-overlay);
-  border-radius: var(--o-radius-3); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm), var(--o-elevation-overlay);
+.icon { flex: none; width: var(--o-size-icon); height: var(--o-size-icon); fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.t-label { font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+.t-small { font: var(--o-type-small); }
+.t-title { font: var(--o-type-title); }
+.ink-4 { color: var(--o-ink-4); }
+
+/* A note in the hint's place, one line under the field: what happened, or the failure in the error role. */
+.inote { display: flex; align-items: center; gap: var(--o-space-8); margin: 0; font: var(--o-type-small); color: var(--o-ink-3); }
+/* A failure note also carries the error role, whose one line is cut at its edge elsewhere; a note's sentence wraps. */
+.inote.error { color: var(--o-role-bad); white-space: normal; overflow: visible; }
+.pick-row .chip { display: inline-flex; align-items: center; gap: var(--o-space-4); flex: none; padding: 0 var(--o-space-8); border-radius: var(--o-radius-1); background: var(--o-surface-raised); color: var(--o-ink-2); font: var(--o-type-small); white-space: nowrap; }
+.pick-row .chip.live { background: var(--o-role-live-fill); color: var(--o-role-live); }
+
+/* A result row: its kind's word in the label face, its title, its chip, then its note on the line under the title. The
+   current row takes the raised surface, as the hovered one does. */
+.pick-row {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; column-gap: var(--o-space-12); align-items: baseline; width: 100%;
+  margin: 0; padding: var(--o-space-8) var(--o-space-12); border: 0; border-radius: var(--o-radius-2); background: none; color: var(--o-ink-1);
+  font: var(--o-type-body); text-align: left; cursor: pointer; appearance: none; -webkit-appearance: none;
 }
+.pick-row:hover, .pick-row.cur { background: var(--o-surface-raised); }
+.pick-row .k { color: var(--o-ink-3); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+.pick-row .t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-ink-1); }
+.pick-row .n { grid-column: 2 / -1; min-width: 0; overflow-wrap: anywhere; color: var(--o-ink-3); font: var(--o-type-small); }
+
+/* The start form: a label over each control, and the foot with Other results at its start and Start at its end. */
+.picker-start { display: grid; gap: var(--o-space-12); min-width: 0; }
+.form-row { display: grid; gap: var(--o-space-4); min-width: 0; }
+.form-row > .t-label { color: var(--o-ink-3); }
+.foot { display: flex; align-items: center; gap: var(--o-space-8); min-width: 0; }
+.foot .end { display: inline-flex; align-items: center; gap: var(--o-space-8); margin-left: auto; }
+.foot button.act { display: inline-flex; align-items: center; gap: var(--o-space-8); min-height: var(--o-size-control-desk); padding: 0 var(--o-space-12); }
+.foot > button.act:not(.primary) { background: none; color: var(--o-ink-2); }
+.foot button.act:disabled { background: none; color: var(--o-ink-4); cursor: default; transform: none; }
+.foot button.act kbd { background: var(--o-surface-raised); color: var(--o-ink-2); }
+
+/* The key groups: as many columns as the panel holds (34ch each), each a label over its lines of caps and what they do. */
+.keygroups { display: grid; grid-template-columns: repeat(auto-fill, minmax(34ch, 1fr)); gap: var(--o-space-24); }
+.keygroup { display: grid; align-content: start; gap: var(--o-space-4); min-width: 0; }
+.keygroup > .t-label { margin-bottom: var(--o-space-4); color: var(--o-ink-3); }
+.keyline { display: grid; grid-template-columns: 12ch minmax(0, 1fr); column-gap: var(--o-space-12); align-items: baseline; font: var(--o-type-small); color: var(--o-ink-2); }
+.keyline .ks { display: inline-flex; flex-wrap: wrap; gap: var(--o-space-4); }
+
+/* The sheet rises from the foot of the window, with its grab bar, and its head names the sheet. */
+.sheet-scrim { position: fixed; inset: 0; z-index: var(--o-z-panel); display: flex; align-items: flex-end; background: var(--o-scrim); }
+.sheet {
+  display: grid; gap: var(--o-space-8); width: 100%; max-height: 90%; overflow-y: auto; padding: var(--o-space-8) var(--o-space-8) var(--o-space-16);
+  border-radius: var(--o-radius-3) var(--o-radius-3) 0 0; background: var(--o-surface-overlay); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm);
+}
+.sheet::before { content: ""; justify-self: center; width: var(--o-space-32); height: var(--o-space-4); border-radius: var(--o-radius-round); background: var(--o-line-firm); }
+.sheet .sheet-head { padding: var(--o-space-4) var(--o-space-12); color: var(--o-ink-2); font: var(--o-type-small); }
+.sheet .sheet-head b { display: block; color: var(--o-ink-1); font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
+.sheet .sheet-body { display: grid; gap: var(--o-space-12); min-width: 0; padding: var(--o-space-4) var(--o-space-8); }
+.sheet .field { height: var(--o-size-control-touch); }
+.sheet .foot { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: var(--o-space-8); padding: 0 var(--o-space-4); }
+.sheet .foot .end { justify-content: flex-end; margin-left: 0; }
 
 /* ============ reader: its head, one conversation, its new rule, live text, its send foot ============ */
 .head { display: flex; align-items: center; gap: var(--o-space-12); min-width: 0; border-bottom: var(--o-size-hairline) solid var(--o-line-soft); white-space: nowrap; }

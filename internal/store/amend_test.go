@@ -67,7 +67,7 @@ func amendOwner(t *testing.T, s *Store, item evidence.Item) EvidenceAmendment {
 	t.Helper()
 	amended, err := s.AmendEvidence(context.Background(), amendEpic, Amendment{
 		Requirement: "R1", Item: item, Reason: "the conclusion is sharpened and the test moved to cmd/orreryd",
-	}, amendAt())
+	}, Maker{By: MakerOwner}, amendAt())
 	if err != nil {
 		t.Fatalf("AmendEvidence: %v", err)
 	}
@@ -308,7 +308,7 @@ func TestAmendEvidenceRefusals(t *testing.T) {
 				tc.prepare(t, s)
 			}
 			before := len(closeRow(t, s, amendEpic).Amendments)
-			_, err := s.AmendEvidence(context.Background(), amendEpic, tc.amend, amendAt())
+			_, err := s.AmendEvidence(context.Background(), amendEpic, tc.amend, Maker{By: MakerOwner}, amendAt())
 			var refusal RefusalError
 			if !errors.As(err, &refusal) || refusal.Error() != tc.want {
 				t.Fatalf("AmendEvidence = %v, want the refusal %q", err, tc.want)
@@ -328,7 +328,16 @@ func TestAmendEvidenceOfAnUnknownEpicIsErrNoEpic(t *testing.T) {
 	s := openEpicStore(t)
 	createAmendEpic(t, s)
 	amend := Amendment{Requirement: "R1", Item: newAmendItem()}
-	if _, err := s.AmendEvidence(context.Background(), "no-such-epic", amend, amendAt()); !errors.Is(err, ErrNoEpic) {
+	if _, err := s.AmendEvidence(
+		context.Background(),
+		"no-such-epic",
+		amend,
+		Maker{By: MakerOwner},
+		amendAt(),
+	); !errors.Is(
+		err,
+		ErrNoEpic,
+	) {
 		t.Errorf("AmendEvidence of an unknown epic = %v, want ErrNoEpic", err)
 	}
 }
@@ -354,7 +363,7 @@ func TestAmendShownOwnerCaptureAppliesOnceStored(t *testing.T) {
 
 	amended, err := s.AmendEvidence(ctx, amendEpic, Amendment{
 		Requirement: "R1", Item: captureAmendItem(), Reason: "the test moved to cmd/orreryd",
-	}, amendAt())
+	}, Maker{By: MakerOwner}, amendAt())
 	if err != nil {
 		t.Fatalf("AmendEvidence: %v", err)
 	}
@@ -452,7 +461,7 @@ func TestAmendShownCaptureWaitsForEvidenceWorkUnderWay(t *testing.T) {
 	run := integrateUnderWay(t, s)
 	capture := Amendment{Requirement: "R1", Item: captureAmendItem(), Reason: "the test moved to cmd/orreryd"}
 
-	_, err := s.AmendEvidence(ctx, amendEpic, capture, amendAt())
+	_, err := s.AmendEvidence(ctx, amendEpic, capture, Maker{By: MakerOwner}, amendAt())
 	var refusal RefusalError
 	if !errors.As(err, &refusal) || refusal.Error() != amendWaitsForWork {
 		t.Fatalf("AmendEvidence under way = %v, want the refusal %q", err, amendWaitsForWork)
@@ -464,7 +473,7 @@ func TestAmendShownCaptureWaitsForEvidenceWorkUnderWay(t *testing.T) {
 	if err = s.EndNodes(ctx, amendEpic, []NodeEnd{{Path: run.Path, Outcome: "passed"}}, amendAt()); err != nil {
 		t.Fatalf("EndNodes: %v", err)
 	}
-	amended, err := s.AmendEvidence(ctx, amendEpic, capture, amendAt())
+	amended, err := s.AmendEvidence(ctx, amendEpic, capture, Maker{By: MakerOwner}, amendAt())
 	if err != nil {
 		t.Fatalf("AmendEvidence once the run ended: %v", err)
 	}
@@ -915,7 +924,7 @@ func TestSettleAmendmentRerunsAGreenLostAtARestart(t *testing.T) {
 	capture.Kind, capture.Tests = evidence.KindCapture, nil
 	amended, err := s.AmendEvidence(ctx, amendEpic, Amendment{
 		Requirement: "R1", Item: capture, Reason: "a capture shows it",
-	}, amendAt())
+	}, Maker{By: MakerOwner}, amendAt())
 	if err != nil {
 		t.Fatalf("AmendEvidence: %v", err)
 	}
@@ -1320,7 +1329,15 @@ func TestCloseSettlesOpenAmendments(t *testing.T) {
 	r3.Kind = evidence.KindCapture
 	storeLegacyAmendment(t, s, 2, action, r3)
 
-	if _, err := s.CloseEpic(ctx, amendEpic, "abandoned", "", CloserOwner, amendAt()); err != nil {
+	if _, err := s.CloseEpic(
+		ctx,
+		amendEpic,
+		"abandoned",
+		"",
+		CloserOwner,
+		Maker{By: MakerOwner},
+		amendAt(),
+	); err != nil {
 		t.Fatalf("CloseEpic: %v", err)
 	}
 

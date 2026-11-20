@@ -27,10 +27,12 @@ const originRunes = 300
 
 // WatchConversation answers Sessions.WatchConversation with the stream of one headless session or one labeled step.
 // The limit is checked as Panes.WatchConversation checks it. The stream sends its first delta at once, then a delta for
-// each poll that finds new main-thread items, a changed state, a changed unfinished set or a changed queued set, and a
-// keepalive once keepalive has passed without a delta. A step session is admitted once, by StepStatus, before its first
-// delta. The stream ends with the error the session read gives, when serve shuts down, or when a send stays blocked
-// past the send deadline. Its send and end-of-stream writes are bounded as Events.Watch's are (see endWithin).
+// each read that finds new main-thread items, a changed state, a changed unfinished set or a changed queued set. A read
+// happens when the change feed names the session, and when the background window of an ended task opens or closes (see
+// runWatch). The stream sends a keepalive once keepalive has passed without a message. A step session is admitted
+// once, by StepStatus, before its first delta. The stream ends with the error the session read gives, when serve shuts
+// down, or when a send stays blocked past the send deadline. Its send and end-of-stream writes are bounded as
+// Events.Watch's are (see endWithin).
 func (s sessionsServer) WatchConversation(
 	ctx context.Context,
 	req *connect.Request[orreryv1.SessionsWatchConversationRequest],
@@ -56,37 +58,138 @@ func (s sessionsServer) WatchConversation(
 }
 
 // runWatch sends the deltas of watch on stream until the client leaves, the session's read fails, serve shuts down,
-// or a send stays blocked past the send deadline. It steps watch every poll, and sends a keepalive once keepalive has
-// passed since the last message.
+// or a send stays blocked past the send deadline. It follows the session of watch in the change feed before its first
+// step, and steps watch once at the start. Then it steps watch again each time the feed wakes the stream, and each time
+// the background timer fires (see armBackground). A keepalive is sent, without a step, once keepalive has passed since
+// the last message.
 func (s sessionsServer) runWatch(
 	ctx context.Context,
 	watch *sessionWatch,
 	stream *connect.ServerStream[orreryv1.SessionsWatchConversationResponse],
 ) error {
-	ticker := time.NewTicker(s.poll)
-	defer ticker.Stop()
-	lastSent := time.Now()
+	wake, follow, cancel := s.changes.subscribeFiltered(ctx)
+	defer cancel()
+	follow(watch.id)
+	run := &sessionRun{server: s, watch: watch, stream: stream}
+	defer run.stopTimers()
+	if err := run.step(ctx); err != nil {
+		return err
+	}
 	for {
-		if stopping(s.shutdown) {
-			return shutdownError()
-		}
-		msg, changed, err := watch.step(ctx)
-		if err != nil {
-			return err
-		}
-		if changed || time.Since(lastSent) >= s.keepalive {
-			if sendErr := sendWithin(ctx, s.sendTimeout, s.shutdown, stream, msg); sendErr != nil {
-				return fmt.Errorf("send session delta: %w", sendErr)
-			}
-			lastSent = time.Now()
-		}
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("watch conversation: %w", ctx.Err())
 		case <-s.shutdown:
 			return shutdownError()
-		case <-ticker.C:
+		case <-wake:
+			if err := run.step(ctx); err != nil {
+				return err
+			}
+		case <-run.background:
+			run.backgroundArmed = false
+			if err := run.step(ctx); err != nil {
+				return err
+			}
+		case <-run.keepalive:
+			if err := run.keepaliveSend(ctx); err != nil {
+				return err
+			}
 		}
+	}
+}
+
+// sessionRun is the state of one runWatch: the stream it sends on, the keepalive timer armed after its last message,
+// and the background timer armed for the moment a background task's row next changes. keepalive and background are the
+// channels those timers fire on, and stopKeepalive and stopBackground stop them, all nil until a timer is armed.
+// backgroundArmed is whether the background timer is armed and not yet fired, and backgroundAt is the unix second it is
+// armed for.
+type sessionRun struct {
+	server         sessionsServer
+	watch          *sessionWatch
+	stream         *connect.ServerStream[orreryv1.SessionsWatchConversationResponse]
+	keepalive      <-chan time.Time
+	stopKeepalive  func() bool
+	background     <-chan time.Time
+	stopBackground func() bool
+	// backgroundArmed and backgroundAt are described above.
+	backgroundArmed bool
+	backgroundAt    int64
+}
+
+// step steps the watch once and sends the delta the step gives, if any. A step that gives no delta sends nothing. Then
+// it arms the background timer for the moment a background task's row next changes (see armBackground).
+func (r *sessionRun) step(ctx context.Context) error {
+	if stopping(r.server.shutdown) {
+		return shutdownError()
+	}
+	if r.server.stepped != nil {
+		r.server.stepped(r.watch.id)
+	}
+	msg, changed, err := r.watch.step(ctx)
+	if err != nil {
+		return err
+	}
+	if changed {
+		if sendErr := r.send(ctx, msg); sendErr != nil {
+			return sendErr
+		}
+	}
+	r.armBackground(r.watch.now().Unix())
+	return nil
+}
+
+// keepaliveSend sends the keepalive for the stream's position. It carries the transcript, seq, unfinished and queued
+// sets the stream last reached, and it reads nothing.
+func (r *sessionRun) keepaliveSend(ctx context.Context) error {
+	if stopping(r.server.shutdown) {
+		return shutdownError()
+	}
+	return r.send(ctx, &orreryv1.SessionsWatchConversationResponse{
+		Transcript: r.watch.id,
+		Seq:        r.watch.seq,
+		Unfinished: r.watch.sentUnfinished,
+		Queued:     r.watch.sentQueued,
+	})
+}
+
+// send sends msg on the stream, and arms the keepalive timer for the next keepalive in place of the one armed after the
+// last message.
+func (r *sessionRun) send(ctx context.Context, msg *orreryv1.SessionsWatchConversationResponse) error {
+	if err := sendWithin(ctx, r.server.sendTimeout, r.server.shutdown, r.stream, msg); err != nil {
+		return fmt.Errorf("send session delta: %w", err)
+	}
+	stopArmed(r.stopKeepalive)
+	r.keepalive, r.stopKeepalive = r.server.newTimer(r.server.keepalive)
+	return nil
+}
+
+// armBackground arms the background timer for the earliest moment after now at which a background task's row changes
+// (see sessionWatch.backgroundMoment). It keeps the timer already armed for that moment, stops the timer armed for
+// another, and arms none when no moment remains.
+func (r *sessionRun) armBackground(now int64) {
+	moment, ok := r.watch.backgroundMoment(now)
+	if ok && r.backgroundArmed && moment == r.backgroundAt {
+		return
+	}
+	stopArmed(r.stopBackground)
+	r.background, r.stopBackground, r.backgroundArmed = nil, nil, false
+	if !ok {
+		return
+	}
+	r.background, r.stopBackground = r.server.newTimer(time.Duration(moment-now) * time.Second)
+	r.backgroundAt, r.backgroundArmed = moment, true
+}
+
+// stopTimers stops the keepalive and background timers armed when runWatch returns.
+func (r *sessionRun) stopTimers() {
+	stopArmed(r.stopKeepalive)
+	stopArmed(r.stopBackground)
+}
+
+// stopArmed stops the timer whose stop is stop, when one is armed.
+func stopArmed(stop func() bool) {
+	if stop != nil {
+		stop()
 	}
 }
 
@@ -152,8 +255,8 @@ type sessionWatch struct {
 }
 
 // step reads the session once. It returns the message for the read, and true when the message is a delta: the first
-// message, a read with new items, a changed state, or a changed unfinished or queued set. Otherwise the message carries
-// neither items nor state, and the caller sends it only as a keepalive. A reset carries the seq of its oldest item.
+// message, a read with new items, a changed state, or a changed unfinished or queued set. Otherwise the caller sends
+// nothing for the read. A reset carries the seq of its oldest item.
 func (w *sessionWatch) step(ctx context.Context) (*orreryv1.SessionsWatchConversationResponse, bool, error) {
 	first := w.sent == nil
 	items, oldest, history, err := w.read(ctx, first)
@@ -433,6 +536,36 @@ func (t *backgroundTask) shows(now int64) bool {
 	}
 	age := now - t.ended
 	return age >= -backgroundWindow && age <= backgroundWindow
+}
+
+// changeAt returns the unix second at which shows next changes for the task, given now: the second its window opens
+// while now is before it, or the second after its window closes while now is within it. It returns false when shows
+// does not change again: a running task never changes, and an ended task has changed for good once now is past its
+// window.
+func (t *backgroundTask) changeAt(now int64) (int64, bool) {
+	switch {
+	case t.ended == 0:
+		return 0, false
+	case now < t.ended-backgroundWindow:
+		return t.ended - backgroundWindow, true
+	case now <= t.ended+backgroundWindow:
+		return t.ended + backgroundWindow + 1, true
+	default:
+		return 0, false
+	}
+}
+
+// backgroundMoment returns the earliest unix second at which the background row of a folded task changes, given now
+// (see backgroundTask.changeAt), and false when no folded task's row changes.
+func (w *sessionWatch) backgroundMoment(now int64) (int64, bool) {
+	var earliest int64
+	found := false
+	for _, task := range w.taskOrder {
+		if at, ok := task.changeAt(now); ok && (!found || at < earliest) {
+			earliest, found = at, true
+		}
+	}
+	return earliest, found
 }
 
 // row returns the task as a BackgroundTask. Its activity is the newest non-empty last tool, or else the newest non-empty

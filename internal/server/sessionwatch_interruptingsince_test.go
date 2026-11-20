@@ -24,7 +24,7 @@ func TestSessionWatchInterruptingSinceServesInterruptTime(t *testing.T) {
 	addEngine(t, s)
 	applyEngineOps(t, s, interruptMarkSetState("working"))
 	applyEngineOpsAt(t, s, interruptingSinceAt, store.EngineInterrupt{ID: eventEngine, Turning: true})
-	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, 0))
+	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, nil, 0))
 
 	stream := openSessionStream(t, client, sessionReq(eventEngine, 0, 0))
 	wantStreamMessage(t, stream.next(t), &orreryv1.SessionsWatchConversationResponse{
@@ -47,7 +47,7 @@ func TestSessionWatchInterruptingSinceClearsAtTurnEnd(t *testing.T) {
 	addEngine(t, s)
 	applyEngineOps(t, s, interruptMarkSetState("working"))
 	applyEngineOpsAt(t, s, interruptingSinceAt, store.EngineInterrupt{ID: eventEngine, Turning: true})
-	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, 0))
+	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), s, nil, 0))
 	stream := openSessionStream(t, client, sessionReq(eventEngine, 0, 0))
 	stream.next(t)
 
@@ -69,7 +69,7 @@ func TestSessionWatchInterruptingSinceClearsWhenStateLeavesWorking(t *testing.T)
 	addEngine(t, s)
 	applyEngineOps(t, s, interruptMarkSetState("working"))
 	applyEngineOpsAt(t, s, interruptingSinceAt, store.EngineInterrupt{ID: eventEngine, Turning: true})
-	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, 0))
+	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), s, nil, 0))
 	stream := openSessionStream(t, client, sessionReq(eventEngine, 0, 0))
 	stream.next(t)
 
@@ -91,7 +91,7 @@ func TestSessionWatchInterruptingSinceZeroWhenNeverInterrupted(t *testing.T) {
 	s := openEventStore(t, path)
 	addEngine(t, s)
 	applyEngineOps(t, s, interruptMarkSetState("working"))
-	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, 0))
+	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, nil, 0))
 
 	stream := openSessionStream(t, client, sessionReq(eventEngine, 0, 0))
 	wantStreamMessage(t, stream.next(t), &orreryv1.SessionsWatchConversationResponse{

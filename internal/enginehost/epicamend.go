@@ -37,9 +37,13 @@ func (s *epicService) AmendEvidence(
 	if err := s.ownerCaller(ctx, id, req.Header()); err != nil {
 		return nil, err
 	}
+	maker, err := s.controlMaker(ctx, id, req.Header())
+	if err != nil {
+		return nil, err
+	}
 	amended, err := s.epics.AmendEvidence(ctx, id, store.Amendment{
 		Requirement: req.Msg.GetRequirement(), Item: evidenceItemOf(req.Msg.GetItem()), Reason: req.Msg.GetReason(),
-	}, time.Now())
+	}, maker, time.Now())
 	if err != nil {
 		return nil, epicControlError(id, err)
 	}

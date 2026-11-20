@@ -79,10 +79,12 @@ type TaskFinding struct {
 }
 
 // TaskReview is one review of a task: its attempt, its position among the review gates, the gate it ran, its step,
-// its verdict, and the findings it raised in position order.
+// its verdict, the reason it gave no holds or fails verdict when its verdict is undetermined, and the findings it raised
+// in position order.
 type TaskReview struct {
 	Attempt, Position   int64
 	Gate, Step, Verdict string
+	Reason              string
 	Findings            []TaskFinding
 }
 
@@ -135,6 +137,7 @@ func taskReviewsOf(reviews []sqlcgen.EpicTaskReview, findings []sqlcgen.EpicTask
 	for _, r := range reviews {
 		out[r.Task] = append(out[r.Task], TaskReview{
 			Attempt: r.Attempt, Position: r.Position, Gate: r.Gate, Step: r.Step, Verdict: r.Verdict,
+			Reason:   r.Reason,
 			Findings: findingsOf[findingsKey{task: r.Task, attempt: r.Attempt, review: r.Position}],
 		})
 	}
@@ -196,6 +199,29 @@ func (s *Store) SetTaskBuildGateChanges(
 			return fmt.Errorf("set gate changes of task %d of epic %s: %w", seq, epic, setErr)
 		}
 		return nil
+	})
+}
+
+// SetTaskBuildNotes stores to as the build of task seq of epic, notes as its whole list of notes and each of tells as a
+// tell of epic, in one write, when the stored build is from. A task that is not open, or whose build differs from from,
+// is ErrTaskMoved and writes nothing.
+func (s *Store) SetTaskBuildNotes(
+	ctx context.Context, epic string, seq int64, from, to TaskBuild, notes, tells []string, at time.Time,
+) error {
+	encoded, err := encodeList(notes)
+	if err != nil {
+		return fmt.Errorf("encode notes of task %d of epic %s: %w", seq, epic, err)
+	}
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		if moveErr := moveTask(ctx, queries, epic, seq, from, to); moveErr != nil {
+			return moveErr
+		}
+		if setErr := queries.SetEpicTaskNotes(ctx, sqlcgen.SetEpicTaskNotesParams{
+			Notes: encoded, Epic: epic, Seq: seq,
+		}); setErr != nil {
+			return fmt.Errorf("set notes of task %d of epic %s: %w", seq, epic, setErr)
+		}
+		return insertTells(ctx, queries, epic, tells, at)
 	})
 }
 

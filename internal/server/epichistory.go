@@ -33,6 +33,7 @@ const (
 	historyEvidence
 	historyDecision
 	historyTell
+	historyAction
 	historyKinds
 )
 
@@ -40,7 +41,7 @@ const (
 const historyCursorFields = 4
 
 // historyKey orders an entry of an epic's history: by time, then by kind, then by the kind's own position, which is seq for
-// a turn, a decision or a tell and id for a trigger, a step or an evidence run. The seq and the id of an entry are
+// a turn, a decision, a tell or an action and id for a trigger, a step or an evidence run. The seq and the id of an entry are
 // unique within its kind, so no two entries share a key.
 type historyKey struct {
 	time int64
@@ -101,8 +102,8 @@ func historyEntryOf(key historyKey, entry *orreryv1.EpicHistoryEntry) historyEnt
 	return historyEntry{key: key, entry: entry}
 }
 
-// History answers one page of an epic's history, oldest first: the turns, triggers, decisions and tells that orreryd's
-// epic holds, the epic's labeled steps and its evidence runs. An epic the store holds is asked with its history and its
+// History answers one page of an epic's history, oldest first: the turns, triggers, decisions, tells and actions that
+// orreryd's epic holds, the epic's labeled steps and its evidence runs. An epic the store holds is asked with its history and its
 // runs are listed; a record-only epic holds its labeled steps alone. The page holds the entries strictly after the
 // request's cursor, at most 50 for a limit of 0 and at most 200. Its next cursor is the last entry's, and empty when no
 // entry follows. A cursor that does not parse answers invalid_argument. An id that neither the store nor the record root
@@ -174,10 +175,10 @@ func (e epicsServer) getStoredHistory(ctx context.Context, id string) (*enginev1
 	return resp.Msg.GetEpic(), true, nil
 }
 
-// storedHistoryEntries returns the entries of the turns, triggers, decisions and tells of stored.
+// storedHistoryEntries returns the entries of the turns, triggers, decisions, tells and actions of stored.
 func storedHistoryEntries(stored *enginev1.StoredEpic) []historyEntry {
 	out := make([]historyEntry, 0, len(stored.GetTurns())+len(stored.GetTriggers())+
-		len(stored.GetDecisions())+len(stored.GetTells()))
+		len(stored.GetDecisions())+len(stored.GetTells())+len(stored.GetActions()))
 	for _, turn := range stored.GetTurns() {
 		out = append(out, historyEntryOf(
 			historyKey{time: turn.GetStarted(), kind: historyTurn, seq: turn.GetSeq()},
@@ -206,6 +207,15 @@ func storedHistoryEntries(stored *enginev1.StoredEpic) []historyEntry {
 			historyKey{time: tell.GetAt(), kind: historyTell, seq: tell.GetSeq()},
 			&orreryv1.EpicHistoryEntry{Item: &orreryv1.EpicHistoryEntry_Tell{Tell: &orreryv1.EpicTell{
 				Seq: tell.GetSeq(), Text: tell.GetText(), At: tell.GetAt(), Told: tell.GetTold(),
+			}}},
+		))
+	}
+	for _, action := range stored.GetActions() {
+		out = append(out, historyEntryOf(
+			historyKey{time: action.GetTime(), kind: historyAction, seq: action.GetSeq()},
+			&orreryv1.EpicHistoryEntry{Item: &orreryv1.EpicHistoryEntry_Action{Action: &orreryv1.EpicAction{
+				Seq: action.GetSeq(), Kind: action.GetKind(), Time: action.GetTime(), By: action.GetBy(),
+				Session: action.GetSession(), From: action.GetFrom(), To: action.GetTo(),
 			}}},
 		))
 	}

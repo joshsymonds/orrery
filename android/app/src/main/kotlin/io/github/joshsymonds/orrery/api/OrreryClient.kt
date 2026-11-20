@@ -65,6 +65,9 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.HostStatusRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.InterruptRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.ListHeadlessRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.MarkSeenRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.NoticeKey
+import io.github.joshsymonds.orrery.gen.orrery.v1.NoticesClient
+import io.github.joshsymonds.orrery.gen.orrery.v1.NoticesSeenRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListRequest
@@ -735,6 +738,7 @@ class OrreryClient(
         val sessions = SessionsClient(protocol)
         val epics = EpicsClient(protocol)
         val evidence = EvidenceClient(protocol)
+        val notices = NoticesClient(protocol)
         val steps = StepsClient(protocol)
         val pools = PoolsClient(protocol)
     }
@@ -1063,6 +1067,21 @@ class OrreryClient(
     fun sessionSeen(sessionId: String) {
         val request = SeenRequest.newBuilder().setId(sessionId).build()
         call(write = true) { standard.control.seen(request, CLIENT_HEADERS) }
+    }
+
+    /** Records that the owner opened the notice on the pane [paneId], so the shade marks it seen. */
+    fun paneNoticeSeen(paneId: String) {
+        noticeSeen(NoticeKey.newBuilder().setPane(paneId).build())
+    }
+
+    /** Records that the owner opened the notice on the headless session [sessionId], so the shade marks it seen. */
+    fun sessionNoticeSeen(sessionId: String) {
+        noticeSeen(NoticeKey.newBuilder().setSession(sessionId).build())
+    }
+
+    private fun noticeSeen(key: NoticeKey) {
+        val request = NoticesSeenRequest.newBuilder().setKey(key).build()
+        call(write = true) { standard.notices.seen(request, CLIENT_HEADERS) }
     }
 
     /** Holds the labelled step [id]. A refused hold answers [StepCallResult.Refused] with the server's reason. */

@@ -70,22 +70,11 @@ func TestTaskLadderPromptListsRungs(t *testing.T) {
 	}
 }
 
-func TestTaskLadderCheckRefusesClaimHeldOnLadder(t *testing.T) {
+func TestTaskLadderHoldsItsClaimsOutOfUnclaimedLines(t *testing.T) {
 	t.Parallel()
-	ret := coverageReturn("work",
-		coverageTask("A", []string{"R1"}, nil),
-		coverageTask("B", []string{"R2"}, nil))
-	stored := []store.EpicTask{ladderedTask(), storedClaim(2, "gap", "R2")}
-	want := []string{
-		`tasks[0] "A" requirements[0]: R1 is claimed by T1`,
-		`tasks[1] "B" requirements[0]: R2 is claimed by T2`,
-	}
-	if got := Coverage(ret, epicRequirements(), stored); !reflect.DeepEqual(got, want) {
-		t.Errorf("Coverage() = %q, want %q", got, want)
-	}
-
-	failed := []store.EpicTask{storedClaim(3, "failed", "R1")}
-	if got := Coverage(ret, epicRequirements(), failed); len(got) != 0 {
-		t.Errorf("Coverage() over a failed claim = %q, want no refusal", got)
+	stored := []store.EpicTask{ladderedTask(), gappedTask()}
+	want := []string{"- R3 is claimed by no live task"}
+	if got := unclaimedLines([]string{"R1", "R2", "R3"}, stored); !reflect.DeepEqual(got, want) {
+		t.Errorf("unclaimedLines() over a laddered and a gapped claim = %q, want %q", got, want)
 	}
 }

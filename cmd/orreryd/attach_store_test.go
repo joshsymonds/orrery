@@ -57,12 +57,14 @@ func (s *recordSender) PublishClear(_ context.Context, c push.Clear) error {
 	return nil
 }
 
-// attachRouter returns the router serve builds, with notices as its phone and sinks as its desk, log and clock.
+// attachRouter returns the router serve builds, with notices as its phone and sinks as its desk, log and clock, the
+// clock its store-call bounds are armed on too.
 func attachRouter(notices *notice.Notices, sinks *paneSinks) *route.Router {
 	hub := newRelay(route.Config{
 		Host:       attachHost,
 		Now:        sinks.Now,
 		After:      sinks.After,
+		StoreAfter: sinks.After,
 		Desk:       sinks,
 		Phone:      notices,
 		Subscribed: sinks.Subscribed,

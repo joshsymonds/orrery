@@ -61,7 +61,7 @@ func TestEpicListingFieldsSteeredEpicPausedByItsOwnerReadsOwnerSource(t *testing
 	row := fullEpic(claimEpic)
 	row.Steerer = "steer-session-1"
 	createEpic(t, s, row)
-	if err := s.PauseEpic(ctx, claimEpic); err != nil {
+	if err := s.PauseEpic(ctx, claimEpic, Maker{By: MakerOwner}, time.Unix(1700000000, 0)); err != nil {
 		t.Fatalf("PauseEpic: %v", err)
 	}
 	checkListingFields(t, s, listingFields{Steerer: "steer-session-1", Paused: true, PauseSource: pauseOwner})

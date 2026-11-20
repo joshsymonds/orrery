@@ -489,7 +489,7 @@ func TestRetryNodeClosesTheParkQuestionAsRetry(t *testing.T) {
 		t.Fatalf("ParkNode: %v", err)
 	}
 
-	if err := s.RetryNode(ctx, id, "check"); err != nil {
+	if err := s.RetryNode(ctx, id, "check", Maker{By: MakerOwner}, time.Unix(1700000000, 0)); err != nil {
 		t.Fatalf("RetryNode: %v", err)
 	}
 	if _, parked := epicFlags(t, s); parked != "" {

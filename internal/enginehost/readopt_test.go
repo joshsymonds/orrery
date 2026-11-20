@@ -98,7 +98,7 @@ func newCrashRig(t *testing.T, trigger func([]store.EngineOp) bool, storeTrigger
 	root := holderRoot(t)
 	t.Cleanup(func() { clearHolderDirs(t, root) })
 	crash := &crashApplier{inner: s, trigger: trigger, storeTrigger: storeTrigger}
-	writer := NewWriter(WriterConfig{Applier: crash, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: crash})
 	startRun(t, writer)
 	m := newStateManager(t, s, writer, &fakeSink{}, fakeSystemdRunPath(t), root, nil)
 	m.closeWait = crashCloseWait
@@ -137,7 +137,7 @@ func clearHolderDirs(t *testing.T, root string) {
 func restartAfterCrash(t *testing.T, rig crashRig) (*Manager, *fakeSink) {
 	t.Helper()
 	rig.manager.Close()
-	writer := NewWriter(WriterConfig{Applier: rig.store, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: rig.store})
 	startRun(t, writer)
 	sink := &fakeSink{}
 	restarted := newStateManager(t, rig.store, writer, sink, fakeSystemdRunPath(t), rig.root, nil)
@@ -442,7 +442,7 @@ func TestReconcileStopsStepRowHolder(t *testing.T) {
 	if err := s.ApplyEngine(t.Context(), []store.EngineOp{add, launch}, time.Unix(1, 0)); err != nil {
 		t.Fatalf("seed step row: %v", err)
 	}
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	startLeftHolder(t, root, "step", dir)
 	pid := fakePID(t, dir)
@@ -524,7 +524,7 @@ func TestReconcileClearsHolderWithNoRow(t *testing.T) {
 	root := holderRoot(t)
 	s, _ := openStore(t)
 	dir := t.TempDir()
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	startLeftHolder(t, root, "orphan", dir)
 	pid := fakePID(t, dir)
@@ -548,7 +548,7 @@ func TestReconcileClearsHolderOfUntrackedRow(t *testing.T) {
 	if err := s.ApplyEngine(t.Context(), []store.EngineOp{add}, time.Unix(1, 0)); err != nil {
 		t.Fatalf("seed untracked row: %v", err)
 	}
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	startLeftHolder(t, root, "untracked", dir)
 	pid := fakePID(t, dir)

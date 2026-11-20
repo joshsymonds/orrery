@@ -1,50 +1,46 @@
-// helpEntries are the keys the help panel lists: each entry's keys, and what they do.
-const helpEntries: [string[], string][] = [
-  [["j", "k", "↓", "↑"], "move the cursor one row up or down"],
-  [["gg"], "first row"],
-  [["G"], "last row"],
-  [["a"], "by attention"],
-  [["p"], "by project"],
-  [["v"], "archived rows and epics"],
-  [["A"], "archive the cursor's row or epic"],
-  [["w"], "first waiting row"],
-  [["n"], "next unseen row, wrapping"],
-  [["N"], "open the palette to ask for a pane or a directory, outside a text box"],
-  [["⌘K"], "open the palette anywhere, a text box included; Ctrl+K does too"],
-  [["x", "Enter"], "mark the cursor's row seen; Enter also opens the row into its reply box"],
-  [["e"], "mark it seen, then go to the next unseen row"],
-  [["/"], "filter: Enter leaves it, Esc clears it"],
-  [["i"], "focus the reply box"],
-  [["Shift+Tab"], "from a reply box, back to the list's cursor row, taking nothing back"],
-  [["Page Up", "Page Down"], "in an empty reply box, page the transcript"],
-  [["/"], "in an empty reply box, find in the transcript"],
-  [["1", "2", "3"], "answer the cursor's waiting question with that choice, or pick that option on an epic page"],
-  [["o"], "open or close a compaction's summary"],
-  [["|"], "pin the cursor's row in a second column, or close the pin"],
-  [["b"], "pop the inbox out over the page, or tuck it back"],
-  [["B"], "pin or unpin the inbox beside the page"],
-  [["h", "←"], "back one crumb, or the inbox from the first crumb"],
-  [["m"], "hide or show the strips"],
-  [["?"], "toggle this help"],
-  [["Esc"], "close this help"],
-];
+import { keyGroups } from "./keys";
 
-// HelpPanel draws the keys section App shows while help is open: each entry's keys, and what they do.
-export function HelpPanel() {
+// KeyList draws the keys panel App shows while help is open: the table's five groups, each line's key caps and what the
+// key does. Its Close button calls onClose, as ? and esc do through App.
+export function KeyList({ onClose }: { onClose: () => void }) {
   return (
-    <section class="keys" aria-label="keys">
-      <dl>
-        {helpEntries.map(([keys, text]) => (
-          <div key={text} class="key">
-            <dt>
-              {keys.map((key) => (
-                <kbd key={key}>{key}</kbd>
+    <div class="scrim">
+      <section class="panel wide" role="dialog" aria-label="Keys">
+        <div class="head">
+          <h2 class="t-title">Keys</h2>
+          <span class="t-small">
+            <kbd>?</kbd> or <kbd>esc</kbd> closes
+          </span>
+          <button type="button" aria-label="Close" title="Close  esc" onClick={onClose}>
+            <svg class="icon" viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M4 4l8 8M12 4l-8 8" />
+            </svg>
+          </button>
+        </div>
+        <div class="keygroups">
+          {keyGroups.map((group) => (
+            <div key={group.title} class="keygroup">
+              <span class="t-label">{group.title}</span>
+              {group.lines.map((line) => (
+                <div key={line.text} class="keyline">
+                  <span class="ks">
+                    {line.caps.map((cap) =>
+                      cap === "…" ? (
+                        <span key={cap} class="ink-4">
+                          …
+                        </span>
+                      ) : (
+                        <kbd key={cap}>{cap}</kbd>
+                      ),
+                    )}
+                  </span>
+                  <span>{line.text}</span>
+                </div>
               ))}
-            </dt>
-            <dd>{text}</dd>
-          </div>
-        ))}
-      </dl>
-    </section>
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
   );
 }

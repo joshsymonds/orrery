@@ -1,7 +1,6 @@
 package enginehost
 
 import (
-	"context"
 	"log/slog"
 	"path/filepath"
 	"testing"
@@ -112,19 +111,12 @@ func TestLimitNoticeRoutedOnAttachedRouterIsNotRoutedAgainAfterRestart(t *testin
 	restartedPhone := notice.New(sessionTestHost, restartedSender, fixedClock, slog.New(slog.DiscardHandler))
 	restarted := limitRouter(t, restartedPhone, restartedLog)
 	restarted.Attach(ctx, second)
-	ticks := make(chan time.Time)
 	rebuilt := NewLimitNotices(LimitNoticesConfig{
-		Steps: second, Epics: second, Told: second, Route: restarted, Now: limitNow, Tick: ticks,
+		Steps: second, Epics: second, Told: second, Route: restarted, Now: limitNow,
 	})
-	runCtx, cancel := context.WithCancel(ctx)
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		rebuilt.Run(runCtx)
-	}()
-	ticks <- limitNow()
-	cancel()
-	<-done
+	// The check a restarted Run makes at its start is this check. It runs here, not under Run, since a Run cancelled
+	// right after its wake could end the store reads before they finish, and the test would pass with nothing checked.
+	rebuilt.check(ctx)
 	restarted.Wait()
 	restartedPhone.Wait()
 

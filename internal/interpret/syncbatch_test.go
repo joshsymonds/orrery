@@ -66,7 +66,13 @@ func syncPastAFailedBatchThatComposedNothingLeavesNoCandidate(images *worldImage
 		w.requireSyncEnded(syncSecond, outcomePassed, fmt.Sprintf(
 			"merged origin's commit %s into the stored base %s as %s\nR1 green", originHead, candidate, merge))
 
-		if err := w.s.RetryNode(ctx, runEpic, "integrate"); err != nil {
+		if err := w.s.RetryNode(
+			ctx,
+			runEpic,
+			"integrate",
+			store.Maker{By: store.MakerOwner},
+			time.Unix(1700000000, 0),
+		); err != nil {
 			t.Fatalf("RetryNode of the failed batch: %v", err)
 		}
 		w.pass()

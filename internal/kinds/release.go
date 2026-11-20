@@ -13,10 +13,10 @@ import (
 
 // Release is the release kind. Its run takes the repository's release slot or waits for it, prepares and gates the
 // release candidate, has the release integrator finish a merge of origin's commit that conflicts, sends the release back
-// to planning when the integrator stopped on a change to the candidate and resumes it once that plan has ended, has its
-// release reviewers hold the candidate before the first release step, starts each release step in order, stores each
-// end first, stops on any failure, judges the postconditions, and ends the epic released, or done when it has no release
-// steps.
+// to planning when the integrator stopped on a change to the candidate, starts the plan that replans it for an owner's
+// correction and resumes it once that plan has ended, has its release reviewers hold the candidate before the first
+// release step, starts each release step in order, stores each end first, stops on any failure, judges the
+// postconditions, and ends the epic released, or done when it has no release steps.
 type Release struct{}
 
 // The actions a release run takes beyond the ones every kind shares.
@@ -67,8 +67,8 @@ type ReleaseResult struct {
 // Decide decides a release run from its epic, the release slot and the epic's release runs. A released or done epic
 // frees the slot it holds and otherwise ends passed, a clean epic ends done or takes the slot, a releasing epic goes on
 // with its candidate, its release steps and its judge, a stopped epic whose run a retry turned running is sent back to
-// planning (replanAction), a correcting epic resumes its release once its replan has ended (resumeAction), and any other
-// phase gives none (Idle).
+// planning (replanAction), a correcting epic starts its release's replan plan when none has started and resumes the
+// release once that plan has ended (resumeAction), and any other phase gives none (Idle).
 func (Release) Decide(node Node, rows Rows) Action {
 	decide, ok := releaseDecision(rows.Epic.Phase)
 	if !ok {
@@ -115,17 +115,22 @@ func replanAction(run store.NodeRun, rows Rows) Action {
 	return Action{Kind: ActReplan, Output: replan.Reason}
 }
 
-// resumeAction resumes the release of run once the plan run its replan started at run's attempt has ended, and gives
-// none while that plan runs or when the run has none.
+// resumeAction decides the release of run while its epic is correcting. When no plan run is stored under run's replan
+// prefix at its attempt, it replans: the plan that carries the owner's correction to the candidate starts there. While
+// that plan runs or is parked it gives none, and once it has ended it resumes the release.
 func resumeAction(run store.NodeRun, rows Rows) Action {
 	prefix := ReplanPrefix(run.Path, run.Attempt)
 	plan, ok := firstMatch(rows.Runs, func(r store.NodeRun) bool {
 		return r.Kind == kindPlan && strings.HasPrefix(r.Path, prefix)
 	})
-	if !ok || plan.State != store.NodeEnded {
+	switch {
+	case !ok:
+		return Action{Kind: ActReplan}
+	case plan.State == store.NodeEnded:
+		return Action{Kind: ActResume}
+	default:
 		return Action{Kind: ActNone}
 	}
-	return Action{Kind: ActResume}
 }
 
 // releaseEnded frees the release slot an epic that is released or done holds, and ends it passed otherwise.

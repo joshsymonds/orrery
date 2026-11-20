@@ -37,9 +37,11 @@ func TestSessionsHostParksEpicWithoutRoleFile(t *testing.T) {
 	}
 	st := openPaneStore(t, path)
 	created := time.Unix(plannerWiringStamp, 0)
+	repo, base := buildWiringRepo(t)
 	if err := st.CreateEpic(ctx, store.EpicRow{
 		ID:          plannerWiringEpic,
-		Repository:  plannerWiringRepo,
+		Repository:  repo,
+		Base:        base,
 		Title:       "Plan the wiring",
 		Approved:    "approved text",
 		Intent:      "plan the next tasks",

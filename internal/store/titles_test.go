@@ -54,6 +54,27 @@ func TestSessionTitleUntitledSessionsListsUntitledEnginesWithAPromptOldestFirst(
 	}
 }
 
+func TestSessionTitleUntitledSessionReadsOneUntitledSession(t *testing.T) {
+	t.Parallel()
+	s, _ := titleStore(t)
+
+	got, ok, err := s.UntitledSession(context.Background(), "e-a")
+	if err != nil {
+		t.Fatalf("UntitledSession e-a: %v", err)
+	}
+	want := UntitledSession{ID: "e-a", Dir: "/work/alpha", FirstPrompt: "first prompt"}
+	if !ok || got != want {
+		t.Fatalf("UntitledSession e-a = %+v, %t; want %+v, true", got, ok, want)
+	}
+	// e-b has no prompt, e-c has a stored title, step-a is a step session, orrery-1 is a pane, and no-such-session is
+	// unknown: none of them is untitled.
+	for _, id := range []string{"e-b", "e-c", "step-a", "orrery-1", "no-such-session"} {
+		if _, ok, err := s.UntitledSession(context.Background(), id); err != nil || ok {
+			t.Fatalf("UntitledSession %s = %t, %v; want false and no error", id, ok, err)
+		}
+	}
+}
+
 func TestSessionTitleSetWritesOnceAndLeavesAStoredTitleAlone(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

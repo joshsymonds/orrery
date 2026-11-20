@@ -20,7 +20,8 @@ import (
 )
 
 // panesServer answers orrery.v1.Panes with the tmux client, conversation state, locks, seen and read reporters, and
-// clock it holds, and the store reader its turn ends come from.
+// clock it holds, the store reader its turn ends come from, and the change feed and keepalive timers its
+// WatchConversation streams run on.
 type panesServer struct {
 	tmux                  *tmuxctl.Client
 	reader                *store.Reader
@@ -32,17 +33,22 @@ type panesServer struct {
 	report                cli.SeenReporter
 	readReport            ReadReporter
 	now                   func() time.Time
-	conversationPoll      time.Duration
+	changes               *changeHub
+	newTimer              func(time.Duration) (<-chan time.Time, func() bool)
 	conversationKeepalive time.Duration
 	sendTimeout           time.Duration
 	shutdown              <-chan struct{}
+	// stepped, when set, is called with the pane of each WatchConversation step before the step reads the pane. A test
+	// sets it to count the reads of its streams. It is nil in production.
+	stepped func(pane string)
 }
 
 // newPanesHandler returns the path and handler that serve Panes over the tmux client, the store reader of turn ends,
 // conversation state, locks, seen and read reporters, and clock it is given. Screen, Conversation and
-// WatchConversation report each read to readReport, dated by now. WatchConversation polls every conversationPoll and
-// sends a keepalive after conversationKeepalive without a delta. Its sends are bounded by sendTimeout, and its streams
-// end when shutdown closes. The handler runs under withResponseWriter, so the stream reaches its connection.
+// WatchConversation report each read to readReport, dated by now. WatchConversation steps when changes wakes it, and
+// sends a keepalive after conversationKeepalive without a message. Its keepalive timers are armed through newTimer, or
+// through time.NewTimer when newTimer is nil. Its sends are bounded by sendTimeout, and its streams end when shutdown
+// closes. The handler runs under withResponseWriter, so the stream reaches its connection.
 func newPanesHandler(
 	tmux *tmuxctl.Client,
 	reader *store.Reader,
@@ -53,10 +59,15 @@ func newPanesHandler(
 	report cli.SeenReporter,
 	readReport ReadReporter,
 	now func() time.Time,
-	conversationPoll, conversationKeepalive, sendTimeout time.Duration,
+	changes *changeHub,
+	newTimer func(time.Duration) (<-chan time.Time, func() bool),
+	conversationKeepalive, sendTimeout time.Duration,
 	shutdown <-chan struct{},
 	opts ...connect.HandlerOption,
 ) (string, http.Handler) {
+	if newTimer == nil {
+		newTimer = stdTimer
+	}
 	path, handler := orreryv1connect.NewPanesHandler(panesServer{
 		tmux:                  tmux,
 		reader:                reader,
@@ -68,7 +79,8 @@ func newPanesHandler(
 		report:                report,
 		readReport:            readReport,
 		now:                   now,
-		conversationPoll:      conversationPoll,
+		changes:               changes,
+		newTimer:              newTimer,
 		conversationKeepalive: conversationKeepalive,
 		sendTimeout:           sendTimeout,
 		shutdown:              shutdown,

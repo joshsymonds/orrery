@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
@@ -11,6 +13,20 @@ import (
 // text of its oldest engine_prompt event.
 type UntitledSession struct {
 	ID, Dir, FirstPrompt string
+}
+
+// UntitledSession returns the engine session id as UntitledSessions lists it, and true, when the session is untitled
+// and has a prompt. It returns false, and no error, when it is not: a titled session, a session with no prompt, a step
+// or pane session, and an unknown id.
+func (s *Store) UntitledSession(ctx context.Context, id string) (UntitledSession, bool, error) {
+	row, err := sqlcgen.New(s.db).GetUntitledEngineSession(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return UntitledSession{}, false, nil
+	}
+	if err != nil {
+		return UntitledSession{}, false, fmt.Errorf("get untitled engine session %s: %w", id, err)
+	}
+	return UntitledSession{ID: row.ID, Dir: row.Dir, FirstPrompt: row.FirstPrompt}, true, nil
 }
 
 // UntitledSessions returns the engine sessions with no stored title that have an engine_prompt event, in id order.

@@ -32,11 +32,12 @@ private val CRUMB_PADDING = PaddingValues(horizontal = OrreryTokens.Space.four, 
 data class Crumb(val label: String, val onGo: (() -> Unit)? = null)
 
 /**
- * The title row every epic page shares, sized for a phone. Back leads the first line, and the crumbs follow it, each
- * on one line with the separator before it. A crumb that does not fit beside the ones before it starts the next line
- * whole, and only a crumb wider than the row on its own ends in an ellipsis. Under them, the state, the blocker, then
- * [actions] wrap onto as many lines as they need. Back and every crumb but the last are tappable; the last crumb is
- * the page itself. The state and the blocker show only when given.
+ * The title row every epic page shares, sized for a phone. Back, when [onBack] is given, leads the first line, and the
+ * crumbs follow it, each on one line with the separator before it. A crumb that does not fit beside the ones before it
+ * starts the next line whole, and only a crumb wider than the row on its own ends in an ellipsis. Under them, the
+ * state, the blocker, then [actions] wrap onto as many lines as they need. Back and every crumb but the last are
+ * tappable; the last crumb is the page itself. A null [onBack] draws no Back. The state and the blocker show only when
+ * given.
  *
  * One row for all of it measured the state and the actions at their full width first and left the crumbs about one
  * character on a phone, so a slug stood one letter to a line.
@@ -44,7 +45,7 @@ data class Crumb(val label: String, val onGo: (() -> Unit)? = null)
 @Composable
 fun TitleRow(
     crumbs: List<Crumb>,
-    onBack: () -> Unit,
+    onBack: (() -> Unit)?,
     state: String = "",
     blocker: String = "",
     actions: @Composable RowScope.() -> Unit = {},
@@ -56,12 +57,14 @@ fun TitleRow(
             .padding(horizontal = OrreryTokens.Space.eight, vertical = OrreryTokens.Space.four),
     ) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(
-                onClick = onBack,
-                contentPadding = CRUMB_PADDING,
-                modifier = Modifier.width(BACK_WIDTH).testTag("title-back"),
-            ) {
-                Text("‹")
+            if (onBack != null) {
+                TextButton(
+                    onClick = onBack,
+                    contentPadding = CRUMB_PADDING,
+                    modifier = Modifier.width(BACK_WIDTH).testTag("title-back"),
+                ) {
+                    Text("‹")
+                }
             }
             FlowRow(
                 modifier = Modifier.weight(1f),

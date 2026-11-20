@@ -68,7 +68,7 @@ func restartDeciding(
 	change()
 
 	sinks := newPaneSinks(paneClock+decidingRestartSecs, false)
-	hub := startProcess(t, sinks, s, home, &paneJudgeCaller{})
+	hub := startProcess(t, sinks, s, home, &paneJudgeCaller{}, nil)
 	t.Cleanup(hub.router.Close)
 	hub.router.Wait()
 	return s, sinks

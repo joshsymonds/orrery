@@ -94,7 +94,7 @@ func TestSessionWatchSteererEventsPendingNamesEventsOnlyForTheSteerer(t *testing
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	addSteeredEpics(t, s)
-	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, 0))
+	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, nil, 0))
 
 	steering := openSessionStream(t, client, sessionReq(eventEngine, 0, 0))
 	wantPendingEvents(t, steering.next(t), steerEvents(cardFree)...)

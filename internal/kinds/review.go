@@ -202,10 +202,12 @@ func reviewIsVerifierVerdict(step store.StepRow) bool {
 }
 
 // reviewPass is one walk of a review run's try chains. It holds the units the walk asks to start, the hold it asks for
-// first, whether a chain waits, and the verdicts and findings the chains have settled.
+// first, whether a chain waits, and the verdicts and findings the chains have settled. after is the position the
+// ledger's findings run on from: 0 for a review, which numbers its findings from 1.
 type reviewPass struct {
 	run      store.NodeRun
 	rows     Rows
+	after    int64
 	starts   []Unit
 	hold     *Action
 	waiting  bool
@@ -214,8 +216,7 @@ type reviewPass struct {
 }
 
 // Decide decides a review run. Without a revision it prepares the run. Otherwise it walks each reviewer's try chain and
-// the verifier chains of the findings reviewers raise. It then holds the epic for a stopped step, starts the work the
-// chains ask for, waits while a chain runs, or ends passed with what the chains settled.
+// the verifier chains of the findings reviewers raise, and decides what the walk asks for.
 func (Review) Decide(node Node, rows Rows) Action {
 	if node.Run.Revision == "" {
 		return prepare(rows)
@@ -224,24 +225,30 @@ func (Review) Decide(node Node, rows Rows) Action {
 	for i, reviewer := range rows.Reviewers {
 		pass.settleReviewer(i+1, reviewer)
 	}
+	return pass.decide()
+}
+
+// decide holds the epic for the first stopped step the walk asks to hold for, starts the work the chains ask for, waits
+// while a chain runs, or ends passed with the verdicts and the ledger the chains settled.
+func (p *reviewPass) decide() Action {
 	switch {
-	case pass.hold != nil:
-		return *pass.hold
-	case len(pass.starts) > 0:
-		if rows.Epic.Paused || rows.Epic.Parked != "" {
+	case p.hold != nil:
+		return *p.hold
+	case len(p.starts) > 0:
+		if p.rows.Epic.Paused || p.rows.Epic.Parked != "" {
 			return Action{Kind: ActNone}
 		}
-		ids := make([]string, 0, len(pass.starts))
-		for _, unit := range pass.starts {
+		ids := make([]string, 0, len(p.starts))
+		for _, unit := range p.starts {
 			ids = append(ids, unit.ID)
 		}
-		return Action{Kind: ActStart, IDs: ids, Units: pass.starts}
-	case pass.waiting:
+		return Action{Kind: ActStart, IDs: ids, Units: p.starts}
+	case p.waiting:
 		return Action{Kind: ActNone}
 	}
 	return Action{
-		Kind: ActEnd, Outcome: outcomePassed, Output: reviewLines(pass.verdicts), Verdicts: pass.verdicts,
-		Ledger: pass.ledger(),
+		Kind: ActEnd, Outcome: outcomePassed, Output: reviewLines(p.verdicts), Verdicts: p.verdicts,
+		Ledger: p.ledger(),
 	}
 }
 
@@ -334,10 +341,10 @@ func (p *reviewPass) pending(chain tries, unit Unit) {
 	}
 }
 
-// ledger returns the findings in ledger order, each with its place in the ledger.
+// ledger returns the findings in ledger order, each with its place in the ledger: the places run on from after.
 func (p *reviewPass) ledger() []store.LedgerFinding {
 	for i := range p.findings {
-		p.findings[i].Position = int64(i + 1)
+		p.findings[i].Position = p.after + int64(i+1)
 	}
 	return p.findings
 }

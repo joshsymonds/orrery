@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -106,9 +105,6 @@ private fun ageOf(seconds: Long): String = when {
     else -> "${seconds / 86_400}d"
 }
 
-/** The tallest the picker panel grows before it scrolls, so the pane list keeps room below it. */
-private val PICKER_MAX_HEIGHT = OrreryTokens.Space.thirtyTwo * 10
-
 /** The indent of one folder level, in dp. */
 private val INDENT_DP = OrreryTokens.Space.sixteen
 
@@ -117,7 +113,7 @@ private const val SHELL_SESSION_PREFIX = "_orrery-shell-"
 
 /**
  * Every pane as a folder tree, or the New and Waiting panes as flat lists, with a filter. The New
- * button at the top opens the picker above the filters; a run it answers opens that pane through
+ * button at the top opens the picker as a bottom sheet; a run it answers opens that pane through
  * [onOpenPaneId], and a start it answers opens that session through [onStartedSession]. The Pools
  * button opens the pools view through [onOpenPools]. Tapping a folder header collapses or expands
  * it. Tapping a row opens that pane. In the All view, the ended headless sessions sit under one
@@ -239,7 +235,6 @@ fun PaneListScreen(
                     onStartedSession(sessionId)
                 },
                 onClose = { picking = false },
-                modifier = Modifier.heightIn(max = PICKER_MAX_HEIGHT),
             )
         }
         Row(modifier = Modifier.fillMaxWidth().padding(horizontal = OrreryTokens.Space.eight)) {

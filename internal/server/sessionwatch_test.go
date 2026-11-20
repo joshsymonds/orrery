@@ -16,6 +16,7 @@ import (
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/proto"
 
+	enginev1connect "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
 	"github.com/joshsymonds/orrery/internal/server"
@@ -26,23 +27,26 @@ import (
 const stepSessionID = "step-1"
 
 // sessionsHandler returns the guarded handler that admits allowedLogin and reads sessions from reader, or from no
-// store when reader is nil. Its WatchConversation polls every convPoll, sends a keepalive after convKeepalive, ends
-// its streams when shutdown closes, and bounds each send by sendTimeout. A nil shutdown never closes, and a zero
-// sendTimeout takes the default.
+// store when reader is nil. Its change feed is the feed of s when s is not nil (see storeFeed), so a write s makes
+// wakes its WatchConversation streams. WatchConversation sends a keepalive after convKeepalive, ends its streams when
+// shutdown closes, and bounds each send by sendTimeout. A nil shutdown never closes, and a zero sendTimeout takes the
+// default.
 func sessionsHandler(
 	t *testing.T,
 	reader *store.Reader,
+	s *store.Store,
 	shutdown <-chan struct{},
 	sendTimeout time.Duration,
 ) http.Handler {
 	t.Helper()
-	return sessionsHandlerKeepalive(t, reader, shutdown, sendTimeout, convKeepalive)
+	return sessionsHandlerKeepalive(t, reader, s, shutdown, sendTimeout, convKeepalive)
 }
 
 // sessionsHandlerKeepalive is sessionsHandler with its WatchConversation sending a keepalive after keepalive.
 func sessionsHandlerKeepalive(
 	t *testing.T,
 	reader *store.Reader,
+	s *store.Store,
 	shutdown <-chan struct{},
 	sendTimeout, keepalive time.Duration,
 ) http.Handler {
@@ -52,7 +56,7 @@ func sessionsHandlerKeepalive(
 		Tmux:                  newTmuxClient(t),
 		Push:                  newPushStore(t),
 		Sessions:              reader,
-		ConversationPoll:      convPoll,
+		Changes:               storeFeed(t, s),
 		ConversationKeepalive: keepalive,
 		EventSendTimeout:      sendTimeout,
 		Shutdown:              shutdown,
@@ -61,6 +65,17 @@ func sessionsHandlerKeepalive(
 		t.Fatalf("New: %v", err)
 	}
 	return handler
+}
+
+// storeFeed returns the change feed of s, which wakes each stream that reads through it on each write s makes (see
+// startChanges), or nil when s is nil, which wakes none.
+func storeFeed(t *testing.T, s *store.Store) enginev1connect.ChangesClient {
+	t.Helper()
+	if s == nil {
+		return nil
+	}
+	_, changes := startChanges(t, s)
+	return changes
 }
 
 // sessionsWatchClient serves handler on an httptest server and returns a Sessions client for it.
@@ -226,7 +241,7 @@ func TestSessionWatchFirstDeltaResetsWithNewestItems(t *testing.T) {
 	s := openEventStore(t, path)
 	addEngine(t, s)
 	seedSessionReplies(t, s, 3)
-	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, 0))
+	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, nil, 0))
 
 	stream := openSessionStream(t, client, sessionReq(eventEngine, 0, 2))
 	wantStreamMessage(t, stream.next(t), &orreryv1.SessionsWatchConversationResponse{
@@ -250,7 +265,7 @@ func TestSessionWatchResumeSendsItemsAfterSeq(t *testing.T) {
 	s := openEventStore(t, path)
 	addEngine(t, s)
 	seedSessionReplies(t, s, 3)
-	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, 0))
+	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, nil, 0))
 
 	stream := openSessionStream(t, client, sessionReq(eventEngine, 3, 0))
 	wantStreamMessage(t, stream.next(t), &orreryv1.SessionsWatchConversationResponse{
@@ -272,7 +287,7 @@ func TestSessionWatchSendsNewBlockAsDelta(t *testing.T) {
 	s := openEventStore(t, path)
 	addEngine(t, s)
 	seedSessionReplies(t, s, 3)
-	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, 0))
+	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), s, nil, 0))
 	stream := openSessionStream(t, client, sessionReq(eventEngine, 0, 0))
 	stream.next(t)
 
@@ -293,7 +308,7 @@ func TestSessionWatchStreamsUnfinishedTextUntilItFinishes(t *testing.T) {
 	s := openEventStore(t, path)
 	addEngine(t, s)
 	applyEngineOps(t, s, store.EngineText{ID: eventEngine, MessageID: "msg-1", Index: 0, Kind: "text", Text: "par"})
-	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, 0))
+	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), s, nil, 0))
 	stream := openSessionStream(t, client, sessionReq(eventEngine, 0, 0))
 
 	unfinished := func(text string) []*orreryv1.EngineText {
@@ -345,7 +360,7 @@ func TestSessionWatchCarriesOpenRequestWhileWaiting(t *testing.T) {
 			State: optional("waiting"), Question: optional("Write?"),
 		}},
 	)
-	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, 0))
+	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, nil, 0))
 
 	stream := openSessionStream(t, client, sessionReq(eventEngine, 0, 0))
 	waiting := engineSession("waiting")
@@ -371,7 +386,7 @@ func TestSessionWatchKeepaliveCarriesUnfinishedSet(t *testing.T) {
 	s := openEventStore(t, path)
 	addEngine(t, s)
 	applyEngineOps(t, s, store.EngineText{ID: eventEngine, MessageID: "msg-1", Index: 0, Kind: "text", Text: "held"})
-	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, 0))
+	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, nil, 0))
 	stream := openSessionStream(t, client, sessionReq(eventEngine, 0, 0))
 	stream.next(t)
 
@@ -386,7 +401,7 @@ func TestSessionWatchKeepaliveCarriesUnfinishedSet(t *testing.T) {
 // nothing after its first delta.
 const quietKeepalive = time.Hour
 
-// TestSessionWatchEndsOnShutdown holds a stream waiting for its next poll. Closing the shutdown signal must end the
+// TestSessionWatchEndsOnShutdown holds a stream waiting for its next wake. Closing the shutdown signal must end the
 // stream with Unavailable and the fixed shutdown message, sending nothing more. The session does not change and the
 // keepalive never comes due, so no message the stream may send before shutdown can reach the client: one that
 // arrives after the first delta is a send the shutdown failed to stop.
@@ -398,7 +413,7 @@ func TestSessionWatchEndsOnShutdown(t *testing.T) {
 	shutdown := make(chan struct{})
 	client := sessionsWatchClient(
 		t,
-		sessionsHandlerKeepalive(t, store.NewReader(path), shutdown, 0, quietKeepalive),
+		sessionsHandlerKeepalive(t, store.NewReader(path), nil, shutdown, 0, quietKeepalive),
 	)
 	stream := openSessionStream(t, client, sessionReq(eventEngine, 0, 0))
 	stream.next(t)
@@ -436,7 +451,7 @@ func TestSessionWatchEndsStalledReaderAtSendDeadline(t *testing.T) {
 	writeLargeSession(t, s, convLargeReplies)
 	url, closed, obs := startConvDeadlineServer(
 		t,
-		sessionsHandler(t, store.NewReader(path), nil, deadlineStalledSendTimeout),
+		sessionsHandler(t, store.NewReader(path), nil, nil, deadlineStalledSendTimeout),
 	)
 
 	obs.setHold(true)
@@ -471,7 +486,7 @@ func TestSessionWatchShutdownEndsBlockedSendWithinGrace(t *testing.T) {
 	shutdown := make(chan struct{})
 	url, closed, obs := startConvDeadlineServer(
 		t,
-		sessionsHandler(t, store.NewReader(path), shutdown, stallSendTimeout),
+		sessionsHandler(t, store.NewReader(path), nil, shutdown, stallSendTimeout),
 	)
 
 	dialed := make(chan net.Conn, 1)
@@ -554,7 +569,7 @@ func TestSessionWatchStartErrors(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			client := sessionsWatchClient(t, sessionsHandler(t, tc.reader, nil, 0))
+			client := sessionsWatchClient(t, sessionsHandler(t, tc.reader, nil, nil, 0))
 			stream := openSessionStream(t, client, tc.req)
 			err := stream.end(t)
 			wantCode(t, err, tc.want)

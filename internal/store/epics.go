@@ -35,7 +35,8 @@ var ErrQuestionClosed = errors.New("question closed")
 // nor other.
 var ErrNoChoice = errors.New("question offers no such choice")
 
-// ErrOtherNeedsText reports an answer that names other with text that is blank.
+// ErrOtherNeedsText reports an answer that needs text and has none: other with text that is blank, or correct to a
+// gaps question with text that is blank, since the text is the correction the planner is given.
 var ErrOtherNeedsText = errors.New("other answer needs text")
 
 // QuestionReplacedError reports an answer to question Seq, which the question By replaced.
@@ -198,13 +199,15 @@ type EpicReleaseStep struct {
 // EpicDecision is one recorded answer on an epic. Seq counts from 1 in recording order, and ID is the caller's id
 // for the decision: a seed decision's id, or the client id of an answer. Question is the seq of the question the
 // decision answers, and 0 for a note. Maker is who recorded it, empty for a decision stored before makers were kept.
+// Recipient is the session the decision is owed to, or "" when none is.
 type EpicDecision struct {
-	Seq      int64
-	ID       string
-	Text     string
-	Time     time.Time
-	Question int64
-	Maker    Maker
+	Seq       int64
+	ID        string
+	Text      string
+	Time      time.Time
+	Question  int64
+	Maker     Maker
+	Recipient string
 }
 
 // CreateEpic stores row as one write. It seeds row.Decisions as seq 1..n dated at row.Created, ignoring their Seq
@@ -218,7 +221,7 @@ func (s *Store) CreateEpic(ctx context.Context, row EpicRow) error {
 		if stored > 0 {
 			return fmt.Errorf("epic %s: %w", row.ID, ErrEpicExists)
 		}
-		if err = queries.InsertEpic(ctx, sqlcgen.InsertEpicParams{
+		if err = queries.InsertEpic(withHousekeepMark(ctx, hookEpicStored, row.ID), sqlcgen.InsertEpicParams{
 			ID: row.ID, Repository: row.Repository, Base: row.Base, StoredBase: row.Base, Title: row.Title,
 			Approved: row.Approved, Intent: row.Intent, Care: row.Care, Approach: row.Approach,
 			ReleaseThen: row.ReleaseThen, Checks: row.Checks, Phase: row.Phase, Created: row.Created.Unix(),
@@ -324,7 +327,7 @@ func insertEpicSections(ctx context.Context, queries *sqlcgen.Queries, row EpicR
 	if err := insertInOrder(row.Decisions, func(position int64, d EpicDecision) error {
 		return queries.InsertEpicDecision(ctx, sqlcgen.InsertEpicDecisionParams{
 			Epic: row.ID, Seq: position, ClientID: d.ID, Text: d.Text, Time: row.Created.Unix(), Question: 0,
-			Maker: d.Maker.By, MakerSession: d.Maker.Session,
+			Maker: d.Maker.By, MakerSession: d.Maker.Session, Recipient: "",
 		})
 	}); err != nil {
 		return fmt.Errorf("decisions: %w", err)
@@ -802,7 +805,11 @@ func (s *Store) AnswerEpic(
 			answer = replay
 			return nil
 		}
-		answer, err = appendDecision(ctx, queries, epic, id, text, 0, maker, at)
+		owed, err := ownerRecipient(ctx, queries, epic, maker)
+		if err != nil {
+			return err
+		}
+		answer, err = appendDecision(ctx, queries, epic, id, text, 0, maker, owed, at)
 		return err
 	})
 	if err != nil {
@@ -817,10 +824,11 @@ func (s *Store) AnswerEpic(
 // returns the stored decision and writes nothing, even after its question closed; a stored id with other text or
 // another choice is ErrDecisionConflict. A question the epic does not have is ErrNoQuestion, a replaced one is a
 // *QuestionReplacedError and an answered one is ErrQuestionClosed. A choice the question does not offer is ErrNoChoice,
-// and other with blank text is ErrOtherNeedsText. Each refusal writes nothing. Otherwise the question becomes answered
-// with choice, a pending trigger `answer:<id>` is added, the decision is appended with its question, and the epic's
-// changed moves to at. An answer to a park question that is not final also ends the park, as RetryEpic does; a final
-// park offers only other and stays parked.
+// other with blank text is ErrOtherNeedsText, and so is correct with blank text to a gaps question. Each refusal
+// writes nothing. Otherwise the question becomes answered with choice, a pending trigger `answer:<id>` is added, the
+// decision is appended with its question, and the epic's changed moves to at. An answer to a park question that is not
+// final also ends the park, as RetryEpic does; a final park offers only other and stays parked. An answer to a gaps
+// question carries out its choice in the same write, as answerGapsQuestion gives.
 func (s *Store) AnswerQuestion(
 	ctx context.Context,
 	epic, id, text string,
@@ -854,7 +862,8 @@ func (s *Store) AnswerQuestion(
 // recordQuestionAnswer answers the open question with seq question as decision id with text and choice: the question
 // becomes answered with choice, a pending trigger `answer:<id>` is added, and the decision is appended tied to the
 // question. An answer to a park question for a red run judged holding at base carries out its choice, as
-// answerMetAtBase gives. An answered park question that is not final ends the park in the same write.
+// answerMetAtBase gives. An answered park question that is not final ends the park in the same write. An answer to a
+// gaps question carries out its choice in the same write, after the decision is appended, as answerGapsQuestion gives.
 func recordQuestionAnswer(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
@@ -879,7 +888,11 @@ func recordQuestionAnswer(
 	}); err != nil {
 		return EpicDecision{}, fmt.Errorf("insert trigger of answer %s on epic %s: %w", id, epic, err)
 	}
-	decision, err := appendDecision(ctx, queries, epic, id, text, question, maker, at)
+	owed, err := ownerRecipient(ctx, queries, epic, maker)
+	if err != nil {
+		return EpicDecision{}, err
+	}
+	decision, err := appendDecision(ctx, queries, epic, id, text, question, maker, owed, at)
 	if err != nil {
 		return EpicDecision{}, err
 	}
@@ -888,6 +901,10 @@ func recordQuestionAnswer(
 		return EpicDecision{}, err
 	}
 	err = endParkByAnswer(ctx, queries, epic, answered, choice)
+	if err != nil {
+		return EpicDecision{}, err
+	}
+	err = answerGapsQuestion(ctx, queries, epic, id, text, answered, choice, maker, at)
 	if err != nil {
 		return EpicDecision{}, err
 	}
@@ -1045,8 +1062,8 @@ func decisionChoice(
 
 // requireAnswerable is the refusal of an answer naming choice and text to question seq of epic: ErrNoQuestion when epic
 // has no question seq, a *QuestionReplacedError when a later question replaced it, ErrQuestionClosed when it is
-// answered, ErrNoChoice when it does not offer choice, and ErrOtherNeedsText when choice is other with blank text. When
-// the answer is allowed it returns the open question as stored.
+// answered, ErrNoChoice when it does not offer choice, and ErrOtherNeedsText when choice needs text it lacks (see
+// choiceNeedsText). When the answer is allowed it returns the open question as stored.
 func requireAnswerable(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
@@ -1074,10 +1091,16 @@ func requireAnswerable(
 	if !offered {
 		return sqlcgen.EpicQuestion{}, fmt.Errorf("question %d on epic %s: %w", question, epic, ErrNoChoice)
 	}
-	if choice == ChoiceOther && strings.TrimSpace(text) == "" {
+	if choiceNeedsText(stored, choice) && strings.TrimSpace(text) == "" {
 		return sqlcgen.EpicQuestion{}, fmt.Errorf("question %d on epic %s: %w", question, epic, ErrOtherNeedsText)
 	}
 	return stored, nil
+}
+
+// choiceNeedsText reports whether an answer naming choice to question must carry text: other always, and correct to a
+// gaps question, whose text is the correction the planner is given.
+func choiceNeedsText(question sqlcgen.EpicQuestion, choice string) bool {
+	return choice == ChoiceOther || (choice == ChoiceCorrect && isGapsQuestion(question))
 }
 
 // offers reports whether question offers choice: other, which every question offers, or one of its declared choices.
@@ -1092,14 +1115,16 @@ func offers(question sqlcgen.EpicQuestion, choice string) (bool, error) {
 	return slices.ContainsFunc(declared, func(offered EpicChoice) bool { return offered.ID == choice }), nil
 }
 
-// appendDecision appends text as decision id on epic, answering question (0 for a note), made by maker, as the next
-// seq dated at, and moves the epic's changed to at.
+// appendDecision appends text as decision id on epic, answering question (0 for a note), made by maker and owed to the
+// session recipient ("" when none), as the next seq dated at, and moves the epic's changed to at. A decision owed to
+// a session is inserted with withEpicEvent.
 func appendDecision(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
 	epic, id, text string,
 	question int64,
 	maker Maker,
+	recipient string,
 	at time.Time,
 ) (EpicDecision, error) {
 	maxSeq, err := queries.MaxEpicDecisionSeq(ctx, epic)
@@ -1108,10 +1133,16 @@ func appendDecision(
 	}
 	decision := EpicDecision{
 		Seq: maxSeq + 1, ID: id, Text: text, Time: time.Unix(at.Unix(), 0), Question: question, Maker: maker,
+		Recipient: recipient,
 	}
-	if err = queries.InsertEpicDecision(ctx, sqlcgen.InsertEpicDecisionParams{
+	insertCtx := ctx
+	if recipient != "" {
+		// A decision owed to a session is a caller event, so the committed write wakes the caller-event pass.
+		insertCtx = withEpicEvent(ctx)
+	}
+	if err = queries.InsertEpicDecision(insertCtx, sqlcgen.InsertEpicDecisionParams{
 		Epic: epic, Seq: decision.Seq, ClientID: id, Text: text, Time: at.Unix(), Question: question,
-		Maker: maker.By, MakerSession: maker.Session,
+		Maker: maker.By, MakerSession: maker.Session, Recipient: recipient,
 	}); err != nil {
 		return EpicDecision{}, fmt.Errorf("insert decision %s on epic %s: %w", id, epic, err)
 	}
@@ -1162,12 +1193,13 @@ func epicHeadOf(head sqlcgen.Epic) EpicRow {
 // epicDecisionOf returns the decision a stored row holds, its client id as the decision id.
 func epicDecisionOf(decision sqlcgen.EpicDecision) EpicDecision {
 	return EpicDecision{
-		Seq:      decision.Seq,
-		ID:       decision.ClientID,
-		Text:     decision.Text,
-		Time:     time.Unix(decision.Time, 0),
-		Question: decision.Question,
-		Maker:    Maker{By: decision.Maker, Session: decision.MakerSession},
+		Seq:       decision.Seq,
+		ID:        decision.ClientID,
+		Text:      decision.Text,
+		Time:      time.Unix(decision.Time, 0),
+		Question:  decision.Question,
+		Maker:     Maker{By: decision.Maker, Session: decision.MakerSession},
+		Recipient: decision.Recipient,
 	}
 }
 

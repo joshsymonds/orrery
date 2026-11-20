@@ -125,10 +125,11 @@ func stepReportOf(row store.StepRow) (report stepReport, ok bool) {
 	return stepReport{}, false
 }
 
-// publish reports the row of the step with id, as the store now holds it, to every subscription, and then calls Stored. It
-// is called once a write that ends or holds the step is stored. The row is read under a context that has not been canceled,
-// so a stored write is reported whatever ctx has done. A read error is logged, and the row is then not reported by this
-// publish; a subscription opened later still reads the stored row and reports it.
+// publish reports the row of the step with id, as the store now holds it, to every subscription, then calls Stored and,
+// when the row has an epic, EpicWake with that epic. It is called once a write that ends or holds the step is stored. The
+// row is read under a context that has not been canceled, so a stored write is reported whatever ctx has done. A read
+// error is logged, and the row is then not reported by this publish; a subscription opened later still reads the stored
+// row and reports it.
 func (s *Steps) publish(ctx context.Context, id string) {
 	row, err := s.store.Step(context.WithoutCancel(ctx), id)
 	if err != nil {
@@ -142,5 +143,8 @@ func (s *Steps) publish(ctx context.Context, id string) {
 	s.mu.Unlock()
 	if s.stored != nil {
 		s.stored()
+	}
+	if s.epicWake != nil && row.Epic != "" {
+		s.epicWake(row.Epic)
 	}
 }

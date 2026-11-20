@@ -10,7 +10,6 @@ import (
 	"reflect"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/gates"
 	"github.com/joshsymonds/orrery/internal/grants"
@@ -32,13 +31,13 @@ type stepGrantFixture struct {
 func newStepGrantFixture(t *testing.T, commands PoolCommands, poolsText string) *stepGrantFixture {
 	t.Helper()
 	s, _ := openStore(t)
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	sessions := &stepStartSessions{writer: writer}
 	home := t.TempDir()
 	stepGateWriteFile(t, filepath.Join(home, "orrery", "pools.toml"), poolsText)
 	environ := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "XDG_CONFIG_HOME=" + home}
-	steps, err := NewSteps(StepsConfig{
+	steps := NewSteps(StepsConfig{
 		Sessions:     sessions,
 		Store:        s,
 		Writer:       writer,
@@ -48,9 +47,6 @@ func newStepGrantFixture(t *testing.T, commands PoolCommands, poolsText string) 
 		Logger:       slog.New(slog.DiscardHandler),
 		GateStateDir: gateShortStateDir(t),
 	})
-	if err != nil {
-		t.Fatalf("NewSteps: %v", err)
-	}
 	t.Cleanup(steps.Close)
 	return &stepGrantFixture{steps: steps, sessions: sessions, store: s, environ: environ}
 }

@@ -37,6 +37,7 @@ type Store interface {
 	RunningTurns(ctx context.Context) ([]store.EpicTurn, error)
 	RateLimit(ctx context.Context, session string) (store.RateLimit, bool, error)
 	Follows(ctx context.Context) ([]store.LabelFollow, error)
+	GapTurns(ctx context.Context, epic string) ([]store.GapTurn, error)
 }
 
 // Steps starts planner steps, subscribes to their ends and holds, and stops them. *enginehost.Steps satisfies it.
@@ -47,16 +48,17 @@ type Steps interface {
 	Stop(ctx context.Context, id string) error
 }
 
-// Config configures a Runner. A Tick that is not positive means five seconds, and a nil Now means time.Now. A nil
-// Logger discards. Resolve answers whether the gates and judges of a planned task resolve for its epic. NewTimer arms a
-// timer that sends on its channel once, after a duration, and returns the timer's stop; a nil NewTimer wraps
-// time.NewTimer. After returns the channel a record of a turn's step that the store refused as busy waits on before it
-// is tried again, and nil is time.After.
+// Config configures a Runner. Retry is how long a failed turn write, or a failed stop of a limited step, waits before it
+// is tried again; a Retry that is not positive means five seconds. A nil Now means time.Now. A nil Logger discards.
+// Resolve answers whether the gates and judges of a planned task resolve for its epic. NewTimer arms a timer that sends
+// on its channel once, after a duration, and returns the timer's stop; a nil NewTimer wraps time.NewTimer. After returns
+// the channel a record of a turn's step that the store refused as busy waits on before it is tried again, and nil is
+// time.After.
 type Config struct {
 	Store    Store
 	Steps    Steps
 	Agent    func() (string, error)
-	Tick     time.Duration
+	Retry    time.Duration
 	Now      func() time.Time
 	Logger   *slog.Logger
 	Resolve  Resolver
@@ -67,8 +69,9 @@ type Config struct {
 // stepRecordRetry is how long after the store refuses the record of a turn's step as busy the record is tried again.
 const stepRecordRetry = time.Second
 
-// defaultTick is how often a Runner passes when its Config names no positive tick.
-const defaultTick = 5 * time.Second
+// defaultRetry is how long a failed turn write or stop waits before it is tried again when Config names no positive
+// Retry.
+const defaultRetry = 5 * time.Second
 
 // stepDone is the end of a step whose return passed its check.
 const stepDone = "done"
@@ -99,28 +102,28 @@ const (
 )
 
 // Runner passes over the epics with pending triggers and runs their planner turns. Each claimed turn runs in its own
-// goroutine, and turns tracks them until Run returns.
+// goroutine, and turns tracks them until WaitTurns returns.
 type Runner struct {
-	store    Store
-	steps    Steps
-	agent    func() (string, error)
-	tick     time.Duration
-	now      func() time.Time
-	after    func(time.Duration) <-chan time.Time
-	logger   *slog.Logger
-	resolve  Resolver
-	newTimer func(time.Duration) (<-chan time.Time, func() bool)
-	turns    sync.WaitGroup
+	store      Store
+	steps      Steps
+	agent      func() (string, error)
+	retryAfter time.Duration
+	now        func() time.Time
+	after      func(time.Duration) <-chan time.Time
+	logger     *slog.Logger
+	resolve    Resolver
+	newTimer   func(time.Duration) (<-chan time.Time, func() bool)
+	turns      sync.WaitGroup
 }
 
 // New returns a Runner for cfg.
 func New(cfg Config) *Runner {
 	runner := &Runner{
-		store: cfg.Store, steps: cfg.Steps, agent: cfg.Agent, tick: cfg.Tick, now: cfg.Now, after: cfg.After,
+		store: cfg.Store, steps: cfg.Steps, agent: cfg.Agent, retryAfter: cfg.Retry, now: cfg.Now, after: cfg.After,
 		logger: cfg.Logger, resolve: cfg.Resolve, newTimer: cfg.NewTimer,
 	}
-	if runner.tick <= 0 {
-		runner.tick = defaultTick
+	if runner.retryAfter <= 0 {
+		runner.retryAfter = defaultRetry
 	}
 	if runner.now == nil {
 		runner.now = time.Now
@@ -140,29 +143,12 @@ func New(cfg Config) *Runner {
 	return runner
 }
 
-// Run settles the turns a previous orreryd left running, then passes at once, then once per tick, until ctx ends. It
-// then waits for the turns it started and returns.
-func (r *Runner) Run(ctx context.Context) {
-	ticker := time.NewTicker(r.tick)
-	defer ticker.Stop()
-	r.recoverTurns(ctx)
-	for {
-		r.pass(ctx, nil)
-		select {
-		case <-ctx.Done():
-			r.turns.Wait()
-			return
-		case <-ticker.C:
-		}
-	}
-}
-
-// Recover settles the turns a previous orreryd left running, as Run does before its first pass.
+// Recover settles the turns a previous orreryd left running.
 func (r *Runner) Recover(ctx context.Context) {
 	r.recoverTurns(ctx)
 }
 
-// Pass carries out the pending actions and decides each epic with pending triggers once, as Run does on each tick.
+// Pass carries out the pending actions and decides each epic with pending triggers once.
 func (r *Runner) Pass(ctx context.Context) {
 	r.pass(ctx, nil)
 }
@@ -172,7 +158,7 @@ func (r *Runner) PassOnly(ctx context.Context, open func(epic string) bool) {
 	r.pass(ctx, open)
 }
 
-// WaitTurns waits until every turn the runner started has settled, as Run does before it returns.
+// WaitTurns waits until every turn the runner started has settled.
 func (r *Runner) WaitTurns() {
 	r.turns.Wait()
 }
@@ -311,6 +297,10 @@ func (r *Runner) startStep(ctx context.Context, epic string, turn store.EpicTurn
 	if err != nil {
 		return "", fmt.Errorf("read the spent lines of turn %d of epic %s: %w", turn.Seq, epic, err)
 	}
+	gapTurns, err := r.store.GapTurns(ctx, epic)
+	if err != nil {
+		return "", fmt.Errorf("read the gap turns of epic %s: %w", epic, err)
+	}
 	prompt, err := Prompt(row, turn.Seq, triggers, follows, spent)
 	if err != nil {
 		return "", fmt.Errorf("render prompt of turn %d of epic %s: %w", turn.Seq, epic, err)
@@ -323,7 +313,7 @@ func (r *Runner) startStep(ctx context.Context, epic string, turn store.EpicTurn
 		Workspace:   row.Repository,
 		ReadOnly:    true,
 		Epic:        row.ID,
-		ReturnCheck: returnCheck(ctx, row, review, r.resolve, spent),
+		ReturnCheck: returnCheck(ctx, row, review, r.resolve, priorGapTurns(gapTurns, triggers)),
 	})
 	if id != "" {
 		if setErr := r.recordStep(ctx, epic, turn.Seq, id); setErr != nil {
@@ -567,9 +557,9 @@ func (r *Runner) stopStep(ctx context.Context, wait *stepWait) {
 	wait.stopped = true
 }
 
-// armRetry arms the one retry timer of wait, of one tick.
+// armRetry arms the one retry timer of wait, of the retry duration.
 func (r *Runner) armRetry(wait *stepWait) {
-	wait.retry, wait.disarm = r.newTimer(r.tick)
+	wait.retry, wait.disarm = r.newTimer(r.retryAfter)
 }
 
 // ready returns the channel that signals the pending rows of wait. It is nil while wait has no subscription, which blocks
@@ -705,8 +695,8 @@ func (r *Runner) freeTurn(ctx context.Context, epic string, seq int64, free stor
 
 // retry runs op, a store call that settles a turn, until it succeeds or the store answers ErrTurnNotRunning or
 // ErrBadQuestion, which no later call changes, and returns that error wrapped with what. Until then each failed call is
-// logged and run again after a tick with the same arguments. Once ctx has ended, retry calls nothing more and returns
-// nil, which leaves the turn running for the next start.
+// logged and run again after the retry duration with the same arguments. Once ctx has ended, retry calls nothing more and
+// returns nil, which leaves the turn running for the next start.
 func (r *Runner) retry(ctx context.Context, what string, op func() error) error {
 	for ctx.Err() == nil {
 		err := op()
@@ -718,9 +708,11 @@ func (r *Runner) retry(ctx context.Context, what string, op func() error) error 
 			return err
 		}
 		r.logger.ErrorContext(ctx, "retry planner turn write", "err", err)
+		fired, stop := r.newTimer(r.retryAfter)
 		select {
 		case <-ctx.Done():
-		case <-time.After(r.tick):
+			stop()
+		case <-fired:
 		}
 	}
 	return nil
@@ -745,12 +737,19 @@ func planOf(ret Return) store.EpicPlan {
 		actions = append(actions, store.EpicActionInput{
 			Kind: action.Kind, Node: action.Node, Task: action.Task, Close: action.Close, By: action.By,
 			Requirement: action.Requirement, Item: action.Item, Deliverable: action.Deliverable,
-			Files: action.Files, Remove: action.Remove, UndoNone: action.UndoNone, Reason: action.Reason,
+			Files: action.Files, Remove: action.Remove, Reviewer: action.Reviewer, UndoNone: action.UndoNone,
+			Reason: action.Reason,
+		})
+	}
+	unresolvable := make([]store.GapDeclaration, 0, len(ret.Unresolvable))
+	for _, entry := range ret.Unresolvable {
+		unresolvable = append(unresolvable, store.GapDeclaration{
+			Gap: entry.Gap, Reason: entry.Reason, Recommended: entry.Recommended,
 		})
 	}
 	return store.EpicPlan{
 		Decisions: ret.Decisions, Tasks: tasks, Outline: ret.Outline, Questions: questions, Outcome: ret.Outcome,
-		Actions: actions,
+		Actions: actions, Unresolvable: unresolvable,
 	}
 }
 
@@ -774,15 +773,16 @@ func questionInputOf(question Question) store.EpicQuestionInput {
 
 // returnCheck returns the check a planner step's return runs for epic. A return that does not parse is one line.
 // Any other return gets the refusals of Check, against the epic's Requirement ids, the files of its open tasks, and the
-// gates and judges that resolve answers for epic, then the refusals of Coverage against the epic's tasks, then those of
-// checkAmendKeeps against the epic's Requirements, then those of checkClosureTasks against the epic's phase, then those
-// of checkCloses against the epic's phase and the findings of review that the next closure round checks, then those of
-// checkSpentLines against spent, the lines of failed tasks the turn may not try again. When epic holds a planner-class
-// park, a return with no action and no question gets one more line from checkPark, which names the park reason. An
-// owner park is not checked, since the owner answers it. The gate resolves under ctx without its cancellation, so the
-// turn that started the step ending does not refuse its return.
+// gates and judges that resolve answers for epic, then those of checkAmendKeeps against the epic's Requirements, then
+// those of checkClosureTasks against the epic's phase, then those of checkCloses against the epic's phase and the
+// findings of review that the next closure round checks, then those of checkSpentGaps against gapTurns, the planner
+// turns each gap of the epic was given before the checked turn, for the rerun_review actions that name a reviewer whose
+// gap has spent its turns. Coverage and the spent lines are not refusals: the prompt names them. When epic holds a
+// planner-class park, a return with no action and no question gets one more line from checkPark, which names the park
+// reason. An owner park is not checked, since the owner answers it. The gate resolves under ctx without its
+// cancellation, so the turn that started the step ending does not refuse its return.
 func returnCheck(
-	ctx context.Context, epic store.EpicRow, review store.Review, resolve Resolver, spent []SpentLine,
+	ctx context.Context, epic store.EpicRow, review store.Review, resolve Resolver, gapTurns []store.GapTurn,
 ) func(value json.RawMessage) []string {
 	requirements := make([]string, 0, len(epic.Requirements))
 	for _, requirement := range epic.Requirements {
@@ -806,11 +806,11 @@ func returnCheck(
 		if err != nil {
 			return []string{err.Error()}
 		}
-		refusals := append(Check(ret, requirements, owned, gate, judge), Coverage(ret, requirements, epic.Tasks)...)
+		refusals := Check(ret, requirements, owned, gate, judge)
 		refusals = append(refusals, checkAmendKeeps(ret, epic.Requirements)...)
 		refusals = append(refusals, checkClosureTasks(ret, epic.Phase)...)
 		refusals = append(refusals, checkCloses(ret, epic.Phase, open)...)
-		refusals = append(refusals, checkSpentLines(ret, spent, epic.Tasks)...)
+		refusals = append(refusals, checkSpentGaps(ret, gapTurns)...)
 		return append(refusals, checkPark(ret, park)...)
 	}
 }

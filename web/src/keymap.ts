@@ -190,7 +190,7 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
     }
     return;
   }
-  // A focused button keeps its own Enter, so + Ask opens the palette and Enter writes no seen.
+  // A focused button keeps its own Enter, so New or Keys opens its panel and Enter writes no seen.
   if (event.key === "Enter" && focused instanceof HTMLElement && focused.tagName === "BUTTON") {
     return;
   }

@@ -16,18 +16,23 @@ import (
 // sessionsServer answers orrery.v1.Sessions from the store reader. A nil reader answers unavailable. home is the home
 // directory whose Claude transcripts WatchConversation reads a session's context figure from, and an empty home reads
 // none. steps is the client WatchConversation asks about a step session, and a nil steps answers not_found for one.
-// poll paces the polls of WatchConversation, keepalive is the time without a delta after which it sends a keepalive,
-// sendTimeout bounds each of its sends, and closing shutdown ends its streams. A nil shutdown never closes. now is the
-// clock ListHeadless dates its retention window and its aging by.
+// changes is the change hub WatchConversation streams wake from, and newTimer arms their keepalive and background
+// timers. keepalive is the time without a message after which WatchConversation sends a keepalive, sendTimeout bounds
+// each of its sends, and closing shutdown ends its streams. A nil shutdown never closes. now is the clock ListHeadless
+// dates its retention window and its aging by, and the clock WatchConversation reads a background window against.
+// stepped, when set, is called with the session id of each WatchConversation step before the step reads the session. A
+// test sets it to count the reads of its streams. It is nil in production.
 type sessionsServer struct {
 	reader      *store.Reader
 	home        string
 	now         func() time.Time
 	steps       StepClient
-	poll        time.Duration
+	changes     *changeHub
+	newTimer    func(time.Duration) (<-chan time.Time, func() bool)
 	keepalive   time.Duration
 	sendTimeout time.Duration
 	shutdown    <-chan struct{}
+	stepped     func(id string)
 }
 
 // List answers every session row and the event seq they are current to, both from one store snapshot. Store
@@ -86,20 +91,27 @@ func sessionMessage(row store.Session) *orreryv1.Session {
 }
 
 // newSessionsHandler returns the path and handler that serve Sessions over reader and steps, with home, the clock now,
-// the stream timings and shutdown signal of sessionsServer. The handler runs under withResponseWriter, so
-// WatchConversation can reach its connection.
+// the change hub changes, and the keepalive and send timings and shutdown signal of sessionsServer. WatchConversation
+// steps when changes wakes its stream, and its keepalive and background timers are armed through newTimer, or through
+// time.NewTimer when newTimer is nil. The handler runs under withResponseWriter, so WatchConversation can reach its
+// connection.
 func newSessionsHandler(
 	reader *store.Reader,
 	home string,
 	now func() time.Time,
 	steps StepClient,
-	poll, keepalive, sendTimeout time.Duration,
+	changes *changeHub,
+	newTimer func(time.Duration) (<-chan time.Time, func() bool),
+	keepalive, sendTimeout time.Duration,
 	shutdown <-chan struct{},
 	opts ...connect.HandlerOption,
 ) (string, http.Handler) {
+	if newTimer == nil {
+		newTimer = stdTimer
+	}
 	service := sessionsServer{
-		reader: reader, home: home, now: now, steps: steps, poll: poll, keepalive: keepalive,
-		sendTimeout: sendTimeout, shutdown: shutdown,
+		reader: reader, home: home, now: now, steps: steps, changes: changes, newTimer: newTimer,
+		keepalive: keepalive, sendTimeout: sendTimeout, shutdown: shutdown,
 	}
 	path, handler := orreryv1connect.NewSessionsHandler(service, opts...)
 	return path, withResponseWriter(handler)

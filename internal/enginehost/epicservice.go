@@ -41,6 +41,9 @@ type EpicCommands interface {
 	Epic(ctx context.Context, id string) (store.EpicRow, error)
 	EpicFlow(ctx context.Context, id string) (store.EpicFlow, error)
 	EpicHistory(ctx context.Context, id string) (store.EpicHistory, error)
+	MoveEpic(ctx context.Context, epic, to string, maker store.Maker, at time.Time) (store.EpicAction, error)
+	RecordEpicAction(ctx context.Context, epic, kind string, maker store.Maker, at time.Time) error
+	SteerTarget(ctx context.Context, id string) (store.SteerTarget, bool, error)
 	Epics(ctx context.Context) ([]store.EpicRow, error)
 	EpicListings(ctx context.Context) ([]store.EpicRow, error)
 	CallerMaker(ctx context.Context, caller store.EpicCaller) (store.Maker, error)
@@ -53,18 +56,21 @@ type EpicCommands interface {
 	) (store.EpicDecision, error)
 	OpenQuestions(ctx context.Context, epic string) ([]store.EpicQuestion, error)
 	Follows(ctx context.Context) ([]store.LabelFollow, error)
-	PauseEpic(ctx context.Context, epic string) error
-	ResumeEpic(ctx context.Context, epic string) error
-	StopEpic(ctx context.Context, epic string) (string, error)
-	RetryEpic(ctx context.Context, epic string) error
-	RetryNode(ctx context.Context, epic, node string) error
+	PauseEpic(ctx context.Context, epic string, maker store.Maker, at time.Time) error
+	ResumeEpic(ctx context.Context, epic string, maker store.Maker, at time.Time) error
+	StopEpic(ctx context.Context, epic string, maker store.Maker, at time.Time) (string, error)
+	RetryEpic(ctx context.Context, epic string, maker store.Maker, at time.Time) error
+	RetryNode(ctx context.Context, epic, node string, maker store.Maker, at time.Time) error
 	KickEpic(ctx context.Context, epic, text string, maker store.Maker, at time.Time) error
 	ReleaseEpic(ctx context.Context, epic string, undoNone []int64, maker store.Maker, at time.Time) error
-	CloseEpic(ctx context.Context, epic, kind, by, closer string, at time.Time) (string, error)
+	CloseEpic(
+		ctx context.Context, epic, kind, by, closer string, maker store.Maker, at time.Time,
+	) (string, error)
 	AmendEvidence(
 		ctx context.Context,
 		epic string,
 		amend store.Amendment,
+		maker store.Maker,
 		at time.Time,
 	) (store.EvidenceAmendment, error)
 	SeeEpic(ctx context.Context, epic string, at time.Time) error
@@ -72,11 +78,13 @@ type EpicCommands interface {
 	UnarchiveRow(ctx context.Context, kind, id string, at time.Time) error
 }
 
-// SteeringSessions starts and stops the steering sessions of epics. *EpicSteering satisfies it. CreateEpic starts the
-// steering session of an epic that no conversation creates, and stops it when the create then stores nothing.
+// SteeringSessions starts and stops the steering sessions of epics, and reads the directory of a tmux pane. *EpicSteering
+// satisfies it. CreateEpic starts the steering session of an epic that no conversation creates, and stops it when the
+// create then stores nothing.
 type SteeringSessions interface {
 	Start(ctx context.Context, row store.EpicRow) (string, error)
 	Stop(ctx context.Context, id string) error
+	PaneDir(ctx context.Context, server, pane string) (string, error)
 }
 
 // epicService implements the Epics RPCs over epics. getenv reads the environment a contract's gates resolve in; nil
@@ -107,6 +115,35 @@ func (s *epicService) callerMaker(ctx context.Context, header http.Header) (stor
 		return store.Maker{}, epicStoreError(err)
 	}
 	return maker, nil
+}
+
+// controlMaker returns who makes a changing call of epic whose headers are header. A conversation that does not steer
+// epic is refused with FailedPrecondition, naming the steerer and epic_steer, before the call writes anything. The owner
+// and a step pass, and so does a conversation of an epic that is not stored, which its handler answers NotFound.
+func (s *epicService) controlMaker(ctx context.Context, epic string, header http.Header) (store.Maker, error) {
+	maker, err := s.callerMaker(ctx, header)
+	if err != nil || maker.By != store.MakerConversation {
+		return maker, err
+	}
+	row, err := s.epics.Epic(ctx, epic)
+	switch {
+	case errors.Is(err, store.ErrNoEpic):
+		return maker, nil
+	case err != nil:
+		return store.Maker{}, epicStoreError(err)
+	case row.Steerer == maker.Session:
+		return maker, nil
+	case row.Steerer == "":
+		return store.Maker{}, refuseEpic(connect.CodeFailedPrecondition, fmt.Sprintf(
+			"session %s does not steer epic %s: no conversation steers it; epic_steer makes this conversation the steerer",
+			maker.Session,
+			epic,
+		))
+	}
+	return store.Maker{}, refuseEpic(connect.CodeFailedPrecondition, fmt.Sprintf(
+		"session %s does not steer epic %s: session %s steers it; epic_steer makes this conversation the steerer",
+		maker.Session, epic, row.Steerer,
+	))
 }
 
 // CreateEpic checks the contract with checkEpic, collects the lint's warnings, merges its reviewers, resolves its base to
@@ -265,8 +302,8 @@ func (s *epicService) GetEpic(
 	return connect.NewResponse(&v1.GetEpicResponse{Epic: message}), nil
 }
 
-// fillHistory sets the triggers and tells of message to the history the store reads for the epic with id. It returns an
-// error matching store.ErrNoEpic when no epic has that id.
+// fillHistory sets the triggers, tells and actions of message to the history the store reads for the epic with id. It
+// returns an error matching store.ErrNoEpic when no epic has that id.
 func (s *epicService) fillHistory(ctx context.Context, id string, message *v1.StoredEpic) error {
 	history, err := s.epics.EpicHistory(ctx, id)
 	if err != nil {
@@ -274,6 +311,7 @@ func (s *epicService) fillHistory(ctx context.Context, id string, message *v1.St
 	}
 	message.Triggers = epicMap(history.Triggers, triggerMessage)
 	message.Tells = epicMap(history.Tells, tellMessage)
+	message.Actions = epicMap(history.Actions, actionMessage)
 	return nil
 }
 
@@ -357,7 +395,7 @@ func (s *epicService) AnswerEpic(
 	if err := checkEpicAnswer(req.Msg); err != nil {
 		return nil, err
 	}
-	maker, err := s.callerMaker(ctx, req.Header())
+	maker, err := s.controlMaker(ctx, req.Msg.GetEpicId(), req.Header())
 	if err != nil {
 		return nil, err
 	}
@@ -492,10 +530,15 @@ func (s *epicService) PauseEpic(
 	if id == "" {
 		return nil, refuseEpic(connect.CodeInvalidArgument, "id: empty")
 	}
-	if err := s.epics.PauseEpic(ctx, id); err != nil {
+	maker, err := s.controlMaker(ctx, id, req.Header())
+	if err != nil {
+		return nil, err
+	}
+	if err = s.epics.PauseEpic(ctx, id, maker, time.Now()); err != nil {
 		return nil, epicControlError(id, err)
 	}
-	if err := s.stopRunningSteps(ctx, id); err != nil {
+	err = s.stopRunningSteps(ctx, id)
+	if err != nil {
 		return nil, err
 	}
 	message, err := s.storedEpic(ctx, id)
@@ -530,10 +573,12 @@ func (s *epicService) ResumeEpic(
 	if err != nil {
 		return nil, err
 	}
-	if head.Paused || len(limited) == 0 {
-		if err = s.epics.ResumeEpic(ctx, id); err != nil {
-			return nil, epicControlError(id, err)
-		}
+	maker, err := s.controlMaker(ctx, id, req.Header())
+	if err != nil {
+		return nil, err
+	}
+	if err = s.recordResume(ctx, id, head.Paused, len(limited) > 0, maker); err != nil {
+		return nil, epicControlError(id, err)
 	}
 	var resumed, stillLimited []string
 	for _, row := range limited {
@@ -558,6 +603,22 @@ func (s *epicService) ResumeEpic(
 		Resumed:      resumed,
 		StillLimited: stillLimited,
 	}), nil
+}
+
+// recordResume writes the resume a ResumeEpic call makes on epic. A paused epic, or one with no limited step, goes
+// through the store's ResumeEpic, which clears the pause or refuses an epic that is neither paused nor limited. An
+// unpaused epic that holds limited steps has no pause to clear, so its resume is one resume action.
+func (s *epicService) recordResume(ctx context.Context, epic string, paused, limited bool, maker store.Maker) error {
+	if paused || !limited {
+		if err := s.epics.ResumeEpic(ctx, epic, maker, time.Now()); err != nil {
+			return fmt.Errorf("resume epic %s: %w", epic, err)
+		}
+		return nil
+	}
+	if err := s.epics.RecordEpicAction(ctx, epic, store.ActionResume, maker, time.Now()); err != nil {
+		return fmt.Errorf("record resume of epic %s: %w", epic, err)
+	}
+	return nil
 }
 
 // stopRunningSteps stops each step of epic that is running, and returns the stops that failed, each named by its step,
@@ -615,7 +676,11 @@ func (s *epicService) StopEpic(
 	if id == "" {
 		return nil, refuseEpic(connect.CodeInvalidArgument, "id: empty")
 	}
-	step, err := s.epics.StopEpic(ctx, id)
+	maker, err := s.controlMaker(ctx, id, req.Header())
+	if err != nil {
+		return nil, err
+	}
+	step, err := s.epics.StopEpic(ctx, id, maker, time.Now())
 	if err != nil {
 		return nil, epicControlError(id, err)
 	}
@@ -645,7 +710,11 @@ func (s *epicService) RetryEpic(
 	if id == "" {
 		return nil, refuseEpic(connect.CodeInvalidArgument, "id: empty")
 	}
-	if err := s.retryPark(ctx, id, req.Msg.GetNode()); err != nil {
+	maker, err := s.controlMaker(ctx, id, req.Header())
+	if err != nil {
+		return nil, err
+	}
+	if err = s.retryPark(ctx, id, req.Msg.GetNode(), maker); err != nil {
 		return nil, epicControlError(id, err)
 	}
 	message, err := s.storedEpic(ctx, id)
@@ -672,7 +741,7 @@ func (s *epicService) KickEpic(
 	if isBlank(req.Msg.GetText()) {
 		return nil, refuseEpic(connect.CodeInvalidArgument, "text: empty")
 	}
-	maker, err := s.callerMaker(ctx, req.Header())
+	maker, err := s.controlMaker(ctx, id, req.Header())
 	if err != nil {
 		return nil, err
 	}
@@ -710,7 +779,7 @@ func (s *epicService) ReleaseEpic(
 		}
 		undoNone = append(undoNone, int64(position))
 	}
-	maker, err := s.callerMaker(ctx, req.Header())
+	maker, err := s.controlMaker(ctx, id, req.Header())
 	if err != nil {
 		return nil, err
 	}
@@ -744,7 +813,11 @@ func (s *epicService) CloseEpic(
 	if err != nil {
 		return nil, err
 	}
-	step, err := s.epics.CloseEpic(ctx, id, req.Msg.GetKind(), req.Msg.GetBy(), closer, time.Now())
+	maker, err := s.controlMaker(ctx, id, req.Header())
+	if err != nil {
+		return nil, err
+	}
+	step, err := s.epics.CloseEpic(ctx, id, req.Msg.GetKind(), req.Msg.GetBy(), closer, maker, time.Now())
 	if err != nil {
 		return nil, epicControlError(id, err)
 	}
@@ -874,11 +947,12 @@ func rowError(kind string, err error) error {
 }
 
 // retryPark ends the park of epic when node is empty, and otherwise reruns node: its parked runs, or its latest integrate
-// run when that run ended failed. The store refuses a node with nothing to rerun, which a node of an unknown epic also
-// is, so the epic is read first to make an unknown epic ErrNoEpic.
-func (s *epicService) retryPark(ctx context.Context, epic, node string) error {
+// run when that run ended failed. maker made the call, and the store records the retry as made at the time now. The
+// store refuses a node with nothing to rerun, which a node of an unknown epic also is, so the epic is read first to
+// make an unknown epic ErrNoEpic.
+func (s *epicService) retryPark(ctx context.Context, epic, node string, maker store.Maker) error {
 	if node == "" {
-		if err := s.epics.RetryEpic(ctx, epic); err != nil {
+		if err := s.epics.RetryEpic(ctx, epic, maker, time.Now()); err != nil {
 			return fmt.Errorf("retry epic %s: %w", epic, err)
 		}
 		return nil
@@ -886,7 +960,7 @@ func (s *epicService) retryPark(ctx context.Context, epic, node string) error {
 	if _, err := s.epics.Epic(ctx, epic); err != nil {
 		return fmt.Errorf("read epic %s: %w", epic, err)
 	}
-	if err := s.epics.RetryNode(ctx, epic, node); err != nil {
+	if err := s.epics.RetryNode(ctx, epic, node, maker, time.Now()); err != nil {
 		return fmt.Errorf("retry node %s of epic %s: %w", node, epic, err)
 	}
 	return nil
@@ -1054,6 +1128,15 @@ func tellMessage(tell store.EpicTell) *v1.EpicTell {
 	return &v1.EpicTell{Seq: tell.Seq, Text: tell.Text, At: tell.At.Unix(), Told: tell.Told}
 }
 
+// actionMessage returns the EpicAction message of action: its seq, kind, when it was taken, who made it, the session that
+// made it, and the sessions a move took the epic from and to.
+func actionMessage(action store.EpicAction) *v1.EpicAction {
+	return &v1.EpicAction{
+		Seq: action.Seq, Kind: action.Kind, Time: action.At.Unix(), By: action.Maker.By,
+		Session: action.Maker.Session, From: action.From, To: action.To,
+	}
+}
+
 // reviewLedgerMessage returns the EpicLedger message of review: its verdicts and its ledger findings by position, and
 // its correction rounds by round. A review that has not started has an empty ledger.
 func reviewLedgerMessage(review store.Review) *v1.EpicLedger {
@@ -1096,6 +1179,7 @@ const (
 	kindPlan     = "plan"
 	kindBuild    = "build"
 	kindGate     = "gate"
+	kindCost     = "cost"
 	kindCommand  = "command"
 	kindEvidence = "evidence"
 	kindAgent    = "agent"
@@ -1167,7 +1251,7 @@ func epicNodeMessage(flow store.EpicFlow, run store.NodeRun) (*v1.EpicNode, erro
 		message.Tasks = []int64{run.Task}
 	case kindEvidence:
 		message.Runs = evidenceRunIDs(flow, run)
-	case kindGate, kindCommand:
+	case kindGate, kindCost, kindCommand:
 		check, found := storedCheckOf(flow, run)
 		if !found {
 			break
@@ -1434,8 +1518,8 @@ func taskRungMessage(rung store.TaskRung) *v1.EpicTaskRung {
 	}
 }
 
-// taskReviewMessage returns the EpicTaskReview message of review: its attempt, gate, step, verdict and findings in
-// order.
+// taskReviewMessage returns the EpicTaskReview message of review: its attempt, gate, step, verdict, findings in order,
+// and the reason an undetermined review gave.
 func taskReviewMessage(review store.TaskReview) *v1.EpicTaskReview {
 	return &v1.EpicTaskReview{
 		Attempt:  review.Attempt,
@@ -1443,6 +1527,7 @@ func taskReviewMessage(review store.TaskReview) *v1.EpicTaskReview {
 		Step:     review.Step,
 		Verdict:  review.Verdict,
 		Findings: epicMap(review.Findings, taskFindingMessage),
+		Reason:   review.Reason,
 	}
 }
 

@@ -91,7 +91,7 @@ func TestSessionsOlderPagesBackFromResetOldestToFirstItem(t *testing.T) {
 	s := openEventStore(t, path)
 	addEngine(t, s)
 	seedSessionReplies(t, s, olderReplies)
-	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, 0))
+	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, nil, 0))
 	all := olderSessionConversation(olderReplies)
 
 	const resetLimit = 30
@@ -146,7 +146,7 @@ func TestSessionsOlderChecksLimitAndAnswersTheDefault(t *testing.T) {
 	s := openEventStore(t, path)
 	addEngine(t, s)
 	seedSessionReplies(t, s, olderReplies)
-	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, 0))
+	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, nil, 0))
 	all := olderSessionConversation(olderReplies)
 
 	_, err := client.Older(t.Context(), connect.NewRequest(&orreryv1.SessionsOlderRequest{
@@ -184,7 +184,7 @@ func TestSessionsOlderAdmitsStepOnlyWhenLabeled(t *testing.T) {
 	addStepSession(t, s, stepSessionName)
 	addStepSession(t, s, stepStatusUnlabeled)
 	reader := store.NewReader(path)
-	client := sessionsWatchClient(t, watchHandler(t, reader, &stepStatusFake{}))
+	client := sessionsWatchClient(t, watchHandler(t, reader, nil, &stepStatusFake{}))
 
 	resp, err := client.Older(t.Context(), connect.NewRequest(&orreryv1.SessionsOlderRequest{
 		Id: stepSessionName, Before: 1000,
@@ -197,13 +197,13 @@ func TestSessionsOlderAdmitsStepOnlyWhenLabeled(t *testing.T) {
 		t.Fatalf("labeled step page = %v, want the prompt and reply 1 at seq 2, no more", resp.Msg)
 	}
 
-	unlabeled := sessionsWatchClient(t, watchHandler(t, reader, &stepStatusFake{}))
+	unlabeled := sessionsWatchClient(t, watchHandler(t, reader, nil, &stepStatusFake{}))
 	if _, err := unlabeled.Older(t.Context(), connect.NewRequest(&orreryv1.SessionsOlderRequest{
 		Id: stepStatusUnlabeled, Before: 1000,
 	})); connect.CodeOf(err) != connect.CodeNotFound {
 		t.Fatalf("unlabeled step: code %v, want not_found", connect.CodeOf(err))
 	}
-	noSteps := sessionsWatchClient(t, watchHandler(t, reader, nil))
+	noSteps := sessionsWatchClient(t, watchHandler(t, reader, nil, nil))
 	if _, err := noSteps.Older(t.Context(), connect.NewRequest(&orreryv1.SessionsOlderRequest{
 		Id: stepSessionName, Before: 1000,
 	})); connect.CodeOf(err) != connect.CodeNotFound {
@@ -224,7 +224,7 @@ func TestPanesOlderPagesBackFromResetOldestAcrossTheTailCap(t *testing.T) {
 	}
 	tmux := newTmuxServer(t)
 	pane := conversationPane(t, tmux, liveOptions(path))
-	client := panesClient(t, convHandler(t, tmux))
+	client := panesClient(t, convHandler(t, tmux, nil))
 
 	const resetLimit = 40
 	reset := openConversation(t, client, &orreryv1.WatchConversationRequest{Pane: pane, Limit: resetLimit}).next(t)
@@ -275,7 +275,7 @@ func TestPanesOlderRejectsStaleTranscriptAndBadRequests(t *testing.T) {
 	path, all, starts := writeOlderTranscript(t, 10, 0)
 	tmux := newTmuxServer(t)
 	pane := conversationPane(t, tmux, liveOptions(path))
-	client := panesClient(t, convHandler(t, tmux))
+	client := panesClient(t, convHandler(t, tmux, nil))
 	base := filepath.Base(path)
 
 	cases := []struct {

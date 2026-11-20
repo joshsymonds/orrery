@@ -65,7 +65,7 @@ func (r runnerReviewers) Epic(store.EpicRow) []kinds.Reviewer {
 
 // Start fails: the review tests start no reviewer step.
 func (runnerReviewers) Start(
-	context.Context, store.EpicRow, string, string, string, []store.NodeCheck,
+	context.Context, store.EpicRow, string, string, string, []store.NodeCheck, []store.NodeCheck,
 ) (enginehost.StepStart, error) {
 	return enginehost.StepStart{}, errors.New("runnerReviewers: no step is started in these tests")
 }
@@ -126,7 +126,7 @@ func runnerSeams() []runnerSeam {
 func runnerReviewRunner(s Store, reviewers Reviewers, ending Ending) *Runner {
 	return New(Config{
 		Store: s, Planner: &fakePlanner{}, Builder: &fakeBuilder{}, Reviewers: reviewers, Ending: ending,
-		Tick: time.Hour, Now: runClock,
+		Now: runClock,
 	})
 }
 
@@ -307,6 +307,15 @@ func epicTellTexts(t *testing.T, s *store.Store) []string {
 	return texts
 }
 
+// runnerConcludeQuestion returns the gaps question the scripted conclusions of these tests ask, which names the one gap
+// of their review.
+func runnerConcludeQuestion() store.GapsQuestion {
+	return store.GapsQuestion{
+		Gaps: []string{"reviewer security: gave no verdict twice"}, Recommended: store.ChoiceCorrect,
+		Why: "correct for: reviewer:security",
+	}
+}
+
 // TestRunnerConcludeEndsEpicOnceAndRunPassed: a conclusion run that ends ends its epic once, with its phase and body,
 // and ends its run passed, the store being the runner's Ending. A pass after the run ended ends nothing again. It ends
 // the epic ended_with_gaps, a phase that tells, so a second ending would show as a second tell.
@@ -319,6 +328,7 @@ func TestRunnerConcludeEndsEpicOnceAndRunPassed(t *testing.T) {
 	runner := runnerReviewRunner(s, runnerReviewers{}, s)
 	runner.kinds[concludeNodeKind] = runnerEnds(kinds.Action{
 		Kind: kinds.ActEnd, Outcome: "passed", Phase: "ended_with_gaps", Output: body,
+		Question: runnerConcludeQuestion(),
 	})
 	runner.passFlow(ctx, store.EpicRow{ID: runEpic}, runnerFlow(concludeNodeKind))
 	runner.passFlow(ctx, store.EpicRow{ID: runEpic}, runnerFlow(concludeNodeKind))
@@ -353,6 +363,16 @@ func (k killedAfterEnding) EndEpic(
 	return errKilled
 }
 
+// EndEpicWithGaps ends the epic in the store with its question, then reports the kill.
+func (k killedAfterEnding) EndEpicWithGaps(
+	ctx context.Context, epic, body string, question store.GapsQuestion, ends []store.NodeEnd, at time.Time,
+) error {
+	if err := k.store.EndEpicWithGaps(ctx, epic, body, question, ends, at); err != nil {
+		return fmt.Errorf("end epic with gaps: %w", err)
+	}
+	return errKilled
+}
+
 // TestRunnerConcludeKilledAfterItsEndingThenReleasedEndsEpicOnce forces the crash window of conclude: orreryd is killed
 // right after the write that ends the epic ended_with_gaps, the owner releases it (store.Store.ReleaseEpic moves it to
 // clean) before the restart, and the restarted runner passes the epic again. The conclusion run ended in the ending's
@@ -365,6 +385,7 @@ func TestRunnerConcludeKilledAfterItsEndingThenReleasedEndsEpicOnce(t *testing.T
 	createRunEpic(t, s, store.EpicWorkflow{})
 	conclude := runnerEnds(kinds.Action{
 		Kind: kinds.ActEnd, Outcome: "passed", Phase: "ended_with_gaps", Output: runnerConcludeBody,
+		Question: runnerConcludeQuestion(),
 	})
 	killed := runnerReviewRunner(s, runnerReviewers{}, killedAfterEnding{store: s})
 	killed.kinds[concludeNodeKind] = conclude
