@@ -56,6 +56,19 @@ function steered(steering: ReadonlyMap<string, string>): EpicsListResponse {
   });
 }
 
+// midContext is round 6's mid context meter: 640000 of 1000000 tokens.
+const midContext = create(ConversationContextSchema, { tokens: 640000n, window: 1000000n });
+
+// withContext returns the slices with the pane of paneId's stream holding the mid context.
+function withContext(slices: Slices, paneId: string): Slices {
+  const stream = clone(
+    WatchConversationResponseSchema,
+    must(slices.paneStreams.get(paneId), `stream of pane ${paneId}`),
+  );
+  must(stream.state, `state of pane ${paneId}'s stream`).context = clone(ConversationContextSchema, midContext);
+  return { ...slices, paneStreams: replaced(slices.paneStreams, paneId, stream) };
+}
+
 // withOrreryId returns the slices with the pane of paneId given orreryId, in the pane list and in the pane's stream.
 function withOrreryId(slices: Slices, paneId: string, orreryId: string): Slices {
   const panes = clone(PanesListResponseSchema, slices.panes);
@@ -160,24 +173,26 @@ export const scrolledSlices: Slices = {
 };
 
 // epicSlices: pane %14 is the pane that steers rota-export, and rota-export is steered by that pane's orrery id.
-export const epicSlices: Slices = withOrreryId(
-  { ...shippedSlices, epics: steered(new Map([[rotaId, "rotaplan"]])) },
+export const epicSlices: Slices = withContext(
+  withOrreryId({ ...shippedSlices, epics: steered(new Map([[rotaId, "rotaplan"]])) }, "%14", "rotaplan"),
   "%14",
-  "rotaplan",
 );
 
 // manySlices: pane %22 steers four epics, of which only notices-usable has a need, a park.
 const followplan = "followplan";
-export const manySlices: Slices = withOrreryId(
-  {
-    ...shippedSlices,
-    epics: steered(new Map([
-      ["orrery/orrery-followups", followplan],
-      ["orrery/orbit-labels", followplan],
-      ["orrery/notices-usable", followplan],
-      ["orrery/harbour-map", followplan],
-    ])),
-  },
+export const manySlices: Slices = withContext(
+  withOrreryId(
+    {
+      ...shippedSlices,
+      epics: steered(new Map([
+        ["orrery/orrery-followups", followplan],
+        ["orrery/orbit-labels", followplan],
+        ["orrery/notices-usable", followplan],
+        ["orrery/harbour-map", followplan],
+      ])),
+    },
+    "%22",
+    followplan,
+  ),
   "%22",
-  followplan,
 );

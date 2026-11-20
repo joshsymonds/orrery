@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import type { Epic, EpicsGetResponse } from "../gen/orrery/v1/epics_pb";
-import type { ConversationState, Pane, SessionsWatchConversationResponse } from "../gen/orrery/v1/orrery_pb";
+import type { ConversationContext, ConversationState, Pane, SessionsWatchConversationResponse } from "../gen/orrery/v1/orrery_pb";
 import { epicNeeds } from "../needs";
 import { epicSlices, fullSlices, hotSlices, manySlices, scrolledSlices, warmupSession } from "./head";
 import { shippedSlices, type Slices } from "./slices";
@@ -43,6 +43,13 @@ function warmupState(slices: Slices): ConversationState {
   const state = warmupStream(slices).state;
   assert.ok(state !== undefined, "the warm-up session's stream holds its state");
   return state;
+}
+
+// contextOf is the context of the pane's stream. It fails the test when the stream holds none.
+function contextOf(slices: Slices, paneId: string): ConversationContext {
+  const context = slices.paneStreams.get(paneId)?.state?.context;
+  assert.ok(context !== undefined, `the pane ${paneId}'s stream holds a context`);
+  return context;
 }
 
 test("fixtures/head: importing head.ts leaves the shipped slices as they are", () => {
@@ -98,6 +105,16 @@ test("fixtures/head: scrolledSlices' rota-export has no question", () => {
 test("fixtures/head: epicSlices' pane %14 has orreryId rotaplan, which rota-export's steering names", () => {
   assert.equal(paneOf(epicSlices, "%14").orreryId, "rotaplan");
   assert.equal(epicOf(epicSlices, "rota-export").steering, "rotaplan");
+});
+
+test("fixtures/head: epicSlices' pane %14 holds the mid context, 640000 of 1000000", () => {
+  const context = contextOf(epicSlices, "%14");
+  assert.deepEqual([context.tokens, context.window], [640000n, 1000000n]);
+});
+
+test("fixtures/head: manySlices' pane %22 holds the mid context, 640000 of 1000000", () => {
+  const context = contextOf(manySlices, "%22");
+  assert.deepEqual([context.tokens, context.window], [640000n, 1000000n]);
 });
 
 test("fixtures/head: manySlices' four epics name followplan, and pane %22 has that orreryId", () => {

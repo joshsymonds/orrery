@@ -272,20 +272,21 @@ function streamOf(transport: FakeTransport, id: string): Stream {
 }
 
 // openConversation opens a row's conversation: it waits for the stream the app opened for the id, and feeds it a reset
-// with a goal and the state given, which draws the reader and the band's goal line.
+// with the items given and the state given over a goal, which draws the reader and the band's goal line.
 async function openConversation(
   signal: AbortSignal,
   container: HTMLElement,
   transport: FakeTransport,
   id: string,
   state: Record<string, unknown> = {},
+  items: object[] = [],
 ): Promise<void> {
   await untilTurn(signal, () => transport.streams.some((stream) => stream.id === id), `the stream of ${id}`);
   emit(streamOf(transport, id), {
     transcript: "t",
     seq: "1",
     reset: true,
-    items: [],
+    items,
     state: { goal: "Ship the rota before Friday.", ...state },
   });
   await untilTurn(signal, () => textOf(container, 'section[aria-label="reader"] .subj.goal .st') !== null, "the goal line");
@@ -331,6 +332,34 @@ test("Band: an epic whose steering is this row's archiveId shows its line with A
       false,
       "Answer opens the epic",
     );
+  });
+});
+
+test("Band: an epic this conversation created but another steers is never in its band, and the folded line does not ask for it, while the transcript draws its card", (t) => {
+  const steered = makeEpic("rota-export", { steering: "orr-web" });
+  const detail = create(EpicsGetResponseSchema, {
+    epic: steered,
+    questions: [{ id: "Q-rota-export", text: "Which tide table?" }],
+    sessions: [{ id: "orr-api", pane: "", label: "api", call: "epic_create", at: 900n, creator: true }],
+  });
+  const epics = epicsView([steered], new Map([[steered.id, detail]]));
+  const rows = [row({ key: "api", label: "api", archiveKind: "session", archiveId: "orr-api" })];
+  const created = [
+    { kind: "tool", time: "100", tool: "epic_create", input: "rota-export", id: "c1", epic: steered.id },
+    { kind: "result", time: "100", id: "c1", text: "created", error: false },
+  ];
+  return withHead(t.signal, { width: phoneWidth, rows, epics }, async ({ container, transport }) => {
+    await showRow(container, "api");
+    await openConversation(t.signal, container, transport, "api", {}, created);
+    assert.equal(textOf(container, 'section[aria-label="reader"] .subj.goal .what'), "Goal", "the band is drawn");
+    await untilTurn(t.signal, () => container.querySelector('section[aria-label="reader"] .epic-card') !== null, "the created card");
+    assert.equal(textOf(container, 'section[aria-label="reader"] .epic-card .slug'), "rota-export", "the transcript draws the created card");
+    assert.deepEqual(bandLines(container), [], "the band names no epic another conversation steers");
+    await clickMoreItem(container, "Hide the header");
+    assert.equal(foldOf(container), "hidden");
+    const compact = container.querySelector('section[aria-label="reader"] .compact');
+    assert.equal(compact?.classList.contains("attention"), false, "the folded line is not attention");
+    assert.equal(textOf(container, 'section[aria-label="reader"] .compact .cask'), null, "the folded line asks for nothing");
   });
 });
 
