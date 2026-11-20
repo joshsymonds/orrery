@@ -670,6 +670,31 @@ test("NewPanel: a retry after a failed Start sends the same id, also after the m
     assert.equal(retry.body.id, first.body.id, "the retry names the same start id");
   }));
 
+test("NewPanel: flipping between the panel and the sheet keeps the start form, its message and its start id", (t) =>
+  withDom(t.signal, async (container, server) => {
+    server.replies.set(askPath, { status: 200, body: { rows: [freshRow] } });
+    server.replies.set(startPath, { status: 503, body: { code: "unavailable", message: "queue unreachable" } });
+    const started: string[] = [];
+    const onStart = (session: string) => started.push(session);
+    await mountPalette(container, server, () => {}, () => {}, onStart);
+    await askAndChoose(t.signal, container, "web", 0);
+    await typeMessage(container, "keep this");
+    await click(startButton(container));
+    await untilTurn(t.signal, () => alertTexts(container).length === 1, "the refused start shows its line");
+
+    await mountPalette(container, server, () => {}, () => {}, onStart, [], true);
+    assert.equal(messageBox(container).value, "keep this", "the sheet keeps the message");
+    await mountPalette(container, server, () => {}, () => {}, onStart, [], false);
+    assert.equal(messageBox(container).value, "keep this", "the panel keeps the message");
+
+    server.replies.set(startPath, { status: 200, body: { id: "sess-new" } });
+    await click(startButton(container));
+    await untilTurn(t.signal, () => started.length === 1, "the retry reports its session");
+    const [first, retry] = server.callsTo(startPath);
+    assert.equal(retry.body.prompt, "keep this", "the retry sends the kept message");
+    assert.equal(retry.body.id, first.body.id, "the retry after the flips names the same start id");
+  }));
+
 test("NewPanel: a refused Start keeps the message and shows the fixed line, none of the server's text", (t) =>
   withDom(t.signal, async (container, server) => {
     server.replies.set(askPath, { status: 200, body: { rows: [freshRow] } });

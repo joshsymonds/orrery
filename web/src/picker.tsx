@@ -261,7 +261,7 @@ export function NewPanel({
             </svg>
           </button>
         </div>
-        {body}
+        <div class="panel-body">{body}</div>
       </section>
     </div>
   );
