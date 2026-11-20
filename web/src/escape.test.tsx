@@ -292,7 +292,7 @@ async function sendFromComposer(
   return String(fake.callsTo(sayPath)[0].body.promptId);
 }
 
-test("EscapeInterrupt: Escape on a working headless session withdraws its held messages into the composer in order, before it calls Control.Interrupt", (t) =>
+test("DockQueue: Escape on a working headless session puts its returned messages in the box in send order, before it calls Control.Interrupt", (t) =>
   withApp(t.signal, { rows: [sessionRow] }, async (container, fake) => {
     fake.replies.set(interruptPath, [{ texts: ["first", "second"] }]);
     await emitQueued(t.signal, container, fake, [

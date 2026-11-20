@@ -366,7 +366,7 @@ test("QueueLifecycle: a discarded entry draws a not-delivered row reading not de
     assert.equal(undeliveredRows(container).length, 0, "the row is hidden once put back");
   }));
 
-test("WithdrawQueued: the Withdraw control calls Control.Withdraw with the session id and that prompt id, and a reply's text goes into the composer after the box's text, joined by a blank line", (t) =>
+test("DockQueue: the take back calls Control.Withdraw with the session id and that prompt id, and a reply's text goes into the composer after the box's text, joined by a blank line", (t) =>
   withApp(t.signal, async (container, fake) => {
     fake.replies.set(withdrawPath, [{ texts: ["withdrawn words"] }]);
     await emit(t.signal, fake, 0, queuedDelta("1", [{ promptId: "p1", text: messageText, state: "queued" }]));
