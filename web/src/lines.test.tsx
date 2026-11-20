@@ -7,7 +7,7 @@ import { act } from "preact/test-utils";
 
 import { ConversationItemSchema, type ConversationItem } from "./gen/orrery/v1/orrery_pb";
 import { Icon, type IconName } from "./glyphs";
-import { ToolLine, ToolRun, type RunCall } from "./lines";
+import { EngineFold, NoticeLine, ThinkingLine, ToolLine, ToolRun, type RunCall } from "./lines";
 import { mockTimers } from "./testclock";
 import { installTestDom, removeTestDom } from "./testdom";
 
@@ -149,6 +149,91 @@ test("Shapes: a call with a result is a button, and its result opens under it as
       const opened = line.nextElementSibling;
       assert.equal(opened?.classList.contains("opened"), true, "the result opens under the line");
       assert.equal(opened?.textContent, "built", "the opened line draws the result");
+    },
+  );
+});
+
+// notice is a notice of kind, with text, failed when error is set.
+function notice(kind: string, text: string, error = false): ConversationItem {
+  return item({ kind: "notice", time: 100n, notice: kind, text, error });
+}
+
+// prompt is a prompt sent by sender, in round, with text.
+function prompt(sender: string, text: string, round = 0): ConversationItem {
+  return item({ kind: "prompt", time: 100n, sender, round, text });
+}
+
+test("Shapes: an unfinished thinking block draws one ThinkingLine that opens to its text", (t: TestContext) => {
+  mockTimers(t, ["setTimeout"]);
+  return withDom(<ThinkingLine text="weighing the handler" />, async (container) => {
+    assert.equal(container.querySelectorAll('[data-shape="line"]').length, 1, "one line is drawn");
+    const line = container.querySelector<HTMLButtonElement>('button[data-shape="line"].line.thinking');
+    assert.ok(line !== null, "the thinking line is a button of the line and thinking classes");
+    assert.equal(line.textContent, "thinking", "the line reads thinking");
+    assert.equal(line.nextElementSibling === null, true, "no text is drawn before the line is clicked");
+    await clickControl(line);
+    assert.equal(line.nextElementSibling?.classList.contains("opened"), true, "the text opens under the line");
+    assert.equal(line.nextElementSibling?.textContent, "weighing the handler", "the opened line draws the text");
+  });
+});
+
+test("Shapes: a notice draws one NoticeLine with its notice word as label and its text", () =>
+  withDom(<NoticeLine item={notice("task", "Task 3 of 4 is complete.")} query="" current={-1} />, (container) => {
+    const lines = container.querySelectorAll('[data-shape="line"]');
+    assert.equal(lines.length, 1, "one notice line is drawn");
+    assert.equal(lines[0]?.classList.contains("line"), true, "the line carries the line class");
+    assert.equal(lines[0]?.classList.contains("notice"), true, "the line carries the notice class");
+    assert.equal(lines[0]?.querySelector(".notice-kind")?.textContent, "task", "the label is the notice word");
+    assert.equal(
+      lines[0]?.textContent?.endsWith("Task 3 of 4 is complete."),
+      true,
+      "the line draws the notice's text after its label",
+    );
+    assert.equal(lines[0]?.classList.contains("err"), false, "a notice that is not an error has no error class");
+  }));
+
+test("Shapes: an error notice draws its NoticeLine with the error class", () =>
+  withDom(
+    <NoticeLine item={notice("error", "The API refused the request.", true)} query="" current={-1} />,
+    (container) => {
+      const line = container.querySelector('[data-shape="line"]');
+      assert.equal(line?.classList.contains("err"), true, "the error notice carries the error class");
+      assert.equal(line?.querySelector(".notice-kind")?.textContent, "error", "the label is the notice word");
+    },
+  ));
+
+test("Shapes: a brief draws one EngineFold Brief line with from the engine, and opens to its text", (t: TestContext) => {
+  mockTimers(t, ["setTimeout"]);
+  return withDom(
+    <EngineFold item={prompt("brief", "Goal: export\nOwned: export.go")} query="" current={-1} />,
+    async (container) => {
+      const line = container.querySelector<HTMLButtonElement>('button[data-shape="line"].line.fold.brief');
+      assert.ok(line !== null, "the brief is a button of the line and fold classes");
+      assert.equal(line.querySelector("b")?.textContent, "Brief", "the line reads Brief");
+      assert.equal(line.querySelector(".names")?.textContent, "from the engine", "the line says from the engine");
+      assert.equal(line.nextElementSibling === null, true, "no text is drawn before the line is clicked");
+      await clickControl(line);
+      assert.equal(line.nextElementSibling?.classList.contains("opened"), true, "the brief opens under the line");
+      assert.equal(
+        line.nextElementSibling?.textContent?.includes("Owned: export.go"),
+        true,
+        "the opened line draws the whole brief",
+      );
+    },
+  );
+});
+
+test("Shapes: an engine round-0 prompt draws one EngineFold Engine line named by its first line", (t: TestContext) => {
+  mockTimers(t, ["setTimeout"]);
+  return withDom(
+    <EngineFold item={prompt("engine", "watchdog: no progress\nsecond line")} query="" current={-1} />,
+    async (container) => {
+      const line = container.querySelector<HTMLButtonElement>('button[data-shape="line"].line.fold.engine');
+      assert.ok(line !== null, "the engine prompt is a button of the line and fold classes");
+      assert.equal(line.querySelector("b")?.textContent, "Engine", "the line reads Engine");
+      assert.equal(line.querySelector(".names")?.textContent, "watchdog: no progress", "the line names the first line");
+      await clickControl(line);
+      assert.equal(line.nextElementSibling?.textContent?.includes("second line"), true, "the whole text opens");
     },
   );
 });

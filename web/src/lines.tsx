@@ -7,7 +7,8 @@ import { useLayoutEffect, useRef, useState } from "preact/hooks";
 import { useFlash } from "./flash";
 import type { ConversationItem } from "./gen/orrery/v1/orrery_pb";
 import { Icon, type IconName } from "./glyphs";
-import { MarkedText } from "./text";
+import { Markdown } from "./markdown";
+import { MarkedText, ReplyText } from "./text";
 
 // CallReveal is a request to bring the tool call with id into view and open it. done ends the request once the call's
 // row has acted on it, so a row that mounts later, as a closed run opens again, does not act on it a second time.
@@ -241,4 +242,83 @@ function dotClass(call: RunCall): string {
     return "dot none";
   }
   return call.result.error === true ? "dot failed" : "dot ok";
+}
+
+// ThinkingLine draws an unfinished thinking block as one line, thinking, that opens to the block's text. A click shows the
+// text under the line, and a second click folds it again.
+export function ThinkingLine({ text }: { text: string }) {
+  const [shown, setShown] = useState(false);
+  const [flashing, flash] = useFlash();
+  return (
+    <>
+      <button
+        type="button"
+        class={flashing ? "line thinking flash" : "line thinking"}
+        data-shape="line"
+        onClick={() => {
+          flash();
+          setShown((value) => !value);
+        }}
+      >
+        <Icon name={shown ? "chevronDown" : "chevronRight"} />
+        thinking
+      </button>
+      {shown && <div class="opened">{text}</div>}
+    </>
+  );
+}
+
+// NoticeLine draws a notice as one line: its notice word as the label, then its text. An error notice carries the error
+// class. query and current are the item's, as ToolLine's are.
+export function NoticeLine({ item, query, current }: { item: ConversationItem; query: string; current: number }) {
+  return (
+    <div class={item.error ? "line notice err" : "line notice"} data-shape="line">
+      <span class="notice-kind">
+        <MarkedText text={item.notice} query={query} current={partCurrent(current, 0, item.notice.length)} />
+      </span>
+      {item.text !== "" && (
+        <ReplyText
+          text={item.text}
+          query={query}
+          current={partCurrent(current, item.notice.length + 1, item.text.length)}
+        />
+      )}
+    </div>
+  );
+}
+
+// EngineFold draws a prompt a step's engine sent as one line that opens to its text: Brief with from the engine for a brief,
+// and Engine with the text's first line for an engine prompt. The line is drawn as written and is not marked. The text is
+// marked, and it opens when the current match is in it, as useReveal says.
+export function EngineFold({ item, query, current }: { item: ConversationItem; query: string; current: number }) {
+  const [shown, setShown] = useState(false);
+  const [flashing, flash] = useFlash();
+  useReveal(current >= 0, setShown);
+  const brief = item.sender === "brief";
+  const [first] = item.text.split("\n");
+  const kind = brief ? "brief" : "engine";
+  return (
+    <>
+      <button
+        type="button"
+        class={flashing ? `line fold ${kind} flash` : `line fold ${kind}`}
+        data-shape="line"
+        onClick={() => {
+          flash();
+          setShown((value) => !value);
+        }}
+      >
+        <Icon name={shown ? "chevronDown" : "chevronRight"} />
+        <b>{brief ? "Brief" : "Engine"}</b>
+        <span class="names">{brief ? "from the engine" : first}</span>
+      </button>
+      {shown && (
+        <div class="opened">
+          <div class="reply">
+            <Markdown text={item.text} query={query} current={current} />
+          </div>
+        </div>
+      )}
+    </>
+  );
 }

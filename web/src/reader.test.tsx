@@ -525,11 +525,12 @@ test("a step's brief is one fold line with no YOU, and it opens to its text", ()
       assert.equal(fold.querySelector("b")?.textContent, "Brief");
       assert.equal(fold.querySelector(".names")?.textContent, "from the engine");
       assert.equal(container.querySelector(".you") === null, true, "the brief is not YOU");
-      assert.equal(container.querySelector(".fold-text") === null, true, "the brief is folded until clicked");
+      assert.equal(fold.getAttribute("data-shape"), "line", "the brief is a line");
+      assert.equal(container.querySelector(".opened") === null, true, "the brief is folded until clicked");
 
       await clickControl(fold);
       const text = fold.nextElementSibling;
-      assert.equal(text?.getAttribute("class"), "fold-text", "the text opens after the fold");
+      assert.equal(text?.getAttribute("class"), "opened", "the text opens after the fold");
       assert.equal(text?.textContent?.includes("Owned: cli/export.go"), true, "the whole brief is shown");
     },
   ));
@@ -561,7 +562,7 @@ test("a window starting after the brief draws its watchdog prompt as one Engine 
       assert.equal(fold.querySelector(".names")?.textContent, "watchdog: no progress for 10 minutes");
 
       await clickControl(fold);
-      assert.equal(fold.nextElementSibling?.getAttribute("class"), "fold-text");
+      assert.equal(fold.nextElementSibling?.getAttribute("class"), "opened");
       assert.equal(fold.nextElementSibling?.textContent?.includes("second line"), true, "the whole text is shown");
     },
   ));
@@ -671,7 +672,7 @@ test("an owner prompt is YOU in a step, so a nudge is not drawn as the engine's"
     },
   ));
 
-test("without a step every prompt draws as YOU, whatever its sender and round", () =>
+test("without a step a prompt of round 1 or more draws as YOU, and a brief draws as the Brief fold", () =>
   withReader(
     {
       conversation: conversation({
@@ -684,8 +685,8 @@ test("without a step every prompt draws as YOU, whatever its sender and round", 
       open: false,
     },
     (container) => {
-      assert.equal(container.querySelectorAll(".you").length, 2);
-      assert.equal(container.querySelector("button.fold") === null, true);
+      assert.equal(container.querySelectorAll(".you").length, 1, "the round-1 engine prompt is YOU");
+      assert.equal(container.querySelectorAll("button.fold.brief").length, 1, "the brief is the Brief fold");
       assert.equal(container.querySelector(".card") === null, true);
     },
   ));
@@ -2394,7 +2395,7 @@ test("TranscriptSearch: a step's fold line is drawn as written and never marked,
     find: findProps(items, "engine", -1),
   };
   await withScrollingReader(props, async (container, rerender) => {
-    assert.equal(container.querySelector(".fold-text"), null, "both folds are closed");
+    assert.equal(container.querySelector(".opened"), null, "both folds are closed");
     assert.equal(
       container.querySelector(".fold.engine .names")?.textContent,
       "watchdog: the engine stalled",
@@ -2405,7 +2406,7 @@ test("TranscriptSearch: a step's fold line is drawn as written and never marked,
     await rerender({ ...props, find: findProps(items, "engine", 0) });
     assert.equal(container.querySelector(".fold.engine .names mark"), null, "the engine line is not marked");
     assert.equal(
-      container.querySelector(".fold-text mark.current")?.textContent,
+      container.querySelector(".opened mark.current")?.textContent,
       "engine",
       "the engine fold opens and marks its match",
     );
@@ -3179,3 +3180,85 @@ test("Shapes: a reader given no now draws no leading day Rule, and a day Rule on
       assert.equal(allRowTexts(container).length, 3);
     },
   ));
+
+// briefLine returns the Brief line of a reader drawn with one brief prompt.
+function briefLine(container: HTMLElement): HTMLButtonElement {
+  const line = container.querySelector<HTMLButtonElement>('button[data-shape="line"].line.fold.brief');
+  assert.ok(line !== null, "the brief is an EngineFold Brief line");
+  return line;
+}
+
+test("Shapes: a brief draws one EngineFold Brief line, with and without a step, and opens to its text", async () => {
+  const brief = item({ kind: "prompt", time: 100n, sender: "brief", text: "Goal: export\nOwned: export.go" });
+  await withReader(
+    { conversation: conversation({ items: [brief] }), seenAt: 10_000, open: false, step: stepWith([]) },
+    async (container) => {
+      assert.equal(container.querySelectorAll('[data-shape="line"]').length, 1, "one line is drawn");
+      await clickControl(briefLine(container));
+      assert.equal(briefLine(container).nextElementSibling?.textContent?.includes("Owned: export.go"), true);
+    },
+  );
+  await withReader({ conversation: conversation({ items: [brief] }), seenAt: 10_000, open: false }, async (container) => {
+    assert.equal(container.querySelector(".owner-turn"), null, "a brief without a step is not the owner's turn");
+    assert.equal(container.querySelectorAll('[data-shape="line"]').length, 1, "one line is drawn");
+    await clickControl(briefLine(container));
+    assert.equal(briefLine(container).nextElementSibling?.textContent?.includes("Owned: export.go"), true);
+  });
+});
+
+test("Shapes: an engine round-0 prompt draws one EngineFold Engine line, with and without a step, and opens to its text", async () => {
+  const round0 = item({ kind: "prompt", time: 100n, sender: "engine", round: 0, text: "watchdog: stalled\nsecond line" });
+  const engineLine = (container: HTMLElement) => {
+    const line = container.querySelector<HTMLButtonElement>('button[data-shape="line"].line.fold.engine');
+    assert.ok(line !== null, "the round-0 prompt is an EngineFold Engine line");
+    assert.equal(line.querySelector(".names")?.textContent, "watchdog: stalled", "the line names the first line");
+    return line;
+  };
+  await withReader(
+    { conversation: conversation({ items: [round0] }), seenAt: 10_000, open: false, step: stepWith([]) },
+    async (container) => {
+      await clickControl(engineLine(container));
+      assert.equal(engineLine(container).nextElementSibling?.textContent?.includes("second line"), true);
+    },
+  );
+  await withReader({ conversation: conversation({ items: [round0] }), seenAt: 10_000, open: false }, async (container) => {
+    assert.equal(container.querySelector(".you"), null, "a round-0 prompt without a step is not YOU");
+    await clickControl(engineLine(container));
+    assert.equal(engineLine(container).nextElementSibling?.textContent?.includes("second line"), true);
+  });
+});
+
+test("Shapes: an unfinished thinking block draws one ThinkingLine inside its live row", async () => {
+  await withReader(
+    { conversation: conversation({ unfinished: [unfinished("pondering the schedule", "thinking")] }), seenAt: 0, open: false },
+    (container) => {
+      const lines = container.querySelectorAll<HTMLElement>('[data-shape="line"]');
+      assert.equal(lines.length, 1, "one thinking line is drawn");
+      assert.equal(lines[0]?.classList.contains("thinking"), true, "the line is the thinking line");
+      assert.ok(lines[0]?.closest(".live-row") !== null, "the line sits in its live row");
+    },
+  );
+});
+
+test("Shapes: a notice draws one NoticeLine with its label and text, and an error notice its error class", async () => {
+  await withReader(
+    {
+      conversation: conversation({
+        items: [
+          item({ kind: "notice", time: 100n, notice: "task", text: "Task 3 of 4 is complete." }),
+          item({ kind: "notice", time: 200n, notice: "error", error: true, text: "Retrying in 8 s." }),
+        ],
+      }),
+      seenAt: 10_000,
+      open: false,
+    },
+    (container) => {
+      const notices = container.querySelectorAll<HTMLElement>('[data-shape="line"].notice');
+      assert.equal(notices.length, 2, "each notice is a NoticeLine");
+      assert.equal(notices[0]?.querySelector(".notice-kind")?.textContent, "task");
+      assert.equal(notices[0]?.textContent?.endsWith("Task 3 of 4 is complete."), true);
+      assert.equal(notices[0]?.classList.contains("err"), false, "a notice that is not an error has no error class");
+      assert.equal(notices[1]?.classList.contains("err"), true, "the error notice carries the error class");
+    },
+  );
+});

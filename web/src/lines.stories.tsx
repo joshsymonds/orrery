@@ -1,11 +1,22 @@
-// The stories of the tool lines: ToolLine draws one call, and ToolRun three or more in a row, in round 6's states. A
-// state that opens holds a reveal of the call it opens, which the reader gives a call the find brings into view.
+// The stories of the Lines: ToolLine draws one call, and ToolRun three or more in a row; ThinkingLine a thought, NoticeLine
+// a notice, and EngineFold a brief or an engine prompt, in round 6's states. A tool state that opens holds a reveal of the
+// call it opens, which the reader gives a call the find brings into view. A thinking state that opens is clicked open once
+// it is drawn, as the owner would open it, and an EngineFold state that opens holds the find's current match in its text.
 
 import { create } from "@bufbuild/protobuf";
+import { useLayoutEffect, useRef } from "preact/hooks";
 
 import type { Stories } from "./catalog/story";
 import { type ConversationItem, ConversationItemSchema } from "./gen/orrery/v1/orrery_pb";
-import { type CallReveal, ToolLine as Line, ToolRun as Run, type RunCall } from "./lines";
+import {
+  type CallReveal,
+  EngineFold as Fold,
+  NoticeLine as Notice,
+  ThinkingLine as Thinking,
+  ToolLine as Line,
+  ToolRun as Run,
+  type RunCall,
+} from "./lines";
 
 const noop = () => {};
 
@@ -110,6 +121,57 @@ export const ToolRun: Stories = {
         runCall("c", "Bash", "go test ./internal/roster/...", undefined, true),
       ]}
       query=""
+    />
+  ),
+};
+
+// OpenedThinking draws a thinking line and clicks it open once it is drawn, as the owner opens a thought.
+function OpenedThinking({ text }: { text: string }) {
+  const root = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    root.current?.querySelector<HTMLButtonElement>("button")?.click();
+  }, []);
+  return (
+    <div ref={root}>
+      <Thinking text={text} />
+    </div>
+  );
+}
+
+export const ThinkingLine: Stories = {
+  closed: () => <Thinking text="The handler loads its keeper for each row. Check it before guessing." />,
+  open: () => <OpenedThinking text="The handler loads its keeper for each row. Check it before guessing." />,
+};
+
+export const NoticeLine: Stories = {
+  default: () => (
+    <Notice item={noticeItem("task", "Task 3 of 4 is complete: one query per week instead of one per shift.")} query="" current={-1} />
+  ),
+  error: () => (
+    <Notice item={noticeItem("error", "The API refused the request: overloaded. Retrying in 8 s.", true)} query="" current={-1} />
+  ),
+};
+
+// promptItem is a prompt sent by sender, in round, with text.
+function promptItem(sender: string, text: string, round = 0): ConversationItem {
+  return create(ConversationItemSchema, { kind: "prompt", sender, round, text });
+}
+
+// noticeItem is a notice of kind with text, failed when error is set.
+function noticeItem(kind: string, text: string, error = false): ConversationItem {
+  return create(ConversationItemSchema, { kind: "notice", notice: kind, text, error });
+}
+
+const briefText = "Implement the week query. Own `internal/roster/query.go` and its test. Do not change `go.mod`.";
+
+export const EngineFold: Stories = {
+  "brief-closed": () => <Fold item={promptItem("brief", briefText)} query="" current={-1} />,
+  "brief-open": () => <Fold item={promptItem("brief", briefText)} query="week" current={briefText.indexOf("week")} />,
+  "engine-closed": () => (
+    <Fold
+      item={promptItem("engine", "Round 2: the owned-files check failed. Revert go.mod.\nThe other checks passed.")}
+      query=""
+      current={-1}
     />
   ),
 };

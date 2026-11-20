@@ -11,11 +11,11 @@ import { useFlash } from "./flash";
 import type { Contract } from "./gen/orrery/v1/contracts_pb";
 import type { EpicStep, EpicStepCheck } from "./gen/orrery/v1/epics_pb";
 import type { ConversationItem, EngineText } from "./gen/orrery/v1/orrery_pb";
-import { type CallReveal, partCurrent, sameCalls, ToolLine, ToolRun, useReveal } from "./lines";
+import { type CallReveal, EngineFold, NoticeLine, sameCalls, ThinkingLine, ToolLine, ToolRun } from "./lines";
 import { Markdown } from "./markdown";
 import { Rule } from "./rules";
 import type { Sending } from "./sending";
-import { MarkedText, ReplyText } from "./text";
+import { ReplyText } from "./text";
 
 const tokensPerThousand = 1000;
 const secondsToMillis = 1000;
@@ -58,8 +58,9 @@ export interface ContractCalls {
 // event prompt whose text is a step's end block draws as its step card, and never as an EVENT row; each such prompt draws
 // its own card. Any other prompt an event sent draws as an EVENT row, with or without a step, and never as YOU or a step
 // prompt. A prompt a cron sent draws as a CRON row the same way, and never as YOU, with or without a step.
-// With a step, any other prompt draws by its sender and round: the brief as a fold, a send-back as a card of its
-// round's checks, any other prompt as an engine fold. An owner's prompt, and every other prompt without a step, is YOU.
+// A brief, and an engine prompt of round 0, draws as an EngineFold line with or without a step. With a step, a send-back
+// of round 1 or more draws as a card of its round's checks, and any other prompt the owner did not send as an engine fold.
+// An owner's prompt, and every other prompt without a step, is YOU.
 // The reader is its own scroll container: a conversation that replaces a null one opens at its bottom, pinned there. A
 // reader pinned to its bottom, within nearBottomPixels of it as the owner last scrolled, stays there: after a render
 // that draws items or live text, and whenever its own box or a row's box changes size, as the composer area above or
@@ -628,8 +629,14 @@ function ItemBody({
           </div>
         );
       }
+      if (foldsAsEngine(item)) {
+        return <EngineFold item={item} query={query} current={current} />;
+      }
       if (step !== undefined && !ownersTurn(item, step)) {
-        return <StepPrompt item={item} checks={step.checks} query={query} current={current} />;
+        if (item.sender === "engine" && item.round >= 1) {
+          return <CheckCard text={item.text} round={item.round} checks={step.checks} />;
+        }
+        return <EngineFold item={item} query={query} current={current} />;
       }
       return (
         <div class="you">
@@ -661,20 +668,7 @@ function ItemBody({
       );
     }
     case "notice":
-      return (
-        <div class={item.error ? "notice err" : "notice"}>
-          <span class="notice-kind">
-            <MarkedText text={item.notice} query={query} current={partCurrent(current, 0, item.notice.length)} />
-          </span>
-          {item.text !== "" && (
-            <ReplyText
-              text={item.text}
-              query={query}
-              current={partCurrent(current, item.notice.length + 1, item.text.length)}
-            />
-          )}
-        </div>
-      );
+      return <NoticeLine item={item} query={query} current={current} />;
     case "compaction":
       return <Compaction item={item} open={open} onToggleOpen={onToggleOpen} />;
     case "interrupted":
@@ -706,8 +700,15 @@ function ownersTurn(item: ConversationItem, step?: EpicStep): boolean {
     item.kind === "prompt" &&
     item.sender !== "event" &&
     item.sender !== "cron" &&
+    !foldsAsEngine(item) &&
     (step === undefined || item.sender === "owner")
   );
+}
+
+// foldsAsEngine is whether a prompt draws as an EngineFold line, with or without a step: a brief, or an engine prompt of
+// round 0.
+function foldsAsEngine(item: ConversationItem): boolean {
+  return item.kind === "prompt" && (item.sender === "brief" || (item.sender === "engine" && item.round === 0));
 }
 
 // ReplyMarkdown draws a reply's text as Markdown inside its .reply element, the element the reader's Markdown styles
@@ -717,71 +718,6 @@ function ReplyMarkdown({ text, query = "", current = -1 }: { text: string; query
     <div class="reply">
       <Markdown text={text} query={query} current={current} />
     </div>
-  );
-}
-
-// StepPrompt draws a prompt a step's engine sent, by its sender and round: the brief as a fold, a send-back of a check
-// round as a card of that round's checks, and any other prompt, unmarked ones included, as an engine fold.
-function StepPrompt({
-  item,
-  checks,
-  query,
-  current,
-}: {
-  item: ConversationItem;
-  checks: EpicStepCheck[];
-  query: string;
-  current: number;
-}) {
-  if (item.sender === "brief") {
-    return (
-      <Fold
-        className="fold brief"
-        title="Brief"
-        names="from the engine"
-        text={item.text}
-        query={query}
-        current={current}
-      />
-    );
-  }
-  if (item.sender === "engine" && item.round >= 1) {
-    return <CheckCard text={item.text} round={item.round} checks={checks} />;
-  }
-  const [first] = item.text.split("\n");
-  return (
-    <Fold className="fold engine" title="Engine" names={first} text={item.text} query={query} current={current} />
-  );
-}
-
-// Fold draws a line of a step's prompt: its title and names on the line, and a click shows the whole text under it. The
-// line is drawn as written and is not marked. The fold's text is marked, and the fold opens when the current match is in
-// that text.
-function Fold({
-  className,
-  title,
-  names,
-  text,
-  query,
-  current,
-}: {
-  className: string;
-  title: string;
-  names: string;
-  text: string;
-  query: string;
-  current: number;
-}) {
-  return (
-    <Disclosure
-      className={className}
-      label={<><b>{title}</b><span class="names">{names}</span></>}
-      revealed={current >= 0}
-    >
-      <div class="fold-text">
-        <ReplyMarkdown text={text} query={query} current={current} />
-      </div>
-    </Disclosure>
   );
 }
 
@@ -821,22 +757,18 @@ function CheckCard({ text, round, checks }: { text: string; round: number; check
 }
 
 // Disclosure is a button that flashes on each use and shows its children under it: a click shows them, and a second
-// click folds them again. Its label is drawn as text, so a link never sits inside it. A revealed disclosure opens, as
-// useReveal says.
+// click folds them again. Its label is drawn as text, so a link never sits inside it.
 function Disclosure({
   className,
   label,
-  revealed = false,
   children,
 }: {
   className: string;
   label: ComponentChildren;
-  revealed?: boolean;
   children: ComponentChildren;
 }) {
   const [shown, setShown] = useState(false);
   const [flashing, flash] = useFlash();
-  useReveal(revealed, setShown);
   return (
     <>
       <button
@@ -859,42 +791,20 @@ const MemoToolRun = memo(
   (previous, next) => previous.query === next.query && sameCalls(previous.calls, next.calls),
 );
 
-// LiveRow draws one unfinished block: a text block as it streams, a thinking block as a folded row.
+// LiveRow draws one unfinished block: a text block as it streams, a thinking block as a ThinkingLine.
 function LiveRow({ block }: { block: EngineText }) {
-  if (block.kind === "thinking") {
-    return <ThinkingRow text={block.text} />;
-  }
   return (
     <div class="t live-row">
       <span class="gut live">live</span>
       <div class="body">
-        <ReplyMarkdown text={block.text} />
-        <span class="caret soft" />
-      </div>
-    </div>
-  );
-}
-
-// ThinkingRow is the live row of a thinking block, reading thinking. A click shows the block's text under the row, and
-// a second click folds it again. Its state lives in the row, keyed by the block, so it stays open as the deltas grow.
-function ThinkingRow({ text }: { text: string }) {
-  const [shown, setShown] = useState(false);
-  const [flashing, flash] = useFlash();
-  return (
-    <div class="t live-row">
-      <span class="gut live">live</span>
-      <div class="body">
-        <button
-          type="button"
-          class={flashing ? "thinking flash" : "thinking"}
-          onClick={() => {
-            flash();
-            setShown((value) => !value);
-          }}
-        >
-          thinking
-        </button>
-        {shown && <div class="thinking-text">{text}</div>}
+        {block.kind === "thinking" ? (
+          <ThinkingLine text={block.text} />
+        ) : (
+          <>
+            <ReplyMarkdown text={block.text} />
+            <span class="caret soft" />
+          </>
+        )}
       </div>
     </div>
   );
