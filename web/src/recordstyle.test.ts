@@ -245,3 +245,7 @@ test("EpicRecord: a door's line takes the rest of its row and ellipsizes on one 
   assert.equal(declaredValue(rules, ".epic-page .door > span:not(:first-child)", "text-overflow"), "ellipsis");
   assert.equal(declaredValue(rules, ".epic-page .door > span:not(:first-child)", "white-space"), "nowrap");
 });
+
+test("EpicCommands: an epic the server could not read says so in the bad role, apart from the quiet loading line", () => {
+  assert.equal(declaredValue(rules, ".side-note.unread", "color"), "var(--o-role-bad)");
+});

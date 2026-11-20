@@ -3929,6 +3929,10 @@ test("EpicCommands: an epic the server could not read says so with Try again, wh
     fake.failNext.add(getEpicPath);
     await press("j");
     await until(t.signal, () => epicReadText(container) === "The server could not read this epic.", "the could-not-read line");
+    assert.ok(
+      container.querySelector('section.page[aria-label="epic"] p.side-note.unread'),
+      "the could-not-read line is drawn as a failure, not as a quiet note",
+    );
     assert.equal(epicPageShown(container), true);
     assert.equal(epicPageDrawn(container), false, "no epic page is drawn without detail");
     assert.equal(epicTitleSlug(container), "first", "the title row names the listed epic above the line");

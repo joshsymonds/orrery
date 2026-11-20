@@ -49,6 +49,8 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 .list[hidden] { display: none; }
 /* The line the epic page shows when its epic's detail did not load. */
 .side-note { margin: 0; color: var(--o-ink-3); overflow-wrap: anywhere; }
+/* A read that failed is said as a failure, in the bad role, where the loading line stays quiet. */
+.side-note.unread { color: var(--o-role-bad); }
 .reply { min-width: 0; }
 .pin-reply { min-width: 0; }
 /* The in-app notice stack sits at the top right of .panes, the reading area, over the list and the reader. Each row is

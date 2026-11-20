@@ -1867,7 +1867,7 @@ export function App({
           />
           {failedEpicReads.has(entry.id) ? (
             <>
-              <p class="side-note">{couldNotReadEpicText}</p>
+              <p class="side-note unread">{couldNotReadEpicText}</p>
               <button type="button" class="act" onClick={() => retryEpicRead(entry.id)}>
                 Try again
               </button>
