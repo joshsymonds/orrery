@@ -29,7 +29,6 @@ import { type Followed, follow } from "./follow";
 import type { EpicHistoryEntry, EpicsGetResponse, EpicStep } from "./gen/orrery/v1/epics_pb";
 import type { InAppNotice, NoticeKey } from "./gen/orrery/v1/notice_pb";
 import type { HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
-import { Handover } from "./handover";
 import { type HeadStore, memoryHeadStore } from "./headfold";
 import { KeyList } from "./helppanel";
 import { type Answer, InboxRow, isLinkClick, optionText, readerQuestion, stateWaiting } from "./inboxrow";
@@ -171,7 +170,8 @@ const seenFailedText = "could not mark seen";
 const answerFailedText = "no answer was sent";
 const takeBackFailedText = "could not take the queued messages back";
 const interruptFailedText = "could not interrupt";
-const commandFailedText = "epic command failed";
+// The reason a failed command shows when its error carries no message.
+const noReasonText = "no reason was given";
 const sessionUnavailableText = "session unavailable";
 const archiveFailedText = "could not change archive";
 const noAnswerText = "the server did not answer";
@@ -329,6 +329,8 @@ export function App({
   const askedEpics = useRef(new Set<string>());
   // The fixed line an epic page's command leaves when it fails. A command that lands clears it.
   const [commandError, setCommandError] = useState("");
+  // The epic page's own command line: the last page command that did not land, under its title row.
+  const [epicCommandLine, setEpicCommandLine] = useState("");
   const [epicHistory, setEpicHistory] = useState<EpicHistory>({ id: "", entries: [] });
   const [epicPage, setEpicPage] = useState<EpicPageState>(openEpicPage);
   // The landing the last opened notice names. Each notice makes its own, so its effect applies it once.
@@ -1577,13 +1579,13 @@ export function App({
         history={epicHistory.id === entry.id ? epicHistory.entries : []}
         now={now}
         loadArtifact={loadArtifact}
-        commands={epicCommands(clients, entry.id, setCommandError)}
+        commands={epicCommands(clients, entry.id, setEpicCommandLine)}
         numberKeys={!epicPage.closed}
+        commandError={epicCommandLine}
         onOpenContract={openContract}
         onOpenSession={openTalk}
         onOpenPhase={openPhase}
         onBack={closeEpicPage}
-        handover={Handover({ detail })}
         mark={inboxMark}
         strip={pageStrip(null, null)}
         rows={rows}
@@ -2207,20 +2209,22 @@ async function readHistory(clients: Clients, id: string): Promise<EpicHistoryEnt
   return entries;
 }
 
-// epicCommands binds an epic's commands to its id. A command that fails reports commandFailedText through report, and
-// one that lands reports "". answer resolves "" when the answer lands, else the error's message.
+// epicCommands binds an epic's commands to its id. A command that fails reports its did-not-land line through report,
+// the command's name and the error's message as the reason; one that lands reports "". answer resolves "" when the
+// answer lands, else the error's message.
 function epicCommands(clients: Clients, epicId: string, report: (line: string) => void): EpicCommands {
-  const send = (sent: Promise<unknown>): void => {
+  const send = (name: string, sent: Promise<unknown>): void => {
     void sent.then(
       () => report(""),
-      () => report(commandFailedText),
+      (error: unknown) =>
+        report(`${name} did not land: ${error instanceof Error && error.message !== "" ? error.message : noReasonText}.`),
     );
   };
   return {
-    pause: () => send(clients.epics.pause({ id: epicId })),
-    resume: () => send(clients.epics.resume({ id: epicId })),
-    stop: () => send(clients.epics.stop({ id: epicId })),
-    retry: () => send(clients.epics.retry({ id: epicId })),
+    pause: () => send("Pause", clients.epics.pause({ id: epicId })),
+    resume: () => send("Resume", clients.epics.resume({ id: epicId })),
+    stop: () => send("Stop", clients.epics.stop({ id: epicId })),
+    retry: () => send("Retry", clients.epics.retry({ id: epicId })),
     answer: (question, choice, text) =>
       clients.epics.answer({ epicId, id: crypto.randomUUID(), text, question, choice }).then(
         () => "",

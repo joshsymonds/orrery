@@ -1,20 +1,23 @@
 import type { ComponentChildren, JSX } from "preact";
 import { useLayoutEffect, useRef } from "preact/hooks";
 
-import { AskFirst, NowBlock, nowSentence } from "./blocker";
+import { AskFirst } from "./blocker";
 import type { LoadArtifact } from "./evidence";
-import type { EpicHistoryEntry, EpicSession, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
-import { JustHappened, NextRows, NowRows } from "./happenings";
+import type { EpicHistoryEntry, EpicsGetResponse, EpicSession } from "./gen/orrery/v1/epics_pb";
+import { JustHappened } from "./happenings";
+import { NowSection } from "./nowsection";
 import { Orrery } from "./orrery";
 import { durationText, type Phase, provenOf, wedgesOf } from "./phases";
 import { recordTasksOf } from "./record";
-import { GreenProof, RedProof, Report, ReleaseProof } from "./proof";
+import { blockerPillOf, contractDoorOf, reachedOf, statePillOf, trackOf } from "./recordwords";
+import { RequirementTable } from "./reqtable";
 import type { Row } from "./rows";
-import { type Blocker, blockerOf, controlsOf, stateOf } from "./status";
+import { type Blocker, controlsOf, stateOf } from "./status";
+import { TaskTable } from "./tasktable";
 import { type TalkTarget, talkTarget } from "./talk";
 import { listedTitle, TitleParts } from "./titleparts";
 import { type InboxMark, TitleRow } from "./titlerow";
-import { Workflow } from "./workflow";
+import { Track } from "./track";
 
 // EpicCommands are the epic's commands: pause, resume, stop and retry, and the answer to one open question: the choice
 // the owner picked, which is a declared choice's id or other, and its text.
@@ -42,18 +45,6 @@ export function stateLine(detail: EpicsGetResponse, now: number): string {
   return state !== "" && phaseAt > 0 ? `${state} · ${durationText(Math.max(0, now - phaseAt))}` : state;
 }
 
-// creatorOf is the session that created the epic, the one its epic_create call made. When more than one is marked, it
-// is the one whose newest call is latest. It is undefined when no listed session is the creator.
-function creatorOf(sessions: EpicSession[]): EpicSession | undefined {
-  let creator: EpicSession | undefined;
-  for (const session of sessions) {
-    if (session.creator && (creator === undefined || session.at > creator.at)) {
-      creator = session;
-    }
-  }
-  return creator;
-}
-
 // Landing is the block an opened notice lands the epic page on, by its kind. Each notice makes its own, so the page
 // brings the block into view once for each. The empty kind names no block.
 export interface Landing {
@@ -63,19 +54,37 @@ export interface Landing {
 // landingTargets names the part of the epic page each block kind brings into view. A kind it does not name, the empty
 // one included, brings the page's top into view.
 const landingTargets: Partial<Record<string, string>> = {
-  question: ".now-block",
-  release_step: ".now-block",
-  report: ".proof.report",
+  question: "section.now",
+  release_step: "section.now",
 };
 
-// EpicPage is the one epic page: its title row with the epic's commands, the summary of its contract, the Conversation
-// line to the session that created the epic, the now sentence and blocker, the red proof, the implementation (the
-// orrery, Now, Next, Just happened and the workflow), the green proof, the handover when given, the release proof and
-// the report. A section the epic has not reached is dim. The commands are the ones controlsOf shows for the epic. Each
-// phase click reaches onOpenPhase. The Conversation line draws the creator's title as Talk's menu does, its listed row's
-// directory and line from rows through TitleParts, and reaches onOpenSession with the creator's target. A landing
-// brings its part of the page into view once the page is drawn. numberKeys is whether a digit key picks an option of
-// the open question.
+// SteeredFrom is the Steered from door: the session that steers the epic, its title as the session's row draws it, and
+// the opening of that conversation.
+function SteeredFrom({
+  session,
+  rows,
+  onOpen,
+}: {
+  session: EpicSession;
+  rows: Row[];
+  onOpen: (target: TalkTarget) => void;
+}): JSX.Element {
+  const target = talkTarget(session);
+  const title = listedTitle(rows, target.kind, target.id, target.label);
+  return (
+    <button type="button" class="door steered" onClick={() => onOpen(target)}>
+      <span>Steered from</span> <TitleParts dir={title.dir} line={title.line} />
+    </button>
+  );
+}
+
+// EpicPage is the one epic page, drawn section by section in the order of the record: the title row with the epic's
+// state and blocker pills and its commands, and under it the did-not-land line of a failed command. Then, for an
+// orreryd epic: its problem, its summary with the Contract door and the Steered from door, its track, Now, Just
+// happened, the tasks with their chart and table, and the requirements. A record epic draws only Now and its tasks. A
+// section the epic has not reached is not drawn. The commands are the ones controlsOf shows for the epic. Each phase
+// click reaches onOpenPhase. A landing brings its part of the page into view once the page is drawn. numberKeys is
+// whether a digit key picks an option of the open question.
 export function EpicPage(props: {
   detail: EpicsGetResponse;
   history: EpicHistoryEntry[];
@@ -83,12 +92,12 @@ export function EpicPage(props: {
   loadArtifact: LoadArtifact;
   commands: EpicCommands;
   numberKeys: boolean;
+  commandError: string;
   onOpenContract: () => void;
   onOpenSession: (target: TalkTarget) => void;
   onBack: () => void;
   onOpenPhase?: (task: string, phase: Phase) => void;
   actions?: ComponentChildren;
-  handover?: ComponentChildren;
   landing?: Landing;
   mark?: InboxMark;
   strip?: ComponentChildren;
@@ -101,32 +110,35 @@ export function EpicPage(props: {
     loadArtifact,
     commands,
     numberKeys,
+    commandError,
     onOpenContract,
     onOpenSession,
     onBack,
     onOpenPhase,
     actions,
-    handover,
     landing,
     mark,
     strip,
     rows = [],
   } = props;
-  const { epic, contract, requirements, steps, nodes, releaseSteps, report, sessions } = detail;
+  const { epic, contract, requirements, sessions, steps } = detail;
+  const reached = reachedOf(detail, history);
   const wedges = wedgesOf(detail);
+  const tasks = recordTasksOf(detail);
+  const doneTasks = tasks.filter((task) => task.place === "integrated").length;
   const provenIds = new Set(
     [...requirements.map((requirement) => requirement.id), ...wedges.flatMap((wedge) => wedge.requirements)].filter((id) =>
       provenOf(id, wedges, requirements),
     ),
   );
-  const blocker = blockerOf(detail);
   const slug = epic?.slug ?? "";
   const controls = controlsOf(detail);
-  const creator = creatorOf(sessions);
-  const creatorTarget = creator === undefined ? undefined : talkTarget(creator);
-  const creatorTitle =
-    creatorTarget === undefined ? undefined : listedTitle(rows, creatorTarget.kind, creatorTarget.id, creatorTarget.label);
-  const released = epic !== undefined && epic.outcome.startsWith("released");
+  const state = statePillOf(detail, now);
+  const blocker = blockerPillOf(detail, now);
+  const problem = epic?.source === "orreryd" ? epic.problem : "";
+  const summary = detail.summary !== "" ? detail.summary : (contract?.title ?? "");
+  const steering = sessions.find((session) => session.id === epic?.steering);
+  const provenCount = requirements.filter((requirement) => provenIds.has(requirement.id)).length;
   const pageRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const page = pageRef.current;
@@ -142,10 +154,13 @@ export function EpicPage(props: {
       <TitleRow
         crumbs={[{ label: slug }]}
         onBack={onBack}
-        state={stateLine(detail, now)}
-        blocker={blockerLine(blocker, now)}
+        state={state.word}
+        stateTone={state.tone}
+        blocker={blocker?.word}
+        blockerTone={blocker?.tone}
         mark={mark}
         strip={strip}
+        note={commandError}
       >
         {actions}
         {controls.resume && (
@@ -168,39 +183,50 @@ export function EpicPage(props: {
           />
         )}
       </TitleRow>
-      {contract !== undefined && (
-        <button type="button" class="summary" onClick={() => onOpenContract()}>
-          {detail.summary !== "" ? detail.summary : contract.title}
-        </button>
+      {problem !== "" && <p class="problem error">{problem}</p>}
+      {reached.summary && (
+        <section class="summary" aria-label="Summary">
+          <p class="summary-text">{summary}</p>
+          <div class="doors">
+            {contract !== undefined && (
+              <button type="button" class="door contract" onClick={() => onOpenContract()}>
+                <span>Contract</span> <span>{contractDoorOf(detail)}</span>
+              </button>
+            )}
+            {steering !== undefined && <SteeredFrom session={steering} rows={rows} onOpen={onOpenSession} />}
+          </div>
+        </section>
       )}
-      {creatorTarget !== undefined && creatorTitle !== undefined && (
-        <button type="button" class="summary conversation" onClick={() => onOpenSession(creatorTarget)}>
-          {"Conversation · "}
-          <TitleParts dir={creatorTitle.dir} line={creatorTitle.line} />
-        </button>
-      )}
-      {epic !== undefined && epic.problem !== "" && <p class="problem error">{epic.problem}</p>}
-      <NowBlock
-        sentence={nowSentence(wedges)}
-        blocker={blocker}
-        slug={slug}
+      {reached.track && <Track stages={trackOf(detail)} />}
+      <NowSection
+        detail={detail}
+        now={now}
         numberKeys={numberKeys}
         onAnswer={commands.answer}
         onRetry={() => commands.retry()}
         onStop={() => commands.stop()}
+        onResume={() => commands.resume()}
       />
-      <RedProof requirements={requirements} wedges={wedges} loadArtifact={loadArtifact} onOpenPhase={onOpenPhase} />
-      <section class="implementation">
-        <Orrery tasks={recordTasksOf(detail)} proven={provenIds} onOpenPhase={onOpenPhase} />
-        <NowRows wedges={wedges} now={now} onOpenPhase={onOpenPhase} />
-        <NextRows wedges={wedges} onOpenPhase={onOpenPhase} />
-        <JustHappened entries={history} steps={steps} />
-        {nodes.length > 0 && <Workflow nodes={nodes} loadArtifact={loadArtifact} />}
-      </section>
-      <GreenProof requirements={requirements} wedges={wedges} loadArtifact={loadArtifact} onOpenPhase={onOpenPhase} />
-      {handover !== undefined && handover !== null && <section class="handover">{handover}</section>}
-      <ReleaseProof contract={contract} releaseSteps={releaseSteps} released={released} />
-      <Report report={report} />
+      {reached.history && <JustHappened entries={history} steps={steps} />}
+      {reached.tasks && (
+        <section class="tasks" aria-label="Tasks">
+          <header class="sec-head">
+            <h3>Tasks</h3>
+            <span>{`${doneTasks} of ${tasks.length} done`}</span>
+          </header>
+          <Orrery tasks={tasks} proven={provenIds} onOpenPhase={onOpenPhase} />
+          <TaskTable tasks={tasks} now={now} onOpenPhase={onOpenPhase} />
+        </section>
+      )}
+      {reached.requirements && (
+        <section class="requirements" aria-label="Requirements">
+          <header class="sec-head">
+            <h3>Requirements</h3>
+            <span>{`${provenCount} of ${requirements.length} proven`}</span>
+          </header>
+          <RequirementTable requirements={requirements} loadArtifact={loadArtifact} />
+        </section>
+      )}
     </div>
   );
 }

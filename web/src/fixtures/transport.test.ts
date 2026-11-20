@@ -85,11 +85,11 @@ function askSession(root: HTMLElement): boolean {
   return inboxState(root) === "hidden" && (root.textContent ?? "").includes(beaconPrompt);
 }
 
-// epicQuestion is Page/epic-question: Q1 is drawn in the now block, with no Talk menu drawn, and the epic panel beside the
+// epicQuestion is Page/epic-question: Q1 is drawn in the Now section, with no Talk menu drawn, and the epic panel beside the
 // conversation rather than over it, which is epic-talk's layout.
 function epicQuestion(root: HTMLElement): boolean {
   return (
-    root.querySelector(".now-block .answer .question")?.textContent.includes(rotaQuestion) === true &&
+    root.querySelector(".epic-page section.now .answer .question")?.textContent.includes(rotaQuestion) === true &&
     root.querySelector("ul.talk") === null &&
     root.querySelector(".panes.overlay") === null
   );
@@ -515,15 +515,16 @@ test("FixtureTransport: page/epic-question draws the open decision on the epic p
   );
 });
 
-test("FixtureTransport: page/epic-shipped draws the released report", (t) => {
+test("FixtureTransport: page/epic-shipped draws the released epic at Report, its track's now stage", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(
     t,
     Page["epic-shipped"],
-    (root) => root.querySelector(".proof.report .outcome")?.textContent === "released",
+    (root) => root.querySelector(".track .stage.now .ds")?.textContent === "released",
     (root) => {
       assertNoFailure(root);
-      assert.equal(root.querySelector(".proof.report .outcome")?.textContent, "released");
+      assert.equal(root.querySelector(".track .stage.now .nm")?.textContent, "Report");
+      assert.equal(root.querySelector(".track .stage.now .ds")?.textContent, "released");
     },
   );
 });

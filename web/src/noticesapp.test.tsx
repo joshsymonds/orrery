@@ -497,17 +497,17 @@ async function clickEpicNotice(
   await until(signal, () => server.seen.length === 1, "the Seen report");
 }
 
-test("a question notice opens its epic at the now block, with the question's option cards in the page", (t) =>
+test("a question notice opens its epic at its Now section, with the question's option cards in the page", (t) =>
   withPage(
     t.signal,
     async (root, server, scrolled) => {
       await clickEpicNotice(t.signal, root, server, asking, { kind: "question", ref: "Q1" });
       await until(t.signal, () => scrolled.length === 1, "the scroll into view");
-      assert.deepEqual(scrolled, ["now-block"]);
+      assert.deepEqual(scrolled, ["now"]);
       assert.equal(pageCrumb(root), asking.slug);
       assert.equal(isCursored(root, epicKeyOf(asking)), true, "the cursor is not on the epic");
       assert.equal(
-        root.querySelector('[aria-label="epic"] .now-block form.answer .opts > .opt') !== null,
+        root.querySelector('[aria-label="epic"] section.now form.answer .opts > .opt') !== null,
         true,
         "no option cards in the epic page",
       );
@@ -516,26 +516,26 @@ test("a question notice opens its epic at the now block, with the question's opt
     landingFixtures,
   ));
 
-test("a release-step notice opens its epic at the now block, where Retry and Stop… are", (t) =>
+test("a release-step notice opens its epic at its Now section, where Retry and Stop… are", (t) =>
   withPage(
     t.signal,
     async (root, server, scrolled) => {
       await clickEpicNotice(t.signal, root, server, stuck, { kind: "release_step", ref: "2" });
       await until(t.signal, () => scrolled.length === 1, "the scroll into view");
-      assert.deepEqual(scrolled, ["now-block"]);
+      assert.deepEqual(scrolled, ["now"]);
       assert.equal(pageCrumb(root), stuck.slug);
       assert.equal(pageButtons(root).includes("Retry"), true, "no Retry in the page");
     },
     landingFixtures,
   ));
 
-test("a report notice for an epic under ended earlier opens the line and brings the report into view", (t) =>
+test("a report notice for an epic under ended earlier opens the line and brings the page's top into view", (t) =>
   withPage(
     t.signal,
     async (root, server, scrolled) => {
       await clickEpicNotice(t.signal, root, server, shipped, { kind: "report", ref: "" });
       await until(t.signal, () => scrolled.length === 1, "the scroll into view");
-      assert.deepEqual(scrolled, ["proof report"]);
+      assert.deepEqual(scrolled, ["epic-page"]);
       assert.equal(pageCrumb(root), shipped.slug);
       assert.equal(isCursored(root, epicKeyOf(shipped)), true, "the cursor is not on the epic");
     },

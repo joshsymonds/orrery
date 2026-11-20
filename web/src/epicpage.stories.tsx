@@ -9,7 +9,6 @@ import { liveEpoch } from "./fixtures/clock";
 import { gets, histories } from "./fixtures/epics";
 import { createFixtureTransport } from "./fixtures/transport";
 import type { EpicHistoryEntry, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
-import { Handover } from "./handover";
 
 const rota = "lighthouse/rota-export";
 const holder = "orrery/holder-scopes";
@@ -54,6 +53,7 @@ const shared = {
   loadArtifact,
   commands,
   numberKeys: true,
+  commandError: "",
   onOpenContract: noop,
   onOpenSession: noop,
   onBack: noop,
@@ -61,20 +61,13 @@ const shared = {
 };
 
 export const EpicPage: Stories = {
-  // rota-decision is an epic with an open question, whose page draws the question in its now block.
+  // rota-decision is an epic with an open question, whose page draws the question in its Now section.
   "rota-decision": () => <Page {...shared} detail={detailOf(rota)} history={historyOf(rota)} />,
-  // holder-released is a released epic, with its release proof reached, its report and its handover.
-  "holder-released": () => (
-    <Page
-      {...shared}
-      detail={detailOf(holder)}
-      history={historyOf(holder)}
-      handover={<Handover detail={detailOf(holder)} />}
-    />
-  ),
-  // tide-alerts-contract is an epic that has written its contract and built nothing, so its later sections are dim.
+  // holder-released is a released orreryd epic, whose page draws its summary, track, Now, tasks and requirements.
+  "holder-released": () => <Page {...shared} detail={detailOf(holder)} history={historyOf(holder)} />,
+  // tide-alerts-contract is an epic that has written its contract and built nothing, so its page draws no tasks.
   "tide-alerts-contract": () => <Page {...shared} detail={detailOf(tide)} history={historyOf(tide)} />,
-  // offline-stopped is a stopped epic whose release has a failed step, with that step's reason.
+  // offline-stopped is a stopped epic, whose title row reads stopped.
   "offline-stopped": () => <Page {...shared} detail={detailOf(offline)} history={historyOf(offline)} />,
   // followups-paused is a building epic that is paused, so its page offers Resume.
   "followups-paused": () => (
