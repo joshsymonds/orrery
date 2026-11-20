@@ -1344,6 +1344,85 @@ test("PhoneHead: a render that grows the content reports nothing, at the bottom 
   });
 });
 
+// stubPageScroll gives the window's document the layout of a page that scrolls as a whole: its content is contentPixels
+// tall, the window's box is viewportPixels, and scrollTop clamps to the content. happy-dom has no layout, so the stub
+// stands in for it. scrollTo moves the page and dispatches the window's scroll, as a browser's scroll does.
+function stubPageScroll(contentPixels: number): { scrollTo: (top: number) => void } {
+  const page = document.documentElement;
+  let top = 0;
+  const furthest = () => Math.max(0, contentPixels - viewportPixels);
+  Object.defineProperties(page, {
+    scrollHeight: { configurable: true, get: () => contentPixels },
+    clientHeight: { configurable: true, get: () => viewportPixels },
+    scrollTop: {
+      configurable: true,
+      get: () => Math.min(top, furthest()),
+      set: (value: number) => {
+        top = Math.min(Math.max(value, 0), furthest());
+      },
+    },
+  });
+  return {
+    scrollTo: (value) => {
+      page.scrollTop = value;
+      window.dispatchEvent(new Event("scroll"));
+    },
+  };
+}
+
+test("PhoneHead: under 760 px a window scroll away from the page's end reports not at newest, and a further scroll away reports nothing", () => {
+  const newest = newestReports();
+  return withScrollingReader({ ...readerProps(heldItems(1, 20)), onNewest: newest.onNewest }, () => {
+    window.innerWidth = 759;
+    const page = stubPageScroll(1000);
+    page.scrollTo(500);
+    assert.deepEqual(newest.reports, [true, false]);
+
+    page.scrollTo(400);
+    assert.deepEqual(newest.reports, [true, false], "a scroll that leaves the page away from its end reports nothing");
+  });
+});
+
+test("PhoneHead: under 760 px scrolling the window back to its end reports at newest", () => {
+  const newest = newestReports();
+  return withScrollingReader({ ...readerProps(heldItems(1, 20)), onNewest: newest.onNewest }, () => {
+    window.innerWidth = 759;
+    const page = stubPageScroll(1000);
+    page.scrollTo(500);
+    page.scrollTo(700);
+    assert.deepEqual(newest.reports, [true, false, true]);
+  });
+});
+
+test("PhoneHead: under 760 px a window scroll that leaves the page at its end reports nothing", () => {
+  const newest = newestReports();
+  return withScrollingReader({ ...readerProps(heldItems(1, 20)), onNewest: newest.onNewest }, () => {
+    window.innerWidth = 759;
+    stubPageScroll(1000).scrollTo(700);
+    assert.deepEqual(newest.reports, [true]);
+  });
+});
+
+test("PhoneHead: under 760 px the window's scroll listener is removed on unmount", () => {
+  const newest = newestReports();
+  return withScrollingReader({ ...readerProps(heldItems(1, 20)), onNewest: newest.onNewest }, (container) => {
+    window.innerWidth = 759;
+    const page = stubPageScroll(1000);
+    render(null, container);
+    page.scrollTo(500);
+    assert.deepEqual(newest.reports, [true], "a window scroll after unmount reports nothing");
+  });
+});
+
+test("PhoneHead: at 760 px and wider a window scroll reports nothing", () => {
+  const newest = newestReports();
+  return withScrollingReader({ ...readerProps(heldItems(1, 20)), onNewest: newest.onNewest }, () => {
+    window.innerWidth = 1024;
+    stubPageScroll(1000).scrollTo(500);
+    assert.deepEqual(newest.reports, [true], "the page does not report at 760 px and wider");
+  });
+});
+
 test("PhoneHead: a page up from the bottom reports not at newest", () => {
   const holder: { handle: ReaderHandle | null } = { handle: null };
   const newest = newestReports();

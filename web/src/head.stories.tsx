@@ -8,6 +8,7 @@ import { PageStory } from "./catalog/pagestory";
 import type { Stories } from "./catalog/story";
 import { epicSlices, fullSlices, hotSlices, manySlices, scrolledSlices, warmupSession } from "./fixtures/head";
 import { createFixtureTransport, type FixtureTransport } from "./fixtures/transport";
+import { pagingQuery } from "./reader";
 import type { Address } from "./router";
 
 const warmup: Address = { order: "attention", entry: { kind: "session", id: warmupSession } };
@@ -40,15 +41,21 @@ async function clickWhen(root: HTMLElement, selector: string, text = ""): Promis
   (await whenDrawn(root, selector, text)).click();
 }
 
-// scrollToTop puts the cursor's reader at its top and reports the scroll, as the owner's scroll does. The reader's
-// transcript is drawn once its stream has answered, and the reader is the item's parent that scrolls.
+// scrollToTop puts the cursor's reader at its top and reports the scroll, as the owner's scroll does. Under pagingQuery
+// the reader does not scroll on its own, so the page scrolls to its top and reports the window's scroll instead. The
+// reader's transcript is drawn once its stream has answered, and the reader is the item's parent that scrolls.
 async function scrollToTop(root: HTMLElement): Promise<void> {
   const reader = (await whenDrawn(root, 'section[aria-label="reader"] .reader .t')).closest<HTMLElement>(".reader");
   if (reader === null) {
     throw new Error("the transcript's item is not drawn in the cursor's reader");
   }
-  reader.scrollTop = 0;
-  reader.dispatchEvent(new Event("scroll"));
+  if (window.matchMedia(pagingQuery).matches) {
+    reader.scrollTop = 0;
+    reader.dispatchEvent(new Event("scroll"));
+  } else {
+    window.scrollTo(0, 0);
+    window.dispatchEvent(new Event("scroll"));
+  }
 }
 
 // unansweredArchive is the fixture transport with its archive refused by a server that does not answer: the More menu's

@@ -24,7 +24,7 @@ const toolRunMinimum = 3;
 const pageOverlapPixels = 40;
 // pagingQuery is the width from which a reader pages by its handle. Under it the reader does not scroll on its own, and
 // the keys that page it are left to the browser.
-const pagingQuery = "(min-width: 760px)";
+export const pagingQuery = "(min-width: 760px)";
 
 // ReaderHandle is what the page calls on a reader to page its transcript by a screen. page moves the reader one screen
 // up or down, less pageOverlapPixels, clamped to its top and bottom, and returns true. Where the reader does not scroll
@@ -249,6 +249,23 @@ export function Reader({
     register?.({ page });
     return () => register?.(null);
   });
+  // Under pagingQuery the page scrolls as a whole, not the reader, so the owner's scroll is the window's: it reports
+  // whether the page sits at its end, as the reader's own scroll reports its bottom. At pagingQuery and wider the reader
+  // scrolls on its own, and the window's scroll changes nothing.
+  useLayoutEffect(() => {
+    const followWindow = (): void => {
+      if (window.matchMedia(pagingQuery).matches) {
+        return;
+      }
+      const wasPinned = pinned.current;
+      pinned.current = distanceFromBottom(document.documentElement) <= nearBottomPixels;
+      if (pinned.current !== wasPinned) {
+        onNewest?.(pinned.current);
+      }
+    };
+    window.addEventListener("scroll", followWindow);
+    return () => window.removeEventListener("scroll", followWindow);
+  }, [onNewest]);
   const sendingRows = sending.map((entry) => <SendingRow key={entry.promptId} text={entry.text} />);
   if (conversation === null) {
     return (
