@@ -25,6 +25,9 @@ export interface Row {
   question: string;
   // The pane's question_hash, which answers a waiting question by hash. Empty for a session row.
   questionHash: string;
+  // The pane's running tool: its @orrery_tool value as Panes.List gives it, a JSON object with name, input and start, or
+  // empty. Empty for a session or headless row.
+  tool: string;
   changed: number;
   seen: number;
   unseen: boolean;
@@ -81,6 +84,7 @@ export function rowsFrom(panes: Pane[], sessions: Session[], headless: HeadlessS
       summary: pane.summary,
       question: pane.question,
       questionHash: pane.questionHash,
+      tool: pane.tool,
       changed,
       seen,
       unseen: isUnseen(pane.state, changed, seen),
@@ -106,6 +110,7 @@ export function rowsFrom(panes: Pane[], sessions: Session[], headless: HeadlessS
       summary: session.summary,
       question: session.question,
       questionHash: "",
+      tool: "",
       changed,
       seen,
       unseen: isUnseen(session.state, changed, seen),
@@ -128,6 +133,7 @@ export function rowsFrom(panes: Pane[], sessions: Session[], headless: HeadlessS
       summary: session.summary,
       question: session.question,
       questionHash: "",
+      tool: "",
       changed,
       seen,
       unseen: isUnseen(session.state, changed, seen),

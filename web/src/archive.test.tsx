@@ -113,6 +113,7 @@ async function withArchive(
 
 function row(init: Partial<Row> & Pick<Row, "key">): Row {
   return {
+    tool: "",
     id: init.key,
     archiveId: "",
     kind: "pane",

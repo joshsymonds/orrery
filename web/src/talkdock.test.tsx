@@ -20,6 +20,7 @@ const sessionTarget = { kind: "session" as const, id: "s1", label: "api" };
 // listed is a row the dock's head titles from. Only the fields a title reads are set; the rest are empty.
 function listed(init: Pick<Row, "kind" | "id" | "project" | "label">): Row {
   return {
+    tool: "",
     key: `${init.kind}:${init.id}`,
     host: "",
     state: "",

@@ -22,6 +22,7 @@ const waitingQuestion = JSON.stringify({
 
 function waitingRow(): Row {
   return {
+    tool: "",
     key: "pane:%3",
     id: "%3",
     archiveId: "",

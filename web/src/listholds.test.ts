@@ -19,6 +19,7 @@ function at(view: View, entry: Entry | null): Address {
 // rowOf is a pane or session row, archived or not, on host. Only the fields listHolds reads carry a meaning here.
 function rowOf(kind: Row["kind"], id: string, archived: boolean, host = "box"): Row {
   return {
+    tool: "",
     key: `${kind}:${host}:${id}`,
     id,
     archiveId: id,

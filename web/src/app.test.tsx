@@ -288,6 +288,7 @@ function envelope(flag: number, message: object): Uint8Array {
 
 function row(init: Partial<Row> & Pick<Row, "key">): Row {
   return {
+    tool: "",
     id: init.key,
     kind: "pane",
     label: init.key,

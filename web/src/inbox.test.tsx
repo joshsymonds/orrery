@@ -37,6 +37,7 @@ async function quietFetch(input: RequestInfo | URL, init?: RequestInit): Promise
 // row is a seen row, so no dwell timer runs on the cursor's row.
 function row(init: Partial<Row> & Pick<Row, "key">): Row {
   return {
+    tool: "",
     id: init.key,
     kind: "pane",
     label: init.key,

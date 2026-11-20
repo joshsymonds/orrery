@@ -41,6 +41,7 @@ async function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
 
 function row(init: Partial<Row> & Pick<Row, "key">): Row {
   return {
+    tool: "",
     id: init.key,
     kind: "pane",
     label: init.key,

@@ -86,6 +86,7 @@ const sevenSlices: MessageInitShape<typeof EpicSliceSchema>[] = [
 
 function makeRow(key: string, project: string): Row {
   return {
+    tool: "",
     key,
     id: key,
     archiveId: "",

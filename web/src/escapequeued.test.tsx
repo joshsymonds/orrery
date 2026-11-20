@@ -108,6 +108,7 @@ function envelope(flag: number, message: object): Uint8Array {
 // seen and arms no seen dwell.
 function sessionRow(state: string): Row {
   return {
+    tool: "",
     key: "s1",
     id: "s1",
     archiveId: "s1",

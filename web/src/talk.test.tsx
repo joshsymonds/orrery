@@ -39,6 +39,7 @@ const headlessLine = `session · trace · ${clock(headless.at)}`;
 // listed is a row Talk titles its lines from. Only the fields a title reads are set; the rest are empty.
 function listed(init: Pick<Row, "kind" | "id" | "project" | "label">): Row {
   return {
+    tool: "",
     key: `${init.kind}:${init.id}`,
     host: "",
     state: "",

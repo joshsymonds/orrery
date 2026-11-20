@@ -64,6 +64,7 @@ test("a pane row takes its label, project, host, state, text, and times from the
       seen: 10,
       unseen: true,
       archived: false,
+      tool: "",
       archiveKind: "none",
     },
   ]);
@@ -80,6 +81,24 @@ test("a pane row carries the pane's id and question hash, and a session row carr
   assert.equal(paneRow?.questionHash, "hash-of-question");
   assert.equal(sessionRow?.id, "sess-7");
   assert.equal(sessionRow?.questionHash, "");
+});
+
+test("a pane row carries its pane's running tool, and a session or headless row carries an empty tool", () => {
+  const tool = JSON.stringify({ id: "toolu_1", name: "Bash", input: "go test ./...", start: 1781000000 });
+  const rows = rowsFrom(
+    [makePane({ id: "%11", tool })],
+    [makeSession({ id: "sess-7", pane: "" })],
+    [makeHeadless({ id: "head-1" })],
+  );
+
+  assert.deepEqual(
+    rows.map((row) => [row.id, row.tool]),
+    [
+      ["%11", tool],
+      ["sess-7", ""],
+      ["head-1", ""],
+    ],
+  );
 });
 
 test("TitleParts: a pane with no summary has an empty line, never its tmux session or label, so its title is its directory alone", () => {
@@ -122,6 +141,7 @@ test("a session row is keyed by its id, reads 'session' as its line when it has 
       seen: 42,
       unseen: false,
       archived: false,
+      tool: "",
       archiveKind: "session",
     },
   ]);
