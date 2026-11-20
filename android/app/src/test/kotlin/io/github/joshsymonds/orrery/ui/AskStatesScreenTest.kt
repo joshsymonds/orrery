@@ -57,13 +57,15 @@ class AskStatesScreenTest {
         const val SESSION_QUESTION = "Pick a synthetic option?"
         const val OPTION_ONE = "Synthetic one"
         const val OPTION_TWO = "Synthetic two"
+        const val RECOMMENDED_OPTION = "Synthetic one (Recommended)"
+        const val RECOMMENDED_QUESTION = """{"questions":[{"question":"Which database should the sample use?","options":[{"label":"Synthetic one (Recommended)","description":""},{"label":"Synthetic two","description":""}]}]}"""
         const val WHO = "project · example-label"
     }
 
     @get:Rule
     val composeRule = mainThreadAndroidComposeRule<ComponentActivity>()
 
-    private fun paneList(putOff: Boolean = false): PanesListResponse = PanesListResponse.newBuilder()
+    private fun paneList(putOff: Boolean = false, question: String = BASH_QUESTION): PanesListResponse = PanesListResponse.newBuilder()
         .addPanes(
             PaneProto.newBuilder()
                 .setId(PANE_ID)
@@ -78,14 +80,14 @@ class AskStatesScreenTest {
                 .setLabel("example-label")
                 .setChanged(CHANGED)
                 .setSeen(0L)
-                .setQuestion(BASH_QUESTION)
+                .setQuestion(question)
                 .setQuestionHash("abc123")
                 .setPutOff(putOff),
         )
         .build()
 
-    private fun setPaneScreen(server: FakeOrreryServer, putOff: Boolean = false) {
-        server.respond(PANES_PATH, paneList(putOff))
+    private fun setPaneScreen(server: FakeOrreryServer, putOff: Boolean = false, question: String = BASH_QUESTION) {
+        server.respond(PANES_PATH, paneList(putOff, question))
         // The pane screen polls at once when its stream reports the pane has none.
         server.route(STREAM_PATH) {
             Reply.Stream(emptyList(), StreamEnd.Error(Code.NOT_FOUND, "synthetic pane has no stream"))
@@ -128,11 +130,14 @@ class AskStatesScreenTest {
         }
     }
 
-    private fun sessionRequest(putOff: Boolean = false): OpenRequest = OpenRequest.newBuilder()
+    private fun sessionRequest(
+        putOff: Boolean = false,
+        options: List<String> = listOf(OPTION_ONE, OPTION_TWO),
+    ): OpenRequest = OpenRequest.newBuilder()
         .setId(REQUEST_ID)
         .setKind("question")
         .setQuestion(SESSION_QUESTION)
-        .addAllOptions(listOf(OPTION_ONE, OPTION_TWO))
+        .addAllOptions(options)
         .setPutOff(putOff)
         .build()
 
@@ -164,6 +169,24 @@ class AskStatesScreenTest {
             val sent = SendKeysRequest.parseFrom(server.requests.single { it.rawPath == KEYS_PATH }.body)
             assertEquals(PANE_ID, sent.pane)
             assertEquals(listOf("2"), sent.keysList.toList())
+            assertEquals("abc123", sent.expectQuestion)
+        }
+    }
+
+    @Test
+    fun paneOptionEndingRecommendedDrawsItsWordsWithNoChipAndTapSendsItsDigit() {
+        FakeOrreryServer().use { server ->
+            server.respond(KEYS_PATH, SendKeysResponse.getDefaultInstance())
+            setPaneScreen(server, question = RECOMMENDED_QUESTION)
+            composeRule.awaitExactlyOne(hasTestTag("ask-option:2"))
+
+            composeRule.onNodeWithTag("ask-option:1").assertTextEquals(RECOMMENDED_OPTION)
+            composeRule.onAllNodesWithTag("ask-recommended:1").assertCountEquals(0)
+            composeRule.onNodeWithTag("ask-option:1").performClick()
+            composeRule.awaitUntil { server.requests.any { it.rawPath == KEYS_PATH } }
+
+            val sent = SendKeysRequest.parseFrom(server.requests.single { it.rawPath == KEYS_PATH }.body)
+            assertEquals(listOf("1"), sent.keysList.toList())
             assertEquals("abc123", sent.expectQuestion)
         }
     }
@@ -213,6 +236,23 @@ class AskStatesScreenTest {
                     .build(),
                 sent,
             )
+        }
+    }
+
+    @Test
+    fun sessionOptionEndingRecommendedDrawsItsWordsWithNoChipAndTapSendsTheFullLabel() {
+        FakeOrreryServer().use { server ->
+            server.respond(ANSWER_PATH, AnswerResponse.getDefaultInstance())
+            setSessionScreen(server, sessionRequest(options = listOf(RECOMMENDED_OPTION, OPTION_TWO)))
+            composeRule.awaitExactlyOne(hasTestTag("ask-option:2"))
+
+            composeRule.onNodeWithTag("ask-option:1").assertTextEquals(RECOMMENDED_OPTION)
+            composeRule.onAllNodesWithTag("ask-recommended:1").assertCountEquals(0)
+            composeRule.onNodeWithTag("ask-option:1").performClick()
+            composeRule.awaitUntil { server.requests.any { it.rawPath == ANSWER_PATH } }
+
+            val sent = AnswerRequest.parseFrom(server.requests.single { it.rawPath == ANSWER_PATH }.body)
+            assertEquals(RECOMMENDED_OPTION, sent.answer)
         }
     }
 

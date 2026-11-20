@@ -313,6 +313,66 @@ test("AskAnswer: a tap on a pane's option sends its digit with the question hash
     assert.deepEqual(fake.callsTo(sendKeysPath)[0].body, { pane: "a", keys: ["2"], expectQuestion: "qh-1" });
   }));
 
+// namesOf is the option names the Ask draws, in order.
+function namesOf(container: HTMLElement): string[] {
+  return optionsOf(container).map((button) => button.querySelector(".nm")?.textContent ?? "");
+}
+
+// recommendedChipsIn counts the recommended chips the Ask's options draw.
+function recommendedChipsIn(container: HTMLElement): number {
+  return container.querySelectorAll(".ask .opts .chip").length;
+}
+
+test("AskAnswer: a session's option ending (Recommended) draws its words verbatim with no chip, and a tap sends the full served label", (t) =>
+  withApp(t.signal, [headless({ key: "s1", id: "s1", label: "notes" })], async (container, fake) => {
+    await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    fake.emit(fake.callsTo(sessionWatchPath)[0], {
+      ...requestStream,
+      state: { request: { id: "req-7", kind: "question", question: "Pick one", options: ["Yes (Recommended)", "No"] } },
+    });
+    await flush();
+    assert.ok(askOf(container) !== null, "the Ask is drawn");
+    assert.deepEqual(namesOf(container), ["Yes (Recommended)", "No"], "each option draws its served label");
+    assert.equal(recommendedChipsIn(container), 0, "no option draws a recommended chip");
+    await click(optionsOf(container)[0]);
+    await flush();
+    assert.equal(fake.callsTo(answerPath).length, 1, "the answer was sent");
+    assert.deepEqual(fake.callsTo(answerPath)[0].body, { id: "s1", requestId: "req-7", answer: "Yes (Recommended)" });
+  }));
+
+test("AskAnswer: a pane option ending (Recommended) draws its words verbatim with no chip, and a tap sends its digit", (t) =>
+  withApp(
+    t.signal,
+    [
+      pane({
+        key: "a",
+        question: JSON.stringify({
+          questions: [
+            {
+              question: "Which database should the sample use?",
+              options: [
+                { label: "SQLite (Recommended)", description: "Embedded, one file" },
+                { label: "Postgres", description: "" },
+              ],
+            },
+          ],
+        }),
+      }),
+    ],
+    async (container, fake) => {
+      await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+      fake.emit(fake.callsTo(paneWatchPath)[0], { transcript: "t1", seq: "1", reset: true, items: [] });
+      await flush();
+      assert.ok(askOf(container) !== null, "the Ask is drawn");
+      assert.deepEqual(namesOf(container), ["SQLite (Recommended)", "Postgres"], "each option draws its served label");
+      assert.equal(recommendedChipsIn(container), 0, "no option draws a recommended chip");
+      await click(optionsOf(container)[0]);
+      await flush();
+      assert.equal(fake.callsTo(sendKeysPath).length, 1, "the answer was sent");
+      assert.deepEqual(fake.callsTo(sendKeysPath)[0].body, { pane: "a", keys: ["1"], expectQuestion: "qh-1" });
+    },
+  ));
+
 // digits are the keys a conversation answers with: 1 to 9.
 const digits = [1, 2, 3, 4, 5, 6, 7, 8, 9];
 // nineOptions are the labels of a question with nine options, Option 1 to Option 9.
