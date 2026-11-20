@@ -6,6 +6,7 @@ import { Code } from "@connectrpc/connect";
 
 import { PageStory } from "./catalog/pagestory";
 import type { Stories } from "./catalog/story";
+import { askSlices } from "./fixtures/ask";
 import { dockSlices, gatesSession, warmupSession } from "./fixtures/dock";
 import { type AskAnswer, emptySlices, type PickerRowInit, type Slices, shippedSlices } from "./fixtures/slices";
 import { endedSlices, handoverSlices, movedSlices } from "./fixtures/steer";
@@ -178,8 +179,8 @@ async function sendInShownDock(root: HTMLElement, text: string): Promise<void> {
   await pressInShownDock(root, "Enter");
 }
 
-// dockStory draws App at address over one dock scenario's slices, and runs after, when given, once it has drawn.
-const dockStory =
+// fixtureStory draws App at address over one scenario's slices, and runs after, when given, once it has drawn.
+const fixtureStory =
   (address: Address, slices: Slices, after?: (root: HTMLElement) => Promise<void>) => () => (
     <PageStory address={address} fixture={createFixtureTransport(slices)} after={after} />
   );
@@ -260,6 +261,11 @@ export const App: Stories = {
 
 // convoWorkingAt is the reader of pane %11, the page the New session and the key list are drawn over.
 const convoWorkingAt: Address = { view: "inbox", entry: { kind: "pane", host: "halyard", pane: "%11" } };
+
+// beaconAt is the reader of pane %12, tidepool's conversation with its question; staleAt is the reader of pane %21, commonframe's
+// question asked five days before the fixtures' instant.
+const beaconAt: Address = paneAt("%12");
+const staleAt: Address = paneAt("%21");
 
 export const Page: Stories = {
   "inbox-home": () => <PageStory address={inbox} />,
@@ -342,6 +348,22 @@ export const Page: Stories = {
       after={(root) => clickWhen(root, '.list .b-row[data-key="pane:halyard:%12"]')}
     />
   ),
+  "ask-answered": fixtureStory(beaconAt, askSlices["ask-answered"], (root) =>
+    clickWhen(root, ".ask .opt", "One query per week"),
+  ),
+  "ask-permission": fixtureStory(beaconAt, askSlices["ask-permission"]),
+  "ask-many": fixtureStory(beaconAt, askSlices["ask-many"]),
+  "ask-sending": fixtureStory(beaconAt, askSlices["ask-sending"], (root) =>
+    clickWhen(root, ".ask .opt", "One query per week"),
+  ),
+  "ask-error": fixtureStory(beaconAt, askSlices["ask-error"], (root) =>
+    clickWhen(root, ".ask .opt", "One query per week"),
+  ),
+  "ask-stale": fixtureStory(staleAt, askSlices["ask-stale"]),
+  "ask-decline": fixtureStory(beaconAt, shippedSlices, (root) =>
+    clickWhen(root, 'button[aria-label="More for this question"]'),
+  ),
+  "ask-unanswerable": fixtureStory(beaconAt, askSlices["ask-unanswerable"]),
   "new-empty": () => <PageStory address={convoWorkingAt} after={openNew} />,
   "new-working": () => (
     <PageStory
@@ -394,29 +416,29 @@ export const Page: Stories = {
       }}
     />
   ),
-  "dock-idle": dockStory(warmupAt, dockSlices["dock-idle"]),
-  "dock-queued": dockStory(warmupAt, dockSlices["dock-queued"]),
-  "dock-draft": dockStory(warmupAt, dockSlices["dock-draft"], (root) =>
+  "dock-idle": fixtureStory(warmupAt, dockSlices["dock-idle"]),
+  "dock-queued": fixtureStory(warmupAt, dockSlices["dock-queued"]),
+  "dock-draft": fixtureStory(warmupAt, dockSlices["dock-draft"], (root) =>
     typeInShownDock(root, "And skip ports that are already warm."),
   ),
-  "dock-interrupting": dockStory(warmupAt, dockSlices["dock-interrupting"], (root) =>
+  "dock-interrupting": fixtureStory(warmupAt, dockSlices["dock-interrupting"], (root) =>
     pressInShownDock(root, "Escape"),
   ),
-  "dock-interrupted": dockStory(warmupAt, dockSlices["dock-interrupted"]),
-  "dock-interrupt-queue": dockStory(warmupAt, dockSlices["dock-interrupt-queue"]),
-  "dock-cut-off": dockStory({ view: "inbox", entry: { kind: "session", id: headlessSession } }, dockSlices["dock-cut-off"]),
-  "dock-pane-queue": dockStory(pane17At, dockSlices["dock-pane-queue"]),
-  "dock-waiting": dockStory(warmupAt, dockSlices["dock-waiting"]),
-  "dock-failed": dockStory(warmupAt, dockSlices["dock-failed"]),
-  "dock-stopped": dockStory(warmupAt, dockSlices["dock-stopped"]),
-  "dock-send-error": dockStory(warmupAt, dockSlices["dock-send-error"], (root) =>
+  "dock-interrupted": fixtureStory(warmupAt, dockSlices["dock-interrupted"]),
+  "dock-interrupt-queue": fixtureStory(warmupAt, dockSlices["dock-interrupt-queue"]),
+  "dock-cut-off": fixtureStory({ view: "inbox", entry: { kind: "session", id: headlessSession } }, dockSlices["dock-cut-off"]),
+  "dock-pane-queue": fixtureStory(pane17At, dockSlices["dock-pane-queue"]),
+  "dock-waiting": fixtureStory(warmupAt, dockSlices["dock-waiting"]),
+  "dock-failed": fixtureStory(warmupAt, dockSlices["dock-failed"]),
+  "dock-stopped": fixtureStory(warmupAt, dockSlices["dock-stopped"]),
+  "dock-send-error": fixtureStory(warmupAt, dockSlices["dock-send-error"], (root) =>
     sendInShownDock(root, "Run it for January too."),
   ),
-  "dock-send-unknown": dockStory(warmupAt, dockSlices["dock-send-unknown"], (root) =>
+  "dock-send-unknown": fixtureStory(warmupAt, dockSlices["dock-send-unknown"], (root) =>
     sendInShownDock(root, "Run it for January too."),
   ),
-  "dock-cancelled": dockStory(pane17At, dockSlices["dock-cancelled"]),
-  "ask-later": dockStory(gatesAt, dockSlices["ask-later"]),
+  "dock-cancelled": fixtureStory(pane17At, dockSlices["dock-cancelled"]),
+  "ask-later": fixtureStory(gatesAt, dockSlices["ask-later"]),
   keys: () => (
     <PageStory
       address={convoWorkingAt}

@@ -212,7 +212,7 @@ function gatesSlices(): Slices {
       session,
       request: create(OpenRequestSchema, {
         id: "req-gates", kind: "question", question: gatesQuestion,
-        options: ["Raise the budget line by $100", "Run the gates locally"], putOff: true,
+        options: ["Raise the budget line by $100 (Recommended)", "Run the gates locally"], putOff: true,
       }),
       pending: [create(PendingEventSchema, { id: "ev-gates", kind: "question", waits: "request" })],
     }),
