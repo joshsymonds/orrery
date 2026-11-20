@@ -4,13 +4,15 @@ import { Fragment } from "preact";
 import { Dir } from "./dir";
 import { FilterChip } from "./filterchip";
 import { Icon } from "./glyphs";
+import { noticesTip } from "./inboxrail";
 import { Mark } from "./mark";
 import type { Convo, Project, View } from "./tree";
 import { type Counts, type Narrow } from "./treefilter";
 
 // InboxProps are the Inbox's inputs: the view and the load state, the projects already narrowed and searched, each
 // project's waiting number over the whole tree by its key, the counts for the chips, and the presses and the state they
-// change. search is null while the search field is closed.
+// change. search is null while the search field is closed. unread is the notices the log holds unread, which the bell
+// counts, and onNotices is the bell's press.
 export interface InboxProps {
   view: View;
   state: "loading" | "error" | "ready";
@@ -31,6 +33,8 @@ export interface InboxProps {
   onView: (view: View) => void;
   onRetry?: () => void;
   onNew: () => void;
+  unread: number;
+  onNotices: () => void;
   onKeys?: () => void;
   // onOpenProject is the press on a project's head, which opens the project's page.
   onOpenProject?: (key: string) => void;
@@ -39,10 +43,11 @@ export interface InboxProps {
   notes?: ComponentChildren;
 }
 
-// Inbox draws the web's inbox column as round 6 draws it: the head with the mark, the name, search and New; under it the
-// two chips, each only when its count is not zero, the search field while search is open, and the body. The body is
-// loading, the error, "Nothing is running." when nothing is listed, "Nothing matches" when a search finds no project, or
-// each project as a card. Archived draws its title and count in place of the chips. The foot leads to Archived, or back.
+// Inbox draws the web's inbox column as round 6 draws it: the head with the mark, the name, search, the bell and New;
+// under it the two chips, each only when its count is not zero, the search field while search is open, and the body.
+// The head's bell counts the unread notices in the new role, and opens the notice centre. The body is loading, the
+// error, "Nothing is running." when nothing is listed, "Nothing matches" when a search finds no project, or each project
+// as a card. Archived draws its title and count in place of the chips. The foot leads to Archived, or back.
 export function Inbox({
   view,
   state,
@@ -63,6 +68,8 @@ export function Inbox({
   onView,
   onRetry,
   onNew,
+  unread,
+  onNotices,
   onKeys,
   onOpenProject,
   pin,
@@ -84,6 +91,16 @@ export function Inbox({
             onClick={() => onSearch("")}
           >
             <Icon name="search" />
+          </button>
+          <button
+            type="button"
+            class="btn quiet icon-only badged"
+            aria-label="Notices"
+            title={noticesTip(unread)}
+            onClick={() => onNotices()}
+          >
+            <Icon name="bell" />
+            {unread > 0 && <span class="n new">{unread}</span>}
           </button>
           <button type="button" class="btn" title="Start a session, or find one  N" onClick={() => onNew()}>
             <Icon name="plus" />

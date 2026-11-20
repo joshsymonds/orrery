@@ -177,7 +177,7 @@ function railLabels(container: HTMLElement): string[] {
   return Array.from(rail(container).children).map(labelOf);
 }
 
-test("InboxRail: with a page open at 760px and wider the inbox rests as a rail, drawing the mark, a tile per project in the tree's order, New, Search and Keys", (t) =>
+test("InboxRail: with a page open at 760px and wider the inbox rests as a rail, drawing the mark, a tile per project in the tree's order, New, Search, Notices and Keys", (t) =>
   withDesk(t.signal, wideWidth, async (container) => {
     await openRow(container, "b");
     assert.equal(paneState(container), "rail");
@@ -189,6 +189,7 @@ test("InboxRail: with a page open at 760px and wider the inbox rests as a rail, 
       "spring",
       "New session",
       "Search",
+      "Notices",
       "Keys",
     ]);
     const listed = Array.from(container.querySelectorAll("section.dir")).map((section) => section.getAttribute("aria-label"));

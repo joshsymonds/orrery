@@ -37,9 +37,10 @@ import {
 } from "./keymap";
 import { listHolds, listsEpic } from "./listholds";
 import { epicNeeds } from "./needs";
+import { NoticeCentre } from "./noticecentre";
 import { useNoticeLog } from "./noticelog";
 import { NoticeStack } from "./notices";
-import { noticeAge, noticeHead, noticeKey } from "./noticewords";
+import { type NoticeFields, noticeAge, noticeHead, noticeKey } from "./noticewords";
 import { PhaseOutputPage } from "./phaseoutput";
 import { phaseOutputOf } from "./phaserows";
 import type { Phase } from "./phases";
@@ -1576,8 +1577,14 @@ export function App({
 
   // markNoticeSeen sends the notice's key as seen, then lists the log again, so its unread count follows the report. A
   // failed report is dropped; the notice stays in the stack until it ends.
-  const markNoticeSeen = (notice: InAppNotice) => {
+  const markNoticeSeen = (notice: NoticeFields) => {
     void clients.notices.seen({ key: notice.key }).catch(() => undefined).then(noticeLog.relist);
+  };
+
+  // markAllNoticesRead sends ReadAll, then lists the log again, so the centre's rows and the unread count follow it. A
+  // failed report is dropped.
+  const markAllNoticesRead = () => {
+    void clients.notices.readAll({}).catch(() => undefined).then(noticeLog.relist);
   };
 
   // noticeAgeOf is a notice's age from the log's newest row under its key, or "" when the log holds none.
@@ -1589,7 +1596,7 @@ export function App({
   // openNotice counts a notice seen, then lands on what it names. An epic moves the cursor to its entry, wherever the
   // list holds it, and lands its page on the block the notice names. A pane or a session moves the cursor to its row or
   // step, when the list shows it. A failed report is dropped; the notice stays in the stack until it ends.
-  const openNotice = navigated((notice: InAppNotice) => {
+  const openNotice = navigated((notice: NoticeFields) => {
     markNoticeSeen(notice);
     const epic = notice.key?.epic ?? "";
     if (epic !== "") {
@@ -1896,10 +1903,15 @@ export function App({
     navigated(openList)(held.open.key, held.open.panel);
   };
 
-  // The list hides under 760px while the opened row's, step's, epic's, contract's or project's page draws alone.
+  // Under 760px the notice centre is a page of its own, which draws alone: the list, the reader and the pages under it
+  // hide while it is open, and Back shows them as they were.
+  const noticesPage = !wide && noticesOpen;
+  // The list hides under 760px while the opened row's, step's, epic's, contract's or project's page draws alone, and
+  // while the notice centre does.
   const listHides =
     !wide &&
-    (shownProject !== null ||
+    (noticesPage ||
+      shownProject !== null ||
       (rowOpened && (cursorRow !== null || cursorStep !== null)) ||
       panelOpen ||
       contractPageShown);
@@ -2304,8 +2316,10 @@ export function App({
   // conversation over the contract. A shown project page takes the page area, so no reader draws. At 760px and wider the
   // list, the conversation and the panel or rail sit abreast.
   const readerRow =
-    pageDrawn && !epicPageShown && !(contractPageShown && !sheeted) && shownProject === null ? middleRow : null;
-  const readerStep = pageDrawn && shownProject === null ? cursorStep : null;
+    pageDrawn && !noticesPage && !epicPageShown && !(contractPageShown && !sheeted) && shownProject === null
+      ? middleRow
+      : null;
+  const readerStep = pageDrawn && !noticesPage && shownProject === null ? cursorStep : null;
   // contractCalls are the middle reader's contract calls: its contract lines draw the contracts the list holds, and
   // open them.
   const contractCalls: ContractCalls = { contracts, onOpen: navigated(openContractPanel) };
@@ -2374,6 +2388,8 @@ export function App({
               openSearchField("");
               setPopout("key");
             }}
+            unread={noticeLog.unread}
+            onNotices={() => setNoticesOpen(true)}
             onKeys={() => setHelpOpen(true)}
             onEnter={inboxEnter}
             onLeave={inboxLeave}
@@ -2387,6 +2403,21 @@ export function App({
             onOpen={openNotice}
             onRead={markNoticeSeen}
             onMore={() => setNoticesOpen(true)}
+          />
+        )}
+        {noticesOpen && (
+          <NoticeCentre
+            rows={noticeLog.rows}
+            failed={noticeLog.failed}
+            head={(row) => noticeHead(row, tree, shownRows, now)}
+            now={now}
+            narrow={!wide}
+            onOpen={(row) => {
+              setNoticesOpen(false);
+              openNotice(row);
+            }}
+            onReadAll={markAllNoticesRead}
+            onClose={() => setNoticesOpen(false)}
           />
         )}
         <div
@@ -2415,17 +2446,20 @@ export function App({
             onView={openView}
             onRetry={onRetry}
             onNew={() => setPickerOpen(true)}
+            unread={noticeLog.unread}
+            onNotices={() => setNoticesOpen(true)}
             onKeys={() => setHelpOpen(true)}
             onOpenProject={openProject}
             pin={wide ? { pinned: inboxPinned, onPin: togglePin } : undefined}
             notes={notes}
           />
         </div>
-        {shownProject !== null && projectSection(shownProject)}
+        {shownProject !== null && !noticesPage && projectSection(shownProject)}
         <Sheet open={sheeted} title={contractLiveRow?.label ?? ""} onClose={() => setTalking(false)}>
           {middleColumn}
         </Sheet>
         {pageDrawn &&
+          !noticesPage &&
           shownProject === null &&
           epicEntry !== null &&
           !contractShown &&
@@ -2478,7 +2512,7 @@ export function App({
             {epicPageSection(epicEntry, epicDetail)}
           </SidePanel>
         )}
-        {epicEntry !== null && panelOpen && !wide && (
+        {epicEntry !== null && panelOpen && !wide && !noticesPage && (
           <div class="epic-read">{epicPageSection(epicEntry, epicDetail)}</div>
         )}
         {contract !== undefined && wide && (
@@ -2491,7 +2525,7 @@ export function App({
             {contractPage}
           </SidePanel>
         )}
-        {contract !== undefined && !wide && <div class="epic-read">{contractPage}</div>}
+        {contract !== undefined && !wide && !noticesPage && <div class="epic-read">{contractPage}</div>}
         {listShown !== null && wide && (
           <SidePanel label={listHead(listShown)} tone={listTone} href={shownForm} onClose={closeList}>
             <ListPanel kind={listShown} tasks={listTasks} now={now} />
