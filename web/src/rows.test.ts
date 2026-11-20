@@ -11,7 +11,7 @@ import {
   type Pane,
   type Session,
 } from "./gen/orrery/v1/orrery_pb";
-import { rowsFrom, splitArchived, type Row } from "./rows";
+import { rowsFrom, splitArchived, waitsOnYou, type Row } from "./rows";
 
 function makePane(init: MessageInitShape<typeof PaneSchema>): Pane {
   return create(PaneSchema, { host: "box", session: "work", cwd: "/work/app", ...init });
@@ -62,6 +62,7 @@ test("a pane row takes its label, project, host, state, text, and times from the
       unseen: true,
       archived: false,
       tool: "",
+      putOff: false,
       archiveKind: "none",
     },
   ]);
@@ -139,6 +140,7 @@ test("a session row is keyed by its id, reads 'session' as its line when it has 
       unseen: false,
       archived: false,
       tool: "",
+      putOff: false,
       archiveKind: "session",
     },
   ]);
@@ -280,4 +282,54 @@ test("a row is unseen only when it has a state and changed after it was seen", (
     );
     assert.equal(row?.unseen, testCase.unseen, testCase.name);
   }
+});
+
+test("WaitsOnYou: rowsFrom gives a pane row putOff from Pane.putOff, and a headless row putOff from HeadlessSession.putOff", () => {
+  const rows = rowsFrom(
+    [makePane({ id: "%3", putOff: true }), makePane({ id: "%4", putOff: false })],
+    [],
+    [makeHeadless({ id: "head-1", putOff: true })],
+  );
+
+  assert.deepEqual(
+    rows.map((row) => [row.id, row.putOff]),
+    [
+      ["%3", true],
+      ["%4", false],
+      ["head-1", true],
+    ],
+  );
+});
+
+test("WaitsOnYou: a Sessions.List row is never put off", () => {
+  const [row] = rowsFrom([], [makeSession({ id: "sess-7", pane: "", state: "waiting" })]);
+  assert.equal(row?.putOff, false);
+});
+
+test("WaitsOnYou: a waiting row waits on you, and a put-off waiting row does not", () => {
+  const rows = rowsFrom(
+    [makePane({ id: "%3", state: "waiting", putOff: false }), makePane({ id: "%4", state: "waiting", putOff: true })],
+    [],
+  );
+
+  assert.deepEqual(rows.map(waitsOnYou), [true, false]);
+});
+
+test("WaitsOnYou: an archived waiting row does not wait on you, and a row in any other state does not either", () => {
+  const rows = rowsFrom(
+    [],
+    [makeSession({ id: "sess-a", pane: "", state: "waiting", archived: true })],
+    ["working", "idle", "done", "failed", "stopped", ""].map((state, index) =>
+      makeHeadless({ id: `head-${index}`, state }),
+    ),
+  );
+
+  assert.deepEqual(rows.map(waitsOnYou), [false, false, false, false, false, false, false]);
+});
+
+test("WaitsOnYou: the same pane read again with putOff false, for a new question, waits on you", () => {
+  const before = rowsFrom([makePane({ id: "%3", state: "waiting", putOff: true })], []);
+  const after = rowsFrom([makePane({ id: "%3", state: "waiting", putOff: false })], []);
+
+  assert.deepEqual([...before.map(waitsOnYou), ...after.map(waitsOnYou)], [false, true]);
 });

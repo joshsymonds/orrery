@@ -32,6 +32,7 @@ const waitingQuestion = JSON.stringify({
 
 function paneRow(init: Partial<Row>): Row {
   return {
+    putOff: false,
     tool: "",
     key: "pane:box:%3",
     id: "%3",

@@ -11,6 +11,7 @@ import type { Row } from "./rows";
 
 // Synthetic fixtures only: a pane and a headless session with made-up ids and text.
 const paneRow: Row = {
+  putOff: false,
   tool: "",
   key: "pane:%3",
   id: "%3",
@@ -31,6 +32,7 @@ const paneRow: Row = {
 };
 
 const sessionRow: Row = {
+  putOff: false,
   tool: "",
   key: "session:s1",
   id: "s1",

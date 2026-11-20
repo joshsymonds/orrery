@@ -69,6 +69,7 @@ function conversation(init: Partial<Conversation> = {}): Conversation {
 
 function row(init: Partial<Row> & Pick<Row, "key">): Row {
   return {
+    putOff: false,
     tool: "",
     id: init.key,
     kind: "pane",

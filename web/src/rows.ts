@@ -34,6 +34,9 @@ export interface Row {
   // Whether the owner archived the row. A pane is archived when the Session with its orrery_id is archived, and a pane
   // with no orrery_id, or whose Session is not in the answer, is not.
   archived: boolean;
+  // Whether the owner put the row's question off: a pane's Pane.putOff, a headless session's HeadlessSession.putOff,
+  // and always false for a Sessions.List row. A new question reads false again.
+  putOff: boolean;
   archiveKind: ArchiveKind;
 }
 
@@ -74,6 +77,7 @@ export function rowsFrom(panes: Pane[], sessions: Session[], headless: HeadlessS
       seen,
       unseen: isUnseen(pane.state, changed, seen),
       archived: archivable && archivedSessions.get(pane.orreryId) === true,
+      putOff: pane.putOff,
       archiveKind: archivable ? "session" : "none",
     });
   }
@@ -100,6 +104,7 @@ export function rowsFrom(panes: Pane[], sessions: Session[], headless: HeadlessS
       seen,
       unseen: isUnseen(session.state, changed, seen),
       archived: session.archived,
+      putOff: false,
       archiveKind: "session",
     });
   }
@@ -123,6 +128,7 @@ export function rowsFrom(panes: Pane[], sessions: Session[], headless: HeadlessS
       seen,
       unseen: isUnseen(session.state, changed, seen),
       archived: session.archived,
+      putOff: session.putOff,
       archiveKind: "headless",
     });
   }
@@ -135,6 +141,11 @@ export function splitArchived(rows: Row[]): { rows: Row[]; archived: Row[] } {
     rows: rows.filter((row) => !row.archived),
     archived: rows.filter((row) => row.archived),
   };
+}
+
+// waitsOnYou reports whether a row's question waits on the owner: the row is waiting, not archived, and not put off.
+export function waitsOnYou(row: Row): boolean {
+  return row.state === "waiting" && !row.archived && !row.putOff;
 }
 
 function isUnseen(state: string, changed: number, seen: number): boolean {

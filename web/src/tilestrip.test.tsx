@@ -140,6 +140,7 @@ const background: BackgroundTask[] = [
 // row is a row as the list holds it, with the fields the tests do not set at their defaults.
 function row(init: Partial<Row> & Pick<Row, "key">): Row {
   return {
+    putOff: false,
     tool: "",
     id: init.key,
     kind: "pane",

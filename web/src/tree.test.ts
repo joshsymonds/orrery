@@ -12,6 +12,7 @@ const serving = "halyard";
 
 function makeRow(init: Partial<Row> & Pick<Row, "key" | "label">): Row {
   return {
+    putOff: false,
     id: "%3",
     archiveId: "",
     kind: "pane",

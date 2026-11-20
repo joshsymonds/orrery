@@ -74,6 +74,7 @@ function emit(stream: Stream, message: object): void {
 // row is a pane row that has been seen, so no dwell timer runs on the cursor's row.
 function row(init: Partial<Row> & Pick<Row, "key">): Row {
   return {
+    putOff: false,
     tool: "",
     id: init.key,
     kind: "pane",

@@ -18,6 +18,7 @@ import { type Row } from "./rows";
 
 function makeRow(init: Partial<Row>): Row {
   return {
+    putOff: false,
     tool: "",
     key: "pane:box:%3",
     id: "%3",
