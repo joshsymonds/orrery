@@ -227,7 +227,7 @@ async function withApp(
 }
 
 function composer(container: HTMLElement): HTMLTextAreaElement {
-  const box = container.querySelector<HTMLTextAreaElement>(".reply:not([hidden]) .composer textarea");
+  const box = container.querySelector<HTMLTextAreaElement>(".reply:not([hidden]) textarea");
   assert.ok(box, "the reader has a composer");
   return box;
 }

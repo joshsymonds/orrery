@@ -1,9 +1,12 @@
 import type { JSX, Ref } from "preact";
 import { useLayoutEffect, useRef, useState } from "preact/hooks";
 
+import { Ctl } from "./ctl";
+import { type DockFacts, dockLines, placeholder, stateLine } from "./dockwords";
 import { useFlash } from "./flash";
 import type { ConversationItem, QueuedMessage, WaitingMessage } from "./gen/orrery/v1/orrery_pb";
 import { type Sending, type SentText, promptHeld, sameText, withoutTexts } from "./sending";
+import { outcomeOf } from "./stepbox";
 import { ReplyText } from "./text";
 
 const sendFailedLine = "Not sent. Your draft is kept; press Enter to try again.";
@@ -12,12 +15,15 @@ const takesNextLine = "Claude takes it at its next tool call.";
 const alreadyTookLine = "Claude already took it in.";
 const withdrawFailedLine = "Could not withdraw the message.";
 
+// deskQuery holds at a desk width. Narrower than it, the dock says its short queue prompt.
+const deskQuery = "(min-width: 760px)";
+
 interface FailedSend {
   text: string;
   promptId: string;
 }
 
-// A message this composer sent while its conversation was working, with the newest item the conversation held as it was
+// A message this dock sent while its conversation was working, with the newest item the conversation held as it was
 // sent. It stays above the box until the conversation's items hold its prompt, it leaves the session queue after it was
 // in it (wasQueued), the turn ends or its send fails.
 interface LocalQueued extends Sending {
@@ -44,7 +50,7 @@ function settleLocal(entries: LocalQueued[], items: ConversationItem[], queue: Q
 }
 
 // QueueRow is one line of the queue above the box that carries only its text: a waiting message or a message this
-// composer sent.
+// dock sent.
 interface QueueRow {
   key: string;
   text: string;
@@ -55,58 +61,35 @@ interface QueueRow {
 // Claude had already taken the message in, failed when the call was refused.
 type WithdrawOutcome = "took" | "failed";
 
-// edgeClass is the edge a composer shows for its conversation's state: working, waiting, or idle for any other state.
-function edgeClass(state: string): string {
-  switch (state) {
-    case "working":
-      return "edge-working";
-    case "waiting":
-      return "edge-waiting";
-    default:
-      return "edge-idle";
-  }
-}
-
-// placeholderFor says what sending does in a state: working queues the text, waiting answers, and any other state replies.
-function placeholderFor(state: string, label: string): string {
-  switch (state) {
-    case "working":
-      return `Queue for ${label}`;
-    case "waiting":
-      return `Answer ${label}`;
-    default:
-      return `Reply to ${label}`;
-  }
-}
-
-// ComposerHandle is what the page calls on a composer when its row's Escape takes queued messages back. append puts
-// their texts in the box after its text, joined by blank lines. forget drops the local entry each text matches, since
-// the session queue no longer carries those messages.
-export interface ComposerHandle {
+// DockHandle is what the page calls on a dock when its row's Escape takes queued messages back. append puts their texts
+// in the box after its text, joined by blank lines. forget drops the local entry each text matches, since the session
+// queue no longer carries those messages.
+export interface DockHandle {
   append: (texts: string[]) => void;
   forget: (texts: string[]) => void;
 }
 
-// Composer is the send box under the reader. Enter and the send button send the text once; Shift+Enter or Alt+Enter
-// puts a line break at the cursor instead. A send reports itself to onSending as it starts, and to onUnsent if it
-// rejects. A failed send keeps the draft and its prompt id and is never resent by the composer. Up in an empty box pulls
-// the newest queued text back. In an empty box with no modifier held, Page Up and Page Down go to onPage, and / goes to
-// onFind. The queue draws above the box under one head that counts its queued rows, oldest first, each message as its
-// text: the conversation's waiting messages, then the session's queued messages, then the messages this composer sent
-// while the conversation was working, except those the session queue carries under their prompt id. Such a message
-// leaves once the conversation's items hold its prompt, or once it leaves the session queue it was in, so a message that
-// became a prompt is not drawn as queued while the conversation stays working. A canceled message is tagged. A session's
-// queued message carries a withdraw, which takes it back into the box, and a note on what Claude did. A session's
-// discarded message draws after the rows as not delivered, with a control that puts it back in the box. Its edge and
-// placeholder follow the conversation's state.
-export function Composer(props: {
-  label: string; // the row's label, named in the placeholder
-  state: string; // the conversation's state: working, waiting, or any other
+// Dock is the box under the reader and its state line. The line and the box's placeholder read the row's facts, and the
+// box carries the line's tone as data-state. Enter and the send button send the text once; Shift+Enter or Alt+Enter puts
+// a line break at the cursor instead. A send reports itself to onSending as it starts, and to onUnsent if it rejects. A
+// failed send keeps the draft and its prompt id and is never resent by the dock. Up in an empty box pulls the newest
+// queued text back. In an empty box with no modifier held, Page Up and Page Down go to onPage, and / goes to onFind. The
+// queue draws above the box under one head that counts its queued rows, oldest first, each message as its text: the
+// conversation's waiting messages, then the session's queued messages, then the messages this dock sent while the
+// conversation was working, except those the session queue carries under their prompt id. Such a message leaves once the
+// conversation's items hold its prompt, or once it leaves the session queue it was in, so a message that became a prompt
+// is not drawn as queued while the conversation stays working. A canceled message is tagged. A session's queued message
+// carries a withdraw, which takes it back into the box, and a note on what Claude did. A session's discarded message
+// draws after the rows as not delivered, with a control that puts it back in the box. The state line's Interrupt calls
+// onInterrupt, and its Resume calls resume; a refused Resume shows its line under the box.
+export function Dock(props: {
+  facts: DockFacts; // the row's facts, which the state line and the placeholder read
+  now: number; // unix seconds, for the state line's ages and clocks
   send: (text: string, promptId: string) => Promise<void>;
   pull: (() => Promise<string>) | null; // null: no pull for this row (sessions)
   newPromptId: () => string;
   inputRef?: Ref<HTMLTextAreaElement>; // the page focuses it on `i`
-  register?: (handle: ComposerHandle | null) => void; // gets the handle while mounted, and null once unmounted
+  register?: (handle: DockHandle | null) => void; // gets the handle while mounted, and null once unmounted
   queued?: WaitingMessage[]; // the row's waiting and canceled messages, oldest first; none drawn when absent
   sessionQueue?: QueuedMessage[]; // the session's queued messages, oldest first; none drawn when absent
   withdraw?: (promptId: string) => Promise<string[]>; // takes a session's queued message back, resolving its texts; no withdraw control when absent
@@ -115,10 +98,12 @@ export function Composer(props: {
   onUnsent?: (promptId: string) => void; // called when a send rejects
   onPage?: (direction: "up" | "down") => boolean; // an empty box's Page Up or Page Down; true prevents the key
   onFind?: () => void; // an empty box's /; the key is always prevented, so no slash is typed
+  onInterrupt?: () => void; // the state line's Interrupt: the row's Escape path; no Interrupt control when absent
+  resume?: () => Promise<void>; // the state line's Resume on a cut-off session; no Resume control when absent
 }): JSX.Element {
   const {
-    label,
-    state,
+    facts,
+    now,
     send,
     pull,
     newPromptId,
@@ -132,13 +117,18 @@ export function Composer(props: {
     onUnsent,
     onPage,
     onFind,
+    onInterrupt,
+    resume,
   } = props;
+  const { state } = facts;
+  const line = stateLine(facts, now);
+  const narrow = !window.matchMedia(deskQuery).matches;
   const [text, setText] = useState("");
   const [error, setError] = useState("");
   const [local, setLocal] = useState<LocalQueued[]>([]);
   // The outcome of each session message a withdraw did not take back, by prompt id.
   const [outcomes, setOutcomes] = useState<Map<string, WithdrawOutcome>>(() => new Map());
-  // The prompt ids of the discarded messages put back in the box, whose rows are hidden for the composer's life.
+  // The prompt ids of the discarded messages put back in the box, whose rows are hidden for the dock's life.
   const [putBackIds, setPutBackIds] = useState<string[]>([]);
   const inFlight = useRef(false);
   const failed = useRef<FailedSend | null>(null);
@@ -152,7 +142,7 @@ export function Composer(props: {
     setText((current) => (current === "" ? returned : `${current}\n\n${returned}`));
   };
 
-  // The page holds the handle while this composer is mounted, and drops it when the composer unmounts.
+  // The page holds the handle while this dock is mounted, and drops it when the dock unmounts.
   useLayoutEffect(() => {
     register?.({
       append,
@@ -254,6 +244,18 @@ export function Composer(props: {
     });
   }
 
+  // resumeRow runs the state line's Resume. A refusal shows its message under the box; any other failure shows the
+  // unknown line, since the session may have resumed.
+  async function resumeRow(run: () => Promise<void>): Promise<void> {
+    try {
+      await run();
+      setError("");
+    } catch (failure) {
+      const outcome = outcomeOf(failure);
+      setError(outcome.outcome === "refused" ? dockLines.resumeRefused(outcome.message) : dockLines.resumeUnknown);
+    }
+  }
+
   // putBackRow puts a discarded message's text in the box and hides its row.
   function putBackRow(messageText: string, promptId: string): void {
     append([messageText]);
@@ -317,7 +319,7 @@ export function Composer(props: {
   );
 
   return (
-    <div class="compose">
+    <div class="dock">
       {(queuedCount > 0 || undelivered.length > 0) && (
         <ol class="queue">
           {queuedCount > 0 && <li class="queue-head">{`${queuedCount} queued`}</li>}
@@ -364,21 +366,43 @@ export function Composer(props: {
           ))}
         </ol>
       )}
-      <div class={`composer ${edgeClass(state)}${flashing ? " flash" : ""}`}>
-        <textarea
-          ref={inputRef}
-          placeholder={placeholderFor(state, label)}
-          rows={1}
-          value={text}
-          onInput={(event) => setText(event.currentTarget.value)}
-          onKeyDown={onKeyDown}
-        />
-        <button type="button" class="go" aria-label="send" onClick={() => void submit()}>
-          ↑
-        </button>
+      <div class={`dock-box${flashing ? " flash" : ""}`} data-state={line.tone}>
+        <div class="statebar">
+          <span class="word">{line.word}</span>
+          {(line.tool !== "" || line.what !== "") && (
+            <span class="what">
+              {line.tool !== "" && <span class="name">{line.tool}</span>}
+              {line.tool !== "" && line.what !== "" && " "}
+              {line.what}
+            </span>
+          )}
+          {line.clock !== "" && <span class="clock">{line.clock}</span>}
+          <span class="end">
+            {line.control === "interrupt" && onInterrupt !== undefined && (
+              <Ctl label="Interrupt" icon="stop" tone="bad" kbd="esc" onClick={onInterrupt} />
+            )}
+            {line.control === "interrupting" && <Ctl label="Interrupting…" disabled />}
+            {line.control === "resume" && resume !== undefined && (
+              <Ctl label="Resume" icon="play" tone="go" onClick={() => void resumeRow(resume)} />
+            )}
+          </span>
+        </div>
+        <div class="dock-input">
+          <textarea
+            ref={inputRef}
+            placeholder={placeholder(facts, narrow)}
+            rows={1}
+            value={text}
+            onInput={(event) => setText(event.currentTarget.value)}
+            onKeyDown={onKeyDown}
+          />
+          <button type="button" class="go" aria-label="send" onClick={() => void submit()}>
+            ↑
+          </button>
+        </div>
       </div>
       {error !== "" && (
-        <p class="composer-error" role="alert">
+        <p class="inote error" role="alert">
           {error}
         </p>
       )}

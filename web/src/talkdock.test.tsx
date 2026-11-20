@@ -230,7 +230,7 @@ test("the dock names its conversation by label, and its close button calls onClo
   const server = new FakeServer();
   let closes = 0;
   await withDock(server, { onClose: () => { closes += 1; } }, async (container) => {
-    assert.equal(container.querySelector('aside.dock[aria-label="talk"]') !== null, true);
+    assert.equal(container.querySelector('aside.talk-panel[aria-label="talk"]') !== null, true);
     assert.equal(textOf(container, "h1"), "api");
     assert.equal(container.querySelector('button.close[aria-label="close"]') !== null, true);
 
@@ -248,7 +248,7 @@ test("an interrupted session shows Resume, and a press sends it with the target 
     await click(buttonNamed(container, "Resume"));
     await server.resumed.reached(1);
     assert.deepEqual(server.resumes, [{ id: "s1" }]);
-    assert.equal(textOf(container, "p.error"), "");
+    assert.equal(textOf(container, ".inote.error"), "");
   });
 });
 
@@ -275,8 +275,8 @@ test("a refused Resume shows its message in the dock", { timeout: 2000 }, async 
     await shown(window, container, () => hasButton(container, "Resume"));
 
     await click(buttonNamed(container, "Resume"));
-    await shown(window, container, () => textOf(container, "p.error") !== "");
-    assert.equal(textOf(container, "p.error"), "resume refused: session is not interrupted");
+    await shown(window, container, () => textOf(container, ".inote.error") !== "");
+    assert.equal(textOf(container, ".inote.error"), "Not resumed: session is not interrupted");
   });
 });
 
@@ -322,7 +322,7 @@ test("TitleParts: the head draws the listed row's directory and headline, and sh
   });
 });
 
-test("TitleParts: the head follows a listed row whose line changes on rerender, and the composer names the same title", { timeout: 2000 }, async () => {
+test("TitleParts: the head follows a listed row whose line changes on rerender, and the dock names the same row", { timeout: 2000 }, async () => {
   const server = new FakeServer();
   const headline = (label: string): Row => listed({ kind: "session", id: "s1", project: "/work/api", label });
   await withDock(server, { rows: [headline("first headline")] }, async (container) => {
@@ -332,7 +332,7 @@ test("TitleParts: the head follows a listed row whose line changes on rerender, 
     });
     assert.equal(textOf(container, "h1 .title-line"), "second headline", "the head shows the refreshed line");
     assert.equal(textOf(container, "h1"), "api second headline");
-    assert.equal(container.querySelector("textarea")?.getAttribute("placeholder"), "Reply to api second headline");
+    assert.equal(container.querySelector("textarea")?.getAttribute("placeholder"), "Message api");
   });
 });
 
@@ -341,7 +341,7 @@ test("TitleParts: with no listed row the head falls back to the served label, wi
   await withDock(server, { rows: [] }, async (container) => {
     assert.equal(textOf(container, "h1"), "api");
     assertNone(container.querySelector("h1 .title-dir"), "no directory is drawn");
-    assert.equal(container.querySelector("textarea")?.getAttribute("placeholder"), "Reply to api");
+    assert.equal(container.querySelector("textarea")?.getAttribute("placeholder"), "Message api");
   });
 });
 
@@ -406,7 +406,7 @@ test("a message the dock's target holds draws as one queued row, and no sending 
     });
     await rendered(t.signal, () => container.querySelector(".reader .sending-row") === null, "the sending row leaves");
     assert.deepEqual(
-      [...container.querySelectorAll(".compose .queue li .text")].map((text) => text.textContent),
+      [...container.querySelectorAll(".dock .queue li .text")].map((text) => text.textContent),
       ["held from the dock"],
       "the held message draws one queued row",
     );

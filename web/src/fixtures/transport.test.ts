@@ -59,7 +59,7 @@ const lampFragment = "Full jitter is in";
 // The Talk menu and the dock are drawn on the epic page only in the talk states, so the epic's own state checks neither.
 const rotaQuestion = "Bump the embedded tz database?";
 const rotaPrompt = "Plan the rota export as an epic.";
-const talkDock = 'aside.dock[aria-label="talk"]';
+const talkDock = 'aside.talk-panel[aria-label="talk"]';
 
 // inboxHome is Page/inbox-home: the attention rows, with the inbox docked beside the cursor's reader on pane %12.
 function inboxHome(root: HTMLElement): boolean {

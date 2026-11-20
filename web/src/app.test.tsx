@@ -426,25 +426,30 @@ async function typeInto(box: HTMLTextAreaElement, text: string): Promise<void> {
 
 // composer is the reply box the cursor's row shows: each row keeps its own, and only the cursor's is not hidden.
 function composer(container: HTMLElement): HTMLTextAreaElement {
-  const box = container.querySelector<HTMLTextAreaElement>(".reply:not([hidden]) .composer textarea");
+  const box = container.querySelector<HTMLTextAreaElement>(".reply:not([hidden]) textarea");
   assert.ok(box, "the reader has a composer");
   return box;
 }
 
 // composerSendButton is the send button of the reply box the cursor's row shows.
 function composerSendButton(container: HTMLElement): HTMLButtonElement {
-  const button = container.querySelector<HTMLButtonElement>('.reply:not([hidden]) .composer button[aria-label="send"]');
+  const button = container.querySelector<HTMLButtonElement>('.reply:not([hidden]) button[aria-label="send"]');
   assert.ok(button, "the reply box has a send button");
   return button;
 }
 
-// composerEdgeNames are the edge classes a composer or a step box carries.
-const composerEdgeNames = ["edge-working", "edge-waiting", "edge-idle", "edge-held"];
+// stepEdgeNames are the edge classes a step box carries.
+const stepEdgeNames = ["edge-working", "edge-held"];
 
-// edgesOf names the edge classes the composer around a reply box carries, in the order of composerEdgeNames.
+// edgesOf names the edge classes the step box around a reply box carries, in the order of stepEdgeNames.
 function edgesOf(box: HTMLTextAreaElement): string[] {
   const root = box.closest(".composer");
-  return composerEdgeNames.filter((edge) => root?.classList.contains(edge) === true);
+  return stepEdgeNames.filter((edge) => root?.classList.contains(edge) === true);
+}
+
+// toneOf is the state line's tone the dock around a reply box carries as data-state.
+function toneOf(box: HTMLTextAreaElement): string {
+  return box.closest(".dock-box")?.getAttribute("data-state") ?? "";
 }
 
 function readerText(container: HTMLElement): string {
@@ -522,6 +527,7 @@ function workingPane(tool: string) {
   return {
     id: "a",
     state: "working",
+    claudeSession: "5e0e0000-0000-4000-8000-000000000001",
     tool: JSON.stringify({ id: "t1", name: tool, input: "ls", start: 940 }),
     changed: "900",
     lastTurnEnd: "700",
@@ -1476,7 +1482,7 @@ test("a message sent to a working pane draws above the box as queued, and leaves
     await untilTurn(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
     const [stream] = fake.callsTo(paneWatchPath);
     fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
-    await untilTurn(t.signal, () => composer(container).placeholder.startsWith("Queue for"), "the working placeholder");
+    await untilTurn(t.signal, () => composer(container).placeholder.startsWith("Queue a message for"), "the working placeholder");
     await press("i");
     await typeInto(composer(container), "after the turn");
     await pressIn(composer(container), "Enter");
@@ -2290,7 +2296,7 @@ function pinnedColumn(container: HTMLElement): HTMLElement | null {
 
 // pinnedComposer is the reply box of the open pin: each pinned row keeps its own, and only the open pin's is not hidden.
 function pinnedComposer(container: HTMLElement): HTMLTextAreaElement {
-  const box = pinnedColumn(container)?.querySelector<HTMLTextAreaElement>(".pin-reply:not([hidden]) .composer textarea");
+  const box = pinnedColumn(container)?.querySelector<HTMLTextAreaElement>(".pin-reply:not([hidden]) textarea");
   assert.ok(box, "the pinned column has a composer");
   return box;
 }
@@ -2373,20 +2379,20 @@ test("the reader's composer on a working row has the working edge and says it qu
     await press("j");
     await press("j");
     assert.equal(cursorKey(container), "b");
-    assert.deepEqual(edgesOf(composer(container)), ["edge-working"]);
-    assert.equal(composer(container).placeholder, "Queue for web");
+    assert.equal(toneOf(composer(container)), "working");
+    assert.equal(composer(container).placeholder, "Queue a message for web. Claude Code takes it when it can");
   }));
 
 test("a working pane turns a waiting row's composer from answering to queueing", (t) =>
   withApp(t.signal, {}, async (container, fake) => {
-    assert.deepEqual(edgesOf(composer(container)), ["edge-waiting"]);
+    assert.equal(toneOf(composer(container)), "waiting");
     assert.equal(composer(container).placeholder, "Answer api");
     await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
     const [stream] = fake.callsTo(paneWatchPath);
     fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
-    await until(t.signal, () => composer(container).placeholder.startsWith("Queue for"), "the working placeholder");
-    assert.deepEqual(edgesOf(composer(container)), ["edge-working"]);
-    assert.equal(composer(container).placeholder, "Queue for api");
+    await until(t.signal, () => composer(container).placeholder.startsWith("Queue a message for"), "the working placeholder");
+    assert.equal(toneOf(composer(container)), "working");
+    assert.equal(composer(container).placeholder, "Queue a message for api. Claude Code takes it when it can");
   }));
 
 test("a pane on the cursor's stream turns only the shown composer; a visited row's hidden composer keeps its row's state", (t) =>
@@ -2398,13 +2404,13 @@ test("a pane on the cursor's stream turns only the shown composer; a visited row
     const stream = fake.callsTo(paneWatchPath).find((call) => call.body.pane === "c");
     assert.ok(stream, "the cursor's stream on c is open");
     fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
-    await until(t.signal, () => composer(container).placeholder.startsWith("Queue for"), "the shown composer's working placeholder");
-    assert.deepEqual(edgesOf(composer(container)), ["edge-working"]);
-    assert.equal(composer(container).placeholder, "Queue for docs");
+    await until(t.signal, () => composer(container).placeholder.startsWith("Queue a message for"), "the shown composer's working placeholder");
+    assert.equal(toneOf(composer(container)), "working");
+    assert.equal(composer(container).placeholder, "Queue a message for docs. Claude Code takes it when it can");
     const hidden = [...container.querySelectorAll<HTMLTextAreaElement>('[aria-label="reader"] .reply[hidden] textarea')];
     const api = hidden.find((box) => box.placeholder === "Answer api");
     assert.equal(api !== undefined, true, "the api row's hidden composer still answers");
-    assert.deepEqual(api === undefined ? [] : edgesOf(api), ["edge-waiting"]);
+    assert.equal(api === undefined ? "" : toneOf(api), "waiting");
   }));
 
 test("the pinned composer follows its own stream's pane while the cursor rests on another row", (t) =>
@@ -2419,11 +2425,11 @@ test("the pinned composer follows its own stream's pane while the cursor rests o
     const [, pinnedStream] = fake.callsTo(paneWatchPath);
     assert.equal(pinnedStream.body.pane, "a");
     fake.emit(pinnedStream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
-    await until(t.signal, () => pinnedComposer(container).placeholder.startsWith("Queue for"), "the pinned working placeholder");
-    assert.deepEqual(edgesOf(pinnedComposer(container)), ["edge-working"]);
-    assert.equal(pinnedComposer(container).placeholder, "Queue for api");
-    assert.deepEqual(edgesOf(composer(container)), ["edge-idle"]);
-    assert.equal(composer(container).placeholder, "Reply to docs");
+    await until(t.signal, () => pinnedComposer(container).placeholder.startsWith("Queue a message for"), "the pinned working placeholder");
+    assert.equal(toneOf(pinnedComposer(container)), "working");
+    assert.equal(pinnedComposer(container).placeholder, "Queue a message for api. Claude Code takes it when it can");
+    assert.equal(toneOf(composer(container)), "done");
+    assert.equal(composer(container).placeholder, "Message docs");
   }));
 
 test("| pins the cursor's row in a second column that streams it while the cursor moves on", (t) =>
@@ -4766,13 +4772,13 @@ function talkItems(container: HTMLElement): string[] {
 
 // dockShown is whether the epic section holds the docked conversation as a child of its own.
 function dockShown(container: HTMLElement): boolean {
-  return container.querySelector('section.page[aria-label="epic"] > aside.dock[aria-label="talk"]') !== null;
+  return container.querySelector('section.page[aria-label="epic"] > aside.talk-panel[aria-label="talk"]') !== null;
 }
 
 // dockLabel is the name the docked conversation's head shows, or "" when no conversation is docked.
 function dockLabel(container: HTMLElement): string {
   return (
-    container.querySelector('section.page[aria-label="epic"] > aside.dock[aria-label="talk"] h1')?.textContent ?? ""
+    container.querySelector('section.page[aria-label="epic"] > aside.talk-panel[aria-label="talk"] h1')?.textContent ?? ""
   );
 }
 
@@ -4795,7 +4801,7 @@ async function chooseTalkLine(container: HTMLElement, label: string): Promise<vo
 
 // closeDock clicks the × of the docked conversation.
 async function closeDock(container: HTMLElement): Promise<void> {
-  const close = container.querySelector<HTMLButtonElement>('aside.dock[aria-label="talk"] button[aria-label="close"]');
+  const close = container.querySelector<HTMLButtonElement>('aside.talk-panel[aria-label="talk"] button[aria-label="close"]');
   assert.ok(close, "the dock has its × button");
   await act(() => {
     close.dispatchEvent(new Event("click"));
@@ -4840,7 +4846,7 @@ test("TitleParts: a session chosen in Talk docks with a head drawn from its list
       await chooseTalkLine(container, "api auth refresh");
       assert.equal(dockShown(container), true, "the session's conversation docks beside the epic page");
       assert.equal(
-        container.querySelector('aside.dock[aria-label="talk"] h1 .title-dir')?.textContent,
+        container.querySelector('aside.talk-panel[aria-label="talk"] h1 .title-dir')?.textContent,
         "api",
         "the head draws the listed row's directory",
       );

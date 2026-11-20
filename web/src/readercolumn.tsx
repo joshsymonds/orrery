@@ -4,8 +4,9 @@ import { useMemo } from "preact/hooks";
 import * as actions from "./actions";
 import type { Clients } from "./actions";
 import type { EpicCalls } from "./card";
-import { Composer, type ComposerHandle } from "./composer";
 import { type Conversation, shownConversation } from "./conversation";
+import { Dock, type DockHandle } from "./dock";
+import { rowFacts } from "./dockfacts";
 import type { StepItem } from "./epics";
 import { FindBar, type Match } from "./find";
 import type { Pane } from "./gen/orrery/v1/orrery_pb";
@@ -14,7 +15,6 @@ import { ConversationHead, Reader, type ReaderHandle } from "./reader";
 import type { Row } from "./rows";
 import type { Sending, SentText } from "./sending";
 import { StepBox } from "./stepbox";
-import { lastPathElement } from "./titleparts";
 import { type InboxMark, TitleRow } from "./titlerow";
 import { Pill, rowPill, stepPill } from "./workline";
 
@@ -44,7 +44,7 @@ export interface ReaderColumnProps {
   row: Row | null;
   // The conversation the column's reader holds, when its stream belongs to row.
   conversation: Conversation | null;
-  // The rows that keep a composer in this column. The shown row gets one before the effect that keeps it has run.
+  // The rows that keep a dock in this column. The shown row gets one before the effect that keeps it has run.
   rows: Row[];
   interrupts: Set<string>;
   mark: InboxMark;
@@ -57,10 +57,10 @@ export interface ReaderColumnProps {
   matches: Match[];
   current: number;
   onFind: (finding: FindState | null) => void;
-  // The column's composer inputs by row key, and its composer handles, which an Escape calls.
+  // The column's dock inputs by row key, and its dock handles, which an Escape calls.
   inputs: { current: Map<string, HTMLTextAreaElement> };
-  handles: { current: Map<string, ComposerHandle> };
-  // The column's reader handle, which an empty composer's Page Up and Page Down page, and the older-page callback the
+  handles: { current: Map<string, DockHandle> };
+  // The column's reader handle, which an empty dock's Page Up and Page Down page, and the older-page callback the
   // reader calls at its top.
   reader: { current: ReaderHandle | null };
   older: { current: () => void };
@@ -72,6 +72,8 @@ export interface ReaderColumnProps {
   open: boolean;
   onToggleOpen?: () => void;
   onAnswer?: (choice: 1 | 2 | 3) => void;
+  // onInterrupt is a dock's state line Interrupt on a row: the row's Escape path. No Interrupt control is drawn without it.
+  onInterrupt?: (row: Row) => void;
   // The cursor column's step, when the cursor rests on one: the step it draws, the step boxes it keeps, and their inputs.
   step?: StepItem | null;
   steps?: StepItem[];
@@ -79,8 +81,8 @@ export interface ReaderColumnProps {
 }
 
 // ReaderColumn draws one reader column: the cursor's, or the pinned row's beside the list. It draws the row's head with
-// its pill, the find bar while one is open, the reader of the row, and the send box, with a composer for each kept row
-// and only the shown row's composer visible. The cursor column also draws its step, when one is given: the step's title
+// its pill, the find bar while one is open, the reader of the row, and the send box, with a dock for each kept row
+// and only the shown row's dock visible. The cursor column also draws its step, when one is given: the step's title
 // row, its reader, and a step box for each kept step. The column keeps no state; App passes it all in.
 export function ReaderColumn({
   column,
@@ -108,6 +110,7 @@ export function ReaderColumn({
   open,
   onToggleOpen,
   onAnswer,
+  onInterrupt,
   step = null,
   steps = [],
   stepInputs,
@@ -115,7 +118,7 @@ export function ReaderColumn({
   const names = columnNames[column];
   const rowKey = row?.key ?? "";
   const stepKey = step?.key ?? "";
-  // The conversation the readers and the shown composer draw, without the prompts its queue still holds or has discarded.
+  // The conversation the readers and the shown dock draw, without the prompts its queue still holds or has discarded.
   const shown = useMemo(() => shownConversation(conversation), [conversation]);
   return (
     <section class={names.section} aria-label={names.label} hidden={row === null && step === null}>
@@ -193,17 +196,25 @@ export function ReaderColumn({
         />
       )}
       <div class="send">
-        {composerRows(rows, row).map((entry) => (
+        {dockRows(rows, row).map((entry) => (
           <div key={entry.key} class={names.reply} hidden={entry.key !== rowKey}>
-            <Composer
-              label={rowName(entry)}
-              state={entry.key === rowKey ? headState(entry, conversation?.state?.pane) : entry.state}
+            <Dock
+              facts={rowFacts(entry, entry.key === rowKey ? conversation : null, interrupts.has(entry.key))}
+              now={now}
               send={(text, promptId) => actions.send(clients, entry, text, promptId)}
               pull={entry.kind === "pane" ? () => actions.pullQueued(clients, entry) : null}
               newPromptId={actions.newPromptId}
               register={(handle) => registerHandle(handles, entry.key, handle)}
               onPage={(direction) => reader.current?.page(direction) ?? false}
               onFind={() => onFind({ key: entry.key, query: "", current: 0 })}
+              onInterrupt={onInterrupt === undefined ? undefined : () => onInterrupt(entry)}
+              resume={
+                entry.kind === "session"
+                  ? async () => {
+                      await clients.control.resume({ id: entry.id });
+                    }
+                  : undefined
+              }
               queued={entry.key === rowKey ? conversation?.state?.waiting : undefined}
               sessionQueue={entry.key === rowKey ? conversation?.queued : undefined}
               withdraw={
@@ -222,7 +233,7 @@ export function ReaderColumn({
             />
           </div>
         ))}
-        {composerRows(steps, step).map((entry) => {
+        {dockRows(steps, step).map((entry) => {
           const calls = stepCalls(clients, entry.id);
           return (
             <div key={entry.id} class={names.reply} hidden={entry.key !== stepKey}>
@@ -270,14 +281,8 @@ export function stepCalls(clients: Clients, id: string) {
   };
 }
 
-// rowName names a row in its composer's placeholder by its directory's last element, or by its line when it has no
-// directory.
-function rowName(row: Row): string {
-  return lastPathElement(row.project) || row.label;
-}
-
-// registerHandle keeps a composer's handle under its row key while the composer is mounted, and drops it on null.
-function registerHandle(handles: { current: Map<string, ComposerHandle> }, key: string, handle: ComposerHandle | null) {
+// registerHandle keeps a dock's handle under its row key while the dock is mounted, and drops it on null.
+function registerHandle(handles: { current: Map<string, DockHandle> }, key: string, handle: DockHandle | null) {
   if (handle === null) {
     handles.current.delete(key);
   } else {
@@ -285,9 +290,9 @@ function registerHandle(handles: { current: Map<string, ComposerHandle> }, key: 
   }
 }
 
-// composerRows returns the entries that render a box: the kept entries, and the shown entry before the effect has added
+// dockRows returns the entries that render a dock: the kept entries, and the shown entry before the effect has added
 // it.
-function composerRows<T extends { key: string }>(kept: T[], shown: T | null): T[] {
+function dockRows<T extends { key: string }>(kept: T[], shown: T | null): T[] {
   if (shown === null || kept.some((entry) => entry.key === shown.key)) {
     return kept;
   }

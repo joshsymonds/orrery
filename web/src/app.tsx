@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import * as actions from "./actions";
 import type { Clients } from "./actions";
 import { epicCallsOf } from "./card";
-import type { ComposerHandle } from "./composer";
+import type { DockHandle } from "./dock";
 import { ContractBody } from "./contract";
 import { type Conversation, shownConversation } from "./conversation";
 import { type ArchiveControl, EpicLine } from "./epicline";
@@ -236,8 +236,8 @@ export function App({
   const composerInputs = useRef(new Map<string, HTMLTextAreaElement>());
   const stepInputs = useRef(new Map<string, HTMLTextAreaElement>());
   // The handles of the cursor's and the pinned row's composers, by row key, which an Escape calls.
-  const composerHandles = useRef(new Map<string, ComposerHandle>());
-  const pinnedHandles = useRef(new Map<string, ComposerHandle>());
+  const composerHandles = useRef(new Map<string, DockHandle>());
+  const pinnedHandles = useRef(new Map<string, DockHandle>());
   // The handles of the cursor's and the pinned column's readers. An empty reply box's Page Up and Page Down page them.
   const cursorReader = useRef<ReaderHandle | null>(null);
   const pinnedReader = useRef<ReaderHandle | null>(null);
@@ -1591,6 +1591,9 @@ export function App({
           open={open}
           onToggleOpen={toggleOpen}
           onAnswer={answerCursor}
+          onInterrupt={(row) =>
+            void escapeRow({ row, column: "cursor", state: headState(row, cursorConversation?.state?.pane) }, null)
+          }
           step={cursorStep}
           steps={visitedSteps}
           stepInputs={stepInputs}
@@ -1619,6 +1622,9 @@ export function App({
           addSending={addSending}
           retractSending={retractSending}
           open={false}
+          onInterrupt={(row) =>
+            void escapeRow({ row, column: "pinned", state: headState(row, pinnedConversation?.state?.pane) }, null)
+          }
         />
         <section
           class={pageClasses(epicPage.move, docked !== null)}

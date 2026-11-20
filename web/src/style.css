@@ -152,7 +152,7 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
   /* A docked conversation takes a track beside the epic page, and the dock scrolls on its own. Narrower than this frame,
      the dock stacks under the page. */
   .page.docked { display: grid; grid-template-columns: minmax(0, 1fr) minmax(calc(var(--o-space-32) * 8 + var(--o-space-24)), calc(var(--o-layout-inbox-width) + var(--o-space-32) + var(--o-space-8))); grid-template-rows: minmax(0, 1fr); }
-  .dock { min-height: 0; overflow-y: auto; border-left: var(--o-size-hairline) solid var(--o-line-soft); }
+  .talk-panel { min-height: 0; overflow-y: auto; border-left: var(--o-size-hairline) solid var(--o-line-soft); }
 }
 
 @media (width > 1250px) and (max-width: 1500px) {
