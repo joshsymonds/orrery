@@ -1,4 +1,5 @@
 import type { EpicHistoryEntry, EpicQuestion, EpicsGetResponse, EpicStep } from "./gen/orrery/v1/epics_pb";
+import { releaseOf } from "./ending";
 import { durationText, wedgesOf } from "./phases";
 import { clock } from "./reader";
 import { stateOf } from "./status";
@@ -265,7 +266,8 @@ export function statePillOf(detail: EpicsGetResponse, now: number): Pill {
   return { word: `${pill.word} · ${durationText(Math.max(0, now - phaseAt))}`, tone: pill.tone };
 }
 
-// The blocker pill, when something asks: an open question with its time, an owner's park, or a step the owner held.
+// The blocker pill, when something asks: an open question with its time, an owner's park, a step the owner held, or the
+// release or close the owner waits on.
 export function blockerPillOf(detail: EpicsGetResponse, now: number): Pill | null {
   const question = detail.questions[0];
   if (question !== undefined) {
@@ -282,6 +284,22 @@ export function blockerPillOf(detail: EpicsGetResponse, now: number): Pill | nul
   const held = runningSteps(detail).find((step) => step.held);
   if (held !== undefined) {
     return { word: `${stepName(held)} held`, tone: "attention" };
+  }
+  return endingPillOf(detail);
+}
+
+// The blocker pill of an orreryd epic that waits on the owner's release or close: a stopped release's step with no undo,
+// or an epic that ended with gaps. Null for every other epic.
+function endingPillOf(detail: EpicsGetResponse): Pill | null {
+  if (!isOrreryd(detail)) {
+    return null;
+  }
+  const release = releaseOf(detail);
+  if (release !== null && release.offer !== 0) {
+    return { word: `step ${release.offer} failed and cannot be undone`, tone: "attention" };
+  }
+  if (phaseOf(detail) === "ended_with_gaps") {
+    return { word: "release it anyway, or close it", tone: "attention" };
   }
   return null;
 }
@@ -316,6 +334,35 @@ export function reachedOf(detail: EpicsGetResponse, history: EpicHistoryEntry[])
   };
 }
 
+// The Now sentence of a releasing or stopped orreryd epic, or null for any other epic.
+function releaseSentenceOf(detail: EpicsGetResponse): string | null {
+  if (!isOrreryd(detail)) {
+    return null;
+  }
+  const steps = detail.releaseSteps;
+  switch (phaseOf(detail)) {
+    case "releasing": {
+      const running = steps.find((step) => step.state === "running");
+      return running === undefined
+        ? "Releasing."
+        : `Releasing: step ${Number(running.position)} of ${steps.length} is running.`;
+    }
+    case "stopped": {
+      const release = releaseOf(detail);
+      if (release === null) {
+        return "The release stopped.";
+      }
+      if (release.offer !== 0) {
+        return `The release stopped at step ${release.offer}, and that step has no undo. It waits on you.`;
+      }
+      const at = steps.find((step) => step.state !== "passed");
+      return `The release stopped at step ${at === undefined ? steps.length : Number(at.position)}.`;
+    }
+    default:
+      return null;
+  }
+}
+
 // The one sentence of Now, the first rule that matches.
 export function nowSentenceOf(detail: EpicsGetResponse): string {
   if (ownerParked(detail)) {
@@ -339,6 +386,10 @@ export function nowSentenceOf(detail: EpicsGetResponse): string {
       return "One task is being worked on, and one waits on you.";
     }
     return `${tasks} tasks are being worked on, and one waits on you.`;
+  }
+  const release = releaseSentenceOf(detail);
+  if (release !== null) {
+    return release;
   }
   if (isOrreryd(detail) && stageIndexOf(phaseOf(detail)) === reportIndex) {
     return `It ended: ${orrerydPill(detail).word}.`;
