@@ -5,7 +5,9 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"os"
 	"path/filepath"
@@ -16,6 +18,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/joshsymonds/orrery/internal/autoseen"
 	"github.com/joshsymonds/orrery/internal/daemon"
@@ -28,8 +32,9 @@ import (
 const (
 	noConfig    = "/dev/null"
 	testCommand = "sleep 300"
-	// pollInterval spaces the checks made while waiting for tmux to reach the expected state.
-	pollInterval = 20 * time.Millisecond
+	// typedKey is the key typeIntoClient types. The inner server binds it in its root table to signal typedChannel.
+	typedKey     = "x"
+	typedChannel = "typed"
 	// staleOffset puts the observer's clock past the client's last input by more than the 30 s window.
 	staleOffset = 31 * time.Second
 )
@@ -139,8 +144,21 @@ func newFixture(t *testing.T) fixture {
 		t.Fatalf("display socket_path: %v", err)
 	}
 
+	// events is the directory the inner server's client-attached hook appends to. The outer command appends exited
+	// to it when the attach ends, so an attach that fails wakes the wait for the client and fails the test.
+	events := t.TempDir()
+	if _, err := inner.client.Run(ctx, "set-hook", "-g", "client-attached",
+		fmt.Sprintf("run-shell -b 'printf . >> %s'", filepath.Join(events, "attached"))); err != nil {
+		t.Fatalf("set client-attached hook: %v", err)
+	}
+	// The root binding runs after tmux has handled each key the client types, so typeIntoClient waits on it.
+	if _, err := inner.client.Run(ctx, "bind-key", "-T", "root", typedKey, "wait-for", "-S", typedChannel); err != nil {
+		t.Fatalf("bind typed key: %v", err)
+	}
+
 	outer := startServer(t, "orrery-autoseen-outer")
-	attach := "env -u TMUX tmux -L " + inner.server.Name + " attach -t s1"
+	exited := filepath.Join(events, "exited")
+	attach := "env -u TMUX tmux -L " + inner.server.Name + " attach -t s1; : > '" + exited + "'"
 	if _, err := outer.client.Run(ctx, "-f", noConfig, "new-session", "-d", "-s", "o1",
 		"-c", t.TempDir(), attach); err != nil {
 		t.Fatalf("outer new-session: %v", err)
@@ -158,62 +176,58 @@ func newFixture(t *testing.T) fixture {
 		paneB:     paneByWindow["1"],
 		outerPane: strings.TrimSpace(outerPane),
 	}
-	waitFor(t, "client attached to s1", func() (bool, error) {
+	waitFor(t, events, "client attached to s1", func() (bool, error) {
+		_, statErr := os.Stat(exited)
+		if statErr == nil {
+			return false, errors.New("attach ended before the client attached")
+		}
+		if !errors.Is(statErr, fs.ErrNotExist) {
+			return false, statErr
+		}
 		out, err := inner.client.Run(ctx, "list-clients", "-F", "#{client_name}")
 		return strings.TrimSpace(out) != "", err
 	})
 	return fx
 }
 
-// typeIntoClient types one key through the outer pane and waits until tmux records the client's input,
-// which moves its client_activity. The wall clock must first pass the client's last recorded activity,
-// so that the new activity is a different whole second.
+// typeIntoClient types one key through the outer pane and returns once tmux has handled it. The inner server's root
+// binding for the key signals only after tmux handles the client's input, which moves its client_activity, the value
+// the observer reads.
 func (fx fixture) typeIntoClient(t *testing.T) {
 	t.Helper()
 	ctx := t.Context()
-	baseline := lastActivity(t, fx.inner.client)
-	waitFor(t, "wall clock to pass the client's last activity", func() (bool, error) {
-		return time.Now().Unix() > baseline, nil
-	})
-	if _, err := fx.outer.client.Run(ctx, "send-keys", "-t", fx.outerPane, "-l", "x"); err != nil {
+	if _, err := fx.outer.client.Run(ctx, "send-keys", "-t", fx.outerPane, "-l", typedKey); err != nil {
 		t.Fatalf("send-keys to outer pane: %v", err)
 	}
-	waitFor(t, "client_activity to advance after typing", func() (bool, error) {
-		out, err := fx.inner.client.Run(ctx, "list-clients", "-F", "#{client_activity}")
-		if err != nil {
-			return false, err
-		}
-		return latestActivity(out) > baseline, nil
-	})
+	if _, err := fx.inner.client.Run(ctx, "wait-for", typedChannel); err != nil {
+		t.Fatalf("wait for the typed key: %v", err)
+	}
 }
 
-// lastActivity returns the latest client_activity among the clients of srv.
-func lastActivity(t *testing.T, client *tmuxctl.Client) int64 {
+// watchMask is the inotify events a wait reads: an entry created, written, closed after writing, or moved in.
+const watchMask = unix.IN_CREATE | unix.IN_MODIFY | unix.IN_CLOSE_WRITE | unix.IN_MOVED_TO
+
+// waitFor checks check, then blocks until an entry of dir changes, and checks again after each change. It fails the
+// test on check's error. The watch is added before the first check, so a change made after a check is an event the
+// next read returns. It has no deadline of its own: tmux and the daemon run at the machine's pace, and the test
+// binary's timeout ends a wait that never ends.
+func waitFor(t *testing.T, dir, what string, check func() (bool, error)) {
 	t.Helper()
-	out, err := client.Run(t.Context(), "list-clients", "-F", "#{client_activity}")
+	fd, err := unix.InotifyInit1(unix.IN_NONBLOCK | unix.IN_CLOEXEC)
 	if err != nil {
-		t.Fatalf("list-clients: %v", err)
+		t.Fatalf("inotify: %v", err)
 	}
-	return latestActivity(out)
-}
-
-// latestActivity returns the largest value in the newline-separated client_activity output.
-func latestActivity(out string) int64 {
-	var latest int64
-	for line := range strings.SplitSeq(out, "\n") {
-		n, err := strconv.ParseInt(strings.TrimSpace(line), 10, 64)
-		if err != nil {
-			continue
+	// The descriptor is non-blocking, so the runtime poller serves each read and Close ends a read that is waiting.
+	inotify := os.NewFile(uintptr(fd), "wait watch")
+	defer func() {
+		if err := inotify.Close(); err != nil {
+			t.Errorf("close wait watch: %v", err)
 		}
-		latest = max(latest, n)
+	}()
+	if _, err := unix.InotifyAddWatch(fd, dir, watchMask); err != nil {
+		t.Fatalf("watch %s: %v", dir, err)
 	}
-	return latest
-}
-
-// waitFor polls check until it reports true, failing the test on its error. It has no deadline of its own: tmux and
-// the daemon run at the machine's pace, and the test binary's timeout ends a wait that never ends.
-func waitFor(t *testing.T, what string, check func() (bool, error)) {
-	t.Helper()
+	buf := make([]byte, 4096)
 	for {
 		ok, err := check()
 		if err != nil {
@@ -222,7 +236,9 @@ func waitFor(t *testing.T, what string, check func() (bool, error)) {
 		if ok {
 			return
 		}
-		time.Sleep(pollInterval)
+		if _, err := inotify.Read(buf); err != nil {
+			t.Fatalf("read watch events: %v", err)
+		}
 	}
 }
 

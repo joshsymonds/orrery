@@ -18,11 +18,12 @@ import (
 const stampedSettings = `{"env":{"ANTHROPIC_BASE_URL":"http://127.0.0.1:9/ctx/example","ORRERY_NOTE":"it's #{session_name}"}}`
 
 // recordingClaude puts a synthetic claude first on PATH. It records each argument, NUL-terminated,
-// in the returned marker file, and then runs until its window is closed.
-func recordingClaude(t *testing.T) string {
+// in the returned marker file, which is in src's directory so that a wait sees it written,
+// and then runs until its window is closed. src is made before the server, which takes its PATH from here.
+func recordingClaude(t *testing.T, src *waitSource) string {
 	t.Helper()
 	bin := t.TempDir()
-	marker := filepath.Join(t.TempDir(), "argv")
+	marker := filepath.Join(src.dir, "argv")
 	script := "#!/bin/sh\nfor a in \"$@\"; do printf '%s\\0' \"$a\"; done > '" + marker + "'\nexec sleep 300\n"
 	exectest.WriteFile(t, filepath.Join(bin, "claude"), []byte(script), 0o755)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -44,12 +45,12 @@ func recordedArgv(marker string) ([]string, error) {
 
 // stampedTree builds the action layout with the cursor pane's directory, home/work/alpha, below
 // the synthetic home. HOME is that home, and the folder above the cursor directory, home/work,
-// holds settings as its .claude/settings.json. A nil settings writes no stamp.
-func stampedTree(t *testing.T, settings *string) *actionTree {
+// holds settings as its .claude/settings.json. A nil settings writes no stamp. src is the test's wait source.
+func stampedTree(t *testing.T, src *waitSource, settings *string) *actionTree {
 	t.Helper()
 	layout := actionLayout()
 	layout[1].dir = "home/work/alpha"
-	a := newActionTree(t, layout)
+	a := newActionTree(t, src, layout)
 	home := a.dir("home")
 	t.Setenv("HOME", home)
 	if settings != nil {
@@ -65,13 +66,14 @@ func stampedTree(t *testing.T, settings *string) *actionTree {
 }
 
 func TestClaudeWindowRunsWithStampSettings(t *testing.T) {
-	marker := recordingClaude(t)
+	src := newWaitSource(t)
+	marker := recordingClaude(t, src)
 	settings := stampedSettings
 	want := []string{"--settings", stampedSettings}
-	a := stampedTree(t, &settings)
+	a := stampedTree(t, src, &settings)
 	run := a.start(a.invoking)
 	run.send("j", "c")
-	waitFor(t, "claude window runs with the stamp's settings", func() error {
+	waitFor(t, a.src, "claude window runs with the stamp's settings", func() error {
 		count, err := a.windowCount("s2")
 		if err != nil {
 			return err
@@ -88,18 +90,19 @@ func TestClaudeWindowRunsWithStampSettings(t *testing.T) {
 		}
 		return nil
 	})
-	waitFor(t, "invoking client unchanged", func() error { return a.check("s1") })
+	waitFor(t, a.src, "invoking client unchanged", func() error { return a.check("s1") })
 	run.assertOpen()
 	run.send("q")
 	run.closed()
 }
 
 func TestClaudeWindowRunsWithoutArgumentsWithoutStamp(t *testing.T) {
-	marker := recordingClaude(t)
-	a := stampedTree(t, nil)
+	src := newWaitSource(t)
+	marker := recordingClaude(t, src)
+	a := stampedTree(t, src, nil)
 	run := a.start(a.invoking)
 	run.send("j", "c")
-	waitFor(t, "claude window runs with no arguments", func() error {
+	waitFor(t, a.src, "claude window runs with no arguments", func() error {
 		count, err := a.windowCount("s2")
 		if err != nil {
 			return err
@@ -116,19 +119,20 @@ func TestClaudeWindowRunsWithoutArgumentsWithoutStamp(t *testing.T) {
 		}
 		return nil
 	})
-	waitFor(t, "invoking client unchanged", func() error { return a.check("s1") })
+	waitFor(t, a.src, "invoking client unchanged", func() error { return a.check("s1") })
 	run.assertOpen()
 	run.send("q")
 	run.closed()
 }
 
 func TestClaudeWindowOpensNothingBelowUnparseableStamp(t *testing.T) {
-	marker := recordingClaude(t)
+	src := newWaitSource(t)
+	marker := recordingClaude(t, src)
 	settings := `{"env":`
-	a := stampedTree(t, &settings)
+	a := stampedTree(t, src, &settings)
 	run := a.start(a.invoking)
 	run.send("j", "c")
-	waitFor(t, "error on status line", func() error {
+	waitFor(t, a.src, "error on status line", func() error {
 		if !strings.Contains(run.out.String(), "error: ") {
 			return errors.New("no error line rendered")
 		}

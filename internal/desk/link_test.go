@@ -2,6 +2,7 @@ package desk_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,14 +12,15 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/joshsymonds/orrery/internal/desk"
 	"github.com/joshsymonds/orrery/internal/deskstream"
 )
 
 const (
-	testHost     = "box"
-	lostWait     = 5 * time.Minute
-	pollInterval = 5 * time.Millisecond
+	testHost = "box"
+	lostWait = 5 * time.Minute
 )
 
 // testStart is the fake clock's first instant.
@@ -30,10 +32,12 @@ func testStart() time.Time {
 // runs dir/plan.n when it exists, which ends the run unless the plan is a wait. Otherwise the run waits until
 // dir/stop.n exists.
 const streamScript = `dir=$1
+: >> "$dir/starts"
+n=$(( $(wc -l < "$dir/starts" | tr -d ' ') + 1 ))
 echo started >> "$dir/starts"
-n=$(wc -l < "$dir/starts" | tr -d ' ')
 if [ -f "$dir/plan.$n" ]; then . "$dir/plan.$n"; fi
-while [ ! -f "$dir/stop.$n" ]; do sleep 0.01; done
+mkfifo "$dir/stop.$n" 2>/dev/null
+read -r _ < "$dir/stop.$n"
 `
 
 // fakeClock is a desk.Clock the test moves by hand. After registers a timer that Advance fires once it is due.
@@ -42,6 +46,8 @@ type fakeClock struct {
 	now    time.Time
 	timers []*fakeTimer
 	calls  []time.Duration
+	// hub is kicked on each After call, the change a wait on pending or callCount waits for.
+	hub *waitHub
 }
 
 type fakeTimer struct {
@@ -66,6 +72,7 @@ func (c *fakeClock) After(wait time.Duration) <-chan time.Time {
 	ch := make(chan time.Time, 1)
 	c.timers = append(c.timers, &fakeTimer{at: c.now.Add(wait), wait: wait, ch: ch})
 	c.calls = append(c.calls, wait)
+	c.hub.kick()
 	return ch
 }
 
@@ -128,18 +135,22 @@ type recorder struct {
 	mu      sync.Mutex
 	notices []deskstream.Line
 	lost    int
+	// hub is kicked on each recorded line, the change the waits on noticeCount and lostCount wait for.
+	hub *waitHub
 }
 
 func (r *recorder) notify(line deskstream.Line) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.notices = append(r.notices, line)
+	r.mu.Unlock()
+	r.hub.kick()
 }
 
 func (r *recorder) onLost(_ string) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.lost++
+	r.mu.Unlock()
+	r.hub.kick()
 }
 
 func (r *recorder) noticeCount() int {
@@ -164,6 +175,7 @@ func (r *recorder) noticeList() []deskstream.Line {
 type fixture struct {
 	t      *testing.T
 	dir    string
+	hub    *waitHub
 	clock  *fakeClock
 	rec    *recorder
 	link   *desk.Link
@@ -178,8 +190,10 @@ func newFixture(t *testing.T) *fixture {
 	script := filepath.Join(dir, "stream.sh")
 	writeFile(t, script, streamScript)
 
+	hub := newWaitHub(t, dir)
 	clock := newFakeClock(testStart())
-	rec := &recorder{}
+	clock.hub = hub
+	rec := &recorder{hub: hub}
 	link := &desk.Link{
 		Host:    testHost,
 		Command: []string{"/bin/sh", script, dir},
@@ -187,7 +201,7 @@ func newFixture(t *testing.T) *fixture {
 		Lost:    rec.onLost,
 		Clock:   clock,
 	}
-	return &fixture{t: t, dir: dir, clock: clock, rec: rec, link: link, done: make(chan error, 1)}
+	return &fixture{t: t, dir: dir, hub: hub, clock: clock, rec: rec, link: link, done: make(chan error, 1)}
 }
 
 // run starts the link. Plans must be written before it runs, so session one sees them.
@@ -217,7 +231,30 @@ func (f *fixture) plan(n int, body string) {
 // stop ends session n, whose run is waiting.
 func (f *fixture) stop(n int) {
 	f.t.Helper()
-	writeFile(f.t, filepath.Join(f.dir, fmt.Sprintf("stop.%d", n)), "")
+	release(f.t, filepath.Join(f.dir, fmt.Sprintf("stop.%d", n)))
+}
+
+// makeFifo creates the named pipe at path unless it exists. A stream script and a test both call it, so whichever
+// comes first makes the pipe the other uses.
+func makeFifo(t *testing.T, path string) {
+	t.Helper()
+	if err := unix.Mkfifo(path, 0o600); err != nil && !errors.Is(err, unix.EEXIST) {
+		t.Fatalf("mkfifo %s: %v", path, err)
+	}
+}
+
+// release ends the blocking read a stream script makes on the named pipe at path. Opening the pipe for writing waits
+// for that reader, and closing it gives the reader end of file.
+func release(t *testing.T, path string) {
+	t.Helper()
+	makeFifo(t, path)
+	pipe, err := os.OpenFile(path, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatalf("open %s to release it: %v", path, err)
+	}
+	if err := pipe.Close(); err != nil {
+		t.Fatalf("close %s: %v", path, err)
+	}
 }
 
 // starts counts the sessions the command has begun.
@@ -261,11 +298,83 @@ func readLines(dir, name string) []string {
 	return strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
 }
 
-// waitFor polls cond until it holds. It has no deadline of its own.
-func waitFor(t *testing.T, cond func() bool) {
+// waitHub is the signal a test's waits block on. A change to the test's directory, a fake clock timer or a recorded
+// line sends to ch. The send never blocks, and one pending signal covers every change made before a wait checks
+// again, since a wait checks its condition after each signal.
+type waitHub struct {
+	ch  chan struct{}
+	mu  sync.Mutex
+	err error
+}
+
+func (h *waitHub) kick() {
+	select {
+	case h.ch <- struct{}{}:
+	default:
+	}
+}
+
+// fail records why the directory watch stopped, and wakes the waits so they fail on it.
+func (h *waitHub) fail(err error) {
+	h.mu.Lock()
+	h.err = err
+	h.mu.Unlock()
+	h.kick()
+}
+
+func (h *waitHub) failure() error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.err
+}
+
+// newWaitHub returns the hub of a fixture whose directory is dir: it watches dir for changes to its entries until
+// cleanup.
+func newWaitHub(t *testing.T, dir string) *waitHub {
+	t.Helper()
+	fd, err := unix.InotifyInit1(unix.IN_NONBLOCK | unix.IN_CLOEXEC)
+	if err != nil {
+		t.Fatalf("inotify: %v", err)
+	}
+	inotify := os.NewFile(uintptr(fd), "wait watch")
+	if _, err := unix.InotifyAddWatch(fd, dir, unix.IN_CREATE|unix.IN_MODIFY|unix.IN_CLOSE_WRITE|
+		unix.IN_MOVED_TO|unix.IN_DELETE|unix.IN_MOVED_FROM); err != nil {
+		_ = inotify.Close()
+		t.Fatalf("watch %s: %v", dir, err)
+	}
+	h := &waitHub{ch: make(chan struct{}, 1)}
+	go h.drain(inotify)
+	t.Cleanup(func() {
+		if err := inotify.Close(); err != nil {
+			t.Errorf("close watch on %s: %v", dir, err)
+		}
+	})
+	return h
+}
+
+// drain kicks h after each batch of directory events, and ends when inotify is closed.
+func (h *waitHub) drain(inotify *os.File) {
+	buf := make([]byte, 4096)
+	for {
+		if _, err := inotify.Read(buf); err != nil {
+			if !errors.Is(err, os.ErrClosed) {
+				h.fail(err)
+			}
+			return
+		}
+		h.kick()
+	}
+}
+
+// waitFor checks cond, then blocks until a change signals h, and checks again after each signal. It has no deadline of
+// its own: the test binary's timeout ends a wait that never ends.
+func waitFor(t *testing.T, h *waitHub, cond func() bool) {
 	t.Helper()
 	for !cond() {
-		time.Sleep(pollInterval)
+		<-h.ch
+		if err := h.failure(); err != nil {
+			t.Fatalf("watch the test directory: %v", err)
+		}
 	}
 }
 
@@ -274,7 +383,7 @@ func TestLinkNotifiesNoticesInOrder(t *testing.T) {
 	f.plan(1, emit(helloLine, noticeLine("first"), "not json", statusLine, noticeLine("second"), noticeLine("third")))
 	f.run()
 
-	waitFor(t, func() bool { return f.rec.noticeCount() == 3 })
+	waitFor(t, f.hub, func() bool { return f.rec.noticeCount() == 3 })
 	notices := f.rec.noticeList()
 	titles := make([]string, 0, len(notices))
 	for _, line := range notices {
@@ -296,10 +405,10 @@ func TestLinkRestartsWithBackoffCappedAt60s(t *testing.T) {
 	want := []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second,
 		16 * time.Second, 32 * time.Second, time.Minute, time.Minute}
 	for _, wait := range want {
-		waitFor(t, func() bool { return f.clock.pending(wait) })
+		waitFor(t, f.hub, func() bool { return f.clock.pending(wait) })
 		f.clock.Advance(wait)
 	}
-	waitFor(t, func() bool { return f.starts() == 9 })
+	waitFor(t, f.hub, func() bool { return f.starts() == 9 })
 	if got := f.clock.restartWaits(); !slices.Equal(got, want) {
 		t.Fatalf("restart waits = %v, want %v", got, want)
 	}
@@ -315,10 +424,10 @@ func TestLinkHelloResetsBackoff(t *testing.T) {
 	f.run()
 
 	for _, wait := range []time.Duration{time.Second, 2 * time.Second, time.Second, 2 * time.Second} {
-		waitFor(t, func() bool { return f.clock.pending(wait) })
+		waitFor(t, f.hub, func() bool { return f.clock.pending(wait) })
 		f.clock.Advance(wait)
 	}
-	waitFor(t, func() bool { return f.starts() == 5 })
+	waitFor(t, f.hub, func() bool { return f.starts() == 5 })
 	want := []time.Duration{time.Second, 2 * time.Second, time.Second, 2 * time.Second}
 	if got := f.clock.restartWaits(); !slices.Equal(got, want) {
 		t.Fatalf("restart waits = %v, want %v", got, want)
@@ -331,26 +440,26 @@ func TestLinkLostRunsOnceAt5MinutesAndAgainAfterLaterLoss(t *testing.T) {
 	f.plan(2, emit(helloLine, noticeLine("live"))) // session 2 connects and stays up
 	f.run()
 
-	waitFor(t, func() bool { return f.starts() == 1 })
+	waitFor(t, f.hub, func() bool { return f.starts() == 1 })
 	f.clock.Advance(lostWait)
-	waitFor(t, func() bool { return f.rec.lostCount() == 1 })
+	waitFor(t, f.hub, func() bool { return f.rec.lostCount() == 1 })
 
 	f.stop(1) // session 1 exits without a hello
-	waitFor(t, func() bool { return f.clock.pending(time.Second) })
+	waitFor(t, f.hub, func() bool { return f.clock.pending(time.Second) })
 	if got := f.clock.callCount(lostWait); got != 1 {
 		t.Fatalf("lost waits started = %d, want 1 for one down period", got)
 	}
 	f.clock.Advance(time.Second)
-	waitFor(t, func() bool { return f.rec.noticeCount() == 1 })
+	waitFor(t, f.hub, func() bool { return f.rec.noticeCount() == 1 })
 
 	f.stop(2) // a hello rearmed the lost wait, so session 2's exit starts a new one
-	waitFor(t, func() bool { return f.clock.callCount(lostWait) == 2 })
-	waitFor(t, func() bool { return f.clock.pending(time.Second) })
+	waitFor(t, f.hub, func() bool { return f.clock.callCount(lostWait) == 2 })
+	waitFor(t, f.hub, func() bool { return f.clock.pending(time.Second) })
 	f.clock.Advance(time.Second)
-	waitFor(t, func() bool { return f.starts() == 3 })
+	waitFor(t, f.hub, func() bool { return f.starts() == 3 })
 
 	f.clock.Advance(lostWait)
-	waitFor(t, func() bool { return f.rec.lostCount() == 2 })
+	waitFor(t, f.hub, func() bool { return f.rec.lostCount() == 2 })
 	f.finish()
 }
 
@@ -358,15 +467,16 @@ func TestLinkDoesNotRunLostWhileLive(t *testing.T) {
 	f := newFixture(t)
 	// Session 1 says hello and prints a notice, stays live past five minutes, and prints a second notice once the test
 	// releases it.
-	f.plan(1, emit(helloLine, noticeLine("live"))+`while [ ! -f "$dir/go" ]; do sleep 0.01; done
+	f.plan(1, emit(helloLine, noticeLine("live"))+`mkfifo "$dir/go" 2>/dev/null
+read -r _ < "$dir/go"
 `+emit(noticeLine("late")))
 	f.run()
 
 	// The link handles lines in order, so the live notice means the hello has already been handled.
-	waitFor(t, func() bool { return f.rec.noticeCount() == 1 })
+	waitFor(t, f.hub, func() bool { return f.rec.noticeCount() == 1 })
 	f.clock.Advance(lostWait)
-	writeFile(t, filepath.Join(f.dir, "go"), "")
-	waitFor(t, func() bool { return f.rec.noticeCount() == 2 })
+	release(t, filepath.Join(f.dir, "go"))
+	waitFor(t, f.hub, func() bool { return f.rec.noticeCount() == 2 })
 	if got := f.rec.lostCount(); got != 0 {
 		t.Fatalf("Lost ran %d times while the stream was live, want 0", got)
 	}
