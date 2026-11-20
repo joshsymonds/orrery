@@ -9,7 +9,7 @@ import { epicCallsOf } from "./card";
 import type { DockHandle } from "./dock";
 import { ContractBody } from "./contract";
 import { ContractRecord } from "./contractrecord";
-import { contractSlug } from "./contracts";
+import { bandText, contractSlug, leftOf, type RowAbout, readKey } from "./contracts";
 import { type Conversation, shownConversation } from "./conversation";
 import { type ArchiveControl, EpicLine } from "./epicline";
 import { type EpicCommands, EpicPage, type Landing } from "./epicpage";
@@ -56,13 +56,14 @@ import { phaseOutputOf } from "./phaserows";
 import type { Phase } from "./phases";
 import { NewPanel } from "./picker";
 import { type Viewing, viewingOf } from "./presence";
-import type { ReaderHandle } from "./reader";
+import type { ContractCalls, ReaderHandle } from "./reader";
 import { type Address, type Entry, formatAddress, type ListPanelKind, type PageView } from "./router";
 import { byAttention, byProject, type Row, type Section, splitArchived } from "./rows";
 import { type SeenClock, type SeenWindow, watchSeen } from "./seen";
 import { type SendKind, type Sending, type SentText, sendingEntry, unsentEntries, withoutTexts } from "./sending";
 import { type ColumnHead, type FindState, headState, ReaderColumn, stepCalls } from "./readercolumn";
 import { Sheet } from "./sheet";
+import type { ContractBandLine } from "./subjectband";
 import { ListPanel, listHead, SidePanel } from "./sidepanel";
 import { PaneStrip, type StripHost } from "./strip";
 import { Talk, type TalkTarget } from "./talk";
@@ -361,6 +362,10 @@ export function App({
   // The contract an opened address names, and the read set of the contract records, which the page keeps for its life.
   const [openedContract, setOpenedContract] = useState<OpenedContract | null>(null);
   const [contractRead, setContractRead] = useState<ReadonlySet<string>>(() => new Set());
+  // The About the middle dock holds, set by a row's control on an open contract's record, and whether the phone's sheet
+  // holds the conversation over the record.
+  const [about, setAbout] = useState<RowAbout | null>(null);
+  const [talking, setTalking] = useState(false);
   // The worker session the page shows, held under the step it belongs to.
   const [sessionStream, setSessionStream] = useState<Stream | null>(null);
   // The list panel open beside a session, and the thing a panel held last, which ] reopens.
@@ -517,6 +522,13 @@ export function App({
   const contractLiveRow =
     contractRow !== null && !contractRow.archived && !endedStates.includes(contractRow.state) ? contractRow : null;
   const contractTone = contract?.state === "proposed" ? "attention" : "quiet";
+  // The About and the talk belong to the open contract: closing it, opening another, or moving the cursor off its entry
+  // clears them.
+  const shownContractId = contract?.id ?? "";
+  useEffect(() => {
+    setAbout(null);
+    setTalking(false);
+  }, [shownContractId]);
   const steererRow =
     epicEntry === null || contractShown ? null : steererOf(rows, epics.listed.get(epicEntry.id)?.steering ?? "");
   const middleRow = contractShown ? contractLiveRow : (cursorRow ?? steererRow);
@@ -1379,6 +1391,24 @@ export function App({
   // question asks while the row waits and its pane or session is not put off. Under 760px the middle conversation's head
   // also draws its groups as tiles, since the desk's rail that draws them is not drawn; only the middle column's head
   // does, since the tiles act on the middle conversation.
+  // bandContractsOf gives the band's contract lines for the contracts a session proposed that wait on the owner: each
+  // with the words of what is left to settle, and whether its irreversible section is read.
+  const bandContractsOf = (session: string): ContractBandLine[] =>
+    session === ""
+      ? []
+      : contracts
+          .filter((candidate) => candidate.state === "proposed" && candidate.conversation === session)
+          .map((candidate) => ({
+            id: candidate.id,
+            slug: contractSlug(candidate.id),
+            text: bandText(
+              leftOf(
+                Number(candidate.openDecisions),
+                candidate.care,
+                contractRead.has(readKey(candidate.id, candidate.version)),
+              ),
+            ),
+          }));
   const headOf = (row: Row, conversation: Conversation | null, middle = false): ColumnHead => {
     const steering = steeredEpics(row.archiveId, marked.listed.values());
     const lines = askLines(steering, epics.details);
@@ -1390,6 +1420,9 @@ export function App({
       askingWords: askingWords(ownName, lines),
       badges: headBadges(steering, lines, conversation?.state?.background ?? []),
       here: middle && panelOpen && epicEntry !== null ? epicEntry.id : undefined,
+      contracts: middle ? bandContractsOf(workConversation(row, conversation).session) : undefined,
+      onOpenContract: navigated(openContractPanel),
+      hereContract: middle && contract !== undefined ? contract.id : undefined,
       work:
         middle && !wide
           ? { groups: workOf(workConversation(row, conversation), kept, now, contracts), lit, onOpen: openThing }
@@ -1642,6 +1675,14 @@ export function App({
   // conversation is. writerOf names a session by its row's line, or by its id when no row holds it.
   const writerOf = (session: string): string => steererOf(rows, session)?.label ?? session;
   const readContract = (key: string) => setContractRead((previous) => new Set(previous).add(key));
+  // talkAbout is a row's control on the record: the row becomes the dock's About, and under 760px the conversation
+  // rises in the sheet over the record.
+  const talkAbout = (value: RowAbout) => {
+    setAbout(value);
+    if (!wide) {
+      setTalking(true);
+    }
+  };
   const contractPage =
     contract === undefined ? null : (
       <div>
@@ -1660,6 +1701,8 @@ export function App({
           read={contractRead}
           onRead={readContract}
           live={contractLiveRow !== null}
+          onAbout={talkAbout}
+          onTalk={wide || contractLiveRow === null ? undefined : () => setTalking(true)}
         />
       </div>
     );
@@ -1777,6 +1820,58 @@ export function App({
       />
     );
   };
+
+  // sheeted is whether the phone's sheet holds the middle conversation over the record: under 760px, once talk raised
+  // it.
+  const sheeted = talking && !wide;
+  // contractCalls are the middle reader's contract calls: its contract lines draw the contracts the list holds, and
+  // open them.
+  const contractCalls: ContractCalls = { contracts, onOpen: navigated(openContractPanel) };
+  const middleColumn = (
+    <ReaderColumn
+      column="cursor"
+      clients={clients}
+      now={now}
+      row={epicPageShown || (contractPageShown && !sheeted) ? null : middleRow}
+      conversation={cursorConversation}
+      rows={visited}
+      interrupts={interrupts}
+      mark={inboxMark}
+      pageStrip={pageStrip}
+      head={(row, conversation) => headOf(row, conversation, true)}
+      narrow={!wide}
+      hidden={headHidden}
+      onHide={hideHeader}
+      onShow={showHeader}
+      onOpenEpic={navigated(openEpic)}
+      onBack={navigated(focusCursorRow)}
+      finding={cursorFinding}
+      matches={cursorMatches}
+      current={cursorCurrent}
+      onFind={setCursorFind}
+      inputs={composerInputs}
+      handles={composerHandles}
+      reader={cursorReader}
+      older={cursorOlder}
+      sending={cursorSending}
+      epicCalls={epicCalls}
+      contractCalls={contractCalls}
+      about={about}
+      onClearAbout={() => setAbout(null)}
+      addSending={addSending}
+      retractSending={retractSending}
+      open={open}
+      onToggleOpen={toggleOpen}
+      onAnswer={answerCursor}
+      onInterrupt={(row) =>
+        void escapeRow({ row, column: "cursor", state: headState(row, cursorConversation) }, null)
+      }
+      interrupt={interruptRow}
+      step={cursorStep}
+      steps={visitedSteps}
+      stepInputs={stepInputs}
+    />
+  );
 
   return (
     <main class="app">
@@ -1961,46 +2056,13 @@ export function App({
             ))}
           </div>
         </div>
-        <ReaderColumn
-          column="cursor"
-          clients={clients}
-          now={now}
-          row={epicPageShown || contractPageShown ? null : middleRow}
-          conversation={cursorConversation}
-          rows={visited}
-          interrupts={interrupts}
-          mark={inboxMark}
-          pageStrip={pageStrip}
-          head={(row, conversation) => headOf(row, conversation, true)}
-          narrow={!wide}
-          hidden={headHidden}
-          onHide={hideHeader}
-          onShow={showHeader}
-          onOpenEpic={navigated(openEpic)}
-          onBack={navigated(focusCursorRow)}
-          finding={cursorFinding}
-          matches={cursorMatches}
-          current={cursorCurrent}
-          onFind={setCursorFind}
-          inputs={composerInputs}
-          handles={composerHandles}
-          reader={cursorReader}
-          older={cursorOlder}
-          sending={cursorSending}
-          epicCalls={epicCalls}
-          addSending={addSending}
-          retractSending={retractSending}
-          open={open}
-          onToggleOpen={toggleOpen}
-          onAnswer={answerCursor}
-          onInterrupt={(row) =>
-            void escapeRow({ row, column: "cursor", state: headState(row, cursorConversation) }, null)
-          }
-          interrupt={interruptRow}
-          step={cursorStep}
-          steps={visitedSteps}
-          stepInputs={stepInputs}
-        />
+        {sheeted ? (
+          <Sheet title={contractLiveRow?.label ?? ""} onClose={() => setTalking(false)}>
+            {middleColumn}
+          </Sheet>
+        ) : (
+          middleColumn
+        )}
         {epicEntry !== null && !contractShown && steererRow === null && !epicPageShown && (
           <section class="read" aria-label="no conversation">
             <p class="side-note">{noSteererText}</p>

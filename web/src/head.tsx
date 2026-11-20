@@ -7,7 +7,7 @@ import type { Conversation } from "./conversation";
 import type { Fold } from "./headfold";
 import type { Row } from "./rows";
 import { ContextMeter, contextFigure, PaneStrip, type StripHost } from "./strip";
-import { foldHead, SubjectBand } from "./subjectband";
+import { type ContractBandLine, foldHead, SubjectBand } from "./subjectband";
 import { lastPathElement } from "./titleparts";
 import { type InboxMark, TitleRow } from "./titlerow";
 import type { RailGroup, Thing } from "./work";
@@ -36,6 +36,11 @@ export interface HeadProps {
   menu: HeadMenu;
   // here is the epic open in the panel beside the conversation, whose band line says so.
   here?: string;
+  // contracts are the contracts that wait on the conversation's owner, drawn as the band's contract lines;
+  // onOpenContract opens one, and hereContract is the contract open in the panel beside the conversation.
+  contracts?: readonly ContractBandLine[];
+  onOpenContract?: (id: string) => void;
+  hereContract?: string;
   // work is the middle conversation's groups under 760px, drawn as tiles under the band: the groups, the key of the
   // thing open, and what a tile opens. Absent, the head draws no tiles.
   work?: HeadWork;
@@ -88,6 +93,9 @@ export function Head({
   menu,
   work,
   here,
+  contracts,
+  onOpenContract,
+  hereContract,
 }: HeadProps): JSX.Element {
   const [menuOpen, setMenuOpen] = useState(false);
   // choose runs a More menu item and closes the menu.
@@ -154,6 +162,9 @@ export function Head({
             onOpen={onOpenEpic}
             onHide={narrow && !tiles ? onHide : undefined}
             here={here}
+            contracts={contracts}
+            onOpenContract={onOpenContract}
+            hereContract={hereContract}
           />
           {work !== undefined && tiles && (
             <WorkRail

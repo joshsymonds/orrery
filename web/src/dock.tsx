@@ -479,6 +479,10 @@ export function Dock(props: {
   // The waits line is drawn until a send resolves, and again once the pending events change.
   const waits = waitsCleared === pendingKey(pending) ? "" : waitsLine(pending, facts.putOff);
   const shownAbout = about !== undefined && about !== aboutCleared ? about : null;
+  // An about taken away forgets what Not about this cleared, so the same about given again is drawn again.
+  if (about === undefined && aboutCleared !== null) {
+    setAboutCleared(null);
+  }
 
   // trayRow draws one row: its label when it is cancelled, its text, its control and its note, when it has them.
   const trayRow = (key: string, rowText: string, cancelled: boolean, control: JSX.Element | null, rowNote: string) => (

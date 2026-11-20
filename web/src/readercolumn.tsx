@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "preact/hooks";
 import * as actions from "./actions";
 import type { Clients } from "./actions";
 import type { EpicCalls } from "./card";
+import { aboutMessage, type RowAbout } from "./contracts";
 import { type Conversation, shownConversation } from "./conversation";
 import { Dock, type DockHandle } from "./dock";
 import { rowFacts, stepFacts } from "./dockfacts";
@@ -12,7 +13,7 @@ import { FindBar, type Match } from "./find";
 import { Head, type HeadProps } from "./head";
 import { foldOf } from "./headfold";
 import { readerQuestion } from "./inboxrow";
-import { Reader, type ReaderHandle } from "./reader";
+import { type ContractCalls, Reader, type ReaderHandle } from "./reader";
 import type { Row } from "./rows";
 import type { Sending, SentText } from "./sending";
 import { type InboxMark, TitleRow } from "./titlerow";
@@ -29,7 +30,18 @@ export interface FindState {
 // menu, under 760px the middle column's tiles, and the epic open in the panel beside the middle column. The column adds the fold, which it reads from its own reader.
 export type ColumnHead = Pick<
   HeadProps,
-  "host" | "showStrip" | "lines" | "askingWords" | "badges" | "note" | "menu" | "work" | "here"
+  | "host"
+  | "showStrip"
+  | "lines"
+  | "askingWords"
+  | "badges"
+  | "note"
+  | "menu"
+  | "work"
+  | "here"
+  | "contracts"
+  | "onOpenContract"
+  | "hereContract"
 >;
 
 // The section markup each column draws: the cursor's reader, and the pinned reader beside the list.
@@ -82,6 +94,12 @@ export interface ReaderColumnProps {
   older: { current: () => void };
   sending: Sending[];
   epicCalls: EpicCalls;
+  // contractCalls are the reader's contract calls, which its contract lines draw through.
+  contractCalls?: ContractCalls;
+  // about is the About the shown row's dock holds: its next message leads with it, and onClearAbout clears it, on Not
+  // about this and once that message is sent.
+  about?: RowAbout | null;
+  onClearAbout?: () => void;
   addSending: (rowKey: string, sent: SentText, held: Conversation | null) => void;
   retractSending: (rowKey: string, promptId: string) => void;
   // open is the cursor's open toggle; the pinned column passes false and no toggle or answer.
@@ -131,6 +149,9 @@ export function ReaderColumn({
   older,
   sending,
   epicCalls,
+  contractCalls,
+  about = null,
+  onClearAbout,
   addSending,
   retractSending,
   open,
@@ -154,6 +175,15 @@ export function ReaderColumn({
     setTapped(false);
   }, [rowKey]);
   const fold = foldOf(narrow, hidden, atNewest, tapped);
+  // sendRow sends a dock's text to its row. The shown row's About, when one is set, leads the message, and is cleared
+  // once the message is sent.
+  const sendRow = async (entry: Row, text: string, promptId: string): Promise<void> => {
+    const aboutOf = entry.key === rowKey ? about : null;
+    await actions.send(clients, entry, aboutOf === null ? text : aboutMessage(aboutOf, text), promptId);
+    if (aboutOf !== null) {
+      onClearAbout?.();
+    }
+  };
   return (
     <section class={names.section} aria-label={names.label} hidden={row === null && step === null}>
       {row !== null && (
@@ -216,6 +246,7 @@ export function ReaderColumn({
           sending={sending}
           find={finding === null ? undefined : { query: finding.query, matches, current }}
           epicCalls={epicCalls}
+          contractCalls={contractCalls}
         />
       )}
       {step !== null && (
@@ -237,7 +268,7 @@ export function ReaderColumn({
             <Dock
               facts={rowFacts(entry, entry.key === rowKey ? conversation : null, interrupts.has(entry.key))}
               now={now}
-              send={(text, promptId) => actions.send(clients, entry, text, promptId)}
+              send={(text, promptId) => sendRow(entry, text, promptId)}
               pull={entry.kind === "pane" ? () => actions.pullQueued(clients, entry) : null}
               newPromptId={actions.newPromptId}
               register={(handle) => registerHandle(handles, entry.key, handle)}
@@ -252,6 +283,9 @@ export function ReaderColumn({
                     }
                   : undefined
               }
+              about={entry.key === rowKey ? about?.text : undefined}
+              aboutId={entry.key === rowKey ? about?.id : undefined}
+              onClearAbout={onClearAbout}
               queued={entry.key === rowKey ? conversation?.state?.waiting : undefined}
               sessionQueue={entry.key === rowKey ? conversation?.queued : undefined}
               withdraw={

@@ -1656,6 +1656,16 @@ test("DockSend: the about line says what the message is about, and Not about thi
   );
 });
 
+test("ContractMine: an about cleared and then given again with the same text draws its line again", async () => {
+  await withRerenderableDock({ about: "the deploy check", onClearAbout: () => {} }, async (_box, container, rerender) => {
+    await clickControl(container.querySelector<HTMLButtonElement>('.quote button[aria-label="Not about this"]'));
+    assert.equal(container.querySelector(".quote"), null, "the about line is cleared");
+    await rerender({ about: undefined });
+    await rerender({ about: "the deploy check" });
+    assert.equal(textOf(container, ".quote .text"), "about the deploy check", "the same about given again draws the line");
+  });
+});
+
 test("DockSend: the box carries focused while its textarea has focus", async () => {
   await withDock({}, async (box, container) => {
     assert.equal(boxOf(container).classList.contains("focused"), false, "the box is not focused at first");
