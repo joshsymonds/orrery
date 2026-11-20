@@ -700,6 +700,34 @@ class OrreryClientEpicsTest {
     }
 
     @Test
+    fun epicMapsThePlannerParkAndEveryStepLimitReset() {
+        FakeOrreryServer().use { server ->
+            server.respond(
+                EPICS_GET,
+                EpicsGetResponse.newBuilder()
+                    .setEpic(epicProto)
+                    .setPlannerParked(true)
+                    .addSteps(
+                        EpicStep.newBuilder()
+                            .setId("example-step-4")
+                            .setEnd("")
+                            .setStatus("working")
+                            .setStarted(4102444700L)
+                            .setLimited(true)
+                            .setLimitKind("weekly")
+                            .setLimitResets(4102448300L),
+                    )
+                    .build(),
+            )
+
+            val detail = OrreryClient(server.baseUrl).epic("example-repo/example-epic")
+
+            assertEquals(true, detail?.plannerParked)
+            assertEquals(4102448300L, detail?.steps?.single()?.limitResets)
+        }
+    }
+
+    @Test
     fun epicMapsEveryTaskAndBuildTaskRequirementInOrder() {
         FakeOrreryServer().use { server ->
             server.respond(

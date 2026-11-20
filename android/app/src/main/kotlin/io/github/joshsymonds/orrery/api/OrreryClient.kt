@@ -323,7 +323,8 @@ data class StepVerdictRow(val round: Int, val verdict: String, val reason: Strin
 /**
  * One labelled step as the epics view shows it. [end] is "" while the step runs. [stage] is the stage the step is in,
  * empty when it has none, and [stageStarted] is when that stage started, 0 when unknown. [limited] is whether a usage
- * limit of [limitKind] holds the step. [readOnly] is whether the step is read-only, [role] is the role it plays, and
+ * limit of [limitKind] holds the step, and [limitResets] is when that limit resets, in unix seconds, 0 when unknown.
+ * [readOnly] is whether the step is read-only, [role] is the role it plays, and
  * [summary] is its redacted summary. [gateName] is the gate its return is checked against, empty when it runs none,
  * and [verdicts] are its done-judge verdicts, in round order.
  */
@@ -343,6 +344,7 @@ data class StepRow(
     val stageStarted: Long = 0L,
     val limited: Boolean = false,
     val limitKind: String = "",
+    val limitResets: Long = 0L,
     val readOnly: Boolean = false,
     val role: String = "",
     val summary: String = "",
@@ -627,7 +629,7 @@ data class EpicContractRow(
  * they were planned, empty for a record epic. [summary] is the epic's summary paragraph, empty until it is written.
  * [contract] is the accepted contract, null for a record epic. [questions] are the open questions in the order they
  * were asked. [paused] is whether the epic's planner starts no turn, and [parked] is why the epic is parked, empty
- * when it is not. [sessions] are the sessions that work on the epic, each with its newest epic call, in the order the
+ * when it is not. [plannerParked] is whether the planner holds that park. [sessions] are the sessions that work on the epic, each with its newest epic call, in the order the
  * server lists them. [repository] is the absolute path of the git repository the epic belongs to, empty when none is
  * named. [handover] is the epic's handover rows, empty for a record epic. [releaseProof] is the contract's release steps
  * with the state their release runs gave them, in contract order, empty for a record epic. [report] is the epic's
@@ -646,6 +648,7 @@ data class EpicDetail(
     val questions: List<EpicQuestionRow> = emptyList(),
     val paused: Boolean = false,
     val parked: String = "",
+    val plannerParked: Boolean = false,
     val handover: EpicHandoverRow = EpicHandoverRow(),
     val sessions: List<EpicSessionRow> = emptyList(),
     val repository: String = "",
@@ -926,6 +929,7 @@ class OrreryClient(
             questions = response.questionsList.map { it.toEpicQuestionRow() },
             paused = response.paused,
             parked = response.parked,
+            plannerParked = response.plannerParked,
             handover = response.toEpicHandoverRow(),
             sessions = response.sessionsList.map { it.toEpicSessionRow() },
             repository = response.repository,
@@ -1322,6 +1326,7 @@ class OrreryClient(
             stageStarted = stageStarted,
             limited = limited,
             limitKind = limitKind,
+            limitResets = limitResets,
             readOnly = readOnly,
             role = role,
             summary = summary,
