@@ -19,6 +19,8 @@ import {
 import { rowsFrom, type Row } from "./rows";
 
 const refusedWords = "Not answered: the question changed before your answer arrived. This is what it asks now.";
+// newestKey is the key of the item newest when the test presses, which every press here is made after.
+const newestKey = "item-newest";
 
 function paneRow(init: MessageInitShape<typeof PaneSchema>): Row {
   const pane: Pane = create(PaneSchema, {
@@ -73,8 +75,14 @@ function keyOf(row: Row, model: AskModel): string {
 }
 
 // startedOf is the answer a press starts from an Ask that can be pressed, which every test here expects to send.
-function startedOf(state: AskState, key: string, option: AskOption, question: string): AskState {
-  const started = press(state, key, option, question);
+function startedOf(
+  state: AskState,
+  key: string,
+  option: AskOption,
+  question: string,
+  after: string | null = newestKey,
+): AskState {
+  const started = press(state, key, option, question, after);
   if (started === null) {
     throw new Error("the press sent nothing");
   }
@@ -100,7 +108,14 @@ test("AskAnswer: a press sends the picked option's number and names its question
 
   const state = startedOf({ phase: "idle" }, key, model.options[1], model.question);
 
-  assert.deepEqual(state, { phase: "sending", key, n: 2, name: model.options[1].name, question: model.question });
+  assert.deepEqual(state, {
+    phase: "sending",
+    key,
+    n: 2,
+    name: model.options[1].name,
+    question: model.question,
+    after: newestKey,
+  });
 });
 
 test("AskAnswer: a second press while the answer is sending sends nothing, for the same question", () => {
@@ -108,7 +123,7 @@ test("AskAnswer: a second press while the answer is sending sends nothing, for t
   const key = keyOf(row, model);
   const sending = startedOf({ phase: "idle" }, key, model.options[0], model.question);
 
-  assert.equal(press(sending, key, model.options[2], model.question), null);
+  assert.equal(press(sending, key, model.options[2], model.question, newestKey), null);
 });
 
 test("AskAnswer: a press while another question's answer is sending sends nothing", () => {
@@ -116,7 +131,7 @@ test("AskAnswer: a press while another question's answer is sending sends nothin
   const second = paneModel("h2");
   const sending = startedOf({ phase: "idle" }, keyOf(first.row, first.model), first.model.options[0], first.model.question);
 
-  assert.equal(press(sending, keyOf(second.row, second.model), second.model.options[0], second.model.question), null);
+  assert.equal(press(sending, keyOf(second.row, second.model), second.model.options[0], second.model.question, newestKey), null);
 });
 
 test("AskAnswer: a press after the server took the answer sends nothing while the Ask still shows sending", () => {
@@ -124,7 +139,28 @@ test("AskAnswer: a press after the server took the answer sends nothing while th
   const key = keyOf(row, model);
   const sent = settle(startedOf({ phase: "idle" }, key, model.options[0], model.question), true);
 
-  assert.equal(press(sent, key, model.options[1], model.question), null);
+  assert.equal(press(sent, key, model.options[1], model.question, newestKey), null);
+});
+
+test("AskAnswer: an answer keeps the key of the item newest at its press through sent and answered", () => {
+  const { row, model } = paneModel("h1");
+  const key = keyOf(row, model);
+  const pressedAfter = "item-at-press";
+
+  const sent = settle(startedOf({ phase: "idle" }, key, model.options[0], model.question, pressedAfter), true);
+  assert.deepEqual(sent, { phase: "sent", key, n: 1, name: model.options[0].name, question: model.question, after: pressedAfter });
+
+  const observed = observe(sent, null);
+  assert.deepEqual(answeredOf(observed), { n: 1, name: model.options[0].name, question: model.question, after: pressedAfter });
+});
+
+test("AskAnswer: an answer pressed with no item drawn keeps a null key", () => {
+  const { row, model } = paneModel("h1");
+  const key = keyOf(row, model);
+
+  const answered = observe(settle(startedOf({ phase: "idle" }, key, model.options[0], model.question, null), true), null);
+
+  assert.equal(answeredOf(answered)?.after, null);
 });
 
 test("AskAnswer: a refused answer leaves the question open with the refused-answer words", () => {
@@ -142,12 +178,13 @@ test("AskAnswer: a press is allowed again on the same question after a refused a
   const key = keyOf(row, model);
   const refused = settle(startedOf({ phase: "idle" }, key, model.options[0], model.question), false);
 
-  assert.deepEqual(press(refused, key, model.options[1], model.question), {
+  assert.deepEqual(press(refused, key, model.options[1], model.question, newestKey), {
     phase: "sending",
     key,
     n: 2,
     name: model.options[1].name,
     question: model.question,
+    after: newestKey,
   });
 });
 
@@ -169,7 +206,7 @@ test("AskAnswer: an answer folds to its answered line once the stream shows no q
 
   const observed = observe(sent, null);
 
-  assert.deepEqual(answeredOf(observed), { n: 2, name: model.options[1].name, question: model.question });
+  assert.deepEqual(answeredOf(observed), { n: 2, name: model.options[1].name, question: model.question, after: newestKey });
 });
 
 test("AskAnswer: an answer folds once the stream shows a different question", () => {
@@ -180,7 +217,7 @@ test("AskAnswer: an answer folds once the stream shows a different question", ()
 
   const observed = observe(sent, keyOf(other.row, other.model));
 
-  assert.deepEqual(answeredOf(observed), { n: 1, name: model.options[0].name, question: model.question });
+  assert.deepEqual(answeredOf(observed), { n: 1, name: model.options[0].name, question: model.question, after: newestKey });
   assert.deepEqual(askView(observed, keyOf(other.row, other.model)), { phase: "open", picked: null, note: "" });
 });
 
@@ -190,7 +227,7 @@ test("AskAnswer: an answered line stays while nothing shows and goes idle when a
   const answered = observe(settle(startedOf({ phase: "idle" }, key, model.options[0], model.question), true), null);
   const other = paneModel("h2");
 
-  assert.deepEqual(answeredOf(observe(answered, null)), { n: 1, name: model.options[0].name, question: model.question });
+  assert.deepEqual(answeredOf(observe(answered, null)), { n: 1, name: model.options[0].name, question: model.question, after: newestKey });
   assert.deepEqual(observe(answered, keyOf(other.row, other.model)), { phase: "idle" });
 });
 
@@ -229,5 +266,5 @@ test("AskAnswer: a headless session's answer is sent for its open request", () =
   const key = keyOf(row, model);
   const state: AskState = startedOf({ phase: "idle" }, key, model.options[1], model.question);
 
-  assert.deepEqual(state, { phase: "sending", key: "req-1", n: 2, name: "Cache keepers", question: model.question });
+  assert.deepEqual(state, { phase: "sending", key: "req-1", n: 2, name: "Cache keepers", question: model.question, after: newestKey });
 });

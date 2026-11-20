@@ -128,8 +128,8 @@ export interface ReaderColumnProps {
   // open is the cursor's open toggle; the pinned column passes false and no toggle or answer.
   open: boolean;
   onToggleOpen?: () => void;
-  // ask is the cursor column's Ask: drawn for the row's own question, and answered in place of it once it has been
-  // answered.
+  // ask is the cursor column's Ask, drawn for the row's own question after the items. Once answered, the answered line
+  // draws in the reader at the place the answer's life records, not here.
   ask?: AskCalls;
   // onInterrupt is a dock's state line Interrupt on a row: the row's Escape path. No Interrupt control is drawn without it.
   onInterrupt?: (row: Row) => void;
@@ -204,8 +204,8 @@ export function ReaderColumn({
     setTapped(false);
   }, [rowKey]);
   const fold = foldOf(narrow, hidden, atNewest, tapped);
-  // The row's own question is drawn as its Ask, and once answered as the Ask's one line. The Ask's key names the
-  // question its answer and note belong to.
+  // The row's own question is drawn as its Ask, and once answered its answered line is handed to the reader. The Ask's key
+  // names the question its answer and note belong to.
   const model: AskModel | null = ask === undefined || row === null ? null : conversationAsk(row, conversation);
   const key = model === null || row === null ? null : askKey(row, model);
   const answered = ask === undefined || model !== null ? null : answeredOf(ask.state);
@@ -269,11 +269,14 @@ export function ReaderColumn({
           seenAt={row.seen}
           open={open}
           asking={askNode !== null}
-          ask={
-            askNode ??
-            (answered === null ? null : (
-              <AskLine state="answered" n={answered.n} name={answered.name} question={answered.question} keyCaps />
-            ))
+          ask={askNode}
+          answered={
+            answered === null
+              ? undefined
+              : {
+                  after: answered.after,
+                  line: <AskLine state="answered" n={answered.n} name={answered.name} question={answered.question} keyCaps />,
+                }
           }
           onToggleOpen={onToggleOpen}
           onOlder={() => older.current()}

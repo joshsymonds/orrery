@@ -754,6 +754,29 @@ test("FixtureTransport: page/ask-answered folds the Ask to its answered line onc
   );
 });
 
+test("FixtureTransport: page/ask-answered draws the reply, the answered line, then the Edit line", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["ask-answered"],
+    (root) => root.querySelector(".ask.folded") !== null,
+    (root) => {
+      assertNoFailure(root);
+      const drawn = [...(root.querySelector(".reader")?.children ?? [])];
+      const line = drawn.findIndex((element) => element.matches(".ask.folded"));
+      assert.ok(line > 0, "the answered line is drawn after the items");
+      assert.ok(
+        drawn[line - 1]?.textContent.includes("Each shift row loads its keeper"),
+        "the reply that was newest at the press is drawn right before the answered line",
+      );
+      const edit = drawn.findIndex(
+        (element) => element.textContent.includes("Edit") && element.textContent.includes("internal/roster/query.go"),
+      );
+      assert.ok(edit > line, "the Edit line the stream added is drawn after the answered line");
+    },
+  );
+});
+
 test("FixtureTransport: page/ask-stale says the question has waited five days, and draws Archive this session", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(

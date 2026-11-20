@@ -504,6 +504,29 @@ test("AskAnswer: a stream that drops the question before the answer's reply land
     assert.ok(container.querySelector(".ask.folded") !== null, "the answered line is drawn once the reply lands");
   }));
 
+test("AskAnswer: a tool line the stream adds after an answer draws after the answered line, which follows the item newest at the press", (t) =>
+  withApp(t.signal, [headless({ key: "s1", id: "s1", label: "notes" })], async (container, fake) => {
+    await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    const stream = fake.callsTo(sessionWatchPath)[0];
+    fake.emit(stream, { ...requestStream, items: [{ kind: "reply", text: "Checking the roster." }] });
+    await flush();
+    assert.ok(askOf(container) !== null, "the Ask is drawn");
+    await click(optionsOf(container)[0]);
+    await flush();
+    assert.equal(fake.callsTo(answerPath).length, 1, "the answer was sent");
+    fake.emit(stream, { transcript: "t1", seq: "2", items: [{ kind: "tool", tool: "Edit", input: "query.go", id: "e1" }], state: {} });
+    await flush();
+    const drawn = [...(container.querySelector(".reader")?.children ?? [])];
+    const placeOf = (text: string) => drawn.findIndex((element) => element.textContent?.includes(text) === true);
+    const reply = placeOf("Checking the roster.");
+    const answered = drawn.findIndex((element) => element.matches(".ask.folded"));
+    const edit = placeOf("query.go");
+    assert.notEqual(reply, -1, "the reply is drawn");
+    assert.notEqual(answered, -1, "the answered line is drawn");
+    assert.notEqual(edit, -1, "the tool line is drawn");
+    assert.ok(reply < answered && answered < edit, "the reply, the answered line, then the tool line, in that order");
+  }));
+
 test("NotNow: Not now on a pane's question calls Control.NotNow with its kind, id, hash and changed time", (t) =>
   withApp(t.signal, [pane({ key: "a" })], async (container, fake) => {
     await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");

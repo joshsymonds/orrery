@@ -5,10 +5,19 @@ import type { Row } from "./rows";
 // The answer's life for the one Ask the middle conversation shows. idle holds no answer. sending is an answer in flight;
 // sent is one the server took, which the Ask keeps showing as sending until the stream drops its question; error is one
 // the server refused or failed; answered is one whose question the stream no longer shows. key names the question
-// answered, n and name the option picked, and question is the question's text for the answered line.
+// answered, n and name the option picked, and question is the question's text for the answered line. after is the key of
+// the transcript item that was newest when the answer was pressed, or null when none was drawn: the answered line is
+// drawn after that item, so the items that arrive later draw after the line.
 export type AskState =
   | { phase: "idle" }
-  | { phase: "sending" | "sent" | "error" | "answered"; key: string; n: number; name: string; question: string };
+  | {
+      phase: "sending" | "sent" | "error" | "answered";
+      key: string;
+      n: number;
+      name: string;
+      question: string;
+      after: string | null;
+    };
 
 // The words an Ask shows when the server refuses an answer because the question changed before it arrived.
 const refusedWords = "Not answered: the question changed before your answer arrived. This is what it asks now.";
@@ -23,13 +32,19 @@ export function askKey(row: Row, model: AskModel): string | null {
   return target.kind === "pane" ? `${row.key}#${target.questionHash}` : target.requestId;
 }
 
-// press starts an answer to the question key names. A press while an answer is sending or sent, for any question, sends
-// nothing and answers null.
-export function press(state: AskState, key: string, option: AskOption, question: string): AskState | null {
+// press starts an answer to the question key names, after the item after names as the newest one drawn. A press while an
+// answer is sending or sent, for any question, sends nothing and answers null.
+export function press(
+  state: AskState,
+  key: string,
+  option: AskOption,
+  question: string,
+  after: string | null,
+): AskState | null {
   if (state.phase === "sending" || state.phase === "sent") {
     return null;
   }
-  return { phase: "sending", key, n: option.n, name: option.name, question };
+  return { phase: "sending", key, n: option.n, name: option.name, question, after };
 }
 
 // settle records what the server said about the answer in flight: taken (sent) or refused or failed (error). With no
@@ -70,10 +85,10 @@ export function askView(state: AskState, key: string): { phase: AskPhase; picked
   return { phase: "sending", picked: state.n, note: "" };
 }
 
-// answeredOf is the answered line's words once an answer has folded, and null before that.
-export function answeredOf(state: AskState): { n: number; name: string; question: string } | null {
+// answeredOf is the answered line's words and the item it is drawn after, once an answer has folded, and null before that.
+export function answeredOf(state: AskState): { n: number; name: string; question: string; after: string | null } | null {
   if (state.phase !== "answered") {
     return null;
   }
-  return { n: state.n, name: state.name, question: state.question };
+  return { n: state.n, name: state.name, question: state.question, after: state.after };
 }

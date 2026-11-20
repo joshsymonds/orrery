@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
 
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
-import { options, render } from "preact";
+import { type ComponentChildren, options, render } from "preact";
 import { act } from "preact/test-utils";
 
 import type { EpicCalls } from "./card";
@@ -27,7 +27,7 @@ import {
 import type { Conversation } from "./conversation";
 import { findMatches, type Match } from "./find";
 import { flashMillis } from "./flash";
-import { clock, type ContractCalls, Reader, ReaderHead, type ReaderHandle } from "./reader";
+import { clock, type ContractCalls, newestItemKey, Reader, ReaderHead, type ReaderHandle } from "./reader";
 import type { Sending } from "./sending";
 import { mockTimers } from "./testclock";
 import { TitleParts } from "./titleparts";
@@ -80,6 +80,7 @@ interface Props {
   sending?: Sending[];
   find?: { query: string; matches: Match[]; current: number };
   contractCalls?: ContractCalls;
+  answered?: { after: string | null; line: ComponentChildren };
 }
 
 async function withReader(props: Props, check: (container: HTMLElement) => void | Promise<void>): Promise<void> {
@@ -1914,6 +1915,49 @@ test("ToolTrail: the same items drawn with a question carry no running class or 
       assertNone(container.querySelector(".running-mark"));
     },
   ));
+
+// answeredProps is the props of a reader that holds items, with an answered line that follows the item after names.
+function answeredProps(items: ConversationItem[], after: string | null): Props {
+  return { ...readerProps(items), answered: { after, line: <p class="answered-line">answered</p> } };
+}
+
+// answeredIndex is the place of the answered line among the reader's children, or -1 when it is not drawn.
+function answeredIndex(container: HTMLElement): number {
+  return [...readerOf(container).children].findIndex((element) => element.classList.contains("answered-line"));
+}
+
+test("AskAnswer: an answered line draws after the item its answer named as newest", () => {
+  const first = item({ kind: "reply", time: 101n, text: "held-1" });
+  const second = item({ kind: "reply", time: 102n, text: "held-2" });
+  const after = newestItemKey(conversation({ items: [first] }));
+  return withReader(answeredProps([first, second], after), (container) => {
+    assert.equal(answeredIndex(container), 1, "the line draws between the two replies");
+  });
+});
+
+test("AskAnswer: an answered line draws after every item once the item it follows is no longer drawn", () => {
+  const first = item({ kind: "reply", time: 101n, text: "held-1" });
+  const second = item({ kind: "reply", time: 102n, text: "held-2" });
+  return withReader(answeredProps([first, second], "item-no-longer-drawn"), (container) => {
+    assert.equal(answeredIndex(container), 2, "the line draws after both replies");
+  });
+});
+
+test("AskAnswer: an answered line draws first when no item was drawn at its press", () => {
+  const first = item({ kind: "reply", time: 101n, text: "held-1" });
+  return withReader(answeredProps([first], null), (container) => {
+    assert.equal(answeredIndex(container), 0, "the line draws before the reply");
+  });
+});
+
+test("AskAnswer: a run of tool calls ends where the answered line falls", () => {
+  const calls = [toolItem("Read", "r1", "a.txt"), toolItem("Read", "r2", "b.txt"), toolItem("Read", "r3", "c.txt"), toolItem("Read", "r4", "d.txt")];
+  const after = newestItemKey(conversation({ items: [calls[0], resultItem("r1", "alpha"), calls[1]] }));
+  const items = calls.flatMap((call) => [call, resultItem(call.id, "done")]);
+  return withReader(answeredProps(items, after), (container) => {
+    assert.equal(answeredIndex(container), 2, "the line draws after the second call, and the calls around it stay unfolded");
+  });
+});
 
 test("a reply between tool calls leaves no run fold", () =>
   withReader(

@@ -1,10 +1,10 @@
-import { Component, createElement, type ComponentChildren, type JSX } from "preact";
+import { Component, createElement, Fragment, type ComponentChildren, type JSX } from "preact";
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 
 import { BackgroundRow } from "./backgroundrow";
 import { type EpicCalls, EpicWidget } from "./card";
 import { ContractBlock } from "./contractblock";
-import type { Conversation } from "./conversation";
+import { type Conversation, shownConversation } from "./conversation";
 import type { Match } from "./find";
 import { EventRing, epicEventOf, StepCard, stepEventOf } from "./eventring";
 import { useFlash } from "./flash";
@@ -70,6 +70,8 @@ export interface ContractCalls {
 // the reader keeps the rows on screen where they were. Once it sits within nearTopPixels of its top while the
 // conversation has older items, it calls onOlder, which loads the page before its oldest item. The page pages it a
 // screen at a time through the handle register gets.
+// With answered, its line draws after the item its answer named as newest, or after every item when that item is no
+// longer drawn, and a run of tool calls ends where the line falls. Items that arrive later draw after the line.
 // With find, every case-insensitive occurrence of its query is a mark in what the reader draws of a reply, a prompt, a
 // call's input and result, and a notice. Compaction, check cards, epic cards, event rings, step cards,
 // background rows, contract lines, live text, thinking, the Ask, sending rows, event lines, cron rows and
@@ -88,6 +90,7 @@ export function Reader({
   open,
   asking = false,
   ask = null,
+  answered,
   step,
   onToggleOpen,
   onOlder,
@@ -103,6 +106,7 @@ export function Reader({
   open: boolean;
   asking?: boolean; // whether an open question is drawn after the items, which ends the calls still running
   ask?: ComponentChildren; // the question's Ask, drawn after the items
+  answered?: { after: string | null; line: ComponentChildren }; // the answered line, and the key of the item it follows
   step?: EpicStep;
   onToggleOpen?: () => void;
   onOlder?: () => void;
@@ -136,9 +140,13 @@ export function Reader({
   // A contract line draws in place of its call row, so while the reader holds contract calls the call is never folded
   // into a run.
   const contracted = contractCalls !== undefined;
+  // The answered line falls after the item its answer named, so a run of tool calls ends there. Without a line the index
+  // is -1, which ends no run.
+  const answeredAt = answered === undefined ? -1 : answeredIndexOf(answered.after, keys);
   const groups = useMemo(
-    () => (conversationItems === undefined ? [] : groupRows(conversationItems, newIndex, results, contracted)),
-    [conversationItems, newIndex, results, contracted],
+    () =>
+      conversationItems === undefined ? [] : groupRows(conversationItems, newIndex, results, contracted, answeredAt),
+    [conversationItems, newIndex, results, contracted, answeredAt],
   );
   // The rows reach onToggleOpen through toggle, so the callback a row holds is the same function on every render, and a
   // caller's new callback does not make a row draw again. A row gets a toggle only when the caller passed one, since a
@@ -293,8 +301,13 @@ export function Reader({
   // An open question's Ask or live text drawn after the items ends the calls, so none of them is running.
   const running = runningCalls(items, results, asking || liveBlocks.length > 0);
   const rows: JSX.Element[] = [];
+  let answeredDrawn = false;
   groups.forEach((group) => {
     const [first] = group;
+    if (answered !== undefined && !answeredDrawn && first > answeredAt) {
+      rows.push(<Fragment key="answered">{answered.line}</Fragment>);
+      answeredDrawn = true;
+    }
     if (first === newIndex) {
       rows.push(<NewRule key="new-rule" />);
     }
@@ -328,6 +341,9 @@ export function Reader({
       />,
     );
   });
+  if (answered !== undefined && !answeredDrawn) {
+    rows.push(<Fragment key="answered">{answered.line}</Fragment>);
+  }
   const live = liveBlocks.map((block) => <LiveRow key={`${block.messageId}/${block.index}`} block={block} />);
   const background = (conversation.state?.background ?? []).map((task) => (
     <BackgroundRow key={task.id} task={task} onOpen={openCall} />
@@ -1141,6 +1157,7 @@ function groupRows(
   newIndex: number,
   results: Map<number, ConversationItem>,
   contracted: boolean,
+  answeredAt: number,
 ): number[][] {
   const rows: number[][] = [];
   let run: number[] = [];
@@ -1155,6 +1172,10 @@ function groupRows(
   const foldable = (item: ConversationItem, index: number) =>
     item.kind === "tool" && item.epic === "" && !(contracted && drawsContractLine(item, results.get(index)));
   items.forEach((item, index) => {
+    // The answered line falls after the item at answeredAt, so the run that holds it ends there, before any result.
+    if (index === answeredAt + 1) {
+      endRun();
+    }
     if (item.kind === "result") {
       return;
     }
@@ -1192,6 +1213,24 @@ function runningCalls(
     }
   }
   return running;
+}
+
+// answeredIndexOf is the index of the item an answered line follows, from the key of the item newest when its answer was
+// pressed: -1 when that was none, so the line draws first, and the item count when that item is no longer drawn, so the
+// line draws after every item.
+function answeredIndexOf(after: string | null, keys: string[]): number {
+  if (after === null) {
+    return -1;
+  }
+  const index = keys.indexOf(after);
+  return index === -1 ? keys.length : index;
+}
+
+// newestItemKey is the key of the newest item a conversation draws, which an answer records when it is pressed, or null
+// when it draws none.
+export function newestItemKey(conversation: Conversation | null): string | null {
+  const keys = itemKeys(shownConversation(conversation)?.items ?? []);
+  return keys.at(-1) ?? null;
 }
 
 // itemKeys keys each item by its content, so a row keeps its key while the window drops items from the top or prepends

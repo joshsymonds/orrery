@@ -44,7 +44,7 @@ import { phaseOutputOf } from "./phaserows";
 import type { Phase } from "./phases";
 import { NewPanel } from "./picker";
 import { type Viewing, viewingOf } from "./presence";
-import type { ContractCalls, ReaderHandle } from "./reader";
+import { type ContractCalls, newestItemKey, type ReaderHandle } from "./reader";
 import { type Address, type Entry, formatAddress, type ListPanelKind, type PageView, type View } from "./router";
 import { type Row, splitArchived, waitsOnYou } from "./rows";
 import { realClock, type SeenClock, type SeenWindow, watchSeen } from "./seen";
@@ -995,7 +995,9 @@ export function App({
       return;
     }
     const option = cursorAsk.options.at(choice - 1);
-    const started = option === undefined ? null : press(askState, cursorAskKey, option, cursorAsk.question);
+    // The answered line draws after the item that is newest now, so the items that arrive after the press draw after it.
+    const started =
+      option === undefined ? null : press(askState, cursorAskKey, option, cursorAsk.question, newestItemKey(cursorConversation));
     if (started === null) {
       return;
     }
