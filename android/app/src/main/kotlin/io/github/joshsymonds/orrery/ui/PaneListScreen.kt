@@ -1,6 +1,7 @@
 package io.github.joshsymonds.orrery.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -37,7 +39,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
@@ -59,6 +67,13 @@ import java.io.IOException
 
 /** The fixed delay the inbox waits before it reads again after a read that did not answer. */
 internal const val RETRY_DELAY_MILLIS = 5_000L
+
+/** The view box the bell is drawn in, and its stroke, in those units. */
+private const val BELL_VIEW = 16f
+private const val BELL_STROKE = 1.5f
+
+/** The bell's accessible label: the head has no room for the word, so the bell is labelled by it, not shown with it. */
+private const val NOTICES_WORDS = "Notices"
 
 /**
  * The inbox's state: the chip on, the search words (null while the search is closed), the folded projects, the projects
@@ -97,16 +112,17 @@ internal class TreeData(
 )
 
 /**
- * The inbox: the head with the Orrery mark, Search, New, Pools and Settings; then, while search is open, its field; then
- * the two chips and each project as a card, its conversations hanging under it with what steers them, and its ended
- * line. The chips narrow the tree, search narrows what the chips left, and a folded card says what waits in it. The foot
- * opens the archived tree and returns from it. A tap on a conversation calls [onOpenPane] with its pane, a tap on an
- * epic or one of its steps calls [onOpenEpic], a tap on a contract's row calls [onOpenContract] with its id and the
- * conversation it hangs under, whose pane is null for a stand-in row, and a tap on a project's name calls
- * [onOpenProject] with its key. A long press on a conversation or an epic opens its sheet, where the
- * owner marks it seen or archives it, and a landed change reads the tree again. New opens
- * the picker as a bottom sheet; a run it answers opens that pane through [onOpenPaneId], and a start it answers opens
- * that session through [onStartedSession]. The Pools button opens the pools view through [onOpenPools].
+ * The inbox: the head with the Orrery mark, Search, New, Pools, the Notices bell and Settings; then, while search is
+ * open, its field; then the two chips and each project as a card, its conversations hanging under it with what steers
+ * them, and its ended line. The chips narrow the tree, search narrows what the chips left, and a folded card says what
+ * waits in it. The foot opens the archived tree and returns from it. A tap on a conversation calls [onOpenPane] with
+ * its pane, a tap on an epic or one of its steps calls [onOpenEpic], a tap on a contract's row calls [onOpenContract]
+ * with its id and the conversation it hangs under, whose pane is null for a stand-in row, and a tap on a project's
+ * name calls [onOpenProject] with its key. A long press on a conversation or an epic opens its sheet, where the owner
+ * marks it seen or archives it, and a landed change reads the tree again. New opens the picker as a bottom sheet; a
+ * run it answers opens that pane through [onOpenPaneId], and a start it answers opens that session through
+ * [onStartedSession]. The Pools button opens the pools view through [onOpenPools]. The bell counts the unread notices,
+ * read on start and every minute while started, and opens the notices through [onOpenNotices].
  *
  * Until the first answer the inbox says it is loading. A read that fails, the panes, a headless or archived list, or an
  * epic or its detail, shows that the server did not answer, and reads again after [RETRY_DELAY_MILLIS] or at once on
@@ -121,12 +137,14 @@ fun PaneListScreen(
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
     onOpenPools: () -> Unit = {},
+    onOpenNotices: () -> Unit = {},
     onOpenEpic: (String) -> Unit = {},
     onOpenProject: (String) -> Unit = {},
     onOpenContract: (id: String, conversation: Pane?) -> Unit = { _, _ -> },
     now: () -> Long = { System.currentTimeMillis() / 1000 },
     state: PaneListState = rememberPaneListState(),
 ) {
+    val notices = rememberNoticeRows(client)
     var data by remember(client) { mutableStateOf<TreeData?>(null) }
     var failed by remember(client) { mutableStateOf(false) }
     var generation by remember(client) { mutableIntStateOf(0) }
@@ -181,6 +199,7 @@ fun PaneListScreen(
                 ) {
                     Text("Pools")
                 }
+                NoticesBell(unread = notices.unread, onClick = onOpenNotices)
                 TextButton(onClick = onOpenSettings) {
                     Text("Settings")
                 }
@@ -491,6 +510,50 @@ private fun DidNotAnswer(onTryNow: () -> Unit) {
         }
     }
 }
+
+/**
+ * The bell that opens the notices: its unread count in the new role when there is one, and nothing beside it at zero.
+ */
+@Composable
+private fun NoticesBell(unread: Int, onClick: () -> Unit) {
+    TextButton(onClick = onClick, modifier = Modifier.testTag("open-notices")) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            BellGlyph()
+            if (unread > 0) {
+                Text(
+                    unread.toString(),
+                    modifier = Modifier.padding(start = OrreryTokens.Space.four).testTag("notices-unread"),
+                    style = OrreryTokens.Type.small,
+                    color = OrreryTokens.Role.new,
+                )
+            }
+        }
+    }
+}
+
+// A bell: a dome on a rim, with its clapper, drawn as the Notices screen draws its own.
+@Composable
+private fun BellGlyph() {
+    Canvas(modifier = Modifier.size(OrreryTokens.Size.glyph).semantics { contentDescription = NOTICES_WORDS }) {
+        val stroke = Stroke(width = bellPx(BELL_STROKE), cap = StrokeCap.Round, join = StrokeJoin.Round)
+        drawPath(
+            Path().apply {
+                moveTo(bellPx(3.5f), bellPx(11.5f))
+                lineTo(bellPx(3.5f), bellPx(7.5f))
+                cubicTo(bellPx(3.5f), bellPx(4.5f), bellPx(12.5f), bellPx(4.5f), bellPx(12.5f), bellPx(7.5f))
+                lineTo(bellPx(12.5f), bellPx(11.5f))
+                lineTo(bellPx(13.5f), bellPx(12.5f))
+                lineTo(bellPx(2.5f), bellPx(12.5f))
+                close()
+            },
+            OrreryTokens.Ink.two,
+            style = stroke,
+        )
+        drawCircle(OrreryTokens.Ink.two, bellPx(1f), Offset(bellPx(8f), bellPx(14f)))
+    }
+}
+
+private fun DrawScope.bellPx(view: Float): Float = view * size.width / BELL_VIEW
 
 /**
  * The app's colour icon as a disc: the launcher's background and foreground layers, clipped to a

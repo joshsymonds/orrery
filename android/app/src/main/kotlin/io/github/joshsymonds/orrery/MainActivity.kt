@@ -43,6 +43,7 @@ import io.github.joshsymonds.orrery.push.PushSetup
 import io.github.joshsymonds.orrery.ui.ContractScreen
 import io.github.joshsymonds.orrery.ui.EpicOpening
 import io.github.joshsymonds.orrery.ui.EpicScreen
+import io.github.joshsymonds.orrery.ui.NoticesScreen
 import io.github.joshsymonds.orrery.ui.PaneListScreen
 import io.github.joshsymonds.orrery.ui.PaneListState
 import io.github.joshsymonds.orrery.ui.PaneScreen
@@ -143,6 +144,7 @@ class MainActivity : ComponentActivity() {
                                         },
                                         onOpenSettings = { screen = Screen.Settings },
                                         onOpenPools = { screen = Screen.Pools },
+                                        onOpenNotices = { screen = Screen.Notices },
                                         state = paneListState,
                                     )
                                     is Screen.Project -> {
@@ -298,6 +300,22 @@ class MainActivity : ComponentActivity() {
                                             onBack = { screen = Screen.Panes },
                                         )
                                     }
+                                    Screen.Notices -> {
+                                        BackHandler { screen = Screen.Panes }
+                                        NoticesScreen(
+                                            client = client,
+                                            onBack = { screen = Screen.Panes },
+                                            onOpen = { row ->
+                                                targetScreen(
+                                                    row.pane,
+                                                    row.session,
+                                                    row.epic,
+                                                    row.blockKind,
+                                                    back = Screen.Notices,
+                                                )?.let { screen = it }
+                                            },
+                                        )
+                                    }
                                     Screen.Settings -> {
                                         BackHandler { screen = Screen.Panes }
                                         SettingsScreen(
@@ -369,21 +387,34 @@ class MainActivity : ComponentActivity() {
     }
 
     /** The screen a notice's intent opens: its pane, its headless session, or its epic at the block it is about. */
-    private fun openExtra(intent: Intent): Screen? =
-        intent.getStringExtra(PushNotifier.EXTRA_PANE)?.let { Screen.Pane(it) }
-            ?: intent.getStringExtra(PushNotifier.EXTRA_SESSION)?.let { Screen.Session(it) }
-            ?: intent.getStringExtra(PushNotifier.EXTRA_EPIC)?.let {
-                epicScreenOf(it, intent.getStringExtra(PushNotifier.EXTRA_BLOCK))
-            }
+    private fun openExtra(intent: Intent): Screen? = targetScreen(
+        pane = intent.getStringExtra(PushNotifier.EXTRA_PANE).orEmpty(),
+        session = intent.getStringExtra(PushNotifier.EXTRA_SESSION).orEmpty(),
+        epic = intent.getStringExtra(PushNotifier.EXTRA_EPIC).orEmpty(),
+        block = intent.getStringExtra(PushNotifier.EXTRA_BLOCK).orEmpty(),
+    )
+
+    /**
+     * The screen a notice's target opens: the pane, else the headless session, else the epic at [block], each of them
+     * empty when the notice does not name it. [back] is where the opened screen returns to; null keeps each screen's own,
+     * which is the home list, or the epic for a contract.
+     */
+    private fun targetScreen(pane: String, session: String, epic: String, block: String, back: Screen? = null): Screen? =
+        when {
+            pane.isNotEmpty() -> Screen.Pane(pane, back ?: Screen.Panes)
+            session.isNotEmpty() -> Screen.Session(session, back = back ?: Screen.Panes)
+            epic.isNotEmpty() -> epicScreenOf(epic, block, back)
+            else -> null
+        }
 
     /**
      * The screen a notice opens its epic at: the contract for a contract block, the epic's now section for a question
-     * or a release step, and its top when there is no block.
+     * or a release step, and its top when there is no block. [back] is as in [targetScreen].
      */
-    private fun epicScreenOf(epicId: String, block: String?): Screen = when (block) {
-        "contract" -> Screen.Contract(epicId)
-        "question", "release_step" -> Screen.Epic(epicId, EpicOpening("now"))
-        else -> Screen.Epic(epicId)
+    private fun epicScreenOf(epicId: String, block: String, back: Screen?): Screen = when (block) {
+        "contract" -> Screen.Contract(epicId, back = back ?: Screen.Epic(epicId))
+        "question", "release_step" -> Screen.Epic(epicId, EpicOpening("now"), back ?: Screen.Panes)
+        else -> Screen.Epic(epicId, back = back ?: Screen.Panes)
     }
 
     /**
@@ -427,14 +458,14 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * How deep a screen sits: the home list is 0; a project's page, the pools or the settings is 1; an epic's contract or
-     * a task's phase output is 2; a pane, a session, an epic or a step's session is one deeper than the screen it
-     * opened from.
+     * How deep a screen sits: the home list is 0; a project's page, the pools, the notices or the settings is 1; an epic's
+     * contract or a task's phase output is 2; a pane, a session, an epic or a step's session is one deeper than the screen
+     * it opened from.
      */
     private val Screen.depth: Int
         get() = when (this) {
             Screen.Panes -> 0
-            Screen.Pools, Screen.Settings, is Screen.Project -> 1
+            Screen.Pools, Screen.Notices, Screen.Settings, is Screen.Project -> 1
             is Screen.Pane -> back.depth + 1
             is Screen.Session -> back.depth + 1
             is Screen.Epic -> back.depth + 1
@@ -449,6 +480,8 @@ class MainActivity : ComponentActivity() {
         data object Panes : Screen
         data object Settings : Screen
         data object Pools : Screen
+        /** The notice history, reached from the bell on the home list: back returns to the home list. */
+        data object Notices : Screen
         /** A conversation's pane, reached from the home tree or a project's page: back returns to [back]. */
         data class Pane(val id: String, val back: Screen = Panes) : Screen
 
