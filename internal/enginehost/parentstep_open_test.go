@@ -89,7 +89,7 @@ func newParentRig(t *testing.T) parentRig {
 		clearHolderDirs(t, root)
 		clearHolderDirs(t, gateRoot)
 	})
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	home := t.TempDir()
 	writeStepAgents(t, home)
@@ -107,13 +107,10 @@ func newParentRig(t *testing.T) parentRig {
 	t.Cleanup(manager.Close)
 	spy := &callerSpy{StepStore: s}
 	worktrees := t.TempDir()
-	steps, err := NewSteps(StepsConfig{
+	steps := NewSteps(StepsConfig{
 		Sessions: manager, Store: spy, Writer: writer, Worktrees: worktrees, Environ: environ,
 		Logger: slog.New(slog.DiscardHandler), Now: fixedClock, GateStateDir: gateRoot, GateScope: scope,
 	})
-	if err != nil {
-		t.Fatalf("NewSteps: %v", err)
-	}
 	t.Cleanup(steps.Close)
 	return parentRig{manager: manager, steps: steps, spy: spy, clock: clock, worktrees: worktrees}
 }

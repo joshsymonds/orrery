@@ -8,7 +8,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/kinds"
@@ -96,7 +95,7 @@ func reviewWorkGetenv(t *testing.T) func(string) string {
 func reviewWorkRunner(s Store, steps Steps, reviewers Reviewers, getenv func(string) string) *Runner {
 	return New(Config{
 		Store: s, Planner: &fakePlanner{}, Builder: &fakeBuilder{}, Steps: steps, Reviewers: reviewers,
-		Ending: &recordingEnding{}, Getenv: getenv, Tick: time.Hour, Now: runClock,
+		Ending: &recordingEnding{}, Getenv: getenv, Now: runClock,
 	})
 }
 

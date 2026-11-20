@@ -83,7 +83,7 @@ func TestWatchSendsEachEngineKindTyped(t *testing.T) {
 		ID: eventEngine, Subtype: "error_max_turns", IsError: true, TerminalReason: "max_turns",
 		Result: "stopped", Origin: "claude",
 	})
-	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path))
+	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path, nil))
 
 	at := int64(eventAt)
 	want := []*orreryv1.WatchResponse{
@@ -139,7 +139,8 @@ func TestWatchSendsUnfinishedTextToLateJoiner(t *testing.T) {
 	applyEngineOps(t, s, store.EngineText{
 		ID: eventEngine, MessageID: "msg-1", Index: 0, Kind: "text", Text: "partial",
 	})
-	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path))
+	_, changes := startChanges(t, s)
+	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path, changes))
 
 	w := openWatch(t, events, 0)
 	if got := w.next(t).GetSeq(); got != 1 {
@@ -171,7 +172,8 @@ func TestWatchSendsUnfinishedTextOnlyWhenItChanges(t *testing.T) {
 	applyEngineOps(t, s, store.EngineText{
 		ID: eventEngine, MessageID: "msg-1", Index: 0, Kind: "text", Text: "a",
 	})
-	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path))
+	_, changes := startChanges(t, s)
+	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path, changes))
 
 	w := openWatch(t, events, 0)
 	if got := w.next(t).GetSeq(); got != 1 {
@@ -179,19 +181,26 @@ func TestWatchSendsUnfinishedTextOnlyWhenItChanges(t *testing.T) {
 	}
 	wantMessage(t, w.next(t), engineText(1, "a"))
 
-	// Ten polls pass with "a" unchanged. A stream that resent "a" on those polls would have a repeat queued, and the
-	// next message read would be that repeat rather than the changed text.
-	time.Sleep(10 * eventPoll)
+	// Each write below wakes the stream, which sends the event it reads, then the text of the unfinished block only when
+	// that text differs from the text the stream sent before. The text follows the event on the stream, so a repeat of
+	// "a" would come before the message of the next write.
+	promptEngine(t, s, 1)
+	if msg := w.next(t); msg.GetSeq() != 2 || msg.GetEngineText() != nil {
+		t.Fatalf("prompt after unchanged text: got %v, want the event at seq 2 with no repeated text", msg)
+	}
 	applyEngineOps(t, s, store.EngineText{
 		ID: eventEngine, MessageID: "msg-1", Index: 0, Kind: "text", Text: "ab",
 	})
-	wantMessage(t, w.next(t), engineText(1, "ab"))
+	wantMessage(t, w.next(t), engineText(2, "ab"))
 
-	// Ten polls pass with "ab" unchanged, then a later event arrives. A repeat of "ab" would be queued ahead of it.
-	time.Sleep(10 * eventPoll)
+	// A repeat of "ab" would follow the event at seq 3 and come before the event at seq 4.
 	promptEngine(t, s, 1)
-	if got := w.next(t).GetSeq(); got != 2 {
-		t.Fatalf("message after the changed text: seq %d, want 2 with no repeated text", got)
+	if msg := w.next(t); msg.GetSeq() != 3 || msg.GetEngineText() != nil {
+		t.Fatalf("prompt after changed text: got %v, want the event at seq 3 with no repeated text", msg)
+	}
+	promptEngine(t, s, 1)
+	if msg := w.next(t); msg.GetSeq() != 4 || msg.GetEngineText() != nil {
+		t.Fatalf("message after the changed text: got %v, want the event at seq 4 with no repeated text", msg)
 	}
 }
 
@@ -203,7 +212,8 @@ func TestWatchSendsBlockTextAgainAfterItLeavesUnfinished(t *testing.T) {
 	applyEngineOps(t, s, store.EngineText{
 		ID: eventEngine, MessageID: "msg-1", Index: 0, Kind: "text", Text: "a",
 	})
-	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path))
+	_, changes := startChanges(t, s)
+	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path, changes))
 
 	w := openWatch(t, events, 0)
 	w.next(t)
@@ -233,7 +243,7 @@ func TestWatchResumedSendsLaterEventsThenCurrentText(t *testing.T) {
 	applyEngineOps(t, s, store.EngineText{
 		ID: eventEngine, MessageID: "msg-1", Index: 0, Kind: "text", Text: "resumed text",
 	})
-	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path))
+	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path, nil))
 
 	w := openWatch(t, events, 1)
 	if got := w.next(t).GetSeq(); got != 2 {
@@ -253,7 +263,7 @@ func TestWatchSendsPromptSenderAndRound(t *testing.T) {
 		store.EventEnginePrompt,
 		`{"text":"fix the build","promptId":"p-1","sender":"engine","round":2}`,
 	)
-	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path))
+	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path, nil))
 
 	w := openWatch(t, events, 0)
 	if got := w.next(t).GetSeq(); got != 1 {
@@ -289,7 +299,7 @@ func TestWatchEndsInternalOnMalformedEnginePayload(t *testing.T) {
 			s := openEventStore(t, path)
 			addEngine(t, s)
 			insertRawEvent(t, path, tc.kind, tc.payload)
-			events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path))
+			events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path, nil))
 
 			w := openWatch(t, events, 0)
 			if got := w.next(t).GetSeq(); got != 1 {

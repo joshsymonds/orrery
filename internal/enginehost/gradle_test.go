@@ -7,7 +7,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/exectest"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -78,7 +77,7 @@ func newGradleManager(t *testing.T, root string, environ []string) (*Manager, st
 		t.Fatalf("find sh: %v", err)
 	}
 	s, path := openStore(t)
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	m := NewManager(Config{
 		Shell:       sh,

@@ -577,5 +577,150 @@
       ],
       "additionalProperties": false
     }
+  },
+  {
+    "name": "contract_accept",
+    "description": "Accept a stored contract by id, with the owner's words. Returns the stored contract with its versions and states.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "the id of the stored contract to accept",
+          "type": "string"
+        },
+        "words": {
+          "description": "the words the owner accepts the contract with",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "contract_get",
+    "description": "Return a stored contract by id, with its versions and state changes, as protobuf JSON.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "the id of the stored contract to read",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "contract_list",
+    "description": "List the stored contracts as summaries, without their versions or state changes, as protobuf JSON.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    }
+  },
+  {
+    "name": "contract_propose",
+    "description": "Propose a contract: store the contract in the file at path as version 1 in state proposed, under id, with the words and the file's decisions. The file is one JSON object holding the contract in protobuf JSON field names, plus an optional decisions array. Returns the stored contract with its versions and states. A file that does not read is refused, naming the path.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "the id the new contract takes: the id of the contract in the file",
+          "type": "string"
+        },
+        "path": {
+          "description": "the contract file: one JSON object holding the contract in protobuf JSON field names, plus an optional decisions array of decisions in protobuf JSON field names",
+          "type": "string"
+        },
+        "words": {
+          "description": "the words the writer gives with the version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "path",
+        "words"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "contract_reopen",
+    "description": "Reopen a stored contract by id, moving it back to state proposed, with the words. Returns the stored contract with its versions and states.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "the id of the stored contract to reopen",
+          "type": "string"
+        },
+        "words": {
+          "description": "the words the contract is reopened with",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "contract_revise",
+    "description": "Revise a stored contract by id: append the contract in the file at path as a new version, with the words and the file's decisions. The file has the shape contract_propose reads. Returns the stored contract with its versions and states.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "the id of the stored contract to revise",
+          "type": "string"
+        },
+        "path": {
+          "description": "the contract file the new version is read from, in the shape contract_propose reads",
+          "type": "string"
+        },
+        "words": {
+          "description": "the words the writer gives with the version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "path",
+        "words"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "contract_set_aside",
+    "description": "Set a stored contract aside by id, with words. Returns the stored contract with its versions and states.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "the id of the stored contract to set aside",
+          "type": "string"
+        },
+        "words": {
+          "description": "the words the contract is set aside with",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "words"
+      ],
+      "type": "object"
+    }
   }
 ]

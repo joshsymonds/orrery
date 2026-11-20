@@ -83,7 +83,7 @@ func TestRecoveryStartsStepOfTurnWithNoStepAndKeepsItsTriggers(t *testing.T) {
 	claimTurnLeftRunning(t, s, "", "", "")
 	steps := newFakeSteps()
 	var reads atomic.Int64
-	runRunner(t, recoverConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
+	runner := runRunner(t, recoverConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
 
 	waitForStarts(t, steps, 1)
 	waitFor(t, "step-1 recorded on turn 1", func() bool {
@@ -94,8 +94,7 @@ func TestRecoveryStartsStepOfTurnWithNoStepAndKeepsItsTriggers(t *testing.T) {
 		t.Errorf("step id = %q, want %q", got, runnerTurnStepID)
 	}
 
-	passesAtStart := reads.Load()
-	waitFor(t, "three passes while the step runs", func() bool { return reads.Load() >= passesAtStart+3 })
+	passRunner(t, runner, 3)
 	if turns := epicOf(t, s).Turns; len(turns) != 1 || turns[0].State != "running" {
 		t.Errorf("turns while the step runs = %+v, want one running turn: no second turn is claimed", turns)
 	}
@@ -115,7 +114,7 @@ func TestRecoveryStartsStepOfTurnWithNoStepAndSettlesItByItsDoneEnd(t *testing.T
 	claimTurnLeftRunning(t, s, "", "", "")
 	steps := newFakeSteps()
 	var reads atomic.Int64
-	runRunner(t, recoverConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
+	runner := runRunner(t, recoverConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
 
 	waitForStarts(t, steps, 1)
 	waitFor(t, "step-1 recorded on turn 1", func() bool { return epicOf(t, s).Turns[0].Step == "step-1" })
@@ -123,8 +122,7 @@ func TestRecoveryStartsStepOfTurnWithNoStepAndSettlesItByItsDoneEnd(t *testing.T
 	waitFor(t, "turn 1 to succeed once its step ends", func() bool {
 		return epicOf(t, s).Turns[0].State == "succeeded"
 	})
-	passesAtSuccess := reads.Load()
-	waitFor(t, "three more passes", func() bool { return reads.Load() >= passesAtSuccess+3 })
+	passRunner(t, runner, 3)
 
 	if n := len(steps.started()); n != 1 {
 		t.Errorf("steps started = %d, want 1: the turn's step starts once and no second turn is claimed", n)
@@ -255,11 +253,10 @@ func TestRecoveryCompletesTurnWhoseStepEndedDoneWithValidReturn(t *testing.T) {
 	claimTurnLeftRunning(t, s, "old-step-1", validPlan, "done")
 	steps := newFakeSteps()
 	var reads atomic.Int64
-	runRunner(t, recoverConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
+	runner := runRunner(t, recoverConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
 
 	waitFor(t, "turn 1 to succeed", func() bool { return epicOf(t, s).Turns[0].State == "succeeded" })
-	passesAtSuccess := reads.Load()
-	waitFor(t, "three more passes", func() bool { return reads.Load() >= passesAtSuccess+3 })
+	passRunner(t, runner, 3)
 
 	if n := len(steps.started()); n != 0 {
 		t.Errorf("steps started = %d, want 0: a completed turn is not rerun", n)
@@ -289,10 +286,9 @@ func TestRecoveryWaitsForOpenStepAndSettlesTurnWhenItEnds(t *testing.T) {
 	steps := newFakeSteps()
 	steps.ended["old-step-1"] = make(chan store.StepRow, 1)
 	var reads atomic.Int64
-	runRunner(t, recoverConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
+	runner := runRunner(t, recoverConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
 
-	passesAtStart := reads.Load()
-	waitFor(t, "three passes while the open step runs", func() bool { return reads.Load() >= passesAtStart+3 })
+	passRunner(t, runner, 3)
 	if n := len(steps.started()); n != 0 {
 		t.Errorf("steps started while the open step runs = %d, want 0", n)
 	}

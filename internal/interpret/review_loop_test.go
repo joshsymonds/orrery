@@ -7,7 +7,6 @@ import (
 	"reflect"
 	"slices"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/kinds"
@@ -346,7 +345,7 @@ func reviewLoopCaseWith(t *testing.T, script []reviewLoopEnd, turn reviewLoopTur
 	reviewers := &reviewLoopReviewers{reviewWorkReviewers: &reviewWorkReviewers{}}
 	runner := New(Config{
 		Store: s, Planner: &fakePlanner{}, Builder: &fakeBuilder{}, Steps: &reviewLoopSteps{store: s},
-		Reviewers: reviewers, Ending: s, Getenv: reviewWorkGetenv(t), Tick: time.Hour, Now: runClock,
+		Reviewers: reviewers, Ending: s, Getenv: reviewWorkGetenv(t), Now: runClock,
 	})
 	causes := reviewLoopDrive(t, s, runner, script, turn)
 	review, err := s.EpicReview(context.Background(), runEpic)

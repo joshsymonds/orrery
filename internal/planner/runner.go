@@ -48,16 +48,17 @@ type Steps interface {
 	Stop(ctx context.Context, id string) error
 }
 
-// Config configures a Runner. A Tick that is not positive means five seconds, and a nil Now means time.Now. A nil
-// Logger discards. Resolve answers whether the gates and judges of a planned task resolve for its epic. NewTimer arms a
-// timer that sends on its channel once, after a duration, and returns the timer's stop; a nil NewTimer wraps
-// time.NewTimer. After returns the channel a record of a turn's step that the store refused as busy waits on before it
-// is tried again, and nil is time.After.
+// Config configures a Runner. Retry is how long a failed turn write, or a failed stop of a limited step, waits before it
+// is tried again; a Retry that is not positive means five seconds. A nil Now means time.Now. A nil Logger discards.
+// Resolve answers whether the gates and judges of a planned task resolve for its epic. NewTimer arms a timer that sends
+// on its channel once, after a duration, and returns the timer's stop; a nil NewTimer wraps time.NewTimer. After returns
+// the channel a record of a turn's step that the store refused as busy waits on before it is tried again, and nil is
+// time.After.
 type Config struct {
 	Store    Store
 	Steps    Steps
 	Agent    func() (string, error)
-	Tick     time.Duration
+	Retry    time.Duration
 	Now      func() time.Time
 	Logger   *slog.Logger
 	Resolve  Resolver
@@ -68,8 +69,9 @@ type Config struct {
 // stepRecordRetry is how long after the store refuses the record of a turn's step as busy the record is tried again.
 const stepRecordRetry = time.Second
 
-// defaultTick is how often a Runner passes when its Config names no positive tick.
-const defaultTick = 5 * time.Second
+// defaultRetry is how long a failed turn write or stop waits before it is tried again when Config names no positive
+// Retry.
+const defaultRetry = 5 * time.Second
 
 // stepDone is the end of a step whose return passed its check.
 const stepDone = "done"
@@ -100,28 +102,28 @@ const (
 )
 
 // Runner passes over the epics with pending triggers and runs their planner turns. Each claimed turn runs in its own
-// goroutine, and turns tracks them until Run returns.
+// goroutine, and turns tracks them until WaitTurns returns.
 type Runner struct {
-	store    Store
-	steps    Steps
-	agent    func() (string, error)
-	tick     time.Duration
-	now      func() time.Time
-	after    func(time.Duration) <-chan time.Time
-	logger   *slog.Logger
-	resolve  Resolver
-	newTimer func(time.Duration) (<-chan time.Time, func() bool)
-	turns    sync.WaitGroup
+	store      Store
+	steps      Steps
+	agent      func() (string, error)
+	retryAfter time.Duration
+	now        func() time.Time
+	after      func(time.Duration) <-chan time.Time
+	logger     *slog.Logger
+	resolve    Resolver
+	newTimer   func(time.Duration) (<-chan time.Time, func() bool)
+	turns      sync.WaitGroup
 }
 
 // New returns a Runner for cfg.
 func New(cfg Config) *Runner {
 	runner := &Runner{
-		store: cfg.Store, steps: cfg.Steps, agent: cfg.Agent, tick: cfg.Tick, now: cfg.Now, after: cfg.After,
+		store: cfg.Store, steps: cfg.Steps, agent: cfg.Agent, retryAfter: cfg.Retry, now: cfg.Now, after: cfg.After,
 		logger: cfg.Logger, resolve: cfg.Resolve, newTimer: cfg.NewTimer,
 	}
-	if runner.tick <= 0 {
-		runner.tick = defaultTick
+	if runner.retryAfter <= 0 {
+		runner.retryAfter = defaultRetry
 	}
 	if runner.now == nil {
 		runner.now = time.Now
@@ -141,29 +143,12 @@ func New(cfg Config) *Runner {
 	return runner
 }
 
-// Run settles the turns a previous orreryd left running, then passes at once, then once per tick, until ctx ends. It
-// then waits for the turns it started and returns.
-func (r *Runner) Run(ctx context.Context) {
-	ticker := time.NewTicker(r.tick)
-	defer ticker.Stop()
-	r.recoverTurns(ctx)
-	for {
-		r.pass(ctx, nil)
-		select {
-		case <-ctx.Done():
-			r.turns.Wait()
-			return
-		case <-ticker.C:
-		}
-	}
-}
-
-// Recover settles the turns a previous orreryd left running, as Run does before its first pass.
+// Recover settles the turns a previous orreryd left running.
 func (r *Runner) Recover(ctx context.Context) {
 	r.recoverTurns(ctx)
 }
 
-// Pass carries out the pending actions and decides each epic with pending triggers once, as Run does on each tick.
+// Pass carries out the pending actions and decides each epic with pending triggers once.
 func (r *Runner) Pass(ctx context.Context) {
 	r.pass(ctx, nil)
 }
@@ -173,7 +158,7 @@ func (r *Runner) PassOnly(ctx context.Context, open func(epic string) bool) {
 	r.pass(ctx, open)
 }
 
-// WaitTurns waits until every turn the runner started has settled, as Run does before it returns.
+// WaitTurns waits until every turn the runner started has settled.
 func (r *Runner) WaitTurns() {
 	r.turns.Wait()
 }
@@ -572,9 +557,9 @@ func (r *Runner) stopStep(ctx context.Context, wait *stepWait) {
 	wait.stopped = true
 }
 
-// armRetry arms the one retry timer of wait, of one tick.
+// armRetry arms the one retry timer of wait, of the retry duration.
 func (r *Runner) armRetry(wait *stepWait) {
-	wait.retry, wait.disarm = r.newTimer(r.tick)
+	wait.retry, wait.disarm = r.newTimer(r.retryAfter)
 }
 
 // ready returns the channel that signals the pending rows of wait. It is nil while wait has no subscription, which blocks
@@ -710,8 +695,8 @@ func (r *Runner) freeTurn(ctx context.Context, epic string, seq int64, free stor
 
 // retry runs op, a store call that settles a turn, until it succeeds or the store answers ErrTurnNotRunning or
 // ErrBadQuestion, which no later call changes, and returns that error wrapped with what. Until then each failed call is
-// logged and run again after a tick with the same arguments. Once ctx has ended, retry calls nothing more and returns
-// nil, which leaves the turn running for the next start.
+// logged and run again after the retry duration with the same arguments. Once ctx has ended, retry calls nothing more and
+// returns nil, which leaves the turn running for the next start.
 func (r *Runner) retry(ctx context.Context, what string, op func() error) error {
 	for ctx.Err() == nil {
 		err := op()
@@ -723,9 +708,11 @@ func (r *Runner) retry(ctx context.Context, what string, op func() error) error 
 			return err
 		}
 		r.logger.ErrorContext(ctx, "retry planner turn write", "err", err)
+		fired, stop := r.newTimer(r.retryAfter)
 		select {
 		case <-ctx.Done():
-		case <-time.After(r.tick):
+			stop()
+		case <-fired:
 		}
 	}
 	return nil

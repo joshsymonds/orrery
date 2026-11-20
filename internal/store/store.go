@@ -42,6 +42,8 @@ type Store struct {
 	callerEvent atomic.Pointer[func()]
 	// epicsChanged is the hook OnEpicsChanged sets, nil when none is set.
 	epicsChanged atomic.Pointer[func(epics []string)]
+	// sessionEvents is the hook OnSessionEvents sets, nil when none is set.
+	sessionEvents atomic.Pointer[func(seq int64, sessions []string)]
 	// epicStored, epicEnded, firstPrompt and turnEnded are the hooks OnEpicStored, OnEpicEnded, OnFirstPrompt and
 	// OnTurnEnded set, nil when none is set.
 	epicStored  atomic.Pointer[func(epic string)]

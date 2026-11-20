@@ -33,8 +33,8 @@ func TestRunnerWaitErrorKeepsTurnRunningUntilStepEnds(t *testing.T) {
 	steps := &flakyWaitSteps{fakeSteps: newFakeSteps()}
 	timers := newHandTimers()
 	var reads atomic.Int64
-	runRunner(t, Config{
-		Store: s, Steps: steps, Agent: agentReturning(runnerAgent, nil, &reads), Tick: runnerTick, Now: claimedAt,
+	runner := runRunner(t, Config{
+		Store: s, Steps: steps, Agent: agentReturning(runnerAgent, nil, &reads), Retry: runnerRetry, Now: claimedAt,
 		Resolve: testResolver{}, NewTimer: timers.newTimer,
 	})
 	// Each failed Subscribe arms a retry, which the test fires; the Subscribe after the last failure succeeds.
@@ -50,8 +50,7 @@ func TestRunnerWaitErrorKeepsTurnRunningUntilStepEnds(t *testing.T) {
 		t.Errorf("turn 1 state after %d failed subscribes = %q, want running", waitFailures, got)
 	}
 
-	passesAtStart := reads.Load()
-	waitFor(t, "three more passes", func() bool { return reads.Load() >= passesAtStart+3 })
+	passRunner(t, runner, 3)
 	if n := len(steps.started()); n != 1 {
 		t.Errorf("steps started = %d while turn 1 runs after failed waits, want 1", n)
 	}

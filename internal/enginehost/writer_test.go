@@ -183,8 +183,8 @@ func TestFlushStoresEverySessionInOneApplyCallInPutOrder(t *testing.T) {
 	s, path := openStore(t)
 	addSessions(t, s, "a", "b", "c")
 	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
-	// A one-hour tick never fires during the test, so every flush is one the test makes.
-	w := NewWriter(WriterConfig{Applier: applier, Tick: time.Hour})
+	// Run is not started, so every flush is one the test makes.
+	w := NewWriter(WriterConfig{Applier: applier})
 	ctx := t.Context()
 
 	for _, put := range []struct {
@@ -220,7 +220,7 @@ func TestRepeatedEngineTextWhileQueuedStoresLastTextInOneCall(t *testing.T) {
 	s, _ := openStore(t)
 	addSessions(t, s, "a")
 	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
-	w := NewWriter(WriterConfig{Applier: applier, Tick: time.Hour})
+	w := NewWriter(WriterConfig{Applier: applier})
 	ctx := t.Context()
 
 	block := func(text string) store.EngineOp {
@@ -247,7 +247,7 @@ func TestEngineTextAfterItsDoneIsNotCoalescedIntoIt(t *testing.T) {
 	s, _ := openStore(t)
 	addSessions(t, s, "a")
 	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
-	w := NewWriter(WriterConfig{Applier: applier, Tick: time.Hour})
+	w := NewWriter(WriterConfig{Applier: applier})
 	ctx := t.Context()
 
 	text := store.EngineText{ID: "a", MessageID: "m1", Index: 0, Kind: "text", Text: "first"}
@@ -275,7 +275,7 @@ func TestPutBlocksAtLimitWhileStoreIsLockedAndStoresEveryOpOnce(t *testing.T) {
 	s, path := openStore(t, store.WithBusyTimeout(0))
 	addSessions(t, s, "a", "b")
 	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
-	w := NewWriter(WriterConfig{Applier: applier, Tick: 5 * time.Millisecond, Limit: 3})
+	w := NewWriter(WriterConfig{Applier: applier, Limit: 3})
 	stop := startRun(t, w)
 	ctx := t.Context()
 	release := lockWrites(t, path)
@@ -288,7 +288,7 @@ func TestPutBlocksAtLimitWhileStoreIsLockedAndStoresEveryOpOnce(t *testing.T) {
 	blocked := make(chan error, 1)
 	go func() { blocked <- w.Put(ctx, "a", prompt("a", "a4")) }()
 
-	// Two failed flushes prove the writer ticked while the store was locked, so a1 to a3 were retried, not lost.
+	// Two failed flushes prove the writer retried while the store was locked, so a1 to a3 were kept, not lost.
 	applier.waitCalls(t, 2)
 	select {
 	case err := <-blocked:
@@ -320,7 +320,7 @@ func TestCommitReturnsOnlyAfterItsOpsAreStored(t *testing.T) {
 	s, path := openStore(t)
 	addSessions(t, s, "a")
 	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
-	w := NewWriter(WriterConfig{Applier: applier, Tick: 5 * time.Millisecond})
+	w := NewWriter(WriterConfig{Applier: applier})
 	startRun(t, w)
 
 	if err := w.Commit(t.Context(), "a", prompt("a", "committed")); err != nil {
@@ -336,7 +336,7 @@ func TestCancelingRunFlushesQueuedOps(t *testing.T) {
 	s, path := openStore(t)
 	addSessions(t, s, "a", "b")
 	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
-	w := NewWriter(WriterConfig{Applier: applier, Tick: time.Hour})
+	w := NewWriter(WriterConfig{Applier: applier})
 	stop := startRun(t, w)
 
 	if err := w.Put(t.Context(), "a", prompt("a", "queued-a")); err != nil {
@@ -360,7 +360,7 @@ func TestPutAndCommitAfterRunStopsReturnErrWriterStopped(t *testing.T) {
 	s, _ := openStore(t)
 	addSessions(t, s, "a")
 	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
-	w := NewWriter(WriterConfig{Applier: applier, Tick: time.Hour, Limit: 1})
+	w := NewWriter(WriterConfig{Applier: applier, Limit: 1})
 	stop := startRun(t, w)
 	stop()
 
@@ -378,7 +378,7 @@ func TestPutBlockedAtLimitReturnsErrWriterStoppedWhenRunStops(t *testing.T) {
 	s, path := openStore(t, store.WithBusyTimeout(0))
 	addSessions(t, s, "a")
 	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
-	w := NewWriter(WriterConfig{Applier: applier, Tick: 5 * time.Millisecond, Limit: 1})
+	w := NewWriter(WriterConfig{Applier: applier, Limit: 1})
 	stop := startRun(t, w)
 	release := lockWrites(t, path)
 	ctx := t.Context()
@@ -420,17 +420,43 @@ func (a *gatedApplier) ApplyEngine(ctx context.Context, ops []store.EngineOp, no
 	return a.store.ApplyEngine(ctx, ops, now)
 }
 
+// refuseThenGateApplier refuses its first ApplyEngine call, so the ops of that call stay queued, and its second call
+// signals entered and waits for release before it stores through store. Run is its only caller.
+type refuseThenGateApplier struct {
+	store   *store.Store
+	calls   int
+	refused chan struct{}
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (a *refuseThenGateApplier) ApplyEngine(ctx context.Context, ops []store.EngineOp, now time.Time) error {
+	a.calls++
+	if a.calls == 1 {
+		close(a.refused)
+		return errors.New("store busy")
+	}
+	close(a.entered)
+	<-a.release
+	return a.store.ApplyEngine(ctx, ops, now)
+}
+
 func TestPutDuringTheLastFlushReturnsErrWriterStopped(t *testing.T) {
 	t.Parallel()
 	s, path := openStore(t)
 	addSessions(t, s, "a")
-	applier := &gatedApplier{store: s, entered: make(chan struct{}), release: make(chan struct{})}
-	w := NewWriter(WriterConfig{Applier: applier, Tick: time.Hour})
+	applier := &refuseThenGateApplier{
+		store: s, refused: make(chan struct{}), entered: make(chan struct{}), release: make(chan struct{}),
+	}
+	// The refused flush arms a retry timer that neverTimer never fires, so the flush that starts on Run's cancellation
+	// is the last one, and it is the gated call.
+	w := NewWriter(WriterConfig{Applier: applier, NewTimer: neverTimer})
 	stop := startRun(t, w)
 
 	if err := w.Put(t.Context(), "a", prompt("a", "queued")); err != nil {
 		t.Fatalf("Put before stop: %v", err)
 	}
+	receive(t, applier.refused)
 	stopped := make(chan struct{})
 	go func() {
 		stop()
@@ -452,7 +478,7 @@ func TestPutDuringTheLastFlushReturnsErrWriterStopped(t *testing.T) {
 }
 
 // ctxApplier records whether the context of its first ApplyEngine call was canceled while that call was in flight.
-// The first call signals entered and waits for release, so a test can cancel Run during a tick flush.
+// The first call signals entered and waits for release, so a test can cancel Run during a flush.
 type ctxApplier struct {
 	store    *store.Store
 	once     sync.Once
@@ -479,7 +505,7 @@ func TestRunCancelDoesNotCancelATickFlushInFlight(t *testing.T) {
 	applier := &ctxApplier{
 		store: s, entered: make(chan struct{}), release: make(chan struct{}), canceled: make(chan bool, 1),
 	}
-	w := NewWriter(WriterConfig{Applier: applier, Tick: 5 * time.Millisecond})
+	w := NewWriter(WriterConfig{Applier: applier})
 	ctx, cancel := context.WithCancel(t.Context())
 	stopped := make(chan struct{})
 	go func() {
@@ -497,7 +523,7 @@ func TestRunCancelDoesNotCancelATickFlushInFlight(t *testing.T) {
 	receive(t, stopped)
 
 	if canceled {
-		t.Fatal("the tick flush in flight saw Run's cancellation")
+		t.Fatal("the flush in flight saw Run's cancellation")
 	}
 	if got, want := promptTexts(t, path, "a"), []string{"once"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("stored texts: got %v, want %v", got, want)
@@ -516,7 +542,7 @@ func waitQueued(t *testing.T, w *Writer, n int, ended <-chan struct{}) {
 }
 
 // A session whose row the retention sync removed must not stall the writer: its op is dropped with a warning, its
-// Commit fails wrapping ErrNoEngineSession, and the other session's op in the same batch is stored that tick.
+// Commit fails wrapping ErrNoEngineSession, and the other session's op in the same batch is stored in that flush.
 func TestMissingEngineSessionDropsItsOpAndStoresTheRest(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -543,9 +569,8 @@ func TestMissingEngineSessionDropsItsOpAndStoresTheRest(t *testing.T) {
 	var logs bytes.Buffer
 	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
 	w := NewWriter(WriterConfig{
-		Applier: applier, Tick: time.Hour, Logger: slog.New(slog.NewTextHandler(&logs, nil)),
+		Applier: applier, Logger: slog.New(slog.NewTextHandler(&logs, nil)),
 	})
-	stop := startRun(t, w)
 
 	// Session b's op is queued first, so the op for the missing row is at index 1 of the batch.
 	if err := w.Put(ctx, "b", prompt("b", "b1")); err != nil {
@@ -558,7 +583,7 @@ func TestMissingEngineSessionDropsItsOpAndStoresTheRest(t *testing.T) {
 	}()
 	ended, commitAResult := waittest.Closed(commitA)
 	waitQueued(t, w, 2, ended)
-	// The tick is one flush the test makes, so both ops share one batch.
+	// Run is not started, so the flush the test makes holds both ops in one batch.
 	w.flush(ctx)
 
 	if err := receive(t, commitAResult); !errors.Is(err, store.ErrNoEngineSession) {
@@ -579,19 +604,18 @@ func TestMissingEngineSessionDropsItsOpAndStoresTheRest(t *testing.T) {
 		t.Fatalf("ops in the second call: got %+v, want %+v", calls[1], want)
 	}
 
-	// The dropped op is never sent again, and canceling Run leaves b stored.
+	// The dropped op is never sent again.
 	w.flush(ctx)
-	stop()
 	if got := len(applier.callsOf()); got != 2 {
-		t.Fatalf("ApplyEngine calls after another flush and stop: got %d, want 2", got)
+		t.Fatalf("ApplyEngine calls after another flush: got %d, want 2", got)
 	}
 	if got, want := promptTexts(t, path, "b"), []string{"b1"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("session b stored texts after stop: got %v, want %v", got, want)
+		t.Fatalf("session b stored texts after the flush: got %v, want %v", got, want)
 	}
 }
 
 // A Commit whose step op names a step with no row must not stall the writer: its op is dropped with a warning naming
-// its session, its Commit fails wrapping ErrNoStep, and the other session's op in the same batch is stored that tick.
+// its session, its Commit fails wrapping ErrNoStep, and the other session's op in the same batch is stored in that flush.
 func TestMissingStepDropsItsOpAndStoresTheRest(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -601,9 +625,8 @@ func TestMissingStepDropsItsOpAndStoresTheRest(t *testing.T) {
 	var logs bytes.Buffer
 	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
 	w := NewWriter(WriterConfig{
-		Applier: applier, Tick: time.Hour, Logger: slog.New(slog.NewTextHandler(&logs, nil)),
+		Applier: applier, Logger: slog.New(slog.NewTextHandler(&logs, nil)),
 	})
-	stop := startRun(t, w)
 
 	// Session a has an engine row but no step row. Session b's op is queued first, so the op for the missing step is at
 	// index 1 of the batch.
@@ -616,7 +639,7 @@ func TestMissingStepDropsItsOpAndStoresTheRest(t *testing.T) {
 	}()
 	ended, commitAResult := waittest.Closed(commitA)
 	waitQueued(t, w, 2, ended)
-	// The tick is one flush the test makes, so both ops share one batch.
+	// Run is not started, so the flush the test makes holds both ops in one batch.
 	w.flush(ctx)
 
 	if err := receive(t, commitAResult); !errors.Is(err, store.ErrNoStep) {
@@ -642,9 +665,8 @@ func TestMissingStepDropsItsOpAndStoresTheRest(t *testing.T) {
 
 	// The dropped op is never sent again.
 	w.flush(ctx)
-	stop()
 	if got := len(applier.callsOf()); got != 2 {
-		t.Fatalf("ApplyEngine calls after another flush and stop: got %d, want 2", got)
+		t.Fatalf("ApplyEngine calls after another flush: got %d, want 2", got)
 	}
 }
 
@@ -657,58 +679,48 @@ func promptGroups(ids ...string) []SessionOps {
 	return groups
 }
 
-// Many sessions passed to one CommitAll reach the Applier in one ApplyEngine call, whatever the tick.
+// Many sessions passed to one CommitAll reach the Applier in one ApplyEngine call: the call queues them all under one
+// hold of the lock, and the wake it sends starts one flush that takes them all.
 func TestCommitAllStoresManySessionsInOneApplyCall(t *testing.T) {
 	t.Parallel()
-	for _, tc := range []struct {
-		name string
-		tick time.Duration
-	}{
-		{name: "short tick", tick: time.Millisecond},
-		{name: "default tick", tick: 0},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			s, path := openStore(t)
-			ids := make([]string, 1000)
-			for i := range ids {
-				ids[i] = fmt.Sprintf("s%04d", i)
-			}
-			addSessions(t, s, ids...)
-			applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
-			w := NewWriter(WriterConfig{Applier: applier, Tick: tc.tick})
-			startRun(t, w)
+	s, path := openStore(t)
+	ids := make([]string, 1000)
+	for i := range ids {
+		ids[i] = fmt.Sprintf("s%04d", i)
+	}
+	addSessions(t, s, ids...)
+	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
+	w := NewWriter(WriterConfig{Applier: applier})
+	startRun(t, w)
 
-			errs, err := w.CommitAll(t.Context(), promptGroups(ids...))
-			if err != nil {
-				t.Fatalf("CommitAll: %v", err)
-			}
-			if len(errs) != len(ids) {
-				t.Fatalf("errors: got %d, want one per group (%d)", len(errs), len(ids))
-			}
-			for i, e := range errs {
-				if e != nil {
-					t.Fatalf("group %s: got error %v, want nil", ids[i], e)
-				}
-			}
+	errs, err := w.CommitAll(t.Context(), promptGroups(ids...))
+	if err != nil {
+		t.Fatalf("CommitAll: %v", err)
+	}
+	if len(errs) != len(ids) {
+		t.Fatalf("errors: got %d, want one per group (%d)", len(errs), len(ids))
+	}
+	for i, e := range errs {
+		if e != nil {
+			t.Fatalf("group %s: got error %v, want nil", ids[i], e)
+		}
+	}
 
-			calls := applier.callsOf()
-			if len(calls) != 1 {
-				t.Fatalf("ApplyEngine calls: got %d, want 1", len(calls))
-			}
-			if got := len(calls[0]); got != len(ids) {
-				t.Fatalf("ops in the call: got %d, want %d", got, len(ids))
-			}
-			for _, id := range []string{ids[0], ids[len(ids)-1]} {
-				if got, want := promptTexts(t, path, id), []string{id + "-1"}; !reflect.DeepEqual(got, want) {
-					t.Fatalf("session %s stored texts: got %v, want %v", id, got, want)
-				}
-			}
-		})
+	calls := applier.callsOf()
+	if len(calls) != 1 {
+		t.Fatalf("ApplyEngine calls: got %d, want 1", len(calls))
+	}
+	if got := len(calls[0]); got != len(ids) {
+		t.Fatalf("ops in the call: got %d, want %d", got, len(ids))
+	}
+	for _, id := range []string{ids[0], ids[len(ids)-1]} {
+		if got, want := promptTexts(t, path, id), []string{id + "-1"}; !reflect.DeepEqual(got, want) {
+			t.Fatalf("session %s stored texts: got %v, want %v", id, got, want)
+		}
 	}
 }
 
-// A group whose row is gone gets its dropped error; every other group gets nil and is stored in the same tick.
+// A group whose row is gone gets its dropped error; every other group gets nil and is stored in the same flush.
 func TestCommitAllDropsOnlyTheGroupWhoseRowIsGone(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -719,7 +731,7 @@ func TestCommitAllDropsOnlyTheGroupWhoseRowIsGone(t *testing.T) {
 	var logs bytes.Buffer
 	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
 	w := NewWriter(WriterConfig{
-		Applier: applier, Tick: 5 * time.Millisecond, Logger: slog.New(slog.NewTextHandler(&logs, nil)),
+		Applier: applier, Logger: slog.New(slog.NewTextHandler(&logs, nil)),
 	})
 	startRun(t, w)
 
@@ -767,7 +779,7 @@ func TestCommitAllAfterRunStopsReturnsErrWriterStopped(t *testing.T) {
 	s, _ := openStore(t)
 	addSessions(t, s, "a")
 	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
-	w := NewWriter(WriterConfig{Applier: applier, Tick: time.Hour})
+	w := NewWriter(WriterConfig{Applier: applier})
 	stop := startRun(t, w)
 	stop()
 
@@ -784,7 +796,7 @@ func TestCommitAllAfterRunStopsReturnsErrWriterStopped(t *testing.T) {
 // any wait would fail.
 func TestCommitAllWithNoOpsReturnsAtOnce(t *testing.T) {
 	t.Parallel()
-	w := NewWriter(WriterConfig{Tick: time.Hour})
+	w := NewWriter(WriterConfig{})
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 

@@ -58,17 +58,14 @@ func newStepJudgeRig(t *testing.T) *stepJudgeRig {
 func (r *stepJudgeRig) build(t *testing.T) {
 	t.Helper()
 	r.applier = &crashApplier{inner: r.store}
-	writer := NewWriter(WriterConfig{Applier: r.applier, Tick: 5 * time.Millisecond, Now: r.clock.now})
+	writer := NewWriter(WriterConfig{Applier: r.applier, Now: r.clock.now})
 	startRun(t, writer)
 	r.manager = newRigManager(t, r.stepsRig, writer)
-	steps, err := NewSteps(StepsConfig{
+	steps := NewSteps(StepsConfig{
 		Sessions: r.manager, Store: r.store, Writer: writer, Worktrees: r.worktrees, Environ: r.environ,
 		Logger: slog.New(slog.DiscardHandler), Haiku: r.haiku, Now: r.clock.now, GateStateDir: r.gateRoot,
 		GateScope: fakeSystemdRunPath(t),
 	})
-	if err != nil {
-		t.Fatalf("NewSteps: %v", err)
-	}
 	t.Cleanup(steps.Close)
 	r.steps = steps
 }

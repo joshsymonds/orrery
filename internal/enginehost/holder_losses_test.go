@@ -86,7 +86,7 @@ func newLossManager(t *testing.T, s Store, writer *Writer, scope, stateDir strin
 func restartWithLosses(t *testing.T, rig crashRig, d *telemetry.Daemon) *Manager {
 	t.Helper()
 	rig.manager.Close()
-	writer := NewWriter(WriterConfig{Applier: rig.store, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: rig.store})
 	startRun(t, writer)
 	return newLossManager(t, rig.store, writer, fakeSystemdRunPath(t), rig.root, d)
 }
@@ -272,7 +272,7 @@ func TestHolderLostCountsNothingForClearedHolders(t *testing.T) {
 	t.Parallel()
 	root := holderRoot(t)
 	s, _ := openStore(t)
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 
 	orphanDir := t.TempDir()

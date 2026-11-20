@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/reviewers"
@@ -24,20 +23,6 @@ const taskOpen = "open"
 
 // maxActions is the most actions a pass takes for one task, so a build whose actions keep changing it ends the pass.
 const maxActions = 8
-
-// Run passes at once, then once per tick, until ctx ends.
-func (r *Runner) Run(ctx context.Context) {
-	ticker := time.NewTicker(r.tick)
-	defer ticker.Stop()
-	for {
-		r.pass(ctx)
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-	}
-}
 
 // PassTasks ensures the branch of epic id, then carries out the actions of each open task of the epic among seqs, as
 // a pass does for each open task of the epic. A seq that is not an open task of the epic moves nothing.

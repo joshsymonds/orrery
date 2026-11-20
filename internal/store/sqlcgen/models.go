@@ -21,6 +21,37 @@ type CallerEvent struct {
 	At      int64
 }
 
+type Contract struct {
+	ID      string
+	Created int64
+}
+
+type ContractState struct {
+	Contract string
+	Seq      int64
+	State    string
+	Version  int64
+	Session  string
+	Words    string
+	At       int64
+}
+
+type ContractVersion struct {
+	Contract        string
+	Version         int64
+	Repository      string
+	Title           string
+	Care            string
+	Body            string
+	Decisions       string
+	OpenDecisions   int64
+	Words           string
+	Writer          string
+	At              int64
+	ChangedRows     string
+	ChangedSections string
+}
+
 type CronJob struct {
 	JobID      string
 	Session    string

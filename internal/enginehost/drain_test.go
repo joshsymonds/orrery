@@ -63,15 +63,8 @@ func stalledTextTrigger() func([]store.EngineOp) bool {
 // its writer storing through spy, and runs its Reconcile. It returns the notices the restart sent.
 func restartOver(t *testing.T, rig crashRig, spy *textSpy) *fakeSink {
 	t.Helper()
-	return restartOverEvery(t, rig, spy, 5*time.Millisecond)
-}
-
-// restartOverEvery is restartOver with the restarted writer storing once per tick, so a test can leave the restart's
-// ops queued while Reconcile reads the store.
-func restartOverEvery(t *testing.T, rig crashRig, spy *textSpy, tick time.Duration) *fakeSink {
-	t.Helper()
 	rig.manager.Close()
-	writer := NewWriter(WriterConfig{Applier: spy, Tick: tick})
+	writer := NewWriter(WriterConfig{Applier: spy})
 	startRun(t, writer)
 	sink := &fakeSink{}
 	restarted := newStateManager(t, rig.store, writer, sink, fakeSystemdRunPath(t), rig.root, nil)
@@ -253,8 +246,7 @@ func TestDrainOfAWorkingTurnWhoseChildDiedRecordsItFailed(t *testing.T) {
 	}
 	waitHolderEnded(t, pids)
 
-	// A slow tick leaves the drained exit queued while the drain settles the row, as a loaded store would.
-	sink := restartOverEvery(t, rig, &textSpy{inner: rig.store}, time.Second)
+	sink := restartOver(t, rig, &textSpy{inner: rig.store})
 
 	history := historyOf(t, rig.path, id)
 	if history.State != "failed" || !strings.Contains(history.Reason, "signal: killed") {

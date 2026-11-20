@@ -100,7 +100,7 @@ func TestReconcileStopsHolderLeftRunningForWorkingRow(t *testing.T) {
 	s, path := openStore(t)
 	dir := t.TempDir()
 	seedWorkingRow(t, s, "working", dir)
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	startLeftHolder(t, root, "working", dir)
 	pid := fakePID(t, dir)
@@ -129,7 +129,7 @@ func TestReconcileAfterScopedCloseReadoptsHeldFake(t *testing.T) {
 	t.Parallel()
 	root := holderRoot(t)
 	s, path := openStore(t)
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	first := newStateManager(t, s, writer, &fakeSink{}, fakeSystemdRunPath(t), root, nil)
 	dir := t.TempDir()
@@ -178,7 +178,7 @@ func TestReconcileLeavesLiveSessionHolderRunning(t *testing.T) {
 	t.Parallel()
 	root := holderRoot(t)
 	s, path := openStore(t)
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	sink := &fakeSink{}
 	m := newStateManager(t, s, writer, sink, fakeSystemdRunPath(t), root, nil)
@@ -229,7 +229,7 @@ func TestReconcileWithoutHoldersDirSettlesRows(t *testing.T) {
 	root := holderRoot(t)
 	s, _ := openStore(t)
 	seedWorkingRow(t, s, "working", t.TempDir())
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	m := newStateManager(t, s, writer, &fakeSink{}, "", root, nil)
 
@@ -247,7 +247,7 @@ func TestReconcileLogsFailedClearAndSettlesRows(t *testing.T) {
 	s, _ := openStore(t)
 	dir := t.TempDir()
 	seedWorkingRow(t, s, "working", dir)
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	// An entry that is a file, not a session directory, cannot be cleared: its lock file cannot be opened inside it.
 	const broken = "broken"

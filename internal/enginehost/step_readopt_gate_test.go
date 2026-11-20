@@ -15,23 +15,19 @@ import (
 )
 
 // restartGated restarts rig's manager and a Steps over its store, as restart does, but with readopt as the Steps'
-// ReadoptGate, now as its clock and tick as its watch tick, zero for the default. The Steps is closed at cleanup.
+// ReadoptGate and now as its clock, time.Now when nil. The Steps is closed at cleanup.
 func (r stepsRig) restartGated(
 	t *testing.T, readopt func(context.Context, store.StepRow) (*gates.Gate, error), now func() time.Time,
-	tick time.Duration,
 ) (*Manager, *Steps) {
 	t.Helper()
-	writer := NewWriter(WriterConfig{Applier: r.store, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: r.store})
 	startRun(t, writer)
 	m := newRigManager(t, r, writer)
-	steps, err := NewSteps(StepsConfig{
+	steps := NewSteps(StepsConfig{
 		Sessions: m, Store: r.store, Writer: writer, Worktrees: r.worktrees, Environ: r.environ,
-		Logger: slog.New(slog.DiscardHandler), Haiku: r.haiku, Now: now, WatchTick: tick,
+		Logger: slog.New(slog.DiscardHandler), Haiku: r.haiku, Now: now,
 		GateStateDir: r.gateRoot, GateScope: fakeSystemdRunPath(t), ReadoptGate: readopt,
 	})
-	if err != nil {
-		t.Fatalf("NewSteps: %v", err)
-	}
 	t.Cleanup(steps.Close)
 	return m, steps
 }
@@ -67,7 +63,7 @@ func TestReadoptAgentGateStepReattachedJudgesNextReturnOnce(t *testing.T) {
 	restarted, steps := rig.restartGated(t, func(_ context.Context, row store.StepRow) (*gates.Gate, error) {
 		asked = append(asked, row)
 		return &gate, nil
-	}, nil, 0)
+	}, nil)
 	if err := steps.Readopt(t.Context(), restarted); err != nil {
 		t.Fatalf("Readopt: %v", err)
 	}
@@ -152,7 +148,7 @@ func TestReadoptAgentGateStepThatCannotBeRebuiltEndsEngineRestarted(t *testing.T
 			pid := fakePID(t, wt)
 
 			rig.crash()
-			restarted, steps := rig.restartGated(t, tc.readopt, nil, 0)
+			restarted, steps := rig.restartGated(t, tc.readopt, nil)
 			if err := steps.Readopt(t.Context(), restarted); err != nil {
 				t.Fatalf("Readopt: %v", err)
 			}

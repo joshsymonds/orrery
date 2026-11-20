@@ -125,12 +125,14 @@ func TestRunnerRetriesFailTurnWriteAndFreesTrigger(t *testing.T) {
 	faulty := &faultyStore{Store: s, write: "FailTurn", err: errSettleWrite, failures: 1}
 	steps := newFakeSteps()
 	var reads atomic.Int64
-	runRunner(t, faultyRunnerConfig(s, faulty, steps, &reads))
+	runner := runRunner(t, faultyRunnerConfig(s, faulty, steps, &reads))
 	waitForStarts(t, steps, 1)
 	waitFor(t, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
 
 	const reason = `tasks[0] "Build it" requirements[0]: not a Requirement of the epic`
 	steps.end("step-1", store.StepRow{End: "checks_failed", Reason: reason})
+	waitFor(t, "turn 1 to fail", func() bool { return epicOf(t, s).Turns[0].State == "failed" })
+	runner.Pass(t.Context())
 	waitForStarts(t, steps, 2)
 
 	if got := faulty.calls.Load(); got != 2 {
@@ -160,8 +162,12 @@ func TestRunnerRetriesFreeTurnWriteOnStepCapRefusal(t *testing.T) {
 	steps := newFakeSteps()
 	steps.startErr = fmt.Errorf("%w: 2 live steps, step cap 2", enginehost.ErrCapReached)
 	var reads atomic.Int64
-	runRunner(t, faultyRunnerConfig(s, faulty, steps, &reads))
-
+	runner := runRunner(t, faultyRunnerConfig(s, faulty, steps, &reads))
+	waitFor(t, "turn 1 to be freed", func() bool {
+		turns := epicOf(t, s).Turns
+		return len(turns) >= 1 && turns[0].State == "free"
+	})
+	runner.Pass(t.Context())
 	waitFor(t, "turn 2 to be freed and claimed again", func() bool {
 		turns := epicOf(t, s).Turns
 		return len(turns) >= 2 && turns[1].State == "free"
@@ -187,14 +193,13 @@ func TestRunnerStopsRetryingTurnWriteOnTurnNotRunning(t *testing.T) {
 	faulty := &faultyStore{Store: s, write: "CompleteTurn", err: store.ErrTurnNotRunning, failures: 100}
 	steps := newFakeSteps()
 	var reads atomic.Int64
-	runRunner(t, faultyRunnerConfig(s, faulty, steps, &reads))
+	runner := runRunner(t, faultyRunnerConfig(s, faulty, steps, &reads))
 	waitForStarts(t, steps, 1)
 	waitFor(t, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
 
 	steps.end("step-1", store.StepRow{End: "done", Result: validPlan})
 	waitFor(t, "the first CompleteTurn call", func() bool { return faulty.calls.Load() == 1 })
-	passesAtEnd := reads.Load()
-	waitFor(t, "three more passes", func() bool { return reads.Load() >= passesAtEnd+3 })
+	passRunner(t, runner, 3)
 
 	if got := faulty.calls.Load(); got != 1 {
 		t.Errorf("CompleteTurn calls = %d, want 1: ErrTurnNotRunning ends the retry", got)
@@ -211,11 +216,9 @@ func TestRunnerStopsRetryingTurnWriteWhenItsContextEnds(t *testing.T) {
 	faulty := &faultyStore{Store: s, write: "FailTurn", err: errSettleWrite, failures: 100}
 	steps := newFakeSteps()
 	var reads atomic.Int64
-	cancel, finished := startRunner(faultyRunnerConfig(s, faulty, steps, &reads))
-	t.Cleanup(func() {
-		cancel()
-		<-finished
-	})
+	runner := New(faultyRunnerConfig(s, faulty, steps, &reads))
+	ctx, cancel := context.WithCancel(t.Context())
+	runner.Pass(ctx)
 	waitForStarts(t, steps, 1)
 	waitFor(t, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
 
@@ -223,8 +226,9 @@ func TestRunnerStopsRetryingTurnWriteWhenItsContextEnds(t *testing.T) {
 	waitFor(t, "FailTurn to be retried", func() bool { return faulty.calls.Load() >= 2 })
 
 	cancel()
-	// A retry of the turn write that never stopped would keep Run from returning, which the test binary's timeout ends.
-	<-finished
+	// A retry of the turn write that never stopped would keep WaitTurns from returning, which the test binary's timeout
+	// ends.
+	runner.WaitTurns()
 	if got := epicOf(t, s).Turns[0].State; got != "running" {
 		t.Errorf("turn 1 state = %q, want running: the retry wrote nothing", got)
 	}

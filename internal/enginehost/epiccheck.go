@@ -69,6 +69,27 @@ func checkEpic(ctx context.Context, req *v1.CreateEpicRequest, getenv func(strin
 	return checkContractLint(contract)
 }
 
+// checkContractBody returns the first refusal of a contract's body, the checks propose and revise share with
+// CreateEpic: checkEpic's checks but its base and decisions, in checkEpic's order, then checkContractLint, then the
+// merge of the contract's reviewers. It never reads the contract's base. The merge's error is returned as epicReviewers
+// gives it.
+func checkContractBody(ctx context.Context, contract *v1.EpicContract, getenv func(string) string) error {
+	if err := checkEpicHead(ctx, contract); err != nil {
+		return err
+	}
+	if err := checkEpicGateDefs(ctx, contract, getenv); err != nil {
+		return err
+	}
+	if err := checkEpicSections(contract); err != nil {
+		return err
+	}
+	if err := checkContractLint(contract); err != nil {
+		return err
+	}
+	_, err := epicReviewers(ctx, contract, getenv)
+	return err
+}
+
 // checkEpicGateDefs refuses the contract's gates, then the done gates that name them and a contract that sets review
 // gates.
 func checkEpicGateDefs(ctx context.Context, contract *v1.EpicContract, getenv func(string) string) error {

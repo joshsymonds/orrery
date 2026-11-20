@@ -505,17 +505,16 @@ func TestDuePassRetriesAGatingStepOnTheNextPass(t *testing.T) {
 	}
 }
 
-// TestDuePassRunsAPassAtStartAndOnEachTick covers R1: Run passes once when it starts and once for each tick, until its
+// TestDuePassRunsAPassAtStartAndOnEachWake covers R1: Run passes once when it starts and once for each wake, until its
 // context ends.
-func TestDuePassRunsAPassAtStartAndOnEachTick(t *testing.T) {
+func TestDuePassRunsAPassAtStartAndOnEachWake(t *testing.T) {
 	t.Parallel()
 	st, _ := openStore(t)
 	passes := make(chan struct{}, 4)
-	tick := make(chan time.Time)
 	at := time.Unix(probeResetUnix, 0)
 	pass := NewDuePass(DuePassConfig{
 		Store: passCountingStore{Store: st, passes: passes}, Steps: &scriptedDueSteps{},
-		Now: func() time.Time { return at }, Tick: tick,
+		Now: func() time.Time { return at }, NewTimer: neverTimer,
 	})
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
@@ -529,8 +528,8 @@ func TestDuePassRunsAPassAtStartAndOnEachTick(t *testing.T) {
 	}()
 
 	awaitPass(t, passes, done, "the pass at start")
-	tick <- time.Time{}
-	awaitPass(t, passes, done, "the pass on the tick")
+	pass.Wake()
+	awaitPass(t, passes, done, "the pass on the wake")
 	cancel()
 	<-done
 	if got := len(passes); got != 0 {

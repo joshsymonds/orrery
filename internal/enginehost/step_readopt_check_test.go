@@ -9,7 +9,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/engine/session"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -24,10 +23,10 @@ func (r stepsRig) restartWithReadoptCheck(
 	t *testing.T, environ []string, logger *slog.Logger, readoptCheck readoptCheckHook,
 ) (*Manager, *Steps) {
 	t.Helper()
-	writer := NewWriter(WriterConfig{Applier: r.store, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: r.store})
 	startRun(t, writer)
 	m := newRigManager(t, r, writer)
-	steps, err := NewSteps(StepsConfig{
+	steps := NewSteps(StepsConfig{
 		Sessions:     m,
 		Store:        r.store,
 		Writer:       writer,
@@ -39,9 +38,6 @@ func (r stepsRig) restartWithReadoptCheck(
 		GateScope:    fakeSystemdRunPath(t),
 		ReadoptCheck: readoptCheck,
 	})
-	if err != nil {
-		t.Fatalf("NewSteps: %v", err)
-	}
 	t.Cleanup(steps.Close)
 	return m, steps
 }

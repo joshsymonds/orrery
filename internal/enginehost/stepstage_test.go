@@ -49,21 +49,18 @@ func newStepStageRig(t *testing.T) *stepStageRig {
 // set, the Steps' pools queue each gate's grant until the test closes the queue; otherwise they grant at once.
 func (r *stepStageRig) build(t *testing.T, applier Applier, queued bool) {
 	t.Helper()
-	writer := NewWriter(WriterConfig{Applier: applier, Tick: 5 * time.Millisecond, Now: r.clock.now})
+	writer := NewWriter(WriterConfig{Applier: applier, Now: r.clock.now})
 	startRun(t, writer)
 	r.manager = newRigManager(t, r.stepsRig, writer)
 	r.pools = &fakeGatePools{}
 	if queued {
 		r.pools.queue = make(chan struct{})
 	}
-	steps, err := NewSteps(StepsConfig{
+	steps := NewSteps(StepsConfig{
 		Sessions: r.manager, Store: r.store, Writer: writer, Pools: r.pools, Worktrees: r.worktrees,
 		Environ: r.environ, Logger: slog.New(slog.DiscardHandler), Now: r.clock.now, GateStateDir: r.gateRoot,
 		GateScope: fakeSystemdRunPath(t),
 	})
-	if err != nil {
-		t.Fatalf("NewSteps: %v", err)
-	}
 	t.Cleanup(steps.Close)
 	r.steps = steps
 }

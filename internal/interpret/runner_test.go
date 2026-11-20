@@ -177,10 +177,10 @@ func createRunEpic(t *testing.T, s *store.Store, pin store.EpicWorkflow) {
 	}
 }
 
-// newRunner returns a runner over s with the planner and builder given, the clock at runClock, and a tick an hour
-// long, so Run passes once unless a test ends it first.
+// newRunner returns a runner over s with the planner and builder given and the clock at runClock. It passes the epics
+// its tests pass by hand, since no wake reaches it.
 func newRunner(s Store, planner Planner, builder Builder) *Runner {
-	return New(Config{Store: s, Planner: planner, Builder: builder, Tick: time.Hour, Now: runClock})
+	return New(Config{Store: s, Planner: planner, Builder: builder, Now: runClock})
 }
 
 // epicOf returns the test epic as the store holds it.
@@ -267,7 +267,7 @@ func TestNewEpicOnBuiltInCapturesRedThenStartsPlan(t *testing.T) {
 	}
 	planner, builder := &fakePlanner{known: []string{runEpic}}, &fakeBuilder{}
 	runner := New(Config{
-		Store: s, Planner: planner, Builder: builder, Checks: &fakeChecks{store: s}, Tick: time.Hour, Now: runClock,
+		Store: s, Planner: planner, Builder: builder, Checks: &fakeChecks{store: s}, Now: runClock,
 	})
 	runner.Pass(ctx)
 

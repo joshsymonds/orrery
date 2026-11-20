@@ -11,7 +11,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/storetest"
@@ -36,7 +35,7 @@ func newManagerOn(t *testing.T, path string, limit int, claude string, sink Noti
 			t.Errorf("store Close: %v", err)
 		}
 	})
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	m := NewManager(Config{
 		Shell:    sh,

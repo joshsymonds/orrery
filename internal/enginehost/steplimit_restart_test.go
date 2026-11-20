@@ -38,7 +38,7 @@ func restartLimitedStep(t *testing.T, rig stepsRig, logs *bytes.Buffer) (*Manage
 // loggedRigSteps returns a Steps over rig's manager and store that logs to logs, with a writer of its own.
 func loggedRigSteps(t *testing.T, rig stepsRig, logs *bytes.Buffer) *Steps {
 	t.Helper()
-	writer := NewWriter(WriterConfig{Applier: rig.store, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: rig.store})
 	startRun(t, writer)
 	return newRigSteps(t, rig, rig.manager, writer, rig.environ, slog.New(slog.NewTextHandler(logs, nil)))
 }

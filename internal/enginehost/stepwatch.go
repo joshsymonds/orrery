@@ -253,6 +253,51 @@ func (w *stepWatch) due(at time.Time) (watchTrip, bool) {
 	return trip, true
 }
 
+// next returns the earliest clock reading, at or after at, at which due could return a trip if no further event came,
+// and false when none could: while no turn runs, or while a trip awaits its apply. It reads the counters due reads once
+// advance has credited the time up to at. Overtime and silence count only while no main-conversation call is open, so
+// they are due then only when they are already reached.
+func (w *stepWatch) next(at time.Time) (time.Time, bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.advance(at)
+	if w.pending || !w.running {
+		return time.Time{}, false
+	}
+	var best time.Time
+	found := false
+	earliest := func(moment time.Time) {
+		if moment.Before(at) {
+			moment = at
+		}
+		if !found || moment.Before(best) {
+			best, found = moment, true
+		}
+	}
+	idle := len(w.calls) == 0
+	if idle || w.model >= w.limit {
+		earliest(at.Add(w.limit - w.model))
+	}
+	if idle || w.silence >= watchSilence {
+		earliest(at.Add(watchSilence - w.silence))
+	}
+	if !w.nudging {
+		earliest(at.Add(watchPeriod - w.check))
+	}
+	for _, call := range w.calls {
+		limit := watchToolStuck
+		if call.extended {
+			limit = watchToolExtended
+		}
+		from := call.at
+		if w.nudging && w.nudgeAt.After(from) {
+			from = w.nudgeAt
+		}
+		earliest(from.Add(limit))
+	}
+	return best, found
+}
+
 // stuckCall returns the open call that has run past its limit at a clock reading, the earliest-started
 // first, and false when no call has. While a nudge has interrupted the turn, a call's limit counts from the nudge.
 func (w *stepWatch) stuckCall(at time.Time) (string, bool) {
