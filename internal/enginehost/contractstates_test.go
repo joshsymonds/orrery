@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -412,7 +413,9 @@ func checkContractStateRefusals(t *testing.T, cases []contractStateRefusal) {
 				t.Fatalf("Contracts: %v", err)
 			}
 
-			wantContractRefusal(t, tc.call(t, server), tc.code, tc.message)
+			wantContractRefusal(
+				t, tc.call(t, server), tc.code, strings.ReplaceAll(tc.message, contractTestRepoToken, server.repo),
+			)
 
 			after, err := st.Contracts(t.Context())
 			if err != nil {
@@ -514,6 +517,34 @@ func TestContractRecordReviseRefusesAndStoresNothing(t *testing.T) {
 			},
 			code:    connect.CodeInvalidArgument,
 			message: "intent: empty",
+		},
+		{
+			name: "capture element holds white space",
+			seed: seedProposed,
+			call: func(t *testing.T, server contractTestServer) error {
+				t.Helper()
+				req := reviseRequest(server.repo)
+				req.Contract.Requirements[0].Item.Capture = []string{"scripts/in-devenv", "go test -run X ./pkg/"}
+				_, err := reviseContract(t.Context(), server.contracts, headlessCaller, req)
+				return err
+			},
+			code: connect.CodeInvalidArgument,
+			message: "requirements[0].item.capture[1]: holds white space: split the element into argv elements, " +
+				"or pass the line to a shell after -c",
+		},
+		{
+			name: "reviewer the merge refuses",
+			seed: seedProposed,
+			call: func(t *testing.T, server contractTestServer) error {
+				t.Helper()
+				req := reviseRequest(server.repo)
+				req.Contract.Reviewers = []*v1.EpicReviewer{{Name: "floor", Limit: new(int64(0))}}
+				_, err := reviseContract(t.Context(), server.contracts, headlessCaller, req)
+				return err
+			},
+			code: connect.CodeInvalidArgument,
+			message: "merge the reviewers of " + contractTestRepoToken +
+				": epic_create: reviewers[0] floor: limit: must be at least 1 second",
 		},
 		{
 			name: "decision has an empty id",

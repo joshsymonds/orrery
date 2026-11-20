@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -32,6 +33,10 @@ const contractTestTmux = "/tmp/tmux-1000/orrery"
 
 // contractTestWords is the words the Contracts tests propose with.
 const contractTestWords = "Synthetic words."
+
+// contractTestRepoToken stands for the repository of the Contracts tests in a refusal's message. The repository is a
+// temporary directory, so a message that names it is written with the token and the test substitutes the directory.
+const contractTestRepoToken = "<repo>"
 
 // contractTestServer is a sessions socket serving the Epics and Contracts services, with the clients that dial it.
 type contractTestServer struct {
@@ -220,6 +225,27 @@ func TestContractRecordProposeStoresVersionOneFromEachCaller(t *testing.T) {
 	}
 }
 
+// TestContractRecordProposeStoresEmptyBase checks that a propose whose body's base is empty passes the body's checks, and
+// that the store holds the contract as version 1 with its base empty, as the reply reads it back.
+func TestContractRecordProposeStoresEmptyBase(t *testing.T) {
+	t.Parallel()
+	st := epicTestStore(t)
+	seedContractSessions(t, st)
+	server := startContractServer(t, st, contractTestContracts(st))
+	body := contractTestBody(server.repo)
+	body.Base = ""
+	decisions := contractTestDecisions()
+
+	got, err := proposeContract(t, server.contracts, headlessCaller, body, decisions)
+	if err != nil {
+		t.Fatalf("ProposeContract: %v", err)
+	}
+	want := wantStoredContract(body, decisions, contractTestHeadless)
+	if !proto.Equal(got, want) {
+		t.Errorf("ProposeContract reply = %v, want %v", got, want)
+	}
+}
+
 // TestContractRecordGetAndListReadTheContractBack checks that GetContract returns the contract a propose stored, with its
 // versions and states, that ListContracts lists it with neither, and that GetContract refuses an id no contract has.
 func TestContractRecordGetAndListReadTheContractBack(t *testing.T) {
@@ -325,6 +351,26 @@ func TestContractRecordProposeRefusesAndStoresNothing(t *testing.T) {
 			message: "intent: empty",
 		},
 		{
+			name:    "capture element holds white space",
+			headers: headlessCaller,
+			change: func(req *v1.ProposeContractRequest) {
+				req.Contract.Requirements[0].Item.Capture = []string{"scripts/in-devenv", "go test -run X ./pkg/"}
+			},
+			code: connect.CodeInvalidArgument,
+			message: "requirements[0].item.capture[1]: holds white space: split the element into argv elements, " +
+				"or pass the line to a shell after -c",
+		},
+		{
+			name:    "reviewer the merge refuses",
+			headers: headlessCaller,
+			change: func(req *v1.ProposeContractRequest) {
+				req.Contract.Reviewers = []*v1.EpicReviewer{{Name: "floor", Limit: new(int64(0))}}
+			},
+			code: connect.CodeInvalidArgument,
+			message: "merge the reviewers of " + contractTestRepoToken +
+				": epic_create: reviewers[0] floor: limit: must be at least 1 second",
+		},
+		{
 			name:    "decision has an empty id",
 			headers: headlessCaller,
 			change:  func(req *v1.ProposeContractRequest) { req.Decisions[0].Id = "" },
@@ -395,7 +441,7 @@ func TestContractRecordProposeRefusesAndStoresNothing(t *testing.T) {
 			}
 			tc.headers(req.Header())
 			_, err = server.contracts.ProposeContract(t.Context(), req)
-			wantContractRefusal(t, err, tc.code, tc.message)
+			wantContractRefusal(t, err, tc.code, strings.ReplaceAll(tc.message, contractTestRepoToken, server.repo))
 
 			after, err := st.Contracts(t.Context())
 			if err != nil {
