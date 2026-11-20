@@ -338,7 +338,7 @@ function cursorKey(container: HTMLElement): string | null {
   return container.querySelector(".row.cur")?.getAttribute("data-key") ?? null;
 }
 
-test("InboxPin: b pops the rail's inbox out by key, and b again tucks it back to the rail", (t) =>
+test("InboxRail: b pops the rail's inbox out by key, and b again tucks it back to the rail", (t) =>
   withInbox(t.signal, {}, async (container) => {
     await clickRow(container, "b");
     assert.equal(paneState(container), "rail");
@@ -350,7 +350,7 @@ test("InboxPin: b pops the rail's inbox out by key, and b again tucks it back to
     assert.equal(paneState(container), "rail", "b again tucks it back to the rail");
   }));
 
-test("InboxPin: b pops the inbox out, and Escape tucks it back with no interrupt or withdraw call", (t) => {
+test("InboxRail: b pops the inbox out, and Escape tucks it back with no interrupt or withdraw call", (t) => {
   const paths: string[] = [];
   return withRecordedInbox(t.signal, paths, async (container) => {
     await clickRow(container, "b");
