@@ -209,8 +209,9 @@ func readChildPid(t *testing.T, name string) int {
 // its own.
 func awaitPidGone(t *testing.T, pid int, _ string) {
 	t.Helper()
-	for processLive(t, pid) {
-		time.Sleep(10 * time.Millisecond)
+	awaitExit(t, pid)
+	if processLive(t, pid) {
+		t.Fatalf("process %d is live after its pidfd reported it exited", pid)
 	}
 }
 

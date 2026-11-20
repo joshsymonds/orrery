@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 // orphanChildScript is the child an orphan test's holder runs. exec makes the child the sleep, so the child's pid is
@@ -66,27 +68,91 @@ func procRunning(t *testing.T, pid int, start string) bool {
 	return ok && state != "Z" && flags&procExiting == 0 && got == start
 }
 
-// awaitStopped waits until process pid with start start no longer runs, with no deadline of its own.
-func awaitStopped(t *testing.T, pid int, start string) {
+// pidfdOf opens a pidfd for the process that holds pid now. The pidfd stays with that process, so it becomes readable
+// when that process exits even if pid is reused later. ok is false when no process holds pid: the process has exited
+// and been reaped already.
+func pidfdOf(t *testing.T, pid int) (int, bool) {
 	t.Helper()
-	for procRunning(t, pid, start) {
-		time.Sleep(holderPoll)
+	fd, err := unix.PidfdOpen(pid, 0)
+	if errors.Is(err, syscall.ESRCH) {
+		return 0, false
+	}
+	if err != nil {
+		t.Fatalf("pidfd_open %d: %v", pid, err)
+	}
+	return fd, true
+}
+
+// closePidfd closes fd, a pidfd a wait opened.
+func closePidfd(t *testing.T, fd int) {
+	t.Helper()
+	if err := unix.Close(fd); err != nil {
+		t.Errorf("close pidfd: %v", err)
 	}
 }
 
-// awaitState waits until /proc holds process pid in state want, with no deadline of its own. It fails at once if the
-// process is gone from /proc first, or is a zombie while want is another state: it can reach no other state then.
+// awaitPidfdExit blocks until the process of pidfd fd exits, which the kernel reports by making the pidfd readable. It
+// then closes fd. The poll has no timeout of its own: a process that never exits ends the wait only at the test
+// binary's timeout.
+func awaitPidfdExit(t *testing.T, fd, pid int) {
+	t.Helper()
+	defer closePidfd(t, fd)
+	fds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}
+	for {
+		_, err := unix.Poll(fds, -1)
+		if errors.Is(err, syscall.EINTR) {
+			continue
+		}
+		if err != nil {
+			t.Fatalf("poll the pidfd of process %d: %v", pid, err)
+		}
+		break
+	}
+	if fds[0].Revents&unix.POLLIN == 0 {
+		t.Fatalf("the pidfd of process %d polled %#x, want it readable", pid, fds[0].Revents)
+	}
+}
+
+// awaitExit waits until process pid exits, as a zombie or gone, with no deadline of its own. A pid no process holds has
+// already exited.
+func awaitExit(t *testing.T, pid int) {
+	t.Helper()
+	fd, ok := pidfdOf(t, pid)
+	if !ok {
+		return
+	}
+	awaitPidfdExit(t, fd, pid)
+}
+
+// awaitStopped waits until process pid with start start no longer runs, with no deadline of its own. The pidfd is opened
+// before the first check, so it names the process that check saw, and not one that later takes pid.
+func awaitStopped(t *testing.T, pid int, start string) {
+	t.Helper()
+	fd, ok := pidfdOf(t, pid)
+	if !ok {
+		return
+	}
+	if !procRunning(t, pid, start) {
+		closePidfd(t, fd)
+		return
+	}
+	awaitPidfdExit(t, fd, pid)
+	if procRunning(t, pid, start) {
+		t.Fatalf("process %d still runs after its pidfd reported it exited", pid)
+	}
+}
+
+// awaitState waits until process pid is a zombie, with no deadline of its own. A process reaches state Z only by
+// exiting, so the wait blocks on the exit; want must be Z, and any other state fails at once, since no exit leads to it.
 func awaitState(t *testing.T, pid int, want string) {
 	t.Helper()
-	for {
-		state, _, ok := procStatOf(t, pid)
-		if ok && state == want {
-			return
-		}
-		if !ok || state == "Z" {
-			t.Fatalf("process %d never reached state %s: it ended first", pid, want)
-		}
-		time.Sleep(holderPoll)
+	if want != "Z" {
+		t.Fatalf("awaitState waits for process %d to exit, so it can only await state Z, not %s", pid, want)
+	}
+	awaitExit(t, pid)
+	state, _, ok := procStatOf(t, pid)
+	if !ok || state != want {
+		t.Fatalf("process %d is not in state %s after it exited: present %v, state %q", pid, want, ok, state)
 	}
 }
 
