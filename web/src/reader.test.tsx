@@ -7,6 +7,8 @@ import { act } from "preact/test-utils";
 
 import type { EpicCalls } from "./card";
 import { noEpics } from "./epics";
+import { tideAccepted, tideProposed } from "./fixtures/contractrecords";
+import type { Contract, ContractsGetResponse } from "./gen/orrery/v1/contracts_pb";
 import { EpicSchema, EpicsGetResponseSchema, EpicStepSchema, type EpicStep } from "./gen/orrery/v1/epics_pb";
 import {
   ConversationItemSchema,
@@ -20,7 +22,7 @@ import type { Conversation } from "./conversation";
 import { findMatches, type Match } from "./find";
 import { flashMillis } from "./flash";
 import type { ParsedQuestion } from "./question";
-import { Reader, ReaderHead, type ReaderHandle } from "./reader";
+import { clock, type ContractCalls, Reader, ReaderHead, type ReaderHandle } from "./reader";
 import type { Sending } from "./sending";
 import { mockTimers } from "./testclock";
 import { TitleParts } from "./titleparts";
@@ -73,6 +75,7 @@ interface Props {
   register?: (handle: ReaderHandle | null) => void;
   sending?: Sending[];
   find?: { query: string; matches: Match[]; current: number };
+  contractCalls?: ContractCalls;
 }
 
 async function withReader(props: Props, check: (container: HTMLElement) => void | Promise<void>): Promise<void> {
@@ -2875,4 +2878,184 @@ test("RenderOnce: rendering 100 rows calls no Date.prototype.toLocaleTimeString 
   }
   assert.equal(toLocale.mock.callCount(), 0, "no row formats its time with toLocaleTimeString");
   assert.equal(constructed, 0, "no row constructs an Intl.DateTimeFormat");
+});
+
+// contractId is the contract the ContractLines tests write, as the fixture records name it.
+const contractId = "tidepool/tide-alerts";
+
+// listOf is the contracts a list holds, one for each record that holds a contract.
+function listOf(...records: ContractsGetResponse[]): Contract[] {
+  return records.flatMap((record) => (record.contract === undefined ? [] : [record.contract]));
+}
+
+// contractItem is a tool call that writes the contract under id, under the call id callId.
+function contractItem(callId: string, id: string): ConversationItem {
+  return item({ kind: "tool", time: 100n, tool: "contract_propose", input: id, id: callId, contract: id });
+}
+
+// contractCallsOf are the contract calls a reader draws its lines through, over contracts, and records each press in
+// opened.
+function contractCallsOf(contracts: Contract[], opened: string[]): ContractCalls {
+  return { contracts, onOpen: (id) => opened.push(id) };
+}
+
+// withContractReader draws the reader over items with the contract calls, runs check on the container, then removes
+// the DOM.
+async function withContractReader(
+  items: ConversationItem[],
+  calls: ContractCalls | undefined,
+  check: (container: HTMLElement) => void | Promise<void>,
+): Promise<void> {
+  const window = installTestDom();
+  const container = document.createElement("div");
+  try {
+    await act(() => {
+      render(
+        <Reader conversation={conversation({ items })} seenAt={10_000} open={false} contractCalls={calls} />,
+        container,
+      );
+    });
+    await check(container);
+  } finally {
+    await act(() => {
+      render(null, container);
+    });
+    await removeTestDom(window);
+  }
+}
+
+// contractLineWith returns the contract line the reader draws, of the tone given, or null when there is none.
+function contractLineWith(container: HTMLElement, tone: string): HTMLButtonElement | null {
+  return container.querySelector<HTMLButtonElement>(`button.block.oneline.${tone}`);
+}
+
+test("ContractLines: a proposed contract's item draws the line with its waiting words, and opens it by id", () => {
+  const opened: string[] = [];
+  const contracts = listOf(tideProposed);
+  const title = contracts[0]?.title ?? "";
+  return withContractReader(
+    [contractItem("call-1", contractId), resultItem("call-1", "proposed")],
+    contractCallsOf(contracts, opened),
+    async (container) => {
+      const line = contractLineWith(container, "attention");
+      assert.ok(line !== null, "a proposed contract draws its attention line");
+      assert.equal(line.querySelector(".lbl")?.textContent, "Contract", "the line is labelled Contract");
+      assert.equal(
+        line.textContent,
+        `Contract${title} · severe care · waits for you`,
+        "the line says the waiting words",
+      );
+      assertNone(container.querySelector(".call"), "the contract's call row is not drawn");
+      await clickControl(line);
+      assert.deepEqual(opened, [contractId], "a press opens the contract by its id");
+    },
+  );
+});
+
+test("ContractLines: an accepted contract's item draws its accepted words", () => {
+  const contracts = listOf(tideAccepted);
+  const accepted = contracts[0];
+  assert.ok(accepted !== undefined, "the accepted fixture holds its contract");
+  return withContractReader(
+    [contractItem("call-1", contractId), resultItem("call-1", "accepted")],
+    contractCallsOf(contracts, []),
+    (container) => {
+      const line = contractLineWith(container, "ok");
+      assert.ok(line !== null, "an accepted contract draws its ok line");
+      assert.equal(
+        line.querySelector(".body")?.textContent,
+        `${accepted.title} · accepted ${clock(accepted.changed)} · severe care`,
+        "the line says the accepted words",
+      );
+    },
+  );
+});
+
+test("ContractLines: an item whose id the list does not hold draws the id alone", () =>
+  withContractReader(
+    [contractItem("call-1", contractId), resultItem("call-1", "proposed")],
+    contractCallsOf([], []),
+    (container) => {
+      const line = contractLineWith(container, "quiet");
+      assert.ok(line !== null, "a contract the list does not hold draws a quiet line");
+      assert.equal(line.querySelector(".body")?.textContent, contractId, "the line draws the id alone");
+    },
+  ));
+
+test("ContractLines: an error result, or a reader with no contract calls, draws the call row", async () => {
+  await withContractReader(
+    [contractItem("call-1", contractId), resultItem("call-1", "refused", true)],
+    contractCallsOf(listOf(tideProposed), []),
+    (container) => {
+      assertNone(contractLineWith(container, "attention"), "an error result draws no contract line");
+      assert.ok(container.querySelector(".call") !== null, "an error result draws its call row");
+    },
+  );
+  await withContractReader(
+    [contractItem("call-1", contractId), resultItem("call-1", "proposed")],
+    undefined,
+    (container) => {
+      assertNone(container.querySelector("button.block"), "without contract calls no contract line is drawn");
+      assert.ok(container.querySelector(".call") !== null, "without contract calls the item draws its call row");
+    },
+  );
+});
+
+test("ContractLines: a contract item is drawn as its line, not folded into a run of tool calls", async () => {
+  const items = [
+    callItem("a", "ls"),
+    contractItem("c", contractId),
+    resultItem("c", "proposed"),
+    callItem("b", "pwd"),
+  ];
+  await withContractReader(items, contractCallsOf(listOf(tideProposed), []), (container) => {
+    assertNone(container.querySelector("button.fold.calls"), "a contract item among two other calls folds no run");
+    assert.ok(contractLineWith(container, "attention") !== null, "the contract item draws its line");
+  });
+  await withContractReader(items, undefined, (container) => {
+    assert.ok(
+      container.querySelector("button.fold.calls") !== null,
+      "without contract calls the three calls fold as a run",
+    );
+  });
+});
+
+test("ContractLines: the line draws again when the list the reader holds changes", async () => {
+  const window = installTestDom();
+  const container = document.createElement("div");
+  const items = [contractItem("call-1", contractId), resultItem("call-1", "proposed")];
+  try {
+    await act(() => {
+      render(
+        <Reader
+          conversation={conversation({ items })}
+          seenAt={10_000}
+          open={false}
+          contractCalls={contractCallsOf([], [])}
+        />,
+        container,
+      );
+    });
+    assert.ok(contractLineWith(container, "quiet") !== null, "the list holds no contract, so the id alone is drawn");
+    await act(() => {
+      render(
+        <Reader
+          conversation={conversation({ items })}
+          seenAt={10_000}
+          open={false}
+          contractCalls={contractCallsOf(listOf(tideProposed), [])}
+        />,
+        container,
+      );
+    });
+    assert.ok(
+      contractLineWith(container, "attention") !== null,
+      "the list now holds the contract, so its line is drawn",
+    );
+  } finally {
+    await act(() => {
+      render(null, container);
+    });
+    await removeTestDom(window);
+  }
 });

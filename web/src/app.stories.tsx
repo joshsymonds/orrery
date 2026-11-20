@@ -8,7 +8,16 @@ import type { VNode } from "preact";
 import { PageStory } from "./catalog/pagestory";
 import type { Stories } from "./catalog/story";
 import { dockSlices, gatesSession, warmupSession } from "./fixtures/dock";
-import { type AskAnswer, emptySlices, type EpicScenario, epicScenarios, type PickerRowInit, type Slices, shippedSlices } from "./fixtures/slices";
+import {
+  type AskAnswer,
+  contractStories,
+  emptySlices,
+  type EpicScenario,
+  epicScenarios,
+  type PickerRowInit,
+  type Slices,
+  shippedSlices,
+} from "./fixtures/slices";
 import { endedSlices, handoverSlices, movedSlices } from "./fixtures/steer";
 import { createFixtureTransport, type FixtureTransport } from "./fixtures/transport";
 import type { Address, ListPanelKind, PageView } from "./router";
@@ -48,6 +57,12 @@ function sessionAt(id: string, panel?: ListPanelKind): Address {
 // paneAt is the address of a terminal pane on halyard.
 function paneAt(pane: string): Address {
   return { view: "inbox", entry: { kind: "pane", host: "halyard", pane } };
+}
+
+// contractAt is the address of a contract in the inbox: its panel opens over its conversation, or as the page at a
+// phone's width.
+function contractAt(id: string): Address {
+  return { view: "inbox", entry: { kind: "contract", id } };
 }
 
 // immediate is the process's own setImmediate, where there is one, taken when this module loads. A test's act holds the
@@ -335,8 +350,60 @@ export const Page: Stories = {
   ),
   "epic-question": () => <PageStory address={epicAt(rota, { kind: "epic" })} />,
   "epic-shipped": () => <PageStory address={epicAt(holder, { kind: "epic" })} />,
-  "contract-to-accept": () => <PageStory address={epicAt(tide, { kind: "contract" })} />,
-  "contract-accepted": () => <PageStory address={epicAt(rota, { kind: "contract" })} />,
+  "convo-contract": () => (
+    <PageStory address={paneAt("%16")} fixture={createFixtureTransport(contractStories.toAccept)} />
+  ),
+  "contract-to-accept": () => (
+    <PageStory address={contractAt(tide)} fixture={createFixtureTransport(contractStories.toAccept)} />
+  ),
+  "contract-accepted": () => (
+    <PageStory address={contractAt(tide)} fixture={createFixtureTransport(contractStories.accepted)} />
+  ),
+  "contract-talk": () => (
+    <PageStory
+      address={contractAt(tide)}
+      fixture={createFixtureTransport(contractStories.toAccept)}
+      after={async (root) => {
+        // The row's control sets the About, and the draft it types is what the owner sends about that row.
+        await clickWhen(root, 'div.tr[data-row="F2"] button.ctl');
+        // A dock the conversation's first frame has not yet drawn is redrawn by it, so the draft waits for that frame.
+        await drawnWhen(root, "section.read", "Why three retries and not one?");
+        const box = await typeInto(root, shownDockBox, "Make it one alert per table, not per table and day.");
+        box.focus();
+      }}
+    />
+  ),
+  "contract-versions": () => (
+    <PageStory
+      address={contractAt(tide)}
+      fixture={createFixtureTransport(contractStories.toAccept)}
+      after={(root) => clickWhen(root, "button.link", "versions")}
+    />
+  ),
+  "contract-set-aside": () => (
+    <PageStory address={contractAt(tide)} fixture={createFixtureTransport(contractStories.setAside)} />
+  ),
+  "contract-ready": () => (
+    <PageStory
+      address={contractAt(tide)}
+      fixture={createFixtureTransport(contractStories.ready)}
+      after={async (root) => {
+        // The section that cannot be undone is read once it has been on screen, where the page can watch it; the page
+        // then goes back to its head.
+        if (globalThis.IntersectionObserver === undefined) {
+          return;
+        }
+        await whenDrawn(root, 'section[aria-label="What leaves this machine or can’t be undone"]', "", (section) =>
+          section.scrollIntoView(),
+        );
+        await whenDrawn(root, ".cmdbar", "Nothing is left to settle.", () => {});
+        // The panel's page is what scrolls, so the title row is brought back into view there.
+        await whenDrawn(root, ".rcard .title-row", "", (title) => {
+          title.scrollIntoView({ block: "nearest" });
+        });
+      }}
+    />
+  ),
   "phase-implement": () => (
     <PageStory address={epicAt(rota, { kind: "phase", task: "T2", phase: "checking" })} />
   ),

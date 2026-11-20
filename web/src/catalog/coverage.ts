@@ -29,6 +29,8 @@ export const storyRenames: Renames = {
   "backgroundrow.tsx": { BackgroundRow: "TaskLine" },
   "blocker.tsx": { QuestionCard: "Ask", AskFirst: "ConfirmButton" },
   "card.tsx": { EpicWidget: "WorkCard" },
+  "contract.tsx": { ContractBody: { module: "app.stories.tsx", story: "Page" } },
+  "contractrecord.tsx": { ContractRecord: { module: "app.stories.tsx", story: "Page" } },
   "endedbar.tsx": { EndedBar: { module: "app.stories.tsx", story: "Page" } },
   "epicpage.tsx": { EpicPage: { module: "app.stories.tsx", story: "Page" } },
   "eventring.tsx": { EventRing: "EpicEventBlock", StepCard: "StepEndBlock" },

@@ -5,7 +5,7 @@ import { type JSX, render } from "preact";
 import { act } from "preact/test-utils";
 
 import { assertNone, assertSame, installTestDom, removeTestDom } from "./testdom";
-import type { EpicThing, ListThing, RailGroup, Thing } from "./work";
+import type { ContractThing, EpicThing, ListThing, RailGroup, Thing } from "./work";
 import { WorkRail } from "./workrail";
 
 // Each test renders WorkRail on its own, into a container on the document, so an event bubbles to the document as it
@@ -457,5 +457,71 @@ test("TileStrip: the dots tile opens the picker as a sheet titled with its count
     assert.equal(sheet.getAttribute("aria-label"), "4 epics");
     assert.equal(one(sheet, ".rpick").getAttribute("role"), "menu");
     assert.equal(all(sheet, "button.rpick-row").length, 4);
+  });
+});
+
+// contractOf is a proposed contract of the fixture, quiet of decisions, unless init says otherwise.
+function contractOf(slug: string, init: Partial<ContractThing> = {}): ContractThing {
+  return {
+    kind: "contract",
+    key: `contract:tidepool/${slug}`,
+    id: `tidepool/${slug}`,
+    slug,
+    short: slug.split("-")[0],
+    asks: false,
+    tone: "attention",
+    title: `${slug}: a contract waits for you`,
+    ...init,
+  };
+}
+
+const docIcon = "M4 2h5l3 3v9H4zM9 2v3h3M6 8h4M6 11h4";
+
+test("ContractTile: a contract tile draws round 6's doc icon and its short name, and its title names the slug", () => {
+  return withDom((container) => {
+    draw(container, onRail([groupOf("contract", "contract", [contractOf("tide-alerts")])]));
+
+    const tile = one(container, ".rgroup.contract .tile-w");
+    assert.equal(tile.getAttribute("aria-label"), "tide-alerts: a contract waits for you");
+    assert.equal(tile.getAttribute("title"), "tide-alerts: a contract waits for you");
+    assert.equal(one(tile, ".cap").textContent, "tide");
+    assert.equal(one(tile, "svg.icon path").getAttribute("d"), docIcon);
+    assert.equal(tile.querySelector("svg.gauge"), null);
+  });
+});
+
+test("ContractTile: a contract tile draws ? while it asks, and no mark once it asks nothing", () => {
+  const things = [contractOf("tide-alerts", { asks: true }), contractOf("wave-report")];
+  return withDom((container) => {
+    draw(container, onRail([groupOf("contract", "contract", things)]));
+
+    const [asking, settled] = all(container, ".rgroup.contract .tile-w");
+    assert.equal(one(asking, ".n").textContent, "?");
+    assert.equal(settled.querySelector(".n"), null);
+  });
+});
+
+test("ContractTile: a picker of more than three contracts counts them, and lists each by its slug", () => {
+  const things = ["alpha-one", "beta-two", "gamma-three", "delta-four"].map((slug) => contractOf(slug));
+  return withDom((container) => {
+    draw(container, onRail([groupOf("contract", "contract", things)]));
+
+    const dots = one(container, ".tile-w.group");
+    assert.equal(one(dots, ".n").textContent, "4");
+    assert.equal(one(dots, ".cap").textContent, "4");
+
+    act(() => {
+      dots.dispatchEvent(new Event("click", { bubbles: true }));
+    });
+
+    const rows = all(container, "button.rpick-row[role=menuitem]");
+    assert.deepEqual(
+      rows.map((row) => one(row, ".t").textContent),
+      ["alpha-one", "beta-two", "gamma-three", "delta-four"],
+    );
+    assert.deepEqual(
+      rows.map((row) => one(row, ".s").textContent),
+      Array(4).fill("a contract waits for you"),
+    );
   });
 });

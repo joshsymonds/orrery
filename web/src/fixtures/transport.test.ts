@@ -11,7 +11,7 @@ import { PageStory } from "../catalog/pagestory";
 import { storyName } from "../catalog/story";
 import { endedLead } from "../endedbar";
 import type { Address } from "../router";
-import { Contracts, ContractsListResponseSchema } from "../gen/orrery/v1/contracts_pb";
+import { Contracts, ContractsGetResponseSchema, ContractsListResponseSchema } from "../gen/orrery/v1/contracts_pb";
 import {
   EpicsGetResponseSchema,
   EpicsListResponseSchema,
@@ -78,6 +78,8 @@ const lampFragment = "Full jitter is in";
 // The steer menu is drawn on the epic page only in the handover state, so the epic's own state checks neither.
 const rotaQuestion = "Bump the embedded tz database?";
 const rotaPrompt = "Plan the rota export as an epic.";
+// tideTitle is the title of tide-alerts' contract body, which the contract record's heading draws.
+const tideTitle = "Alert the harbour office within a minute when a published tide table changes.";
 
 // inboxHome is Page/inbox-home: the inbox rows, with the inbox docked beside the cursor's reader on pane %12.
 function inboxHome(root: HTMLElement): boolean {
@@ -385,6 +387,26 @@ test("FixtureTransport answers Contracts.List with tide-alerts proposed by sess-
   assert.deepEqual([...fixture.unserved], [], "the list is no refused call");
 });
 
+test("FixtureTransport answers Contracts.Get with the record its contractGets holds for the id", async () => {
+  const fixture = createFixtureTransport();
+  const contracts = createClient(Contracts, fixture.transport);
+  const record = await contracts.get({ id: "tidepool/tide-alerts" });
+  assert.ok(
+    equals(ContractsGetResponseSchema, record, shippedSlices.contractGets["tidepool/tide-alerts"]),
+    "Contracts.Get answers the record its slices hold for the id",
+  );
+  assert.equal(record.contract?.id, "tidepool/tide-alerts", "the record is the contract asked for");
+  assert.deepEqual([...fixture.unserved], [], "the get is no refused call");
+});
+
+test("FixtureTransport fails Contracts.Get of an id with no record with NotFound, and records no refusal", async () => {
+  const fixture = createFixtureTransport();
+  const contracts = createClient(Contracts, fixture.transport);
+  const error = await refusal(contracts.get({ id: "tidepool/no-such-contract" }));
+  assert.equal(error.code, Code.NotFound);
+  assert.deepEqual([...fixture.unserved], [], "a NotFound is no refused call");
+});
+
 test("FixtureTransport refuses the Contracts calls its slices do not serve, and records each", async () => {
   const fixture = createFixtureTransport();
   const contracts = createClient(Contracts, fixture.transport);
@@ -669,23 +691,23 @@ test("FixtureTransport: page/contract-to-accept draws the tide-alerts contract",
   return withStory(
     t,
     Page["contract-to-accept"],
-    (root) => root.querySelector("article.contract h2")?.textContent === "tide-alerts",
+    (root) => root.querySelector("article.contract h2")?.textContent === tideTitle,
     (root) => {
       assertNoFailure(root);
-      assert.equal(root.querySelector("article.contract h2")?.textContent, "tide-alerts");
+      assert.equal(root.querySelector("article.contract h2")?.textContent, tideTitle);
     },
   );
 });
 
-test("FixtureTransport: page/contract-accepted draws the rota-export contract", (t) => {
+test("FixtureTransport: page/contract-accepted draws the tide-alerts contract", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(
     t,
     Page["contract-accepted"],
-    (root) => root.querySelector("article.contract h2")?.textContent === "rota-export",
+    (root) => root.querySelector("article.contract h2")?.textContent === tideTitle,
     (root) => {
       assertNoFailure(root);
-      assert.equal(root.querySelector("article.contract h2")?.textContent, "rota-export");
+      assert.equal(root.querySelector("article.contract h2")?.textContent, tideTitle);
     },
   );
 });
@@ -1351,12 +1373,17 @@ test("FixtureTransport: page/epic-unavailable draws the could-not-read line with
   );
 });
 
-test("FixtureTransport: page's keys are exactly the 66 catalog names of its scenario states", () => {
+test("FixtureTransport: page's keys are exactly the 71 catalog names of its scenario states", () => {
   assert.deepEqual(Object.keys(Page).map((state) => storyName("Page", state)).sort(), [
     "page/ask-later",
     "page/ask-session",
     "page/contract-accepted",
+    "page/contract-ready",
+    "page/contract-set-aside",
+    "page/contract-talk",
     "page/contract-to-accept",
+    "page/contract-versions",
+    "page/convo-contract",
     "page/convo-handed-over",
     "page/convo-took-over",
     "page/convo-working",

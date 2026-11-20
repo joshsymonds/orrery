@@ -46,9 +46,13 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import io.github.joshsymonds.orrery.api.ContractRow
 import io.github.joshsymonds.orrery.api.WaitingItem
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import io.github.joshsymonds.orrery.ui.theme.inLabelCase
@@ -103,6 +107,9 @@ private enum class CallMark(val symbol: String, val colour: Color) {
  * from there on carries a faint tint; without a newer entry neither is drawn. [onRead] receives each
  * new, larger time of the newest entry read: one that stays on screen for a second, at least half of
  * it (or of the window, for one taller than the window) between the top and bottom content padding.
+ * A call that writes a contract, with a result that did not fail, draws that contract's line (see
+ * [contractLineWords]) in place of its row, and a press on it calls [onOpenContract] with the contract's
+ * id; [contracts] supplies the words.
  */
 @Composable
 fun ConversationView(
@@ -117,6 +124,8 @@ fun ConversationView(
     now: Long = System.currentTimeMillis() / 1000,
     onRead: ((Long) -> Unit)? = null,
     onFollowing: ((Boolean) -> Unit)? = null,
+    contracts: List<ContractRow> = emptyList(),
+    onOpenContract: (String) -> Unit = {},
 ) {
     var expanded by remember { mutableStateOf(emptySet<String>()) }
     val toggle: (String) -> Unit = { id ->
@@ -246,6 +255,7 @@ fun ConversationView(
                         is ConvoEntry.Reply -> ReplyText(entry.text, markdownCache)
                         is ConvoEntry.Tool -> ToolRow(entry.call, expanded, toggle)
                         is ConvoEntry.Group -> GroupRow(entry.calls, expanded, toggle)
+                        is ConvoEntry.ContractLine -> ContractLineRow(entry.call.contract, contracts, onOpenContract)
                         is ConvoEntry.Compaction -> CompactionRow(entry, keys[index], expanded, toggle, markdownCache)
                         is ConvoEntry.Notice -> NoticeRow(entry)
                     }
@@ -477,6 +487,47 @@ private fun ToolRow(call: ToolCall, expanded: Set<String>, onToggle: (String) ->
             MarkText(toolMark(call))
         }
         if (isOpen) ResultBox(call)
+    }
+}
+
+/** The one line a contract's call draws: its title and state words, pressed to open the contract. */
+@Composable
+private fun ContractLineRow(id: String, contracts: List<ContractRow>, onOpen: (String) -> Unit) {
+    val words = contractLineWords(id, contracts.firstOrNull { it.id == id })
+    val labelColour = when (words.tone) {
+        ContractLineTone.Attention -> OrreryTokens.Role.attention
+        ContractLineTone.Ok -> OrreryTokens.Role.ok
+        ContractLineTone.Quiet -> OrreryTokens.Ink.three
+    }
+    Row(
+        modifier = Modifier
+            .testTag("contract-line:$id")
+            .fillMaxWidth()
+            .padding(vertical = OrreryTokens.Space.four)
+            .clip(RoundedCornerShape(OrreryTokens.Radius.two))
+            .background(OrreryTokens.Surface.well)
+            .clickable { onOpen(id) }
+            .padding(horizontal = OrreryTokens.Space.eight + OrreryTokens.Space.two, vertical = OrreryTokens.Space.eight),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
+    ) {
+        Text(
+            text = "Contract",
+            color = labelColour,
+            style = OrreryTokens.Type.small.copy(fontWeight = OrreryTokens.Font.Weight.bold),
+            maxLines = 1,
+        )
+        Text(
+            text = buildAnnotatedString {
+                append(words.title)
+                withStyle(SpanStyle(color = OrreryTokens.Ink.three)) { append(words.rest) }
+            },
+            modifier = Modifier.weight(1f),
+            color = OrreryTokens.Ink.one,
+            style = OrreryTokens.Type.small,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

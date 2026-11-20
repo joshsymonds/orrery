@@ -197,7 +197,12 @@ export function createFixtureTransport(slices: Slices = shippedSlices): FixtureT
     });
     router.service(Contracts, {
       list: () => slices.contracts,
-      get: refuse,
+      get: (request) => {
+        if (!Object.hasOwn(slices.contractGets, request.id)) {
+          throw notFound(`contract ${request.id} not found`);
+        }
+        return slices.contractGets[request.id];
+      },
       accept: refuse,
       setAside: refuse,
       reopen: refuse,

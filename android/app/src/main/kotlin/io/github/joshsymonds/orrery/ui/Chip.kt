@@ -14,7 +14,7 @@ import androidx.compose.ui.semantics.semantics
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 
 /** A state's tone: Neutral is plain, the others take their role's colours. */
-enum class ChipTone { Neutral, Ok, Bad, Attention, Live, Engine }
+enum class ChipTone { Neutral, Ok, Bad, Attention, Live, Engine, New }
 
 /** Semantics key: the tone of a [Chip], on its text node. */
 val ChipToneKey = SemanticsPropertyKey<ChipTone>("ChipTone")
@@ -43,6 +43,7 @@ private fun chipInk(tone: ChipTone): Color = when (tone) {
     ChipTone.Attention -> OrreryTokens.Role.attention
     ChipTone.Live -> OrreryTokens.Role.live
     ChipTone.Engine -> OrreryTokens.Role.engine
+    ChipTone.New -> OrreryTokens.Role.new
 }
 
 private fun chipFill(tone: ChipTone): Color = when (tone) {
@@ -52,6 +53,7 @@ private fun chipFill(tone: ChipTone): Color = when (tone) {
     ChipTone.Attention -> OrreryTokens.Role.attentionFill
     ChipTone.Live -> OrreryTokens.Role.liveFill
     ChipTone.Engine -> OrreryTokens.Role.engineFill
+    ChipTone.New -> OrreryTokens.Role.newFill
 }
 
 private fun chipLine(tone: ChipTone): Color = when (tone) {
@@ -61,4 +63,5 @@ private fun chipLine(tone: ChipTone): Color = when (tone) {
     ChipTone.Attention -> OrreryTokens.Role.attentionLine
     ChipTone.Live -> OrreryTokens.Role.liveLine
     ChipTone.Engine -> OrreryTokens.Role.engineLine
+    ChipTone.New -> OrreryTokens.Role.newLine
 }

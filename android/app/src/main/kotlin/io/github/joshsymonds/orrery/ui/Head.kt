@@ -38,6 +38,9 @@ fun Head(
     onShow: () -> Unit,
     modifier: Modifier = Modifier,
     bandHides: Boolean = true,
+    contracts: List<ContractBandLine> = emptyList(),
+    hereContract: String = "",
+    onOpenContract: (String) -> Unit = {},
 ) {
     var moreOpen by remember { mutableStateOf(false) }
     Column(
@@ -59,7 +62,15 @@ fun Head(
         )
         if (fold == HeadFold.OPEN) {
             HeadMeters(stats = stats, otherHost = otherHost)
-            Band(goal = goal, lines = lines, onOpen = onOpenEpic, onHide = onHide.takeIf { bandHides })
+            Band(
+                goal = goal,
+                lines = lines,
+                onOpen = onOpenEpic,
+                onHide = onHide.takeIf { bandHides },
+                contracts = contracts,
+                hereContract = hereContract,
+                onOpenContract = onOpenContract,
+            )
         } else {
             CompactHead(asking = asking, badges = badges, onOpen = onShow)
         }

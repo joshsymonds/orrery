@@ -1,3 +1,4 @@
+import { aboutMessage } from "./contracts";
 import type { JSX, Ref } from "preact";
 import { useLayoutEffect, useRef, useState } from "preact/hooks";
 
@@ -311,17 +312,20 @@ export function Dock(props: {
     }
     flash();
     const sent = text;
+    // The message sent: the draft, led by the About while one is shown, so what is recorded as sending, what is drawn
+    // above the box and what is sent are the same text.
+    const message = shownAbout !== null && aboutId !== undefined ? aboutMessage({ id: aboutId, text: shownAbout }, sent) : sent;
     const pendingSend = failed.current;
     const promptId = pendingSend !== null && pendingSend.text === sent ? pendingSend.promptId : newPromptId();
     inFlight.current = true;
     setError("");
     setNote("");
-    onSending?.({ text: sent, promptId });
+    onSending?.({ text: message, promptId });
     if (state === "working") {
-      setLocal((current) => [...current, { promptId, text: sent, after: items.at(-1), wasQueued: false }]);
+      setLocal((current) => [...current, { promptId, text: message, after: items.at(-1), wasQueued: false }]);
     }
     try {
-      await send(sent, promptId);
+      await send(message, promptId);
       failed.current = null;
       setWaitsCleared(pendingKey(pending));
       // Text typed while the send was in flight stays in the box.
@@ -479,6 +483,10 @@ export function Dock(props: {
   // The waits line is drawn until a send resolves, and again once the pending events change.
   const waits = waitsCleared === pendingKey(pending) ? "" : waitsLine(pending, facts.putOff);
   const shownAbout = about !== undefined && about !== aboutCleared ? about : null;
+  // An about taken away forgets what Not about this cleared, so the same about given again is drawn again.
+  if (about === undefined && aboutCleared !== null) {
+    setAboutCleared(null);
+  }
 
   // trayRow draws one row: its label when it is cancelled, its text, its control and its note, when it has them.
   const trayRow = (key: string, rowText: string, cancelled: boolean, control: JSX.Element | null, rowNote: string) => (
