@@ -1,8 +1,7 @@
 // The stories of TitleRow: a breadcrumb with a state, a blocker, the inbox's count on the mark, the commands a page
-// holds, and a last crumb that is a session's title.
+// holds.
 
 import type { Stories } from "./catalog/story";
-import * as titleparts from "./titleparts";
 import * as titlerow from "./titlerow";
 import type { InboxMark } from "./titlerow";
 
@@ -65,15 +64,5 @@ export const TitleRow: Stories = {
         ⋯
       </button>
     </titlerow.TitleRow>
-  ),
-  "session-title": () => (
-    <titlerow.TitleRow
-      crumbs={[
-        { label: "Sessions", onGo: ignore },
-        { label: <titleparts.TitleParts dir="/home/owner/code/lighthouse" line="adding retry backoff" /> },
-      ]}
-      onBack={ignore}
-      state="working"
-    />
   ),
 };

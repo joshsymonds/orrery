@@ -20,9 +20,10 @@ import type { Conversation } from "./conversation";
 import { findMatches, type Match } from "./find";
 import { flashMillis } from "./flash";
 import type { ParsedQuestion } from "./question";
-import { ConversationHead, Reader, ReaderHead, type ReaderHandle } from "./reader";
+import { Reader, ReaderHead, type ReaderHandle } from "./reader";
 import type { Sending } from "./sending";
 import { mockTimers } from "./testclock";
+import { TitleParts } from "./titleparts";
 import { assertNone, assertSame, installTestDom, removeTestDom } from "./testdom";
 import { turn } from "./testwait";
 
@@ -2021,22 +2022,6 @@ function headOf(container: HTMLElement): HTMLElement {
   return head;
 }
 
-// withConversationHead renders a row's conversation head the way withHead renders a head, and removes it the same way.
-async function withConversationHead(
-  props: Parameters<typeof ConversationHead>[0],
-  check: (container: HTMLElement) => void | Promise<void>,
-): Promise<void> {
-  const window = installTestDom();
-  const container = document.createElement("div");
-  try {
-    render(<ConversationHead {...props} />, container);
-    await check(container);
-  } finally {
-    render(null, container);
-    await removeTestDom(window);
-  }
-}
-
 test("a pane's head names its label as the heading and its where line as a span after it", () =>
   withHead({ label: "Synthetic pane", where: "synthetic-project · synthetic-host" }, (container) => {
     const head = headOf(container);
@@ -2076,69 +2061,38 @@ test("a child passed to the head draws after the where line as the head's last c
     },
   ));
 
-test("a session's conversation head draws the title row: a back button, the session's title as the page crumb, and its state, and back calls its handler", () => {
-  let backs = 0;
-  return withConversationHead(
-    {
-      dir: "/work/synthetic-app",
-      line: "Synthetic session",
-      state: "waiting",
-      onBack: () => {
-        backs += 1;
-      },
-      children: <span class="pill">synthetic pill</span>,
-    },
-    async (container) => {
-      const row = container.querySelector<HTMLElement>("header.title-row");
-      assert.ok(row !== null, "the title row is drawn");
-      const back = row.querySelector<HTMLButtonElement>("button.back");
-      assert.equal(back?.getAttribute("aria-label"), "back");
-      const crumbs = [...row.querySelectorAll<HTMLElement>(".crumbs .crumb")];
-      assert.deepEqual(
-        crumbs.map((crumb) => crumb.textContent),
-        ["synthetic-app Synthetic session"],
-        "the crumb reads the session's directory and title",
-      );
-      assert.equal(crumbs[0]?.getAttribute("aria-current"), "page", "the title is the page itself");
-      assert.equal(row.querySelector(".state")?.textContent, "waiting", "the state sits in the state slot");
-      assert.equal(row.querySelector(".acts > .pill")?.textContent, "synthetic pill", "the pill is the row's child");
-      back?.click();
-      assert.equal(backs, 1, "back calls its handler once");
-    },
-  );
-});
+// withTitleParts renders a title's parts alone in a container, and removes them the same way withHead does.
+async function withTitleParts(dir: string, line: string, check: (container: HTMLElement) => void): Promise<void> {
+  const window = installTestDom();
+  const container = document.createElement("div");
+  try {
+    render(<TitleParts dir={dir} line={line} />, container);
+    check(container);
+  } finally {
+    render(null, container);
+    await removeTestDom(window);
+  }
+}
 
-test("TitleParts: the title row's last crumb draws the directory's last element, then the line, and no id or hash", () =>
-  withConversationHead(
-    { dir: "/work/synthetic/app", line: "Synthetic summary", state: "working", onBack: () => {} },
-    (container) => {
-      const crumb = container.querySelector<HTMLElement>(".crumbs .crumb.here");
-      assert.equal(crumb?.querySelector(".title-dir")?.textContent, "app", "the directory's last element");
-      assert.equal(crumb?.querySelector(".title-line")?.textContent, "Synthetic summary", "the line");
-      assert.equal(crumb?.textContent, "app Synthetic summary", "the crumb holds nothing else, no id or hash");
-    },
-  ));
+test("TitleParts: a title draws the directory's last element, then the line, and no id or hash", () =>
+  withTitleParts("/work/synthetic/app", "Synthetic summary", (container) => {
+    assert.equal(container.querySelector(".title-dir")?.textContent, "app", "the directory's last element");
+    assert.equal(container.querySelector(".title-line")?.textContent, "Synthetic summary", "the line");
+    assert.equal(container.textContent, "app Synthetic summary", "the title holds nothing else, no id or hash");
+  }));
 
 test("TitleParts: a title with an empty line draws its directory alone, with no line element", () =>
-  withConversationHead(
-    { dir: "/work/synthetic-app", line: "", state: "idle", onBack: () => {} },
-    (container) => {
-      const crumb = container.querySelector<HTMLElement>(".crumbs .crumb.here");
-      assert.equal(crumb?.textContent, "synthetic-app");
-      assert.equal(crumb?.querySelector(".title-line") === null, true);
-    },
-  ));
+  withTitleParts("/work/synthetic-app", "", (container) => {
+    assert.equal(container.textContent, "synthetic-app");
+    assert.equal(container.querySelector(".title-line") === null, true);
+  }));
 
 test("TitleParts: markup in a line draws as text, with no element", () =>
-  withConversationHead(
-    { dir: "/work/synthetic-app", line: "<b>bold</b> <img src=x onerror=alert(1)>", state: "idle", onBack: () => {} },
-    (container) => {
-      const crumb = container.querySelector<HTMLElement>(".crumbs .crumb.here");
-      assert.equal(crumb?.querySelector("b") === null, true);
-      assert.equal(crumb?.querySelector("img") === null, true);
-      assert.equal(crumb?.querySelector(".title-line")?.textContent, "<b>bold</b> <img src=x onerror=alert(1)>");
-    },
-  ));
+  withTitleParts("/work/synthetic-app", "<b>bold</b> <img src=x onerror=alert(1)>", (container) => {
+    assert.equal(container.querySelector("b") === null, true);
+    assert.equal(container.querySelector("img") === null, true);
+    assert.equal(container.querySelector(".title-line")?.textContent, "<b>bold</b> <img src=x onerror=alert(1)>");
+  }));
 
 test("a label or where holding markup draws as text with no element", () =>
   withHead(

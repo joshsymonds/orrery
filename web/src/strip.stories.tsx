@@ -27,8 +27,6 @@ export const MeterStrip: Stories = {
   "host-only": () => <Strip host={host} />,
   "host-and-context": () => <Strip host={host} context={context(150000n)} />,
   "under-load": () => <Strip host={hot} context={context(174000n)} />,
-  "context-green": () => <Strip host={null} context={context(30000n)} />,
-  "context-red": () => <Strip host={null} context={context(184000n)} />,
   // A session on another host names that host and says it has no meters.
   "other-host": () => <Strip host={{ host: "brine", stats: [], other: true }} />,
 };
