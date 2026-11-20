@@ -266,6 +266,15 @@ function headOf(card: HTMLElement): HTMLElement {
   return head;
 }
 
+// labelOf is the label line of the card's block, a click on which opens nothing when the card names no epic.
+function labelOf(card: HTMLElement): HTMLElement {
+  const label = card.querySelector<HTMLElement>(".head");
+  if (label === null) {
+    throw new Error("the card draws its block head");
+  }
+  return label;
+}
+
 // summaryOf is the summary of the card's return fold, the control that opens it.
 function summaryOf(card: HTMLElement): HTMLElement {
   const summary = card.querySelector<HTMLElement>("details > summary");
@@ -299,15 +308,14 @@ const doneStep: StepFields = {
   brief: ["Added the index.", "Ran the suite."],
 };
 
-test("StepEventCard: a step_end prompt draws a card with its agent, end, status and brief lines, and no EVENT block", async (t) => {
+test("StepEventCard: a step_end prompt draws a card with its agent, end and brief lines, and no EVENT block", async (t) => {
   await withPage(t, async ({ container, fake }) => {
     const body = stepBlock({ ...doneStep, epic: undefined });
     fake.emit(delta([eventPrompt("s1", body, 100)], { seq: 2, reset: true }));
     await settle(t, () => cardsOf(container).length === 1, "the step card is drawn");
     const [card] = cardsOf(container);
-    assert.deepEqual(textsOf(card, ".step-agent"), ["builder"]);
-    assert.deepEqual(textsOf(card, ".step-end"), ["end done"]);
-    assert.deepEqual(textsOf(card, ".step-status"), ["status done"]);
+    assert.deepEqual(textsOf(card, ".words"), ["builder"]);
+    assert.deepEqual(textsOf(card, ".end .chip"), ["done"]);
     assert.deepEqual(textsOf(card, ".step-summary"), ["Added the index.", "Ran the suite."], "the card draws its brief");
     assert.equal(countOf(container, ".event"), 0, "no EVENT block is drawn");
     assert.equal(container.textContent?.includes("EVENT"), false, "no EVENT label is drawn");
@@ -319,8 +327,8 @@ test("StepEventCard: a step_end block with no agent attribute draws its card wit
     const body = stepBlock({ ...doneStep, agent: undefined, epic: undefined });
     fake.emit(delta([eventPrompt("s1", body, 100)], { seq: 2, reset: true }));
     await settle(t, () => cardsOf(container).length === 1, "the step card is drawn");
-    assert.equal(countOf(container, ".step-agent"), 0, "the card names no agent");
-    assert.deepEqual(textsOf(container, ".step-end"), ["end done"]);
+    assert.equal(countOf(container, ".words"), 0, "the card names no agent");
+    assert.deepEqual(textsOf(container, ".end .chip"), ["done"]);
   });
 });
 
@@ -349,7 +357,8 @@ test("StepEventCard: a step whose event names an epic opens its page through ope
       "the card still draws its brief",
     );
 
-    await click(headOf(withoutEpic));
+    assert.equal(withoutEpic.querySelector(".step-head"), null, "a card with no epic draws no open control");
+    await click(labelOf(withoutEpic));
     assert.deepEqual(opened.steps, [[epic, "s1"]], "a card with no epic opens nothing");
     assert.deepEqual(opened.returned, [], "a click on the head reads no return");
     assert.equal(withoutEpic.querySelector("details")?.open, false, "a click on the head leaves the return folded");
@@ -370,7 +379,7 @@ test("StepEventCard: two step_end prompts delivered one after another draw two c
     fake.emit(delta([eventPrompt("s2", second, 101)], { seq: 3 }));
     await settle(t, () => cardsOf(container).length === 2, "the second step card is drawn");
     assert.deepEqual(
-      cardsOf(container).map((card) => textsOf(card, ".step-agent")),
+      cardsOf(container).map((card) => textsOf(card, ".words")),
       [["builder"], ["reviewer"]],
       "each event draws its own card, in delivery order",
     );

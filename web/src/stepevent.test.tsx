@@ -122,12 +122,11 @@ function summaryOf(container: HTMLElement): HTMLElement {
   return summary;
 }
 
-test("StepEventBrief web: a delivered step card draws its head from the tag's agent, end and status, and its lines are the brief's lines without the More line", () =>
+test("StepEventBrief web: a delivered step card draws its head from the tag's agent and end, and its lines are the brief's lines without the More line", () =>
   withReader(conversation([eventItem(deliveredStep)]), undefined, async (container) => {
     assert.equal(container.querySelectorAll(".step-card").length, 1, "one step card is drawn");
-    assert.equal(textOf(container, ".step-agent"), "builder");
-    assert.equal(textOf(container, ".step-end"), "end done");
-    assert.equal(textOf(container, ".step-status"), "status done");
+    assert.equal(textOf(container, ".words"), "builder");
+    assert.equal(textOf(container, ".end .chip"), "done");
     const lines = [...container.querySelectorAll(".step-summary")].map((line) => line.textContent);
     assert.deepEqual(lines, ["Added the index.", "Ran the suite."], "the brief draws, and the More line does not");
   }));

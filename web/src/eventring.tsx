@@ -3,7 +3,11 @@ import { useRef, useState } from "preact/hooks";
 
 import { Ask, AskLine } from "./ask";
 import { epicAsk, epicProject } from "./askmodel";
+import { Block } from "./blocks";
 import { type EpicCalls, useEpicReading } from "./card";
+import type { StepFacts } from "./gen/orrery/v1/orrery_pb";
+import { Icon, type IconName } from "./glyphs";
+import { clock } from "./reader";
 
 // The kinds an epic's event names, as its orrery-event block gives them.
 const eventKinds = ["question", "park", "release", "end", "moved"] as const;
@@ -24,14 +28,13 @@ export interface EpicEvent {
   moved?: { side: "left"; to: string; by: string } | { side: "took" };
 }
 
-// StepEvent is a step's end: the step's id, the agent that ran it (empty when the block names none), how it ended and
-// its status, the epic that holds it and the task it ran (each empty when the block names none), and the brief the
-// block gives, one string a line.
+// StepEvent is a step's end: the step's id, the agent that ran it (empty when the block names none), how it ended, the
+// epic that holds it and the task it ran (each empty when the block names none), and the brief the block gives, one
+// string a line.
 export interface StepEvent {
   step: string;
   agent: string;
   end: string;
-  status: string;
   epic: string;
   task: string;
   brief: string[];
@@ -134,15 +137,13 @@ export function stepEventOf(text: string): StepEvent | null {
   }
   const { attributes } = block;
   const end = attributes.get("end");
-  const status = attributes.get("status");
-  if (end === undefined || status === undefined) {
+  if (end === undefined || !attributes.has("status")) {
     return null;
   }
   return {
     step: block.id.slice(stepPrefix.length),
     agent: attributes.get("agent") ?? "",
     end,
-    status,
     epic: attributes.get("epic") ?? "",
     task: attributes.get("task") ?? "",
     brief: briefOf(block.body),
@@ -244,12 +245,87 @@ function RingParts({ kind, sentence, epic }: { kind: EventKind; sentence: string
 // null until the fold is first opened.
 type ReturnLoad = { result: string } | "failed" | null;
 
-// StepCard draws a step's end as a card: its head with the agent when the event names one, then the end and the
-// status, then each line of the brief as a line of text. With epic calls it holds a return fold under the brief, closed
-// until it is opened. The first time the fold is opened, the step's full return is read through calls.stepResult. It
-// draws pretty-printed when it is JSON, and a read that fails draws a fixed line. A click on the head opens the step's
-// page through calls.openStep when the event names its epic and the reader holds epic calls.
-export function StepCard({ event, calls }: { event: StepEvent; calls?: EpicCalls }): JSX.Element {
+// endWords is each step end's chip, in round 6's words. An end it does not name draws as it is written.
+const endWords = new Map<string, string>([
+  ["done", "done"],
+  ["returned", "returned"],
+  ["failed", "failed"],
+  ["goal_unmet", "goal not met"],
+  ["checks_failed", "checks failed"],
+  ["gate_failed", "gate failed"],
+  ["stopped", "stopped"],
+  ["engine_restarted", "engine restarted"],
+  ["overtime", "ran over time"],
+  ["tool_stuck", "a tool stuck"],
+  ["silent", "went silent"],
+  ["looping", "looping"],
+  ["wedged", "wedged"],
+]);
+
+// endVerdictOf is a step end's tone and icon: done and returned pass, stopped is quiet, and every other end failed.
+function endVerdictOf(end: string): { tone: "ok" | "quiet" | "bad"; icon: IconName } {
+  if (end === "done" || end === "returned") {
+    return { tone: "ok", icon: "check" };
+  }
+  if (end === "stopped") {
+    return { tone: "quiet", icon: "stop" };
+  }
+  return { tone: "bad", icon: "cross" };
+}
+
+// durationOf is a run's length: seconds under a minute, minutes under an hour, then hours and minutes.
+function durationOf(seconds: number): string {
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) {
+    return `${minutes}m`;
+  }
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
+// plural is a count and its word, in the singular for one and the plural otherwise.
+function plural(count: number, word: string): string {
+  return count === 1 ? `1 ${word}` : `${count} ${word}s`;
+}
+
+// FactsLine draws a step end's facts: its files and line counts when they were counted, its rounds when above 0, and
+// how long it ran.
+function FactsLine({ facts }: { facts: StepFacts }): JSX.Element {
+  return (
+    <div class="facts">
+      {facts.counted && (
+        <>
+          <span>{plural(Number(facts.files), "file")}</span>
+          <span class="plus">{`+${facts.added}`}</span>
+          <span class="minus">{`−${facts.removed}`}</span>
+        </>
+      )}
+      {facts.rounds > 0 && <span>{plural(facts.rounds, "round")}</span>}
+      <span>{durationOf(Number(facts.seconds))}</span>
+    </div>
+  );
+}
+
+// StepCard draws a step's end as a StepEndBlock: its tone and icon are its verdict, its label says the step ended, and
+// it names the task the step ran, else the step's id, with the agent beside it when the block names one. Its end is a
+// chip. Its body is each line of the brief as a line of text, then, with epic calls, a return fold closed until it is
+// opened, then the facts line when the event carries facts, and the time when one is given. The first time the fold is
+// opened, the step's full return is read through calls.stepResult. It draws pretty-printed when it is JSON, and a read
+// that fails draws a fixed line. The chip is a button that opens the step's page through calls.openStep when the event
+// names its epic and the reader holds epic calls.
+export function StepCard({
+  event,
+  facts,
+  time,
+  calls,
+}: {
+  event: StepEvent;
+  facts?: StepFacts;
+  time?: bigint;
+  calls?: EpicCalls;
+}): JSX.Element {
   const [loaded, setLoaded] = useState<ReturnLoad>(null);
   const asked = useRef(false);
   const onClick = () => {
@@ -267,25 +343,44 @@ export function StepCard({ event, calls }: { event: StepEvent; calls?: EpicCalls
       () => setLoaded("failed"),
     );
   };
+  const verdict = endVerdictOf(event.end);
+  const chip = <span class={`chip ${verdict.tone}`}>{endWords.get(event.end) ?? event.end}</span>;
+  const opens = calls !== undefined && event.epic !== "";
   return (
     <div class="step-card">
-      <button type="button" class="step-head" onClick={onClick}>
-        {event.agent !== "" && <b class="step-agent">{event.agent}</b>}
-        <span class="step-end">end {event.end}</span>
-        <span class="step-status">status {event.status}</span>
-      </button>
-      {event.brief.map((line, index) => (
-        <p key={index} class="step-summary">
-          {line}
-        </p>
-      ))}
-      {calls !== undefined && (
-        <details class="step-return" onToggle={(toggled) => openReturn(toggled.currentTarget)}>
-          <summary>return</summary>
-          {loaded === "failed" && <p class="error">return could not be loaded</p>}
-          {loaded !== null && loaded !== "failed" && <pre>{returnBody(loaded.result)}</pre>}
-        </details>
-      )}
+      <Block
+        tone={verdict.tone}
+        kind="stepend"
+        icon={verdict.icon}
+        label="STEP ENDED"
+        who={event.task !== "" ? event.task : event.step}
+        words={event.agent !== "" ? event.agent : undefined}
+        time={time === undefined ? undefined : clock(time)}
+        end={
+          opens ? (
+            <button type="button" class="step-head" onClick={onClick}>
+              {chip}
+              <Icon name="chevronRight" />
+            </button>
+          ) : (
+            chip
+          )
+        }
+      >
+        {event.brief.map((line, index) => (
+          <p key={index} class="step-summary">
+            {line}
+          </p>
+        ))}
+        {calls !== undefined && (
+          <details class="step-return" onToggle={(toggled) => openReturn(toggled.currentTarget)}>
+            <summary>return</summary>
+            {loaded === "failed" && <p class="error">return could not be loaded</p>}
+            {loaded !== null && loaded !== "failed" && <pre>{returnBody(loaded.result)}</pre>}
+          </details>
+        )}
+        {facts !== undefined && <FactsLine facts={facts} />}
+      </Block>
     </div>
   );
 }
