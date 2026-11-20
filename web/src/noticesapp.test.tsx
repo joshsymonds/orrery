@@ -470,15 +470,17 @@ test("NoticeStack: a row's age is the age of the log's newest row under its key"
         "both notices in the stack",
         { step: settle },
       );
-      await until(
-        t.signal,
-        () => rowOf(root, "web needs you")?.querySelector(".when")?.textContent === "3h",
-        "the age from the log",
-        { step: settle },
-      );
+      await settleTurns();
+      assert.equal(rowOf(root, "web needs you")?.querySelector(".when")?.textContent, "3h", "the age from the log's newest row");
       assert.equal(rowOf(root, "api needs you")?.querySelector(".when")?.textContent, "", "a notice with no log row has an age");
     },
-    { listed: [listedMessage({ pane: "%2" }, "web needs you", clockSeconds - 3 * 3600)] },
+    {
+      // Notices.List answers newest first, so the 3h row leads the older 10h row under the same key.
+      listed: [
+        listedMessage({ pane: "%2" }, "web needs you", clockSeconds - 3 * 3600),
+        listedMessage({ pane: "%2" }, "web needs you", clockSeconds - 10 * 3600),
+      ],
+    },
     settle,
   );
 });

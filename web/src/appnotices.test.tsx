@@ -22,6 +22,7 @@ const webTime = 1_800_000_000;
 // now is the page's instant in unix seconds, a minute after the newest notice.
 const now = webTime + 60;
 const limitKey = "five-hour@1800000000";
+const alertKey = "backup";
 
 // ListedRow is a row of the notice log as Notices.List answers it, with the read mark the server keeps for it.
 interface ListedRow {
@@ -525,6 +526,23 @@ test("NoticeCentre: a limit row sends Seen, lands nowhere, and closes the centre
     assert.equal(cursored(container), before, "the limit row moves the cursor nowhere");
     assert.equal(centreDrawn(container), false, "the centre closes once its row is opened");
   }));
+
+test("NoticeCentre: an alert row sends Seen, lands nowhere, and closes the centre", (t) =>
+  withDesk(
+    t.signal,
+    { width: wideWidth, listed: [listedMessage({ alert: alertKey }, "backup failed", webTime, false)] },
+    async (container, server) => {
+      await pressRow(container, "c");
+      await until(t.signal, () => cursored(container) === "c", "the cursor on the docs row");
+      await openCentre(container);
+      await until(t.signal, () => centreRows(container).length === 1, "the centre's alert row");
+      await press(centreRowOf(container, "backup failed body"));
+      await until(t.signal, () => server.seen.length === 1, "the Seen the alert row sent");
+      assert.deepEqual(server.seen, [{ alert: alertKey }]);
+      assert.equal(cursored(container), "c", "the alert row moves the cursor nowhere");
+      assert.equal(centreDrawn(container), false, "the centre closes once its row is opened");
+    },
+  ));
 
 test("NoticeCentre: Mark all read sends ReadAll, then lists the log again", (t) =>
   withDesk(t.signal, { width: wideWidth }, async (container, server) => {
