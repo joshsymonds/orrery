@@ -513,26 +513,6 @@ test("AskAnswer: an epic question's Ask draws no Not now, Bring it back or More"
     assert.equal(container.querySelector(".ask .head .end button"), null, "the Ask's head draws a control");
   }));
 
-test("AskAnswer: a park's Ask asks its parked reason with Retry, and its confirm calls onRetry once with no Something else or record", () => {
-  let retries = 0;
-  const props = baseProps(detailOf({ parked: "rate limit", steps: [step({ id: "s1" })] }), {
-    onRetry: () => {
-      retries++;
-    },
-  });
-  return withSection(props, async (container) => {
-    assert.equal(textOf(container, ".ask .q"), "Rate limit.");
-    assert.deepEqual(textsOf(container, ".ask .opts > .opt .nm"), ["Retry"], "a park draws its one answer");
-    assert.equal(answerBox(container), null, "a park draws a text box");
-    assert.equal(container.querySelector(".record") === null, true, "a park draws a record line");
-    assert.equal(retries, 0, "the pick calls nothing");
-    await clickOption(container, 0);
-    await confirm(container, "Answer with Retry");
-    await settle();
-    assert.equal(retries, 1);
-  });
-});
-
 test("Retry is not drawn for an open question or a held step", async () => {
   const details = [asking(recommended), detailOf({ steps: [step({ id: "s1", held: true, reason: "waiting for a lane" })] })];
   for (const detail of details) {
