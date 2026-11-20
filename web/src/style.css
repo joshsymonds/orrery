@@ -791,7 +791,7 @@ section.page.leave { animation: move-leave var(--o-move-leave); }
 /* The strip is the title row's own line under its controls: the host's name, each meter, then the context. A meter is its
    name, a bar at its percent and its value, in its series colour; at warn and crit all three take the level's colour. */
 .pane-strip { display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-4) var(--o-space-16); min-width: 0; font: var(--o-type-small); color: var(--o-ink-3); }
-.title-row .pane-strip { flex: 0 0 100%; display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-4) var(--o-space-16); min-width: 0; font: var(--o-type-small); color: var(--o-ink-3); }
+.title-row .pane-strip { flex: 0 0 100%; }
 .pane-strip-host { flex: none; font-weight: var(--o-font-weight-bold); color: var(--o-ink-2); }
 .pane-strip .other { color: var(--o-ink-4); }
 .meter { --hue: var(--o-series-1); display: inline-flex; align-items: center; gap: var(--o-space-8); flex: none; font: var(--o-type-small); white-space: nowrap; }

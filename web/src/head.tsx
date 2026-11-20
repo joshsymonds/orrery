@@ -6,7 +6,7 @@ import { CompactHead } from "./compacthead";
 import type { Conversation } from "./conversation";
 import type { Fold } from "./headfold";
 import type { Row } from "./rows";
-import { ContextMeter, PaneStrip, type StripHost } from "./strip";
+import { ContextMeter, contextFigure, PaneStrip, type StripHost } from "./strip";
 import { SubjectBand } from "./subjectband";
 import { lastPathElement } from "./titleparts";
 import { type InboxMark, TitleRow } from "./titlerow";
@@ -92,7 +92,8 @@ export function Head({
   // The phone layout draws the context bare in the title row, beside More, open or folded, and leaves it out of the
   // strip.
   const context = conversation?.state?.context;
-  const phoneContext = showStrip && context !== undefined ? <ContextMeter context={context} bare /> : null;
+  const figure = showStrip && context !== undefined ? contextFigure(context) : null;
+  const phoneContext = context !== undefined && figure !== null ? <ContextMeter context={context} bare figure={figure} /> : null;
   return (
     <div class="convo-head" data-fold={fold}>
       <TitleRow

@@ -152,6 +152,13 @@ test("HeadTitle: the place crumb names its host for the phone layout, and the ti
   });
 });
 
+test("PhoneHead: a context with no tokens draws no context holder in the title row", async () => {
+  const props = headProps({ conversation: conversationOf("", 0n, 200000n), showStrip: true, narrow: true });
+  await withHead(<Head {...props} />, (container) => {
+    assert.equal(container.querySelector(".title-row .phone-ctx"), null, "no empty holder beside More");
+  });
+});
+
 test("PhoneHead: folded, the title row keeps the bare context beside More", async () => {
   const props = headProps({ conversation: conversationOf("", 30000n, 200000n), showStrip: true, fold: "reading", narrow: true });
   await withHead(<Head {...props} />, (container) => {

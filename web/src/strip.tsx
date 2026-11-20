@@ -21,7 +21,7 @@ const percentPerBlock = context.percentPerBlock;
 
 // ContextFigure is a context as the strip draws it: its percent of the window, the blocks it fills, and the band its
 // percent falls in.
-interface ContextFigure {
+export interface ContextFigure {
   percent: number;
   blocks: number;
   band: "ok" | "warn" | "crit";
@@ -71,15 +71,17 @@ function Meter({ stat, series }: { stat: HostStat; series: number }): JSX.Elemen
 }
 
 // ContextMeter draws a conversation's context: five blocks, the filled ones on, and its percent, at its band. Unless bare,
-// it also names the context and says its tokens of the window. A context with no tokens or no window draws nothing.
+// it also names the context and says its tokens of the window. A context with no tokens or no window draws nothing. A
+// caller that has already read the context's figure passes it, so it is read once.
 export function ContextMeter({
   context,
   bare = false,
+  figure = contextFigure(context),
 }: {
   context: ConversationContext;
   bare?: boolean;
+  figure?: ContextFigure | null;
 }): JSX.Element | null {
-  const figure = contextFigure(context);
   if (figure === null) {
     return null;
   }
@@ -99,7 +101,7 @@ export function ContextMeter({
 
 // contextFigure reads a context as the strip draws it: the percent of its window, clamped to 0..100, the blocks that
 // percent fills, and its band. A context with no tokens or no window has no figure.
-function contextFigure(context: ConversationContext): ContextFigure | null {
+export function contextFigure(context: ConversationContext): ContextFigure | null {
   if (context.tokens === 0n || context.window === 0n) {
     return null;
   }
