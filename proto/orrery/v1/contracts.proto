@@ -1,0 +1,204 @@
+syntax = "proto3";
+
+package orrery.v1;
+
+import "orrery/v1/epics.proto";
+
+// Contracts reads the contracts orreryd keeps, from the store, and forwards the owner's accept, set aside and reopen to
+// orreryd, which records them as the owner's.
+service Contracts {
+  // List returns every contract, created ascending, then by id, with no versions or states.
+  rpc List(ContractsListRequest) returns (ContractsListResponse);
+
+  // Get returns one contract by the id List gave it, with its versions and state changes.
+  rpc Get(ContractsGetRequest) returns (ContractsGetResponse);
+
+  // Accept forwards the owner's acceptance of the named contract to orreryd and returns the contract as it stands.
+  rpc Accept(ContractsAcceptRequest) returns (ContractsAcceptResponse);
+
+  // SetAside forwards the owner's set aside of the named contract to orreryd and returns the contract as it stands.
+  rpc SetAside(ContractsSetAsideRequest) returns (ContractsSetAsideResponse);
+
+  // Reopen forwards the owner's reopening of the named contract to orreryd and returns the contract as it stands.
+  rpc Reopen(ContractsReopenRequest) returns (ContractsReopenResponse);
+}
+
+// Contract is one contract as List gives it.
+message Contract {
+  // The contract's id, the id of the epic made from it once accepted.
+  string id = 1;
+
+  // The current version's repository.
+  string repository = 2;
+
+  // The current version's title.
+  string title = 3;
+
+  // The current version's care: limited, serious or severe.
+  string care = 4;
+
+  // The contract's state: proposed, accepted or set_aside.
+  string state = 5;
+
+  // The current, newest version number, counted from 1.
+  int64 version = 6;
+
+  // The decisions of the current version that have no answer.
+  int64 open_decisions = 7;
+
+  // The conversation that proposed the contract: the writer of version 1.
+  string conversation = 8;
+
+  // When version 1 was stored, in unix seconds.
+  int64 created = 9;
+
+  // When the newest version or state change was stored, whichever is later, in unix seconds.
+  int64 changed = 10;
+}
+
+// ContractDecision is one decision a contract's version asks the owner to answer.
+message ContractDecision {
+  // The decision's id, D<n>.
+  string id = 1;
+
+  // The question the decision asks.
+  string question = 2;
+
+  // The options the owner may choose from.
+  repeated string options = 3;
+
+  // The option the planner recommends.
+  string recommendation = 4;
+
+  // Why the decision is needed.
+  string reason = 5;
+
+  // The F, R or P row the decision concerns; empty when it concerns none.
+  string row = 6;
+
+  // The owner's answer; empty while the decision is open.
+  string answer = 7;
+}
+
+// ContractVersion is one stored version of a contract: the body it proposed and what changed from the version before.
+message ContractVersion {
+  // The version's number, counted from 1.
+  int64 version = 1;
+
+  // The body's sections. Its accepted field is left 0.
+  EpicContract contract = 2;
+
+  // The body's requirements in order, with no runs.
+  repeated EpicRequirement requirements = 3;
+
+  // The decisions the version asks the owner to answer.
+  repeated ContractDecision decisions = 4;
+
+  // The words the writer gave with the version.
+  string words = 5;
+
+  // The writer's session id.
+  string writer = 6;
+
+  // When the version was stored, in unix seconds.
+  int64 time = 7;
+
+  // The F, R, P and decision ids whose text differs from the version before; empty for version 1.
+  repeated string changed_rows = 8;
+
+  // The section names whose values differ from the version before; empty for version 1.
+  repeated string changed_sections = 9;
+}
+
+// ContractStateChange is one change of a contract's state.
+message ContractStateChange {
+  // The state the contract changed to: proposed, accepted or set_aside.
+  string state = 1;
+
+  // The contract's version when the change was made.
+  int64 version = 2;
+
+  // Who made the change: owner or session.
+  string by = 3;
+
+  // The writer's session id when by is session; empty for the owner.
+  string session = 4;
+
+  // The words the change was made with.
+  string words = 5;
+
+  // When the change was made, in unix seconds.
+  int64 time = 6;
+}
+
+// ContractsListRequest asks for every contract.
+message ContractsListRequest {}
+
+// ContractsListResponse carries every contract.
+message ContractsListResponse {
+  // The contracts, created ascending, then by id.
+  repeated Contract contracts = 1;
+}
+
+// ContractsGetRequest names one contract.
+message ContractsGetRequest {
+  // The contract's id, as List gave it.
+  string id = 1;
+}
+
+// ContractsGetResponse carries one contract with its versions and state changes.
+message ContractsGetResponse {
+  // The contract.
+  Contract contract = 1;
+
+  // The contract's versions, oldest first.
+  repeated ContractVersion versions = 2;
+
+  // The contract's state changes, oldest first.
+  repeated ContractStateChange states = 3;
+}
+
+// ContractsAcceptRequest names the contract the owner accepts.
+message ContractsAcceptRequest {
+  // The contract's id, as List gave it.
+  string id = 1;
+
+  // The words the owner accepts with; may be empty.
+  string words = 2;
+}
+
+// ContractsAcceptResponse carries the contract as it stands after the acceptance.
+message ContractsAcceptResponse {
+  // The contract.
+  Contract contract = 1;
+}
+
+// ContractsSetAsideRequest names the contract the owner sets aside.
+message ContractsSetAsideRequest {
+  // The contract's id, as List gave it.
+  string id = 1;
+
+  // The words the owner sets the contract aside with.
+  string words = 2;
+}
+
+// ContractsSetAsideResponse carries the contract as it stands after it was set aside.
+message ContractsSetAsideResponse {
+  // The contract.
+  Contract contract = 1;
+}
+
+// ContractsReopenRequest names the contract the owner reopens.
+message ContractsReopenRequest {
+  // The contract's id, as List gave it.
+  string id = 1;
+
+  // The words the owner reopens the contract with; may be empty.
+  string words = 2;
+}
+
+// ContractsReopenResponse carries the contract as it stands after it was reopened.
+message ContractsReopenResponse {
+  // The contract.
+  Contract contract = 1;
+}
