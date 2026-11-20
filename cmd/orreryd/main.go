@@ -803,17 +803,18 @@ func shutdownServe(
 }
 
 // sessionHost is the engine session service of a --sessions orreryd. The manager runs the sessions, the writer stores
-// their events, and the listener answers the Engine, Steps, Pools and Evidence services on sessions.sock. Without a
-// store the manager, writer and broker are nil and every RPC is refused. The broker is closed before the listener stops,
-// so a grant that a blocked Acquire holds stays stored for the next orreryd. pools is the broker when its restore
-// succeeded, and nil otherwise, so no Pools are served. evidence is the evidence runner over the store, the steps and
-// the pools, and nil without a store. checks is the node checks runner over the store and the pools, and nil without a
-// store. brokerRun is closed when the broker's tick loop returns, and is nil when no loop runs.
+// their events, and the listener answers the Engine, Steps, Pools, Evidence and Contracts services on sessions.sock.
+// Without a store the manager, writer and broker are nil and every RPC is refused. The broker is closed before the
+// listener stops, so a grant that a blocked Acquire holds stays stored for the next orreryd. pools is the broker when
+// its restore succeeded, and nil otherwise, so no Pools are served. evidence is the evidence runner over the store, the
+// steps and the pools, and nil without a store. checks is the node checks runner over the store and the pools, and nil
+// without a store. brokerRun is closed when the broker's tick loop returns, and is nil when no loop runs.
 type sessionHost struct {
 	manager    *enginehost.Manager
 	steps      *enginehost.Steps
 	epics      enginehost.EpicCommands
 	steering   enginehost.SteeringSessions
+	contracts  *enginehost.Contracts
 	writer     *enginehost.Writer
 	broker     *grants.Broker
 	pools      enginehost.PoolCommands
@@ -976,7 +977,7 @@ func startSessions(
 		host.steps = steps
 		st.SetEngineLive(host.manager.Live)
 		commands, stepCommands = host.manager, host.steps
-		host.epics, host.steering = st, epicSteering(host.manager, st)
+		host.epics, host.steering, host.contracts = st, epicSteering(host.manager, st), contractsOf(st)
 		crons = enginehost.NewCronAnswers(enginehost.CronAnswersConfig{
 			Store: st, Now: opts.cronNow, Changed: host.cron.Changed})
 		host.startWriter(ctx)
@@ -1005,6 +1006,7 @@ func startSessions(
 	go func() {
 		host.serveDone <- enginehost.Serve(
 			serveCtx, ln, commands, stepCommands, host.epics, host.steering, host.pools, evidence, notices, crons,
+			host.contracts,
 			serveOpts(opts, st, logger)...,
 		)
 	}()
@@ -1026,6 +1028,11 @@ func epicSteering(manager *enginehost.Manager, st *store.Store) *enginehost.Epic
 	return enginehost.NewEpicSteering(enginehost.EpicSteeringConfig{
 		Manager: manager, Sessions: st, Render: steeringLines,
 	})
+}
+
+// contractsOf returns the contracts st serves, stamped with the process clock.
+func contractsOf(st *store.Store) *enginehost.Contracts {
+	return &enginehost.Contracts{Store: st, Now: time.Now}
 }
 
 // serveOpts returns the handler options the session socket serves with: opts.metricsHandlers, and with st open, the

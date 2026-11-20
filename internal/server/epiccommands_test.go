@@ -452,7 +452,7 @@ func serveEngineEpics(t *testing.T, st *store.Store) enginev1connect.EpicsClient
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
-	go func() { done <- enginehost.Serve(ctx, ln, nil, nil, st, nil, nil, nil, nil, nil) }()
+	go func() { done <- enginehost.Serve(ctx, ln, nil, nil, st, nil, nil, nil, nil, nil, nil) }()
 	t.Cleanup(func() {
 		cancel()
 		if err := <-done; err != nil {

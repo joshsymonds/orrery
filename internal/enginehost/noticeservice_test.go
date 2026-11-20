@@ -55,7 +55,7 @@ func startNoticesServer(t *testing.T, notices NoticeSource) enginev1connect.Noti
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
-	go func() { done <- Serve(ctx, ln, nil, nil, nil, nil, nil, nil, notices, nil) }()
+	go func() { done <- Serve(ctx, ln, nil, nil, nil, nil, nil, nil, notices, nil, nil) }()
 	t.Cleanup(func() {
 		cancel()
 		if err := <-done; err != nil {
