@@ -12,7 +12,7 @@ import { tideProposed } from "./fixtures/contractrecords";
 import { type Contract, ContractsGetResponseSchema } from "./gen/orrery/v1/contracts_pb";
 import { type Address } from "./router";
 import type { Row } from "./rows";
-import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
+import { assertSame, installTestDom, removeTestDom, teardownOnce } from "./testdom";
 import { turn, until } from "./testwait";
 
 // Each test's name carries one of the tokens: ContractMine for a row's control and the dock's About, ContractLines for
@@ -217,8 +217,8 @@ async function click(element: HTMLElement): Promise<void> {
   });
 }
 
-// typeAndSend types text into the shown send box and presses Enter, which sends it.
-async function typeAndSend(container: HTMLElement, text: string): Promise<void> {
+// typeDraft types text into the shown send box without sending it, and returns the box.
+async function typeDraft(container: HTMLElement, text: string): Promise<HTMLTextAreaElement> {
   const box = shownBox(container);
   if (box === null) {
     throw new Error("the middle column draws no send box");
@@ -227,6 +227,12 @@ async function typeAndSend(container: HTMLElement, text: string): Promise<void> 
     box.value = text;
     box.dispatchEvent(new Event("input", { bubbles: true }));
   });
+  return box;
+}
+
+// typeAndSend types text into the shown send box and presses Enter, which sends it.
+async function typeAndSend(container: HTMLElement, text: string): Promise<void> {
+  const box = await typeDraft(container, text);
   await act(() => {
     box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
   });
@@ -437,4 +443,52 @@ test("ContractAddress: under 760px a row's control raises the conversation in th
       "the sheet draws the conversation's reader",
     );
     await settle(t.signal, () => aboutLine(container)?.includes(firstRow) === true, "the sheet's dock draws the About");
+  }));
+
+// sheetOf is the phone's raised sheet, or null when none is raised.
+function sheetOf(container: HTMLElement): HTMLElement | null {
+  return container.querySelector<HTMLElement>("section.sheet");
+}
+
+// raiseSheet presses the record's Talk about it, which raises the conversation in the sheet, and waits for its send box.
+async function raiseSheet(signal: AbortSignal, container: HTMLElement): Promise<void> {
+  await settle(signal, () => talkButton(container) !== undefined, "the record draws Talk about it");
+  const talk = talkButton(container);
+  assert.ok(talk !== undefined, "the record draws Talk about it");
+  await click(talk);
+  await settle(signal, () => shownBox(container) !== null, "the sheet draws the conversation's send box");
+}
+
+test("ContractAddress: under 760px a draft typed in the conversation's dock survives raising the sheet and dismissing it", (t) =>
+  withApp(t.signal, 400, { rows: [conversationRow()], address: contractAddress }, async ({ container }) => {
+    await settle(t.signal, () => titledRecord(container), "the record is drawn");
+    await raiseSheet(t.signal, container);
+    const box = await typeDraft(container, "Half a thought");
+    const raised = sheetOf(container);
+    assert.ok(raised !== null, "the sheet is raised");
+    await act(() => {
+      raised.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    });
+    await settle(t.signal, () => sheetOf(container) === null, "Escape dismisses the sheet");
+
+    await raiseSheet(t.signal, container);
+    assertSame(shownBox(container), box, "the sheet draws the same send box");
+    assert.equal(shownBox(container)?.value, "Half a thought", "the draft is still in the box");
+  }));
+
+test("ContractAddress: under 760px a draft typed in the sheet survives its dismissal by a press on the scrim", (t) =>
+  withApp(t.signal, 400, { rows: [conversationRow()], address: contractAddress }, async ({ container }) => {
+    await settle(t.signal, () => titledRecord(container), "the record is drawn");
+    await raiseSheet(t.signal, container);
+    const box = await typeDraft(container, "Sheet draft");
+    const scrim = container.querySelector(".sheet-scrim");
+    assert.ok(scrim !== null, "the sheet is raised over a scrim");
+    await act(() => {
+      scrim.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    });
+    await settle(t.signal, () => sheetOf(container) === null, "a press on the scrim dismisses the sheet");
+
+    await raiseSheet(t.signal, container);
+    assertSame(shownBox(container), box, "the sheet draws the same send box");
+    assert.equal(shownBox(container)?.value, "Sheet draft", "the draft is still in the box");
   }));

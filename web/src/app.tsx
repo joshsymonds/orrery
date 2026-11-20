@@ -2128,13 +2128,9 @@ export function App({
             ))}
           </div>
         </div>
-        {sheeted ? (
-          <Sheet title={contractLiveRow?.label ?? ""} onClose={() => setTalking(false)}>
-            {middleColumn}
-          </Sheet>
-        ) : (
-          middleColumn
-        )}
+        <Sheet open={sheeted} title={contractLiveRow?.label ?? ""} onClose={() => setTalking(false)}>
+          {middleColumn}
+        </Sheet>
         {epicEntry !== null && !contractShown && steererRow === null && !epicPageShown && (
           <section class="read" aria-label="no conversation">
             {noSteererMiddle(epicDetail)}
