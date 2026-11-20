@@ -62,7 +62,7 @@ import { type SendKind, type Sending, type SentText, sendingEntry, unsentEntries
 import { type ColumnHead, type FindState, headState, ReaderColumn, stepCalls } from "./readercolumn";
 import { Sheet } from "./sheet";
 import { ListPanel, listHead, SidePanel } from "./sidepanel";
-import { steerCallsOf, steererRowOf, steersLive } from "./steer";
+import { conversationEnded, steerCallsOf, steererRowOf, steersLive } from "./steer";
 import { SteerMenu, useSteer } from "./steermenu";
 import { PaneStrip, type StripHost } from "./strip";
 import { ReplyText } from "./text";
@@ -1616,7 +1616,7 @@ export function App({
     if (detail?.epic === undefined || !steersLive(detail)) {
       return <p class="side-note">{noSteererText}</p>;
     }
-    const lead = steering === "" ? unsteeredLead(detail.epic.slug) : endedLead(detail.epic.slug);
+    const lead = conversationEnded(rows, steering) ? endedLead(detail.epic.slug) : unsteeredLead(detail.epic.slug);
     return steeredBar(detail.epic, steering, lead);
   };
 
