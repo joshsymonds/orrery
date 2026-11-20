@@ -483,14 +483,19 @@ export function App({
   });
   // The tree of the view before the chips and the search narrow it: each project's conversations, with the epics and
   // contracts that hang under them.
-  const tree = buildTree({
-    rows: shownRows,
-    epics: treeEpics,
-    details: epics.details,
-    contracts,
-    host: host?.host ?? "",
-    view,
-  });
+  const treeOf = (shown: View) =>
+    buildTree({
+      rows: shownRows,
+      epics: treeEpics,
+      details: epics.details,
+      contracts,
+      host: host?.host ?? "",
+      view: shown,
+    });
+  const tree = treeOf(view);
+  // The rail's tiles come from the inbox's tree whatever view the list shows, so a project keeps its tile and count
+  // in the Archived view.
+  const railTree = view === "inbox" ? tree : treeOf("inbox");
   const counts = countsOf(tree);
   // Each project's waiting number over the whole tree, before the chips and the search narrow it: a folded card says it.
   const waitingOf = new Map(tree.map((project) => [project.key, projectWaiting(project)]));
@@ -2290,7 +2295,7 @@ export function App({
       >
         {(inboxState === "rail" || inboxState === "flyout") && (
           <InboxRail
-            tiles={railTiles(tree, shownProject ?? cursorKey)}
+            tiles={railTiles(railTree, shownProject ?? cursorKey)}
             onMark={() => setPopout("key")}
             onTile={openProject}
             onNew={() => setPickerOpen(true)}

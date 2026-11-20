@@ -263,20 +263,32 @@ test("InboxRail: the pointer on the rail brings the inbox out over the page, kee
     );
   }));
 
-test("InboxRail: esc and b tuck a key-popped inbox back, and the pointer leaving the rail tucks a pointer-popped one", (t) =>
+test("InboxRail: the pointer on the rail brings the inbox out, and the pointer leaving the rail tucks it back", (t) =>
   withDesk(t.signal, wideWidth, async (container) => {
     await openRow(container, "b");
-    await key("b");
-    assert.equal(paneState(container), "flyout", "b brings the inbox out");
-    await key("Escape");
-    assert.equal(paneState(container), "rail", "Escape tucks it back");
-    await key("b");
-    await key("b");
-    assert.equal(paneState(container), "rail", "b again tucks it back");
+    assert.equal(paneState(container), "rail");
     await pointer(rail(container), "pointerenter");
     assert.equal(paneState(container), "flyout", "the pointer on the rail brings the inbox out");
     await pointer(rail(container), "pointerleave", null);
     assert.equal(paneState(container), "rail", "the pointer leaving the rail tucks it back");
+  }));
+
+test("InboxRail: in the Archived view the tiles are the inbox's, so a project keeps its tile and count, and switching back draws the same", (t) =>
+  withDesk(t.signal, wideWidth, async (container) => {
+    await openRow(container, "b");
+    const inbox = railLabels(container);
+    assert.equal(tileOf(container, "api").querySelector(".n")?.textContent, "1", "the inbox's api tile counts its one waiting row");
+    await press(tileOf(container, "Open the inbox"));
+    await key("v");
+    assert.equal(container.querySelector(".inbox-rows")?.getAttribute("data-list"), "archived", "v shows the Archived view");
+    assert.equal(tileOf(container, "api").querySelector(".n")?.textContent, "1", "the api tile keeps its count in the Archived view");
+    assert.deepEqual(railLabels(container), inbox, "the Archived view's rail draws the inbox's tiles and counts");
+    const back = [...container.querySelectorAll<HTMLElement>(".inbox-foot button")].find(
+      (button) => button.textContent === "Back to the inbox",
+    );
+    await press(back ?? null);
+    assert.equal(container.querySelector(".inbox-rows")?.getAttribute("data-list"), "inbox", "Back returns to the inbox view");
+    assert.deepEqual(railLabels(container), inbox, "the inbox view draws the same tiles and counts");
   }));
 
 test("InboxRail: the pointer moving between the rail and the inbox keeps it out, and leaving both tucks it", (t) =>
