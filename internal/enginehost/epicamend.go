@@ -37,7 +37,7 @@ func (s *epicService) AmendEvidence(
 	if err := s.ownerCaller(ctx, id, req.Header()); err != nil {
 		return nil, err
 	}
-	maker, err := s.callerMaker(ctx, req.Header())
+	maker, err := s.controlMaker(ctx, id, req.Header())
 	if err != nil {
 		return nil, err
 	}

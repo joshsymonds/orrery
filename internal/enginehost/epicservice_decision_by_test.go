@@ -136,7 +136,12 @@ func TestDecisionByRecordsTheMakerOfEachCaller(t *testing.T) {
 			st, _ := openPlannerStore(t)
 			tc.seed(t, st)
 			client := newEpicsClient(t, startEpicServer(t, st))
-			createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+			// The epic is created by the case's caller, so a conversation caller steers it and may change it.
+			caller := http.Header{}
+			tc.headers(caller)
+			if err := steererSetCreate(t, client, stepGitTestRepo(t), caller); err != nil {
+				t.Fatalf("CreateEpic: %v", err)
+			}
 
 			reply := answerNoteAs(t, client, tc)
 			if reply.GetBy() != tc.by || reply.GetSession() != tc.session {

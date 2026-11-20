@@ -71,7 +71,12 @@ func TestEpicActionLogPauseRecordsItsCaller(t *testing.T) {
 			st := epicTestStore(t)
 			tc.seed(t, st)
 			client := newEpicsClient(t, startEpicServer(t, st))
-			createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+			// The epic is created by the case's caller, so a conversation caller steers it and may change it.
+			caller := http.Header{}
+			tc.headers(caller)
+			if err := steererSetCreate(t, client, stepGitTestRepo(t), caller); err != nil {
+				t.Fatalf("CreateEpic: %v", err)
+			}
 
 			req := connect.NewRequest(&v1.PauseEpicRequest{Id: epicServiceID})
 			tc.headers(req.Header())

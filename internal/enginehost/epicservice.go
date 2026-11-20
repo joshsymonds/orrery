@@ -116,6 +116,35 @@ func (s *epicService) callerMaker(ctx context.Context, header http.Header) (stor
 	return maker, nil
 }
 
+// controlMaker returns who makes a changing call of epic whose headers are header. A conversation that does not steer
+// epic is refused with FailedPrecondition, naming the steerer and epic_steer, before the call writes anything. The owner
+// and a step pass, and so does a conversation of an epic that is not stored, which its handler answers NotFound.
+func (s *epicService) controlMaker(ctx context.Context, epic string, header http.Header) (store.Maker, error) {
+	maker, err := s.callerMaker(ctx, header)
+	if err != nil || maker.By != store.MakerConversation {
+		return maker, err
+	}
+	row, err := s.epics.Epic(ctx, epic)
+	switch {
+	case errors.Is(err, store.ErrNoEpic):
+		return maker, nil
+	case err != nil:
+		return store.Maker{}, epicStoreError(err)
+	case row.Steerer == maker.Session:
+		return maker, nil
+	case row.Steerer == "":
+		return store.Maker{}, refuseEpic(connect.CodeFailedPrecondition, fmt.Sprintf(
+			"session %s does not steer epic %s: no conversation steers it; epic_steer makes this conversation the steerer",
+			maker.Session,
+			epic,
+		))
+	}
+	return store.Maker{}, refuseEpic(connect.CodeFailedPrecondition, fmt.Sprintf(
+		"session %s does not steer epic %s: session %s steers it; epic_steer makes this conversation the steerer",
+		maker.Session, epic, row.Steerer,
+	))
+}
+
 // CreateEpic checks the contract with checkEpic, collects the lint's warnings, merges its reviewers, resolves its base to
 // the full commit the base names, pins the workflow the request names at that commit, then stores it accepted, with its
 // seed decisions, and returns the stored epic read back with the warnings. Its review list is the enabled task-stage
@@ -365,7 +394,7 @@ func (s *epicService) AnswerEpic(
 	if err := checkEpicAnswer(req.Msg); err != nil {
 		return nil, err
 	}
-	maker, err := s.callerMaker(ctx, req.Header())
+	maker, err := s.controlMaker(ctx, req.Msg.GetEpicId(), req.Header())
 	if err != nil {
 		return nil, err
 	}
@@ -500,7 +529,7 @@ func (s *epicService) PauseEpic(
 	if id == "" {
 		return nil, refuseEpic(connect.CodeInvalidArgument, "id: empty")
 	}
-	maker, err := s.callerMaker(ctx, req.Header())
+	maker, err := s.controlMaker(ctx, id, req.Header())
 	if err != nil {
 		return nil, err
 	}
@@ -543,7 +572,7 @@ func (s *epicService) ResumeEpic(
 	if err != nil {
 		return nil, err
 	}
-	maker, err := s.callerMaker(ctx, req.Header())
+	maker, err := s.controlMaker(ctx, id, req.Header())
 	if err != nil {
 		return nil, err
 	}
@@ -632,7 +661,7 @@ func (s *epicService) StopEpic(
 	if id == "" {
 		return nil, refuseEpic(connect.CodeInvalidArgument, "id: empty")
 	}
-	maker, err := s.callerMaker(ctx, req.Header())
+	maker, err := s.controlMaker(ctx, id, req.Header())
 	if err != nil {
 		return nil, err
 	}
@@ -666,7 +695,7 @@ func (s *epicService) RetryEpic(
 	if id == "" {
 		return nil, refuseEpic(connect.CodeInvalidArgument, "id: empty")
 	}
-	maker, err := s.callerMaker(ctx, req.Header())
+	maker, err := s.controlMaker(ctx, id, req.Header())
 	if err != nil {
 		return nil, err
 	}
@@ -697,7 +726,7 @@ func (s *epicService) KickEpic(
 	if isBlank(req.Msg.GetText()) {
 		return nil, refuseEpic(connect.CodeInvalidArgument, "text: empty")
 	}
-	maker, err := s.callerMaker(ctx, req.Header())
+	maker, err := s.controlMaker(ctx, id, req.Header())
 	if err != nil {
 		return nil, err
 	}
@@ -735,7 +764,7 @@ func (s *epicService) ReleaseEpic(
 		}
 		undoNone = append(undoNone, int64(position))
 	}
-	maker, err := s.callerMaker(ctx, req.Header())
+	maker, err := s.controlMaker(ctx, id, req.Header())
 	if err != nil {
 		return nil, err
 	}
@@ -769,7 +798,7 @@ func (s *epicService) CloseEpic(
 	if err != nil {
 		return nil, err
 	}
-	maker, err := s.callerMaker(ctx, req.Header())
+	maker, err := s.controlMaker(ctx, id, req.Header())
 	if err != nil {
 		return nil, err
 	}
