@@ -18,6 +18,12 @@ data class ToolCall(
 sealed interface ConvoEntry {
     data class Time(val seconds: Long) : ConvoEntry
     data class Prompt(val text: String, val time: Long = 0L) : ConvoEntry
+
+    /** A brief the engine sent a step's worker: its [text] is folded to one line until a tap opens it. */
+    data class Brief(val text: String, val time: Long = 0L) : ConvoEntry
+
+    /** A send-back of check [round] the engine sent: its [text] draws as that round's check block. */
+    data class CheckRound(val text: String, val round: Int, val time: Long = 0L) : ConvoEntry
     data class Reply(val text: String, val time: Long = 0L) : ConvoEntry
     data class Tool(val call: ToolCall) : ConvoEntry
     data class Group(val calls: List<ToolCall>) : ConvoEntry
@@ -76,7 +82,7 @@ fun foldConversation(items: List<ConversationItem>): List<ConvoEntry> {
                 when (item.kind) {
                     "prompt" -> {
                         if (item.time > 0) entries.add(ConvoEntry.Time(item.time))
-                        entries.add(ConvoEntry.Prompt(item.text, item.time))
+                        entries.add(promptEntry(item))
                     }
                     "reply" -> {
                         if (item.time > 0) entries.add(ConvoEntry.Time(item.time))
@@ -109,6 +115,8 @@ fun entryKeys(entries: List<ConvoEntry>): List<String> {
 private fun baseKey(entry: ConvoEntry): String = when (entry) {
     is ConvoEntry.Time -> "time:${entry.seconds}"
     is ConvoEntry.Prompt -> "prompt:${entry.time}:${entry.text.hashCode()}"
+    is ConvoEntry.Brief -> "brief:${entry.time}:${entry.text.hashCode()}"
+    is ConvoEntry.CheckRound -> "check:${entry.time}:${entry.round}:${entry.text.hashCode()}"
     is ConvoEntry.Reply -> "reply:${entry.time}:${entry.text.hashCode()}"
     is ConvoEntry.Tool -> "tool:${entry.call.id}"
     is ConvoEntry.Group -> "group:${entry.calls.first().id}"
@@ -133,6 +141,8 @@ fun firstNewerIndex(entries: List<ConvoEntry>, seen: Long?): Int {
 internal fun entryTime(entry: ConvoEntry): Long = when (entry) {
     is ConvoEntry.Time -> entry.seconds
     is ConvoEntry.Prompt -> entry.time
+    is ConvoEntry.Brief -> entry.time
+    is ConvoEntry.CheckRound -> entry.time
     is ConvoEntry.Reply -> entry.time
     is ConvoEntry.Tool -> entry.call.time
     is ConvoEntry.Group -> entry.calls.maxOfOrNull { it.time } ?: 0L
@@ -200,6 +210,13 @@ private fun toolCall(item: ConversationItem, outcome: Outcome?): ToolCall {
         time = item.time,
         contract = item.contract,
     )
+}
+
+/** A prompt the engine sent a brief or a check round as its own entry; any other prompt stays a [ConvoEntry.Prompt]. */
+private fun promptEntry(item: ConversationItem): ConvoEntry = when {
+    item.sender == "brief" -> ConvoEntry.Brief(item.text, item.time)
+    item.sender == "engine" && item.round >= 1 -> ConvoEntry.CheckRound(item.text, item.round, item.time)
+    else -> ConvoEntry.Prompt(item.text, item.time)
 }
 
 private fun flushRun(run: MutableList<ConvoEntry>, entries: MutableList<ConvoEntry>) {
