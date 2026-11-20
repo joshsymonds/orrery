@@ -128,6 +128,7 @@ class EpicSteerMenuTest {
                 onOpenStep = {},
                 onOpenContract = {},
                 onTalk = {},
+                listedSteerer = { null },
                 onSteered = { steered.add(it) },
             )
         }

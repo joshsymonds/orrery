@@ -186,6 +186,7 @@ class EpicProofRunsTest {
                 onOpenStep = {},
                 onOpenContract = {},
                 onTalk = {},
+                listedSteerer = { null },
             )
         }
     }

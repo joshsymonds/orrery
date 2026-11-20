@@ -55,6 +55,7 @@ import io.github.joshsymonds.orrery.ui.SettingsScreen
 import io.github.joshsymonds.orrery.ui.StepMode
 import io.github.joshsymonds.orrery.ui.WelcomeScreen
 import io.github.joshsymonds.orrery.ui.conversationLive
+import io.github.joshsymonds.orrery.ui.steererOf
 import io.github.joshsymonds.orrery.ui.theme.Move
 import io.github.joshsymonds.orrery.ui.theme.OrreryTheme
 import io.github.joshsymonds.orrery.ui.theme.animationsOn
@@ -104,6 +105,11 @@ class MainActivity : ComponentActivity() {
                     val scope = rememberCoroutineScope()
                     // Opens the conversation that steers an epic once a steering settles on it.
                     val openSteerer: (String) -> Unit = { id -> scope.launch { screen = steererScreen(client, id) } }
+                    // The listed conversation an epic's steering names. The screen that draws it reads it off the main
+                    // thread.
+                    val listedSteerer: (String) -> Pane? = remember(client) {
+                        { id -> steererOf(client.panes() + client.headless(), id) }
+                    }
                     val animated = animationsOn()
                     Box(modifier = Modifier.fillMaxSize()) {
                         Box(
@@ -154,6 +160,7 @@ class MainActivity : ComponentActivity() {
                                                 screen = Screen.Phase(current.id, task, phase)
                                             },
                                             onTalk = openSteerer,
+                                            listedSteerer = listedSteerer,
                                             onSteered = openSteerer,
                                             listState = epicListStates.getOrPut(current.id) { LazyListState() },
                                             openAt = current.open,

@@ -33,6 +33,7 @@ import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicHistoryRow
 import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.OrreryClient
+import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.api.StepCallResult
 import io.github.joshsymonds.orrery.api.StepRow
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
@@ -89,6 +90,7 @@ fun EpicScreen(
     onOpenStep: (StepRow) -> Unit,
     onOpenContract: () -> Unit,
     onTalk: (steering: String) -> Unit,
+    listedSteerer: (steering: String) -> Pane?,
     modifier: Modifier = Modifier,
     listState: LazyListState = rememberLazyListState(),
     openAt: EpicOpening? = null,
@@ -204,6 +206,7 @@ fun EpicScreen(
                 onOpenContract = onOpenContract,
                 onOpenPhase = onOpenPhase,
                 onTalk = onTalk,
+                listedSteerer = listedSteerer,
                 actions = NowActions(answer = onAnswer, retry = retry, resume = resume, stop = stop),
                 modifier = Modifier.weight(1f),
             )
@@ -316,6 +319,7 @@ private fun EpicBody(
     onOpenContract: () -> Unit,
     onOpenPhase: ((task: String, phase: Phase) -> Unit)?,
     onTalk: (steering: String) -> Unit,
+    listedSteerer: (steering: String) -> Pane?,
     actions: NowActions,
     modifier: Modifier,
 ) {
@@ -353,7 +357,9 @@ private fun EpicBody(
             }
         }
         if (reached.summary) {
-            section("summary") { Summary(detail, onOpenContract = onOpenContract, onTalk = onTalk) }
+            section("summary") {
+                Summary(detail, onOpenContract = onOpenContract, onTalk = onTalk, listedSteerer = listedSteerer)
+            }
         }
         if (reached.track) {
             section("track") {
@@ -436,9 +442,14 @@ private fun NowSection(detail: EpicDetail, now: Long, actions: NowActions) {
 }
 
 // Summary is the summary paragraph, then its two doors: the contract, and the conversation that steers the epic. A door
-// whose target is absent is not drawn.
+// whose target is absent is not drawn; the Steered from door is drawn once its steerer is read.
 @Composable
-private fun ColumnScope.Summary(detail: EpicDetail, onOpenContract: () -> Unit, onTalk: (steering: String) -> Unit) {
+private fun ColumnScope.Summary(
+    detail: EpicDetail,
+    onOpenContract: () -> Unit,
+    onTalk: (steering: String) -> Unit,
+    listedSteerer: (steering: String) -> Pane?,
+) {
     Text(
         detail.summary.ifEmpty { detail.contract?.title.orEmpty() },
         style = OrreryTokens.Type.body,
@@ -450,11 +461,44 @@ private fun ColumnScope.Summary(detail: EpicDetail, onOpenContract: () -> Unit, 
     if (detail.contract != null) {
         Door(label = "Contract", line = contractDoorOf(detail), tag = "epic-door-contract", onTap = onOpenContract)
     }
-    val steerer = detail.sessions.firstOrNull { it.id == detail.epic.steering }
-    if (steerer != null) {
-        val line = listOf(detail.repository, steerer.label).filter { it.isNotEmpty() }.joinToString(" · ")
-        Door(label = "Steered from", line = line, tag = "epic-door-steered", onTap = { onTalk(steerer.id) })
+    val steering = detail.epic.steering
+    val read = listedReadOf(steering, listedSteerer)
+    if (steering.isNotEmpty() && read != null) {
+        // A listed steerer is titled from its directory and its label, else its command; one no row lists is
+        // the word session.
+        val pane = read.pane
+        val line = if (pane == null) {
+            "session"
+        } else {
+            listOf(lastPathElement(pane.cwd), pane.label.ifEmpty { pane.command })
+                .filter { it.isNotEmpty() }
+                .joinToString(" · ")
+        }
+        Door(label = "Steered from", line = line, tag = "epic-door-steered", onTap = { onTalk(steering) })
     }
+}
+
+/** What a steering's read of the listed rows found: the pane or headless session that lists it, or null for none. */
+private class ListedRead(val pane: Pane?)
+
+/**
+ * The listed rows' read of [steering], made once per steering off the main thread by [listedSteerer]. It is null until
+ * that read answers, and a read that fails answers as no row lists the steering.
+ */
+@Composable
+private fun listedReadOf(steering: String, listedSteerer: (steering: String) -> Pane?): ListedRead? {
+    var read by remember(steering, listedSteerer) { mutableStateOf<ListedRead?>(null) }
+    LaunchedEffect(steering, listedSteerer) {
+        if (steering.isEmpty()) return@LaunchedEffect
+        read = ListedRead(
+            try {
+                withContext(Dispatchers.IO) { listedSteerer(steering) }
+            } catch (error: IOException) {
+                null
+            },
+        )
+    }
+    return read
 }
 
 // Door is one tappable line of the summary: its label, then what it opens.

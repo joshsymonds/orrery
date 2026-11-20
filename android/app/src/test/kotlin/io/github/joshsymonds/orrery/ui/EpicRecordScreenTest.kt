@@ -39,7 +39,6 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicContract
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicHistoryEntry
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement
-import io.github.joshsymonds.orrery.gen.orrery.v1.EpicSession
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetResponse
@@ -86,6 +85,8 @@ class EpicRecordScreenTest {
         const val CHANGED = 4_102_444_800L
         const val STEERING = "example-session"
         const val STEERING_LABEL = "synthetic-steering-label"
+        const val STEERING_CWD = "/home/user/example-worktree"
+        const val STEERING_DOOR = "example-worktree · $STEERING_LABEL"
         const val EPICS_GET = "/orrery.v1.Epics/Get"
         const val EPICS_HISTORY = "/orrery.v1.Epics/History"
         const val EPICS_PAUSE = "/orrery.v1.Epics/Pause"
@@ -132,7 +133,6 @@ class EpicRecordScreenTest {
         phaseAt: Long = 0L,
         buildTasks: List<EpicBuildTask> = emptyList(),
         tasks: List<EpicTask> = emptyList(),
-        sessions: List<EpicSession> = emptyList(),
         steering: String = "",
         source: String = "orreryd",
     ): EpicsGetResponse {
@@ -157,7 +157,6 @@ class EpicRecordScreenTest {
             .addAllQuestions(questions)
             .addAllBuildTasks(buildTasks)
             .addAllTasks(tasks)
-            .addAllSessions(sessions)
             .setSummary(summary)
             .setPaused(paused)
             .setParked(parked)
@@ -180,8 +179,14 @@ class EpicRecordScreenTest {
             .setCare("standard")
             .build()
 
-    private fun session(id: String, label: String): EpicSession =
-        EpicSession.newBuilder().setId(id).setLabel(label).setCall("epic_get").setAt(NOW - 60).build()
+    /** The tmux pane the steering conversation is listed as: its orrery id is [STEERING], in [STEERING_CWD]. */
+    private fun steeringPane(): PaneProto =
+        PaneProto.newBuilder()
+            .setId(PANE_ID)
+            .setOrreryId(STEERING)
+            .setCwd(STEERING_CWD)
+            .setLabel(STEERING_LABEL)
+            .build()
 
     private fun question(id: String, text: String, asked: Long): EpicQuestion =
         EpicQuestion.newBuilder().setId(id).setText(text).setTurn(1L).setAsked(asked).build()
@@ -239,6 +244,7 @@ class EpicRecordScreenTest {
                 onOpenStep = { openedStep.set(it) },
                 onOpenContract = { contractOpened.incrementAndGet() },
                 onTalk = { talked.set(it) },
+                listedSteerer = { steering -> steererOf(client.panes() + client.headless(), steering) },
                 listState = listState,
                 openAt = openAt,
                 now = { NOW },
@@ -417,22 +423,16 @@ class EpicRecordScreenTest {
     fun epicRecordTheSummaryDrawsItsContractAndSteeredDoors() {
         val listState = LazyListState()
         FakeOrreryServer().use { server ->
-            serve(
-                server,
-                body(
-                    summary = "Example summary.",
-                    contract = contract(),
-                    steering = STEERING,
-                    sessions = listOf(session(STEERING, STEERING_LABEL)),
-                ),
-            )
+            serve(server, body(summary = "Example summary.", contract = contract(), steering = STEERING))
+            server.respond(PANES_LIST, PanesListResponse.newBuilder().addPanes(steeringPane()).build())
             setScreen(server, listState = listState)
             awaitLoaded()
 
             sectionIndex(listState, "summary")
+            awaitTag("epic-door-steered")
             assertEquals(1, countIn("epic-section:summary", hasText("Example summary.")))
             composeRule.onNodeWithTag("epic-door-contract").assertTextContains("standard care", substring = true)
-            composeRule.onNodeWithTag("epic-door-steered").assertTextContains(STEERING_LABEL, substring = true)
+            composeRule.onNodeWithTag("epic-door-steered").assertTextContains(STEERING_DOOR, substring = true)
             clickTag("epic-door-contract")
             clickTag("epic-door-steered")
 
@@ -455,10 +455,28 @@ class EpicRecordScreenTest {
     }
 
     @Test
-    fun epicRecordTheSteeredDoorIsNotDrawnWhenItsSessionIsAbsent() {
+    fun epicRecordTheSteeredDoorIsTitledSessionAndOpensItsIdWhenNoListedRowHoldsIt() {
         val listState = LazyListState()
         FakeOrreryServer().use { server ->
             serve(server, body(summary = "Example summary.", steering = STEERING))
+            server.respond(PANES_LIST, PanesListResponse.getDefaultInstance())
+            setScreen(server, listState = listState)
+            awaitLoaded()
+
+            sectionIndex(listState, "summary")
+            awaitTag("epic-door-steered")
+            composeRule.onNodeWithTag("epic-door-steered").assertTextEquals("Steered from", "session")
+            clickTag("epic-door-steered")
+
+            assertEquals(STEERING, talked.get())
+        }
+    }
+
+    @Test
+    fun epicRecordTheSteeredDoorIsNotDrawnWithoutASteerer() {
+        val listState = LazyListState()
+        FakeOrreryServer().use { server ->
+            serve(server, body(summary = "Example summary."))
             setScreen(server, listState = listState)
             awaitLoaded()
 
@@ -1191,7 +1209,7 @@ class EpicRecordScreenTest {
     @Test
     fun epicCommandsTheTalkButtonOpensTheSteererThroughOnTalk() {
         FakeOrreryServer().use { server ->
-            serve(server, body(outcome = "built", steering = STEERING, sessions = listOf(session(STEERING, STEERING_LABEL))))
+            serve(server, body(outcome = "built", steering = STEERING))
             setScreen(server)
             awaitTag("epic-talk-bar")
 
@@ -1261,7 +1279,7 @@ class EpicRecordScreenTest {
     @Test
     fun epicCommandsTalkOpensTheSteeringHeadlessSessionOnItsOwnScreen() {
         FakeOrreryServer().use { server ->
-            server.respond(EPICS_GET, body(outcome = "built", steering = STEERING, sessions = listOf(session(STEERING, STEERING_LABEL))))
+            server.respond(EPICS_GET, body(outcome = "built", steering = STEERING))
             server.respond(EPICS_HISTORY, EpicsHistoryResponse.getDefaultInstance())
             server.respond(PANES_LIST, PanesListResponse.getDefaultInstance())
             server.respond(LIST_HEADLESS, ListHeadlessResponse.newBuilder().addSessions(steeringSession()).build())

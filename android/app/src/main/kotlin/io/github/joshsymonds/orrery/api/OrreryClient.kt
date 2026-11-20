@@ -41,7 +41,6 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicPremise as EpicPremiseProt
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion as EpicQuestionProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseStep as EpicReleaseStepProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement as EpicRequirementProto
-import io.github.joshsymonds.orrery.gen.orrery.v1.EpicSession as EpicSessionProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice as EpicSliceProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep as EpicStepProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepCheck as EpicStepCheckProto
@@ -729,8 +728,7 @@ data class EpicContractRow(
  * orreryd epic's planned tasks in the order they were planned, empty for a record epic. [summary] is the epic's summary
  * paragraph, empty until it is written. [contract] is the accepted contract, null for a record epic. [questions] are
  * the open questions in the order they were asked. [paused] is whether the epic's planner starts no turn, and [parked]
- * is why the epic is parked, empty when it is not. [plannerParked] is whether the planner holds that park. [sessions]
- * are the sessions that work on the epic, each with its newest epic call, in the order the server lists them.
+ * is why the epic is parked, empty when it is not. [plannerParked] is whether the planner holds that park.
  * [repository] is the absolute path of the git repository the epic belongs to, empty when none is named.
  * [releaseProof] is the contract's release steps with the state their release runs gave them, in contract order,
  * empty for a record epic.
@@ -748,16 +746,9 @@ data class EpicDetail(
     val paused: Boolean = false,
     val parked: String = "",
     val plannerParked: Boolean = false,
-    val sessions: List<EpicSessionRow> = emptyList(),
     val repository: String = "",
     val releaseProof: List<EpicReleaseProofRow> = emptyList(),
 )
-
-/**
- * A session that works on an epic, with its newest epic call: [pane] is its tmux pane, empty for a headless session,
- * [call] is the tool name of that call, and [at] is when it was made, in unix seconds.
- */
-data class EpicSessionRow(val id: String, val pane: String, val label: String, val call: String, val at: Long)
 
 /** What a hold, nudge, stop or epic call came to: it landed, or orreryd refused it with its reason. */
 sealed interface StepCallResult {
@@ -1052,7 +1043,6 @@ class OrreryClient(
             paused = response.paused,
             parked = response.parked,
             plannerParked = response.plannerParked,
-            sessions = response.sessionsList.map { it.toEpicSessionRow() },
             repository = response.repository,
             releaseProof = response.releaseStepsList.map { it.toEpicReleaseProofRow() },
         )
@@ -1621,9 +1611,6 @@ class OrreryClient(
 
     private fun EpicQuestionProto.toEpicQuestionRow(): EpicQuestionRow =
         EpicQuestionRow(id = id, text = text, turn = turn, asked = asked)
-
-    private fun EpicSessionProto.toEpicSessionRow(): EpicSessionRow =
-        EpicSessionRow(id = id, pane = pane, label = label, call = call, at = at)
 
     private fun EpicContractProto.toEpicContractRow(): EpicContractRow =
         EpicContractRow(

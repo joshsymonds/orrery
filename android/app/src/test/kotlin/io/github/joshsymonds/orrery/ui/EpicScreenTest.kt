@@ -154,6 +154,7 @@ class EpicScreenTest {
                         onOpenStep = {},
                         onOpenContract = {},
                         onTalk = {},
+                        listedSteerer = { null },
                         listState = listState,
                         now = { NOW },
                     )
