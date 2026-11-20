@@ -1033,15 +1033,42 @@ func startSessions(
 	}
 	var serveCtx context.Context
 	serveCtx, host.stopServe = context.WithCancel(ctx)
+	// The session socket also serves the release slots, through serveConfig's ReleaseSlots.
+	cfg := host.serveConfig(commands, stepCommands, evidence, notices, crons, serveOpts(opts, st, logger))
 	go func() {
-		host.serveDone <- enginehost.Serve(
-			serveCtx, ln, commands, stepCommands, host.epics, host.steering, host.pools, evidence, notices, crons,
-			host.changes,
-			host.contracts,
-			serveOpts(opts, st, logger)...,
-		)
+		host.serveDone <- enginehost.ServeWith(serveCtx, ln, cfg)
 	}()
 	return host, nil
+}
+
+// serveConfig returns what the session socket serves: the services the host holds, and the given commands, evidence,
+// notices and crons, with handlerOpts on each handler. ReleaseSlots is set only when the host has release slots, since a
+// nil *ReleaseSlots in the interface would not refuse as unavailable, so it stays unset without a store.
+func (h *sessionHost) serveConfig(
+	commands enginehost.Commands,
+	steps enginehost.StepCommands,
+	evidence enginehost.EvidenceCommands,
+	notices enginehost.NoticeSource,
+	crons enginehost.CronCommands,
+	handlerOpts []connect.HandlerOption,
+) enginehost.ServeConfig {
+	cfg := enginehost.ServeConfig{
+		Commands:  commands,
+		Steps:     steps,
+		Epics:     h.epics,
+		Steering:  h.steering,
+		Pools:     h.pools,
+		Evidence:  evidence,
+		Notices:   notices,
+		Crons:     crons,
+		Changes:   h.changes,
+		Contracts: h.contracts,
+		Options:   handlerOpts,
+	}
+	if h.releaseSlots != nil {
+		cfg.ReleaseSlots = h.releaseSlots
+	}
+	return cfg
 }
 
 // epicSteering returns the steering sessions of the epics st serves, which manager starts.
