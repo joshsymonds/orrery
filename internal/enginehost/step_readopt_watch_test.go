@@ -10,9 +10,9 @@ import (
 )
 
 // readoptWatchStore stores a writing step whose session ran a tool call and said one line, then ended its turn not
-// done, and returns the store and the step's row. When background is set, a background task was listed at that turn
-// end and still is.
-func readoptWatchStore(t *testing.T, at time.Time, background bool) (*store.Store, store.StepRow) {
+// done, and returns the store and the step's row. When awaited is set, a background task that runs a model was listed at
+// that turn end and still is.
+func readoptWatchStore(t *testing.T, at time.Time, awaited bool) (*store.Store, store.StepRow) {
 	t.Helper()
 	s, _ := openStore(t)
 	output := `{"status":"BLOCKED"}`
@@ -26,7 +26,7 @@ func readoptWatchStore(t *testing.T, at time.Time, background bool) (*store.Stor
 		store.EngineBlock{ID: stepLoopID, Kind: "tool_call", Name: "Bash", Input: `{"command":"go test ./..."}`},
 		store.EngineBlock{ID: stepLoopID, Kind: "text", Text: "blocked on the flaky test"},
 		store.EngineTurnEnded{ID: stepLoopID, Subtype: "success"},
-		store.EngineConsumed{ID: stepLoopID, Consumed: 4, Output: &output, Background: &background},
+		store.EngineConsumed{ID: stepLoopID, Consumed: 4, Output: &output, Background: &awaited, Awaited: &awaited},
 	}, at); err != nil {
 		t.Fatalf("store the step and its session: %v", err)
 	}
@@ -37,27 +37,27 @@ func readoptWatchStore(t *testing.T, at time.Time, background bool) (*store.Stor
 	return s, row
 }
 
-// A step whose turn ended while a background task was listed is restored from that turn end, flagged, and not as a
-// running turn, and its watch keeps the blocks its session stored, so a later trip is judged from them.
+// A step whose turn ended while a background task that runs a model was listed is restored from that turn end, flagged,
+// and not as a running turn, and its watch keeps the blocks its session stored, so a later trip is judged from them.
 func TestReadoptRunRestoresBackgroundTurnEndAndSeedsWatch(t *testing.T) {
 	t.Parallel()
 	at := time.Unix(1_700_000_000, 0)
-	for _, background := range []bool{true, false} {
-		s, row := readoptWatchStore(t, at, background)
+	for _, awaited := range []bool{true, false} {
+		s, row := readoptWatchStore(t, at, awaited)
 		steps := &Steps{store: s, now: func() time.Time { return at.Add(time.Minute) }}
 
 		run, err := steps.readoptRun(t.Context(), row)
 		if err != nil {
-			t.Fatalf("readoptRun (background %v): %v", background, err)
+			t.Fatalf("readoptRun (awaited %v): %v", awaited, err)
 		}
 		restore := run.restore
-		if !restore.Found || restore.Turn.Background != background || restore.Turn.Output != `{"status":"BLOCKED"}` {
-			t.Fatalf("restore (background %v) = found %v turn %+v, want the stored turn end found with background %v",
-				background, restore.Found, restore.Turn, background)
+		if !restore.Found || restore.Turn.Awaited != awaited || restore.Turn.Output != `{"status":"BLOCKED"}` {
+			t.Fatalf("restore (awaited %v) = found %v turn %+v, want the stored turn end found with awaited %v",
+				awaited, restore.Found, restore.Turn, awaited)
 		}
 		want := "1m0s ago call Bash: {\"command\":\"go test ./...\"}\n1m0s ago text: blocked on the flaky test"
 		if got := run.watch.recent(at.Add(time.Minute)); got != want {
-			t.Fatalf("recent (background %v):\n%s\nwant:\n%s", background, got, want)
+			t.Fatalf("recent (awaited %v):\n%s\nwant:\n%s", awaited, got, want)
 		}
 	}
 }

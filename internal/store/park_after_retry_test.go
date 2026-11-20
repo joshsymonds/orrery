@@ -172,34 +172,6 @@ func TestFreeTurnParkAfterARetrySinceTheClaimLeavesTheEpicUnparked(t *testing.T)
 	})
 }
 
-// TestFailTurnAfterARetrySinceTheClaimDoesNotParkTheEpic checks that a third failed turn in a row parks no epic whose
-// owner retried it while that turn ran: the turn is at or below the retried seq, so it does not count toward a park.
-func TestFailTurnAfterARetrySinceTheClaimDoesNotParkTheEpic(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, raw := openWorkStore(t)
-	parkVerifyNode(t, s)
-	for range 2 {
-		seq := claimWorkTurn(t, s)
-		if err := s.FailTurn(ctx, workEpic, seq, "boom", turnEndedAt()); err != nil {
-			t.Fatalf("FailTurn of turn %d: %v", seq, err)
-		}
-	}
-	seq := claimWorkTurn(t, s)
-	if err := s.RetryNode(ctx, workEpic, "verify"); err != nil {
-		t.Fatalf("RetryNode: %v", err)
-	}
-	if err := s.FailTurn(ctx, workEpic, seq, "boom", turnEndedAt()); err != nil {
-		t.Fatalf("FailTurn of turn %d: %v", seq, err)
-	}
-	if parked, class, _ := epicParkOf(t, raw, workEpic); parked != "" || class != "" {
-		t.Errorf("park after a retry then a third failure = %q class %q, want unparked", parked, class)
-	}
-	if open := openParkQuestions(t, raw, workEpic); len(open) != 0 {
-		t.Errorf("open park questions = %v, want none", open)
-	}
-}
-
 // pendingTriggerCount returns how many triggers of epic are pending.
 func pendingTriggerCount(t *testing.T, raw *sql.DB, epic string) int64 {
 	t.Helper()

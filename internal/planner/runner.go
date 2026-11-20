@@ -328,7 +328,7 @@ func (r *Runner) startStep(ctx context.Context, epic string, turn store.EpicTurn
 		Workspace:   row.Repository,
 		ReadOnly:    true,
 		Epic:        row.ID,
-		ReturnCheck: returnCheck(ctx, row, review, r.resolve, spent, priorGapTurns(gapTurns, triggers)),
+		ReturnCheck: returnCheck(ctx, row, review, r.resolve, priorGapTurns(gapTurns, triggers)),
 	})
 	if id != "" {
 		if setErr := r.recordStep(ctx, epic, turn.Seq, id); setErr != nil {
@@ -750,7 +750,8 @@ func planOf(ret Return) store.EpicPlan {
 		actions = append(actions, store.EpicActionInput{
 			Kind: action.Kind, Node: action.Node, Task: action.Task, Close: action.Close, By: action.By,
 			Requirement: action.Requirement, Item: action.Item, Deliverable: action.Deliverable,
-			Reviewer: action.Reviewer, UndoNone: action.UndoNone, Reason: action.Reason,
+			Files: action.Files, Remove: action.Remove, Reviewer: action.Reviewer, UndoNone: action.UndoNone,
+			Reason: action.Reason,
 		})
 	}
 	unresolvable := make([]store.GapDeclaration, 0, len(ret.Unresolvable))
@@ -785,18 +786,16 @@ func questionInputOf(question Question) store.EpicQuestionInput {
 
 // returnCheck returns the check a planner step's return runs for epic. A return that does not parse is one line.
 // Any other return gets the refusals of Check, against the epic's Requirement ids, the files of its open tasks, and the
-// gates and judges that resolve answers for epic, then the refusals of Coverage against the epic's tasks, then those of
-// checkAmendKeeps against the epic's Requirements, then those of checkClosureTasks against the epic's phase, then those
-// of checkCloses against the epic's phase and the findings of review that the next closure round checks, then those of
-// checkSpentLines against spent, the lines of failed tasks the turn may not try again, then those of checkSpentGaps
-// against gapTurns, the planner turns each gap of the epic was given before the checked turn, for the rerun_review
-// actions that name a reviewer whose gap has spent its turns. When epic holds a planner-class park, a return with no
-// action and no question gets one more line from checkPark, which names the park reason. An owner park is not checked,
-// since the owner answers it. The gate resolves under ctx without its cancellation, so the turn that started the step
-// ending does not refuse its return.
+// gates and judges that resolve answers for epic, then those of checkAmendKeeps against the epic's Requirements, then
+// those of checkClosureTasks against the epic's phase, then those of checkCloses against the epic's phase and the
+// findings of review that the next closure round checks, then those of checkSpentGaps against gapTurns, the planner
+// turns each gap of the epic was given before the checked turn, for the rerun_review actions that name a reviewer whose
+// gap has spent its turns. Coverage and the spent lines are not refusals: the prompt names them. When epic holds a
+// planner-class park, a return with no action and no question gets one more line from checkPark, which names the park
+// reason. An owner park is not checked, since the owner answers it. The gate resolves under ctx without its
+// cancellation, so the turn that started the step ending does not refuse its return.
 func returnCheck(
-	ctx context.Context, epic store.EpicRow, review store.Review, resolve Resolver, spent []SpentLine,
-	gapTurns []store.GapTurn,
+	ctx context.Context, epic store.EpicRow, review store.Review, resolve Resolver, gapTurns []store.GapTurn,
 ) func(value json.RawMessage) []string {
 	requirements := make([]string, 0, len(epic.Requirements))
 	for _, requirement := range epic.Requirements {
@@ -820,11 +819,10 @@ func returnCheck(
 		if err != nil {
 			return []string{err.Error()}
 		}
-		refusals := append(Check(ret, requirements, owned, gate, judge), Coverage(ret, requirements, epic.Tasks)...)
+		refusals := Check(ret, requirements, owned, gate, judge)
 		refusals = append(refusals, checkAmendKeeps(ret, epic.Requirements)...)
 		refusals = append(refusals, checkClosureTasks(ret, epic.Phase)...)
 		refusals = append(refusals, checkCloses(ret, epic.Phase, open)...)
-		refusals = append(refusals, checkSpentLines(ret, spent, epic.Tasks)...)
 		refusals = append(refusals, checkSpentGaps(ret, gapTurns)...)
 		return append(refusals, checkPark(ret, park)...)
 	}

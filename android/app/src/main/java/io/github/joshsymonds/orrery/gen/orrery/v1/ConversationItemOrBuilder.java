@@ -253,4 +253,25 @@ public interface ConversationItemOrBuilder extends
    */
   com.google.protobuf.ByteString
       getEpicBytes();
+
+  /**
+   * <pre>
+   * The facts of the step a prompt item is for, set on a prompt item whose prompt_id is step:&lt;id&gt;, read from that
+   * step's row.
+   * </pre>
+   *
+   * <code>.orrery.v1.StepFacts step_facts = 15 [json_name = "stepFacts"];</code>
+   * @return Whether the stepFacts field is set.
+   */
+  boolean hasStepFacts();
+  /**
+   * <pre>
+   * The facts of the step a prompt item is for, set on a prompt item whose prompt_id is step:&lt;id&gt;, read from that
+   * step's row.
+   * </pre>
+   *
+   * <code>.orrery.v1.StepFacts step_facts = 15 [json_name = "stepFacts"];</code>
+   * @return The stepFacts.
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.StepFacts getStepFacts();
 }

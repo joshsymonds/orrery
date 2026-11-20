@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -175,7 +176,7 @@ func TestNotifyHandsSessionNoticeToRouter(t *testing.T) {
 				t.Fatalf("desk notice = %+v, %v, want %+v", desk, err, wantDesk)
 			}
 			note, err := got.Push(context.Background())
-			if err != nil || note != tc.wantPush {
+			if err != nil || !reflect.DeepEqual(note, tc.wantPush) {
 				t.Fatalf("push notification = %+v, %v, want %+v", note, err, tc.wantPush)
 			}
 		})
@@ -379,7 +380,9 @@ func TestSessionResumes(t *testing.T) {
 		restarted.after.fire(0)
 		restarted.router.Wait()
 		got, buildErr := restarted.phone.got()
-		if buildErr != nil || !slices.Equal(got, want) {
+		if buildErr != nil || !slices.EqualFunc(got, want, func(a, b push.Notification) bool {
+			return reflect.DeepEqual(a, b)
+		}) {
 			t.Fatalf("pushes after the restart = %+v, %v, want %+v", got, buildErr, want)
 		}
 	})
@@ -460,7 +463,7 @@ func TestRestoreNoticeRebuildsTheNoticeNotifySent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sent push notification: %v", err)
 	}
-	if note, err := restored.Push(t.Context()); err != nil || note != wantPush {
+	if note, err := restored.Push(t.Context()); err != nil || !reflect.DeepEqual(note, wantPush) {
 		t.Fatalf("restored push notification = %+v, %v, want %+v", note, err, wantPush)
 	}
 }

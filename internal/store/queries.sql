@@ -89,6 +89,17 @@ WHERE sessions.kind = 'engine' AND sessions.title = ''
   AND EXISTS (SELECT 1 FROM events WHERE events.session_id = sessions.id AND events.kind = 'engine_prompt')
 ORDER BY sessions.id;
 
+-- name: GetUntitledEngineSession :one
+SELECT sessions.id, sessions.dir, CAST(COALESCE((
+    SELECT json_extract(events.payload, '$.text') FROM events
+    WHERE events.session_id = sessions.id AND events.kind = 'engine_prompt'
+    ORDER BY events.seq LIMIT 1
+), '') AS TEXT) AS first_prompt
+FROM sessions
+WHERE sessions.kind = 'engine' AND sessions.title = ''
+  AND EXISTS (SELECT 1 FROM events WHERE events.session_id = sessions.id AND events.kind = 'engine_prompt')
+  AND sessions.id = ?;
+
 -- name: SetSessionHeadline :exec
 UPDATE sessions SET headline = sqlc.arg(headline), headline_at = sqlc.arg(headline_at)
 WHERE id = sqlc.arg(id) AND kind = 'engine';
@@ -109,6 +120,23 @@ WHERE sessions.kind = 'engine'
       WHERE events.session_id = sessions.id AND events.kind = 'engine_turn_ended' AND events.at > sessions.headline_at
   )
 ORDER BY sessions.id;
+
+-- name: GetHeadlineDueSession :one
+SELECT sessions.id, sessions.dir, sessions.headline_at, CAST(COALESCE((
+    SELECT MAX(events.at) FROM events
+    WHERE events.session_id = sessions.id AND events.kind = 'engine_turn_ended'
+), 0) AS INTEGER) AS turn_at, CAST(COALESCE((
+    SELECT json_extract(events.payload, '$.text') FROM events
+    WHERE events.session_id = sessions.id AND events.kind = 'engine_prompt'
+    ORDER BY events.seq LIMIT 1
+), '') AS TEXT) AS first_prompt
+FROM sessions
+WHERE sessions.kind = 'engine'
+  AND EXISTS (
+      SELECT 1 FROM events
+      WHERE events.session_id = sessions.id AND events.kind = 'engine_turn_ended' AND events.at > sessions.headline_at
+  )
+  AND sessions.id = ?;
 
 -- name: ListRecentTurns :many
 SELECT CAST(CASE WHEN events.kind = 'engine_prompt' THEN 'user' ELSE 'assistant' END AS TEXT) AS role,
@@ -185,12 +213,13 @@ UPDATE sessions
 SET consumed = sqlc.arg(consumed),
     replay_from = COALESCE(sqlc.narg(replay_from), replay_from),
     turn_output = COALESCE(sqlc.narg(turn_output), turn_output),
-    background = COALESCE(sqlc.narg(background), background)
+    background = COALESCE(sqlc.narg(background), background),
+    awaited = COALESCE(sqlc.narg(awaited), awaited)
 WHERE id = sqlc.arg(id) AND kind IN ('engine', 'step');
 
 -- name: UpdateEngineLaunch :execrows
 UPDATE sessions
-SET consumed = 0, replay_from = 0, background = 0, prompts_from = sqlc.arg(prompts_from)
+SET consumed = 0, replay_from = 0, background = 0, awaited = 0, prompts_from = sqlc.arg(prompts_from)
 WHERE id = sqlc.arg(id) AND kind IN ('engine', 'step');
 
 -- name: UpsertEngineText :exec
@@ -242,6 +271,9 @@ WHERE prompts.session_id = sqlc.arg(session_id) AND prompts.kind = 'engine_promp
                           WHERE newest.session_id = states.session_id AND newest.write_id = states.write_id)
   ));
 
+-- name: CountSessionPrompts :one
+SELECT COUNT(*) FROM events WHERE session_id = sqlc.arg(session_id) AND kind = 'engine_prompt';
+
 -- name: InsertEnginePromptEvent :exec
 INSERT INTO events (session_id, kind, at, payload, write_id) VALUES (?, 'engine_prompt', ?, ?, ?);
 
@@ -271,6 +303,19 @@ WHERE prompts.session_id = sqlc.arg(id) AND prompts.kind = 'engine_prompt' AND p
         AND states.seq = (SELECT MAX(newest.seq) FROM prompt_states AS newest
                           WHERE newest.session_id = states.session_id AND newest.write_id = states.write_id)
   );
+
+-- name: ListQuietSessions :many
+SELECT sessions.id FROM sessions
+WHERE sessions.kind = 'engine' AND EXISTS (
+    SELECT 1 FROM events AS interrupts
+    WHERE interrupts.session_id = sessions.id AND interrupts.kind = 'engine_interrupt'
+      AND interrupts.seq > COALESCE((
+          SELECT MAX(owners.seq) FROM events AS owners
+          WHERE owners.session_id = sessions.id AND owners.kind = 'engine_prompt'
+            AND COALESCE(json_extract(owners.payload, '$.sender'), '') = 'owner'
+      ), 0)
+)
+ORDER BY sessions.id;
 
 -- name: InsertEnginePromptFailed :exec
 INSERT INTO engine_prompt_failed (session_id, prompt_id, reason) VALUES (?, ?, ?)
@@ -347,6 +392,10 @@ ORDER BY steps.ended, steps.id;
 -- name: ListRunningCallerSteps :many
 SELECT * FROM steps WHERE end_value = '' AND caller = ? ORDER BY started, id;
 
+-- name: ListStepFacts :many
+SELECT id, loop_round, started, ended, lines_counted, lines_files, lines_added, lines_removed
+FROM steps WHERE id IN (sqlc.slice(ids)) ORDER BY id;
+
 -- name: ListCallerStepListings :many
 SELECT * FROM step_listings
 WHERE step_listings.caller = sqlc.arg(caller)
@@ -378,7 +427,7 @@ UPDATE steps SET gate_grant = ?, gate_holder = ?, gate_round = ? WHERE id = ?;
 
 -- name: GetStepTurnEnd :one
 SELECT events.seq, CAST(json_extract(events.payload, '$.isError') AS INTEGER) AS is_error, sessions.turn_output,
-       sessions.background, steps.loop_seq
+       sessions.awaited, steps.loop_seq
 FROM events
 JOIN sessions ON sessions.id = events.session_id
 JOIN steps ON steps.id = events.session_id
@@ -401,6 +450,9 @@ UPDATE steps SET verdicts = ?, doing = ? WHERE id = ?;
 
 -- name: UpdateStepEnd :exec
 UPDATE steps SET end_value = ?, status = ?, reason = ?, ended = ? WHERE id = ?;
+
+-- name: UpdateStepLines :exec
+UPDATE steps SET lines_counted = ?, lines_files = ?, lines_added = ?, lines_removed = ? WHERE id = ?;
 
 -- name: InsertGrant :exec
 INSERT INTO grants (id, project, client_pid, client_start, pools, command, granted, holder)
@@ -493,6 +545,36 @@ DELETE FROM pushed_alert_notices WHERE alert = ?;
 -- name: ListPushedAlertNotices :many
 SELECT * FROM pushed_alert_notices ORDER BY alert;
 
+-- name: UpdateUnreadNoticeHistory :execrows
+UPDATE notice_history SET state = ?, title = ?, body = ?, block = ?, block_ref = ?, time = ?
+WHERE id = (
+    SELECT newest.id FROM notice_history AS newest
+    WHERE newest.pane = ? AND newest.session = ? AND newest.epic = ? AND newest.limit_key = ? AND newest.alert = ?
+    ORDER BY newest.id DESC LIMIT 1
+) AND read = 0;
+
+-- name: InsertNoticeHistory :exec
+INSERT INTO notice_history (pane, session, epic, limit_key, alert, state, title, body, block, block_ref, time)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: MarkNoticeHistoryRead :exec
+UPDATE notice_history SET read = 1
+WHERE pane = ? AND session = ? AND epic = ? AND limit_key = ? AND alert = ? AND time <= ?;
+
+-- name: CountUnreadNoticeHistory :one
+SELECT COUNT(*) FROM notice_history
+WHERE pane = ? AND session = ? AND epic = ? AND limit_key = ? AND alert = ? AND read = 0;
+
+-- name: MarkAllNoticeHistoryRead :exec
+UPDATE notice_history SET read = 1;
+
+-- name: ListNoticeHistorySince :many
+SELECT * FROM notice_history WHERE time >= ? ORDER BY time DESC, id DESC;
+
+-- name: ListUnreadNoticeHistoryKeys :many
+SELECT DISTINCT pane, session, epic, limit_key, alert FROM notice_history
+WHERE read = 0 ORDER BY pane, session, epic, limit_key, alert;
+
 -- name: InsertToldLimitStep :exec
 INSERT INTO told_limit_steps (limit_key, step) VALUES (?, ?)
 ON CONFLICT (limit_key, step) DO NOTHING;
@@ -562,6 +644,13 @@ WHERE (phase IN ('released', 'done', 'ended_with_gaps')
        OR (phase IN ('closed_superseded', 'closed_shipped', 'closed_abandoned') AND closed_by = 'planner'))
   AND report_phase <> phase
 ORDER BY id;
+
+-- name: GetUnreportedEpic :one
+SELECT * FROM epics
+WHERE (phase IN ('released', 'done', 'ended_with_gaps')
+       OR (phase IN ('closed_superseded', 'closed_shipped', 'closed_abandoned') AND closed_by = 'planner'))
+  AND report_phase <> phase
+  AND id = ?;
 
 -- name: SetEpicReport :exec
 UPDATE epics
@@ -867,6 +956,9 @@ INSERT INTO epic_tasks (epic, seq, turn, title, deliverable, gate, evidence, sta
 -- name: InsertEpicTaskFile :exec
 INSERT INTO epic_task_files (epic, task, position, path) VALUES (?, ?, ?, ?);
 
+-- name: DeleteEpicTaskFile :exec
+DELETE FROM epic_task_files WHERE epic = ? AND task = ? AND path = ?;
+
 -- name: InsertEpicTaskRequirement :exec
 INSERT INTO epic_task_requirements (epic, task, position, requirement) VALUES (?, ?, ?, ?);
 
@@ -884,7 +976,7 @@ SET stage = sqlc.arg(to_stage), base = sqlc.arg(to_base), attempt = sqlc.arg(to_
     revision = sqlc.arg(to_revision), failure = sqlc.arg(to_failure), review = sqlc.arg(to_review),
     refs = sqlc.arg(to_refs), gate_pos = sqlc.arg(to_gate_pos), finding_pos = sqlc.arg(to_finding_pos),
     guard = sqlc.arg(to_guard), decisions = sqlc.arg(to_decisions), after_tasks = sqlc.arg(to_after_tasks),
-    question = sqlc.arg(to_question)
+    question = sqlc.arg(to_question), rebriefs = sqlc.arg(to_rebriefs)
 WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq) AND status = 'open'
   AND stage = sqlc.arg(from_stage) AND base = sqlc.arg(from_base) AND attempt = sqlc.arg(from_attempt)
   AND rerun = sqlc.arg(from_rerun) AND no_verdict = sqlc.arg(from_no_verdict) AND held = sqlc.arg(from_held)
@@ -892,7 +984,8 @@ WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq) AND status = 'open'
   AND revision = sqlc.arg(from_revision) AND failure = sqlc.arg(from_failure) AND review = sqlc.arg(from_review)
   AND refs = sqlc.arg(from_refs) AND gate_pos = sqlc.arg(from_gate_pos) AND finding_pos = sqlc.arg(from_finding_pos)
   AND guard = sqlc.arg(from_guard) AND decisions = sqlc.arg(from_decisions)
-  AND after_tasks = sqlc.arg(from_after_tasks) AND question = sqlc.arg(from_question);
+  AND after_tasks = sqlc.arg(from_after_tasks) AND question = sqlc.arg(from_question)
+  AND rebriefs = sqlc.arg(from_rebriefs);
 
 -- name: SetEpicTaskStatus :exec
 UPDATE epic_tasks SET status = sqlc.arg(status) WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq);
@@ -1037,6 +1130,16 @@ LEFT JOIN epic_task_rung_outcomes AS outcomes
     ON outcomes.epic = rungs.epic AND outcomes.task = rungs.task AND outcomes.rung = rungs.rung
 WHERE rungs.epic = ?
 ORDER BY rungs.task, rungs.rung;
+
+-- name: InsertEpicTaskRefused :exec
+INSERT INTO epic_task_refused (epic, task, path, decision, created) VALUES (?, ?, ?, ?, ?)
+ON CONFLICT (epic, task, path) DO NOTHING;
+
+-- name: DeleteEpicTaskRefused :exec
+DELETE FROM epic_task_refused WHERE epic = ? AND task = ? AND path = ?;
+
+-- name: ListEpicTaskRefused :many
+SELECT * FROM epic_task_refused WHERE epic = ? ORDER BY task, created, path;
 
 -- name: MaxEpicTellSeq :one
 SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_tells WHERE epic = ?;
@@ -1351,9 +1454,9 @@ SELECT epic, at FROM epic_seen;
 -- name: InsertPlannerAction :exec
 INSERT INTO planner_actions (
     epic, turn, position, kind, node, task, close_kind, by_epic, undo_none, reason, state, refusal, requirement, item,
-    deliverable, reviewer
+    deliverable, files, remove_files, reviewer
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?, ?, ?, ?);
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?, ?, ?, ?, ?, ?);
 
 -- name: ListPendingPlannerActions :many
 SELECT * FROM planner_actions WHERE state = 'pending' ORDER BY epic, turn, position;
@@ -1683,3 +1786,19 @@ DELETE FROM epic_closures WHERE epic_closures.epic = sqlc.arg(epic) AND epic_clo
 
 -- name: DeleteEpicLedgerOfReviewer :exec
 DELETE FROM epic_ledger WHERE epic = ? AND reviewer = ?;
+
+-- name: SetEpicTaskNotes :exec
+UPDATE epic_tasks SET notes = sqlc.arg(notes) WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq);
+
+-- name: SetEpicTaskReviewReason :exec
+UPDATE epic_task_reviews SET reason = sqlc.arg(reason)
+WHERE epic = sqlc.arg(epic) AND task = sqlc.arg(task) AND attempt = sqlc.arg(attempt) AND position = sqlc.arg(position);
+
+-- name: ClearEpicTaskBatch :exec
+UPDATE epic_tasks SET batch = '' WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq);
+
+-- name: DeleteEpicTaskRungOutcomes :exec
+DELETE FROM epic_task_rung_outcomes WHERE epic = sqlc.arg(epic) AND task = sqlc.arg(task);
+
+-- name: DeleteEpicTaskRungs :exec
+DELETE FROM epic_task_rungs WHERE epic = sqlc.arg(epic) AND task = sqlc.arg(task);

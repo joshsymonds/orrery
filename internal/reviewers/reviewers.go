@@ -11,10 +11,11 @@ import (
 	"time"
 )
 
-// Stages a reviewer runs at: each task, and the epic once its tasks are done.
+// Stages a reviewer runs at: each task, the epic once its tasks are done, and the release once its candidate is prepared.
 const (
-	StageTask = "task"
-	StageEpic = "epic"
+	StageTask    = "task"
+	StageEpic    = "epic"
+	StageRelease = "release"
 )
 
 // Reviewer is one reviewer after the layers merge. Limit is in seconds. An agent reviewer names Agent; a model
@@ -198,8 +199,8 @@ func checkStage(entry Entry) *Error {
 	}
 	seen := make(map[string]bool, len(entry.Stage))
 	for _, stage := range entry.Stage {
-		if stage != StageTask && stage != StageEpic {
-			return refuse(entry, "stage", fmt.Sprintf("element %q must be task or epic", stage))
+		if stage != StageTask && stage != StageEpic && stage != StageRelease {
+			return refuse(entry, "stage", fmt.Sprintf("element %q must be task, epic or release", stage))
 		}
 		if seen[stage] {
 			return refuse(entry, "stage", fmt.Sprintf("repeats %q", stage))

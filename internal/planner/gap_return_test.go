@@ -147,9 +147,9 @@ func TestRerunReviewOfSpentGapRefusedGapBound(t *testing.T) {
 		{Gap: "reviewer:test_parsimony", Turn: 1, Reason: "the first turn"},
 		{Gap: "reviewer:test_parsimony", Turn: 2, Reason: "the second turn"},
 	}
-	check := returnCheck(context.Background(), epic, store.Review{}, testResolver{}, nil, turns)
+	check := returnCheck(context.Background(), epic, store.Review{}, testResolver{}, turns)
 	checkLines(t, check(json.RawMessage(rerunOfTestParsimonyRaw)), line)
 
-	oneTurn := returnCheck(context.Background(), epic, store.Review{}, testResolver{}, nil, turns[:1])
+	oneTurn := returnCheck(context.Background(), epic, store.Review{}, testResolver{}, turns[:1])
 	checkLines(t, oneTurn(json.RawMessage(rerunOfTestParsimonyRaw)))
 }

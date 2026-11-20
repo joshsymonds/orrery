@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"sync"
 	"testing"
@@ -104,7 +105,7 @@ func TestAttachStore(t *testing.T) {
 			Host: attachHost, Project: filepath.Base(attachProject), Session: attachSession,
 			State: "waiting", Question: attachQuestion, Time: attachResentAt,
 		}
-		if len(sender.pushes) != 1 || sender.pushes[0] != wantPush {
+		if len(sender.pushes) != 1 || !reflect.DeepEqual(sender.pushes[0], wantPush) {
 			t.Errorf("pushes = %+v, want [%+v]", sender.pushes, wantPush)
 		}
 		if len(sender.clears) != 0 {

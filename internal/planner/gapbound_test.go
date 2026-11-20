@@ -25,7 +25,7 @@ func gapBoundTrigger(id, cause string) store.EpicTrigger {
 // gapBoundRefusals returns the refusals of the rerun_review return of test_parsimony, checked against turns as the
 // planner checks a turn with the gap turns it is given.
 func gapBoundRefusals(turns []store.GapTurn) []string {
-	check := returnCheck(context.Background(), store.EpicRow{}, store.Review{}, testResolver{}, nil, turns)
+	check := returnCheck(context.Background(), store.EpicRow{}, store.Review{}, testResolver{}, turns)
 	return check(json.RawMessage(rerunOfTestParsimonyRaw))
 }
 

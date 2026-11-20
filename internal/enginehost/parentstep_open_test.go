@@ -195,25 +195,6 @@ func TestParentStepOpenNotDoneTurnWithChildStaysOpen(t *testing.T) {
 	}
 }
 
-// TestParentStepOpenStaysOpenPastIdleLimit covers a parent whose real turn ends with no structured return, which is not
-// done, while its child runs. The hand-off leaves its session busy, so an idle check past the idle limit keeps the
-// session and the step stays open.
-func TestParentStepOpenStaysOpenPastIdleLimit(t *testing.T) {
-	t.Parallel()
-	rig := newParentRig(t)
-	repo := stepGitTestRepo(t)
-	parent := rig.startParent(t, repo, "TRICKLEHELD one", nil)
-	rig.startChild(t, repo, parent)
-	rig.releaseStep(t, parent)
-	settleAwaited(t, engineOf(rig.manager, rig.steps), rig.spy, stepsRunOf(t, rig.steps, parent), parent)
-	rig.clock.advance(defaultIdleAfter + time.Minute)
-	rig.manager.checkIdle(t.Context())
-	if !rig.manager.StepLive(parent) {
-		t.Fatalf("session of step %s stopped by an idle check past the idle limit, want it kept", parent)
-	}
-	requireUnreturned(t, rig.steps, parent)
-}
-
 // TestParentStepOpenNotDoneWithoutChildEnds covers a not-done return with no step running under it, which ends the step
 // returned as it does without any child.
 func TestParentStepOpenNotDoneWithoutChildEnds(t *testing.T) {

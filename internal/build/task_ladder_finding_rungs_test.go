@@ -50,14 +50,14 @@ func ladderFindingRungsRow(t *testing.T, rungs []store.TaskRung, rung int64) sto
 	return store.TaskRung{}
 }
 
-// ladderFindingRungsCheckRungs fails the test unless rungs are rungs 1 to 7 of a ladder that ended as a gap: each row's
-// kind is the kind of its rung, rungs 1 to 6 ended failed and rung 7 gapped, rung 1 was moved by nothing, and each rung
+// ladderFindingRungsCheckRungs fails the test unless rungs are rungs 1 to 6 of a ladder that ended as a gap: each row's
+// kind is the kind of its rung, rungs 1 to 5 ended failed and rung 6 gapped, rung 1 was moved by nothing, and each rung
 // after it was moved by the finding of the rung before, at the gates in turn.
 func ladderFindingRungsCheckRungs(t *testing.T, rungs []store.TaskRung, gates []string) {
 	t.Helper()
 	kinds := []string{
-		store.RungAttempt, store.RungAttempt, store.RungRescue, store.RungOrchestrator, store.RungApproach,
-		store.RungApproach, store.RungGap,
+		store.RungAttempt, store.RungAttempt, store.RungOrchestrator, store.RungApproach, store.RungApproach,
+		store.RungGap,
 	}
 	if len(rungs) != len(kinds) {
 		t.Fatalf("rungs = %+v, want %d rungs", rungs, len(kinds))
@@ -89,7 +89,7 @@ func ladderFindingRungsCheckRungs(t *testing.T, rungs []store.TaskRung, gates []
 	}
 }
 
-// TestTaskLadderFindingRowsEachRung: a confirmed finding that climbs a task off each of rungs 1 to 6 stores on the rung
+// TestTaskLadderFindingRowsEachRung: a confirmed finding that climbs a task off each of rungs 1 to 5 stores on the rung
 // it climbs to the gate and assertion of that finding, so every rung from 2 to the gap rung carries them, and the task
 // ends as a gap.
 func TestTaskLadderFindingRowsEachRung(t *testing.T) {
@@ -136,9 +136,9 @@ func TestTaskLadderFindingRowsEachRung(t *testing.T) {
 	ladderFindingRungsCheckRungs(t, task.Rungs, gates)
 }
 
-// TestTaskLadderOrchestratorAttemptReviewed: the orchestrator's own attempt, on rung 4, runs under the task's review
+// TestTaskLadderOrchestratorAttemptReviewed: the orchestrator's own attempt, on rung 3, runs under the task's review
 // gates as any attempt does. Its green run moves it to the first gate, the gates' reviews start and move it through
-// them, and a confirmed finding of its verify climbs it to rung 5 moved by the finding.
+// them, and a confirmed finding of its verify climbs it to rung 4 moved by the finding.
 func TestTaskLadderOrchestratorAttemptReviewed(t *testing.T) {
 	t.Parallel()
 	gates := ladderFindingRungsGates()
@@ -185,7 +185,7 @@ func TestTaskLadderOrchestratorAttemptReviewed(t *testing.T) {
 		}
 	})
 
-	t.Run("the review starts over the store and a confirmed verify finding climbs to rung 5", func(t *testing.T) {
+	t.Run("the review starts over the store and a confirmed verify finding climbs to rung 4", func(t *testing.T) {
 		t.Parallel()
 		f := newPassFixture(t, gates...)
 		f.setGreen(attempt, evidence.VerdictHolds)

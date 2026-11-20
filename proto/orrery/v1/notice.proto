@@ -2,8 +2,8 @@ syntax = "proto3";
 
 package orrery.v1;
 
-// Notices streams the notices open web pages show in-app, and takes the page's word that the owner opened one. serve
-// forwards both to orreryd.
+// Notices streams the notices open web pages show in-app, takes the page's word that the owner opened one, lists the
+// notice history and marks it read. serve forwards every call to orreryd.
 service Notices {
   // Watch streams the in-app notices: first one shown message for each notice showing now, then a shown message for
   // each notice shown later and an ended message for each one that ends. A notice shown again under the same key
@@ -14,6 +14,13 @@ service Notices {
   // Seen records that the owner opened the notice under key, as seen at orreryd's own clock. A key that sets none or
   // more than one of its fields is invalid_argument. With no orreryd to forward to, Seen is unavailable.
   rpc Seen(NoticesSeenRequest) returns (NoticesSeenResponse);
+
+  // List returns the notices orreryd showed at the desk or sent away with their desk text built, timed within the last
+  // 14 days, newest first, each with its read mark. With no orreryd to forward to, List is unavailable.
+  rpc List(NoticesListRequest) returns (NoticesListResponse);
+
+  // ReadAll marks every notice in the notice history read. With no orreryd to forward to, ReadAll is unavailable.
+  rpc ReadAll(NoticesReadAllRequest) returns (NoticesReadAllResponse);
 }
 
 // NoticeKey names what a notice is about. Exactly one field is set.
@@ -83,3 +90,43 @@ message NoticesSeenRequest {
 
 // NoticesSeenResponse is the reply to a Seen. It has no fields.
 message NoticesSeenResponse {}
+
+// ListedNotice is one notice in the notice history: a notice orreryd showed at the desk or sent away with its desk text
+// built.
+message ListedNotice {
+  // What the notice is about.
+  NoticeKey key = 1;
+
+  // The state the notice reports, such as waiting, done or limited.
+  string state = 2;
+
+  // The notice's title.
+  string title = 3;
+
+  // The notice's body.
+  string body = 4;
+
+  // The block of the epic's page the notice opens on; unset opens the epic view.
+  NoticeBlock block = 5;
+
+  // When the router delivered the notice, in unix seconds.
+  int64 time = 6;
+
+  // Whether the owner has read the notice.
+  bool read = 7;
+}
+
+// NoticesListRequest asks for the notice history. It has no fields.
+message NoticesListRequest {}
+
+// NoticesListResponse is the reply to a List: the notices in the history, newest first.
+message NoticesListResponse {
+  // The notices timed within the last 14 days, newest first.
+  repeated ListedNotice notices = 1;
+}
+
+// NoticesReadAllRequest asks that every notice in the notice history be marked read. It has no fields.
+message NoticesReadAllRequest {}
+
+// NoticesReadAllResponse is the reply to a ReadAll. It has no fields.
+message NoticesReadAllResponse {}

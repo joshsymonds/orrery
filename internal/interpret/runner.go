@@ -39,10 +39,7 @@ type Store interface {
 		ctx context.Context, epic, path string, attempt int64, outcome, output string, class store.ParkClass,
 		reason string, at time.Time,
 	) error
-	ParkNodeMetAtBase(
-		ctx context.Context, epic, path string, attempt int64, outcome, output, reason string, met []string,
-		at time.Time,
-	) error
+	EndNodesTelling(ctx context.Context, epic string, ends []store.NodeEnd, tell string, at time.Time) error
 	ClaimBatch(
 		ctx context.Context, epic, path string, attempt int64, revision, refs, result string, tasks []int64,
 	) error
@@ -390,6 +387,8 @@ func (r *Runner) carry(ctx context.Context, epic store.EpicRow, act Action) erro
 			err = r.store.EndPlanBuilt(ctx, epic.ID, act.Ends, at)
 		case act.Trigger != nil:
 			err = r.store.EndNodesWaking(ctx, epic.ID, act.Ends, *act.Trigger, at)
+		case act.Tell != "":
+			err = r.store.EndNodesTelling(ctx, epic.ID, act.Ends, act.Tell, at)
 		default:
 			err = r.store.EndNodes(ctx, epic.ID, act.Ends, at)
 		}
@@ -398,15 +397,9 @@ func (r *Runner) carry(ctx context.Context, epic store.EpicRow, act Action) erro
 	case ActPark:
 		err = r.store.ParkLoop(ctx, epic.ID, act.Path, act.Round, act.Reason, at)
 	case ActParkNode:
-		if len(act.Met) > 0 {
-			err = r.store.ParkNodeMetAtBase(
-				ctx, epic.ID, act.Path, act.Attempt, act.Outcome, act.Output, act.Reason, act.Met, at,
-			)
-		} else {
-			err = r.store.ParkNode(
-				ctx, epic.ID, act.Path, act.Attempt, act.Outcome, act.Output, store.ParkClassNode, act.Reason, at,
-			)
-		}
+		err = r.store.ParkNode(
+			ctx, epic.ID, act.Path, act.Attempt, act.Outcome, act.Output, store.ParkClassNode, act.Reason, at,
+		)
 	case ActParkEpic:
 		err = r.store.ParkEpicWaking(ctx, epic.ID, act.Reason, *act.Trigger, at)
 	case ActBatch:

@@ -187,12 +187,12 @@ func (w *integrateWorld) endCapture(path string) {
 	nodeEndEvidence(w.t, w.s, workID(w.t, w.s, path, "capture R1"))
 }
 
-// endRed ends the red capture of R1 at the node run at path as its judge finds the conclusion fails. That is the
-// Requirement not met at base, which a red run passes.
-func (w *integrateWorld) endRed(path string) {
+// endRed ends the red capture of R1 at the built-in epic's red node run as its judge finds the conclusion fails. That
+// is the Requirement not met at base, which a red run passes.
+func (w *integrateWorld) endRed() {
 	w.t.Helper()
 	ctx := context.Background()
-	id := workID(w.t, w.s, path, "R1")
+	id := workID(w.t, w.s, "red", "R1")
 	if err := w.s.RecordEvidenceCapture(ctx, id, store.EvidenceCapture{At: runClock()}); err != nil {
 		w.t.Fatalf("RecordEvidenceCapture %s: %v", id, err)
 	}
@@ -495,7 +495,7 @@ func TestBuiltInEpicReachesBuiltThenWaitsAtReview(t *testing.T) {
 	s := w.s
 
 	w.pass()
-	w.endRed("red")
+	w.endRed()
 	w.pass()
 	if red := runAt(t, s, "red"); red.State != store.NodeEnded || red.Outcome != "passed" {
 		t.Errorf("red = %+v, want ended passed: the Requirement is not met at base", red)

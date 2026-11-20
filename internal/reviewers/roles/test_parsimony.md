@@ -1,6 +1,6 @@
 # Reviewer contract: test parsimony and speed
 
-**Role:** a read-only reviewer that runs at end-of-epic review beside the conformance and integration reviewers, and at task review when a task adds or changes tests. It inspects only the tests the change adds or modifies, plus the fixtures and helpers they use. It never edits.
+**Role:** a read-only reviewer that runs at end-of-epic review beside the conformance and integration reviewers. It inspects only the tests the change adds or modifies, plus the fixtures and helpers they use. It never edits.
 
 ## What it checks, for each added or changed test
 1. **Runs only when its code changes.**
@@ -22,7 +22,7 @@
 5. **Parallel and cheap.**
    - It calls t.Parallel where its fixtures allow, and never t.Setenv in a parallel test.
    - It does no needless work: no repeated full setup, no oversized loops.
-   - The `-race` run of its package doesn't grow out of proportion to what it adds. Read the prompt's Test cost section. When it gives a `- <package>: <change> cpu-s, base <base> cpu-s, <delta>` line for a package, that compares the change's test CPU seconds with main's own at the epic's base, measured by the same gate: judge the delta. A package marked `, over` exceeds its base by more than the larger of 15% of the base and 5 cpu-s. A package with `no base measurement` has no base to compare, so judge it from the diff alone. With no base measurement at all, the section gives the gate's budget lines: a `test-budget: <package> <n> cpu-s > <baseline> (+<pct>%)` line for each package over its CPU budget, a count of the packages checked, and `check-changed: OK after <n>s of its 240s budget`, or `exceeded`. At task stage that is the task's gate, `just check-changed`. At epic stage it is the Done gates, `just check` and its `cover`. "no budget lines" means the kept end of the gate output held none, so judge from the diff alone.
+   - The `-race` run of its package doesn't grow out of proportion to what it adds. Read the prompt's Test cost section. When it gives a `- <package>: <change> cpu-s, base <base> cpu-s, <delta>` line for a package, that compares the change's test CPU seconds with main's own at the epic's base, measured by the same gate: judge the delta. A package marked `, over` exceeds its base by more than the larger of 15% of the base and 5 cpu-s. A package with `no base measurement` has no base to compare, so judge it from the diff alone. With no base measurement at all, the section gives the budget lines of the epic's Done gates, `just check` and its `cover`. "no budget lines" means the kept end of the gate output held none, so judge from the diff alone.
    - A package marked `, over`, a package over its budget where the section gives budget lines, or a test whose own run takes seconds rather than milliseconds, is a finding unless the task states why the cost is needed.
 6. **Tests something useful.** The test fails when the behaviour it names breaks, and passes only because that behaviour holds. Not admissible:
    - tautologies: asserting a value the test itself just set, a mock returning what it was told, or a type the compiler already guarantees;

@@ -251,7 +251,7 @@ func (r *Runner) view(ctx context.Context, epic store.EpicRow, task store.EpicTa
 // readUnit sets the parts of view that describe task's current unit: its evidence run or step by the derived id of the
 // unit, the reproduction check of a test item's green unit, and how many environment reruns ran just before it.
 func (r *Runner) readUnit(ctx context.Context, epic store.EpicRow, task store.EpicTask, view *View) error {
-	runID, stepID := unitIDs(epic.ID, task.Seq, task.Build)
+	runID, stepID := unitIDs(unitScope(epic.ID, task), task.Seq, task.Build)
 	if runID != "" {
 		run, ok, err := r.evidenceRun(ctx, runID)
 		if err != nil {
@@ -283,8 +283,9 @@ func (r *Runner) readUnit(ctx context.Context, epic store.EpicRow, task store.Ep
 
 // readRequest sets the parts of view a request reads. An asked build reads whether its question is answered (answered). A
 // waiting build reads the epic's tasks as peers and the base the next integrate batch composes on: the epic's candidate
-// when it has one, and its stored base otherwise. An orchestrate unit reads the implementer step it decides, by the
-// build's step, and once its own step has ended done, the peers its decision is checked against.
+// when it has one, and its stored base otherwise. An implement unit whose step ended needs_context reads the peers a
+// rule grant of its files is checked against. An orchestrate unit reads the implementer step it decides, by the build's
+// step, and once its own step has ended done, the peers its decision is checked against.
 func (r *Runner) readRequest(ctx context.Context, epic store.EpicRow, task store.EpicTask, view *View) error {
 	build := task.Build
 	switch {
@@ -295,6 +296,13 @@ func (r *Runner) readRequest(ctx context.Context, epic store.EpicRow, task store
 		view.NewBase = epic.StoredBase
 		if epic.Candidate != "" {
 			view.NewBase = epic.Candidate
+		}
+		peers, err := r.peers(ctx, epic)
+		view.Peers = peers
+		return err
+	case build.Stage == StageImplement:
+		if view.Step == nil || view.Step.End != endReturned || view.Step.Status != statusNeedsContext {
+			return nil
 		}
 		peers, err := r.peers(ctx, epic)
 		view.Peers = peers
@@ -362,24 +370,24 @@ func runItemOf(task store.EpicTask) evidence.Item {
 	return task.Evidence
 }
 
-// unitIDs returns the derived ids of the evidence run and of the step of the unit build is on. A red or green unit has
-// a run and no step, a review or verify unit a step and no run, and an implement unit a step. An orchestrate unit's
-// step counts the decisions made on the task where a review step has its gate position. A unit a build is not on
-// has neither, so both ids are empty.
-func unitIDs(epic string, seq int64, build store.TaskBuild) (string, string) {
+// unitIDs returns the derived ids of the evidence run and of the step of the unit build is on, in scope, the unit scope
+// of the task (unitScope). A red or green unit has a run and no step, a review or verify unit a step and no run, and an
+// implement unit a step. An orchestrate unit's step counts the decisions made on the task where a review step has its
+// gate position. A unit a build is not on has neither, so both ids are empty.
+func unitIDs(scope string, seq int64, build store.TaskBuild) (string, string) {
 	switch build.Stage {
 	case StageRed:
-		return RunID(epic, seq, StageRed, build.Attempt, build.Rerun), ""
+		return RunID(scope, seq, StageRed, build.Attempt, build.Rerun), ""
 	case StageGreen:
-		return RunID(epic, seq, StageGreen, build.Attempt, build.Rerun), ""
+		return RunID(scope, seq, StageGreen, build.Attempt, build.Rerun), ""
 	case StageImplement:
-		return "", StepID(epic, seq, StageImplement, build.Attempt, build.Rerun, 0, 0)
+		return "", StepID(scope, seq, StageImplement, build.Attempt, build.Rerun, 0, 0)
 	case StageOrchestrate:
-		return "", StepID(epic, seq, StageOrchestrate, build.Attempt, build.Rerun, build.Decisions, 0)
+		return "", StepID(scope, seq, StageOrchestrate, build.Attempt, build.Rerun, build.Decisions, 0)
 	case StageReview:
-		return "", StepID(epic, seq, StageReview, build.Attempt, build.Rerun, build.GatePos, 0)
+		return "", StepID(scope, seq, StageReview, build.Attempt, build.Rerun, build.GatePos, 0)
 	case StageVerify:
-		return "", StepID(epic, seq, StageVerify, build.Attempt, build.Rerun, build.GatePos, build.FindingPos)
+		return "", StepID(scope, seq, StageVerify, build.Attempt, build.Rerun, build.GatePos, build.FindingPos)
 	}
 	return "", ""
 }
@@ -414,7 +422,7 @@ func (r *Runner) reproOf(ctx context.Context, epic store.EpicRow, task store.Epi
 	if task.Build.Stage != StageGreen || task.Evidence.Kind != evidence.KindTest {
 		return store.NodeCheck{}, false, nil
 	}
-	return r.nodeCheck(ctx, RunID(epic.ID, task.Seq, unitRepro, task.Build.Attempt, task.Build.Rerun))
+	return r.nodeCheck(ctx, RunID(unitScope(epic.ID, task), task.Seq, unitRepro, task.Build.Attempt, task.Build.Rerun))
 }
 
 // nodeCheck returns the stored node check with id, and false with no error when no check has that id.
@@ -459,8 +467,9 @@ func (r *Runner) environmentAt(
 	ctx context.Context, epic store.EpicRow, task store.EpicTask, rerun int64,
 ) (bool, error) {
 	build := task.Build
+	scope := unitScope(epic.ID, task)
 	if build.Stage == StageGreen && task.Evidence.Kind == evidence.KindTest {
-		check, found, err := r.nodeCheck(ctx, RunID(epic.ID, task.Seq, unitRepro, build.Attempt, rerun))
+		check, found, err := r.nodeCheck(ctx, RunID(scope, task.Seq, unitRepro, build.Attempt, rerun))
 		if err != nil {
 			return false, err
 		}
@@ -468,7 +477,7 @@ func (r *Runner) environmentAt(
 			return true, nil
 		}
 	}
-	runID, _ := unitIDs(epic.ID, task.Seq, store.TaskBuild{Stage: build.Stage, Attempt: build.Attempt, Rerun: rerun})
+	runID, _ := unitIDs(scope, task.Seq, store.TaskBuild{Stage: build.Stage, Attempt: build.Attempt, Rerun: rerun})
 	run, ok, err := r.evidenceRun(ctx, runID)
 	if err != nil {
 		return false, err
@@ -487,10 +496,12 @@ func (r *Runner) head(ctx context.Context, dir string) string {
 	return head
 }
 
-// refMoves returns the ref moves between the snapshot before and a snapshot of epic's repository now. The implementer's
-// commits are those between base, the commit its step started at, and head, the HEAD of its worktree. A move of main or
-// of HEAD onto a commit that origin's main reaches, and that holds none of those commits, is told rather than parked.
-// Without origin's main, or without a head to read the commits from, every move parks as Compare reports it.
+// refMoves returns the ref moves between the snapshot before and a snapshot of epic's repository now that the implementer
+// is blamed for. The implementer's commits are those between base, the commit its step started at, and head, the HEAD of
+// its worktree. ScopeMoves leaves out each move that neither parks nor is the epic's own and whose target holds none of
+// those commits. A move of main or of HEAD onto a commit that origin's main reaches, and that holds none of those
+// commits, is told rather than parked. Without origin's main, or without a head to read the commits from, the moves
+// that remain park as Compare reports them.
 func (r *Runner) refMoves(ctx context.Context, epic store.EpicRow, before, base, head string) ([]RefMove, error) {
 	after, err := snapshotOf(ctx, r.store, epic)
 	if err != nil {
@@ -499,6 +510,10 @@ func (r *Runner) refMoves(ctx context.Context, epic store.EpicRow, before, base,
 	moves, err := Compare(before, after)
 	if err != nil {
 		return nil, fmt.Errorf("compare refs of epic %s: %w", epic.ID, err)
+	}
+	moves, err = ScopeMoves(ctx, epic.Repository, epic.ID, moves, base, head)
+	if err != nil {
+		return nil, fmt.Errorf("scope ref moves of epic %s: %w", epic.ID, err)
 	}
 	origin, ok, err := originMain(ctx, epic.Repository)
 	if err != nil {

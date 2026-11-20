@@ -308,6 +308,14 @@ func TestRestsAgreesWithDecide(t *testing.T) {
 		{"correct loop running", "correcting", append(ended("red", "cost", "plan", "review"), store.NodeRun{
 			Path: "correct", Kind: kindLoop, State: store.NodeRunning, LoopRound: 1,
 		}), false},
+		{"batch rerun under the ended plan of a finished flow", "released", append(
+			ended("red", "cost", "plan", "review", "correct", "conclude", "release", "correct@1/fix"), store.NodeRun{
+				Path: "correct@1/fix/S49/reintegrate", Kind: kindIntegrate, State: store.NodeRunning, Attempt: 1,
+			}), false},
+		{"batch parked under the ended plan of a finished flow", "released", append(
+			ended("red", "cost", "plan", "review", "correct", "conclude", "release", "correct@1/fix"), store.NodeRun{
+				Path: "correct@1/fix/S49/reintegrate", Kind: kindIntegrate, State: store.NodeParked, Attempt: 1,
+			}), true},
 	}
 	for _, tc := range cases {
 		rows := kinds.Rows{Epic: store.EpicRow{ID: runEpic, Phase: tc.phase, Base: runBase}, Runs: tc.runs}

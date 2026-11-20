@@ -19,15 +19,24 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.em
-import androidx.compose.ui.unit.sp
 import io.github.joshsymonds.orrery.api.HostStat
-import io.github.joshsymonds.orrery.ui.theme.Mocha
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
+import io.github.joshsymonds.orrery.ui.theme.inLabelCase
+
+// A stat's series colour, taken in order: the first stat is series one, and the sixth is series one again.
+private val seriesColours = listOf(
+    OrreryTokens.Series.one,
+    OrreryTokens.Series.two,
+    OrreryTokens.Series.three,
+    OrreryTokens.Series.four,
+    OrreryTokens.Series.five,
+)
 
 /**
  * The host's stats as meters, spread across the width. Each shows its uppercase label over its
- * value. A stat with a percent also gets a thin bar filled to that percent, coloured by level.
+ * value, and the value takes the level's colour at warn or crit. A stat with a percent also gets a
+ * thin bar filled to that percent: in its series colour at ok, and in the level's colour at warn
+ * or crit.
  */
 @Composable
 fun HostMeters(stats: List<HostStat>, modifier: Modifier = Modifier) {
@@ -35,41 +44,40 @@ fun HostMeters(stats: List<HostStat>, modifier: Modifier = Modifier) {
         modifier = modifier.fillMaxWidth().testTag("host-meters"),
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        stats.forEach { stat ->
+        stats.forEachIndexed { index, stat ->
             Column(
                 modifier = Modifier
                     .width(IntrinsicSize.Max)
-                    .defaultMinSize(minWidth = 34.dp)
+                    .defaultMinSize(minWidth = OrreryTokens.Space.thirtyTwo + OrreryTokens.Space.two)
                     .testTag("meter:${stat.label}"),
             ) {
                 Text(
-                    text = stat.label.uppercase(),
-                    fontSize = 9.sp,
-                    letterSpacing = 0.1.em,
-                    color = Mocha.Overlay1,
+                    text = stat.label.inLabelCase(),
+                    style = OrreryTokens.Type.label,
+                    color = OrreryTokens.Ink.three,
                     maxLines = 1,
                 )
                 Text(
                     text = stat.value,
-                    fontSize = 12.sp,
-                    color = Mocha.Text,
+                    style = OrreryTokens.Type.small,
+                    color = valueColour(stat.level),
                     maxLines = 1,
                 )
                 stat.percent?.let { percent ->
                     Box(
                         modifier = Modifier
-                            .padding(top = 3.dp)
+                            .padding(top = OrreryTokens.Space.two + OrreryTokens.Size.hairline)
                             .fillMaxWidth()
-                            .height(2.dp)
-                            .clip(RoundedCornerShape(2.dp))
-                            .background(Mocha.Surface0)
+                            .height(OrreryTokens.Size.meterBarHeight)
+                            .clip(RoundedCornerShape(OrreryTokens.Radius.round))
+                            .background(OrreryTokens.Line.soft)
                             .testTag("meter-bar:${stat.label}"),
                     ) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth((percent / 100.0).coerceIn(0.0, 1.0).toFloat())
                                 .fillMaxHeight()
-                                .background(levelColour(stat.level))
+                                .background(fillColour(index, stat.level))
                                 .testTag("meter-fill:${stat.label}"),
                         )
                     }
@@ -79,8 +87,16 @@ fun HostMeters(stats: List<HostStat>, modifier: Modifier = Modifier) {
     }
 }
 
-private fun levelColour(level: String): Color = when (level) {
-    "warn" -> Mocha.Peach
-    "crit" -> Mocha.Red
-    else -> Mocha.Lavender
+// A warn or crit level takes the fill; any other level, which the server says is ok, keeps the stat's series colour.
+private fun fillColour(index: Int, level: String): Color = when (level) {
+    "warn" -> OrreryTokens.Level.warn
+    "crit" -> OrreryTokens.Level.crit
+    else -> seriesColours[index % seriesColours.size]
+}
+
+// A warn or crit level takes the value; any other level, which the server says is ok, keeps the ink.
+private fun valueColour(level: String): Color = when (level) {
+    "warn" -> OrreryTokens.Level.warn
+    "crit" -> OrreryTokens.Level.crit
+    else -> OrreryTokens.Ink.one
 }

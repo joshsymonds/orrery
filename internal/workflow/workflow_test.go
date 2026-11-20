@@ -235,11 +235,6 @@ func TestParseRefusesLoop(t *testing.T) {
 	t.Parallel()
 	cases := []refusalCase{
 		{
-			name: "loop with no max",
-			text: loopFile("until: a.complete"),
-			want: at(5, "node r: key loop.max: required"),
-		},
-		{
 			name: "loop with no until",
 			text: loopFile("max: 2"),
 			want: at(5, "node r: key loop.until: required"),
@@ -486,6 +481,19 @@ func TestParseLoopSpentContinue(t *testing.T) {
 		t.Fatalf("Parse: %v", err)
 	}
 	want := &Loop{Max: 2, Until: Outcome{Node: "a", Name: "complete"}, Spent: "continue"}
+	if !reflect.DeepEqual(got.Nodes[0].Loop, want) {
+		t.Fatalf("Loop = %+v, want %+v", got.Nodes[0].Loop, want)
+	}
+}
+
+// TestParseLoopWithNoMax: a loop that names no max parses with Max 0, which is no count of rounds.
+func TestParseLoopWithNoMax(t *testing.T) {
+	t.Parallel()
+	got, err := Parse(testFile, []byte(loopFile("until: a.complete", "spent: continue")))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	want := &Loop{Until: Outcome{Node: "a", Name: "complete"}, Spent: "continue"}
 	if !reflect.DeepEqual(got.Nodes[0].Loop, want) {
 		t.Fatalf("Loop = %+v, want %+v", got.Nodes[0].Loop, want)
 	}

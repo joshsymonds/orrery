@@ -170,13 +170,13 @@ func releaseStepPrompt(step store.EpicReleaseStep, start, then string) string {
 		"Return evidence showing the effect of the step: what changed and where it can be seen. If you cannot "+
 		"carry out the step, return status blocked with evidence of why.\n\n"+
 		"A judge then decides whether the release met its postconditions from the evidence its steps return and "+
-		"nothing else, and it runs no command. So the evidence this step returns must show each postcondition this "+
-		"step affects, with the output that proves it, such as the command this step ran and that command's output.",
+		"read-only checks of its own. So the evidence this step returns should show each postcondition this step "+
+		"affects, with the output that proves it, such as the command this step ran and that command's output.",
 		step.Step, step.Target, step.Undo, then, start, start)
 }
 
 // recordReleaseStep records the release step act names once its end is stored. The step passes only when it ended done,
-// HEAD descends from its start, the commits it listed are exactly the commits it added and it added no merge. Otherwise
+// HEAD descends from its start and it added no merge. Otherwise
 // it is recorded failed with the reason named. Its worktree is removed once the run is recorded.
 func (r *Runner) recordReleaseStep(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	position, ok := releaseStepPosition(act.Items[0])
@@ -198,7 +198,7 @@ func (r *Runner) recordReleaseStep(ctx context.Context, epic store.EpicRow, act 
 	}
 	wt := filepath.Join(dir, releaseWorktree)
 	result, decodeReason := decodeReturn[releaseStepResult](row.Result)
-	head, reason, err := releaseStepEnd(ctx, wt, start, row, result, decodeReason)
+	head, reason, err := releaseStepEnd(ctx, wt, start, row, decodeReason)
 	if err != nil {
 		return err
 	}
@@ -229,7 +229,7 @@ func (r *Runner) recordReleaseStep(ctx context.Context, epic store.EpicRow, act 
 // did not pass, or "" when it did. A step that did not end done is named by its end, and its HEAD is not read. A step
 // that ended done whose worktree cannot be read is named as lost, with HEAD "".
 func releaseStepEnd(
-	ctx context.Context, wt, start string, row store.StepRow, result releaseStepResult, decodeReason string,
+	ctx context.Context, wt, start string, row store.StepRow, decodeReason string,
 ) (string, string, error) {
 	if row.End != releaseDone {
 		return "", releaseEndReason("step", row), nil
@@ -239,16 +239,14 @@ func releaseStepEnd(
 		return "", fmt.Sprintf("step ended done, but its worktree is gone, so HEAD cannot be read: %v", err), nil
 	}
 	head = strings.TrimSpace(head)
-	reason, err := releaseStepReason(ctx, wt, start, head, result, decodeReason)
+	reason, err := releaseStepReason(ctx, wt, start, head, decodeReason)
 	return head, reason, err
 }
 
 // releaseStepReason returns why the release step that ended done, ran in worktree wt from start and has HEAD head did
-// not pass, from the return it stored, result, which decodeReason says it did not decode from. It returns "" when the
-// step passed. Otherwise the first check it fails is named.
-func releaseStepReason(
-	ctx context.Context, wt, start, head string, result releaseStepResult, decodeReason string,
-) (string, error) {
+// not pass. decodeReason says why its return did not decode, or is "" when it did. It returns "" when the step passed.
+// Otherwise the first check it fails is named.
+func releaseStepReason(ctx context.Context, wt, start, head, decodeReason string) (string, error) {
 	if decodeReason != "" {
 		return decodeReason, nil
 	}
@@ -265,20 +263,6 @@ func releaseStepReason(
 	}
 	if merged := strings.Fields(merges); len(merged) > 0 {
 		return "the step added a merge commit: " + strings.Join(merged, ", "), nil
-	}
-	added, err := gitOutput(ctx, wt, "rev-list", start+".."+head)
-	if err != nil {
-		return "", err
-	}
-	addedSorted := strings.Fields(added)
-	slices.Sort(addedSorted)
-	listedSorted := slices.Clone(result.Commits)
-	slices.Sort(listedSorted)
-	if !slices.Equal(addedSorted, listedSorted) {
-		return fmt.Sprintf(
-			"the commits the step listed are not the commits it added: added %s, listed %s",
-			strings.Join(addedSorted, ", "), strings.Join(listedSorted, ", "),
-		), nil
 	}
 	return "", nil
 }
@@ -340,11 +324,12 @@ func (r *Runner) failJudge(ctx context.Context, epic store.EpicRow, act Action, 
 }
 
 // releaseJudgePrompt returns the prompt of a release judge: the release's promise, and the step, commits and evidence
-// of each release step that passed. The judge decides from that alone.
+// of each release step that passed. The judge decides from that and from read-only checks of the repository.
 func releaseJudgePrompt(then string, runs []store.ReleaseRun) string {
 	var prompt strings.Builder
 	prompt.WriteString(
-		"Judge whether this release met its postconditions, from the evidence below and nothing else.\n\n",
+		"Judge whether this release met its postconditions, from the evidence below and read-only checks of the " +
+			"repository.\n\n",
 	)
 	fmt.Fprintf(&prompt, "The release promised:\n%s\n\n", then)
 	prompt.WriteString("The release steps that passed, each with the commits it added and the evidence it returned:\n")
@@ -355,7 +340,8 @@ func releaseJudgePrompt(then string, runs []store.ReleaseRun) string {
 		}
 	}
 	prompt.WriteString(
-		"\nRun no command. For each postcondition the evidence does not cover, list it in uncovered.\n\n",
+		"\nYou may run read-only commands, such as git ls-remote or git log, to check each postcondition the evidence " +
+			"does not cover. For each postcondition still uncovered, list it in uncovered.\n\n",
 	)
 	prompt.WriteString("Return status done. Return released true only when the evidence covers every postcondition, " +
 		"and then uncovered is empty. Return released false otherwise, with uncovered naming each postcondition the " +

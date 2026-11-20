@@ -70,10 +70,9 @@ func grantHeldTo(t *testing.T, b *Broker, p pools.Pool, project string, pid int,
 	return grant, c
 }
 
-// restoreHeldGrant has a broker grant one member of p to a client that dies, which names holderOne, then closes it. It
-// restores a broker on the same store, whose clients are only livePID and whose holders are holders, and checks that
-// the grant is kept with its member held. It returns that broker and the grant.
-func restoreHeldGrant(t *testing.T, s *store.Store, p pools.Pool, holders *holderSet) (*Broker, *Grant) {
+// storeHeldGrant has a broker grant one member of p to a client that dies, which names holderOne, then closes it. It
+// returns the grant, which the store keeps.
+func storeHeldGrant(t *testing.T, s *store.Store, p pools.Pool) *Grant {
 	t.Helper()
 	before := brokerOn(t, s, nil)
 	held, heldCall := grantHeldTo(t, before, p, "a", deadPID, holderOne)
@@ -81,9 +80,12 @@ func restoreHeldGrant(t *testing.T, s *store.Store, p pools.Pool, holders *holde
 	if rows := storedGrants(t, s); len(rows) != 1 || rows[0].ID != held.ID || rows[0].Holder != holderOne {
 		t.Fatalf("stored grants = %+v, want grant %s naming holder %s", rows, held.ID, holderOne)
 	}
+	return held
+}
 
-	clients := &pidSet{live: map[int]bool{livePID: true}}
-	after := brokerOnHolders(t, s, clients.alive, holders.alive)
+// restoreKept restores after, a broker on s, and checks that the grant held is kept with its member held.
+func restoreKept(t *testing.T, s *store.Store, after *Broker, p pools.Pool, held *Grant) {
+	t.Helper()
 	if err := after.Restore(t.Context()); err != nil {
 		t.Fatalf("Restore: %v", err)
 	}
@@ -93,6 +95,17 @@ func restoreHeldGrant(t *testing.T, s *store.Store, p pools.Pool, holders *holde
 	if _, grant := memberOf(t, after, p.Name, held.Members[0].Name); grant != held.ID {
 		t.Fatalf("%s held by %q after Restore, want the kept grant %s", held.Members[0].Name, grant, held.ID)
 	}
+}
+
+// restoreHeldGrant has a broker grant one member of p to a client that dies, which names holderOne, then closes it. It
+// restores a broker on the same store, whose clients are only livePID and whose holders are holders, and checks that
+// the grant is kept with its member held. It returns that broker and the grant.
+func restoreHeldGrant(t *testing.T, s *store.Store, p pools.Pool, holders *holderSet) (*Broker, *Grant) {
+	t.Helper()
+	held := storeHeldGrant(t, s, p)
+	clients := &pidSet{live: map[int]bool{livePID: true}}
+	after := brokerOnHolders(t, s, clients.alive, holders.alive)
+	restoreKept(t, s, after, p, held)
 	return after, held
 }
 
@@ -116,29 +129,32 @@ func TestRestoreKeepsGrantWhoseHolderLivesAndReclaimByHolder(t *testing.T) {
 	}
 }
 
-// TestTickEndsGrantOnceItsHolderIsGone checks that a kept grant whose client is dead lasts through each tick while its
-// holder lives. Once the holder is gone, the next tick ends the grant, frees its member, and grants it to the request
-// waiting for it.
+// TestTickEndsGrantOnceItsHolderIsGone checks that a kept grant whose client is dead lasts while its holder lives: the
+// client's watch signals, and the grant is kept. Once the holder is gone and its watch signals, the grant ends, frees
+// its member, and grants it to the request waiting for it.
 func TestTickEndsGrantOnceItsHolderIsGone(t *testing.T) {
 	s := openStore(t)
 	p := awakePool(t, "p", 1, "m1")
 	holders := &holderSet{live: map[string]bool{holderOne: true}}
-	after, held := restoreHeldGrant(t, s, p, holders)
+	held := storeHeldGrant(t, s, p)
+	clients := &pidSet{live: map[int]bool{livePID: true}}
+	exits := newExitFakes()
+	after := brokerWatched(t, s, clients.alive, holders.alive, exits)
+	restoreKept(t, s, after, p, held)
+	exits.awaitCheck()
 	waiter := start(t.Context(), after, request("b", p, 1))
 	if e := waiter.next(t); e.Position != 1 {
 		t.Fatalf("waiter event = %+v, want position 1", e)
 	}
 
-	live := runTicks(t, after)
-	live.send(t)
-	live.drain(t)
+	exits.signal(t, clientKey(deadPID))
+	exits.awaitCheck()
 	if _, grant := memberOf(t, after, "p", "m1"); grant != held.ID {
-		t.Fatalf("m1 held by %q after a tick, want the grant %s its live holder keeps", grant, held.ID)
+		t.Fatalf("m1 held by %q after the client's exit, want the grant %s its live holder keeps", grant, held.ID)
 	}
 
 	holders.setAlive(holderOne, false)
-	gone := runTicks(t, after)
-	gone.send(t)
+	exits.signal(t, holderKey(holderOne))
 	granted := waiter.next(t).Grant
 	if granted == nil || !slices.Equal(granted.Members, []Member{{Pool: "p", Name: "m1"}}) {
 		t.Fatalf("waiter got %+v, want m1 once the grant's holder is gone", granted)
@@ -196,13 +212,14 @@ func TestReclaimNamingAnotherHolderIsErrNoGrant(t *testing.T) {
 
 // TestStoppedGrantIsReclaimedByItsHolderAndRequeuedLastsWithIt checks a grant whose holder names it as well as its
 // client. A hold stops the grant; a reclaim by the holder from another pid is queued at the grant's place once the call
-// ends. A tick then ends the requeued request only when its holder is gone too.
+// ends. The client's exit then keeps the requeued request while its holder lives, and the holder's exit ends it.
 func TestStoppedGrantIsReclaimedByItsHolderAndRequeuedLastsWithIt(t *testing.T) {
 	s := openStore(t)
 	p := awakePool(t, "p", 1, "m1")
 	clients := &pidSet{live: map[int]bool{livePID: true}}
 	holders := &holderSet{live: map[string]bool{holderOne: true}}
-	b := brokerOnHolders(t, s, clients.alive, holders.alive)
+	exits := newExitFakes()
+	b := brokerWatched(t, s, clients.alive, holders.alive, exits)
 	ctx, cancel := context.WithCancel(t.Context())
 	req := request("a", p, 1)
 	req.ClientPID = livePID
@@ -233,18 +250,16 @@ func TestStoppedGrantIsReclaimedByItsHolderAndRequeuedLastsWithIt(t *testing.T) 
 	}
 
 	clients.setAlive(livePID, false)
-	first := runTicks(t, b)
-	first.send(t)
-	first.drain(t)
+	exits.signal(t, clientKey(livePID))
+	exits.awaitCheck()
 	if got := queuedProjects(b); !slices.Equal(got, []string{"a"}) {
-		t.Fatalf("queued = %v after a tick while the holder lives, want the requeued request kept", got)
+		t.Fatalf("queued = %v after the client's exit while the holder lives, want the requeued request kept", got)
 	}
 
 	holders.setAlive(holderOne, false)
-	gone := runTicks(t, b)
-	gone.send(t)
-	gone.drain(t)
+	exits.signal(t, holderKey(holderOne))
+	exits.awaitCheck()
 	if got := queuedProjects(b); len(got) != 0 {
-		t.Fatalf("queued = %v after a tick once the holder is gone, want the requeued request ended", got)
+		t.Fatalf("queued = %v after the holder's exit, want the requeued request ended", got)
 	}
 }

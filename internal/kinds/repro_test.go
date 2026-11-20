@@ -127,6 +127,9 @@ func TestIntegrateRepro(t *testing.T) {
 	checkDecisions(t, Integrate{}, cases)
 }
 
+// TestUnbuiltReproduction checks that no reproduction holds a plan: a missing one, one that exits 0 against a red that
+// judged fails, and a rerun of one lost at a restart name nothing. Only a Requirement not green at the stored base is
+// named.
 func TestUnbuiltReproduction(t *testing.T) {
 	t.Parallel()
 	integrated := store.NodeRun{
@@ -149,9 +152,6 @@ func TestUnbuiltReproduction(t *testing.T) {
 	notGreen.Verdict, notGreen.Passed = evidence.VerdictFails, false
 	reproID := store.NodeWorkID("int-run", 1, "repro R1")
 	rerunID := store.NodeWorkID("int-run", 1, "repro R1 rerun")
-	const disagree = "R1 judge and exit disagree at the epic's base base-1: " +
-		"red was judged fails, but its reproduction with the candidate's tests exited 0"
-	const noRepro = "R1 has no reproduction at the epic's base base-1"
 	r1 := store.EpicRequirement{ID: "R1", Text: "the suite passes", Item: reproItem("the suite passes")}
 	// rows returns the epic with R1 red at its base and green at its stored base, with checks on the integrate run.
 	rows := func(checks ...store.NodeCheck) Rows {
@@ -168,9 +168,9 @@ func TestUnbuiltReproduction(t *testing.T) {
 		want []string
 	}{
 		{
-			"reproduction that exited 0 and did not time out names the disagreement",
+			"reproduction that exited 0 and did not time out holds nothing",
 			rows(store.NodeCheck{ID: reproID, State: store.NodeEnded, Exit: 0}),
-			[]string{disagree},
+			nil,
 		},
 		{
 			"reproduction that exited 1 is red's exit holding",
@@ -199,14 +199,14 @@ func TestUnbuiltReproduction(t *testing.T) {
 			nil,
 		},
 		{
-			"no reproduction names that none ran",
+			"no reproduction holds nothing",
 			rows(),
-			[]string{noRepro},
+			nil,
 		},
 		{
-			"reproduction that did not run names why",
+			"reproduction that did not run holds nothing",
 			rows(store.NodeCheck{ID: reproID, State: store.NodeEnded, NotRun: "no grant"}),
-			[]string{noRepro + ": no grant"},
+			nil,
 		},
 		{
 			"rerun of a lost reproduction decides it",
@@ -214,10 +214,10 @@ func TestUnbuiltReproduction(t *testing.T) {
 				store.NodeCheck{ID: reproID, State: store.NodeEnded, NotRun: store.LostAtRestart},
 				store.NodeCheck{ID: rerunID, State: store.NodeEnded, Exit: 0},
 			),
-			[]string{disagree},
+			nil,
 		},
 		{
-			"not green at the stored base names only that",
+			"not green at the stored base names only that, whatever the reproduction",
 			Rows{
 				Epic: store.EpicRow{
 					Base:         "base-1",

@@ -47,6 +47,7 @@ func Check(ret Return, requirements []string, owned []string, gate, judge func(n
 		refusals = append(refusals, checkAction(i, action)...)
 		refusals = append(refusals, checkAmendAction(i, action, known, judge)...)
 		refusals = append(refusals, checkApproachAction(i, action, judge)...)
+		refusals = append(refusals, checkApproachFiles(i, action)...)
 	}
 	refusals = append(refusals, checkUnresolvable(ret)...)
 	if len(refusals) == 0 {
@@ -292,11 +293,8 @@ func checkTask(i int, task Task, known, taken, named map[string]bool, gate, judg
 		}
 	}
 	refusals = append(refusals, testChangeRefusals(prefix, task)...)
-	for k, id := range task.Requirements {
-		if !known[id] {
-			refusals = append(refusals, fmt.Sprintf("%s requirements[%d]: %s", prefix, k, reasonRequirement))
-		}
-	}
+	refusals = append(refusals, unknownRequirements(prefix+" requirements", task.Requirements, known)...)
+	refusals = append(refusals, unknownRequirements(prefix+" contributes", task.Contributes, known)...)
 	if strings.TrimSpace(task.Gate) == "" {
 		refusals = append(refusals, prefix+" gate: "+reasonEmpty)
 	}
@@ -392,7 +390,7 @@ const (
 func actionKinds() []string {
 	return []string{
 		store.ActionRetryNode, store.ActionRetryEpic, store.ActionFailTask, store.ActionResumeRelease,
-		store.ActionCloseEpic, store.ActionAmendEvidence, store.ActionChangeApproach,
+		store.ActionCloseEpic, store.ActionAmendEvidence, store.ActionChangeApproach, store.ActionSendBack,
 		store.ActionRerunReview,
 	}
 }
@@ -415,7 +413,9 @@ func actionFields(kind string) ([]string, bool) {
 	case store.ActionAmendEvidence:
 		return []string{argRequirement, argItem}, true
 	case store.ActionChangeApproach:
-		return []string{argTask, argDeliverable, argItem}, true
+		return []string{argTask, argDeliverable, argItem, argFiles, argRemove}, true
+	case store.ActionSendBack:
+		return []string{argTask}, true
 	case store.ActionRerunReview:
 		return []string{argReviewer}, true
 	}
@@ -453,8 +453,9 @@ func checkAction(i int, action EngineAction) []string {
 
 // checkNeededFields calls refuse for each field action's kind needs that is missing or wrong: a retry_node names a node,
 // a fail_task names a task above 0, a close_epic names a close of superseded or abandoned and, when superseded, a by,
-// a change_approach names a task above 0 and a deliverable, and a rerun_review names a reviewer. An amend_evidence
-// action's fields are checkAmendAction's, and a change_approach action's item is checkApproachAction's.
+// a change_approach names a task above 0 and a deliverable, a send_back names a task above 0, and a rerun_review names a
+// reviewer. An amend_evidence action's fields are checkAmendAction's, and a change_approach action's item is
+// checkApproachAction's.
 func checkNeededFields(action EngineAction, refuse func(field, reason string)) {
 	switch action.Kind {
 	case store.ActionRetryNode:
@@ -465,7 +466,7 @@ func checkNeededFields(action EngineAction, refuse func(field, reason string)) {
 		if strings.TrimSpace(action.Reviewer) == "" {
 			refuse(argReviewer, reasonEmpty)
 		}
-	case store.ActionFailTask:
+	case store.ActionFailTask, store.ActionSendBack:
 		if action.Task <= 0 {
 			refuse(argTask, reasonAboveZero)
 		}
@@ -520,6 +521,22 @@ func checkApproachAction(i int, action EngineAction, judge func(name string) err
 	return checkItemLines(fmt.Sprintf(`actions[%d] "%s"`, i, action.Kind), action.Item, judge)
 }
 
+// checkApproachFiles returns one refusal for each file a change_approach action at position i adds that FileRefusal
+// refuses, named as checkAction names its lines. The files a change of approach removes are the task's own, which the
+// store checks. An action of another kind, and one whose args did not read, get none.
+func checkApproachFiles(i int, action EngineAction) []string {
+	if action.Kind != store.ActionChangeApproach || action.ArgsError != "" {
+		return nil
+	}
+	var refusals []string
+	for j, file := range action.Files {
+		if reason := FileRefusal(file); reason != "" {
+			refusals = append(refusals, fmt.Sprintf(`actions[%d] "%s" files[%d]: %s`, i, action.Kind, j, reason))
+		}
+	}
+	return refusals
+}
+
 // checkItemLines returns the refusals of item as the item field of the action named by prefix: each line evidence.Check
 // gives, as item.<line>, and an item.judge line when judge does not resolve item's judge.
 func checkItemLines(prefix string, item evidence.Item, judge func(name string) error) []string {
@@ -549,6 +566,8 @@ func checkUnusedFields(action EngineAction, used []string, refuse func(field, re
 		{argItem, itemSet(action.Item)},
 		{argUndoNone, len(action.UndoNone) > 0},
 		{argDeliverable, action.Deliverable != ""},
+		{argFiles, len(action.Files) > 0},
+		{argRemove, len(action.Remove) > 0},
 		{argReviewer, action.Reviewer != ""},
 	}
 	for _, field := range fields {
@@ -627,4 +646,15 @@ func stringSet(items []string) map[string]bool {
 		set[item] = true
 	}
 	return set
+}
+
+// unknownRequirements returns one refusal for each id among ids that known does not hold, named field[k].
+func unknownRequirements(field string, ids []string, known map[string]bool) []string {
+	var refusals []string
+	for k, id := range ids {
+		if !known[id] {
+			refusals = append(refusals, fmt.Sprintf("%s[%d]: %s", field, k, reasonRequirement))
+		}
+	}
+	return refusals
 }

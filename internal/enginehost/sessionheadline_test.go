@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -33,11 +34,11 @@ func (h *headlineFakeHaiku) Call(_ context.Context, schema, input string) (json.
 	return h.reply, h.err
 }
 
-// answer sets the reply and error of the calls that follow.
-func (h *headlineFakeHaiku) answer(reply json.RawMessage, err error) {
+// answer sets the reply of the calls that follow, and clears the error they answer with.
+func (h *headlineFakeHaiku) answer(reply json.RawMessage) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.reply, h.err = reply, err
+	h.reply, h.err = reply, nil
 }
 
 // calls returns how many calls the fake has answered.
@@ -138,6 +139,19 @@ func (s *headlineFakeStore) HeadlineDueSessions(context.Context) ([]store.Headli
 	return due, nil
 }
 
+// HeadlineDueSession returns the session id when it is due, and false when it is not or the fake does not hold it.
+func (s *headlineFakeStore) HeadlineDueSession(_ context.Context, id string) (store.HeadlineDueSession, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sess, ok := s.sessions[id]
+	if !ok || sess.turnAt <= sess.headlineAt {
+		return store.HeadlineDueSession{}, false, nil
+	}
+	return store.HeadlineDueSession{
+		ID: id, FirstPrompt: sess.firstPrompt, TurnAt: sess.turnAt, HeadlineAt: sess.headlineAt,
+	}, true, nil
+}
+
 // RecentTurns returns the newest items turns of the session id, oldest first, or readErr when the fake fails reads.
 func (s *headlineFakeStore) RecentTurns(_ context.Context, id string, items int) ([]store.RecentTurn, error) {
 	s.mu.Lock()
@@ -187,34 +201,87 @@ func (c *headlineClock) set(at time.Time) {
 	c.now = at
 }
 
-// headlineLoop is a SessionHeadlines started over a fake store and clock, and the channels a test drives it with.
+// armedDeadline is a deadline a deadlineClock armed: its duration, the function that wakes its session, and whether Run
+// stopped it.
+type armedDeadline struct {
+	d       time.Duration
+	fire    func()
+	stopped *atomic.Bool
+}
+
+// deadlineClock is the AfterFunc of the headline tests. It arms no real timer: each deadline it arms is sent on armed,
+// for the test to fire.
+type deadlineClock struct {
+	armed chan armedDeadline
+}
+
+// afterFunc arms a deadline for d and sends it on armed. Its stop records that Run stopped the deadline.
+func (c *deadlineClock) afterFunc(d time.Duration, fire func()) func() bool {
+	dl := armedDeadline{d: d, fire: fire, stopped: new(atomic.Bool)}
+	c.armed <- dl
+	return func() bool {
+		dl.stopped.Store(true)
+		return true
+	}
+}
+
+// take returns the deadline armed next, and fails t when none is armed.
+func (c *deadlineClock) take(t *testing.T) armedDeadline {
+	t.Helper()
+	select {
+	case dl := <-c.armed:
+		return dl
+	default:
+		t.Fatal("no deadline armed, want one")
+		return armedDeadline{}
+	}
+}
+
+// noneArmed fails t when a deadline is armed and not yet taken.
+func (c *deadlineClock) noneArmed(t *testing.T) {
+	t.Helper()
+	select {
+	case dl := <-c.armed:
+		t.Fatalf("deadline of %v armed, want none", dl.d)
+	default:
+	}
+}
+
+// headlineLoop is a SessionHeadlines started over a fake store, a synthetic clock and a fake deadline, and the channels a
+// test drives it with.
 type headlineLoop struct {
-	clock  *headlineClock
-	ticks  chan time.Time
-	passes chan struct{}
-	done   chan struct{}
-	cancel context.CancelFunc
+	clock     *headlineClock
+	deadlines *deadlineClock
+	headlines *SessionHeadlines
+	passes    chan struct{}
+	done      chan struct{}
+	cancel    context.CancelFunc
 }
 
 // startHeadlineLoop starts a SessionHeadlines over st and haiku on a synthetic clock at start, and returns once its
-// start pass is done. The test's end stops it too.
+// start pass is done. Its retry timer never fires. The test's end stops it too.
 func startHeadlineLoop(t *testing.T, st SessionHeadlineStore, haiku haikuCaller, start time.Time) *headlineLoop {
 	t.Helper()
-	ticks := make(chan time.Time)
 	passes := make(chan struct{}, 16)
 	ctx, cancel := context.WithCancel(t.Context())
-	clock := &headlineClock{now: start}
-	loop := &headlineLoop{clock: clock, ticks: ticks, passes: passes, done: make(chan struct{}), cancel: cancel}
-	headlines := NewSessionHeadlines(SessionHeadlinesConfig{
-		Store:  st,
-		Haiku:  haiku,
-		Tick:   ticks,
-		Now:    clock.Now,
-		Passed: func() { passes <- struct{}{} },
+	loop := &headlineLoop{
+		clock:     &headlineClock{now: start},
+		deadlines: &deadlineClock{armed: make(chan armedDeadline, 16)},
+		passes:    passes,
+		done:      make(chan struct{}),
+		cancel:    cancel,
+	}
+	loop.headlines = NewSessionHeadlines(SessionHeadlinesConfig{
+		Store:     st,
+		Haiku:     haiku,
+		NewTimer:  unfiredTimer,
+		AfterFunc: loop.deadlines.afterFunc,
+		Now:       loop.clock.Now,
+		Passed:    func() { passes <- struct{}{} },
 	})
 	go func() {
 		defer close(loop.done)
-		headlines.Run(ctx)
+		loop.headlines.Run(ctx)
 	}()
 	t.Cleanup(loop.stop)
 	<-passes
@@ -227,10 +294,18 @@ func (l *headlineLoop) stop() {
 	<-l.done
 }
 
-// passAt moves the clock to at, has the loop pass once more and waits until that pass is done.
-func (l *headlineLoop) passAt(at time.Time) {
+// wakeAt moves the clock to at, wakes session as the store's turn-end hook does, and waits until the pass it starts is
+// done.
+func (l *headlineLoop) wakeAt(at time.Time, session string) {
 	l.clock.set(at)
-	l.ticks <- at
+	l.headlines.Wake(session)
+	<-l.passes
+}
+
+// fire moves the clock to at, fires dl, which wakes its session, and waits until the pass it starts is done.
+func (l *headlineLoop) fire(dl armedDeadline, at time.Time) {
+	l.clock.set(at)
+	dl.fire()
 	<-l.passes
 }
 
@@ -284,7 +359,7 @@ func TestSessionHeadlineTurnEndWritesFromFirstPromptAndRecentTurns(t *testing.T)
 }
 
 // TestSessionHeadlineSecondTurnInsideWindowWritesNothingAtOnce covers R1: a turn end within 5 minutes of the last
-// headline writes nothing at once.
+// headline writes nothing at once, and its session's deadline is armed for the time left in the window.
 func TestSessionHeadlineSecondTurnInsideWindowWritesNothingAtOnce(t *testing.T) {
 	t.Parallel()
 	start := headlineStart()
@@ -295,17 +370,25 @@ func TestSessionHeadlineSecondTurnInsideWindowWritesNothingAtOnce(t *testing.T) 
 	loop := startHeadlineLoop(t, st, haiku, start)
 
 	st.endTurn("e-beta", start.Add(time.Minute), store.RecentTurn{Role: "assistant", Text: "second"})
-	loop.passAt(start.Add(time.Minute))
+	loop.wakeAt(start.Add(time.Minute), "e-beta")
 	if got := haiku.calls(); got != 1 {
 		t.Fatalf("calls inside the window = %d, want still 1", got)
 	}
 	if got := st.headlineOf("e-beta"); got != "First headline" {
 		t.Fatalf("headline inside the window = %q, want it unchanged", got)
 	}
+	dl := loop.deadlines.take(t)
+	if dl.d != 4*time.Minute {
+		t.Fatalf("deadline armed for %v, want the 4 minutes left in the window", dl.d)
+	}
+	loop.stop()
+	if !dl.stopped.Load() {
+		t.Fatal("deadline still armed after Run returned, want it stopped")
+	}
 }
 
-// TestSessionHeadlineWaitingTurnIsWrittenOncePastFiveMinutes covers R1: a turn end inside the window is written on the
-// first pass after the window passes, with no further turn, and not again after that.
+// TestSessionHeadlineWaitingTurnIsWrittenOncePastFiveMinutes covers R1: a turn end inside the window is written by the
+// deadline that fires when the window passes, with no further turn, and not again after that.
 func TestSessionHeadlineWaitingTurnIsWrittenOncePastFiveMinutes(t *testing.T) {
 	t.Parallel()
 	start := headlineStart()
@@ -316,13 +399,19 @@ func TestSessionHeadlineWaitingTurnIsWrittenOncePastFiveMinutes(t *testing.T) {
 	loop := startHeadlineLoop(t, st, haiku, start)
 
 	st.endTurn("e-gamma", start.Add(time.Minute), store.RecentTurn{Role: "assistant", Text: "second"})
-	haiku.answer(json.RawMessage(`{"headline":"Second headline"}`), nil)
-	loop.passAt(start.Add(5*time.Minute - time.Second))
+	haiku.answer(json.RawMessage(`{"headline":"Second headline"}`))
+	loop.wakeAt(start.Add(time.Minute), "e-gamma")
+	dl := loop.deadlines.take(t)
+	if dl.d != 4*time.Minute {
+		t.Fatalf("deadline armed for %v, want the 4 minutes left in the window", dl.d)
+	}
+	loop.wakeAt(start.Add(5*time.Minute-time.Second), "e-gamma")
 	if got := haiku.calls(); got != 1 {
 		t.Fatalf("calls just inside the window = %d, want still 1", got)
 	}
+	loop.deadlines.noneArmed(t)
 
-	loop.passAt(start.Add(5 * time.Minute))
+	loop.fire(dl, start.Add(5*time.Minute))
 	if got := haiku.calls(); got != 2 {
 		t.Fatalf("calls once the window passes = %d, want 2", got)
 	}
@@ -330,7 +419,7 @@ func TestSessionHeadlineWaitingTurnIsWrittenOncePastFiveMinutes(t *testing.T) {
 		t.Fatalf("headline once the window passes = %q, want the second reply", got)
 	}
 
-	loop.passAt(start.Add(10 * time.Minute))
+	loop.wakeAt(start.Add(10*time.Minute), "e-gamma")
 	if got := haiku.calls(); got != 2 {
 		t.Fatalf("calls with no further turn = %d, want still 2", got)
 	}
@@ -347,10 +436,10 @@ func TestSessionHeadlineTurnAfterFiveMinutesRefreshesHeadline(t *testing.T) {
 	haiku := &headlineFakeHaiku{reply: json.RawMessage(`{"headline":"First headline"}`)}
 	loop := startHeadlineLoop(t, st, haiku, start)
 
-	haiku.answer(json.RawMessage(`{"headline":"Refreshed headline"}`), nil)
+	haiku.answer(json.RawMessage(`{"headline":"Refreshed headline"}`))
 	at := start.Add(6 * time.Minute)
 	st.endTurn("e-delta", at, store.RecentTurn{Role: "assistant", Text: "later"})
-	loop.passAt(at)
+	loop.wakeAt(at, "e-delta")
 	if got := haiku.calls(); got != 2 {
 		t.Fatalf("calls after a turn past the window = %d, want 2", got)
 	}
@@ -372,15 +461,20 @@ func TestSessionHeadlineFailedCallIsNotRetriedInsideFiveMinutes(t *testing.T) {
 	if got := haiku.calls(); got != 1 {
 		t.Fatalf("calls after the failed start = %d, want 1", got)
 	}
+	dl := loop.deadlines.take(t)
+	if dl.d != sessionHeadlineInterval {
+		t.Fatalf("deadline armed for %v after the failed call, want %v", dl.d, sessionHeadlineInterval)
+	}
 
-	loop.passAt(start.Add(time.Minute))
-	loop.passAt(start.Add(5*time.Minute - time.Second))
+	loop.wakeAt(start.Add(time.Minute), "e-epsilon")
+	loop.wakeAt(start.Add(5*time.Minute-time.Second), "e-epsilon")
 	if got := haiku.calls(); got != 1 {
 		t.Fatalf("calls inside the hold = %d, want still 1", got)
 	}
+	loop.deadlines.noneArmed(t)
 
-	haiku.answer(json.RawMessage(`{"headline":"Recovered headline"}`), nil)
-	loop.passAt(start.Add(5 * time.Minute))
+	haiku.answer(json.RawMessage(`{"headline":"Recovered headline"}`))
+	loop.fire(dl, start.Add(5*time.Minute))
 	if got := haiku.calls(); got != 2 {
 		t.Fatalf("calls once the hold passes = %d, want 2", got)
 	}
@@ -406,15 +500,19 @@ func TestSessionHeadlineFailedWriteIsNotRetriedInsideFiveMinutes(t *testing.T) {
 	if got := st.headlineOf("e-zeta"); got != "" {
 		t.Fatalf("headline after a failed write = %q, want empty", got)
 	}
+	dl := loop.deadlines.take(t)
+	if dl.d != sessionHeadlineInterval {
+		t.Fatalf("deadline armed for %v after the failed write, want %v", dl.d, sessionHeadlineInterval)
+	}
 
-	loop.passAt(start.Add(time.Minute))
-	loop.passAt(start.Add(5*time.Minute - time.Second))
+	loop.wakeAt(start.Add(time.Minute), "e-zeta")
+	loop.wakeAt(start.Add(5*time.Minute-time.Second), "e-zeta")
 	if got := haiku.calls(); got != 1 {
 		t.Fatalf("calls inside the hold = %d, want still 1", got)
 	}
 
 	st.failWrites(nil)
-	loop.passAt(start.Add(5 * time.Minute))
+	loop.fire(dl, start.Add(5*time.Minute))
 	if got := haiku.calls(); got != 2 {
 		t.Fatalf("calls once the hold passes = %d, want 2", got)
 	}
@@ -445,9 +543,13 @@ func TestSessionHeadlineFailedReadAndBlankReplyAreHeldOff(t *testing.T) {
 			st.failReads(tc.readErr)
 			haiku := &headlineFakeHaiku{reply: tc.reply}
 			loop := startHeadlineLoop(t, st, haiku, start)
+			dl := loop.deadlines.take(t)
+			if dl.d != sessionHeadlineInterval {
+				t.Fatalf("deadline armed for %v, want %v", dl.d, sessionHeadlineInterval)
+			}
 			reads, calls := st.readCount(), haiku.calls()
 
-			loop.passAt(start.Add(5*time.Minute - time.Second))
+			loop.wakeAt(start.Add(5*time.Minute-time.Second), "e-eta")
 			if got := st.readCount(); got != reads {
 				t.Fatalf("reads inside the hold = %d, want %d", got, reads)
 			}

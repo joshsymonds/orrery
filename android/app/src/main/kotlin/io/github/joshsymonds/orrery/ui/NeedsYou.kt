@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -13,12 +12,13 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.unit.dp
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicQuestionRow
 import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.Pane
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import io.github.joshsymonds.orrery.ui.theme.animationsOn
+import io.github.joshsymonds.orrery.ui.theme.inLabelCase
 
 /**
  * Home's Needs you: a "Needs you" heading, then each waiting pane's sentence with its summary as the why under it, then
@@ -46,11 +46,11 @@ fun NeedsYou(
     }
     val animated = animationsOn()
     if (paneNeeds.isEmpty() && epicNeeds.isEmpty()) return
-    Column(modifier = modifier.fillMaxWidth().testTag("needs-you").padding(vertical = 4.dp)) {
+    Column(modifier = modifier.fillMaxWidth().testTag("needs-you").padding(vertical = OrreryTokens.Space.four)) {
         Text(
-            "Needs you",
-            style = MaterialTheme.typography.titleSmall,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            "Needs you".inLabelCase(),
+            style = OrreryTokens.Type.label,
+            modifier = Modifier.padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.four),
         )
         for ((pane, need) in paneNeeds) {
             key(pane.id) {
@@ -60,14 +60,17 @@ fun NeedsYou(
                             need.text,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 4.dp)
+                                .padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.four)
                                 .testTag("need-sentence")
                                 .clickable { onOpenPane(pane) },
                         )
                         if (need.summary.isNotEmpty()) {
                             Text(
                                 need.summary,
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).testTag("need-why"),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = OrreryTokens.Space.sixteen)
+                                    .testTag("need-why"),
                             )
                         }
                     }
@@ -103,14 +106,14 @@ private fun EpicNeedEntry(
     onStop: (epic: String) -> Unit,
 ) {
     Column(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = OrreryTokens.Space.sixteen),
+        verticalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
     ) {
         Text(
             need.text,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 4.dp)
+                .padding(vertical = OrreryTokens.Space.four)
                 .testTag("need-sentence")
                 .clickable { onOpenEpic(epic.id) },
         )

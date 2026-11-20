@@ -80,10 +80,11 @@ func (s *epicService) ready() error {
 	return nil
 }
 
-// CreateEpic checks the contract with checkEpic, merges its reviewers, resolves its base to the full commit the base
-// names, pins the workflow the request names at that commit, then stores it accepted, with its seed decisions, and
-// returns the stored epic read back. Its review list is the enabled task-stage reviewers, in merged order. A reviewer
-// no layer can hold, or a workflow that does not load at the base, is refused, and nothing is stored.
+// CreateEpic checks the contract with checkEpic, collects the lint's warnings, merges its reviewers, resolves its base to
+// the full commit the base names, pins the workflow the request names at that commit, then stores it accepted, with its
+// seed decisions, and returns the stored epic read back with the warnings. Its review list is the enabled task-stage
+// reviewers, in merged order. A reviewer no layer can hold, or a workflow that does not load at the base, is refused,
+// and nothing is stored.
 func (s *epicService) CreateEpic(
 	ctx context.Context,
 	req *connect.Request[v1.CreateEpicRequest],
@@ -99,6 +100,10 @@ func (s *epicService) CreateEpic(
 		return nil, refuseEpic(connect.CodeInvalidArgument, err.Error())
 	}
 	contract := req.Msg.GetContract()
+	warnings, err := contractLintWarnings(ctx, contract)
+	if err != nil {
+		return nil, refuseEpic(connect.CodeInvalidArgument, err.Error())
+	}
 	merged, err := epicReviewers(ctx, contract, getenv)
 	if err != nil {
 		return nil, refuseEpic(connect.CodeInvalidArgument, err.Error())
@@ -124,7 +129,7 @@ func (s *epicService) CreateEpic(
 	if err != nil {
 		return nil, epicStoreError(err)
 	}
-	return connect.NewResponse(&v1.CreateEpicResponse{Epic: message}), nil
+	return connect.NewResponse(&v1.CreateEpicResponse{Epic: message, Warnings: warnings}), nil
 }
 
 // GetEpic returns the stored epic with its workflow node runs. When req asks for history, it also returns the epic's
@@ -347,9 +352,10 @@ func checkEpicAnswer(req *v1.AnswerEpicRequest) error {
 	return nil
 }
 
-// PauseEpic pauses the epic as its owner's, so the planner starts no turn for it and no reset resumes it, and returns
-// the epic read back. An epic the owner paused, or paused with no recorded source, is refused; an epic a usage limit
-// paused is taken over by the owner.
+// PauseEpic pauses the epic as its owner's, so the planner starts no turn for it and no reset resumes it, stops each
+// running step of the epic, and returns the epic read back. The pause is written before the steps are stopped, so a
+// held unit is not started again in between. An epic the owner paused, or paused with no recorded source, is refused
+// and stops nothing; an epic a usage limit paused is taken over by the owner.
 func (s *epicService) PauseEpic(
 	ctx context.Context,
 	req *connect.Request[v1.PauseEpicRequest],
@@ -363,6 +369,9 @@ func (s *epicService) PauseEpic(
 	}
 	if err := s.epics.PauseEpic(ctx, id); err != nil {
 		return nil, epicControlError(id, err)
+	}
+	if err := s.stopRunningSteps(ctx, id); err != nil {
+		return nil, err
 	}
 	message, err := s.storedEpic(ctx, id)
 	if err != nil {
@@ -424,6 +433,33 @@ func (s *epicService) ResumeEpic(
 		Resumed:      resumed,
 		StillLimited: stillLimited,
 	}), nil
+}
+
+// stopRunningSteps stops each step of epic that is running, and returns the stops that failed, each named by its step,
+// joined. A step a usage limit holds has no process running, so it is not stopped: it stays held until the epic is
+// resumed, as ResumeEpic resumes it. Every other open step is tried, so one that will not stop does not keep the others
+// running. Without a step store there are none.
+func (s *epicService) stopRunningSteps(ctx context.Context, epic string) error {
+	if s.steps == nil {
+		return nil
+	}
+	rows, err := s.steps.List(ctx, epic, "")
+	if err != nil {
+		return epicStoreError(err)
+	}
+	var failed []error
+	for _, row := range rows {
+		if row.End != "" || row.LoopLimited {
+			continue
+		}
+		if err = s.steps.Stop(ctx, row.ID); err != nil {
+			failed = append(failed, fmt.Errorf("stop step %s: %w", row.ID, err))
+		}
+	}
+	if len(failed) > 0 {
+		return epicStoreError(errors.Join(failed...))
+	}
+	return nil
 }
 
 // limitedTaskSteps returns the open steps of epic that a usage limit holds and that have a task, oldest first. A
@@ -1260,8 +1296,8 @@ func taskRungMessage(rung store.TaskRung) *v1.EpicTaskRung {
 	}
 }
 
-// taskReviewMessage returns the EpicTaskReview message of review: its attempt, gate, step, verdict and findings in
-// order.
+// taskReviewMessage returns the EpicTaskReview message of review: its attempt, gate, step, verdict, findings in order,
+// and the reason an undetermined review gave.
 func taskReviewMessage(review store.TaskReview) *v1.EpicTaskReview {
 	return &v1.EpicTaskReview{
 		Attempt:  review.Attempt,
@@ -1269,6 +1305,7 @@ func taskReviewMessage(review store.TaskReview) *v1.EpicTaskReview {
 		Step:     review.Step,
 		Verdict:  review.Verdict,
 		Findings: epicMap(review.Findings, taskFindingMessage),
+		Reason:   review.Reason,
 	}
 }
 

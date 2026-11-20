@@ -12,10 +12,11 @@ import io.github.joshsymonds.orrery.api.Quiescence
 import io.github.joshsymonds.orrery.api.RecordedRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.RegisterRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.RegisterResponse
-import org.json.JSONObject
+import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_ANSWER
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_KEY
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_PANE
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_QUESTION_HASH
+import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_REQUEST
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_SESSION
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_TIME
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.notificationId
@@ -26,6 +27,8 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.json.JSONArray
+import org.json.JSONObject
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
@@ -78,6 +81,8 @@ class OrreryPushServiceTest {
         session: String? = null,
         time: String? = null,
         silent: Any? = null,
+        options: List<String>? = null,
+        request: String? = null,
     ): ByteArray = JSONObject()
         .put("pane", pane)
         .put("host", "synthetic-host")
@@ -91,6 +96,8 @@ class OrreryPushServiceTest {
             session?.let { put("session", it) }
             time?.let { put("time", it) }
             silent?.let { put("silent", it) }
+            options?.let { put("options", JSONArray(it)) }
+            request?.let { put("request", it) }
         }
         .toString()
         .toByteArray(Charsets.UTF_8)
@@ -208,7 +215,7 @@ class OrreryPushServiceTest {
 
         val notification = posted()
         assertEquals(
-            "synthetic-project · waiting",
+            "synthetic-project asks you a question",
             notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString(),
         )
         assertEquals(
@@ -222,6 +229,20 @@ class OrreryPushServiceTest {
             assertEquals(key, intent.getStringExtra(EXTRA_KEY))
             assertEquals("qh-synthetic-1", intent.getStringExtra(EXTRA_QUESTION_HASH))
         }
+    }
+
+    @Test
+    fun sessionOptionsAndRequestReachTheActions() {
+        val message = payload(pane = "", session = session, options = listOf("Allow", "Deny"), request = "req-synthetic")
+        service.onMessage(PushMessage(message, decrypted = true), instance)
+
+        val actions = checkNotNull(postedFor(session)) { "expected a notification for session $session" }.actions.orEmpty()
+        assertEquals(listOf("Allow", "Deny", "Reply"), actions.map { it.title.toString() })
+        val allow = shadowOf(actions[0].actionIntent).savedIntent
+        assertEquals(session, allow.getStringExtra(EXTRA_SESSION))
+        assertEquals("req-synthetic", allow.getStringExtra(EXTRA_REQUEST))
+        assertEquals("Allow", allow.getStringExtra(EXTRA_ANSWER))
+        assertEquals(session, shadowOf(actions[1].actionIntent).savedIntent.getStringExtra(EXTRA_SESSION))
     }
 
     @Test
@@ -366,7 +387,7 @@ class OrreryPushServiceTest {
         val notification = postedLimit()
         assertEquals(1, shadowOf(manager).allNotifications.size)
         assertEquals(
-            "usage limit · limited",
+            "usage limit",
             notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString(),
         )
         assertEquals(
@@ -429,7 +450,7 @@ class OrreryPushServiceTest {
         val notification = checkNotNull(postedAlert()) { "expected a notification for alert $syntheticAlert" }
         assertEquals(1, shadowOf(manager).allNotifications.size)
         assertEquals(
-            "synthetic-alert · firing",
+            "synthetic-alert",
             notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString(),
         )
         assertEquals(

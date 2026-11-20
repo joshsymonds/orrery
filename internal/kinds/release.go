@@ -4,16 +4,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
+	"github.com/joshsymonds/orrery/internal/reviewers"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
 // Release is the release kind. Its run takes the repository's release slot or waits for it, prepares and gates the
 // release candidate, has the release integrator finish a merge of origin's commit that conflicts, sends the release back
 // to planning when the integrator stopped on a change to the candidate, starts the plan that replans it for an owner's
-// correction and resumes it once that plan has ended, starts each release step in order, stores each end first, stops
-// on any failure, judges the postconditions, and ends the epic released, or done when it has no release steps.
+// correction and resumes it once that plan has ended, has its release reviewers hold the candidate before the first
+// release step, starts each release step in order, stores each end first, stops on any failure, judges the
+// postconditions, and ends the epic released, or done when it has no release steps.
 type Release struct{}
 
 // The actions a release run takes beyond the ones every kind shares.
@@ -163,7 +166,8 @@ func holdsSlot(rows Rows) bool {
 	return rows.Slot == rows.Epic.ID
 }
 
-// releaseRun decides a releasing epic's run. Its candidate comes first, then its release steps in order, then its judge.
+// releaseRun decides a releasing epic's run. Its candidate comes first, then its release steps in order, the first of
+// them gated by its release reviewers, then its judge.
 func releaseRun(run store.NodeRun, rows Rows) Action {
 	candidate, ok := currentCandidate(run, rows)
 	if !ok {
@@ -320,7 +324,8 @@ func walkSteps(run store.NodeRun, rows Rows, candidate string) Action {
 
 // stepAction decides release step position, which has not passed, from start. It stops on a step that failed at this
 // attempt, and records a step whose end is stored. Otherwise it waits while the step runs, or starts it when it has no
-// row, unless the epic does not hold the slot, is paused, or the step's undo is none after an earlier failure.
+// row, unless the epic does not hold the slot, is paused, the step's undo is none after an earlier failure, or the first
+// step's candidate is not yet held by the release reviewers (releaseReviewGate).
 func stepAction(run store.NodeRun, rows Rows, position int64, step store.EpicReleaseStep, start string) Action {
 	failed, ok := firstMatch(rows.Releases, func(r store.ReleaseRun) bool {
 		return r.Part == store.ReleasePartStep && r.Position == position && !r.Passed && r.Attempt == run.Attempt
@@ -357,7 +362,69 @@ func stepAction(run store.NodeRun, rows Rows, position int64, step store.EpicRel
 			),
 		}
 	}
+	if position == 1 {
+		if act, held := releaseReviewGate(run, rows, start); !held {
+			return act
+		}
+	}
 	return Action{Kind: ActStep, IDs: []string{id}, Items: []string{label, start}}
+}
+
+// releaseReviewGate decides whether the release reviewers have held candidate, the candidate the first release step
+// starts from. Each enabled reviewer of the release stage, in merged order, reviews candidate once at this attempt, as its
+// step is started and recorded: a review that failed stops the release with its reason, and the next reviewer waits for
+// the one before it. A reviewer with no review starts (ActStep), waits while its step runs, or is recorded once its step
+// has ended. It holds when no release reviewer is enabled.
+func releaseReviewGate(run store.NodeRun, rows Rows, candidate string) (Action, bool) {
+	generation := replacedCount(run.Attempt, rows.Releases)
+	gated := gatedRun(run, generation)
+	enabled := reviewers.ForStage(rows.Epic.Reviewers, reviewers.StageRelease)
+	for i, reviewer := range enabled {
+		position := releaseReviewPosition(generation, int64(len(enabled)), int64(i+1))
+		review, ok := firstMatch(rows.Releases, func(r store.ReleaseRun) bool {
+			return r.Part == store.ReleasePartReview && r.Attempt == run.Attempt && r.Position == position
+		})
+		if ok {
+			if !review.Passed {
+				return Action{Kind: ActStop, Output: review.Reason}, false
+			}
+			continue
+		}
+		id := store.NodeWorkID(gated.ID, run.Attempt, "review "+reviewer.Name)
+		items := []string{
+			store.ReleasePartReview, candidate, reviewer.Name, strconv.FormatInt(position, 10),
+		}
+		if row, found := firstMatch(rows.Steps, func(s store.StepRow) bool { return s.ID == id }); found {
+			return recordAction(row, items), false
+		}
+		return Action{Kind: ActStep, IDs: []string{id}, Items: items}, false
+	}
+	return Action{}, true
+}
+
+// releaseReviewPosition returns the position of the review run of the release reviewer at index, counted from 1 among the
+// n enabled release reviewers, which reviews the candidate of generation. Each generation numbers its reviews after those
+// of the generation before it, as integratorPosition numbers the rounds of the release integrator, so every review of an
+// attempt has a position of its own.
+func releaseReviewPosition(generation, n, index int64) int64 {
+	return generation*n + index
+}
+
+// ReleaseRefusalClaims returns the claim of each finding that the release reviewer whose step is row refused its
+// candidate with, or nil when its step did not refuse it. A step refuses by ending gate_failed with findings.
+func ReleaseRefusalClaims(row store.StepRow) []string {
+	if row.End != reviewEndGateFailed {
+		return nil
+	}
+	findings, ok := reviewFailedFindings(row.Result)
+	if !ok {
+		return nil
+	}
+	claims := make([]string, 0, len(findings))
+	for _, finding := range findings {
+		claims = append(claims, finding["claim"])
+	}
+	return claims
 }
 
 // undoNoneStopped reports whether step at position has undo none, failed at an earlier attempt, and has no run named at

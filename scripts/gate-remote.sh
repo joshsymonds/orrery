@@ -218,7 +218,10 @@ run_here() {
 
 # The script the box runs as `bash -s -- <checkout> <free-kib>`: step 2. It touches the checkout's .meta before the
 # prune, so the prune never takes the checkout being prepared, and removes a checkout only while holding its lock
-# exclusively, which a running gate holds. Its last line is "load <1> <5> <15> nproc <n>".
+# exclusively, which a running gate holds. When the box still has less than <free-kib> free after that prune, it
+# deletes the Go build cache entries (~/.cache/orrery/build) no run has used in the last hour: Go refreshes an entry's
+# time when it uses one, and a missing entry is only rebuilt, so a running gate loses nothing it needs. Its last line
+# is "load <1> <5> <15> nproc <n>".
 #
 # A run of this checkout that is still going was left by a run here that is gone (one killed with SIGKILL, or one that
 # gave up collecting it): runs from one work tree take turns, so nothing will collect it. It is stopped before the sync
@@ -248,6 +251,11 @@ find . -maxdepth 1 -name '*.meta' -mmin +10 -printf '%T@ %f\n' | sort -n | while
     stale="${meta%.meta}"
     flock -n -x "$stale.lock" rm -rf "./$stale" "./$meta" "./$stale.lock" || true
 done
+gocache="$HOME/.cache/orrery/build"
+if [ -d "$gocache" ] && [ "$(df --output=avail -k . | tail -n 1)" -lt "$keep" ]; then
+    echo "gate-remote: trimming the Go build cache on $(uname -n): under $((keep / 1024 / 1024)) GiB free" >&2
+    find "$gocache" -mindepth 2 -type f -mmin +60 -delete 2>/dev/null || true
+fi
 [ -d objects.git ] || git init -q --bare objects.git
 mkdir -p "$sub"
 cd "$sub"

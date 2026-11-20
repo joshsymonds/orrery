@@ -93,52 +93,36 @@ func TestTaskLadderClimbMovesOneRung(t *testing.T) {
 	}
 }
 
-// TestTaskLadderClimbCannotMeetSkipsToRescue checks that a cannot-meet move climbs a task from rung 1 straight to the
-// rescue rung 3, leaving no rung 2, and that the rescue version and its decision are stored with the climb.
-func TestTaskLadderClimbCannotMeetSkipsToRescue(t *testing.T) {
+// TestTaskLadderClimbCannotMeetSkipsToRecarve checks that a cannot-meet move climbs a task from rung 1 straight to the
+// recarve rung, ApproachRung, leaving no rung 2 and storing no version: the planner writes the recarve when the
+// trigger wakes it.
+func TestTaskLadderClimbCannotMeetSkipsToRecarve(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	from := climbFrom()
 	seedClimbTask(t, s, from)
-	move := RungMove{MovedBy: MovedByCannotMeet, Cause: climbCause, To: RescueRung}
-	to := ClimbedBuild(from, RescueRung, move.Cause)
-	deliverable := "the rescued change"
-	version := TaskVersionInput{Source: SourceRescue, Step: "step-rescue", Reason: "rescued", Deliverable: &deliverable}
-	decision := TaskDecision{ID: "D3", Text: "Rescue the task"}
-	if err := s.ClimbTask(ctx, climbEpic, 1, from, to, move, &version, &decision, climbedAt()); err != nil {
+	move := RungMove{MovedBy: MovedByCannotMeet, Cause: climbCause, To: ApproachRung}
+	to := ClimbedBuild(from, ApproachRung, move.Cause)
+	if err := s.ClimbTask(ctx, climbEpic, 1, from, to, move, nil, nil, climbedAt()); err != nil {
 		t.Fatalf("ClimbTask: %v", err)
 	}
 
 	got := climbTaskOf(ctx, t, s, 1)
 	wantRungs := []TaskRung{
 		{Rung: 1, Kind: RungAttempt, Created: climbedAt(), Outcome: RungFailed, Reason: climbCause, Ended: climbedAt()},
-		{Rung: RescueRung, Kind: RungRescue, MovedBy: MovedByCannotMeet, Cause: climbCause, Created: climbedAt()},
+		{Rung: ApproachRung, Kind: RungApproach, MovedBy: MovedByCannotMeet, Cause: climbCause, Created: climbedAt()},
 	}
 	if !reflect.DeepEqual(got.Rungs, wantRungs) {
 		t.Errorf("rungs:\n got %+v\nwant %+v", got.Rungs, wantRungs)
 	}
-	if len(got.Versions) != 1 {
-		t.Fatalf("versions = %d, want 1", len(got.Versions))
-	}
-	if v := got.Versions[0]; v.Source != SourceRescue || v.Decision != decision.ID ||
-		v.Deliverable == nil || *v.Deliverable != deliverable {
-		t.Errorf("version = %+v, want source %q, decision %q and deliverable %q",
-			v, SourceRescue, decision.ID, deliverable)
-	}
-
-	epic, err := s.Epic(ctx, climbEpic)
-	if err != nil {
-		t.Fatalf("Epic: %v", err)
-	}
-	wantDecisions := append(seededDecisions(), EpicDecision{Seq: 3, ID: "D3", Text: decision.Text, Time: climbedAt()})
-	if !reflect.DeepEqual(epic.Decisions, wantDecisions) {
-		t.Errorf("decisions:\n got %+v\nwant %+v", epic.Decisions, wantDecisions)
+	if len(got.Versions) != 0 {
+		t.Errorf("versions = %+v, want none: the planner writes the recarve", got.Versions)
 	}
 }
 
-// TestTaskLadderClimbToApproachAddsTrigger checks that a climb from rung 4 to rung 5 adds the pending approach trigger
-// with its cause, and that rung 4 ends failed as an orchestrator rung while rung 5 is an approach rung.
+// TestTaskLadderClimbToApproachAddsTrigger checks that a climb from rung 3 to rung 4 adds the pending approach trigger
+// with its cause, and that rung 3 ends failed as an orchestrator rung while rung 4 is an approach rung.
 func TestTaskLadderClimbToApproachAddsTrigger(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -183,8 +167,8 @@ func TestTaskLadderClimbToApproachAddsTrigger(t *testing.T) {
 	}
 }
 
-// TestTaskLadderClimbFromLastRungEndsAsGap checks that a climb from rung 6 past the last rung ends the task as a gap:
-// rung 6 ends failed, rung 7 is a gap rung that ends gapped, the status is gap, and the gap trigger is pending.
+// TestTaskLadderClimbFromLastRungEndsAsGap checks that a climb from the last rung past it ends the task as a gap: rung 5
+// ends failed, rung 6 is a gap rung that ends gapped, the status is gap, and the gap trigger is pending.
 func TestTaskLadderClimbFromLastRungEndsAsGap(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

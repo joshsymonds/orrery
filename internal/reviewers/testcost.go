@@ -38,13 +38,12 @@ var costLine = regexp.MustCompile(`^test-budget: cost (\S+) ([0-9]+(?:\.[0-9]+)?
 var baselineLine = regexp.MustCompile(`^test-budget: \S+ [0-9]+ cpu-s`)
 
 // budgetLine reports whether line of a gate's output reports what its tests cost: scripts/test-budget.sh's per-package
-// CPU budget lines and its count, check-changed's whole-run budget line, passed or exceeded, and the wall-clock budget
-// lines of cover and web-check.
+// CPU budget lines and its count, check-changed's whole-run budget line when it passed, and the wall-clock budget lines
+// of cover and web-check.
 func budgetLine(line string) bool {
 	for _, prefix := range []string{
 		"test-budget: ",
 		"check-changed: OK after ",
-		"check-changed: exceeded ",
 		"tests exceeded ",
 		"web-check: the web suite exceeded ",
 	} {

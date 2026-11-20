@@ -29,7 +29,7 @@ func TestReturnCheckOwnsFilesOfOpenTasksOnly(t *testing.T) {
 			{Seq: 3, Title: "failed", Files: []string{"internal/c.go"}, Status: "failed"},
 		},
 	}
-	check := returnCheck(context.Background(), epic, store.Review{}, testResolver{}, nil, nil)
+	check := returnCheck(context.Background(), epic, store.Review{}, testResolver{}, nil)
 	plan := `{"status":"done","decisions":[],"tasks":[` + strings.Join([]string{
 		filesTaskJSON("Touch a", "internal/a.go"),
 		filesTaskJSON("Touch b", "internal/b.go"),

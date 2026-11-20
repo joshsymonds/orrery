@@ -12,7 +12,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import io.github.joshsymonds.orrery.api.HostStat
 import io.github.joshsymonds.orrery.mainThreadAndroidComposeRule
-import io.github.joshsymonds.orrery.ui.theme.Mocha
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import kotlin.math.abs
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -74,13 +74,13 @@ class HostMetersTest {
     }
 
     @Test
-    fun fillColourFollowsLevel() {
+    fun fillColourFollowsSeriesThenLevel() {
         composeRule.setContent {
             HostMeters(
                 listOf(
                     HostStat("cpu", "50%", 50.0, "ok"),
-                    HostStat("disk", "50%", 50.0, "warn"),
-                    HostStat("temp", "50%", 50.0, "crit"),
+                    HostStat("disk", "60%", 60.0, "warn"),
+                    HostStat("temp", "70%", 70.0, "crit"),
                 ),
             )
         }
@@ -90,9 +90,12 @@ class HostMetersTest {
         val bitmap = Bitmap.createBitmap(decor.width, decor.height, Bitmap.Config.ARGB_8888)
         decor.draw(Canvas(bitmap))
 
-        assertFillColour(bitmap, "cpu", Mocha.Lavender)
-        assertFillColour(bitmap, "disk", Mocha.Peach)
-        assertFillColour(bitmap, "temp", Mocha.Red)
+        assertFillColour(bitmap, "cpu", OrreryTokens.Series.one)
+        assertFillColour(bitmap, "disk", OrreryTokens.Level.warn)
+        assertFillColour(bitmap, "temp", OrreryTokens.Level.crit)
+        assertValueColour(bitmap, "50%", OrreryTokens.Ink.one)
+        assertValueColour(bitmap, "60%", OrreryTokens.Level.warn)
+        assertValueColour(bitmap, "70%", OrreryTokens.Level.crit)
     }
 
     private fun assertFillColour(bitmap: Bitmap, label: String, expected: Color) {
@@ -100,5 +103,16 @@ class HostMetersTest {
         val x = ((bounds.left + bounds.right) / 2f).toInt()
         val y = ((bounds.top + bounds.bottom) / 2f).toInt()
         assertEquals("fill colour for $label", expected.toArgb(), bitmap.getPixel(x, y))
+    }
+
+    // Opaque text in a token colour leaves fully covered pixels of exactly that colour inside its bounds.
+    private fun assertValueColour(bitmap: Bitmap, value: String, expected: Color) {
+        val bounds = composeRule.onNodeWithText(value).fetchSemanticsNode().boundsInWindow
+        val drawn = (bounds.top.toInt() until bounds.bottom.toInt()).any { y ->
+            (bounds.left.toInt() until bounds.right.toInt()).any { x ->
+                bitmap.getPixel(x, y) == expected.toArgb()
+            }
+        }
+        assertTrue("value $value must be drawn in $expected", drawn)
     }
 }

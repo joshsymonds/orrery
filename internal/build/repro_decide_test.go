@@ -1,6 +1,7 @@
 package build
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -27,9 +28,13 @@ func TestDecideGreenReproduction(t *testing.T) {
 	}
 	lostRerun := build
 	lostRerun.Rerun = 3
-	disagreement := "green not met: the judge and the exit disagree: red was judged fails at the base repro-base, " +
-		"but its reproduction with the commit's tests exited 0, so those tests pass at the base without the rest of " +
-		"the commit"
+	exitZeroNote := func(attempt int64) string {
+		return fmt.Sprintf("T3 attempt %d reproduction: exited 0 on the base with the commit's test files, so they "+
+			"pass without the rest of the commit", attempt)
+	}
+	secondAttempt := store.TaskBuild{
+		Stage: StageGreen, Base: reproBase, Attempt: 2, Rerun: 2, Revision: reproRevision, RedRun: "red-run",
+	}
 	ended := func(exit int, timedOut bool, notRun string) *store.NodeCheck {
 		return &store.NodeCheck{
 			ID: RunID(decideEpic, 3, unitRepro, 1, 2), State: store.NodeEnded,
@@ -81,48 +86,48 @@ func TestDecideGreenReproduction(t *testing.T) {
 			want: Action{Kind: ActMove, Next: lostRerun},
 		},
 		{
-			name: "reproduction not run spends the first attempt with its reason",
+			name: "reproduction not run is a note on the first attempt",
 			view: View{
 				Epic: decideEpic, Repro: ended(0, false, "no workdir"), Task: reproTask,
 			},
-			want: Action{Kind: ActFail, Reason: "green not captured: reproduction did not run: no workdir"},
+			want: Action{
+				Kind: ActMove, Next: build,
+				Notes: []string{"T3 attempt 1 reproduction: did not run: no workdir"},
+				Tells: []string{"T3 attempt 1 reproduction: did not run: no workdir"},
+			},
 		},
 		{
-			name: "reproduction not run on the second attempt fails",
+			name: "reproduction not run on the second attempt is a note",
 			view: View{
 				Epic: decideEpic, Repro: ended(0, false, "no workdir"),
-				Task: store.EpicTask{Seq: 3, Evidence: reproTestItem, Build: store.TaskBuild{
-					Stage:    StageGreen,
-					Base:     reproBase,
-					Attempt:  2,
-					Rerun:    2,
-					Revision: reproRevision,
-					RedRun:   "red-run",
-				}},
+				Task: store.EpicTask{Seq: 3, Evidence: reproTestItem, Build: secondAttempt},
 			},
-			want: Action{Kind: ActFail, Reason: "green not captured: reproduction did not run: no workdir"},
+			want: Action{
+				Kind: ActMove, Next: secondAttempt,
+				Notes: []string{"T3 attempt 2 reproduction: did not run: no workdir"},
+				Tells: []string{"T3 attempt 2 reproduction: did not run: no workdir"},
+			},
 		},
 		{
-			name: "reproduction exit 0 spends the first attempt as a disagreement",
+			name: "reproduction exit 0 is a note on the first attempt",
 			view: View{
 				Epic: decideEpic, Repro: ended(0, false, ""), Task: reproTask,
 			},
-			want: Action{Kind: ActFail, Reason: disagreement},
+			want: Action{
+				Kind: ActMove, Next: build,
+				Notes: []string{exitZeroNote(1)}, Tells: []string{exitZeroNote(1)},
+			},
 		},
 		{
-			name: "reproduction exit 0 on the second attempt fails",
+			name: "reproduction exit 0 on the second attempt is a note",
 			view: View{
 				Epic: decideEpic, Repro: ended(0, false, ""),
-				Task: store.EpicTask{Seq: 3, Evidence: reproTestItem, Build: store.TaskBuild{
-					Stage:    StageGreen,
-					Base:     reproBase,
-					Attempt:  2,
-					Rerun:    2,
-					Revision: reproRevision,
-					RedRun:   "red-run",
-				}},
+				Task: store.EpicTask{Seq: 3, Evidence: reproTestItem, Build: secondAttempt},
 			},
-			want: Action{Kind: ActFail, Reason: disagreement},
+			want: Action{
+				Kind: ActMove, Next: secondAttempt,
+				Notes: []string{exitZeroNote(2)}, Tells: []string{exitZeroNote(2)},
+			},
 		},
 		{
 			name: "reproduction exit 1 starts the green run",

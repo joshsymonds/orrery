@@ -41,9 +41,9 @@ func TestTaskLadderUnbuiltSkipsGappedRequirements(t *testing.T) {
 		want []string
 	}{
 		{
-			"open task's Requirement without red is named, the gapped one is not",
+			"open task's Requirement that is not green is named, the gapped one is not",
 			Rows{Epic: epic},
-			[]string{"R2 has no red at the epic's base base-1"},
+			[]string{"R2 is not green at the stored base base-1"},
 		},
 		{
 			"nothing is named once the open task's Requirement is green",

@@ -55,7 +55,7 @@ class GoalLineTest {
         setGoal("synthetic goal")
 
         composeRule.onNodeWithTag(GOAL_LINE_TAG).assertIsDisplayed()
-        composeRule.onNodeWithText("goal", useUnmergedTree = true).assertIsDisplayed()
+        composeRule.onNodeWithText("GOAL", useUnmergedTree = true).assertIsDisplayed()
         composeRule.onNodeWithText("synthetic goal", useUnmergedTree = true).assertIsDisplayed()
     }
 

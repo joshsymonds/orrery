@@ -92,20 +92,22 @@ type EnginePrompt struct {
 }
 
 // EngineLaunch starts tracking an engine session's consumed offset from zero. It sets consumed and replay_from to
-// 0, turns background off, and sets prompts_from to the newest event seq, so HolderPrompts lists only the prompts
+// 0, turns background and awaited off, and sets prompts_from to the newest event seq, so HolderPrompts lists only the prompts
 // sent after the launch. It appends no event.
 type EngineLaunch struct {
 	ID string
 }
 
-// EngineConsumed sets the consumed offset of an engine session. ReplayFrom, Output and Background are each stored
-// only when non-nil, and the other columns are left as they are. It appends no event.
+// EngineConsumed sets the consumed offset of an engine session. ReplayFrom, Output, Background and Awaited are each
+// stored only when non-nil, and the other columns are left as they are. Background is whether the session's last
+// background-task report lists a task, and Awaited whether it lists one that runs a model. It appends no event.
 type EngineConsumed struct {
 	ID         string
 	Consumed   int64
 	ReplayFrom *int64
 	Output     *string
 	Background *bool
+	Awaited    *bool
 }
 
 // EnginePromptFailed records that a prompt failed to send. The marker keeps the first reason for its session and
@@ -396,6 +398,35 @@ func (op EngineSet) applyEngine(ctx context.Context, queries *sqlcgen.Queries, n
 	return appendEnginePayload(ctx, queries, op.ID, EventEngineChanged, engineChangedPayload{Fields: fields}, now)
 }
 
+// isEngineSession reports whether session is an engine session, a row of kind engine. A session with no row is not one.
+func isEngineSession(ctx context.Context, queries *sqlcgen.Queries, session string) (bool, error) {
+	row, err := queries.GetSession(ctx, session)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("read session %s: %w", session, err)
+	}
+	return row.Kind == KindEngine, nil
+}
+
+// firstEnginePrompt reports whether session is an engine session with no engine_prompt event yet, so a prompt appended
+// now is its first.
+func firstEnginePrompt(ctx context.Context, queries *sqlcgen.Queries, session string) (bool, error) {
+	engine, err := isEngineSession(ctx, queries, session)
+	if err != nil {
+		return false, err
+	}
+	if !engine {
+		return false, nil
+	}
+	prompts, err := queries.CountSessionPrompts(ctx, session)
+	if err != nil {
+		return false, fmt.Errorf("count prompts of session %s: %w", session, err)
+	}
+	return prompts == 0, nil
+}
+
 func (op EnginePrompt) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now time.Time) error {
 	payload, err := json.Marshal(enginePromptPayload{
 		Text: op.Text, PromptID: op.PromptID, Sender: op.Sender, Round: op.Round,
@@ -403,7 +434,15 @@ func (op EnginePrompt) applyEngine(ctx context.Context, queries *sqlcgen.Queries
 	if err != nil {
 		return fmt.Errorf("encode %s payload: %w", EventEnginePrompt, err)
 	}
-	if err = queries.InsertEnginePromptEvent(ctx, sqlcgen.InsertEnginePromptEventParams{
+	first, err := firstEnginePrompt(ctx, queries, op.ID)
+	if err != nil {
+		return err
+	}
+	statement := ctx
+	if first {
+		statement = withHousekeepMark(ctx, hookFirstPrompt, op.ID)
+	}
+	if err = queries.InsertEnginePromptEvent(statement, sqlcgen.InsertEnginePromptEventParams{
 		SessionID: op.ID, At: now.Unix(), Payload: string(payload), WriteID: op.WriteID,
 	}); err != nil {
 		return fmt.Errorf("append %s for session %s: %w", EventEnginePrompt, op.ID, err)
@@ -437,6 +476,9 @@ func (op EngineConsumed) applyEngine(ctx context.Context, queries *sqlcgen.Queri
 	}
 	if op.Background != nil {
 		params.Background = sql.NullBool{Bool: *op.Background, Valid: true}
+	}
+	if op.Awaited != nil {
+		params.Awaited = sql.NullBool{Bool: *op.Awaited, Valid: true}
 	}
 	affected, err := queries.UpdateEngineConsumed(ctx, params)
 	if err != nil {
@@ -506,7 +548,15 @@ func (op EngineTurnEnded) applyEngine(ctx context.Context, queries *sqlcgen.Quer
 	if err != nil {
 		return fmt.Errorf("encode %s answered of session %s: %w", EventEngineTurnEnded, op.ID, err)
 	}
-	if err = queries.InsertEngineTurnEndedEvent(ctx, sqlcgen.InsertEngineTurnEndedEventParams{
+	engine, err := isEngineSession(ctx, queries, op.ID)
+	if err != nil {
+		return err
+	}
+	statement := ctx
+	if engine {
+		statement = withHousekeepMark(ctx, hookTurnEnded, op.ID)
+	}
+	if err = queries.InsertEngineTurnEndedEvent(statement, sqlcgen.InsertEngineTurnEndedEventParams{
 		SessionID: op.ID, At: now.Unix(), Payload: payload, Answered: sql.NullString{String: string(list), Valid: true},
 	}); err != nil {
 		return fmt.Errorf("append %s for session %s: %w", EventEngineTurnEnded, op.ID, err)

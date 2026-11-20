@@ -1,9 +1,11 @@
 package planner
 
 import (
+	"cmp"
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/joshsymonds/orrery/internal/store"
@@ -22,11 +24,11 @@ const (
 )
 
 // Prompt renders the prompt of the planner turn turn of epic: the role text, then the contract, the decisions, the
-// new notes, the open questions, the advice followed, the tasks, the evidence amendments, the triggers, the spent lines
-// and the last failure. epic is read after the turn is claimed, so its Turns include turn, and triggers are the
-// triggers turn claimed. follows are the store's follow counts per label, and spent are the lines of failed tasks the
-// turn may not try again (spentLines). It returns an error when a gate, a Requirement's evidence item, a task's evidence
-// item or an amendment's item cannot be encoded.
+// new notes, the open questions, the advice followed, the tasks, the Requirements no live task claims, the evidence
+// amendments, the triggers, the spent lines and the failed turns that ran before turn. epic is read after the turn is
+// claimed, so its Turns include turn, and triggers are the triggers turn claimed. follows are the store's follow counts
+// per label, and spent are the spent lines of failed tasks (spentLines). It returns an error when a gate, a
+// Requirement's evidence item, a task's evidence item or an amendment's item cannot be encoded.
 func Prompt(
 	epic store.EpicRow, turn int64, triggers []store.EpicTrigger, follows []store.LabelFollow, spent []SpentLine,
 ) (string, error) {
@@ -47,6 +49,7 @@ func Prompt(
 		return "", fmt.Errorf("tasks section: %w", err)
 	}
 	WriteSection(&out, "Tasks", tasks)
+	WriteSection(&out, "Unclaimed requirements", unclaimedLines(requirementIDs(epic.Requirements), epic.Tasks))
 	amendments, err := amendmentLines(epic.Amendments)
 	if err != nil {
 		return "", fmt.Errorf("evidence amendments section: %w", err)
@@ -58,8 +61,17 @@ func Prompt(
 		spentText[i] = spentLineText(line)
 	}
 	WriteSection(&out, "Spent lines", spentText)
-	WriteSection(&out, "Last failure", failureLines(last, found))
+	WriteSection(&out, "Failed turns", failureLines(epic.Turns, turn))
 	return out.String(), nil
+}
+
+// requirementIDs returns the ids of requirements in their order.
+func requirementIDs(requirements []store.EpicRequirement) []string {
+	ids := make([]string, 0, len(requirements))
+	for _, requirement := range requirements {
+		ids = append(ids, requirement.ID)
+	}
+	return ids
 }
 
 // WriteSection writes a `## ` heading, then each of lines on its own line, or None. when there are none.
@@ -454,10 +466,19 @@ func triggerLines(triggers []store.EpicTrigger) []string {
 	return lines
 }
 
-// failureLines returns the reason of last when last failed, or None. when it did not.
-func failureLines(last store.EpicTurn, found bool) []string {
-	if !found || last.State != turnFailed || last.Reason == "" {
-		return nil
+// failureLines returns the failed turns that ran before turn, as `- turn n: reason` in turn order: the latest turns before
+// turn that are not free, back to the first that did not fail. A free turn is skipped, and a succeeded turn ends the run.
+func failureLines(turns []store.EpicTurn, turn int64) []string {
+	before := make([]store.EpicTurn, 0, len(turns))
+	for _, t := range turns {
+		if t.Seq < turn && t.State != turnFree {
+			before = append(before, t)
+		}
 	}
-	return []string{last.Reason}
+	slices.SortFunc(before, func(a, b store.EpicTurn) int { return cmp.Compare(a.Seq, b.Seq) })
+	var lines []string
+	for i := len(before) - 1; i >= 0 && before[i].State == turnFailed; i-- {
+		lines = append([]string{fmt.Sprintf("- turn %d: %s", before[i].Seq, before[i].Reason)}, lines...)
+	}
+	return lines
 }

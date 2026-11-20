@@ -174,6 +174,12 @@ func TestEpicGetShowsTaskReviewsAndFindings(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("AddTaskReview of attempt 2: %v", err)
 	}
+	if err := st.AddTaskReview(ctx, epicServiceID, 1, review, review, store.TaskReview{
+		Attempt: 2, Position: 1, Gate: "review", Step: buildReviewStepID, Verdict: "undetermined",
+		Reason: "Synthetic review step stopped.",
+	}); err != nil {
+		t.Fatalf("AddTaskReview of attempt 2 undetermined: %v", err)
+	}
 	if err := st.AcceptTask(ctx, epicServiceID, 1, review, "reviewed"); err != nil {
 		t.Fatalf("AcceptTask: %v", err)
 	}
@@ -197,6 +203,10 @@ func TestEpicGetShowsTaskReviewsAndFindings(t *testing.T) {
 			},
 		},
 		{Attempt: 2, Gate: "review", Step: buildReviewStepID, Verdict: "holds"},
+		{
+			Attempt: 2, Gate: "review", Step: buildReviewStepID, Verdict: "undetermined",
+			Reason: "Synthetic review step stopped.",
+		},
 	})
 }
 

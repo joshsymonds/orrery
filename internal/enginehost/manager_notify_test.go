@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -166,8 +167,11 @@ func TestNoticeWaitingCarriesQuestion(t *testing.T) {
 	}
 
 	got := waitNotices(t, engineOf(m), sink)
-	want := Notice{Session: id, Dir: dir, State: string(protocol.StateWaiting), Body: "Which color?"}
-	if len(got) != 1 || got[0] != want {
+	want := Notice{
+		Session: id, Dir: dir, State: string(protocol.StateWaiting), Body: "Which color?",
+		Options: []string{"red", "blue"}, Request: "ask-1",
+	}
+	if len(got) != 1 || !reflect.DeepEqual(got[0], want) {
 		t.Fatalf("notices = %+v, want [%+v]", got, want)
 	}
 }
@@ -184,7 +188,7 @@ func TestNoticeDoneCarriesReply(t *testing.T) {
 
 	got := waitNotices(t, engineOf(m), sink)
 	want := Notice{Session: id, Dir: dir, State: string(protocol.StateDone), Body: "fake reply 1"}
-	if len(got) != 1 || got[0] != want {
+	if len(got) != 1 || !reflect.DeepEqual(got[0], want) {
 		t.Fatalf("notices = %+v, want [%+v]", got, want)
 	}
 }
@@ -228,7 +232,7 @@ func TestNoticeInterruptedTurnSendsNothingAndNextTurnNotifies(t *testing.T) {
 	}
 	got := waitNotices(t, engineOf(m), sink)
 	want := Notice{Session: id, Dir: dir, State: string(protocol.StateDone), Body: "fake reply 2"}
-	if len(got) != 1 || got[0] != want {
+	if len(got) != 1 || !reflect.DeepEqual(got[0], want) {
 		t.Fatalf("notices = %+v, want only [%+v]: the interrupted turn must send nothing", got, want)
 	}
 }
@@ -255,7 +259,7 @@ func TestNoticeFailedCarriesRecordedReason(t *testing.T) {
 
 	got := waitNotices(t, engineOf(m), sink)
 	want := Notice{Session: id, Dir: dir, State: "failed", Body: reason}
-	if len(got) != 1 || got[0] != want {
+	if len(got) != 1 || !reflect.DeepEqual(got[0], want) {
 		t.Fatalf("notices = %+v, want [%+v]", got, want)
 	}
 }
@@ -278,7 +282,7 @@ func TestNoticeInterruptedOnCloseCarriesReason(t *testing.T) {
 
 	m.Close()
 	want := Notice{Session: id, Dir: dir, State: stateInterrupted, Body: "orreryd stopped during the turn"}
-	if got := sink.got(); len(got) != 1 || got[0] != want {
+	if got := sink.got(); len(got) != 1 || !reflect.DeepEqual(got[0], want) {
 		t.Fatalf("notices after Close = %+v, want [%+v]", got, want)
 	}
 }
@@ -298,7 +302,7 @@ func TestNoticeStopSendsNothing(t *testing.T) {
 		t.Fatalf("Stop: %v", err)
 	}
 	want := Notice{Session: id, Dir: dir, State: string(protocol.StateDone), Body: "fake reply 1"}
-	if got := sink.got(); len(got) != 1 || got[0] != want {
+	if got := sink.got(); len(got) != 1 || !reflect.DeepEqual(got[0], want) {
 		t.Fatalf("notices after Stop = %+v, want only [%+v]", got, want)
 	}
 }

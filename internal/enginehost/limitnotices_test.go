@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -70,16 +71,23 @@ type limitRead struct {
 }
 
 // scriptedLimits is a LimitedStepReader that answers each read with the next of its reads. Once they run out, it
-// repeats the last.
+// repeats the last. Each read sends on reading first, so a test waits for the check that reads to have begun.
 type scriptedLimits struct {
-	reads []limitRead
-	next  int
+	reads   []limitRead
+	next    int
+	reading chan struct{}
 }
 
 func (s *scriptedLimits) LimitedSteps(context.Context) ([]store.StepRow, error) {
+	s.reading <- struct{}{}
 	read := s.reads[min(s.next, len(s.reads)-1)]
 	s.next++
 	return read.rows, read.err
+}
+
+// unfiredTimer is the NewTimer of the tests that never fire a retry: each timer it arms never sends.
+func unfiredTimer(time.Duration) (<-chan time.Time, func() bool) {
+	return make(chan time.Time), func() bool { return true }
 }
 
 // fakeEpics is a LimitEpicReader over titles: a label it does not hold is ErrNoEpic, and a held one is an epic whose
@@ -179,18 +187,18 @@ func runStoppedLimitNotices(t *testing.T, told *fakeTold, rows []store.StepRow) 
 	t.Cleanup(cancel)
 	router := &stoppingRouter{stop: cancel}
 	NewLimitNotices(LimitNoticesConfig{
-		Steps: &scriptedLimits{reads: []limitRead{{rows: rows}}},
-		Epics: &fakeEpics{titles: limitTitles()},
-		Told:  told,
-		Route: router,
-		Now:   limitNow,
-		Tick:  make(chan time.Time),
+		Steps:    &scriptedLimits{reads: []limitRead{{rows: rows}}, reading: make(chan struct{}, 1)},
+		Epics:    &fakeEpics{titles: limitTitles()},
+		Told:     told,
+		Route:    router,
+		Now:      limitNow,
+		NewTimer: unfiredTimer,
 	}).Run(ctx)
 	return router
 }
 
 // runLimitNotices runs LimitNotices over told, the epics of limitTitles, and reads. The first read is the one at start,
-// and each later read is one tick. It returns once every tick has been taken and processed, with what the router was
+// and each later read is one wake. It returns once every wake has been taken and processed, with what the router was
 // told and what was logged.
 func runLimitNotices(t *testing.T, told *fakeTold, reads ...limitRead) (*fakeRouter, string) {
 	t.Helper()
@@ -202,15 +210,18 @@ func runLimitNoticesWith(t *testing.T, told *fakeTold, epics *fakeEpics, reads .
 	t.Helper()
 	router := &fakeRouter{}
 	var logs bytes.Buffer
-	ticks := make(chan time.Time)
+	steps := &scriptedLimits{reads: reads, reading: make(chan struct{}, len(reads))}
+	// The check at start reads the steps unless the marks read fails, and each wake's check reads them. So the reads
+	// that happen are the reads less the marks reads that fail, which are all at start.
+	reading := len(reads) - told.failReads
 	limits := NewLimitNotices(LimitNoticesConfig{
-		Steps:  &scriptedLimits{reads: reads},
-		Epics:  epics,
-		Told:   told,
-		Route:  router,
-		Now:    limitNow,
-		Tick:   ticks,
-		Logger: slog.New(slog.NewTextHandler(&logs, nil)),
+		Steps:    steps,
+		Epics:    epics,
+		Told:     told,
+		Route:    router,
+		Now:      limitNow,
+		NewTimer: unfiredTimer,
+		Logger:   slog.New(slog.NewTextHandler(&logs, nil)),
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -219,7 +230,14 @@ func runLimitNoticesWith(t *testing.T, told *fakeTold, epics *fakeEpics, reads .
 		limits.Run(ctx)
 	}()
 	for range len(reads) - 1 {
-		ticks <- limitNow()
+		// Wake would absorb a wake that comes while one is pending, so the test sends on the wake channel, which waits
+		// for the pending wake to be taken. Each wake is then taken by its own check.
+		limits.wakes <- struct{}{}
+	}
+	// Each check that reads the steps has begun once its read is received. The last check began after every wake was
+	// taken, so once the reads are in, no wake is pending and cancel ends Run after its last check.
+	for range reading {
+		<-steps.reading
 	}
 	cancel()
 	<-done
@@ -244,7 +262,7 @@ func checkLimitNotice(t *testing.T, n route.Notice, key notice.Key, body string)
 		t.Fatalf("push notification: %v", err)
 	}
 	want := push.Notification{Project: "usage limit", State: protocol.State("limited"), Summary: body}
-	if note != want {
+	if !reflect.DeepEqual(note, want) {
 		t.Fatalf("push notification = %+v, want %+v", note, want)
 	}
 }
@@ -528,8 +546,8 @@ func TestLimitNoticesFailedReadIsLoggedAndSkipped(t *testing.T) {
 
 func TestLimitNoticesFailedMarkReadReportsNothingUntilALaterRead(t *testing.T) {
 	t.Parallel()
-	// The start check makes no step read while the marks are unread, so the one tick's read is the first step read, and
-	// it holds a and b. Had the start check reported, a and b would be told at start, and the tick's a, b, c would be a
+	// The start check makes no step read while the marks are unread, so the one wake's read is the first step read, and
+	// it holds a and b. Had the start check reported, a and b would be told at start, and the wake's a, b, c would be a
 	// second notice.
 	told := &fakeTold{failReads: 1}
 	router, logs := runLimitNotices(t, told,

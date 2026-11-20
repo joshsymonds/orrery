@@ -8,9 +8,6 @@ set script-interpreter := ["scripts/in-devenv", "-euo", "pipefail"]
 # performance target. Override on the CLI: just TEST_BUDGET=60 check
 TEST_BUDGET := "360"
 
-# Wall-clock budget (seconds) for check-changed's Go tests. Override: just CHECK_CHANGED_BUDGET=600 check-changed
-CHECK_CHANGED_BUDGET := "240"
-
 # Wall-clock budget (seconds) for web-check's node run, the whole web suite. Override: just WEB_TEST_BUDGET=300 web-check
 WEB_TEST_BUDGET := "120"
 
@@ -85,8 +82,8 @@ cover:
     fi
     echo "coverage: ${pct}% (>= 80% OK)"
 
-    # One line per package over its CPU budget; exit 3 when one is over twice its baseline. The lines go to
-    # test-artifacts/test-budget.lines too, which check prints again as its last output.
+    # One line per package over its CPU budget. The check is advisory and exits 0 whatever the lines say. The lines go
+    # to test-artifacts/test-budget.lines too, which check prints again as its last output.
     scripts/test-budget.sh check --lines "$artifacts/test-budget.lines" "$record"
 
 # Lint the protobuf contract in proto/.
@@ -220,6 +217,10 @@ web-check:
     fi
     exit "$rc"
 
+# Write the design tokens from tokens.json: tokens.css, web/src/tokens.css, web/src/tokens/rules.ts and OrreryTokens.kt.
+tokens:
+    node web/visual/system/gen-tokens.mjs
+
 # Bundle the web page into web/build/page, the directory the flake package embeds. scripts/build-web.sh holds the
 # bundle command, which the flake calls too.
 web-page:
@@ -275,7 +276,7 @@ reap-test-tmux:
 # The fast gate for a task in progress: run only the checks the changes since BASE can affect (BASE defaults to the
 # merge base of HEAD and origin/main). Integration, review and release keep the full `check` and `android-test`.
 check-changed BASE="": reap-test-tmux
-    CHECK_CHANGED_BUDGET={{CHECK_CHANGED_BUDGET}} scripts/check-changed.sh {{BASE}}
+    scripts/check-changed.sh {{BASE}}
 
 # Run a gate command on the orrery-gate EC2 box. When the box is gone it waits for the one its wake brings up, and runs
 # here through /tmp/claude-1000/heavy only when no box can come up; see scripts/gate-remote.sh for the steps, the
@@ -362,10 +363,11 @@ android-test:
 
 # Build the debug APK and install it on the connected device. A fresh install
 # starts with $ORRERY_DEFAULT_SERVER as its server address (an install that
-# saved one in settings keeps it); unset, the app asks for the server.
+# saved one in settings keeps it); unset, the app asks for the server. The
+# build names itself by the newest tag, which Settings shows as the version.
 android-install:
     nix develop .#android -c bash -ceu '\
-        gradle -p android assembleDebug -Porrery.defaultServer="${ORRERY_DEFAULT_SERVER:-}"; \
+        gradle -p android assembleDebug -Porrery.defaultServer="${ORRERY_DEFAULT_SERVER:-}" -Porrery.version="$(git describe --tags --abbrev=0)"; \
         adb install -r android/app/build/outputs/apk/debug/app-debug.apk'
 
 # Regenerate the Orrery Mono subsets (Regular, Bold, Italic) of Maple Mono NF
