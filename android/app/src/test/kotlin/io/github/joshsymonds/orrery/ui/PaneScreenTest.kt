@@ -460,41 +460,38 @@ class PaneScreenTest {
     }
 
     @Test
-    fun paneWithQuestionShowsCardButtons() {
+    fun paneWithQuestionDrawsItsAsk() {
         FakeOrreryServer().use { server ->
             serve(server, question = toolQuestion)
             setScreen(server)
 
-            composeRule.awaitExactlyOne(hasText("1 Yes"))
-            composeRule.onNodeWithText("Bash: echo synthetic").assertIsDisplayed()
-            composeRule.onNodeWithText("2 Yes, don't ask again").assertIsDisplayed()
-            composeRule.onNodeWithText("3 No").assertIsDisplayed()
+            composeRule.awaitExactlyOne(hasTestTag("ask"))
+            composeRule.onNodeWithTag("ask-question").assertTextEquals("Run this command?")
         }
     }
 
     @Test
-    fun paneWithoutQuestionShowsNoCard() {
+    fun paneWithoutQuestionDrawsNoAsk() {
         FakeOrreryServer().use { server ->
             serve(server)
             setScreen(server)
 
             composeRule.awaitExactlyOne(hasTestTag(NO_CONVERSATION_TAG))
-            composeRule.onNodeWithText("1 Yes").assertDoesNotExist()
-            composeRule.onNodeWithText("3 No").assertDoesNotExist()
+            composeRule.onAllNodesWithTag("ask").assertCountEquals(0)
         }
     }
 
     @Test
-    fun cardRefreshFetchesPaneImmediately() {
+    fun askAnswerRefreshesPaneImmediately() {
         FakeOrreryServer().use { server ->
             serve(server, question = toolQuestion)
             server.respond(KEYS_PATH, SendKeysResponse.getDefaultInstance())
             setScreen(server)
-            composeRule.awaitExactlyOne(hasText("1 Yes"))
+            composeRule.awaitExactlyOne(hasTestTag("ask-option:1"))
             assertEquals(1, paneListRequests(server))
 
             composeRule.mainClock.autoAdvance = false
-            composeRule.onNodeWithText("1 Yes").performClick()
+            composeRule.onNodeWithTag("ask-option:1").performClick()
             composeRule.awaitUntilAfterIdle { paneListRequests(server) == 2 }
         }
     }
@@ -676,7 +673,7 @@ class PaneScreenTest {
 
     @Config(sdk = [35], qualifiers = "w400dp-h1000dp")
     @Test
-    fun questionCardSitsAfterTheLastConversationItem() {
+    fun askSitsAfterTheLastConversationItem() {
         FakeOrreryServer().use { server ->
             servePane(
                 server,
@@ -688,10 +685,10 @@ class PaneScreenTest {
             )
             setScreen(server)
 
-            composeRule.awaitExactlyOne(hasText("1 Yes"))
+            composeRule.awaitExactlyOne(hasTestTag("ask"))
             val reply = composeRule.onNodeWithText("synthetic last reply").fetchSemanticsNode().boundsInRoot
-            val card = composeRule.onNodeWithText("1 Yes").fetchSemanticsNode().boundsInRoot
-            assertTrue(card.top >= reply.bottom)
+            val ask = composeRule.onNodeWithTag("ask").fetchSemanticsNode().boundsInRoot
+            assertTrue(ask.top >= reply.bottom)
         }
     }
 
