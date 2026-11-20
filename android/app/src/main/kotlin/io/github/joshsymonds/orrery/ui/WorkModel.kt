@@ -117,10 +117,15 @@ private fun epicThingOf(epic: EpicRow, details: Map<String, EpicDetail>): EpicTh
 
 // The slug past its repository's name and the dash after it, up to the first dash after that.
 private fun shortNameOf(epic: EpicRow): String {
-    val prefix = "${epic.repository}-"
+    val prefix = "${repositoryNameOf(epic.repository)}-"
     val rest = if (epic.slug.startsWith(prefix)) epic.slug.removePrefix(prefix) else epic.slug
     return rest.substringBefore("-")
 }
+
+// A repository is named by its record id, which ends in a dash and seven hex digits. Its name is the id without them.
+private val HEX_SUFFIX = Regex("-[0-9a-f]{7}$")
+
+private fun repositoryNameOf(repository: String): String = repository.replace(HEX_SUFFIX, "")
 
 // An epic asking reads its first need. Any other reads its detail's state, or its outcome when it has none.
 private fun stateOf(epic: EpicRow, detail: EpicDetail?, needs: List<Need>): String {
