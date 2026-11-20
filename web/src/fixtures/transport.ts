@@ -96,6 +96,22 @@ export function createFixtureTransport(slices: Slices = shippedSlices): FixtureT
     return {};
   };
 
+  // hold answers Steps.Hold: refused as a step that has ended refuses it when the slices say so, else absorbed.
+  const hold = () => {
+    if (slices.steps?.hold === "refused") {
+      throw new ConnectError("the step ended a moment ago", Code.FailedPrecondition);
+    }
+    return {};
+  };
+
+  // nudge answers Steps.Nudge: failed as a call with no answer fails when the slices say so, else absorbed.
+  const nudge = () => {
+    if (slices.steps?.nudge === "unanswered") {
+      throw new ConnectError("no answer", Code.Unavailable);
+    }
+    return {};
+  };
+
   // held waits until the call's signal aborts, so a stream stays open until its client ends it.
   const held = (signal: AbortSignal) =>
     new Promise<void>((resolve) => {
@@ -319,7 +335,7 @@ export function createFixtureTransport(slices: Slices = shippedSlices): FixtureT
         return { data: new TextEncoder().encode(log), mediaType: "text/plain" };
       },
     });
-    router.service(Steps, { hold: absorb, nudge: absorb, stop: absorb });
+    router.service(Steps, { hold, nudge, stop: absorb });
     router.service(Presence, { report: absorb });
     router.service(Notices, { watch: quiet, seen: absorb });
     router.service(Host, { status: () => slices.host });

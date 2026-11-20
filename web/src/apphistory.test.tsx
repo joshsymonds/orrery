@@ -171,7 +171,7 @@ function twoEpics(): EpicsView {
 
 // phaseEpic is a live epic whose task T1 runs its gate step run1, which puts T1 in checking.
 function phaseEpic(): EpicsView {
-  const run = makeStep("run1", { task: "T1", stage: "gate", doing: "checking the parser" });
+  const run = makeStep("run1", { task: "T1", stage: "gate", doing: "checking the parser", role: "implementer" });
   const epic = makeEpic(widgetsRepo, "first", { runningSteps: [run] });
   const detail = create(EpicsGetResponseSchema, {
     epic,
@@ -423,7 +423,8 @@ test("HashRoute: a drill into a worker session pushes its page, and the first cu
   withApp(t, { rows: historyRows(), epics: phaseEpic() }, async ({ container, reports }) => {
     await openEpicLine(container, widgetsFirstKey);
     await click(container, 'section.page[aria-label="epic"] path[data-task="T1"][data-phase="checking"]');
-    await click(container, 'section.page[aria-label="epic"] .phase-body button.act', "Open the session ›");
+    await click(container, 'section.page[aria-label="epic"] .phase-head .nm', "implement");
+    await click(container, 'section.page[aria-label="epic"] .phase-body .door', "Open the session›");
     assert.deepEqual(reports.slice(2), [[`${firstAddress}/session/T1/checking/run1`, "push"]]);
     assert.deepEqual(await cursorModes(reports), cursorKeyModes);
   }));

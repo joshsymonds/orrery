@@ -19,7 +19,7 @@ import { type EpicItem, type EpicsView, epicsView, noEpics, type StepItem } from
 import { findMatches } from "./find";
 import { type Followed, follow } from "./follow";
 import type { Contract } from "./gen/orrery/v1/contracts_pb";
-import type { Epic, EpicHistoryEntry, EpicsGetResponse, EpicStep } from "./gen/orrery/v1/epics_pb";
+import type { Epic, EpicHistoryEntry, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 import type { InAppNotice, NoticeKey } from "./gen/orrery/v1/notice_pb";
 import type { HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
 import { stateWord } from "./glyphs";
@@ -41,8 +41,7 @@ import { listHolds, listsEpic } from "./listholds";
 import { epicNeeds } from "./needs";
 import { NoticeBanner } from "./notices";
 import { sendOnce } from "./ownercall";
-import { PhaseOutputPage } from "./phaseoutput";
-import { phaseOutputOf } from "./phaserows";
+import { briefOf, briefStepOf, PhaseOutputPage } from "./phaseoutput";
 import type { Phase } from "./phases";
 import { NewPanel } from "./picker";
 import { type Viewing, viewingOf } from "./presence";
@@ -616,10 +615,16 @@ export function App({
   const historyId = epicEntry !== null && epicDetail !== undefined ? epicEntry.id : "";
   const epicChanged = epicDetail?.epic?.changed ?? 0n;
   const shownIndex = Math.max(index, 0);
-  // The step whose worker session the open page shows. Its session is followed only while the page is open on a step
-  // the epic's detail holds, so a step the detail lacks opens no stream.
+  // The step whose worker session the open page shows: the session page's step, or on the phase page the brief step of
+  // its task, whose conversation the record reads its brief from. Its session is followed only while the epic's detail
+  // holds the step, so a step the detail lacks opens no stream.
   const openStep = !epicPage.closed && epicPage.page.kind === "session" ? epicPage.page.step : "";
-  const shownSession = epicDetail?.steps.some((step) => step.id === openStep) === true ? openStep : "";
+  const briefed =
+    !epicPage.closed && epicPage.page.kind === "phase" && epicDetail !== undefined
+      ? (briefStepOf(epicDetail, epicPage.page.task)?.id ?? "")
+      : "";
+  const sessionStep = openStep !== "" ? openStep : briefed;
+  const shownSession = epicDetail?.steps.some((step) => step.id === sessionStep) === true ? sessionStep : "";
   // The epic entry the cursor rests on, when the poll did not load its detail, is asked for once with Epics.Get. A
   // failed answer leaves the page at its could-not-read line.
   const askedId = epicEntry?.id ?? "";
@@ -695,6 +700,18 @@ export function App({
     sessionOlder.current = followed.older;
     return followed.stop;
   }, [shownSession, clients]);
+
+  // The record's brief step is paged back while its conversation holds no brief and has older items: each page is asked
+  // for once the last one is drawn, until the brief is held or no older item is left.
+  useEffect(() => {
+    if (briefed === "" || sessionStream === null || sessionStream.key !== briefed) {
+      return;
+    }
+    const { conversation } = sessionStream;
+    if (briefOf(conversation) === undefined && conversation.more) {
+      sessionOlder.current();
+    }
+  }, [sessionStream, briefed]);
 
   useEffect(() => {
     setVisited((previous) => keepEntries(previous, rows, middleRow));
@@ -1298,7 +1315,7 @@ export function App({
       setPopout("key");
     }
   };
-  // openPhase opens a task's phase output over the epic page. On the phase output, a head opens its phase in place.
+  // openPhase opens a task's record over the epic page. On a record, a task's chip opens that task's record in place.
   const openPhase = navigated((task: string, phase: Phase) => {
     if (epicPage.page.kind === "phase") {
       setEpicPage((previous) => ({ ...previous, page: { kind: "phase", task, phase } }));
@@ -1344,7 +1361,7 @@ export function App({
     }
     setSteppedTo(null);
     setEpicPage({
-      page: { kind: "session", task: step.task, phase: phaseOfStep(detail, step), step: step.id },
+      page: { kind: "session", task: step.task, phase: step.readOnly ? "reviewing" : "implementing", step: step.id },
       below: [{ page: epicPageView, scroll: 0 }],
       move: "drill",
       closed: false,
@@ -1841,8 +1858,19 @@ export function App({
   // has no tile, so no tile is lit and the card takes the quiet tone.
   const panelOpen = pageDrawn && epicEntry !== null && !epicPage.closed && !contractShown && shownProject === null;
   // Under 760px an open epic is the page in the conversation's place: the conversation is not drawn, and the page's
-  // foot bar opens the steering conversation. At the desk the epic panel lies beside the conversation.
+  // foot bar opens the steering conversation. At the desk the epic panel lies beside the conversation, but not a worker
+  // session, which takes the conversation's place (sessionAtDesk).
   const epicPageShown = !wide && panelOpen;
+  // At the desk an open worker session is the middle conversation: it draws in the middle column, and no epic panel lies
+  // beside it. Its back returns to the record in the panel. A session whose step the epic's detail lacks stays in the
+  // panel, where its line says so beside the panel's close.
+  const sessionAtDesk =
+    wide &&
+    panelOpen &&
+    epicEntry !== null &&
+    openStep !== "" &&
+    epicDetail?.steps.some((step) => step.id === openStep) === true;
+  const epicBeside = panelOpen && !sessionAtDesk;
   // Under 760px an open contract is the page in the conversation's place too, and the reader is not drawn.
   const contractPageShown = !wide && contractShown;
   const panelThing =
@@ -1856,7 +1884,7 @@ export function App({
   const panelTone = panelThing?.tone ?? "quiet";
   // The one panel open beside the conversation is an epic's, a contract's or a list's. A list's card takes its tile's
   // tone, and its rows are the tile's tasks, which are empty once the tile is gone.
-  const panelShown = panelOpen || contractShown || listShown !== null;
+  const panelShown = epicBeside || contractShown || listShown !== null;
   const listThing = railGroups
     .flatMap((group) => group.things)
     .find(
@@ -2243,17 +2271,19 @@ export function App({
       }
     }
     if (page.kind === "phase") {
+      const briefStep = briefStepOf(detail, page.task);
       return (
         <PhaseOutputPage
           key={page.task}
           detail={detail}
-          epic={detail.epic?.slug ?? ""}
           task={page.task}
-          phase={page.phase}
           now={now}
+          narrow={!wide}
+          conversation={sessionStream !== null && sessionStream.key === briefStep?.id ? sessionShown : null}
           loadArtifact={loadArtifact}
           onBack={back}
-          onOpenPhase={openPhase}
+          onOpenEpic={toEpicPage}
+          onOpenTask={openPhase}
           onOpenSession={navigated((step: string) =>
             drill({ kind: "session", task: page.task, phase: page.phase, step }),
           )}
@@ -2274,11 +2304,12 @@ export function App({
         <WorkerSessionPage
           conversation={sessionStream !== null && sessionStream.key === page.step ? sessionShown : null}
           now={now}
+          detail={detail}
           step={step}
-          epic={detail.epic?.slug ?? ""}
           task={page.task}
           phase={page.phase}
-          onGoEpic={toEpicPage}
+          onOpenEpic={toEpicPage}
+          onOpenTask={openPhase}
           onBack={back}
           onOlder={() => sessionOlder.current()}
           nudge={calls.nudge}
@@ -2487,14 +2518,21 @@ export function App({
         </div>
         {shownProject !== null && projectSection(shownProject)}
         <Sheet open={sheeted} title={contractLiveRow?.label ?? ""} onClose={() => setTalking(false)}>
-          {middleColumn}
+          {sessionAtDesk ? (
+            <section class={`read ${pageClasses(epicPage.move)}`} aria-label="session" ref={pageRef}>
+              {pageNode(epicEntry, epicDetail)}
+            </section>
+          ) : (
+            middleColumn
+          )}
         </Sheet>
         {pageDrawn &&
           shownProject === null &&
           epicEntry !== null &&
           !contractShown &&
           steererRow === null &&
-          !epicPageShown && (
+          !epicPageShown &&
+          !sessionAtDesk && (
             <section class="read" aria-label="no conversation">
               {noSteererMiddle(epicDetail)}
             </section>
@@ -2537,7 +2575,7 @@ export function App({
             void escapeRow({ row, column: "pinned", state: headState(row, pinnedConversation) }, null)
           }
         />
-        {epicEntry !== null && panelOpen && wide && (
+        {epicEntry !== null && epicBeside && wide && (
           <SidePanel label="epic" tone={panelTone} href={shownForm} onClose={closePanel}>
             {epicPageSection(epicEntry, epicDetail)}
           </SidePanel>
@@ -2806,13 +2844,6 @@ function withoutSent(previous: Map<string, Sending[]>, key: string, texts: strin
     next.set(key, kept);
   }
   return next;
-}
-
-// phaseOfStep is the phase a step's session page names: the phase whose row opens the step, as the epic page's phase rows
-// open it, or else reviewing for a read-only step and implementing for any other step.
-function phaseOfStep(detail: EpicsGetResponse, step: EpicStep): Phase {
-  const row = phaseOutputOf(detail, step.task)?.rows.find((candidate) => candidate.session === step.id);
-  return row?.phase ?? (step.readOnly ? "reviewing" : "implementing");
 }
 
 // EpicSteer is the steering command of an epic page. At the desk it is an icon in the title row that opens the steering

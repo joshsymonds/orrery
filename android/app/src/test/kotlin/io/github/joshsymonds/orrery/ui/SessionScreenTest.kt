@@ -302,11 +302,14 @@ class SessionScreenTest {
     @Test
     fun heldStepCarriesTheHeldComposerEdgeWhileItsSessionWorks() {
         FakeOrreryServer().use { server ->
-            serveStreams(server, streamOf(delta(seq = 1L, state = stateOf("working"))))
+            serveStreams(
+                server,
+                streamOf(delta(seq = 1L, items = listOf(item("reply", "synthetic held reply")), state = stateOf("working"))),
+            )
             setScreen(server, step = StepMode(held = true, label = "synthetic step"))
 
-            // The header draws only once the working delta has landed, so the edge is read after the state arrives.
-            composeRule.awaitExactlyOne(hasTestTag("head"))
+            // The reply draws only once the working delta has landed, so the edge is read after the state arrives.
+            composeRule.awaitExactlyOne(hasText("synthetic held reply"))
             composeRule.onAllNodesWithTag("composer-edge:held").assertCountEquals(1)
             composeRule.onAllNodesWithTag("composer-edge:working").assertCountEquals(0)
         }

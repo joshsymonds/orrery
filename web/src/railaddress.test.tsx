@@ -321,7 +321,7 @@ test("RailAddress: a task's address draws its steerer's conversation in the midd
       assert.equal(panelOf(container)?.querySelector(".phase-output") !== null, true, "the phase page is in the panel");
       const crumbs = panelOf(container)?.querySelector(".title-row .crumbs")?.textContent ?? "";
       assert.equal(crumbs.includes("alpha"), true, "the panel's crumbs name the epic");
-      assert.equal(crumbs.includes("T1 · checking"), true, "the panel's crumbs name the task and its phase");
+      assert.equal(crumbs.includes("Parser"), true, "the panel's crumbs name the task");
       assert.ok(panelOf(container)?.querySelector(".epic-page") === null, "the epic record is not drawn in the panel");
       assert.equal(litTile(container)?.querySelector(".cap")?.textContent, "alpha", "the epic's tile is lit");
     },

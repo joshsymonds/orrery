@@ -171,6 +171,14 @@ class OrreryClientPhaseTest {
                                             .setResult("undecided")
                                             .setReason("example reason three"),
                                     ),
+                            )
+                            .addReviews(
+                                EpicTaskReview.newBuilder()
+                                    .setAttempt(2L)
+                                    .setGate("example-other-gate")
+                                    .setStep("example-review-step-5")
+                                    .setVerdict("undetermined")
+                                    .setReason("example undetermined reason"),
                             ),
                     )
                     .build(),
@@ -226,6 +234,14 @@ class OrreryClientPhaseTest {
                                     reason = "example reason three",
                                 ),
                             ),
+                        ),
+                        TaskReviewRow(
+                            attempt = 2L,
+                            gate = "example-other-gate",
+                            step = "example-review-step-5",
+                            verdict = "undetermined",
+                            findings = emptyList(),
+                            reason = "example undetermined reason",
                         ),
                     ),
                 ),

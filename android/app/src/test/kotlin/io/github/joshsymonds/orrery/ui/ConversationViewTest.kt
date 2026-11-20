@@ -35,6 +35,7 @@ import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import io.github.joshsymonds.orrery.api.StepCheckRow
 import io.github.joshsymonds.orrery.api.WaitingItem
 import io.github.joshsymonds.orrery.mainThreadComposeRule
 import kotlinx.coroutines.CoroutineScope
@@ -1404,5 +1405,43 @@ class ConversationViewTest {
         assertEquals(900L, reads.lastOrNull())
         assertTrue("reads only grow", reads.zipWithNext().all { (earlier, later) -> later > earlier })
         assertFalse("a row with no time is never reported", 0L in reads)
+    }
+
+    @Test
+    fun briefShowsAsOneFoldedLineAndItsTextOnATapAndClosesOnTheNextTap() {
+        val entry = ConvoEntry.Brief("synthetic brief text", NOV_14_2213_UTC)
+        setList(listOf(entry))
+        val tag = "brief-row:${entryKeys(listOf(entry)).single()}"
+
+        composeRule.onNodeWithText("Brief").assertIsDisplayed()
+        composeRule.onNodeWithText("from the engine").assertIsDisplayed()
+        composeRule.onAllNodesWithText("synthetic brief text").assertCountEquals(0)
+        composeRule.onNodeWithTag(tag).performClick()
+        composeRule.onNodeWithText("synthetic brief text").assertIsDisplayed()
+        composeRule.onNodeWithTag(tag).performClick()
+        composeRule.onAllNodesWithText("synthetic brief text").assertCountEquals(0)
+    }
+
+    @Test
+    fun checkRoundDrawsAsACheckBlockOfItsRoundWithTheHandedChecks() {
+        val checks = listOf(
+            StepCheckRow(round = 1, name = "synthetic lint", ok = false, stdout = "", stderr = ""),
+            StepCheckRow(round = 2, name = "synthetic test", ok = true, stdout = "", stderr = ""),
+        )
+        composeRule.setContent {
+            MaterialTheme {
+                ConversationView(
+                    entries = listOf(ConvoEntry.CheckRound("synthetic send-back", 2)),
+                    checks = checks,
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("check-block:2").assertIsDisplayed()
+        composeRule.onNodeWithText("Checks · round 2", substring = true, ignoreCase = true).assertIsDisplayed()
+        composeRule.onNodeWithTag("check-chip:synthetic test").assertIsDisplayed()
+        composeRule.onAllNodesWithTag("check-chip:synthetic lint").assertCountEquals(0)
+        composeRule.onNodeWithText("synthetic send-back").assertIsDisplayed()
+        composeRule.onAllNodesWithText("YOU").assertCountEquals(0)
     }
 }

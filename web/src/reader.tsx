@@ -733,7 +733,7 @@ function StepPrompt({
     );
   }
   if (item.sender === "engine" && item.round >= 1) {
-    return <CheckCard text={item.text} round={item.round} checks={checks} />;
+    return <CheckBlock text={item.text} round={item.round} checks={checks} />;
   }
   const [first] = item.text.split("\n");
   return (
@@ -772,10 +772,10 @@ function Fold({
   );
 }
 
-// CheckCard draws a send-back of a check round: its checks of that round as chips, in the step's order, under a cap
+// CheckBlock draws a send-back of a check round: its checks of that round as chips, in the step's order, under a cap
 // naming the round. Its edge is bad when one of those checks failed. The text's first line is the note; a text of more
 // lines folds the rest under a button that shows it.
-function CheckCard({ text, round, checks }: { text: string; round: number; checks: EpicStepCheck[] }) {
+export function CheckBlock({ text, round, checks }: { text: string; round: number; checks: EpicStepCheck[] }) {
   const roundChecks = checks.filter((check) => check.round === round);
   const failed = roundChecks.some((check) => !check.ok);
   const [first, ...rest] = text.split("\n");

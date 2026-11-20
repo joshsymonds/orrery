@@ -60,6 +60,7 @@ import {
 import { host } from "./host";
 import { panes, paneStreams } from "./panes";
 import { headless, sessions, sessionStreams } from "./sessions";
+import { taskRecordStories } from "./taskrecord";
 
 // PickerRowInit is one row of a Picker.Ask answer, as a plain object.
 export type PickerRowInit = MessageInitShape<typeof PickerRowSchema>;
@@ -98,6 +99,9 @@ export interface Slices {
   // next frame each open conversation stream of the session sends once the interrupt is called, after which the stream
   // stays open until its call aborts. Unset, the interrupt is absorbed and no texts come back.
   readonly interrupt?: { texts: string[]; then?: SessionsWatchConversationResponse };
+  // steps is how the fixture answers the step calls: hold refuses Steps.Hold as a step that has ended does, and nudge fails
+  // Steps.Nudge as a call with no answer does. Unset, each call is absorbed.
+  readonly steps?: { readonly hold?: "refused"; readonly nudge?: "unanswered" };
   // keysThen is the next frame each open conversation stream of a pane sends once Panes.SendKeys is called for that pane,
   // by pane id, after which the stream stays open until its call aborts. Unset, the keys are absorbed and no frame comes.
   readonly keysThen?: ReadonlyMap<string, WatchConversationResponse>;
@@ -243,6 +247,9 @@ export const contractStories = {
   setAside: contractSlices("tidepool/tide-alerts", tideSetAside),
   ready: contractSlices("tidepool/tide-alerts", tideReady),
 };
+
+// taskRecordSlices are the slices the task record and worker session page stories are served from, by scenario.
+export const taskRecordSlices = taskRecordStories({ building: epicScenarios.building, shipped: shippedSlices });
 
 // emptySlices is the world with nothing running: no panes, no headless sessions, no epics and no contracts. Every other
 // answer is the shipped one.
