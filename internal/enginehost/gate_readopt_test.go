@@ -3,12 +3,12 @@ package enginehost
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -17,7 +17,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
-// gateWaitLockFree polls until the session lock in dir is free, which it is once the holder that served dir has ended.
+// gateWaitLockFree blocks until the session lock in dir is free, which it is once the holder that served dir has ended.
 // The holder writes its exit record before it releases the lock, so a free lock means the record is there to read.
 func gateWaitLockFree(t *testing.T, dir string) {
 	t.Helper()
@@ -27,30 +27,45 @@ func gateWaitLockFree(t *testing.T, dir string) {
 	}
 }
 
-// gateTakeLock polls until it takes the session lock in dir, and returns it held. A test that must hold the lock takes
-// it here once rather than after gateWaitLockFree: a child that any test of the package forks between that wait's take
-// and its close keeps a copy of the lock's open file until the child execs, so the lock can stay held past the close
-// and a second take fail.
+// gateTakeLock blocks until it takes the session lock in dir, and returns it held. The lock is taken with a blocking
+// flock, so the kernel wakes the take when the holder frees the lock. A test that must hold the lock takes it here once
+// rather than after gateWaitLockFree: a child that any test of the package forks between that wait's take and its close
+// keeps a copy of the lock's open file until the child execs, so the lock can stay held past the close and a second
+// take fail.
 func gateTakeLock(t *testing.T, dir string) *os.File {
 	t.Helper()
 	path := filepath.Join(dir, holder.LockName)
-	for {
-		lock, err := holder.Lock(path)
-		if err == nil {
-			return lock
-		}
-		if !errors.Is(err, holder.ErrLocked) {
-			t.Fatalf("take lock %s: %v", path, err)
-		}
-		time.Sleep(20 * time.Millisecond)
+	lock, err := os.OpenFile(filepath.Clean(path), os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		t.Fatalf("open lock %s: %v", path, err)
 	}
+	for {
+		err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX)
+		if !errors.Is(err, syscall.EINTR) {
+			break
+		}
+	}
+	if err != nil {
+		t.Fatalf("take lock %s: %v", path, errors.Join(err, lock.Close()))
+	}
+	return lock
 }
 
-// gateWaitRequests polls until pools has been asked for at least n grants. It fails at once if ended, the end of the
-// run that asks for them, closes first.
+// gateWaitRequests blocks until pools has been asked for at least n grants. Each request sends a notice that wakes the
+// wait to count again. It fails at once if ended, the end of the run that asks for them, closes first.
 func gateWaitRequests(t *testing.T, pools *fakeGatePools, n int, ended <-chan struct{}) {
 	t.Helper()
-	waittest.Until(t, ended, fmt.Sprintf("request for grant %d", n), func() bool { return len(pools.requested()) >= n })
+	asked := pools.watchRequests()
+	for len(pools.requested()) < n {
+		select {
+		case <-asked:
+		case <-ended:
+			if len(pools.requested()) >= n {
+				return
+			}
+			t.Fatalf("request for grant %d never happened: what would do it ended first", n)
+		}
+	}
 }
 
 // gateReadoptRun returns the run a re-adoption test gives its gate, named name in stateDir. The gate counts its starts

@@ -247,7 +247,7 @@ func TestCronTakeoverCommandRefusesUnknownID(t *testing.T) {
 	socket := serveCronAnswers(t, st)
 	reason := runCronHook(t, socket, cronToolDelete, "toolu_01", `{"id":"cron-00000000"}`)
 	const want = cronRefusalPrefix + "orrery has no job cron-00000000 in this session, so nothing was canceled. " +
-		"CronList lists this session's jobs."
+		"The orrery MCP tool cron_list, or `orrery cron list`, lists this session's jobs."
 	if reason != want {
 		t.Fatalf("reason = %q, want %q", reason, want)
 	}

@@ -373,6 +373,8 @@ func TestToolsListNamesEveryStepEpicEvidenceAndContractTool(t *testing.T) {
 		"contract_reopen",
 		"contract_revise",
 		"contract_set_aside",
+		"cron_delete",
+		"cron_list",
 		"epic_amend",
 		"epic_answer",
 		"epic_close",

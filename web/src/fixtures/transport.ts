@@ -15,7 +15,7 @@ import {
 
 import { createClients } from "../client";
 import { Contracts } from "../gen/orrery/v1/contracts_pb";
-import { Epics, Evidence, Steps } from "../gen/orrery/v1/epics_pb";
+import { Epics, EpicsContinueResponseSchema, Evidence, Steps } from "../gen/orrery/v1/epics_pb";
 import { Notices } from "../gen/orrery/v1/notice_pb";
 import {
   AskResponseSchema,
@@ -237,6 +237,9 @@ export function createFixtureTransport(slices: Slices = shippedSlices): FixtureT
       },
       history: (request) => slices.histories.get(request.id) ?? { entries: [], next: "" },
       pause: absorb,
+      // Continue starts no conversation in the fixture, so it answers an empty session.
+      continue: () => create(EpicsContinueResponseSchema, { session: "" }),
+      move: absorb,
       resume: absorb,
       stop: absorb,
       retry: absorb,

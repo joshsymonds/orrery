@@ -49,6 +49,7 @@ const holdPath = "/orrery.v1.Steps/Hold";
 const stopStepPath = "/orrery.v1.Steps/Stop";
 const refusedNudgeText = "step is not running";
 const getEpicPath = "/orrery.v1.Epics/Get";
+const moveEpicPath = "/orrery.v1.Epics/Move";
 const historyPath = "/orrery.v1.Epics/History";
 const pauseEpicPath = "/orrery.v1.Epics/Pause";
 const resumeEpicPath = "/orrery.v1.Epics/Resume";
@@ -4783,128 +4784,82 @@ test("leaving a step stops its stream, and the stream follows the cursor's step"
     assert.equal(fake.callsTo(sessionWatchPath)[1].signal.aborted, true, "moving to a row stops s2's stream");
   }));
 
-// The repository Talk starts sessions in, and the session Talk lists for the epic.
-const talkRepository = "/work/widgets";
-const talkSession = { id: "sess-1", pane: "", label: "auth work", call: "epic_get", at: 1000n };
-const talkFirstPrompt = `This session is about orrery epic ${widgetsFirst}. Read it with epic_get, then wait for my words.`;
-
-// titleCommands are the labels of the epic page's title-row commands, in the order they show.
-function titleCommands(container: HTMLElement): string[] {
-  return [...container.querySelectorAll<HTMLButtonElement>(".epic-page .title-row .acts button")].map(
-    (button) => button.textContent ?? "",
-  );
-}
-
-// talkItems are the labels of the buttons Talk's list shows, in order: a session's line, then the new session.
-function talkItems(container: HTMLElement): string[] {
-  return [...container.querySelectorAll<HTMLButtonElement>(".talk button")].map((button) => button.textContent ?? "");
-}
-
-// chooseTalkLine clicks the line Talk's list shows for the session with the label. A line reads as its label, its call
-// and its clock.
-async function chooseTalkLine(container: HTMLElement, label: string): Promise<void> {
-  const line = [...container.querySelectorAll<HTMLButtonElement>(".talk button")].find((button) =>
-    (button.textContent ?? "").startsWith(`${label} · `),
-  );
-  assert.ok(line, `Talk lists a line for ${label}`);
-  await act(() => {
-    line.dispatchEvent(new Event("click"));
-  });
-}
-
-test("Talk is the first command in the epic page's title row", (t) =>
-  withApp(t.signal, { epics: pageEpic({ repository: talkRepository }) }, async (container) => {
-    await press("j");
-    assert.equal(titleCommands(container)[0], "Talk", "Talk leads the title row's commands");
-  }));
-
-// talkSessionRow is the listed row of the session Talk lists as talkSession.
-const talkSessionRow = row({
-  key: "session:sess-1",
-  id: "sess-1",
-  archiveId: "sess-1",
-  kind: "session",
-  archiveKind: "session",
-  label: "auth refresh",
-  project: "/work/api",
-  state: "done",
-  changed: 10,
-  seen: 10,
-});
-
-test("RailAddress: choosing a session in Talk moves the cursor to its row, and its conversation opens in the middle", (t) =>
-  withApp(
-    t.signal,
-    { rows: [...fixture(), talkSessionRow], epics: pageEpic({ repository: talkRepository, sessions: [talkSession] }) },
-    async (container, fake) => {
-      await press("j");
-      await clickButton(container, ".epic-page .title-row .acts", "Talk");
-      await chooseTalkLine(container, "api auth refresh");
-      assert.equal(cursorKey(container), "session:sess-1", "the cursor moves to the session's row");
-      assert.equal(epicPageShown(container), false, "the epic page gives way to the session");
-      await until(
-        t.signal,
-        () => fake.callsTo(sessionWatchPath).some((call) => call.body.id === "sess-1"),
-        "the session's stream",
-      );
-    },
-  ));
-
-test("RailAddress: a session Talk starts opens in the middle once its row is listed", (t) => {
-  const epics = pageEpic({ repository: talkRepository });
-  const startedRow = row({
-    key: "session:sess-new",
-    id: "sess-new",
-    archiveId: "sess-new",
+// steerRow is a listed conversation in the widgets epic's project, by its session id.
+function steerRow(id: string, init: Partial<Row> = {}): Row {
+  return row({
+    key: `session:${id}`,
+    id,
+    archiveId: id,
     kind: "session",
-    archiveKind: "session",
-    label: "widgets",
+    archiveKind: "headless",
+    label: `${id} label`,
+    project: widgetsRepo,
     state: "working",
     changed: 500,
     seen: 500,
+    ...init,
   });
-  return withApp(t.signal, { epics }, async (container, fake) => {
-    fake.replies.set(startSessionPath, [{ id: "sess-new" }]);
+}
+
+// deskWidth is a window wide enough for the desk layout, where the steering command is an icon in the title row.
+const deskWidth = 1280;
+
+test("SteerMenu: a choice sends the move as chosen, closes the menu, and moves the middle row to the session the re-read names", (t) => {
+  const epic = makeEpic(widgetsRepo, "first", { runningSteps: [makeStep("s1")], steering: "sess-old", source: "orreryd" });
+  const epics = epicsView([epic], new Map([[epic.id, create(EpicsGetResponseSchema, { epic, repository: widgetsRepo })]]));
+  const rows = [
+    steerRow("sess-old", { kind: "session", archiveKind: "session", state: "done", label: "old steerer" }),
+    steerRow("sess-new", { label: "next steerer" }),
+  ];
+  return withApp(t.signal, { rows: [...fixture(), ...rows], epics }, async (container, fake) => {
     await press("j");
-    await clickButton(container, ".epic-page .title-row .acts", "Talk");
-    await clickButton(container, ".talk", "New session in widgets");
-    await until(t.signal, () => fake.callsTo(startSessionPath).length === 1, "the Control.Start call");
-    const body = fake.callsTo(startSessionPath)[0].body;
-    assert.equal(body.dir, talkRepository, "the session starts in the epic's repository");
-    assert.equal(body.prompt, talkFirstPrompt, "the session's first prompt names the epic");
-    assert.equal(epicPageShown(container), true, "the epic page stays until the started session's row is listed");
-    await mount(container, {
-      rows: [...fixture(), startedRow],
-      epics,
-      error: "",
-      now,
-      clients: fake.clients,
-      seen: fake.seen,
+    const cursorBefore = cursorKey(container);
+    fake.replies.set(getEpicPath, [
+      {
+        epic: { id: epic.id, repository: widgetsRepo, slug: "first", steering: "sess-new", live: true, source: "orreryd" },
+        repository: widgetsRepo,
+      },
+    ]);
+    await act(() => {
+      container.querySelector<HTMLButtonElement>(".epic-page .title-row .icon.steer")?.dispatchEvent(new Event("click"));
     });
-    assert.equal(cursorKey(container), "session:sess-new", "the cursor moves to the started session's row");
+    assert.ok(container.querySelector(".steer-menu") !== null, "the steering menu opens under the title row's command");
+    await act(() => {
+      container.querySelector<HTMLButtonElement>('.steer-menu [data-session="sess-new"]')?.dispatchEvent(new Event("click"));
+    });
+    await until(t.signal, () => fake.callsTo(getEpicPath).length === 1, "the epic is read again");
+    await until(t.signal, () => container.querySelector(".steer-menu") === null, "the menu closes once it steers");
+    assert.deepEqual(fake.callsTo(moveEpicPath).map((call) => call.body), [{ id: epic.id, session: "sess-new" }], "one move, to the chosen session");
+    assert.equal(cursorKey(container), cursorBefore, "the cursor stays on the epic");
     await until(
       t.signal,
       () => fake.callsTo(sessionWatchPath).some((call) => call.body.id === "sess-new"),
-      "the new session's stream",
+      "the middle row's conversation, the session the re-read names",
     );
-  });
+  }, deskWidth);
 });
 
-test("an epic with no repository lists its sessions in Talk and offers no new session", (t) =>
-  withApp(t.signal, { epics: pageEpic({ sessions: [talkSession] }) }, async (container) => {
+test("SteerMenu: at 412 wide the title row's More holds 'Steer it from another conversation', and that item opens the menu in a dialog", (t) => {
+  const epic = makeEpic(widgetsRepo, "first", { runningSteps: [makeStep("s1")], steering: "sess-old", source: "orreryd" });
+  const epics = epicsView([epic], new Map([[epic.id, create(EpicsGetResponseSchema, { epic, repository: widgetsRepo })]]));
+  const rows = [steerRow("sess-old", { kind: "session", archiveKind: "session", state: "done", label: "old steerer" })];
+  return withApp(t.signal, { rows: [...fixture(), ...rows], epics }, async (container) => {
     await press("j");
-    await clickButton(container, ".epic-page .title-row .acts", "Talk");
-    assert.equal(
-      talkItems(container).some((item) => item.startsWith("auth work · ")),
-      true,
-      "the session is listed",
+    await act(() => {
+      container.querySelector<HTMLButtonElement>(".epic-page .title-row .icon.more")?.dispatchEvent(new Event("click"));
+    });
+    const item = container.querySelector<HTMLButtonElement>(".epic-page .title-row .head-menu button");
+    assert.equal(item?.textContent, "Steer it from another conversation", "the More holds the steering item");
+    assert.equal(container.querySelector(".steer-anchor"), null, "no desk anchor is drawn at this width");
+    await act(() => {
+      item?.dispatchEvent(new Event("click"));
+    });
+    assert.ok(
+      container.querySelector('[role="dialog"][aria-label="Steer first from"] .steer-menu') !== null,
+      "the item opens the steering menu in a dialog",
     );
-    assert.equal(
-      talkItems(container).some((item) => item.startsWith("New session in")),
-      false,
-      "no new session is offered",
-    );
-  }));
+  }, 412);
+});
 
 test("App reports the cursor's pane, epic, step and session to onViewing as the cursor moves", (t) => {
   const reported: Viewing[] = [];

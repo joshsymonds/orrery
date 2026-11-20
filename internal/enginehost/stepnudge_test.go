@@ -434,16 +434,18 @@ func TestStepsNudgeHeldContinueFailureEndsStepFailed(t *testing.T) {
 	if end := f.status(t, id).End; end != stepLoopEndFailed {
 		t.Errorf("end = %q, want %q", end, stepLoopEndFailed)
 	}
+	// Each loop that ends is removed from loops and runs under mu, and then idle is broadcast, so the wait blocks on that
+	// broadcast and checks the maps again after each one.
+	f.steps.mu.Lock()
 	for {
-		f.steps.mu.Lock()
 		_, inLoops := f.steps.loops[id]
 		_, inRuns := f.steps.runs[id]
-		f.steps.mu.Unlock()
 		if !inLoops && !inRuns {
 			break
 		}
-		time.Sleep(10 * time.Millisecond)
+		f.steps.idle.Wait()
 	}
+	f.steps.mu.Unlock()
 }
 
 // TestStepsHoldDropsPendingOwnerText holds a step after an owner nudge has interrupted its turn. The held turn's end

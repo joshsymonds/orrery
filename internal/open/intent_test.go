@@ -1,6 +1,7 @@
 package open
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/joshsymonds/orrery/internal/exectest"
 	"github.com/joshsymonds/orrery/internal/protocol"
@@ -593,20 +596,79 @@ func TestIntentHistoryCapIsThirtyThenRootChildren(t *testing.T) {
 // recorded everything. It has no deadline of its own.
 func waitClaudeRun(t *testing.T, bin string) claudeRun {
 	t.Helper()
-	for {
-		matches, err := filepath.Glob(filepath.Join(filepath.Dir(bin), "calls", "run.*", "stdin"))
+	dir := filepath.Dir(bin)
+	waitForChange(t, func(fd int) error {
+		if err := addWatch(fd, dir); err != nil {
+			return err
+		}
+		if err := addWatch(fd, filepath.Join(dir, "calls")); err != nil {
+			return err
+		}
+		runs, err := filepath.Glob(filepath.Join(dir, "calls", "run.*"))
+		if err != nil {
+			return fmt.Errorf("glob claude runs: %w", err)
+		}
+		for _, run := range runs {
+			if err := addWatch(fd, run); err != nil {
+				return err
+			}
+		}
+		return nil
+	}, func() bool {
+		matches, err := filepath.Glob(filepath.Join(dir, "calls", "run.*", "stdin"))
 		if err != nil {
 			t.Fatalf("glob claude stdin records: %v", err)
 		}
-		if len(matches) > 0 {
-			runs := claudeRuns(t, bin)
-			if len(runs) != 1 {
-				t.Fatalf("claude ran %d times, want 1", len(runs))
-			}
-			return runs[0]
-		}
-		time.Sleep(50 * time.Millisecond)
+		return len(matches) > 0
+	})
+	runs := claudeRuns(t, bin)
+	if len(runs) != 1 {
+		t.Fatalf("claude ran %d times, want 1", len(runs))
 	}
+	return runs[0]
+}
+
+// watchMask is the inotify events a wait reads: an entry created, written, closed after writing, or moved in.
+const watchMask = unix.IN_CREATE | unix.IN_MODIFY | unix.IN_CLOSE_WRITE | unix.IN_MOVED_TO
+
+// waitForChange checks cond, then blocks until an event on a directory watch signals it, and checks again after each
+// signal. watch adds the watches a wait needs, a directory before the entries it lists, and runs before each check.
+// A change made after a check is then an event the next read returns, and one made before it is seen by cond. It has
+// no deadline of its own: the test binary's timeout ends a wait that never ends.
+func waitForChange(t *testing.T, watch func(fd int) error, cond func() bool) {
+	t.Helper()
+	fd, err := unix.InotifyInit1(unix.IN_NONBLOCK | unix.IN_CLOEXEC)
+	if err != nil {
+		t.Fatalf("inotify: %v", err)
+	}
+	// The descriptor is non-blocking, so the runtime poller serves each read and Close ends a read that is waiting.
+	inotify := os.NewFile(uintptr(fd), "wait watch")
+	defer func() {
+		if err := inotify.Close(); err != nil {
+			t.Errorf("close wait watch: %v", err)
+		}
+	}()
+	buf := make([]byte, 4096)
+	for {
+		if err := watch(fd); err != nil {
+			t.Fatalf("watch: %v", err)
+		}
+		if cond() {
+			return
+		}
+		if _, err := inotify.Read(buf); err != nil {
+			t.Fatalf("read watch events: %v", err)
+		}
+	}
+}
+
+// addWatch adds a watch on path to the inotify descriptor fd. A path that does not exist yet is not an error: its
+// creation is an event in the watched directory that contains it.
+func addWatch(fd int, path string) error {
+	if _, err := unix.InotifyAddWatch(fd, path, watchMask); err != nil && !errors.Is(err, unix.ENOENT) {
+		return fmt.Errorf("watch %s: %w", path, err)
+	}
+	return nil
 }
 
 // activePane returns the pane ID of session name's first pane.

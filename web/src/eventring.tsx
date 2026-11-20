@@ -5,19 +5,22 @@ import { QuestionCard } from "./blocker";
 import { type EpicCalls, useEpicReading } from "./card";
 
 // The kinds an epic's event names, as its orrery-event block gives them.
-const eventKinds = ["question", "park", "release", "end"] as const;
+const eventKinds = ["question", "park", "release", "end", "moved"] as const;
 type EventKind = (typeof eventKinds)[number];
 
 // stepKind is the kind a step's end names, as enginehost.CallerEventBlock writes it.
 const stepKind = "step_end";
 
 // EpicEvent is an event an epic sent its creator, read from its block: its kind, the epic it is about, the tail of its
-// event id (the question's id, or the phase the epic reached), and the first sentence of its body.
+// event id (the question's id, or the phase the epic reached), and the first sentence of its body. A moved event has no
+// sentence; its moved side says what the line draws. On the side the epic left, to is the session it moved to and by is
+// the mover as the body names it: the owner, a session, or orreryd.
 export interface EpicEvent {
   kind: EventKind;
   epic: string;
   tail: string;
   sentence: string;
+  moved?: { side: "left"; to: string; by: string } | { side: "took" };
 }
 
 // StepEvent is a step's end: the step's id, the agent that ran it (empty when the block names none), how it ended and
@@ -45,8 +48,16 @@ const epicPrefix = "epic:";
 const stepPrefix = "step:";
 // morePrefix starts a block's last line when that line points to the full return, which is not part of the brief.
 const morePrefix = "More: ";
-const glyphs: Record<EventKind, string> = { question: "?", park: "‖", release: "↗", end: "■" };
-const labels: Record<EventKind, string> = { question: "question", park: "parked", release: "released", end: "ended" };
+// leftPattern matches the first line of the body a move gives the conversation the epic left.
+const leftPattern = /^Epic [^\n]* moved to session (\S+), by (the owner|orreryd|session \S+)\.(?=\n|$)/;
+const glyphs: Record<EventKind, string> = { question: "?", park: "‖", release: "↗", end: "■", moved: "⇄" };
+const labels: Record<EventKind, string> = {
+  question: "question",
+  park: "parked",
+  release: "released",
+  end: "ended",
+  moved: "moved",
+};
 
 // Block is an event block as its text holds it: its kind and id, its attributes after them, and its body, with every
 // attribute value and the body unescaped.
@@ -76,8 +87,9 @@ function unescapeText(text: string): string {
   return text.replace(/&(amp|lt|gt|quot);/g, (_, name: string) => entities[name]);
 }
 
-// epicEventOf reads a prompt's text as an epic's event: a block of one of the four kinds whose id is
-// epic:<epic>:<tail>. Its first sentence is the body's. It is null for any other text, a step's event among them.
+// epicEventOf reads a prompt's text as an epic's event: a block of one of the event kinds whose id is
+// epic:<epic>:<tail>. Its first sentence is the body's, and a moved event's side is read from its body instead. It is
+// null for any other text, a step's event among them.
 export function epicEventOf(text: string): EpicEvent | null {
   const block = blockOf(text);
   if (block === null) {
@@ -92,7 +104,22 @@ export function epicEventOf(text: string): EpicEvent | null {
   if (cut <= 0 || cut === rest.length - 1) {
     return null;
   }
-  return { kind, epic: rest.slice(0, cut), tail: rest.slice(cut + 1), sentence: firstSentence(body) };
+  const epic = rest.slice(0, cut);
+  const tail = rest.slice(cut + 1);
+  if (kind === "moved") {
+    return { kind, epic, tail, sentence: "", moved: movedOf(body) };
+  }
+  return { kind, epic, tail, sentence: firstSentence(body) };
+}
+
+// movedOf is a move's side from its body: left when the body is the one the conversation the epic left gets, and took
+// for any other body, which is the steering prompt the conversation that took the epic gets.
+function movedOf(body: string): NonNullable<EpicEvent["moved"]> {
+  const match = leftPattern.exec(body);
+  if (match === null) {
+    return { side: "took" };
+  }
+  return { side: "left", to: match[1], by: match[2] };
 }
 
 // stepEventOf reads a prompt's text as a step's end: a block of kind step_end whose id is step:<id>, with end and
@@ -153,17 +180,50 @@ function firstSentence(body: string): string {
   return match === null ? "" : match[0].trim();
 }
 
-// EventRing draws an epic's event as one ringed line: an icon for its kind, the event's first sentence and the epic's
-// slug. A click opens the epic. A question event also draws its question under the line, through QuestionReading.
+// EventRing draws an epic's event as one ringed line: an icon for its kind, the event's sentence and the epic's slug. A
+// click opens the epic. A question event also draws its question under the line, through QuestionReading.
 export function EventRing({ event, calls }: { event: EpicEvent; calls: EpicCalls }): JSX.Element {
   return (
     <div class="event-ring">
       <button type="button" class="ring-line" onClick={() => calls.openEpic(event.epic)}>
-        <RingParts kind={event.kind} sentence={event.sentence} epic={event.epic} />
+        <RingParts kind={event.kind} sentence={sentenceOf(event, calls)} epic={event.epic} />
       </button>
       {event.kind === "question" && <QuestionReading epic={event.epic} question={event.tail} calls={calls} />}
     </div>
   );
+}
+
+// sentenceOf is the line's sentence: a moved event's words, which name its epic, where it went and who moved it through
+// the calls' session titles, and any other event's first sentence.
+function sentenceOf(event: EpicEvent, calls: EpicCalls): string {
+  if (event.moved === undefined) {
+    return event.sentence;
+  }
+  const slug = slugOf(event.epic);
+  if (event.moved.side === "took") {
+    return `Took over ${slug}. Its questions and its ending come here now.`;
+  }
+  const { to, by } = event.moved;
+  return `${slug} moved to ${sessionNameOf(to, calls)}, by ${moverNameOf(by, calls)}. Its questions go there now.`;
+}
+
+// moverNameOf names a move's mover as its line draws it: you for the owner, orreryd for orreryd, and the session's name
+// for a session the body names.
+function moverNameOf(by: string, calls: EpicCalls): string {
+  if (by === "the owner") {
+    return "you";
+  }
+  if (by === "orreryd") {
+    return by;
+  }
+  return sessionNameOf(by.slice("session ".length), calls);
+}
+
+// sessionNameOf names a session as its line draws it: its listed conversation's title in quotes, or its id when no
+// listed conversation has that session.
+function sessionNameOf(session: string, calls: EpicCalls): string {
+  const title = calls.sessionTitle?.(session);
+  return title === undefined ? `session ${session}` : `“${title}”`;
 }
 
 // RingParts draws the parts of an epic's event line: its kind's icon, the sentence, and the epic's slug.

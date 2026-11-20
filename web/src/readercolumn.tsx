@@ -115,6 +115,8 @@ export interface ReaderColumnProps {
   step?: StepItem | null;
   steps?: StepItem[];
   stepInputs?: { current: Map<string, HTMLTextAreaElement> };
+  // ended is what stands in place of a kept row's dock, when it gives a node for the row; null keeps the dock.
+  ended?: (row: Row) => ComponentChildren | null;
 }
 
 // ReaderColumn draws one reader column: the cursor's, or the pinned row's beside the list. It draws the row's head, the
@@ -162,6 +164,7 @@ export function ReaderColumn({
   step = null,
   steps = [],
   stepInputs,
+  ended,
 }: ReaderColumnProps): JSX.Element {
   const names = columnNames[column];
   const rowKey = row?.key ?? "";
@@ -265,44 +268,46 @@ export function ReaderColumn({
       <div class="send">
         {dockRows(rows, row).map((entry) => (
           <div key={entry.key} class={names.reply} hidden={entry.key !== rowKey}>
-            <Dock
-              facts={rowFacts(entry, entry.key === rowKey ? conversation : null, interrupts.has(entry.key))}
-              now={now}
-              send={(text, promptId) => sendRow(entry, text, promptId)}
-              pull={entry.kind === "pane" ? () => actions.pullQueued(clients, entry) : null}
-              newPromptId={actions.newPromptId}
-              register={(handle) => registerHandle(handles, entry.key, handle)}
-              onPage={(direction) => reader.current?.page(direction) ?? false}
-              onFind={() => onFind({ key: entry.key, query: "", current: 0 })}
-              onInterrupt={onInterrupt === undefined ? undefined : () => onInterrupt(entry)}
-              interrupt={interrupt === undefined || entry.kind !== "session" ? undefined : () => interrupt(entry)}
-              resume={
-                entry.kind === "session"
-                  ? async () => {
-                      await clients.control.resume({ id: entry.id });
-                    }
-                  : undefined
-              }
-              about={entry.key === rowKey ? about?.text : undefined}
-              aboutId={entry.key === rowKey ? about?.id : undefined}
-              onClearAbout={onClearAbout}
-              queued={entry.key === rowKey ? conversation?.state?.waiting : undefined}
-              sessionQueue={entry.key === rowKey ? conversation?.queued : undefined}
-              withdraw={
-                entry.kind === "session" ? (promptId) => actions.withdrawQueued(clients, entry, promptId) : undefined
-              }
-              items={entry.key === rowKey ? shown?.items : undefined}
-              pending={entry.key === rowKey ? conversation?.state?.pending : undefined}
-              onSending={(sent) => addSending(entry.key, sent, entry.key === rowKey ? conversation : null)}
-              onUnsent={(promptId) => retractSending(entry.key, promptId)}
-              inputRef={(element) => {
-                if (element === null) {
-                  inputs.current.delete(entry.key);
-                } else {
-                  inputs.current.set(entry.key, element);
+            {ended?.(entry) ?? (
+              <Dock
+                facts={rowFacts(entry, entry.key === rowKey ? conversation : null, interrupts.has(entry.key))}
+                now={now}
+                send={(text, promptId) => sendRow(entry, text, promptId)}
+                pull={entry.kind === "pane" ? () => actions.pullQueued(clients, entry) : null}
+                newPromptId={actions.newPromptId}
+                register={(handle) => registerHandle(handles, entry.key, handle)}
+                onPage={(direction) => reader.current?.page(direction) ?? false}
+                onFind={() => onFind({ key: entry.key, query: "", current: 0 })}
+                onInterrupt={onInterrupt === undefined ? undefined : () => onInterrupt(entry)}
+                interrupt={interrupt === undefined || entry.kind !== "session" ? undefined : () => interrupt(entry)}
+                resume={
+                  entry.kind === "session"
+                    ? async () => {
+                        await clients.control.resume({ id: entry.id });
+                      }
+                    : undefined
                 }
-              }}
-            />
+                about={entry.key === rowKey ? about?.text : undefined}
+                aboutId={entry.key === rowKey ? about?.id : undefined}
+                onClearAbout={onClearAbout}
+                queued={entry.key === rowKey ? conversation?.state?.waiting : undefined}
+                sessionQueue={entry.key === rowKey ? conversation?.queued : undefined}
+                withdraw={
+                  entry.kind === "session" ? (promptId) => actions.withdrawQueued(clients, entry, promptId) : undefined
+                }
+                items={entry.key === rowKey ? shown?.items : undefined}
+                pending={entry.key === rowKey ? conversation?.state?.pending : undefined}
+                onSending={(sent) => addSending(entry.key, sent, entry.key === rowKey ? conversation : null)}
+                onUnsent={(promptId) => retractSending(entry.key, promptId)}
+                inputRef={(element) => {
+                  if (element === null) {
+                    inputs.current.delete(entry.key);
+                  } else {
+                    inputs.current.set(entry.key, element);
+                  }
+                }}
+              />
+            )}
           </div>
         ))}
         {dockRows(steps, step).map((entry) => {

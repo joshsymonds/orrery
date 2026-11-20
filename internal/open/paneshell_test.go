@@ -8,7 +8,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/exectest"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
@@ -56,16 +55,13 @@ type paneRun struct {
 func waitPaneRun(t *testing.T, claude string) paneRun {
 	t.Helper()
 	dir := filepath.Dir(claude)
-	for {
+	waitForChange(t, func(fd int) error { return addWatch(fd, dir) }, func() bool {
 		_, err := os.Stat(filepath.Join(dir, "done"))
-		if err == nil {
-			break
-		}
-		if !errors.Is(err, fs.ErrNotExist) {
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
 			t.Fatalf("stat claude done: %v", err)
 		}
-		time.Sleep(50 * time.Millisecond)
-	}
+		return err == nil
+	})
 	argvData, err := os.ReadFile(filepath.Join(dir, "argv"))
 	if err != nil {
 		t.Fatalf("read claude argv: %v", err)
