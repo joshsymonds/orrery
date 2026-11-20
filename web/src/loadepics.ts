@@ -1,6 +1,7 @@
 import { equals } from "@bufbuild/protobuf";
 
 import type { createClients } from "./client";
+import type { Contract } from "./gen/orrery/v1/contracts_pb";
 import { type Epic, EpicSchema, type EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 
 // The fixed message shown when Epics.List fails. It never carries server text.
@@ -17,6 +18,7 @@ interface EpicsLoad {
   epics: Epic[];
   details: Map<string, EpicsGetResponse>;
   held: ReadonlyMap<string, HeldEpic>;
+  contracts: Contract[];
   error: string;
 }
 
@@ -27,22 +29,28 @@ export type Refetch = ReadonlySet<string>;
 // changed.
 export const changedOnly: Refetch = new Set<string>();
 
-// loadEpics reads the epic list, then the detail of each live epic it needs, all at once. A load needs a live epic when
-// it holds no detail for it, when its listed message differs, in any field, from the one held with it, or when refetch
-// names it. A failed Epics.List resolves no epics, asks for no detail and keeps held. A failed Epics.Get keeps that
-// epic's held detail and listed message, or leaves the epic out of details when it held none. A folded epic stays in
-// epics but is never asked for or held, whatever refetch names.
+// loadEpics reads the epic list and the contract list at once, then the detail of each live epic it needs. A load needs
+// a live epic when it holds no detail for it, when its listed message differs, in any field, from the one held with it,
+// or when refetch names it. A failed Epics.List resolves no epics, asks for no detail, keeps held and reports the fixed
+// error. A failed Epics.Get keeps that epic's held detail and listed message, or leaves the epic out of details when it
+// held none. A folded epic stays in epics but is never asked for or held, whatever refetch names. A failed
+// Contracts.List keeps the contracts the caller holds, and reports no error. A returned contract list is the listed one,
+// in list order.
 export async function loadEpics(
   clients: ReturnType<typeof createClients>,
   held: ReadonlyMap<string, HeldEpic>,
   refetch: Refetch,
+  contracts: readonly Contract[] = [],
 ): Promise<EpicsLoad> {
-  let epics: Epic[];
-  try {
-    ({ epics } = await clients.epics.list({}));
-  } catch {
-    return { epics: [], details: new Map(), held, error: epicsUnavailable };
+  const [epicsAnswer, contractsAnswer] = await Promise.allSettled([
+    clients.epics.list({}),
+    clients.contracts.list({}),
+  ]);
+  const listedContracts = contractsAnswer.status === "fulfilled" ? contractsAnswer.value.contracts : [...contracts];
+  if (epicsAnswer.status === "rejected") {
+    return { epics: [], details: new Map(), held, contracts: listedContracts, error: epicsUnavailable };
   }
+  const { epics } = epicsAnswer.value;
 
   const live = epics.filter((epic) => epic.live);
   const asked = live.filter(
@@ -65,7 +73,7 @@ export async function loadEpics(
       details.set(epic.id, entry.detail);
     }
   }
-  return { epics, details, held: next, error: "" };
+  return { epics, details, held: next, contracts: listedContracts, error: "" };
 }
 
 // unchanged reports whether a live epic holds a detail fetched against a listed message equal to listed.
