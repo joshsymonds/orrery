@@ -245,7 +245,14 @@ export const Page: Stories = {
     <PageStory
       address={contractAt(tide)}
       fixture={createFixtureTransport(contractStories.toAccept)}
-      after={(root) => clickWhen(root, 'div.tr[data-row="F2"] button.ctl')}
+      after={async (root) => {
+        // The row's control sets the About, and the draft it types is what the owner sends about that row.
+        await clickWhen(root, 'div.tr[data-row="F2"] button.ctl');
+        // A dock the conversation's first frame has not yet drawn is redrawn by it, so the draft waits for that frame.
+        await drawnWhen(root, "section.read", "Why three retries and not one?");
+        const box = await typeInto(root, shownDockBox, "Make it one alert per table, not per table and day.");
+        box.focus();
+      }}
     />
   ),
   "contract-versions": () => (

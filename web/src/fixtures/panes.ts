@@ -177,6 +177,8 @@ const tideItems: ItemInit[] = [
   { kind: "tool", time: at("@14:14"), id: "toolu_7", tool: "contract_propose", input: tideContract, contract: tideContract },
   { kind: "result", time: at("@14:14"), id: "toolu_7", text: "proposed", error: false },
   reply(at("@14:15"), "The contract is written. It has three ways this could go wrong, one row you did not ask for, and one decision that is yours. Nothing starts until you accept it."),
+  prompt(at("@14:38"), "owner", "Why three retries and not one?"),
+  reply(at("@14:38"), "The office’s endpoint dropped 2 of the last 100 test sends. Three tries put a missed alert under one in a hundred thousand; one try leaves it at one in fifty."),
 ];
 
 const followItems: ItemInit[] = [

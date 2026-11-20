@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { at } from "./clock";
+import { paneStreams } from "./panes";
 import { contractStories, type Slices } from "./slices";
 
 // Each contract page story is served from its own slices: the Contracts.Get record its scenario shows, and the
@@ -50,3 +52,33 @@ for (const [name, slices, expected] of stories) {
     assert.equal(entry.openDecisions, expected.openDecisions, "the List entry's open decisions");
   });
 }
+
+// The accepted record's List entry and its accepted state change say the same time, so the List's changed time, the time
+// the transcript line draws, is the time the contract was accepted.
+test("contract story accepted: the List entry's changed time is its accepted state change's time", () => {
+  const record = contractStories.accepted.contractGets[tide];
+  const entry = contractStories.accepted.contracts.contracts.find((candidate) => candidate.id === tide);
+  const accepted = record?.states.find((change) => change.state === "accepted");
+  assert.ok(entry !== undefined, `no List entry for ${tide}`);
+  assert.ok(accepted !== undefined, "the record holds no accepted state change");
+  assert.equal(entry.changed, accepted.time, "the List entry's changed time against the accepted state change's time");
+});
+
+// The tide conversation holds the exchange after the contract call: the owner asks why three retries, and the session
+// answers at the same time the question was asked.
+test("tide transcript: the question and the answer follow the contract call", () => {
+  const items = paneStreams.get("%16")?.items ?? [];
+  const proposed = items.findIndex((item) => item.kind === "tool" && item.tool === "contract_propose");
+  assert.notEqual(proposed, -1, "the transcript holds no contract_propose call");
+  const asked = items.findIndex((item, index) => index > proposed && item.kind === "prompt" && item.text === "Why three retries and not one?");
+  assert.notEqual(asked, -1, "the transcript holds no question after the contract call");
+  assert.equal(items[asked]?.time, at("@14:38"), "the question's time");
+  const answer = items[asked + 1];
+  assert.equal(answer?.kind, "reply", "the item after the question");
+  assert.equal(answer.time, at("@14:38"), "the answer's time");
+  assert.equal(
+    answer.text,
+    "The office’s endpoint dropped 2 of the last 100 test sends. Three tries put a missed alert under one in a hundred thousand; one try leaves it at one in fifty.",
+    "the answer's text",
+  );
+});
