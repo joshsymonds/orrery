@@ -1,5 +1,11 @@
 package io.github.joshsymonds.orrery.ui
 
+import android.Manifest
+import android.app.NotificationManager
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -11,6 +17,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -25,6 +32,8 @@ import io.github.joshsymonds.orrery.BuildConfig
 import io.github.joshsymonds.orrery.R
 import io.github.joshsymonds.orrery.ServerSettings
 import io.github.joshsymonds.orrery.api.OrreryClient
+import io.github.joshsymonds.orrery.push.PushNotifier
+import io.github.joshsymonds.orrery.push.PushPreferences
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
@@ -144,6 +153,10 @@ fun SettingsScreen(
                     null -> Unit
                 }
                 SectionHead("Notifications")
+                PostPermissionNote()
+                ChannelRow(PushNotifier.CHANNEL_ID, PushNotifier.QUESTIONS_CHANNEL_NAME)
+                ChannelRow(PushNotifier.SILENT_CHANNEL_ID, PushNotifier.REST_CHANNEL_NAME)
+                PushStatus(settings)
                 SectionHead("About")
                 ListItem(
                     title = "Font licence",
@@ -154,5 +167,75 @@ fun SettingsScreen(
                 ListItem(title = "Version", supporting = BuildConfig.VERSION_NAME)
             }
         }
+    }
+}
+
+/** Whether Android lets Orrery post notifications at all. */
+private fun postsAllowed(context: Context): Boolean =
+    context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+
+/** When Android does not let Orrery post, says so and opens Android's notification settings for the app. */
+@Composable
+private fun PostPermissionNote() {
+    val context = LocalContext.current
+    if (postsAllowed(context)) return
+    InlineNote("Android does not let Orrery post notifications.", NoteTone.Error)
+    TextButton(
+        onClick = {
+            context.startActivity(
+                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName),
+            )
+        },
+    ) {
+        Text("Open Android's notification settings")
+    }
+}
+
+/** One channel: its name, the importance Android holds for it, and a Switch for whether Orrery posts that kind. */
+@Composable
+private fun ChannelRow(channelId: String, name: String) {
+    val context = LocalContext.current
+    val importance = remember(channelId) { channelImportance(context, channelId) }
+    val preferences = PushPreferences(context)
+    var posts by remember(channelId) { mutableStateOf(preferences.posts(channelId)) }
+    ListItem(
+        title = name,
+        supporting = importanceLine(importance),
+        end = {
+            Switch(
+                checked = posts,
+                onCheckedChange = {
+                    posts = it
+                    preferences.setPosts(channelId, it)
+                },
+                label = name,
+            )
+        },
+    )
+}
+
+/** The importance Android holds for [channelId], once the app has created its channels. */
+private fun channelImportance(context: Context, channelId: String): Int {
+    PushNotifier(context).ensureChannels()
+    return context.getSystemService(NotificationManager::class.java).getNotificationChannel(channelId).importance
+}
+
+private fun importanceLine(importance: Int): String = when (importance) {
+    NotificationManager.IMPORTANCE_NONE -> "Off in Android's settings"
+    NotificationManager.IMPORTANCE_MIN, NotificationManager.IMPORTANCE_LOW -> "Silent"
+    else -> "Sound and vibration"
+}
+
+/** Where push registration stands: no distributor, registered with this server, or not registered with it yet. */
+@Composable
+private fun PushStatus(settings: ServerSettings) {
+    val preferences = PushPreferences(LocalContext.current)
+    val registered = preferences.registeredAddress
+    when {
+        preferences.distributorMissing -> InlineNote("No push distributor is set up on this phone.", NoteTone.Error)
+        registered.isNotEmpty() && registered == settings.serverUrl ->
+            InlineNote("Push is registered with this phone’s distributor.", NoteTone.Ok)
+        else -> InlineNote("Push is not registered with this server yet.", NoteTone.Quiet)
     }
 }

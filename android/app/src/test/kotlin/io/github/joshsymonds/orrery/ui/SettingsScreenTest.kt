@@ -1,14 +1,21 @@
 package io.github.joshsymonds.orrery.ui
 
+import android.Manifest
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Context
+import android.provider.Settings
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -22,6 +29,8 @@ import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.awaitUntilAfterIdle
 import io.github.joshsymonds.orrery.gen.orrery.v1.HostStatusResponse
 import io.github.joshsymonds.orrery.mainThreadComposeRule
+import io.github.joshsymonds.orrery.push.PushNotifier
+import io.github.joshsymonds.orrery.push.PushPreferences
 import io.github.joshsymonds.orrery.ui.theme.inLabelCase
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -31,6 +40,8 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
@@ -42,6 +53,16 @@ class SettingsScreenTest {
         const val SAVED = "https://orrery.example.invalid:9000"
         const val HOST_STATUS = "/orrery.v1.Host/Status"
         const val NO_ANSWER = "No answer from that address. Nothing was changed."
+        val QUESTIONS = PushNotifier.QUESTIONS_CHANNEL_NAME
+        val REST = PushNotifier.REST_CHANNEL_NAME
+        const val DENIED = "Android does not let Orrery post notifications."
+        const val OPEN_SETTINGS = "Open Android's notification settings"
+        const val OFF = "Off in Android's settings"
+        const val SILENT = "Silent"
+        const val SOUND = "Sound and vibration"
+        const val NO_DISTRIBUTOR = "No push distributor is set up on this phone."
+        const val REGISTERED = "Push is registered with this phone’s distributor."
+        const val NOT_REGISTERED = "Push is not registered with this server yet."
     }
 
     @get:Rule
@@ -53,6 +74,7 @@ class SettingsScreenTest {
     fun clearSettings() {
         context = ApplicationProvider.getApplicationContext()
         context.getSharedPreferences("orrery-settings", Context.MODE_PRIVATE).edit().clear().commit()
+        context.getSharedPreferences("orrery-push", Context.MODE_PRIVATE).edit().clear().commit()
     }
 
     @Test
@@ -220,8 +242,8 @@ class SettingsScreenTest {
     fun fontLicenceRowReadsItsLineAndTappingItShowsTheLicenceText() {
         setContent()
 
-        composeRule.onNodeWithText("Font licence").assertIsDisplayed()
-        composeRule.onNodeWithText("Orrery Mono, a subset of Maple Mono NF").assertIsDisplayed()
+        composeRule.onNodeWithText("Font licence").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Orrery Mono, a subset of Maple Mono NF").performScrollTo().assertIsDisplayed()
 
         composeRule.onNodeWithText("Font licence").performClick()
 
@@ -237,7 +259,7 @@ class SettingsScreenTest {
         var backed = false
         setContent(onBack = { backed = true })
 
-        composeRule.onNodeWithText("Font licence").performClick()
+        composeRule.onNodeWithText("Font licence").performScrollTo().performClick()
         composeRule.onNodeWithTag("title-back").performClick()
 
         composeRule.onNodeWithTag(ADDRESS_FIELD_TAG).assertIsDisplayed()
@@ -252,7 +274,131 @@ class SettingsScreenTest {
         composeRule.onNodeWithText(BuildConfig.VERSION_NAME).performScrollTo().assertIsDisplayed()
     }
 
+    @Test
+    fun aDeniedPostPermissionSaysSoAndOpensAndroidsNotificationSettings() {
+        denyPosts()
+        setContent()
+
+        composeRule.onNodeWithText(DENIED).assert(hasTone(NoteTone.Error))
+        composeRule.onNodeWithText(OPEN_SETTINGS).performScrollTo().performClick()
+
+        val started = shadowOf(RuntimeEnvironment.getApplication()).nextStartedActivity
+        assertEquals(Settings.ACTION_APP_NOTIFICATION_SETTINGS, started.action)
+        assertEquals(context.packageName, started.getStringExtra(Settings.EXTRA_APP_PACKAGE))
+    }
+
+    @Test
+    fun aGrantedPostPermissionSaysNothingOfIt() {
+        grantPosts()
+        setContent()
+
+        assertFalse(shown(hasText(DENIED)))
+        assertFalse(shown(hasText(OPEN_SETTINGS)))
+    }
+
+    @Test
+    fun notificationRowsSitUnderNotificationsAboveAbout() {
+        setContent()
+
+        assertTrue(topOf("Notifications") < topOfText(QUESTIONS))
+        assertTrue(topOfText(REST) < topOf("About"))
+    }
+
+    @Test
+    fun aChannelTurnedOffInAndroidSaysSoOnItsRow() {
+        createChannel(PushNotifier.CHANNEL_ID, QUESTIONS, NotificationManager.IMPORTANCE_NONE)
+        createChannel(PushNotifier.SILENT_CHANNEL_ID, REST, NotificationManager.IMPORTANCE_LOW)
+        setContent()
+
+        assertInOrder(QUESTIONS, OFF, REST, SILENT)
+    }
+
+    @Test
+    fun aChannelWithSoundAndVibrationSaysSoOnItsRow() {
+        createChannel(PushNotifier.CHANNEL_ID, QUESTIONS, NotificationManager.IMPORTANCE_DEFAULT)
+        createChannel(PushNotifier.SILENT_CHANNEL_ID, REST, NotificationManager.IMPORTANCE_NONE)
+        setContent()
+
+        assertInOrder(QUESTIONS, SOUND, REST, OFF)
+    }
+
+    @Test
+    fun aSilentChannelSaysSoOnItsRow() {
+        createChannel(PushNotifier.CHANNEL_ID, QUESTIONS, NotificationManager.IMPORTANCE_DEFAULT)
+        createChannel(PushNotifier.SILENT_CHANNEL_ID, REST, NotificationManager.IMPORTANCE_LOW)
+        setContent()
+
+        assertInOrder(QUESTIONS, SOUND, REST, SILENT)
+    }
+
+    @Test
+    fun eachChannelSwitchIsOnByDefaultAndTurningItOffStopsOnlyItsChannel() {
+        val preferences = PushPreferences(context)
+        setContent()
+
+        composeRule.onNodeWithContentDescription(QUESTIONS).assertIsOn()
+        composeRule.onNodeWithContentDescription(REST).assertIsOn()
+
+        composeRule.onNodeWithContentDescription(QUESTIONS).performScrollTo().performClick()
+        composeRule.onNodeWithContentDescription(QUESTIONS).assertIsOff()
+        assertFalse(preferences.posts(PushNotifier.CHANNEL_ID))
+        assertTrue(preferences.posts(PushNotifier.SILENT_CHANNEL_ID))
+
+        composeRule.onNodeWithContentDescription(REST).performScrollTo().performClick()
+        composeRule.onNodeWithContentDescription(REST).assertIsOff()
+        assertFalse(preferences.posts(PushNotifier.SILENT_CHANNEL_ID))
+    }
+
+    @Test
+    fun aPushWithoutADistributorSaysSo() {
+        PushPreferences(context).distributorMissing = true
+        setContent()
+
+        composeRule.onNodeWithText(NO_DISTRIBUTOR).assert(hasTone(NoteTone.Error))
+    }
+
+    @Test
+    fun pushRegisteredWithThisServerSaysSo() {
+        PushPreferences(context).registeredAddress = BUILT_IN
+        setContent()
+
+        composeRule.onNodeWithText(REGISTERED).assert(hasTone(NoteTone.Ok))
+    }
+
+    @Test
+    fun pushRegisteredWithAnotherAddressIsNotRegisteredHere() {
+        PushPreferences(context).registeredAddress = SAVED
+        setContent()
+
+        composeRule.onNodeWithText(NOT_REGISTERED).assert(hasTone(NoteTone.Quiet))
+    }
+
+    @Test
+    fun pushWithNoServerAndNoRegistrationIsNotRegisteredHere() {
+        setContent(defaultUrl = "")
+
+        composeRule.onNodeWithText(NOT_REGISTERED).assert(hasTone(NoteTone.Quiet))
+    }
+
     private fun asks(): Boolean = shown(hasTestTag(SERVER_ASK_TAG))
+
+    private fun grantPosts() {
+        shadowOf(RuntimeEnvironment.getApplication()).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
+    private fun denyPosts() {
+        shadowOf(RuntimeEnvironment.getApplication()).denyPermissions(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
+    private fun createChannel(id: String, name: String, importance: Int) {
+        context.getSystemService(NotificationManager::class.java)
+            .createNotificationChannel(NotificationChannel(id, name, importance))
+    }
+
+    /** Each text's top edge sits above the next one's, in the root's coordinates. */
+    private fun assertInOrder(vararg texts: String) {
+        texts.map { topOfText(it) }.zipWithNext().forEach { (above, below) -> assertTrue(above < below) }
+    }
 
     private fun addressInError(): Boolean =
         shown(hasTestTag(ADDRESS_FIELD_TAG).and(SemanticsMatcher.keyIsDefined(SemanticsProperties.Error)))
@@ -267,9 +413,9 @@ class SettingsScreenTest {
     /** The top edge of the section head [label], in the root's coordinates. */
     private fun topOf(label: String): Float = topOfText(label.inLabelCase())
 
-    /** The top edge of the node that reads [text], in the root's coordinates. */
+    /** The top edge of the node that reads [text], in the root's coordinates, even where a scroll has clipped it. */
     private fun topOfText(text: String): Float =
-        composeRule.onNodeWithText(text).fetchSemanticsNode().boundsInRoot.top
+        composeRule.onNodeWithText(text).fetchSemanticsNode().positionInRoot.y
 
     private fun setContent(
         onSaved: () -> Unit = {},
