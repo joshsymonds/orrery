@@ -275,7 +275,14 @@ export function EpicPage(props: {
             </button>
           )}
           {controls.stop && (
-            <button type="button" class="act" onClick={() => setStopOpen(true)}>
+            <button
+              type="button"
+              class="act"
+              onClick={() => {
+                setMoreOpen(false);
+                setStopOpen(true);
+              }}
+            >
               Stop…
             </button>
           )}

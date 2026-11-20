@@ -51,8 +51,8 @@ private sealed interface EpicLoad {
     data class Loaded(val detail: EpicDetail, val history: List<EpicHistoryRow>) : EpicLoad
 }
 
-// The reason a command gives when the epic could not be reached.
-private const val UNREACHABLE = "the server could not be reached"
+// The reason a command gives when the server did not answer it, in the words the web uses.
+private const val UNREACHABLE = "the server did not answer"
 
 // How long the screen rests on an ended epic before orreryd is told the owner has seen it: the web's dwell (DWELL_MS).
 private const val SEEN_DWELL_MILLIS = 1_000L

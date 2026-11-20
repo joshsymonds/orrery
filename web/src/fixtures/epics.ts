@@ -21,6 +21,7 @@ import {
   EvidenceRunSchema,
   type EpicsGetResponse,
   type EpicsHistoryResponse,
+  type EpicsListResponse,
 } from "../gen/orrery/v1/epics_pb";
 import { at, commit } from "./clock";
 
@@ -43,6 +44,20 @@ type SessionInit = MessageInitShape<typeof EpicSessionSchema>;
 
 // evidenceLogs holds the text Evidence/Artifact returns for each run's log, by run id.
 export const evidenceLogs = new Map<string, string>();
+
+// EvidenceArtifactBytes is what Evidence/Artifact returns for one named artifact of a run.
+export interface EvidenceArtifactBytes {
+  readonly data: Uint8Array;
+  readonly mediaType: string;
+}
+
+// evidenceArtifactKey names one artifact of one run in evidenceArtifacts.
+export function evidenceArtifactKey(run: string, path: string): string {
+  return `${run}/${path}`;
+}
+
+// evidenceArtifacts holds the bytes Evidence/Artifact returns for each kept artifact, by evidenceArtifactKey.
+export const evidenceArtifacts = new Map<string, EvidenceArtifactBytes>();
 
 // run builds one evidence run. Its log is the run's stdout, and logBytes is that text's UTF-8 length. Fields left out
 // take the proto default, and the captured, ended, untimed, uncaptured run is the default source.
@@ -113,6 +128,37 @@ const rotaR3Green = run("ev-rota-r3-green", "ok  \tlighthouse/internal/rota\t1.9
 const rotaR4Green = run("ev-rota-r4-green", "", {
   phase: "green", state: "capturing", passed: false, revision: commit.rotaRetry, created: at("@14:38"),
 });
+// rotaR4Judging is R4's green run while a judge reads it: the change kept a screenshot, and its trace is over the cap.
+const rotaR4Judging = run(
+  "ev-rota-r4-judging",
+  "=== RUN   TestExportRefusesAnExistingFile\n--- PASS: TestExportRefusesAnExistingFile (0.04s)\nok  \tlighthouse/internal/rota\t0.88s",
+  {
+  phase: "green", state: "judging", passed: false, revision: commit.rotaRetry, created: at("@14:38"),
+  artifacts: [
+    { path: "shots/export-refused.png", state: "kept", size: 49152n, mediaType: "image/png" },
+    { path: "trace.zip", state: "over_cap", size: 52428800n, mediaType: "application/zip" },
+  ],
+  },
+);
+// The screenshot R4's judged run kept: the export page refusing a file that is already there.
+evidenceArtifacts.set(evidenceArtifactKey("ev-rota-r4-judging", "shots/export-refused.png"), {
+  data: new TextEncoder().encode(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="200" viewBox="0 0 640 200">' +
+      '<rect x="24" y="24" width="592" height="152" rx="8" fill="none" stroke="currentColor"/>' +
+      '<text x="48" y="80" font-family="sans-serif" font-size="20">Export</text>' +
+      '<text x="48" y="124" font-family="sans-serif" font-size="16">shifts.csv already exists. Nothing was written.</text>' +
+      "</svg>",
+  ),
+  mediaType: "image/svg+xml",
+});
+
+// rotaR4Requirement is R4 with its green run still capturing, as the shipped rota-export draws it.
+const rotaR4Requirement: Plain<RequirementInit> = {
+  id: "R4", kind: "check", text: "Export refuses to overwrite an existing file.",
+  evidence: "go test ./cli/ -run TestExportRefusesOverwrite",
+  conclusion: "TestExportRefusesOverwrite passes: Export returns ErrExists for a path that exists.",
+  runs: [rotaR4Red, rotaR4Green],
+};
 
 const rotaRequirements: RequirementInit[] = [
   {
@@ -133,12 +179,7 @@ const rotaRequirements: RequirementInit[] = [
     conclusion: "TestCSVOneRowPerShift passes: 21 stored shifts give 21 rows.",
     runs: [rotaR3Red, rotaR3Green],
   },
-  {
-    id: "R4", kind: "check", text: "Export refuses to overwrite an existing file.",
-    evidence: "go test ./cli/ -run TestExportRefusesOverwrite",
-    conclusion: "TestExportRefusesOverwrite passes: Export returns ErrExists for a path that exists.",
-    runs: [rotaR4Red, rotaR4Green],
-  },
+  rotaR4Requirement,
   {
     id: "R5", kind: "check", text: "Fixtures cover every port zone.",
     evidence: "go test ./internal/rota/ -run TestFixturesCoverPortZones",
@@ -310,7 +351,7 @@ const rotaContract: ContractInit = {
   accepted: at("@13:50"),
 };
 
-const rotaEpic: EpicInit = {
+const rotaEpic: Plain<EpicInit> = {
   id: "lighthouse/rota-export", repository: "lighthouse", slug: "rota-export", steering: "sess-rota-14", outcome: "accepted", changed: at("@14:40"),
   live: true, runningSteps: [rotaT2Impl, rotaT1Impl], endedSteps: 5, problem: "", source: "orreryd",
   outcomeDetail: "", waiting: false, phaseAt: at("@13:52"), seen: 0n,
@@ -367,11 +408,20 @@ const rotaSummary =
   "serves a week, and rota export writes it as CSV, one row per shift. Export refuses to overwrite a file and writes " +
   "every run to the audit log. Fixtures cover every port zone. No dependency changes.";
 
-const rotaGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
+// rotaGetInit is rota-export's Epics.Get answer as its init, which the states the scenarios draw change.
+const rotaGetInit: Plain<MessageInitShape<typeof EpicsGetResponseSchema>> = {
   epic: rotaEpic,
   repository: "/home/owner/code/lighthouse",
   summary: rotaSummary,
-  questions: [{ id: "Q1", text: "Bump the embedded tz database? The pinned database lacks the 2026 Lisbon rule, so one fixture cannot pass. A bump changes go.mod, which is outside this unit’s owned files, and the contract says no dependency changes.", turn: 4n, asked: at("@14:39") } satisfies QuestionInit],
+  questions: [{
+    id: "Q1", text: "Bump the embedded tz database? The pinned database lacks the 2026 Lisbon rule, so one fixture cannot pass. A bump changes go.mod, which is outside this unit’s owned files, and the contract says no dependency changes.",
+    turn: 4n, asked: at("@14:39"),
+    choices: [
+      { id: "Keep the pin", does: "Skip the Lisbon case. The contract holds: R5 is met for every port on today’s rota." },
+      { id: "Allow the bump", does: "A contract change. Adds go.mod to this task and reruns the full gate." },
+    ],
+    recommendation: { choice: "Keep the pin", why: "Lisbon is not on any rota until March.", confidence: "high" },
+  } satisfies QuestionInit],
   sessions: [
     { id: "sess-rotaplan", pane: "%14", label: "Planned the rota export, and steers its epic", call: "epic_get", at: at("@13:50") } satisfies SessionInit,
     { id: "sess-lamp", pane: "%11", label: "Retry backoff and jitter for the telemetry uploader", call: "epic_get", at: at("@14:12") } satisfies SessionInit,
@@ -385,7 +435,8 @@ const rotaGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
     { position: 1n, step: "Merge the epic branch to main", target: "lighthouse main", undo: "revert the merge", state: "waiting" } satisfies ProofInit,
     { position: 2n, step: "Deploy lighthouse to halyard", target: "halyard", undo: "redeploy the previous build", state: "waiting" } satisfies ProofInit,
   ],
-});
+};
+const rotaGet: EpicsGetResponse = create(EpicsGetResponseSchema, rotaGetInit);
 
 // ---------------------------------------------------------------------------------------------------------------------
 // orrery/orrery-followups
@@ -979,6 +1030,11 @@ const epicRows: EpicInit[] = [
 // epics is the Epics.List answer: the epic rows, in the order the list draws them.
 export const epics = create(EpicsListResponseSchema, { epics: epicRows });
 
+// epicsListWith is the Epics.List answer of the shipped rows, each taken through change, with the added rows after them.
+export function epicsListWith(change: (row: EpicInit) => EpicInit, added: EpicInit[] = []): EpicsListResponse {
+  return create(EpicsListResponseSchema, { epics: [...epicRows.map(change), ...added] });
+}
+
 // gets holds the Epics.Get answer of each epic that has one, by epic id.
 export const gets = new Map<string, EpicsGetResponse>([
   ["orrery/orrery-followups", followupsGet],
@@ -998,3 +1054,179 @@ export const histories = new Map<string, EpicsHistoryResponse>([
   ["lighthouse/rota-export", create(EpicsHistoryResponseSchema, { entries: rotaHistory, next: "" })],
   ["orrery/holder-scopes", create(EpicsHistoryResponseSchema, { entries: holderHistory, next: "" })],
 ]);
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The epic states the page scenarios draw. Each changes the shipped answer of rota-export or buoy-feeds in the one way its
+// scenario names, or adds deck-pipeline. slices.ts draws each scenario over the shipped slices with these.
+// ---------------------------------------------------------------------------------------------------------------------
+
+// rotaStateEpic is rota-export's Epics.List row in a state: the shipped row, with the steps that have not ended as its
+// running steps, and the fields the state changes.
+function rotaStateEpic(steps: StepInit[], change: Partial<Plain<EpicInit>> = {}): Plain<EpicInit> {
+  return { ...rotaEpic, runningSteps: steps.filter((step) => step.end === ""), ...change };
+}
+
+// rotaStateGet is rota-export's Epics.Get answer in a state: its steps, the epic row, and the detail fields the state
+// changes. No state here asks a question, so none is given.
+function rotaStateGet(
+  steps: StepInit[],
+  change: Partial<Plain<EpicInit>> = {},
+  detail: { parked?: string; plannerParked?: boolean; requirements?: RequirementInit[] } = {},
+): EpicsGetResponse {
+  return create(EpicsGetResponseSchema, { ...rotaGetInit, ...detail, epic: rotaStateEpic(steps, change), steps, questions: [] });
+}
+
+// rotaRedRunning is tz-fixtures' step while its red stage runs. Nothing holds it, so no question asks about it.
+const rotaRedRunning: StepInit = {
+  ...rotaT1Impl, end: "", status: "running", held: false, stage: "turn", stageStarted: at("@14:39"),
+  doing: "Capturing the failing test for the Europe/Lisbon rule.", reason: "",
+};
+// rotaLimitReset is when the weekly usage limit the limited steps wait on resets.
+const rotaLimitReset = at("@15:10");
+const rotaT2Limited: StepInit = { ...rotaT2Impl, limited: true, limitKind: "weekly", limitResets: rotaLimitReset };
+const rotaRedLimited: StepInit = { ...rotaRedRunning, limited: true, limitKind: "weekly", limitResets: rotaLimitReset };
+
+const rotaBuildingSteps: StepInit[] = [rotaT5Try1, rotaT4Impl, rotaT5Try2, rotaT2Impl, rotaT3Impl, rotaRedRunning, rotaT3Review];
+const rotaLimitedSteps: StepInit[] = [rotaT5Try1, rotaT4Impl, rotaT5Try2, rotaT2Limited, rotaT3Impl, rotaRedLimited, rotaT3Review];
+
+// The history of the building states: the shipped entries, without the question tz-fixtures asked and the step it held.
+const rotaBuildingHistory = rotaHistory.filter((entry) => entry.cursor !== "c8" && entry.cursor !== "c11");
+
+// rotaPlannerHistory is the building history with the planner's taking of the park, as the newest entry.
+const rotaPlannerHistory: HistoryInit[] = [
+  ...rotaBuildingHistory,
+  {
+    time: at("@14:44"), cursor: "c13",
+    item: { case: "tell", value: { seq: 5n, text: "The planner took the park: gate failed on **export-cli**.", at: at("@14:44"), told: true } },
+  },
+];
+
+// rotaProblemText is the engine's own problem with the epic: its workflow file did not load.
+const rotaProblemText = "The epic’s workflow file did not load: workflow.yaml line 14, unknown node kind “gatee”.";
+
+// The rota-export states: the list row and the Epics.Get answer each reads, and the history it shows.
+export const rotaBuilding = {
+  row: rotaStateEpic(rotaBuildingSteps),
+  get: rotaStateGet(rotaBuildingSteps),
+  history: create(EpicsHistoryResponseSchema, { entries: rotaBuildingHistory, next: "" }),
+};
+export const rotaLimited = {
+  row: rotaStateEpic(rotaLimitedSteps),
+  get: rotaStateGet(rotaLimitedSteps),
+  history: create(EpicsHistoryResponseSchema, { entries: rotaBuildingHistory, next: "" }),
+};
+export const rotaPlanner = {
+  row: rotaStateEpic(rotaBuildingSteps),
+  get: rotaStateGet(rotaBuildingSteps, {}, { parked: "workflow node gate failed", plannerParked: true }),
+  history: create(EpicsHistoryResponseSchema, { entries: rotaPlannerHistory, next: "" }),
+};
+export const rotaProblem = {
+  row: rotaStateEpic(rotaBuildingSteps, { problem: rotaProblemText }),
+  get: rotaStateGet(rotaBuildingSteps, { problem: rotaProblemText }),
+  history: create(EpicsHistoryResponseSchema, { entries: rotaBuildingHistory, next: "" }),
+};
+
+// rotaEvidenceRequirements are rota-export's requirements with R4's green run judging, as the evidence scenario draws R4.
+const rotaR4Judged: RequirementInit = { ...rotaR4Requirement, runs: [rotaR4Red, rotaR4Judging] };
+const rotaEvidenceRequirements: RequirementInit[] = rotaRequirements.map((requirement) =>
+  requirement.id === "R4" ? rotaR4Judged : requirement,
+);
+export const rotaEvidence = {
+  row: rotaStateEpic(rotaBuildingSteps),
+  get: rotaStateGet(rotaBuildingSteps, {}, { requirements: rotaEvidenceRequirements }),
+  history: create(EpicsHistoryResponseSchema, { entries: rotaBuildingHistory, next: "" }),
+};
+
+// noticesParked is notices-usable parked on the owner's park alone. The engine's question is left out, so the park draws
+// its own two choices, Retry and Stop, and no question's choices.
+export const noticesParked: EpicsGetResponse = { ...noticesGet, questions: [] };
+
+// buoyPlanning is buoy-feeds before its planner has outlined a task: its contract is accepted and nothing asks.
+export const buoyPlanning: EpicsGetResponse = { ...buoyGet, questions: [] };
+
+// The deck-pipeline epic: 120 tasks, 96 of them integrated. Its two running steps are the only steps it has.
+function denseNumber(n: number): string {
+  return String(n).padStart(3, "0");
+}
+// denseStage is the stage of task n, in its place of the chart: review, green, implement and red, then planned.
+function denseStage(n: number): string {
+  if (n <= 96) {
+    return "";
+  }
+  if (n <= 99) {
+    return "verify";
+  }
+  if (n <= 104) {
+    return "green";
+  }
+  if (n <= 107) {
+    return "implement";
+  }
+  if (n <= 110) {
+    return "red";
+  }
+  return "";
+}
+const denseTasks: TaskInit[] = Array.from({ length: 120 }, (_, index) => ({
+  id: `U${denseNumber(index + 1)}`,
+  title: `unit-${denseNumber(index + 1)}`,
+  status: index < 96 ? "done" : "open",
+  stage: denseStage(index + 1),
+  requirements: [`R${(index % 6) + 1}`],
+}));
+const denseStep = (n: number, doing: string): StepInit => ({
+  ...gateDefaults, id: `st-deck-u${denseNumber(n)}`, task: `U${denseNumber(n)}`, agent: "haiku", role: "implementer",
+  readOnly: false, end: "", status: "running", held: false, started: at("@14:20"), ended: 0n, stage: "turn",
+  stageStarted: at("@14:36"), doing, reason: "", summary: "", checks: [],
+});
+// denseFailed is unit-102's only step: it ended at a failed check, so its wedge is drawn failed.
+const denseFailed: StepInit = {
+  ...denseStep(102, ""), end: "checks_failed", status: "ended", ended: at("@14:30"),
+  reason: "The playthrough did not match the recorded run.",
+};
+// unit-107's step is held by the owner, so its wedge is drawn held.
+const denseRunning: StepInit[] = [
+  denseStep(105, "Adding the manifest entry for the deck."),
+  { ...denseStep(107, "Waiting on the owner’s word before it goes on."), held: true },
+  denseStep(108, "Capturing the failing playthrough test."),
+];
+// denseRuns are a requirement's runs: its red run, which fails at the base, and its green run, which passes or is still
+// capturing.
+function denseRuns(n: number, passing: boolean): RunInit[] {
+  const red = run(`ev-deck-r${n}-red`, "", { phase: "red", exit: 1, verdict: "fails", passed: true });
+  const green = passing
+    ? run(`ev-deck-r${n}-green`, "", { phase: "green", exit: 0, verdict: "holds", passed: true })
+    : run(`ev-deck-r${n}-green`, "", { phase: "green", state: "capturing", passed: false });
+  return [red, green];
+}
+export const denseEpic: Plain<EpicInit> = {
+  id: "commonframe/deck-pipeline", repository: "commonframe", slug: "deck-pipeline", steering: "", outcome: "accepted",
+  changed: at("@14:40"), live: true, runningSteps: denseRunning, endedSteps: 1, problem: "", source: "orreryd",
+  outcomeDetail: "", waiting: false, phaseAt: at("@08:29"), seen: 0n,
+};
+export const denseGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
+  epic: denseEpic,
+  repository: "/home/owner/work/commonframe",
+  summary:
+    "Every deck in the catalogue is rebuilt from its source, checked against its recorded playthrough, and published with a " +
+    "manifest. 120 decks, six requirements.",
+  contract: {
+    title: "deck-pipeline",
+    approved: "Approved: rebuild every deck from its source, and publish it only when it matches its playthrough.",
+    intent: "Every deck in the catalogue should be published from its source, with a manifest of the whole catalogue.",
+    care: "serious",
+    approach: "Rebuild each deck, play it back against its recorded playthrough, and write the manifest from the results.",
+    checks: "just check on every return.",
+    accepted: at("@08:29"),
+  },
+  requirements: [
+    { id: "R1", kind: "check", text: "Every deck is rebuilt from its source.", runs: denseRuns(1, true) },
+    { id: "R2", kind: "check", text: "A rebuilt deck matches its recorded playthrough.", runs: denseRuns(2, true) },
+    { id: "R3", kind: "check", text: "Every deck is published with a manifest.", runs: denseRuns(3, true) },
+    { id: "R4", kind: "check", text: "The manifest lists every deck in the catalogue.", runs: denseRuns(4, true) },
+    { id: "R5", kind: "check", text: "A deck that fails its playthrough is not published.", runs: denseRuns(5, false) },
+    { id: "R6", kind: "check", text: "Every publish is written to the audit log.", runs: denseRuns(6, false) },
+  ],
+  buildTasks: denseTasks,
+  steps: [denseFailed, ...denseRunning],
+});

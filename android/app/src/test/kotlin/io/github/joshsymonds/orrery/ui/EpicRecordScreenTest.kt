@@ -912,7 +912,7 @@ class EpicRecordScreenTest {
     }
 
     @Test
-    fun epicCommandsATransportFailureSaysTheServerCouldNotBeReached() {
+    fun epicCommandsATransportFailureSaysTheServerDidNotAnswer() {
         FakeOrreryServer().use { server ->
             serve(server, body(outcome = "built"))
             server.drop(EPICS_PAUSE)
@@ -925,7 +925,7 @@ class EpicRecordScreenTest {
 
             awaitTag("epic-notice")
             composeRule.onNodeWithTag("epic-notice", useUnmergedTree = true)
-                .assertTextEquals("Pause did not land: the server could not be reached.")
+                .assertTextEquals("Pause did not land: the server did not answer.")
         }
     }
 

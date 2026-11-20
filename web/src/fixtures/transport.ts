@@ -19,6 +19,7 @@ import {
   Presence,
   Sessions,
 } from "../gen/orrery/v1/orrery_pb";
+import { evidenceArtifactKey } from "./epics";
 import { type Slices, shippedSlices } from "./slices";
 
 // FixtureTransport is the fixture a page is given: the transport, the clients made from it, the procedures it refused,
@@ -172,7 +173,11 @@ export function createFixtureTransport(slices: Slices = shippedSlices): FixtureT
     router.service(Evidence, {
       artifact: (request) => {
         if (request.name !== "") {
-          throw notFound(`artifact ${request.name} not found`);
+          const artifact = slices.evidenceArtifacts.get(evidenceArtifactKey(request.run, request.name));
+          if (artifact === undefined) {
+            throw notFound(`artifact ${request.name} not found`);
+          }
+          return { data: artifact.data, mediaType: artifact.mediaType };
         }
         // A run's stderr is empty; its log is the stdout that Evidence/Artifact returns with an empty name.
         const log = request.stderr ? "" : slices.evidenceLogs.get(request.run);

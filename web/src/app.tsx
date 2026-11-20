@@ -2234,7 +2234,7 @@ function epicCommands(clients: Clients, epicId: string, report: (line: string) =
     void sent.then(
       () => report(""),
       (error: unknown) =>
-        report(`${name} did not land: ${error instanceof Error && error.message !== "" ? error.message : noReasonText}.`),
+        report(`${name} did not land: ${failureReason(error) !== "" ? failureReason(error) : noReasonText}.`),
     );
   };
   return {

@@ -38,6 +38,9 @@ const wideWidth = 1280;
 // is at 1250px or narrower.
 const overlayWidth = 1000;
 
+// phoneWidth is the width the epic page is a phone's: under 760px its commands are under More.
+const phoneWidth = 412;
+
 const attention: Address = { order: "attention", entry: null };
 
 // refusal resolves to the Connect error a call rejects with, and fails the test when the call is answered.
@@ -697,7 +700,287 @@ test("FixtureTransport: page/epic-question, page/epic-handover and page/epic-tal
   }
 });
 
-test("FixtureTransport: page's keys are exactly the 23 catalog names of its scenario states", () => {
+// epicNow is the Now section of the epic page, or null when the page draws none.
+function epicNow(root: HTMLElement): HTMLElement | null {
+  return root.querySelector<HTMLElement>(".epic-page section.now");
+}
+
+// nowSays reports whether the Now section draws text.
+function nowSays(root: HTMLElement, text: string): boolean {
+  return epicNow(root)?.textContent.includes(text) === true;
+}
+
+// pageTitleText is the epic page's title row, or the empty string when none is drawn.
+function pageTitleText(root: HTMLElement): string {
+  return root.querySelector("section.page .title-row")?.textContent ?? "";
+}
+
+// pageCommands are the epic page's commands in its title row.
+function pageCommands(root: HTMLElement): string[] {
+  return [...root.querySelectorAll<HTMLButtonElement>("section.page .title-row .acts button.act")].map(
+    (button) => button.textContent,
+  );
+}
+
+// stateNote is the line under the title row that a page command leaves, or the empty string when none is drawn.
+function stateNote(root: HTMLElement): string {
+  return root.querySelector(".page-note")?.textContent ?? "";
+}
+
+// epicNoteOf is the one line an epic page draws in place of its body: the loading or could-not-read line, or the empty
+// string when the epic's page is drawn.
+function epicNoteOf(root: HTMLElement): string {
+  return root.querySelector('section[aria-label="epic"] > p.side-note')?.textContent ?? "";
+}
+
+// The Ask's submit button, or null when no Ask is drawn.
+function askSubmit(root: HTMLElement): HTMLButtonElement | null {
+  return root.querySelector<HTMLButtonElement>('.epic-page section.now form.answer button[type="submit"]');
+}
+
+// The text a page's commands are typed under, which the epic-question-other story types into its answer.
+const otherAnswer = "Vendor the Lisbon rule as a fixture file; do not touch go.mod.";
+
+test("FixtureTransport: page/epic-building draws rota-export building, with two tasks worked on and no Ask", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["epic-building"],
+    (root) => nowSays(root, "2 tasks are being worked on."),
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(root.querySelector(".epic-page section.now form.answer"), null, "no Ask is drawn");
+    },
+  );
+});
+
+test("FixtureTransport: page/epic-question-other draws the answer picked as Something else, with its text sent by that answer", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["epic-question-other"],
+    // The answer is sendable once its text is typed: until then the button is disabled.
+    (root) => askSubmit(root)?.textContent === "Answer with Something else" && askSubmit(root)?.disabled === false,
+    (root) => {
+      assertNoFailure(root);
+      const field = root.querySelector<HTMLTextAreaElement>('textarea[aria-label="answer"]');
+      assert.equal(field?.value, otherAnswer, "the typed answer is in the box");
+      assert.equal(askSubmit(root)?.disabled, false, "the answer is sendable with its text");
+    },
+  );
+});
+
+test("FixtureTransport: page/epic-parked draws notices-usable on the owner's park, with Retry and Stop and no other choice", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["epic-parked"],
+    (root) => root.querySelector(".epic-page section.now .ask.park") !== null,
+    (root) => {
+      assertNoFailure(root);
+      assert.ok(pageTitleText(root).includes("parked"), "the title row says parked");
+      const park = root.querySelector(".epic-page section.now .ask.park");
+      assert.deepEqual([...(park?.querySelectorAll("button") ?? [])].map((button) => button.textContent), ["Retry", "Stop…"]);
+      assert.equal(root.querySelector(".epic-page section.now form.answer"), null, "no question is drawn");
+    },
+  );
+});
+
+test("FixtureTransport: page/epic-planner-parked draws the planner's park as one quiet line that asks nothing", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["epic-planner-parked"],
+    (root) => nowSays(root, "The planner holds a park and is deciding what to do."),
+    (root) => {
+      assertNoFailure(root);
+      assert.ok(nowSays(root, "The planner holds this park: workflow node gate failed."), "the quiet line names the park");
+      assert.equal(root.querySelector(".epic-page section.now form.answer"), null, "no Ask is drawn");
+    },
+  );
+});
+
+test("FixtureTransport: page/epic-limited draws the steps on the weekly limit, grey, with Resume now", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["epic-limited"],
+    (root) => nowSays(root, "2 steps wait on the weekly limit"),
+    (root) => {
+      assertNoFailure(root);
+      const resume = [...(epicNow(root)?.querySelectorAll("button") ?? [])].map((button) => button.textContent);
+      assert.ok(resume.includes("Resume now"), "Resume now is drawn");
+    },
+  );
+});
+
+test("FixtureTransport: page/epic-paused draws harbour-map paused, with Resume as its command", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["epic-paused"],
+    (root) => pageTitleText(root).includes("paused"),
+    (root) => {
+      assertNoFailure(root);
+      assert.ok(pageCommands(root).includes("Resume"), "Resume is drawn");
+      assert.ok(!pageCommands(root).includes("Pause"), "Pause is not drawn while paused");
+    },
+  );
+});
+
+test("FixtureTransport: page/epic-planning draws buoy-feeds with its summary and no task table", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["epic-planning"],
+    (root) => nowSays(root, "The planner is reading the contract and outlining tasks."),
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(root.querySelector(".epic-page section.tasks"), null, "no Tasks section is drawn");
+      assert.equal(root.querySelector(".epic-page section.now form.answer"), null, "no Ask is drawn");
+    },
+  );
+});
+
+test("FixtureTransport: page/epic-dense draws 120 tasks, 96 done, the table folding the rest", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["epic-dense"],
+    (root) => root.querySelector(".epic-page section.tasks")?.textContent.includes("96 of 120 done") === true,
+    (root) => {
+      assertNoFailure(root);
+      assert.ok(root.querySelector(".epic-page section.tasks .fold-line")?.textContent.includes("108 more tasks"), "the rest fold");
+      assert.ok(root.querySelector('.epic-page section.tasks path.cell[data-task="U102"].c-bad'), "U102 is drawn failed");
+      assert.ok(root.querySelector('.epic-page section.tasks path.cell[data-task="U107"].c-mine'), "U107 is drawn held");
+    },
+  );
+});
+
+// requirementLogs is the text of each run log drawn in the requirements section, and requirementArtifacts the text of each
+// artifact line drawn there.
+function requirementLogs(root: HTMLElement): string[] {
+  return [...root.querySelectorAll(".epic-page section.requirements .runs .log")].map((log) => log.textContent);
+}
+function requirementArtifacts(root: HTMLElement): string[] {
+  return [...root.querySelectorAll(".epic-page section.requirements .artifact > span")].map((line) => line.textContent);
+}
+
+test("FixtureTransport: page/epic-evidence draws R4 open, both runs' logs, and the green run's two artifacts with its screenshot", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["epic-evidence"],
+    (root) =>
+      requirementLogs(root).some((log) => log.includes("export_test.go:88: want ErrExists, got nil")) &&
+      requirementLogs(root).some((log) => log.includes("--- PASS: TestExportRefusesAnExistingFile")) &&
+      requirementArtifacts(root).length === 2 &&
+      root.querySelector(".epic-page section.requirements img.artifact-image") !== null,
+    (root) => {
+      assertNoFailure(root);
+      const open = root.querySelector('.epic-page section.requirements button.tr[aria-expanded="true"]');
+      assert.ok(open?.textContent.includes("Export refuses to overwrite an existing file."), "R4's row is the one open");
+      assert.deepEqual(requirementArtifacts(root), [
+        "shots/export-refused.png · kept · 49152 bytes",
+        "trace.zip · too large to keep · 52428800 bytes",
+      ]);
+      assert.equal(root.querySelector(".epic-page section.requirements .unavailable"), null, "every log and image is read");
+    },
+  );
+});
+
+test("FixtureTransport: page/epic-stop-confirm draws Stop asking first, in the title row, beside Keep it running", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["epic-stop-confirm"],
+    (root) => root.querySelector(".sure")?.textContent === "Stop rota-export?",
+    (root) => {
+      assertNoFailure(root);
+      assert.ok(pageCommands(root).includes("Keep it running"), "Keep it running is drawn");
+    },
+  );
+});
+
+test("FixtureTransport: page/epic-stop-confirm at 412 wide draws the confirm sheet alone, with More's sheet closed", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["epic-stop-confirm"],
+    (root) => root.querySelector('[role="dialog"][aria-label="Stop rota-export?"]') !== null,
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(root.querySelector('[role="dialog"][aria-label="rota-export"]'), null, "More's sheet is closed");
+    },
+    phoneWidth,
+  );
+});
+
+test("FixtureTransport: page/epic-command-error draws the did-not-land line under the title row", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["epic-command-error"],
+    (root) => stateNote(root).includes("Pause did not land"),
+    (root) => {
+      assertNoFailure(root);
+    },
+  );
+});
+
+test("FixtureTransport: page/epic-command-error at 412 wide draws the same line, Pause having been pressed under More", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["epic-command-error"],
+    (root) => stateNote(root).includes("Pause did not land"),
+    (root) => {
+      assertNoFailure(root);
+    },
+    phoneWidth,
+  );
+});
+
+test("FixtureTransport: page/epic-problem draws the engine's problem in red above the summary", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["epic-problem"],
+    (root) => root.querySelector("p.problem")?.textContent.includes("workflow.yaml line 14") === true,
+    (root) => {
+      assertNoFailure(root);
+    },
+  );
+});
+
+test("FixtureTransport: page/epic-loading draws loading the epic, with no button", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["epic-loading"],
+    (root) => epicNoteOf(root) === "loading the epic…",
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(root.querySelector('section[aria-label="epic"] button'), null, "no button is drawn");
+    },
+  );
+});
+
+test("FixtureTransport: page/epic-unavailable draws the could-not-read line with Try again", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["epic-unavailable"],
+    (root) => epicNoteOf(root) === "The server could not read this epic.",
+    (root) => {
+      assertNoFailure(root);
+      const again = root.querySelector('section[aria-label="epic"] button');
+      assert.equal(again?.textContent, "Try again", "the read can be tried again");
+    },
+  );
+});
+
+test("FixtureTransport: page's keys are exactly the 37 catalog names of its scenario states", () => {
   assert.deepEqual(Object.keys(Page).map((state) => storyName("Page", state)).sort(), [
     "page/ask-session",
     "page/contract-accepted",
@@ -705,10 +988,24 @@ test("FixtureTransport: page's keys are exactly the 23 catalog names of its scen
     "page/convo-working",
     "page/dock-background",
     "page/dock-running",
+    "page/epic-building",
+    "page/epic-command-error",
+    "page/epic-dense",
+    "page/epic-evidence",
     "page/epic-handover",
+    "page/epic-limited",
+    "page/epic-loading",
+    "page/epic-parked",
+    "page/epic-paused",
+    "page/epic-planner-parked",
+    "page/epic-planning",
+    "page/epic-problem",
     "page/epic-question",
+    "page/epic-question-other",
     "page/epic-shipped",
+    "page/epic-stop-confirm",
     "page/epic-talk",
+    "page/epic-unavailable",
     "page/inbox-home",
     "page/keys",
     "page/new-empty",

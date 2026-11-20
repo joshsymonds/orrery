@@ -3,20 +3,28 @@
 // where none does, an after step clicks the way there.
 
 import { Code } from "@connectrpc/connect";
+import type { VNode } from "preact";
 
 import { PageStory } from "./catalog/pagestory";
 import type { Stories } from "./catalog/story";
-import { type AskAnswer, type PickerRowInit, shippedSlices } from "./fixtures/slices";
+import { type AskAnswer, type EpicScenario, epicScenarios, type PickerRowInit, shippedSlices } from "./fixtures/slices";
 import { createFixtureTransport, type FixtureTransport } from "./fixtures/transport";
 import type { Address, ListPanelKind, PageView } from "./router";
 
 const rota = "lighthouse/rota-export";
 const tide = "tidepool/tide-alerts";
 const holder = "orrery/holder-scopes";
+const notices = "orrery/notices-usable";
+const harbour = "orrery/harbour-map";
+const buoy = "tidepool/buoy-feeds";
+const tideCache = "tidepool/tide-cache";
+const deck = "commonframe/deck-pipeline";
 const headlessSession = "4be0c6d2-8f3a-4c71-9e25-ephemeris001";
 // The headless session that steers tidepool/buoy-feeds, which runs two sub-agents and one shell.
 const buoySession = "6c2f9e14-3a7b-4d58-9b0e-2f7a1c8d4e55";
 const workerStep = "st-rota-t2-impl";
+// otherWords is the answer epic-question-other types into Something else.
+const otherWords = "Vendor the Lisbon rule as a fixture file; do not touch go.mod.";
 // phoneWidth is the width under which the layout is the phone's: the groups are a strip and the epic is a page.
 const phoneWidth = 760;
 
@@ -95,6 +103,32 @@ async function typeInto(root: HTMLElement, selector: string, text: string): Prom
 }
 
 const openTalk = (root: HTMLElement) => clickWhen(root, "section.page .title-row .acts button.act", "Talk");
+
+// openRunLog opens the log of the first evidence run whose log is still closed, and lets the page draw the change.
+async function openRunLog(root: HTMLElement): Promise<void> {
+  await clickWhen(root, '.runs .run-line button[aria-expanded="false"]', "log");
+  await nextRound();
+}
+
+// onPhone reports whether the layout is the phone's, where an epic's commands are under More and not in its title row.
+const onPhone = (): boolean => window.innerWidth < phoneWidth;
+
+// pressEpicCommand presses the epic page's command labelled label: in the page's title row at the desk, and under More
+// on the phone, where the command is one of More's sheet. The inbox's card of the epic has commands of its own, so the
+// page's are named by their place.
+async function pressEpicCommand(root: HTMLElement, label: string): Promise<void> {
+  if (onPhone()) {
+    await clickWhen(root, "section.page .cmdbar button", "More");
+    await clickWhen(root, '[role="dialog"] button.act', label);
+    return;
+  }
+  await clickWhen(root, "section.page .title-row .acts button.act", label);
+}
+
+// epicScenario draws the epic at address over the slices of the scenario named.
+const epicScenario = (address: Address, scenario: EpicScenario): VNode => (
+  <PageStory address={address} fixture={createFixtureTransport(epicScenarios[scenario])} />
+);
 
 // newField is New session's one field.
 const newField = 'input[aria-label="New session"]';
@@ -201,6 +235,57 @@ export const Page: Stories = {
   "dock-running": () => <PageStory address={sessionAt(buoySession, "agents")} />,
   "dock-background": () => <PageStory address={sessionAt(buoySession, "running")} />,
   "epic-handover": () => <PageStory address={epicAt(rota, { kind: "epic" })} after={openTalk} />,
+  "epic-building": () => epicScenario(epicAt(rota, { kind: "epic" }), "building"),
+  "epic-question-other": () => (
+    <PageStory
+      address={epicAt(rota, { kind: "epic" })}
+      after={async (root) => {
+        await clickWhen(root, ".opts button.opt", "Something else");
+        await typeInto(root, 'textarea[aria-label="answer"]', otherWords);
+      }}
+    />
+  ),
+  "epic-parked": () => epicScenario(epicAt(notices, { kind: "epic" }), "parked"),
+  "epic-planner-parked": () => epicScenario(epicAt(rota, { kind: "epic" }), "plannerParked"),
+  "epic-limited": () => epicScenario(epicAt(rota, { kind: "epic" }), "limited"),
+  "epic-paused": () => <PageStory address={epicAt(harbour, { kind: "epic" })} />,
+  "epic-planning": () => epicScenario(epicAt(buoy, { kind: "epic" }), "planning"),
+  "epic-dense": () => epicScenario(epicAt(deck, { kind: "epic" }), "dense"),
+  "epic-evidence": () => (
+    <PageStory
+      address={epicAt(rota, { kind: "epic" })}
+      fixture={createFixtureTransport(epicScenarios.evidence)}
+      after={async (root) => {
+        await clickWhen(root, "button.tr", "Export refuses to overwrite an existing file.");
+        // The red run's log opens first, then the green run's, which folds its artifacts under it.
+        await openRunLog(root);
+        await openRunLog(root);
+      }}
+    />
+  ),
+  "epic-stop-confirm": () => (
+    <PageStory
+      address={epicAt(rota, { kind: "epic" })}
+      fixture={createFixtureTransport(epicScenarios.building)}
+      after={async (root) => {
+        await pressEpicCommand(root, "Stop…");
+        await drawnWhen(root, onPhone() ? '[role="dialog"]' : ".sure", "Stop rota-export?");
+      }}
+    />
+  ),
+  "epic-command-error": () => (
+    <PageStory
+      address={epicAt(rota, { kind: "epic" })}
+      fixture={createFixtureTransport(epicScenarios.commandError)}
+      after={async (root) => {
+        await pressEpicCommand(root, "Pause");
+        await drawnWhen(root, ".page-note", "did not land");
+      }}
+    />
+  ),
+  "epic-problem": () => epicScenario(epicAt(rota, { kind: "epic" }), "problem"),
+  "epic-loading": () => epicScenario(epicAt(tideCache, { kind: "epic" }), "loading"),
+  "epic-unavailable": () => epicScenario(epicAt(rota, { kind: "epic" }), "unavailable"),
   "convo-working": () => <PageStory address={convoWorkingAt} />,
   "ask-session": () => (
     <PageStory

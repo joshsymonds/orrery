@@ -18,7 +18,24 @@ import type {
   SessionsWatchConversationResponse,
   WatchConversationResponse,
 } from "../gen/orrery/v1/orrery_pb";
-import { evidenceLogs, epics, gets, histories } from "./epics";
+import {
+  buoyPlanning,
+  denseEpic,
+  denseGet,
+  epicsListWith,
+  evidenceArtifacts,
+  type EvidenceArtifactBytes,
+  evidenceLogs,
+  epics,
+  gets,
+  histories,
+  noticesParked,
+  rotaBuilding,
+  rotaEvidence,
+  rotaLimited,
+  rotaPlanner,
+  rotaProblem,
+} from "./epics";
 import { host } from "./host";
 import { panes, paneStreams } from "./panes";
 import { headless, sessions, sessionStreams } from "./sessions";
@@ -46,6 +63,8 @@ export interface Slices {
   readonly paneStreams: ReadonlyMap<string, WatchConversationResponse>;
   readonly sessionStreams: ReadonlyMap<string, SessionsWatchConversationResponse>;
   readonly evidenceLogs: ReadonlyMap<string, string>;
+  // evidenceArtifacts holds the bytes of each kept artifact Evidence.Artifact answers with, by evidenceArtifactKey.
+  readonly evidenceArtifacts: ReadonlyMap<string, EvidenceArtifactBytes>;
   readonly asks: ReadonlyMap<string, AskAnswer>;
   // heldGets names the epics whose Epics.Get stays open until its call aborts.
   readonly heldGets: ReadonlySet<string>;
@@ -65,7 +84,69 @@ export const shippedSlices: Slices = {
   paneStreams,
   sessionStreams,
   evidenceLogs,
+  evidenceArtifacts,
   asks: new Map<string, AskAnswer>(),
   heldGets: new Set<string>(),
   failingEpicCommands: new Map<"pause" | "resume" | "stop" | "retry", string>(),
+};
+
+// EpicScenario names an epic page scenario of round 6 that the page stories draw over the slices it is given.
+export type EpicScenario =
+  | "building"
+  | "limited"
+  | "plannerParked"
+  | "commandError"
+  | "problem"
+  | "unavailable"
+  | "planning"
+  | "dense"
+  | "loading"
+  | "parked"
+  | "evidence";
+
+const rotaId = "lighthouse/rota-export";
+const buoyId = "tidepool/buoy-feeds";
+const tideCacheId = "tidepool/tide-cache";
+const denseId = "commonframe/deck-pipeline";
+const noticesId = "orrery/notices-usable";
+
+// withRota is the shipped slices with rota-export in one of its states: its list row, its Epics.Get answer and its
+// history replaced.
+function withRota(state: typeof rotaBuilding): Slices {
+  return {
+    ...shippedSlices,
+    epics: epicsListWith((row) => (row.id === rotaId ? state.row : row)),
+    gets: new Map<string, EpicsGetResponse>([...gets, [rotaId, state.get]]),
+    histories: new Map<string, EpicsHistoryResponse>([...histories, [rotaId, state.history]]),
+  };
+}
+
+// epicScenarios holds the slices each epic page scenario draws over. A scenario's slices change only what it names, and
+// the shipped slices serve every other story and test.
+export const epicScenarios: Record<EpicScenario, Slices> = {
+  building: withRota(rotaBuilding),
+  evidence: withRota(rotaEvidence),
+  limited: withRota(rotaLimited),
+  plannerParked: withRota(rotaPlanner),
+  commandError: {
+    ...withRota(rotaBuilding),
+    failingEpicCommands: new Map<"pause" | "resume" | "stop" | "retry", string>([["pause", "the server did not answer"]]),
+  },
+  problem: withRota(rotaProblem),
+  unavailable: {
+    ...withRota(rotaBuilding),
+    gets: new Map<string, EpicsGetResponse>([...gets].filter(([id]) => id !== rotaId)),
+  },
+  planning: { ...shippedSlices, gets: new Map<string, EpicsGetResponse>([...gets, [buoyId, buoyPlanning]]) },
+  dense: {
+    ...shippedSlices,
+    epics: epicsListWith((row) => row, [denseEpic]),
+    gets: new Map<string, EpicsGetResponse>([...gets, [denseId, denseGet]]),
+  },
+  parked: { ...shippedSlices, gets: new Map<string, EpicsGetResponse>([...gets, [noticesId, noticesParked]]) },
+  loading: {
+    ...shippedSlices,
+    epics: epicsListWith((row) => (row.id === tideCacheId ? { ...row, seen: 0n } : row)),
+    heldGets: new Set([tideCacheId]),
+  },
 };

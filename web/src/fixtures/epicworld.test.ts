@@ -4,11 +4,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { Code } from "@connectrpc/connect";
+
 import type { Epic, EpicRequirement, EpicsGetResponse } from "../gen/orrery/v1/epics_pb";
 import { type Place, type Tone, provenOf, wedgesOf } from "../phases";
+import { allLimited, askingOf, nowSentenceOf, ownerParked, plannerParked } from "../recordwords";
 import { blockerOf, stateOf } from "../status";
-import { liveEpoch } from "./clock";
-import { shippedSlices } from "./slices";
+import { at, liveEpoch } from "./clock";
+import { type EpicScenario, epicScenarios, type Slices, shippedSlices } from "./slices";
+import { createFixtureTransport } from "./transport";
 
 // epicOf is the epic of the list with the slug. It fails the test when the list holds none.
 function epicOf(slug: string): Epic {
@@ -197,4 +201,104 @@ test("FixtureWorld: rota-export's R5 red run passed, and R5 has no green run", (
 test("FixtureWorld: rota-export's R6 is a review with no run yet", () => {
   const requirement = requirementOf("rota-export", "R6");
   assert.deepEqual([requirement.kind, requirement.runs.length], ["review", 0]);
+});
+
+// detailIn is the Epics.Get answer of the epic with the slug in the slices, or undefined when the slices hold none.
+function detailIn(slices: Slices, slug: string): EpicsGetResponse | undefined {
+  const epic = slices.epics.epics.find((candidate) => candidate.slug === slug);
+  return epic === undefined ? undefined : slices.gets.get(epic.id);
+}
+
+// scenarioDetail is the Epics.Get answer of the epic with the slug in the scenario's slices. It fails the test when the
+// scenario holds none.
+function scenarioDetail(scenario: EpicScenario, slug: string): EpicsGetResponse {
+  const detail = detailIn(epicScenarios[scenario], slug);
+  assert.ok(detail !== undefined, `the ${scenario} scenario holds an Epics.Get answer for ${slug}`);
+  return detail;
+}
+
+test("FixtureScenarios: building draws rota-export building, with nothing asked and two steps running, one of them not held", () => {
+  const detail = scenarioDetail("building", "rota-export");
+  assert.equal(stateOf(detail), "building");
+  assert.equal(detail.questions.length, 0, "no question is open");
+  assert.equal(blockerOf(detail), null, "nothing holds the epic");
+  assert.equal(nowSentenceOf(detail), "2 tasks are being worked on.");
+  const running = detail.steps.filter((step) => step.end === "");
+  assert.deepEqual(running.map((step) => [step.task, step.held]), [["T2", false], ["T1", false]]);
+  assert.deepEqual(
+    wedgesOf(detail).filter((wedge) => ["T1", "T2"].includes(wedge.task)).map((wedge) => [wedge.task, wedge.place, wedge.tone]),
+    [["T1", "implementing", "run"], ["T2", "implementing", "run"]],
+  );
+});
+
+test("FixtureScenarios: limited draws rota-export with every running step on the weekly limit, which resets at 15:10", () => {
+  const detail = scenarioDetail("limited", "rota-export");
+  assert.equal(allLimited(detail), true, "every running step is limited");
+  const running = detail.steps.filter((step) => step.end === "");
+  assert.deepEqual(
+    running.map((step) => [step.limitKind, step.limitResets]),
+    [["weekly", at("@15:10")], ["weekly", at("@15:10")]],
+    "both wait on the weekly limit, which resets at 15:10",
+  );
+  // The reset's clock time is written in the local zone, so the sentence is checked for its words, not its digits.
+  assert.ok(nowSentenceOf(detail).startsWith("2 steps wait on the weekly limit, which resets at "), "Now names the limit");
+});
+
+test("FixtureScenarios: parked draws notices-usable on the owner's park, which asks with no question", () => {
+  const detail = scenarioDetail("parked", "notices-usable");
+  assert.equal(detail.questions.length, 0, "no question is open");
+  assert.equal(askingOf(detail)?.kind, "park", "the owner's park asks");
+});
+
+test("FixtureWorld: rota-export's question Q1 offers Keep the pin, recommended, and Allow the bump", () => {
+  const [question] = detailOf("rota-export").questions;
+  assert.deepEqual(question?.choices.map((choice) => choice.id), ["Keep the pin", "Allow the bump"]);
+  assert.equal(question?.recommendation?.choice, "Keep the pin");
+});
+
+test("FixtureScenarios: plannerParked draws rota-export under the planner's park, which asks the owner nothing", () => {
+  const detail = scenarioDetail("plannerParked", "rota-export");
+  assert.equal(plannerParked(detail), true, "the planner holds the park");
+  assert.equal(ownerParked(detail), false, "the owner does not hold it");
+  assert.equal(askingOf(detail)?.kind, "planner");
+  assert.equal(detail.questions.length, 0, "no question is open");
+});
+
+test("FixtureScenarios: problem draws rota-export with the engine's problem on the epic it reads", () => {
+  const detail = scenarioDetail("problem", "rota-export");
+  assert.notEqual(detail.epic?.problem, "", "the epic has a problem");
+});
+
+test("FixtureScenarios: unavailable draws rota-export with no Epics.Get answer, so the read fails", async () => {
+  const { clients } = createFixtureTransport(epicScenarios.unavailable);
+  const id = epicOf("rota-export").id;
+  await assert.rejects(clients.epics.get({ id }), { code: Code.NotFound });
+});
+
+test("FixtureScenarios: commandError refuses Pause with a reason, so the page's command does not land", async () => {
+  const { clients } = createFixtureTransport(epicScenarios.commandError);
+  const id = epicOf("rota-export").id;
+  await assert.rejects(clients.epics.pause({ id }), { code: Code.Unavailable });
+});
+
+test("FixtureScenarios: planning draws buoy-feeds with no question, no task, and the planner's sentence", () => {
+  const detail = scenarioDetail("planning", "buoy-feeds");
+  assert.equal(detail.questions.length, 0, "no question is open");
+  assert.equal(askingOf(detail), null, "nothing asks the owner");
+  assert.equal(wedgesOf(detail).length, 0, "no task is outlined");
+  assert.equal(nowSentenceOf(detail), "The planner is reading the contract and outlining tasks. No task has started.");
+});
+
+test("FixtureScenarios: loading holds the Epics.Get of an epic the first load does not read, so its page waits", () => {
+  const listed = epicScenarios.loading.epics.epics.find((epic) => epic.slug === "tide-cache");
+  assert.ok(listed !== undefined, "the scenario lists tide-cache");
+  assert.equal(listed.live, false, "the first load reads only live epics");
+  assert.ok(epicScenarios.loading.heldGets.has(listed.id), "the page's own read of it stays open");
+});
+
+test("FixtureScenarios: dense draws deck-pipeline with 120 tasks, 96 of them done", () => {
+  const detail = scenarioDetail("dense", "deck-pipeline");
+  const wedges = wedgesOf(detail);
+  assert.equal(wedges.length, 120);
+  assert.equal(wedges.filter((wedge) => wedge.place === "integrated").length, 96);
 });

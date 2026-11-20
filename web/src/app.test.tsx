@@ -4431,7 +4431,7 @@ test("a command that fails shows its did-not-land line under the title row, and 
     await press("j");
     await clickButton(container, ".epic-page .title-row .acts", "Pause");
     await until(t.signal, () => noteText().startsWith("Pause did not land: "), "the did-not-land line");
-    assert.equal(noteText().endsWith("queue unreachable."), true, "the line gives the error's message as its reason");
+    assert.equal(noteText(), "Pause did not land: the server did not answer.", "the line gives the failure's plain reason");
     await clickButton(container, ".epic-page .title-row .acts", "Pause");
     await until(t.signal, () => noteText() === "", "the line to clear");
   }));
