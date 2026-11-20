@@ -54,12 +54,14 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTurn as EpicTurnProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsAnswerRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsArchiveRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsClient
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsCloseRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsContinueRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsHistoryRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsListRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsMoveRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsPauseRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsReleaseRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsResumeRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsRetryRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsSeenRequest
@@ -731,7 +733,11 @@ data class EpicContractRow(
  * is why the epic is parked, empty when it is not. [plannerParked] is whether the planner holds that park.
  * [repository] is the absolute path of the git repository the epic belongs to, empty when none is named.
  * [releaseProof] is the contract's release steps with the state their release runs gave them, in contract order,
- * empty for a record epic.
+ * empty for a record epic. [reviews] are the verdicts of the epic-stage reviewers by position, empty before its review.
+ * [ledger] is the end-of-epic review ledger in ledger order, with each finding's closures, empty before its review
+ * freezes. [releases] are the release runs in the order orreryd reads them, empty before its release. [report] is
+ * what the epic shipped, null until the epic ends and writes it. [supersededBy] is the epic a close named as its
+ * replacement, empty when its close named none or it is not closed.
  */
 data class EpicDetail(
     val epic: EpicRow,
@@ -748,6 +754,11 @@ data class EpicDetail(
     val plannerParked: Boolean = false,
     val repository: String = "",
     val releaseProof: List<EpicReleaseProofRow> = emptyList(),
+    val reviews: List<EpicReviewVerdictRow> = emptyList(),
+    val ledger: List<EpicLedgerFindingRow> = emptyList(),
+    val releases: List<EpicReleaseRunRow> = emptyList(),
+    val report: EpicReportRow? = null,
+    val supersededBy: String = "",
 )
 
 /** What a hold, nudge, stop or epic call came to: it landed, or orreryd refused it with its reason. */
@@ -1045,6 +1056,11 @@ class OrreryClient(
             plannerParked = response.plannerParked,
             repository = response.repository,
             releaseProof = response.releaseStepsList.map { it.toEpicReleaseProofRow() },
+            reviews = response.reviewsList.map { it.toEpicReviewVerdictRow() },
+            ledger = response.ledgerList.map { it.toEpicLedgerFindingRow() },
+            releases = response.releasesList.map { it.toEpicReleaseRunRow() },
+            report = if (response.hasReport()) response.report.toEpicReportRow() else null,
+            supersededBy = response.supersededBy,
         )
     }
 
@@ -1297,6 +1313,26 @@ class OrreryClient(
     fun stopEpic(id: String): StepCallResult {
         val request = EpicsStopRequest.newBuilder().setId(id).build()
         return stepCall { call(write = true) { standard.epics.stop(request, CLIENT_HEADERS) } }
+    }
+
+    /**
+     * Releases the orreryd epic [id], running its release steps. [undoNone] names the positions, from 1, of its
+     * undo-none release steps to run again; empty names none. A refused release answers [StepCallResult.Refused], and
+     * any other failure throws.
+     */
+    fun releaseEpic(id: String, undoNone: List<Int>): StepCallResult {
+        val request = EpicsReleaseRequest.newBuilder().setId(id).addAllUndoNone(undoNone).build()
+        return stepCall { call(write = true) { standard.epics.release(request, CLIENT_HEADERS) } }
+    }
+
+    /**
+     * Closes the orreryd epic [id] as [kind], which is superseded, shipped or abandoned, and [by], the epic that
+     * replaces it, which a superseded close requires. A refused close answers [StepCallResult.Refused], and any other
+     * failure throws.
+     */
+    fun closeEpic(id: String, kind: String, by: String): StepCallResult {
+        val request = EpicsCloseRequest.newBuilder().setId(id).setKind(kind).setBy(by).build()
+        return stepCall { call(write = true) { standard.epics.close(request, CLIENT_HEADERS) } }
     }
 
     /**
