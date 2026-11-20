@@ -1,15 +1,12 @@
 package io.github.joshsymonds.orrery.api
 
-import io.github.joshsymonds.orrery.gen.orrery.v1.BackgroundTask
+import io.github.joshsymonds.orrery.gen.orrery.v1.BackgroundTask as BackgroundTaskProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState as ConversationStateProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.Epic
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationResponse
-import io.github.joshsymonds.orrery.ui.StreamedConversation
-import io.github.joshsymonds.orrery.ui.applyDelta
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OrreryClientBackgroundTest {
@@ -27,7 +24,7 @@ class OrreryClientBackgroundTest {
         .setSlug("example-other")
         .build()
 
-    private val agentTaskProto = BackgroundTask.newBuilder()
+    private val agentTaskProto = BackgroundTaskProto.newBuilder()
         .setId("example-task-1")
         .setToolUseId("example-tool-use-1")
         .setDescription("Example agent description.")
@@ -39,7 +36,7 @@ class OrreryClientBackgroundTest {
         .setEnded(0L)
         .build()
 
-    private val shellTaskProto = BackgroundTask.newBuilder()
+    private val shellTaskProto = BackgroundTaskProto.newBuilder()
         .setId("example-task-2")
         .setToolUseId("example-tool-use-2")
         .setDescription("Example shell description.")
@@ -51,7 +48,7 @@ class OrreryClientBackgroundTest {
         .setEnded(1700000600L)
         .build()
 
-    private val agentTaskRow = BackgroundTaskRow(
+    private val agentTaskRow = BackgroundTask(
         id = "example-task-1",
         toolUseId = "example-tool-use-1",
         description = "Example agent description.",
@@ -63,7 +60,7 @@ class OrreryClientBackgroundTest {
         ended = 0L,
     )
 
-    private val shellTaskRow = BackgroundTaskRow(
+    private val shellTaskRow = BackgroundTask(
         id = "example-task-2",
         toolUseId = "example-tool-use-2",
         description = "Example shell description.",
@@ -75,8 +72,10 @@ class OrreryClientBackgroundTest {
         ended = 1700000600L,
     )
 
+    // Steering, and the background fold, are covered by OrreryClientHeadFieldsTest; these cover the archived flag and the
+    // background fields the rail's lists read.
     @Test
-    fun epicsMapsSteeringAndArchivedFromTheServedEpics() {
+    fun epicsMapEachEpicsArchivedFlag() {
         FakeOrreryServer().use { server ->
             server.respond(
                 EPICS_LIST,
@@ -86,14 +85,14 @@ class OrreryClientBackgroundTest {
             val epics = OrreryClient(server.baseUrl).epics()
 
             assertEquals(
-                listOf("example-steering-session" to true, "" to false),
-                epics.map { it.steering to it.archived },
+                listOf(true, false),
+                epics.map { it.archived },
             )
         }
     }
 
     @Test
-    fun aWatchedSessionDeltaMapsEveryBackgroundTaskWithItsTypeAndStatus() {
+    fun aWatchedSessionDeltaMapsEachBackgroundTasksActivitySubagentAndTimes() {
         FakeOrreryServer().use { server ->
             server.route(SESSION_WATCH_CONVERSATION) {
                 Reply.Stream(listOf(sessionDeltaProto(agentTaskProto, shellTaskProto)), StreamEnd.Clean)
@@ -108,63 +107,12 @@ class OrreryClientBackgroundTest {
         }
     }
 
-    @Test
-    fun aDeltaWithNoStateKeepsTheBackgroundHeldAcrossIt() {
-        val held = held(background = listOf(agentTaskRow))
-
-        val next = held.applyDelta(keepaliveDelta(state = null))
-
-        assertEquals(listOf(agentTaskRow), next.background)
-    }
-
-    @Test
-    fun aDeltaWithAStateReplacesTheHeldBackground() {
-        val held = held(background = listOf(agentTaskRow))
-
-        val next = held.applyDelta(keepaliveDelta(state = stateWith(listOf(shellTaskRow))))
-
-        assertEquals(listOf(shellTaskRow), next.background)
-    }
-
-    @Test
-    fun aResetDeltaTakesItsStateBackgroundAndHoldsNoneWithoutAState() {
-        val held = held(background = listOf(agentTaskRow))
-
-        val withState = held.applyDelta(keepaliveDelta(state = stateWith(listOf(shellTaskRow))).copy(reset = true))
-        val withoutState = held.applyDelta(keepaliveDelta(state = null).copy(reset = true))
-
-        assertEquals(listOf(shellTaskRow), withState.background)
-        assertTrue(withoutState.background.isEmpty())
-    }
-
-    private fun sessionDeltaProto(vararg tasks: BackgroundTask): SessionsWatchConversationResponse =
+    private fun sessionDeltaProto(vararg tasks: BackgroundTaskProto): SessionsWatchConversationResponse =
         SessionsWatchConversationResponse.newBuilder()
             .setTranscript(SESSION_ID)
             .setSeq(10L)
             .setState(ConversationStateProto.newBuilder().addAllBackground(tasks.toList()))
             .build()
-
-    private fun keepaliveDelta(state: ConversationState?): ConversationDelta =
-        ConversationDelta(transcript = SESSION_ID, seq = 11L, reset = false, items = emptyList(), state = state)
-
-    private fun stateWith(background: List<BackgroundTaskRow>): ConversationState =
-        ConversationState(
-            origin = "Example opening prompt.",
-            goal = "",
-            waiting = emptyList(),
-            context = null,
-            pane = null,
-            background = background,
-        )
-
-    private fun held(background: List<BackgroundTaskRow>): StreamedConversation =
-        StreamedConversation(
-            transcript = SESSION_ID,
-            seq = 9L,
-            conversation = Conversation(origin = "Example opening prompt.", items = emptyList()),
-            pane = null,
-            background = background,
-        )
 
     private companion object {
         const val SESSION_ID = "0123456789abcdef0123456789abcdef"

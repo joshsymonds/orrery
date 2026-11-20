@@ -147,8 +147,10 @@ data class Pane(
     val lastTurnEnd: Long = 0L,
     /** True for a headless session, whose [id] is the session's id; false for a tmux pane. */
     val headless: Boolean = false,
-    /** The pane's @orrery_id, the id its session row carries and an epic's steering names; empty when unset. */
+    /** The pane's @orrery_id option, the id its session carries; "" when unset. A headless session's is its [id]. */
     val orreryId: String = "",
+    /** True while the owner has put this question off and not brought it back. */
+    val putOff: Boolean = false,
 )
 
 data class PaneTool(val id: String, val name: String, val input: String, val start: Long)
@@ -191,9 +193,27 @@ data class WaitingItem(val text: String, val time: Long, val canceled: Boolean)
 data class ConversationContext(val tokens: Long, val window: Long)
 
 /**
+ * A background task a headless session reported. [type] is "agent" or "shell"; [status] is "running", "done", "failed"
+ * or "stopped". [activity] is its latest activity, [subagentType] the sub-agent an agent task runs, and [started] and
+ * [ended] are unix seconds, [ended] 0 while it runs.
+ */
+data class BackgroundTask(
+    val id: String,
+    val type: String,
+    val status: String,
+    val description: String,
+    val toolUseId: String = "",
+    val subagentType: String = "",
+    val activity: String = "",
+    val started: Long = 0L,
+    val ended: Long = 0L,
+)
+
+/**
  * [goal] is the pane's active Claude Code goal, or "" when there is none. [waiting] is the
  * queued messages, oldest first, or empty when there are none. [context] is the pane's
- * context usage, or null when the server predates it.
+ * context usage, or null when the server predates it. [background] is the background tasks
+ * a headless session reported, or empty when there are none.
  */
 data class Conversation(
     val origin: String,
@@ -201,13 +221,14 @@ data class Conversation(
     val goal: String = "",
     val waiting: List<WaitingItem> = emptyList(),
     val context: ConversationContext? = null,
+    val background: List<BackgroundTask> = emptyList(),
 )
 
 /**
  * One conversation as a WatchConversation stream gives it. [state] is null when the message carried no state, and
  * [context] and [pane] are null when the state did not. [request] is the open request of a headless session, and
- * null when none is open or the stream is a pane's. [background] is the headless session's background tasks, empty for
- * a pane's.
+ * null when none is open or the stream is a pane's. [background] is the background tasks of a headless session, and
+ * empty when none are reported or the stream is a pane's.
  */
 data class ConversationState(
     val origin: String,
@@ -216,23 +237,7 @@ data class ConversationState(
     val context: ConversationContext?,
     val pane: Pane?,
     val request: SessionRequest? = null,
-    val background: List<BackgroundTaskRow> = emptyList(),
-)
-
-/**
- * One background task a headless session reported. [type] is "agent" or "shell", [status] is "running", "done",
- * "failed" or "stopped". [started] and [ended] are unix seconds, [ended] is 0 while the task runs.
- */
-data class BackgroundTaskRow(
-    val id: String,
-    val toolUseId: String,
-    val description: String,
-    val type: String,
-    val subagentType: String,
-    val status: String,
-    val activity: String,
-    val started: Long,
-    val ended: Long,
+    val background: List<BackgroundTask> = emptyList(),
 )
 
 /** The request a headless session waits on. [options] are the answers the phone may send, and may be empty. */
@@ -366,6 +371,7 @@ data class EpicRow(
     val source: String = "",
     val phaseAt: Long = 0L,
     val seen: Long = 0L,
+    /** The id of the session that steers the epic, or "" when none does. */
     val steering: String = "",
     val archived: Boolean = false,
 )
@@ -1473,6 +1479,7 @@ class OrreryClient(
             newestReply = newestReply,
             lastTurnEnd = lastTurnEnd,
             orreryId = orreryId,
+            putOff = putOff,
         )
 
     /** A headless session as the pane list shows it: its id is the session's, and it has no tmux pane. */
@@ -1494,6 +1501,8 @@ class OrreryClient(
             questionHash = "",
             newestReply = newestReply,
             headless = true,
+            orreryId = id,
+            putOff = putOff,
         )
 
     private fun ConversationItemProto.toConversationItem(): ConversationItem =
@@ -1516,6 +1525,19 @@ class OrreryClient(
     private fun ConversationContextProto.toConversationContext(): ConversationContext =
         ConversationContext(tokens = tokens, window = window)
 
+    private fun BackgroundTaskProto.toBackgroundTask(): BackgroundTask =
+        BackgroundTask(
+            id = id,
+            type = type,
+            status = status,
+            description = description,
+            toolUseId = toolUseId,
+            subagentType = subagentType,
+            activity = activity,
+            started = started,
+            ended = ended,
+        )
+
     private fun ConversationStateProto.toConversationState(pane: Pane?, request: SessionRequest?): ConversationState =
         ConversationState(
             origin = origin,
@@ -1524,20 +1546,7 @@ class OrreryClient(
             context = if (hasContext()) context.toConversationContext() else null,
             pane = pane,
             request = request,
-            background = backgroundList.map { it.toBackgroundTaskRow() },
-        )
-
-    private fun BackgroundTaskProto.toBackgroundTaskRow(): BackgroundTaskRow =
-        BackgroundTaskRow(
-            id = id,
-            toolUseId = toolUseId,
-            description = description,
-            type = type,
-            subagentType = subagentType,
-            status = status,
-            activity = activity,
-            started = started,
-            ended = ended,
+            background = backgroundList.map { it.toBackgroundTask() },
         )
 
     private fun WatchConversationResponse.toConversationDelta(): ConversationDelta =

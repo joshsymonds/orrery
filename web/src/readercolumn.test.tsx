@@ -12,7 +12,7 @@ import type { Conversation } from "./conversation";
 import { noEpics, type StepItem } from "./epics";
 import { EpicStepSchema } from "./gen/orrery/v1/epics_pb";
 import { ConversationItemSchema, ConversationStateSchema, type ConversationItem } from "./gen/orrery/v1/orrery_pb";
-import { ReaderColumn, type ReaderColumnProps } from "./readercolumn";
+import { type ColumnHead, ReaderColumn, type ReaderColumnProps } from "./readercolumn";
 import type { Row } from "./rows";
 import { assertNone, installTestDom, removeTestDom } from "./testdom";
 import type { InboxMark } from "./titlerow";
@@ -37,6 +37,16 @@ const epicCalls: EpicCalls = {
 };
 
 const quietMark: InboxMark = { needs: 0, enter: () => {}, leave: () => {}, pin: () => {} };
+// bareHead is a column's head with no strip, asks, badges or note, and a More menu that does nothing.
+const bareHead: ColumnHead = {
+  host: null,
+  showStrip: false,
+  lines: [],
+  askingWords: "",
+  badges: [],
+  note: "",
+  menu: { stripsShown: false, toggleStrips: () => {}, markSeen: () => {}, archive: null, keys: () => {} },
+};
 
 function item(init: MessageInitShape<typeof ConversationItemSchema>): ConversationItem {
   return create(ConversationItemSchema, init);
@@ -106,9 +116,14 @@ function columnProps(init: Pick<ReaderColumnProps, "column"> & Partial<ReaderCol
     row: null,
     conversation: null,
     rows: [],
-    interrupts: new Set(),
     mark: quietMark,
     pageStrip: () => undefined,
+    head: () => bareHead,
+    narrow: false,
+    hidden: false,
+    onHide: () => {},
+    onShow: () => {},
+    onOpenEpic: () => {},
     onBack: () => {},
     finding: null,
     matches: [],

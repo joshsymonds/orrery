@@ -116,12 +116,16 @@ fun ConversationView(
     seen: Long? = null,
     now: Long = System.currentTimeMillis() / 1000,
     onRead: ((Long) -> Unit)? = null,
+    onFollowing: ((Boolean) -> Unit)? = null,
 ) {
     var expanded by remember { mutableStateOf(emptySet<String>()) }
     val toggle: (String) -> Unit = { id ->
         expanded = if (id in expanded) expanded - id else expanded + id
     }
     var followBottom by remember { mutableStateOf(true) }
+    // Whether the view follows the newest line: the reader's place, which a change of the padding or the content
+    // never moves, unlike the list's momentary can-scroll-forward.
+    LaunchedEffect(followBottom) { onFollowing?.invoke(followBottom) }
     var landed by remember { mutableStateOf(false) }
     val markdownCache = remember { MarkdownCache() }
     val keys = remember(entries) { entryKeys(entries) }
@@ -132,21 +136,22 @@ fun ConversationView(
     // Following is decided from where the list is, whoever moved it: a reader's drag or fling, an
     // accessibility service's jump to a position, or code. A move is told by the first visible item's key
     // and offset, compared with the last seen, never by watching a scroll start and end: an instant jump
-    // starts and ends within one step and would go unseen. Only the view's own follow scrolls and changes
-    // of the content (a new reply, the window sliding past older entries) move the list without the
-    // reader, so neither is taken as leaving the end.
+    // starts and ends within one step and would go unseen. Only the view's own follow scrolls, changes
+    // of the content (a new reply, the window sliding past older entries) and changes of the top padding
+    // (the head above growing or folding) move the list without the reader, so none is taken as leaving the end.
     val ownScroll = remember { OwnScroll() }
     val contentKeys by rememberUpdatedState(keys)
     LaunchedEffect(listState) {
         var seen: ListPlace? = null
-        snapshotFlow { ListPlace(listState.anchor(), contentKeys) }.collect { place ->
+        snapshotFlow { ListPlace(listState.anchor(), contentKeys, listState.layoutInfo.beforeContentPadding) }.collect { place ->
             val previous = seen
             seen = place
             // Where the view's own last scroll left the list counts as its own only until the list is seen
             // anywhere else, so a reader who scrolls back to the end there is still seen arriving.
             val ownPlace = place.anchor == ownScroll.leftAt
             if (!ownPlace) ownScroll.leftAt = null
-            val readerMoved = previous != null && place.keys === previous.keys && place.anchor != previous.anchor &&
+            val readerMoved = previous != null && place.keys === previous.keys && place.padding == previous.padding &&
+                place.anchor != previous.anchor &&
                 ownScroll.running == 0 && !ownPlace
             if (readerMoved) followBottom = listState.layoutInfo.isAtEnd()
         }
@@ -724,7 +729,7 @@ private fun LazyListState.anchor(): Pair<Any, Int>? =
     layoutInfo.visibleItemsInfo.firstOrNull()?.let { it.key to firstVisibleItemScrollOffset }
 
 /** The list's place and the content it was laid out from, as the follow decision compares them. */
-private data class ListPlace(val anchor: Pair<Any, Int>?, val keys: Any)
+private data class ListPlace(val anchor: Pair<Any, Int>?, val keys: Any, val padding: Int)
 
 /**
  * The view's own scrolls: how many are running, and where the last one left the list. The follow decision

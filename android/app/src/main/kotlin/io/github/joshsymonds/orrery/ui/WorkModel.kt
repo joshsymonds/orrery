@@ -1,6 +1,6 @@
 package io.github.joshsymonds.orrery.ui
 
-import io.github.joshsymonds.orrery.api.BackgroundTaskRow
+import io.github.joshsymonds.orrery.api.BackgroundTask
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicRow
 
@@ -35,7 +35,7 @@ data class EpicThing(
 /** The running tasks of one list, [kind] being AGENTS or RUNNING. Its [count] is its number of tasks. */
 data class ListThing(
     val kind: GroupKind,
-    val tasks: List<BackgroundTaskRow>,
+    val tasks: List<BackgroundTask>,
     override val tone: ThingTone,
 ) : RailThing {
     override val key: String get() = kind.name.lowercase()
@@ -61,7 +61,7 @@ fun workGroupsOf(
     pane: Boolean,
     epics: List<EpicRow>,
     details: Map<String, EpicDetail>,
-    background: List<BackgroundTaskRow>,
+    background: List<BackgroundTask>,
 ): List<RailGroup> {
     val groups = mutableListOf<RailGroup>()
     val epicThings = epicThingsOf(session, epics, details)
@@ -135,7 +135,7 @@ private fun stateOf(epic: EpicRow, detail: EpicDetail?, needs: List<Need>): Stri
 }
 
 // The tasks of a kind that are running.
-private fun runningOf(background: List<BackgroundTaskRow>, type: String): List<BackgroundTaskRow> =
+private fun runningOf(background: List<BackgroundTask>, type: String): List<BackgroundTask> =
     background.filter { it.type == type && it.status == "running" }
 
 private fun groupOf(kind: GroupKind, label: String, things: List<RailThing>): RailGroup =

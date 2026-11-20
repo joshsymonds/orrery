@@ -157,7 +157,7 @@ class EpicTalkBarTest {
         }
     }
 
-    private fun titled(label: String): SemanticsMatcher = hasTestTag("pane-title").and(hasText(label))
+    private fun titled(label: String): SemanticsMatcher = hasTestTag("head-text").and(hasText(label))
 
     /** The watch stream of the steering session: its state, as the session's screen opens. */
     private fun steeringState(): SessionsWatchConversationResponse = SessionsWatchConversationResponse.newBuilder()

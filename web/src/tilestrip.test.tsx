@@ -341,7 +341,7 @@ function settleTiles(signal: AbortSignal, container: HTMLElement): Promise<void>
 // onSession opens the conversation of s1, which alpha steers, where a phone's conversation shows its strip.
 const onSession: Setup = { rows: [steererRow()], epics: view([alpha]), address: sessionAddress };
 
-test("TileStrip: under 760px the groups draw as a strip under the header, with no rail and no side panel", (t) =>
+test("TileStrip: under 760px the groups draw as a strip under the band, ending in the header's hide control, with no rail and no side panel", (t) =>
   withPhone(t.signal, onSession, async ({ container, server }) => {
     await feed(t.signal, server, "s1", background);
     await settleTiles(t.signal, container);
@@ -350,10 +350,16 @@ test("TileStrip: under 760px the groups draw as a strip under the header, with n
     const strip = container.querySelector<HTMLElement>(".tilestrip");
     assert.ok(strip !== null, "the strip is drawn");
     assert.equal(
-      strip.parentElement?.classList.contains("title-row"),
+      strip.parentElement?.classList.contains("convo-head"),
       true,
-      "the strip sits in the conversation's title row",
+      "the strip sits in the conversation's head, under its band",
     );
+    assert.equal(
+      strip.lastElementChild?.getAttribute("aria-label"),
+      "Hide the header",
+      "the strip ends in the header's hide control",
+    );
+    assert.equal(container.querySelectorAll(".fold-head").length, 1, "the hide control is drawn once, at the strip's end");
     assert.deepEqual(
       stripTiles(container).map(tileName),
       ["alpha", "agents", "running"],

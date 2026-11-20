@@ -14,7 +14,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
-import io.github.joshsymonds.orrery.api.BackgroundTaskRow
+import io.github.joshsymonds.orrery.api.BackgroundTask
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import io.github.joshsymonds.orrery.ui.theme.inLabelCase
 
@@ -27,7 +27,7 @@ data class PickerRow(val id: String, val slug: String, val state: String, val as
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun WorkListSheet(agents: Boolean, tasks: List<BackgroundTaskRow>, now: Long, onDismiss: () -> Unit) {
+fun WorkListSheet(agents: Boolean, tasks: List<BackgroundTask>, now: Long, onDismiss: () -> Unit) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
             Modifier.fillMaxWidth()
@@ -100,7 +100,7 @@ fun RailPickerSheet(label: String, rows: List<PickerRow>, onOpen: (String) -> Un
 }
 
 @Composable
-private fun WorkRow(task: BackgroundTaskRow, now: Long) {
+private fun WorkRow(task: BackgroundTask, now: Long) {
     val agent = task.type == "agent"
     val tone = if (agent) OrreryTokens.Role.live else OrreryTokens.State.idle
     val lead = if (agent) task.subagentType.ifEmpty { "agent" } else ""

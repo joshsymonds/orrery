@@ -7,13 +7,14 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.getBoundsInRoot
+import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.connectrpc.Code
-import io.github.joshsymonds.orrery.api.BackgroundTaskRow
+import io.github.joshsymonds.orrery.api.BackgroundTask
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicQuestionRow
 import io.github.joshsymonds.orrery.api.EpicRow
@@ -23,7 +24,7 @@ import io.github.joshsymonds.orrery.api.Reply
 import io.github.joshsymonds.orrery.api.StepRow
 import io.github.joshsymonds.orrery.api.StreamEnd
 import io.github.joshsymonds.orrery.awaitUntil
-import io.github.joshsymonds.orrery.gen.orrery.v1.BackgroundTask
+import io.github.joshsymonds.orrery.gen.orrery.v1.BackgroundTask as BackgroundTaskProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState as ConversationStateProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.Epic
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsListResponse
@@ -117,7 +118,7 @@ class TileStripTest {
         archived = archived,
     )
 
-    private fun task(id: String, type: String, status: String): BackgroundTaskRow = BackgroundTaskRow(
+    private fun task(id: String, type: String, status: String): BackgroundTask = BackgroundTask(
         id = id,
         toolUseId = "tool-$id",
         description = "",
@@ -409,7 +410,7 @@ class TileStripTest {
         .setSteering(steering)
         .build()
 
-    private fun backgroundProto(id: String, type: String): BackgroundTask = BackgroundTask.newBuilder()
+    private fun backgroundProto(id: String, type: String): BackgroundTaskProto = BackgroundTaskProto.newBuilder()
         .setId(id)
         .setToolUseId("tool-$id")
         .setDescription("Synthetic $type task.")
@@ -421,7 +422,7 @@ class TileStripTest {
         .build()
 
     /** The headless session's stream: one delta whose state holds [tasks] as its background tasks. */
-    private fun sessionStream(tasks: List<BackgroundTask>): Reply.Stream = Reply.Stream(
+    private fun sessionStream(tasks: List<BackgroundTaskProto>, goal: String): Reply.Stream = Reply.Stream(
         listOf(
             SessionsWatchConversationResponse.newBuilder()
                 .setTranscript(SESSION)
@@ -429,6 +430,7 @@ class TileStripTest {
                 .setState(
                     ConversationStateProto.newBuilder()
                         .setOrigin("Synthetic origin.")
+                        .setGoal(goal)
                         .setSession(
                             HeadlessSession.newBuilder()
                                 .setId(SESSION)
@@ -468,8 +470,8 @@ class TileStripTest {
         server.respond(EPICS_LIST_PATH, EpicsListResponse.newBuilder().addAllEpics(epics.toList()).build())
     }
 
-    private fun setSessionScreen(tasks: List<BackgroundTask> = emptyList()) {
-        server.route(SESSION_WATCH_PATH) { sessionStream(tasks) }
+    private fun setSessionScreen(tasks: List<BackgroundTaskProto> = emptyList(), goal: String = "") {
+        server.route(SESSION_WATCH_PATH) { sessionStream(tasks, goal) }
         val client = OrreryClient(server.baseUrl)
         composeRule.setContent {
             MaterialTheme {
@@ -506,9 +508,21 @@ class TileStripTest {
         composeRule.onAllNodesWithTag("rail-group:agents", useUnmergedTree = true).assertCountEquals(1)
         composeRule.onAllNodesWithTag("rail-group:running", useUnmergedTree = true).assertCountEquals(1)
         composeRule.onNodeWithText("alpha", useUnmergedTree = true).assertIsDisplayed()
-        val headerBottom = composeRule.onNodeWithTag("pane-header").getBoundsInRoot().bottom
+        val headerBottom = composeRule.onNodeWithTag("head").getBoundsInRoot().bottom
         val stripTop = composeRule.onNodeWithTag("tile-strip").getBoundsInRoot().top
         assertTrue(stripTop >= headerBottom)
+    }
+
+    @Test
+    fun aSessionsStripEndsInTheHideControlWhichLeavesTheBandsGoalLine() {
+        serveEpics(epicProto("epic-alpha", "$REPO-alpha"))
+        setSessionScreen(goal = "Synthetic goal.")
+
+        composeRule.awaitUntil("the strip's epic tile") { shown("tile:epic-alpha") }
+        composeRule.onAllNodesWithTag("band-goal", useUnmergedTree = true).assertCountEquals(1)
+        composeRule.onAllNodesWithTag("band-hide", useUnmergedTree = true).assertCountEquals(1)
+        composeRule.onAllNodes(hasTestTag("band-hide") and hasAnyAncestor(hasTestTag("strip-end")), useUnmergedTree = true)
+            .assertCountEquals(1)
     }
 
     @Test

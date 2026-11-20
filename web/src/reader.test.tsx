@@ -20,9 +20,10 @@ import type { Conversation } from "./conversation";
 import { findMatches, type Match } from "./find";
 import { flashMillis } from "./flash";
 import type { ParsedQuestion } from "./question";
-import { ConversationHead, Reader, ReaderHead, type ReaderHandle } from "./reader";
+import { Reader, ReaderHead, type ReaderHandle } from "./reader";
 import type { Sending } from "./sending";
 import { mockTimers } from "./testclock";
+import { TitleParts } from "./titleparts";
 import { assertNone, assertSame, installTestDom, removeTestDom } from "./testdom";
 import { turn } from "./testwait";
 
@@ -68,6 +69,7 @@ interface Props {
   onAnswer?: (choice: 1 | 2 | 3) => void;
   onToggleOpen?: () => void;
   onOlder?: () => void;
+  onNewest?: (atNewest: boolean) => void;
   register?: (handle: ReaderHandle | null) => void;
   sending?: Sending[];
   find?: { query: string; matches: Match[]; current: number };
@@ -1273,6 +1275,166 @@ test("PinnedScroll: a conversation that opens after a null one follows its items
     );
   }));
 
+// newestReports is an onNewest that records each report the reader makes, in order.
+function newestReports(): { reports: boolean[]; onNewest: (atNewest: boolean) => void } {
+  const reports: boolean[] = [];
+  return {
+    reports,
+    onNewest: (atNewest) => {
+      reports.push(atNewest);
+    },
+  };
+}
+
+test("PhoneHead: a conversation that opens reports that the owner is at its newest line", () => {
+  const newest = newestReports();
+  return withScrollingReader({ ...readerProps(heldItems(1, 20)), onNewest: newest.onNewest }, () => {
+    assert.deepEqual(newest.reports, [true]);
+  });
+});
+
+test("PhoneHead: an owner scroll away from the bottom reports not at newest, and a further scroll away reports nothing", () => {
+  const newest = newestReports();
+  return withScrollingReader({ ...readerProps(heldItems(1, 20)), onNewest: newest.onNewest }, (container) => {
+    const reader = readerOf(container);
+    reader.scrollTop = 500;
+    reader.dispatchEvent(new Event("scroll"));
+    assert.deepEqual(newest.reports, [true, false]);
+
+    reader.scrollTop = 400;
+    reader.dispatchEvent(new Event("scroll"));
+    assert.deepEqual(newest.reports, [true, false], "a scroll that leaves the reader away from its bottom reports nothing");
+  });
+});
+
+test("PhoneHead: scrolling back to the bottom reports at newest", () => {
+  const newest = newestReports();
+  return withScrollingReader({ ...readerProps(heldItems(1, 20)), onNewest: newest.onNewest }, (container) => {
+    const reader = readerOf(container);
+    reader.scrollTop = 500;
+    reader.dispatchEvent(new Event("scroll"));
+
+    reader.scrollTop = reader.scrollHeight;
+    reader.dispatchEvent(new Event("scroll"));
+    assert.deepEqual(newest.reports, [true, false, true]);
+  });
+});
+
+test("PhoneHead: a scroll that leaves the reader at its bottom reports nothing", () => {
+  const newest = newestReports();
+  return withScrollingReader({ ...readerProps(heldItems(1, 20)), onNewest: newest.onNewest }, (container) => {
+    const reader = readerOf(container);
+    reader.scrollTop = reader.scrollHeight;
+    reader.dispatchEvent(new Event("scroll"));
+    assert.deepEqual(newest.reports, [true]);
+  });
+});
+
+test("PhoneHead: a render that grows the content reports nothing, at the bottom or above a reader the owner scrolled up", () => {
+  const newest = newestReports();
+  return withScrollingReader({ ...readerProps(heldItems(1, 20)), onNewest: newest.onNewest }, async (container, rerender) => {
+    const reader = readerOf(container);
+    await rerender({ ...readerProps(heldItems(1, 21)), onNewest: newest.onNewest });
+    assert.deepEqual(newest.reports, [true], "a new item at the bottom reports nothing");
+
+    reader.scrollTop = 500;
+    reader.dispatchEvent(new Event("scroll"));
+    await rerender({ ...readerProps(heldItems(1, 22)), onNewest: newest.onNewest });
+    assert.deepEqual(newest.reports, [true, false], "a new item under a reader the owner scrolled up reports nothing");
+  });
+});
+
+// stubPageScroll gives the window's document the layout of a page that scrolls as a whole: its content is contentPixels
+// tall, the window's box is viewportPixels, and scrollTop clamps to the content. happy-dom has no layout, so the stub
+// stands in for it. scrollTo moves the page and dispatches the window's scroll, as a browser's scroll does.
+function stubPageScroll(contentPixels: number): { scrollTo: (top: number) => void } {
+  const page = document.documentElement;
+  let top = 0;
+  const furthest = () => Math.max(0, contentPixels - viewportPixels);
+  Object.defineProperties(page, {
+    scrollHeight: { configurable: true, get: () => contentPixels },
+    clientHeight: { configurable: true, get: () => viewportPixels },
+    scrollTop: {
+      configurable: true,
+      get: () => Math.min(top, furthest()),
+      set: (value: number) => {
+        top = Math.min(Math.max(value, 0), furthest());
+      },
+    },
+  });
+  return {
+    scrollTo: (value) => {
+      page.scrollTop = value;
+      window.dispatchEvent(new Event("scroll"));
+    },
+  };
+}
+
+test("PhoneHead: under 760 px a window scroll away from the page's end reports not at newest, and a further scroll away reports nothing", () => {
+  const newest = newestReports();
+  return withScrollingReader({ ...readerProps(heldItems(1, 20)), onNewest: newest.onNewest }, () => {
+    window.innerWidth = 759;
+    const page = stubPageScroll(1000);
+    page.scrollTo(500);
+    assert.deepEqual(newest.reports, [true, false]);
+
+    page.scrollTo(400);
+    assert.deepEqual(newest.reports, [true, false], "a scroll that leaves the page away from its end reports nothing");
+  });
+});
+
+test("PhoneHead: under 760 px scrolling the window back to its end reports at newest", () => {
+  const newest = newestReports();
+  return withScrollingReader({ ...readerProps(heldItems(1, 20)), onNewest: newest.onNewest }, () => {
+    window.innerWidth = 759;
+    const page = stubPageScroll(1000);
+    page.scrollTo(500);
+    page.scrollTo(700);
+    assert.deepEqual(newest.reports, [true, false, true]);
+  });
+});
+
+test("PhoneHead: under 760 px a window scroll that leaves the page at its end reports nothing", () => {
+  const newest = newestReports();
+  return withScrollingReader({ ...readerProps(heldItems(1, 20)), onNewest: newest.onNewest }, () => {
+    window.innerWidth = 759;
+    stubPageScroll(1000).scrollTo(700);
+    assert.deepEqual(newest.reports, [true]);
+  });
+});
+
+test("PhoneHead: under 760 px the window's scroll listener is removed on unmount", () => {
+  const newest = newestReports();
+  return withScrollingReader({ ...readerProps(heldItems(1, 20)), onNewest: newest.onNewest }, (container) => {
+    window.innerWidth = 759;
+    const page = stubPageScroll(1000);
+    render(null, container);
+    page.scrollTo(500);
+    assert.deepEqual(newest.reports, [true], "a window scroll after unmount reports nothing");
+  });
+});
+
+test("PhoneHead: at 760 px and wider a window scroll reports nothing", () => {
+  const newest = newestReports();
+  return withScrollingReader({ ...readerProps(heldItems(1, 20)), onNewest: newest.onNewest }, () => {
+    window.innerWidth = 1024;
+    stubPageScroll(1000).scrollTo(500);
+    assert.deepEqual(newest.reports, [true], "the page does not report at 760 px and wider");
+  });
+});
+
+test("PhoneHead: a page up from the bottom reports not at newest", () => {
+  const holder: { handle: ReaderHandle | null } = { handle: null };
+  const newest = newestReports();
+  return withScrollingReader(
+    pagedProps({ ...readerProps(heldItems(1, 20)), onNewest: newest.onNewest }, holder),
+    () => {
+      assert.equal(handleOf(holder).page("up"), true);
+      assert.deepEqual(newest.reports, [true, false]);
+    },
+  );
+});
+
 // olderItems are count replies older than heldItems, each with its own text, so a page of them is drawn above the held
 // rows.
 function olderItems(count: number): ConversationItem[] {
@@ -1939,22 +2101,6 @@ function headOf(container: HTMLElement): HTMLElement {
   return head;
 }
 
-// withConversationHead renders a row's conversation head the way withHead renders a head, and removes it the same way.
-async function withConversationHead(
-  props: Parameters<typeof ConversationHead>[0],
-  check: (container: HTMLElement) => void | Promise<void>,
-): Promise<void> {
-  const window = installTestDom();
-  const container = document.createElement("div");
-  try {
-    render(<ConversationHead {...props} />, container);
-    await check(container);
-  } finally {
-    render(null, container);
-    await removeTestDom(window);
-  }
-}
-
 test("a pane's head names its label as the heading and its where line as a span after it", () =>
   withHead({ label: "Synthetic pane", where: "synthetic-project · synthetic-host" }, (container) => {
     const head = headOf(container);
@@ -1994,69 +2140,38 @@ test("a child passed to the head draws after the where line as the head's last c
     },
   ));
 
-test("a session's conversation head draws the title row: a back button, the session's title as the page crumb, and its state, and back calls its handler", () => {
-  let backs = 0;
-  return withConversationHead(
-    {
-      dir: "/work/synthetic-app",
-      line: "Synthetic session",
-      state: "waiting",
-      onBack: () => {
-        backs += 1;
-      },
-      children: <span class="pill">synthetic pill</span>,
-    },
-    async (container) => {
-      const row = container.querySelector<HTMLElement>("header.title-row");
-      assert.ok(row !== null, "the title row is drawn");
-      const back = row.querySelector<HTMLButtonElement>("button.back");
-      assert.equal(back?.getAttribute("aria-label"), "back");
-      const crumbs = [...row.querySelectorAll<HTMLElement>(".crumbs .crumb")];
-      assert.deepEqual(
-        crumbs.map((crumb) => crumb.textContent),
-        ["synthetic-app Synthetic session"],
-        "the crumb reads the session's directory and title",
-      );
-      assert.equal(crumbs[0]?.getAttribute("aria-current"), "page", "the title is the page itself");
-      assert.equal(row.querySelector(".state")?.textContent, "waiting", "the state sits in the state slot");
-      assert.equal(row.querySelector(".acts > .pill")?.textContent, "synthetic pill", "the pill is the row's child");
-      back?.click();
-      assert.equal(backs, 1, "back calls its handler once");
-    },
-  );
-});
+// withTitleParts renders a title's parts alone in a container, and removes them the same way withHead does.
+async function withTitleParts(dir: string, line: string, check: (container: HTMLElement) => void): Promise<void> {
+  const window = installTestDom();
+  const container = document.createElement("div");
+  try {
+    render(<TitleParts dir={dir} line={line} />, container);
+    check(container);
+  } finally {
+    render(null, container);
+    await removeTestDom(window);
+  }
+}
 
-test("TitleParts: the title row's last crumb draws the directory's last element, then the line, and no id or hash", () =>
-  withConversationHead(
-    { dir: "/work/synthetic/app", line: "Synthetic summary", state: "working", onBack: () => {} },
-    (container) => {
-      const crumb = container.querySelector<HTMLElement>(".crumbs .crumb.here");
-      assert.equal(crumb?.querySelector(".title-dir")?.textContent, "app", "the directory's last element");
-      assert.equal(crumb?.querySelector(".title-line")?.textContent, "Synthetic summary", "the line");
-      assert.equal(crumb?.textContent, "app Synthetic summary", "the crumb holds nothing else, no id or hash");
-    },
-  ));
+test("TitleParts: a title draws the directory's last element, then the line, and no id or hash", () =>
+  withTitleParts("/work/synthetic/app", "Synthetic summary", (container) => {
+    assert.equal(container.querySelector(".title-dir")?.textContent, "app", "the directory's last element");
+    assert.equal(container.querySelector(".title-line")?.textContent, "Synthetic summary", "the line");
+    assert.equal(container.textContent, "app Synthetic summary", "the title holds nothing else, no id or hash");
+  }));
 
 test("TitleParts: a title with an empty line draws its directory alone, with no line element", () =>
-  withConversationHead(
-    { dir: "/work/synthetic-app", line: "", state: "idle", onBack: () => {} },
-    (container) => {
-      const crumb = container.querySelector<HTMLElement>(".crumbs .crumb.here");
-      assert.equal(crumb?.textContent, "synthetic-app");
-      assert.equal(crumb?.querySelector(".title-line") === null, true);
-    },
-  ));
+  withTitleParts("/work/synthetic-app", "", (container) => {
+    assert.equal(container.textContent, "synthetic-app");
+    assert.equal(container.querySelector(".title-line") === null, true);
+  }));
 
 test("TitleParts: markup in a line draws as text, with no element", () =>
-  withConversationHead(
-    { dir: "/work/synthetic-app", line: "<b>bold</b> <img src=x onerror=alert(1)>", state: "idle", onBack: () => {} },
-    (container) => {
-      const crumb = container.querySelector<HTMLElement>(".crumbs .crumb.here");
-      assert.equal(crumb?.querySelector("b") === null, true);
-      assert.equal(crumb?.querySelector("img") === null, true);
-      assert.equal(crumb?.querySelector(".title-line")?.textContent, "<b>bold</b> <img src=x onerror=alert(1)>");
-    },
-  ));
+  withTitleParts("/work/synthetic-app", "<b>bold</b> <img src=x onerror=alert(1)>", (container) => {
+    assert.equal(container.querySelector("b") === null, true);
+    assert.equal(container.querySelector("img") === null, true);
+    assert.equal(container.querySelector(".title-line")?.textContent, "<b>bold</b> <img src=x onerror=alert(1)>");
+  }));
 
 test("a label or where holding markup draws as text with no element", () =>
   withHead(

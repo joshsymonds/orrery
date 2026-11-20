@@ -7,7 +7,7 @@ import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
-import io.github.joshsymonds.orrery.api.BackgroundTaskRow
+import io.github.joshsymonds.orrery.api.BackgroundTask
 import io.github.joshsymonds.orrery.mainThreadComposeRule
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import io.github.joshsymonds.orrery.ui.theme.inLabelCase
@@ -35,7 +35,7 @@ class WorkListSheetTest {
         description: String,
         activity: String,
         started: Long,
-    ): BackgroundTaskRow = BackgroundTaskRow(
+    ): BackgroundTask = BackgroundTask(
         id = id,
         toolUseId = "tool-$id",
         description = description,
@@ -53,7 +53,7 @@ class WorkListSheetTest {
         .flatMap { it.spanStyles }
         .map { it.item.color }
 
-    private fun setWorkList(agents: Boolean, tasks: List<BackgroundTaskRow>) {
+    private fun setWorkList(agents: Boolean, tasks: List<BackgroundTask>) {
         composeRule.setContent {
             MaterialTheme {
                 WorkListSheet(agents = agents, tasks = tasks, now = now, onDismiss = {})

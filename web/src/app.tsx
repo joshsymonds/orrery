@@ -1,8 +1,10 @@
+import { Code, ConnectError } from "@connectrpc/connect";
 import { Fragment } from "preact";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 
 import * as actions from "./actions";
 import type { Clients } from "./actions";
+import { askingWords, askLines, headBadges, ownAsks, steeredEpics } from "./asks";
 import { epicCallsOf } from "./card";
 import type { ComposerHandle } from "./composer";
 import { ContractBody } from "./contract";
@@ -28,6 +30,7 @@ import type { EpicHistoryEntry, EpicsGetResponse, EpicStep } from "./gen/orrery/
 import type { InAppNotice, NoticeKey } from "./gen/orrery/v1/notice_pb";
 import type { HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
 import { Handover } from "./handover";
+import { type HeadStore, memoryHeadStore } from "./headfold";
 import { KeyList } from "./helppanel";
 import { type Answer, InboxRow, isLinkClick, optionText, readerQuestion, stateWaiting } from "./inboxrow";
 import {
@@ -55,12 +58,13 @@ import { type Address, type Entry, formatAddress, type ListPanelKind, type PageV
 import { byAttention, byProject, type Row, type Section, splitArchived } from "./rows";
 import { type SeenClock, type SeenWindow, watchSeen } from "./seen";
 import { type SendKind, type Sending, type SentText, sendingEntry, unsentEntries, withoutTexts } from "./sending";
-import { type FindState, headState, ReaderColumn, stepCalls } from "./readercolumn";
+import { type ColumnHead, type FindState, headState, ReaderColumn, stepCalls } from "./readercolumn";
 import { Sheet } from "./sheet";
 import { ListPanel, listHead, SidePanel } from "./sidepanel";
 import { PaneStrip, type StripHost } from "./strip";
 import { Talk, type TalkTarget } from "./talk";
 import { ReplyText } from "./text";
+import { lastPathElement } from "./titleparts";
 import { type InboxMark, TitleRow } from "./titlerow";
 import { type ListThing, type Thing, type WorkConversation, workOf } from "./work";
 import { WorkerSessionPage } from "./workersession";
@@ -147,6 +151,14 @@ interface PendingTarget {
   id: string;
 }
 
+// The note a page's More menu left under a row's title row, which names the row it is for.
+interface HeadNote {
+  key: string;
+  text: string;
+}
+
+const noHeadNote: HeadNote = { key: "", text: "" };
+
 const stateWorking = "working";
 // The block kind a notice names when it opens the contract page.
 const contractBlock = "contract";
@@ -162,6 +174,9 @@ const interruptFailedText = "could not interrupt";
 const commandFailedText = "epic command failed";
 const sessionUnavailableText = "session unavailable";
 const archiveFailedText = "could not change archive";
+const noAnswerText = "the server did not answer";
+// The codes a call's failure reads as the server not answering.
+const noAnswerCodes = new Set([Code.Unavailable, Code.DeadlineExceeded, Code.Unknown]);
 const archivedTitle = "Archived";
 // The most entries one page of an epic's history asks for.
 const historyPageSize = 200;
@@ -188,6 +203,7 @@ export function App({
   onViewing,
   address,
   onAddress,
+  headStore,
 }: {
   rows: Row[];
   error: string;
@@ -201,6 +217,7 @@ export function App({
   onViewing?: (viewing: Viewing) => void;
   address?: Address;
   onAddress?: (address: Address, mode: "push" | "replace") => void;
+  headStore?: HeadStore;
 }) {
   const [view, setView] = useState<View>("attention");
   const [cursor, setCursor] = useState<Cursor>({ key: "", index: 0 });
@@ -289,10 +306,12 @@ export function App({
   const [answerError, setAnswerError] = useState("");
   // The fixed line an Escape leaves when taking queued messages back or interrupting a row fails.
   const [escapeError, setEscapeError] = useState("");
-  // The headless session rows the owner has interrupted, by row key. A marked row reads interrupting in its head's pill
-  // while the list still says it is working, and the mark clears once that state leaves working.
-  const [interrupts, setInterrupts] = useState<Set<string>>(() => new Set());
   const [archiveError, setArchiveError] = useState("");
+  // The per-device store the hidden header is kept in, read once, and whether the header is hidden now. The note a More
+  // menu's archive left is under the title row of the row it names.
+  const [keptHead] = useState<HeadStore>(() => headStore ?? memoryHeadStore());
+  const [headHidden, setHeadHidden] = useState(() => keptHead.hidden());
+  const [headNote, setHeadNote] = useState<HeadNote>(noHeadNote);
   // The key of the entry whose ⋯ menu is open, if any: one menu is open at a time. It counts as open only while the entry
   // is drawn.
   const [menuKey, setMenuKey] = useState<string | null>(null);
@@ -581,18 +600,6 @@ export function App({
     setPinned((previous) => (previous === null ? null : (rows.find((row) => row.key === previous.key) ?? previous)));
   }, [rows]);
 
-  // An interrupt mark clears once its row is in the list and no longer working. A row missing from the list keeps its
-  // mark, as a pinned row keeps its last shape.
-  useEffect(() => {
-    setInterrupts((previous) => {
-      const kept = [...previous].filter((key) => {
-        const row = rows.find((item) => item.key === key);
-        return row === undefined || row.state === stateWorking;
-      });
-      return kept.length === previous.size ? previous : new Set(kept);
-    });
-  }, [rows]);
-
   // A find bar closes when its column's row changes: the cursor moves to another entry, or the pin closes or moves.
   useEffect(() => {
     setCursorFind((previous) => (previous !== null && previous.key !== middleKey ? null : previous));
@@ -718,6 +725,23 @@ export function App({
           setRowMarks((previous) => new Map(previous).set(entry.key, archived));
         }
       },
+    );
+  };
+
+  // archiveFromHead archives the row a page's More menu names, through Epics.Archive with the row's archive kind and id. A
+  // landed call marks the row archived, as the list's archive does. A failed one puts its reason under the title row of
+  // that row, and changes nothing.
+  const archiveFromHead = (row: Row) => {
+    if (row.archiveKind === "none") {
+      return;
+    }
+    void clients.epics.archive({ kind: row.archiveKind, id: row.archiveId }).then(
+      () => {
+        setRowMarks((previous) => new Map(previous).set(row.key, true));
+        setHeadNote((previous) => (previous.key === row.key ? noHeadNote : previous));
+      },
+      (error: unknown) =>
+        setHeadNote({ key: row.key, text: `Could not archive this session: ${failureReason(error)}. Nothing changed.` }),
     );
   };
 
@@ -879,18 +903,13 @@ export function App({
   // escapeRow takes back a row's queued messages and interrupts it when it was working at the press. A pane pulls its
   // queued input back, then gets the Escape key. A session takes back nothing by itself: its interrupt answers the
   // texts of the queued messages Claude cancelled, and those are taken back. A session that is not working is not
-  // interrupted and takes nothing back. A headless session's interrupt is marked on the page at once, before the calls
-  // below are made. A failed take back shows its line, and a pane's interrupt still goes out. A failed interrupt shows
-  // its line and clears the mark. The composer keeps focus when it interrupted or took messages back, and otherwise
+  // interrupted and takes nothing back. A failed take back shows its line, and a pane's interrupt still goes out. A
+  // failed interrupt shows its line. The composer keeps focus when it interrupted or took messages back, and otherwise
   // leaves it, as Escape does.
   const escapeRow = async (target: EscapeTarget, box: HTMLElement | null): Promise<void> => {
     const { row, state } = target;
     const interrupting = state === stateWorking;
-    const marked = interrupting && row.kind === "session";
     const failures: string[] = [];
-    if (marked) {
-      setInterrupts((previous) => new Set(previous).add(row.key));
-    }
     let texts: string[] = [];
     if (row.kind === "pane") {
       try {
@@ -906,9 +925,6 @@ export function App({
         cancelled = await actions.interrupt(clients, row);
       } catch {
         failures.push(interruptFailedText);
-        if (marked) {
-          setInterrupts((previous) => withoutKey(previous, row.key));
-        }
       }
       takeBack(target, cancelled);
     }
@@ -919,6 +935,15 @@ export function App({
   };
   const toggleOpen = () => setOpen((value) => !value);
   const toggleStrips = () => setStripsShown((value) => !value);
+  // hideHeader hides the phone header until it is opened, and the setting is kept on the device. showHeader opens it.
+  const hideHeader = () => {
+    keptHead.setHidden(true);
+    setHeadHidden(true);
+  };
+  const showHeader = () => {
+    keptHead.setHidden(false);
+    setHeadHidden(false);
+  };
   // drill opens a page over the open one. The open page's scroll place is kept for the back that returns to it, and the
   // new page opens at its top.
   const drill = (next: PageView) => {
@@ -1235,18 +1260,41 @@ export function App({
       />
     ) : undefined;
 
-  // middleStrip is the middle conversation's strip. It draws the page's meters first, then, under 760px, the conversation's
-  // groups as tiles, whatever m holds, since the desk's rail that draws them is not drawn. Only the middle column draws
-  // them: the tiles act on the middle conversation, so a pinned column keeps the plain pageStrip.
-  const middleStrip = (row: Row | null, conversation: Conversation | null) => {
-    const groups = row === null || wide ? [] : workOf(workConversation(row, conversation), kept, now);
-    return (
-      <>
-        {pageStrip(row, conversation)}
-        {groups.length > 0 && <WorkRail groups={groups} lit={lit} layout="strip" onOpen={openThing} />}
-      </>
-    );
+  // headOf is what a row's head draws: the strip's host, the asks its conversation draws, the note the More menu's archive
+  // left for it, and the More menu's items for it. The asks are the epics steered by the row's id, and the row's own
+  // question asks while the row waits and its pane or session is not put off. Under 760px the middle conversation's head
+  // also draws its groups as tiles, since the desk's rail that draws them is not drawn; only the middle column's head
+  // does, since the tiles act on the middle conversation.
+  const headOf = (row: Row, conversation: Conversation | null, middle = false): ColumnHead => {
+    const steering = steeredEpics(row.archiveId, marked.listed.values());
+    const lines = askLines(steering, epics.details);
+    const ownName = ownAsks(row, conversation) ? lastPathElement(row.project) || row.label : null;
+    return {
+      host: stripHost(row, host),
+      showStrip: stripsShown,
+      lines,
+      askingWords: askingWords(ownName, lines),
+      badges: headBadges(steering, lines, conversation?.state?.background ?? []),
+      here: middle && panelOpen && epicEntry !== null ? epicEntry.id : undefined,
+      work:
+        middle && !wide
+          ? { groups: workOf(workConversation(row, conversation), kept, now), lit, onOpen: openThing }
+          : undefined,
+      note: headNote.key === row.key ? headNote.text : "",
+      menu: {
+        stripsShown,
+        toggleStrips,
+        markSeen: () => void writeSeen(row),
+        archive: row.archived || row.archiveKind === "none" ? null : () => archiveFromHead(row),
+        keys: () => setHelpOpen((open) => !open),
+      },
+    };
   };
+
+  // The note under a row's title row is cleared once the row it names leaves both reader columns.
+  useEffect(() => {
+    setHeadNote((previous) => (previous.key === cursorRowKey || previous.key === pinnedKey ? previous : noHeadNote));
+  }, [cursorRowKey, pinnedKey]);
 
   // focusCursorRow moves focus to the list's current row, the row the cursor rests on. A hidden inbox holds that row in
   // the list the page hides, so it is popped out by key first, and the focus waits for the layout effect after the
@@ -1744,9 +1792,14 @@ export function App({
           row={epicPageShown ? null : middleRow}
           conversation={cursorConversation}
           rows={visited}
-          interrupts={interrupts}
           mark={inboxMark}
-          pageStrip={middleStrip}
+          pageStrip={pageStrip}
+          head={(row, conversation) => headOf(row, conversation, true)}
+          narrow={!wide}
+          hidden={headHidden}
+          onHide={hideHeader}
+          onShow={showHeader}
+          onOpenEpic={navigated(openEpic)}
           onBack={navigated(focusCursorRow)}
           finding={cursorFinding}
           matches={cursorMatches}
@@ -1779,9 +1832,14 @@ export function App({
           row={pinned}
           conversation={pinnedConversation}
           rows={pinnedRows}
-          interrupts={interrupts}
           mark={inboxMark}
           pageStrip={pageStrip}
+          head={headOf}
+          narrow={!wide}
+          hidden={headHidden}
+          onHide={hideHeader}
+          onShow={showHeader}
+          onOpenEpic={navigated(openEpic)}
           onBack={closePin}
           finding={pinnedFinding}
           matches={pinnedMatches}
@@ -1999,16 +2057,16 @@ function stripHost(row: Row | null, host: HostStatusResponse | null): StripHost 
     return null;
   }
   if (row !== null && row.kind === "pane" && row.host !== "" && row.host !== host.host) {
-    return { host: row.host, stats: [] };
+    return { host: row.host, stats: [], other: true };
   }
   return host;
 }
 
-// withoutKey is a copy of keys without key.
-function withoutKey(keys: Set<string>, key: string): Set<string> {
-  const next = new Set(keys);
-  next.delete(key);
-  return next;
+// failureReason is why a call failed, as a page's note says it: that the server did not answer, for a call that never
+// reached it or failed unavailable, past its deadline or unknown, and the error's own message otherwise.
+function failureReason(error: unknown): string {
+  const failure = ConnectError.from(error);
+  return noAnswerCodes.has(failure.code) ? noAnswerText : failure.rawMessage;
 }
 
 // pruneSent drops the sent entries of each row whose conversation is held, and returns previous itself when none is sent.

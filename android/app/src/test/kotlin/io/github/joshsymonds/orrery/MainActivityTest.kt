@@ -135,7 +135,7 @@ class MainActivityTest {
         panesOf(*panes.map { (id, label) -> paneProto(id, label) }.toTypedArray())
 
     /** The header of the open pane, by its label. */
-    private fun titled(label: String): SemanticsMatcher = hasTestTag("pane-title").and(hasText(label))
+    private fun titled(label: String): SemanticsMatcher = hasTestTag("head-text").and(hasText(label))
 
     /** A headless session as the list and the watch stream report it. */
     private fun headlessSession(id: String, label: String): HeadlessSession = HeadlessSession.newBuilder()
@@ -236,7 +236,7 @@ class MainActivityTest {
         controller.get().onBackPressedDispatcher.onBackPressed()
 
         awaitNode(hasTestTag("pane-row:%2"))
-        assertAbsent(hasTestTag("pane-title"))
+        assertAbsent(hasTestTag("head-text"))
     }
 
     @Test
@@ -244,12 +244,12 @@ class MainActivityTest {
         launch()
         awaitNode(hasTestTag("pane-row:%1"))
         composeRule.onNodeWithTag("pane-row:%1").performClick()
-        awaitNode(hasTestTag("pane-back"))
+        awaitNode(hasTestTag("head-back"))
 
-        composeRule.onNodeWithTag("pane-back").performClick()
+        composeRule.onNodeWithTag("head-back").performClick()
 
         awaitNode(hasTestTag("pane-row:%2"))
-        assertAbsent(hasTestTag("pane-title"))
+        assertAbsent(hasTestTag("head-text"))
     }
 
     @Test
@@ -482,7 +482,7 @@ class MainActivityTest {
         controller.get().onBackPressedDispatcher.onBackPressed()
 
         awaitNode(hasTestTag("pane-row:%1"))
-        assertAbsent(hasTestTag("pane-title"))
+        assertAbsent(hasTestTag("head-text"))
     }
 
     @Test

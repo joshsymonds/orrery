@@ -55,6 +55,17 @@ const workerStep: StepItem = must(
 const heldStep: StepItem = must(rotaBlock.steps.find((step) => step.id === "st-rota-t1-impl"), "held step");
 const workerConversation = applyDelta(null, must(sessionStreams.get("st-rota-t2-impl"), "worker stream"));
 
+// bareHead is a column's head with no strip, asks, badges or note, and a More menu that does nothing.
+const bareHead: readercolumn.ColumnHead = {
+  host: null,
+  showStrip: false,
+  lines: [],
+  askingWords: "",
+  badges: [],
+  note: "",
+  menu: { stripsShown: false, toggleStrips: noop, markSeen: noop, archive: null, keys: noop },
+};
+
 // columnOf is the props of a column that shows row's conversation: the cursor's or the pinned, with the one composer of
 // its row, and no find, sending or step.
 function columnOf(
@@ -69,9 +80,14 @@ function columnOf(
     row,
     conversation,
     rows: row === null ? [] : [row],
-    interrupts: new Set<string>(),
     mark: quiet,
     pageStrip: () => undefined,
+    head: () => bareHead,
+    narrow: false,
+    hidden: false,
+    onHide: noop,
+    onShow: noop,
+    onOpenEpic: noop,
     onBack: noop,
     finding: null,
     matches: [],

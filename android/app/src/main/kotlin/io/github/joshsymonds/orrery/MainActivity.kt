@@ -204,6 +204,7 @@ class MainActivity : ComponentActivity() {
                                             client = client,
                                             onBack = { screen = current.back },
                                             step = StepMode(held = current.held),
+                                            onOpenEpic = { screen = Screen.Epic(it) },
                                         )
                                     }
                                     is Screen.Talk -> {

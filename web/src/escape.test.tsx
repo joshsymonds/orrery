@@ -232,11 +232,6 @@ function composer(container: HTMLElement): HTMLTextAreaElement {
   return box;
 }
 
-// headWord is the word of the pill the reader's head draws for the cursor's row.
-function headWord(container: HTMLElement): string {
-  return container.querySelector('[aria-label="reader"] .pill .word')?.textContent ?? "";
-}
-
 function cursorKey(container: HTMLElement): string | null {
   return container.querySelector(".b-row.cur")?.getAttribute("data-key") ?? null;
 }
@@ -325,24 +320,6 @@ test("EscapeInterrupt: Escape on a waiting session calls no Control.Interrupt", 
     await until(t.signal, () => document.activeElement !== composer(container), "the blur");
     assert.equal(fake.callsTo(withdrawPath).length, 0, "a session that is not working asks for no withdraw");
     assert.equal(fake.callsTo(interruptPath).length, 0, "a waiting session is not interrupted");
-  }));
-
-test("EscapeInterrupt: Escape on a waiting session marks no interrupt, so the session later working reads working", (t) =>
-  withApp(t.signal, { rows: [{ ...sessionRow, state: "waiting" }] }, async (container, fake) => {
-    await press("i");
-    await pressIn(composer(container), "Escape");
-    await until(t.signal, () => document.activeElement !== composer(container), "the blur");
-    await act(() => {
-      render(<App rows={[sessionRow]} error="" now={now} clients={fake.clients} />, container);
-    });
-    assert.equal(headWord(container), "working");
-  }));
-
-test("EscapeInterrupt: Escape on a working pane marks no interrupt, so its pill still reads working", (t) =>
-  withApp(t.signal, { rows: [paneRow] }, async (container, fake) => {
-    await press("Escape");
-    await until(t.signal, () => fake.callsTo(sendKeysPath).length === 1, "the Escape key");
-    assert.equal(headWord(container), "working");
   }));
 
 test("EscapeInterrupt: Escape in a step's box calls neither Control.Interrupt nor Control.Withdraw", (t) =>

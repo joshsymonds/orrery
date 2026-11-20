@@ -13,8 +13,6 @@ import { Markdown } from "./markdown";
 import type { ParsedQuestion } from "./question";
 import type { Sending } from "./sending";
 import { MarkedText, ReplyText } from "./text";
-import { TitleParts } from "./titleparts";
-import { type InboxMark, TitleRow } from "./titlerow";
 
 const tokensPerThousand = 1000;
 const secondsToMillis = 1000;
@@ -26,7 +24,7 @@ const toolRunMinimum = 3;
 const pageOverlapPixels = 40;
 // pagingQuery is the width from which a reader pages by its handle. Under it the reader does not scroll on its own, and
 // the keys that page it are left to the browser.
-const pagingQuery = "(min-width: 760px)";
+export const pagingQuery = "(min-width: 760px)";
 
 // ReaderHandle is what the page calls on a reader to page its transcript by a screen. page moves the reader one screen
 // up or down, less pageOverlapPixels, clamped to its top and bottom, and returns true. Where the reader does not scroll
@@ -85,6 +83,7 @@ export function Reader({
   onAnswer,
   onToggleOpen,
   onOlder,
+  onNewest,
   register,
   sending = [],
   find,
@@ -98,6 +97,7 @@ export function Reader({
   onAnswer?: (choice: 1 | 2 | 3) => void;
   onToggleOpen?: () => void;
   onOlder?: () => void;
+  onNewest?: (atNewest: boolean) => void; // told each time the owner's scroll or a page changes whether the reader is pinned
   register?: (handle: ReaderHandle | null) => void; // gets the handle while mounted, and null once unmounted
   sending?: Sending[];
   find?: { query: string; matches: Match[]; current: number };
@@ -176,7 +176,11 @@ export function Reader({
   const followScroll = (): void => {
     const reader = root.current;
     if (reader !== null) {
+      const wasPinned = pinned.current;
       pinned.current = distanceFromBottom(reader) <= nearBottomPixels;
+      if (pinned.current !== wasPinned) {
+        onNewest?.(pinned.current);
+      }
     }
     askOlder();
   };
@@ -205,6 +209,7 @@ export function Reader({
     // A conversation that opens starts pinned at its bottom, whatever the owner did to the one shown before it.
     if (opening) {
       pinned.current = true;
+      onNewest?.(true);
     }
     // A render that draws items above the first row shown before keeps that row where it was: the reader moves by
     // how much its content grew above it.
@@ -244,6 +249,23 @@ export function Reader({
     register?.({ page });
     return () => register?.(null);
   });
+  // Under pagingQuery the page scrolls as a whole, not the reader, so the owner's scroll is the window's: it reports
+  // whether the page sits at its end, as the reader's own scroll reports its bottom. At pagingQuery and wider the reader
+  // scrolls on its own, and the window's scroll changes nothing.
+  useLayoutEffect(() => {
+    const followWindow = (): void => {
+      if (window.matchMedia(pagingQuery).matches) {
+        return;
+      }
+      const wasPinned = pinned.current;
+      pinned.current = distanceFromBottom(document.documentElement) <= nearBottomPixels;
+      if (pinned.current !== wasPinned) {
+        onNewest?.(pinned.current);
+      }
+    };
+    window.addEventListener("scroll", followWindow);
+    return () => window.removeEventListener("scroll", followWindow);
+  }, [onNewest]);
   const sendingRows = sending.map((entry) => <SendingRow key={entry.promptId} text={entry.text} />);
   if (conversation === null) {
     return (
@@ -341,39 +363,6 @@ export function ReaderHead({
       {where !== "" && <span class="where">{where}</span>}
       {children}
     </header>
-  );
-}
-
-// ConversationHead heads a row's conversation with the shared title row: the back button, the mark, the row's title,
-// which TitleParts draws from its directory and line, as the page, and the row's state in the state slot. The children,
-// the pill the app passes in, draw after the state. The strip, when given, draws under the row.
-export function ConversationHead({
-  dir,
-  line,
-  state,
-  onBack,
-  mark,
-  strip,
-  children,
-}: {
-  dir: string;
-  line: string;
-  state: string;
-  onBack: () => void;
-  mark?: InboxMark;
-  strip?: ComponentChildren;
-  children?: ComponentChildren;
-}): JSX.Element {
-  return (
-    <TitleRow
-      crumbs={[{ label: <TitleParts dir={dir} line={line} /> }]}
-      onBack={onBack}
-      state={state}
-      mark={mark}
-      strip={strip}
-    >
-      {children}
-    </TitleRow>
   );
 }
 

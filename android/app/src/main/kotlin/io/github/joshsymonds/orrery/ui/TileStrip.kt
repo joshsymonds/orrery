@@ -27,7 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
-import io.github.joshsymonds.orrery.api.BackgroundTaskRow
+import io.github.joshsymonds.orrery.api.BackgroundTask
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.OrreryClient
@@ -213,11 +213,13 @@ private suspend fun loadSteeredEpics(client: OrreryClient, conversation: String)
 fun ConversationStrip(
     conversation: String,
     pane: Boolean,
-    background: List<BackgroundTaskRow>,
+    background: List<BackgroundTask>,
     now: Long,
     client: OrreryClient,
     onOpenEpic: (String) -> Unit,
     modifier: Modifier = Modifier,
+    onTiles: (Boolean) -> Unit = {},
+    end: @Composable () -> Unit = {},
 ) {
     var steered by remember(conversation) { mutableStateOf(SteeredEpics(emptyList(), emptyMap())) }
     var sheet by remember(conversation) { mutableStateOf<OpenSheet?>(null) }
@@ -225,7 +227,9 @@ fun ConversationStrip(
         loadSteeredEpics(client, conversation)?.let { steered = it }
     }
     val groups = workGroupsOf(conversation, pane, steered.epics, steered.details, background)
-    if (groups.isNotEmpty()) {
+    val tiles = groups.isNotEmpty()
+    LaunchedEffect(tiles) { onTiles(tiles) }
+    if (tiles) {
         TileStrip(
             groups = groups,
             onOpen = { thing ->
@@ -236,6 +240,7 @@ fun ConversationStrip(
             },
             onOpenPicker = { sheet = OpenSheet.Picker(it) },
             modifier = modifier,
+            end = end,
         )
     }
     when (val open = sheet) {

@@ -349,7 +349,7 @@ class MainActivityEpicsTest {
         .build()
 
     /** The header of the open session, by its label. */
-    private fun titled(label: String): SemanticsMatcher = hasTestTag("pane-title").and(hasText(label))
+    private fun titled(label: String): SemanticsMatcher = hasTestTag("head-text").and(hasText(label))
 
     /** A headless session as the list and the watch stream report it. */
     private fun headlessSession(id: String, label: String): HeadlessSession = HeadlessSession.newBuilder()
