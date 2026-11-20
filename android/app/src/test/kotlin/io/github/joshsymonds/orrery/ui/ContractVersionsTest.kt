@@ -109,6 +109,30 @@ class ContractVersionsTest {
     }
 
     @Test
+    fun anOlderVersionOfASetAsideContractDrawsNoReopen() {
+        FakeOrreryServer().use { server ->
+            server.serveContractRecord(
+                AtomicReference(
+                    contractRecordProto(
+                        "set_aside",
+                        twoVersions(),
+                        states = listOf(contractStateProto("set_aside", 2, words = "Synthetic set aside words")),
+                    ),
+                ),
+            )
+            composeRule.setContractScreen(server)
+            composeRule.awaitExactlyOne(hasTestTag("contract-reopen"))
+
+            openVersionList()
+            composeRule.scrollToRow("contract-version:1")
+            composeRule.onNodeWithTag("contract-version:1").performClick()
+            composeRule.awaitExactlyOne(hasTestTag("contract-older"))
+
+            assertEquals(0, composeRule.onAllNodesWithTag("contract-reopen").fetchSemanticsNodes().size)
+        }
+    }
+
+    @Test
     fun readTheNewestReturnsToTheNewestVersion() {
         FakeOrreryServer().use { server ->
             server.serveContractRecord(AtomicReference(contractRecordProto("proposed", twoVersions())))

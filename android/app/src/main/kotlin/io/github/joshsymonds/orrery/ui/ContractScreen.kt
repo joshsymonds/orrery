@@ -82,7 +82,9 @@ private const val NARROW_COLUMN = 1f
  * absent, the document is an Epics.Get contract's and its Decisions section reads None. [record] is the decision
  * line's record words, absent for the accepted clock. [marks] are the marks the newest version wears. [onAbout], when
  * given, draws each row's control and each addition's Keep and Strike. [onIrreversibleShown] is called once the
- * irreversible section has been composed on screen. [facts] is drawn last inside the decision line.
+ * irreversible section has been composed on screen. [facts] is drawn last inside the decision line. [attending] is whether
+ * the version is the newest of a proposed contract, the one the viewer is deciding: only while it is do its open decisions
+ * count, draw attention, and mark their rows, sections and the marks. Absent, it is.
  */
 @Composable
 fun ContractBody(
@@ -92,14 +94,17 @@ fun ContractBody(
     decisions: List<ContractDecisionRow>? = null,
     record: String? = null,
     marks: DocMarks? = null,
+    attending: Boolean = true,
     onAbout: ((RowAbout) -> Unit)? = null,
     onIrreversibleShown: (() -> Unit)? = null,
     facts: (LazyListScope.() -> Unit)? = null,
 ) {
     val decided = decisions ?: emptyList()
     val open = decided.filter { it.answer.isEmpty() }
+    val counted = if (attending) open else emptyList()
     val settled = decided.filter { it.answer.isNotEmpty() }
     val docMarks = marks ?: NoMarks
+    val unread = attending && docMarks.unread
     val accepted = Instant.ofEpochSecond(contract.accepted).atZone(ZoneId.systemDefault()).format(CLOCK_TIME)
     val recordWords = record ?: "accepted $accepted"
     val setter = contract.failures.firstOrNull { it.rating == contract.care }
@@ -109,6 +114,7 @@ fun ContractBody(
         "Level of care: ${contract.care}, set by ${setter.id}"
     }
 
+    fun attends(id: String): Boolean = attending && id in docMarks.concerned
     fun changedRow(id: String): Long? = if (id in docMarks.changedRows) docMarks.version else null
     fun changedIn(vararg sections: String): Long? =
         if (sections.any { it in docMarks.changedSections }) docMarks.version else null
@@ -134,7 +140,7 @@ fun ContractBody(
                     Chip(contract.care, ratingTone(contract.care))
                 }
                 Text(
-                    if (open.isEmpty()) "Decisions needed: none" else "Decisions needed: ${open.size}",
+                    if (counted.isEmpty()) "Decisions needed: none" else "Decisions needed: ${counted.size}",
                     style = OrreryTokens.Type.small,
                 )
                 Text(recordWords, style = OrreryTokens.Type.small, color = OrreryTokens.Ink.three)
@@ -162,7 +168,7 @@ fun ContractBody(
             TableHead(listOf("" to ID_COLUMN, "if this happened" to WIDE_COLUMN, "how bad" to NARROW_COLUMN, "what we do" to WIDE_COLUMN))
         }
         items(contract.failures) { failure ->
-            DocRow(tag = "contract-row:${failure.id}", attention = failure.id in docMarks.concerned) {
+            DocRow(tag = "contract-row:${failure.id}", attention = attends(failure.id)) {
                 Cell(ID_COLUMN) { IdChip(failure.id) }
                 Cell(WIDE_COLUMN) {
                     Column {
@@ -227,7 +233,7 @@ fun ContractBody(
             TableHead(listOf("" to ID_COLUMN, "must be true" to WIDE_COLUMN, "how we’ll know" to WIDE_COLUMN))
         }
         items(requirements) { requirement ->
-            DocRow(tag = "contract-row:${requirement.id}", attention = requirement.id in docMarks.concerned) {
+            DocRow(tag = "contract-row:${requirement.id}", attention = attends(requirement.id)) {
                 Cell(ID_COLUMN) { IdChip(requirement.id) }
                 Cell(WIDE_COLUMN) {
                     Column {
@@ -254,7 +260,7 @@ fun ContractBody(
             TableHead(listOf("" to ID_COLUMN, "assumption" to WIDE_COLUMN, "if wrong" to WIDE_COLUMN))
         }
         items(contract.premises) { premise ->
-            DocRow(tag = "contract-row:${premise.id}", attention = premise.id in docMarks.concerned) {
+            DocRow(tag = "contract-row:${premise.id}", attention = attends(premise.id)) {
                 Cell(ID_COLUMN) { IdChip(premise.id) }
                 Cell(WIDE_COLUMN) {
                     Column {
@@ -292,8 +298,8 @@ fun ContractBody(
         sectionHead(
             7,
             "What leaves this machine or can’t be undone",
-            attention = docMarks.unread,
-            rest = if (docMarks.unread) "read this before Accept" else null,
+            attention = unread,
+            rest = if (unread) "read this before Accept" else null,
             changed = changedIn("release_steps", "release_then"),
             onShown = onIrreversibleShown,
         )
@@ -313,8 +319,8 @@ fun ContractBody(
         sectionHead(
             8,
             "Decisions I need from you",
-            count = open.size.takeIf { it > 0 },
-            attention = open.isNotEmpty(),
+            count = counted.size.takeIf { it > 0 },
+            attention = counted.isNotEmpty(),
             changed = changedIn("decisions"),
         )
         if (decided.isEmpty()) {
@@ -325,7 +331,7 @@ fun ContractBody(
                 TableHead(listOf("" to ID_COLUMN, "question" to WIDE_COLUMN, "recommended" to WIDE_COLUMN, "why" to WIDE_COLUMN))
             }
             items(open) { decision ->
-                DocRow(tag = "contract-row:${decision.id}", attention = true) {
+                DocRow(tag = "contract-row:${decision.id}", attention = attending) {
                     Cell(ID_COLUMN) { IdChip(decision.id) }
                     Cell(WIDE_COLUMN) {
                         Column {

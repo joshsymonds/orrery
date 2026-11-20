@@ -188,6 +188,7 @@ fun ContractRecord(
                 changedSections = drawn.changedSections.toSet(),
                 version = drawn.version,
             ),
+            attending = proposed && isNewest,
             onAbout = talking,
             onIrreversibleShown = markRead,
             facts = {
@@ -273,7 +274,7 @@ fun ContractRecord(
                     Text("Cancel", style = OrreryTokens.Type.small)
                 }
             }
-            if (record.contract.state == "set_aside") {
+            if (isNewest && record.contract.state == "set_aside") {
                 OutlinedButton(
                     onClick = { reopen() },
                     enabled = !sending,

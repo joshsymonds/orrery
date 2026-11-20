@@ -1,5 +1,6 @@
 package io.github.joshsymonds.orrery.ui
 
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
@@ -9,7 +10,11 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import io.github.joshsymonds.orrery.api.FakeOrreryServer
+import io.github.joshsymonds.orrery.api.OrreryClient
+import io.github.joshsymonds.orrery.awaitExactlyOne
 import io.github.joshsymonds.orrery.mainThreadComposeRule
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -20,6 +25,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.util.TimeZone
+import java.util.concurrent.atomic.AtomicReference
 
 private const val IRREVERSIBLE = 7
 private const val DECISIONS = 8
@@ -176,6 +182,73 @@ class ContractMineTest {
             hasText("changed in v2") and hasAnyAncestor(hasTestTag("contract-row:F2")),
             useUnmergedTree = true,
         ).assertDoesNotExist()
+    }
+
+    @Test
+    fun aSetAsideContractWithAnOpenDecisionSaysNoneAndDrawsNoAttention() {
+        FakeOrreryServer().use { server ->
+            server.serveContractRecord(
+                AtomicReference(
+                    contractRecordProto(
+                        "set_aside",
+                        listOf(contractVersionProto(1, decisions = listOf(openDecisionProto()))),
+                        states = listOf(contractStateProto("set_aside", 1, words = "Synthetic set aside words")),
+                    ),
+                ),
+            )
+            setScreenAndAwaitRecord(server)
+
+            composeRule.assertShows("Decisions needed: none")
+            composeRule.scrollTo("contract-row:D1")
+            composeRule.onNodeWithTag("contract-row:D1").assert(SemanticsMatcher.keyNotDefined(AttentionKey))
+            composeRule.scrollTo("contract-section:$DECISIONS")
+            composeRule.onNodeWithTag("contract-section:$DECISIONS").assert(SemanticsMatcher.keyNotDefined(AttentionKey))
+        }
+    }
+
+    @Test
+    fun anOlderVersionOfAProposedContractSaysNoneAndDrawsNoAttention() {
+        FakeOrreryServer().use { server ->
+            server.serveContractRecord(
+                AtomicReference(
+                    contractRecordProto(
+                        "proposed",
+                        listOf(
+                            contractVersionProto(1, decisions = listOf(openDecisionProto())),
+                            contractVersionProto(2, decisions = listOf(openDecisionProto())),
+                        ),
+                    ),
+                ),
+            )
+            setScreenAndAwaitRecord(server)
+
+            composeRule.assertShows("Decisions needed: 1")
+            composeRule.onNodeWithTag("contract-versions-toggle").performClick()
+            composeRule.scrollTo("contract-section:$DECISIONS")
+            composeRule.onNodeWithTag("contract-section:$DECISIONS").assert(SemanticsMatcher.expectValue(AttentionKey, true))
+
+            composeRule.scrollTo("contract-version:1")
+            composeRule.onNodeWithTag("contract-version:1").performClick()
+            composeRule.awaitExactlyOne(hasTestTag("contract-older"))
+
+            composeRule.assertShows("Decisions needed: none")
+            assertEquals(0, composeRule.onAllNodesWithText("Decisions needed: 1").fetchSemanticsNodes().size)
+            composeRule.scrollTo("contract-section:$DECISIONS")
+            composeRule.onNodeWithTag("contract-section:$DECISIONS").assert(SemanticsMatcher.keyNotDefined(AttentionKey))
+            composeRule.scrollTo("contract-row:D1")
+            composeRule.onNodeWithTag("contract-row:D1").assert(SemanticsMatcher.keyNotDefined(AttentionKey))
+        }
+    }
+
+    /** Draws the contract screen for [RECORD_ID] from [server] and waits until its record is drawn. */
+    private fun setScreenAndAwaitRecord(server: FakeOrreryServer) {
+        val client = OrreryClient(server.baseUrl)
+        composeRule.setContent {
+            MaterialTheme {
+                ContractScreen(client = client, epicId = RECORD_ID, onBack = {}, onHome = {})
+            }
+        }
+        composeRule.awaitExactlyOne(hasTestTag("contract-versions-toggle"))
     }
 
     private fun marks(
