@@ -727,5 +727,32 @@
       ],
       "type": "object"
     }
+  },
+  {
+    "name": "cron_list",
+    "description": "List this session's orrery cron jobs: the jobs CronCreate scheduled through orrery.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    }
+  },
+  {
+    "name": "cron_delete",
+    "description": "Cancel one of this session's orrery cron jobs by id. Use it instead of CronDelete, which never reaches orrery.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "the id of the cron job to cancel",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    }
   }
 ]
