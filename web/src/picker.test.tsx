@@ -250,9 +250,9 @@ async function typeWords(container: HTMLElement, text: string): Promise<void> {
   });
 }
 
-async function pressKey(element: Element, key: string): Promise<void> {
+async function pressKey(element: Element, key: string, init: KeyboardEventInit = {}): Promise<void> {
   await act(() => {
-    element.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+    element.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...init }));
   });
 }
 
@@ -475,11 +475,7 @@ test("NewPanel: an ask that starts while a start form is open closes the form, a
     await untilTurn(t.signal, () => server.callsTo(askPath).length === 2, "the second ask is sent");
     try {
       assertNone(container.querySelector(".picker-start"), "the start form closes while the ask runs");
-      assert.equal(
-        [...container.querySelectorAll("button")].some((button) => button.textContent === "Start"),
-        false,
-        "no Start button is drawn while the ask runs",
-      );
+      assert.equal(startButtonOf(container), undefined, "no Start button is drawn while the ask runs");
     } finally {
       release();
     }
@@ -554,17 +550,37 @@ function startForm(container: HTMLElement): HTMLElement {
   return form;
 }
 
+// directoryBox is the start form's directory field, which holds the folder read-only.
+function directoryBox(container: HTMLElement): HTMLInputElement {
+  const box = container.querySelector<HTMLInputElement>('[aria-label="Directory"]');
+  assert.ok(box, "the start form has its directory field");
+  return box;
+}
+
 function messageBox(container: HTMLElement): HTMLTextAreaElement {
   const box = container.querySelector<HTMLTextAreaElement>('[aria-label="message"]');
   assert.ok(box, "the start form has its message box");
   return box;
 }
 
-function startButton(container: HTMLElement): HTMLButtonElement {
-  const found = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
-    (button) => button.textContent === "Start",
+// startButtonOf is the Start the session button of the start form, or undefined when the form draws none.
+function startButtonOf(container: HTMLElement): HTMLButtonElement | undefined {
+  return [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
+    button.textContent?.startsWith("Start the session"),
   );
-  assert.ok(found, "the start form has its Start button");
+}
+
+function startButton(container: HTMLElement): HTMLButtonElement {
+  const found = startButtonOf(container);
+  assert.ok(found, "the start form has its Start the session button");
+  return found;
+}
+
+function otherResultsButton(container: HTMLElement): HTMLButtonElement {
+  const found = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+    (button) => button.textContent === "Other results",
+  );
+  assert.ok(found, "the start form has its Other results button");
   return found;
 }
 
@@ -584,17 +600,20 @@ async function askAndChoose(signal: AbortSignal, container: HTMLElement, words: 
   await click(rowButtons(container)[index]);
 }
 
-test("PickerStartForm: choosing a folder row opens the start form naming the folder, with an empty message", (t) =>
+test("NewPanel: choosing a folder row opens the start form in place of the results, with the folder read-only and an empty message", (t) =>
   withDom(t.signal, async (container, server) => {
     server.replies.set(askPath, { status: 200, body: { rows: [freshRow] } });
     await mountPalette(container, server);
     await askAndChoose(t.signal, container, "web", 0);
-    assert.equal(startForm(container).querySelector(".picker-folder")?.textContent, "/work/web");
+    assert.equal(directoryBox(container).value, "/work/web", "the form names the folder");
+    assert.equal(directoryBox(container).readOnly, true, "the folder is a read-only field");
     assert.equal(messageBox(container).value, "", "a row without a prompt starts the message empty");
+    assertNone(container.querySelector(".pick-row"), "the form replaces the results");
+    assert.equal(otherResultsButton(container).textContent, "Other results");
     assert.deepEqual(server.callsTo(runPath), [], "a folder row runs nothing");
   }));
 
-test("PickerStartForm: a prompt row's message starts with the words the palette last asked", (t) =>
+test("NewPanel: a prompt row's message starts with the words the palette last asked", (t) =>
   withDom(t.signal, async (container, server) => {
     server.replies.set(askPath, { status: 200, body: { rows: [promptRow] } });
     await mountPalette(container, server);
@@ -603,11 +622,11 @@ test("PickerStartForm: a prompt row's message starts with the words the palette 
     await untilTurn(t.signal, () => rowButtons(container).length === 1, "the row is listed");
     await typeWords(container, "typed but not asked");
     await click(rowButtons(container)[0]);
-    assert.equal(startForm(container).querySelector(".picker-folder")?.textContent, "/work/docs");
+    assert.equal(directoryBox(container).value, "/work/docs");
     assert.equal(messageBox(container).value, "api  web", "the message starts with the asked words, not typed ones");
   }));
 
-test("PickerStartForm: Start sends Control.Start with the folder, message and a 32-hex id", (t) =>
+test("NewPanel: Start the session sends Control.Start with the folder, message and a 32-hex id", (t) =>
   withDom(t.signal, async (container, server) => {
     server.replies.set(askPath, { status: 200, body: { rows: [freshRow] } });
     server.replies.set(startPath, { status: 200, body: { id: "sess-new" } });
@@ -627,7 +646,7 @@ test("PickerStartForm: Start sends Control.Start with the folder, message and a 
     );
   }));
 
-test("PickerStartForm: a retry after a failed Start sends the same id, also after the message was edited", (t) =>
+test("NewPanel: a retry after a failed Start sends the same id, also after the message was edited", (t) =>
   withDom(t.signal, async (container, server) => {
     server.replies.set(askPath, { status: 200, body: { rows: [freshRow] } });
     server.replies.set(startPath, { status: 503, body: { code: "unavailable", message: "queue unreachable" } });
@@ -651,7 +670,7 @@ test("PickerStartForm: a retry after a failed Start sends the same id, also afte
     assert.equal(retry.body.id, first.body.id, "the retry names the same start id");
   }));
 
-test("PickerStartForm: a refused Start keeps the message and shows the fixed line, none of the server's text", (t) =>
+test("NewPanel: a refused Start keeps the message and shows the fixed line, none of the server's text", (t) =>
   withDom(t.signal, async (container, server) => {
     server.replies.set(askPath, { status: 200, body: { rows: [freshRow] } });
     server.replies.set(startPath, {
@@ -663,9 +682,105 @@ test("PickerStartForm: a refused Start keeps the message and shows the fixed lin
     await typeMessage(container, "keep this");
     await click(startButton(container));
     await untilTurn(t.signal, () => alertTexts(container).length === 1, "the refusal shows its line");
-    assert.deepEqual(alertTexts(container), ["the picker failed"]);
+    assert.deepEqual(alertTexts(container), ["The session did not start."]);
     assert.equal(container.textContent?.includes("secret detail"), false, "the server's text is not shown");
     assert.equal(messageBox(container).value, "keep this", "the form keeps the message as typed");
+    assert.equal(startButton(container).disabled, false, "the form can be started again");
+  }));
+
+test("NewPanel: Other results goes back to the results as they were, with the same current result", (t) =>
+  withDom(t.signal, async (container, server) => {
+    server.replies.set(askPath, { status: 200, body: { rows: [jumpRow, freshRow, promptRow] } });
+    await mountPalette(container, server);
+    await typeWords(container, "api");
+    await pressKey(input(container), "Enter");
+    await untilTurn(t.signal, () => rowButtons(container).length === 3, "the rows are listed");
+    const before = rowTexts(container);
+    await pressArrow(input(container), "ArrowDown");
+    await click(rowButtons(container)[1]);
+    assertNone(container.querySelector(".pick-row"), "the form replaces the results");
+
+    await click(otherResultsButton(container));
+    assertNone(container.querySelector(".picker-start"), "the form closes");
+    assert.deepEqual(rowTexts(container), before, "the same results are listed");
+    assert.equal(currentIndex(container), 1, "the current result is the one chosen before");
+    assert.deepEqual(server.callsTo(startPath), [], "Other results starts nothing");
+  }));
+
+test("NewPanel: Start the session is disabled while the message is blank, and enabled once it has words", (t) =>
+  withDom(t.signal, async (container, server) => {
+    server.replies.set(askPath, { status: 200, body: { rows: [freshRow] } });
+    await mountPalette(container, server);
+    await askAndChoose(t.signal, container, "web", 0);
+    assert.equal(startButton(container).disabled, true, "a blank message cannot start");
+    await typeMessage(container, "   ");
+    assert.equal(startButton(container).disabled, true, "a message of spaces cannot start");
+    await pressKey(messageBox(container), "Enter", { metaKey: true });
+    assert.deepEqual(server.callsTo(startPath), [], "⌘⏎ over a blank message starts nothing");
+
+    await typeMessage(container, "fix the build");
+    assert.equal(startButton(container).disabled, false, "words make the form startable");
+  }));
+
+for (const [name, modifier] of [
+  ["⌘⏎", { metaKey: true }],
+  ["Ctrl+⏎", { ctrlKey: true }],
+] as const) {
+  test(`NewPanel: ${name} in the message box starts the session at the desk, and a plain Enter does not`, (t) =>
+    withDom(t.signal, async (container, server) => {
+      server.replies.set(askPath, { status: 200, body: { rows: [freshRow] } });
+      server.replies.set(startPath, { status: 200, body: { id: "sess-new" } });
+      const started: string[] = [];
+      await mountPalette(container, server, () => {}, () => {}, (session) => started.push(session));
+      await askAndChoose(t.signal, container, "web", 0);
+      assert.equal(startButton(container).querySelector("kbd")?.textContent, "⌘⏎", "the desk names the shortcut");
+      await typeMessage(container, "fix the build");
+      await pressKey(messageBox(container), "Enter");
+      assert.deepEqual(server.callsTo(startPath), [], "a plain Enter starts nothing");
+
+      await pressKey(messageBox(container), "Enter", modifier);
+      await untilTurn(t.signal, () => started.length === 1, "the shortcut reports its session");
+      assert.deepEqual(started, ["sess-new"]);
+      assert.equal(server.callsTo(startPath).length, 1, "the shortcut starts once");
+    }));
+}
+
+test("NewPanel: at a narrow sheet the start form has no ⌘⏎ key and ⌘⏎ starts nothing", (t) =>
+  withDom(t.signal, async (container, server) => {
+    server.replies.set(askPath, { status: 200, body: { rows: [freshRow] } });
+    await mountPalette(container, server, () => {}, () => {}, () => {}, [], true);
+    await askAndChoose(t.signal, container, "web", 0);
+    assertNone(startButton(container).querySelector("kbd"), "the sheet names no shortcut");
+    await typeMessage(container, "fix the build");
+    await pressKey(messageBox(container), "Enter", { metaKey: true });
+    assert.deepEqual(server.callsTo(startPath), [], "⌘⏎ starts nothing at a sheet");
+  }));
+
+test("NewPanel: while Start runs the form reads starting…, Start is disabled, and a second Start sends nothing", (t) =>
+  withDom(t.signal, async (container, server) => {
+    server.replies.set(askPath, { status: 200, body: { rows: [freshRow] } });
+    server.replies.set(startPath, { status: 200, body: { id: "sess-new" } });
+    const release = server.hold(startPath);
+    const started: string[] = [];
+    await mountPalette(container, server, () => {}, () => {}, (session) => started.push(session));
+    await askAndChoose(t.signal, container, "web", 0);
+    await typeMessage(container, "fix the build");
+    await click(startButton(container));
+    await untilTurn(t.signal, () => server.callsTo(startPath).length === 1, "the start is sent");
+    assert.equal(container.querySelector(".inote")?.textContent, "starting…", "the form says starting… while Start runs");
+    assert.equal(startButton(container).disabled, true, "Start is disabled while it runs");
+    const back = [...container.querySelectorAll<HTMLButtonElement>(".foot button")].find((button) =>
+      (button.textContent ?? "").includes("Other results"),
+    );
+    assert.equal(back?.disabled, true, "Other results is disabled while Start runs, so no second form starts a second session");
+    await click(startButton(container));
+    await pressKey(messageBox(container), "Enter", { metaKey: true });
+    assert.equal(server.callsTo(startPath).length, 1, "a second Start sends nothing while it runs");
+
+    release();
+    await untilTurn(t.signal, () => started.length === 1, "the start reports its session");
+    assert.deepEqual(started, ["sess-new"]);
+    assertNone(container.querySelector(".inote"), "starting… is gone once the start has answered");
   }));
 
 test("NewPanel: each result leads with its kind's word, then its title, its chip when it has one, and its note", (t) =>

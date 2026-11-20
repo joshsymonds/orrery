@@ -5143,7 +5143,10 @@ test("PickerStartForm: a started session takes the cursor once its row arrives i
     await pressIn(pickerInput(container), "Enter");
     await untilTurn(t.signal, () => pickerRows(container).length === 1, "the answer's row is listed");
     await clickElement(pickerRow(container, 0));
-    await clickButton(container, '[role="dialog"][aria-label="New session"]', "Start");
+    const message = container.querySelector<HTMLTextAreaElement>('[role="dialog"][aria-label="New session"] textarea');
+    assert.ok(message, "the start form has its first message box");
+    await typeInto(message, "build the web page");
+    await clickButton(container, '[role="dialog"][aria-label="New session"]', "Start the session⌘⏎");
     await untilTurn(t.signal, () => !pickerShown(container), "the start closes the palette");
     assert.equal(cursorKey(container), "a", "the started session's row is not in the list yet");
 

@@ -8,7 +8,7 @@ import type { Row } from "./rows";
 import { listedTitle, TitleParts } from "./titleparts";
 
 // The one line a refused or failed Start leaves. It never shows the server's text.
-const pickerFailedText = "the picker failed";
+const startFailedText = "The session did not start.";
 
 // The kinds of row that name a folder. Choosing one opens the start form for its directory.
 const folderKinds = ["pane", "fresh"];
@@ -199,7 +199,15 @@ export function NewPanel({
       </label>
       {note}
       {folder !== null ? (
-        <StartForm key={folder.token} clients={clients} folder={folder} asked={asked} onStarted={onStart} />
+        <StartForm
+          key={folder.token}
+          clients={clients}
+          folder={folder}
+          asked={asked}
+          sheet={sheet}
+          onBack={() => setFolder(null)}
+          onStarted={onStart}
+        />
       ) : (
         found !== null &&
         found.length > 0 && (
@@ -259,43 +267,98 @@ export function NewPanel({
   );
 }
 
-// StartForm is the start form a folder row opens. It names the row's folder and holds a message box, which a
-// prompt row's box starts with the asked words and any other starts empty. Its start id is made once, when the form
-// opens, so every Start it sends, a retry after a failure or an edit included, names the same session. Start sends the
-// folder, the message and that id to Control.Start, and onStarted receives the session it started. A refused or failed
-// Start keeps the form and the message as typed and shows the fixed line.
+// StartForm is the start form a folder row opens, in place of the results. It shows the row's folder read-only and a
+// message box, which a prompt row's box starts with the asked words and any other starts empty. Other results goes
+// back through onBack. Its start id is made once, when the form opens, so every Start it sends, a retry after a failure
+// or an edit included, names the same session. Start is disabled while the message is blank or a Start runs, and at the
+// desk ⌘⏎ or Ctrl+⏎ in the message box starts it too. Start sends the folder, the message and that id to Control.Start,
+// and onStarted receives the session it started. A refused or failed Start keeps the form and the message as typed and
+// shows the fixed line.
 function StartForm({
   clients,
   folder,
   asked,
+  sheet,
+  onBack,
   onStarted,
 }: {
   clients: Clients;
   folder: PickerRow;
   asked: string;
+  sheet: boolean;
+  onBack: () => void;
   onStarted: (session: string) => void;
 }) {
   const [startId] = useState(() => actions.newStartId());
   const [message, setMessage] = useState(folder.prompt ? asked : "");
+  const [starting, setStarting] = useState(false);
   const [error, setError] = useState("");
+  const blank = message.trim() === "";
 
   const start = () => {
+    if (starting || blank) {
+      return;
+    }
+    setStarting(true);
     setError("");
-    void actions.start(clients, folder.dir, message, startId).then(onStarted, () => setError(pickerFailedText));
+    void actions.start(clients, folder.dir, message, startId).then(
+      (session) => {
+        setStarting(false);
+        onStarted(session);
+      },
+      () => {
+        setStarting(false);
+        setError(startFailedText);
+      },
+    );
   };
 
   return (
     <div class="picker-start">
-      <p class="picker-folder">{folder.dir}</p>
-      <textarea value={message} aria-label="message" onInput={(event) => setMessage(event.currentTarget.value)} />
-      <button type="button" onClick={start}>
-        Start
-      </button>
+      <div class="form-row">
+        <span class="t-label">Directory</span>
+        <label class="field">
+          <svg class="icon" viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M2 4h4l1.5 1.5H14v7H2z" />
+          </svg>
+          <input value={folder.dir} readOnly aria-label="Directory" />
+        </label>
+      </div>
+      <div class="form-row">
+        <span class="t-label">First message</span>
+        <textarea
+          class="field area"
+          value={message}
+          aria-label="message"
+          onInput={(event) => setMessage(event.currentTarget.value)}
+          onKeyDown={(event) => {
+            if (!sheet && event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+              event.preventDefault();
+              start();
+            }
+          }}
+        />
+      </div>
       {error !== "" && (
-        <p class="error" role="alert">
+        <p class="inote error" role="alert">
           {error}
         </p>
       )}
+      <div class="foot">
+        <button type="button" class="act" disabled={starting} onClick={onBack}>
+          <svg class="icon" viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M10 3 5 8l5 5" />
+          </svg>
+          Other results
+        </button>
+        <span class="end">
+          {starting && <span class="inote">starting…</span>}
+          <button type="button" class="act primary" disabled={starting || blank} onClick={start}>
+            Start the session
+            {!sheet && <kbd>⌘⏎</kbd>}
+          </button>
+        </span>
+      </div>
     </div>
   );
 }
