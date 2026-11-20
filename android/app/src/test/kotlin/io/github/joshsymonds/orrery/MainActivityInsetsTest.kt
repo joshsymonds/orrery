@@ -177,7 +177,7 @@ class MainActivityInsetsTest {
 
     private fun editField(controller: ActivityController<MainActivity>): EditText =
         checkNotNull(findEditText(controller.get().window.decorView)) {
-            "ComposeBox must host an EditText"
+            "DockBox must host an EditText"
         }
 
     private fun findEditText(view: View): EditText? {

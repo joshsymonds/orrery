@@ -285,7 +285,7 @@ class SessionScreenTest {
 
             setDraft(SYNTHETIC_DRAFT)
             composeRule.onNodeWithText("Send").performClick()
-            composeRule.awaitExactlyOne(hasText(NOT_SENT))
+            composeRule.awaitExactlyOne(hasText(DockLines.sendRefused))
 
             assertEquals(SYNTHETIC_DRAFT, editField().text.toString())
         }

@@ -357,9 +357,11 @@ fun PaneScreen(
                 )
             }
         }
-        ComposeBox(
-            paneId,
+        val draft = rememberDockDraft(paneId)
+        DockBox(
+            draft,
             client,
+            paneId,
             maxFieldHeight = composeCap,
             edge = composeEdgeOf(current?.state.orEmpty()),
             hint = when {

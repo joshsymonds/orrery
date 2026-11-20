@@ -209,9 +209,11 @@ fun SessionScreen(sessionId: String, client: OrreryClient, onBack: () -> Unit = 
             Text(RESULT_TEXT, modifier = Modifier.testTag(RESULT_TAG).padding(horizontal = OrreryTokens.Space.twelve + OrreryTokens.Space.two), color = OrreryTokens.Role.halt)
         }
         // The compose key is the session's id; its sends go through the session sender, or a step's nudge.
-        ComposeBox(
-            sessionId,
+        val draft = rememberDockDraft(sessionId)
+        DockBox(
+            draft,
             client,
+            sessionId,
             edge = if (step?.held == true) ComposeEdge.HELD else composeEdgeOf(state),
             hint = composeHint(step, state),
             send = { text -> if (step != null) stepCalls.nudge(text) else sender.send(text) },
