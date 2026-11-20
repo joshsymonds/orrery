@@ -1,8 +1,13 @@
 package io.github.joshsymonds.orrery.ui
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -10,7 +15,10 @@ import androidx.compose.ui.test.performTextReplacement
 import io.github.joshsymonds.orrery.api.EpicQuestionChoiceRow
 import io.github.joshsymonds.orrery.api.EpicQuestionRow
 import io.github.joshsymonds.orrery.api.EpicRow
+import io.github.joshsymonds.orrery.awaitUntil
 import io.github.joshsymonds.orrery.mainThreadComposeRule
+import java.io.IOException
+import kotlinx.coroutines.CompletableDeferred
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -137,5 +145,110 @@ class AskAnswerEpicTest {
 
         assertEquals(1, retries)
         assertEquals(emptyList<Answer>(), answers)
+    }
+
+    @Test
+    fun theRecordLineFollowsThePickAndIsWhatConfirmWillSend() {
+        setBlock(EpicBlocker.Question(text = "waits on your answer", since = NOW - 120, question = question()))
+
+        composeRule.onNodeWithTag("ask-record").assertTextContains("owner: split the screen in two")
+        composeRule.onNodeWithTag("ask-option:1").performClick()
+        composeRule.onNodeWithTag("ask-record").assertTextContains("owner: keep the current layout")
+        composeRule.onNodeWithTag("ask-confirm").performClick()
+        composeRule.waitForIdle()
+
+        assertEquals(listOf(Answer("question-1", "keep", "keep the current layout")), answers)
+    }
+
+    @Test
+    fun somethingElseRecordsTheTrimmedTextThatConfirmWillSend() {
+        setBlock(EpicBlocker.Question(text = "waits on your answer", since = NOW - 120, question = question()))
+
+        composeRule.onNodeWithTag("ask-other").performClick()
+        composeRule.onNodeWithTag("ask-record").assertDoesNotExist()
+        composeRule.onNodeWithTag("ask-other-text").performTextReplacement("  go with both  ")
+        composeRule.onNodeWithTag("ask-record").assertTextContains("owner: go with both")
+        composeRule.onNodeWithTag("ask-confirm").performClick()
+        composeRule.waitForIdle()
+
+        assertEquals(listOf(Answer("question-1", "other", "go with both")), answers)
+    }
+
+    @Test
+    fun anEpicAnswerInFlightDrawsSendingAndSendsNothingMore() {
+        val release = CompletableDeferred<String>()
+        var sends = 0
+        setAsk { _, _ ->
+            sends++
+            release.await()
+        }
+
+        composeRule.onNodeWithTag("ask-option:1").performClick()
+        composeRule.onNodeWithTag("ask-confirm").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("ask-sending").assertIsDisplayed()
+        composeRule.onNodeWithTag("ask-confirm").assertIsNotEnabled()
+
+        composeRule.onNodeWithTag("ask-option:2").performClick()
+        composeRule.onNodeWithTag("ask-confirm").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("ask-option:1").assertIsSelected()
+        composeRule.onNodeWithTag("ask-option:2").assertIsNotSelected()
+        assertEquals(1, sends)
+
+        release.complete("")
+        composeRule.awaitUntil { composeRule.onAllNodesWithTag("ask-sending").fetchSemanticsNodes().isEmpty() }
+        assertEquals(1, sends)
+    }
+
+    @Test
+    fun aRefusedEpicAnswerKeepsItsWordsAndItsPick() {
+        setAsk { _, _ -> "the question changed" }
+
+        composeRule.onNodeWithTag("ask-other").performClick()
+        composeRule.onNodeWithTag("ask-other-text").performTextReplacement("go with both")
+        composeRule.onNodeWithTag("ask-confirm").performClick()
+        composeRule.awaitUntil {
+            composeRule.onAllNodesWithTag("ask-note").fetchSemanticsNodes().isNotEmpty()
+        }
+
+        composeRule.onNodeWithTag("ask-note").assertTextEquals("the question changed")
+        composeRule.onNodeWithTag("ask-other").assertIsSelected()
+        composeRule.onNodeWithTag("ask-other-text").assertTextEquals("go with both")
+        composeRule.onNodeWithTag("ask-confirm").assertIsEnabled()
+    }
+
+    @Test
+    fun anEpicAnswerThatFailsToSendKeepsItsPickAndSaysItIsKept() {
+        setAsk { _, _ -> throw IOException("offline") }
+
+        composeRule.onNodeWithTag("ask-option:1").performClick()
+        composeRule.onNodeWithTag("ask-confirm").performClick()
+        composeRule.awaitUntil {
+            composeRule.onAllNodesWithTag("ask-note").fetchSemanticsNodes().isNotEmpty()
+        }
+
+        composeRule.onNodeWithTag("ask-note").assertTextEquals("Not answered. Your answer is kept.")
+        composeRule.onNodeWithTag("ask-option:1").assertIsSelected()
+    }
+
+    private fun setAsk(onConfirm: suspend (choice: String, text: String) -> String) {
+        composeRule.setContent {
+            MaterialTheme {
+                Ask(
+                    model = epicAsk(epicOf(), question()),
+                    now = NOW,
+                    phase = AskPhase.OPEN,
+                    picked = null,
+                    note = "",
+                    onAnswer = null,
+                    onNotNow = null,
+                    onBringBack = null,
+                    onDecline = null,
+                    onArchive = null,
+                    onConfirm = onConfirm,
+                )
+            }
+        }
     }
 }

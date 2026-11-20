@@ -172,4 +172,41 @@ class WaitsOnYouTest {
         assertFalse(ownAsks(pane("%1", "o1", "waiting", archived = true)))
         assertTrue(ownAsks(pane("%1", "o1", "waiting", putOff = false)))
     }
+
+    @Test
+    fun countsOfLeavesOutAnArchivedWaitingConversation() {
+        val projects = tree(
+            panes = listOf(pane("%1", "o1", "waiting")),
+            archivedIds = setOf("o1"),
+            view = TreeView.ARCHIVED,
+        )
+        assertEquals(1, projects.single().convos.size)
+        assertEquals(0, countsOf(projects).waiting)
+    }
+
+    @Test
+    fun projectWaitingLeavesOutAnArchivedWaitingConversation() {
+        val projects = tree(
+            panes = listOf(pane("%1", "o1", "waiting", cwd = "/home/user/a")),
+            archivedIds = setOf("o1"),
+            view = TreeView.ARCHIVED,
+        )
+        assertEquals(1, projects.single().convos.size)
+        assertEquals(0, projectWaiting(projects.single()))
+    }
+
+    @Test
+    fun anArchivedWaitingRowCountsNothingHungUnderItInItsCountsOrItsProject() {
+        val e = epic("e1", steering = "o1")
+        val projects = tree(
+            panes = listOf(pane("%1", "o1", "waiting")),
+            archivedIds = setOf("o1"),
+            epics = listOf(e),
+            details = mapOf("e1" to parked(e)),
+            view = TreeView.ARCHIVED,
+        )
+        assertEquals(listOf("epic:e1"), projects.single().convos.single().hung.map { it.key })
+        assertEquals(0, countsOf(projects).waiting)
+        assertEquals(0, projectWaiting(projects.single()))
+    }
 }

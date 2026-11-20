@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
@@ -213,6 +214,56 @@ class AskAnswerTest {
             composeRule.onNodeWithText("Yes, and don’t ask again").assertIsDisplayed()
             composeRule.onNodeWithText("· Run this command?").assertIsDisplayed()
             composeRule.onAllNodesWithTag("ask").assertCountEquals(0)
+        }
+    }
+
+    @Test
+    fun aPaneAnswerHeldByTheServerDrawsItsPickSending() {
+        FakeOrreryServer().use { server ->
+            val arrived = CountDownLatch(1)
+            val release = CountDownLatch(1)
+            server.route(KEYS) {
+                arrived.countDown()
+                check(release.await(HANG_GUARD_SECONDS, TimeUnit.SECONDS)) { "the test never released the answer" }
+                Reply.Message(SendKeysResponse.getDefaultInstance(), 0L)
+            }
+            var refreshes = 0
+            model.value = paneAsk(pane())
+            setHost(server) { refreshes++ }
+
+            composeRule.onNodeWithTag("ask-option:2").performClick()
+            composeRule.waitForIdle()
+            assertTrue(arrived.await(HANG_GUARD_SECONDS, TimeUnit.SECONDS))
+
+            composeRule.onNodeWithTag("ask-sending").assertIsDisplayed()
+            composeRule.onNodeWithTag("ask-option:2").assertIsSelected()
+            release.countDown()
+            composeRule.awaitUntil { refreshes == 1 }
+        }
+    }
+
+    @Test
+    fun aSessionAnswerHeldByTheServerDrawsItsPickSending() {
+        FakeOrreryServer().use { server ->
+            val arrived = CountDownLatch(1)
+            val release = CountDownLatch(1)
+            server.route(CONTROL_ANSWER) {
+                arrived.countDown()
+                check(release.await(HANG_GUARD_SECONDS, TimeUnit.SECONDS)) { "the test never released the answer" }
+                Reply.Message(AnswerResponse.getDefaultInstance(), 0L)
+            }
+            var refreshes = 0
+            model.value = sessionAskModel()
+            setHost(server) { refreshes++ }
+
+            composeRule.onNodeWithTag("ask-option:2").performClick()
+            composeRule.waitForIdle()
+            assertTrue(arrived.await(HANG_GUARD_SECONDS, TimeUnit.SECONDS))
+
+            composeRule.onNodeWithTag("ask-sending").assertIsDisplayed()
+            composeRule.onNodeWithTag("ask-option:2").assertIsSelected()
+            release.countDown()
+            composeRule.awaitUntil { refreshes == 1 }
         }
     }
 }
