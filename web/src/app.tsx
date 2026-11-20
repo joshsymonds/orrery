@@ -1497,9 +1497,9 @@ export function App({
   const lit =
     contract !== undefined ? litContract : panelOpen && panelThing !== undefined ? panelThing.key : (listShown ?? "");
   const panelTone = panelThing?.tone ?? "quiet";
-  // The one panel open beside the conversation is an epic's or a list's. A list's card takes its tile's tone, and its
-  // rows are the tile's tasks, which are empty once the tile is gone.
-  const panelShown = panelOpen || listShown !== null;
+  // The one panel open beside the conversation is an epic's, a contract's or a list's. A list's card takes its tile's
+  // tone, and its rows are the tile's tasks, which are empty once the tile is gone.
+  const panelShown = panelOpen || contractShown || listShown !== null;
   const listThing = railGroups
     .flatMap((group) => group.things)
     .find(
@@ -1702,7 +1702,9 @@ export function App({
           onRead={readContract}
           live={contractLiveRow !== null}
           onAbout={talkAbout}
-          onTalk={wide || contractLiveRow === null ? undefined : () => setTalking(true)}
+          onTalk={
+            wide || contractLiveRow === null || contract.state !== "proposed" ? undefined : () => setTalking(true)
+          }
         />
       </div>
     );

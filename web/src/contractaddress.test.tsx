@@ -256,6 +256,17 @@ function recordDrawn(container: HTMLElement, label?: string): boolean {
   return Boolean(scope?.querySelector(".contract-record"));
 }
 
+// shownSide is the panes' data-side: "panel" while a panel lies beside the conversation, "rail" otherwise.
+function shownSide(container: HTMLElement): string | null {
+  return container.querySelector(".panes")?.getAttribute("data-side") ?? null;
+}
+
+async function click(element: HTMLElement): Promise<void> {
+  await act(() => {
+    element.click();
+  });
+}
+
 // titled is whether the panel labelled as given draws the record's title.
 function titled(container: HTMLElement, label: string): boolean {
   return panelOf(container, label)?.textContent?.includes(recordTitle) === true;
@@ -267,6 +278,19 @@ test("ContractAddress: the address draws the contract's conversation in the midd
     assert.equal(readerShown(container), true, "the contract's conversation is drawn in the middle");
     await settle(t.signal, () => recordDrawn(container, "tide-alerts contract"), "the record is drawn in the panel");
     await settle(t.signal, () => titled(container, "tide-alerts contract"), "the record's title is drawn");
+  }));
+
+test("ContractAddress: at the desk an open contract sets the panes to the panel side, and closing it returns the rail", (t) =>
+  withApp(t.signal, 1600, { rows: [conversationRow()], address: contractAddress }, async ({ container }) => {
+    await settle(t.signal, () => recordDrawn(container, "tide-alerts contract"), "the record is drawn in the panel");
+    assert.equal(shownSide(container), "panel", "the panel lies in its own column beside the conversation");
+    const close = panelOf(container, "tide-alerts contract")?.querySelector<HTMLButtonElement>(
+      'button[aria-label="Close the panel"]',
+    );
+    assert.ok(close !== null && close !== undefined, "the panel draws its Close control");
+    await click(close);
+    await settle(t.signal, () => shownSide(container) === "rail", "the panes return to the rail side");
+    assert.equal(recordDrawn(container, "tide-alerts contract"), false, "the panel is closed");
   }));
 
 test("ContractAddress: the shown address names the contract, and parses back to the address it was opened with", (t) =>

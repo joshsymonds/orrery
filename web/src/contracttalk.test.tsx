@@ -188,7 +188,7 @@ const recordTitle = tideProposed.versions.at(-1)?.contract?.title ?? "";
 // record draws its loading line until its answer comes, and its rows and controls only after it.
 function titledRecord(container: HTMLElement, label?: string): boolean {
   const scope = label === undefined ? container : panelOf(container, label);
-  return scope?.querySelector(".contract-record") !== null && scope?.textContent?.includes(recordTitle) === true;
+  return scope?.querySelector(".contract-record")?.textContent?.includes(recordTitle) === true;
 }
 
 // talkControls are the row controls the record draws, each labelled Talk about this row.
@@ -350,12 +350,41 @@ test("ContractLines: the transcript's contract line is drawn in the middle reade
     },
   ));
 
+// talkButton is the record's Talk about it control, or undefined when none is drawn.
+function talkButton(container: HTMLElement): HTMLButtonElement | undefined {
+  return [...container.querySelectorAll<HTMLButtonElement>(".contract-record button")].find(
+    (button) => button.textContent === "Talk about it",
+  );
+}
+
+// loadedRecord is whether the record has its answer in the container, which is when it draws its command bar.
+function loadedRecord(container: HTMLElement): boolean {
+  return container.querySelector(".contract-record .cmdbar") !== null;
+}
+
+// talkWhen mounts the phone's record of the contract in the given state, and runs check once the record is loaded.
+function talkWhen(signal: AbortSignal, state: string, check: (container: HTMLElement) => void): Promise<void> {
+  const contracts = listed.map((contract) => ({ ...contract, state }));
+  return withApp(signal, 400, { rows: [conversationRow()], address: contractAddress, contracts }, async ({ container }) => {
+    await settle(signal, () => loadedRecord(container), "the record is loaded");
+    check(container);
+  });
+}
+
+test("ContractAddress: under 760px Talk about it is not offered on an accepted contract", (t) =>
+  talkWhen(t.signal, "accepted", (container) => {
+    assert.equal(talkButton(container) !== undefined, false, "the record draws no Talk about it");
+  }));
+
+test("ContractAddress: under 760px Talk about it is not offered on a set-aside contract", (t) =>
+  talkWhen(t.signal, "set_aside", (container) => {
+    assert.equal(talkButton(container) !== undefined, false, "the record draws no Talk about it");
+  }));
+
 test("ContractAddress: under 760px Talk about it raises the conversation in the sheet, over the record", (t) =>
   withApp(t.signal, 400, { rows: [conversationRow()], address: contractAddress }, async ({ container }) => {
     await settle(t.signal, () => titledRecord(container), "the record is drawn");
-    const talk = [...container.querySelectorAll<HTMLButtonElement>(".contract-record button")].find(
-      (button) => button.textContent === "Talk about it",
-    );
+    const talk = talkButton(container);
     assert.ok(talk !== undefined, "the record draws Talk about it");
     await click(talk);
     await settle(
