@@ -678,7 +678,7 @@ orreryd answers the service in `enginehost.cronService.CronCall`, which passes e
 - **Scheduled.** `CronCreate` takes the object `{"cron", "prompt", "recurring"}`, and a missing `recurring` means true. Its answer is, with `<due>` the next run and `<end>` the end of a recurring job:
 
   ```text
-  orrery scheduled this job as <id>. Cron <cron>, prompt "<prompt>", next run <due>. <fires> orreryd fires it into this session, resuming the session if it is asleep. The job is scheduled; this is not an error, so do not call CronCreate again for it. Cancel it with CronDelete and id <id>.
+  orrery scheduled this job as <id>. Cron <cron>, prompt "<prompt>", next run <due>. <fires> orreryd fires it into this session, resuming the session if it is asleep. The job is scheduled; this is not an error, so do not call CronCreate again for it. Cancel it with the orrery MCP tool cron_delete and id <id>, or with `orrery cron delete <id>`.
   ```
 
   `<fires>` is `It fires at each match until <end>, when it fires a final time and ends.` for a recurring job, and `It fires once and then ends.` for a one-shot. A recurring job ends seven days after it was created (`enginehost.cronLifetime`, `enginehost.cronEnd`). A one-shot fires at its first match after it was created. Times read `Mon 2006-01-02 15:04 MST` in the zone of orreryd's clock (`enginehost.cronTime`, `enginehost.cronNextFire`). A create whose `tool_use_id` the session already has stores nothing, and answers for the job stored (`enginehost.CronAnswers.createJob`).
