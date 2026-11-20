@@ -6,7 +6,6 @@ internal data class Counts(val waiting: Int, val fresh: Int)
 /** The narrowing a chip picks: [NONE] for the whole tree, [WAITING] for what waits on you, [NEW] for unseen rows. */
 internal enum class Narrow { NONE, WAITING, NEW }
 
-private const val STATE_WAITING = "waiting"
 private val WHITESPACE = Regex("\\s+")
 
 /**
@@ -58,7 +57,7 @@ internal fun search(projects: List<Project>, query: String): List<Project> {
  */
 private fun waitingThings(convo: Convo): Int {
     if (convo.pane?.archived == true) return 0
-    val ownWaiting = convo.pane?.state == STATE_WAITING
+    val ownWaiting = convo.pane?.let { waitsOnYou(it) } == true
     return (if (ownWaiting) 1 else 0) + convo.hung.count { countsHung(it, ownWaiting) }
 }
 
