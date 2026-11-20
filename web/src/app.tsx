@@ -1877,6 +1877,19 @@ export function App({
     navigated(openList)(held.open.key, held.open.panel);
   };
 
+  // The list hides under 760px while the opened row's, step's, epic's, contract's or project's page draws alone.
+  const listHides =
+    !wide &&
+    (shownProject !== null ||
+      (rowOpened && (cursorRow !== null || cursorStep !== null)) ||
+      panelOpen ||
+      contractPageShown);
+  // The list is on screen where it is drawn: beside or over the page at the desk unless it rests as the rail, and under
+  // 760px unless a page draws alone over it. A project page covers the cursor row unless the list is on screen, and A,
+  // x and e do not act on a covered row.
+  const listOnScreen = wide ? inboxState !== "rail" : !listHides;
+  const rowCovered = shownProject !== null && !listOnScreen;
+
   // The keys read this render's state and call this render's actions, so the document listener runs the latest context.
   const keyContext: KeyContext = {
     pickerOpen,
@@ -1884,6 +1897,8 @@ export function App({
     helpOpen,
     inboxHidden,
     keyPopped,
+    rowCovered,
+    projectShown: shownProject !== null,
     index,
     flat,
     waitKeys,
@@ -2272,12 +2287,6 @@ export function App({
   const readerRow =
     pageDrawn && !epicPageShown && !(contractPageShown && !sheeted) && shownProject === null ? middleRow : null;
   const readerStep = pageDrawn && shownProject === null ? cursorStep : null;
-  const listHides =
-    !wide &&
-    (shownProject !== null ||
-      (rowOpened && (cursorRow !== null || cursorStep !== null)) ||
-      panelOpen ||
-      contractPageShown);
   // contractCalls are the middle reader's contract calls: its contract lines draw the contracts the list holds, and
   // open them.
   const contractCalls: ContractCalls = { contracts, onOpen: navigated(openContractPanel) };

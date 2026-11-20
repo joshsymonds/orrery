@@ -52,12 +52,32 @@ function row(init: Partial<Row> & Pick<Row, "key">): Row {
   };
 }
 
-// rows are two conversations in the api directory and one in another, all seen, so no dwell timer runs.
+// rows are two conversations in the api directory and one in another, all seen, so no dwell timer runs. The waiting row
+// holds a question hash and every row can be archived, so an answer or an archive reaches the server.
 function rows(): Row[] {
   return [
-    row({ key: "a", label: "api one", state: "waiting", question: "Ship it?", changed: 300, seen: 300 }),
-    row({ key: "b", label: "api two", changed: 200, seen: 200 }),
-    row({ key: "c", label: "docs", project: "/work/docs", state: "done", changed: 150, seen: 150 }),
+    row({
+      key: "a",
+      label: "api one",
+      state: "waiting",
+      question: "Ship it?",
+      questionHash: "q-a",
+      archiveKind: "session",
+      archiveId: "a",
+      changed: 300,
+      seen: 300,
+    }),
+    row({ key: "b", label: "api two", archiveKind: "session", archiveId: "b", changed: 200, seen: 200 }),
+    row({
+      key: "c",
+      label: "docs",
+      project: "/work/docs",
+      state: "done",
+      archiveKind: "session",
+      archiveId: "c",
+      changed: 150,
+      seen: 150,
+    }),
   ];
 }
 
@@ -65,6 +85,8 @@ interface Mounted {
   container: HTMLElement;
   // The addresses App reported, in order.
   reports: Address[];
+  // The path of each request the app sent, in order.
+  calls: string[];
   // show renders App again, holding address as its prop and whether the first load has answered.
   show: (address: Address | undefined, answered?: boolean) => Promise<void>;
 }
@@ -80,7 +102,17 @@ async function withApp(
   const window = installTestDom();
   const container = document.createElement("div");
   document.body.append(container);
-  const clients = createClients(createTransport({ baseUrl: "https://orrery.test", fetch: quietFetch }));
+  // sent records each request's path, in order, before quietFetch answers it.
+  const sent: string[] = [];
+  const clients = createClients(
+    createTransport({
+      baseUrl: "https://orrery.test",
+      fetch: (input, init) => {
+        sent.push(new URL(new Request(input, init).url).pathname);
+        return quietFetch(input, init);
+      },
+    }),
+  );
   const reports: Address[] = [];
   const shown = rows();
   const show = (next: Address | undefined, answered = true) =>
@@ -109,7 +141,7 @@ async function withApp(
   });
   try {
     await show(address);
-    await check({ container, reports, show });
+    await check({ container, reports, calls: sent, show });
   } finally {
     await teardown();
   }
@@ -307,4 +339,119 @@ test("ProjectPage: an address to a project draws its page once the first load ha
     assert.ok(projectPage(container) === null, "the page waits for the first load");
     await show(address, true);
     assert.ok(projectPage(container) !== null, "the page draws once the load has answered");
+  }));
+
+// pressKey presses a key on the document, as the app's key listener takes it, and lets Preact draw what the press changed.
+async function pressKey(key: string): Promise<void> {
+  await act(() => {
+    document.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+  });
+}
+
+// writesOf leaves out the conversation streams a cursor move opens: they are reads, not the presses' writes.
+function writesOf(paths: string[]): string[] {
+  return paths.filter((path) => !path.endsWith("/WatchConversation"));
+}
+
+test("ProjectPage: 1, 2 and 3 send no answer while the page covers the cursor's waiting row", (t) =>
+  withApp(t.signal, undefined, async ({ container, calls }) => {
+    await press(headOf(container, "api"));
+    await pressKey("b");
+    assert.equal(cursorKey(container), "a", "the cursor rests on the waiting row");
+    const sentBefore = calls.length;
+    await pressKey("1");
+    await pressKey("2");
+    await pressKey("3");
+    assert.deepEqual(writesOf(calls.slice(sentBefore)), [], "no answer is sent");
+    assert.ok(projectPage(container) !== null, "the page stays open");
+  }));
+
+test("ProjectPage: Escape sends no interrupt or take-back while the page covers the working row", (t) =>
+  withApp(t.signal, undefined, async ({ container, calls }) => {
+    // A cursor move shuts the page, so the cursor reaches the working row before the page opens.
+    await pressKey("j");
+    await press(headOf(container, "api"));
+    await pressKey("B");
+    assert.equal(cursorKey(container), "b", "the cursor rests on the working row");
+    assert.ok(projectPage(container) !== null, "the page is drawn over the working row");
+    const sentBefore = calls.length;
+    await pressKey("Escape");
+    assert.deepEqual(writesOf(calls.slice(sentBefore)), [], "no interrupt or take-back is sent");
+    assert.ok(projectPage(container) !== null, "the page stays open");
+  }));
+
+test("ProjectPage: Escape tucks a key-popped inbox over the page and sends nothing", (t) =>
+  withApp(t.signal, undefined, async ({ container, calls }) => {
+    await press(headOf(container, "api"));
+    await pressKey("b");
+    assert.equal(paneState(container), "flyout", "the inbox is out over the page");
+    const sentBefore = calls.length;
+    await pressKey("Escape");
+    assert.equal(paneState(container), "rail", "Escape tucks the inbox back");
+    assert.deepEqual(writesOf(calls.slice(sentBefore)), [], "no interrupt or take-back is sent");
+  }));
+
+test("ProjectPage: A, x and e send nothing while the page covers the cursor row over the rail", (t) =>
+  withApp(t.signal, undefined, async ({ container, calls }) => {
+    await press(headOf(container, "api"));
+    assert.equal(paneState(container), "rail", "the inbox rests as the rail");
+    assert.equal(cursorKey(container), "a", "the cursor rests on the waiting row");
+    const sentBefore = calls.length;
+    await pressKey("A");
+    await pressKey("x");
+    await pressKey("e");
+    assert.deepEqual(writesOf(calls.slice(sentBefore)), [], "no archive or mark-seen is sent");
+  }));
+
+test("ProjectPage: with a conversation's own page open and the inbox at rest, A still acts on that row", (t) =>
+  withApp(t.signal, undefined, async ({ container, calls }) => {
+    await press(one(container, '.row[data-key="a"]'));
+    assert.equal(paneState(container), "rail", "the inbox rests as the rail beside the conversation");
+    // The click puts the focus in the row's reply box, where A is typed; the key goes to the page once it is left.
+    await act(() => {
+      (document.activeElement as HTMLElement | null)?.blur();
+    });
+    const sentBefore = calls.length;
+    await pressKey("A");
+    assert.ok(writesOf(calls.slice(sentBefore)).length > 0, "A sends the archive of the row on screen");
+  }));
+
+test("ProjectPage: with the inbox brought out over the page by b, x and A act on the cursor row", (t) =>
+  withApp(t.signal, undefined, async ({ container, calls }) => {
+    await press(headOf(container, "api"));
+    await pressKey("b");
+    assert.equal(paneState(container), "flyout", "the inbox is out over the page");
+    const sentBefore = calls.length;
+    await pressKey("x");
+    assert.ok(writesOf(calls.slice(sentBefore)).length > 0, "x sends the mark-seen");
+    const afterX = calls.length;
+    await pressKey("A");
+    assert.ok(writesOf(calls.slice(afterX)).length > 0, "A sends the archive");
+  }));
+
+test("ProjectPage: with the inbox pinned beside the page by B, x and A act on the cursor row", (t) =>
+  withApp(t.signal, undefined, async ({ container, calls }) => {
+    await press(headOf(container, "api"));
+    await pressKey("B");
+    assert.equal(paneState(container), "pinned", "the inbox is pinned beside the page");
+    const sentBefore = calls.length;
+    await pressKey("x");
+    assert.ok(writesOf(calls.slice(sentBefore)).length > 0, "x sends the mark-seen");
+    const afterX = calls.length;
+    await pressKey("A");
+    assert.ok(writesOf(calls.slice(afterX)).length > 0, "A sends the archive");
+  }));
+
+test("ProjectPage: under 760px, A, x and e send nothing while the page draws alone", (t) =>
+  withApp(t.signal, undefined, async ({ container, calls }) => {
+    await narrowWindow(700);
+    await press(headOf(container, "api"));
+    assert.ok(projectPage(container) !== null, "the page is drawn");
+    assert.equal(listHidden(container), true, "the list is hidden");
+    assert.equal(cursorKey(container), "a", "the cursor rests on the waiting row");
+    const sentBefore = calls.length;
+    await pressKey("A");
+    await pressKey("x");
+    await pressKey("e");
+    assert.deepEqual(writesOf(calls.slice(sentBefore)), [], "no archive or mark-seen is sent");
   }));

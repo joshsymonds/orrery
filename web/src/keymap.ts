@@ -45,6 +45,11 @@ export interface KeyContext {
   // Whether the inbox is hidden, and whether a key popped it out.
   inboxHidden: boolean;
   keyPopped: boolean;
+  // Whether a project page covers the cursor row: the page is shown and the inbox list, where the row is drawn, is not on
+  // screen beside or over it. A, x and e do not act on a covered row.
+  rowCovered: boolean;
+  // Whether a project page is shown. It covers the reader, so 1-3 and Escape's interrupt do nothing while it is.
+  projectShown: boolean;
   // The cursor's index in the flat list, and the flat list, which G reads.
   index: number;
   flat: Item[];
@@ -110,6 +115,8 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
     helpOpen,
     inboxHidden,
     keyPopped,
+    rowCovered,
+    projectShown,
     index,
     flat,
     waitKeys,
@@ -247,7 +254,7 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
       break;
     case "A":
       // A pane with no orrery_id, a step and a contract have no archive kind, so the key does nothing on any of them.
-      if (cursorItem !== null && cursorItem.kind !== "step" && cursorItem.kind !== "contract") {
+      if (!rowCovered && cursorItem !== null && cursorItem.kind !== "step" && cursorItem.kind !== "contract") {
         setArchive(cursorItem, view !== "archived");
       }
       break;
@@ -267,7 +274,7 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
       setPickerOpen(true);
       break;
     case "x":
-      if (cursorRow !== null) {
+      if (!rowCovered && cursorRow !== null) {
         void writeSeen(cursorRow);
       }
       break;
@@ -300,7 +307,9 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
       break;
     case "e":
       if (cursorRow !== null) {
-        void writeSeen(cursorRow);
+        if (!rowCovered) {
+          void writeSeen(cursorRow);
+        }
         nextUnseen();
       }
       break;
@@ -319,13 +328,19 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
       }
       break;
     case "1":
-      answerCursor(1);
+      if (!projectShown) {
+        answerCursor(1);
+      }
       break;
     case "2":
-      answerCursor(2);
+      if (!projectShown) {
+        answerCursor(2);
+      }
       break;
     case "3":
-      answerCursor(3);
+      if (!projectShown) {
+        answerCursor(3);
+      }
       break;
     case "o":
       toggleOpen();
@@ -359,7 +374,7 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
         setHelpOpen(false);
         return;
       }
-      if (!helpOpen && cursorRow !== null) {
+      if (!helpOpen && !projectShown && cursorRow !== null) {
         void escapeRow({ row: cursorRow, column: "cursor", state: headState(cursorRow, cursorConversation) }, null);
       }
       setHelpOpen(false);
