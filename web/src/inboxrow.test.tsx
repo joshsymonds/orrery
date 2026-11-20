@@ -359,7 +359,8 @@ test("WaitsOnYou: the same row not put off draws the waiting glyph and the asks 
     assert.equal(container.querySelector(".l2")?.classList.contains("asks"), true);
   }));
 
-test("WaitsOnYou: an archived row its owner put off keeps the waiting glyph", () =>
-  withRow(idleLine(paneRow({ putOff: true, archived: true, archiveKind: "session", archiveId: "%3" })), (container) => {
-    assert.equal(container.querySelector(".glyph")?.getAttribute("data-state"), "waiting");
+test("WaitsOnYou: an archived waiting row draws the idle glyph and no asks style", () =>
+  withRow(idleLine(paneRow({ archived: true, archiveKind: "session", archiveId: "%3" })), (container) => {
+    assert.equal(container.querySelector(".glyph")?.getAttribute("data-state"), "idle");
+    assert.equal(container.querySelector(".l2")?.classList.contains("asks"), false, "the line is not marked as a question");
   }));

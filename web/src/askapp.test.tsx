@@ -549,6 +549,51 @@ test("NotNow: a put-off question is drawn from the stream, and Bring it back cal
     assert.deepEqual(fake.callsTo(bringBackPath)[0].body, { kind: "headless", id: "s1", requestId: "req-7" });
   }));
 
+test("NotNow: a pane's stream frame with put_off true draws the put-off Ask with Bring it back and no Not now", (t) =>
+  withApp(t.signal, [pane({ key: "a" })], async (container, fake) => {
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    fake.emit(fake.callsTo(paneWatchPath)[0], { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: { putOff: true } } });
+    await flush();
+    assert.ok(container.querySelector(".ask.later") !== null, "the put-off Ask is drawn");
+    assert.ok(askOf(container)?.textContent?.includes("Put off"));
+    buttonIn(container, "Bring it back");
+    assert.equal(
+      [...container.querySelectorAll(".ask button")].some((button) => (button.textContent ?? "").includes("Not now")),
+      false,
+      "no Not now is drawn",
+    );
+  }));
+
+test("NotNow: a later pane's stream frame with put_off false draws Not now and no Bring it back", (t) =>
+  withApp(t.signal, [pane({ key: "a" })], async (container, fake) => {
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    const stream = fake.callsTo(paneWatchPath)[0];
+    fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: { putOff: true } } });
+    await flush();
+    assert.ok(container.querySelector(".ask.later") !== null, "the put-off Ask is drawn");
+    fake.emit(stream, { transcript: "t1", seq: "2", reset: false, items: [], state: { pane: { putOff: false } } });
+    await flush();
+    assert.equal(askOf(container)?.classList.contains("later"), false, "the Ask is drawn open again");
+    buttonIn(container, "Not now");
+    assert.equal(
+      [...container.querySelectorAll(".ask button")].some((button) => (button.textContent ?? "").includes("Bring it back")),
+      false,
+      "no Bring it back is drawn",
+    );
+  }));
+
+test("NotNow: a refused Bring it back on a pane leaves the Ask put off and shows the server's reason", (t) =>
+  withApp(t.signal, [pane({ key: "a" })], async (container, fake) => {
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    fake.emit(fake.callsTo(paneWatchPath)[0], { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: { putOff: true } } });
+    await flush();
+    fake.refuseNext.set(bringBackPath, "the question was already answered");
+    await click(buttonIn(container, "Bring it back"));
+    await flush();
+    assert.equal(errorNote(container), "the question was already answered");
+    assert.ok(container.querySelector(".ask.later") !== null, "the Ask stays put off");
+  }));
+
 test("NotNow: a refused Not now leaves the Ask as it was and shows the server's reason as its note", (t) =>
   withApp(t.signal, [headless({ key: "s1", id: "s1", label: "notes" })], async (container, fake) => {
     await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");

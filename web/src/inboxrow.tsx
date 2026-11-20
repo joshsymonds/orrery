@@ -4,7 +4,7 @@ import { useLayoutEffect, useRef } from "preact/hooks";
 import { Icon, StateGlyph } from "./glyphs";
 import { Menu, type MenuEntry } from "./menu";
 import { parseQuestion } from "./question";
-import type { Row } from "./rows";
+import { type Row, waitsOnYou } from "./rows";
 import { ReplyText } from "./text";
 
 const stateWaiting = "waiting";
@@ -87,10 +87,10 @@ function rowClass(cursor: boolean, open: boolean, hover: boolean, menuOpen: bool
   return ["b-row", "row", cursor && "cur", open && "open", menuOpen && "menu-open", hover && "hover"].filter(Boolean).join(" ");
 }
 
-// quietRow is whether a row reads quiet: a waiting row its owner put off, not archived. It draws the idle glyph and its
-// second line without the asks style, and its words stay as they are.
+// quietRow is whether a row reads quiet: a waiting row that does not wait on the owner, because it is archived or its
+// owner put it off. It draws the idle glyph and its second line without the asks style, and its words stay as they are.
 function quietRow(row: Row): boolean {
-  return row.state === stateWaiting && row.putOff && !row.archived;
+  return row.state === stateWaiting && !waitsOnYou(row);
 }
 
 // SecondLine draws a row's second line. A waiting row says what it asks, led by a question mark when it holds a question.
