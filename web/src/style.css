@@ -1108,7 +1108,11 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 .dotgrid i.live { background: var(--o-role-live); }
 .gauge { width: var(--o-size-gauge); height: var(--o-size-gauge); flex: none; fill: none; stroke-width: var(--o-size-rail); color: var(--o-ink-3); }
 .gauge .planned { stroke: var(--o-line-firm); }
-.gauge .started { stroke: currentColor; stroke-opacity: var(--o-pulse-low); }
+/* The started arc is the gauge's colour as a tint's outline, never dimmed with opacity (SYSTEM.md: nothing is dimmed with
+   opacity; a tint is outlined at alpha.tintLine): an asking or live tile's role line, else the glyph line. */
+.gauge .started { stroke: var(--gauge-started, var(--o-line-glyph)); }
+.tile.attention .gauge { --gauge-started: var(--o-role-attention-line); }
+.tile.live .gauge { --gauge-started: var(--o-role-live-line); }
 .gauge .done { stroke: currentColor; }
 /* A tile's gauge takes the tile's tone, so an asking, live or quiet epic reads on its ring. */
 .tile .gauge { color: inherit; }
