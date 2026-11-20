@@ -162,3 +162,43 @@ test("InboxTree: the address written for the inbox names no order", () => {
   );
   assert.equal(formatAddress({ view: "archived", entry: null }), "#/archived");
 });
+
+const PROJECT_KEYS = ["|/home/owner/code/lighthouse", "brine|/home/owner/code/kelp", "repo:orrery", "nodir"];
+
+test("ProjectPage address: formats a project entry as the view, project, and its encoded key", () => {
+  for (const key of PROJECT_KEYS) {
+    assert.equal(
+      formatAddress({ view: "inbox", entry: { kind: "project", key } }),
+      `#/inbox/project/${encodeURIComponent(key)}`,
+      key,
+    );
+  }
+  assert.equal(
+    formatAddress({ view: "inbox", entry: { kind: "project", key: "|/home/owner/code/lighthouse" } }),
+    "#/inbox/project/%7C%2Fhome%2Fowner%2Fcode%2Flighthouse",
+  );
+});
+
+test("ProjectPage address: round-trips a project entry for keys with a pipe, slashes, a colon and a host", () => {
+  for (const key of PROJECT_KEYS) {
+    assertRoundTrip({ view: "inbox", entry: { kind: "project", key } });
+  }
+});
+
+test("ProjectPage address: the archived view keeps its view with a project entry", () => {
+  const address: Address = { view: "archived", entry: { kind: "project", key: "repo:orrery" } };
+  assert.equal(formatAddress(address), "#/archived/project/repo%3Aorrery");
+  assertRoundTrip(address);
+});
+
+test("ProjectPage address: a project address with no key reads as the inbox", () => {
+  assert.deepEqual(parseAddress("#/inbox/project"), { view: "inbox", entry: null });
+  assert.deepEqual(parseAddress("#/inbox/project/"), { view: "inbox", entry: null });
+});
+
+test("ProjectPage address: the old project first segment reads a project entry under the inbox", () => {
+  assert.deepEqual(parseAddress("#/project/project/repo%3Aorrery"), {
+    view: "inbox",
+    entry: { kind: "project", key: "repo:orrery" },
+  });
+});

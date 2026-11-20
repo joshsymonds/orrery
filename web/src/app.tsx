@@ -2449,6 +2449,8 @@ function addressKey(entry: Exclude<Entry, { kind: "epic" }>): string {
       return `pane:${entry.host}:${entry.pane}`;
     case "step":
       return `step:${entry.id}`;
+    case "project":
+      return `project:${entry.key}`;
   }
 }
 
