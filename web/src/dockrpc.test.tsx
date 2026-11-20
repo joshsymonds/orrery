@@ -234,6 +234,29 @@ async function emitQueued(
   await until(signal, () => queueTexts(container).length === queued.length, "the queued messages' rows");
 }
 
+// headWord is the word the cursor's dock line draws in its state bar.
+function headWord(container: HTMLElement): string {
+  return container.querySelector('[aria-label="reader"] .send > div:not([hidden]) .statebar .word')?.textContent ?? "";
+}
+
+// press sends a key to the document, where the App reads its keys.
+async function press(key: string): Promise<void> {
+  await act(() => {
+    document.dispatchEvent(new KeyboardEvent("keydown", { key, cancelable: true }));
+  });
+}
+
+// working is a session's state on the turn that started at turnSince, interrupting once the owner has interrupted it.
+function working(turnSince: number, interrupting = false): object {
+  return { session: { state: "working" }, turnSince: String(turnSince), interrupting };
+}
+
+// sessionFrame is one delta of the cursor's session stream. Each delta sends the whole queued set, so a frame names
+// the messages still queued with its state.
+function sessionFrame(reset: boolean, seq: number, state: object, queued: object[] = []): object {
+  return { transcript: "s1.jsonl", seq: String(seq), reset, items: [], state, queued };
+}
+
 test("DockState: Resume on a cut-off session calls Control.Resume with the session id", (t) =>
   withApp(t.signal, [sessionRow], async (container, fake) => {
     await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
@@ -310,4 +333,36 @@ test("DockQueue: a re-say with no answer keeps that text and every later one in 
     await until(t.signal, () => composer(container).value !== "draft", "the held texts");
     assert.equal(composer(container).value, "draft\n\nfirst\n\nsecond", "the unsaid texts follow the draft in send order");
     assert.equal(fake.callsTo(sayPath).length, 1, "only the refused say was called, and nothing more was said");
+  }));
+
+test("DockState: after Send now on a working session, a stream frame with the new turn's turn_since reads working again, with Interrupt", (t) =>
+  withApp(t.signal, [sessionRow], async (container, fake) => {
+    fake.replies.set(interruptPath, [{ texts: [] }]);
+    await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    const stream = fake.callsTo(sessionWatchPath)[0];
+    fake.emit(stream, sessionFrame(true, 1, working(100), [{ promptId: "p1", text: "first", state: "queued" }]));
+    await until(t.signal, () => buttonNamed(container, "Send now") !== null, "the Send now control");
+    await act(() => {
+      buttonNamed(container, "Send now")?.click();
+    });
+    await until(t.signal, () => buttonNamed(container, "Interrupting…") !== null, "the interrupting line");
+    fake.emit(stream, sessionFrame(false, 2, working(200)));
+    await until(t.signal, () => buttonNamed(container, "Interrupt") !== null, "the Interrupt control");
+    assert.equal(headWord(container), "working", "the line reads working on the new turn");
+  }));
+
+test("DockState: after Escape, a frame reporting interrupting reads interrupting…, and a following frame on a new turn reads working", (t) =>
+  withApp(t.signal, [sessionRow], async (container, fake) => {
+    fake.replies.set(interruptPath, [{ texts: [] }]);
+    await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    const stream = fake.callsTo(sessionWatchPath)[0];
+    fake.emit(stream, sessionFrame(true, 1, working(100)));
+    await until(t.signal, () => headWord(container) === "working", "the dock's line from the stream");
+    await press("Escape");
+    await until(t.signal, () => fake.callsTo(interruptPath).length === 1, "the interrupt");
+    fake.emit(stream, sessionFrame(false, 2, working(100, true)));
+    await until(t.signal, () => buttonNamed(container, "Interrupting…") !== null, "the interrupting line");
+    fake.emit(stream, sessionFrame(false, 3, working(200)));
+    await until(t.signal, () => buttonNamed(container, "Interrupt") !== null, "the Interrupt control");
+    assert.equal(headWord(container), "working", "the line reads working on the new turn");
   }));

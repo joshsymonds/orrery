@@ -43,7 +43,8 @@ export interface ReaderColumnProps {
   conversation: Conversation | null;
   // The rows that keep a dock in this column. The shown row gets one before the effect that keeps it has run.
   rows: Row[];
-  interrupts: Set<string>;
+  // The rows whose interrupt mark holds, by row key: the column reads only whether a row is marked.
+  interrupts: Pick<ReadonlyMap<string, number>, "has">;
   mark: InboxMark;
   // pageStrip draws the strip under a title row for a row and its conversation, or for no row.
   pageStrip: (row: Row | null, conversation: Conversation | null) => ComponentChildren;

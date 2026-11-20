@@ -268,9 +268,11 @@ export function App({
   const [answerError, setAnswerError] = useState("");
   // The fixed line an Escape leaves when taking queued messages back or interrupting a row fails.
   const [escapeError, setEscapeError] = useState("");
-  // The headless session rows the owner has interrupted, by row key. A marked row reads interrupting on its dock's line
-  // while the list still says it is working, and the mark clears once that state leaves working.
-  const [interrupts, setInterrupts] = useState<Set<string>>(() => new Set());
+  // The headless session rows the owner has interrupted, by row key, each with the turn_since its stream held at the press
+  // (0 when no stream held one). A marked row reads interrupting on its dock's line while the list still says it is
+  // working. The mark clears once the row's stream reports interrupting or a turn other than the one held, or once the
+  // list no longer says working.
+  const [interrupts, setInterrupts] = useState<Map<string, number>>(() => new Map());
   const [archiveError, setArchiveError] = useState("");
   // The key of the entry whose ⋯ menu is open, if any: one menu is open at a time. It counts as open only while the entry
   // is drawn.
@@ -490,7 +492,10 @@ export function App({
     if (target === null) {
       return undefined;
     }
-    const followed = follow(clients, target, (conversation) => setStream({ key: readerKey, conversation }));
+    const followed = follow(clients, target, (conversation) => {
+      setStream({ key: readerKey, conversation });
+      setInterrupts((previous) => withoutTakenOver(previous, readerKey, conversation));
+    });
     cursorOlder.current = followed.older;
     return followed.stop;
   }, [readerKey, clients]);
@@ -544,9 +549,10 @@ export function App({
     if (pinned === null) {
       return undefined;
     }
-    const followed = follow(clients, { kind: pinned.kind, id: pinned.id }, (conversation) =>
-      setPinStream({ key: pinned.key, conversation }),
-    );
+    const followed = follow(clients, { kind: pinned.kind, id: pinned.id }, (conversation) => {
+      setPinStream({ key: pinned.key, conversation });
+      setInterrupts((previous) => withoutTakenOver(previous, pinned.key, conversation));
+    });
     pinnedOlder.current = followed.older;
     return followed.stop;
   }, [pinnedKey, clients]);
@@ -560,11 +566,13 @@ export function App({
   // mark, as a pinned row keeps its last shape.
   useEffect(() => {
     setInterrupts((previous) => {
-      const kept = [...previous].filter((key) => {
-        const row = rows.find((item) => item.key === key);
-        return row === undefined || row.state === stateWorking;
-      });
-      return kept.length === previous.size ? previous : new Set(kept);
+      const kept = new Map(
+        [...previous].filter(([key]) => {
+          const row = rows.find((item) => item.key === key);
+          return row === undefined || row.state === stateWorking;
+        }),
+      );
+      return kept.size === previous.size ? previous : kept;
     });
   }, [rows]);
 
@@ -852,6 +860,13 @@ export function App({
       (column === "pinned" ? pinnedHandles : composerHandles).current.get(row.key)?.append(texts);
     }
   };
+  // markAtPress sets a row's interrupt mark at the press, holding the turn_since its stream holds: the cursor's or the
+  // pin's, whichever streams the row, and 0 when neither does.
+  const markAtPress = (key: string) => {
+    const conversation = key === cursorRowKey ? cursorConversation : key === pinnedKey ? pinnedConversation : null;
+    const turn = Number(conversation?.state?.turnSince ?? 0n);
+    setInterrupts((previous) => new Map(previous).set(key, turn));
+  };
   // escapeRow takes back a row's queued messages and interrupts it when it was working at the press. A pane pulls its
   // queued input back, then gets the Escape key. A session takes back nothing by itself: its interrupt answers the
   // texts of the queued messages Claude cancelled, and those are taken back. A session that is not working is not
@@ -865,7 +880,7 @@ export function App({
     const marked = interrupting && row.kind === "session";
     const failures: string[] = [];
     if (marked) {
-      setInterrupts((previous) => new Set(previous).add(row.key));
+      markAtPress(row.key);
     }
     let texts: string[] = [];
     if (row.kind === "pane") {
@@ -896,7 +911,7 @@ export function App({
   // interruptRow is Send now's interrupt on a session row: the row's interrupt mark is set at once, as Escape sets it, and
   // cleared when the interrupt is refused. It resolves the texts the interrupt cancelled.
   const interruptRow = async (row: Row): Promise<string[]> => {
-    setInterrupts((previous) => new Set(previous).add(row.key));
+    markAtPress(row.key);
     try {
       return await actions.interrupt(clients, row);
     } catch (failure) {
@@ -1846,11 +1861,27 @@ function stripHost(row: Row | null, host: HostStatusResponse | null): StripHost 
   return host;
 }
 
-// withoutKey is a copy of keys without key.
-function withoutKey(keys: Set<string>, key: string): Set<string> {
-  const next = new Set(keys);
+// withoutKey is a copy of marks without key.
+function withoutKey(marks: Map<string, number>, key: string): Map<string, number> {
+  const next = new Map(marks);
   next.delete(key);
   return next;
+}
+
+// withoutTakenOver drops key's interrupt mark once conversation, the stream the page holds for that row, takes over from
+// it: the stream reports interrupting, or a turn other than the one the mark held at the press. A stream with no state
+// yet keeps the mark, and marks comes back as it is when key holds none.
+function withoutTakenOver(
+  marks: Map<string, number>,
+  key: string,
+  conversation: Conversation | null,
+): Map<string, number> {
+  const held = marks.get(key);
+  const state = conversation?.state;
+  if (held === undefined || state === undefined || (!state.interrupting && Number(state.turnSince) === held)) {
+    return marks;
+  }
+  return withoutKey(marks, key);
 }
 
 // pruneSent drops the sent entries of each row whose conversation is held, and returns previous itself when none is sent.
