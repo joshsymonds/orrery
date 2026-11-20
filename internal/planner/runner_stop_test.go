@@ -36,6 +36,7 @@ func TestRunnerStopsStartedStepWhenTurnWasFlaggedBeforeItHadAStep(t *testing.T) 
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := &holdingSteps{fakeSteps: newFakeSteps(), entered: make(chan struct{}, 1), release: make(chan struct{})}
+	steps.watchStore(s)
 	var reads atomic.Int64
 	runner := runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
 	releaseStart := sync.OnceFunc(func() { close(steps.release) })
@@ -51,7 +52,7 @@ func TestRunnerStopsStartedStepWhenTurnWasFlaggedBeforeItHadAStep(t *testing.T) 
 	}
 	releaseStart()
 
-	waitFor(t, "turn 1 to end", func() bool { return epicOf(t, s).Turns[0].State == "free" })
+	waitFor(t, &steps.changeNotice, "turn 1 to end", func() bool { return epicOf(t, s).Turns[0].State == "free" })
 	if got, want := steps.stopCalls(), []string{"step-1"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("steps stopped = %q, want %q", got, want)
 	}
@@ -82,13 +83,19 @@ func TestRunnerDoesNotStopStepOfTurnWithoutStopFlag(t *testing.T) {
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newFakeSteps()
+	steps.watchStore(s)
 	var reads atomic.Int64
 	runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
-	waitFor(t, "a planner step to start", func() bool { return len(steps.started()) == 1 })
-	waitFor(t, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
+	waitFor(t, &steps.changeNotice, "a planner step to start", func() bool { return len(steps.started()) == 1 })
+	waitFor(t, &steps.changeNotice, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
 
 	steps.end("step-1", store.StepRow{End: "done", Result: validPlan})
-	waitFor(t, "turn 1 to succeed", func() bool { return epicOf(t, s).Turns[0].State == "succeeded" })
+	waitFor(
+		t,
+		&steps.changeNotice,
+		"turn 1 to succeed",
+		func() bool { return epicOf(t, s).Turns[0].State == "succeeded" },
+	)
 	if got := steps.stopCalls(); len(got) != 0 {
 		t.Errorf("steps stopped = %q, want none: turn 1 was not flagged to stop", got)
 	}

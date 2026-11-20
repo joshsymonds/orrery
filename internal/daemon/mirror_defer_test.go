@@ -2,14 +2,11 @@ package daemon_test
 
 import (
 	"database/sql"
-	"errors"
-	"maps"
 	"testing"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/daemon"
 	"github.com/joshsymonds/orrery/internal/protocol"
-	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
 // Log messages of a sync and a tidy that could not start within the mirror's lock wait.
@@ -30,31 +27,12 @@ func expiringLockWait(m *daemon.Mirror) (armed <-chan struct{}, expire chan time
 	return armedCh, expire
 }
 
-// paneRowMatches reports whether the pane has an @orrery_id and its row equals its tmux options.
-func paneRowMatches(t *testing.T, srv testServer, db *sql.DB) bool {
+// awaitPaneRow waits until m has run the deferred work it holds, then checks the pane's row and its events with
+// checkPaneRow. Wait returns once no sync or tidy is deferred or running, so the row and the pane's @orrery_id are
+// written by then; the wait has no deadline of its own, and the test binary's timeout ends one that never does.
+func awaitPaneRow(t *testing.T, m *daemon.Mirror, srv testServer, db *sql.DB) {
 	t.Helper()
-	if id, ok := option(t, srv, protocol.OptionID); !ok || id == "" {
-		return false
-	}
-	want := tmuxRow(t, srv)
-	row, err := sqlcgen.New(db).GetSession(t.Context(), want["id"])
-	if errors.Is(err, sql.ErrNoRows) {
-		return false
-	}
-	if err != nil {
-		t.Fatalf("GetSession(%s): %v", want["id"], err)
-	}
-	return maps.Equal(rowMap(row), want)
-}
-
-// awaitPaneRow polls until the pane's row equals its tmux options, then checks the row and its events with
-// checkPaneRow. The poll has no deadline of its own: the deferred work runs as soon as the store and the lock are free,
-// and the test binary's timeout ends a wait that never does.
-func awaitPaneRow(t *testing.T, srv testServer, db *sql.DB) {
-	t.Helper()
-	for !paneRowMatches(t, srv, db) {
-		time.Sleep(10 * time.Millisecond)
-	}
+	m.Wait()
 	checkPaneRow(t, srv, db)
 }
 
@@ -93,5 +71,5 @@ func TestMirrorTidyPastTheLockWaitLandsOnceTheLockFrees(t *testing.T) {
 	}
 
 	free()
-	awaitPaneRow(t, srv, db)
+	awaitPaneRow(t, m, srv, db)
 }

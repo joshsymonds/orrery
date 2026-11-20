@@ -1,15 +1,20 @@
 package integration_test
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
-	"time"
 
+	"connectrpc.com/connect"
+
+	"github.com/joshsymonds/orrery/internal/cli"
 	"github.com/joshsymonds/orrery/internal/deskstream"
+	enginev1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
+	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
@@ -32,13 +37,42 @@ func (f *engineFixture) stateOf(t *testing.T, id string) string {
 	return history.State
 }
 
-// waitForUnfinishedText waits until the store holds unfinished text for session id.
+// waitForUnfinishedText waits until the store holds unfinished text for session id. The change stream sends a message
+// after each write that changes a session's unfinished text commits, so the wait blocks on the next message and then
+// counts the rows again.
 func (f *engineFixture) waitForUnfinishedText(t *testing.T, id string) {
 	t.Helper()
+	changes, endChanges := f.openChanges(t)
+	defer endChanges()
 	for engineTextRows(t, f.dbPath, id) == 0 {
 		stopIfFailed(t)
-		time.Sleep(pollEvery)
+		if !changes.Receive() {
+			t.Fatalf("change stream ended before session %s had unfinished text: %v", id, changes.Err())
+		}
 	}
+}
+
+// openChanges subscribes to the change stream on the session socket and returns once the stream has opened, so every
+// change after that reaches the stream. The caller ends the stream with the returned func when its wait is over: an
+// open stream holds orreryd's graceful shutdown until the shutdown's timeout, and the test's cleanup ends it too.
+func (f *engineFixture) openChanges(
+	t *testing.T,
+) (*connect.ServerStreamForClient[enginev1.ChangesWatchResponse], context.CancelFunc) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
+	client := enginev1connect.NewChangesClient(f.client, cli.SessionBaseURL)
+	stream, err := client.Watch(ctx, connect.NewRequest(&enginev1.ChangesWatchRequest{}))
+	if err != nil {
+		t.Fatalf("watch changes: %v", err)
+	}
+	if !stream.Receive() {
+		t.Fatalf("open change stream: %v", stream.Err())
+	}
+	if !stream.Msg().GetOpened() {
+		t.Fatalf("first change message %v, want the opened message", stream.Msg())
+	}
+	return stream, cancel
 }
 
 // engineTextRows counts the unfinished text rows the store holds for session id.

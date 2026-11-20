@@ -499,11 +499,16 @@ linters:
           - tagliatelle
           - wrapcheck
           - containedctx
-          - forbidigo
           - testpackage
           - ireturn
           - varnamelen
           - musttag
+
+      # forbidigo stays relaxed in test files for its other messages while time.Sleep is reported
+      - path: _test\.go
+        linters:
+          - forbidigo
+        text: 'Use structured logging instead of print statements|NO panic\(\)|NO versioned function names|NO .Old. prefix|NO .Deprecated.|NO .Legacy.|NO .Compat.'
 
       # CLI entrypoints: fmt.Print, file I/O from args, arg count checks, cleanup close are idiomatic
       # contextcheck: shutdown defer handlers correctly use context.Background() since parent ctx is canceled
@@ -511,10 +516,15 @@ linters:
         linters:
           - contextcheck
           - errcheck
-          - forbidigo
           - gosec
           - govet
           - mnd
+
+      # forbidigo stays relaxed in cmd/ for its other messages while time.Sleep is reported
+      - path: 'cmd/.*\.go'
+        linters:
+          - forbidigo
+        text: 'Use structured logging instead of print statements|NO panic\(\)|NO versioned function names|NO .Old. prefix|NO .Deprecated.|NO .Legacy.|NO .Compat.'
 
       # Allow local replacements in go.mod
       - path: go\.mod

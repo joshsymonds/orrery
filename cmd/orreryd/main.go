@@ -175,6 +175,9 @@ type options struct {
 	// attentionTicks is a test seam: when set, the attention loop passes at each value it delivers in place of every
 	// five seconds, and production leaves it nil.
 	attentionTicks <-chan time.Time
+	// epicWrites is a test seam: when set, the store's epics-changed hook calls it with the epics a write moved, after
+	// the flow's wake and the due pass's wake. Production leaves it nil.
+	epicWrites func(epics []string)
 	// storeRetryAfter is a test seam: openStore waits on the channel it returns for a busy store open to be tried again,
 	// in place of time.After. Production leaves it nil.
 	storeRetryAfter func(time.Duration) <-chan time.Time
@@ -870,6 +873,8 @@ type sessionHost struct {
 	outsideWake outsideWakeRelay
 	// changes is the change feed the Changes service serves, nil without a store. wireStore sets it.
 	changes *enginehost.ChangeFeed
+	// epicWrites is the test seam options.epicWrites, which subscribeFlowWake's hook calls. Production leaves it nil.
+	epicWrites func(epics []string)
 	// limits tells the usage limits. Its Wake is part of the Steps engine's stored wake (see storedWake). stopLimits
 	// cancels its Run, which closes limitsDone when it returns.
 	limits *enginehost.LimitNotices
@@ -952,6 +957,7 @@ func startSessions(
 	getenv func(string) string,
 ) (*sessionHost, error) {
 	host := newSessionHost(logger)
+	host.epicWrites = opts.epicWrites
 	var commands enginehost.Commands
 	var stepCommands enginehost.StepCommands
 	var evidence enginehost.EvidenceCommands
@@ -1477,6 +1483,9 @@ func (h *sessionHost) subscribeFlowWake(st *store.Store, wake func(epics []strin
 		h.dueWake.Wake()
 		if h.releaseSlots != nil {
 			h.releaseSlots.Changed()
+		}
+		if h.epicWrites != nil {
+			h.epicWrites(epics)
 		}
 	})
 }

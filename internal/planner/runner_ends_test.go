@@ -17,24 +17,12 @@ import (
 // waitForStarts waits until the runner has started n planner steps.
 func waitForStarts(t *testing.T, steps *fakeSteps, n int) {
 	t.Helper()
-	waitFor(t, fmt.Sprintf("%d planner steps to start", n), func() bool { return len(steps.started()) == n })
-}
-
-// startsWithinPolls is how many polls waitForStartsWithin makes before it fails: a timeout that stops a hang, not a
-// deadline the result depends on.
-const startsWithinPolls = 10000
-
-// waitForStartsWithin waits until the runner has started n planner steps, and fails the test when it has not after
-// startsWithinPolls polls, so a runner that never starts the step fails the test instead of hanging it.
-func waitForStartsWithin(t *testing.T, steps *fakeSteps, n int) {
-	t.Helper()
-	for range startsWithinPolls {
-		if len(steps.started()) == n {
-			return
-		}
-		time.Sleep(time.Millisecond)
-	}
-	t.Fatalf("planner steps started = %d, want %d", len(steps.started()), n)
+	waitFor(
+		t,
+		&steps.changeNotice,
+		fmt.Sprintf("%d planner steps to start", n),
+		func() bool { return len(steps.started()) == n },
+	)
 }
 
 func TestRunnerFailedEndStoresReasonCappedAndFreesTrigger(t *testing.T) {
@@ -42,13 +30,14 @@ func TestRunnerFailedEndStoresReasonCappedAndFreesTrigger(t *testing.T) {
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newFakeSteps()
+	steps.watchStore(s)
 	var reads atomic.Int64
 	runner := runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
 	waitForStarts(t, steps, 1)
-	waitFor(t, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
+	waitFor(t, &steps.changeNotice, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
 
 	steps.end("step-1", store.StepRow{End: "checks_failed", Reason: strings.Repeat("x", 2000)})
-	waitFor(t, "turn 1 to fail", func() bool { return epicOf(t, s).Turns[0].State == "failed" })
+	waitFor(t, &steps.changeNotice, "turn 1 to fail", func() bool { return epicOf(t, s).Turns[0].State == "failed" })
 	runner.Pass(t.Context())
 	waitForStarts(t, steps, 2)
 
@@ -76,16 +65,22 @@ func TestPlannerInfoThreeFailingTurnsInARowLeaveTheEpicUnparked(t *testing.T) {
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newFakeSteps()
+	steps.watchStore(s)
 	var reads atomic.Int64
 	runner := runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
 
 	for n := 1; n <= 3; n++ {
 		waitForStarts(t, steps, n)
 		steps.end(fmt.Sprintf("step-%d", n), store.StepRow{End: "checks_failed", Reason: "tasks[0] wrong"})
-		waitFor(t, fmt.Sprintf("turn %d to fail", n), func() bool { return epicOf(t, s).Turns[n-1].State == "failed" })
+		waitFor(
+			t,
+			&steps.changeNotice,
+			fmt.Sprintf("turn %d to fail", n),
+			func() bool { return epicOf(t, s).Turns[n-1].State == "failed" },
+		)
 		runner.Pass(t.Context())
 	}
-	waitForStartsWithin(t, steps, 4)
+	waitForStarts(t, steps, 4)
 
 	if parked := epicOf(t, s).Parked; parked != "" {
 		t.Errorf("epic Parked after three failed turns = %q, want unparked", parked)
@@ -113,13 +108,14 @@ func TestRunnerStoppedStepFreesTurnAndPausesEpic(t *testing.T) {
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newFakeSteps()
+	steps.watchStore(s)
 	var reads atomic.Int64
 	runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
 	waitForStarts(t, steps, 1)
-	waitFor(t, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
+	waitFor(t, &steps.changeNotice, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
 
 	steps.end("step-1", store.StepRow{End: "stopped"})
-	waitFor(t, "the epic to be paused", func() bool { return epicOf(t, s).Paused })
+	waitFor(t, &steps.changeNotice, "the epic to be paused", func() bool { return epicOf(t, s).Paused })
 
 	epic := epicOf(t, s)
 	turn := epic.Turns[0]
@@ -137,10 +133,11 @@ func TestRunnerRejectedRateLimitFreesAndPausesCheckFailedStep(t *testing.T) {
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newFakeSteps()
+	steps.watchStore(s)
 	var reads atomic.Int64
 	runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
 	waitForStarts(t, steps, 1)
-	waitFor(t, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
+	waitFor(t, &steps.changeNotice, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
 
 	if err := s.ApplyEngine(ctx, []store.EngineOp{store.EngineRateLimited{
 		ID: "step-1", Status: "rejected", Kind: "five_hour", ResetsAt: time.Unix(1700018000, 0),
@@ -148,7 +145,7 @@ func TestRunnerRejectedRateLimitFreesAndPausesCheckFailedStep(t *testing.T) {
 		t.Fatalf("ApplyEngine: %v", err)
 	}
 	steps.end("step-1", store.StepRow{End: "checks_failed", Reason: "tasks[0] wrong"})
-	waitFor(t, "the epic to be paused", func() bool { return epicOf(t, s).Paused })
+	waitFor(t, &steps.changeNotice, "the epic to be paused", func() bool { return epicOf(t, s).Paused })
 
 	epic := epicOf(t, s)
 	turn := epic.Turns[0]
@@ -166,16 +163,17 @@ func TestRunnerEngineRestartedFreesTurnAndNextPassStartsNewTurn(t *testing.T) {
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newFakeSteps()
+	steps.watchStore(s)
 	var reads atomic.Int64
 	runner := runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
 	waitForStarts(t, steps, 1)
-	waitFor(t, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
+	waitFor(t, &steps.changeNotice, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
 
 	steps.end("step-1", store.StepRow{End: "engine_restarted"})
-	waitFor(t, "turn 1 to be freed", func() bool { return epicOf(t, s).Turns[0].State == "free" })
+	waitFor(t, &steps.changeNotice, "turn 1 to be freed", func() bool { return epicOf(t, s).Turns[0].State == "free" })
 	runner.Pass(t.Context())
 	waitForStarts(t, steps, 2)
-	waitFor(t, "step-2 recorded on turn 2", func() bool {
+	waitFor(t, &steps.changeNotice, "step-2 recorded on turn 2", func() bool {
 		turns := epicOf(t, s).Turns
 		return len(turns) == 2 && turns[1].Step == "step-2"
 	})
@@ -195,15 +193,16 @@ func TestRunnerStepCapRefusalFreesTurnAndRerunsNextPass(t *testing.T) {
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newFakeSteps()
+	steps.watchStore(s)
 	steps.startErr = fmt.Errorf("%w: 2 live steps, step cap 2", enginehost.ErrCapReached)
 	var reads atomic.Int64
 	runner := runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
-	waitFor(t, "turn 1 to be freed", func() bool {
+	waitFor(t, &steps.changeNotice, "turn 1 to be freed", func() bool {
 		turns := epicOf(t, s).Turns
 		return len(turns) >= 1 && turns[0].State == "free"
 	})
 	runner.Pass(t.Context())
-	waitFor(t, "turn 2 to be freed and claimed again", func() bool {
+	waitFor(t, &steps.changeNotice, "turn 2 to be freed and claimed again", func() bool {
 		turns := epicOf(t, s).Turns
 		return len(turns) >= 2 && turns[1].State == "free"
 	})
@@ -234,12 +233,18 @@ func TestRunnerRefusedAgentStartFreesTurnAndParksEpicWithErrorText(t *testing.T)
 			s := openRunnerStore(t)
 			createRunnerEpic(t, s)
 			steps := newFakeSteps()
+			steps.watchStore(s)
 			steps.startErr = refusal.err
 			var reads atomic.Int64
 			runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
 
 			want := "start planner step: " + refusal.err.Error()
-			waitFor(t, "the epic to be parked with the refusal", func() bool { return epicOf(t, s).Parked == want })
+			waitFor(
+				t,
+				&steps.changeNotice,
+				"the epic to be parked with the refusal",
+				func() bool { return epicOf(t, s).Parked == want },
+			)
 
 			epic := epicOf(t, s)
 			if len(epic.Turns) != 1 || epic.Turns[0].State != "free" || epic.Turns[0].Reason != want {

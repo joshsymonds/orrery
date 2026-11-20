@@ -16,6 +16,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"golang.org/x/sys/unix"
 
 	"github.com/joshsymonds/orrery/internal/archive"
 	"github.com/joshsymonds/orrery/internal/cli"
@@ -406,14 +407,18 @@ type actionTree struct {
 	panes    map[string]string
 	invoking string
 	other    string
+	// src is the wait source of the test's waits, and the directory the tree's hooks and panes write into.
+	src *waitSource
 	// reports records the seen reports the tree sends. A nil log passes the tree no reporter.
 	reports *seenLog
 }
 
-// seenLog is a fake SeenReporter that records each report in order.
+// seenLog is a fake SeenReporter that records each report in order. changed, when set, gets a
+// signal after each report.
 type seenLog struct {
 	mu      sync.Mutex
 	reports []seenReport
+	changed chan struct{}
 }
 
 // seenReport is one call to a seenLog.
@@ -427,6 +432,7 @@ func (l *seenLog) report(pane string, seen int64) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.reports = append(l.reports, seenReport{pane: pane, seen: seen})
+	signal(l.changed)
 	return nil
 }
 
@@ -465,10 +471,11 @@ func (a *actionTree) reportedOnce(log *seenLog, pane string) error {
 	return nil
 }
 
-// newActionTree builds layout on a fresh private server and attaches the two clients.
-func newActionTree(t *testing.T, layout []actionPane) *actionTree {
+// newActionTree builds layout on a fresh private server and attaches the two clients. src is the test's wait source,
+// made by the test before the server, so that its cleanup runs after the server is killed.
+func newActionTree(t *testing.T, src *waitSource, layout []actionPane) *actionTree {
 	t.Helper()
-	a := newLayoutTree(t, layout)
+	a := newLayoutTree(t, src, layout)
 	a.invoking = a.attach("s1", 80, 24)
 	a.other = a.attach("s4", 200, 60)
 	return a
@@ -476,7 +483,7 @@ func newActionTree(t *testing.T, layout []actionPane) *actionTree {
 
 // newLayoutTree builds layout on a fresh private server without attaching any client. The
 // archive file is under the test's temp dir.
-func newLayoutTree(t *testing.T, layout []actionPane) *actionTree {
+func newLayoutTree(t *testing.T, src *waitSource, layout []actionPane) *actionTree {
 	t.Helper()
 	a := &actionTree{
 		t:       t,
@@ -484,12 +491,32 @@ func newLayoutTree(t *testing.T, layout []actionPane) *actionTree {
 		base:    t.TempDir(),
 		archive: filepath.Join(t.TempDir(), "archive.jsonl"),
 		panes:   map[string]string{},
-		reports: &seenLog{},
+		src:     src,
+		reports: &seenLog{changed: src.changed},
 	}
 	for _, p := range layout {
 		a.addPane(p)
 	}
+	a.setChangeHooks(src.dir)
 	return a
+}
+
+// setChangeHooks sets each hook that names a change to append to the changes file in dir, after the change the hook
+// names: a session or window created or removed, a pane option set, and a client attached, detached or moved. A '#' is
+// doubled, since run-shell expands formats in its command.
+func (a *actionTree) setChangeHooks(dir string) {
+	a.t.Helper()
+	command := fmt.Sprintf("run-shell -b 'printf . >> %s'",
+		strings.ReplaceAll(filepath.Join(dir, "changes"), "#", "##"))
+	hooks := []string{
+		"after-new-session", "after-new-window", "after-split-window", "after-kill-pane", "after-set-option",
+		"client-attached", "client-detached", "client-session-changed", "session-closed", "window-unlinked",
+	}
+	for _, hook := range hooks {
+		if _, err := a.client.Run(a.t.Context(), "set-hook", "-g", hook, command); err != nil {
+			a.t.Fatalf("set-hook %s: %v", hook, err)
+		}
+	}
 }
 
 // dir returns the path of the layout directory name.
@@ -531,8 +558,10 @@ func (a *actionTree) paneCommand(p actionPane) string {
 		a.t.Fatalf("mkdir %s: %v", dir, err)
 	}
 	// The pane starts in the base directory and cds into dir: new-session -c expands formats in
-	// its directory, so a directory whose name holds a format cannot be its start directory.
-	return "cd " + shellQuote(dir) + " && exec sleep 300"
+	// its directory, so a directory whose name holds a format cannot be its start directory. The
+	// pane appends to the changes file after the cd, so a wait on its directory sees the cd.
+	changes := filepath.Join(a.src.dir, "changes")
+	return "cd " + shellQuote(dir) + " && printf . >> " + shellQuote(changes) + " && exec sleep 300"
 }
 
 // setOptions sets the @orrery options of pane id from p and records p's label.
@@ -588,7 +617,7 @@ func (a *actionTree) attach(session string, cols, rows int) string {
 	})
 
 	var tty string
-	waitFor(a.t, "client on "+session, func() error {
+	waitFor(a.t, a.src, "client on "+session, func() error {
 		clients, err := a.clients()
 		if err != nil {
 			return err
@@ -772,6 +801,7 @@ func (a *actionTree) shellPopupErr(dir string) error {
 // treeRun is one Run of the tree, driven through its Input.
 type treeRun struct {
 	t     *testing.T
+	src   *waitSource
 	out   *syncBuffer
 	input *io.PipeWriter
 	done  chan runOutcome
@@ -783,7 +813,13 @@ func (a *actionTree) start(tty string) *treeRun {
 	// The tree picks its output path from this process's TERM, so every run pins the value the script clients get.
 	a.t.Setenv("TERM", "xterm-256color")
 	pr, pw := io.Pipe()
-	run := &treeRun{t: a.t, out: &syncBuffer{}, input: pw, done: make(chan runOutcome, 1)}
+	run := &treeRun{
+		t:     a.t,
+		src:   a.src,
+		out:   &syncBuffer{wrote: a.src.changed},
+		input: pw,
+		done:  make(chan runOutcome, 1),
+	}
 	a.t.Cleanup(func() { _ = pw.Close() })
 	go func() {
 		res, err := Run(a.t.Context(), Options{
@@ -797,7 +833,7 @@ func (a *actionTree) start(tty string) *treeRun {
 		})
 		run.done <- runOutcome{result: res, err: err}
 	}()
-	waitFor(a.t, "pane labels rendered", func() error {
+	waitFor(a.t, a.src, "pane labels rendered", func() error {
 		for _, label := range a.labels {
 			if !strings.Contains(run.out.String(), label) {
 				return fmt.Errorf("label %s not rendered", label)
@@ -840,7 +876,7 @@ func (r *treeRun) sendRendered(key string) {
 	r.t.Helper()
 	mark := r.out.Len()
 	r.send(key)
-	waitFor(r.t, "tree renders after "+strconv.Quote(key), func() error {
+	waitFor(r.t, r.src, "tree renders after "+strconv.Quote(key), func() error {
 		if r.out.Len() <= mark {
 			return errors.New("no output since the key")
 		}
@@ -851,7 +887,7 @@ func (r *treeRun) sendRendered(key string) {
 // waitForOutput waits until the tree has rendered text.
 func (r *treeRun) waitForOutput(text string) {
 	r.t.Helper()
-	waitFor(r.t, "tree renders "+strconv.Quote(text), func() error {
+	waitFor(r.t, r.src, "tree renders "+strconv.Quote(text), func() error {
 		if !strings.Contains(r.out.String(), text) {
 			return fmt.Errorf("%q not rendered", text)
 		}
@@ -879,12 +915,68 @@ func (r *treeRun) closed() Result {
 	return got.result
 }
 
-// waitFor polls cond until it returns nil; what names the condition. It has no deadline of its own: the tree, tmux and
-// the clients run at the machine's pace, and the test binary's timeout ends a wait that never ends.
-func waitFor(t *testing.T, _ string, cond func() error) {
+// waitSource is what a test's waits read. changed is a buffered-1 channel that gets a non-blocking send for each
+// change: a batch of events in dir, which the server hooks and the fake processes append to, and each write of the
+// tree's output and each seen report. dir is the test's changes directory.
+type waitSource struct {
+	dir     string
+	changed chan struct{}
+}
+
+// signal sends a change on changed without blocking. A change already pending covers this one.
+func signal(changed chan struct{}) {
+	select {
+	case changed <- struct{}{}:
+	default:
+	}
+}
+
+// newWaitSource returns a wait source for t: a changes directory watched with inotify, and a goroutine that signals
+// each batch of events. The watch is closed at t's cleanup, so a source made before a server is cleaned up after it.
+func newWaitSource(t *testing.T) *waitSource {
+	t.Helper()
+	dir := t.TempDir()
+	fd, err := unix.InotifyInit1(unix.IN_NONBLOCK | unix.IN_CLOEXEC)
+	if err != nil {
+		t.Fatalf("inotify: %v", err)
+	}
+	// The descriptor is non-blocking, so the runtime poller serves each read and Close ends a read that is waiting.
+	watch := os.NewFile(uintptr(fd), "wait watch")
+	const mask = unix.IN_CREATE | unix.IN_MODIFY | unix.IN_CLOSE_WRITE | unix.IN_MOVED_TO
+	if _, err := unix.InotifyAddWatch(fd, dir, mask); err != nil {
+		t.Fatalf("watch %s: %v", dir, errors.Join(err, watch.Close()))
+	}
+	src := &waitSource{dir: dir, changed: make(chan struct{}, 1)}
+	stopped := make(chan error, 1)
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			if _, err := watch.Read(buf); err != nil {
+				stopped <- err
+				return
+			}
+			signal(src.changed)
+		}
+	}()
+	t.Cleanup(func() {
+		closeErr := watch.Close()
+		if err := <-stopped; !errors.Is(err, os.ErrClosed) {
+			t.Errorf("read watch of %s: %v", dir, err)
+		}
+		if closeErr != nil {
+			t.Errorf("close watch of %s: %v", dir, closeErr)
+		}
+	})
+	return src
+}
+
+// waitFor checks cond, then blocks until a change on src and checks again after each one; what names the condition. A
+// change made after a check leaves a signal pending, so the next wait returns at once. It has no deadline of its own:
+// the test binary's timeout ends a wait that never ends.
+func waitFor(t *testing.T, src *waitSource, _ string, cond func() error) {
 	t.Helper()
 	for cond() != nil {
-		time.Sleep(50 * time.Millisecond)
+		<-src.changed
 	}
 }
 
@@ -903,14 +995,14 @@ func TestEnterSwitchesOnlyInvokingClientAndMarksSeen(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			a := newActionTree(t, actionLayout())
+			a := newActionTree(t, newWaitSource(t), actionLayout())
 			run := a.start(a.invoking)
 			run.send(tc.keys...)
 			if got := run.closed(); got.Action != ActionClose {
 				t.Fatalf("Run action = %q, want %q", got.Action, ActionClose)
 			}
-			waitFor(t, "enter switches and marks seen", func() error { return a.check(tc.session, tc.session) })
-			waitFor(t, "enter reports the switched pane once", func() error {
+			waitFor(t, a.src, "enter switches and marks seen", func() error { return a.check(tc.session, tc.session) })
+			waitFor(t, a.src, "enter reports the switched pane once", func() error {
 				return a.reportedOnce(a.reports, a.panes[tc.session])
 			})
 		})
@@ -918,38 +1010,44 @@ func TestEnterSwitchesOnlyInvokingClientAndMarksSeen(t *testing.T) {
 }
 
 func TestXMarksCursorPaneSeenAndStaysOpen(t *testing.T) {
-	a := newActionTree(t, actionLayout())
+	a := newActionTree(t, newWaitSource(t), actionLayout())
 	run := a.start(a.invoking)
 	run.send("j", "x")
-	waitFor(t, "x marks the cursor pane seen", func() error { return a.check("s1", "s2") })
-	waitFor(t, "x reports the cursor pane once", func() error { return a.reportedOnce(a.reports, a.panes["s2"]) })
+	waitFor(t, a.src, "x marks the cursor pane seen", func() error { return a.check("s1", "s2") })
+	waitFor(t, a.src, "x reports the cursor pane once", func() error {
+		return a.reportedOnce(a.reports, a.panes["s2"])
+	})
 	run.assertOpen()
 	run.send("q")
 	run.closed()
 }
 
 func TestXWithNilReporterStillMarksSeen(t *testing.T) {
-	a := newActionTree(t, actionLayout())
+	a := newActionTree(t, newWaitSource(t), actionLayout())
 	a.reports = nil
 	run := a.start(a.invoking)
 	run.send("j", "x")
-	waitFor(t, "x marks the cursor pane seen without a reporter", func() error { return a.check("s1", "s2") })
+	waitFor(t, a.src, "x marks the cursor pane seen without a reporter", func() error { return a.check("s1", "s2") })
 	run.assertOpen()
 	run.send("q")
 	run.closed()
 }
 
 func TestClaudeAddsWindowInCursorSessionAndDirectory(t *testing.T) {
+	// The source is made before the fake claude goes on PATH and the server starts, since the tmux
+	// server takes its PATH from the test process when it starts.
+	src := newWaitSource(t)
 	bin := t.TempDir()
-	marker := filepath.Join(t.TempDir(), "ran")
+	// The marker is in the wait directory, so the wait sees the fake claude write it.
+	marker := filepath.Join(src.dir, "ran")
 	script := "#!/bin/sh\npwd > '" + marker + "'\nexec sleep 300\n"
 	exectest.WriteFile(t, filepath.Join(bin, "claude"), []byte(script), 0o755)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	a := newActionTree(t, actionLayout())
+	a := newActionTree(t, src, actionLayout())
 	run := a.start(a.invoking)
 	run.send("j", "c")
-	waitFor(t, "claude window in s2 in the group directory", func() error {
+	waitFor(t, a.src, "claude window in s2 in the group directory", func() error {
 		count, err := a.windowCount("s2")
 		if err != nil {
 			return err
@@ -975,29 +1073,33 @@ func TestClaudeAddsWindowInCursorSessionAndDirectory(t *testing.T) {
 			t.Fatalf("%s has %d windows, want 1", session, count)
 		}
 	}
-	waitFor(t, "invoking client unchanged", func() error { return a.check("s1") })
+	waitFor(t, a.src, "invoking client unchanged", func() error { return a.check("s1") })
 	run.assertOpen()
 	run.send("q")
 	run.closed()
 }
 
 func TestClaudeWindowStartsInDirectoryWithFormatsAndSemicolon(t *testing.T) {
-	bin := t.TempDir()
-	script := "#!/bin/sh\nexec sleep 300\n"
-	exectest.WriteFile(t, filepath.Join(bin, "claude"), []byte(script), 0o755)
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-
 	// Each name is the directory of the cursor pane in s2. The new window's -c must carry the
 	// literal name: tmux format-expands -c, and a trailing ";" ends a tmux command.
 	for _, name := range []string{"x#{session_name}y", "x##y", "trail;"} {
 		t.Run(name, func(t *testing.T) {
+			src := newWaitSource(t)
+			bin := t.TempDir()
+			// The fake claude appends to the wait directory's changes file once it runs, which is after the
+			// window's directory is set, so the wait reads the directory of a running claude.
+			changes := filepath.Join(src.dir, "changes")
+			script := "#!/bin/sh\nprintf . >> '" + changes + "'\nexec sleep 300\n"
+			exectest.WriteFile(t, filepath.Join(bin, "claude"), []byte(script), 0o755)
+			t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
 			layout := actionLayout()
 			layout[1].dir = name
-			a := newActionTree(t, layout)
+			a := newActionTree(t, src, layout)
 			run := a.start(a.invoking)
 			run.send("j", "c")
 			want := a.dir(name)
-			waitFor(t, "claude window in s2 starts in the literal directory", func() error {
+			waitFor(t, a.src, "claude window in s2 starts in the literal directory", func() error {
 				count, err := a.windowCount("s2")
 				if err != nil {
 					return err
@@ -1014,7 +1116,7 @@ func TestClaudeWindowStartsInDirectoryWithFormatsAndSemicolon(t *testing.T) {
 				}
 				return nil
 			})
-			waitFor(t, "invoking client unchanged", func() error { return a.check("s1") })
+			waitFor(t, a.src, "invoking client unchanged", func() error { return a.check("s1") })
 			run.assertOpen()
 			run.send("q")
 			run.closed()
@@ -1023,19 +1125,21 @@ func TestClaudeWindowStartsInDirectoryWithFormatsAndSemicolon(t *testing.T) {
 }
 
 func TestShellOpensPopupShellForGroupAndAttachesIt(t *testing.T) {
-	a := newActionTree(t, actionLayout())
+	a := newActionTree(t, newWaitSource(t), actionLayout())
 	run := a.start(a.invoking)
 	run.send("j", "s")
 	if got := run.closed(); got.Action != ActionClose {
 		t.Fatalf("Run action = %q, want %q", got.Action, ActionClose)
 	}
-	waitFor(t, "popup shell attached on invoking client", func() error { return a.shellPopupErr(a.dir("alpha")) })
-	waitFor(t, "invoking client unchanged", func() error { return a.check("s1") })
+	waitFor(t, a.src, "popup shell attached on invoking client", func() error {
+		return a.shellPopupErr(a.dir("alpha"))
+	})
+	waitFor(t, a.src, "invoking client unchanged", func() error { return a.check("s1") })
 }
 
 func TestShellPopupAttachesWithQuotedDirectory(t *testing.T) {
 	quoted := `it's a "dir"`
-	a := newActionTree(t, []actionPane{
+	a := newActionTree(t, newWaitSource(t), []actionPane{
 		{session: "s1", dir: quoted, state: protocol.StateWaiting, label: "quoted-dir", changed: "100"},
 		{session: "s4", dir: "beta", state: protocol.StateWorking, label: "beta-notes", changed: "100"},
 	})
@@ -1044,12 +1148,14 @@ func TestShellPopupAttachesWithQuotedDirectory(t *testing.T) {
 	if got := run.closed(); got.Action != ActionClose {
 		t.Fatalf("Run action = %q, want %q", got.Action, ActionClose)
 	}
-	waitFor(t, "popup shell attached for quoted directory", func() error { return a.shellPopupErr(a.dir(quoted)) })
+	waitFor(t, a.src, "popup shell attached for quoted directory", func() error {
+		return a.shellPopupErr(a.dir(quoted))
+	})
 }
 
 func TestShellOpensSessionForDirectoryWithBraceFormat(t *testing.T) {
 	name := "x#{session_name}y"
-	a := newActionTree(t, []actionPane{
+	a := newActionTree(t, newWaitSource(t), []actionPane{
 		{session: "s1", dir: name, state: protocol.StateWaiting, label: "brace-dir", changed: "100"},
 		{session: "s4", dir: "beta", state: protocol.StateWorking, label: "beta-notes", changed: "100"},
 	})
@@ -1058,10 +1164,10 @@ func TestShellOpensSessionForDirectoryWithBraceFormat(t *testing.T) {
 	if got := run.closed(); got.Action != ActionClose {
 		t.Fatalf("Run action = %q, want %q", got.Action, ActionClose)
 	}
-	waitFor(t, "popup shell attached for directory with brace format", func() error {
+	waitFor(t, a.src, "popup shell attached for directory with brace format", func() error {
 		return a.shellPopupErr(a.dir(name))
 	})
-	waitFor(t, "invoking client unchanged", func() error { return a.check("s1") })
+	waitFor(t, a.src, "invoking client unchanged", func() error { return a.check("s1") })
 }
 
 func TestShellDoesNotExpandFormatsInGroupDirectory(t *testing.T) {
@@ -1070,7 +1176,7 @@ func TestShellDoesNotExpandFormatsInGroupDirectory(t *testing.T) {
 	// holds no slash, so the marker path is spelled with @ and tr rebuilds it inside the job.
 	// The job runs only if a format expansion turns "##" into a single "#".
 	name := `pwn##(touch "$(echo ` + strings.ReplaceAll(marker, "/", "@") + ` | tr @ /)")`
-	a := newActionTree(t, []actionPane{
+	a := newActionTree(t, newWaitSource(t), []actionPane{
 		{session: "s1", dir: name, state: protocol.StateWaiting, label: "injected-dir", changed: "100"},
 		{session: "s4", dir: "beta", state: protocol.StateWorking, label: "beta-notes", changed: "100"},
 	})
@@ -1081,15 +1187,17 @@ func TestShellDoesNotExpandFormatsInGroupDirectory(t *testing.T) {
 	}
 	// The popup's directory is the name as written: an expansion would turn its "##" into "#", and only an expansion
 	// runs the job. So the exact directory is the proof, and the marker is checked as it stands.
-	waitFor(t, "popup shell attached for directory with formats", func() error { return a.shellPopupErr(a.dir(name)) })
+	waitFor(t, a.src, "popup shell attached for directory with formats", func() error {
+		return a.shellPopupErr(a.dir(name))
+	})
 	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("command in group directory ran: stat %s = %v, want not exist", marker, err)
 	}
-	waitFor(t, "invoking client unchanged", func() error { return a.check("s1") })
+	waitFor(t, a.src, "invoking client unchanged", func() error { return a.check("s1") })
 }
 
 func TestNHandsOffIntentWithGroupDirectory(t *testing.T) {
-	a := newActionTree(t, actionLayout())
+	a := newActionTree(t, newWaitSource(t), actionLayout())
 	run := a.start(a.invoking)
 	run.send("j", "N")
 	got := run.closed()
@@ -1099,19 +1207,19 @@ func TestNHandsOffIntentWithGroupDirectory(t *testing.T) {
 	if got.Dir != a.dir("alpha") {
 		t.Fatalf("Run dir = %q, want %q", got.Dir, a.dir("alpha"))
 	}
-	waitFor(t, "invoking client unchanged", func() error { return a.check("s1") })
+	waitFor(t, a.src, "invoking client unchanged", func() error { return a.check("s1") })
 }
 
 func TestEscAndQCloseWithoutMovingClientsOrMarkingSeen(t *testing.T) {
 	for _, key := range []string{"esc", "q"} {
 		t.Run(key, func(t *testing.T) {
-			a := newActionTree(t, actionLayout())
+			a := newActionTree(t, newWaitSource(t), actionLayout())
 			run := a.start(a.invoking)
 			run.send("j", key)
 			if got := run.closed(); got.Action != ActionClose {
 				t.Fatalf("Run action = %q, want %q", got.Action, ActionClose)
 			}
-			waitFor(t, "clients and seen unchanged", func() error { return a.check("s1") })
+			waitFor(t, a.src, "clients and seen unchanged", func() error { return a.check("s1") })
 			if reports := a.reports.got(); len(reports) != 0 {
 				t.Fatalf("seen reports = %v, want none", reports)
 			}
@@ -1120,10 +1228,10 @@ func TestEscAndQCloseWithoutMovingClientsOrMarkingSeen(t *testing.T) {
 }
 
 func TestFailedActionShowsErrorAndStaysOpen(t *testing.T) {
-	a := newActionTree(t, actionLayout())
+	a := newActionTree(t, newWaitSource(t), actionLayout())
 	run := a.start("/dev/does-not-exist")
 	run.send("enter")
-	waitFor(t, "error on status line", func() error {
+	waitFor(t, a.src, "error on status line", func() error {
 		if !strings.Contains(run.out.String(), "error: ") {
 			return errors.New("no error line rendered")
 		}
@@ -1160,12 +1268,12 @@ func TestXConfirmClosesPaneArchivesItAndStaysOpen(t *testing.T) {
 	layout := actionLayout()
 	layout[1].claude = "claude-alpha-tests"
 	layout[1].transcript = transcript
-	a := newActionTree(t, layout)
+	a := newActionTree(t, newWaitSource(t), layout)
 	run := a.start(a.invoking)
 	run.send("j", "X")
 	run.waitForOutput("Close alpha-tests? y/N")
 	run.send("y")
-	waitFor(t, "s2 closed", func() error {
+	waitFor(t, a.src, "s2 closed", func() error {
 		open, err := a.hasSession("s2")
 		if err != nil {
 			return err
@@ -1188,7 +1296,7 @@ func TestXConfirmClosesPaneArchivesItAndStaysOpen(t *testing.T) {
 		got.Transcript != transcript || got.Label != "alpha-tests" {
 		t.Fatalf("archived record = %+v", got)
 	}
-	waitFor(t, "clients unchanged", func() error { return a.checkClients("s1") })
+	waitFor(t, a.src, "clients unchanged", func() error { return a.checkClients("s1") })
 	run.assertOpen()
 	run.send("q")
 	run.closed()
@@ -1200,7 +1308,7 @@ func TestXCancelKeysCloseNothing(t *testing.T) {
 			layout := actionLayout()
 			layout[1].claude = "claude-alpha-tests"
 			layout[1].transcript = "/home/user/.claude/projects/alpha/s.jsonl"
-			a := newActionTree(t, layout)
+			a := newActionTree(t, newWaitSource(t), layout)
 			run := a.start(a.invoking)
 			run.send("j", "X")
 			run.waitForOutput("Close alpha-tests? y/N")
@@ -1213,7 +1321,7 @@ func TestXCancelKeysCloseNothing(t *testing.T) {
 }
 
 func TestXWorkingPaneAsksAgainAndClosesOnSecondY(t *testing.T) {
-	a := newActionTree(t, actionLayout())
+	a := newActionTree(t, newWaitSource(t), actionLayout())
 	run := a.start(a.invoking)
 	run.send("j", "j", "X")
 	run.waitForOutput("Close beta-build? y/N")
@@ -1229,7 +1337,7 @@ func TestXWorkingPaneAsksAgainAndClosesOnSecondY(t *testing.T) {
 	run.assertOpen()
 
 	run.send("y")
-	waitFor(t, "s3 closed after second y", func() error {
+	waitFor(t, a.src, "s3 closed after second y", func() error {
 		open, err := a.hasSession("s3")
 		if err != nil {
 			return err
@@ -1239,14 +1347,14 @@ func TestXWorkingPaneAsksAgainAndClosesOnSecondY(t *testing.T) {
 		}
 		return nil
 	})
-	waitFor(t, "clients unchanged", func() error { return a.checkClients("s1") })
+	waitFor(t, a.src, "clients unchanged", func() error { return a.checkClients("s1") })
 	run.assertOpen()
 	run.send("q")
 	run.closed()
 }
 
 func TestXWorkingPaneSecondPromptNCancels(t *testing.T) {
-	a := newActionTree(t, actionLayout())
+	a := newActionTree(t, newWaitSource(t), actionLayout())
 	run := a.start(a.invoking)
 	run.send("j", "j", "X")
 	run.waitForOutput("Close beta-build? y/N")
@@ -1262,7 +1370,7 @@ func TestXAttachedClientMovesToNamedSessionBeforeClose(t *testing.T) {
 	// The close moves the invoking client to the most recently active other session. s2 is
 	// created after both clients attach, so that attaching s4 cannot make s4 more recent than s2.
 	// The second client stays on s4.
-	a := newLayoutTree(t, []actionPane{
+	a := newLayoutTree(t, newWaitSource(t), []actionPane{
 		{session: "s1", dir: "alpha", state: protocol.StateWaiting, label: "alpha-review", changed: "100"},
 		{session: "s4", dir: "beta", state: protocol.StateWorking, label: "beta-notes", changed: "100"},
 	})
@@ -1273,7 +1381,7 @@ func TestXAttachedClientMovesToNamedSessionBeforeClose(t *testing.T) {
 	run.send("X")
 	run.waitForOutput("Close alpha-review? The client moves to s2. y/N")
 	run.send("y")
-	waitFor(t, "invoking client moved to s2 and s1 closed", func() error {
+	waitFor(t, a.src, "invoking client moved to s2 and s1 closed", func() error {
 		open, err := a.hasSession("s1")
 		if err != nil {
 			return err
@@ -1289,7 +1397,7 @@ func TestXAttachedClientMovesToNamedSessionBeforeClose(t *testing.T) {
 }
 
 func TestXPromptSaysClientDetachesWhenNoSessionRemains(t *testing.T) {
-	a := newLayoutTree(t, []actionPane{
+	a := newLayoutTree(t, newWaitSource(t), []actionPane{
 		{session: "s1", dir: "alpha", state: protocol.StateWaiting, label: "alpha-review", changed: "100"},
 	})
 	a.invoking = a.attach("s1", 80, 24)
@@ -1332,9 +1440,9 @@ const projectTranscript = "/home/user/.claude/projects/alpha/s.jsonl"
 // @orrery_dir set to alpha, and alpha's shell session exists. Session s2 holds a pane in alpha
 // without @orrery_dir, so that pane stays open. The invoking client is attached to s1. The
 // second pane, alpha-tests, is in state tests.
-func projectTree(t *testing.T, tests protocol.State) *actionTree {
+func projectTree(t *testing.T, src *waitSource, tests protocol.State) *actionTree {
 	t.Helper()
-	a := newLayoutTree(t, []actionPane{
+	a := newLayoutTree(t, src, []actionPane{
 		{session: "s1", dir: "alpha", state: protocol.StateWaiting, label: "alpha-review", changed: "100",
 			claude: "claude-alpha-review", transcript: projectTranscript},
 		{session: "s2", dir: "alpha", state: protocol.StateDone, label: "alpha-foreign", changed: "200"},
@@ -1372,7 +1480,7 @@ func (a *actionTree) addShellSession(dir string) {
 // those panes.
 func (a *actionTree) waitCwd(dir string, sessions ...string) {
 	a.t.Helper()
-	waitFor(a.t, "panes of "+strings.Join(sessions, ", ")+" in "+dir, func() error {
+	waitFor(a.t, a.src, "panes of "+strings.Join(sessions, ", ")+" in "+dir, func() error {
 		panes, err := a.client.ListPanes(a.t.Context())
 		if err != nil {
 			return err
@@ -1412,7 +1520,7 @@ func assertProjectOpen(t *testing.T, a *actionTree, shellSession string) {
 }
 
 func TestDClosesProjectAfterPromptAndKeepsForeignPane(t *testing.T) {
-	a := projectTree(t, protocol.StateDone)
+	a := projectTree(t, newWaitSource(t), protocol.StateDone)
 	shellSession := shell.Name(a.dir("alpha"))
 	run := a.start(a.invoking)
 	run.send("D")
@@ -1437,7 +1545,7 @@ func TestDClosesProjectAfterPromptAndKeepsForeignPane(t *testing.T) {
 	assertProjectOpen(t, a, shellSession)
 
 	run.send("y")
-	waitFor(t, "project sessions closed and client moved to s2", func() error {
+	waitFor(t, a.src, "project sessions closed and client moved to s2", func() error {
 		for _, session := range []string{"s1", shellSession} {
 			open, err := a.hasSession(session)
 			if err != nil {
@@ -1484,7 +1592,7 @@ func TestDClosesProjectAfterPromptAndKeepsForeignPane(t *testing.T) {
 func TestDCancelKeysCloseNothing(t *testing.T) {
 	for _, key := range []string{"n", "esc"} {
 		t.Run(key, func(t *testing.T) {
-			a := projectTree(t, protocol.StateDone)
+			a := projectTree(t, newWaitSource(t), protocol.StateDone)
 			run := a.start(a.invoking)
 			run.send("D")
 			run.waitForOutput("Close these panes? y/N")
@@ -1497,7 +1605,7 @@ func TestDCancelKeysCloseNothing(t *testing.T) {
 }
 
 func TestDWorkingPaneAsksAgainAndClosesOnSecondY(t *testing.T) {
-	a := projectTree(t, protocol.StateWorking)
+	a := projectTree(t, newWaitSource(t), protocol.StateWorking)
 	shellSession := shell.Name(a.dir("alpha"))
 	run := a.start(a.invoking)
 	run.send("D")
@@ -1508,7 +1616,7 @@ func TestDWorkingPaneAsksAgainAndClosesOnSecondY(t *testing.T) {
 	assertProjectOpen(t, a, shellSession)
 
 	run.send("y")
-	waitFor(t, "project sessions closed after second y", func() error {
+	waitFor(t, a.src, "project sessions closed after second y", func() error {
 		for _, session := range []string{"s1", shellSession} {
 			open, err := a.hasSession(session)
 			if err != nil {

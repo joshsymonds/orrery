@@ -29,16 +29,14 @@ func storedHolds(t *testing.T, s *store.Store) []store.HoldRow {
 	return rows
 }
 
-// awaitState polls until member of pool is in state want. A member command sets the state when it ends, and the settle
-// that follows it runs under the same lock, so the state a poll sees is the state after that settle.
+// awaitState waits until member of pool is in state want. A member command sets the state when it ends, and the settle
+// that follows it runs under the same lock, so the state a check sees is the state after that settle.
 func awaitState(t *testing.T, b *Broker, pool, member string, want MemberState) {
 	t.Helper()
-	for {
-		if got, _ := memberOf(t, b, pool, member); got == want {
-			return
-		}
-		time.Sleep(time.Millisecond)
-	}
+	await(t, b, func() bool {
+		got, _ := memberOf(t, b, pool, member)
+		return got == want
+	})
 }
 
 // TestHeldMemberIsNotGrantedUntilFreed checks that a held member is never granted. With m1 held and m2 free, the first
