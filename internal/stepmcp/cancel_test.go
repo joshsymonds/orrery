@@ -286,7 +286,7 @@ func TestCancelLeavesAMutatingCallRunning(t *testing.T) {
 		t.Run(tc.tool, func(t *testing.T) {
 			t.Parallel()
 			daemon := newHeldDaemon()
-			server, err := NewServer(daemon, daemon, daemon)
+			server, err := NewServer(daemon, daemon, nil, daemon)
 			if err != nil {
 				t.Fatalf("NewServer: %v", err)
 			}
@@ -329,7 +329,7 @@ func TestConnectionEndEndsADetachedCall(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			daemon := newHeldDaemon()
-			server, err := NewServer(daemon, daemon, daemon)
+			server, err := NewServer(daemon, daemon, nil, daemon)
 			if err != nil {
 				t.Fatalf("NewServer: %v", err)
 			}

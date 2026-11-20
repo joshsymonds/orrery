@@ -523,8 +523,10 @@ func runMCP(ctx context.Context, opts globals, args []string, stdin io.Reader, s
 		connect.WithInterceptors(stepmcp.CallerInterceptor(getenv)))
 	epics := enginev1connect.NewEpicsClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL,
 		connect.WithInterceptors(stepmcp.CallerInterceptor(getenv)))
+	contracts := enginev1connect.NewContractsClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL,
+		connect.WithInterceptors(stepmcp.CallerInterceptor(getenv)))
 	evidence := enginev1connect.NewEvidenceClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL)
-	server, err := stepmcp.NewServer(steps, epics, evidence)
+	server, err := stepmcp.NewServer(steps, epics, contracts, evidence)
 	if err != nil {
 		return fmt.Errorf("mcp: %w", err)
 	}

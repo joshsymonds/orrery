@@ -189,6 +189,7 @@ func mutatingTool(name string) bool {
 	case "step_start", "step_stop", "step_resume",
 		"epic_create", "epic_answer", "epic_pause", "epic_resume", "epic_stop", "epic_retry", "epic_kick", "epic_release",
 		"epic_close", "epic_amend",
+		"contract_propose", "contract_revise", "contract_accept", "contract_set_aside", "contract_reopen",
 		"evidence_run":
 		return true
 	}

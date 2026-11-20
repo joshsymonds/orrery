@@ -140,7 +140,7 @@ func TestOversizedInboundLineEndsTheSessionWithBoundedMemory(t *testing.T) {
 		// doubles its buffer to about 2 MiB, so the bound leaves room for that buffer and is still half the line.
 		maxGrowthBytes = 4 * maxLineBytes
 	)
-	server, err := NewServer(nil, nil, nil)
+	server, err := NewServer(nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}

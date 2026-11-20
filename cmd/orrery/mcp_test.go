@@ -252,6 +252,13 @@ func TestMCPServesStepToolsOverDaemon(t *testing.T) {
 	}
 	slices.Sort(names)
 	want := []string{
+		"contract_accept",
+		"contract_get",
+		"contract_list",
+		"contract_propose",
+		"contract_reopen",
+		"contract_revise",
+		"contract_set_aside",
 		"epic_amend",
 		"epic_answer",
 		"epic_close",

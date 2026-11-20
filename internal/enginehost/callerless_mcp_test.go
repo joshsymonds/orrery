@@ -30,7 +30,7 @@ func callerlessMCPSession(t *testing.T, f *stepStartFixture, session string) *mc
 	}
 	steps := enginev1connect.NewStepsClient(cli.SessionHTTPClient(path), cli.SessionBaseURL,
 		connect.WithInterceptors(stepmcp.CallerInterceptor(getenv)))
-	server, err := stepmcp.NewServer(steps, nil, nil)
+	server, err := stepmcp.NewServer(steps, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}

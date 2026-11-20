@@ -59,7 +59,7 @@ func requireEmptyPingResult(t *testing.T, when string, reply rpcReply) {
 // again once the handshake has completed, each time with an empty result object.
 func TestPingGetsAnEmptyResultBeforeAndAfterInitialize(t *testing.T) {
 	t.Parallel()
-	server, err := NewServer(nil, nil, nil)
+	server, err := NewServer(nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestPingGetsAnEmptyResultBeforeAndAfterInitialize(t *testing.T) {
 // advertises is tools, without listChanged.
 func TestInitializeNamesTheServerAndAdvertisesOnlyTools(t *testing.T) {
 	t.Parallel()
-	server, err := NewServer(nil, nil, nil)
+	server, err := NewServer(nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
