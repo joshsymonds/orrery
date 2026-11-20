@@ -70,6 +70,7 @@ function conversation(init: Partial<Conversation> = {}): Conversation {
 interface Props {
   conversation: Conversation | null;
   seenAt: number;
+  now?: number;
   open: boolean;
   asking?: boolean;
   step?: EpicStep;
@@ -954,14 +955,14 @@ test("a compaction shows its rule line, and its summary only when open", async (
   const props = { conversation: conversation({ items: [compaction] }), seenAt: 0 };
 
   await withReader({ ...props, open: false }, (container) => {
-    assert.ok(container.textContent?.includes("compacted"));
+    assert.ok(container.textContent?.includes("Compacted"));
     assert.ok(container.textContent?.includes("auto"));
     assert.ok(container.textContent?.includes("611k"));
     assert.equal(container.textContent?.includes("Synthetic summary text."), false);
   });
 
   await withReader({ ...props, open: true }, (container) => {
-    assert.ok(container.textContent?.includes("compacted"));
+    assert.ok(container.textContent?.includes("Compacted"));
     assert.ok(container.textContent?.includes("Synthetic summary text."));
   });
 });
@@ -1034,7 +1035,7 @@ test("the compaction rule is a button that calls onToggleOpen, and a plain rule 
     (container) => {
       const rule = container.querySelector<HTMLButtonElement>("button.rule");
       assert.ok(rule !== null);
-      assert.ok(rule.textContent?.includes("compacted"));
+      assert.ok(rule.textContent?.includes("Compacted"));
       rule.click();
       assert.equal(toggles, 1);
     },
@@ -3011,3 +3012,170 @@ test("ContractLines: the line draws again when the list the reader holds changes
     await removeTestDom(window);
   }
 });
+
+// localAt is the unix seconds of a wall-clock time on a local day of November 2026, so a test reads the same in any time
+// zone.
+function localAt(day: number, hour: number, minute: number): bigint {
+  return BigInt(Math.floor(new Date(2026, 10, day, hour, minute).getTime() / 1000));
+}
+
+// today is the now the Shapes tests give the reader: noon on 20 November 2026 in local time, so the items localAt places
+// on the 20th are today and any on an earlier day are not. The reader takes today from now and never reads the clock.
+const today = Number(localAt(20, 12, 0));
+
+// lookedAt is the owner's last look, after every item the Shapes tests draw, so none of them is newer.
+const lookedAt = Number(BigInt(Math.floor(new Date(2026, 10, 20, 23, 59).getTime() / 1000)));
+
+// allRowTexts returns the text of each row of the reader, day rules included, in order.
+function allRowTexts(container: HTMLElement): string[] {
+  return [...container.querySelectorAll(".reader > .t")].map((row) => row.textContent ?? "");
+}
+
+// rulesOf returns the rules the reader draws, in order: each rule's kind and label.
+function rulesOf(container: HTMLElement): string[] {
+  return [...container.querySelectorAll<HTMLElement>('.reader > .t [data-shape="rule"]')].map(
+    (rule) => `${rule.classList.item(1)}: ${rule.querySelector(".label")?.textContent ?? ""}`,
+  );
+}
+
+test("Shapes: a compaction item draws one compaction Rule, labelled Compacted with its trigger and tokens as detail", () => {
+  return withReader(
+    {
+      conversation: conversation({
+        items: [
+          item({ kind: "compaction", time: localAt(20, 9, 0), text: "Synthetic summary.", trigger: "auto", tokens: 611000n }),
+        ],
+      }),
+      seenAt: lookedAt,
+      now: today,
+      open: false,
+      onToggleOpen: () => {},
+    },
+    (container) => {
+      assert.deepEqual(rulesOf(container), ["compaction: Compacted"]);
+      const rule = container.querySelector<HTMLElement>(".rule.compaction");
+      assert.equal(rule?.tagName, "BUTTON", "the compaction Rule is a button, as it has a toggle");
+      assert.equal(rule?.querySelector(".detail")?.textContent, "auto · 611k tokens");
+    },
+  );
+});
+
+test("Shapes: a compaction Rule that is open draws its summary, and a closed one draws none", async () => {
+  const compaction = item({ kind: "compaction", time: localAt(20, 9, 0), text: "Synthetic summary.", trigger: "auto" });
+  const props = { conversation: conversation({ items: [compaction] }), seenAt: lookedAt, now: today, onToggleOpen: () => {} };
+  await withReader({ ...props, open: false }, (container) => {
+    assert.equal(container.querySelector(".compaction .summary"), null, "the summary is folded while closed");
+    assert.equal(container.querySelector(".rule.compaction.open"), null);
+  });
+  await withReader({ ...props, open: true }, (container) => {
+    assert.ok(container.querySelector(".rule.compaction.open") !== null, "the open Rule is marked open");
+    assert.equal(container.querySelector(".compaction.open .summary")?.textContent, "Synthetic summary.");
+  });
+});
+
+test("Shapes: an item newer than seenAt is preceded by one new Rule, labelled New since you looked", () => {
+  return withReader(
+    {
+      conversation: conversation({
+        items: [
+          item({ kind: "reply", time: localAt(20, 9, 0), text: "seen" }),
+          item({ kind: "reply", time: localAt(20, 10, 0), text: "unseen" }),
+        ],
+      }),
+      seenAt: Number(localAt(20, 9, 30)),
+      now: today,
+      open: false,
+    },
+    (container) => {
+      assert.deepEqual(rulesOf(container), ["new: New since you looked"]);
+      assert.ok(rowTexts(container)[1].includes("New since you looked"), "the Rule is the row before the newer item");
+      assert.ok(rowTexts(container)[2].includes("unseen"));
+    },
+  );
+});
+
+test("Shapes: an interrupted item draws one interrupted Rule, labelled Interrupted by you with its time as detail", () => {
+  return withReader(
+    {
+      conversation: conversation({ items: [item({ kind: "interrupted", time: localAt(20, 14, 2) })] }),
+      seenAt: lookedAt,
+      now: today,
+      open: false,
+    },
+    (container) => {
+      assert.deepEqual(rulesOf(container), ["interrupted: Interrupted by you"]);
+      assert.equal(container.querySelector(".rule.interrupted .detail")?.textContent, "14:02");
+    },
+  );
+});
+
+test("Shapes: a transcript from today draws no day Rule", () => {
+  return withReader(
+    {
+      conversation: conversation({ items: [item({ kind: "reply", time: localAt(20, 9, 0), text: "this morning" })] }),
+      seenAt: lookedAt,
+      now: today,
+      open: false,
+    },
+    (container) => {
+      assert.deepEqual(rulesOf(container), [], "no rule is drawn");
+    },
+  );
+});
+
+test("Shapes: a transcript from an earlier day opens on its day Rule", () => {
+  return withReader(
+    {
+      conversation: conversation({ items: [item({ kind: "reply", time: localAt(19, 23, 50), text: "late on the 19th" })] }),
+      seenAt: lookedAt,
+      now: today,
+      open: false,
+    },
+    (container) => {
+      assert.deepEqual(rulesOf(container), ["day: Thursday 19 November"]);
+      assert.ok(allRowTexts(container)[0].includes("Thursday 19 November"), "the day Rule is the first row");
+      assert.ok(allRowTexts(container)[1].includes("late on the 19th"));
+    },
+  );
+});
+
+test("Shapes: a change of local day between two items draws one day Rule before the later one", () => {
+  return withReader(
+    {
+      conversation: conversation({
+        items: [
+          item({ kind: "reply", time: localAt(19, 23, 50), text: "before midnight" }),
+          item({ kind: "reply", time: localAt(20, 0, 10), text: "after midnight" }),
+        ],
+      }),
+      seenAt: lookedAt,
+      now: today,
+      open: false,
+    },
+    (container) => {
+      assert.deepEqual(rulesOf(container), ["day: Thursday 19 November", "day: Friday 20 November"]);
+      const rows = allRowTexts(container);
+      assert.equal(rows.length, 4);
+      assert.ok(rows[2].includes("Friday 20 November"), `row 2 was ${rows[2]}`);
+      assert.ok(rows[3].includes("after midnight"));
+    },
+  );
+});
+
+test("Shapes: a reader given no now draws no leading day Rule, and a day Rule only between items of different days", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [
+          item({ kind: "reply", time: localAt(19, 23, 50), text: "before midnight" }),
+          item({ kind: "reply", time: localAt(20, 0, 10), text: "after midnight" }),
+        ],
+      }),
+      seenAt: lookedAt,
+      open: false,
+    },
+    (container) => {
+      assert.deepEqual(rulesOf(container), ["day: Friday 20 November"], "no leading rule, one rule between the two days");
+      assert.equal(allRowTexts(container).length, 3);
+    },
+  ));

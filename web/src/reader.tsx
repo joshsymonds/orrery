@@ -13,6 +13,7 @@ import type { EpicStep, EpicStepCheck } from "./gen/orrery/v1/epics_pb";
 import type { ConversationItem, EngineText } from "./gen/orrery/v1/orrery_pb";
 import { type CallReveal, partCurrent, sameCalls, ToolLine, ToolRun, useReveal } from "./lines";
 import { Markdown } from "./markdown";
+import { Rule } from "./rules";
 import type { Sending } from "./sending";
 import { MarkedText, ReplyText } from "./text";
 
@@ -41,8 +42,10 @@ export interface ContractCalls {
   onOpen: (id: string) => void;
 }
 
-// Reader draws one conversation: its items, the "since you looked" rule before the first row newer than seenAt, the
-// the question's Ask after them, and the session's unfinished text and thinking. A result is never a row:
+// Reader draws one conversation: its items, the new rule before the first row newer than seenAt, a day rule before
+// the first row when its local day is not the day of now (unix seconds; a reader given no now draws no leading day
+// rule) and between two rows of different local days, the question's Ask after them, and the session's unfinished text
+// and thinking. A result is never a row:
 // it folds under the call it answers, and a result whose call is not held is hidden. Three or more tool calls in a row
 // fold into one run line that opens to a line per call. A call still running, with nothing but calls and results after
 // it and no question drawn, carries the running rail and mark, and so does a run that holds one. A call that creates an
@@ -94,9 +97,11 @@ export function Reader({
   find,
   epicCalls,
   contractCalls,
+  now,
 }: {
   conversation: Conversation | null;
   seenAt: number;
+  now?: number; // unix seconds: the day a leading day rule is judged against; no now draws no leading day rule
   open: boolean;
   asking?: boolean; // whether an open question is drawn after the items, which ends the calls still running
   ask?: ComponentChildren; // the question's Ask, drawn after the items
@@ -296,11 +301,15 @@ export function Reader({
   const running = runningCalls(items, results, asking || liveBlocks.length > 0);
   const rows: JSX.Element[] = [];
   let answeredDrawn = false;
-  groups.forEach((group) => {
+  const today = now === undefined ? undefined : new Date(now * secondsToMillis).toDateString();
+  groups.forEach((group, rank) => {
     const [first] = group;
     if (answered !== undefined && !answeredDrawn && first > answeredAt) {
       rows.push(<Fragment key="answered">{answered.line}</Fragment>);
       answeredDrawn = true;
+    }
+    if (dayChanged(items, first, today, rank === 0)) {
+      rows.push(<DayRule key={`day/${keys[first]}`} time={items[first].time} />);
     }
     if (first === newIndex) {
       rows.push(<NewRule key="new-rule" />);
@@ -373,13 +382,30 @@ export function ReaderHead({
   );
 }
 
+// NewRule draws the since-you-looked mark before the first item newer than the owner last looked.
 function NewRule() {
   return (
+    <RuleRow>
+      <Rule kind="new" label="New since you looked" />
+    </RuleRow>
+  );
+}
+
+// DayRule draws the local day a transcript opens or changes to, before the first item of that day.
+function DayRule({ time }: { time: bigint }) {
+  return (
+    <RuleRow>
+      <Rule kind="day" label={dayLabel(time)} />
+    </RuleRow>
+  );
+}
+
+// RuleRow is the row a rule draws in. A rule spans the column, so the row has no gutter time.
+function RuleRow({ children }: { children: ComponentChildren }) {
+  return (
     <div class="t">
-      <span class="gut new">new</span>
-      <div class="body">
-        <div class="rule new">since you looked</div>
-      </div>
+      <span class="gut" />
+      <div class="body">{children}</div>
     </div>
   );
 }
@@ -433,7 +459,7 @@ function ItemRow({
   const ringed = item.kind === "prompt" && epicCalls !== undefined && epicEventOf(item.text) !== null;
   return (
     <div class={ownersTurn(item, step) && !ringed ? "t owner-turn" : "t"}>
-      <span class="gut">{clock(item.time)}</span>
+      <span class="gut">{item.kind === "interrupted" ? "" : clock(item.time)}</span>
       <div class="body">
         <ItemBody
           item={item}
@@ -652,7 +678,7 @@ function ItemBody({
     case "compaction":
       return <Compaction item={item} open={open} onToggleOpen={onToggleOpen} />;
     case "interrupted":
-      return <div class="rule interrupted">Interrupted by you</div>;
+      return <Rule kind="interrupted" label="Interrupted by you" detail={clock(item.time)} />;
     case "agent_finished":
       return <div class="rule agent-finished">{agentFinishedLine(item)}</div>;
     default:
@@ -874,6 +900,8 @@ function ThinkingRow({ text }: { text: string }) {
   );
 }
 
+// Compaction draws a compaction as a Rule, labelled Compacted with its trigger and tokens as detail, and under it the
+// summary once the rule is open.
 function Compaction({
   item,
   open,
@@ -883,31 +911,16 @@ function Compaction({
   open: boolean;
   onToggleOpen?: () => void;
 }) {
-  const parts = ["compacted"];
+  const parts: string[] = [];
   if (item.trigger !== "") {
     parts.push(item.trigger);
   }
   if (item.tokens > 0n) {
-    parts.push(`${Math.round(Number(item.tokens) / tokensPerThousand)}k`);
+    parts.push(`${Math.round(Number(item.tokens) / tokensPerThousand)}k tokens`);
   }
-  const rule = parts.join(" · ");
-  const [flashing, flash] = useFlash();
   return (
     <div class={open ? "compaction open" : "compaction"}>
-      {onToggleOpen ? (
-        <button
-          type="button"
-          class={flashing ? "rule flash" : "rule"}
-          onClick={() => {
-            flash();
-            onToggleOpen();
-          }}
-        >
-          {rule}
-        </button>
-      ) : (
-        <div class="rule">{rule}</div>
-      )}
+      <Rule kind="compaction" label="Compacted" detail={parts.join(" · ")} onToggle={onToggleOpen} open={open} />
       {open && (
         <div class="summary">
           <ReplyText text={item.text} />
@@ -1053,6 +1066,36 @@ function itemKeys(items: ConversationItem[]): string[] {
     keys[index] = occurrence === 0 ? base : `${base}#${occurrence}`;
   }
   return keys;
+}
+
+// dayLabelFormat is the formatter of a day rule's label, as the rule's words are in English: Monday 16 November.
+const dayLabelFormat = new Intl.DateTimeFormat("en-GB", { weekday: "long", day: "numeric", month: "long" });
+
+// dayLabel is the label of the day rule for the local day a time falls on.
+function dayLabel(time: bigint): string {
+  return dayLabelFormat.format(new Date(Number(time) * secondsToMillis));
+}
+
+// dayOfTime is the local day a time falls on, as toDateString names it, or "" for a time of 0, which is no time: clock
+// draws none for it either.
+function dayOfTime(time: bigint): string {
+  return time === 0n ? "" : new Date(Number(time) * secondsToMillis).toDateString();
+}
+
+// dayChanged is whether the row at first opens a local day, and so draws a day rule before it: the first row drawn when
+// its day is not today (today is the day of the reader's now, or undefined when it has none, and then no first row
+// opens a day), and any other row whose day is not the day of the item before it. A row whose item or whose predecessor
+// has no time opens no day.
+function dayChanged(items: ConversationItem[], first: number, today: string | undefined, firstRow: boolean): boolean {
+  const day = dayOfTime(items[first].time);
+  if (day === "") {
+    return false;
+  }
+  if (firstRow) {
+    return today !== undefined && day !== today;
+  }
+  const before = dayOfTime(items[first - 1].time);
+  return before !== "" && before !== day;
 }
 
 // clockFormat is the formatter of every gutter time: 24-hour hours and minutes in the local zone. One formatter serves

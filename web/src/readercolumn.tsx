@@ -284,6 +284,7 @@ export function ReaderColumn({
         <Reader
           conversation={shown}
           seenAt={row.seen}
+          now={now}
           open={open}
           asking={askNode !== null}
           ask={askNode}
@@ -314,6 +315,7 @@ export function ReaderColumn({
         <Reader
           conversation={shown}
           seenAt={stepSeenAt}
+          now={now}
           open={open}
           step={step.step}
           onToggleOpen={onToggleOpen}
