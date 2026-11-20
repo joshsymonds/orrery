@@ -153,6 +153,8 @@ class MainActivity : ComponentActivity() {
                                                     back = current,
                                                     label = it.task.ifEmpty { it.agent },
                                                     doing = it.doing,
+                                                    epic = current.id,
+                                                    task = it.task,
                                                 )
                                             },
                                             onOpenContract = { screen = Screen.Contract(current.id) },
@@ -184,6 +186,8 @@ class MainActivity : ComponentActivity() {
                                                     back = current,
                                                     label = it.task.ifEmpty { it.agent },
                                                     doing = it.doing,
+                                                    epic = current.epicId,
+                                                    task = it.task,
                                                 )
                                             },
                                         )
@@ -217,8 +221,11 @@ class MainActivity : ComponentActivity() {
                                                 held = current.held,
                                                 label = current.label,
                                                 doing = current.doing,
+                                                epic = current.epic,
+                                                task = current.task,
                                             ),
                                             onOpenEpic = { screen = Screen.Epic(it) },
+                                            onOpenTask = { task, phase -> screen = Screen.Phase(current.epic, task, phase) },
                                             about = aboutOf(current),
                                             onClearAbout = { conversationAbout = null },
                                             onOpenContract = { id, live ->
@@ -414,7 +421,7 @@ class MainActivity : ComponentActivity() {
         /**
          * A step's session, reached from its epic or from a task's phase output: back returns to [back]. [held] is the
          * step's held state when it was opened, and [label] and [doing] name the step and say what it is doing in its
-         * dock.
+         * dock. [epic] and [task] are the step's epic and task, whose record the session's band and crumbs read.
          */
         data class Step(
             val id: String,
@@ -422,6 +429,8 @@ class MainActivity : ComponentActivity() {
             val back: Screen,
             val label: String,
             val doing: String,
+            val epic: String,
+            val task: String,
         ) : Screen
     }
 }

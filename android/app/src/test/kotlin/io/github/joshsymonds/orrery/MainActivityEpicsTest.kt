@@ -290,8 +290,8 @@ class MainActivityEpicsTest {
         .setAccepted(NOW - 3_600L)
         .build()
 
-    /** The header of the open session, by its label. */
-    private fun titled(label: String): SemanticsMatcher = hasTestTag("head-text").and(hasText(label))
+    /** The title row of an open worker's session, whose last crumb names it. */
+    private val workerSession: SemanticsMatcher = hasTestTag("crumb:2").and(hasText("Worker session"))
 
     /** A headless session as the list and the watch stream report it. */
     private fun headlessSession(id: String, label: String): HeadlessSession = HeadlessSession.newBuilder()
@@ -531,13 +531,12 @@ class MainActivityEpicsTest {
 
         composeRule.onNodeWithTag("happened:0").performClick()
 
-        awaitNode(titled(STEP_SESSION_LABEL))
-        awaitNone(hasTestTag("title-back"))
+        awaitNode(workerSession)
 
         controller.get().onBackPressedDispatcher.onBackPressed()
 
         awaitNode(hasTestTag("title-back"))
-        awaitNone(titled(STEP_SESSION_LABEL))
+        awaitNone(workerSession)
     }
 
     @Test
@@ -719,11 +718,11 @@ class MainActivityEpicsTest {
 
         composeRule.onNode(sessionDoor(), useUnmergedTree = true).performClick()
 
-        awaitNode(titled(CHECK_SESSION_LABEL))
+        awaitNode(workerSession)
         controller.get().onBackPressedDispatcher.onBackPressed()
 
         awaitNode(hasTestTag("stage-body:green"))
-        awaitNone(titled(CHECK_SESSION_LABEL))
+        awaitNone(workerSession)
         controller.get().onBackPressedDispatcher.onBackPressed()
 
         awaitNode(hasTestTag("epic-summary"))
@@ -758,14 +757,14 @@ class MainActivityEpicsTest {
         assertAbsent(hasTestTag("stage-head:implement"))
 
         composeRule.mainClock.autoAdvance = true
-        awaitNode(titled(CHECK_SESSION_LABEL))
+        awaitNode(workerSession)
         composeRule.mainClock.autoAdvance = false
 
         controller.get().onBackPressedDispatcher.onBackPressed()
         composeRule.waitForIdle()
         composeRule.mainClock.advanceTimeByFrame()
         composeRule.waitForIdle()
-        assertAbsent(titled(CHECK_SESSION_LABEL))
+        assertAbsent(workerSession)
 
         composeRule.mainClock.autoAdvance = true
         awaitNode(hasTestTag("stage-body:green"))
