@@ -228,11 +228,14 @@ test("TaskStyle: at phone width a worker session's leading crumb ellipsizes on o
   assert.equal(declaredValue(phone, ".worker-session > .title-row .crumb.here", "overflow-wrap"), "normal");
 });
 
-test("TaskStyle: a step's end card in the worker session takes the reader's well, rail and type", () => {
-  assert.equal(declaredValue(desk, ".worker-session .step-card", "background"), "var(--o-surface-well)");
-  assert.equal(declaredValue(desk, ".worker-session .step-card", "box-shadow"), "inset var(--o-size-rail) 0 0 var(--o-role-engine)");
-  assert.equal(declaredValue(desk, ".worker-session .step-card", "font"), "var(--o-type-small)");
-  assert.equal(declaredValue(desk, ".worker-session .step-card .step-summary", "white-space"), "pre-wrap");
+test("TaskStyle: the task's record lists, its evidence runs among them, sit flush with no list marks", () => {
+  assert.equal(declaredValue(desk, ".phase-output ul", "padding"), "0");
+  assert.equal(declaredValue(desk, ".phase-output ul", "list-style"), "none");
+});
+
+test("TaskStyle: at phone width the pin's state words and its open-the-epic words go", () => {
+  assert.equal(declaredValue(phone, ".epic-pin .words", "display"), "none");
+  assert.equal(declaredValue(phone, ".epic-pin .open", "display"), "none");
 });
 
 test("TaskStyle: at phone width the worker session's state line wraps, so its Stop confirm is not clipped", () => {

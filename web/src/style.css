@@ -643,21 +643,22 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 .reader .event-ring .settled { margin: 0; color: var(--o-ink-3); }
 .reader .event-ring .answer .question { margin: 0; padding: 0; font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
 /* A step's end an event sent its caller: its agent, end, status and reason on the head, the headline under it, and the
-   full return in a fold under that. A click opens the step's page. The worker session draws the same card. */
-.reader .step-card, .worker-session .step-card {
+   full return in a fold under that. A click opens the step's page. The worker session draws the same card, in a reader's
+   column of its own. */
+.reader .step-card {
   display: flex; flex-direction: column; gap: var(--o-space-4); padding: var(--o-space-8) var(--o-space-12); border-radius: 0 var(--o-radius-2) var(--o-radius-2) 0;
   background: var(--o-surface-well); box-shadow: inset var(--o-size-rail) 0 0 var(--o-role-engine); font: var(--o-type-small); color: var(--o-ink-2);
 }
-.reader .step-card button.step-head, .worker-session .step-card button.step-head {
+.reader .step-card button.step-head button.step-head {
   display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--o-space-2) var(--o-space-12); width: 100%; min-height: var(--o-space-24); margin: 0; padding: 0; border: 0;
   background: none; color: inherit; text-align: left; cursor: pointer; appearance: none; -webkit-appearance: none;
 }
-.reader .step-card .step-agent, .worker-session .step-card .step-agent { color: var(--o-ink-1); }
-.reader .step-card .step-reason, .worker-session .step-card .step-reason { min-width: 0; overflow-wrap: anywhere; color: var(--o-ink-3); }
-.reader .step-card .step-summary, .worker-session .step-card .step-summary { margin: 0; color: var(--o-ink-1); overflow-wrap: anywhere; white-space: pre-wrap; }
-.reader .step-card .step-return, .worker-session .step-card .step-return { min-width: 0; }
-.reader .step-card .step-return > summary, .worker-session .step-card .step-return > summary { color: var(--o-ink-3); cursor: pointer; }
-.reader .step-card .step-return > pre, .worker-session .step-card .step-return > pre {
+.reader .step-card .step-agent .step-agent { color: var(--o-ink-1); }
+.reader .step-card .step-reason .step-reason { min-width: 0; overflow-wrap: anywhere; color: var(--o-ink-3); }
+.reader .step-card .step-summary .step-summary { margin: 0; color: var(--o-ink-1); overflow-wrap: anywhere; white-space: pre-wrap; }
+.reader .step-card .step-return .step-return { min-width: 0; }
+.reader .step-card .step-return > summary .step-return > summary { color: var(--o-ink-3); cursor: pointer; }
+.reader .step-card .step-return > pre .step-return > pre {
   margin: var(--o-space-4) 0 0; padding: var(--o-space-8); border-radius: var(--o-radius-2); background: var(--o-surface-well); color: var(--o-ink-2);
   font: var(--o-type-small); white-space: pre-wrap; overflow-wrap: anywhere;
 }
@@ -804,7 +805,7 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 section.page.drill { animation: move-drill var(--o-move-drill); }
 section.page.leave { animation: move-leave var(--o-move-leave); }
 .epic-page p { margin: 0; }
-.epic-page ul, .epic-page ol { margin: 0; padding: 0; list-style: none; }
+.epic-page ul, .epic-page ol, .phase-output ul, .phase-output ol { margin: 0; padding: 0; list-style: none; }
 .epic-page h3 { margin: 0; font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; color: var(--o-ink-3); }
 .epic-page .sure { font: var(--o-type-small); color: var(--o-ink-2); }
 /* The title row: back, the crumbs, the state and blocker, and the commands pushed to its right. */
@@ -1168,7 +1169,7 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 /* On a phone the pin, the chips and the phase heads take the touch heights, and the pin's open-the-epic line goes. */
 @media (width < 760px) {
   .epic-pin { min-height: var(--o-size-control-touch); padding: var(--o-space-4) var(--o-layout-page-pad-phone); }
-  .epic-pin .open { display: none; }
+  .epic-pin .open, .epic-pin .words { display: none; }
   .tstrip { padding: 0 var(--o-layout-page-pad-phone) var(--o-space-8); }
   .phase-output .phase-head { min-height: var(--o-size-control-touch); align-items: center; }
   .phase-output .door { min-height: var(--o-size-control-touch); }

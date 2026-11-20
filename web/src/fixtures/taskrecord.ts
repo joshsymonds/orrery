@@ -16,6 +16,7 @@ import {
   EvidenceRunSchema,
 } from "../gen/orrery/v1/epics_pb";
 import {
+  ConversationItemSchema,
   type SessionsWatchConversationResponse,
   SessionsWatchConversationResponseSchema,
 } from "../gen/orrery/v1/orrery_pb";
@@ -207,6 +208,12 @@ function endedImplement(bases: TaskRecordBases): SessionsWatchConversationRespon
   }
   const ended = clone(SessionsWatchConversationResponseSchema, stream);
   ended.unfinished = [];
+  // The step ended done, so the call it was running when the building state was read has its answer.
+  const answered = new Set(ended.items.filter((item) => item.kind === "result").map((item) => item.id));
+  const running = ended.items.filter((item) => item.kind === "tool" && !answered.has(item.id));
+  ended.items.push(
+    ...running.map((item) => create(ConversationItemSchema, { kind: "result", time: at("@14:41"), id: item.id, text: "ok" })),
+  );
   if (ended.state?.session !== undefined) {
     ended.state.session.state = "done";
   }

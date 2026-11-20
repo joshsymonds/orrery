@@ -13,6 +13,7 @@ import {
   EpicStepSchema,
 } from "./gen/orrery/v1/epics_pb";
 import { ConversationItemSchema, ConversationStateSchema, type ConversationItem } from "./gen/orrery/v1/orrery_pb";
+import { clock } from "./reader";
 import { installTestDom, removeTestDom } from "./testdom";
 import { WorkerSessionPage } from "./workersession";
 
@@ -341,7 +342,9 @@ test("WorkerSession: an ended step shows no dock, and its end is the last block"
     assert.equal(container.querySelector(".dock"), null, "no dock is drawn");
     assert.equal(container.querySelector("textarea"), null, "no compose box is drawn");
     const last = find(container, ".worker-session").lastElementChild;
-    assert.equal(last?.classList.contains("step-card"), true, "the step's end is the last block");
+    assert.equal(last?.classList.contains("step-end-row"), true, "the step's end is the last block");
+    assert.equal(last?.querySelector(".t > .step-card") !== null, true, "the end sits in the conversation's column");
+    assert.equal(textOf(last ?? container, ".t > .gut"), clock(150n), "the end's time is in the gutter");
     assert.equal(textOf(last ?? container, ".step-agent"), "builder");
     assert.equal(textOf(last ?? container, ".step-end"), "end done");
     assert.deepEqual(

@@ -9,7 +9,7 @@ import { StepCard, type StepEvent } from "./eventring";
 import type { EpicsGetResponse, EpicStep } from "./gen/orrery/v1/epics_pb";
 import type { Phase } from "./phases";
 import { recordTasksOf } from "./record";
-import { Reader } from "./reader";
+import { clock, Reader } from "./reader";
 import { ContextBand } from "./taskband";
 import { type Crumb, type InboxMark, TitleRow } from "./titlerow";
 
@@ -82,7 +82,12 @@ export function WorkerSessionPage({
           stepCalls={{ hold, stop }}
         />
       ) : (
-        <StepCard event={stepEndOf(step, detail)} />
+        <div class="reader step-end-row">
+          <div class="t">
+            <span class="gut">{clock(step.ended)}</span>
+            <StepCard event={stepEndOf(step, detail)} />
+          </div>
+        </div>
       )}
     </div>
   );

@@ -931,6 +931,7 @@ test("FixtureTransport: page/worker-ended draws the ended step's end as the last
       assert.equal(root.querySelector(".worker-session .step-card .step-end")?.textContent, "end done");
       assert.equal(root.querySelectorAll(".worker-session .live-row").length, 0, "the ended conversation draws no live row");
       assert.equal(root.querySelectorAll(".worker-session .caret").length, 0, "the ended conversation draws no live caret");
+      assert.equal(root.querySelectorAll(".worker-session .running-mark").length, 0, "the ended conversation runs no call");
     },
   );
 });
