@@ -37,6 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import io.github.joshsymonds.orrery.api.OrreryClient
+import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.push.PushNotifier
 import io.github.joshsymonds.orrery.push.PushSetup
 import io.github.joshsymonds.orrery.ui.ContractScreen
@@ -56,6 +57,7 @@ import io.github.joshsymonds.orrery.ui.SessionScreen
 import io.github.joshsymonds.orrery.ui.SettingsScreen
 import io.github.joshsymonds.orrery.ui.StepMode
 import io.github.joshsymonds.orrery.ui.WelcomeScreen
+import io.github.joshsymonds.orrery.ui.conversationLive
 import io.github.joshsymonds.orrery.ui.theme.Move
 import io.github.joshsymonds.orrery.ui.theme.OrreryTheme
 import io.github.joshsymonds.orrery.ui.theme.animationsOn
@@ -119,16 +121,18 @@ class MainActivity : ComponentActivity() {
                                 when (current) {
                                     Screen.Panes -> PaneListScreen(
                                         client = client,
-                                        onOpenPane = {
-                                            screen = if (it.headless) {
-                                                Screen.Session(it.id, reason = it.summary)
-                                            } else {
-                                                Screen.Pane(it.id)
-                                            }
-                                        },
+                                        onOpenPane = { screen = paneScreen(it) },
                                         onOpenPaneId = { screen = Screen.Pane(it) },
                                         onStartedSession = { screen = Screen.Session(it) },
                                         onOpenEpic = { screen = Screen.Epic(it) },
+                                        onOpenContract = { id, conversation ->
+                                            screen = Screen.Contract(
+                                                id,
+                                                back = Screen.Panes,
+                                                live = conversationLive(conversation),
+                                                talk = conversation?.let(::paneScreen) ?: Screen.Panes,
+                                            )
+                                        },
                                         onOpenSettings = { screen = Screen.Settings },
                                         onOpenPools = { screen = Screen.Pools },
                                         state = paneListState,
@@ -200,13 +204,13 @@ class MainActivity : ComponentActivity() {
                                             live = current.live,
                                             onAbout = if (current.live) {
                                                 { about: RowAbout ->
-                                                    conversationAbout = ConversationAbout(current.back, about)
-                                                    screen = current.back
+                                                    conversationAbout = ConversationAbout(current.talk, about)
+                                                    screen = current.talk
                                                 }
                                             } else {
                                                 null
                                             },
-                                            onTalk = if (current.live) { { screen = current.back } } else null,
+                                            onTalk = if (current.live) { { screen = current.talk } } else null,
                                         )
                                     }
                                     is Screen.Step -> {
@@ -354,6 +358,10 @@ class MainActivity : ComponentActivity() {
         return if (pane == null) Screen.Session(id) else Screen.Pane(pane.id)
     }
 
+    /** The screen a conversation's pane opens: its session screen when headless, else its pane screen. */
+    private fun paneScreen(pane: Pane): Screen =
+        if (pane.headless) Screen.Session(pane.id, reason = pane.summary) else Screen.Pane(pane.id)
+
     /** The About set on [conversation], the screen a contract's row returned to, or null. */
     private fun aboutOf(conversation: Screen): RowAbout? = conversationAbout?.takeIf { it.screen == conversation }?.about
 
@@ -394,11 +402,18 @@ class MainActivity : ComponentActivity() {
         data class Epic(val id: String, val open: EpicOpening? = null) : Screen
 
         /**
-         * A contract, reached from its epic's summary, a notice's contract block, or a conversation's tile, band line or
-         * transcript line: back returns to [back], which is the epic unless a conversation opened it. [live] is whether
-         * the contract's row controls and its actions are on, which a conversation sets while it is not stopped or failed.
+         * A contract, reached from its epic's summary, a notice's contract block, a conversation's tile, band line or
+         * transcript line, or a contract row in the inbox tree: back returns to [back], which is the epic unless a
+         * conversation or the inbox opened it. [live] is whether the contract's row controls and its actions are on, which
+         * a conversation sets while it is not stopped or failed. [talk] is the conversation screen that a row's control or
+         * Talk about it opens with its About set, which is [back] when a conversation opened it.
          */
-        data class Contract(val epicId: String, val back: Screen = Epic(epicId), val live: Boolean = false) : Screen
+        data class Contract(
+            val epicId: String,
+            val back: Screen = Epic(epicId),
+            val live: Boolean = false,
+            val talk: Screen = back,
+        ) : Screen
 
         /** A task's phase output, reached from its epic: back returns to the epic, and [phase] is open. */
         data class Phase(val epicId: String, val task: String, val phase: TaskPhase) : Screen

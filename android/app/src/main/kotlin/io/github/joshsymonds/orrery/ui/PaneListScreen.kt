@@ -100,8 +100,9 @@ internal class TreeData(
  * The inbox: the head with the Orrery mark, Search, New, Pools and Settings; then, while search is open, its field; then
  * the two chips and each project as a card, its conversations hanging under it with what steers them, and its ended
  * line. The chips narrow the tree, search narrows what the chips left, and a folded card says what waits in it. The foot
- * opens the archived tree and returns from it. A tap on a conversation calls [onOpenPane] with its pane, and a tap on an
- * epic or one of its steps calls [onOpenEpic]. A long press on a conversation or an epic opens its sheet, where the
+ * opens the archived tree and returns from it. A tap on a conversation calls [onOpenPane] with its pane, a tap on an
+ * epic or one of its steps calls [onOpenEpic], and a tap on a contract's row calls [onOpenContract] with its id and the
+ * conversation it hangs under, whose pane is null for a stand-in row. A long press on a conversation or an epic opens its sheet, where the
  * owner marks it seen or archives it, and a landed change reads the tree again. New opens
  * the picker as a bottom sheet; a run it answers opens that pane through [onOpenPaneId], and a start it answers opens
  * that session through [onStartedSession]. The Pools button opens the pools view through [onOpenPools].
@@ -120,6 +121,7 @@ fun PaneListScreen(
     onOpenPools: () -> Unit = {},
     modifier: Modifier = Modifier,
     onOpenEpic: (String) -> Unit = {},
+    onOpenContract: (id: String, conversation: Pane?) -> Unit = { _, _ -> },
     now: () -> Long = { System.currentTimeMillis() / 1000 },
     state: PaneListState = rememberPaneListState(),
 ) {
@@ -229,6 +231,7 @@ fun PaneListScreen(
                 now = now(),
                 onOpenPane = onOpenPane,
                 onOpenEpic = onOpenEpic,
+                onOpenContract = onOpenContract,
                 onNew = { picking = true },
                 onLongPress = { sheet = it },
             )
@@ -281,6 +284,7 @@ private fun InboxBody(
     now: Long,
     onOpenPane: (Pane) -> Unit,
     onOpenEpic: (String) -> Unit,
+    onOpenContract: (id: String, conversation: Pane?) -> Unit,
     onNew: () -> Unit,
     onLongPress: (SheetRow) -> Unit,
 ) {
@@ -305,10 +309,18 @@ private fun InboxBody(
     val epicOfStep = remember(data) {
         data.epics.flatMap { epic -> epic.runningSteps.map { step -> step.id to epic.id } }.toMap()
     }
+    // Each contract row's key, with the conversation it hangs under: null for a stand-in row, which no conversation holds.
+    val conversationOfContract = remember(projects) {
+        projects.flatMap { it.convos + it.ended }.flatMap { convo ->
+            convo.hung.filterIsInstance<ContractNode>().map { it.key to convo.pane }
+        }.toMap()
+    }
     val onOpen: (String) -> Unit = { key ->
         when {
             key.startsWith(EPIC_KEY_PREFIX) -> onOpenEpic(key.removePrefix(EPIC_KEY_PREFIX))
             key.startsWith(STEP_KEY_PREFIX) -> epicOfStep[key.removePrefix(STEP_KEY_PREFIX)]?.let(onOpenEpic)
+            key.startsWith(CONTRACT_KEY_PREFIX) ->
+                onOpenContract(key.removePrefix(CONTRACT_KEY_PREFIX), conversationOfContract[key])
             else -> paneOf[key]?.let(onOpenPane)
         }
     }
@@ -375,6 +387,7 @@ private fun ViewFoot(view: TreeView, onView: (TreeView) -> Unit) {
 
 private const val EPIC_KEY_PREFIX = "epic:"
 private const val STEP_KEY_PREFIX = "step:"
+private const val CONTRACT_KEY_PREFIX = "contract:"
 
 /** The empty inbox: nothing is running, and New starts a session. */
 @Composable
