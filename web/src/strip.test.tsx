@@ -82,6 +82,7 @@ function emit(stream: Stream, message: object): void {
 // row is a pane row that has been seen, so no dwell timer runs on the cursor's row.
 function row(init: Partial<Row> & Pick<Row, "key">): Row {
   return {
+    tool: "",
     id: init.key,
     kind: "pane",
     label: init.key,
@@ -125,7 +126,6 @@ async function withStrip(
       render(
         <App
           rows={props.rows ?? [row({ key: "a", label: "api" })]}
-          error=""
           now={now}
           clients={clients}
           host={props.host}
@@ -292,10 +292,10 @@ test("PaneStrip: m hides every strip, and a second m shows them again", (t) =>
     assert.equal(container.querySelectorAll(".pane-strip").length, 2);
   }));
 
-test("PaneStrip: no inbox footer remains, and the Keys control sits in the inbox head", (t) =>
+test("PaneStrip: no inbox footer remains, and the Keys control sits in the inbox foot", (t) =>
   withStrip(t.signal, { host: denHost }, (container) => {
     assert.equal(container.querySelector(".lfoot") === null, true);
-    assert.equal(container.querySelector(".list > header.top .keys-hint")?.getAttribute("aria-label"), "Keys");
+    assert.equal(container.querySelector('.inbox-foot button[aria-label="Keys"]')?.getAttribute("aria-label"), "Keys");
   }));
 
 test("HeadTitle: each stat draws its name, then its bar only with a percent, then its value, in series (index mod 5) + 1 at its level; warn and crit take that level's class alone", async () => {

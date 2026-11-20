@@ -4,7 +4,6 @@ import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicQuestionRow
 import io.github.joshsymonds.orrery.api.EpicReleaseProofRow
 import io.github.joshsymonds.orrery.api.EpicRow
-import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.api.StepRow
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -21,26 +20,6 @@ private val alpha = EpicRow(
     runningSteps = emptyList(),
     endedSteps = 0,
     problem = "",
-)
-
-private val askAboutDatabase =
-    """{"tool":"AskUserQuestion","questions":[{"question":"Which database?","options":[{"label":"Postgres","description":""}]}]}"""
-
-private fun pane(label: String, question: String = "", summary: String = "") = Pane(
-    id = "%3",
-    host = "box",
-    session = "example-session",
-    window = 1,
-    pane = 2,
-    cwd = "/work/api",
-    command = "claude",
-    state = "waiting",
-    summary = summary,
-    label = label,
-    changed = 0L,
-    seen = 0L,
-    question = question,
-    questionHash = "",
 )
 
 private fun detail(
@@ -106,28 +85,9 @@ private fun limitedStep(task: String, kind: String) = StepRow(
 
 class NeedsModelTest {
     @Test
-    fun aWaitingPaneWithAQuestionAsksItsTitleAndSaysItsSummaryAsTheWhy() {
-        val need = paneNeedOf(pane(label = "api", question = askAboutDatabase, summary = "schema change"))
-        assertEquals(Need(NeedKind.ROW, "api asks: Which database?", "schema change", "", ""), need)
-    }
-
-    @Test
-    fun aWaitingPaneWithAToolQuestionAsksTheToolAndItsDetail() {
-        val question = """{"tool":"Bash","input":{"command":"echo synthetic"}}"""
-        val need = paneNeedOf(pane(label = "api", question = question))
-        assertEquals("api asks: Bash: echo synthetic", need.text)
-    }
-
-    @Test
-    fun aWaitingPaneWithNoQuestionWaitsOnYouAndItsSummaryIsTheWhy() {
-        val need = paneNeedOf(pane(label = "web", summary = "build finished"))
-        assertEquals(Need(NeedKind.ROW, "web waits on you", "build finished", "", ""), need)
-    }
-
-    @Test
     fun anOpenQuestionReadsItsSlugAskingAndCarriesTheEpicAndQuestionIds() {
         val needs = needsOf(detail(questions = listOf(question("Q1", "Use Postgres?"))))
-        assertEquals(listOf(Need(NeedKind.QUESTION, "alpha asks: Use Postgres?", "", EPIC_ID, "Q1")), needs)
+        assertEquals(listOf(Need(NeedKind.QUESTION, "alpha asks: Use Postgres?", EPIC_ID, "Q1")), needs)
     }
 
     @Test
@@ -137,8 +97,8 @@ class NeedsModelTest {
         )
         assertEquals(
             listOf(
-                Need(NeedKind.QUESTION, "alpha asks: Use Postgres?", "", EPIC_ID, "Q1"),
-                Need(NeedKind.QUESTION, "alpha asks: Ship on Friday?", "", EPIC_ID, "Q2"),
+                Need(NeedKind.QUESTION, "alpha asks: Use Postgres?", EPIC_ID, "Q1"),
+                Need(NeedKind.QUESTION, "alpha asks: Ship on Friday?", EPIC_ID, "Q2"),
             ),
             needs,
         )
@@ -157,7 +117,7 @@ class NeedsModelTest {
             ),
         )
         assertEquals(
-            listOf(Need(NeedKind.RELEASE, "alpha: release step 2 (publish) failed: registry 503", "", EPIC_ID, "")),
+            listOf(Need(NeedKind.RELEASE, "alpha: release step 2 (publish) failed: registry 503", EPIC_ID, "")),
             needs,
         )
     }
@@ -192,19 +152,19 @@ class NeedsModelTest {
     @Test
     fun aParkedEpicReadsItsParkAsAParkNeed() {
         val needs = needsOf(detail(parked = "budget"))
-        assertEquals(listOf(Need(NeedKind.PARK, "alpha is parked: budget", "", EPIC_ID, "")), needs)
+        assertEquals(listOf(Need(NeedKind.PARK, "alpha is parked: budget", EPIC_ID, "")), needs)
     }
 
     @Test
     fun aHeldStepGivesItsSlugAndTaskHeldAsAnOtherNeed() {
         val needs = needsOf(detail(steps = listOf(heldStep("web-line"))))
-        assertEquals(listOf(Need(NeedKind.OTHER, "alpha: web-line held", "", EPIC_ID, "")), needs)
+        assertEquals(listOf(Need(NeedKind.OTHER, "alpha: web-line held", EPIC_ID, "")), needs)
     }
 
     @Test
     fun aLimitedStepReadsItsOwnTextAsAnOtherNeed() {
         val needs = needsOf(detail(steps = listOf(limitedStep("build", "usage"))))
-        assertEquals(listOf(Need(NeedKind.OTHER, "alpha: build waits on a usage limit", "", EPIC_ID, "")), needs)
+        assertEquals(listOf(Need(NeedKind.OTHER, "alpha: build waits on a usage limit", EPIC_ID, "")), needs)
     }
 
     @Test
@@ -217,8 +177,8 @@ class NeedsModelTest {
         )
         assertEquals(
             listOf(
-                Need(NeedKind.QUESTION, "alpha asks: Use Postgres?", "", EPIC_ID, "Q1"),
-                Need(NeedKind.OTHER, "alpha: web-line held", "", EPIC_ID, ""),
+                Need(NeedKind.QUESTION, "alpha asks: Use Postgres?", EPIC_ID, "Q1"),
+                Need(NeedKind.OTHER, "alpha: web-line held", EPIC_ID, ""),
             ),
             needs,
         )

@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { create } from "@bufbuild/protobuf";
+
 import { createClients, createTransport } from "./client";
+import { ContractSchema } from "./gen/orrery/v1/contracts_pb";
 import { changedOnly, type HeldEpic, loadEpics, type Refetch } from "./loadepics";
 
 const listPath = "/orrery.v1.Epics/List";
 const getPath = "/orrery.v1.Epics/Get";
+const contractsListPath = "/orrery.v1.Contracts/List";
 
 // Synthetic fixtures: three epics in two repositories, no real records.
 const liveAlpha = { id: "repo-a/alpha", repository: "repo-a", slug: "alpha", outcome: "", changed: "100", live: true };
@@ -15,6 +19,11 @@ const liveGamma = { id: "repo-a/gamma", repository: "repo-a", slug: "gamma", out
 // alpha while its one running step runs, and the same alpha after the step's task changes. changed stays the same.
 const steppedAlpha = { ...liveAlpha, runningSteps: [{ id: "step-1", task: "draft", agent: "agent-a" }], endedSteps: 0 };
 const retaskedAlpha = { ...steppedAlpha, runningSteps: [{ id: "step-1", task: "review", agent: "agent-a" }] };
+
+// Synthetic contracts, listed in an order that is not sorted by id.
+const contractBeta = { id: "repo-b/beta-contract", repository: "repo-b", title: "Beta contract", created: "20", changed: "20" };
+const contractAlpha = { id: "repo-a/alpha-contract", repository: "repo-a", title: "Alpha contract", created: "10", changed: "10" };
+const heldContract = create(ContractSchema, { id: "repo-a/held-contract", repository: "repo-a", title: "Held contract" });
 
 const listed = [liveAlpha, foldedBeta, liveGamma];
 
@@ -43,15 +52,22 @@ function respond(answer: Answer): Response {
   });
 }
 
-// fakeEpics answers Epics.List with list and each Epics.Get with the answer for its id. It records every call with
-// its JSON body, so a test sees each path and id that was asked for. A path or id it was not given is answered 404.
-function fakeEpics(list: Answer, gets: Partial<Record<string, Answer>>, calls: Call[]): typeof globalThis.fetch {
+// fakeEpics answers Epics.List with list, each Epics.Get with the answer for its id, and Contracts.List with contracts.
+// It records every call with its JSON body, so a test sees each path and id that was asked for. A path or id it was not
+// given is answered 404, so a Contracts.List the test does not name fails.
+function fakeEpics(
+  list: Answer,
+  gets: Partial<Record<string, Answer>>,
+  calls: Call[],
+  contracts: Answer = notFound,
+): typeof globalThis.fetch {
   return async (input, init) => {
     const request = new Request(input, init);
     const path = new URL(request.url).pathname;
     const body = (await request.json()) as { id?: string };
     calls.push({ path, body });
     if (path === listPath) return respond(list);
+    if (path === contractsListPath) return respond(contracts);
     if (path === getPath && body.id !== undefined) return respond(gets[body.id] ?? notFound);
     return respond(notFound);
   };
@@ -68,6 +84,12 @@ function idsOf(calls: Call[], path: string): string[] {
     .sort();
 }
 
+// epicsPaths lists the paths of the calls a load makes to the epics service, in order. The Contracts.List call a load
+// makes alongside Epics.List is left out.
+function epicsPaths(calls: Call[]): string[] {
+  return calls.map((call) => call.path).filter((path) => path !== contractsListPath);
+}
+
 test("two live epics and one folded: each live epic is asked for by id, the folded one is not, and both details come back", async () => {
   const calls: Call[] = [];
   const clients = clientsFor(
@@ -76,11 +98,8 @@ test("two live epics and one folded: each live epic is asked for by id, the fold
 
   const result = await loadEpics(clients, new Map(), changedOnly);
 
-  assert.equal(calls[0]?.path, listPath, "Epics.List is called before any Get");
-  assert.deepEqual(
-    calls.map((call) => call.path),
-    [listPath, getPath, getPath],
-  );
+  assert.equal(epicsPaths(calls)[0], listPath, "Epics.List is called before any Get");
+  assert.deepEqual(epicsPaths(calls), [listPath, getPath, getPath]);
   assert.deepEqual(idsOf(calls, getPath), [liveAlpha.id, liveGamma.id].sort());
   assert.equal(result.error, "");
   assert.deepEqual(
@@ -104,10 +123,7 @@ test("one Get fails: the other epic's detail is kept, the failed epic is left ou
 
   const result = await loadEpics(clients, new Map(), changedOnly);
 
-  assert.deepEqual(
-    calls.map((call) => call.path),
-    [listPath, getPath, getPath],
-  );
+  assert.deepEqual(epicsPaths(calls), [listPath, getPath, getPath]);
   assert.equal(result.error, "");
   assert.deepEqual(
     result.epics.map((epic) => epic.id),
@@ -123,10 +139,7 @@ test("Epics.List fails: no epics, no details, the fixed error without server tex
 
   const result = await loadEpics(clients, new Map(), changedOnly);
 
-  assert.deepEqual(
-    calls.map((call) => call.path),
-    [listPath],
-  );
+  assert.deepEqual(epicsPaths(calls), [listPath]);
   assert.deepEqual(result.epics, []);
   assert.equal(result.details.size, 0);
   assert.equal(result.error, "epics unavailable");
@@ -139,10 +152,7 @@ test("an empty List: no epics, no details, no error, and no Get is asked", async
 
   const result = await loadEpics(clients, new Map(), changedOnly);
 
-  assert.deepEqual(
-    calls.map((call) => call.path),
-    [listPath],
-  );
+  assert.deepEqual(epicsPaths(calls), [listPath]);
   assert.deepEqual(result.epics, []);
   assert.equal(result.details.size, 0);
   assert.equal(result.error, "");
@@ -158,6 +168,7 @@ test("the live Gets are in flight at once: the first Get waits until the second 
     const path = new URL(request.url).pathname;
     const body = (await request.json()) as { id?: string };
     if (path === listPath) return respond(ok({ epics: [liveAlpha, liveGamma] }));
+    if (path === contractsListPath) return respond(ok({ contracts: [] }));
     if (path === getPath && body.id === liveAlpha.id) {
       await secondStarted;
       return respond(ok(detailOf(liveAlpha)));
@@ -173,6 +184,93 @@ test("the live Gets are in flight at once: the first Get waits until the second 
 
   assert.equal(result.error, "");
   assert.deepEqual([...result.details.keys()].sort(), [liveAlpha.id, liveGamma.id].sort());
+});
+
+test("Epics.List and Contracts.List are in flight at once: the List waits until the other has started", { timeout: 2000 }, async () => {
+  let contractsStarted: () => void = () => {};
+  const started = new Promise<void>((resolve) => {
+    contractsStarted = resolve;
+  });
+  const fakeFetch: typeof globalThis.fetch = async (input, init) => {
+    const request = new Request(input, init);
+    const path = new URL(request.url).pathname;
+    if (path === listPath) {
+      await started;
+      return respond(ok({ epics: [] }));
+    }
+    if (path === contractsListPath) {
+      contractsStarted();
+      return respond(ok({ contracts: [contractAlpha] }));
+    }
+    return respond(notFound);
+  };
+
+  const result = await loadEpics(clientsFor(fakeFetch), new Map(), changedOnly);
+
+  assert.deepEqual(
+    result.contracts.map((contract) => contract.id),
+    [contractAlpha.id],
+  );
+});
+
+test("a load returns Contracts.List's contracts in list order, with no error", async () => {
+  const calls: Call[] = [];
+  const clients = clientsFor(
+    fakeEpics({ status: 200, body: { epics: [] } }, {}, calls, ok({ contracts: [contractBeta, contractAlpha] })),
+  );
+
+  const result = await loadEpics(clients, new Map(), changedOnly);
+
+  assert.equal(calls.filter((call) => call.path === contractsListPath).length, 1, "Contracts.List was not asked once");
+  assert.deepEqual(
+    result.contracts.map((contract) => contract.id),
+    [contractBeta.id, contractAlpha.id],
+  );
+  assert.equal(result.error, "");
+});
+
+test("a failed Contracts.List returns the held contracts, adds no error, and still returns the epics", async () => {
+  const clients = clientsFor(
+    fakeEpics({ status: 200, body: { epics: listed } }, {}, [], serverError),
+  );
+
+  const result = await loadEpics(clients, new Map(), changedOnly, [heldContract]);
+
+  assert.deepEqual(
+    result.contracts.map((contract) => contract.id),
+    [heldContract.id],
+  );
+  assert.equal(result.error, "");
+  assert.ok(!result.error.includes("server detail"), `error carried server text: ${result.error}`);
+  assert.deepEqual(
+    result.epics.map((epic) => epic.id),
+    listed.map((epic) => epic.id),
+  );
+});
+
+test("a failed Epics.List still returns Contracts.List's contracts, with the epics message", async () => {
+  const clients = clientsFor(fakeEpics(serverError, {}, [], ok({ contracts: [contractAlpha] })));
+
+  const result = await loadEpics(clients, new Map(), changedOnly, [heldContract]);
+
+  assert.deepEqual(
+    result.contracts.map((contract) => contract.id),
+    [contractAlpha.id],
+  );
+  assert.equal(result.error, "epics unavailable");
+  assert.deepEqual(result.epics, []);
+});
+
+test("a failed Epics.List and a failed Contracts.List return the held contracts with the epics message", async () => {
+  const clients = clientsFor(fakeEpics(serverError, {}, [], serverError));
+
+  const result = await loadEpics(clients, new Map(), changedOnly, [heldContract]);
+
+  assert.deepEqual(
+    result.contracts.map((contract) => contract.id),
+    [heldContract.id],
+  );
+  assert.equal(result.error, "epics unavailable");
 });
 
 // loadAgainst runs loadEpics against a fake server that lists epics and answers the Gets, recording its calls.
@@ -193,11 +291,7 @@ test("ChangedEpicsOnly: an identical listed epic makes no Get on an event reload
 
   const second = await loadAgainst(listed, {}, first.held, changedOnly, calls);
 
-  assert.deepEqual(
-    calls.map((call) => call.path),
-    [listPath],
-    "an unchanged epic was asked for",
-  );
+  assert.deepEqual(epicsPaths(calls), [listPath], "an unchanged epic was asked for");
   assert.equal(second.details.get(liveAlpha.id), first.details.get(liveAlpha.id), "the held alpha detail was not kept");
   assert.equal(second.details.get(liveGamma.id), first.details.get(liveGamma.id), "the held gamma detail was not kept");
 });

@@ -4,6 +4,7 @@ import { render } from "preact";
 import { App } from "./app";
 import { createClients, createTransport } from "./client";
 import { type EpicsView, epicsView, noEpics } from "./epics";
+import type { Contract } from "./gen/orrery/v1/contracts_pb";
 import type { InAppNotice } from "./gen/orrery/v1/notice_pb";
 import type { HostStatusResponse, WatchResponse } from "./gen/orrery/v1/orrery_pb";
 import { localHeadStore } from "./headfold";
@@ -16,7 +17,7 @@ import { type Viewing, watchPresence } from "./presence";
 import { type Affects, affectsOf, stepSessions } from "./refresh";
 import { type Address, type Entry, formatAddress, parseAddress } from "./router";
 import type { Row } from "./rows";
-import type { SeenClock, SeenWindow } from "./seen";
+import { realClock, type SeenWindow } from "./seen";
 
 const defaultIntervalMs = 5000;
 
@@ -29,13 +30,6 @@ const eventReloadMs = 100;
 // The element index.html provides for the page to mount into.
 const pageRootId = "app";
 
-// The clock the presence watch reads and times its reports with.
-const realClock: SeenClock = {
-  now: () => Date.now(),
-  setTimeout: (fn, ms) => setTimeout(fn, ms),
-  clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
-};
-
 // What an event that has waited for its reload asks for before any event has come.
 const noAffects: Affects = { rows: false, epics: false };
 
@@ -44,6 +38,7 @@ interface Loaded {
   error: string;
   epics: EpicsView;
   epicsError: string;
+  contracts: Contract[];
 }
 
 // PageBuild is the build the page was bundled with and how it reloads itself.
@@ -135,7 +130,7 @@ function pageStorage(): Storage | null {
 // the view App shows, and a failed report is dropped. The returned function stops reloading, aborts the stream, stops
 // the presence watch, aborts the notices watch and unmounts App. The page also watches the in-app notices its banner
 // shows until each ends; a notices stream that fails reopens after retryMs. The page's address is bound to the URL
-// hash: a loaded hash is given to App once the list its entry is in has answered, and falls back to its order when that
+// hash: a loaded hash is given to App once the list its entry is in has answered, and falls back to its view when that
 // list lacks the entry. App's reports are written to the history, and a popstate applies the address Back or Forward
 // lands on.
 //
@@ -150,7 +145,7 @@ export function start(
   win: SeenWindow = window,
   page: PageBuild = bundledPage,
 ): () => void {
-  let loaded: Loaded = { rows: [], error: "", epics: noEpics, epicsError: "" };
+  let loaded: Loaded = { rows: [], error: "", epics: noEpics, epicsError: "", contracts: [] };
   let notices: InAppNotice[] = [];
   let host: HostStatusResponse | null = null;
   let now = 0;
@@ -186,12 +181,14 @@ export function start(
   const isStopped = () => stopped;
 
   const draw = () => {
-    const error = [loaded.error, loaded.epicsError].filter((text) => text !== "").join("; ");
     render(
       <App
         rows={loaded.rows}
-        error={error}
+        answered={rowsAnswered && epicsAnswered}
+        listFailed={loaded.error !== "" || loaded.epicsError !== ""}
+        onRetry={retryLists}
         epics={loaded.epics}
+        contracts={loaded.contracts}
         now={now}
         clients={clients}
         notices={notices}
@@ -211,7 +208,7 @@ export function start(
     entry.kind === "session" || entry.kind === "pane" ? rowsAnswered : epicsAnswered;
 
   // settleAddress decides the held address once the list its entry is in has answered. If that list holds the entry,
-  // the address stays as the prop and App opens it. If not, the prop becomes the address's order with no entry, and the
+  // the address stays as the prop and App opens it. If not, the prop becomes the address's view with no entry, and the
   // URL is replaced with that form.
   const settleAddress = () => {
     if (holding === null || !listAnswered(holding.entry)) {
@@ -223,7 +220,7 @@ export function start(
       address = pending;
       return;
     }
-    address = { order: pending.order, entry: null };
+    address = { view: pending.view, entry: null };
     window.history.replaceState(null, "", formatAddress(address));
   };
 
@@ -234,7 +231,7 @@ export function start(
       address = next;
       return;
     }
-    holding = { order: next.order, entry: next.entry };
+    holding = { view: next.view, entry: next.entry };
     settleAddress();
   };
 
@@ -285,13 +282,13 @@ export function start(
   const runEpics = coalesced(async () => {
     const asked = refetch ?? changedOnly;
     refetch = null;
-    const next = await loadEpics(clients, held, asked);
+    const next = await loadEpics(clients, held, asked, loaded.contracts);
     if (stopped) {
       return;
     }
     held = next.held;
     steps = stepSessions(next.epics, next.details);
-    loaded = { ...loaded, epics: epicsView(next.epics, next.details), epicsError: next.error };
+    loaded = { ...loaded, epics: epicsView(next.epics, next.details), epicsError: next.error, contracts: next.contracts };
     epicsAnswered = true;
     settleAddress();
     now = Math.floor(Date.now() / 1000);
@@ -327,6 +324,11 @@ export function start(
   // pollRows asks for a rows load that is dropped while one is in flight, as a tick's is: the load in flight is as new
   // as the tick, and the next tick polls again.
   const pollRows = () => runRows(false);
+  // retryLists runs the rows and the epics loads at once, as Try now asks.
+  const retryLists = () => {
+    reloadRows();
+    reloadEpics(changedOnly);
+  };
 
   // shownEpic is the refetch that names the epic the page shows, or names none when it shows no epic.
   const shownEpic = (): Refetch => (viewing.case === "viewingEpic" ? new Set([viewing.value]) : changedOnly);

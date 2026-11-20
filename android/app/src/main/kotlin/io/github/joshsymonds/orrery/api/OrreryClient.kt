@@ -13,6 +13,9 @@ import com.connectrpc.protocols.NetworkProtocol
 import io.github.joshsymonds.orrery.gen.orrery.v1.AnswerRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.AskRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.BackgroundTask as BackgroundTaskProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.Contract as ContractProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsClient
+import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsListRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.ControlClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationContext as ConversationContextProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationItem as ConversationItemProto
@@ -45,6 +48,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTell as EpicTellProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTrigger as EpicTriggerProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTurn as EpicTurnProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsAnswerRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsArchiveRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsContinueRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetRequest
@@ -56,6 +60,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsResumeRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsRetryRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsSeenRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsStopRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsUnarchiveRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceArtifact as EvidenceArtifactProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceArtifactRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceClient
@@ -129,8 +134,8 @@ private val CLIENT_HEADERS: Map<String, List<String>> = mapOf("X-Orrery-Client" 
 /** The choice an answer to a question names when the owner types the answer rather than picking a declared option. */
 private const val CHOICE_OTHER = "other"
 
-/** The answers to a session list (ListHeadless, Sessions.List) that mean the server has no sessions to list. */
-private val LIST_ABSENT = setOf(Code.UNAVAILABLE, Code.UNIMPLEMENTED, Code.NOT_FOUND)
+/** The answers to the list calls of sessions and contracts that mean the server has no such rows to list. */
+private val ABSENT_LIST = setOf(Code.UNAVAILABLE, Code.UNIMPLEMENTED, Code.NOT_FOUND)
 
 /** The answers to a move or a continue that mean no answer came back, so the write may or may not have landed. */
 private val STEER_NO_ANSWER = setOf(Code.UNAVAILABLE, Code.DEADLINE_EXCEEDED, Code.UNKNOWN)
@@ -159,10 +164,10 @@ data class Pane(
     val headless: Boolean = false,
     /** The pane's @orrery_id option, the id its session carries; "" when unset. A headless session's is its [id]. */
     val orreryId: String = "",
+    /** True while a headless session is archived, by its own flag; a tmux pane's flag comes from Sessions.List. */
+    val archived: Boolean = false,
     /** True while the owner has put this question off and not brought it back. */
     val putOff: Boolean = false,
-    /** True for a headless session the owner has archived; always false for a tmux pane. */
-    val archived: Boolean = false,
 )
 
 data class PaneTool(val id: String, val name: String, val input: String, val start: Long)
@@ -393,7 +398,10 @@ data class StepRow(
  * included. [waiting] is true for a live epic accepted and waiting to start. [source] is "orreryd" for an epic
  * orreryd's database holds, "record" for an epic read from records only. [phaseAt] is when the epic's phase was last set,
  * in unix seconds; 0 when unknown and for a record epic. [seen] is when the owner last saw the epic, in unix seconds, from
- * its latest seen call; 0 when the owner has not seen it.
+ * its latest seen call; 0 when the owner has not seen it. [archived] is true while the owner has archived the epic.
+ * [steering] is the id of the conversation that steers the epic, empty when none; [path] is the absolute repository path,
+ * empty for a record epic. [paused] and [pauseSource] say whether, and why, the epic is paused. [parked] is why the epic
+ * is parked, empty when it is not. [openQuestions] counts the questions still open.
  */
 data class EpicRow(
     val id: String,
@@ -409,9 +417,31 @@ data class EpicRow(
     val source: String = "",
     val phaseAt: Long = 0L,
     val seen: Long = 0L,
-    /** The id of the session that steers the epic, or "" when none does. */
-    val steering: String = "",
     val archived: Boolean = false,
+    val steering: String = "",
+    val path: String = "",
+    val paused: Boolean = false,
+    val pauseSource: String = "",
+    val parked: String = "",
+    val openQuestions: Int = 0,
+)
+
+/**
+ * One contract from Contracts.List: its current version's repository, title and care, and its state. [version] is the
+ * newest version number; [openDecisions] counts the decisions of that version with no answer; [conversation] is the
+ * conversation that proposed the contract. [created] and [changed] are unix seconds.
+ */
+data class ContractRow(
+    val id: String,
+    val repository: String,
+    val title: String,
+    val care: String,
+    val state: String,
+    val version: Long,
+    val openDecisions: Long,
+    val conversation: String,
+    val created: Long,
+    val changed: Long,
 )
 
 /**
@@ -796,6 +826,7 @@ class OrreryClient(
         val picker = PickerClient(protocol)
         val control = ControlClient(protocol)
         val sessions = SessionsClient(protocol)
+        val contracts = ContractsClient(protocol)
         val epics = EpicsClient(protocol)
         val evidence = EvidenceClient(protocol)
         val notices = NoticesClient(protocol)
@@ -836,21 +867,36 @@ class OrreryClient(
      * The headless sessions of the last 14 days, each as a pane with [Pane.headless] set. A server that answers
      * unavailable, unimplemented or not_found has none to list, so it gives an empty list.
      */
-    fun headless(): List<Pane> =
-        listedOrEmpty {
+    fun headless(): List<Pane> {
+        val sessions = absentAsEmpty {
             call(write = false) { standard.sessions.listHeadless(ListHeadlessRequest.getDefaultInstance(), CLIENT_HEADERS) }
-                .sessionsList.map { it.toHeadlessPane() }
+                .sessionsList
         }
+        return sessions.map { it.toHeadlessPane() }
+    }
 
     /**
-     * The ids of the sessions the owner has archived. A server that answers unavailable, unimplemented or not_found
-     * has no sessions to list, so it gives an empty set.
+     * The ids of the tracked sessions the owner has archived; a tmux pane is archived when its [Pane.orreryId] is in
+     * this set. A server with no session list gives an empty set.
      */
-    fun archivedSessions(): Set<String> =
-        listedOrEmpty {
-            call(write = false) { standard.sessions.list(ListRequest.getDefaultInstance(), CLIENT_HEADERS) }
-                .sessionsList.filter { it.archived }.map { it.id }
-        }.toSet()
+    fun archivedSessions(): Set<String> {
+        val sessions = absentAsEmpty {
+            call(write = false) { standard.sessions.list(ListRequest.getDefaultInstance(), CLIENT_HEADERS) }.sessionsList
+        }
+        return sessions.filter { it.archived }.map { it.id }.toSet()
+    }
+
+    /**
+     * Every contract, created ascending, with its current version. A server with no contracts to list gives an empty
+     * list.
+     */
+    fun contracts(): List<ContractRow> {
+        val contracts = absentAsEmpty {
+            call(write = false) { standard.contracts.list(ContractsListRequest.getDefaultInstance(), CLIENT_HEADERS) }
+                .contractsList
+        }
+        return contracts.map { it.toContractRow() }
+    }
 
     fun conversation(paneId: String): Conversation? {
         val request = ConversationRequest.newBuilder().setPane(paneId).setLimit(50).build()
@@ -1265,6 +1311,24 @@ class OrreryClient(
         return stepCall { call(write = true) { standard.epics.seen(request, CLIENT_HEADERS) } }
     }
 
+    /**
+     * Archives the list row of [kind] (epic, session or headless) named [id], and no other row. A refused archive answers
+     * [StepCallResult.Refused].
+     */
+    fun archive(kind: String, id: String): StepCallResult {
+        val request = EpicsArchiveRequest.newBuilder().setKind(kind).setId(id).build()
+        return stepCall { call(write = true) { standard.epics.archive(request, CLIENT_HEADERS) } }
+    }
+
+    /**
+     * Unarchives the list row of [kind] (epic, session or headless) named [id], and no other row. A refused unarchive
+     * answers [StepCallResult.Refused].
+     */
+    fun unarchive(kind: String, id: String): StepCallResult {
+        val request = EpicsUnarchiveRequest.newBuilder().setKind(kind).setId(id).build()
+        return stepCall { call(write = true) { standard.epics.unarchive(request, CLIENT_HEADERS) } }
+    }
+
     fun registerPush(endpoint: String, p256dh: String, auth: String) {
         val request = RegisterRequest.newBuilder().setEndpoint(endpoint).setP256Dh(p256dh).setAuth(auth).build()
         call(write = true) { standard.push.register(request, CLIENT_HEADERS) }
@@ -1293,8 +1357,27 @@ class OrreryClient(
             source = source,
             phaseAt = phaseAt,
             seen = seen,
-            steering = steering,
             archived = archived,
+            steering = steering,
+            path = path,
+            paused = paused,
+            pauseSource = pauseSource,
+            parked = parked,
+            openQuestions = openQuestions,
+        )
+
+    private fun ContractProto.toContractRow(): ContractRow =
+        ContractRow(
+            id = id,
+            repository = repository,
+            title = title,
+            care = care,
+            state = state,
+            version = version,
+            openDecisions = openDecisions,
+            conversation = conversation,
+            created = created,
+            changed = changed,
         )
 
     private fun EpicRequirementProto.toEpicRequirementRow(): EpicRequirementRow =
@@ -1592,9 +1675,9 @@ class OrreryClient(
             questionHash = "",
             newestReply = newestReply,
             headless = true,
+            archived = archived,
             orreryId = id,
             putOff = putOff,
-            archived = archived,
         )
 
     private fun ConversationItemProto.toConversationItem(): ConversationItem =
@@ -1762,19 +1845,19 @@ class OrreryClient(
             if (e.code in STEER_NO_ANSWER) throw e else SteerResult.Refused(e.message.orEmpty())
         }
 
-    /** The session list [read] gives, or an empty list when the server answered with one of [LIST_ABSENT]'s codes. */
-    private inline fun <T> listedOrEmpty(read: () -> List<T>): List<T> =
-        try {
-            read()
-        } catch (e: OrreryCallException) {
-            if (e.code in LIST_ABSENT) emptyList() else throw e
-        }
-
     /** The answer, or null when the server answered not_found. */
     private inline fun <T> notFoundAsNull(read: () -> T): T? =
         try {
             read()
         } catch (e: OrreryCallException) {
             if (e.code == Code.NOT_FOUND) null else throw e
+        }
+
+    /** The rows of a list call, or none when the server answered one of [ABSENT_LIST]: it has no such rows to list. */
+    private inline fun <T> absentAsEmpty(read: () -> List<T>): List<T> =
+        try {
+            read()
+        } catch (e: OrreryCallException) {
+            if (e.code in ABSENT_LIST) emptyList() else throw e
         }
 }

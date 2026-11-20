@@ -313,7 +313,7 @@ async function runScenario(t: TestContext, hidden: boolean): Promise<Scenario> {
   const root = document.createElement("div");
   const serve = fakeServe();
   const visibility = fakeVisibility();
-  window.history.replaceState(null, "", `#/attention/session/${agentId}`);
+  window.history.replaceState(null, "", `#/inbox/session/${agentId}`);
   let stop: () => void = () => {};
   const teardown = teardownOnce(t.signal, async () => {
     stop();
@@ -520,7 +520,7 @@ async function openOnAgent(
   root: HTMLElement,
   page: { build: string; reload: () => void },
 ): Promise<{ stop: () => void; box: HTMLTextAreaElement }> {
-  window.history.replaceState(null, "", `#/attention/session/${agentId}`);
+  window.history.replaceState(null, "", `#/inbox/session/${agentId}`);
   const stop = start(root, serve.clients, pollMs, 600_000, visibility.win, page);
   await until(t.signal, () => root.querySelector("textarea") !== null, "the composer", { step: () => act(turn) });
   await calm(t, serve);

@@ -23,6 +23,7 @@ const unansweredText = "The server did not answer, so the move may have gone thr
 // rowOf is a row with the given fields, and the others of a live pane's shape.
 function rowOf(init: Partial<Row>): Row {
   return {
+    tool: "",
     key: "pane:box:%3",
     id: "%3",
     archiveId: "sess-x",

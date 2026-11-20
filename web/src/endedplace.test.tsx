@@ -102,6 +102,7 @@ function holdReads(probe: Probe): (reading: EpicsGetResponse) => void {
 
 function row(init: Partial<Row> & Pick<Row, "key">): Row {
   return {
+    tool: "",
     id: init.key,
     kind: "pane",
     label: init.key,
@@ -160,12 +161,12 @@ function view(epics: Epic[]): EpicsView {
 
 // epicAddress is the address of an epic's page.
 function epicAddress(slug: string): Address {
-  return { order: "attention", entry: { kind: "epic", id: `${repository}/${slug}`, page: { kind: "epic" } } };
+  return { view: "inbox", entry: { kind: "epic", id: `${repository}/${slug}`, page: { kind: "epic" } } };
 }
 
 // sessionAddress is the address of a session's row.
 function sessionAddress(id: string): Address {
-  return { order: "attention", entry: { kind: "session", id } };
+  return { view: "inbox", entry: { kind: "session", id } };
 }
 
 // rota is the orreryd epic the bar concerns, steered by the session steering.
@@ -182,7 +183,6 @@ function draw(container: HTMLElement, clients: Clients, setup: Setup): Promise<v
     render(
       <App
         rows={setup.rows}
-        error=""
         now={now}
         clients={clients}
         epics={setup.epics}
@@ -379,7 +379,7 @@ test("EndedBar: Continue on a stopped conversation, with the epics list rerender
     assert.equal(container.querySelector(".ended-bar"), null, "the bar is unmounted once the list names another steerer");
 
     release(readingNaming(named));
-    await until(t.signal, () => container.querySelector(".b-row.epic.cur") !== null, "the cursor reaches the epic's entry", {
+    await until(t.signal, () => container.querySelector(".row.epic.cur") !== null, "the cursor reaches the epic's entry", {
       step: () => act(turn),
     });
 

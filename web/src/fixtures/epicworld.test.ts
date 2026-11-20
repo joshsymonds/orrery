@@ -9,6 +9,7 @@ import { Code } from "@connectrpc/connect";
 import type { Epic, EpicRequirement, EpicsGetResponse } from "../gen/orrery/v1/epics_pb";
 import { type Place, type Tone, provenOf, wedgesOf } from "../phases";
 import { allLimited, askingOf, nowSentenceOf, ownerParked, plannerParked } from "../recordwords";
+import { rowsFrom } from "../rows";
 import { blockerOf, stateOf } from "../status";
 import { at, liveEpoch } from "./clock";
 import { type EpicScenario, epicScenarios, type Slices, shippedSlices } from "./slices";
@@ -52,7 +53,7 @@ function assertTask(title: string, task: string, requirements: string[], place: 
   assert.deepEqual([wedge.task, wedge.requirements, wedge.place, wedge.tone], [task, requirements, place, tone], title);
 }
 
-test("FixtureWorld: the epic list holds the ten epics of round 6, by slug, in list order", () => {
+test("FixtureWorld: the epic list holds the ten epics of round 6, then the two archived ones, by slug, in list order", () => {
   assert.deepEqual(shippedSlices.epics.epics.map((epic) => epic.slug), [
     "orrery-followups",
     "rota-export",
@@ -64,12 +65,69 @@ test("FixtureWorld: the epic list holds the ten epics of round 6, by slug, in li
     "buoy-feeds",
     "holder-scopes",
     "tide-cache",
+    "moon-rounding",
+    "tide-warmup",
   ]);
+});
+
+test("InboxTree: the list holds notices-usable parked and harbour-map paused by its owner, as their Epics.Get answers do", () => {
+  const notices = epicOf("notices-usable");
+  assert.equal(notices.parked, "R5 is already met at the epic’s base", "the list row names the park");
+  assert.equal(notices.parked, detailOf("notices-usable").parked, "the list row names the park its Epics.Get answer names");
+  const harbour = epicOf("harbour-map");
+  assert.deepEqual([harbour.paused, harbour.pauseSource], [true, "owner"], "the list row says the owner paused it");
+  assert.deepEqual([detailOf("harbour-map").paused], [harbour.paused], "its Epics.Get answer says it is paused");
+});
+
+test("InboxTree: moon-rounding and tide-warmup are ended and archived in the list and in their Epics.Get answers", () => {
+  for (const slug of ["moon-rounding", "tide-warmup"]) {
+    const listed = epicOf(slug);
+    assert.deepEqual([listed.live, listed.archived], [false, true], `${slug} is ended and archived in the list`);
+    assert.deepEqual([detailOf(slug).epic?.live, detailOf(slug).epic?.archived], [false, true], `${slug}'s Epics.Get answer agrees`);
+  }
 });
 
 test("FixtureWorld: every epic in the list has an Epics.Get answer that names the same epic, so its address draws", () => {
   for (const epic of shippedSlices.epics.epics) {
     assert.equal(shippedSlices.gets.get(epic.id)?.epic?.slug, epic.slug, `${epic.id} has its Epics.Get answer`);
+  }
+});
+
+// steeringOf is the id of the conversation that steers each epic: round 6's (web/visual/wireframe/round6/js/world.js,
+// W.steerers) for the ten listed epics of round 6, the headless session for the buoy-feeds epic, and each pane's orrery id
+// for the rest; then the archived almanac conversation for moon-rounding and the stopped warm-up for tide-warmup.
+const steeringOf: Record<string, string> = {
+  "orrery-followups": "sess-follow-22",
+  "rota-export": "sess-rota-14",
+  "tide-alerts": "sess-tide-16",
+  "offline-tables": "sess-offline-17",
+  "orbit-labels": "sess-follow-22",
+  "notices-usable": "sess-follow-22",
+  "harbour-map": "sess-follow-22",
+  "buoy-feeds": "6c2f9e14-3a7b-4d58-9b0e-2f7a1c8d4e55",
+  "holder-scopes": "sess-holder-19",
+  "tide-cache": "sess-cache-20",
+  "moon-rounding": "e7c4b2a1-5d9f-4e3a-9b61-2a8f0c4d7e13",
+  "tide-warmup": "9b5e1a47-2c0d-4e8f-8a31-6d7c0f5b2e90",
+};
+
+test("FixtureWorld: each listed epic names the steering id of its conversation, and that id is a listed row's id", () => {
+  const listed = new Set(
+    rowsFrom(shippedSlices.panes.panes, shippedSlices.sessions.sessions, shippedSlices.headless.sessions).map((row) => row.archiveId),
+  );
+  for (const epic of shippedSlices.epics.epics) {
+    const wanted = steeringOf[epic.slug];
+    assert.equal(epic.steering, wanted, `${epic.slug} is steered by its conversation`);
+    assert.equal(shippedSlices.gets.get(epic.id)?.epic?.steering, wanted, `${epic.slug}'s Epics.Get names the same conversation`);
+    assert.ok(listed.has(wanted), `${wanted} is the id of a listed conversation`);
+  }
+});
+
+test("FixtureWorld: each epic lives in its repository's directory under /home/owner/code, in the list and in its Epics.Get answer", () => {
+  for (const epic of shippedSlices.epics.epics) {
+    const wanted = `/home/owner/code/${epic.repository}`;
+    assert.equal(epic.path, wanted, `${epic.slug} is listed with its path`);
+    assert.equal(shippedSlices.gets.get(epic.id)?.epic?.path, wanted, `${epic.slug}'s Epics.Get names its path`);
   }
 });
 

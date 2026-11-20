@@ -1,8 +1,9 @@
 package io.github.joshsymonds.orrery.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,12 +16,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -29,54 +30,55 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import io.github.joshsymonds.orrery.R
+import io.github.joshsymonds.orrery.api.ContractRow
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Pane
-import io.github.joshsymonds.orrery.api.StepCallResult
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
-import io.github.joshsymonds.orrery.ui.theme.inLabelCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.io.IOException
 
-internal enum class PaneFilter(val label: String, val tag: String) {
-    ALL("All", "filter-all"),
-    NEW("New", "filter-new"),
-    WAITING("Waiting", "filter-waiting"),
-}
+/** The fixed delay the inbox waits before it reads again after a read that did not answer. */
+internal const val RETRY_DELAY_MILLIS = 5_000L
 
 /**
- * The view, the collapsed folders, and whether the ended line is open. The caller keeps one above the screens it
- * switches between, so all three survive opening a pane and coming back.
+ * The inbox's state: the chip on, the search words (null while the search is closed), the folded projects, the projects
+ * whose ended line is open, the view (the inbox or the archived tree), and the tree of the last read that answered. The caller keeps one above the screens it
+ * switches between, so all of it survives opening a conversation and coming back.
  */
 class PaneListState {
-    internal var filter by mutableStateOf(PaneFilter.ALL)
-    internal var collapsed by mutableStateOf(emptySet<String>())
-    internal var endedOpen by mutableStateOf(false)
+    internal var narrow by mutableStateOf(Narrow.NONE)
+    internal var search by mutableStateOf<String?>(null)
+    internal var folded by mutableStateOf(emptySet<String>())
+    internal var endedOpen by mutableStateOf(emptySet<String>())
+    internal var view by mutableStateOf(TreeView.INBOX)
+    internal var held: TreeData? = null
 
-    internal fun toggleFolder(key: String) {
-        collapsed = if (key in collapsed) collapsed - key else collapsed + key
+    internal fun toggleFolded(key: String) {
+        folded = if (key in folded) folded - key else folded + key
     }
 
-    internal fun toggleEnded() {
-        endedOpen = !endedOpen
+    internal fun toggleEnded(key: String) {
+        endedOpen = if (key in endedOpen) endedOpen - key else endedOpen + key
     }
 }
 
@@ -84,44 +86,29 @@ class PaneListState {
 @Composable
 internal fun rememberPaneListState(): PaneListState = remember { PaneListState() }
 
-private sealed interface PaneLoad {
-    data object Loading : PaneLoad
-    data object Failed : PaneLoad
-    data class Loaded(val panes: List<Pane>) : PaneLoad
-}
-
-/** The colour of a pane's state word; any other state keeps the default text colour. */
-private fun stateColorOf(state: String): Color = when (state) {
-    "working" -> OrreryTokens.State.working
-    "waiting" -> OrreryTokens.State.waiting
-    "done" -> OrreryTokens.State.done
-    else -> Color.Unspecified
-}
-
-private fun ageOf(seconds: Long): String = when {
-    seconds < 60 -> "${seconds}s"
-    seconds < 3_600 -> "${seconds / 60}m"
-    seconds < 86_400 -> "${seconds / 3_600}h"
-    else -> "${seconds / 86_400}d"
-}
-
-/** The indent of one folder level, in dp. */
-private val INDENT_DP = OrreryTokens.Space.sixteen
-
-/** Panes in a tmux session with this prefix are internal to orrery and are not listed. */
-private const val SHELL_SESSION_PREFIX = "_orrery-shell-"
+/** What one read of the lists, the epics and their details, the contracts and the host answered with. */
+internal class TreeData(
+    val panes: List<Pane>,
+    val archived: Set<String>,
+    val epics: List<EpicRow>,
+    val details: Map<String, EpicDetail>,
+    val contracts: List<ContractRow>,
+    val host: String,
+)
 
 /**
- * Every pane as a folder tree, or the New and Waiting panes as flat lists, with a filter. The New
- * button at the top opens the picker as a bottom sheet; a run it answers opens that pane through
- * [onOpenPaneId], and a start it answers opens that session through [onStartedSession]. The Pools
- * button opens the pools view through [onOpenPools]. Tapping a folder header collapses or expands
- * it. Tapping a row opens that pane. In the All view, the ended headless sessions sit under one
- * "n ended" line below the tree, which opens to a row per ended session.
- * Needs you is the first item, from the waiting panes and the live epics' details; its answer, retry and stop calls run
- * off the main thread, and a call that did not land shows as a notice under it. The Epics group sits above the rows and
- * opens an epic through [onOpenEpic]. Each live epic's line reads its detail, and one that has no detail reads "epic
- * unavailable". An epics load that fails shows no group and leaves the panes as they are.
+ * The inbox: the head with the Orrery mark, Search, New, Pools and Settings; then, while search is open, its field; then
+ * the two chips and each project as a card, its conversations hanging under it with what steers them, and its ended
+ * line. The chips narrow the tree, search narrows what the chips left, and a folded card says what waits in it. The foot
+ * opens the archived tree and returns from it. A tap on a conversation calls [onOpenPane] with its pane, and a tap on an
+ * epic or one of its steps calls [onOpenEpic]. A long press on a conversation or an epic opens its sheet, where the
+ * owner marks it seen or archives it, and a landed change reads the tree again. New opens
+ * the picker as a bottom sheet; a run it answers opens that pane through [onOpenPaneId], and a start it answers opens
+ * that session through [onStartedSession]. The Pools button opens the pools view through [onOpenPools].
+ *
+ * Until the first answer the inbox says it is loading. A read that fails, the panes, a headless or archived list, or an
+ * epic or its detail, shows that the server did not answer, and reads again after [RETRY_DELAY_MILLIS] or at once on
+ * Try now. A failed contracts read keeps the contracts last read, and a failed host read keeps the host last read.
  */
 @Composable
 fun PaneListScreen(
@@ -136,60 +123,26 @@ fun PaneListScreen(
     now: () -> Long = { System.currentTimeMillis() / 1000 },
     state: PaneListState = rememberPaneListState(),
 ) {
-    var load by remember { mutableStateOf<PaneLoad>(PaneLoad.Loading) }
-    var epics by remember { mutableStateOf<List<EpicRow>>(emptyList()) }
-    var details by remember { mutableStateOf<Map<String, EpicDetail>>(emptyMap()) }
-    var generation by remember { mutableIntStateOf(0) }
-    var epicsGeneration by remember { mutableIntStateOf(0) }
-    var notice by remember { mutableStateOf("") }
+    var data by remember(client) { mutableStateOf<TreeData?>(null) }
+    var failed by remember(client) { mutableStateOf(false) }
+    var generation by remember(client) { mutableIntStateOf(0) }
     var picking by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
+    var sheet by remember { mutableStateOf<SheetRow?>(null) }
 
     LaunchedEffect(client, generation) {
-        load = PaneLoad.Loading
-        load = try {
-            PaneLoad.Loaded(
-                withContext(Dispatchers.IO) {
-                    client.panes().filterNot { it.session.startsWith(SHELL_SESSION_PREFIX) } + client.headless()
-                },
-            )
-        } catch (error: IOException) {
-            PaneLoad.Failed
+        val read = readTree(client, state.held)
+        if (read == null) {
+            failed = true
+            delay(RETRY_DELAY_MILLIS)
+            generation++
+        } else {
+            data = read
+            state.held = read
+            failed = false
         }
     }
 
-    // A new client drops the epics it read, as it drops the panes. A reload keeps them on screen until the new read
-    // lands.
-    LaunchedEffect(client) {
-        epics = emptyList()
-        details = emptyMap()
-    }
-
-    LaunchedEffect(client, generation, epicsGeneration) {
-        val listed = try {
-            withContext(Dispatchers.IO) { client.epics() }
-        } catch (error: IOException) {
-            emptyList()
-        }
-        details = epicDetailsOf(client, listed)
-        epics = listed
-    }
-
-    // send runs one epic command off the main thread. What did not land shows as the notice, with the typed answer
-    // beside it. Then the epics are read again.
-    fun send(answer: String = "", call: () -> StepCallResult) {
-        scope.launch {
-            notice = withContext(Dispatchers.IO) { commandNoticeOf(call, answer) }
-            epicsGeneration++
-        }
-    }
-
-    val onAnswer: (String, String, String) -> String = { epic, questionId, text ->
-        send(answer = text) { client.answerEpic(epic, questionId, text) }
-        ""
-    }
-    val onRetry: (String) -> Unit = { epic -> send { client.retryEpic(epic) } }
-    val onStop: (String) -> Unit = { epic -> send { client.stopEpic(epic) } }
+    BackHandler(enabled = state.search != null) { state.search = null }
 
     Column(modifier = modifier.fillMaxSize()) {
         Row(
@@ -203,9 +156,15 @@ fun PaneListScreen(
             ) {
                 TitleMark(modifier = Modifier.fillMaxHeight())
                 Spacer(modifier = Modifier.width(OrreryTokens.Space.eight))
-                Text("Panes", style = OrreryTokens.Type.title)
+                Text("orrery", style = OrreryTokens.Type.title)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(
+                    onClick = { state.search = state.search ?: "" },
+                    modifier = Modifier.testTag("open-search"),
+                ) {
+                    Text("Search")
+                }
                 TextButton(
                     onClick = { picking = true },
                     modifier = Modifier.testTag("picker-new"),
@@ -223,6 +182,14 @@ fun PaneListScreen(
                 }
             }
         }
+        state.search?.let { words ->
+            SearchField(
+                words = words,
+                onWords = { state.search = it },
+                onClear = { state.search = null },
+                modifier = Modifier.padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.four),
+            )
+        }
         if (picking) {
             PickerPanel(
                 client = client,
@@ -237,84 +204,274 @@ fun PaneListScreen(
                 onClose = { picking = false },
             )
         }
-        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = OrreryTokens.Space.eight)) {
-            PaneFilter.entries.forEach { option ->
-                TextButton(
-                    onClick = { state.filter = option },
-                    modifier = Modifier.testTag(option.tag),
-                ) {
-                    Text(
-                        option.label,
-                        style = OrreryTokens.Type.small.copy(fontWeight = if (option == state.filter) OrreryTokens.Font.Weight.bold else OrreryTokens.Font.Weight.regular),
-                    )
-                }
-            }
+        sheet?.let { row ->
+            InboxSheet(
+                row = row,
+                client = client,
+                onLanded = {
+                    sheet = null
+                    generation++
+                },
+                onClose = { sheet = null },
+            )
         }
-        when (val current = load) {
-            PaneLoad.Loading -> Text("Loading...", modifier = Modifier.padding(OrreryTokens.Space.sixteen))
-            PaneLoad.Failed -> Column(modifier = Modifier.padding(OrreryTokens.Space.sixteen)) {
-                Text("could not load panes", color = OrreryTokens.Role.bad)
-                TextButton(onClick = { generation++ }) {
-                    Text("Retry")
-                }
-            }
-            is PaneLoad.Loaded -> PaneRows(
-                panes = current.panes,
-                epics = epics,
-                details = details,
-                notice = notice,
-                filter = state.filter,
-                collapsed = state.collapsed,
-                endedOpen = state.endedOpen,
+        val loaded = data
+        when {
+            failed -> DidNotAnswer(onTryNow = { generation++ })
+            loaded == null -> Text(
+                "loading…",
+                color = OrreryTokens.Ink.three,
+                modifier = Modifier.padding(OrreryTokens.Space.sixteen),
+            )
+            else -> InboxBody(
+                data = loaded,
+                state = state,
                 now = now(),
                 onOpenPane = onOpenPane,
                 onOpenEpic = onOpenEpic,
-                onAnswer = onAnswer,
-                onRetry = onRetry,
-                onStop = onStop,
-                onToggleFolder = state::toggleFolder,
-                onToggleEnded = state::toggleEnded,
+                onNew = { picking = true },
+                onLongPress = { sheet = it },
             )
         }
     }
 }
 
 /**
- * The detail of every live epic, each read at once. An epic whose read fails, or that has no detail, has no entry, so
- * its line reads "epic unavailable". A folded epic is never read.
+ * Reads the lists, every live epic's detail, the contracts and the host. Null when a list or an epic did not answer. A
+ * contracts read that fails keeps the contracts of [held], and a host read that fails keeps its host.
  */
-private suspend fun epicDetailsOf(
-    client: OrreryClient,
-    epics: List<EpicRow>,
-): Map<String, EpicDetail> = coroutineScope {
-    val reads = epics.filter { it.live }.map { epic ->
-        async(Dispatchers.IO) {
-            try {
-                client.epic(epic.id)?.let { epic.id to it }
-            } catch (error: IOException) {
-                null
-            }
+private suspend fun readTree(client: OrreryClient, held: TreeData?): TreeData? = withContext(Dispatchers.IO) {
+    try {
+        val panes = client.panes() + client.headless()
+        val archived = client.archivedSessions()
+        val epics = client.epics()
+        val details = detailsOf(client, epics)
+        val contracts = try {
+            client.contracts()
+        } catch (error: IOException) {
+            held?.contracts ?: emptyList()
         }
+        val host = try {
+            client.host()?.host ?: ""
+        } catch (error: IOException) {
+            held?.host ?: ""
+        }
+        TreeData(panes, archived, epics, details, contracts, host)
+    } catch (error: IOException) {
+        null
+    }
+}
+
+/** The detail of every live epic, each read at once. A detail whose read fails fails the whole read. */
+private suspend fun detailsOf(client: OrreryClient, epics: List<EpicRow>): Map<String, EpicDetail> = coroutineScope {
+    val reads = epics.filter { it.live }.map { epic ->
+        async(Dispatchers.IO) { client.epic(epic.id)?.let { epic.id to it } }
     }
     reads.awaitAll().filterNotNull().toMap()
 }
 
-// The notice an epic command leaves that did not land by the server's reason, or that the epic could not be reached.
-private const val EPIC_UNREACHABLE = "could not reach the epic"
-
-// commandNoticeOf runs one epic command and says what did not land: "" when it landed, else the server's reason or that
-// the epic could not be reached. An answer that did not land keeps its text in the notice, so it is not lost with the
-// form.
-private fun commandNoticeOf(call: () -> StepCallResult, answer: String): String {
-    val reason = try {
-        when (val result = call()) {
-            StepCallResult.Landed -> return ""
-            is StepCallResult.Refused -> result.message
-        }
-    } catch (error: IOException) {
-        EPIC_UNREACHABLE
+/**
+ * The tree as the inbox draws it, or as the archived view draws it: the chips, the cards, the nothing-running line when the
+ * inbox has no project, and the foot that switches between the two views.
+ */
+@Composable
+private fun InboxBody(
+    data: TreeData,
+    state: PaneListState,
+    now: Long,
+    onOpenPane: (Pane) -> Unit,
+    onOpenEpic: (String) -> Unit,
+    onNew: () -> Unit,
+    onLongPress: (SheetRow) -> Unit,
+) {
+    val projects = remember(data, state.view) {
+        inboxTree(data.panes, data.archived, data.epics, data.details, data.contracts, data.host, state.view)
     }
-    return if (answer.isEmpty()) "not sent: $reason" else "not sent: $reason. Your answer: $answer"
+    val query = state.search.orEmpty()
+    val counts = remember(projects) { countsOf(projects) }
+    val waitingOf = remember(projects) { projects.associate { it.key to projectWaiting(it) } }
+    // A chip that has nothing left to narrow to is not drawn, so it is not on either: the tree shows whole.
+    val chip = when (state.narrow) {
+        Narrow.WAITING -> if (counts.waiting > 0) Narrow.WAITING else Narrow.NONE
+        Narrow.NEW -> if (counts.fresh > 0) Narrow.NEW else Narrow.NONE
+        Narrow.NONE -> Narrow.NONE
+    }
+    val shown = remember(projects, chip, query) {
+        narrow(projects, chip).let { if (query.isBlank()) it else search(it, query) }
+    }
+    val paneOf = remember(projects) {
+        projects.flatMap { it.convos + it.ended }.mapNotNull { convo -> convo.pane?.let { convo.key to it } }.toMap()
+    }
+    val epicOfStep = remember(data) {
+        data.epics.flatMap { epic -> epic.runningSteps.map { step -> step.id to epic.id } }.toMap()
+    }
+    val onOpen: (String) -> Unit = { key ->
+        when {
+            key.startsWith(EPIC_KEY_PREFIX) -> onOpenEpic(key.removePrefix(EPIC_KEY_PREFIX))
+            key.startsWith(STEP_KEY_PREFIX) -> epicOfStep[key.removePrefix(STEP_KEY_PREFIX)]?.let(onOpenEpic)
+            else -> paneOf[key]?.let(onOpenPane)
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        if (projects.isEmpty() && query.isBlank()) {
+            // The archived view with nothing archived draws no words, as the web does; only the inbox says nothing runs.
+            if (state.view == TreeView.INBOX) NothingRunning(onNew = onNew)
+        } else {
+            LazyColumn(modifier = Modifier.weight(1f)) {
+                item(key = "chips") {
+                    InboxChips(
+                        counts = counts,
+                        narrow = chip,
+                        onNarrow = { state.narrow = it },
+                        modifier = Modifier.padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.four),
+                    )
+                }
+                if (query.isNotBlank() && shown.isEmpty()) {
+                    item(key = "no-match") { NothingMatches(words = query) }
+                }
+                items(shown, key = { it.key }) { project ->
+                    ProjectCard(
+                        project = project,
+                        folded = project.key in state.folded,
+                        waiting = waitingOf[project.key] ?: 0,
+                        endedOpen = project.key in state.endedOpen,
+                        onFold = { state.toggleFolded(project.key) },
+                        onEnded = { state.toggleEnded(project.key) },
+                        convo = { convo -> ConvoRowItem(convo = convo, now = now, onOpen = onOpen, onLongPress = onLongPress) },
+                        modifier = Modifier.padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.four),
+                    )
+                }
+            }
+        }
+        ViewFoot(view = state.view, onView = { state.view = it })
+    }
+}
+
+/** The foot of the inbox: Archived opens the archived tree, and Back to the inbox returns from it. */
+@Composable
+private fun ViewFoot(view: TreeView, onView: (TreeView) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.four),
+    ) {
+        when (view) {
+            TreeView.INBOX -> TextButton(
+                onClick = { onView(TreeView.ARCHIVED) },
+                modifier = Modifier.testTag("open-archived"),
+            ) {
+                Text("Archived")
+            }
+            TreeView.ARCHIVED -> TextButton(
+                onClick = { onView(TreeView.INBOX) },
+                modifier = Modifier.testTag("back-to-inbox"),
+            ) {
+                Text("Back to the inbox")
+            }
+        }
+    }
+}
+
+private const val EPIC_KEY_PREFIX = "epic:"
+private const val STEP_KEY_PREFIX = "step:"
+
+/** The empty inbox: nothing is running, and New starts a session. */
+@Composable
+private fun NothingRunning(onNew: () -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(OrreryTokens.Space.sixteen),
+        verticalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
+    ) {
+        Text("Nothing is running.", style = OrreryTokens.Type.body, color = OrreryTokens.Ink.three)
+        Text(
+            "Start a session in a directory and it shows here, grouped by that directory.",
+            style = OrreryTokens.Type.small,
+            color = OrreryTokens.Ink.three,
+        )
+        TextButton(onClick = onNew, modifier = Modifier.testTag("empty-new")) {
+            Text("New")
+        }
+    }
+}
+
+private const val SEARCH_LABEL = "Search sessions and epics"
+
+/**
+ * The search field under the head: the words typed, a placeholder that names what search finds, and Clear, which empties
+ * the field and closes it. The field takes focus when it opens.
+ */
+@Composable
+private fun SearchField(words: String, onWords: (String) -> Unit, onClear: () -> Unit, modifier: Modifier) {
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focus.requestFocus() }
+    val shape = RoundedCornerShape(OrreryTokens.Radius.two)
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        BasicTextField(
+            value = words,
+            onValueChange = onWords,
+            modifier = Modifier
+                .weight(1f)
+                .focusRequester(focus)
+                .testTag("search-field")
+                .semantics { contentDescription = SEARCH_LABEL }
+                .background(OrreryTokens.Surface.well, shape)
+                .border(OrreryTokens.Size.hairline, OrreryTokens.Line.firm, shape),
+            textStyle = OrreryTokens.Type.body.copy(color = OrreryTokens.Ink.one),
+            cursorBrush = SolidColor(OrreryTokens.Role.focus),
+            singleLine = true,
+            decorationBox = { inner ->
+                Box(
+                    modifier = Modifier.padding(
+                        horizontal = OrreryTokens.Space.twelve,
+                        vertical = OrreryTokens.Space.eight,
+                    ),
+                ) {
+                    if (words.isEmpty()) {
+                        Text(SEARCH_LABEL, color = OrreryTokens.Ink.three, style = OrreryTokens.Type.body)
+                    }
+                    inner()
+                }
+            },
+        )
+        TextButton(onClick = onClear, modifier = Modifier.testTag("clear-search")) {
+            Text("Clear")
+        }
+    }
+}
+
+/** The search found no project: the words searched, and what search looks at. */
+@Composable
+private fun NothingMatches(words: String) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(OrreryTokens.Space.sixteen),
+        verticalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
+    ) {
+        Text("Nothing matches “$words”.", style = OrreryTokens.Type.body, color = OrreryTokens.Ink.three)
+        Text(
+            "Search looks at titles, directories, hosts, states, and the names of epics and contracts.",
+            style = OrreryTokens.Type.small,
+            color = OrreryTokens.Ink.three,
+        )
+    }
+}
+
+/** The inbox's error state: the server did not answer, the inbox is trying again, and Try now reads at once. */
+@Composable
+private fun DidNotAnswer(onTryNow: () -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(OrreryTokens.Space.sixteen),
+        verticalArrangement = Arrangement.spacedBy(OrreryTokens.Space.four),
+    ) {
+        Text("The server did not answer.", style = OrreryTokens.Type.body, color = OrreryTokens.Role.bad)
+        Text("Trying again…", style = OrreryTokens.Type.small, color = OrreryTokens.Ink.three)
+        TextButton(onClick = onTryNow, modifier = Modifier.testTag("try-now")) {
+            Text("Try now")
+        }
+    }
 }
 
 /**
@@ -335,183 +492,5 @@ private fun TitleMark(modifier: Modifier) {
             contentDescription = null,
             modifier = Modifier.matchParentSize().scale(1.5f),
         )
-    }
-}
-
-@Composable
-private fun PaneRows(
-    panes: List<Pane>,
-    epics: List<EpicRow>,
-    details: Map<String, EpicDetail>,
-    notice: String,
-    filter: PaneFilter,
-    collapsed: Set<String>,
-    endedOpen: Boolean,
-    now: Long,
-    onOpenPane: (Pane) -> Unit,
-    onOpenEpic: (String) -> Unit,
-    onAnswer: (epic: String, questionId: String, text: String) -> String,
-    onRetry: (epic: String) -> Unit,
-    onStop: (epic: String) -> Unit,
-    onToggleFolder: (String) -> Unit,
-    onToggleEnded: () -> Unit,
-) {
-    val waiting = remember(panes) { waitingPanes(panes) }
-    LazyColumn(modifier = Modifier.fillMaxSize()) {
-        item(key = "needs") {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                NeedsYou(
-                    waiting = waiting,
-                    epics = epics,
-                    details = details,
-                    onOpenPane = onOpenPane,
-                    onOpenEpic = onOpenEpic,
-                    onAnswer = onAnswer,
-                    onRetry = onRetry,
-                    onStop = onStop,
-                )
-                if (notice.isNotEmpty()) {
-                    Text(
-                        notice,
-                        color = OrreryTokens.Role.bad,
-                        modifier = Modifier.padding(horizontal = OrreryTokens.Space.sixteen).testTag("needs-notice"),
-                    )
-                }
-            }
-        }
-        item(key = "epics") {
-            EpicsGroup(epics = epics, details = details, now = now, onOpenEpic = onOpenEpic)
-        }
-        when (filter) {
-            PaneFilter.ALL -> {
-                // Ended sessions are left out of the tree, so a folder holding only them is not built.
-                items(
-                    treeRows(panes.filterNot(::isEnded), collapsed),
-                    key = { row ->
-                        when (row) {
-                            is Folder -> "folder:${row.key}"
-                            is PaneAt -> "pane:${row.pane.id}"
-                        }
-                    },
-                ) { row ->
-                    when (row) {
-                        is Folder -> FolderRow(
-                            folder = row,
-                            onToggle = { onToggleFolder(row.key) },
-                        )
-                        is PaneAt -> PaneRow(
-                            pane = row.pane,
-                            depth = row.depth,
-                            project = null,
-                            now = now,
-                            onOpenPane = onOpenPane,
-                        )
-                    }
-                }
-                endedRows(panes.filter(::isEnded), endedOpen, now, onOpenPane, onToggleEnded)
-            }
-            PaneFilter.NEW -> flatRows(newPanes(panes), now, onOpenPane)
-            PaneFilter.WAITING -> flatRows(waitingPanes(panes), now, onOpenPane)
-        }
-    }
-}
-
-/** A headless session that has ended: stopped, or failed and seen since it failed. */
-private fun isEnded(pane: Pane): Boolean =
-    pane.headless && (pane.state == "stopped" || (pane.state == "failed" && pane.changed <= pane.seen))
-
-/** The ended sessions as one line below the tree, which opens to a row per session; no line when none ended. */
-private fun LazyListScope.endedRows(
-    ended: List<Pane>,
-    open: Boolean,
-    now: Long,
-    onOpenPane: (Pane) -> Unit,
-    onToggle: () -> Unit,
-) {
-    if (ended.isEmpty()) return
-    item(key = "ended") {
-        EndedLine(count = ended.size, open = open, onToggle = onToggle)
-    }
-    if (open) flatRows(ended, now, onOpenPane)
-}
-
-/** The panes as one flat list, each row carrying its project. */
-private fun LazyListScope.flatRows(panes: List<Pane>, now: Long, onOpenPane: (Pane) -> Unit) {
-    items(panes, key = { "pane:${it.id}" }) { pane ->
-        PaneRow(pane = pane, depth = 0, project = projectOf(pane), now = now, onOpenPane = onOpenPane)
-    }
-}
-
-@Composable
-private fun EndedLine(count: Int, open: Boolean, onToggle: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("ended-toggle")
-            .clickable(onClick = onToggle)
-            .padding(start = OrreryTokens.Space.sixteen, end = OrreryTokens.Space.sixteen, top = OrreryTokens.Space.four, bottom = OrreryTokens.Space.four),
-        horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text((if (open) "▾" else "▸").inLabelCase(), style = OrreryTokens.Type.label)
-        Text("$count ended".inLabelCase(), style = OrreryTokens.Type.label)
-    }
-}
-
-@Composable
-private fun FolderRow(folder: Folder, onToggle: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("folder:${folder.key}")
-            .clickable(onClick = onToggle)
-            .padding(start = OrreryTokens.Space.sixteen + INDENT_DP * folder.depth, end = OrreryTokens.Space.sixteen, top = OrreryTokens.Space.four, bottom = OrreryTokens.Space.four),
-        horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text((if (folder.collapsed) "▸" else "▾").inLabelCase(), style = OrreryTokens.Type.label)
-        Text(folder.name.inLabelCase(), style = OrreryTokens.Type.label)
-    }
-}
-
-@Composable
-private fun PaneRow(pane: Pane, depth: Int, project: String?, now: Long, onOpenPane: (Pane) -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("pane-row:${pane.id}")
-            .clickable { onOpenPane(pane) }
-            .padding(start = OrreryTokens.Space.sixteen + INDENT_DP * depth, end = OrreryTokens.Space.sixteen, top = OrreryTokens.Space.eight, bottom = OrreryTokens.Space.eight),
-        horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.twelve),
-        verticalAlignment = Alignment.Top,
-    ) {
-        if (pane.unread()) {
-            Box(
-                modifier = Modifier
-                    .padding(top = OrreryTokens.Space.four + OrreryTokens.Space.two)
-                    .size(OrreryTokens.Space.eight)
-                    .background(OrreryTokens.Role.new, CircleShape)
-                    .semantics { contentDescription = "unseen" },
-            )
-        } else {
-            Spacer(modifier = Modifier.width(OrreryTokens.Space.eight))
-        }
-        Column(modifier = Modifier.weight(1f)) {
-            Text(pane.label, style = OrreryTokens.Type.body)
-            Text(pane.summary, style = OrreryTokens.Type.small)
-            if (project != null) {
-                Text(project, style = OrreryTokens.Type.small)
-            }
-        }
-        Column(horizontalAlignment = Alignment.End) {
-            Text(
-                pane.state,
-                style = OrreryTokens.Type.small,
-                color = stateColorOf(pane.state),
-            )
-            if (pane.changed != 0L) {
-                Text(ageOf(now - pane.changed), style = OrreryTokens.Type.small)
-            }
-        }
     }
 }

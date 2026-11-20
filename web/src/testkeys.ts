@@ -26,6 +26,8 @@ export function fakeContext(init: Partial<KeyContext> = {}): Fake {
     keyPopped: false,
     index: 0,
     flat: [],
+    waitKeys: [],
+    view: "inbox",
     cursorItem: null,
     cursorRow: null,
     cursorRowKey: "",
@@ -38,6 +40,7 @@ export function fakeContext(init: Partial<KeyContext> = {}): Fake {
     stepInputs: { current: new Map() },
     pendingG: { current: false },
     moveTo: record("moveTo"),
+    waitTo: record("waitTo"),
     nextUnseen: record("nextUnseen"),
     writeSeen: (target) => {
       calls.push(["writeSeen", target]);
@@ -54,6 +57,7 @@ export function fakeContext(init: Partial<KeyContext> = {}): Fake {
     },
     focusCursorRow: record("focusCursorRow"),
     backOneCrumb: record("backOneCrumb"),
+    openCursorPage: record("openCursorPage"),
     togglePanel: record("togglePanel"),
     answerCursor: record("answerCursor"),
     toggleOpen: record("toggleOpen"),

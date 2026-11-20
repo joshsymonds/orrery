@@ -8,6 +8,7 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.core.view.WindowCompat
 import androidx.test.core.app.ApplicationProvider
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.MarkSeenResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
@@ -26,6 +27,7 @@ import org.robolectric.annotation.GraphicsMode
 
 private const val NOW = 1_700_000_000L
 private const val PANES_PATH = "/orrery.v1.Panes/List"
+private const val EPICS_LIST_PATH = "/orrery.v1.Epics/List"
 private const val SEEN_PATH = "/orrery.v1.Panes/MarkSeen"
 private const val MOCHA_BASE_ARGB = 0xFF1E1E2E.toInt()
 
@@ -49,6 +51,7 @@ class MainActivityThemeTest {
         server = FakeOrreryServer()
         ServerSettings(context).saveServerUrl(server.baseUrl)
         server.respond(PANES_PATH, panesProto("%1" to "alpha-build", "%2" to "alpha-review"))
+        server.respond(EPICS_LIST_PATH, EpicsListResponse.getDefaultInstance())
         server.respond(SEEN_PATH, MarkSeenResponse.getDefaultInstance())
     }
 
@@ -121,7 +124,7 @@ class MainActivityThemeTest {
     fun composedBackgroundIsMochaBase() {
         val activity = launch().visible().get()
         composeRule.awaitUntil {
-            composeRule.onAllNodes(hasTestTag("pane-row:%1")).fetchSemanticsNodes().isNotEmpty()
+            composeRule.onAllNodes(hasTestTag("convo:pane:example-host:%1")).fetchSemanticsNodes().isNotEmpty()
         }
 
         val decor = activity.window.decorView

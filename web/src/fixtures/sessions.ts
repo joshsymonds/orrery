@@ -145,8 +145,15 @@ sessionStreams.set(buoyFeedsId, create(SessionsWatchConversationResponseSchema, 
   },
 }));
 
-// sessions is the Sessions.List answer: no session is listed, so the rows come from the panes and the headless sessions.
-export const sessions = create(ListResponseSchema, { sessions: [], seq: 0n });
+// sessions is the Sessions.List answer: pane %12's Session, which its orrery_id names and which is not archived, so the
+// pane's row can archive; the other rows come from the panes and the headless sessions.
+export const sessions = create(ListResponseSchema, {
+  sessions: [{
+    id: "sess-beacon-12", server: "halyard", pane: "%12", state: "waiting", label: "",
+    summary: "Why the roster page is slow past forty shifts", archived: false,
+  }],
+  seq: 0n,
+});
 
 // headless is the Sessions.ListHeadless answer: the headless sessions orreryd holds, in id order.
 export const headless = create(ListHeadlessResponseSchema, {
@@ -173,6 +180,18 @@ export const headless = create(ListHeadlessResponseSchema, {
       label: "Swapping the phone’s font for a subset", headline: "Swapping the phone’s font for a subset",
       state: "waiting", changed: at("@14:33"), seen: at("@14:33:30"),
       summary: "Its turn ended on a question in words", question: "", newestReply: at("@14:33"),
+    },
+    {
+      id: "e7c4b2a1-5d9f-4e3a-9b61-2a8f0c4d7e13", dir: "/home/owner/code/almanac",
+      label: "Moon phase rounding at the date line", headline: "Moon phase rounding at the date line",
+      state: "done", changed: at("@-9d 14:00"), seen: at("@-9d 14:30"),
+      summary: "Fixed and merged.", question: "", newestReply: at("@-9d 13:52"), archived: true,
+    },
+    {
+      id: "a2d6f0b9-4e13-4c87-8f25-9b0e7c3d1a62", dir: "/home/owner/code/almanac",
+      label: "Leap-second table refresh", headline: "Leap-second table refresh",
+      state: "done", changed: at("@-12d 14:00"), seen: at("@-12d 14:30"),
+      summary: "The table is current to 2027.", question: "", newestReply: at("@-12d 13:48"), archived: true,
     },
   ],
 });

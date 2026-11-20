@@ -13,16 +13,15 @@ export function listsEpic(view: EpicsView, id: string): boolean {
   return held.some((item) => item.id === id);
 }
 
-// listHolds reports whether the line of address.order holds address.entry, so that opening the address shows its entry.
-// An address with no entry always holds. The archived line holds archived rows and archived epics, and no step. The
-// attention and project lines hold the rows that are not archived, the epics listsEpic finds, and the steps of the
-// epic blocks.
+// listHolds reports whether the view of address.view holds address.entry, so that opening the address shows its entry.
+// An address with no entry always holds. The archived view holds archived rows and archived epics, and no step. The
+// inbox holds the rows that are not archived, the epics listsEpic finds, and the steps of the epic blocks.
 export function listHolds(address: Address, rows: Row[], epics: EpicsView): boolean {
-  const { order, entry } = address;
+  const { view, entry } = address;
   if (entry === null) {
     return true;
   }
-  const archived = order === "archived";
+  const archived = view === "archived";
   switch (entry.kind) {
     case "session":
       return rows.some((row) => row.kind === "session" && row.id === entry.id && row.archived === archived);

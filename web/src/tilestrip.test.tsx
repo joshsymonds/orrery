@@ -140,6 +140,7 @@ const background: BackgroundTask[] = [
 // row is a row as the list holds it, with the fields the tests do not set at their defaults.
 function row(init: Partial<Row> & Pick<Row, "key">): Row {
   return {
+    tool: "",
     id: init.key,
     kind: "pane",
     label: init.key,
@@ -195,12 +196,12 @@ function view(epics: Epic[]): EpicsView {
 }
 
 const alpha = epicOf("alpha", "s1");
-const sessionAddress: Address = { order: "attention", entry: { kind: "session", id: "s1" } };
-const agentsAddress: Address = { order: "attention", entry: { kind: "session", id: "s1", panel: "agents" } };
+const sessionAddress: Address = { view: "inbox", entry: { kind: "session", id: "s1" } };
+const agentsAddress: Address = { view: "inbox", entry: { kind: "session", id: "s1", panel: "agents" } };
 
 // epicAddress is the address of an epic's page.
 function epicAddress(slug: string): Address {
-  return { order: "attention", entry: { kind: "epic", id: `${repository}/${slug}`, page: { kind: "epic" } } };
+  return { view: "inbox", entry: { kind: "epic", id: `${repository}/${slug}`, page: { kind: "epic" } } };
 }
 
 // Setup is what a mount draws: the rows, the epics and the address App is given.
@@ -223,7 +224,6 @@ function draw(container: HTMLElement, clients: Clients, reported: Report[], setu
     render(
       <App
         rows={setup.rows ?? []}
-        error=""
         now={now}
         clients={clients}
         epics={setup.epics}
@@ -449,8 +449,12 @@ test("TileStrip: four epics' dots tile opens the picker as a sheet, and its row 
   });
 });
 
+// onListSession opens the conversation of s1 with no epic, so its strip holds only the list tiles. Under 760px a
+// conversation draws only once it is opened, as its address opens it.
+const onListSession: Setup = { rows: [steererRow()], address: sessionAddress };
+
 test("TileStrip: a list tile pushes the list's address and draws the list in a sheet over the conversation", (t) =>
-  withPhone(t.signal, { rows: [steererRow()] }, async ({ container, server, reported }) => {
+  withPhone(t.signal, onListSession, async ({ container, server, reported }) => {
     await feed(t.signal, server, "s1", background);
     await settle(t.signal, () => stripTiles(container).length === 2, "the two list tiles");
     await press(tileTitled(container, "agents:"));
@@ -466,7 +470,7 @@ test("TileStrip: a list tile pushes the list's address and draws the list in a s
   }));
 
 test("TileStrip: Escape on a list's sheet returns to the session's address", (t) =>
-  withPhone(t.signal, { rows: [steererRow()] }, async ({ container, server, reported }) => {
+  withPhone(t.signal, onListSession, async ({ container, server, reported }) => {
     await feed(t.signal, server, "s1", background);
     await settle(t.signal, () => stripTiles(container).length === 2, "the two list tiles");
     await press(tileTitled(container, "agents:"));

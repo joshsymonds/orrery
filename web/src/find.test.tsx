@@ -272,6 +272,7 @@ function envelope(flag: number, message: object): Uint8Array {
 // seen dwell.
 function row(init: Partial<Row> & Pick<Row, "key">): Row {
   return {
+    tool: "",
     id: init.key,
     kind: "pane",
     label: init.key,
@@ -352,7 +353,7 @@ async function withApp(
   });
   try {
     await act(() => {
-      render(<App rows={rows} error="" now={now} clients={fake.clients} />, container);
+      render(<App rows={rows} now={now} clients={fake.clients} />, container);
     });
     await check(container, fake);
   } finally {

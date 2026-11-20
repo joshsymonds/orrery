@@ -8,11 +8,9 @@ import type { UnnamedEntry } from "./names";
 export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   // ---- whole exports: the export is not a round-6 component, and each of its stories is unnamed ----
 
-  // App draws each kind of page at an address: attention, a project, the archive, a session, a pane, a step, an epic, a
-  // contract, a phase, a worker session. The inbox page stands for them.
+  // App draws each kind of page at an address: the inbox, the archive, a session, a pane, a step, an epic, a contract, a
+  // phase, a worker session. The inbox page stands for them.
   app: { replacement: "inbox-home", epic: "F2" },
-  // RowMenu draws the ⋯ menu of an epic line, shut, open, and open on an archived line.
-  "row-menu": { replacement: "Menu", epic: "F2" },
   // Mark draws the Orrery mark, the symbol the rail and the title row open on.
   mark: { replacement: "Tile", epic: "F2" },
   // Markdown draws reply prose: emphasis, a list, a fenced code block, a table, a heading with a link, and a marked query.
@@ -21,9 +19,6 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   "marked-text": { replacement: "convo-find", epic: "F3" },
   // ReplyText draws reply text whose web links are links and whose other schemes stay text.
   "reply-text": { replacement: "Reply", epic: "F3" },
-  // NeedEntry draws an epic's need: a question that opens it, a park with Retry, a release with Retry and Stop, or a need that
-  // is only its sentence.
-  "need-entry": { replacement: "epic-question", epic: "F4" },
   // PhaseOutputPage draws a task's phase output at each phase of the rota export.
   "phase-output-page": { replacement: "phase-implement", epic: "F4" },
   // Reader draws one conversation: loading, a pane's conversation, a folded compaction, a question, find, a sending box, live
@@ -52,10 +47,6 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   // WorkCard draws an epic's card on a project's page when the epic has released, and when the fixtures hold no detail for it.
   "work-card/released": { replacement: "WorkCard", epic: "F2" },
   "work-card/unavailable": { replacement: "WorkCard", epic: "F2" },
-  // EpicRow draws an epic's line: the cursor on it, its ⋯ menu shut, and an epic with no detail, so no orrery.
-  "epic-row/current": { replacement: "EpicRow", epic: "F2" },
-  "epic-row/with-menu": { replacement: "EpicRow", epic: "F2" },
-  "epic-row/no-detail": { replacement: "EpicRow", epic: "F2" },
   // EpicEventBlock draws an epic's question event whose epic holds no open question, so the event reads it as settled.
   "epic-event-block/question-settled": { replacement: "EpicEventBlock", epic: "F3" },
   // StepEndBlock draws a step that ended with no agent named and a looping reason.
@@ -66,8 +57,6 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   // HappeningList draws the history of the holder epic, and an empty history.
   "happening-list/holder": { replacement: "HappeningList", epic: "F4" },
   "happening-list/empty": { replacement: "HappeningList", epic: "F4" },
-  // InboxRow draws a line that answered a question with the choice it was given, on the waiting session's row.
-  "inbox-row/answered": { replacement: "InboxRow", epic: "F2" },
   // Notice draws a stack of three notices, and of more than three with its "+n more" line.
   "notice/three-notices": { replacement: "Notice", epic: "F5" },
   "notice/over-the-limit": { replacement: "Notice", epic: "F5" },

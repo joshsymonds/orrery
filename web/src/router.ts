@@ -1,11 +1,11 @@
 import { PHASES, type Phase } from "./phases";
 
-// The pure address of a web page: the inbox order, the cursor's entry, and the sub-page of an epic. The hash form is
-// '#/<order>[/<entry>[/<sub-page>]]'. Every id segment is encoded with encodeURIComponent, so a slash inside an id
+// The pure address of a web page: the view the list shows, the cursor's entry, and the sub-page of an epic. The hash form
+// is '#/<view>[/<entry>[/<sub-page>]]'. Every id segment is encoded with encodeURIComponent, so a slash inside an id
 // travels as %2F and a pane id that holds a percent sign travels with its percent sign escaped.
 
-const ORDERS = ["attention", "project", "archived"] as const;
-export type Order = (typeof ORDERS)[number];
+const VIEWS = ["inbox", "archived"] as const;
+export type View = (typeof VIEWS)[number];
 
 // The page an epic shows: the epic page itself, its contract, a task's phase output, or a worker session's step.
 export type PageView =
@@ -24,17 +24,26 @@ export type Entry =
   | { kind: "epic"; id: string; page: PageView };
 
 export interface Address {
-  order: Order;
+  view: View;
   entry: Entry | null;
 }
 
 // The address every unreadable hash parses to.
 function inbox(): Address {
-  return { order: "attention", entry: null };
+  return { view: "inbox", entry: null };
 }
 
-function isOrder(segment: string): segment is Order {
-  return (ORDERS as readonly string[]).includes(segment);
+function isView(segment: string): segment is View {
+  return (VIEWS as readonly string[]).includes(segment);
+}
+
+// The view a hash's first segment names. The attention and project orders are the inbox now: their addresses still
+// open it, and no address is written in either form.
+function viewOf(segment: string): View | undefined {
+  if (segment === "attention" || segment === "project") {
+    return "inbox";
+  }
+  return isView(segment) ? segment : undefined;
 }
 
 function isPhase(segment: string): segment is Phase {
@@ -90,7 +99,7 @@ function readPanel(segment: string): ListPanelKind | undefined {
   return segment === "agents" || segment === "running" ? segment : undefined;
 }
 
-// The entry from the segments after the order. It is undefined when the segments name no entry this router knows.
+// The entry from the segments after the view. It is undefined when the segments name no entry this router knows.
 function readEntry(segments: readonly string[]): Entry | undefined {
   const [head, ...values] = segments;
   if (head === "session" && values.length === 1) {
@@ -120,22 +129,23 @@ function readEntry(segments: readonly string[]): Entry | undefined {
 }
 
 // parseAddress reads a hash with or without its leading '#'. It never throws: a hash it cannot read, such as an empty
-// one, an unknown order or kind, a phase outside PHASES, a wrong segment count or a malformed percent escape, parses
-// to the attention inbox with no entry.
+// one, an unknown view or kind, a phase outside PHASES, a wrong segment count or a malformed percent escape, parses
+// to the inbox with no entry.
 export function parseAddress(hash: string): Address {
   const path = hash.startsWith("#") ? hash.slice(1) : hash;
   if (!path.startsWith("/")) {
     return inbox();
   }
-  const [orderSegment, ...rest] = path.slice(1).split("/");
-  if (!isOrder(orderSegment)) {
+  const [viewSegment, ...rest] = path.slice(1).split("/");
+  const view = viewOf(viewSegment);
+  if (view === undefined) {
     return inbox();
   }
   if (rest.length === 0) {
-    return { order: orderSegment, entry: null };
+    return { view, entry: null };
   }
   const entry = readEntry(rest);
-  return entry === undefined ? inbox() : { order: orderSegment, entry };
+  return entry === undefined ? inbox() : { view, entry };
 }
 
 function encodeValue(value: string): string {
@@ -159,7 +169,7 @@ function formatPage(page: PageView): string[] {
 // formatAddress writes an address as its hash, with the leading '#'. parseAddress reads the result back to the same
 // address.
 export function formatAddress(address: Address): string {
-  const segments: string[] = [address.order];
+  const segments: string[] = [address.view];
   const entry = address.entry;
   if (entry !== null) {
     switch (entry.kind) {

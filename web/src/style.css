@@ -31,37 +31,6 @@ h1, h2 { font: var(--o-type-title); margin: 0; }
 h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold); margin: 0; }
 
 .app { min-width: 0; }
-.top { padding-bottom: var(--o-space-8); }
-.brand { display: flex; align-items: center; gap: var(--o-space-8); font: var(--o-type-title); }
-.brand .mark { flex: none; width: calc(var(--o-space-24) - var(--o-space-2)); height: calc(var(--o-space-24) - var(--o-space-2)); }
-.brand > button {
-  display: inline-flex; align-items: center; gap: var(--o-space-8); margin-left: auto; padding: 0 var(--o-space-12); border: 0; border-radius: var(--o-radius-2);
-  background: var(--o-surface-raised); color: var(--o-ink-1); font: var(--o-type-small);
-}
-.brand > button:hover { background: var(--o-surface-pressed); }
-.top > .keys-hint {
-  display: flex; align-items: center; justify-content: center; width: var(--o-size-control-desk); height: var(--o-size-control-desk); margin: var(--o-space-8) 0 0 auto;
-  padding: 0; border: 0; border-radius: var(--o-radius-2); background: none; color: var(--o-ink-2);
-}
-.top > .keys-hint:hover { background: var(--o-surface-raised); color: var(--o-ink-1); }
-.filter {
-  display: flex; align-items: center; gap: var(--o-space-8); margin-top: var(--o-space-8); padding: 0 var(--o-space-8);
-  background: var(--o-surface-well); border-radius: var(--o-radius-2); box-shadow: 0 0 0 var(--o-size-hairline) var(--o-line-firm); color: var(--o-ink-3);
-}
-.filter:focus-within { box-shadow: 0 0 0 var(--o-size-hairline) var(--o-role-focus); }
-.filter input { flex: 1; min-width: 0; background: none; border: 0; outline: 0; padding: 0; font: inherit; color: inherit; }
-.filter input::placeholder { color: var(--o-ink-4); }
-.views {
-  display: flex; margin-top: var(--o-space-8); padding: var(--o-space-2); border-radius: var(--o-radius-2);
-  background: var(--o-surface-well); box-shadow: 0 0 0 var(--o-size-hairline) var(--o-line-firm);
-}
-.view {
-  flex: 1 1 auto; display: flex; align-items: center; justify-content: center; gap: var(--o-space-8); white-space: nowrap;
-  padding: var(--o-space-2) 0; border-radius: var(--o-radius-2); font: var(--o-type-small); color: var(--o-ink-2);
-}
-.view.on { background: var(--o-surface-raised); color: var(--o-ink-1); font-weight: var(--o-font-weight-bold); }
-.view.on kbd { color: var(--o-ink-1); }
-.view kbd { min-width: 0; padding: 0 var(--o-space-4); }
 
 .error {
   margin: 0 0 var(--o-space-8); padding: var(--o-space-4) var(--o-space-8); border-radius: var(--o-radius-2); color: var(--o-role-bad);
@@ -160,8 +129,6 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
     display: grid; grid-template-rows: auto minmax(0, 1fr); background: var(--o-surface-side);
     border-right: var(--o-size-hairline) solid var(--o-line-soft);
   }
-  .list > .rows { overflow-y: auto; min-height: 0; padding: 0 var(--o-space-4) var(--o-space-8); }
-  .top { padding: var(--o-space-12) var(--o-space-12) var(--o-space-8); }
   /* The reader is three rows: its head, its conversation, which is the one box that scrolls, and its foot, in one column
      as wide as its track, so a line that does not wrap is cut inside it and never widens the conversation past it. */
   .read { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; gap: 0; }
@@ -178,161 +145,200 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 }
 
 .rows { min-width: 0; }
-.rows[data-list="project"] .b-row .proj { display: none; }
-.b-sec {
-  display: flex; align-items: baseline; gap: var(--o-space-8);
-  padding: var(--o-space-12) var(--o-space-8) var(--o-space-4); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking);
-  text-transform: uppercase; color: var(--o-ink-3); white-space: nowrap;
-}
-.b-sec .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.b-sec i { font-style: normal; font: var(--o-type-small); letter-spacing: 0; text-transform: none; color: var(--o-ink-3); }
-.b-sec.need { color: var(--o-role-attention); }
-.b-sec.fresh { color: var(--o-role-new); }
-.rows[data-list="project"] .b-sec { color: var(--o-role-place); }
-.b-row {
-  position: relative; display: grid; grid-template-columns: var(--o-space-8) var(--o-size-glyph) minmax(0, 1fr); column-gap: var(--o-space-8);
-  padding: var(--o-space-8) var(--o-space-8) var(--o-space-8) var(--o-space-4); border-radius: var(--o-radius-2); cursor: default;
-}
-.b-row .dot { width: var(--o-size-dot); height: var(--o-size-dot); margin-top: var(--o-space-8); border-radius: var(--o-radius-round); }
-.b-row[data-unseen] .dot { background: var(--o-role-new); }
-.b-row .g {
-  width: var(--o-size-glyph); height: var(--o-size-glyph); margin-top: var(--o-space-2); border-radius: var(--o-radius-round); font: var(--o-type-small); font-weight: var(--o-font-weight-bold); text-align: center;
-}
 .g-working { border: var(--o-size-hairline) solid var(--o-line-firm); border-top-color: var(--o-role-live); }
-.b-row .g-working { animation: rot var(--o-loop-spin) linear infinite; }
-.b-row .g-waiting { background: var(--o-role-attention); color: var(--o-ink-on-accent); }
-.b-row .g-waiting::after { content: "?"; }
-.b-row .g-done { box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-role-ok); color: var(--o-role-ok); }
-.b-row .g-done::after { content: "✓"; }
-.b-row .g-interrupted { box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-role-halt); color: var(--o-role-halt); }
-.b-row .g-interrupted::after { content: "!"; }
-.b-row .main { min-width: 0; }
-.b-row .l1 { display: flex; align-items: baseline; gap: var(--o-space-8); min-width: 0; white-space: nowrap; }
-.b-row .ty { flex: none; font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; color: var(--o-role-attention); }
-.b-row .label { min-width: 0; overflow: hidden; text-overflow: ellipsis; font: var(--o-type-body); color: var(--o-ink-2); }
-.b-row[data-unseen] .label { font-weight: var(--o-font-weight-bold); color: var(--o-ink-1); }
-.b-row .proj { min-width: 0; overflow: hidden; text-overflow: ellipsis; font: var(--o-type-small); color: var(--o-role-place); }
 /* A session's or pane's title: its directory's last element, in the place colour, then its line. The directory is never hidden. */
 .title-dir { color: var(--o-role-place); }
-.b-row .title-dir { flex: none; font: var(--o-type-small); }
-.b-row .title-line { min-width: 0; overflow: hidden; text-overflow: ellipsis; font: var(--o-type-body); color: var(--o-ink-2); }
-.b-row[data-unseen] .title-line { font-weight: var(--o-font-weight-bold); color: var(--o-ink-1); }
 /* A dock head's title: its directory in the place colour, then its line in regular weight, in type.body. */
 .head h1 .title-line { font: var(--o-type-body); }
-.b-row .age { flex: none; margin-left: auto; font: var(--o-type-small); color: var(--o-ink-3); }
-.b-row[data-unseen] .age { color: var(--o-role-new); }
-/* A list line's ⋯ sits at the line's end, dim until its row is hovered or under the cursor. Its menu hangs under it, right
-   edge to the ⋯, inside the list. */
-.row-menu { position: relative; flex: none; margin: 0 0 0 var(--o-space-4); }
-.row-menu .more {
-  min-height: var(--o-space-24); padding: 0 var(--o-space-4); border: 0; border-radius: var(--o-radius-2); background: none; cursor: pointer;
-  font: var(--o-type-small); color: var(--o-ink-4);
-  appearance: none; -webkit-appearance: none;
-}
-.b-row:hover .row-menu .more, .b-row.cur .row-menu .more, .row-menu .more:hover, .row-menu .more[aria-expanded="true"] {
-  color: var(--o-ink-3);
-}
-.row-menu-list {
-  position: absolute; top: calc(100% + var(--o-space-4)); right: 0; z-index: var(--o-z-menu); display: flex; flex-direction: column; padding: var(--o-space-4);
-  border-radius: var(--o-radius-3); background: var(--o-surface-overlay); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm);
-}
-.row-menu-list button {
-  padding: var(--o-space-4) var(--o-space-12); border: 0; border-radius: var(--o-radius-2); background: none; cursor: pointer; text-align: left; white-space: nowrap;
-  font: var(--o-type-small); color: var(--o-ink-1);
-  appearance: none; -webkit-appearance: none;
-}
-.row-menu-list button:hover { background: var(--o-surface-raised); }
-.b-row .l2 {
-  font: var(--o-type-small); color: var(--o-ink-3);
-  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-  overflow-wrap: anywhere;
-}
-.b-row .l2.one { -webkit-line-clamp: 1; }
-.b-row[data-unseen] .l2 { color: var(--o-ink-2); }
-.b-row.cur { background: var(--o-surface-raised); box-shadow: 0 0 0 var(--o-size-hairline) var(--o-role-focus); }
-.b-row.cur::before {
-  content: ""; position: absolute; left: calc(-1 * var(--o-space-4) - var(--o-space-2)); top: var(--o-space-8); bottom: var(--o-space-8); width: var(--o-size-rail);
-  border-radius: 0 var(--o-radius-1) var(--o-radius-1) 0; background: none;
-}
-.b-row .opts { display: flex; flex-wrap: wrap; gap: var(--o-space-4); margin-top: var(--o-space-8); }
-.b-row .opt {
-  display: inline-flex; align-items: center; gap: var(--o-space-4); padding: var(--o-space-2) var(--o-space-8) var(--o-space-2) var(--o-space-2); border-radius: var(--o-radius-1);
-  background: var(--o-role-attention-fill);
-  box-shadow: 0 0 0 var(--o-size-hairline) var(--o-role-attention-line);
-  font: var(--o-type-small); white-space: nowrap;
-}
-.b-row .opt kbd {
-  min-width: calc(var(--o-space-16) + var(--o-space-4)); padding: var(--o-space-2) var(--o-space-4);
-  background: var(--o-role-attention); color: var(--o-ink-on-accent); box-shadow: none;
-}
-.b-row .ans { margin-top: var(--o-space-4); font: var(--o-type-small); color: var(--o-ink-2); }
-.reply a { color: var(--o-role-ref); }
 
-/* The Epics group. An epic's line is its small orrery and its main: the label and repository, the reading pushed right, the
-   state and blocker words, and the task strip under them. A task's cell takes the chart's colour for its state, on the strip
-   and on the step's pips alike. */
-.b-row.epic { display: flex; align-items: center; gap: var(--o-space-8); }
-.b-row.epic .main { flex: 1 1 auto; }
-.b-row.epic .label { flex: 0 1 auto; white-space: nowrap; font-weight: var(--o-font-weight-bold); color: var(--o-ink-1); }
-.b-row.epic .proj { flex: 1 1 auto; }
-.b-row.epic .rt { flex: none; margin-left: auto; font: var(--o-type-small); color: var(--o-ink-2); }
-.b-row.epic .orrery { flex: none; width: calc(var(--o-space-24) + var(--o-space-4)); height: calc(var(--o-space-24) + var(--o-space-4)); max-width: none; margin: 0; }
-.b-row.epic .words { display: flex; gap: var(--o-space-8); min-width: 0; white-space: nowrap; font: var(--o-type-small); color: var(--o-ink-2); }
-.b-row.epic .words .blocker { color: var(--o-role-attention); }
-/* Each phrase span is keyed by its text, so a changed phrase mounts anew and fades in over the state move. A row entering
-   Just ended fades in over the layout move. Each span may shrink and end in an ellipsis before the row's ⋯. */
-.b-row.epic .words .state, .b-row.epic .words .blocker { min-width: 0; overflow: hidden; text-overflow: ellipsis; animation: move-fade var(--o-move-state); }
-.b-row.epic.ended { animation: move-fade var(--o-move-layout); }
-.strip { display: flex; gap: var(--o-space-2); height: var(--o-size-rail); margin: var(--o-space-4) 0 var(--o-space-2); }
-.strip i { flex: 1 1 0; min-width: 0; border-radius: var(--o-radius-1); background: var(--o-tone-plan); }
-.strip.dense { gap: 0; }
-.strip.dense i { border-radius: 0; }
-.pips { display: inline-flex; gap: var(--o-space-2); vertical-align: middle; }
-.pips i { width: calc(var(--o-space-8) + var(--o-size-hairline)); height: calc(var(--o-space-4) + var(--o-size-hairline)); border-radius: var(--o-radius-1); background: var(--o-line-soft); }
-/* A record's task cell takes its tone. Held is peach; limited is grey, so a usage limit never reads as a hold. The cell
-   that runs pulses its glow, as the step's does. The inbox's step pips keep the k- kinds above. */
+/* The inbox column, as round 6 draws it: its head, its search field and chips, its rows, and its foot. The column fills the
+   list's track, and its rows alone scroll. */
+.list > .inbox { grid-row: 1 / -1; }
+.inbox { display: flex; flex-direction: column; flex: none; width: 100%; min-height: 0; }
+.inbox-head { display: flex; align-items: center; gap: var(--o-space-8); flex: none; padding: var(--o-space-12) var(--o-space-8) var(--o-space-8) var(--o-space-16); }
+.inbox-head .mark { flex: none; width: var(--o-space-24); height: var(--o-space-24); }
+.inbox-head .name { color: var(--o-ink-1); font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
+.inbox-head .end { display: inline-flex; align-items: center; gap: var(--o-space-4); margin-left: auto; }
+.inbox-attn { display: flex; flex-wrap: wrap; gap: var(--o-space-8); flex: none; padding: 0 var(--o-space-12) var(--o-space-8) var(--o-space-16); }
+.inbox-search { flex: none; padding: 0 var(--o-space-12) var(--o-space-8); }
+.inbox-rows { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 var(--o-space-8) var(--o-space-16); }
+.inbox-foot { display: flex; align-items: center; gap: var(--o-space-4); flex: none; padding: var(--o-space-4) var(--o-space-8); border-top: var(--o-size-hairline) solid var(--o-line-soft); }
+.inbox-foot .icon-only { margin-left: auto; }
+.inbox .inote { padding: var(--o-space-4) var(--o-space-16); }
+
+.blank { margin: auto; display: grid; gap: var(--o-space-8); justify-items: center; max-width: 48ch; padding: var(--o-space-24); color: var(--o-ink-3); font: var(--o-type-small); text-align: center; }
+.blank .t-body { color: var(--o-ink-2); }
+.sec { --hue: var(--o-ink-3); display: flex; align-items: baseline; gap: var(--o-space-8); color: var(--o-ink-3); }
+.sec .name { color: var(--hue); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+.sec .n { font: var(--o-type-small); }
+
+/* Button. Quiet has no fill; Default is raised; Primary is the one action a form exists for. */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--o-space-8); flex: none; height: var(--o-size-control-desk); padding: 0 var(--o-space-12); border: 0; border-radius: var(--o-radius-2); background: var(--o-surface-raised); color: var(--o-ink-1); font: var(--o-type-small); white-space: nowrap; transition: background var(--o-move-press), transform var(--o-move-press); }
+.btn { max-width: 100%; min-width: 0; }
+.btn > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.btn:hover { background: var(--o-surface-pressed); }
+.btn:active { background: var(--o-surface-pressed); transform: scale(.97); }
+.btn.quiet { background: none; color: var(--o-ink-2); }
+.btn.quiet:hover { background: var(--o-surface-raised); color: var(--o-ink-1); }
+.btn.primary { background: var(--o-role-primary); color: var(--o-ink-on-accent); font-weight: var(--o-font-weight-bold); }
+.btn.primary:hover { background: var(--o-role-primary); }
+.btn.icon-only { width: var(--o-size-control-desk); padding: 0; }
+.btn kbd { margin-right: calc(-1 * var(--o-space-4)); }
+
+/* Chip: a short tag on the raised surface, as a project head's host. */
+.dir-head .chip { display: inline-flex; align-items: center; gap: var(--o-space-4); flex: none; padding: 0 var(--o-space-8); border-radius: var(--o-radius-1); background: var(--o-surface-raised); color: var(--o-ink-2); font: var(--o-type-small); white-space: nowrap; }
+
+/* FilterChip: a chip that narrows a list. On, it is outlined in its role. */
+.fchip { display: inline-flex; align-items: center; gap: var(--o-space-8); flex: none; height: var(--o-size-control-desk); padding: 0 var(--o-space-12); border: 0; border-radius: var(--o-radius-round); background: none; box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm); color: var(--o-ink-2); font: var(--o-type-small); white-space: nowrap; }
+.fchip b { color: var(--o-ink-1); }
+.fchip.attention { color: var(--o-role-attention); }
+.fchip.new { color: var(--o-role-new); }
+.fchip.on { background: var(--o-surface-raised); box-shadow: inset 0 0 0 var(--o-size-hairline) currentColor; }
+
+/* Menu: an overlay list of commands. On touch it is a sheet (see Sheet). */
+.menu { display: grid; min-width: calc(var(--o-space-48) * 4); padding: var(--o-space-4); border-radius: var(--o-radius-3); background: var(--o-surface-overlay); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm), var(--o-elevation-overlay); }
+.menu-item { display: flex; align-items: center; gap: var(--o-space-12); height: var(--o-size-control-desk); padding: 0 var(--o-space-12); border: 0; border-radius: var(--o-radius-2); background: none; color: var(--o-ink-1); font: var(--o-type-small); text-align: left; white-space: nowrap; appearance: none; -webkit-appearance: none; }
+.menu-item > span:not(.sub) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.menu-item .icon { color: var(--o-ink-3); }
+.menu-item:hover { background: var(--o-surface-raised); }
+.menu-item kbd { margin-left: auto; }
+.menu-sep { height: var(--o-size-hairline); margin: var(--o-space-4) 0; background: var(--o-line-soft); }
+
+/* Gauge: an epic at a glance. One ring in three zones: done, started, planned. Its colour is the epic's state. */
+.gauge { width: var(--o-size-gauge); height: var(--o-size-gauge); flex: none; fill: none; stroke-width: 3; color: var(--o-ink-3); }
+.gauge .planned { stroke: var(--o-line-firm); }
+.gauge .started { stroke: currentColor; stroke-opacity: var(--o-pulse-low); }
+.gauge .done { stroke: currentColor; }
+.gauge .core { fill: currentColor; stroke: none; }
+.gauge[data-tone="live"] { color: var(--o-role-live); }
+.gauge[data-tone="attention"] { color: var(--o-role-attention); }
+.gauge[data-tone="ok"] { color: var(--o-role-ok); }
+.gauge[data-tone="bad"] { color: var(--o-role-bad); }
+.gauge[data-tone="engine"] { color: var(--o-role-engine); }
+
+/* StateGlyph: a session's or a step's state, drawn as a ring in its state's colour. */
+.glyph { width: var(--o-size-glyph); height: var(--o-size-glyph); fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; color: var(--o-state-idle); }
+.glyph .solid { fill: currentColor; stroke: none; }
+.glyph .on { stroke: var(--o-ink-on-accent); }
+.glyph .track { stroke: var(--o-line-firm); }
+.glyph[data-state="working"] { color: var(--o-state-working); }
+.glyph[data-state="working"] .arc { transform-origin: center; animation: rot var(--o-loop-spin) linear infinite; }
+.glyph[data-state="waiting"] { color: var(--o-state-waiting); }
+.glyph[data-state="held"] { color: var(--o-state-held); }
+.glyph[data-state="limited"] { color: var(--o-state-limited); }
+.glyph[data-state="done"] { color: var(--o-state-done); }
+.glyph[data-state="interrupted"] { color: var(--o-state-interrupted); }
+.glyph[data-state="interrupting"] { color: var(--o-state-interrupting); animation: pulse var(--o-loop-pulse) ease-in-out infinite; }
+.glyph[data-state="failed"] { color: var(--o-state-failed); }
+.glyph[data-state="stopped"] { color: var(--o-state-stopped); }
+
+/* Pips: a task's phases, one cell each, in the cell's tone. */
+.pips { display: inline-flex; gap: var(--o-space-2); flex: none; }
+.pips i { width: var(--o-space-12); height: var(--o-space-4); border-radius: var(--o-radius-round); background: var(--o-line-soft); }
 .pips i[data-tone="plan"] { background: var(--o-tone-plan); }
-.pips i[data-tone="run"] { position: relative; background: var(--o-tone-run); }
+.pips i[data-tone="run"] { background: var(--o-tone-run); animation: pulse var(--o-loop-pulse) ease-in-out infinite; }
 .pips i[data-tone="mine"] { background: var(--o-tone-mine); }
+/* A record's cell waiting on a usage limit is grey, so a limit never reads as a hold. */
 .pips i[data-tone="limited"] { background: var(--o-ink-3); }
 .pips i[data-tone="bad"] { background: var(--o-tone-bad); }
 .pips i[data-tone="acc"] { background: var(--o-tone-acc); }
 .pips i[data-tone="ok"] { background: var(--o-tone-ok); }
-.k-passed { --k: var(--o-role-ok); }
-.k-accepted { --k: var(--o-role-engine); }
-.k-now { --k: var(--o-role-live); }
-.k-held { --k: var(--o-role-attention); }
-.k-errored { --k: var(--o-role-bad); }
-.strip i.k-passed, .strip i.k-accepted, .strip i.k-now, .strip i.k-held, .strip i.k-errored,
-.pips i.k-passed, .pips i.k-now, .pips i.k-held, .pips i.k-errored { background: var(--k); }
-.strip i.k-now, .pips i.k-now { position: relative; }
-/* The glow is a static shadow on the cell's ::before; now-glow animates only that pseudo-element's opacity, so the
-   compositor carries it without repainting the cell. */
-.strip i.k-now::before, .pips i.k-now::before, .pips i[data-tone="run"]::before {
-  content: ""; position: absolute; inset: 0; border-radius: inherit;
-  box-shadow: 0 0 calc(var(--o-space-4) + var(--o-space-2)) var(--o-size-hairline) var(--o-role-live); animation: now-glow var(--o-loop-pulse) ease-in-out infinite;
-}
-@keyframes now-glow {
-  0%, 100% { opacity: 1; }
-  50% { opacity: var(--o-pulse-low); }
+
+/* Toast: on touch, one line saying what a control just did, at the foot of the screen. */
+.toast { position: fixed; left: var(--o-space-16); right: var(--o-space-16); bottom: var(--o-space-16); z-index: var(--o-z-notices); display: flex; align-items: center; gap: var(--o-space-8); padding: var(--o-space-12) var(--o-space-16); border-radius: var(--o-radius-2); background: var(--o-surface-pressed); box-shadow: var(--o-elevation-overlay); color: var(--o-ink-1); font: var(--o-type-small); }
+.toast .grow { flex: 1 1 auto; min-width: 0; }
+
+/* Dir: a directory and what is in it: its sessions, then its epics, then what has ended. */
+.dir { display: grid; grid-template-columns: minmax(0, 1fr); margin-top: var(--o-space-8); border-radius: var(--o-radius-3); background: var(--o-surface-well); }
+.dir:first-child { margin-top: 0; }
+.dir-head { display: flex; align-items: center; gap: var(--o-space-4); min-width: 0; padding: var(--o-space-4) var(--o-space-8) var(--o-space-4) var(--o-space-4); color: var(--o-ink-3); font: var(--o-type-small); }
+.dir-head .fold { display: grid; place-items: center; flex: none; width: var(--o-space-24); height: var(--o-size-control-desk); padding: 0; border: 0; border-radius: var(--o-radius-1); background: none; color: var(--o-ink-4); }
+.dir-head .fold:hover { background: var(--o-surface-raised); color: var(--o-ink-1); }
+.dir-head .proj { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--o-space-8); align-items: center; flex: 1 1 auto; min-width: 0; padding: var(--o-space-4) var(--o-space-8); border-radius: var(--o-radius-2); }
+.dir-head .proj:hover { background: var(--o-surface-raised); }
+.dir-head .proj > .icon { grid-row: 1 / span 2; color: var(--o-role-place); }
+.dir-head .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-role-place); font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
+.dir-head .path { grid-column: 2; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-ink-3); }
+.dir-head .end { display: inline-flex; align-items: center; gap: var(--o-space-8); margin-left: auto; flex: none; color: var(--o-ink-3); }
+.dir-head .end .is-attention { color: var(--o-role-attention); font-weight: var(--o-font-weight-bold); }
+/* What a project holds hangs from a line under its head: its sessions, then its epics, then what has ended. */
+.dir-kids { display: grid; grid-template-columns: minmax(0, 1fr); margin: 0 var(--o-space-4) var(--o-space-8) var(--o-space-16); padding-left: var(--o-space-4); border-left: var(--o-size-hairline) solid var(--o-line-firm); }
+.fold-line { display: flex; align-items: center; gap: var(--o-space-8); width: 100%; padding: var(--o-space-4) var(--o-space-8); border: 0; border-radius: var(--o-radius-2); background: none; color: var(--o-ink-3); font: var(--o-type-small); }
+.fold-line:hover { background: var(--o-surface-page); color: var(--o-ink-2); }
+.fold-line .icon { color: var(--o-ink-4); }
+
+/* InboxRow: a session. Its unseen dot and state glyph, its title and age, then its second line: what it has been doing,
+   its last words, or what it asks. */
+.inbox .row { position: relative; display: grid; grid-template-columns: var(--o-size-dot) var(--o-size-glyph) minmax(0, 1fr); column-gap: var(--o-space-8); align-items: start; width: 100%; min-width: 0; padding: var(--o-space-8); border-radius: var(--o-radius-2); color: var(--o-ink-2); }
+.inbox .row > .dot, .inbox .row > .glyph { margin-top: var(--o-space-4); }
+.inbox .row > .dot { margin-top: calc(var(--o-space-8) + var(--o-space-2)); }
+.inbox .row:hover, .inbox .row.hover { background: var(--o-surface-page); }
+.inbox .row.open { background: var(--o-surface-raised); }
+.inbox .row.cur { box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-role-focus); }
+.inbox .row .dot { width: var(--o-size-dot); height: var(--o-size-dot); border-radius: var(--o-radius-round); }
+.inbox .row[data-unseen] .dot { background: var(--o-role-new); }
+.inbox .row .main { min-width: 0; }
+.inbox .row .l1 { display: flex; align-items: baseline; gap: var(--o-space-8); min-width: 0; }
+.inbox .row .title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; flex: 1 1 auto; min-width: 0; overflow: hidden; font: var(--o-type-body); }
+.inbox .row[data-unseen] .title, .inbox .row.open .title { color: var(--o-ink-1); }
+.inbox .row[data-unseen] .title { font-weight: var(--o-font-weight-bold); }
+.inbox .row .age { flex: none; color: var(--o-ink-3); font: var(--o-type-small); white-space: nowrap; }
+.inbox .row[data-unseen] .age { color: var(--o-role-new); }
+.inbox .row .l2 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-ink-3); font: var(--o-type-small); }
+.inbox .row .l2.asks { color: var(--o-role-attention); }
+.inbox .row .l2 .name { color: var(--o-role-ref); }
+.inbox .row .l2 .icon, .inbox .row .l3 .icon { display: inline-block; margin-right: var(--o-space-4); vertical-align: text-bottom; }
+/* A list line's ⋯ sits at the line's end. On a desk it shows when its row is hovered, under the cursor or menu-open; on a
+   phone it is always there, and it opens the row's sheet. Its menu hangs under it, right edge to the ⋯, inside the list. */
+.inbox .row-menu { position: relative; flex: none; margin: 0 0 0 var(--o-space-4); }
+.inbox .row-menu .more { min-height: var(--o-space-24); padding: 0 var(--o-space-4); border: 0; border-radius: var(--o-radius-2); background: none; cursor: pointer; font: var(--o-type-small); color: var(--o-ink-3); appearance: none; -webkit-appearance: none; }
+.inbox .row-menu-list { position: absolute; top: calc(100% + var(--o-space-4)); right: 0; z-index: var(--o-z-menu); }
+/* A stand-in line is a row's second line: its conversation is not listed, or is archived. */
+.inbox .row.standin { display: block; padding-left: calc(var(--o-space-8) + var(--o-size-dot) + var(--o-space-8) + var(--o-size-glyph) + var(--o-space-8)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-ink-3); font: var(--o-type-small); }
+
+/* What a conversation steers hangs from a line under its row: its epics with their running steps, and a contract not yet
+   accepted, led by the contract's mark. */
+.inbox .steers { display: grid; grid-template-columns: minmax(0, 1fr); margin: 0 0 var(--o-space-4) var(--o-space-24); padding-left: var(--o-space-4); border-left: var(--o-size-hairline) solid var(--o-line-firm); }
+.inbox .steers .row.epic .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* EpicRow: an epic. Its gauge, its name and count; then its state in words; then what blocks it, in attention. */
+.inbox .row.epic { grid-template-columns: var(--o-size-gauge) minmax(0, 1fr) auto; align-items: start; }
+.inbox .row.epic .gauge { grid-row: 1 / span 2; }
+.inbox .row.epic .title { color: var(--o-ink-1); font-weight: var(--o-font-weight-bold); }
+.inbox .row.epic .l2, .inbox .row.epic .l3 { grid-column: 2 / -1; }
+.inbox .row.epic .l3 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-role-attention); font: var(--o-type-small); }
+.inbox .row.epic.ended .title { color: var(--o-ink-2); font-weight: var(--o-font-weight-regular); }
+.inbox .row.epic.contract .cmark { display: grid; place-items: center; grid-row: 1 / span 2; width: var(--o-size-gauge); height: var(--o-size-gauge); color: var(--o-role-attention); }
+
+/* StepRow: a running step, under its epic. */
+.inbox .row.step { grid-template-columns: var(--o-size-glyph) auto auto minmax(0, 1fr); align-items: center; margin-left: var(--o-space-32); width: auto; padding: var(--o-space-4) var(--o-space-8); font: var(--o-type-small); }
+.inbox .row.step > .glyph { margin-top: 0; }
+.inbox .row.step .label { color: var(--o-ink-1); white-space: nowrap; }
+.inbox .row.step .doing { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-ink-3); }
+.inbox .row.step.held .doing { color: var(--o-role-attention); }
+.inbox .dir-kids .steers .row.step { grid-template-columns: var(--o-size-glyph) minmax(0, max-content) auto minmax(0, 1fr); margin-left: var(--o-space-16); }
+.inbox .steers .row.step .label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+@media (min-width: 760px) {
+  .inbox .row .row-menu .more { display: none; }
+  .inbox .row:hover .row-menu .more, .inbox .row.cur .row-menu .more, .inbox .row.menu-open .row-menu .more { display: inline-flex; background: var(--o-surface-raised); }
+  .inbox .row:hover .age, .inbox .row.cur .age, .inbox .row.menu-open .age { visibility: hidden; }
 }
 
-/* A step's line under its epic, indented from it: its mark or spinner, its label, its pips, then its doing, or a held
-   step's held text. Each part is one line, cut with an ellipsis. */
-.b-row.step {
-  display: grid; grid-template-columns: var(--o-size-glyph) 13ch auto minmax(0, 1fr); align-items: center; margin-left: var(--o-space-32);
-  padding: var(--o-space-2) var(--o-space-8) var(--o-space-2) var(--o-space-8); font: var(--o-type-small); white-space: nowrap;
+/* On a phone the inbox's controls, rows and folds take the touch height. */
+@media (width < 760px) {
+  .btn { height: var(--o-size-control-touch); padding: 0 var(--o-space-16); }
+  .btn.icon-only { width: var(--o-size-control-touch); padding: 0; }
+  .field { height: var(--o-size-control-touch); padding: 0 var(--o-space-12); }
+  .menu-item { height: var(--o-size-control-touch); font: var(--o-type-body); }
+  .inbox .row { padding: var(--o-space-12) var(--o-space-8); }
+  .inbox .row.step { min-height: var(--o-size-control-touch); }
+  .dir-head, .fold-line { min-height: var(--o-size-control-touch); }
+  .dir-head .fold { width: var(--o-space-32); height: var(--o-size-control-touch); }
+  .inbox kbd, .sheet kbd { display: none; }
 }
-.b-row.step.cur::before { top: var(--o-space-4); bottom: var(--o-space-4); }
-.b-row.step .um { text-align: center; font-weight: var(--o-font-weight-bold); color: var(--o-role-live); }
-.b-row.step .label { overflow: hidden; text-overflow: ellipsis; font: var(--o-type-body); color: var(--o-ink-2); }
-.b-row.step .reply { overflow: hidden; text-overflow: ellipsis; color: var(--o-ink-3); }
-.b-row.step.cur .label { color: var(--o-ink-1); font-weight: var(--o-font-weight-bold); }
-.b-row.step .held { overflow: hidden; text-overflow: ellipsis; font: var(--o-type-small); color: var(--o-role-attention); }
-.b-row.step.held .um, .b-row.step.held .label, .b-row.step.held .held { color: var(--o-role-attention); }
-.b-more { padding: var(--o-space-2) var(--o-space-8); font: var(--o-type-small); color: var(--o-ink-3); }
-/* A Needs you item fades in over the layout move as it enters the list. */
-.need-entry { animation: move-fade var(--o-move-layout); }
+
+.reply a { color: var(--o-role-ref); }
 
 /* New session and the key list. Both are a panel over the page, dimmed under it, and New is a sheet from the foot of the
    window below 760px. The start form and the key groups are the panel's own parts. */
@@ -362,7 +368,7 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
   border-radius: var(--o-radius-2); background: var(--o-surface-well); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-soft);
   color: var(--o-ink-3); font: var(--o-type-body); outline: 0;
 }
-.field:focus, .field:focus-within { box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-role-focus); }
+.field:focus, .field.focused, .field:focus-within { box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-role-focus); }
 .field input {
   flex: 1 1 auto; width: 0; min-width: 0; min-height: 0; padding: 0; border: 0; border-radius: 0; background: none; outline: 0;
   color: var(--o-ink-1); font: inherit;
@@ -376,6 +382,7 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 .icon { flex: none; width: var(--o-size-icon); height: var(--o-size-icon); fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .t-label { font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
 .t-small { font: var(--o-type-small); }
+.t-body { font: var(--o-type-body); }
 .t-title { font: var(--o-type-title); }
 .ink-4 { color: var(--o-ink-4); }
 
@@ -423,6 +430,7 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
   border-radius: var(--o-radius-3) var(--o-radius-3) 0 0; background: var(--o-surface-overlay); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm);
 }
 .sheet::before { content: ""; justify-self: center; width: var(--o-space-32); height: var(--o-space-4); border-radius: var(--o-radius-round); background: var(--o-line-firm); }
+.sheet .menu { min-width: 0; padding: 0; background: none; box-shadow: none; }
 .sheet .sheet-head { padding: var(--o-space-4) var(--o-space-12); color: var(--o-ink-2); font: var(--o-type-small); }
 .sheet .sheet-head b { display: block; color: var(--o-ink-1); font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
 .sheet .sheet-body { display: grid; gap: var(--o-space-12); min-width: 0; padding: var(--o-space-4) var(--o-space-8); }
@@ -770,6 +778,7 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 /* The live line's caret, after the wireframe. */
 @keyframes blink { 0%, 55% { opacity: 1; } 56%, 100% { opacity: 0; } }
 @keyframes rot { to { transform: rotate(360deg); } }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: var(--o-pulse-low); } }
 .caret { display: inline-block; width: calc(var(--o-space-8) + var(--o-size-hairline)); height: var(--o-size-glyph); margin-left: var(--o-space-2); vertical-align: calc(-1 * var(--o-space-2)); background: var(--o-ink-1); animation: blink var(--o-loop-blink) steps(1) infinite; }
 .caret.soft { width: var(--o-size-hairline); background: var(--o-role-live); }
 
@@ -992,7 +1001,7 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 .orrery .cell, .orrery .req { transition: fill var(--o-move-state); }
 .orrery .cell.c-none { fill: var(--o-line-soft); }
 .orrery .cell.c-plan { fill: var(--o-tone-plan); }
-.orrery .cell.c-run { fill: var(--o-tone-run); animation: now-glow var(--o-loop-pulse) ease-in-out infinite; }
+.orrery .cell.c-run { fill: var(--o-tone-run); animation: pulse var(--o-loop-pulse) ease-in-out infinite; }
 .orrery .cell.c-mine { fill: var(--o-tone-mine); }
 .orrery .cell.c-limited { fill: var(--o-ink-3); }
 .orrery .cell.c-bad { fill: var(--o-tone-bad); }
@@ -1167,14 +1176,14 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 .dotgrid i { width: var(--o-space-8); height: var(--o-space-8); border-radius: var(--o-radius-round); background: var(--o-ink-4); }
 .dotgrid i.attention { background: var(--o-role-attention); }
 .dotgrid i.live { background: var(--o-role-live); }
-.gauge { width: var(--o-size-gauge); height: var(--o-size-gauge); flex: none; fill: none; stroke-width: var(--o-size-rail); color: var(--o-ink-3); }
-.gauge .planned { stroke: var(--o-line-firm); }
+/* The rail's gauge, on a tile or a picker's row, is drawn at the rail's stroke. The inbox's epic rows draw the gauge of
+   glyphs.tsx under the .gauge rules above, so these rules name the rail's places. */
+.tile .gauge, .rpick-row .gauge { stroke-width: var(--o-size-rail); color: var(--o-ink-3); }
 /* The started arc is the gauge's colour as a tint's outline, never dimmed with opacity (SYSTEM.md: nothing is dimmed with
    opacity; a tint is outlined at alpha.tintLine): an asking or live tile's role line, else the glyph line. */
-.gauge .started { stroke: var(--gauge-started, var(--o-line-glyph)); }
+.tile .gauge .started, .rpick-row .gauge .started { stroke: var(--gauge-started, var(--o-line-glyph)); stroke-opacity: 1; }
 .tile.attention .gauge { --gauge-started: var(--o-role-attention-line); }
 .tile.live .gauge { --gauge-started: var(--o-role-live-line); }
-.gauge .done { stroke: currentColor; }
 /* A tile's gauge takes the tile's tone, so an asking, live or quiet epic reads on its ring. */
 .tile .gauge { color: inherit; }
 /* A list tile's icon is drawn at the icon size, stroked in the tile's tone as round 6's icon is. */
@@ -1217,11 +1226,11 @@ button.tr:hover { background: var(--o-surface-well); }
 .tr .cell.live { --tone: var(--o-role-live); }
 .tr .end { justify-self: end; color: var(--o-ink-3); white-space: nowrap; }
 .tr-detail { display: grid; grid-column: 1 / -1; gap: var(--o-space-8); min-width: 0; padding: 0 var(--o-space-8) var(--o-space-12) var(--o-space-32); }
-.fold-line {
+.tbl > .fold-line {
   grid-column: 1 / -1; display: flex; align-items: center; gap: var(--o-space-8); width: 100%; min-height: var(--o-space-24); margin: 0; padding: var(--o-space-4) var(--o-space-8);
   border: 0; border-radius: var(--o-radius-2); background: none; color: var(--o-ink-3); font: var(--o-type-small); text-align: left; cursor: pointer; appearance: none; -webkit-appearance: none;
 }
-.fold-line:hover { background: var(--o-surface-well); color: var(--o-ink-2); }
+.tbl > .fold-line:hover { background: var(--o-surface-well); color: var(--o-ink-2); }
 /* A running step's row: its glyph, its label, its pips, what it does and its clock. Limited rows and glyphs are grey; held
    ones are peach, their doing included. */
 .tbl .g { display: block; width: var(--o-size-glyph); height: var(--o-size-glyph); border-radius: var(--o-radius-round); color: var(--tone); font: var(--o-type-small); font-weight: var(--o-font-weight-bold); text-align: center; }
@@ -1249,18 +1258,14 @@ button.tr:hover { background: var(--o-surface-well); }
   .tr { grid-template-columns: var(--cols-touch, minmax(0, 1fr) auto); column-gap: var(--o-space-12); row-gap: var(--o-space-2); padding: var(--o-space-12) 0; }
   .tr .wide { grid-column: 1 / -1; }
   .tr.head, .tbl > .th { display: none; }
-  .fold-line { min-height: var(--o-size-control-touch); }
+  .tbl > .fold-line { min-height: var(--o-size-control-touch); }
   /* Just happened sets its time apart from its words, with no gutter column on the phone. */
   .epic-page .happen .at { margin-right: var(--o-space-12); }
   /* The problem line is read whole: it wraps, and the .error rule's cut at its edge does not apply. */
   .problem { white-space: normal; text-overflow: clip; overflow-wrap: anywhere; }
 }
-/* A sheet covers the window, so it lies over the page wherever the page is scrolled. */
-.sheet-scrim { position: fixed; inset: 0; z-index: var(--o-z-panel); display: flex; align-items: flex-end; background: var(--o-scrim); }
-.sheet { display: grid; gap: var(--o-space-8); width: 100%; max-height: 90%; overflow-y: auto; padding: var(--o-space-8) var(--o-space-8) var(--o-space-16); border-radius: var(--o-radius-3) var(--o-radius-3) 0 0; background: var(--o-surface-overlay); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm); }
-.sheet::before { content: ""; justify-self: center; width: var(--o-space-32); height: var(--o-space-4); border-radius: var(--o-radius-round); background: var(--o-line-firm); }
-.sheet .sheet-head { padding: var(--o-space-4) var(--o-space-12); color: var(--o-ink-2); font: var(--o-type-small); }
-.sheet .sheet-head b { display: block; color: var(--o-ink-1); font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
+/* A sheet covers the window, so it lies over the page wherever the page is scrolled; its rules are the row sheet's, above.
+   A picker drawn in it lies flat in the sheet. */
 .sheet .rpick { position: static; width: auto; padding: 0; background: none; box-shadow: none; }
 /* The steering menu opens under its anchor at the desk, and sits static inside a sheet, where .sheet .rpick holds it. Its
    rows wrap inside the menu, though the title row it opens from keeps its own line whole. */
@@ -1318,5 +1323,6 @@ button.subj:hover { background: var(--o-surface-raised); }
 @media (prefers-reduced-motion: reduce) {
   section.page.drill { animation: move-fade var(--o-move-drill); }
   section.page.leave { animation: move-fade var(--o-move-leave); }
-  .b-row .g-working, .tbl .g-working, .strip i.k-now::before, .pips i.k-now::before, .pips i[data-tone="run"]::before, .orrery .cell.c-run { animation: none; }
+  .tbl .g-working, .orrery .cell.c-run { animation: none; }
+  .glyph[data-state="working"] .arc, .glyph[data-state="interrupting"], .pips i[data-tone="run"] { animation: none; }
 }

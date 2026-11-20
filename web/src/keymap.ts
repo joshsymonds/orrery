@@ -2,19 +2,17 @@ import type { Dispatch, StateUpdater } from "preact/hooks";
 
 import type { Conversation } from "./conversation";
 import type { EpicItem, StepItem } from "./epics";
-import { stateWaiting } from "./inboxrow";
+import type { ContractItem } from "./tree";
 import { headState } from "./readercolumn";
 import type { Row } from "./rows";
-
-// The views the list shows, which a, p and v choose.
-export type View = "attention" | "project" | "archived";
+import type { View } from "./router";
 
 // How a hidden inbox came out over the page: by the pointer on the mark, or by a key. Only a key pop-out is tucked by
 // Escape.
 export type Popout = "none" | "hover" | "key";
 
-// An entry the list shows and the cursor can rest on: a row, or an epic or step of the Epics group.
-export type Item = Row | EpicItem | StepItem;
+// An entry the tree shows and the cursor can rest on: a conversation row, an epic or step it steers, or a contract.
+export type Item = Row | EpicItem | StepItem | ContractItem;
 
 // The row an Escape acts on: the row, the column whose composer holds the key, and the row's state at the press.
 export interface EscapeTarget {
@@ -30,7 +28,7 @@ export interface BoxOpen {
 }
 
 // The keys that act on the list. While the inbox is hidden, one of them pops it out by key and does nothing else.
-const inboxListKeys = new Set(["j", "k", "ArrowDown", "ArrowUp", "g", "G", "/", "a", "p", "v"]);
+const inboxListKeys = new Set(["j", "k", "ArrowDown", "ArrowUp", "g", "G", "/", "v"]);
 
 // isRow tells a row from an epic or step entry by its kind.
 export function isRow(item: Item): item is Row {
@@ -47,9 +45,13 @@ export interface KeyContext {
   // Whether the inbox is hidden, and whether a key popped it out.
   inboxHidden: boolean;
   keyPopped: boolean;
-  // The cursor's index in the flat list, and the flat list, which G and w read.
+  // The cursor's index in the flat list, and the flat list, which G reads.
   index: number;
   flat: Item[];
+  // The keys of the counted things, oldest first, which w reads, and the view A reads: A archives in the inbox and
+  // unarchives in Archived.
+  waitKeys: string[];
+  view: View;
   cursorItem: Item | null;
   cursorRow: Row | null;
   cursorRowKey: string;
@@ -66,6 +68,9 @@ export interface KeyContext {
   stepInputs: { current: Map<string, HTMLTextAreaElement> };
   pendingG: { current: boolean };
   moveTo: (target: number) => void;
+  // waitTo moves the cursor to the entry under key, revealing the entry first when a folded project or the ended line
+  // hides it.
+  waitTo: (key: string) => void;
   nextUnseen: () => void;
   writeSeen: (row: Row) => Promise<void>;
   setArchive: (entry: Row | EpicItem, archived: boolean) => void;
@@ -73,6 +78,9 @@ export interface KeyContext {
   replyBoxTarget: (box: HTMLElement) => EscapeTarget | null;
   focusCursorRow: () => void;
   backOneCrumb: () => void;
+  // openCursorPage opens the cursor's epic or step page as Enter on a row opens its page: under 760px it then draws
+  // alone. At 760px and wider the page already stands beside the inbox, so it changes nothing there.
+  openCursorPage: () => void;
   answerCursor: (choice: 1 | 2 | 3) => void;
   toggleOpen: () => void;
   closePin: () => void;
@@ -82,7 +90,8 @@ export interface KeyContext {
   togglePanel: () => void;
   setPickerOpen: Dispatch<StateUpdater<boolean>>;
   setMenuKey: Dispatch<StateUpdater<string | null>>;
-  setFilter: Dispatch<StateUpdater<string>>;
+  // setFilter sets the search text, which opens the search field; null shuts it.
+  setFilter: (text: string | null) => void;
   setPopout: Dispatch<StateUpdater<Popout>>;
   setRowOpened: Dispatch<StateUpdater<boolean>>;
   setBoxOpened: Dispatch<StateUpdater<BoxOpen | null>>;
@@ -103,6 +112,8 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
     keyPopped,
     index,
     flat,
+    waitKeys,
+    view,
     cursorItem,
     cursorRow,
     cursorRowKey,
@@ -115,6 +126,7 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
     stepInputs,
     pendingG,
     moveTo,
+    waitTo,
     nextUnseen,
     writeSeen,
     setArchive,
@@ -122,6 +134,7 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
     replyBoxTarget,
     focusCursorRow,
     backOneCrumb,
+    openCursorPage,
     answerCursor,
     toggleOpen,
     closePin,
@@ -168,7 +181,7 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
     if (event.key === "Enter") {
       input.blur();
     } else if (event.key === "Escape") {
-      setFilter("");
+      setFilter(null);
       input.blur();
     }
     return;
@@ -229,25 +242,21 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
     case "G":
       moveTo(flat.length - 1);
       break;
-    case "a":
-      setView("attention");
-      break;
-    case "p":
-      setView("project");
-      break;
     case "v":
       setView("archived");
       break;
     case "A":
-      // A pane with no orrery_id and a step have no archive kind, so the key does nothing on either.
-      if (cursorItem !== null && cursorItem.kind !== "step") {
-        setArchive(cursorItem, true);
+      // A pane with no orrery_id, a step and a contract have no archive kind, so the key does nothing on any of them.
+      if (cursorItem !== null && cursorItem.kind !== "step" && cursorItem.kind !== "contract") {
+        setArchive(cursorItem, view !== "archived");
       }
       break;
     case "w": {
-      const waiting = flat.findIndex((item) => isRow(item) && item.state === stateWaiting);
-      if (waiting >= 0) {
-        moveTo(waiting);
+      // w goes to the counted thing after the cursor's entry in waitKeys, wrapping; from an entry that counts nothing,
+      // to the first. Nothing counted, nothing to go to.
+      if (waitKeys.length > 0) {
+        const at = cursorItem === null ? -1 : waitKeys.indexOf(cursorItem.key);
+        waitTo(waitKeys[(at + 1) % waitKeys.length]);
       }
       break;
     }
@@ -269,6 +278,8 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
         void writeSeen(cursorRow);
         // Enter opens the row into its reply box, as a click on the row does; x only marks it seen.
         setBoxOpened({ column: "cursor", key: cursorRow.key });
+      } else if (cursorItem?.kind === "epic" || cursorItem?.kind === "step") {
+        openCursorPage();
       }
       break;
     case "b":
@@ -293,7 +304,11 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
       }
       break;
     case "/":
-      inputRef.current?.focus();
+      if (inputRef.current !== null) {
+        inputRef.current.focus();
+      } else {
+        setFilter("");
+      }
       break;
     case "i":
       if (cursorStep !== null) {

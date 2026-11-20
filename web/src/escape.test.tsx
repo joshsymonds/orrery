@@ -125,6 +125,7 @@ function envelope(flag: number, message: object): Uint8Array {
 // seen dwell.
 function row(init: Partial<Row> & Pick<Row, "key">): Row {
   return {
+    tool: "",
     id: init.key,
     kind: "pane",
     label: init.key,
@@ -218,7 +219,7 @@ async function withApp(
   });
   try {
     await act(() => {
-      render(<App rows={props.rows} error="" now={now} clients={fake.clients} epics={props.epics} />, container);
+      render(<App rows={props.rows} now={now} clients={fake.clients} epics={props.epics} />, container);
     });
     await check(container, fake);
   } finally {
@@ -238,7 +239,7 @@ function headWord(container: HTMLElement): string {
 }
 
 function cursorKey(container: HTMLElement): string | null {
-  return container.querySelector(".b-row.cur")?.getAttribute("data-key") ?? null;
+  return container.querySelector(".row.cur")?.getAttribute("data-key") ?? null;
 }
 
 // queueTexts is the text of each message in the cursor's queue above its box, oldest first, without its tag.
@@ -333,7 +334,7 @@ test("EscapeInterrupt: Escape on a waiting session marks no interrupt, so the se
     await pressIn(composer(container), "Escape");
     await until(t.signal, () => document.activeElement !== composer(container), "the blur");
     await act(() => {
-      render(<App rows={[sessionRow]} error="" now={now} clients={fake.clients} />, container);
+      render(<App rows={[sessionRow]} now={now} clients={fake.clients} />, container);
     });
     assert.equal(headWord(container), "working");
   }));
@@ -455,7 +456,7 @@ test("EscapeInterrupt: a failed withdraw shows an error line, and the interrupt 
 
 // clickRow clicks the list's row for key, as a pointer does: the row opens, and a docked inbox is hidden.
 async function clickRow(container: HTMLElement, key: string): Promise<void> {
-  const element = container.querySelector(`.b-row[data-key="${key}"]`);
+  const element = container.querySelector(`[data-key="${key}"]`);
   assert.ok(element, `the list draws the row ${key}`);
   await act(() => {
     element.dispatchEvent(new Event("click", { bubbles: true }));

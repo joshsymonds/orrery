@@ -1,23 +1,28 @@
 // The fixture slices: the data the in-memory fixture transport answers with, one field per answer. shippedSlices is the
 // set the transport serves when it is given none.
 
-import type { MessageInitShape } from "@bufbuild/protobuf";
+import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import type { Code } from "@connectrpc/connect";
 
-import type {
-  EpicsGetResponse,
-  EpicsHistoryResponse,
-  EpicsListResponse,
+import { type ContractsListResponse, ContractsListResponseSchema } from "../gen/orrery/v1/contracts_pb";
+import {
+  type EpicsGetResponse,
+  type EpicsHistoryResponse,
+  type EpicsListResponse,
+  EpicsListResponseSchema,
 } from "../gen/orrery/v1/epics_pb";
-import type {
-  HostStatusResponse,
-  ListHeadlessResponse,
-  ListResponse,
-  PanesListResponse,
-  PickerRowSchema,
-  SessionsWatchConversationResponse,
-  WatchConversationResponse,
+import {
+  type HostStatusResponse,
+  type ListHeadlessResponse,
+  ListHeadlessResponseSchema,
+  type ListResponse,
+  type PanesListResponse,
+  PanesListResponseSchema,
+  type PickerRowSchema,
+  type SessionsWatchConversationResponse,
+  type WatchConversationResponse,
 } from "../gen/orrery/v1/orrery_pb";
+import { contracts } from "./contracts";
 import {
   buoyPlanning,
   denseEpic,
@@ -52,9 +57,12 @@ export type AskAnswer =
   | { readonly failure: Code };
 
 // Slices is the data a fixture transport answers with. evidenceLogs holds the log each run's Evidence.Artifact answers
-// with, by run id. asks holds the answer Picker.Ask gives for each words, and words with no entry are refused.
+// with, by run id. asks holds the answer Picker.Ask gives for each words, and words with no entry are refused. fail
+// holds the procedures that answer Unavailable, and hold the procedures that stay unanswered until their call aborts,
+// each named as "orrery.v1.Panes/List".
 export interface Slices {
   readonly epics: EpicsListResponse;
+  readonly contracts: ContractsListResponse;
   readonly gets: ReadonlyMap<string, EpicsGetResponse>;
   readonly histories: ReadonlyMap<string, EpicsHistoryResponse>;
   readonly panes: PanesListResponse;
@@ -78,11 +86,14 @@ export interface Slices {
   readonly heldGets: ReadonlySet<string>;
   // failingEpicCommands names the epic commands that fail, each with the reason its error carries.
   readonly failingEpicCommands: ReadonlyMap<"pause" | "resume" | "stop" | "retry", string>;
+  readonly fail?: ReadonlySet<string>;
+  readonly hold?: ReadonlySet<string>;
 }
 
 // shippedSlices is the data the fixture transport serves when it is given no slices.
 export const shippedSlices: Slices = {
   epics,
+  contracts,
   gets,
   histories,
   panes,
@@ -165,4 +176,14 @@ export const epicScenarios: Record<EpicScenario, Slices> = {
     epics: epicsListWith((row) => (row.id === tideCacheId ? { ...row, seen: 0n } : row)),
     heldGets: new Set([tideCacheId]),
   },
+};
+
+// emptySlices is the world with nothing running: no panes, no headless sessions, no epics and no contracts. Every other
+// answer is the shipped one.
+export const emptySlices: Slices = {
+  ...shippedSlices,
+  epics: create(EpicsListResponseSchema, { epics: [] }),
+  contracts: create(ContractsListResponseSchema, { contracts: [] }),
+  panes: create(PanesListResponseSchema, { panes: [] }),
+  headless: create(ListHeadlessResponseSchema, { sessions: [] }),
 };

@@ -94,6 +94,7 @@ async function fakeFetch(probe: Probe, input: RequestInfo | URL, init?: RequestI
 
 function row(init: Partial<Row> & Pick<Row, "key">): Row {
   return {
+    tool: "",
     id: init.key,
     kind: "pane",
     label: init.key,
@@ -159,14 +160,14 @@ function epicAddress(
   slug: string,
   page: Extract<Address["entry"], { kind: "epic" }>["page"] = { kind: "epic" },
 ): Address {
-  return { order: "attention", entry: { kind: "epic", id: `${repository}/${slug}`, page } };
+  return { view: "inbox", entry: { kind: "epic", id: `${repository}/${slug}`, page } };
 }
 
 // steererAddress is the address of the steerer's session row.
-const steererAddress: Address = { order: "attention", entry: { kind: "session", id: "s1" } };
+const steererAddress: Address = { view: "inbox", entry: { kind: "session", id: "s1" } };
 
 // agentsAddress is the address of the steerer's session row with its agents list open in the panel.
-const agentsAddress: Address = { order: "attention", entry: { kind: "session", id: "s1", panel: "agents" } };
+const agentsAddress: Address = { view: "inbox", entry: { kind: "session", id: "s1", panel: "agents" } };
 
 // draw renders App over the setup, with the probe recording its address reports.
 function draw(container: HTMLElement, clients: Clients, probe: Probe, setup: Setup): Promise<void> {
@@ -174,7 +175,6 @@ function draw(container: HTMLElement, clients: Clients, probe: Probe, setup: Set
     render(
       <App
         rows={setup.rows ?? []}
-        error=""
         now={now}
         clients={clients}
         epics={setup.epics}

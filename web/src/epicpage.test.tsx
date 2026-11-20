@@ -387,6 +387,7 @@ const steererRow: Row = {
   unseen: false,
   archived: false,
   archiveKind: "session",
+  tool: "",
 };
 
 test("EpicCommands: the Steered from door draws whenever the epic names its steerer, titled from the listed row, and opens its target", async () => {
@@ -464,6 +465,7 @@ test("EpicWords: a page whose runs and history carry 40-character revisions show
 // row is a listed row with the fields the tests do not set at their defaults.
 function row(init: Partial<Row> & Pick<Row, "key">): Row {
   return {
+    tool: "",
     id: init.key,
     kind: "session",
     label: init.key,

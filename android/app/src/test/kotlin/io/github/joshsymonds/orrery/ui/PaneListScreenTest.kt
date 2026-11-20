@@ -4,7 +4,6 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasAnyAncestor
-import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
@@ -14,20 +13,23 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performImeAction
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
+import com.connectrpc.Code
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
-import com.connectrpc.Code
 import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.api.Reply
 import io.github.joshsymonds.orrery.awaitUntil
 import io.github.joshsymonds.orrery.gen.orrery.v1.AskResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession
+import io.github.joshsymonds.orrery.gen.orrery.v1.HostStatusResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.ListHeadlessResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.PickerRow
 import io.github.joshsymonds.orrery.gen.orrery.v1.RunResponse
 import io.github.joshsymonds.orrery.mainThreadComposeRule
+import java.util.concurrent.atomic.AtomicReference
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -36,7 +38,6 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
-import java.util.concurrent.atomic.AtomicReference
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], qualifiers = "w400dp-h1200dp")
@@ -45,22 +46,17 @@ class PaneListScreenTest {
         const val NOW = 1_700_000_000L
         const val ALPHA = "/home/user/alpha"
         const val BETA = "/home/user/beta"
+        const val HOST = "example-host"
         const val PANES_LIST = "/orrery.v1.Panes/List"
         const val PICKER_ASK = "/orrery.v1.Picker/Ask"
         const val PICKER_RUN = "/orrery.v1.Picker/Run"
         const val LIST_HEADLESS = "/orrery.v1.Sessions/ListHeadless"
+        const val EPICS_LIST = "/orrery.v1.Epics/List"
+        const val HOST_STATUS = "/orrery.v1.Host/Status"
         const val HEADLESS_ID = "a1b2c3d4e5f60718293a4b5c6d7e8f90"
         const val HEADLESS_LABEL = "alpha-agent · a1b2c3d4"
-        const val HEADLESS_SUMMARY = "Waiting on a synthetic plan."
-        const val FAILED_SEEN_DIR = "/home/user/alpha-archive"
-        const val STOPPED_DIR = "/home/user/alpha-old"
-        const val WORKING_ID = "00000000000000000000000000000001"
-        const val WAITING_ID = "00000000000000000000000000000002"
-        const val IDLE_ID = "00000000000000000000000000000003"
-        const val INTERRUPTED_ID = "00000000000000000000000000000004"
-        const val FAILED_UNSEEN_ID = "00000000000000000000000000000005"
-        const val FAILED_SEEN_ID = "00000000000000000000000000000006"
-        const val STOPPED_ID = "00000000000000000000000000000007"
+        const val UNSEEN_WORDS = "new since you looked"
+        const val SHELL_SESSION = "_orrery-shell-1"
     }
 
     @get:Rule
@@ -69,6 +65,10 @@ class PaneListScreenTest {
     private var openedPane: Pane? = null
     private val openedPaneId = AtomicReference<String?>(null)
     private var settingsOpened = 0
+
+    private fun convoTag(paneId: String): String = "convo:pane:$HOST:$paneId"
+
+    private fun sessionTag(sessionId: String): String = "convo:session:$sessionId"
 
     private fun pane(
         id: String,
@@ -82,7 +82,7 @@ class PaneListScreenTest {
         session: String = "example-session",
     ): PaneProto = PaneProto.newBuilder()
         .setId(id)
-        .setHost("example-host")
+        .setHost(HOST)
         .setSession(session)
         .setWindow(1)
         .setPane(0)
@@ -108,37 +108,10 @@ class PaneListScreenTest {
                 .setState("waiting")
                 .setChanged(NOW - 60)
                 .setSeen(0)
-                .setSummary(HEADLESS_SUMMARY)
+                .setSummary("Waiting on a synthetic plan.")
                 .setQuestion("Proceed with the synthetic plan?")
                 .setNewestReply(NOW - 60),
         )
-        .build()
-
-    private fun headlessSession(id: String, dir: String, state: String, changed: Long, seen: Long): HeadlessSession =
-        HeadlessSession.newBuilder()
-            .setId(id)
-            .setDir(dir)
-            .setLabel("synthetic · ${id.take(8)}")
-            .setState(state)
-            .setChanged(changed)
-            .setSeen(seen)
-            .setSummary("Synthetic $state session.")
-            .setNewestReply(changed)
-            .build()
-
-    /**
-     * One headless session in each state the pane list tells apart. The working, waiting, idle, interrupted and
-     * unseen failed ones are tree rows. The seen failed one (changed equal to seen) and the stopped one are ended,
-     * each in a folder of its own that sorts between alpha and beta, so the idle session in beta is the last tree row.
-     */
-    private fun headlessStatesBody(): ListHeadlessResponse = ListHeadlessResponse.newBuilder()
-        .addSessions(headlessSession(WORKING_ID, ALPHA, "working", changed = NOW - 30, seen = NOW - 300))
-        .addSessions(headlessSession(WAITING_ID, ALPHA, "waiting", changed = NOW - 60, seen = 0))
-        .addSessions(headlessSession(INTERRUPTED_ID, ALPHA, "interrupted", changed = NOW - 120, seen = NOW - 120))
-        .addSessions(headlessSession(FAILED_UNSEEN_ID, ALPHA, "failed", changed = NOW - 90, seen = NOW - 600))
-        .addSessions(headlessSession(FAILED_SEEN_ID, FAILED_SEEN_DIR, "failed", changed = NOW - 400, seen = NOW - 400))
-        .addSessions(headlessSession(STOPPED_ID, STOPPED_DIR, "stopped", changed = NOW - 900, seen = 0))
-        .addSessions(headlessSession(IDLE_ID, BETA, "idle", changed = NOW - 7200, seen = NOW - 7200))
         .build()
 
     private fun pickerRowsResponse(): AskResponse = AskResponse.newBuilder()
@@ -164,10 +137,15 @@ class PaneListScreenTest {
         .addPanes(pane("%5", ALPHA, "alpha-idle", "idle", "", 0, 0, 0))
         .build()
 
+    /** Serves the host as the panes' host, so the panes and the headless sessions of one directory share a card. */
     private fun setScreen(server: FakeOrreryServer) {
+        server.respond(HOST_STATUS, HostStatusResponse.newBuilder().setHost(HOST).build())
+        server.respond(EPICS_LIST, EpicsListResponse.getDefaultInstance())
+        // Made once, outside the composition, so a recomposition does not hand the screen a client it has not read with.
+        val client = OrreryClient(server.baseUrl)
         composeRule.setContent {
             PaneListScreen(
-                client = OrreryClient(server.baseUrl),
+                client = client,
                 onOpenPane = { openedPane = it },
                 onOpenPaneId = { openedPaneId.set(it) },
                 onStartedSession = {},
@@ -186,11 +164,12 @@ class PaneListScreenTest {
                 it.config[SemanticsProperties.TestTag].startsWith(prefix)
         }
 
-    private fun nodeOf(matcher: SemanticsMatcher) =
-        composeRule.onNode(matcher, useUnmergedTree = true).fetchSemanticsNode()
-
     private fun awaitRow(id: String) {
-        composeRule.awaitUntil { countNodes(hasTestTag("pane-row:$id")) == 1 }
+        composeRule.awaitUntil { countNodes(hasTestTag(convoTag(id))) == 1 }
+    }
+
+    private fun awaitNode(matcher: SemanticsMatcher) {
+        composeRule.awaitUntil { countNodes(matcher) > 0 }
     }
 
     private fun awaitText(text: String) {
@@ -200,147 +179,18 @@ class PaneListScreenTest {
     private fun assertRowsShown(vararg ids: String) {
         for (id in listOf("%1", "%2", "%3", "%4", "%5")) {
             val expected = if (id in ids) 1 else 0
-            assertEquals("row $id", expected, countNodes(hasTestTag("pane-row:$id")))
-        }
-    }
-
-    private fun assertNoFolderHeaders() {
-        assertEquals(0, countNodes(hasTagPrefix("folder:")))
-    }
-
-    @Test
-    fun allNestsPanesUnderFolderHeadersAndCollapsesOneOnTap() {
-        FakeOrreryServer().use { server ->
-            server.respond(PANES_LIST, panesBody())
-            setScreen(server)
-            awaitRow("%1")
-
-            assertEquals(1, countNodes(hasTestTag("folder:$ALPHA")))
-            assertEquals(1, countNodes(hasTestTag("folder:$BETA")))
-            assertTrue(nodeOf(hasTestTag("folder:$ALPHA")).boundsInRoot.top < nodeOf(hasTestTag("pane-row:%1")).boundsInRoot.top)
-            assertTrue(nodeOf(hasTestTag("pane-row:%5")).boundsInRoot.top < nodeOf(hasTestTag("folder:$BETA")).boundsInRoot.top)
-            assertTrue(nodeOf(hasTestTag("folder:$BETA")).boundsInRoot.top < nodeOf(hasTestTag("pane-row:%3")).boundsInRoot.top)
-            assertTrue(nodeOf(hasText("alpha-build")).boundsInRoot.left > nodeOf(hasText("ALPHA")).boundsInRoot.left)
-
-            composeRule.onNodeWithTag("folder:$ALPHA").performClick()
-
-            assertRowsShown("%3", "%4")
-            assertEquals(1, countNodes(hasTestTag("folder:$ALPHA")))
-            composeRule.onNodeWithTag("folder:$ALPHA").performClick()
-            assertRowsShown("%1", "%2", "%3", "%4", "%5")
+            assertEquals("row $id", expected, countNodes(hasTestTag(convoTag(id))))
         }
     }
 
     @Test
-    fun rowWithoutChangeTimeShowsNoAge() {
-        FakeOrreryServer().use { server ->
-            server.respond(PANES_LIST, panesBody())
-            setScreen(server)
-            awaitRow("%5")
-
-            // NOW seconds since the epoch is 19675 days; a row with changed == 0 must not show it.
-            assertEquals(0, countNodes(hasText("19675d")))
-        }
-    }
-
-    @Test
-    fun unseenDotAppearsOnlyOnUnseenRows() {
-        FakeOrreryServer().use { server ->
-            server.respond(PANES_LIST, panesBody())
-            setScreen(server)
-            awaitRow("%1")
-
-            assertEquals(2, countNodes(hasContentDescription("unseen")))
-            assertEquals(
-                1,
-                countNodes(hasContentDescription("unseen") and hasAnyAncestor(hasTestTag("pane-row:%2"))),
-            )
-            assertEquals(
-                1,
-                countNodes(hasContentDescription("unseen") and hasAnyAncestor(hasTestTag("pane-row:%4"))),
-            )
-        }
-    }
-
-    @Test
-    fun newFilterListsUnreadPanesNewestFirstWithProjectAndNoFolderHeaders() {
-        FakeOrreryServer().use { server ->
-            server.respond(PANES_LIST, panesBody())
-            setScreen(server)
-            awaitRow("%1")
-
-            composeRule.onNodeWithTag("filter-new").performClick()
-
-            assertRowsShown("%2", "%4")
-            assertNoFolderHeaders()
-            assertTrue(nodeOf(hasTestTag("pane-row:%2")).boundsInRoot.top < nodeOf(hasTestTag("pane-row:%4")).boundsInRoot.top)
-            assertEquals(1, countNodes(hasText("alpha") and hasAnyAncestor(hasTestTag("pane-row:%2"))))
-            assertEquals(1, countNodes(hasText("beta") and hasAnyAncestor(hasTestTag("pane-row:%4"))))
-        }
-    }
-
-    @Test
-    fun waitingFilterListsWaitingPanesFlatWithProjectAndNoFolderHeaders() {
-        FakeOrreryServer().use { server ->
-            server.respond(PANES_LIST, panesBody())
-            setScreen(server)
-            awaitRow("%1")
-
-            composeRule.onNodeWithTag("filter-waiting").performClick()
-
-            assertRowsShown("%2")
-            assertNoFolderHeaders()
-            assertEquals(1, countNodes(hasText("alpha") and hasAnyAncestor(hasTestTag("pane-row:%2"))))
-            assertEquals(0, countNodes(hasText("beta")))
-        }
-    }
-
-    @Test
-    fun allFilterRestoresEveryRow() {
-        FakeOrreryServer().use { server ->
-            server.respond(PANES_LIST, panesBody())
-            setScreen(server)
-            awaitRow("%1")
-
-            composeRule.onNodeWithTag("filter-waiting").performClick()
-            composeRule.onNodeWithTag("filter-all").performClick()
-
-            assertRowsShown("%1", "%2", "%3", "%4", "%5")
-        }
-    }
-
-    @Test
-    fun shellSessionPanesAreHiddenInEveryFilter() {
-        FakeOrreryServer().use { server ->
-            server.respond(
-                PANES_LIST,
-                panesBody().toBuilder()
-                    .addPanes(pane("%6", ALPHA, "shell-pane", "waiting", "Internal shell.", NOW - 30, NOW - 300, NOW - 60, session = "_orrery-shell-1"))
-                    .addPanes(pane("%7", ALPHA, "ordinary-pane", "waiting", "Waiting on a reply.", NOW - 30, NOW - 300, NOW - 60))
-                    .addPanes(pane("%8", ALPHA, "near-miss-pane", "waiting", "Waiting on a reply.", NOW - 30, NOW - 300, NOW - 60, session = "orrery-shell-2"))
-                    .build(),
-            )
-            setScreen(server)
-            awaitRow("%7")
-
-            for (filter in listOf("filter-all", "filter-new", "filter-waiting")) {
-                composeRule.onNodeWithTag(filter).performClick()
-
-                assertEquals("$filter hides the shell pane", 0, countNodes(hasTestTag("pane-row:%6")))
-                assertEquals("$filter shows the ordinary pane", 1, countNodes(hasTestTag("pane-row:%7")))
-                assertEquals("$filter shows the near-miss pane", 1, countNodes(hasTestTag("pane-row:%8")))
-            }
-        }
-    }
-
-    @Test
-    fun tappingRowOpensThatPane() {
+    fun tappingAConversationOpensItsPane() {
         FakeOrreryServer().use { server ->
             server.respond(PANES_LIST, panesBody())
             setScreen(server)
             awaitRow("%3")
 
-            composeRule.onNodeWithTag("pane-row:%3").performClick()
+            composeRule.onNodeWithTag(convoTag("%3")).performClick()
 
             assertEquals("%3", openedPane?.id)
             assertEquals("beta-tests", openedPane?.label)
@@ -348,100 +198,24 @@ class PaneListScreenTest {
     }
 
     @Test
-    fun headlessSessionJoinsTheAllTreeUnderItsDirFolder() {
+    fun headlessSessionDrawsUnderItsDirectoryCard() {
         FakeOrreryServer().use { server ->
             server.respond(PANES_LIST, panesBody())
             server.respond(LIST_HEADLESS, headlessBody())
             setScreen(server)
-            awaitRow(HEADLESS_ID)
+            awaitNode(hasTestTag(sessionTag(HEADLESS_ID)))
 
             assertRowsShown("%1", "%2", "%3", "%4", "%5")
-            assertEquals(1, countNodes(hasTestTag("folder:$ALPHA")))
-            assertTrue(nodeOf(hasTestTag("folder:$ALPHA")).boundsInRoot.top < nodeOf(hasTestTag("pane-row:$HEADLESS_ID")).boundsInRoot.top)
-            assertEquals(1, countNodes(hasText(HEADLESS_LABEL) and hasAnyAncestor(hasTestTag("pane-row:$HEADLESS_ID"))))
-            assertEquals(1, countNodes(hasText(HEADLESS_SUMMARY) and hasAnyAncestor(hasTestTag("pane-row:$HEADLESS_ID"))))
-            assertEquals(1, countNodes(hasText("waiting") and hasAnyAncestor(hasTestTag("pane-row:$HEADLESS_ID"))))
             assertEquals(
                 1,
-                countNodes(hasContentDescription("unseen") and hasAnyAncestor(hasTestTag("pane-row:$HEADLESS_ID"))),
+                countNodes(hasTestTag(sessionTag(HEADLESS_ID)) and hasAnyAncestor(hasTestTag("project:|$ALPHA"))),
             )
-        }
-    }
-
-    @Test
-    fun endedSessionsLeaveTheTreeAndFoldIntoOneLineThatOpensToThem() {
-        FakeOrreryServer().use { server ->
-            // One working pane in alpha and one idle pane in beta; with the seven headless sessions the list is short
-            // enough that every row, the last tree row included, is composed when the absence checks run.
-            server.respond(
-                PANES_LIST,
-                PanesListResponse.newBuilder()
-                    .addPanes(pane("%1", ALPHA, "alpha-build", "working", "Compiling the synthetic module.", NOW - 30, NOW - 300, NOW - 400))
-                    .addPanes(pane("%3", BETA, "beta-tests", "idle", "Tests finished.", NOW - 7200, NOW - 7200, NOW - 7200))
-                    .build(),
+            assertEquals(1, countNodes(hasText(HEADLESS_LABEL) and hasAnyAncestor(hasTestTag(sessionTag(HEADLESS_ID)))))
+            assertEquals(1, countNodes(hasText("? Proceed with the synthetic plan?") and hasAnyAncestor(hasTestTag(sessionTag(HEADLESS_ID)))))
+            assertEquals(
+                1,
+                countNodes(hasContentDescription(UNSEEN_WORDS) and hasAnyAncestor(hasTestTag(sessionTag(HEADLESS_ID)))),
             )
-            server.respond(LIST_HEADLESS, headlessStatesBody())
-            setScreen(server)
-            // The idle session is the last tree row, so once it is composed every tree row above it is too; the
-            // absence checks below would otherwise pass for rows the lazy list never drew.
-            awaitRow(IDLE_ID)
-
-            for (id in listOf(WORKING_ID, WAITING_ID, IDLE_ID, INTERRUPTED_ID, FAILED_UNSEEN_ID)) {
-                assertEquals("$id is a tree row", 1, countNodes(hasTestTag("pane-row:$id")))
-            }
-            assertEquals("seen failed is not a tree row", 0, countNodes(hasTestTag("pane-row:$FAILED_SEEN_ID")))
-            assertEquals("stopped is not a tree row", 0, countNodes(hasTestTag("pane-row:$STOPPED_ID")))
-            assertEquals("the archive folder holds only an ended session", 0, countNodes(hasTestTag("folder:$FAILED_SEEN_DIR")))
-            assertEquals("the old folder holds only an ended session", 0, countNodes(hasTestTag("folder:$STOPPED_DIR")))
-            assertEquals(1, countNodes(hasTestTag("folder:$ALPHA")))
-            assertEquals(1, countNodes(hasTestTag("folder:$BETA")))
-            assertEquals(1, countNodes(hasText("2 ENDED")))
-
-            composeRule.onNodeWithTag("ended-toggle").performClick()
-
-            assertEquals(1, countNodes(hasTestTag("pane-row:$FAILED_SEEN_ID")))
-            assertEquals(1, countNodes(hasTestTag("pane-row:$STOPPED_ID")))
-            assertEquals(1, countNodes(hasText("alpha-archive") and hasAnyAncestor(hasTestTag("pane-row:$FAILED_SEEN_ID"))))
-            assertEquals(1, countNodes(hasText("alpha-old") and hasAnyAncestor(hasTestTag("pane-row:$STOPPED_ID"))))
-            for (id in listOf(WORKING_ID, WAITING_ID, IDLE_ID, INTERRUPTED_ID, FAILED_UNSEEN_ID)) {
-                assertEquals("$id stays a tree row", 1, countNodes(hasTestTag("pane-row:$id")))
-            }
-            assertEquals(0, countNodes(hasTestTag("folder:$FAILED_SEEN_DIR")))
-            assertEquals(1, countNodes(hasText("2 ENDED")))
-
-            composeRule.onNodeWithTag("ended-toggle").performClick()
-
-            assertEquals(0, countNodes(hasTestTag("pane-row:$FAILED_SEEN_ID")))
-            assertEquals(0, countNodes(hasTestTag("pane-row:$STOPPED_ID")))
-            assertEquals(1, countNodes(hasText("2 ENDED")))
-        }
-    }
-
-    @Test
-    fun endedLineIsAbsentWhileNoSessionHasEnded() {
-        FakeOrreryServer().use { server ->
-            server.respond(PANES_LIST, panesBody())
-            server.respond(LIST_HEADLESS, headlessBody())
-            setScreen(server)
-            awaitRow(HEADLESS_ID)
-
-            assertEquals(0, countNodes(hasTestTag("ended-toggle")))
-        }
-    }
-
-    @Test
-    fun waitingFilterListsTheHeadlessWaitingSessionWithThePanes() {
-        FakeOrreryServer().use { server ->
-            server.respond(PANES_LIST, panesBody())
-            server.respond(LIST_HEADLESS, headlessBody())
-            setScreen(server)
-            awaitRow(HEADLESS_ID)
-
-            composeRule.onNodeWithTag("filter-waiting").performClick()
-
-            assertRowsShown("%2")
-            assertEquals(1, countNodes(hasTestTag("pane-row:$HEADLESS_ID")))
-            assertNoFolderHeaders()
         }
     }
 
@@ -451,9 +225,9 @@ class PaneListScreenTest {
             server.respond(PANES_LIST, panesBody())
             server.respond(LIST_HEADLESS, headlessBody())
             setScreen(server)
-            awaitRow(HEADLESS_ID)
+            awaitNode(hasTestTag(sessionTag(HEADLESS_ID)))
 
-            composeRule.onNodeWithTag("pane-row:$HEADLESS_ID").performClick()
+            composeRule.onNodeWithTag(sessionTag(HEADLESS_ID)).performClick()
 
             assertEquals(HEADLESS_ID, openedPane?.id)
             assertEquals(true, openedPane?.headless)
@@ -470,7 +244,7 @@ class PaneListScreenTest {
 
             awaitRow("%1")
             assertRowsShown("%1", "%2", "%3", "%4", "%5")
-            assertEquals(0, countNodes(hasText("could not load panes")))
+            assertEquals(0, countNodes(hasText("The server did not answer.")))
         }
     }
 
@@ -483,7 +257,7 @@ class PaneListScreenTest {
 
             awaitRow("%1")
             assertRowsShown("%1", "%2", "%3", "%4", "%5")
-            assertEquals(0, countNodes(hasText("could not load panes")))
+            assertEquals(0, countNodes(hasText("The server did not answer.")))
         }
     }
 
@@ -495,19 +269,29 @@ class PaneListScreenTest {
 
             awaitRow("%1")
             assertRowsShown("%1", "%2", "%3", "%4", "%5")
-            assertEquals(0, countNodes(hasText("could not load panes")))
+            assertEquals(0, countNodes(hasText("The server did not answer.")))
         }
     }
 
     @Test
-    fun internalHeadlessListErrorShowsCouldNotLoadPanes() {
+    fun internalHeadlessListErrorShowsTheServerDidNotAnswer() {
         FakeOrreryServer().use { server ->
             server.respond(PANES_LIST, panesBody())
             server.fail(LIST_HEADLESS, Code.INTERNAL_ERROR, "boom")
             setScreen(server)
 
-            awaitText("could not load panes")
-            assertEquals(0, countNodes(hasTestTag("pane-row:%1")))
+            awaitText("The server did not answer.")
+            assertEquals(0, countNodes(hasTestTag(convoTag("%1"))))
+        }
+    }
+
+    @Test
+    fun malformedBodyShowsTheServerDidNotAnswer() {
+        FakeOrreryServer().use { server ->
+            server.route(PANES_LIST) { Reply.Raw("not json".toByteArray(Charsets.UTF_8)) }
+            setScreen(server)
+
+            awaitText("The server did not answer.")
         }
     }
 
@@ -525,80 +309,39 @@ class PaneListScreenTest {
     }
 
     @Test
-    fun pickerNewIsTheOnlyNewButtonInEveryView() {
+    fun theHeadHoldsTheOnlyNewButtonWhileTheTreeIsListed() {
         FakeOrreryServer().use { server ->
             server.respond(PANES_LIST, panesBody())
             setScreen(server)
             awaitRow("%1")
 
-            for (filter in listOf("filter-all", "filter-new", "filter-waiting")) {
-                composeRule.onNodeWithTag(filter).performClick()
-
-                assertEquals(
-                    "$filter shows picker-new",
-                    1,
-                    countNodes(hasText("New") and hasAnyAncestor(hasTestTag("picker-new"))),
-                )
-                // The filter tab also reads "New"; every other clickable "New" is a New button.
-                val newButtons = hasText("New") and hasClickAction() and !hasTestTag("filter-new")
-                assertEquals(
-                    "$filter has exactly one New button",
-                    1,
-                    composeRule.onAllNodes(newButtons).fetchSemanticsNodes().size,
-                )
-            }
+            assertEquals(1, countNodes(hasTestTag("picker-new")))
+            assertEquals(0, countNodes(hasTestTag("empty-new")))
         }
     }
 
     @Test
-    fun serverErrorShowsCouldNotLoadPanesAndRetryReloads() {
-        FakeOrreryServer().use { server ->
-            server.fail(PANES_LIST, Code.INTERNAL_ERROR, "boom")
-            setScreen(server)
-
-            awaitText("could not load panes")
-            composeRule.onNodeWithText("Retry").assertExists()
-
-            server.respond(PANES_LIST, panesBody())
-            composeRule.onNodeWithText("Retry").performClick()
-
-            awaitRow("%1")
-            composeRule.onNodeWithText("ALPHA").assertExists()
-        }
-    }
-
-    @Test
-    fun malformedBodyShowsCouldNotLoadPanes() {
-        FakeOrreryServer().use { server ->
-            server.route(PANES_LIST) { Reply.Raw("not json".toByteArray(Charsets.UTF_8)) }
-            setScreen(server)
-
-            awaitText("could not load panes")
-        }
-    }
-
-    @Test
-    fun newButtonSitsInTheTopHeaderAboveTheFilters() {
+    fun newButtonSitsInTheHeadAboveTheTree() {
         FakeOrreryServer().use { server ->
             server.respond(PANES_LIST, panesBody())
             setScreen(server)
             awaitRow("%1")
 
             val newTop = composeRule.onNodeWithTag("picker-new").fetchSemanticsNode().boundsInRoot.top
-            val filterTop = composeRule.onNodeWithTag("filter-all").fetchSemanticsNode().boundsInRoot.top
-            assertTrue(newTop < filterTop)
+            val cardTop = composeRule.onNodeWithTag("project:|$ALPHA").fetchSemanticsNode().boundsInRoot.top
+            assertTrue(newTop < cardTop)
         }
     }
 
     @Test
-    fun titleRowShowsTheIconAsADiscLeftOfPanes() {
+    fun titleRowShowsTheIconAsADiscLeftOfTheWord() {
         FakeOrreryServer().use { server ->
             server.respond(PANES_LIST, panesBody())
             setScreen(server)
             awaitRow("%1")
 
-            val mark = nodeOf(hasTestTag("title-mark")).boundsInRoot
-            val title = nodeOf(hasText("Panes")).boundsInRoot
+            val mark = composeRule.onNodeWithTag("title-mark").fetchSemanticsNode().boundsInRoot
+            val title = composeRule.onNodeWithText("orrery").fetchSemanticsNode().boundsInRoot
             assertTrue(mark.right <= title.left)
             assertEquals(title.center.y.toDouble(), mark.center.y.toDouble(), 1.0)
             assertEquals(title.height.toDouble(), mark.height.toDouble(), 1.0)
@@ -640,6 +383,81 @@ class PaneListScreenTest {
                 .performSemanticsAction(SemanticsActions.Dismiss)
 
             composeRule.awaitUntil { countNodes(hasTestTag("picker-text")) == 0 }
+        }
+    }
+
+    @Test
+    fun rowWithoutChangeTimeShowsNoAge() {
+        FakeOrreryServer().use { server ->
+            server.respond(PANES_LIST, panesBody())
+            setScreen(server)
+            awaitRow("%5")
+
+            // NOW seconds since the epoch is 19675 days; a row with changed == 0 must not show it.
+            assertEquals(0, countNodes(hasText("19675d")))
+        }
+    }
+
+    @Test
+    fun unseenDotAppearsOnlyOnUnseenRows() {
+        FakeOrreryServer().use { server ->
+            server.respond(PANES_LIST, panesBody())
+            setScreen(server)
+            awaitRow("%1")
+
+            assertEquals(2, countNodes(hasContentDescription(UNSEEN_WORDS)))
+            assertEquals(
+                1,
+                countNodes(hasContentDescription(UNSEEN_WORDS) and hasAnyAncestor(hasTestTag(convoTag("%2")))),
+            )
+            assertEquals(
+                1,
+                countNodes(hasContentDescription(UNSEEN_WORDS) and hasAnyAncestor(hasTestTag(convoTag("%4")))),
+            )
+        }
+    }
+
+    @Test
+    fun shellSessionPanesAreHiddenFromTheTree() {
+        FakeOrreryServer().use { server ->
+            server.respond(
+                PANES_LIST,
+                panesBody().toBuilder()
+                    .addPanes(pane("%6", ALPHA, "shell-pane", "waiting", "Internal shell.", NOW - 30, NOW - 300, NOW - 60, session = SHELL_SESSION))
+                    .addPanes(pane("%7", ALPHA, "ordinary-pane", "waiting", "Waiting on a reply.", NOW - 30, NOW - 300, NOW - 60))
+                    .addPanes(pane("%8", ALPHA, "near-miss-pane", "waiting", "Waiting on a reply.", NOW - 30, NOW - 300, NOW - 60, session = "orrery-shell-2"))
+                    .build(),
+            )
+            setScreen(server)
+            awaitRow("%7")
+
+            assertEquals("the shell pane is not drawn", 0, countNodes(hasTestTag(convoTag("%6"))))
+            assertEquals("the ordinary pane is drawn", 1, countNodes(hasTestTag(convoTag("%7"))))
+            assertEquals("the near-miss pane is drawn", 1, countNodes(hasTestTag(convoTag("%8"))))
+        }
+    }
+
+    @Test
+    fun endedLineIsAbsentWhileNoSessionHasEnded() {
+        FakeOrreryServer().use { server ->
+            server.respond(PANES_LIST, panesBody())
+            server.respond(LIST_HEADLESS, headlessBody())
+            setScreen(server)
+            awaitNode(hasTestTag(sessionTag(HEADLESS_ID)))
+
+            assertEquals(0, countNodes(hasTagPrefix("ended:")))
+        }
+    }
+
+    @Test
+    fun aPaneOnTheServingHostDrawsItsCardWithNoHostName() {
+        FakeOrreryServer().use { server ->
+            server.respond(PANES_LIST, panesBody())
+            setScreen(server)
+            awaitRow("%1")
+
+            assertEquals(0, countNodes(hasTagPrefix("project:$HOST|")))
+            assertEquals(1, countNodes(hasTestTag("project:|$ALPHA")))
         }
     }
 }

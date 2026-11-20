@@ -67,6 +67,8 @@ test("fixtures/head: importing head.ts leaves the shipped slices as they are", (
       ["tidepool/buoy-feeds", "6c2f9e14-3a7b-4d58-9b0e-2f7a1c8d4e55"],
       ["orrery/holder-scopes", "sess-holder-19"],
       ["tidepool/tide-cache", "sess-cache-20"],
+      ["almanac/moon-rounding", "e7c4b2a1-5d9f-4e3a-9b61-2a8f0c4d7e13"],
+      ["tidepool/tide-warmup", "9b5e1a47-2c0d-4e8f-8a31-6d7c0f5b2e90"],
     ],
   );
   assert.equal(paneOf(shippedSlices, "%14").orreryId, "sess-rota-14");

@@ -4,9 +4,17 @@
 // unserved, so a page that makes one shows it.
 
 import { create } from "@bufbuild/protobuf";
-import { Code, ConnectError, createRouterTransport, type HandlerContext, type Transport } from "@connectrpc/connect";
+import {
+  Code,
+  ConnectError,
+  createRouterTransport,
+  type HandlerContext,
+  type Interceptor,
+  type Transport,
+} from "@connectrpc/connect";
 
 import { createClients } from "../client";
+import { Contracts } from "../gen/orrery/v1/contracts_pb";
 import { Epics, EpicsContinueResponseSchema, EpicsGetResponseSchema, Evidence, Steps } from "../gen/orrery/v1/epics_pb";
 import { Notices } from "../gen/orrery/v1/notice_pb";
 import {
@@ -91,6 +99,19 @@ export function createFixtureTransport(slices: Slices = shippedSlices): FixtureT
       }
     });
 
+  // gate is a client-side interceptor on every call: a procedure the slices name in fail answers Unavailable, and one they
+  // name in hold stays unanswered until its call aborts. Every other call goes on to the router.
+  const gate: Interceptor = (next) => async (request) => {
+    const procedure = `${request.service.typeName}/${request.method.name}`;
+    if (slices.fail?.has(procedure)) {
+      throw new ConnectError(`${procedure} failed`, Code.Unavailable);
+    }
+    if (slices.hold?.has(procedure)) {
+      await held(request.signal);
+    }
+    return next(request);
+  };
+
   // wakers holds, for each session id, the wake of each open conversation stream of that session. A Control.Interrupt of
   // the session calls each one with the slices' then frame.
   const wakers = new Map<string, Set<(frame?: SessionsWatchConversationResponse) => void>>();
@@ -174,6 +195,13 @@ export function createFixtureTransport(slices: Slices = shippedSlices): FixtureT
         }
       },
     });
+    router.service(Contracts, {
+      list: () => slices.contracts,
+      get: refuse,
+      accept: refuse,
+      setAside: refuse,
+      reopen: refuse,
+    });
     router.service(Events, { watch: quiet });
     router.service(Control, {
       start: () => ({ id: "fixture-new-session" }),
@@ -252,7 +280,7 @@ export function createFixtureTransport(slices: Slices = shippedSlices): FixtureT
     router.service(Presence, { report: absorb });
     router.service(Notices, { watch: quiet, seen: absorb });
     router.service(Host, { status: () => slices.host });
-  });
+  }, { transport: { interceptors: [gate] } });
 
   return {
     transport,

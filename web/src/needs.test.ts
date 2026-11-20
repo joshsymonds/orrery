@@ -9,6 +9,7 @@ import { type Row } from "./rows";
 
 function makeRow(init: Partial<Row>): Row {
   return {
+    tool: "",
     key: "pane:box:%3",
     id: "%3",
     archiveId: "",

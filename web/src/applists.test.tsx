@@ -139,6 +139,7 @@ const background: BackgroundTask[] = [
 // row is a row as the list holds it, with the fields the tests do not set at their defaults.
 function row(init: Partial<Row> & Pick<Row, "key">): Row {
   return {
+    tool: "",
     id: init.key,
     kind: "pane",
     label: init.key,
@@ -194,12 +195,12 @@ function view(epics: Epic[]): EpicsView {
 }
 
 const alpha = epicOf("alpha", "s1");
-const sessionAddress: Address = { order: "attention", entry: { kind: "session", id: "s1" } };
-const agentsAddress: Address = { order: "attention", entry: { kind: "session", id: "s1", panel: "agents" } };
+const sessionAddress: Address = { view: "inbox", entry: { kind: "session", id: "s1" } };
+const agentsAddress: Address = { view: "inbox", entry: { kind: "session", id: "s1", panel: "agents" } };
 
 // epicAddress is the address of an epic's page.
 function epicAddress(slug: string): Address {
-  return { order: "attention", entry: { kind: "epic", id: `${repository}/${slug}`, page: { kind: "epic" } } };
+  return { view: "inbox", entry: { kind: "epic", id: `${repository}/${slug}`, page: { kind: "epic" } } };
 }
 
 // Setup is what a mount draws: the rows, the epics and the address App is given.
@@ -224,7 +225,6 @@ function draw(container: HTMLElement, clients: Clients, reported: Report[], setu
     render(
       <App
         rows={setup.rows ?? []}
-        error=""
         now={now}
         clients={clients}
         epics={setup.epics}

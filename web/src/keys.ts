@@ -86,8 +86,6 @@ export const keyGroups: readonly KeyGroup[] = [
         text: "filter the inbox: ⏎ leaves it, esc clears it",
         acts: [{ chords: [{ key: "/" }], in: page }],
       },
-      { caps: ["a"], text: "by attention", acts: [{ chords: [{ key: "a" }], in: page }] },
-      { caps: ["p"], text: "by project", acts: [{ chords: [{ key: "p" }], in: page }] },
       { caps: ["v"], text: "archived", acts: [{ chords: [{ key: "v" }], in: page }] },
       { caps: ["A"], text: "archive the row", acts: [{ chords: [{ key: "A" }], in: page }] },
       { caps: ["x"], text: "mark it seen", acts: [{ chords: [{ key: "x" }], in: page }] },
