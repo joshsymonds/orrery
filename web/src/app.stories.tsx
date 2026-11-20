@@ -289,8 +289,9 @@ export const Page: Stories = {
           section.scrollIntoView(),
         );
         await whenDrawn(root, ".cmdbar", "Nothing is left to settle.", () => {});
-        await whenDrawn(root, ".rcard", "", (panel) => {
-          panel.scrollTop = 0;
+        // The panel's page is what scrolls, so the title row is brought back into view there.
+        await whenDrawn(root, ".rcard .title-row", "", (title) => {
+          title.scrollIntoView({ block: "nearest" });
         });
       }}
     />

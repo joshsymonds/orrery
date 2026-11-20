@@ -1728,6 +1728,7 @@ export function App({
           onTalk={
             wide || contractLiveRow === null || contract.state !== "proposed" ? undefined : () => setTalking(true)
           }
+          onOpenEpic={navigated(openEpic)}
         />
       </div>
     );

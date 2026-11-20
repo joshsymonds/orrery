@@ -8,6 +8,7 @@ import {
   acceptable,
   acceptStep,
   concernedRows,
+  contractSlug,
   footText,
   leftOf,
   type Left,
@@ -35,6 +36,8 @@ export interface ContractRecordProps {
   aboutId?: string;
   onChanged?: () => void;
   onTalk?: () => void;
+  // onOpenEpic opens the contract's epic, which the record links once the contract is accepted and has one.
+  onOpenEpic?: (id: string) => void;
 }
 
 // Version is a version the record draws: one that holds its contract, which the record's body is drawn from.
@@ -85,7 +88,7 @@ function leftOfView(view: View, read: ReadonlySet<string>): Left {
 // the viewer picks an older one, which is read-only. Accept, Set aside and Reopen each send one call, and a refusal's
 // reason is shown in place of nothing looking done. The irreversible section is marked read once it is on screen.
 export function ContractRecord(props: ContractRecordProps): JSX.Element {
-  const { id, clients, writer, hasEpic, read, onRead, live, onAbout, aboutId, onChanged, onTalk } = props;
+  const { id, clients, writer, hasEpic, read, onRead, live, onAbout, aboutId, onChanged, onTalk, onOpenEpic } = props;
   const [loaded, setLoaded] = useState<View | undefined>(undefined);
   const [loadError, setLoadError] = useState("");
   const [sending, setSending] = useState(false);
@@ -228,6 +231,11 @@ export function ContractRecord(props: ContractRecordProps): JSX.Element {
         <button type="button" class="link" aria-expanded={versionsOpen} onClick={() => setVersionsOpen(!versionsOpen)}>
           {versionsLabel}
         </button>
+        {contract.state === "accepted" && hasEpic && onOpenEpic !== undefined && (
+          <button type="button" class="link" onClick={() => onOpenEpic(id)}>
+            {`its epic, ${contractSlug(id)}`}
+          </button>
+        )}
       </div>
       {versionsOpen && (
         <div class="tbl versions">

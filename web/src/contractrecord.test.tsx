@@ -91,6 +91,7 @@ interface Setup {
   aboutId?: string;
   onChanged?: () => void;
   onTalk?: () => void;
+  onOpenEpic?: (id: string) => void;
 }
 
 // Rig is what a check reaches: the record's DOM, the calls the fake server took, and settle, which waits until check holds
@@ -122,6 +123,7 @@ async function withRecord(t: TestContext, setup: Setup, check: (rig: Rig) => Pro
     aboutId: setup.aboutId,
     onChanged: setup.onChanged,
     onTalk: setup.onTalk,
+    onOpenEpic: setup.onOpenEpic,
   };
   try {
     await act(() => {
@@ -572,6 +574,33 @@ test("ContractActions: an accepted contract with no epic offers Set aside, and o
   await withRecord(t, { script: { get: () => tideAccepted }, hasEpic: true }, async (rig) => {
     await drawn(rig);
     assertNone(findButton(rig.container, "Set aside…"));
+  });
+});
+
+test("ContractVersions: an accepted contract with an epic links it after the versions, and a press opens the epic", async (t) => {
+  const opened: string[] = [];
+  const setup = { script: { get: () => tideAccepted }, hasEpic: true, onOpenEpic: (epic: string) => opened.push(epic) };
+  await withRecord(t, setup, async (rig) => {
+    await drawn(rig);
+    assert.deepEqual(
+      all(rig.container, ".facts.rec button.link").map((link) => link.textContent.trim()),
+      ["2 versions", "its epic, tide-alerts"],
+    );
+    await press(button(rig.container, "its epic, tide-alerts"));
+    assert.deepEqual(opened, [id]);
+  });
+});
+
+test("ContractVersions: no epic link when the contract has no epic, or is not accepted", async (t) => {
+  const none = { script: { get: () => tideAccepted }, hasEpic: false, onOpenEpic: () => undefined };
+  await withRecord(t, none, async (rig) => {
+    await drawn(rig);
+    assertNone(findButton(rig.container, "its epic, tide-alerts"));
+  });
+  const proposed = { script: { get: () => tideProposed }, hasEpic: true, onOpenEpic: () => undefined };
+  await withRecord(t, proposed, async (rig) => {
+    await drawn(rig);
+    assertNone(findButton(rig.container, "its epic, tide-alerts"));
   });
 });
 
