@@ -148,7 +148,10 @@ const wideQuery = "(min-width: 760px)";
 
 export function App({
   rows,
-  error,
+  error = "",
+  answered = true,
+  listFailed = false,
+  onRetry,
   now,
   clients,
   seenClock,
@@ -162,7 +165,14 @@ export function App({
   onAddress,
 }: {
   rows: Row[];
-  error: string;
+  // error is a note line the list shows above its rows, for a failure that is not a list's.
+  error?: string;
+  // Whether the rows and the epics have each answered their first load. Until both have, the inbox says loading.
+  answered?: boolean;
+  // Whether the latest rows or epics load failed. While it has, the inbox says the server did not answer, in place of
+  // the tree, and onRetry runs both loads again.
+  listFailed?: boolean;
+  onRetry?: () => void;
   now: number;
   clients: Clients;
   seenClock?: SeenClock;
@@ -1469,7 +1479,7 @@ export function App({
         <div class="list" ref={listRef} onMouseLeave={() => setPopout("none")}>
           <Inbox
             view={view}
-            state="ready"
+            state={!answered ? "loading" : listFailed ? "error" : "ready"}
             projects={projects}
             counts={counts}
             narrow={view === "inbox" ? narrowBy : ""}
@@ -1484,6 +1494,7 @@ export function App({
             renderConvo={renderConvo}
             archivedCount={archivedCount}
             onView={openView}
+            onRetry={onRetry}
             onNew={() => setPickerOpen(true)}
             onKeys={() => setHelpOpen(true)}
             notes={notes}

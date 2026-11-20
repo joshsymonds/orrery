@@ -176,11 +176,12 @@ export function start(
   const isStopped = () => stopped;
 
   const draw = () => {
-    const error = [loaded.error, loaded.epicsError].filter((text) => text !== "").join("; ");
     render(
       <App
         rows={loaded.rows}
-        error={error}
+        answered={rowsAnswered && epicsAnswered}
+        listFailed={loaded.error !== "" || loaded.epicsError !== ""}
+        onRetry={retryLists}
         epics={loaded.epics}
         contracts={loaded.contracts}
         now={now}
@@ -317,6 +318,11 @@ export function start(
   // pollRows asks for a rows load that is dropped while one is in flight, as a tick's is: the load in flight is as new
   // as the tick, and the next tick polls again.
   const pollRows = () => runRows(false);
+  // retryLists runs the rows and the epics loads at once, as Try now asks.
+  const retryLists = () => {
+    reloadRows();
+    reloadEpics(changedOnly);
+  };
 
   // shownEpic is the refetch that names the epic the page shows, or names none when it shows no epic.
   const shownEpic = (): Refetch => (viewing.case === "viewingEpic" ? new Set([viewing.value]) : changedOnly);

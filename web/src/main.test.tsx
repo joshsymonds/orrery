@@ -355,6 +355,19 @@ function labels(root: HTMLElement): string[] {
   return [...root.querySelectorAll(".row[data-key]:not(.standin)")].map(nameOf).filter((name) => name !== "");
 }
 
+// blankText is the text of the inbox's body state, loading or the server's silence or nothing listed, or "" when the
+// body draws none.
+function blankText(root: HTMLElement): string {
+  return root.querySelector(".inbox-rows .blank")?.textContent ?? "";
+}
+
+// tryNow is the Try now button the server's silence draws, or null when none is drawn.
+function tryNow(root: HTMLElement): HTMLButtonElement | null {
+  return [...root.querySelectorAll<HTMLButtonElement>(".inbox-rows .blank button")].find((button) =>
+    (button.textContent ?? "").includes("Try now"),
+  ) ?? null;
+}
+
 // ageOf returns the age text of the row named name, or "" when no such row is rendered.
 function ageOf(root: HTMLElement, name: string): string {
   const rows = [...root.querySelectorAll(".row[data-key]:not(.standin)")];
@@ -501,7 +514,7 @@ test("a reload shows the changed pane", (t) =>
     }
   }));
 
-test("a failed Panes.List shows the fixed error and keeps the sessions", (t) =>
+test("InboxTree: a failed Panes.List draws the server did not answer and Try now in place of the tree", (t) =>
   withPage(t.signal, async (root, start) => {
     const failing: typeof globalThis.fetch = async (input, init) => {
       const path = new URL(new Request(input, init).url).pathname;
@@ -516,9 +529,11 @@ test("a failed Panes.List shows the fixed error and keeps the sessions", (t) =>
     const clients = createClients(createTransport({ baseUrl: "https://orrery.test", fetch: failing }));
     const stop = start(root, clients, intervalMs);
     try {
-      await until(t.signal, () => root.querySelector(".error") !== null, "the error line");
-      assert.equal(root.querySelector(".error")?.textContent, "panes unavailable");
-      assert.ok(labels(root).includes("notes"), `labels were ${JSON.stringify(labels(root))}`);
+      await until(t.signal, () => blankText(root).includes("The server did not answer."), "the server did not answer");
+      assert.ok(blankText(root).includes("Trying again every few seconds."), "the error does not say it retries");
+      assert.ok(tryNow(root) !== null, "the error offers no Try now");
+      assert.deepEqual(labels(root), [], "the tree was drawn beside the error");
+      assert.equal(root.querySelector('[role="alert"]'), null, "a fixed error line was drawn");
     } finally {
       stop();
     }
@@ -875,7 +890,7 @@ test("with the event stream open, a poll tick reloads the epics and shows a chan
     }
   }));
 
-test("a failed Epics.List shows the fixed epics error and no epics, beside the rows", (t) =>
+test("InboxTree: a failed Epics.List draws the server did not answer and no epics or rows", (t) =>
   withPage(t.signal, async (root, start) => {
     const server = fakeServer("api");
     server.epics = [liveEpic("draft")];
@@ -884,31 +899,115 @@ test("a failed Epics.List shows the fixed epics error and no epics, beside the r
     );
     const stop = start(root, clients, intervalMs);
     try {
-      await until(t.signal, 
-        () => root.querySelector(".error") !== null && labels(root).includes("api"),
-        "the error line and the pane row",
-      );
-      assert.equal(root.querySelector(".error")?.textContent, "epics unavailable");
+      await until(t.signal, () => blankText(root).includes("The server did not answer."), "the server did not answer");
+      assert.ok(tryNow(root) !== null, "the error offers no Try now");
       assert.ok(!(root.textContent ?? "").includes("server detail"), "the page showed server text");
-      assert.ok(!labels(root).includes("alpha"), `an epic was drawn; labels were ${JSON.stringify(labels(root))}`);
-      assert.ok(labels(root).includes("api"), `the pane row is missing; labels were ${JSON.stringify(labels(root))}`);
+      assert.deepEqual(labels(root), [], `the tree was drawn; labels were ${JSON.stringify(labels(root))}`);
     } finally {
       stop();
     }
   }));
 
-test("a failed Panes.List and a failed Epics.List join their fixed errors in that order", (t) =>
+test("InboxTree: a failed Panes.List and a failed Epics.List each keep the error until its own load answers", (t) =>
   withPage(t.signal, async (root, start) => {
     const server = fakeServer("api");
-    const clients = createClients(
-      createTransport({ baseUrl: "https://orrery.test", fetch: failing(server, [panesPath, epicsListPath]) }),
-    );
+    server.epics = [liveEpic("draft")];
+    const failedPaths = [panesPath, epicsListPath];
+    const fetch: typeof globalThis.fetch = (input, init) => failing(server, failedPaths)(input, init);
+    const clients = createClients(createTransport({ baseUrl: "https://orrery.test", fetch }));
     const stop = start(root, clients, intervalMs);
     try {
-      await until(t.signal, 
-        () => root.querySelector(".error")?.textContent === "panes unavailable; epics unavailable",
-        "the joined error line",
+      await until(t.signal, () => blankText(root).includes("The server did not answer."), "the server did not answer");
+      failedPaths.splice(0, 1);
+      // A rows load starts only once the one before it has drawn, so a second answered Panes.List means the first
+      // answer's draw has run.
+      await until(t.signal, () => server.panesCalls >= 2, "a Panes.List that answered and drew, and the next one");
+      assert.ok(blankText(root).includes("The server did not answer."), "the error cleared while Epics.List still failed");
+      assert.deepEqual(labels(root), [], "the tree was drawn while Epics.List still failed");
+      failedPaths.splice(0, 1);
+      await until(t.signal, () => labels(root).includes("api") && labels(root).includes("alpha"), "the tree after both answer");
+      assert.equal(blankText(root), "", "the error stayed drawn once both answered");
+    } finally {
+      stop();
+    }
+  }));
+
+test("InboxTree: before the epics answer the first time the inbox says loading and draws no tree, though the rows have answered", (t) =>
+  withPage(t.signal, async (root, start) => {
+    const server = fakeServer("api", true);
+    server.epics = [liveEpic("draft")];
+    let releaseEpics: () => void = () => {};
+    server.epicsGate = new Promise<void>((resolve) => {
+      releaseEpics = resolve;
+    });
+    const stop = start(root, clientsFor(server), longPollMs);
+    try {
+      assert.equal(blankText(root), "loading…", "the inbox did not say loading before any answer");
+      // A rows load that answers opens the event stream after it draws, so the stream is the sync on the rows' answer.
+      await until(t.signal, () => server.watches.length === 1, "the stream the rows' answer opens");
+      assert.equal(blankText(root), "loading…", "the inbox drew the tree before the epics answered");
+      assert.deepEqual(labels(root), [], "the tree was drawn before the epics answered");
+      releaseEpics();
+      await until(t.signal, () => labels(root).includes("alpha"), "the epic once the epics answer");
+      assert.equal(blankText(root), "", "the inbox still says loading once both answered");
+    } finally {
+      stop();
+    }
+  }));
+
+test("InboxTree: Try now calls the rows and epics loads at once, and the tree returns once they answer", (t) =>
+  withPage(t.signal, async (root, start) => {
+    const server = fakeServer("api");
+    server.epics = [liveEpic("draft")];
+    const failedPaths = [panesPath, epicsListPath];
+    const asked: string[] = [];
+    const fetch: typeof globalThis.fetch = (input, init) => {
+      asked.push(new URL(new Request(input, init).url).pathname);
+      return failing(server, failedPaths)(input, init);
+    };
+    const callsOf = (path: string) => asked.filter((asker) => asker === path).length;
+    const clients = createClients(createTransport({ baseUrl: "https://orrery.test", fetch }));
+    const stop = start(root, clients, longPollMs);
+    try {
+      await until(t.signal, () => tryNow(root) !== null, "the error with Try now");
+      const panesBefore = callsOf(panesPath);
+      const epicsBefore = callsOf(epicsListPath);
+      tryNow(root)?.click();
+      await until(
+        t.signal,
+        () => callsOf(panesPath) > panesBefore && callsOf(epicsListPath) > epicsBefore,
+        "Try now asking both lists",
       );
+      assert.equal(callsOf(panesPath), panesBefore + 1, "Try now asked Panes.List more than once");
+      assert.equal(callsOf(epicsListPath), epicsBefore + 1, "Try now asked Epics.List more than once");
+      assert.ok(blankText(root).includes("The server did not answer."), "the error cleared while the lists still failed");
+      failedPaths.length = 0;
+      tryNow(root)?.click();
+      await until(t.signal, () => labels(root).includes("api") && labels(root).includes("alpha"), "the tree after Try now");
+      assert.equal(blankText(root), "", "the error stayed drawn after both lists answered");
+    } finally {
+      stop();
+    }
+  }));
+
+test("InboxTree: nothing listed draws Nothing is running.", (t) =>
+  withPage(t.signal, async (root, start) => {
+    const server = fakeServer("api");
+    const fetch: typeof globalThis.fetch = async (input, init) => {
+      const path = new URL(new Request(input, init).url).pathname;
+      if (path === panesPath) {
+        return json({ panes: [] });
+      }
+      if (path === sessionsPath) {
+        return json({ sessions: [], seq: "0" });
+      }
+      return server.fetch(input, init);
+    };
+    const clients = createClients(createTransport({ baseUrl: "https://orrery.test", fetch }));
+    const stop = start(root, clients, longPollMs);
+    try {
+      await until(t.signal, () => blankText(root).includes("Nothing is running."), "the empty inbox");
+      assert.equal(tryNow(root), null, "an empty inbox offers Try now");
     } finally {
       stop();
     }
