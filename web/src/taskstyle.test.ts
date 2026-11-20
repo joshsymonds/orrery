@@ -315,3 +315,8 @@ test("TaskStyle: at the desk a worker's session drawn in the middle fills the re
   assert.equal(declaredValue(desk, ".read > .worker-session", "grid-row"), "1 / -1");
   assert.equal(declaredValue(desk, ".read > .worker-session", "min-height"), "0");
 });
+
+test("TaskStyle: a stage's line takes its tone: bad in the bad role, accepted in the accepted role the chips use", () => {
+  assert.equal(declaredValue(desk, ".phase-output .inote.bad", "color"), "var(--o-role-bad)");
+  assert.equal(declaredValue(desk, ".phase-output .inote.accepted", "color"), declaredValue(desk, ".chip.accepted", "color"));
+});

@@ -1476,6 +1476,9 @@ button.subj:hover { background: var(--o-surface-raised); }
 
 /* A note under a control: what happened, a settled decision, or a refusal in the error role. An error shows whole, not cut to a line. */
 .inote.ok { color: var(--o-role-ok); }
+/* A stage's line on the task's record takes its tone: a failure in the bad role, an accepted task in the accepted (teal) role. */
+.phase-output .inote.bad { color: var(--o-role-bad); }
+.phase-output .inote.accepted { color: var(--o-role-engine); }
 .inote.error { margin: 0; padding: 0; border-radius: 0; background: none; color: var(--o-role-bad); overflow: visible; text-overflow: clip; white-space: normal; }
 .inote.banner { padding: var(--o-space-8) var(--o-space-12); border-radius: var(--o-radius-2); background: var(--o-surface-well); color: var(--o-ink-2); }
 
