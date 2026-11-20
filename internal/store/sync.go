@@ -243,8 +243,9 @@ func appendEvent(ctx context.Context, queries *sqlcgen.Queries, sessionID, kind,
 //
 // A write that commits after one of its statements ran with a context from withEpicEvent calls the hook OnCallerEvent
 // set, once, after the connection is free again, so the hook may read the store. A write that moved the revision of
-// any epic (see runWrite) then calls the hook OnEpicsChanged set, once, with those epics. A write that commits calls
-// each housekeeping hook its statements were marked for (see withHousekeepMark), once per id, the same way.
+// any epic (see runWrite) then calls the hook OnEpicsChanged set, once, with those epics. A write that commits and
+// names a session (see OnSessionEvents) then calls the hook OnSessionEvents set, once, after that. A write that commits
+// calls each housekeeping hook its statements were marked for (see withHousekeepMark), once per id, the same way.
 func (s *Store) write(ctx context.Context, fn func(queries *sqlcgen.Queries) error) error {
 	return s.writeDB(ctx, func(db sqlcgen.DBTX) error { return fn(sqlcgen.New(db)) })
 }
@@ -265,23 +266,27 @@ func (s *Store) writeDB(ctx context.Context, fn func(db sqlcgen.DBTX) error) err
 	}
 	if runErr == nil {
 		s.fireEpicsChanged(done.moved)
+		s.fireSessionEvents(done.session)
 		s.fireHousekeep(done.housekeep)
 	}
 	return err
 }
 
 // writeDone is what a committed write did: whether a statement ran with a context from withEpicEvent and succeeded,
-// the epics whose revision it moved, sorted, and the housekeeping marks of its statements that succeeded, each once.
+// the epics whose revision it moved, sorted, what it did to the session feed (see sessionChange), and the housekeeping
+// marks of its statements that succeeded, each once.
 type writeDone struct {
 	epicEvent bool
 	moved     []string
+	session   sessionChange
 	housekeep []housekeepMark
 }
 
 // runWrite runs fn in the write transaction on conn and commits it. While fn runs, the connection's pre-update hook
-// records each epic a written row of an epic table names (epicMoves); before the commit, the write moves the revision
-// of each of those epics by one (epicMoves.flush), in the same transaction. It reports what the write did, which is set only
-// when runWrite returns nil.
+// records each epic a written row of an epic table names (epicMoves) and each row of the session feed's tables (see
+// recordSession); before the commit, the write moves the revision of each of those epics by one (epicMoves.flush), in
+// the same transaction, and reads the sessions those rows name, and the steerer of each epic it moved
+// (epicMoves.flushSessions). It reports what the write did, which is set only when runWrite returns nil.
 func runWrite(
 	ctx context.Context, conn *sql.Conn, fn func(db sqlcgen.DBTX) error,
 ) (done writeDone, err error) {
@@ -303,10 +308,16 @@ func runWrite(
 	if err != nil {
 		return writeDone{}, errors.Join(err, rollback(ctx, conn))
 	}
+	session, err := moves.flushSessions(ctx, statements, moved)
+	if err != nil {
+		return writeDone{}, errors.Join(err, rollback(ctx, conn))
+	}
 	if _, err = conn.ExecContext(ctx, "COMMIT"); err != nil {
 		return writeDone{}, errors.Join(fmt.Errorf("commit store write: %w", err), rollback(ctx, conn))
 	}
-	return writeDone{epicEvent: statements.epicEvent, moved: moved, housekeep: statements.housekeep}, nil
+	return writeDone{
+		epicEvent: statements.epicEvent, moved: moved, session: session, housekeep: statements.housekeep,
+	}, nil
 }
 
 // epicEventKey is the context key withEpicEvent sets.

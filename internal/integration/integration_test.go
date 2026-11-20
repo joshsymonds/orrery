@@ -73,9 +73,6 @@ const (
 	openTreeErrorLog = "orrery open: tree: "
 	// serveListeningLog starts the stderr line orrery serve writes once its API listener is bound, before the address.
 	serveListeningLog = "orrery serve: listening on "
-	// writeTick is the --write-tick test seam every orreryd a test starts runs with, so a wait for a stored engine op
-	// waits milliseconds for the engine writer's tick, not the production 100 ms. A step round waits for several.
-	writeTick = "5ms"
 )
 
 // cleanupGrace is how long a cleanup waits for a process it asked to end before it kills the process. It is a fallback
@@ -312,8 +309,8 @@ func startProcess(t *testing.T, name string, env []string, mayExit bool, args ..
 	t.Helper()
 	if name == "orreryd" {
 		// Every orreryd a test starts names testHost as its host, so no desk line, notice or pool carries the
-		// machine's own name, and stores its engine ops at writeTick.
-		args = append([]string{"--host", testHost, "--write-tick", writeTick}, args...)
+		// machine's own name.
+		args = append([]string{"--host", testHost}, args...)
 	}
 	p := &orreryProcess{
 		name:    name,

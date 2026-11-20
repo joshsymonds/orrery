@@ -110,10 +110,7 @@ func TestEvidenceCaptureGateRunsUnderTheConfiguredScopeMemory(t *testing.T) {
 
 func TestStepsGateRunsUnderTheConfiguredScopeMemory(t *testing.T) {
 	t.Parallel()
-	steps, err := NewSteps(StepsConfig{GateScope: "/run/systemd-run", GateScopeMemory: testScopeMemory})
-	if err != nil {
-		t.Fatalf("NewSteps: %v", err)
-	}
+	steps := NewSteps(StepsConfig{GateScope: "/run/systemd-run", GateScopeMemory: testScopeMemory})
 	if steps.gateScope != "/run/systemd-run" || steps.gateScopeMemory != testScopeMemory {
 		t.Fatalf("steps scope %q with memory %d, want /run/systemd-run with %d", steps.gateScope,
 			steps.gateScopeMemory, testScopeMemory)
@@ -129,7 +126,7 @@ func TestStartWithHolderScopeMemoryCapsTheSessionsScope(t *testing.T) {
 		t.Fatalf("find sh: %v", err)
 	}
 	s, path := openStore(t)
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	m := NewManager(Config{
 		Shell:  sh,

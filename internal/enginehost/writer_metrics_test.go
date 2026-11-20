@@ -121,7 +121,7 @@ func TestCommitWaitIsRecordedAsWriterWait(t *testing.T) {
 	clock := &manualClock{now: time.Unix(1_800_000_000, 0)}
 	provider, metrics := newMetrics(t, clock.now)
 	applier := &toggleApplier{store: s, up: true}
-	w := NewWriter(WriterConfig{Applier: applier, Tick: time.Hour, Now: clock.Now, Metrics: metrics})
+	w := NewWriter(WriterConfig{Applier: applier, Now: clock.Now, Metrics: metrics})
 
 	done := make(chan error, 1)
 	go func() { done <- w.Commit(t.Context(), "a", prompt("a", "committed")) }()
@@ -146,7 +146,7 @@ func TestPutBlockedAtLimitIsRecordedAsWriterWait(t *testing.T) {
 	clock := &manualClock{now: time.Unix(1_800_000_000, 0)}
 	provider, metrics := newMetrics(t, clock.now)
 	applier := &toggleApplier{store: s, up: true}
-	w := NewWriter(WriterConfig{Applier: applier, Tick: time.Hour, Limit: 1, Now: clock.Now, Metrics: metrics})
+	w := NewWriter(WriterConfig{Applier: applier, Limit: 1, Now: clock.Now, Metrics: metrics})
 	ctx := t.Context()
 
 	if err := w.Put(ctx, "a", prompt("a", "a1")); err != nil {
@@ -175,7 +175,7 @@ func TestBacklogAgeRisesWhileTheApplierFailsAndReturnsToZero(t *testing.T) {
 	clock := &manualClock{now: time.Unix(1_800_000_000, 0)}
 	provider, metrics := newMetrics(t, clock.now)
 	applier := &toggleApplier{store: s}
-	w := NewWriter(WriterConfig{Applier: applier, Tick: time.Hour, Now: clock.Now, Metrics: metrics})
+	w := NewWriter(WriterConfig{Applier: applier, Now: clock.Now, Metrics: metrics})
 	ctx := t.Context()
 	checkBacklog := func(want float64) {
 		t.Helper()

@@ -55,7 +55,7 @@ func startCronsServer(t *testing.T, crons CronCommands) string {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
-	go func() { done <- Serve(ctx, ln, nil, nil, nil, nil, nil, nil, nil, crons, nil) }()
+	go func() { done <- Serve(ctx, ln, nil, nil, nil, nil, nil, nil, nil, crons, nil, nil) }()
 	t.Cleanup(func() {
 		cancel()
 		if err := <-done; err != nil {

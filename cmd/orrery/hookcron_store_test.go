@@ -80,7 +80,7 @@ func serveCronAnswersAt(t *testing.T, st *store.Store, daemon string) {
 	answers := enginehost.NewCronAnswers(enginehost.CronAnswersConfig{Store: st, Now: cronStoreNow})
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
-	go func() { done <- enginehost.Serve(ctx, ln, nil, nil, nil, nil, nil, nil, nil, answers, nil) }()
+	go func() { done <- enginehost.Serve(ctx, ln, nil, nil, nil, nil, nil, nil, nil, answers, nil, nil) }()
 	t.Cleanup(func() {
 		cancel()
 		if err := <-done; err != nil {

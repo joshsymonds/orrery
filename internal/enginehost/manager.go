@@ -152,6 +152,11 @@ type Store interface {
 // when the last request a session has open closes, and when a session slot or step slot frees. It must not block or
 // call the manager: the manager calls it synchronously, including under its locks. Nil does nothing (see wakeEvent).
 //
+// StepFreed, when set, is called each time a step slot frees: when a step's pump ends, when a kept step slot is dropped,
+// and when a step slot taken for a step that never started is released. It receives the epics the step cap refused since
+// the last free, sorted, and nil when it refused none (see stepFreedLocked). It is called synchronously under the manager's
+// lock, as EventWake is, so it must not block or take a lock of the manager. Nil does nothing.
+//
 // PutOffs stores the owner's put-off marks, which NotNow and BringBack set and clear, and it refuses both as unavailable
 // when nil. Panes reads the panes' questions and reports a pane seen to the notice router, which NotNow and BringBack of a
 // pane need, so it refuses a pane call as unavailable when nil.
@@ -174,6 +179,7 @@ type Config struct {
 	Metrics           *telemetry.Daemon
 	CronWake          func(session string)
 	EventWake         func()
+	StepFreed         func(epics []string)
 	PutOffs           PutOffStore
 	Panes             PaneQuestions
 
@@ -275,6 +281,8 @@ type Manager struct {
 	cronWake func(session string)
 	// eventWake is Config.EventWake, called synchronously (see wakeEvent).
 	eventWake func()
+	// stepFreed is Config.StepFreed, called synchronously under the lock that frees a step slot (see stepFreedLocked).
+	stepFreed func(epics []string)
 	// putOffs and panes are Config.PutOffs and Config.Panes, which NotNow and BringBack use.
 	putOffs PutOffStore
 	panes   PaneQuestions
@@ -295,6 +303,9 @@ type Manager struct {
 	reserved     int
 	stepLimit    int
 	stepsRunning int
+	// capRefused holds the epics the step cap refused since a step slot last freed, as a set (see reserveStep). The next
+	// free hands them on and empties it (see stepFreedLocked).
+	capRefused map[string]bool
 	// stepObservers holds the observer each step was started with, kept after the step stops so a respawn hands its turns
 	// to the same observer.
 	stepObservers map[string]StepObserver
@@ -356,10 +367,12 @@ func NewManager(cfg Config) *Manager {
 		metrics:           cfg.Metrics,
 		cronWake:          cfg.CronWake,
 		eventWake:         cfg.EventWake,
+		stepFreed:         cfg.StepFreed,
 		putOffs:           cfg.PutOffs,
 		panes:             cfg.Panes,
 		sessions:          map[string]*liveSession{},
 		stopping:          map[string]*liveSession{},
+		capRefused:        map[string]bool{},
 		stepObservers:     map[string]StepObserver{},
 		kept:              map[string]*liveSession{},
 		quiet:             map[string]struct{}{},
@@ -578,7 +591,19 @@ func (m *Manager) dropKeptLocked(id string) {
 	if m.kept[id] != nil {
 		delete(m.kept, id)
 		m.stepsRunning--
+		m.stepFreedLocked()
 		m.wakeEvent()
+	}
+}
+
+// stepFreedLocked calls the step-freed hook (see Config.StepFreed) with the epics the step cap refused since the last
+// step slot freed, sorted, which it then forgets. It passes nil when none was refused, so a free with no refusal still
+// reaches the hook. The caller holds the lock that freed the step slot, and the hook runs under it.
+func (m *Manager) stepFreedLocked() {
+	epics := slices.Sorted(maps.Keys(m.capRefused))
+	clear(m.capRefused)
+	if m.stepFreed != nil {
+		m.stepFreed(epics)
 	}
 }
 
@@ -1183,7 +1208,7 @@ func (m *Manager) respawnStep(ctx context.Context, id string) (*liveSession, err
 	if err := m.awaitStopping(ctx, id); err != nil {
 		return nil, err
 	}
-	if err := m.reserveStep(id); err != nil {
+	if err := m.reserveStep(id, ""); err != nil {
 		return nil, err
 	}
 	row, step, err := m.stepLaunch(ctx, id)
@@ -2213,6 +2238,7 @@ func (m *Manager) pump(ctx context.Context, live *liveSession, rec *recorder, re
 		m.reserved--
 	case !live.retired:
 		m.stepsRunning--
+		m.stepFreedLocked()
 	default:
 		freed = false
 	}

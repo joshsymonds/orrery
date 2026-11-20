@@ -543,20 +543,6 @@ func TestPassStartsRedAtBaseUnderRunID(t *testing.T) {
 	}
 }
 
-// TestRunPassesAtOnceThenReturnsWhenContextEnds: Run makes one pass at once and returns when its context
-// ends.
-func TestRunPassesAtOnceThenReturnsWhenContextEnds(t *testing.T) {
-	t.Parallel()
-	f := newPassFixture(t)
-	ctx, cancel := context.WithCancel(f.ctx)
-	defer cancel()
-	f.evidence.onRun = cancel
-	f.runner.Run(ctx)
-	if got := len(f.evidence.runs); got != 1 {
-		t.Errorf("RunTask calls = %d, want the one red run of the pass Run makes at once", got)
-	}
-}
-
 // TestPassRedHoldingAtBaseIsANoteAndTheImplementerStarts: a red run whose conclusion holds at the base is a note on the
 // task's build, not a climb: the build moves to implement with that run as its red run.
 func TestPassRedHoldingAtBaseIsANoteAndTheImplementerStarts(t *testing.T) {

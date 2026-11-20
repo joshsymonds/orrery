@@ -278,7 +278,7 @@ func newNodeFakes(s *store.Store) nodeFakes {
 func nodeConfig(st Store, fakes nodeFakes) Config {
 	return Config{
 		Store: st, Planner: &fakePlanner{}, Builder: &fakeBuilder{}, Checks: fakes.checks, Evidence: fakes.evidence,
-		Steps: fakes.steps, Getenv: func(string) string { return "" }, Tick: time.Hour, Now: runClock,
+		Steps: fakes.steps, Getenv: func(string) string { return "" }, Now: runClock,
 	}
 }
 

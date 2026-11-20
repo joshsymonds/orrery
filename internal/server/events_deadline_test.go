@@ -14,6 +14,7 @@ import (
 
 	"connectrpc.com/connect"
 
+	enginev1connect "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
 	"github.com/joshsymonds/orrery/internal/server"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -61,9 +62,14 @@ func (l smallBufferListener) Accept() (net.Conn, error) {
 	return tcp, nil
 }
 
-// startDeadlineServer serves the guarded handler for the store at path with sendTimeout injected as the send deadline
-// and small connection write buffers, and returns its URL.
-func startDeadlineServer(t *testing.T, path string, sendTimeout time.Duration) string {
+// startDeadlineServer serves the guarded handler for the store at path with changes as its change feed and sendTimeout
+// injected as the send deadline, and small connection write buffers, and returns its URL.
+func startDeadlineServer(
+	t *testing.T,
+	path string,
+	changes enginev1connect.ChangesClient,
+	sendTimeout time.Duration,
+) string {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -71,22 +77,28 @@ func startDeadlineServer(t *testing.T, path string, sendTimeout time.Duration) s
 	}
 	srv := &httptest.Server{
 		Listener: smallBufferListener{Listener: listener},
-		Config:   &http.Server{Handler: deadlineHandler(t, path, sendTimeout)},
+		Config:   &http.Server{Handler: deadlineHandler(t, path, changes, sendTimeout)},
 	}
 	srv.Start()
 	t.Cleanup(srv.Close)
 	return srv.URL
 }
 
-// deadlineHandler is the guarded handler for the store at path with sendTimeout injected as the send deadline.
-func deadlineHandler(t *testing.T, path string, sendTimeout time.Duration) http.Handler {
+// deadlineHandler is the guarded handler for the store at path with changes as its change feed and sendTimeout
+// injected as the send deadline.
+func deadlineHandler(
+	t *testing.T,
+	path string,
+	changes enginev1connect.ChangesClient,
+	sendTimeout time.Duration,
+) http.Handler {
 	t.Helper()
 	handler, err := server.New(server.Config{
 		Logins:           []string{allowedLogin},
 		Tmux:             newTmuxClient(t),
 		Push:             newPushStore(t),
 		Sessions:         store.NewReader(path),
-		EventPoll:        eventPoll,
+		Changes:          changes,
 		EventSendTimeout: sendTimeout,
 	})
 	if err != nil {
@@ -199,9 +211,13 @@ func openStalledWatch(t *testing.T, url string) (*watch, net.Conn, string) {
 // client that never reads, and returns once the server's send to it is blocked. It returns the stream, the client's
 // connection, the address the server's closed channel names it by, the channel, and the listener that holds it. The
 // listener keeps holding, so a connection the test opens next holds its deadlines too and is never ended by one.
-func openHeldStall(t *testing.T, path string) (*watch, net.Conn, string, <-chan string, *observedListener) {
+func openHeldStall(
+	t *testing.T,
+	path string,
+	changes enginev1connect.ChangesClient,
+) (*watch, net.Conn, string, <-chan string, *observedListener) {
 	t.Helper()
-	url, closed, obs := startConvDeadlineServer(t, deadlineHandler(t, path, deadlineSendTimeout))
+	url, closed, obs := startConvDeadlineServer(t, deadlineHandler(t, path, changes, deadlineSendTimeout))
 	obs.setHold(true)
 	stalled, conn, addr := openStalledWatch(t, url)
 	waitBlockedSend(t, obs)
@@ -216,7 +232,8 @@ func TestStalledStreamLeavesOtherStreamsServed(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openFilledEventStore(t, path, "big", deadlineBigEvents, writeBigEvents)
-	_, stalledConn, stalledAddr, closed, obs := openHeldStall(t, path)
+	_, changes := startChanges(t, s)
+	_, stalledConn, stalledAddr, closed, obs := openHeldStall(t, path, changes)
 	url := "http://" + obs.Addr().String()
 
 	// The healthy connection holds its write deadlines too, so its sends wait on its reader and never on the 300 ms
@@ -247,7 +264,7 @@ func TestStalledStreamEndsAtSendDeadline(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	openFilledEventStore(t, path, "big", deadlineBigEvents, writeBigEvents)
-	stalled, _, stalledAddr, closed, obs := openHeldStall(t, path)
+	stalled, _, stalledAddr, closed, obs := openHeldStall(t, path, nil)
 
 	if err := obs.releaseAll(); err != nil {
 		t.Fatalf("release the stalled connection: %v", err)
@@ -263,7 +280,8 @@ func TestIdleStreamReceivesEventAfterSeveralDeadlines(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	seedEvents(t, s, 0)
-	url := startDeadlineServer(t, path, deadlineSendTimeout)
+	_, changes := startChanges(t, s)
+	url := startDeadlineServer(t, path, changes, deadlineSendTimeout)
 	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), url)
 
 	w := openWatch(t, events, 0)
@@ -286,7 +304,8 @@ func TestIdleStreamStillEndsWithItsCodeAfterSeveralDeadlines(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	seedEvents(t, s, 0)
-	url := startDeadlineServer(t, path, deadlineSendTimeout)
+	feed, changes := startChanges(t, s)
+	url := startDeadlineServer(t, path, changes, deadlineSendTimeout)
 	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), url)
 
 	w := openWatch(t, events, 0)
@@ -300,5 +319,8 @@ func TestIdleStreamStillEndsWithItsCodeAfterSeveralDeadlines(t *testing.T) {
 	if err := os.Remove(path); err != nil {
 		t.Fatalf("remove store: %v", err)
 	}
+	// Removing the store is no change the feed reports, so the test publishes one. The stream then reads, and the
+	// read finds the store gone.
+	feed.Publish(0, []string{eventPane})
 	wantCode(t, w.finish(t), connect.CodeUnavailable)
 }

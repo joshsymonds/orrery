@@ -57,7 +57,7 @@ func startContractServer(t *testing.T, st *store.Store, contracts *Contracts) co
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
-	go func() { done <- Serve(ctx, ln, nil, nil, st, fixedSteering{}, nil, nil, nil, nil, contracts) }()
+	go func() { done <- Serve(ctx, ln, nil, nil, st, fixedSteering{}, nil, nil, nil, nil, nil, contracts) }()
 	t.Cleanup(func() {
 		cancel()
 		if err := <-done; err != nil {

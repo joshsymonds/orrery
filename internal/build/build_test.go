@@ -156,17 +156,6 @@ func TestSilentRerunSecondLeavesTheUnitToDecide(t *testing.T) {
 func TestNewFillsDefaults(t *testing.T) {
 	t.Parallel()
 	runner := New(Config{})
-	if runner.tick != 5*time.Second {
-		t.Errorf("default tick = %v, want 5s", runner.tick)
-	}
-	for _, tick := range []time.Duration{0, -time.Second} {
-		if got := New(Config{Tick: tick}).tick; got != 5*time.Second {
-			t.Errorf("tick %v = %v, want the 5s default", tick, got)
-		}
-	}
-	if got := New(Config{Tick: 2 * time.Second}).tick; got != 2*time.Second {
-		t.Errorf("configured tick = %v, want 2s", got)
-	}
 	if age := time.Since(runner.now()); age < 0 || age > time.Minute {
 		t.Errorf("default clock is %v before now, want time.Now", age)
 	}

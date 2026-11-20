@@ -30,10 +30,10 @@ func newLimitedSteps() *limitedSteps {
 	return &limitedSteps{fakeSteps: newFakeSteps()}
 }
 
-// limitRunnerConfig returns the Config of a runner over s and steps, at the runner tick and claimed time.
+// limitRunnerConfig returns the Config of a runner over s and steps, at the runner retry and claimed time.
 func limitRunnerConfig(s *store.Store, steps *limitedSteps, reads *atomic.Int64) Config {
 	return Config{
-		Store: s, Steps: steps, Agent: agentReturning(runnerAgent, nil, reads), Tick: runnerTick, Now: claimedAt,
+		Store: s, Steps: steps, Agent: agentReturning(runnerAgent, nil, reads), Retry: runnerRetry, Now: claimedAt,
 	}
 }
 

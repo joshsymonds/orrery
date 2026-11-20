@@ -22,7 +22,7 @@ func newStepCrashRig(t *testing.T, trigger func([]store.EngineOp) bool) crashRig
 	root := holderRoot(t)
 	t.Cleanup(func() { clearHolderDirs(t, root) })
 	crash := &crashApplier{inner: s, trigger: trigger}
-	writer := NewWriter(WriterConfig{Applier: crash, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: crash})
 	startRun(t, writer)
 	sh, err := exec.LookPath("sh")
 	if err != nil {
@@ -60,7 +60,7 @@ func stalledStep(id, dir string) StepSession {
 func restartBeforeReconcile(t *testing.T, rig crashRig) (*Manager, *fakeSink) {
 	t.Helper()
 	rig.manager.Close()
-	writer := NewWriter(WriterConfig{Applier: rig.store, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: rig.store})
 	startRun(t, writer)
 	sink := &fakeSink{}
 	return newStateManager(t, rig.store, writer, sink, fakeSystemdRunPath(t), rig.root, nil), sink

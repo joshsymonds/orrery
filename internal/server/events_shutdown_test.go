@@ -11,6 +11,7 @@ import (
 
 	"connectrpc.com/connect"
 
+	enginev1connect "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
 	"github.com/joshsymonds/orrery/internal/server"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -27,16 +28,22 @@ const shutdownReplayTotal = shutdownReplayCount + 1
 // shutdownMessage is the fixed message every stream ends with at shutdown.
 const shutdownMessage = "serve is shutting down"
 
-// newShutdownHandler returns the guarded handler for the store at path, with shutdown as its shutdown signal and
-// sendTimeout as its Watch send deadline, or zero for the default.
-func newShutdownHandler(t *testing.T, path string, shutdown <-chan struct{}, sendTimeout time.Duration) http.Handler {
+// newShutdownHandler returns the guarded handler for the store at path, with changes as its change feed, shutdown as
+// its shutdown signal and sendTimeout as its Watch send deadline, or zero for the default.
+func newShutdownHandler(
+	t *testing.T,
+	path string,
+	changes enginev1connect.ChangesClient,
+	shutdown <-chan struct{},
+	sendTimeout time.Duration,
+) http.Handler {
 	t.Helper()
 	handler, err := server.New(server.Config{
 		Logins:           []string{allowedLogin},
 		Tmux:             newTmuxClient(t),
 		Push:             newPushStore(t),
 		Sessions:         store.NewReader(path),
-		EventPoll:        eventPoll,
+		Changes:          changes,
 		EventSendTimeout: sendTimeout,
 		Shutdown:         shutdown,
 	})
@@ -46,11 +53,17 @@ func newShutdownHandler(t *testing.T, path string, shutdown <-chan struct{}, sen
 	return handler
 }
 
-// startShutdownServer serves the guarded handler for the store at path with shutdown as its shutdown signal, on an
-// httptest server that closes at cleanup. It returns the server, so a test can wait for its handlers to return.
-func startShutdownServer(t *testing.T, path string, shutdown <-chan struct{}) *httptest.Server {
+// startShutdownServer serves the guarded handler for the store at path with changes as its change feed and shutdown as
+// its shutdown signal, on an httptest server that closes at cleanup. It returns the server, so a test can wait for its
+// handlers to return.
+func startShutdownServer(
+	t *testing.T,
+	path string,
+	changes enginev1connect.ChangesClient,
+	shutdown <-chan struct{},
+) *httptest.Server {
 	t.Helper()
-	srv := httptest.NewServer(newShutdownHandler(t, path, shutdown, 0))
+	srv := httptest.NewServer(newShutdownHandler(t, path, changes, shutdown, 0))
 	t.Cleanup(srv.Close)
 	return srv
 }
@@ -58,9 +71,14 @@ func startShutdownServer(t *testing.T, path string, shutdown <-chan struct{}) *h
 // startStalledShutdownServer serves the guarded handler as startShutdownServer does, but over connections whose
 // write buffers are deadlineSocketBuffer bytes and with a send deadline of stallSendTimeout, so a replay blocks on
 // the client's reads and no send deadline fires while the test holds the stream.
-func startStalledShutdownServer(t *testing.T, path string, shutdown <-chan struct{}) *httptest.Server {
+func startStalledShutdownServer(
+	t *testing.T,
+	path string,
+	changes enginev1connect.ChangesClient,
+	shutdown <-chan struct{},
+) *httptest.Server {
 	t.Helper()
-	srv := httptest.NewUnstartedServer(newShutdownHandler(t, path, shutdown, stallSendTimeout))
+	srv := httptest.NewUnstartedServer(newShutdownHandler(t, path, changes, shutdown, stallSendTimeout))
 	srv.Listener = smallBufferListener{Listener: srv.Listener}
 	srv.Start()
 	t.Cleanup(srv.Close)
@@ -101,7 +119,8 @@ func TestShutdownEndsEveryOpenStream(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openFilledEventStore(t, path, "big", shutdownReplayCount, writeBigEvents)
 	shutdown := make(chan struct{})
-	srv := startShutdownServer(t, path, shutdown)
+	_, changes := startChanges(t, s)
+	srv := startShutdownServer(t, path, changes, shutdown)
 	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), srv.URL)
 
 	replaying := openWatch(t, events, 0)
@@ -131,7 +150,7 @@ func TestShutdownEndsReplayBetweenSends(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	openFilledEventStore(t, path, "big", shutdownReplayCount, writeBigEvents)
 	shutdown := make(chan struct{})
-	srv := startStalledShutdownServer(t, path, shutdown)
+	srv := startStalledShutdownServer(t, path, nil, shutdown)
 	stalledHTTP := &http.Client{Transport: headerTransport{
 		base:  stalledTransport(make(chan net.Conn, deadlineConnCapacity)),
 		login: allowedLogin,
@@ -157,7 +176,8 @@ func TestNilShutdownKeepsFollowing(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	seedEvents(t, s, 2)
-	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path))
+	_, changes := startChanges(t, s)
+	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path, changes))
 
 	w := openWatch(t, events, 3)
 	writeState(t, s, 3)

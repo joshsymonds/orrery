@@ -19,19 +19,16 @@ import (
 	"github.com/joshsymonds/orrery/internal/protocol"
 )
 
-// defaultConversationPoll is the WatchConversation poll interval when Config.ConversationPoll is zero.
-const defaultConversationPoll = 500 * time.Millisecond
-
 // defaultConversationKeepalive is the WatchConversation keepalive interval when Config.ConversationKeepalive is
 // zero.
 const defaultConversationKeepalive = 5 * time.Second
 
 // WatchConversation answers Panes.WatchConversation with the stream of the pane's conversation. The limit and the
-// pane are checked as Conversation checks them. The stream sends its first delta at once, then one delta for each
-// poll that finds new complete transcript lines or a changed state, and a keepalive once conversationKeepalive has
-// passed without a delta. The stream ends with the error Conversation gives for the pane or its transcript, and
-// returns when the client leaves, when serve shuts down, or when a send stays blocked past the send deadline. Its
-// send and end-of-stream writes are bounded as Events.Watch's are (see endWithin).
+// pane are checked as Conversation checks them. The stream sends its first delta at once, then one delta each time the
+// change feed names the pane's session and that finds new complete transcript lines or a changed state, and a keepalive
+// once conversationKeepalive has passed without a message. The stream ends with the error Conversation gives for the
+// pane or its transcript, and returns when the client leaves, when serve shuts down, or when a send stays blocked past
+// the send deadline. Its send and end-of-stream writes are bounded as Events.Watch's are (see endWithin).
 func (s panesServer) WatchConversation(
 	ctx context.Context,
 	req *connect.Request[v1.WatchConversationRequest],
@@ -59,46 +56,103 @@ func (s panesServer) WatchConversation(
 }
 
 // runWatch sends the deltas of watch on stream until the client leaves, the pane's conversation ends, serve shuts
-// down, or a send stays blocked past the send deadline. It steps watch every conversationPoll, and sends a keepalive
-// once conversationKeepalive has passed since the last message. Each successful step reports the pane as read, once
-// conversationKeepalive has passed since the last report, and a failed step reports nothing.
+// down, or a send stays blocked past the send deadline. It steps watch once at the start, and again each time the
+// change feed wakes the stream. A step names the session of the pane, so the feed wakes the stream only for that
+// session once the pane has one. A keepalive is sent, without a step, once conversationKeepalive has passed since the
+// last message. A step that sends a delta reports the pane as read when conversationKeepalive has passed since the last
+// report, and a keepalive reports it too. A failed step reports nothing.
 func (s panesServer) runWatch(
 	ctx context.Context,
 	watch *conversationWatch,
 	stream *connect.ServerStream[v1.WatchConversationResponse],
 ) error {
-	ticker := time.NewTicker(s.conversationPoll)
-	defer ticker.Stop()
-	lastSent := time.Now()
-	var lastRead time.Time
+	wake, follow, cancel := s.changes.subscribeFiltered(ctx)
+	defer cancel()
+	run := &paneWatch{server: s, watch: watch, stream: stream, follow: follow}
+	defer run.stopTimer()
+	if err := run.step(ctx); err != nil {
+		return err
+	}
 	for {
-		if stopping(s.shutdown) {
-			return shutdownError()
-		}
-		msg, send, err := watch.step(ctx)
-		if err != nil {
-			return connectError(err)
-		}
-		if lastRead.IsZero() || time.Since(lastRead) >= s.conversationKeepalive {
-			s.reportRead(watch.pane)
-			lastRead = time.Now()
-		}
-		if !send && time.Since(lastSent) >= s.conversationKeepalive {
-			msg, send = &v1.WatchConversationResponse{Transcript: watch.id, Seq: watch.seq}, true
-		}
-		if send {
-			if sendErr := sendWithin(ctx, s.sendTimeout, s.shutdown, stream, msg); sendErr != nil {
-				return fmt.Errorf("send conversation delta: %w", sendErr)
-			}
-			lastSent = time.Now()
-		}
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("watch conversation: %w", ctx.Err())
 		case <-s.shutdown:
 			return shutdownError()
-		case <-ticker.C:
+		case <-wake:
+			if err := run.step(ctx); err != nil {
+				return err
+			}
+		case <-run.keepalive:
+			if err := run.keepaliveSend(ctx); err != nil {
+				return err
+			}
 		}
+	}
+}
+
+// paneWatch is the state of one runWatch: the stream it sends on, the follow function of its feed subscription, the
+// keepalive timer armed after its last message, and the server time of its last pane read. reported is false until the
+// first read.
+type paneWatch struct {
+	server    panesServer
+	watch     *conversationWatch
+	stream    *connect.ServerStream[v1.WatchConversationResponse]
+	follow    func(session string)
+	keepalive <-chan time.Time
+	stop      func() bool
+	lastRead  time.Time
+	reported  bool
+}
+
+// step steps the watch, names the pane's session, and sends the delta the step gives, if any. The pane is reported as
+// read when the step sends and the last report is at least conversationKeepalive old, or when nothing has been reported.
+func (w *paneWatch) step(ctx context.Context) error {
+	if stopping(w.server.shutdown) {
+		return shutdownError()
+	}
+	pane, msg, sends, err := w.watch.step(ctx)
+	if err != nil {
+		return connectError(err)
+	}
+	if id := pane.GetOrreryId(); id != "" {
+		w.follow(id)
+	}
+	if !sends {
+		return nil
+	}
+	if now := w.server.now(); !w.reported || now.Sub(w.lastRead) >= w.server.conversationKeepalive {
+		w.server.reportRead(w.watch.pane)
+		w.lastRead, w.reported = now, true
+	}
+	return w.send(ctx, msg)
+}
+
+// keepaliveSend reports the pane as read and sends a keepalive for the stream's position. It does not step, so the
+// pane is not read.
+func (w *paneWatch) keepaliveSend(ctx context.Context) error {
+	if stopping(w.server.shutdown) {
+		return shutdownError()
+	}
+	w.server.reportRead(w.watch.pane)
+	w.lastRead, w.reported = w.server.now(), true
+	return w.send(ctx, &v1.WatchConversationResponse{Transcript: w.watch.id, Seq: w.watch.seq})
+}
+
+// send sends msg on the stream, and arms the keepalive timer for the next keepalive.
+func (w *paneWatch) send(ctx context.Context, msg *v1.WatchConversationResponse) error {
+	if err := sendWithin(ctx, w.server.sendTimeout, w.server.shutdown, w.stream, msg); err != nil {
+		return fmt.Errorf("send conversation delta: %w", err)
+	}
+	w.stopTimer()
+	w.keepalive, w.stop = w.server.newTimer(w.server.conversationKeepalive)
+	return nil
+}
+
+// stopTimer stops the keepalive timer armed after the last message, if one is armed.
+func (w *paneWatch) stopTimer() {
+	if w.stop != nil {
+		w.stop()
 	}
 }
 
@@ -127,16 +181,20 @@ type conversationWatch struct {
 	betweenReads func()
 }
 
-// step reads the pane and its transcript once. It returns the delta to send and true, or false when neither the
-// transcript nor the state has changed. The delta resets the stream when the transcript was replaced or the stream
+// step reads the pane and its transcript once. It returns the pane, the delta to send and true, or false when neither
+// the transcript nor the state has changed. The delta resets the stream when the transcript was replaced or the stream
 // has no position in it. A reset, and the first delta, carry the whole state. Later deltas carry the state only when
 // it changed.
-func (w *conversationWatch) step(ctx context.Context) (*v1.WatchConversationResponse, bool, error) {
+func (w *conversationWatch) step(ctx context.Context) (*v1.Pane, *v1.WatchConversationResponse, bool, error) {
+	if w.panes.stepped != nil {
+		w.panes.stepped(w.pane)
+	}
 	pane, path, err := w.panes.livePane(ctx, w.pane)
 	if err != nil {
-		return nil, false, err
+		return nil, nil, false, err
 	}
-	return w.stepAt(pane, path)
+	msg, send, err := w.stepAt(pane, path)
+	return pane, msg, send, err
 }
 
 // stepAt is step for pane, whose live transcript is at path. The goal and the waiting messages are read before the

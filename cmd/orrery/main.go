@@ -616,27 +616,7 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 	if err != nil {
 		return err
 	}
-	var (
-		engine       enginev1connect.EngineClient
-		steps        server.StepClient
-		epicStore    server.EpicStoreClient
-		epicCommands enginev1connect.EpicsClient
-		evidence     server.EvidenceClient
-		pools        enginev1connect.PoolsClient
-		notices      enginev1connect.NoticesClient
-		contracts    enginev1connect.ContractsClient
-	)
-	if daemonSocket, sockErr := protocol.SocketPath(opts.daemonSocket, getenv); sockErr == nil {
-		sessionClient := cli.SessionHTTPClient(protocol.SessionSocketPath(daemonSocket))
-		engine = enginev1connect.NewEngineClient(sessionClient, cli.SessionBaseURL)
-		steps = enginev1connect.NewStepsClient(sessionClient, cli.SessionBaseURL)
-		epicsClient := enginev1connect.NewEpicsClient(sessionClient, cli.SessionBaseURL)
-		epicStore, epicCommands, evidence = epicsClient, epicsClient,
-			enginev1connect.NewEvidenceClient(sessionClient, cli.SessionBaseURL)
-		pools = enginev1connect.NewPoolsClient(sessionClient, cli.SessionBaseURL)
-		notices = enginev1connect.NewNoticesClient(sessionClient, cli.SessionBaseURL)
-		contracts = enginev1connect.NewContractsClient(sessionClient, cli.SessionBaseURL)
-	}
+	cfg := serveSessionConfig(opts, getenv)
 	// Without a HOME the record root stays empty: os.DirFS refuses an empty root, so Epics fails its reads rather than
 	// reading the working directory's .gambit.
 	var records string
@@ -649,35 +629,43 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 		return err
 	}
 	shutdown := make(chan struct{})
-	handler, err := server.New(server.Config{
-		HandlerOptions:   handlerOptions,
-		Logins:           logins,
-		Tmux:             tmux,
-		Push:             pushStore,
-		HostStatus:       hostStatus,
-		Sessions:         sessions,
-		Shutdown:         shutdown,
-		Engine:           engine,
-		Steps:            steps,
-		Pools:            pools,
-		Notices:          notices,
-		Records:          records,
-		EpicStore:        epicStore,
-		EpicCommands:     epicCommands,
-		ContractCommands: contracts,
-		Evidence:         evidence,
-		Home:             home,
-		Picker:           servePickerConfig(tmux, getenv),
-		ReportSeen:       seenReporter(opts.daemonSocket, getenv),
-		ReportRead:       readReporter(opts.daemonSocket, getenv),
-		ReportInput:      inputReporter(opts.daemonSocket, getenv),
-		Web:              webui.FS(),
-	})
+	cfg.HandlerOptions, cfg.Logins, cfg.Tmux, cfg.Push, cfg.HostStatus = handlerOptions, logins, tmux, pushStore, hostStatus
+	cfg.Sessions, cfg.Shutdown, cfg.Records, cfg.Home = sessions, shutdown, records, home
+	cfg.Picker = servePickerConfig(tmux, getenv)
+	cfg.ReportSeen = seenReporter(opts.daemonSocket, getenv)
+	cfg.ReportRead = readReporter(opts.daemonSocket, getenv)
+	cfg.ReportInput = inputReporter(opts.daemonSocket, getenv)
+	cfg.Web = webui.FS()
+	handler, err := server.New(cfg)
 	if err != nil {
 		return fmt.Errorf("serve: %w", err)
 	}
 
 	return serveListening(ctx, *listen, *metricsListen, handler, shutdown, metrics, stderr)
+}
+
+// serveSessionConfig returns a server.Config holding only the clients of orreryd's services on the session socket
+// beside the daemon socket opts names: Engine, Steps, Pools, Notices, Changes, the Epics client as both EpicStore and
+// EpicCommands, Evidence and ContractCommands. None carries a caller header, so a command serve forwards is the
+// owner's. A daemon socket that does not resolve leaves them all nil, and each service they back answers unavailable.
+func serveSessionConfig(opts globals, getenv func(string) string) server.Config {
+	daemonSocket, err := protocol.SocketPath(opts.daemonSocket, getenv)
+	if err != nil {
+		return server.Config{}
+	}
+	sessionClient := cli.SessionHTTPClient(protocol.SessionSocketPath(daemonSocket))
+	epics := enginev1connect.NewEpicsClient(sessionClient, cli.SessionBaseURL)
+	return server.Config{
+		Engine:           enginev1connect.NewEngineClient(sessionClient, cli.SessionBaseURL),
+		Steps:            enginev1connect.NewStepsClient(sessionClient, cli.SessionBaseURL),
+		Pools:            enginev1connect.NewPoolsClient(sessionClient, cli.SessionBaseURL),
+		Notices:          enginev1connect.NewNoticesClient(sessionClient, cli.SessionBaseURL),
+		Changes:          enginev1connect.NewChangesClient(sessionClient, cli.SessionBaseURL),
+		EpicStore:        epics,
+		EpicCommands:     epics,
+		Evidence:         enginev1connect.NewEvidenceClient(sessionClient, cli.SessionBaseURL),
+		ContractCommands: enginev1connect.NewContractsClient(sessionClient, cli.SessionBaseURL),
+	}
 }
 
 // serveMetrics returns the metrics provider and the handler options that record to it when metricsListen is set.

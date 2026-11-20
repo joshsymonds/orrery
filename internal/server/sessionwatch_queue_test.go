@@ -56,7 +56,7 @@ func TestQueueLifecycleQueuedMessageIsServedOnReload(t *testing.T) {
 		ownerMessage("p-1", "w-1", "fix the bug"),
 		setPromptState("w-1", store.PromptQueued),
 	)
-	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, 0))
+	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, nil, 0))
 
 	msg := openSessionStream(t, client, sessionReq(eventEngine, 0, 0)).next(t)
 	wantQueued(t, msg.GetQueued(), []*orreryv1.QueuedMessage{
@@ -82,7 +82,7 @@ func TestQueueLifecycleStartedAndCompletedAreNotServed(t *testing.T) {
 		ownerMessage("p-4", "w-4", "last"),
 		setPromptState("w-4", store.PromptCompleted),
 	)
-	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, 0))
+	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, nil, 0))
 
 	msg := openSessionStream(t, client, sessionReq(eventEngine, 0, 0)).next(t)
 	wantQueued(t, msg.GetQueued(), []*orreryv1.QueuedMessage{
@@ -109,7 +109,7 @@ func TestQueueLifecycleCanceledAndDiscardedServedUntilLaterStart(t *testing.T) {
 		ownerMessage("p-4", "w-4", "discarded"),
 		setPromptState("w-4", store.PromptDiscarded),
 	)
-	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, 0))
+	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, nil, 0))
 
 	msg := openSessionStream(t, client, sessionReq(eventEngine, 0, 0)).next(t)
 	wantQueued(t, msg.GetQueued(), []*orreryv1.QueuedMessage{
@@ -137,7 +137,7 @@ func TestQueueLifecycleCanceledAndDiscardedAbsentFromItems(t *testing.T) {
 		setPromptState("w-2", store.PromptDiscarded),
 		setPromptState("w-3", store.PromptQueued),
 	)
-	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, 0))
+	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, nil, 0))
 	want := []*orreryv1.ConversationItem{reply(1), reply(2), ownerItem("p-3", "third"), reply(3)}
 
 	msg := openSessionStream(t, client, sessionReq(eventEngine, 0, 0)).next(t)
@@ -176,7 +176,7 @@ func TestQueueLifecycleCallerEventPromptNeverServed(t *testing.T) {
 		},
 		setPromptState("x-2", store.PromptStarted),
 	)
-	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, 0))
+	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, nil, 0))
 
 	msg := openSessionStream(t, client, sessionReq(eventEngine, 0, 0)).next(t)
 	wantQueued(t, msg.GetQueued(), []*orreryv1.QueuedMessage{

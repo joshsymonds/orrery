@@ -13,7 +13,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/engine/session"
 	"github.com/joshsymonds/orrery/internal/holder"
@@ -52,7 +51,7 @@ func newStepsRig(t *testing.T, haiku *Haiku) stepsRig {
 		clearHolderDirs(t, gateRoot)
 	})
 	applier := &crashApplier{inner: s}
-	writer := NewWriter(WriterConfig{Applier: applier, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: applier})
 	startRun(t, writer)
 	home := t.TempDir()
 	writeStepAgents(t, home)
@@ -97,7 +96,7 @@ func newRigSteps(
 	t *testing.T, rig stepsRig, sessions stepSessions, writer *Writer, environ []string, logger *slog.Logger,
 ) *Steps {
 	t.Helper()
-	steps, err := NewSteps(StepsConfig{
+	steps := NewSteps(StepsConfig{
 		Sessions:     sessions,
 		Store:        rig.store,
 		Writer:       writer,
@@ -108,9 +107,6 @@ func newRigSteps(
 		GateStateDir: rig.gateRoot,
 		GateScope:    fakeSystemdRunPath(t),
 	})
-	if err != nil {
-		t.Fatalf("NewSteps: %v", err)
-	}
 	t.Cleanup(steps.Close)
 	return steps
 }
@@ -126,7 +122,7 @@ func (r stepsRig) crash() {
 // restarted Steps runs under environ and logs to logger.
 func (r stepsRig) restart(t *testing.T, environ []string, logger *slog.Logger) (*Manager, *Steps) {
 	t.Helper()
-	writer := NewWriter(WriterConfig{Applier: r.store, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: r.store})
 	startRun(t, writer)
 	m := newRigManager(t, r, writer)
 	return m, newRigSteps(t, r, m, writer, environ, logger)
@@ -171,7 +167,7 @@ func stepsRunOf(t *testing.T, steps *Steps, id string) *stepRun {
 // the fake systemd-run scope. It is closed at cleanup.
 func (f *stepCtlFixture) newGateScopedSteps(t *testing.T, root string) *Steps {
 	t.Helper()
-	steps, err := NewSteps(StepsConfig{
+	steps := NewSteps(StepsConfig{
 		Sessions:     f.sessions,
 		Store:        f.store,
 		Writer:       f.writer,
@@ -182,9 +178,6 @@ func (f *stepCtlFixture) newGateScopedSteps(t *testing.T, root string) *Steps {
 		GateStateDir: root,
 		GateScope:    fakeSystemdRunPath(t),
 	})
-	if err != nil {
-		t.Fatalf("NewSteps: %v", err)
-	}
 	t.Cleanup(steps.Close)
 	return steps
 }

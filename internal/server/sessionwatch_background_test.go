@@ -35,16 +35,30 @@ func (c *bgClock) set(at int64) {
 	c.at.Store(at)
 }
 
+// bgTimer is a timer a background test's server armed: its duration, and the channel the test fires it on.
+type bgTimer struct {
+	after time.Duration
+	fire  chan time.Time
+}
+
 // bgWatchClient serves the store at path through a server whose clock is clock, and returns a Sessions client for it.
-// Its WatchConversation polls and sends keepalives as sessionsHandler's does.
-func bgWatchClient(t *testing.T, path string, clock *bgClock) orreryv1connect.SessionsClient {
+// Its change feed is the feed of s when s is not nil (see storeFeed), and its timers are armed through newTimer, or
+// through time.NewTimer when newTimer is nil. It sends keepalives as sessionsHandler's does.
+func bgWatchClient(
+	t *testing.T,
+	path string,
+	s *store.Store,
+	clock *bgClock,
+	newTimer func(time.Duration) (<-chan time.Time, func() bool),
+) orreryv1connect.SessionsClient {
 	t.Helper()
 	handler, err := server.New(server.Config{
 		Logins:                []string{allowedLogin},
 		Tmux:                  newTmuxClient(t),
 		Push:                  newPushStore(t),
 		Sessions:              store.NewReader(path),
-		ConversationPoll:      convPoll,
+		Changes:               storeFeed(t, s),
+		NewTimer:              newTimer,
 		ConversationKeepalive: convKeepalive,
 		Now:                   clock.Now,
 	})
@@ -107,7 +121,7 @@ func TestSessionWatchBackgroundTaskRowServesRunningAgentAndShell(t *testing.T) {
 	at := int64(eventAt)
 	bgApplyAt(t, s, at, bgAgentTask("running", ""))
 	bgApplyAt(t, s, at+1, bgShellTask("running", ""))
-	client := bgWatchClient(t, path, newBgClock(at+2))
+	client := bgWatchClient(t, path, nil, newBgClock(at+2), nil)
 
 	stream := openSessionStream(t, client, sessionReq(eventEngine, 0, 0))
 	wantStreamMessage(t, stream.next(t), &orreryv1.SessionsWatchConversationResponse{
@@ -133,7 +147,7 @@ func TestSessionWatchBackgroundTaskRowProgressUpdatesActivity(t *testing.T) {
 	addEngine(t, s)
 	at := int64(eventAt)
 	bgApplyAt(t, s, at, bgAgentTask("running", ""))
-	client := bgWatchClient(t, path, newBgClock(at+5))
+	client := bgWatchClient(t, path, s, newBgClock(at+5), nil)
 	stream := openSessionStream(t, client, sessionReq(eventEngine, 0, 0))
 	stream.next(t)
 
@@ -157,7 +171,7 @@ func TestSessionWatchBackgroundTaskRowShellProgressAndEndServeNoItem(t *testing.
 	addEngine(t, s)
 	at := int64(eventAt)
 	bgApplyAt(t, s, at, bgShellTask("running", ""))
-	client := bgWatchClient(t, path, newBgClock(at+5))
+	client := bgWatchClient(t, path, s, newBgClock(at+5), nil)
 	stream := openSessionStream(t, client, sessionReq(eventEngine, 0, 0))
 	stream.next(t)
 
@@ -195,7 +209,14 @@ func TestSessionWatchBackgroundTaskRowEndedServedWithinWindowThenDropped(t *test
 	bgApplyAt(t, s, at, bgShellTask("running", ""))
 	bgApplyAt(t, s, end, bgShellTask("done", ""))
 	clock := newBgClock(end + 60)
-	stream := openSessionStream(t, bgWatchClient(t, path, clock), sessionReq(eventEngine, 0, 0))
+	// The server's timers are fake: each one it arms is sent on armed, and the test fires it on its fire channel.
+	armed := make(chan bgTimer, 16)
+	newTimer := func(after time.Duration) (<-chan time.Time, func() bool) {
+		fire := make(chan time.Time, 1)
+		armed <- bgTimer{after: after, fire: fire}
+		return fire, func() bool { return true }
+	}
+	stream := openSessionStream(t, bgWatchClient(t, path, nil, clock, newTimer), sessionReq(eventEngine, 0, 0))
 
 	wantStreamMessage(t, stream.next(t), &orreryv1.SessionsWatchConversationResponse{
 		Transcript: eventEngine,
@@ -207,7 +228,18 @@ func TestSessionWatchBackgroundTaskRowEndedServedWithinWindowThenDropped(t *test
 		},
 	})
 
+	// The first delta arms the keepalive timer, then the background timer for the second the row's window closes, which
+	// is one second after the clock's end+60.
+	if keepalive := <-armed; keepalive.after != convKeepalive {
+		t.Fatalf("keepalive timer armed for %v, want %v", keepalive.after, convKeepalive)
+	}
+	background := <-armed
+	if background.after != time.Second {
+		t.Fatalf("background timer armed for %v, want 1s", background.after)
+	}
+
 	clock.set(end + 61)
+	background.fire <- time.Time{}
 	wantStreamMessage(t, stream.nextDelta(t), &orreryv1.SessionsWatchConversationResponse{
 		Transcript: eventEngine,
 		Seq:        3,
@@ -227,7 +259,7 @@ func TestSessionWatchBackgroundTaskRowAgentEndServesFinishedLine(t *testing.T) {
 	end := at + 10
 	bgApplyAt(t, s, at, bgAgentTask("running", "Grep"))
 	bgApplyAt(t, s, end, bgAgentTask("done", ""))
-	client := bgWatchClient(t, path, newBgClock(end+5))
+	client := bgWatchClient(t, path, nil, newBgClock(end+5), nil)
 
 	stream := openSessionStream(t, client, sessionReq(eventEngine, 0, 0))
 	wantStreamMessage(t, stream.next(t), &orreryv1.SessionsWatchConversationResponse{

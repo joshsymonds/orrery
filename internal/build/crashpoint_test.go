@@ -257,7 +257,7 @@ func (w *crashWorld) incarnation(limit, from int) (int, bool) {
 	router.Wait()
 	w.drain()
 	plan := planner.New(planner.Config{
-		Store: kstore, Steps: crashPlanSteps{w: w}, Agent: crashAgent, Tick: time.Millisecond, Now: w.now,
+		Store: kstore, Steps: crashPlanSteps{w: w}, Agent: crashAgent, Retry: time.Millisecond, Now: w.now,
 		Resolve: crashResolver{},
 	})
 	plan.Recover(ctx)

@@ -20,7 +20,7 @@ const (
 // a state whose turn_since is want.
 func wantTurnSince(t *testing.T, path string, want int64) {
 	t.Helper()
-	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, 0))
+	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, nil, 0))
 	stream := openSessionStream(t, client, sessionReq(eventEngine, 0, 0))
 	state := stream.next(t).GetState()
 	if state == nil {

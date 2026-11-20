@@ -10,7 +10,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/exectest"
 	"github.com/joshsymonds/orrery/internal/holder"
@@ -81,7 +80,7 @@ func TestAwaitStoppingWaitsForRetiredHolderRemoval(t *testing.T) {
 	root := holderRoot(t)
 	t.Cleanup(func() { clearHolderDirs(t, root) })
 	claude := stubbornClaudePath(t)
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	first := newClaudeManager(t, s, writer, &fakeSink{}, root, claude, holder.WireVersion)
 	dir := t.TempDir()
@@ -96,7 +95,7 @@ func TestAwaitStoppingWaitsForRetiredHolderRemoval(t *testing.T) {
 	// The hold opens in the test body's defer, which runs before the cleanups that stop the writer it blocks.
 	hold := newTurnEndHold(s)
 	defer hold.open()
-	restartedWriter := NewWriter(WriterConfig{Applier: hold, Tick: 5 * time.Millisecond})
+	restartedWriter := NewWriter(WriterConfig{Applier: hold})
 	startRun(t, restartedWriter)
 	sink := &fakeSink{}
 	restarted := newClaudeManager(t, s, restartedWriter, sink, root, claude, holder.WireVersion+1)

@@ -81,7 +81,7 @@ func startContractDaemon(t *testing.T) enginev1connect.ContractsClient {
 	contracts := &enginehost.Contracts{Store: st, Now: contractTestNow, Getenv: contractTestGetenv}
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
-	go func() { done <- enginehost.Serve(ctx, ln, nil, nil, nil, nil, nil, nil, nil, nil, contracts) }()
+	go func() { done <- enginehost.Serve(ctx, ln, nil, nil, nil, nil, nil, nil, nil, nil, nil, contracts) }()
 	t.Cleanup(func() {
 		cancel()
 		if err := <-done; err != nil {

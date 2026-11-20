@@ -7,7 +7,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/kinds"
@@ -38,7 +37,7 @@ func gapTurnRunner(t *testing.T, s *store.Store, steps *reviewLoopSteps, enabled
 	return New(Config{
 		Store: s, Planner: &fakePlanner{}, Builder: &fakeBuilder{}, Steps: steps,
 		Reviewers: &gapTurnReviewers{reviewWorkReviewers: &reviewWorkReviewers{}, enabled: enabled},
-		Ending:    s, Getenv: reviewWorkGetenv(t), Tick: time.Hour, Now: runClock,
+		Ending:    s, Getenv: reviewWorkGetenv(t), Now: runClock,
 	})
 }
 

@@ -12,7 +12,6 @@ import (
 	"sync"
 	"syscall"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/engine/session"
 	"github.com/joshsymonds/orrery/internal/gates"
@@ -60,7 +59,7 @@ type stepCtlFixture struct {
 func newStepCtlFixture(t *testing.T) *stepCtlFixture {
 	t.Helper()
 	s, _ := openStore(t)
-	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	writer := NewWriter(WriterConfig{Applier: s})
 	startRun(t, writer)
 	home := t.TempDir()
 	stepGateMachinePoolsFile(t, home, "pool_a", "pool_b", gates.DefaultPool)
@@ -80,7 +79,7 @@ func newStepCtlFixture(t *testing.T) *stepCtlFixture {
 // newSteps returns a Steps over the fixture's store, writer and sessions. It is closed at cleanup.
 func (f *stepCtlFixture) newSteps(t *testing.T) *Steps {
 	t.Helper()
-	steps, err := NewSteps(StepsConfig{
+	steps := NewSteps(StepsConfig{
 		Sessions:     f.sessions,
 		Store:        f.store,
 		Writer:       f.writer,
@@ -90,9 +89,6 @@ func (f *stepCtlFixture) newSteps(t *testing.T) *Steps {
 		Logger:       slog.New(slog.DiscardHandler),
 		GateStateDir: f.gateStateDir,
 	})
-	if err != nil {
-		t.Fatalf("NewSteps: %v", err)
-	}
 	t.Cleanup(steps.Close)
 	return steps
 }
