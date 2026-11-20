@@ -62,6 +62,13 @@ const askUserQuestionTool = "AskUserQuestion"
 // epicCreateTool is the name of the epic tool that creates an epic, behind an MCP server: mcp__<server>__epic_create.
 const epicCreateTool = "epic_create"
 
+// contractProposeTool and contractReviseTool are the names of the contract tools that write a version, behind an MCP
+// server: mcp__<server>__contract_propose and mcp__<server>__contract_revise.
+const (
+	contractProposeTool = "contract_propose"
+	contractReviseTool  = "contract_revise"
+)
+
 const (
 	// maxTextBytes caps the text of one item.
 	maxTextBytes = 4096
@@ -100,19 +107,21 @@ type Context struct {
 
 // Item is one reply, tool call, question, prompt, tool result, notice or compaction of a transcript. A compaction
 // takes its trigger and tokens from the compact_boundary line before it, and both stay empty when that line is
-// not read. A tool call that creates an epic takes the epic's id from its full input (see CreatedEpic).
+// not read. A tool call that creates an epic or writes a contract takes its id from its full input (see CreatedEpic
+// and WrittenContract).
 type Item struct {
-	Kind    string `json:"kind"`
-	Time    int64  `json:"time"`
-	Text    string `json:"text"`
-	Tool    string `json:"tool"`
-	Input   string `json:"input"`
-	ID      string `json:"id"`
-	Error   bool   `json:"error"`
-	Notice  string `json:"notice"`
-	Trigger string `json:"trigger"`
-	Tokens  int64  `json:"tokens"`
-	Epic    string `json:"epic"`
+	Kind     string `json:"kind"`
+	Time     int64  `json:"time"`
+	Text     string `json:"text"`
+	Tool     string `json:"tool"`
+	Input    string `json:"input"`
+	ID       string `json:"id"`
+	Error    bool   `json:"error"`
+	Notice   string `json:"notice"`
+	Trigger  string `json:"trigger"`
+	Tokens   int64  `json:"tokens"`
+	Epic     string `json:"epic"`
+	Contract string `json:"contract"`
 }
 
 // transcriptLine holds the fields of one transcript line that the reader uses.
@@ -290,44 +299,71 @@ func toolItem(block contentBlock, ts int64) Item {
 		return Item{Kind: kindQuestion, Time: ts, Text: text, Tool: name, ID: id}
 	}
 	return Item{
-		Kind:  kindTool,
-		Time:  ts,
-		Tool:  name,
-		Input: protocol.ToolInputText(block["input"]),
-		ID:    id,
-		Epic:  CreatedEpic(name, block["input"]),
+		Kind:     kindTool,
+		Time:     ts,
+		Tool:     name,
+		Input:    protocol.ToolInputText(block["input"]),
+		ID:       id,
+		Epic:     CreatedEpic(name, block["input"]),
+		Contract: WrittenContract(name, block["input"]),
 	}
 }
 
-// CreatedEpic returns the id of the epic a tool call creates: the contract id in the call's full input when the
-// call is an MCP server's epic_create call, named mcp__<server>__epic_create. It returns "" for any other call,
-// and for an input that does not decode or names no contract id. input is the whole input, not its display text.
+// CreatedEpic returns the id of the epic a tool call creates: the id in the call's full input when the call is an
+// MCP server's epic_create call, named mcp__<server>__epic_create, or else the id of its inline contract, which a call
+// made before epic_create took an id names. It returns "" for any other call, and for an input that does not decode
+// or names no id. input is the whole input, not its display text.
 func CreatedEpic(name string, input json.RawMessage) string {
-	if !isEpicCreate(name) {
+	if !isMCPTool(name, epicCreateTool) {
 		return ""
 	}
 	var call epicCreateInput
 	if json.Unmarshal(input, &call) != nil {
 		return ""
 	}
+	if call.ID != "" {
+		return call.ID
+	}
 	return call.Contract.ID
 }
 
-// epicCreateInput holds the contract of an epic_create input, whose id names the epic.
+// epicCreateInput holds the id of an epic_create input, which names the epic, and the inline contract of a call made
+// before epic_create took an id.
 type epicCreateInput struct {
+	ID       string `json:"id"`
 	Contract struct {
 		ID string `json:"id"`
 	} `json:"contract"`
 }
 
-// isEpicCreate reports whether a tool name is an MCP server's epic_create tool, mcp__<server>__epic_create. A bare
-// epic_create is not one.
-func isEpicCreate(name string) bool {
+// WrittenContract returns the id of the contract a tool call writes: the id in the call's full input when the call is
+// an MCP server's contract_propose or contract_revise call, named mcp__<server>__contract_propose or
+// mcp__<server>__contract_revise. It returns "" for any other call, and for an input that does not decode or names no
+// id. input is the whole input, not its display text.
+func WrittenContract(name string, input json.RawMessage) string {
+	if !isMCPTool(name, contractProposeTool) && !isMCPTool(name, contractReviseTool) {
+		return ""
+	}
+	var call contractInput
+	if json.Unmarshal(input, &call) != nil {
+		return ""
+	}
+	return call.ID
+}
+
+// contractInput holds the id of a contract tool's input, which names the contract the call writes.
+type contractInput struct {
+	ID string `json:"id"`
+}
+
+// isMCPTool reports whether a tool name is the named tool of an MCP server, mcp__<server>__<tool>. A bare tool name is
+// not one.
+func isMCPTool(name, tool string) bool {
 	rest, ok := strings.CutPrefix(name, "mcp__")
 	if !ok {
 		return false
 	}
-	server, ok := strings.CutSuffix(rest, "__"+epicCreateTool)
+	server, ok := strings.CutSuffix(rest, "__"+tool)
 	return ok && server != ""
 }
 
