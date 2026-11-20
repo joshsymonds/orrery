@@ -20,6 +20,7 @@ import {
   type PickerRowInit,
   type Slices,
   shippedSlices,
+  taskRecordSlices,
 } from "./fixtures/slices";
 import { endedSlices, handoverSlices, movedSlices } from "./fixtures/steer";
 import { createFixtureTransport, type FixtureTransport } from "./fixtures/transport";
@@ -37,6 +38,8 @@ const headlessSession = "4be0c6d2-8f3a-4c71-9e25-ephemeris001";
 // The headless session that steers tidepool/buoy-feeds, which runs two sub-agents and one shell.
 const buoySession = "6c2f9e14-3a7b-4d58-9b0e-2f7a1c8d4e55";
 const workerStep = "st-rota-t2-impl";
+// heldStep is tz-fixtures' step, which is held: its worker session is the held page story.
+const heldStep = "st-rota-t1-impl";
 // otherWords is the answer epic-question-other types into Something else.
 const otherWords = "Vendor the Lisbon rule as a fixture file; do not touch go.mod.";
 // panesList is the procedure the inbox's rows wait on: held, it leaves the inbox loading; failed, it leaves the inbox
@@ -229,6 +232,13 @@ async function pressInShownDock(root: HTMLElement, key: string): Promise<void> {
   const box = await drawnWhen(root, shownDockBox);
   box.focus();
   press(box, key);
+}
+
+// sendInWorkerDock types text into the worker session's dock, presses Enter in it, and waits for the dock to draw its line.
+async function sendInWorkerDock(root: HTMLElement, text: string): Promise<void> {
+  const box = await typeInto(root, ".worker-session .dock textarea", text);
+  press(box, "Enter");
+  await drawnWhen(root, ".worker-session .dock .inote.error");
 }
 
 // sendInShownDock types text into the shown dock and presses Enter once the typing has drawn.
@@ -425,10 +435,77 @@ export const Page: Stories = {
     />
   ),
   "phase-implement": () => (
-    <PageStory address={epicAt(rota, { kind: "phase", task: "T2", phase: "checking" })} />
+    <PageStory
+      address={epicAt(rota, { kind: "phase", task: "T2", phase: "implementing" })}
+      fixture={createFixtureTransport(taskRecordSlices.implementing)}
+    />
+  ),
+  "phase-red": () => (
+    <PageStory
+      address={epicAt(rota, { kind: "phase", task: "T2", phase: "implementing" })}
+      fixture={createFixtureTransport(taskRecordSlices.implementing)}
+      after={(root) => clickWhen(root, ".phase-head .nm", "red")}
+    />
+  ),
+  "phase-green": () => (
+    <PageStory
+      address={epicAt(rota, { kind: "phase", task: "T2", phase: "checking" })}
+      fixture={createFixtureTransport(taskRecordSlices.green)}
+    />
+  ),
+  "phase-review": () => (
+    <PageStory
+      address={epicAt(rota, { kind: "phase", task: "T2", phase: "reviewing" })}
+      fixture={createFixtureTransport(taskRecordSlices.review)}
+    />
+  ),
+  "phase-integrate": () => (
+    <PageStory
+      address={epicAt(rota, { kind: "phase", task: "T2", phase: "integrating" })}
+      fixture={createFixtureTransport(taskRecordSlices.integrate)}
+    />
+  ),
+  "phase-refused": () => (
+    <PageStory
+      address={epicAt(rota, { kind: "phase", task: "T2", phase: "implementing" })}
+      fixture={createFixtureTransport(taskRecordSlices.refusedHold)}
+      after={(root) => clickWhen(root, ".title-row button, .cmdbar button", "Interrupt")}
+    />
   ),
   "worker-running": () => (
-    <PageStory address={epicAt(rota, { kind: "session", task: "T2", phase: "implementing", step: workerStep })} />
+    <PageStory
+      address={epicAt(rota, { kind: "session", task: "T2", phase: "implementing", step: workerStep })}
+      fixture={createFixtureTransport(taskRecordSlices.implementing)}
+    />
+  ),
+  "worker-held": () => (
+    <PageStory
+      address={epicAt(rota, { kind: "session", task: "T1", phase: "implementing", step: heldStep })}
+      fixture={createFixtureTransport(taskRecordSlices.held)}
+    />
+  ),
+  "worker-stop-confirm": () => (
+    <PageStory
+      address={epicAt(rota, { kind: "session", task: "T2", phase: "implementing", step: workerStep })}
+      fixture={createFixtureTransport(taskRecordSlices.implementing)}
+      after={async (root) => {
+        await clickWhen(root, '.worker-session .dock button[aria-label="Stop this step…"]');
+        await drawnWhen(root, ".worker-session .dock .confirm", "Stop export-cli?");
+      }}
+    />
+  ),
+  "worker-ended": () => (
+    <PageStory
+      address={epicAt(rota, { kind: "session", task: "T2", phase: "implementing", step: workerStep })}
+      fixture={createFixtureTransport(taskRecordSlices.integrate)}
+    />
+  ),
+  "worker-note": () => (
+    <PageStory
+      address={epicAt(rota, { kind: "session", task: "T2", phase: "implementing", step: workerStep })}
+      fixture={createFixtureTransport(taskRecordSlices.unansweredNudge)}
+      after={(root) => sendInWorkerDock(root, "Also run the Lisbon fixture before you report.")}
+    />
   ),
   "epic-talk": () => (
     <PageStory

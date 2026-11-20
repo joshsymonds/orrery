@@ -1,6 +1,10 @@
 // The stories of the reader: Reader draws one conversation, and ReaderHead draws the head over one.
 // Each state draws the fixture conversation it names, folded from its stream by applyDelta as the app folds it.
 
+import { create } from "@bufbuild/protobuf";
+import type { ComponentChildren } from "preact";
+import { useEffect, useRef } from "preact/hooks";
+
 import type { Stories } from "./catalog/story";
 import { applyDelta, type Conversation } from "./conversation";
 import { at } from "./fixtures/clock";
@@ -10,6 +14,7 @@ import { headless, sessions, sessionStreams } from "./fixtures/sessions";
 import { Ask } from "./ask";
 import { conversationAsk } from "./askmodel";
 import { findMatches } from "./find";
+import { type EpicStepCheck, EpicStepCheckSchema } from "./gen/orrery/v1/epics_pb";
 import * as reader from "./reader";
 import { type Row, rowsFrom } from "./rows";
 import { sendingEntry } from "./sending";
@@ -98,6 +103,35 @@ export const Reader: Stories = {
       open={false}
       step={workerStep}
     />
+  ),
+};
+
+// NoteOpen opens the fold of the note its child block draws, once it mounts, so the story draws the fold open.
+function NoteOpen({ children }: { children: ComponentChildren }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    ref.current?.querySelector<HTMLButtonElement>("button.note")?.click();
+  }, []);
+  return <div ref={ref}>{children}</div>;
+}
+
+const failedChecks: EpicStepCheck[] = [
+  create(EpicStepCheckSchema, { round: 1, name: "schema", ok: true }),
+  create(EpicStepCheckSchema, { round: 1, name: "gate", ok: false }),
+];
+const passedChecks: EpicStepCheck[] = [
+  create(EpicStepCheckSchema, { round: 1, name: "schema", ok: true }),
+  create(EpicStepCheckSchema, { round: 1, name: "gate", ok: true }),
+];
+const gateOutput = "gate failed: exit 1\ncli/export_test.go:88: want ErrExists, got nil\nthe gate ran just check";
+
+export const CheckBlock: Stories = {
+  bad: () => <reader.CheckBlock text="gate failed: exit 1" round={1} checks={failedChecks} />,
+  ok: () => <reader.CheckBlock text="all checks passed" round={1} checks={passedChecks} />,
+  "note-open": () => (
+    <NoteOpen>
+      <reader.CheckBlock text={gateOutput} round={1} checks={failedChecks} />
+    </NoteOpen>
   ),
 };
 

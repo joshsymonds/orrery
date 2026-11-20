@@ -6,19 +6,29 @@ import { Code, ConnectError } from "@connectrpc/connect";
 import { render } from "preact";
 import { act } from "preact/test-utils";
 
-import { type EpicsGetResponse, EpicsGetResponseSchema, type EpicStep, EpicStepSchema } from "./gen/orrery/v1/epics_pb";
+import type { Conversation } from "./conversation";
+import {
+  type EpicsGetResponse,
+  EpicsGetResponseSchema,
+  type EpicStep,
+  EpicStepSchema,
+} from "./gen/orrery/v1/epics_pb";
+import { ConversationItemSchema } from "./gen/orrery/v1/orrery_pb";
 import { PhaseOutputPage } from "./phaseoutput";
-import { type Phase, PHASES } from "./phases";
 import { installTestDom, removeTestDom } from "./testdom";
 
 type Props = Parameters<typeof PhaseOutputPage>[0];
 type StepInit = MessageInitShape<typeof EpicStepSchema>;
+
+// now is the fixed instant every test draws at, in unix seconds.
+const now = 1000;
 
 // A step of task T1 that runs in stage turn from second 100, unless the init says otherwise.
 function step(init: StepInit): EpicStep {
   return create(EpicStepSchema, {
     task: "T1",
     agent: "builder",
+    role: "implementer",
     doing: "",
     held: false,
     end: "",
@@ -28,23 +38,23 @@ function step(init: StepInit): EpicStep {
   });
 }
 
-// The steps of T1, alpha: an attempt that ended, a checks round that failed, a second attempt whose checks passed, and a
-// review. The last step is the review, so the task waits to integrate.
-function alphaSteps(): EpicStep[] {
+// The attempts of T1, alpha: the first ended done, the second spent on its checks, the third done. The third's last round
+// fails its lint and passes its gate, and its judge meets the goal.
+function attemptSteps(): EpicStep[] {
   return [
     step({
-      id: "a1",
+      id: "impl1",
       end: "done",
       started: 100n,
-      ended: 110n,
+      ended: 120n,
       doing: "alpha writing the parser",
       summary: "alpha wrote the parser",
     }),
     step({
-      id: "c1",
+      id: "impl2",
       end: "checks_failed",
-      started: 120n,
-      ended: 150n,
+      started: 130n,
+      ended: 160n,
       reason: "alpha checks failed",
       summary: "alpha checks ran",
       gateName: "make-gate",
@@ -63,37 +73,52 @@ function alphaSteps(): EpicStep[] {
       verdicts: [{ round: 1, verdict: "unmet", reason: "alpha judge reason one" }],
     }),
     step({
-      id: "c2",
+      id: "impl3",
       end: "done",
-      started: 160n,
-      ended: 170n,
+      started: 170n,
+      ended: 200n,
       summary: "alpha fixed the lint",
       gateName: "make-gate",
       checks: [
         { round: 2, name: "fmt", ok: true, detail: "" },
-        { round: 2, name: "gate", ok: true, detail: "alpha round two gate" },
+        { round: 2, name: "lint", ok: false, detail: "alpha lint again" },
+        { round: 2, name: "gate", ok: true, detail: "alpha round two gate", tailStdout: "round two out" },
       ],
       verdicts: [{ round: 2, verdict: "met", reason: "alpha judge reason two" }],
     }),
-    step({
-      id: "r1",
-      readOnly: true,
-      end: "done",
-      started: 180n,
-      ended: 200n,
-      doing: "alpha reviewing the parser",
-      summary: "alpha reviewed the parser",
-    }),
   ];
+}
+
+// The review of T1 that runs now, from second 210, its stage started at second 220, held or not.
+function reviewStep(held: boolean): EpicStep {
+  return step({
+    id: "rev1",
+    role: "reviewer",
+    readOnly: true,
+    end: "",
+    held,
+    started: 210n,
+    stage: "review",
+    stageStarted: 220n,
+    doing: "alpha reviewing the parser",
+  });
 }
 
 // The steps of T2, beta: one attempt and one review, both ended.
 function betaSteps(): EpicStep[] {
   return [
-    step({ id: "b1", task: "T2", end: "done", started: 100n, ended: 110n, summary: "beta printed the output" }),
+    step({
+      id: "b1",
+      task: "T2",
+      end: "done",
+      started: 100n,
+      ended: 110n,
+      summary: "beta printed the output",
+    }),
     step({
       id: "b2",
       task: "T2",
+      role: "reviewer",
       readOnly: true,
       end: "done",
       started: 120n,
@@ -103,27 +128,17 @@ function betaSteps(): EpicStep[] {
   ];
 }
 
-// The step of T1 that runs now, after its history, held or not. Its stage started at second 400.
-function runningStep(held: boolean): EpicStep {
-  return step({
-    id: "run1",
-    end: "",
-    held,
-    started: 200n,
-    stageStarted: 400n,
-    doing: "alpha writing the parser again",
-  });
-}
-
-// The Get answer of an epic with task T1 (Parser, open) and task T2 (Printer, done), with the given steps.
-function detailOf(steps: EpicStep[]): EpicsGetResponse {
+// The Get answer of an epic with T1 Parser in review, running rev1 (held or not), T2 Printer integrated, and T3 Logout
+// planned. T1's red and green runs have ended and passed, and its review has one confirmed finding.
+function detailOf(held: boolean): EpicsGetResponse {
   return create(EpicsGetResponseSchema, {
+    epic: { slug: "orrery-style", outcome: "accepted" },
     buildTasks: [
       {
         id: "T1",
         title: "Parser",
-        status: "open",
-        stage: "green",
+        status: "dispatched",
+        stage: "review",
         requirements: ["R1"],
         red: {
           id: "red-alpha",
@@ -131,7 +146,10 @@ function detailOf(steps: EpicStep[]): EpicsGetResponse {
           source: "captured",
           state: "ended",
           exit: 1,
-          passed: false,
+          passed: true,
+          verdict: "holds",
+          created: 100n,
+          ended: 145n,
           revision: "alpha-red-rev",
         },
         green: {
@@ -141,20 +159,23 @@ function detailOf(steps: EpicStep[]): EpicsGetResponse {
           state: "ended",
           exit: 0,
           passed: true,
+          verdict: "holds",
+          created: 500n,
+          ended: 530n,
           revision: "alpha-green-rev",
         },
         reviews: [
           {
             attempt: 1n,
             gate: "alpha review gate",
-            step: "r1",
+            step: "rev1",
             verdict: "fails",
             findings: [
               {
                 id: "f1",
                 claim: "alpha claim",
                 location: "parser.go",
-                step: "r1",
+                step: "rev1",
                 result: "confirmed",
                 reason: "alpha finding reason",
               },
@@ -166,45 +187,55 @@ function detailOf(steps: EpicStep[]): EpicsGetResponse {
         id: "T2",
         title: "Printer",
         status: "done",
-        stage: "verify",
         requirements: ["R2", "R3"],
         reviews: [{ attempt: 1n, gate: "beta review gate", step: "b2", verdict: "holds", findings: [] }],
       },
+      { id: "T3", title: "Logout", status: "", requirements: ["R2"] },
     ],
-    steps,
+    requirements: [
+      { id: "R1", text: "The parser parses" },
+      { id: "R2", text: "The printer prints" },
+    ],
+    steps: [...attemptSteps(), reviewStep(held), ...betaSteps()],
   });
 }
 
-// The epic with T1 waiting to integrate.
-function finished(): EpicsGetResponse {
-  return detailOf([...alphaSteps(), ...betaSteps()]);
+// briefConversation is a conversation whose first brief prompt is the text given, after an assistant item.
+function briefConversation(text: string): Conversation {
+  return {
+    transcript: "",
+    seq: 0n,
+    items: [
+      create(ConversationItemSchema, { kind: "assistant", text: "reading the repository" }),
+      create(ConversationItemSchema, { kind: "prompt", sender: "brief", text }),
+      create(ConversationItemSchema, { kind: "prompt", sender: "brief", text: "a second brief" }),
+    ],
+    oldest: 0n,
+    more: false,
+    state: undefined,
+    unfinished: [],
+    queued: [],
+    unsent: [],
+  };
 }
 
-// The epic with T1 running a step, held or not.
-function running(held: boolean): EpicsGetResponse {
-  return detailOf([...alphaSteps(), runningStep(held), ...betaSteps()]);
-}
-
-// pageProps is the page's props for a task at a phase, with every callback recording its call as a string in calls.
-function pageProps(
-  detail: EpicsGetResponse,
-  task: string,
-  phase: Phase,
-  calls: string[],
-  init: Partial<Props> = {},
-): Props {
+// pageProps is the page's props for a task, with every callback recording its call as a string in calls.
+function pageProps(detail: EpicsGetResponse, task: string, calls: string[], init: Partial<Props> = {}): Props {
   return {
     detail,
-    epic: "orrery-style",
     task,
-    phase,
-    now: 1000,
+    now,
+    narrow: false,
+    conversation: null,
     loadArtifact: () => Promise.reject(new Error("the page loads no artifact in these tests")),
     onBack: () => {
       calls.push("back");
     },
-    onOpenPhase: (openedTask, openedPhase) => {
-      calls.push(`phase:${openedTask}:${openedPhase}`);
+    onOpenEpic: () => {
+      calls.push("epic");
+    },
+    onOpenTask: (openedTask, phase) => {
+      calls.push(`task:${openedTask}:${phase}`);
     },
     onOpenSession: (session) => {
       calls.push(`session:${session}`);
@@ -258,10 +289,6 @@ function textsOf(root: ParentNode, selector: string): string[] {
   return [...root.querySelectorAll(selector)].map((element) => element.textContent ?? "");
 }
 
-function bodyOf(container: HTMLElement): string {
-  return container.querySelector(".phase-body")?.textContent ?? "";
-}
-
 function buttonNamed(root: ParentNode, name: string): HTMLButtonElement | undefined {
   return [...root.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === name);
 }
@@ -272,250 +299,299 @@ function buttonOf(root: ParentNode, name: string): HTMLButtonElement {
   return found;
 }
 
-function headOf(container: HTMLElement, phase: Phase): HTMLButtonElement {
+// stageHead is the head of the stage row named name.
+function stageHead(container: HTMLElement, name: string): HTMLButtonElement {
   const head = [...container.querySelectorAll<HTMLButtonElement>(".phase-head")].find(
-    (candidate) => candidate.querySelector(".phase-name")?.textContent === phase,
+    (candidate) => candidate.querySelector(".nm")?.textContent === name,
   );
-  assert.ok(head, `the page has a ${phase} head`);
+  assert.ok(head, `the page has a ${name} stage head`);
   return head;
 }
 
-// openPhasesOf names the phases of the open rows, joined by commas.
-function openPhasesOf(container: HTMLElement): string {
-  return textsOf(container, ".phase-row.open .phase-name").join(",");
+// openStagesOf names the stages whose heads are expanded, joined by commas.
+function openStagesOf(container: HTMLElement): string {
+  return textsOf(container, '.phase-head[aria-expanded="true"] .nm').join(",");
 }
 
-test("the crumbs read the epic, then the task and phase, with the phase as the page", async () => {
-  await withPage(pageProps(finished(), "T1", "checking", []), (container) => {
-    assert.equal(elementOf(container, ".crumbs").textContent?.trim(), "› orrery-style › T1 · checking");
-    assert.equal(elementOf(container, ".crumbs .here").textContent, "T1 · checking");
-  });
-});
+// bodyOf is the text of the open stage's body, or empty when no stage is open.
+function bodyOf(container: HTMLElement): string {
+  return container.querySelector(".phase-body")?.textContent ?? "";
+}
 
-test("‹ calls onBack, and the epic crumb calls onBack", async () => {
+// commandsOf is the text of the commands the title row draws, in order.
+function titleCommandsOf(container: HTMLElement): string[] {
+  return textsOf(container, ".title-row .acts > *");
+}
+
+test("TaskBand: the crumbs read the epic, then the task, and both the epic crumb and ‹ leave the page", async () => {
   const calls: string[] = [];
-  await withPage(pageProps(finished(), "T1", "checking", calls), async (container) => {
+  await withPage(pageProps(detailOf(false), "T1", calls), async (container) => {
+    assert.equal(elementOf(container, ".crumbs").textContent?.trim(), "› orrery-style › Parser");
+    assert.equal(elementOf(container, ".crumbs .here").textContent, "Parser");
     await click(elementOf(container, ".back"));
     const [epic] = [...container.querySelectorAll<HTMLButtonElement>(".crumbs button.crumb")];
     assert.ok(epic, "the epic crumb is a button");
     await click(epic);
-    assert.equal(calls.join(","), "back,back");
+    assert.equal(calls.join(","), "back,epic");
   });
 });
 
-test("the page names the task's title and its requirement ids", async () => {
-  await withPage(pageProps(finished(), "T1", "implementing", []), (container) => {
-    assert.equal(elementOf(container, ".task-title").textContent, "Parser");
-    assert.equal(elementOf(container, ".requirements").textContent, "R1");
-  });
-  await withPage(pageProps(finished(), "T2", "implementing", []), (container) => {
-    assert.equal(elementOf(container, ".task-title").textContent, "Printer");
-    assert.equal(elementOf(container, ".requirements").textContent, "R2, R3");
-  });
-});
-
-test("the four phases are rows in order, each named by its phase", async () => {
-  await withPage(pageProps(finished(), "T1", "implementing", []), (container) => {
-    assert.equal(textsOf(container, ".phase-row .phase-name").join(","), PHASES.join(","));
-  });
-});
-
-test("given each phase, that row alone is open and its head shows it expanded", async () => {
-  for (const phase of PHASES) {
-    await withPage(pageProps(finished(), "T1", phase, []), (container) => {
-      assert.equal(openPhasesOf(container), phase);
-      const expanded = [...container.querySelectorAll(".phase-head")].map((head) => head.getAttribute("aria-expanded"));
-      assert.equal(expanded.join(","), PHASES.map((name) => String(name === phase)).join(","));
-    });
-  }
-});
-
-test("another head calls onOpenPhase with its task and phase", async () => {
+test("TaskBand: the epic pin names the epic, its state and its tasks done, and pressing it opens the epic", async () => {
   const calls: string[] = [];
-  await withPage(pageProps(finished(), "T1", "checking", calls), async (container) => {
-    await click(headOf(container, "implementing"));
-    await click(headOf(container, "reviewing"));
-    await click(headOf(container, "integrating"));
-    assert.equal(calls.join(","), "phase:T1:implementing,phase:T1:reviewing,phase:T1:integrating");
+  await withPage(pageProps(detailOf(false), "T1", calls), async (container) => {
+    assert.equal(elementOf(container, ".epic-pin .slug").textContent, "orrery-style");
+    assert.equal(elementOf(container, ".epic-pin .words").textContent, "accepted · 1 of 3 tasks done");
+    await click(elementOf(container, ".epic-pin"));
+    assert.equal(calls.join(","), "epic");
   });
 });
 
-test("a head ahead of the work is disabled, and the others are not", async () => {
-  await withPage(pageProps(running(false), "T1", "implementing", []), (container) => {
-    const heads = [...container.querySelectorAll<HTMLButtonElement>(".phase-head")];
-    assert.equal(heads.map((head) => String(head.disabled)).join(","), "false,true,true,true");
-  });
-});
-
-test("each row's head shows its summary, and a passed row its seconds, a now row its time, an ahead row none", async () => {
-  await withPage(pageProps(finished(), "T1", "implementing", []), (container) => {
-    assert.equal(
-      textsOf(container, ".phase-summary").join("|"),
-      "alpha fixed the lint|alpha checks ran|alpha reviewed the parser|",
-    );
-    assert.equal(textsOf(container, ".phase-row.passed .phase-time").join(","), "20 s,30 s,20 s");
-  });
-  await withPage(pageProps(running(false), "T1", "implementing", []), (container) => {
-    assert.equal(textsOf(container, ".phase-time").join("|"), "10 min|||");
-  });
-});
-
-test("the implementing body shows the red run, each attempt, and the green run, and none of the checks or reviews", async () => {
-  await withPage(pageProps(finished(), "T1", "implementing", []), (container) => {
-    const body = bodyOf(container);
-    assert.equal(
-      textsOf(container, ".phase-body .run .sentence").join("|"),
-      "Red run: the test passes before any change. It should fail.|Green run: the test passes on the change.",
-    );
-    assert.equal(textsOf(container, ".phase-body .attempt-end").join(","), "done,checks_failed,done");
-    assert.equal(
-      textsOf(container, ".phase-body .attempt-text").join("|"),
-      "alpha wrote the parser|alpha checks failed|alpha fixed the lint",
-    );
-    assert.equal(body.includes("alpha lint detail"), false);
-    assert.equal(body.includes("alpha claim"), false);
-  });
-});
-
-test("a running attempt in the implementing body shows what it is doing", async () => {
-  await withPage(pageProps(running(false), "T1", "implementing", []), (container) => {
-    assert.equal(textsOf(container, ".phase-body .attempt-doing").join(","), "alpha writing the parser again");
-  });
-});
-
-test("the checking body shows each round's ran list, each check's mark, a failed check's detail, the gate and the judge", async () => {
-  await withPage(pageProps(finished(), "T1", "checking", []), (container) => {
-    const body = bodyOf(container);
-    assert.equal(textsOf(container, ".phase-body .round-no").join(","), "round 1,round 2");
-    assert.equal(textsOf(container, ".phase-body .ran").join("|"), "checks, gate, judge|checks, gate, judge");
-    assert.equal(textsOf(container, ".phase-body .check-name").join(","), "fmt,lint,fmt");
-    assert.equal(textsOf(container, ".phase-body .check-result").join(","), "✓,✗,✓");
-    assert.equal(textsOf(container, ".phase-body .check-detail").join(","), "alpha lint detail");
-    assert.equal(textsOf(container, ".phase-body .gate-name").join(","), "make-gate,make-gate");
-    assert.equal(textsOf(container, ".phase-body .gate-result").join(","), "failed,passed");
-    assert.equal(textsOf(container, ".phase-body .gate-detail").join(","), "alpha gate detail,alpha round two gate");
-    assert.equal(textsOf(container, ".phase-body .gate-stdout").join(","), "alpha out");
-    assert.equal(textsOf(container, ".phase-body .gate-stderr").join(","), "alpha err");
-    assert.equal(textsOf(container, ".phase-body .judge-verdict").join(","), "unmet,met");
-    assert.equal(
-      textsOf(container, ".phase-body .judge-reason").join(","),
-      "alpha judge reason one,alpha judge reason two",
-    );
-    assert.equal(body.includes("alpha wrote the parser"), false);
-    assert.equal(body.includes("alpha reviewed the parser"), false);
-  });
-});
-
-test("the reviewing body shows each review's attempt, gate and verdict, each finding, and each reviewer's summary", async () => {
-  await withPage(pageProps(finished(), "T1", "reviewing", []), (container) => {
-    const body = bodyOf(container);
-    assert.equal(textsOf(container, ".phase-body .review-attempt").join(","), "attempt 1");
-    assert.equal(textsOf(container, ".phase-body .review-gate").join(","), "alpha review gate");
-    assert.equal(textsOf(container, ".phase-body .review-verdict").join(","), "fails");
-    assert.equal(textsOf(container, ".phase-body .claim").join(","), "alpha claim");
-    assert.equal(textsOf(container, ".phase-body .location").join(","), "parser.go");
-    assert.equal(textsOf(container, ".phase-body .result").join(","), "confirmed");
-    assert.equal(textsOf(container, ".phase-body .reason").join(","), "alpha finding reason");
-    assert.equal(textsOf(container, ".phase-body .reviewer").join(","), "alpha reviewed the parser");
-    assert.equal(body.includes("alpha lint detail"), false);
-    assert.equal(body.includes("alpha wrote the parser"), false);
-  });
-});
-
-test("an integrating row that is now shows no time, since it has no start to count from", async () => {
-  await withPage(pageProps(finished(), "T1", "implementing", []), (container) => {
-    assert.equal(elementOf(container, ".phase-row.now .phase-time").textContent, "");
-  });
-  await withPage(pageProps(finished(), "T1", "integrating", []), (container) => {
-    assert.equal(elementOf(container, ".phase-row.now .phase-time").textContent, "");
-  });
-});
-
-test("the integrating body says whether the task is integrated or waits to integrate", async () => {
-  await withPage(pageProps(finished(), "T1", "integrating", []), (container) => {
-    assert.equal(bodyOf(container), "waits to integrate");
-  });
-  await withPage(pageProps(finished(), "T2", "integrating", []), (container) => {
-    assert.equal(bodyOf(container), "integrated");
-  });
-});
-
-test("Open the session calls onOpenSession with the step the phase names, and an integrating phase names none", async () => {
-  const cases: [Phase, string][] = [
-    ["implementing", "session:c2"],
-    ["checking", "session:c2"],
-    ["reviewing", "session:r1"],
-  ];
-  for (const [phase, expected] of cases) {
-    const calls: string[] = [];
-    await withPage(pageProps(finished(), "T1", phase, calls), async (container) => {
-      await click(buttonOf(elementOf(container, ".phase-body"), "Open the session ›"));
-      assert.equal(calls.join(","), expected);
-    });
-  }
-  await withPage(pageProps(finished(), "T1", "integrating", []), (container) => {
-    assert.equal(buttonNamed(container, "Open the session ›") === undefined, true);
-  });
-});
-
-test("Hold calls hold once with the running step", async () => {
+test("TaskBand: the task strip marks the current task's chip and opens every other task at its place's phase", async () => {
   const calls: string[] = [];
-  await withPage(pageProps(running(false), "T1", "implementing", calls), async (container) => {
-    await click(buttonOf(container, "Hold"));
-    assert.equal(calls.join(","), "hold:run1");
+  await withPage(pageProps(detailOf(false), "T1", calls), async (container) => {
+    const chips = [...container.querySelectorAll<HTMLButtonElement>(".tstrip .tchip")];
+    assert.equal(chips.map((chip) => chip.querySelector(".tt")?.textContent).join(","), "Parser,Printer,Logout");
+    assert.equal(chips[0].getAttribute("aria-current"), "page");
+    assert.equal(chips[0].classList.contains("cur"), true);
+    await click(chips[0]);
+    await click(chips[1]);
+    await click(chips[2]);
+    assert.equal(calls.join(","), "task:T2:integrating,task:T3:implementing");
   });
 });
 
-test("a held step offers no Hold, and Stop… stays", async () => {
-  await withPage(pageProps(running(true), "T1", "implementing", []), (container) => {
-    assert.equal(buttonNamed(container, "Hold") === undefined, true);
-    assert.equal(buttonNamed(container, "Stop…") !== undefined, true);
+test("TaskBand: each requirement the task proves is a line with its text, or its id alone when it is not listed", async () => {
+  await withPage(pageProps(detailOf(false), "T1", []), (container) => {
+    assert.deepEqual(textsOf(container, ".now-sentence"), ["R1 The parser parses"]);
+  });
+  await withPage(pageProps(detailOf(false), "T2", []), (container) => {
+    assert.deepEqual(textsOf(container, ".now-sentence"), ["R2 The printer prints", "R3"]);
+    assert.equal(elementOf(container, ".now-sentence .id").textContent, "R2");
   });
 });
 
-test("with nothing running there is no Hold and no Stop…", async () => {
-  await withPage(pageProps(finished(), "T1", "implementing", []), (container) => {
-    assert.equal(buttonNamed(container, "Hold") === undefined, true);
-    assert.equal(buttonNamed(container, "Stop…") === undefined, true);
+test("TaskBand: the planner's brief is drawn from the first brief prompt, and not before its conversation holds one", async () => {
+  await withPage(pageProps(detailOf(false), "T1", []), (container) => {
+    assert.equal(container.querySelector(".brief"), null, "no brief while its conversation is not held");
+  });
+  await withPage(pageProps(detailOf(false), "T1", [], { conversation: briefConversation("Parse the lines.") }), (container) => {
+    assert.equal(elementOf(container, ".brief .lbl").textContent, "The planner’s brief");
+    assert.equal(elementOf(container, ".brief p").textContent, "Parse the lines.");
   });
 });
 
-test("Stop… calls nothing until its confirm button is pressed, and Keep it running calls nothing", async () => {
+test("TaskStages: five rows in order, each with its state, its summary and its time", async () => {
+  await withPage(pageProps(detailOf(false), "T1", []), (container) => {
+    assert.equal(textsOf(container, ".phase .nm").join(","), "red,implement,green,review,integrate");
+    assert.equal(
+      [...container.querySelectorAll(".phase")].map((row) => row.className).join("|"),
+      "phase passed|phase passed|phase passed|phase now run|phase ahead",
+    );
+    assert.equal(
+      textsOf(container, ".phase .sum").join("|"),
+      "the test fails before any change · judged to hold|attempt 3 · the gate passed · judged met|the test passes on the change · judged to hold|alpha review gate: 1 finding, 1 confirmed|not reached",
+    );
+    assert.equal(textsOf(container, ".phase .end").join(","), "45 s,1 min,30 s,13:00,");
+  });
+});
+
+test("TaskStages: the record opens on the now row, a passed head opens in place and closes it, and a second press folds it", async () => {
+  await withPage(pageProps(detailOf(false), "T1", []), async (container) => {
+    assert.equal(openStagesOf(container), "review");
+    await click(stageHead(container, "red"));
+    assert.equal(openStagesOf(container), "red", "the red row opens and the review row closes");
+    await click(stageHead(container, "red"));
+    assert.equal(openStagesOf(container), "", "a press on the open head folds it");
+  });
+});
+
+test("TaskStages: an ahead row is disabled and opens nothing, and a planned task opens no row", async () => {
+  await withPage(pageProps(detailOf(false), "T1", []), async (container) => {
+    const integrate = stageHead(container, "integrate");
+    assert.equal(integrate.disabled, true);
+    await click(integrate);
+    assert.equal(openStagesOf(container), "review");
+  });
+  await withPage(pageProps(detailOf(false), "T3", []), (container) => {
+    assert.equal(openStagesOf(container), "");
+    assert.equal(
+      [...container.querySelectorAll<HTMLButtonElement>(".phase-head")].every((head) => head.disabled),
+      true,
+    );
+  });
+});
+
+test("TaskStages: an integrated task opens its integrate row, which reads Merged", async () => {
+  await withPage(pageProps(detailOf(false), "T2", []), (container) => {
+    assert.equal(openStagesOf(container), "integrate");
+    assert.equal(bodyOf(container), "Merged.");
+  });
+});
+
+test("TaskStages: the red body draws the red run, and a task with no red run says so", async () => {
+  await withPage(pageProps(detailOf(false), "T1", []), async (container) => {
+    await click(stageHead(container, "red"));
+    assert.equal(
+      elementOf(container, ".phase-body .run .sentence").textContent,
+      "Red run: the test fails before any change, as it should.",
+    );
+  });
+  await withPage(pageProps(detailOf(false), "T2", []), async (container) => {
+    await click(stageHead(container, "red"));
+    assert.equal(bodyOf(container), "No red run yet.");
+  });
+});
+
+test("TaskStages: the implement body lists the attempts, the latest attempt's rounds, its gate log and its judge", async () => {
+  await withPage(pageProps(detailOf(false), "T1", []), async (container) => {
+    await click(stageHead(container, "implement"));
+    assert.equal(
+      textsOf(container, ".phase-body .sub").join(","),
+      "Attempts,Attempt 3 · check rounds,Gate · make-gate,Judge",
+    );
+    assert.equal(textsOf(container, ".phase-body .attempt .words").join("|"), "alpha wrote the parser|alpha checks ran|alpha fixed the lint");
+    assert.equal(textsOf(container, ".phase-body .attempt .chip").join(","), "done,spent,done");
+    assert.equal(textsOf(container, ".phase-body .card .chip").join(","), "fmt ✓,lint ✗,gate ✓");
+    assert.equal(elementOf(container, ".phase-body .card .note").textContent, "lint: alpha lint again");
+    assert.equal(elementOf(container, ".phase-body .log").textContent, "round two out");
+    assert.equal(elementOf(container, ".phase-body .inote").textContent, "Judged: the goal is met.");
+  });
+});
+
+test("TaskStages: the green body says what the red test does on the change, and draws the green run", async () => {
+  await withPage(pageProps(detailOf(false), "T1", []), async (container) => {
+    await click(stageHead(container, "green"));
+    assert.equal(textsOf(container, ".phase-body .sub").join(","), "Reproduction,Green run");
+    assert.equal(elementOf(container, ".phase-body .inote").textContent, "The red test, run on the change, now passes.");
+    assert.equal(elementOf(container, ".phase-body .run .sentence").textContent, "Green run: the test passes on the change.");
+  });
+});
+
+test("TaskStages: the review body is a table of each finding, and says when no review has run", async () => {
+  await withPage(pageProps(detailOf(false), "T1", []), (container) => {
+    assert.equal(textsOf(container, ".phase-body .tbl .gate").join(","), "alpha review gate");
+    assert.equal(textsOf(container, ".phase-body .tbl .what").join(","), "alpha claim");
+    assert.equal(elementOf(container, ".phase-body .tbl .id").textContent, "parser.go");
+    assert.equal(elementOf(container, ".phase-body .tbl .chip").textContent, "confirmed");
+    assert.equal(elementOf(container, ".phase-body .tbl .res").textContent?.includes("alpha finding reason"), true);
+  });
+  const unreviewed = detailOf(false);
+  const [parser] = unreviewed.buildTasks;
+  parser.reviews = [];
+  await withPage(pageProps(unreviewed, "T1", []), async (container) => {
+    assert.equal(openStagesOf(container), "review");
+    assert.equal(elementOf(container, ".phase-body .inote").textContent, "No review has run yet.");
+  });
+});
+
+test("TaskStages: the review table's head row names its four columns, and its finding and what-happened cells are wide", async () => {
+  await withPage(pageProps(detailOf(false), "T1", []), (container) => {
+    assert.equal(textsOf(container, ".phase-body .tbl .tr.head > span").join(","), "gate,finding,where,what happened");
+    assert.equal(elementOf(container, ".phase-body .tbl .tr:not(.head) > .what").classList.contains("wide"), true);
+    assert.equal(elementOf(container, ".phase-body .tbl .tr:not(.head) > .res").classList.contains("wide"), true);
+  });
+});
+
+test("TaskStages: the session door of implement opens its latest attempt, and of review its latest reading step", async () => {
   const calls: string[] = [];
-  await withPage(pageProps(running(false), "T1", "implementing", calls), async (container) => {
+  await withPage(pageProps(detailOf(false), "T1", calls), async (container) => {
+    await click(elementOf(container, ".phase-body .door"));
+    await click(stageHead(container, "implement"));
+    await click(elementOf(container, ".phase-body .door"));
+    assert.equal(calls.join(","), "session:rev1,session:impl3");
+  });
+});
+
+test("TaskCommands: Interrupt sends one hold of the running step, and a held step offers no Interrupt", async () => {
+  const calls: string[] = [];
+  await withPage(pageProps(detailOf(false), "T1", calls), async (container) => {
+    assert.deepEqual(titleCommandsOf(container), ["Interrupt", "Stop…"]);
+    await click(buttonOf(container, "Interrupt"));
+    assert.equal(calls.join(","), "hold:rev1");
+  });
+  await withPage(pageProps(detailOf(true), "T1", []), (container) => {
+    assert.deepEqual(titleCommandsOf(container), ["Stop…"]);
+  });
+});
+
+test("TaskCommands: with no running step there are no commands", async () => {
+  await withPage(pageProps(detailOf(false), "T2", []), (container) => {
+    assert.deepEqual(titleCommandsOf(container), []);
+  });
+});
+
+test("TaskCommands: Stop… asks first, Keep it running sends nothing, and the confirm sends one stop of the running step", async () => {
+  const calls: string[] = [];
+  await withPage(pageProps(detailOf(false), "T1", calls), async (container) => {
     await click(buttonOf(container, "Stop…"));
-    assert.equal(calls.join(","), "");
+    assert.equal(elementOf(container, ".title-row .sure").textContent, "Stop Parser?");
+    assert.equal(calls.join(","), "", "asking sends nothing");
     await click(buttonOf(container, "Keep it running"));
     assert.equal(calls.join(","), "");
     await click(buttonOf(container, "Stop…"));
-    assert.equal(calls.join(","), "");
-    await click(buttonOf(container, "Stop T1"));
-    assert.equal(calls.join(","), "stop:run1");
+    await click(buttonOf(container, "Stop Parser"));
+    assert.equal(calls.join(","), "stop:rev1");
+    assert.deepEqual(titleCommandsOf(container), ["Interrupt", "Stop…"], "the commands return after the confirm");
   });
 });
 
-test("a refused hold shows its line", async () => {
-  const calls: string[] = [];
-  const hold = () => Promise.reject(new ConnectError("step is done", Code.FailedPrecondition));
-  await withPage(pageProps(running(false), "T1", "implementing", calls, { hold }), async (container) => {
-    await click(buttonOf(container, "Hold"));
-    assert.equal(elementOf(container, ".notice").textContent, "hold refused: step is done");
+test("TaskCommands: a refused Interrupt shows its line under the title row, and a later call that lands clears it", async () => {
+  let refuse = true;
+  const hold = () =>
+    refuse ? Promise.reject(new ConnectError("step is done", Code.FailedPrecondition)) : Promise.resolve();
+  await withPage(pageProps(detailOf(false), "T1", [], { hold }), async (container) => {
+    await click(buttonOf(container, "Interrupt"));
+    assert.equal(elementOf(container, ".title-row + .page-note").textContent, "Interrupt was refused: step is done.");
+    refuse = false;
+    await click(buttonOf(container, "Interrupt"));
+    assert.equal(container.querySelector(".page-note"), null, "a call that lands clears the line");
   });
 });
 
-test("a hold whose outcome is not known shows the not-known line", async () => {
-  const hold = () => Promise.reject(new ConnectError("try later", Code.Unavailable));
-  await withPage(pageProps(running(false), "T1", "implementing", [], { hold }), async (container) => {
-    await click(buttonOf(container, "Hold"));
-    assert.equal(elementOf(container, ".notice").textContent, "hold not known: it may have landed");
-  });
-});
-
-test("a refused stop shows its line once confirmed", async () => {
+test("TaskCommands: a refused Stop names its reason, and an unknown outcome says it may have landed", async () => {
   const stop = () => Promise.reject(new ConnectError("no such step", Code.NotFound));
-  await withPage(pageProps(running(false), "T1", "implementing", [], { stop }), async (container) => {
+  await withPage(pageProps(detailOf(false), "T1", [], { stop }), async (container) => {
     await click(buttonOf(container, "Stop…"));
-    await click(buttonOf(container, "Stop T1"));
-    assert.equal(elementOf(container, ".notice").textContent, "stop refused: no such step");
+    await click(buttonOf(container, "Stop Parser"));
+    assert.equal(elementOf(container, ".page-note").textContent, "Stop was refused: no such step.");
+  });
+  const unknown = () => Promise.reject(new ConnectError("try later", Code.Unavailable));
+  await withPage(pageProps(detailOf(false), "T1", [], { hold: unknown }), async (container) => {
+    await click(buttonOf(container, "Interrupt"));
+    assert.equal(elementOf(container, ".page-note").textContent, "Interrupt may have landed: no answer came.");
+  });
+});
+
+test("TaskCommands: the state pill reads the place and the clock while a step runs, else the task's words", async () => {
+  await withPage(pageProps(detailOf(false), "T1", []), (container) => {
+    assert.equal(elementOf(container, ".title-row .state").textContent, "review · 13:00");
+    assert.equal(elementOf(container, ".title-row .state").classList.contains("t-live"), true);
+  });
+  await withPage(pageProps(detailOf(false), "T2", []), (container) => {
+    assert.equal(elementOf(container, ".title-row .state").textContent, "done");
+  });
+  await withPage(pageProps(detailOf(false), "T3", []), (container) => {
+    assert.equal(elementOf(container, ".title-row .state").textContent, "not started");
+  });
+});
+
+test("TaskCommands: narrow, the commands leave the title row for a foot bar, and More opens the confirm sheet", async () => {
+  const calls: string[] = [];
+  await withPage(pageProps(detailOf(false), "T1", calls, { narrow: true }), async (container) => {
+    assert.deepEqual(titleCommandsOf(container), [], "the title row holds no commands");
+    assert.equal(elementOf(container, ".cmdbar .state").textContent, "review · 13:00");
+    await click(buttonOf(container, "Interrupt"));
+    assert.equal(calls.join(","), "hold:rev1");
+    await click(elementOf(container, '.cmdbar button[aria-label="Stop this step…"]'));
+    const sheet = elementOf<HTMLElement>(container, '[role="dialog"]');
+    assert.equal(elementOf(sheet, ".sheet-head b").textContent, "Stop Parser?");
+    assert.equal(sheet.textContent?.includes("The task ends short and the planner decides what to do next."), true);
+    await click(buttonOf(sheet, "Keep it running"));
+    assert.equal(container.querySelector('[role="dialog"]'), null);
+    assert.equal(calls.join(","), "hold:rev1", "Keep it running sends nothing");
+    await click(elementOf(container, '.cmdbar button[aria-label="Stop this step…"]'));
+    await click(buttonOf(elementOf(container, '[role="dialog"]'), "Stop Parser"));
+    assert.equal(calls.join(","), "hold:rev1,stop:rev1");
+    assert.equal(container.querySelector('[role="dialog"]'), null, "the sheet closes once confirmed");
   });
 });

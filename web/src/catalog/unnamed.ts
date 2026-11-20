@@ -19,8 +19,6 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   "marked-text": { replacement: "convo-find", epic: "F3" },
   // ReplyText draws reply text whose web links are links and whose other schemes stay text.
   "reply-text": { replacement: "Reply", epic: "F3" },
-  // PhaseOutputPage draws a task's phase output at each phase of the rota export.
-  "phase-output-page": { replacement: "phase-implement", epic: "F4" },
   // Reader draws one conversation: loading, a pane's conversation, a folded compaction, a question, find, a sending box, live
   // session text, and a session's step.
   reader: { replacement: "convo-shell", epic: "F3" },
@@ -30,8 +28,6 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   "reader-head": { replacement: "TitleRow", epic: "F3" },
   // TitleParts draws a title's directory and line, with either alone, and a line that holds a link.
   "title-parts": { replacement: "TitleRow", epic: "F3" },
-  // WorkerSessionPage draws a step's worker session while it runs, is held, has ended, or loads.
-  "worker-session-page": { replacement: "worker-running", epic: "F4" },
   // OutputTails draws a command's output tails: both, stdout only, stderr only.
   "output-tails": { replacement: "epic-evidence", epic: "F4" },
   // EpicWidget draws the reader's tool-call card: the live card of an epic a tool call created, under the conversation's tool call.

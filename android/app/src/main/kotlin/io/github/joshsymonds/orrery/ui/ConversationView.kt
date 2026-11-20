@@ -53,6 +53,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.joshsymonds.orrery.api.ContractRow
+import io.github.joshsymonds.orrery.api.StepCheckRow
 import io.github.joshsymonds.orrery.api.WaitingItem
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import io.github.joshsymonds.orrery.ui.theme.inLabelCase
@@ -109,7 +110,9 @@ private enum class CallMark(val symbol: String, val colour: Color) {
  * it (or of the window, for one taller than the window) between the top and bottom content padding.
  * A call that writes a contract, with a result that did not fail, draws that contract's line (see
  * [contractLineWords]) in place of its row, and a press on it calls [onOpenContract] with the contract's
- * id; [contracts] supplies the words.
+ * id; [contracts] supplies the words. A brief the engine sent is a row folded to one line, "Brief" and "from the
+ * engine", whose text opens below it on a tap. A check round the engine sent draws as its [CheckBlock], with the
+ * [checks] of the step.
  */
 @Composable
 fun ConversationView(
@@ -126,6 +129,7 @@ fun ConversationView(
     onFollowing: ((Boolean) -> Unit)? = null,
     contracts: List<ContractRow> = emptyList(),
     onOpenContract: (String) -> Unit = {},
+    checks: List<StepCheckRow> = emptyList(),
 ) {
     var expanded by remember { mutableStateOf(emptySet<String>()) }
     val toggle: (String) -> Unit = { id ->
@@ -258,6 +262,16 @@ fun ConversationView(
                         is ConvoEntry.ContractLine -> ContractLineRow(entry.call.contract, contracts, onOpenContract)
                         is ConvoEntry.Compaction -> CompactionRow(entry, keys[index], expanded, toggle, markdownCache)
                         is ConvoEntry.Notice -> NoticeRow(entry)
+                        is ConvoEntry.Brief -> BriefRow(keys[index], entry.text, expanded, toggle, markdownCache)
+                        is ConvoEntry.CheckRound -> CheckBlock(
+                            text = entry.text,
+                            round = entry.round,
+                            checks = checks,
+                            modifier = Modifier.padding(
+                                top = OrreryTokens.Space.eight + OrreryTokens.Space.two,
+                                bottom = OrreryTokens.Space.twelve,
+                            ),
+                        )
                     }
                 }
             }
@@ -528,6 +542,45 @@ private fun ContractLineRow(id: String, contracts: List<ContractRow>, onOpen: (S
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+    }
+}
+
+/**
+ * A brief the engine sent, folded to one line. A tap opens its text below the line as a reply draws it, and a second
+ * tap folds it again. It is kept open by its entry key.
+ */
+@Composable
+private fun BriefRow(key: String, text: String, expanded: Set<String>, onToggle: (String) -> Unit, cache: MarkdownCache) {
+    val isOpen = key in expanded
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = OrreryTokens.Space.four)) {
+        Row(
+            modifier = Modifier
+                .testTag("brief-row:$key")
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(OrreryTokens.Radius.two))
+                .background(OrreryTokens.Surface.well)
+                .clickable { onToggle(key) }
+                .padding(horizontal = OrreryTokens.Space.eight + OrreryTokens.Space.two, vertical = OrreryTokens.Space.eight),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
+        ) {
+            Caret(isOpen)
+            Text(
+                text = "Brief",
+                color = OrreryTokens.Ink.two,
+                style = OrreryTokens.Type.small.copy(fontWeight = OrreryTokens.Font.Weight.bold),
+                maxLines = 1,
+            )
+            Text(
+                text = "from the engine",
+                modifier = Modifier.weight(1f),
+                color = OrreryTokens.Ink.three,
+                style = OrreryTokens.Type.small,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (isOpen) ReplyText(text, cache)
     }
 }
 

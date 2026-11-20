@@ -29,6 +29,10 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.OpenRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.StepsHoldRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.StepsHoldResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.Epic
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.StepsNudgeRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.StepsNudgeResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.StepsStopRequest
@@ -44,6 +48,11 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 private const val STEP_SESSION_ID = "fedcba9876543210fedcba9876543210"
+private const val EPIC_ID = "example-repo/example-epic"
+private const val TASK_ID = "synthetic-task"
+private const val STEP_TITLE = "synthetic step"
+private const val NOW = 1_700_000_000L
+private const val EPICS_GET_PATH = "/orrery.v1.Epics/Get"
 private const val WATCH_PATH = "/orrery.v1.Sessions/WatchConversation"
 private const val INTERRUPT_PATH = "/orrery.v1.Control/Interrupt"
 private const val SAY_PATH = "/orrery.v1.Control/Say"
@@ -78,10 +87,51 @@ class SessionScreenStepTest {
 
     private fun setStepScreen(server: FakeOrreryServer, held: Boolean = false) {
         val client = OrreryClient(server.baseUrl)
+        server.respond(EPICS_GET_PATH, stepDetail(held))
         composeRule.setContent {
-            MaterialTheme { SessionScreen(STEP_SESSION_ID, client, step = StepMode(held = held, label = "synthetic step")) }
+            MaterialTheme {
+                SessionScreen(
+                    STEP_SESSION_ID,
+                    client,
+                    step = StepMode(held = held, label = TASK_ID, epic = EPIC_ID, task = TASK_ID),
+                )
+            }
         }
     }
+
+    /** The epic of the step: its one task, titled [STEP_TITLE], whose step runs, or is held. */
+    private fun stepDetail(held: Boolean): EpicsGetResponse = EpicsGetResponse.newBuilder()
+        .setEpic(
+            Epic.newBuilder()
+                .setId(EPIC_ID)
+                .setRepository("example-repo")
+                .setSlug("example-epic")
+                .setOutcome("")
+                .setChanged(NOW)
+                .setLive(true)
+                .setSource("orreryd")
+                .setEndedSteps(0)
+                .setProblem(""),
+        )
+        .addSteps(
+            EpicStep.newBuilder()
+                .setId(STEP_SESSION_ID)
+                .setTask(TASK_ID)
+                .setAgent("synthetic-agent")
+                .setStatus(if (held) "held" else "working")
+                .setHeld(held)
+                .setStarted(NOW - 60)
+                .setReason(""),
+        )
+        .addBuildTasks(
+            EpicBuildTask.newBuilder()
+                .setId(TASK_ID)
+                .setTitle(STEP_TITLE)
+                .setStatus("dispatched")
+                .setStage("implement")
+                .addRequirements("R1"),
+        )
+        .build()
 
     /** Scripts the watch stream with one reply: the first request gets [stream], later ones a quiet open stream. */
     private fun serveStream(server: FakeOrreryServer, stream: Reply) {
@@ -206,7 +256,7 @@ class SessionScreenStepTest {
 
             composeRule.awaitExactlyOne(hasTestTag(STOP_TAG))
             assertTrue(composeRule.onAllNodesWithTag(HOLD_TAG).fetchSemanticsNodes().isEmpty())
-            composeRule.awaitExactlyOne(hasTestTag("head"))
+            composeRule.awaitExactlyOne(hasTestTag("composer-edge:held"))
             assertEquals(NUDGE_HELD_HINT, editField().hint.toString())
             assertTrue(composeRule.onAllNodesWithText(NUDGE_NOTE).fetchSemanticsNodes().isEmpty())
         }
@@ -218,7 +268,7 @@ class SessionScreenStepTest {
             serveStream(server, streamOf(delta(seq = 1L, state = stateOf("working"))))
             setStepScreen(server)
 
-            composeRule.awaitExactlyOne(hasTestTag("head"))
+            composeRule.awaitExactlyOne(hasTestTag("composer-edge:working"))
             assertEquals(NUDGE_RUNNING_HINT, editField().hint.toString())
             assertTrue(composeRule.onAllNodesWithText(NUDGE_NOTE).fetchSemanticsNodes().isEmpty())
         }
