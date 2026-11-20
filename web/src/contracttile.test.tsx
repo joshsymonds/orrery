@@ -25,8 +25,8 @@ const contractId = "tidepool/tide-alerts";
 const conversation = "sess-tide-16";
 const contractLabel = "tide-alerts: a contract waits for you";
 
-const steererAddress: Address = { order: "attention", entry: { kind: "session", id: conversation } };
-const contractAddress: Address = { order: "attention", entry: { kind: "contract", id: contractId } };
+const steererAddress: Address = { view: "inbox", entry: { kind: "session", id: conversation } };
+const contractAddress: Address = { view: "inbox", entry: { kind: "contract", id: contractId } };
 
 interface Probe {
   reported: { address: Address; mode: string }[];
@@ -58,6 +58,7 @@ function row(init: Partial<Row> & Pick<Row, "key">): Row {
     summary: "",
     question: "",
     questionHash: "",
+    tool: "",
     changed: 0,
     seen: 0,
     unseen: false,
@@ -140,7 +141,6 @@ async function withApp(
       render(
         <App
           rows={setup.rows}
-          error=""
           now={now}
           clients={clients}
           epics={setup.epics}

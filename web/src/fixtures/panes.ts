@@ -203,6 +203,7 @@ const paneBeacon: PaneInit = {
   state: "waiting", summary: "Why the roster page is slow past forty shifts", label: "", changed: at("@14:37"),
   seen: at("@14:37:30"), question: beaconQuestion, context: "", activity: at("@14:37"), tool: "",
   claudeSession: claudeSession(12), questionHash: "qh-beacon-1", newestReply: at("@14:37"), lastTurnEnd: at("@14:37"),
+  orreryId: "sess-beacon-12",
 };
 const paneOrchard: PaneInit = {
   id: "%13", host: "halyard", session: "orchard", pane: 13, cwd: "/home/owner/code/orchard", command: "claude",

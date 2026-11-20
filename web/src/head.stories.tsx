@@ -11,7 +11,7 @@ import { createFixtureTransport, type FixtureTransport } from "./fixtures/transp
 import { pagingQuery } from "./reader";
 import type { Address } from "./router";
 
-const warmup: Address = { order: "attention", entry: { kind: "session", id: warmupSession } };
+const warmup: Address = { view: "inbox", entry: { kind: "session", id: warmupSession } };
 
 // whenDrawn resolves with the first element of root that matches selector and, with text, includes it, once the page
 // draws one. A stream's answer reaches the page after the stories' own turns, so the wait is on the page's mutations
@@ -69,17 +69,17 @@ function unansweredArchive(): FixtureTransport {
 export const Page: Stories = {
   "convo-hot": () => <PageStory address={warmup} fixture={createFixtureTransport(hotSlices)} />,
   "convo-other-host": () => (
-    <PageStory address={{ order: "attention", entry: { kind: "pane", host: "brine", pane: "%24" } }} />
+    <PageStory address={{ view: "inbox", entry: { kind: "pane", host: "brine", pane: "%24" } }} />
   ),
   "convo-epic": () => (
     <PageStory
-      address={{ order: "attention", entry: { kind: "pane", host: "halyard", pane: "%14" } }}
+      address={{ view: "inbox", entry: { kind: "pane", host: "halyard", pane: "%14" } }}
       fixture={createFixtureTransport(epicSlices)}
     />
   ),
   "convo-many-epics": () => (
     <PageStory
-      address={{ order: "attention", entry: { kind: "pane", host: "halyard", pane: "%22" } }}
+      address={{ view: "inbox", entry: { kind: "pane", host: "halyard", pane: "%22" } }}
       fixture={createFixtureTransport(manySlices)}
     />
   ),

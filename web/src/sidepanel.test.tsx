@@ -14,7 +14,7 @@ import { installTestDom, removeTestDom } from "./testdom";
 // wall clock.
 
 const now = Date.parse(liveEpoch) / 1000;
-const href = "#/attention";
+const href = "#/inbox";
 
 async function withDom(element: JSX.Element, check: (container: HTMLElement) => void): Promise<void> {
   const window = installTestDom();

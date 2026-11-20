@@ -15,7 +15,6 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
-import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performTouchInput
 import androidx.test.core.app.ApplicationProvider
 import com.connectrpc.Code
@@ -34,20 +33,13 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicHistoryEntry
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicLedgerFinding
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicPremise
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion
-import io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseProof
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseStep
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep
-import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsAnswerRequest
-import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsAnswerResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsHistoryResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsListResponse
-import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsRetryRequest
-import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsRetryResponse
-import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsStopRequest
-import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsStopResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession
 import io.github.joshsymonds.orrery.gen.orrery.v1.ListHeadlessResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.MarkSeenResponse
@@ -84,15 +76,6 @@ private const val WATCH_PATH = "/orrery.v1.Sessions/WatchConversation"
 private const val EPICS_LIST_PATH = "/orrery.v1.Epics/List"
 private const val EPICS_GET_PATH = "/orrery.v1.Epics/Get"
 private const val EPICS_HISTORY_PATH = "/orrery.v1.Epics/History"
-private const val EPICS_ANSWER_PATH = "/orrery.v1.Epics/Answer"
-private const val EPICS_RETRY_PATH = "/orrery.v1.Epics/Retry"
-private const val EPICS_STOP_PATH = "/orrery.v1.Epics/Stop"
-private const val ANSWER_TAG = "blocker-answer"
-private const val SEND_TAG = "blocker-answer-send"
-private const val RETRY_TAG = "need-retry"
-private const val STOP_TAG = "need-stop"
-private const val STOP_SURE_TAG = "need-stop-sure"
-private const val STOP_CONFIRM_TAG = "need-stop-confirm"
 private const val EPIC_ID = "example-repo/example-epic"
 private const val EPIC_SLUG = "example-epic"
 private const val EPIC_REPOSITORY = "example-repo"
@@ -134,6 +117,7 @@ class MainActivityEpicsTest {
         server = FakeOrreryServer()
         ServerSettings(context).saveServerUrl(server.baseUrl)
         server.respond(PANES_PATH, panesOf(paneProto("%1", "alpha-build"), paneProto("%2", "alpha-review")))
+        server.respond(EPICS_LIST_PATH, EpicsListResponse.getDefaultInstance())
         server.respond(SEEN_PATH, MarkSeenResponse.getDefaultInstance())
         setAnimatorDurationScale(1f)
     }
@@ -214,7 +198,7 @@ class MainActivityEpicsTest {
 
     /**
      * Serves the epic, with its contract, its one requirement and [summary] when [contracted], with [steps], the
-     * planned [buildTasks], its [ledger], its open [questions], why it is [parked] and its [releaseSteps].
+     * planned [buildTasks], its [ledger] and its open [questions].
      */
     private fun serveEpic(
         contracted: Boolean = false,
@@ -223,8 +207,6 @@ class MainActivityEpicsTest {
         buildTasks: List<EpicBuildTask> = emptyList(),
         ledger: List<EpicLedgerFinding> = emptyList(),
         questions: List<EpicQuestion> = emptyList(),
-        parked: String = "",
-        releaseSteps: List<EpicReleaseProof> = emptyList(),
     ) {
         server.respond(EPICS_LIST_PATH, EpicsListResponse.newBuilder().addEpics(liveEpic()).build())
         val detail = EpicsGetResponse.newBuilder()
@@ -234,8 +216,6 @@ class MainActivityEpicsTest {
             .setSummary(summary)
             .addAllLedger(ledger)
             .addAllQuestions(questions)
-            .setParked(parked)
-            .addAllReleaseSteps(releaseSteps)
         if (contracted) {
             detail.setContract(contractProto()).addRequirements(requirement)
         }
@@ -251,24 +231,7 @@ class MainActivityEpicsTest {
         .setAsked(NOW - 120L)
         .build()
 
-    /** A release step that failed: the release need of an epic names it. */
-    private fun failedReleaseStep(): EpicReleaseProof = EpicReleaseProof.newBuilder()
-        .setPosition(2L)
-        .setStep("publish")
-        .setTarget("synthetic registry")
-        .setUndo("synthetic undo")
-        .setState("failed")
-        .setReason("registry 503")
-        .build()
-
-    /** A pane waiting on its user, with [question] open, as the panes list reports it. */
-    private fun waitingPaneProto(id: String, label: String, question: String): PaneProto = paneProto(id, label)
-        .toBuilder()
-        .setState("waiting")
-        .setQuestion(question)
-        .build()
-
-    /** An epic that has ended and is folded: not live, so Home never asks for its detail. */
+    /** An epic that has ended: not live, so the inbox never asks for its detail. */
     private fun foldedEpic(): Epic = Epic.newBuilder()
         .setId(FOLDED_ID)
         .setRepository(EPIC_REPOSITORY)
@@ -436,8 +399,8 @@ class MainActivityEpicsTest {
     /** Launches the app and opens the epic from the home list, waiting for its summary. */
     private fun openEpicFromHome(): ActivityController<MainActivity> {
         val controller = launch()
-        awaitNode(hasTestTag("epic:$EPIC_ID"))
-        composeRule.onNodeWithTag("epic:$EPIC_ID").performClick()
+        awaitNode(hasTestTag("hung:epic:$EPIC_ID"))
+        composeRule.onNodeWithTag("hung:epic:$EPIC_ID").performClick()
         awaitNode(hasTestTag("epic-summary"))
         return controller
     }
@@ -493,18 +456,15 @@ class MainActivityEpicsTest {
         hasTestTag("open-session") and hasAnyAncestor(hasTestTag("phase-row:checking"))
 
     @Test
-    fun homeShowsTheLiveEpicsRunningAndHeldStepsAbovePanes() {
+    fun homeDrawsTheLiveEpicsWithTheirRunningAndHeldSteps() {
         serveEpic()
 
         launch()
 
-        awaitNode(hasTestTag("epic:$EPIC_ID"))
+        awaitNode(hasTestTag("hung:epic:$EPIC_ID"))
         awaitNode(hasTestTag("step:$STEP_ID"))
-        awaitNode(hasTestTag("held:$HELD_STEP_ID"))
-        awaitNode(hasTestTag("pane-row:%1"))
-        val groupTop = composeRule.onNodeWithTag("epics-group").fetchSemanticsNode().boundsInRoot.top
-        val paneTop = composeRule.onNodeWithTag("pane-row:%1").fetchSemanticsNode().boundsInRoot.top
-        assertTrue("expected the epics group above the panes", groupTop < paneTop)
+        awaitNode(hasTestTag("step:$HELD_STEP_ID"))
+        awaitNode(hasTestTag("convo:pane:example-host:%1"))
     }
 
     @Test
@@ -513,23 +473,24 @@ class MainActivityEpicsTest {
 
         launch()
 
-        awaitNode(hasText("0 of 0 tasks done") and hasAnyAncestor(hasTestTag("epic:$EPIC_ID")))
-        awaitNode(hasTestTag("blocker:$EPIC_ID") and hasText("waits on your answer ·", substring = true))
+        awaitNode(hasText("0 of 0 tasks done") and hasAnyAncestor(hasTestTag("hung:epic:$EPIC_ID")))
+        awaitNode(hasText("waits on your answer ·", substring = true) and hasAnyAncestor(hasTestTag("hung:epic:$EPIC_ID")))
     }
 
     @Test
-    fun aFailedDetailLeavesItsLineReadingEpicUnavailable() {
+    fun aFailedDetailDrawsTheServerDidNotAnswer() {
         server.respond(EPICS_LIST_PATH, EpicsListResponse.newBuilder().addEpics(liveEpic()).build())
         server.fail(EPICS_GET_PATH, Code.UNAVAILABLE, "synthetic failure")
 
         launch()
 
         awaitRequest(EPICS_GET_PATH)
-        awaitNode(hasText("epic unavailable") and hasAnyAncestor(hasTestTag("epic:$EPIC_ID")))
+        awaitNode(hasText("The server did not answer."))
+        assertAbsent(hasTestTag("hung:epic:$EPIC_ID"))
     }
 
     @Test
-    fun aFoldedEpicIsNeverAskedFor() {
+    fun anEndedEpicIsNeverAskedFor() {
         server.respond(
             EPICS_LIST_PATH,
             EpicsListResponse.newBuilder().addEpics(liveEpic()).addEpics(foldedEpic()).build(),
@@ -538,8 +499,7 @@ class MainActivityEpicsTest {
 
         launch()
 
-        awaitNode(hasTestTag("epics-folded"))
-        awaitNode(hasText("0 of 0 tasks done") and hasAnyAncestor(hasTestTag("epic:$EPIC_ID")))
+        awaitNode(hasText("0 of 0 tasks done") and hasAnyAncestor(hasTestTag("hung:epic:$EPIC_ID")))
         val asked = server.requests
             .filter { it.rawPath == EPICS_GET_PATH }
             .map { EpicsGetRequest.parseFrom(it.body).id }
@@ -547,134 +507,28 @@ class MainActivityEpicsTest {
     }
 
     @Test
-    fun epicsListFailureStillListsThePanesWithNoGroup() {
-        server.fail(EPICS_LIST_PATH, Code.UNAVAILABLE, "synthetic failure")
-
-        launch()
-
-        awaitNode(hasTestTag("pane-row:%1"))
-        awaitRequest(EPICS_LIST_PATH)
-        composeRule.waitForIdle()
-        assertAbsent(hasTestTag("epics-group"))
-        composeRule.onNodeWithTag("pane-row:%2").assertExists()
-        assertEquals(0, server.requests.count { it.rawPath == EPICS_GET_PATH })
-    }
-
-    @Test
-    fun needsYouIsHomesFirstItemWithAWaitingPaneAndAnEpicsOpenQuestion() {
-        serveEpic(questions = listOf(openQuestion()))
-        server.respond(PANES_PATH, panesOf(waitingPaneProto("%4", "api", "Ship the build?")))
-
-        launch()
-
-        awaitNode(hasTestTag("need-sentence") and hasText("api asks: Ship the build?"))
-        awaitNode(hasTestTag("need-sentence") and hasText("example-epic asks: Synthetic question text?"))
-        awaitNode(hasTestTag("epic:$EPIC_ID"))
-        awaitNode(hasTestTag("pane-row:%4"))
-        val needsTop = composeRule.onNodeWithTag("needs-you").fetchSemanticsNode().boundsInRoot.top
-        val groupTop = composeRule.onNodeWithTag("epics-group").fetchSemanticsNode().boundsInRoot.top
-        val paneTop = composeRule.onNodeWithTag("pane-row:%4").fetchSemanticsNode().boundsInRoot.top
-        assertTrue("expected Needs you above the epics group", needsTop < groupTop)
-        assertTrue("expected Needs you above the panes", needsTop < paneTop)
-    }
-
-    @Test
-    fun answeringAnEpicsQuestionSendsItsQuestionIdAndReadsTheEpicsAgain() {
-        serveEpic(questions = listOf(openQuestion()))
-        server.respond(EPICS_ANSWER_PATH, EpicsAnswerResponse.getDefaultInstance())
-        launch()
-        awaitNode(hasTestTag("need-sentence") and hasText("example-epic asks: Synthetic question text?"))
-
-        composeRule.onNodeWithTag(ANSWER_TAG).performTextReplacement("  Use main  ")
-        composeRule.onNodeWithTag(SEND_TAG).performClick()
-
-        awaitRequest(EPICS_ANSWER_PATH)
-        val answer = EpicsAnswerRequest.parseFrom(requestBody(EPICS_ANSWER_PATH))
-        assertEquals(EPIC_ID, answer.epicId)
-        assertEquals("Q1", answer.question)
-        assertEquals("other", answer.choice)
-        assertEquals("Use main", answer.text)
-        composeRule.awaitUntil { server.requests.count { it.rawPath == EPICS_LIST_PATH } >= 2 }
-    }
-
-    @Test
-    fun aRefusedAnswerKeepsTheTypedTextUnderNeedsYou() {
-        serveEpic(questions = listOf(openQuestion()))
-        server.fail(EPICS_ANSWER_PATH, Code.FAILED_PRECONDITION, "synthetic refusal")
-        launch()
-        awaitNode(hasTestTag("need-sentence") and hasText("example-epic asks: Synthetic question text?"))
-
-        composeRule.onNodeWithTag(ANSWER_TAG).performTextReplacement("Use main")
-        composeRule.onNodeWithTag(SEND_TAG).performClick()
-
-        awaitNode(hasTestTag("needs-notice") and hasText("not sent: synthetic refusal. Your answer: Use main"))
-    }
-
-    @Test
-    fun aParkNeedsRetryCallsRetryForItsEpic() {
-        serveEpic(parked = "rate limit")
-        server.respond(EPICS_RETRY_PATH, EpicsRetryResponse.getDefaultInstance())
-        launch()
-        awaitNode(hasTestTag("need-sentence") and hasText("example-epic is parked: rate limit"))
-
-        composeRule.onNodeWithTag(RETRY_TAG).performClick()
-
-        awaitRequest(EPICS_RETRY_PATH)
-        assertEquals(EPIC_ID, EpicsRetryRequest.parseFrom(requestBody(EPICS_RETRY_PATH)).id)
-    }
-
-    @Test
-    fun aReleaseNeedsStopAsksFirstThenCallsStopForItsEpic() {
-        serveEpic(releaseSteps = listOf(failedReleaseStep()))
-        server.respond(EPICS_STOP_PATH, EpicsStopResponse.getDefaultInstance())
-        launch()
-        awaitNode(
-            hasTestTag("need-sentence") and hasText("example-epic: release step 2 (publish) failed: registry 503"),
-        )
-
-        composeRule.onNodeWithTag(STOP_TAG).performClick()
-        composeRule.onNodeWithTag(STOP_SURE_TAG).assertTextEquals("Stop example-epic?")
-        assertEquals(0, server.requests.count { it.rawPath == EPICS_STOP_PATH })
-        composeRule.onNodeWithTag(STOP_CONFIRM_TAG).performClick()
-
-        awaitRequest(EPICS_STOP_PATH)
-        assertEquals(EPIC_ID, EpicsStopRequest.parseFrom(requestBody(EPICS_STOP_PATH)).id)
-    }
-
-    @Test
-    fun withNoWaitingPaneAndNoBlockerThereIsNoNeedsYou() {
-        serveEpic()
-
-        launch()
-
-        awaitNode(hasText("0 of 0 tasks done") and hasAnyAncestor(hasTestTag("epic:$EPIC_ID")))
-        assertAbsent(hasTestTag("needs-you"))
-        assertAbsent(hasText("Needs you"))
-    }
-
-    @Test
     fun tappingAnEpicOpensItsScreen() {
         serveEpic()
         launch()
-        awaitNode(hasTestTag("epic:$EPIC_ID"))
+        awaitNode(hasTestTag("hung:epic:$EPIC_ID"))
 
-        composeRule.onNodeWithTag("epic:$EPIC_ID").performClick()
+        composeRule.onNodeWithTag("hung:epic:$EPIC_ID").performClick()
 
         awaitNode(hasTestTag("title-back"))
-        awaitNone(hasTestTag("pane-row:%1"))
+        awaitNone(hasTestTag("convo:pane:example-host:%1"))
     }
 
     @Test
     fun backReturnsFromAnEpicToHome() {
         serveEpic()
         val controller = launch()
-        awaitNode(hasTestTag("epic:$EPIC_ID"))
-        composeRule.onNodeWithTag("epic:$EPIC_ID").performClick()
+        awaitNode(hasTestTag("hung:epic:$EPIC_ID"))
+        composeRule.onNodeWithTag("hung:epic:$EPIC_ID").performClick()
         awaitNode(hasTestTag("title-back"))
 
         controller.get().onBackPressedDispatcher.onBackPressed()
 
-        awaitNode(hasTestTag("pane-row:%1"))
+        awaitNode(hasTestTag("convo:pane:example-host:%1"))
         awaitNone(hasTestTag("title-back"))
     }
 
@@ -705,8 +559,8 @@ class MainActivityEpicsTest {
         )
         serveSessions(headlessSession(STEP_ID, STEP_SESSION_LABEL))
         val controller = launch()
-        awaitNode(hasTestTag("epic:$EPIC_ID"))
-        composeRule.onNodeWithTag("epic:$EPIC_ID").performClick()
+        awaitNode(hasTestTag("hung:epic:$EPIC_ID"))
+        composeRule.onNodeWithTag("hung:epic:$EPIC_ID").performClick()
         awaitNode(hasTestTag("happened:0"))
 
         composeRule.onNodeWithTag("happened:0").performClick()
@@ -743,7 +597,7 @@ class MainActivityEpicsTest {
 
         composeRule.onNodeWithTag("crumb:0").performClick()
 
-        awaitNode(hasTestTag("pane-row:%1"))
+        awaitNode(hasTestTag("convo:pane:example-host:%1"))
         awaitNone(hasTestTag("contract-screen"))
     }
 
@@ -933,7 +787,7 @@ class MainActivityEpicsTest {
 
         composeRule.onNodeWithTag("crumb:0").performClick()
 
-        awaitNode(hasTestTag("pane-row:%1"))
+        awaitNode(hasTestTag("convo:pane:example-host:%1"))
         awaitNone(hasTestTag("phase-body:checking"))
     }
 

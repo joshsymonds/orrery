@@ -6,22 +6,25 @@ import type { Code } from "@connectrpc/connect";
 
 import {
   type ContractsGetResponse,
-  ContractsListResponseSchema,
   type ContractsListResponse,
+  ContractsListResponseSchema,
 } from "../gen/orrery/v1/contracts_pb";
-import type {
-  EpicsGetResponse,
-  EpicsHistoryResponse,
-  EpicsListResponse,
+import {
+  type EpicsGetResponse,
+  type EpicsHistoryResponse,
+  type EpicsListResponse,
+  EpicsListResponseSchema,
 } from "../gen/orrery/v1/epics_pb";
-import type {
-  HostStatusResponse,
-  ListHeadlessResponse,
-  ListResponse,
-  PanesListResponse,
-  PickerRowSchema,
-  SessionsWatchConversationResponse,
-  WatchConversationResponse,
+import {
+  type HostStatusResponse,
+  type ListHeadlessResponse,
+  ListHeadlessResponseSchema,
+  type ListResponse,
+  type PanesListResponse,
+  PanesListResponseSchema,
+  type PickerRowSchema,
+  type SessionsWatchConversationResponse,
+  type WatchConversationResponse,
 } from "../gen/orrery/v1/orrery_pb";
 import { contracts } from "./contracts";
 import { tideAccepted, tideProposed, tideReady, tideSetAside } from "./contractrecords";
@@ -104,4 +107,15 @@ export const contractStories = {
   accepted: contractSlices("tidepool/tide-alerts", tideAccepted),
   setAside: contractSlices("tidepool/tide-alerts", tideSetAside),
   ready: contractSlices("tidepool/tide-alerts", tideReady),
+};
+
+// emptySlices is the world with nothing running: no panes, no headless sessions, no epics and no contracts. Every other
+// answer is the shipped one.
+export const emptySlices: Slices = {
+  ...shippedSlices,
+  epics: create(EpicsListResponseSchema, { epics: [] }),
+  contracts: create(ContractsListResponseSchema, { contracts: [] }),
+  contractGets: {},
+  panes: create(PanesListResponseSchema, { panes: [] }),
+  headless: create(ListHeadlessResponseSchema, { sessions: [] }),
 };

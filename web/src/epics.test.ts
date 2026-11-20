@@ -17,17 +17,13 @@ import {
   endedWords,
   epicLine,
   epicsView,
-  keepUnderCursor,
   noEpics,
-  placeEpics,
   repositoryName,
-  withEpicsGroup,
   type EpicBlock,
   type EpicItem,
   type EpicLine,
   type StripTone,
 } from "./epics";
-import type { Row, Section } from "./rows";
 
 function makeEpic(init: MessageInitShape<typeof EpicSchema>): Epic {
   return create(EpicSchema, {
@@ -83,31 +79,6 @@ const sevenSlices: MessageInitShape<typeof EpicSliceSchema>[] = [
   { task: "t1", hue: "gap", errorAt: 3, redTest: true, working: true },
   { task: "t6", hue: "done", redTest: true, working: true, testsPass: true, checks: true, gateAccepted: true },
 ];
-
-function makeRow(key: string, project: string): Row {
-  return {
-    key,
-    id: key,
-    archiveId: "",
-    kind: "pane",
-    label: key,
-    project,
-    host: "box",
-    state: "working",
-    summary: "",
-    question: "",
-    questionHash: "",
-    changed: 0,
-    seen: 0,
-    unseen: false,
-    archived: false,
-    archiveKind: "none",
-  };
-}
-
-function titlesOf(sections: { title: string }[]): string[] {
-  return sections.map((section) => section.title);
-}
 
 function blockIds(blocks: EpicBlock[]): string[] {
   return blocks.map((block) => block.epic.id);
@@ -472,35 +443,6 @@ test("waiting epics leave the blocks for their own list, in input order, and are
   assert.deepEqual(itemIds(view.endedEarlier), ["gadgets-0e1f2a3/old"]);
 });
 
-test("ArchiveView: more than six quiet live epics are all listed in their repository's section", () => {
-  const quiet = ["a", "b", "c", "d", "e", "f", "g", "h"].map((slug) =>
-    makeEpic({ id: `widgets-5d0c1a7/${slug}`, slug }),
-  );
-  const sections: Section[] = [{ title: "/work/widgets", rows: [makeRow("widgets", "/work/widgets")] }];
-
-  const placed = placeEpics(sections, epicsView(quiet, new Map()).blocks);
-
-  assert.deepEqual(blockIds(placed[0].epics), quiet.map((epic) => epic.id));
-  assert.equal(placed[0].count, 9, "the section counts its row and all eight epics");
-});
-
-test("ArchiveView: a non-live record epic is listed among the ended, and the Epics group counts only the live", () => {
-  const view = epicsView(
-    [
-      makeEpic({ id: "widgets-5d0c1a7/first" }),
-      makeEpic({ id: "gadgets-0e1f2a3/quiet", repository: "gadgets-0e1f2a3", slug: "quiet", live: false }),
-    ],
-    new Map(),
-  );
-
-  const result = withEpicsGroup([], view);
-
-  assert.deepEqual(titlesOf(result), ["Epics", "Just ended"]);
-  assert.equal(result[0].count, 1, "the Epics group counts the live epic alone");
-  assert.deepEqual(itemIds(result[1].endedEarlier), ["gadgets-0e1f2a3/quiet"]);
-  assert.equal(result[1].count, 0, "a record epic is never unseen, so none is counted");
-});
-
 test("ArchiveView: archived epics, live or ended, leave every default list and the live count, and are listed as archived in input order", () => {
   const view = epicsView(
     [
@@ -646,51 +588,6 @@ test("justEnded and endedEarlier each list the newest ending first", () => {
   );
 });
 
-test("keepUnderCursor moves a seen epic from endedEarlier into justEnded, at its newest-first place", () => {
-  const view = epicsView(
-    [endedOf("newer", 3000n, 3000n), endedOf("unseen", 2000n, 0n), endedOf("older", 2500n, 2500n)],
-    new Map(),
-  );
-  assert.deepEqual(
-    view.endedEarlier.map((item) => item.slug),
-    ["newer", "older"],
-  );
-  assert.deepEqual(
-    view.justEnded.map((item) => item.slug),
-    ["unseen"],
-  );
-
-  const kept = keepUnderCursor(view, "widgets-5d0c1a7/older");
-
-  assert.deepEqual(
-    kept.justEnded.map((item) => item.slug),
-    ["older", "unseen"],
-  );
-  assert.deepEqual(
-    kept.endedEarlier.map((item) => item.slug),
-    ["newer"],
-  );
-});
-
-test("keepUnderCursor leaves the view as it is for an epic not in endedEarlier, and for an unknown one", () => {
-  const view = epicsView([endedOf("unseen", 2000n, 0n), endedOf("seen", 1000n, 1000n)], new Map());
-
-  for (const id of ["widgets-5d0c1a7/unseen", "widgets-5d0c1a7/nowhere"]) {
-    const kept = keepUnderCursor(view, id);
-
-    assert.deepEqual(
-      kept.justEnded.map((item) => item.slug),
-      ["unseen"],
-      id,
-    );
-    assert.deepEqual(
-      kept.endedEarlier.map((item) => item.slug),
-      ["seen"],
-      id,
-    );
-  }
-});
-
 test("seven of eight live epics with running or held work draw full in input order, and the quiet one after", () => {
   const quiet = makeEpic({ id: "widgets-5d0c1a7/quiet" });
   const busy = ["a", "b", "c", "d", "e", "f", "g"].map((slug, index) =>
@@ -709,7 +606,6 @@ test("seven of eight live epics with running or held work draw full in input ord
     [...busy.map(() => true), false],
   );
   assert.equal(view.live, 8);
-  assert.equal(withEpicsGroup([], view)[0].count, 8, "the Epics group counts all eight live epics");
 });
 
 test("two running epics and six quiet ones draw all eight, running first, then the quiet in input order", () => {
@@ -737,23 +633,6 @@ test("two running epics and six quiet ones draw all eight, running first, then t
   assert.equal(view.live, 8);
 });
 
-test("a section's count is its rows and the epics atop it, and the Epics group counts every live epic", () => {
-  const view = epicsView(
-    [makeEpic({ runningSteps: [makeStep({ id: "s1" })] }), makeEpic({ id: "widgets-5d0c1a7/second" })],
-    new Map(),
-  );
-  const rows = [makeRow("a", "/work/widgets"), makeRow("b", "/work/widgets")];
-  const sections: Section[] = [{ title: "/work/widgets", rows }];
-
-  const placed = placeEpics(sections, view.blocks);
-  const grouped = withEpicsGroup(sections, view);
-
-  assert.equal(placed[0].count, 4);
-  assert.deepEqual(titlesOf(grouped), ["Epics", "/work/widgets"]);
-  assert.equal(grouped[0].count, 2);
-  assert.equal(grouped[1].count, 2);
-});
-
 test("no epics is an empty view", () => {
   assert.deepEqual(noEpics.blocks, []);
   assert.deepEqual(noEpics.waiting, []);
@@ -779,200 +658,6 @@ test("repositoryName returns a name without that suffix whole", () => {
     assert.equal(repositoryName(name), name);
   }
 });
-
-test("the Epics group follows the Needs you section", () => {
-  const view = epicsView([makeEpic({})], new Map());
-  const sections: Section[] = [
-    { title: "Needs you", rows: [makeRow("a", "/work/app")] },
-    { title: "Working", rows: [] },
-  ];
-
-  const result = withEpicsGroup(sections, view);
-
-  assert.deepEqual(titlesOf(result), ["Needs you", "Epics", "Working"]);
-  assert.deepEqual(result[0].rows, sections[0].rows);
-  assert.deepEqual(result[1].epics, view.blocks);
-  assert.deepEqual(result[1].rows, []);
-});
-
-test("without a Needs you section the Epics group comes first", () => {
-  const view = epicsView([makeEpic({})], new Map());
-  const sections: Section[] = [{ title: "Working", rows: [] }];
-
-  assert.deepEqual(titlesOf(withEpicsGroup(sections, view)), ["Epics", "Working"]);
-});
-
-test("an Epics group made from waiting epics alone carries them, and no other section carries any", () => {
-  const view = epicsView([makeEpic({ id: "widgets-5d0c1a7/waiting", slug: "waiting", waiting: true })], new Map());
-  const sections: Section[] = [{ title: "Working", rows: [] }];
-
-  const result = withEpicsGroup(sections, view);
-
-  assert.deepEqual(titlesOf(result), ["Epics", "Working"]);
-  assert.deepEqual(result[0].epics, []);
-  assert.deepEqual(
-    result[0].waiting.map((item) => item.slug),
-    ["waiting"],
-  );
-  assert.equal(result[0].count, 1);
-  assert.deepEqual(result[1].waiting, []);
-  assert.deepEqual(placeEpics(sections, view.blocks)[0].waiting, []);
-});
-
-test("a record epic that went quiet alone makes the Just ended section, and no Epics group", () => {
-  const view = epicsView([makeEpic({ live: false })], new Map());
-  const sections: Section[] = [{ title: "Working", rows: [] }];
-
-  const result = withEpicsGroup(sections, view);
-
-  assert.deepEqual(titlesOf(result), ["Just ended", "Working"]);
-  assert.deepEqual(result[0].epics, []);
-  assert.deepEqual(itemIds(result[0].endedEarlier), ["widgets-5d0c1a7/first"]);
-  assert.equal(result[0].count, 0, "no unseen ended epic is counted");
-});
-
-test("the Just ended section follows Epics, carries both lists, and counts the unseen", () => {
-  const view = epicsView(
-    [
-      makeEpic({ id: "widgets-5d0c1a7/first" }),
-      endedOf("unseen", 2000n, 0n),
-      endedOf("seen", 1000n, 1000n),
-    ],
-    new Map(),
-  );
-  const sections: Section[] = [
-    { title: "Needs you", rows: [makeRow("a", "/work/app")] },
-    { title: "Working", rows: [] },
-  ];
-
-  const result = withEpicsGroup(sections, view);
-
-  assert.deepEqual(titlesOf(result), ["Needs you", "Epics", "Just ended", "Working"]);
-  assert.equal(result[1].count, 1, "the Epics group counts the live epic alone");
-  assert.equal(result[2].count, 1, "the Just ended count is the unseen epics");
-  assert.deepEqual(
-    result[2].justEnded.map((item) => item.slug),
-    ["unseen"],
-  );
-  assert.deepEqual(
-    result[2].endedEarlier.map((item) => item.slug),
-    ["seen"],
-  );
-  assert.deepEqual(result[2].epics, []);
-});
-
-test("ended epics alone make the Just ended section, and no Epics group", () => {
-  const view = epicsView([endedOf("unseen", 2000n, 0n)], new Map());
-  const sections: Section[] = [{ title: "Working", rows: [] }];
-
-  const result = withEpicsGroup(sections, view);
-
-  assert.deepEqual(titlesOf(result), ["Just ended", "Working"]);
-  assert.equal(result[0].count, 1);
-  assert.deepEqual(result[1].rows, []);
-});
-
-test("with no epics there is no Epics group, and each section is kept", () => {
-  const sections: Section[] = [
-    { title: "Needs you", rows: [makeRow("a", "/work/app")] },
-    { title: "Seen", rows: [] },
-  ];
-
-  const result = withEpicsGroup(sections, noEpics);
-
-  assert.deepEqual(titlesOf(result), ["Needs you", "Seen"]);
-  assert.deepEqual(result[0].rows, sections[0].rows);
-  assert.deepEqual(result[0].epics, []);
-});
-
-test("an epic sits atop the folder named for its repository", () => {
-  const sections: Section[] = [
-    { title: "/work/other", rows: [makeRow("other", "/work/other")] },
-    { title: "/work/widgets", rows: [makeRow("widgets", "/work/widgets")] },
-  ];
-  const blocks: EpicBlock[] = epicsView([makeEpic({})], new Map()).blocks;
-
-  const result = placeEpics(sections, blocks);
-
-  assert.deepEqual(titlesOf(result), ["/work/other", "/work/widgets"]);
-  assert.deepEqual(result[0].epics, []);
-  assert.deepEqual(blockIds(result[1].epics), ["widgets-5d0c1a7/first"]);
-  assert.deepEqual(result[1].rows, sections[1].rows);
-});
-
-test("the first folder whose last element matches takes the epic", () => {
-  const sections: Section[] = [
-    { title: "/work/widgets", rows: [] },
-    { title: "/home/me/widgets", rows: [] },
-  ];
-
-  const result = placeEpics(sections, epicsView([makeEpic({})], new Map()).blocks);
-
-  assert.deepEqual(blockIds(result[0].epics), ["widgets-5d0c1a7/first"]);
-  assert.deepEqual(result[1].epics, []);
-});
-
-test("an epic with no matching folder gets its own section titled by its repository", () => {
-  const sections: Section[] = [{ title: "/work/other", rows: [] }];
-
-  const result = placeEpics(sections, epicsView([makeEpic({})], new Map()).blocks);
-
-  assert.deepEqual(titlesOf(result), ["/work/other", "widgets-5d0c1a7"]);
-  assert.deepEqual(result[0].epics, []);
-  assert.deepEqual(blockIds(result[1].epics), ["widgets-5d0c1a7/first"]);
-  assert.deepEqual(result[1].rows, []);
-});
-
-test("two epics of one repository with no folder share one section, in input order", () => {
-  const epics = [
-    makeEpic({ id: "widgets-5d0c1a7/first" }),
-    makeEpic({ id: "widgets-5d0c1a7/second" }),
-  ];
-
-  const result = placeEpics([], epicsView(epics, new Map()).blocks);
-
-  assert.deepEqual(titlesOf(result), ["widgets-5d0c1a7"]);
-  assert.deepEqual(blockIds(result[0].epics), ["widgets-5d0c1a7/first", "widgets-5d0c1a7/second"]);
-});
-
-test("two epics of one repository with a folder both sit atop that folder, in input order", () => {
-  const sections: Section[] = [{ title: "/work/widgets", rows: [makeRow("widgets", "/work/widgets")] }];
-  const epics = [
-    makeEpic({ id: "widgets-5d0c1a7/first" }),
-    makeEpic({ id: "widgets-5d0c1a7/second" }),
-  ];
-
-  const result = placeEpics(sections, epicsView(epics, new Map()).blocks);
-
-  assert.deepEqual(titlesOf(result), ["/work/widgets"]);
-  assert.deepEqual(blockIds(result[0].epics), ["widgets-5d0c1a7/first", "widgets-5d0c1a7/second"]);
-  assert.deepEqual(result[0].rows, sections[0].rows);
-});
-
-test("unmatched repositories get sections in first-seen order", () => {
-  const epics = [
-    makeEpic({ id: "gadgets-0e1f2a3/first", repository: "gadgets-0e1f2a3" }),
-    makeEpic({ id: "widgets-5d0c1a7/first" }),
-    makeEpic({ id: "gadgets-0e1f2a3/second", repository: "gadgets-0e1f2a3" }),
-  ];
-
-  const result = placeEpics([], epicsView(epics, new Map()).blocks);
-
-  assert.deepEqual(titlesOf(result), ["gadgets-0e1f2a3", "widgets-5d0c1a7"]);
-  assert.deepEqual(blockIds(result[0].epics), ["gadgets-0e1f2a3/first", "gadgets-0e1f2a3/second"]);
-  assert.deepEqual(blockIds(result[1].epics), ["widgets-5d0c1a7/first"]);
-});
-
-// The clock the epic line tests read at: unix seconds.
-const lineNow = 100000;
-
-// The line of an epic whose Get detail is the given one, read from the view that holds it.
-function lineOf(epic: Epic, detail: EpicsGetResponse | undefined): EpicLine {
-  const details = detail === undefined ? new Map() : new Map([[epic.id, detail]]);
-  const view = epicsView([epic], details);
-  const item = [...view.blocks.map((block) => block.epic), ...view.waiting, ...view.justEnded, ...view.endedEarlier][0];
-  return epicLine(item, lineNow);
-}
 
 test("the count is the requirements a passing green run proves, out of all of them", () => {
   const epic = makeEpic({});
@@ -1046,6 +731,16 @@ test("an epic with an open question never has an empty blocker, even when paused
 test("an epic with no detail reads epic unavailable, and its state and blocker are empty", () => {
   assert.deepEqual(lineOf(makeEpic({}), undefined), { count: "epic unavailable", state: "", blocker: "" });
 });
+
+// The clock the epic line tests read at: unix seconds.
+const lineNow = 100000;
+
+function lineOf(epic: Epic, detail: EpicsGetResponse | undefined): EpicLine {
+  const details = detail === undefined ? new Map() : new Map([[epic.id, detail]]);
+  const view = epicsView([epic], details);
+  const item = [...view.blocks.map((block) => block.epic), ...view.waiting, ...view.justEnded, ...view.endedEarlier][0];
+  return epicLine(item, lineNow);
+}
 
 test("endedWords reads the outcome, then the time since the epic ended", () => {
   const [item] = epicsView([endedOf("first", 99280n, 0n)], new Map()).justEnded;

@@ -20,6 +20,7 @@ const epicsGetPath = "/orrery.v1.Epics/Get";
 const presencePath = "/orrery.v1.Presence/Report";
 const noticesWatchPath = "/orrery.v1.Notices/Watch";
 const hostStatusPath = "/orrery.v1.Host/Status";
+const contractsListPath = "/orrery.v1.Contracts/List";
 const clientHeader = "X-Orrery-Client";
 const clientValue = "orrery web";
 const intervalMs = 5;
@@ -38,7 +39,7 @@ function paneOf(id: string, dir: string) {
     session: "work",
     cwd: `/work/${dir}`,
     state: "waiting",
-    summary: "building",
+    summary: dir,
     question: "",
     changed: "40",
     seen: "10",
@@ -64,19 +65,24 @@ const sessionBody = {
   ],
 };
 
-// headlessSession is one headless session as Sessions.ListHeadless answers it, under a synthetic directory, with no
-// headline yet, so its row reads its directory alone.
+// headlessSession is one headless session as Sessions.ListHeadless answers it, under a synthetic directory, whose headline
+// is base, so its row is titled base.
 function headlessSession(id: string, base: string) {
   return {
     id,
     dir: `/work/${base}`,
-    headline: "",
+    headline: base,
     state: "working",
     changed: "50",
     seen: "0",
     summary: "",
     question: "",
   };
+}
+
+// proposedContract is a contract Contracts.List lists as proposed, written by the conversation whose id it names.
+function proposedContract(id: string, conversation: string) {
+  return { id, repository: "/work/api", title: `Contract ${id}`, care: "serious", state: "proposed", conversation };
 }
 
 // The host Host.Status answers with: one stat, so the meters button has a value to show.
@@ -148,6 +154,9 @@ interface FakeServer {
   epics: ReturnType<typeof liveEpic>[];
   // The contract each Epics.Get answers with, for a test whose epic page must show one.
   contract: { title: string; approved: string; intent: string } | undefined;
+  // The contracts Contracts.List answers with, and how many times it was asked.
+  contracts: ReturnType<typeof proposedContract>[];
+  contractsListCalls: number;
   // While set, Epics.List waits for it before answering.
   epicsGate: Promise<void> | null;
   epicsListCalls: number;
@@ -213,6 +222,10 @@ function fakeServer(paneDir: string, streaming = false): FakeServer {
           });
         }
         return json({});
+      }
+      if (path === contractsListPath) {
+        server.contractsListCalls++;
+        return json({ contracts: server.contracts });
       }
       if (path === epicsListPath) {
         server.epicsListCalls++;
@@ -281,6 +294,8 @@ function fakeServer(paneDir: string, streaming = false): FakeServer {
     extraPanes: [],
     epics: [],
     contract: undefined,
+    contracts: [],
+    contractsListCalls: 0,
     epicsGate: null,
     epicsListCalls: 0,
     epicsGetCalls: 0,
@@ -321,25 +336,41 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// nameOf names a session or pane row by its directory's last element, or by its line when it has no directory. An epic
-// or step row, which draws no title, is named by its label.
+// nameOf names a session or pane row by its title, which is its label. An epic or step row, which draws no title, is
+// named by its label.
 function nameOf(row: Element): string {
-  return (
-    row.querySelector(".title-dir")?.textContent ??
-    row.querySelector(".title-line")?.textContent ??
-    row.querySelector(".label")?.textContent ??
-    ""
-  );
+  return row.querySelector(".title")?.textContent ?? row.querySelector(".label")?.textContent ?? "";
+}
+
+// endedCount is how many ended conversations the drawn projects hold behind their ended lines, which read "N ended".
+function endedCount(root: HTMLElement): number {
+  return [...root.querySelectorAll(".dir .fold-line")].reduce((sum, line) => {
+    const match = /^(\d+) ended$/.exec(line.textContent ?? "");
+    return sum + (match === null ? 0 : Number(match[1]));
+  }, 0);
 }
 
 // labels names each row that is drawn, in the order drawn.
 function labels(root: HTMLElement): string[] {
-  return [...root.querySelectorAll("[data-row]")].map(nameOf).filter((name) => name !== "");
+  return [...root.querySelectorAll(".row[data-key]:not(.standin)")].map(nameOf).filter((name) => name !== "");
+}
+
+// blankText is the text of the inbox's body state, loading or the server's silence or nothing listed, or "" when the
+// body draws none.
+function blankText(root: HTMLElement): string {
+  return root.querySelector(".inbox-rows .blank")?.textContent ?? "";
+}
+
+// tryNow is the Try now button the server's silence draws, or null when none is drawn.
+function tryNow(root: HTMLElement): HTMLButtonElement | null {
+  return [...root.querySelectorAll<HTMLButtonElement>(".inbox-rows .blank button")].find((button) =>
+    (button.textContent ?? "").includes("Try now"),
+  ) ?? null;
 }
 
 // ageOf returns the age text of the row named name, or "" when no such row is rendered.
 function ageOf(root: HTMLElement, name: string): string {
-  const rows = [...root.querySelectorAll("[data-row]")];
+  const rows = [...root.querySelectorAll(".row[data-key]:not(.standin)")];
   const row = rows.find((element) => nameOf(element) === name);
   return row?.querySelector(".age")?.textContent ?? "";
 }
@@ -483,7 +514,7 @@ test("a reload shows the changed pane", (t) =>
     }
   }));
 
-test("a failed Panes.List shows the fixed error and keeps the sessions", (t) =>
+test("InboxTree: a failed Panes.List draws the server did not answer and Try now in place of the tree", (t) =>
   withPage(t.signal, async (root, start) => {
     const failing: typeof globalThis.fetch = async (input, init) => {
       const path = new URL(new Request(input, init).url).pathname;
@@ -498,9 +529,11 @@ test("a failed Panes.List shows the fixed error and keeps the sessions", (t) =>
     const clients = createClients(createTransport({ baseUrl: "https://orrery.test", fetch: failing }));
     const stop = start(root, clients, intervalMs);
     try {
-      await until(t.signal, () => root.querySelector(".error") !== null, "the error line");
-      assert.equal(root.querySelector(".error")?.textContent, "panes unavailable");
-      assert.ok(labels(root).includes("notes"), `labels were ${JSON.stringify(labels(root))}`);
+      await until(t.signal, () => blankText(root).includes("The server did not answer."), "the server did not answer");
+      assert.ok(blankText(root).includes("Trying again every few seconds."), "the error does not say it retries");
+      assert.ok(tryNow(root) !== null, "the error offers no Try now");
+      assert.deepEqual(labels(root), [], "the tree was drawn beside the error");
+      assert.equal(root.querySelector('[role="alert"]'), null, "a fixed error line was drawn");
     } finally {
       stop();
     }
@@ -779,9 +812,35 @@ test("a live epic from Epics.List and Get shows in the list with its count", (t)
       await until(t.signal, () => labels(root).includes("alpha") && labels(root).includes("api"), "the epic and the pane row");
       const epicRow = root.querySelector('[data-key="epic:repo-a/alpha"]');
       assert.ok(epicRow !== null, `no epic row; labels were ${JSON.stringify(labels(root))}`);
-      assert.equal(epicRow.querySelector(".rt")?.textContent, "1 of 2 tasks done", "the count did not come from Epics.Get");
+      assert.ok(epicRow.querySelector(".l2")?.textContent?.includes("1 of 2 tasks done"), "the count did not come from Epics.Get");
       assert.ok(labels(root).includes("draft"), `labels were ${JSON.stringify(labels(root))}`);
       assert.ok(labels(root).includes("api"), "the pane row is missing beside the epic");
+    } finally {
+      stop();
+    }
+  }));
+
+test("InboxTree: a proposed contract from Contracts.List hangs under its conversation, and stays when a later Contracts.List fails", (t) =>
+  withPage(t.signal, async (root, start) => {
+    const server = fakeServer("api");
+    server.headless = [headlessSession("s-1", "draft")];
+    server.contracts = [proposedContract("tide-alerts", "s-1")];
+    let contractsFail = false;
+    const fetch: typeof globalThis.fetch = (input, init) =>
+      contractsFail ? failing(server, [contractsListPath])(input, init) : server.fetch(input, init);
+    const clients = createClients(createTransport({ baseUrl: "https://orrery.test", fetch }));
+    const stop = start(root, clients, intervalMs);
+    try {
+      const drawn = () => root.querySelector('[data-key="contract:tide-alerts"]') !== null;
+      const listed = () => root.querySelector('[data-key="session:s-1"]') !== null;
+      await until(t.signal, () => drawn() && listed(), "the contract and its conversation");
+      const steers = root.querySelector('[data-key="contract:tide-alerts"]')?.closest(".steers");
+      assert.equal(steers?.previousElementSibling?.getAttribute("data-key"), "session:s-1", "the contract hangs elsewhere");
+      contractsFail = true;
+      const asked = server.epicsListCalls;
+      await until(t.signal, () => server.epicsListCalls >= asked + 2, "two epics loads with Contracts.List failing");
+      assert.ok(drawn(), "the held contract left the inbox when Contracts.List failed");
+      assert.equal(root.querySelector(".error"), null, "a failed Contracts.List drew an error line");
     } finally {
       stop();
     }
@@ -831,7 +890,7 @@ test("with the event stream open, a poll tick reloads the epics and shows a chan
     }
   }));
 
-test("a failed Epics.List shows the fixed epics error and no epics, beside the rows", (t) =>
+test("InboxTree: a failed Epics.List draws the server did not answer and no epics or rows", (t) =>
   withPage(t.signal, async (root, start) => {
     const server = fakeServer("api");
     server.epics = [liveEpic("draft")];
@@ -840,31 +899,115 @@ test("a failed Epics.List shows the fixed epics error and no epics, beside the r
     );
     const stop = start(root, clients, intervalMs);
     try {
-      await until(t.signal, 
-        () => root.querySelector(".error") !== null && labels(root).includes("api"),
-        "the error line and the pane row",
-      );
-      assert.equal(root.querySelector(".error")?.textContent, "epics unavailable");
+      await until(t.signal, () => blankText(root).includes("The server did not answer."), "the server did not answer");
+      assert.ok(tryNow(root) !== null, "the error offers no Try now");
       assert.ok(!(root.textContent ?? "").includes("server detail"), "the page showed server text");
-      assert.ok(!labels(root).includes("alpha"), `an epic was drawn; labels were ${JSON.stringify(labels(root))}`);
-      assert.ok(labels(root).includes("api"), `the pane row is missing; labels were ${JSON.stringify(labels(root))}`);
+      assert.deepEqual(labels(root), [], `the tree was drawn; labels were ${JSON.stringify(labels(root))}`);
     } finally {
       stop();
     }
   }));
 
-test("a failed Panes.List and a failed Epics.List join their fixed errors in that order", (t) =>
+test("InboxTree: a failed Panes.List and a failed Epics.List each keep the error until its own load answers", (t) =>
   withPage(t.signal, async (root, start) => {
     const server = fakeServer("api");
-    const clients = createClients(
-      createTransport({ baseUrl: "https://orrery.test", fetch: failing(server, [panesPath, epicsListPath]) }),
-    );
+    server.epics = [liveEpic("draft")];
+    const failedPaths = [panesPath, epicsListPath];
+    const fetch: typeof globalThis.fetch = (input, init) => failing(server, failedPaths)(input, init);
+    const clients = createClients(createTransport({ baseUrl: "https://orrery.test", fetch }));
     const stop = start(root, clients, intervalMs);
     try {
-      await until(t.signal, 
-        () => root.querySelector(".error")?.textContent === "panes unavailable; epics unavailable",
-        "the joined error line",
+      await until(t.signal, () => blankText(root).includes("The server did not answer."), "the server did not answer");
+      failedPaths.splice(0, 1);
+      // A rows load starts only once the one before it has drawn, so a second answered Panes.List means the first
+      // answer's draw has run.
+      await until(t.signal, () => server.panesCalls >= 2, "a Panes.List that answered and drew, and the next one");
+      assert.ok(blankText(root).includes("The server did not answer."), "the error cleared while Epics.List still failed");
+      assert.deepEqual(labels(root), [], "the tree was drawn while Epics.List still failed");
+      failedPaths.splice(0, 1);
+      await until(t.signal, () => labels(root).includes("api") && labels(root).includes("alpha"), "the tree after both answer");
+      assert.equal(blankText(root), "", "the error stayed drawn once both answered");
+    } finally {
+      stop();
+    }
+  }));
+
+test("InboxTree: before the epics answer the first time the inbox says loading and draws no tree, though the rows have answered", (t) =>
+  withPage(t.signal, async (root, start) => {
+    const server = fakeServer("api", true);
+    server.epics = [liveEpic("draft")];
+    let releaseEpics: () => void = () => {};
+    server.epicsGate = new Promise<void>((resolve) => {
+      releaseEpics = resolve;
+    });
+    const stop = start(root, clientsFor(server), longPollMs);
+    try {
+      assert.equal(blankText(root), "loading…", "the inbox did not say loading before any answer");
+      // A rows load that answers opens the event stream after it draws, so the stream is the sync on the rows' answer.
+      await until(t.signal, () => server.watches.length === 1, "the stream the rows' answer opens");
+      assert.equal(blankText(root), "loading…", "the inbox drew the tree before the epics answered");
+      assert.deepEqual(labels(root), [], "the tree was drawn before the epics answered");
+      releaseEpics();
+      await until(t.signal, () => labels(root).includes("alpha"), "the epic once the epics answer");
+      assert.equal(blankText(root), "", "the inbox still says loading once both answered");
+    } finally {
+      stop();
+    }
+  }));
+
+test("InboxTree: Try now calls the rows and epics loads at once, and the tree returns once they answer", (t) =>
+  withPage(t.signal, async (root, start) => {
+    const server = fakeServer("api");
+    server.epics = [liveEpic("draft")];
+    const failedPaths = [panesPath, epicsListPath];
+    const asked: string[] = [];
+    const fetch: typeof globalThis.fetch = (input, init) => {
+      asked.push(new URL(new Request(input, init).url).pathname);
+      return failing(server, failedPaths)(input, init);
+    };
+    const callsOf = (path: string) => asked.filter((asker) => asker === path).length;
+    const clients = createClients(createTransport({ baseUrl: "https://orrery.test", fetch }));
+    const stop = start(root, clients, longPollMs);
+    try {
+      await until(t.signal, () => tryNow(root) !== null, "the error with Try now");
+      const panesBefore = callsOf(panesPath);
+      const epicsBefore = callsOf(epicsListPath);
+      tryNow(root)?.click();
+      await until(
+        t.signal,
+        () => callsOf(panesPath) > panesBefore && callsOf(epicsListPath) > epicsBefore,
+        "Try now asking both lists",
       );
+      assert.equal(callsOf(panesPath), panesBefore + 1, "Try now asked Panes.List more than once");
+      assert.equal(callsOf(epicsListPath), epicsBefore + 1, "Try now asked Epics.List more than once");
+      assert.ok(blankText(root).includes("The server did not answer."), "the error cleared while the lists still failed");
+      failedPaths.length = 0;
+      tryNow(root)?.click();
+      await until(t.signal, () => labels(root).includes("api") && labels(root).includes("alpha"), "the tree after Try now");
+      assert.equal(blankText(root), "", "the error stayed drawn after both lists answered");
+    } finally {
+      stop();
+    }
+  }));
+
+test("InboxTree: nothing listed draws Nothing is running.", (t) =>
+  withPage(t.signal, async (root, start) => {
+    const server = fakeServer("api");
+    const fetch: typeof globalThis.fetch = async (input, init) => {
+      const path = new URL(new Request(input, init).url).pathname;
+      if (path === panesPath) {
+        return json({ panes: [] });
+      }
+      if (path === sessionsPath) {
+        return json({ sessions: [], seq: "0" });
+      }
+      return server.fetch(input, init);
+    };
+    const clients = createClients(createTransport({ baseUrl: "https://orrery.test", fetch }));
+    const stop = start(root, clients, longPollMs);
+    try {
+      await until(t.signal, () => blankText(root).includes("Nothing is running."), "the empty inbox");
+      assert.equal(tryNow(root), null, "an empty inbox offers Try now");
     } finally {
       stop();
     }
@@ -940,7 +1083,7 @@ test("ChangedEpicsOnly: with the event stream open, an event reload over an unch
       // load has drawn, and a load draws only after its Gets have answered, so the count below is final by then.
       server.epics = [liveEpic("draft"), endedBeta];
       await fireEvent(t, server.watches[0], 8);
-      await until(t.signal, () => labels(root).includes("beta"), "the event's epics load", { step: turn });
+      await until(t.signal, () => endedCount(root) === 1, "the event's epics load", { step: turn });
       assert.equal(server.epicsGetCalls, gets, "an event reload over an unchanged list asked for an epic");
     } finally {
       stop();
@@ -973,7 +1116,7 @@ async function tickAsksChangedOnly(t: TestContext, streaming: boolean): Promise<
       const gets = server.epicsGetCalls;
       server.epics = [liveEpic("draft"), liveGamma("draft"), endedBeta];
       t.mock.timers.tick(pollMs);
-      await until(t.signal, () => labels(root).includes("beta"), "the tick's epics load", { step: turn });
+      await until(t.signal, () => endedCount(root) === 1, "the tick's epics load", { step: turn });
       assert.equal(server.epicsListCalls, lists + 1, "the tick did not list the epics once");
       assert.equal(server.epicsGetCalls, gets, "a tick over unchanged listed messages asked for an epic");
     } finally {
@@ -1018,7 +1161,7 @@ test("ChangedEpicsOnly: a poll tick asks for the epic the page shows even when i
     const server = fakeServer("api", true);
     server.gate = Promise.resolve();
     server.epics = [liveEpic("draft"), liveGamma("draft")];
-    window.history.replaceState(null, "", "#/attention/epic/repo-a%2Falpha");
+    window.history.replaceState(null, "", "#/inbox/epic/repo-a%2Falpha");
     const stop = start(root, clientsFor(server), pollMs, mockedRetryMs);
     try {
       await until(t.signal, () => epicPageDrawn(root) && server.watches.length === 1, "the epic page", {
@@ -1036,7 +1179,7 @@ test("ChangedEpicsOnly: a poll tick asks for the epic the page shows even when i
       server.epics = [liveEpic("draft"), liveGamma("draft"), endedBeta];
       t.mock.timers.tick(pollMs);
       // The folded epic's label draws only once the tick's epics load has drawn, after its Gets answered.
-      await until(t.signal, () => labels(root).includes("beta"), "the tick's epics load", { step: settle });
+      await until(t.signal, () => endedCount(root) === 1, "the tick's epics load", { step: settle });
       assert.deepEqual(server.epicsGetIds.slice(asked), ["repo-a/alpha"]);
     } finally {
       stop();
@@ -1079,7 +1222,7 @@ test("ChangedEpicsOnly: a tick that lands while an epics load is in flight runs 
       server.epics = [liveEpic("review"), endedBeta];
       release();
       await until(t.signal, () => labels(root).includes("review"), "the held load's changed step", { step: turn });
-      await until(t.signal, () => labels(root).includes("beta"), "the tick's load after the held one", { step: turn });
+      await until(t.signal, () => endedCount(root) === 1, "the tick's load after the held one", { step: turn });
       assert.equal(server.epicsListCalls, 3, "the tick's load did not run once after the held one");
       assert.equal(server.maxEpicsInFlight, 1, "two epics loads overlapped");
     } finally {
@@ -1313,7 +1456,8 @@ test("a tick during a slow Host.Status starts no second read", (t) =>
   }));
 
 // narrowWidth is a window under the 760px the wide layout starts at. In the wide layout a row's click hides the inbox,
-// and the list's keys then pop it out rather than move the cursor, so the test that presses j runs narrow.
+// and the list's keys then pop it out rather than move the cursor. Under 760px a row's page draws alone, the list hidden
+// behind it, and the list's keys still move the cursor, so the test that presses j runs narrow.
 const narrowWidth = 700;
 
 // settle is the wait between checks in a test whose timers are mocked: act applies the renders the page has queued, and
@@ -1324,7 +1468,7 @@ function settle(): Promise<void> {
 
 // cursorKey is the key of the row, line or step the cursor rests on, or null when none does.
 function cursorKey(root: HTMLElement): string | null {
-  return root.querySelector(".b-row.cur")?.getAttribute("data-key") ?? null;
+  return root.querySelector(".row.cur")?.getAttribute("data-key") ?? null;
 }
 
 // rowDrawn reports whether the list draws the line under key.
@@ -1332,9 +1476,9 @@ function rowDrawn(root: HTMLElement, key: string): boolean {
   return root.querySelector(`[data-key="${key}"]`) !== null;
 }
 
-// viewOn is the text of the view tab that is on, which names the order the page shows.
+// viewOn is the view the list shows, which its rows name in data-list.
 function viewOn(root: HTMLElement): string {
-  return root.querySelector(".views .view.on")?.textContent ?? "";
+  return root.querySelector(".inbox-rows")?.getAttribute("data-list") ?? "";
 }
 
 // epicPageDrawn is whether the epic page section holds the epic page itself.
@@ -1405,7 +1549,7 @@ async function openAfterArrival(
 test("HashRoute: a loaded session address opens its row once the rows arrive after the first render", (t) => {
   mockTimers(t, ["setTimeout", "setInterval"]);
   return withPage(t.signal, (root, start) =>
-    openAfterArrival(t.signal, root, start, fakeServer("api"), "#/attention/session/s1", "session:s1"),
+    openAfterArrival(t.signal, root, start, fakeServer("api"), "#/inbox/session/s1", "session:s1"),
   );
 });
 
@@ -1414,7 +1558,7 @@ test("HashRoute: a loaded pane address whose id is %3 opens its row once the row
   return withPage(t.signal, (root, start) => {
     const server = fakeServer("api");
     server.extraPanes = [paneOf("%3", "three")];
-    return openAfterArrival(t.signal, root, start, server, "#/attention/pane/box/%253", "pane:box:%3");
+    return openAfterArrival(t.signal, root, start, server, "#/inbox/pane/box/%253", "pane:box:%3");
   });
 });
 
@@ -1423,7 +1567,7 @@ test("HashRoute: a loaded step address opens its step once the epics arrive afte
   return withPage(t.signal, (root, start) => {
     const server = fakeServer("api");
     server.epics = [liveEpic("first step")];
-    return openAfterArrival(t.signal, root, start, server, "#/attention/step/step-1", "step:step-1");
+    return openAfterArrival(t.signal, root, start, server, "#/inbox/step/step-1", "step:step-1");
   });
 });
 
@@ -1432,7 +1576,7 @@ test("HashRoute: a loaded epic address whose id holds a slash opens its epic pag
   return withPage(t.signal, async (root, start) => {
     const server = fakeServer("api");
     server.epics = [liveEpic("first step")];
-    await openAfterArrival(t.signal, root, start, server, "#/attention/epic/repo-a%2Falpha", "epic:repo-a/alpha");
+    await openAfterArrival(t.signal, root, start, server, "#/inbox/epic/repo-a%2Falpha", "epic:repo-a/alpha");
     assert.equal(epicPageDrawn(root), true, "the epic page is not drawn");
   });
 });
@@ -1448,7 +1592,7 @@ test("HashRoute: a loaded contract address opens its epic's contract page once t
       root,
       start,
       server,
-      "#/attention/epic/repo-a%2Falpha/contract",
+      "#/inbox/epic/repo-a%2Falpha/contract",
       "epic:repo-a/alpha",
     );
     await until(
@@ -1460,27 +1604,27 @@ test("HashRoute: a loaded contract address opens its epic's contract page once t
   });
 });
 
-test("HashRoute: a pane address the answered rows lack opens its order's inbox, and the hash becomes that order", (t) => {
+test("InboxTree: an old project address whose pane the answered rows lack opens the inbox, and the hash becomes the inbox", (t) => {
   mockTimers(t, ["setTimeout", "setInterval"]);
   return withPage(t.signal, async (root, start) => {
     const before = window.history.length;
     window.history.replaceState(null, "", "#/project/pane/box/%259");
     start(root, clientsFor(answeringServer()), longPollMs);
-    await until(t.signal, () => window.location.hash === "#/project", "the hash rewritten to its order", {
+    await until(t.signal, () => window.location.hash === "#/inbox", "the hash rewritten to the inbox", {
       step: settle,
     });
-    assert.equal(viewOn(root), "pBy project", "the page does not show the project order");
+    assert.equal(viewOn(root), "inbox", "the page does not show the inbox");
     assert.equal(window.history.length, before, "the fallback added a history entry");
   });
 });
 
-test("HashRoute: a malformed percent escape in the hash opens the attention inbox", (t) => {
+test("HashRoute: a malformed percent escape in the hash opens the inbox", (t) => {
   mockTimers(t, ["setTimeout", "setInterval"]);
   return withPage(t.signal, async (root, start) => {
     window.history.replaceState(null, "", "#/archived/session/%E0%A4%A");
     start(root, clientsFor(answeringServer()), longPollMs);
     await until(t.signal, () => rowDrawn(root, "pane:box:%1"), "the rows", { step: settle });
-    assert.equal(viewOn(root), "aBy attention", "the page does not show the attention inbox");
+    assert.equal(viewOn(root), "inbox", "the page does not show the inbox");
   });
 });
 
@@ -1509,7 +1653,7 @@ test("HashRoute: a row click and three j keys leave two entries, and Back return
     window.history.back();
     await until(
       t.signal,
-      () => window.location.hash === "#/attention/pane/box/%253" && cursorKey(root) === "pane:box:%3",
+      () => window.location.hash === "#/inbox/pane/box/%253" && cursorKey(root) === "pane:box:%3",
       "Back to the clicked row",
       { step: settle },
     );
@@ -1519,7 +1663,7 @@ test("HashRoute: a row click and three j keys leave two entries, and Back return
 test("HashRoute: after a loaded session address opens and a click opens another row, Back reopens the loaded row", (t) => {
   mockTimers(t, ["setTimeout", "setInterval"]);
   return withPage(t.signal, async (root, start) => {
-    window.history.replaceState(null, "", "#/attention/session/s1");
+    window.history.replaceState(null, "", "#/inbox/session/s1");
     start(root, clientsFor(answeringServer()), longPollMs);
     await until(t.signal, () => cursorKey(root) === "session:s1", "the loaded session under the cursor", {
       step: settle,
@@ -1531,7 +1675,7 @@ test("HashRoute: after a loaded session address opens and a click opens another 
     window.history.back();
     await until(
       t.signal,
-      () => window.location.hash === "#/attention/session/s1" && cursorKey(root) === "session:s1",
+      () => window.location.hash === "#/inbox/session/s1" && cursorKey(root) === "session:s1",
       "Back to the loaded session",
       { step: settle },
     );

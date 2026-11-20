@@ -1,6 +1,7 @@
-// PageStory draws App as one page of a catalog. It reads the rows, the epics and the host over a fixture transport as
-// main.tsx's start does, then draws App with them at the address it is given, which stays that address for the story's
-// whole life. A call the fixture refuses draws a failure element that names it.
+// PageStory draws App as one page of a catalog. It draws App from the start, as main.tsx does before its first load has
+// answered, so the inbox says loading until then. It reads the rows, the epics and the host over a fixture transport as
+// main.tsx's start does, then gives App them at the address it is given, which stays that address for the story's whole
+// life. A list that failed is drawn as main.tsx draws it. A call the fixture refuses draws a failure element that names it.
 
 import type { VNode } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
@@ -27,10 +28,11 @@ interface PageStoryProps {
   fixture?: FixtureTransport;
 }
 
-// Loaded is what the first load answers with, held as main.tsx's start holds it.
+// Loaded is what the first load answers with, held as main.tsx's start holds it. listFailed is whether the rows' load or
+// the epics' load failed.
 interface Loaded {
   rows: Row[];
-  error: string;
+  listFailed: boolean;
   epics: EpicsView;
   contracts: Contract[];
   host: HostStatusResponse | null;
@@ -41,8 +43,7 @@ const now = Date.parse(liveEpoch) / 1000;
 
 const noop = () => {};
 
-// load reads the rows, the epics and the host over clients, as main.tsx's start reads them. The error is the rows' error
-// and the epics' error, the non-empty ones joined by "; ".
+// load reads the rows, the epics and the host over clients, as main.tsx's start reads them.
 async function load(clients: ReturnType<typeof createClients>): Promise<Loaded> {
   const [rows, epics, host] = await Promise.all([
     loadRows(clients),
@@ -51,7 +52,7 @@ async function load(clients: ReturnType<typeof createClients>): Promise<Loaded> 
   ]);
   return {
     rows: rows.rows,
-    error: [rows.error, epics.error].filter((text) => text !== "").join("; "),
+    listFailed: rows.error !== "" || epics.error !== "",
     epics: epicsView(epics.epics, epics.details),
     contracts: epics.contracts,
     host,
@@ -102,23 +103,25 @@ export function PageStory({ address, after, fixture }: PageStoryProps): VNode {
   }, [loaded]);
 
   const refused = transport.unserved;
+  // data-loaded is set once the first load has answered, so a test can wait for the page's data. A story reads once, so
+  // its Try now is drawn as round 6 draws it and reads nothing again.
   return (
-    <div ref={root} data-page-story="">
-      {loaded !== null && (
-        <App
-          rows={loaded.rows}
-          error={loaded.error}
-          epics={loaded.epics}
-          contracts={loaded.contracts}
-          now={now}
-          clients={transport.clients}
-          notices={[]}
-          host={loaded.host}
-          onViewing={noop}
-          address={address}
-          onAddress={noop}
-        />
-      )}
+    <div ref={root} data-page-story="" data-loaded={loaded !== null ? "" : undefined}>
+      <App
+        rows={loaded?.rows ?? []}
+        answered={loaded !== null}
+        listFailed={loaded?.listFailed ?? false}
+        epics={loaded?.epics}
+        contracts={loaded?.contracts}
+        now={now}
+        clients={transport.clients}
+        notices={[]}
+        host={loaded?.host}
+        onViewing={noop}
+        onRetry={noop}
+        address={address}
+        onAddress={noop}
+      />
       {refused.length > 0 && <p data-story-failure="">{`not served by the fixture: ${refused.join(", ")}`}</p>}
     </div>
   );

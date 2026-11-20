@@ -18,6 +18,7 @@ import {
 // Synthetic rows only: made-up ids, directories and states.
 function makeRow(init: Partial<Row>): Row {
   return {
+    tool: "",
     key: "pane:box:%3",
     id: "%3",
     archiveId: "conv-1",

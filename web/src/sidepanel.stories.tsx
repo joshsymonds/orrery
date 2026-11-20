@@ -13,7 +13,7 @@ import { ListPanel as Lists, SidePanel } from "./sidepanel";
 const now = Date.parse(liveEpoch) / 1000;
 
 // inbox is the address the panels' Open in a new window link names.
-const inbox = formatAddress({ order: "attention", entry: null });
+const inbox = formatAddress({ view: "inbox", entry: null });
 
 const agents: BackgroundTask[] = [
   create(BackgroundTaskSchema, {

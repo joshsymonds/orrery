@@ -11,7 +11,7 @@ import {
   type Pane,
   type Session,
 } from "./gen/orrery/v1/orrery_pb";
-import { byAttention, byProject, rowsFrom, splitArchived, type Row, type Section } from "./rows";
+import { rowsFrom, splitArchived, type Row } from "./rows";
 
 function makePane(init: MessageInitShape<typeof PaneSchema>): Pane {
   return create(PaneSchema, { host: "box", session: "work", cwd: "/work/app", ...init });
@@ -25,9 +25,6 @@ function makeHeadless(init: MessageInitShape<typeof HeadlessSessionSchema>): Hea
   return create(HeadlessSessionSchema, init);
 }
 
-function keysOf(sections: Section[]): [string, string[]][] {
-  return sections.map((section) => [section.title, section.rows.map((row: Row) => row.key)]);
-}
 
 test("a pane row takes its label, project, host, state, text, and times from the pane", () => {
   const rows = rowsFrom(
@@ -64,6 +61,7 @@ test("a pane row takes its label, project, host, state, text, and times from the
       seen: 10,
       unseen: true,
       archived: false,
+      tool: "",
       archiveKind: "none",
     },
   ]);
@@ -80,6 +78,24 @@ test("a pane row carries the pane's id and question hash, and a session row carr
   assert.equal(paneRow?.questionHash, "hash-of-question");
   assert.equal(sessionRow?.id, "sess-7");
   assert.equal(sessionRow?.questionHash, "");
+});
+
+test("a pane row carries its pane's running tool, and a session or headless row carries an empty tool", () => {
+  const tool = JSON.stringify({ id: "toolu_1", name: "Bash", input: "go test ./...", start: 1781000000 });
+  const rows = rowsFrom(
+    [makePane({ id: "%11", tool })],
+    [makeSession({ id: "sess-7", pane: "" })],
+    [makeHeadless({ id: "head-1" })],
+  );
+
+  assert.deepEqual(
+    rows.map((row) => [row.id, row.tool]),
+    [
+      ["%11", tool],
+      ["sess-7", ""],
+      ["head-1", ""],
+    ],
+  );
 });
 
 test("TitleParts: a pane with no summary has an empty line, never its tmux session or label, so its title is its directory alone", () => {
@@ -122,6 +138,7 @@ test("a session row is keyed by its id, reads 'session' as its line when it has 
       seen: 42,
       unseen: false,
       archived: false,
+      tool: "",
       archiveKind: "session",
     },
   ]);
@@ -263,77 +280,4 @@ test("a row is unseen only when it has a state and changed after it was seen", (
     );
     assert.equal(row?.unseen, testCase.unseen, testCase.name);
   }
-});
-
-test("byAttention arranges rows into the four sections in order, newest first, and omits empty sections", () => {
-  const rows = rowsFrom(
-    [
-      makePane({ id: "%1", state: "waiting", changed: 100n, seen: 50n }),
-      makePane({ id: "%2", state: "waiting", changed: 300n, seen: 300n }),
-      makePane({ id: "%3", state: "working", changed: 200n, seen: 10n }),
-      makePane({ id: "%4", state: "done", changed: 400n, seen: 1n }),
-      makePane({ id: "%5", state: "working", changed: 90n, seen: 90n }),
-      makePane({ id: "%6", state: "done", changed: 80n, seen: 90n }),
-      makePane({ id: "%7", state: "", changed: 500n, seen: 0n }),
-      makePane({ id: "%8", session: "_orrery-shell-2", state: "waiting", changed: 999n }),
-    ],
-    [
-      makeSession({ id: "abcdefghijk", pane: "", state: "working", changed: "150", seen: "150" }),
-      makeSession({ id: "x", pane: "", state: "", changed: "x", seen: "0" }),
-    ],
-  );
-
-  assert.deepEqual(keysOf(byAttention(rows)), [
-    ["Needs you", ["pane:box:%2", "pane:box:%1"]],
-    ["New since you looked", ["pane:box:%4", "pane:box:%3"]],
-    ["Working", ["session:abcdefghijk", "pane:box:%5"]],
-    ["Seen", ["pane:box:%7", "pane:box:%6", "session:x"]],
-  ]);
-});
-
-test("byAttention omits sections with no rows", () => {
-  const rows = rowsFrom([makePane({ id: "%1", state: "done", changed: 1n, seen: 1n })], []);
-  assert.deepEqual(keysOf(byAttention(rows)), [["Seen", ["pane:box:%1"]]]);
-});
-
-test("byAttention and byProject leave the input rows in their original order", () => {
-  const rows = rowsFrom(
-    [
-      makePane({ id: "%1", state: "done", changed: 1n, seen: 1n }),
-      makePane({ id: "%2", state: "waiting", changed: 5n, seen: 5n }),
-    ],
-    [],
-  );
-  const before = rows.map((row) => row.key);
-
-  byAttention(rows);
-  byProject(rows);
-
-  assert.deepEqual(
-    rows.map((row) => row.key),
-    before,
-  );
-});
-
-test("byProject groups panes by directory and session rows under Sessions, in rank order", () => {
-  const rows = rowsFrom(
-    [
-      makePane({ id: "%1", host: "box", cwd: "/b/proj", label: "b-done", state: "done", changed: 1n, seen: 1n }),
-      makePane({ id: "%2", host: "box", cwd: "/a/proj", label: "a-wait", state: "waiting", changed: 1n, seen: 1n }),
-      makePane({ id: "%3", host: "box", cwd: "/b/proj", state: "working", changed: 9n, seen: 1n }),
-      makePane({ id: "%4", host: "box", cwd: "/c/quiet", state: "done", changed: 1n, seen: 1n }),
-      makePane({ id: "%5", host: "alpha", cwd: "/a/proj", label: "a-wait", state: "waiting", changed: 1n, seen: 1n }),
-      makePane({ id: "%6", host: "box", cwd: "/b/idle", state: "", changed: 0n, seen: 0n }),
-      makePane({ id: "%7", host: "box", cwd: "/a/proj", label: "a-wait", state: "waiting", changed: 1n, seen: 1n }),
-    ],
-    [makeSession({ id: "s-one", pane: "", state: "working", changed: "3", seen: "3" })],
-  );
-
-  assert.deepEqual(keysOf(byProject(rows)), [
-    ["/a/proj", ["pane:alpha:%5", "pane:box:%2", "pane:box:%7"]],
-    ["/b/proj", ["pane:box:%3", "pane:box:%1"]],
-    ["Sessions", ["session:s-one"]],
-    ["/b/idle", ["pane:box:%6"]],
-    ["/c/quiet", ["pane:box:%4"]],
-  ]);
 });

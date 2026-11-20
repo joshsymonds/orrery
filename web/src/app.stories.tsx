@@ -1,4 +1,4 @@
-// The stories of App: the three inbox orders, and each kind of page App shows, each drawn by PageStory at an address
+// The stories of App: the inbox and the archived view, and each kind of page App shows, each drawn by PageStory at an address
 // over the fixture slices. Page holds the states of the live scenarios: the address that names a state draws it, and
 // where none does, an after step clicks the way there.
 
@@ -7,7 +7,14 @@ import { Code } from "@connectrpc/connect";
 import { PageStory } from "./catalog/pagestory";
 import type { Stories } from "./catalog/story";
 import { dockSlices, gatesSession, warmupSession } from "./fixtures/dock";
-import { type AskAnswer, contractStories, type PickerRowInit, type Slices, shippedSlices } from "./fixtures/slices";
+import {
+  type AskAnswer,
+  contractStories,
+  emptySlices,
+  type PickerRowInit,
+  type Slices,
+  shippedSlices,
+} from "./fixtures/slices";
 import { endedSlices, handoverSlices, movedSlices } from "./fixtures/steer";
 import { createFixtureTransport, type FixtureTransport } from "./fixtures/transport";
 import type { Address, ListPanelKind, PageView } from "./router";
@@ -19,30 +26,33 @@ const headlessSession = "4be0c6d2-8f3a-4c71-9e25-ephemeris001";
 // The headless session that steers tidepool/buoy-feeds, which runs two sub-agents and one shell.
 const buoySession = "6c2f9e14-3a7b-4d58-9b0e-2f7a1c8d4e55";
 const workerStep = "st-rota-t2-impl";
+// panesList is the procedure the inbox's rows wait on: held, it leaves the inbox loading; failed, it leaves the inbox
+// saying the server did not answer.
+const panesList = "orrery.v1.Panes/List";
 // phoneWidth is the width under which the layout is the phone's: the groups are a strip and the epic is a page.
 const phoneWidth = 760;
 
-const attention: Address = { order: "attention", entry: null };
+const inbox: Address = { view: "inbox", entry: null };
 
-// epicAt is the address of an epic's page, or of a sub-page under it, in the attention inbox.
+// epicAt is the address of an epic's page, or of a sub-page under it, in the inbox.
 function epicAt(id: string, page: PageView): Address {
-  return { order: "attention", entry: { kind: "epic", id, page } };
+  return { view: "inbox", entry: { kind: "epic", id, page } };
 }
 
 // sessionAt is the address of a headless session, with the list panel open on it when panel names one.
 function sessionAt(id: string, panel?: ListPanelKind): Address {
-  return { order: "attention", entry: panel === undefined ? { kind: "session", id } : { kind: "session", id, panel } };
+  return { view: "inbox", entry: panel === undefined ? { kind: "session", id } : { kind: "session", id, panel } };
 }
 
 // paneAt is the address of a terminal pane on halyard.
 function paneAt(pane: string): Address {
-  return { order: "attention", entry: { kind: "pane", host: "halyard", pane } };
+  return { view: "inbox", entry: { kind: "pane", host: "halyard", pane } };
 }
 
-// contractAt is the address of a contract in the attention inbox: its panel opens over its conversation, or as the page
-// at a phone's width.
+// contractAt is the address of a contract in the inbox: its panel opens over its conversation, or as the page at a
+// phone's width.
 function contractAt(id: string): Address {
-  return { order: "attention", entry: { kind: "contract", id } };
+  return { view: "inbox", entry: { kind: "contract", id } };
 }
 
 // immediate is the process's own setImmediate, where there is one, taken when this module loads. A test's act holds the
@@ -126,6 +136,33 @@ async function openSteer(root: HTMLElement): Promise<void> {
   await clickWhen(root, "section.page .title-row .head-menu button", "Steer it from another conversation");
 }
 
+// The inbox's search button and its field, which the search states open and type into.
+const searchButton = 'button[aria-label="Search sessions and epics"]';
+const searchField = 'input[aria-label="Search sessions and epics"]';
+
+// searchFor opens the inbox's search and types words into its field.
+async function searchFor(root: HTMLElement, words: string): Promise<void> {
+  await clickWhen(root, searchButton);
+  await typeInto(root, searchField, words);
+}
+
+// menuOpenedOn moves the cursor down the list by j, from its top, until the row with key holds it, and then opens that
+// row's More. A click on the row would open the row, so the cursor reaches it by the keyboard.
+async function menuOpenedOn(root: HTMLElement, key: string): Promise<void> {
+  press(document, "g");
+  press(document, "g");
+  const rowSelector = `[data-key="${key}"]`;
+  for (let step = 0; step < 100; step++) {
+    await nextRound();
+    if (root.querySelector(`${rowSelector}.cur`) !== null) {
+      await clickWhen(root, `${rowSelector} button.more`);
+      return;
+    }
+    press(document, "j");
+  }
+  throw new Error(`the cursor never reached ${key}`);
+}
+
 // shownDockBox is the textarea of the dock that is shown: one per column, and the cursor's column is section.read.
 const shownDockBox = "section.read .send > div:not([hidden]) textarea";
 
@@ -160,9 +197,9 @@ const dockStory =
     <PageStory address={address} fixture={createFixtureTransport(slices)} after={after} />
   );
 
-const warmupAt: Address = { order: "attention", entry: { kind: "session", id: warmupSession } };
-const gatesAt: Address = { order: "attention", entry: { kind: "session", id: gatesSession } };
-const pane17At: Address = { order: "attention", entry: { kind: "pane", host: "halyard", pane: "%17" } };
+const warmupAt: Address = { view: "inbox", entry: { kind: "session", id: warmupSession } };
+const gatesAt: Address = { view: "inbox", entry: { kind: "session", id: gatesSession } };
+const pane17At: Address = { view: "inbox", entry: { kind: "pane", host: "halyard", pane: "%17" } };
 
 // newField is New session's one field.
 const newField = 'input[aria-label="New session"]';
@@ -221,12 +258,11 @@ const rosterRows: PickerRowInit[] = [
 ];
 
 export const App: Stories = {
-  attention: () => <PageStory address={attention} />,
-  project: () => <PageStory address={{ order: "project", entry: null }} />,
-  archived: () => <PageStory address={{ order: "archived", entry: null }} />,
-  session: () => <PageStory address={{ order: "attention", entry: { kind: "session", id: headlessSession } }} />,
-  pane: () => <PageStory address={{ order: "attention", entry: { kind: "pane", host: "halyard", pane: "%13" } }} />,
-  step: () => <PageStory address={{ order: "attention", entry: { kind: "step", id: workerStep } }} />,
+  inbox: () => <PageStory address={inbox} />,
+  archived: () => <PageStory address={{ view: "archived", entry: null }} />,
+  session: () => <PageStory address={{ view: "inbox", entry: { kind: "session", id: headlessSession } }} />,
+  pane: () => <PageStory address={{ view: "inbox", entry: { kind: "pane", host: "halyard", pane: "%13" } }} />,
+  step: () => <PageStory address={{ view: "inbox", entry: { kind: "step", id: workerStep } }} />,
   epic: () => <PageStory address={epicAt(rota, { kind: "epic" })} />,
   contract: () => <PageStory address={epicAt(rota, { kind: "contract" })} />,
   phase: () => <PageStory address={epicAt(rota, { kind: "phase", task: "T2", phase: "implementing" })} />,
@@ -236,10 +272,39 @@ export const App: Stories = {
 };
 
 // convoWorkingAt is the reader of pane %11, the page the New session and the key list are drawn over.
-const convoWorkingAt: Address = { order: "attention", entry: { kind: "pane", host: "halyard", pane: "%11" } };
+const convoWorkingAt: Address = { view: "inbox", entry: { kind: "pane", host: "halyard", pane: "%11" } };
 
 export const Page: Stories = {
-  "inbox-home": () => <PageStory address={attention} />,
+  "inbox-home": () => <PageStory address={inbox} />,
+  "inbox-waiting": () => (
+    <PageStory address={inbox} after={(root) => clickWhen(root, ".inbox-attn .fchip.attention")} />
+  ),
+  "inbox-new": () => <PageStory address={inbox} after={(root) => clickWhen(root, ".inbox-attn .fchip.new")} />,
+  "inbox-search": () => <PageStory address={inbox} after={(root) => searchFor(root, "tide")} />,
+  "inbox-search-none": () => <PageStory address={inbox} after={(root) => searchFor(root, "harbour-pilot")} />,
+  "inbox-row-menu": () => <PageStory address={inbox} after={(root) => menuOpenedOn(root, "pane:halyard:%12")} />,
+  "inbox-folded": () => (
+    <PageStory
+      address={inbox}
+      after={async (root) => {
+        await clickWhen(root, 'button.fold[aria-label="Fold orrery"]');
+        await clickWhen(root, 'section.dir[aria-label="tidepool"] button.fold-line');
+        await nextRound();
+        // At 1600 the inbox column scrolls inside itself. The ended line opened under tidepool is brought to the column's
+        // top, and orrery's folded card, which sits below it, is then brought into view, so both show.
+        (await drawnWhen(root, 'section.dir[aria-label="tidepool"] button.fold-line')).scrollIntoView({ block: "start" });
+        (await drawnWhen(root, 'section.dir[aria-label="orrery"]')).scrollIntoView({ block: "nearest" });
+      }}
+    />
+  ),
+  "inbox-archived": () => <PageStory address={{ view: "archived", entry: null }} />,
+  "inbox-loading": () => (
+    <PageStory address={inbox} fixture={createFixtureTransport({ ...shippedSlices, hold: new Set([panesList]) })} />
+  ),
+  "inbox-empty": () => <PageStory address={inbox} fixture={createFixtureTransport(emptySlices)} />,
+  "inbox-error": () => (
+    <PageStory address={inbox} fixture={createFixtureTransport({ ...shippedSlices, fail: new Set([panesList]) })} />
+  ),
   "epic-question": () => <PageStory address={epicAt(rota, { kind: "epic" })} />,
   "epic-shipped": () => <PageStory address={epicAt(holder, { kind: "epic" })} />,
   "convo-contract": () => (
@@ -338,7 +403,7 @@ export const Page: Stories = {
   "convo-working": () => <PageStory address={convoWorkingAt} />,
   "ask-session": () => (
     <PageStory
-      address={attention}
+      address={inbox}
       after={(root) => clickWhen(root, '.list .b-row[data-key="pane:halyard:%12"]')}
     />
   ),
@@ -404,7 +469,7 @@ export const Page: Stories = {
   ),
   "dock-interrupted": dockStory(warmupAt, dockSlices["dock-interrupted"]),
   "dock-interrupt-queue": dockStory(warmupAt, dockSlices["dock-interrupt-queue"]),
-  "dock-cut-off": dockStory({ order: "attention", entry: { kind: "session", id: headlessSession } }, dockSlices["dock-cut-off"]),
+  "dock-cut-off": dockStory({ view: "inbox", entry: { kind: "session", id: headlessSession } }, dockSlices["dock-cut-off"]),
   "dock-pane-queue": dockStory(pane17At, dockSlices["dock-pane-queue"]),
   "dock-waiting": dockStory(warmupAt, dockSlices["dock-waiting"]),
   "dock-failed": dockStory(warmupAt, dockSlices["dock-failed"]),

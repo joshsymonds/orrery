@@ -25,7 +25,7 @@ const conversation = "sess-tide-16";
 const firstRow = "F1";
 const firstRowText = "The office was alerted about a table that had not changed.";
 
-const contractAddress: Address = { order: "attention", entry: { kind: "contract", id: contractId } };
+const contractAddress: Address = { view: "inbox", entry: { kind: "contract", id: contractId } };
 
 // Probe records the texts the owner sent, in order.
 interface Probe {
@@ -81,6 +81,7 @@ function row(init: Partial<Row> & Pick<Row, "key">): Row {
     summary: "",
     question: "",
     questionHash: "",
+    tool: "",
     changed: 0,
     seen: 0,
     unseen: false,
@@ -150,7 +151,6 @@ async function withApp(
       render(
         <App
           rows={setup.rows}
-          error=""
           now={now}
           clients={clients}
           contracts={contracts}

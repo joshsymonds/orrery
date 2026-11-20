@@ -25,6 +25,9 @@ export interface Row {
   question: string;
   // The pane's question_hash, which answers a waiting question by hash. Empty for a session row.
   questionHash: string;
+  // The pane's running tool: its @orrery_tool value as Panes.List gives it, a JSON object with name, input and start, or
+  // empty. Empty for a session or headless row.
+  tool: string;
   changed: number;
   seen: number;
   unseen: boolean;
@@ -34,28 +37,11 @@ export interface Row {
   archiveKind: ArchiveKind;
 }
 
-// A titled run of rows, in display order.
-export interface Section {
-  title: string;
-  rows: Row[];
-}
-
 // Panes in a tmux session with this prefix are internal to orrery and are not listed.
 const shellSessionPrefix = "_orrery-shell-";
 
 // A Sessions.List row with no label reads this word as its line.
 const sessionLabel = "session";
-
-const sessionsTitle = "Sessions";
-
-const stateWaiting = "waiting";
-const stateWorking = "working";
-
-// Row ranks, smallest first. Waiting always sorts first.
-const rankWaiting = 0;
-const rankUnseen = 1;
-const rankWorking = 2;
-const rankRest = 3;
 
 // rowsFrom makes a row of each pane outside orrery's own shells, of each session that names no pane, and of each headless
 // session. A row's project is its directory and its label is its line: a pane's summary, a headless session's served
@@ -83,6 +69,7 @@ export function rowsFrom(panes: Pane[], sessions: Session[], headless: HeadlessS
       summary: pane.summary,
       question: pane.question,
       questionHash: pane.questionHash,
+      tool: pane.tool,
       changed,
       seen,
       unseen: isUnseen(pane.state, changed, seen),
@@ -108,6 +95,7 @@ export function rowsFrom(panes: Pane[], sessions: Session[], headless: HeadlessS
       summary: session.summary,
       question: session.question,
       questionHash: "",
+      tool: "",
       changed,
       seen,
       unseen: isUnseen(session.state, changed, seen),
@@ -130,6 +118,7 @@ export function rowsFrom(panes: Pane[], sessions: Session[], headless: HeadlessS
       summary: session.summary,
       question: session.question,
       questionHash: "",
+      tool: "",
       changed,
       seen,
       unseen: isUnseen(session.state, changed, seen),
@@ -148,90 +137,11 @@ export function splitArchived(rows: Row[]): { rows: Row[]; archived: Row[] } {
   };
 }
 
-// Arranges rows into sections by attention, newest first within each section.
-export function byAttention(rows: Row[]): Section[] {
-  const sections: [number, string][] = [
-    [rankWaiting, "Needs you"],
-    [rankUnseen, "New since you looked"],
-    [rankWorking, "Working"],
-    [rankRest, "Seen"],
-  ];
-  const result: Section[] = [];
-  for (const [sectionRank, title] of sections) {
-    const sectionRows = rows
-      .filter((row) => rank(row) === sectionRank)
-      .sort((left, right) => right.changed - left.changed);
-    if (sectionRows.length > 0) {
-      result.push({ title, rows: sectionRows });
-    }
-  }
-  return result;
-}
-
-// Arranges rows into one section per project directory, with session rows under Sessions.
-export function byProject(rows: Row[]): Section[] {
-  const projects = new Map<string, Row[]>();
-  const sessionRows: Row[] = [];
-  for (const row of rows) {
-    if (row.kind === "session") {
-      sessionRows.push(row);
-      continue;
-    }
-    const group = projects.get(row.project);
-    if (group) {
-      group.push(row);
-    } else {
-      projects.set(row.project, [row]);
-    }
-  }
-
-  const sections: Section[] = [...projects].map(([title, sectionRows]) => ({
-    title,
-    rows: sectionRows.sort(compareProjectRows),
-  }));
-  if (sessionRows.length > 0) {
-    sections.push({ title: sessionsTitle, rows: sessionRows.sort(compareProjectRows) });
-  }
-  return sections.sort(
-    (left, right) =>
-      rank(left.rows[0]) - rank(right.rows[0]) || compareStrings(left.title, right.title),
-  );
-}
-
 function isUnseen(state: string, changed: number, seen: number): boolean {
   return state !== "" && changed > seen;
-}
-
-function rank(row: Row): number {
-  if (row.state === stateWaiting) {
-    return rankWaiting;
-  }
-  if (row.unseen) {
-    return rankUnseen;
-  }
-  if (row.state === stateWorking) {
-    return rankWorking;
-  }
-  return rankRest;
-}
-
-function compareProjectRows(left: Row, right: Row): number {
-  return (
-    rank(left) - rank(right) ||
-    compareStrings(left.host, right.host) ||
-    compareStrings(left.label, right.label) ||
-    compareStrings(left.key, right.key)
-  );
 }
 
 // parseSeconds reads a decimal session timestamp; anything non-numeric reads as zero.
 function parseSeconds(value: string): number {
   return /^\d+$/.test(value) ? Number(value) : 0;
-}
-
-function compareStrings(left: string, right: string): number {
-  if (left < right) {
-    return -1;
-  }
-  return left > right ? 1 : 0;
 }

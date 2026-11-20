@@ -399,6 +399,7 @@ test("CreatorConversation: no line shows when no listed session is the creator",
 // row is a listed row with the fields the tests do not set at their defaults.
 function row(init: Partial<Row> & Pick<Row, "key">): Row {
   return {
+    tool: "",
     id: init.key,
     kind: "session",
     label: init.key,

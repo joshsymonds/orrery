@@ -36,7 +36,7 @@ const wideWidth = 1280;
 // is at 1250px or narrower.
 const overlayWidth = 1000;
 
-const attention: Address = { order: "attention", entry: null };
+const inbox: Address = { view: "inbox", entry: null };
 
 // refusal resolves to the Connect error a call rejects with, and fails the test when the call is answered.
 async function refusal(call: Promise<unknown>): Promise<ConnectError> {
@@ -48,9 +48,9 @@ async function refusal(call: Promise<unknown>): Promise<ConnectError> {
   assert.fail("the call was answered, not refused");
 }
 
-// listView is the order the rows list draws, from its data-list attribute, or null before the list is drawn.
+// listView is the view the rows list draws, from its data-list attribute, or null before the list is drawn.
 function listView(root: HTMLElement): string | null {
-  return root.querySelector(".rows")?.getAttribute("data-list") ?? null;
+  return root.querySelector(".inbox-rows")?.getAttribute("data-list") ?? null;
 }
 
 // inboxState is the state the inbox is drawn in, from the panes' data-inbox attribute.
@@ -70,9 +70,9 @@ const rotaPrompt = "Plan the rota export as an epic.";
 // tideTitle is the title of tide-alerts' contract body, which the contract record's heading draws.
 const tideTitle = "Alert the harbour office within a minute when a published tide table changes.";
 
-// inboxHome is Page/inbox-home: the attention rows, with the inbox docked beside the cursor's reader on pane %12.
+// inboxHome is Page/inbox-home: the inbox rows, with the inbox docked beside the cursor's reader on pane %12.
 function inboxHome(root: HTMLElement): boolean {
-  return listView(root) === "attention" && inboxState(root) === "docked";
+  return listView(root) === "inbox" && inboxState(root) === "docked";
 }
 
 // convoWorking is Page/convo-working: the inbox hidden under the reader of pane %11.
@@ -184,10 +184,10 @@ function settle(signal: AbortSignal, check: () => boolean, what: string): Promis
   return until(signal, check, what, { step: () => act(turn) });
 }
 
-// withStory mounts story into a fresh DOM at width, the wide width when none is given, waits until drawn holds on its root,
+// withPage mounts story into a fresh DOM at width, the wide width when none is given, waits until drawn holds on its root,
 // then runs check. The story is unmounted and its DOM removed when the test ends, or as soon as the test's signal aborts.
 // The test must call mockTimers first.
-async function withStory(
+async function withPage(
   t: TestContext,
   story: () => ComponentChild,
   drawn: (root: HTMLElement) => boolean,
@@ -214,6 +214,18 @@ async function withStory(
   } finally {
     await teardown();
   }
+}
+
+// withStory is withPage for a story whose first load has answered: drawn holds only once PageStory marks its root
+// loaded, so the check sees the rows and epics the fixtures answer with, not the empty list drawn before the load.
+function withStory(
+  t: TestContext,
+  story: () => ComponentChild,
+  drawn: (root: HTMLElement) => boolean,
+  check: (root: HTMLElement) => void,
+  width = wideWidth,
+): Promise<void> {
+  return withPage(t, story, (root) => root.querySelector("[data-loaded]") !== null && drawn(root), check, width);
 }
 
 test("FixtureTransport answers Epics.List, Epics.Get, Panes.List and Host.Status from the slices", async () => {
@@ -449,51 +461,47 @@ test("FixtureTransport: an open session stream sends the interrupt's then frame 
   assert.equal(await after.then(() => "ended", () => "aborted"), "aborted", "the abort ends the wait");
 });
 
-test("FixtureTransport: app/attention draws the attention rows", (t) => {
+test("FixtureTransport: app/inbox draws the inbox rows, with the fixture's proposed contract on its epic", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(
     t,
-    App.attention,
-    (root) => listView(root) === "attention",
+    App.inbox,
+    (root) => listView(root) === "inbox",
     (root) => {
       assertNoFailure(root);
-      assert.equal(listView(root), "attention");
+      assert.equal(listView(root), "inbox");
+      const tide = root.querySelector('[data-key="epic:tidepool/tide-alerts"]');
+      assert.ok(tide?.classList.contains("contract"), "tide-alerts is not drawn as its proposed contract");
+      assertNone(root.querySelector('[data-key="epic:almanac/moon-rounding"]'), "moon-rounding is archived, so the inbox holds it not");
+      assertNone(root.querySelector('[data-key="epic:tidepool/tide-warmup"]'), "tide-warmup is archived, so the inbox holds it not");
     },
   );
 });
 
-test("FixtureTransport: app/project draws the project rows", (t) => {
-  mockTimers(t, ["setTimeout"]);
-  return withStory(
-    t,
-    App.project,
-    (root) => listView(root) === "project",
-    (root) => {
-      assertNoFailure(root);
-      assert.equal(listView(root), "project");
-    },
-  );
-});
-
-test("FixtureTransport: app/archived draws the archived rows, with the Archived section and no rota-export line", (t) => {
+test("FixtureTransport: app/archived draws the archived rows, with the Archived head, no rota-export line, and the archived epics under their conversations", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(
     t,
     App.archived,
-    (root) => listView(root) === "archived",
+    (root) => listView(root) === "archived" && root.querySelector('[data-key="epic:almanac/moon-rounding"]') !== null,
     (root) => {
       assertNoFailure(root);
       assert.equal(listView(root), "archived");
-      const titles = [...root.querySelectorAll(".rows .title")].map((title) => title.textContent);
-      assert.ok(titles.includes("Archived"), "the Archived section title is drawn");
+      assert.equal(root.querySelector(".inbox-attn .name")?.textContent, "Archived", "the Archived head is drawn");
       assertNone(root.querySelector('[data-key="epic:lighthouse/rota-export"]'), "the rota-export line is not archived");
+      assert.ok(
+        root.querySelector('[data-key="session:e7c4b2a1-5d9f-4e3a-9b61-2a8f0c4d7e13"]'),
+        "the archived conversation Moon phase rounding is drawn",
+      );
+      assert.ok(root.querySelector('[data-key="epic:almanac/moon-rounding"]'), "its archived epic moon-rounding is drawn under it");
+      assert.ok(root.querySelector('[data-key="epic:tidepool/tide-warmup"]'), "the archived epic under the warm-up is drawn");
     },
   );
 });
 
 test("FixtureTransport: app/session draws the headless session's row as the cursor's row", (t) => {
   mockTimers(t, ["setTimeout"]);
-  const cursorRow = '.b-row.cur[data-key="session:4be0c6d2-8f3a-4c71-9e25-ephemeris001"]';
+  const cursorRow = '.row.cur[data-key="session:4be0c6d2-8f3a-4c71-9e25-ephemeris001"]';
   return withStory(
     t,
     App.session,
@@ -507,7 +515,7 @@ test("FixtureTransport: app/session draws the headless session's row as the curs
 
 test("FixtureTransport: app/pane draws pane %13's row as the cursor's row", (t) => {
   mockTimers(t, ["setTimeout"]);
-  const cursorRow = '.b-row.cur[data-key="pane:halyard:%13"]';
+  const cursorRow = '.row.cur[data-key="pane:halyard:%13"]';
   return withStory(
     t,
     App.pane,
@@ -521,7 +529,7 @@ test("FixtureTransport: app/pane draws pane %13's row as the cursor's row", (t) 
 
 test("FixtureTransport: app/step draws a step reader, with the worker step as the cursor's entry", (t) => {
   mockTimers(t, ["setTimeout"]);
-  const cursorStep = '.b-row.step.cur[data-key="step:st-rota-t2-impl"]';
+  const cursorStep = '.row.step.cur[data-key="step:st-rota-t2-impl"]';
   return withStory(
     t,
     App.step,
@@ -932,7 +940,7 @@ test("FixtureTransport: page/epic-question, page/epic-handover and page/epic-tal
   }
 });
 
-test("FixtureTransport: page's keys are exactly the 47 catalog names of its scenario states", () => {
+test("FixtureTransport: page's keys are exactly the 57 catalog names of its scenario states", () => {
   assert.deepEqual(Object.keys(Page).map((state) => storyName("Page", state)).sort(), [
     "page/ask-later",
     "page/ask-session",
@@ -968,7 +976,17 @@ test("FixtureTransport: page's keys are exactly the 47 catalog names of its scen
     "page/epic-question",
     "page/epic-shipped",
     "page/epic-talk",
+    "page/inbox-archived",
+    "page/inbox-empty",
+    "page/inbox-error",
+    "page/inbox-folded",
     "page/inbox-home",
+    "page/inbox-loading",
+    "page/inbox-new",
+    "page/inbox-row-menu",
+    "page/inbox-search",
+    "page/inbox-search-none",
+    "page/inbox-waiting",
     "page/keys",
     "page/new-empty",
     "page/new-error",
@@ -1096,7 +1114,7 @@ test("FixtureTransport: a story whose after rejects draws no failure and no erro
   });
   const story = () =>
     h(PageStory, {
-      address: attention,
+      address: inbox,
       after: async () => {
         throw new Error("the after step broke");
       },
@@ -1108,7 +1126,170 @@ test("FixtureTransport: a story whose after rejects draws no failure and no erro
     (root) => {
       assertNoFailure(root);
       assertNone(root.querySelector(".error"), "App drew no error");
-      assert.deepEqual(reports, [["story #/attention: the after step broke"]], "the rejection is reported once");
+      assert.deepEqual(reports, [["story #/inbox: the after step broke"]], "the rejection is reported once");
+    },
+  );
+});
+
+// searchValue is the words in the inbox's search field, or null while the field is shut.
+function searchValue(root: HTMLElement): string | null {
+  const field = root.querySelector<HTMLInputElement>('.inbox-search input[aria-label="Search sessions and epics"]');
+  return field?.value ?? null;
+}
+
+// blankText is the text of the inbox body's blank state: loading, the error, nothing running or nothing matching. It
+// is empty when the body draws a list.
+function blankText(root: HTMLElement): string {
+  return root.querySelector(".inbox-rows .blank")?.textContent ?? "";
+}
+
+test("InboxTree page/inbox-waiting draws the waiting chip on, and no other chip on", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["inbox-waiting"],
+    (root) => root.querySelector(".fchip.attention.on") !== null,
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(root.querySelectorAll(".fchip.on").length, 1, "one chip is on");
+    },
+  );
+});
+
+test("InboxTree page/inbox-new draws the new chip on, and no other chip on", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["inbox-new"],
+    (root) => root.querySelector(".fchip.new.on") !== null,
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(root.querySelectorAll(".fchip.on").length, 1, "one chip is on");
+    },
+  );
+});
+
+test("InboxTree page/inbox-search draws the search field holding tide, with rows under it", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["inbox-search"],
+    (root) => searchValue(root) === "tide",
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(searchValue(root), "tide", "the field holds the words");
+      assertNone(root.querySelector(".inbox-rows .blank"), "the search draws its blank state, not its rows");
+    },
+  );
+});
+
+test("InboxTree page/inbox-search-none draws the search field holding harbour-pilot, and Nothing matches", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["inbox-search-none"],
+    (root) => blankText(root).includes("Nothing matches"),
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(searchValue(root), "harbour-pilot", "the field holds the words");
+      assert.ok(blankText(root).includes("Nothing matches “harbour-pilot”."), "the blank says what was searched");
+    },
+  );
+});
+
+test("InboxTree page/inbox-row-menu draws pane %12's row with its More menu open", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["inbox-row-menu"],
+    (root) => root.querySelector('[data-key="pane:halyard:%12"] .row-menu-list') !== null,
+    (root) => {
+      assertNoFailure(root);
+      assert.ok(
+        root.querySelector('[data-key="pane:halyard:%12"]')?.classList.contains("menu-open"),
+        "pane %12's row is not marked menu-open",
+      );
+      const labels = [...root.querySelectorAll('[data-key="pane:halyard:%12"] .row-menu-list [role="menuitem"] span')];
+      assert.ok(
+        labels.some((label) => label.textContent === "Archive"),
+        "pane %12's More menu offers Archive, since its row has an orrery_id",
+      );
+    },
+  );
+});
+
+test("InboxTree page/inbox-folded folds the orrery directory and opens tidepool's ended line", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  const tidepoolEnded = 'section.dir[aria-label="tidepool"] button.fold-line';
+  return withStory(
+    t,
+    Page["inbox-folded"],
+    (root) =>
+      root.querySelector('button.fold[aria-label="Unfold orrery"]') !== null &&
+      root.querySelector(tidepoolEnded)?.getAttribute("aria-expanded") === "true",
+    (root) => {
+      assertNoFailure(root);
+      assertNone(root.querySelector('section.dir[aria-label="orrery"] .dir-kids'), "orrery's conversations are drawn");
+      assert.equal(
+        root.querySelector(tidepoolEnded)?.getAttribute("aria-expanded"),
+        "true",
+        "tidepool's ended line is shut",
+      );
+    },
+  );
+});
+
+test("InboxTree page/inbox-archived draws the archived view with its Archived head", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["inbox-archived"],
+    (root) => listView(root) === "archived",
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(root.querySelector(".inbox-attn .name")?.textContent, "Archived", "the Archived head is drawn");
+    },
+  );
+});
+
+test("InboxTree page/inbox-loading draws the inbox as loading, with no project, before the first load", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withPage(
+    t,
+    Page["inbox-loading"],
+    (root) => blankText(root) === "loading…",
+    (root) => {
+      assertNoFailure(root);
+      assertNone(root.querySelector(".dir"), "a project is drawn before the first load answered");
+      assertNone(root.querySelector("[data-loaded]"), "the held first load answered");
+    },
+  );
+});
+
+test("InboxTree page/inbox-empty draws the inbox with nothing running, and no project", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["inbox-empty"],
+    (root) => blankText(root).includes("Nothing is running."),
+    (root) => {
+      assertNoFailure(root);
+      assertNone(root.querySelector(".dir"), "a project is drawn with nothing running");
+    },
+  );
+});
+
+test("InboxTree page/inbox-error draws the server did not answer in place of the rows, with no note line", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["inbox-error"],
+    (root) => blankText(root).includes("The server did not answer."),
+    (root) => {
+      assertNoFailure(root);
+      assertNone(root.querySelector('[role="alert"]'), "the list's failure is drawn as a note line");
+      const buttons = [...root.querySelectorAll("button")].map((button) => button.textContent ?? "");
+      assert.ok(buttons.some((text) => text.includes("Try now")), `the error offers no Try now; buttons were ${JSON.stringify(buttons)}`);
     },
   );
 });

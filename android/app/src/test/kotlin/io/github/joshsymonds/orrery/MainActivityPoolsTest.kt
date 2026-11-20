@@ -7,6 +7,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.PoolMemberStatus
@@ -26,6 +27,7 @@ import org.robolectric.android.controller.ActivityController
 
 private const val NOW = 1_700_000_000L
 private const val PANES_PATH = "/orrery.v1.Panes/List"
+private const val EPICS_LIST_PATH = "/orrery.v1.Epics/List"
 private const val POOLS_STATUS_PATH = "/orrery.v1.Pools/Status"
 private const val POOL = "example-pool"
 private const val MEMBER = "example-member-1"
@@ -52,6 +54,7 @@ class MainActivityPoolsTest {
             PANES_PATH,
             PanesListResponse.newBuilder().addPanes(paneProto("%1", "alpha-build")).build(),
         )
+        server.respond(EPICS_LIST_PATH, EpicsListResponse.getDefaultInstance())
         server.respond(
             POOLS_STATUS_PATH,
             PoolsStatusResponse.newBuilder()
@@ -105,7 +108,7 @@ class MainActivityPoolsTest {
     }
 
     private fun openPools() {
-        awaitNode(hasTestTag("pane-row:%1"))
+        awaitNode(hasTestTag("convo:pane:example-host:%1"))
         composeRule.onNodeWithTag("open-pools").performClick()
         awaitNode(hasTestTag("pool:$POOL"))
     }
@@ -117,7 +120,7 @@ class MainActivityPoolsTest {
         openPools()
 
         assertEquals(1, server.requests.count { it.rawPath == POOLS_STATUS_PATH })
-        assertAbsent(hasTestTag("pane-row:%1"))
+        assertAbsent(hasTestTag("convo:pane:example-host:%1"))
     }
 
     @Test
@@ -127,7 +130,7 @@ class MainActivityPoolsTest {
 
         controller.get().onBackPressedDispatcher.onBackPressed()
 
-        awaitNode(hasTestTag("pane-row:%1"))
+        awaitNode(hasTestTag("convo:pane:example-host:%1"))
         assertAbsent(hasTestTag("pool:$POOL"))
     }
 
@@ -138,7 +141,7 @@ class MainActivityPoolsTest {
 
         composeRule.onNodeWithTag("title-back").performClick()
 
-        awaitNode(hasTestTag("pane-row:%1"))
+        awaitNode(hasTestTag("convo:pane:example-host:%1"))
         assertAbsent(hasTestTag("pool:$POOL"))
     }
 }

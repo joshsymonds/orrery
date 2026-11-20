@@ -134,6 +134,7 @@ function envelope(flag: number, message: object): Uint8Array {
 // row is a synthetic row over the given fields. Its changed and seen times are equal, so it reads as seen.
 function row(init: Partial<Row> & Pick<Row, "key">): Row {
   return {
+    tool: "",
     id: init.key,
     kind: "pane",
     label: init.key,
@@ -182,7 +183,7 @@ async function withPage(signal: AbortSignal, rows: Row[], check: (page: Page) =>
   const fake = new FakeServer();
   const show = (next: Row[]) =>
     act(() => {
-      render(<App rows={next} error="" now={now} clients={fake.clients} />, container);
+      render(<App rows={next} now={now} clients={fake.clients} />, container);
     });
   const teardown = teardownOnce(signal, async () => {
     fake.releaseAll();

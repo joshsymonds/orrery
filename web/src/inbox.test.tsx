@@ -37,6 +37,7 @@ async function quietFetch(input: RequestInfo | URL, init?: RequestInit): Promise
 // row is a seen row, so no dwell timer runs on the cursor's row.
 function row(init: Partial<Row> & Pick<Row, "key">): Row {
   return {
+    tool: "",
     id: init.key,
     kind: "pane",
     label: init.key,
@@ -56,7 +57,7 @@ function row(init: Partial<Row> & Pick<Row, "key">): Row {
   };
 }
 
-// fixture has one row that needs you, one working and one done, in attention order.
+// fixture has one row that needs you, one working and one done, in inbox order.
 function fixture(): Row[] {
   return [
     row({
@@ -111,7 +112,7 @@ async function withInbox(
   try {
     await act(() => {
       render(
-        <App rows={props.rows ?? fixture()} error="" now={now} clients={clients} epics={props.epics} />,
+        <App rows={props.rows ?? fixture()} now={now} clients={clients} epics={props.epics} />,
         container,
       );
     });
@@ -136,7 +137,7 @@ async function dispatchOn(element: Element | null, type: string): Promise<void> 
 }
 
 async function clickRow(container: HTMLElement, key: string): Promise<void> {
-  await dispatchOn(container.querySelector(`.b-row[data-key="${key}"]`), "click");
+  await dispatchOn(container.querySelector(`[data-key="${key}"]`), "click");
 }
 
 // replyBox is the cursor's visible reply box. A missing box fails the test.
@@ -150,7 +151,7 @@ function replyBox(container: HTMLElement): HTMLTextAreaElement {
 
 // onCursorRow is whether the focus is on the list's cursor row.
 function onCursorRow(container: HTMLElement): boolean {
-  return document.activeElement === container.querySelector(".b-row.cur");
+  return document.activeElement === container.querySelector(".row.cur");
 }
 
 // shiftTabFrom presses Shift+Tab in the element, as a key pressed in a focused box is, and returns whether the press
@@ -181,7 +182,7 @@ function paneState(container: HTMLElement): string | null {
 // rowKeys is the key of each row the list draws, in order. An epic entry is drawn as a line with the row class, but it
 // is no row.
 function rowKeys(container: HTMLElement): string[] {
-  return [...container.querySelectorAll(".b-row")]
+  return [...container.querySelectorAll(".row[data-key]:not(.standin)")]
     .map((element) => element.getAttribute("data-key") ?? "")
     .filter((key) => !key.startsWith("epic:"));
 }
@@ -205,7 +206,7 @@ test("InboxFlyout: Enter on the cursor's row hides the inbox as a click does", (
     assert.equal(paneState(container), "hidden");
   }));
 
-test("InboxFlyout: the mark's count is the waiting rows not archived plus the live epics' needs, and holds in the project view and under a filter", (t) => {
+test("InboxFlyout: the mark's count is the waiting rows not archived plus the live epics' needs, and holds under a filter", (t) => {
   const epic = makeEpic("first");
   const detail = create(EpicsGetResponseSchema, { epic, questions: [{ id: "Q1", text: "Which way?" }] });
   const epics = epicsView([epic], new Map([[epic.id, detail]]));
@@ -220,11 +221,9 @@ test("InboxFlyout: the mark's count is the waiting rows not archived plus the li
   });
   return withInbox(t.signal, { rows: [...fixture(), archived], epics }, async (container) => {
     assert.equal(markCount(container), "2", "one waiting row and one epic need");
-    await press("p");
-    assert.equal(markCount(container), "2", "the project view");
     await press("/");
     await act(() => {
-      const input = container.querySelector<HTMLInputElement>('input[aria-label="filter rows"]');
+      const input = container.querySelector<HTMLInputElement>('.inbox-search input');
       assert.ok(input, "the filter input is drawn");
       input.value = "docs";
       input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -319,7 +318,7 @@ async function withRecordedInbox(
   });
   try {
     await act(() => {
-      render(<App rows={fixture()} error="" now={now} clients={clients} />, container);
+      render(<App rows={fixture()} now={now} clients={clients} />, container);
     });
     await check(container);
   } finally {
@@ -336,7 +335,7 @@ async function settle(): Promise<void> {
 
 // cursorKey is the key of the row the cursor rests on, or null when no row does.
 function cursorKey(container: HTMLElement): string | null {
-  return container.querySelector(".b-row.cur")?.getAttribute("data-key") ?? null;
+  return container.querySelector(".row.cur")?.getAttribute("data-key") ?? null;
 }
 
 test("InboxPin: b pops a hidden inbox out by key, and b again tucks it back to hidden", (t) =>
@@ -397,7 +396,7 @@ test("InboxPin: j while hidden pops the inbox out and leaves the cursor row unch
 
 test("InboxPin: Enter opens the cursor row and hides the inbox, clearing a key pop-out", (t) =>
   withInbox(t.signal, { rows: fixture().map((item) => (item.key === "b" ? { ...item, project: "" } : item)) }, async (container) => {
-    await clickRow(container, "a");
+    await clickRow(container, "c");
     await leaveReplyBox(container);
     await press("b");
     await press("b");

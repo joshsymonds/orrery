@@ -104,6 +104,7 @@ function waitFor(probe: Probe, signal: AbortSignal, check: () => boolean, what: 
 
 function row(init: Partial<Row> & Pick<Row, "key">): Row {
   return {
+    tool: "",
     id: init.key,
     kind: "pane",
     label: init.key,
@@ -149,12 +150,12 @@ function viewOf(epic: Epic): EpicsView {
 
 // epicAddress is the address of the epic's entry, with the cursor on it.
 function epicAddress(): Address {
-  return { order: "attention", entry: { kind: "epic", id: `${repository}/first`, page: { kind: "epic" } } };
+  return { view: "inbox", entry: { kind: "epic", id: `${repository}/first`, page: { kind: "epic" } } };
 }
 
 // sessionAddress is the address of a session's row, with the cursor on it.
 function sessionAddress(id: string): Address {
-  return { order: "attention", entry: { kind: "session", id } };
+  return { view: "inbox", entry: { kind: "session", id } };
 }
 
 // draw renders App over the setup into container.
@@ -163,7 +164,6 @@ function draw(container: HTMLElement, clients: Clients, probe: Probe, setup: Set
     render(
       <App
         rows={setup.rows}
-        error=""
         now={now}
         clients={clients}
         epics={setup.epics}
@@ -204,7 +204,7 @@ async function withSteer(signal: AbortSignal, setup: Setup, check: (mount: Mount
 
 // cursorKey is the key of the row or entry the cursor rests on, or null when none does.
 function cursorKey(container: HTMLElement): string | null {
-  return container.querySelector(".b-row.cur")?.getAttribute("data-key") ?? null;
+  return container.querySelector(".row.cur")?.getAttribute("data-key") ?? null;
 }
 
 // panelHolds is whether the epic panel is drawn and names the slug in its title row.

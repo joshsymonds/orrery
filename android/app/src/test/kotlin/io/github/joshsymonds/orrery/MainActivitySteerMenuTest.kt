@@ -243,8 +243,8 @@ class MainActivitySteerMenuTest {
     /** Launches the app and opens the epic from the home list, then waits for its screen to draw its title row. */
     private fun openEpic() {
         launch()
-        awaitNode(hasTestTag("epic:$EPIC_ID"))
-        composeRule.onNodeWithTag("epic:$EPIC_ID").performClick()
+        awaitNode(hasTestTag("hung:epic:$EPIC_ID"))
+        composeRule.onNodeWithTag("hung:epic:$EPIC_ID").performClick()
         awaitNode(hasTestTag("epic-more"))
     }
 

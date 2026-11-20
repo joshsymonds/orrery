@@ -89,6 +89,19 @@ export function createFixtureTransport(slices: Slices = shippedSlices): FixtureT
       }
     });
 
+  // gate is a client-side interceptor on every call: a procedure the slices name in fail answers Unavailable, and one they
+  // name in hold stays unanswered until its call aborts. Every other call goes on to the router.
+  const gate: Interceptor = (next) => async (request) => {
+    const procedure = `${request.service.typeName}/${request.method.name}`;
+    if (slices.fail?.has(procedure)) {
+      throw new ConnectError(`${procedure} failed`, Code.Unavailable);
+    }
+    if (slices.hold?.has(procedure)) {
+      await held(request.signal);
+    }
+    return next(request);
+  };
+
   // wakers holds, for each session id, the wake of each open conversation stream of that session. A Control.Interrupt of
   // the session calls each one with the slices' then frame.
   const wakers = new Map<string, Set<(frame?: SessionsWatchConversationResponse) => void>>();
@@ -127,19 +140,6 @@ export function createFixtureTransport(slices: Slices = shippedSlices): FixtureT
       }
     }
     return { texts: answer.texts };
-  };
-
-  // gate is a client-side interceptor on every call: a procedure the slices name in fail answers Unavailable, and one they
-  // name in hold stays unanswered until its call aborts. Every other call goes on to the router.
-  const gate: Interceptor = (next) => async (request) => {
-    const procedure = `${request.service.typeName}/${request.method.name}`;
-    if (slices.fail?.has(procedure)) {
-      throw new ConnectError(`${procedure} failed`, Code.Unavailable);
-    }
-    if (slices.hold?.has(procedure)) {
-      await held(request.signal);
-    }
-    return next(request);
   };
 
   // quiet is a stream that sends no frame, and stays open until its call aborts.

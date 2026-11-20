@@ -74,6 +74,7 @@ function emit(stream: Stream, message: object): void {
 // row is a pane row that has been seen, so no dwell timer runs on the cursor's row.
 function row(init: Partial<Row> & Pick<Row, "key">): Row {
   return {
+    tool: "",
     id: init.key,
     kind: "pane",
     label: init.key,
@@ -145,12 +146,14 @@ async function withHead(signal: AbortSignal, setup: Setup, check: (harness: Harn
   document.body.append(container);
   const transport = fakeTransport(new Set(setup.refused ?? []));
   const clients = createClients(createTransport({ baseUrl: "https://orrery.test", fetch: transport.fetch }));
-  const draw = () =>
-    act(() => {
+  // Under 760px the inbox is the home page and a conversation draws only once its row is opened, so at a phone's width
+  // each draw then taps the cursor's row open, as the owner does. The tap opens the row into its reply box, which is left
+  // again, so the list keys a check presses move the cursor rather than type into the box.
+  const draw = async () => {
+    await act(() => {
       render(
         <App
           rows={setup.rows ?? [row({ key: "api", label: "api" })]}
-          error=""
           now={now}
           clients={clients}
           epics={setup.epics}
@@ -160,6 +163,15 @@ async function withHead(signal: AbortSignal, setup: Setup, check: (harness: Harn
         container,
       );
     });
+    if (window.innerWidth < 760) {
+      await clickOn(container, ".list .row.cur");
+      await act(() => {
+        if (document.activeElement instanceof HTMLElement) {
+          document.activeElement.blur();
+        }
+      });
+    }
+  };
   const teardown = teardownOnce(signal, async () => {
     await act(() => {
       render(null, container);

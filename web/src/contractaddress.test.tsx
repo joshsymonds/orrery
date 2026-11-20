@@ -29,7 +29,7 @@ const conversation = "sess-tide-16";
 const recordTitle = tideProposed.versions.at(-1)?.contract?.title ?? "";
 const noLive = "Its conversation has ended: you can accept it or set it aside, but not change it.";
 
-const contractAddress: Address = { order: "attention", entry: { kind: "contract", id: contractId } };
+const contractAddress: Address = { view: "inbox", entry: { kind: "contract", id: contractId } };
 
 // probe records the conversations the page asked to follow, by session id, and the sessions it marked seen.
 interface Probe {
@@ -116,6 +116,7 @@ function row(init: Partial<Row> & Pick<Row, "key">): Row {
     summary: "",
     question: "",
     questionHash: "",
+    tool: "",
     changed: 0,
     seen: 0,
     unseen: false,
@@ -212,7 +213,6 @@ async function withApp(
       render(
         <App
           rows={setup.rows}
-          error=""
           now={now}
           clients={clients}
           epics={setup.epics}
@@ -310,7 +310,7 @@ test("ContractAddress: an epic's Contract door draws the contract's record in th
     {
       rows: [conversationRow()],
       epics: epicsOf(),
-      address: { order: "attention", entry: { kind: "epic", id: contractId, page: { kind: "contract" } } },
+      address: { view: "inbox", entry: { kind: "epic", id: contractId, page: { kind: "contract" } } },
     },
     async ({ container }) => {
       await settle(t.signal, () => recordDrawn(container, "epic"), "the door draws the record");
@@ -372,7 +372,7 @@ test("ContractAddress: the seen watch rests on the conversation the middle draws
     1600,
     {
       rows: [archivedRow(), conversationRow({ changed: 10, seen: 0, unseen: true })],
-      address: { order: "archived", entry: { kind: "contract", id: contractId } },
+      address: { view: "archived", entry: { kind: "contract", id: contractId } },
       seen,
     },
     async ({ container, probe }) => {

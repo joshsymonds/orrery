@@ -18,8 +18,10 @@ import { turn, until } from "./testwait";
 
 const now = 1000;
 
-// narrowWidth is a window under the 760px the wide layout starts at. In the narrow layout the inbox stays docked when a
-// row is opened, so the list's keys move the cursor on their first press, as the cursor keys checked here need.
+// wideWidth is the window the tests run at, past the 760px the wide layout starts at, where a row's page draws beside the
+// inbox from the start. narrowWidth is a window under 760px: there an opened row's page draws alone, and the list's keys
+// still move the cursor, as the tests that open a row and press a key check.
+const wideWidth = 1024;
 const narrowWidth = 700;
 
 type Clients = ReturnType<typeof createClients>;
@@ -35,6 +37,8 @@ interface Setup {
   notices?: InAppNotice[];
   items?: object[];
   address?: Address;
+  // width is the window's width: the wide window unless the test runs narrow.
+  width?: number;
 }
 
 // Shown is what a test's check reads: the DOM App draws into, the reports App has made, and a render of App over
@@ -75,6 +79,7 @@ function fakeFetch(items: object[]) {
 
 function row(init: Partial<Row> & Pick<Row, "key">): Row {
   return {
+    tool: "",
     id: init.key,
     kind: "pane",
     label: init.key,
@@ -99,7 +104,7 @@ function session(id: string, init: Partial<Row> = {}): Row {
   return row({ key: `session:${id}`, id, kind: "session", host: "", project: "/work/api", ...init });
 }
 
-// historyRows are the rows the tests share, in the attention order: s0 needs you, s1 and s3 are unseen, s2 is working,
+// historyRows are the rows the tests share, in the inbox order: s0 needs you, s1 and s3 are unseen, s2 is working,
 // and the pane is seen. From any of these rows a cursor key reaches another row.
 function historyRows(): Row[] {
   return [
@@ -115,9 +120,9 @@ const widgetsRepo = "widgets-5d0c1a7";
 const widgetsFirst = `${widgetsRepo}/first`;
 const widgetsFirstKey = `epic:${widgetsFirst}`;
 const widgetsSecond = `${widgetsRepo}/second`;
-const firstAddress = `#/attention/epic/${encodeURIComponent(widgetsFirst)}`;
-const secondAddress = `#/attention/epic/${encodeURIComponent(widgetsSecond)}`;
-const attentionAddress = "#/attention";
+const firstAddress = `#/inbox/epic/${encodeURIComponent(widgetsFirst)}`;
+const secondAddress = `#/inbox/epic/${encodeURIComponent(widgetsSecond)}`;
+const inboxAddress = "#/inbox";
 
 // makeEpic is a synthetic epic whose id is its repository and slug joined, as the record names it.
 function makeEpic(repository: string, slug: string, init: MessageInitShape<typeof EpicSchema> = {}) {
@@ -128,7 +133,7 @@ function makeStep(id: string, init: MessageInitShape<typeof EpicStepSchema> = {}
   return create(EpicStepSchema, { id, task: id, agent: "builder", doing: "", held: false, ...init });
 }
 
-// firstEpic is a live epic whose running step is run1, with the detail given. The attention view draws the epic, then
+// firstEpic is a live epic whose running step is run1, with the detail given. The inbox draws the epic, then
 // its step, before the rows.
 function firstEpic(init: MessageInitShape<typeof EpicsGetResponseSchema> = {}): EpicsView {
   const epic = makeEpic(widgetsRepo, "first", { runningSteps: [makeStep("run1")] });
@@ -185,7 +190,6 @@ function show(container: HTMLElement, clients: Clients, setup: Setup, reports: R
     render(
       <App
         rows={setup.rows ?? []}
-        error=""
         now={now}
         clients={clients}
         epics={setup.epics}
@@ -205,7 +209,7 @@ function show(container: HTMLElement, clients: Clients, setup: Setup, reports: R
 async function withApp(t: TestContext, setup: Setup, check: (shown: Shown) => void | Promise<void>): Promise<void> {
   mockTimers(t, ["setTimeout"]);
   const window = installTestDom();
-  window.happyDOM.setViewport({ width: narrowWidth, height: 800 });
+  window.happyDOM.setViewport({ width: setup.width ?? wideWidth, height: 800 });
   const container = document.createElement("div");
   document.body.append(container);
   const transport = createTransport({ baseUrl: "https://orrery.test", fetch: fakeFetch(setup.items ?? []) });
@@ -263,17 +267,25 @@ async function openEpicLine(container: HTMLElement, key: string): Promise<void> 
 
 // typeFilter types text into the list's filter, as its input event does.
 async function typeFilter(container: HTMLElement, text: string): Promise<void> {
+  // The field opens with / and takes the focus; typing leaves it unfocused, as typing into a drawn field does.
+  const opened = container.querySelector(".inbox-search input") === null;
+  if (opened) {
+    await press("/");
+  }
   await act(() => {
-    const input = container.querySelector<HTMLInputElement>('input[aria-label="filter rows"]');
+    const input = container.querySelector<HTMLInputElement>(".inbox-search input");
     assert.ok(input, "the filter input is drawn");
     input.value = text;
     input.dispatchEvent(new Event("input", { bubbles: true }));
+    if (opened) {
+      input.blur();
+    }
   });
 }
 
 // cursorKey is the key of the entry the cursor rests on.
 function cursorKey(container: HTMLElement): string | null {
-  return container.querySelector(".b-row.cur")?.getAttribute("data-key") ?? null;
+  return container.querySelector(".row.cur")?.getAttribute("data-key") ?? null;
 }
 
 // cursorPresses are the presses of the keys that move the cursor, in order: j, k, gg, G, w, n and e.
@@ -295,38 +307,38 @@ async function cursorModes(reports: Report[]): Promise<string[]> {
 }
 
 test("HashRoute: a row click pushes its address, and the first cursor key after it pushes while the rest replace", (t) =>
-  withApp(t, { rows: historyRows() }, async ({ container, reports }) => {
+  withApp(t, { rows: historyRows(), width: narrowWidth }, async ({ container, reports }) => {
     await click(container, '[data-key="session:s1"]');
-    assert.deepEqual(reports, [["#/attention/session/s1", "push"]]);
+    assert.deepEqual(reports, [["#/inbox/session/s1", "push"]]);
     assert.deepEqual(await cursorModes(reports), cursorKeyModes);
   }));
 
-test("HashRoute: Enter on a row the cursor moved to records nothing, and the first cursor key after it pushes", (t) =>
-  withApp(t, { rows: historyRows() }, async ({ reports }) => {
+test("HashRoute: Enter on a row the cursor moved to pushes the address it opens, and the first cursor key after it pushes", (t) =>
+  withApp(t, { rows: historyRows(), width: narrowWidth }, async ({ reports }) => {
     await press("G");
     await press("k");
     const before = reports.length;
     await press("Enter");
     await unfocus();
-    assert.equal(reports.length, before, "Enter reports nothing: the row is the cursor's already");
+    assert.deepEqual(reports.slice(before), [["#/inbox/session/s2", "push"]], "Enter opens the row, so its address pushes");
     assert.deepEqual(await cursorModes(reports), cursorKeyModes);
   }));
 
-test("HashRoute: a click on the row the cursor rests on records nothing, and the next j pushes", (t) =>
-  withApp(t, { rows: historyRows() }, async ({ container, reports }) => {
+test("HashRoute: a click on a row under 760px pushes the address it opens, and the next j pushes", (t) =>
+  withApp(t, { rows: historyRows(), width: narrowWidth }, async ({ container, reports }) => {
     await click(container, '[data-key="session:s0"]');
-    assert.deepEqual(reports, [], "the click reports nothing");
+    assert.deepEqual(reports, [["#/inbox/session/s0", "push"]], "the click opens the row, so its address pushes");
     await press("j");
-    assert.deepEqual(reports, [["#/attention/session/s1", "push"]]);
+    assert.deepEqual(reports.slice(1), [["#/inbox/session/s1", "push"]]);
   }));
 
-test("HashRoute: Enter on the row the cursor rests on records nothing, and the next j pushes", (t) =>
-  withApp(t, { rows: historyRows() }, async ({ container, reports }) => {
+test("HashRoute: Enter on the row the cursor rests on pushes the address it opens, and the next j pushes", (t) =>
+  withApp(t, { rows: historyRows(), width: narrowWidth }, async ({ container, reports }) => {
     await press("Enter");
     await unfocus();
-    assert.deepEqual(reports, [], "Enter reports nothing");
+    assert.deepEqual(reports, [["#/inbox/session/s0", "push"]], "Enter opens the row, so its address pushes");
     await press("j");
-    assert.deepEqual(reports, [["#/attention/session/s1", "push"]]);
+    assert.deepEqual(reports.slice(1), [["#/inbox/session/s1", "push"]]);
     assert.equal(cursorKey(container), "session:s1");
   }));
 
@@ -346,7 +358,7 @@ test("HashRoute: a notice pushes the address of its row, and the first cursor ke
     },
     async ({ container, reports }) => {
       await click(container, ".notice");
-      assert.deepEqual(reports, [["#/attention/session/s1", "push"]]);
+      assert.deepEqual(reports, [["#/inbox/session/s1", "push"]]);
       assert.deepEqual(await cursorModes(reports), cursorKeyModes);
     },
   ));
@@ -362,31 +374,24 @@ test("HashRoute: a card's open control pushes the address of its epic, and the f
     assert.deepEqual(await cursorModes(reports), cursorKeyModes);
   }));
 
-test("HashRoute: a need pushes the address of its epic, and the first cursor key after it pushes", (t) =>
-  withApp(
-    t,
-    { rows: historyRows(), epics: firstEpic({ questions: [{ id: "Q1", text: "Which way?" }] }) },
-    async ({ container, reports }) => {
-      await click(container, ".need-entry .need-text", "first asks: Which way?");
-      assert.deepEqual(reports, [[firstAddress, "push"]]);
-      assert.deepEqual(await cursorModes(reports), cursorKeyModes);
-    },
-  ));
-
-test("HashRoute: a view tab pushes its order, and the first cursor key after it pushes", (t) =>
-  withApp(t, { rows: historyRows() }, async ({ container, reports }) => {
+test("HashRoute: the v key pushes the archived view", (t) =>
+  withApp(t, { rows: historyRows(), width: narrowWidth }, async ({ container, reports }) => {
     await click(container, '[data-key="session:s1"]');
-    await click(container, ".views .view", "pBy project");
-    assert.deepEqual(reports.slice(1), [["#/project/session/s1", "push"]]);
-    assert.deepEqual(await cursorModes(reports), cursorKeyModes);
+    await press("v");
+    assert.deepEqual(reports.slice(1), [["#/archived", "push"]]);
   }));
 
-test("HashRoute: the p key pushes its order, and the first cursor key after it pushes", (t) =>
-  withApp(t, { rows: historyRows() }, async ({ container, reports }) => {
+test("HashRoute: the foot's Archived and Back to the inbox push their views, and the first cursor key after them pushes", (t) =>
+  withApp(t, { rows: historyRows(), width: narrowWidth }, async ({ container, reports }) => {
     await click(container, '[data-key="session:s1"]');
-    await press("p");
-    assert.deepEqual(reports.slice(1), [["#/project/session/s1", "push"]]);
-    assert.deepEqual(await cursorModes(reports), cursorKeyModes);
+    await click(container, ".inbox-foot button", "Archivedv");
+    assert.deepEqual(reports.slice(1), [["#/archived", "push"]]);
+    await click(container, ".inbox-foot button", "Back to the inbox");
+    assert.deepEqual(reports.slice(2), [["#/inbox/session/s0", "push"]]);
+    // The cursor comes back on s0, where gg moves nothing, so one press fewer reports; the first that moves pushes.
+    const modes = await cursorModes(reports);
+    assert.equal(modes[0], "push");
+    assert.deepEqual(modes.slice(1), modes.slice(1).map(() => "replace"));
   }));
 
 test("HashRoute: a drill into the contract pushes its page, and the first cursor key after it pushes", (t) =>
@@ -458,7 +463,7 @@ test("HashRoute: the orrery crumb of the epic page closes it and pushes the inbo
     await openEpicLine(container, widgetsFirstKey);
     const before = reports.length;
     await click(container, 'section.page[aria-label="epic"] .title-row .back', "‹");
-    assert.deepEqual(reports.slice(before), [[attentionAddress, "push"]]);
+    assert.deepEqual(reports.slice(before), [[inboxAddress, "push"]]);
   }));
 
 test("HashRoute: a cursor key onto another epic from a contract pushes that epic once, not the contract", (t) =>
@@ -479,36 +484,39 @@ test("HashRoute: a bare load with its rows arriving records nothing", (t) =>
 test("HashRoute: an applied address prop records nothing, and the next j pushes", (t) =>
   withApp(
     t,
-    { rows: historyRows(), address: { order: "attention", entry: { kind: "session", id: "s1" } } },
+    { rows: historyRows(), width: narrowWidth, address: { view: "inbox", entry: { kind: "session", id: "s1" } } },
     async ({ container, reports }) => {
       assert.deepEqual(reports, []);
       assert.equal(cursorKey(container), "session:s1");
       await press("j");
-      assert.deepEqual(reports, [["#/attention/session/s3", "push"]]);
+      assert.deepEqual(reports, [["#/inbox/session/s3", "push"]]);
     },
   ));
 
 test("HashRoute: an applied address with no entry, on the order already shown, records nothing and the next j pushes", (t) =>
   withApp(t, { rows: historyRows() }, async ({ reports, rerender }) => {
-    await rerender({ rows: historyRows(), address: { order: "attention", entry: null } });
+    await rerender({ rows: historyRows(), address: { view: "inbox", entry: null } });
     assert.deepEqual(reports, [], "the applied order is not reported");
     await press("j");
-    assert.deepEqual(reports, [["#/attention/session/s1", "push"]]);
+    assert.deepEqual(reports, [["#/inbox/session/s1", "push"]]);
   }));
 
+// At 760px and wider an epic's address hides the inbox, so a list key would pop it out; under 760px the opened page
+// draws alone and the list's keys still move the cursor, as this test's j needs.
 test("HashRoute: an applied contract address lands its page and records nothing, and the next j pushes", (t) =>
   withApp(
     t,
     {
       rows: historyRows(),
       epics: contractEpic(),
-      address: { order: "attention", entry: { kind: "epic", id: widgetsFirst, page: { kind: "contract" } } },
+      address: { view: "inbox", entry: { kind: "epic", id: widgetsFirst, page: { kind: "contract" } } },
+      width: narrowWidth,
     },
     async ({ container, reports }) => {
       assert.equal(container.querySelector('section.page[aria-label="epic"] article.contract') !== null, true);
       assert.deepEqual(reports, [], "the applied page is not reported");
       await press("j");
-      assert.deepEqual(reports, [["#/attention/step/run1", "push"]]);
+      assert.deepEqual(reports, [["#/inbox/step/run1", "push"]]);
     },
   ));
 
@@ -517,36 +525,36 @@ test("HashRoute: a crumb return that changes no address is not carried to a late
     await press("h");
     assert.deepEqual(reports, [], "h changes no address at the inbox");
     await typeFilter(container, "auth");
-    assert.deepEqual(reports, [["#/attention/session/s1", "replace"]], "the filter's change replaces");
+    assert.deepEqual(reports, [["#/inbox/session/s1", "replace"]], "the filter's change replaces");
   }));
 
 test("HashRoute: an address prop echoing the one App reported records nothing, and later cursor keys replace", (t) =>
-  withApp(t, { rows: historyRows() }, async ({ container, reports, rerender }) => {
+  withApp(t, { rows: historyRows(), width: narrowWidth }, async ({ container, reports, rerender }) => {
     await click(container, '[data-key="session:s1"]');
     await press("j");
     assert.deepEqual(reports, [
-      ["#/attention/session/s1", "push"],
-      ["#/attention/session/s3", "push"],
+      ["#/inbox/session/s1", "push"],
+      ["#/inbox/session/s3", "push"],
     ]);
-    await rerender({ rows: historyRows(), address: { order: "attention", entry: { kind: "session", id: "s3" } } });
+    await rerender({ rows: historyRows(), address: { view: "inbox", entry: { kind: "session", id: "s3" } } });
     assert.equal(reports.length, 2, "the echo reports nothing");
     await press("k");
-    assert.deepEqual(reports.slice(2), [["#/attention/session/s1", "replace"]]);
+    assert.deepEqual(reports.slice(2), [["#/inbox/session/s1", "replace"]]);
     assert.equal(cursorKey(container), "session:s1");
   }));
 
 test("HashRoute: an address whose entry is pending records nothing until the entry arrives", (t) =>
   withApp(
     t,
-    { rows: [], address: { order: "attention", entry: { kind: "session", id: "s1" } } },
+    { rows: [], width: narrowWidth, address: { view: "inbox", entry: { kind: "session", id: "s1" } } },
     async ({ container, reports, rerender }) => {
       assert.deepEqual(reports, [], "nothing while the entry is pending");
-      const address: Address = { order: "attention", entry: { kind: "session", id: "s1" } };
+      const address: Address = { view: "inbox", entry: { kind: "session", id: "s1" } };
       await rerender({ rows: historyRows(), address });
       assert.deepEqual(reports, [], "nothing once the entry arrives and is applied");
       assert.equal(cursorKey(container), "session:s1");
       await press("j");
-      assert.deepEqual(reports, [["#/attention/session/s3", "push"]]);
+      assert.deepEqual(reports, [["#/inbox/session/s3", "push"]]);
     },
   ));
 
@@ -561,20 +569,20 @@ function archivableRows(): Row[] {
 test("HashRoute: a filter that hides an opened entry drops the open, and clearing it does not move the cursor", (t) =>
   withApp(
     t,
-    { rows: historyRows(), address: { order: "attention", entry: null } },
+    { rows: historyRows(), address: { view: "inbox", entry: null } },
     async ({ container, reports, rerender }) => {
       await typeFilter(container, "waiting");
       await rerender({ rows: historyRows() });
-      const address: Address = { order: "attention", entry: { kind: "session", id: "s1" } };
+      const address: Address = { view: "inbox", entry: { kind: "session", id: "s1" } };
       await rerender({ rows: historyRows(), address });
       assert.equal(cursorKey(container), "session:s0", "the cursor stays on its row");
-      assert.deepEqual(reports, [["#/attention/session/s0", "replace"]], "the shown address replaces");
+      assert.deepEqual(reports, [["#/inbox/session/s0", "replace"]], "the shown address replaces");
       await typeFilter(container, "");
       assert.equal(cursorKey(container), "session:s0", "clearing the filter does not move the cursor to s1");
       await press("j");
-      assert.deepEqual(reports.slice(1), [["#/attention/session/s1", "push"]], "the next cursor key pushes");
+      assert.deepEqual(reports.slice(1), [["#/inbox/session/s1", "push"]], "the next cursor key pushes");
       await press("j");
-      assert.deepEqual(reports.slice(2), [["#/attention/session/s3", "replace"]], "the key after it replaces");
+      assert.deepEqual(reports.slice(2), [["#/inbox/session/s3", "replace"]], "the key after it replaces");
     },
   ));
 
@@ -585,39 +593,78 @@ test("HashRoute: an opened row a landed archive marked archived drops the open, 
     const gone = () => container.querySelector('[data-key="session:s0"]') === null;
     await until(t.signal, gone, "the row leaving", { step: () => act(turn) });
     const before = reports.length;
-    const address: Address = { order: "attention", entry: { kind: "session", id: "s0" } };
+    const address: Address = { view: "inbox", entry: { kind: "session", id: "s0" } };
     await rerender({ rows, address });
     assert.equal(cursorKey(container), "session:s1", "the cursor rests on the row that moved into s0's place");
-    assert.deepEqual(reports.slice(before), [["#/attention/session/s1", "replace"]], "the shown address replaces");
+    assert.deepEqual(reports.slice(before), [["#/inbox/session/s1", "replace"]], "the shown address replaces");
     await press("j");
-    assert.deepEqual(reports.slice(before + 1), [["#/attention/session/s3", "push"]], "the next cursor key pushes");
+    assert.deepEqual(reports.slice(before + 1), [["#/inbox/session/s3", "push"]], "the next cursor key pushes");
   });
 });
 
-test("HashRoute: an epic address a local archive mark moved off the attention line drops, and reports resume", (t) => {
-  // Without the waiting row, the attention list leads with the epic, so the cursor rests on it.
+test("HashRoute: an epic address a local archive mark moved off the inbox line drops, and reports resume", (t) => {
   const rows = historyRows().slice(1);
   const epics = firstEpic();
   return withApp(t, { rows, epics }, async ({ container, reports, rerender }) => {
-    assert.equal(cursorKey(container), widgetsFirstKey, "the cursor rests on the epic");
+    for (let step = 0; step < 4 && cursorKey(container) !== widgetsFirstKey; step++) {
+      await press("j");
+    }
+    assert.equal(cursorKey(container), widgetsFirstKey, "the cursor walks to the epic");
     await press("A");
     const gone = () => container.querySelector(`[data-key="${widgetsFirstKey}"]`) === null;
     await until(t.signal, gone, "the epic leaving", { step: () => act(turn) });
     const before = reports.length;
-    const address: Address = { order: "attention", entry: { kind: "epic", id: widgetsFirst, page: { kind: "epic" } } };
+    const address: Address = { view: "inbox", entry: { kind: "epic", id: widgetsFirst, page: { kind: "epic" } } };
     await rerender({ rows, epics, address });
-    assert.deepEqual(reports.slice(before), [["#/attention/session/s1", "replace"]], "the shown address replaces");
-    await press("j");
-    assert.deepEqual(reports.slice(before + 1), [["#/attention/session/s3", "push"]], "the next cursor key pushes");
+    assert.deepEqual(reports.slice(before), [["#/inbox/pane/box/%253", "replace"]], "the shown address replaces");
+    await press("k");
+    assert.deepEqual(reports.slice(before + 1), [["#/inbox/session/s2", "push"]], "the next cursor key pushes");
   });
 });
 
 test("HashRoute: an address under archived naming an archived row opens it and records nothing", (t) => {
   const rows = [...historyRows(), session("s9", { label: "old work", archived: true })];
   return withApp(t, { rows }, async ({ container, reports, rerender }) => {
-    const address: Address = { order: "archived", entry: { kind: "session", id: "s9" } };
+    const address: Address = { view: "archived", entry: { kind: "session", id: "s9" } };
     await rerender({ rows, address });
     assert.equal(cursorKey(container), "session:s9", "the archived row is opened");
     assert.deepEqual(reports, [], "the applied address records nothing");
   });
 });
+
+// listHiddenIn is whether the inbox's list is hidden, which the narrow layout does while a page is drawn alone.
+function listHiddenIn(container: HTMLElement): boolean {
+  const list = container.querySelector(".list");
+  assert.ok(list, "the list is rendered");
+  return list.hasAttribute("hidden");
+}
+
+// readerHiddenIn is whether the reader is hidden.
+function readerHiddenIn(container: HTMLElement): boolean {
+  const reader = container.querySelector('section[aria-label="reader"]');
+  assert.ok(reader, "the reader is rendered");
+  return reader.hasAttribute("hidden");
+}
+
+test("HashRoute: under 760px the page's Back pushes the inbox's address, which names no row", (t) =>
+  withApp(t, { rows: historyRows(), width: narrowWidth }, async ({ container, reports }) => {
+    await click(container, '[data-key="session:s1"]');
+    assert.deepEqual(reports, [["#/inbox/session/s1", "push"]]);
+    await click(container, 'section[aria-label="reader"] button.back');
+    assert.equal(listHiddenIn(container), false, "Back draws the inbox");
+    assert.deepEqual(reports.slice(1), [[inboxAddress, "push"]], "Back reports the inbox's address");
+  }));
+
+test("HashRoute: under 760px a popped inbox address draws the inbox alone, and records nothing", (t) =>
+  withApp(
+    t,
+    { rows: historyRows(), width: narrowWidth, address: { view: "inbox", entry: { kind: "session", id: "s1" } } },
+    async ({ container, reports, rerender }) => {
+      assert.equal(listHiddenIn(container), true, "the applied row's page draws alone");
+      const before = reports.length;
+      await rerender({ rows: historyRows(), address: { view: "inbox", entry: null } });
+      assert.equal(listHiddenIn(container), false, "the popped inbox address draws the list");
+      assert.equal(readerHiddenIn(container), true, "the popped inbox address leaves no page beside it");
+      assert.deepEqual(reports.slice(before), [], "the applied address records nothing");
+    },
+  ));

@@ -19,7 +19,7 @@ const DWELL_MS = 1000;
 const INPUT_WINDOW_MS = 30_000;
 const INPUT_EVENTS = ["keydown", "pointerdown", "pointermove", "wheel"];
 
-const realClock: SeenClock = {
+export const realClock: SeenClock = {
   now: () => Date.now(),
   setTimeout: (fn, ms) => setTimeout(fn, ms),
   clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),

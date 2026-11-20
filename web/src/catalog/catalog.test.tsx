@@ -38,14 +38,14 @@ async function mounted(element: JSX.Element, check: (container: HTMLElement) => 
   }
 }
 
-test("Catalog: the index lists every registered story as component/state in kebab case, including app/attention, page/inbox-home and each inbox-row state", async () => {
+test("Catalog: the index lists every registered story as component/state in kebab case, including app/inbox, page/inbox-home and each inbox-row state", async () => {
   const entries = catalogStories(storyModules);
   const registered = registeredNames().sort();
   await mounted(<CatalogIndex entries={entries} hash="" />, (container) => {
     const listed = Array.from(container.querySelectorAll("a[data-story]"), (link) => link.getAttribute("data-story") ?? "");
     assert.deepEqual(listed, registered, "the index does not list every registered story");
     assert.ok(listed.every((name) => kebabName.test(name)), "a listed name is not component/state in kebab case");
-    assert.ok(listed.includes("app/attention"), "app/attention is not listed");
+    assert.ok(listed.includes("app/inbox"), "app/inbox is not listed");
     assert.ok(listed.includes("page/inbox-home"), "page/inbox-home is not listed");
     for (const state of Object.keys(InboxRow)) {
       assert.ok(listed.includes(storyName("InboxRow", state)), `inbox-row/${state} is not listed`);

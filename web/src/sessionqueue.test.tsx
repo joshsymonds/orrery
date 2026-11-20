@@ -119,6 +119,7 @@ function envelope(flag: number, message: object): Uint8Array {
 
 // sessionRow is the headless session the page opens on: working, and seen, so it arms no seen dwell.
 const sessionRow: Row = {
+  tool: "",
   key: "s1",
   id: "s1",
   kind: "session",
@@ -179,7 +180,7 @@ async function withApp(
 // mount draws the App over the fake server, as a page opening or a reload does.
 async function mount(container: HTMLElement, fake: FakeServer): Promise<void> {
   await act(() => {
-    render(<App rows={[sessionRow]} error="" now={now} clients={fake.clients} />, container);
+    render(<App rows={[sessionRow]} now={now} clients={fake.clients} />, container);
   });
 }
 
