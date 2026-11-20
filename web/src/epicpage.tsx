@@ -5,6 +5,7 @@ import type { LoadArtifact } from "./evidence";
 import type { EpicHistoryEntry, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 import { JustHappened } from "./happenings";
 import { NowSection } from "./nowsection";
+import type { CallOutcome } from "./ownercall";
 import { Orrery } from "./orrery";
 import { durationText, type Phase, provenOf, wedgesOf } from "./phases";
 import { recordTasksOf } from "./record";
@@ -20,13 +21,19 @@ import { type InboxMark, TitleRow } from "./titlerow";
 import { Track } from "./track";
 
 // EpicCommands are the epic's commands: pause, resume, stop and retry, and the answer to one open question: the choice
-// the owner picked, which is a declared choice's id or other, and its text.
+// the owner picked, which is a declared choice's id or other, and its text. release runs the epic's release, with the
+// undo-none steps named by their positions run again; close closes the epic as chosen, superseded by the epic named.
+// Each of release and close is sent once and resolves its outcome. reread reads the epic again and resolves true when
+// the read answers.
 export interface EpicCommands {
   pause: () => void;
   resume: () => void;
   stop: () => void;
   retry: () => void;
   answer: (questionId: string, choice: string, text: string) => Promise<string>;
+  release: (undoNone: number[]) => Promise<CallOutcome>;
+  close: (kind: "superseded" | "shipped" | "abandoned", by: string) => Promise<CallOutcome>;
+  reread: () => Promise<boolean>;
 }
 
 // SessionTarget is what a session opens: a pane, or a session by its id, with the served label that names it when no

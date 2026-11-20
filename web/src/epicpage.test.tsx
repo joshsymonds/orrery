@@ -119,6 +119,18 @@ function recorder(): { calls: string[]; commands: EpicCommands } {
       calls.push(`answer ${questionId} ${choice} ${text}`);
       return "";
     },
+    release: async () => {
+      calls.push("release");
+      return { kind: "landed" };
+    },
+    close: async (kind, by) => {
+      calls.push(`close ${kind} ${by}`);
+      return { kind: "landed" };
+    },
+    reread: async () => {
+      calls.push("reread");
+      return true;
+    },
   };
   return { calls, commands };
 }
