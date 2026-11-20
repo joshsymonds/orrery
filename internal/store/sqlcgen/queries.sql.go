@@ -269,6 +269,17 @@ func (q *Queries) CountCallerEvent(ctx context.Context, arg CountCallerEventPara
 	return count, err
 }
 
+const countContract = `-- name: CountContract :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM contracts WHERE id = ?
+`
+
+func (q *Queries) CountContract(ctx context.Context, id string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countContract, id)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const countEnginePrompts = `-- name: CountEnginePrompts :one
 SELECT COUNT(*) FROM events AS prompts
 WHERE prompts.session_id = ?1 AND prompts.kind = 'engine_prompt'
@@ -1077,6 +1088,59 @@ func (q *Queries) GetActionAmendment(ctx context.Context, arg GetActionAmendment
 		&i.Refusal,
 		&i.Created,
 		&i.Settled,
+	)
+	return i, err
+}
+
+const getContractListing = `-- name: GetContractListing :one
+SELECT contracts.id, contracts.created,
+       newest.repository, newest.title, newest.care, newest.version, newest.open_decisions,
+       CAST(COALESCE((
+           SELECT opening.writer FROM contract_versions AS opening
+           WHERE opening.contract = contracts.id AND opening.version = 1
+       ), '') AS TEXT) AS conversation,
+       CAST((
+           SELECT newest_state.state FROM contract_states AS newest_state
+           WHERE newest_state.contract = contracts.id ORDER BY newest_state.seq DESC LIMIT 1
+       ) AS TEXT) AS state,
+       CAST(MAX(newest.at, (
+           SELECT newest_state.at FROM contract_states AS newest_state
+           WHERE newest_state.contract = contracts.id ORDER BY newest_state.seq DESC LIMIT 1
+       )) AS INTEGER) AS changed
+FROM contracts
+JOIN contract_versions AS newest ON newest.contract = contracts.id
+WHERE contracts.id = ? AND newest.version = (
+    SELECT MAX(versions.version) FROM contract_versions AS versions WHERE versions.contract = contracts.id
+)
+`
+
+type GetContractListingRow struct {
+	ID            string
+	Created       int64
+	Repository    string
+	Title         string
+	Care          string
+	Version       int64
+	OpenDecisions int64
+	Conversation  string
+	State         string
+	Changed       int64
+}
+
+func (q *Queries) GetContractListing(ctx context.Context, id string) (GetContractListingRow, error) {
+	row := q.db.QueryRowContext(ctx, getContractListing, id)
+	var i GetContractListingRow
+	err := row.Scan(
+		&i.ID,
+		&i.Created,
+		&i.Repository,
+		&i.Title,
+		&i.Care,
+		&i.Version,
+		&i.OpenDecisions,
+		&i.Conversation,
+		&i.State,
+		&i.Changed,
 	)
 	return i, err
 }
@@ -2004,6 +2068,88 @@ type InsertCallerEventParams struct {
 
 func (q *Queries) InsertCallerEvent(ctx context.Context, arg InsertCallerEventParams) error {
 	_, err := q.db.ExecContext(ctx, insertCallerEvent, arg.Event, arg.Session, arg.At)
+	return err
+}
+
+const insertContract = `-- name: InsertContract :exec
+INSERT INTO contracts (id, created) VALUES (?, ?)
+`
+
+type InsertContractParams struct {
+	ID      string
+	Created int64
+}
+
+func (q *Queries) InsertContract(ctx context.Context, arg InsertContractParams) error {
+	_, err := q.db.ExecContext(ctx, insertContract, arg.ID, arg.Created)
+	return err
+}
+
+const insertContractState = `-- name: InsertContractState :exec
+INSERT INTO contract_states (contract, seq, state, version, session, words, at) VALUES (?, ?, ?, ?, ?, ?, ?)
+`
+
+type InsertContractStateParams struct {
+	Contract string
+	Seq      int64
+	State    string
+	Version  int64
+	Session  string
+	Words    string
+	At       int64
+}
+
+func (q *Queries) InsertContractState(ctx context.Context, arg InsertContractStateParams) error {
+	_, err := q.db.ExecContext(ctx, insertContractState,
+		arg.Contract,
+		arg.Seq,
+		arg.State,
+		arg.Version,
+		arg.Session,
+		arg.Words,
+		arg.At,
+	)
+	return err
+}
+
+const insertContractVersion = `-- name: InsertContractVersion :exec
+INSERT INTO contract_versions (contract, version, repository, title, care, body, decisions, open_decisions, words,
+                               writer, at, changed_rows, changed_sections)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type InsertContractVersionParams struct {
+	Contract        string
+	Version         int64
+	Repository      string
+	Title           string
+	Care            string
+	Body            string
+	Decisions       string
+	OpenDecisions   int64
+	Words           string
+	Writer          string
+	At              int64
+	ChangedRows     string
+	ChangedSections string
+}
+
+func (q *Queries) InsertContractVersion(ctx context.Context, arg InsertContractVersionParams) error {
+	_, err := q.db.ExecContext(ctx, insertContractVersion,
+		arg.Contract,
+		arg.Version,
+		arg.Repository,
+		arg.Title,
+		arg.Care,
+		arg.Body,
+		arg.Decisions,
+		arg.OpenDecisions,
+		arg.Words,
+		arg.Writer,
+		arg.At,
+		arg.ChangedRows,
+		arg.ChangedSections,
+	)
 	return err
 }
 
@@ -4062,6 +4208,152 @@ func (q *Queries) ListCallerSteps(ctx context.Context) ([]ListCallerStepsRow, er
 			&i.CallerServer,
 			&i.CallerPane,
 			&i.CallerState,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listContractListings = `-- name: ListContractListings :many
+SELECT contracts.id, contracts.created,
+       newest.repository, newest.title, newest.care, newest.version, newest.open_decisions,
+       CAST(COALESCE((
+           SELECT opening.writer FROM contract_versions AS opening
+           WHERE opening.contract = contracts.id AND opening.version = 1
+       ), '') AS TEXT) AS conversation,
+       CAST((
+           SELECT newest_state.state FROM contract_states AS newest_state
+           WHERE newest_state.contract = contracts.id ORDER BY newest_state.seq DESC LIMIT 1
+       ) AS TEXT) AS state,
+       CAST(MAX(newest.at, (
+           SELECT newest_state.at FROM contract_states AS newest_state
+           WHERE newest_state.contract = contracts.id ORDER BY newest_state.seq DESC LIMIT 1
+       )) AS INTEGER) AS changed
+FROM contracts
+JOIN contract_versions AS newest ON newest.contract = contracts.id
+WHERE newest.version = (
+    SELECT MAX(versions.version) FROM contract_versions AS versions WHERE versions.contract = contracts.id
+)
+ORDER BY contracts.created, contracts.id
+`
+
+type ListContractListingsRow struct {
+	ID            string
+	Created       int64
+	Repository    string
+	Title         string
+	Care          string
+	Version       int64
+	OpenDecisions int64
+	Conversation  string
+	State         string
+	Changed       int64
+}
+
+func (q *Queries) ListContractListings(ctx context.Context) ([]ListContractListingsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listContractListings)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListContractListingsRow
+	for rows.Next() {
+		var i ListContractListingsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Created,
+			&i.Repository,
+			&i.Title,
+			&i.Care,
+			&i.Version,
+			&i.OpenDecisions,
+			&i.Conversation,
+			&i.State,
+			&i.Changed,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listContractStates = `-- name: ListContractStates :many
+SELECT contract, seq, state, version, session, words, at FROM contract_states WHERE contract = ? ORDER BY seq
+`
+
+func (q *Queries) ListContractStates(ctx context.Context, contract string) ([]ContractState, error) {
+	rows, err := q.db.QueryContext(ctx, listContractStates, contract)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ContractState
+	for rows.Next() {
+		var i ContractState
+		if err := rows.Scan(
+			&i.Contract,
+			&i.Seq,
+			&i.State,
+			&i.Version,
+			&i.Session,
+			&i.Words,
+			&i.At,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listContractVersions = `-- name: ListContractVersions :many
+SELECT contract, version, repository, title, care, body, decisions, open_decisions, words, writer, at, changed_rows, changed_sections FROM contract_versions WHERE contract = ? ORDER BY version
+`
+
+func (q *Queries) ListContractVersions(ctx context.Context, contract string) ([]ContractVersion, error) {
+	rows, err := q.db.QueryContext(ctx, listContractVersions, contract)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ContractVersion
+	for rows.Next() {
+		var i ContractVersion
+		if err := rows.Scan(
+			&i.Contract,
+			&i.Version,
+			&i.Repository,
+			&i.Title,
+			&i.Care,
+			&i.Body,
+			&i.Decisions,
+			&i.OpenDecisions,
+			&i.Words,
+			&i.Writer,
+			&i.At,
+			&i.ChangedRows,
+			&i.ChangedSections,
 		); err != nil {
 			return nil, err
 		}

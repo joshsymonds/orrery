@@ -1700,3 +1700,66 @@ WHERE caller_events.session = sqlc.arg(id) AND caller_events.event IN (
             AND states.state <> 'queued'
       )
 );
+
+-- name: CountContract :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM contracts WHERE id = ?;
+
+-- name: InsertContract :exec
+INSERT INTO contracts (id, created) VALUES (?, ?);
+
+-- name: InsertContractVersion :exec
+INSERT INTO contract_versions (contract, version, repository, title, care, body, decisions, open_decisions, words,
+                               writer, at, changed_rows, changed_sections)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: InsertContractState :exec
+INSERT INTO contract_states (contract, seq, state, version, session, words, at) VALUES (?, ?, ?, ?, ?, ?, ?);
+
+-- name: ListContractListings :many
+SELECT contracts.id, contracts.created,
+       newest.repository, newest.title, newest.care, newest.version, newest.open_decisions,
+       CAST(COALESCE((
+           SELECT opening.writer FROM contract_versions AS opening
+           WHERE opening.contract = contracts.id AND opening.version = 1
+       ), '') AS TEXT) AS conversation,
+       CAST((
+           SELECT newest_state.state FROM contract_states AS newest_state
+           WHERE newest_state.contract = contracts.id ORDER BY newest_state.seq DESC LIMIT 1
+       ) AS TEXT) AS state,
+       CAST(MAX(newest.at, (
+           SELECT newest_state.at FROM contract_states AS newest_state
+           WHERE newest_state.contract = contracts.id ORDER BY newest_state.seq DESC LIMIT 1
+       )) AS INTEGER) AS changed
+FROM contracts
+JOIN contract_versions AS newest ON newest.contract = contracts.id
+WHERE newest.version = (
+    SELECT MAX(versions.version) FROM contract_versions AS versions WHERE versions.contract = contracts.id
+)
+ORDER BY contracts.created, contracts.id;
+
+-- name: GetContractListing :one
+SELECT contracts.id, contracts.created,
+       newest.repository, newest.title, newest.care, newest.version, newest.open_decisions,
+       CAST(COALESCE((
+           SELECT opening.writer FROM contract_versions AS opening
+           WHERE opening.contract = contracts.id AND opening.version = 1
+       ), '') AS TEXT) AS conversation,
+       CAST((
+           SELECT newest_state.state FROM contract_states AS newest_state
+           WHERE newest_state.contract = contracts.id ORDER BY newest_state.seq DESC LIMIT 1
+       ) AS TEXT) AS state,
+       CAST(MAX(newest.at, (
+           SELECT newest_state.at FROM contract_states AS newest_state
+           WHERE newest_state.contract = contracts.id ORDER BY newest_state.seq DESC LIMIT 1
+       )) AS INTEGER) AS changed
+FROM contracts
+JOIN contract_versions AS newest ON newest.contract = contracts.id
+WHERE contracts.id = ? AND newest.version = (
+    SELECT MAX(versions.version) FROM contract_versions AS versions WHERE versions.contract = contracts.id
+);
+
+-- name: ListContractVersions :many
+SELECT * FROM contract_versions WHERE contract = ? ORDER BY version;
+
+-- name: ListContractStates :many
+SELECT * FROM contract_states WHERE contract = ? ORDER BY seq;
