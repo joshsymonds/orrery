@@ -211,6 +211,13 @@ class SettingsScreenTest {
     }
 
     @Test
+    fun saveIsThePrimaryAction() {
+        setContent()
+
+        composeRule.onNodeWithText("Save").assert(SemanticsMatcher.expectValue(PrimaryAction, true))
+    }
+
+    @Test
     fun saveSitsUnderServerAboveNotifications() {
         setContent()
 

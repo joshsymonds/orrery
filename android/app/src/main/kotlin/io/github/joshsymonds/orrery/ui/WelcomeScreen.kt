@@ -7,8 +7,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -65,7 +63,8 @@ fun WelcomeScreen(
                 keyboardType = KeyboardType.Uri,
                 modifier = Modifier.testTag("server-address"),
             )
-            Button(
+            PrimaryButton(
+                label = "Connect",
                 enabled = address.isNotBlank(),
                 onClick = {
                     val typed = address.trim()
@@ -79,13 +78,7 @@ fun WelcomeScreen(
                         }
                     }
                 },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = OrreryTokens.Role.primary,
-                    contentColor = OrreryTokens.Ink.onAccent,
-                ),
-            ) {
-                Text("Connect")
-            }
+            )
             if (lastCheck == AddressCheck.NoAnswer) {
                 InlineNote(NO_ANSWER, NoteTone.Error)
             }

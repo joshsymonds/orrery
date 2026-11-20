@@ -10,6 +10,7 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithTag
@@ -38,6 +39,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.StartRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.StartResponse
 import io.github.joshsymonds.orrery.push.OrreryPushService
 import io.github.joshsymonds.orrery.push.PushNotifier
+import io.github.joshsymonds.orrery.ui.PrimaryAction
 import io.github.joshsymonds.orrery.push.PushPreferences
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -303,6 +305,7 @@ class MainActivityTest {
         awaitNode(hasText(WELCOME_QUESTION))
         awaitNode(hasText(ADDRESS_PLACEHOLDER))
         composeRule.onNodeWithText("Connect").assertIsNotEnabled()
+        composeRule.onNodeWithText("Connect").assert(SemanticsMatcher.expectValue(PrimaryAction, true))
         assertAbsent(hasText("Settings"))
         assertAbsent(hasTestTag("pane-row:%1"))
         assertEquals(0, server.requests.size)

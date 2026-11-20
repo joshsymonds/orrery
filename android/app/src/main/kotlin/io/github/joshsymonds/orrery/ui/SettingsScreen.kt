@@ -27,6 +27,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.SemanticsPropertyKey
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import io.github.joshsymonds.orrery.BuildConfig
 import io.github.joshsymonds.orrery.R
@@ -43,6 +45,25 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 
 /** What Save says when the typed address does not answer; nothing is changed. */
 private const val NO_ANSWER = "No answer from that address. Nothing was changed."
+
+/** Semantics key: true on a page's primary action, the one button drawn in the primary role. */
+internal val PrimaryAction = SemanticsPropertyKey<Boolean>("PrimaryAction")
+
+/** A page's one primary action: [label] on the primary role's fill, marked [PrimaryAction]. Save and Connect use it. */
+@Composable
+internal fun PrimaryButton(label: String, enabled: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Button(
+        enabled = enabled,
+        onClick = onClick,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = OrreryTokens.Role.primary,
+            contentColor = OrreryTokens.Ink.onAccent,
+        ),
+        modifier = modifier.semantics { set(PrimaryAction, true) },
+    ) {
+        Text(label)
+    }
+}
 
 /** What asking an address for its host found: an answer, with the host to name, or no answer at all. */
 internal sealed interface AddressCheck {
@@ -120,7 +141,8 @@ fun SettingsScreen(
                     keyboardType = KeyboardType.Uri,
                     modifier = Modifier.testTag("server-address"),
                 )
-                Button(
+                PrimaryButton(
+                    label = "Save",
                     enabled = address.isNotBlank(),
                     onClick = {
                         val typed = address.trim()
@@ -134,13 +156,7 @@ fun SettingsScreen(
                             }
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = OrreryTokens.Role.primary,
-                        contentColor = OrreryTokens.Ink.onAccent,
-                    ),
-                ) {
-                    Text("Save")
-                }
+                )
                 when (val check = lastCheck) {
                     is AddressCheck.Answered -> InlineNote("Connected to ${check.host}.", NoteTone.Ok)
                     AddressCheck.NoAnswer -> InlineNote(NO_ANSWER, NoteTone.Error)
