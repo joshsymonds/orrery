@@ -15,10 +15,11 @@ func TestCallerlessStartPlannerStep(t *testing.T) {
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newFakeSteps()
+	steps.watchStore(s)
 	var reads atomic.Int64
 	runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
 
-	waitFor(t, "a planner step to start", func() bool { return len(steps.started()) == 1 })
+	waitFor(t, &steps.changeNotice, "a planner step to start", func() bool { return len(steps.started()) == 1 })
 	if got := steps.started()[0].Caller; got != (store.EpicCaller{}) {
 		t.Fatalf("planner step caller = %+v, want the zero caller of an in-process start", got)
 	}

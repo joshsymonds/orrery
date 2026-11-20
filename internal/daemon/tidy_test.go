@@ -6,10 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
+	"unicode"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/joshsymonds/orrery/internal/daemon"
 	"github.com/joshsymonds/orrery/internal/protocol"
@@ -18,9 +22,6 @@ import (
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 	"github.com/joshsymonds/orrery/internal/tmuxtest"
 )
-
-// tidyPollInterval is how often waitForPaneID re-reads a pane's @orrery_id.
-const tidyPollInterval = 10 * time.Millisecond
 
 // tidyLocalServer is the store's server column for a tidy test server started by startTidyServer.
 func tidyLocalServer(srv testServer) string {
@@ -81,9 +82,40 @@ func newPane(t *testing.T, srv testServer) string {
 	return strings.TrimSpace(out)
 }
 
-// waitForPaneID polls pane's @orrery_id until it is set and returns it.
+// waitForPaneID waits until pane's @orrery_id is set and returns it. An after-set-option hook appends to a file in the
+// test's temp dir each time a server option is set, and inotify reports each append, so the wait blocks on the kernel
+// rather than on a tmux wait channel, which holds only one pending signal. The file is watched before the first check,
+// so a set that lands between a check and the wait leaves an event queued and is not lost. The wait checks the option
+// first and again after each event. It has no deadline of its own: the test binary's timeout ends a wait that never ends.
 func waitForPaneID(t *testing.T, client *tmuxctl.Client, pane string) string {
 	t.Helper()
+	path := filepath.Join(t.TempDir(), "option-set")
+	// The hook's command names path between single quotes for the shell, so path must hold no character the shell or
+	// tmux would read.
+	if strings.ContainsFunc(path, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r) && !strings.ContainsRune("/._-", r)
+	}) {
+		t.Fatalf("temp file %q names a character the after-set-option hook cannot quote", path)
+	}
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatalf("create %s: %v", path, err)
+	}
+	fd, err := unix.InotifyInit1(unix.IN_CLOEXEC)
+	if err != nil {
+		t.Fatalf("inotify_init1: %v", err)
+	}
+	defer func() {
+		if err := unix.Close(fd); err != nil {
+			t.Errorf("close inotify for %s: %v", path, err)
+		}
+	}()
+	if _, err := unix.InotifyAddWatch(fd, path, unix.IN_MODIFY); err != nil {
+		t.Fatalf("inotify_add_watch %s: %v", path, err)
+	}
+	if _, err := client.Run(t.Context(), "set-hook", "-g", "after-set-option",
+		"run-shell -b 'printf . >> "+path+"'"); err != nil {
+		t.Fatalf("set-hook after-set-option: %v", err)
+	}
 	for {
 		value, ok, err := client.PaneOption(t.Context(), pane, protocol.OptionID)
 		if err != nil {
@@ -92,7 +124,24 @@ func waitForPaneID(t *testing.T, client *tmuxctl.Client, pane string) string {
 		if ok {
 			return value
 		}
-		time.Sleep(tidyPollInterval)
+		awaitInotifyEvent(t, fd, path)
+	}
+}
+
+// awaitInotifyEvent blocks until the inotify descriptor fd reports an event for path, and reads the events it has
+// queued, so the next wait sees only events that come after this one.
+func awaitInotifyEvent(t *testing.T, fd int, path string) {
+	t.Helper()
+	var events [4096]byte
+	for {
+		_, err := unix.Read(fd, events[:])
+		if errors.Is(err, unix.EINTR) {
+			continue
+		}
+		if err != nil {
+			t.Fatalf("read inotify for %s: %v", path, err)
+		}
+		return
 	}
 }
 

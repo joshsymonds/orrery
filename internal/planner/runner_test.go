@@ -123,7 +123,8 @@ const unknownJudgePlan = `{"status":"done","decisions":[],` +
 // fakeSteps is a Steps whose steps end when the test ends them. It records each start and each Stop. The first
 // stopFailures Stops fail, and a Stop that succeeds ends its step as stopped, as the engine's Stop does. The row a step
 // last stored is kept in ended, a channel that holds one row: Subscribe offers that row, so a row stored before the
-// runner subscribes is not lost, and end offers each later row to the subscriptions open on its step.
+// runner subscribes is not lost, and end offers each later row to the subscriptions open on its step. Each change the
+// fake records notifies changeNotice, so a waiter on it checks again.
 type fakeSteps struct {
 	mu           sync.Mutex
 	starts       []enginehost.StepStart
@@ -132,10 +133,17 @@ type fakeSteps struct {
 	stopFailures int
 	ended        map[string]chan store.StepRow
 	subs         map[string][]*enginehost.StepSubscription
+	changeNotice changeNotice
 }
 
 func newFakeSteps() *fakeSteps {
 	return &fakeSteps{ended: map[string]chan store.StepRow{}, subs: map[string][]*enginehost.StepSubscription{}}
+}
+
+// watchStore makes each epic write that moves an epic's revision in s notify changeNotice, so a waiter on it checks
+// again once the store has changed.
+func (f *fakeSteps) watchStore(s *store.Store) {
+	s.OnEpicsChanged(func([]string) { f.changeNotice.notify() })
 }
 
 func (f *fakeSteps) Start(_ context.Context, start enginehost.StepStart) (string, error) {
@@ -145,6 +153,7 @@ func (f *fakeSteps) Start(_ context.Context, start enginehost.StepStart) (string
 		return "", f.startErr
 	}
 	f.starts = append(f.starts, start)
+	f.changeNotice.notify()
 	return fmt.Sprintf("step-%d", len(f.starts)), nil
 }
 
@@ -163,6 +172,7 @@ func (f *fakeSteps) Subscribe(_ context.Context, ids []string) (*enginehost.Step
 			sub.Offer(row)
 		}
 	}
+	f.changeNotice.notify()
 	return sub, nil
 }
 
@@ -193,6 +203,7 @@ func (f *fakeSteps) Stop(_ context.Context, id string) error {
 	f.stops = append(f.stops, id)
 	fail := len(f.stops) <= f.stopFailures
 	f.mu.Unlock()
+	f.changeNotice.notify()
 	if fail {
 		return errSyntheticStop
 	}
@@ -219,13 +230,15 @@ func (f *fakeSteps) end(id string, row store.StepRow) {
 	for _, sub := range f.subs[id] {
 		sub.Offer(row)
 	}
+	f.changeNotice.notify()
 }
 
 // handTimers is the NewTimer of a Runner a test drives by hand. Each timer it arms is recorded in the order it was armed,
 // and fires only when the test calls fire with its index, so no test waits on a real clock.
 type handTimers struct {
-	mu     sync.Mutex
-	timers []*handTimer
+	mu      sync.Mutex
+	timers  []*handTimer
+	changes *changeNotice
 }
 
 // handTimer is a timer a handTimers armed: the channel it fires on, and whether the test has fired it.
@@ -234,8 +247,9 @@ type handTimer struct {
 	fired bool
 }
 
-func newHandTimers() *handTimers {
-	return &handTimers{}
+// newHandTimers returns handTimers that notify changes each time they arm a timer.
+func newHandTimers(changes *changeNotice) *handTimers {
+	return &handTimers{changes: changes}
 }
 
 // newTimer arms a timer. Its stop reports whether the timer had not fired.
@@ -244,6 +258,7 @@ func (h *handTimers) newTimer(time.Duration) (<-chan time.Time, func() bool) {
 	h.mu.Lock()
 	h.timers = append(h.timers, timer)
 	h.mu.Unlock()
+	h.changes.notify()
 	return timer.ch, func() bool {
 		h.mu.Lock()
 		defer h.mu.Unlock()
@@ -356,12 +371,47 @@ func runRunner(t *testing.T, cfg Config) *Runner {
 	return runner
 }
 
-// waitFor polls cond until it holds; what names the condition. It has no deadline of its own: the runner's store work
-// runs at the machine's pace, and the test binary's timeout ends a wait that never ends.
-func waitFor(t *testing.T, _ string, cond func() bool) {
+// changeNotice tells a waiter that what it waits for may have changed. wait returns a channel that closes at the next
+// notify, so a waiter takes the channel before it checks its condition, and blocks on the channel only when the check
+// fails. The zero value is ready to use.
+type changeNotice struct {
+	mu sync.Mutex
+	ch chan struct{}
+}
+
+// wait returns the channel that the next notify closes.
+func (n *changeNotice) wait() <-chan struct{} {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.ch == nil {
+		n.ch = make(chan struct{})
+	}
+	return n.ch
+}
+
+// notify closes the channel wait returned, if any, so the next wait returns a new one.
+func (n *changeNotice) notify() {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.ch != nil {
+		close(n.ch)
+		n.ch = nil
+	}
+}
+
+// waitFor waits until cond holds; what names the condition. changes is the notice of the test's fakes and store, which
+// notify each change a condition may read: a store write that moved an epic's revision (see fakeSteps.watchStore), a
+// fake step's start, subscription or stop, a fake timer's arming, and a faulty store's call. It checks cond, and after
+// each notify of changes checks it again. It has no deadline of its own: the test binary's timeout ends a wait that
+// never ends.
+func waitFor(t *testing.T, changes *changeNotice, _ string, cond func() bool) {
 	t.Helper()
-	for !cond() {
-		time.Sleep(time.Millisecond)
+	for {
+		changed := changes.wait()
+		if cond() {
+			return
+		}
+		<-changed
 	}
 }
 
@@ -387,11 +437,12 @@ func TestRunnerClaimsOneTurnAndStartsReadOnlyPlannerStep(t *testing.T) {
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newFakeSteps()
+	steps.watchStore(s)
 	var reads atomic.Int64
 	runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
 
-	waitFor(t, "a planner step to start", func() bool { return len(steps.started()) == 1 })
-	waitFor(t, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
+	waitFor(t, &steps.changeNotice, "a planner step to start", func() bool { return len(steps.started()) == 1 })
+	waitFor(t, &steps.changeNotice, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
 
 	start := steps.started()[0]
 	epic := epicOf(t, s)
@@ -430,9 +481,10 @@ func TestRunnerReturnCheckRefusesUnknownRequirementAndPassesValidPlan(t *testing
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newFakeSteps()
+	steps.watchStore(s)
 	var reads atomic.Int64
 	runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
-	waitFor(t, "a planner step to start", func() bool { return len(steps.started()) == 1 })
+	waitFor(t, &steps.changeNotice, "a planner step to start", func() bool { return len(steps.started()) == 1 })
 	check := steps.started()[0].ReturnCheck
 
 	want := []string{`tasks[0] "Build it" requirements[0]: not a Requirement of the epic`}
@@ -452,9 +504,10 @@ func TestRunnerReturnCheckRefusesUnknownGateAndJudge(t *testing.T) {
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newFakeSteps()
+	steps.watchStore(s)
 	var reads atomic.Int64
 	runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
-	waitFor(t, "a planner step to start", func() bool { return len(steps.started()) == 1 })
+	waitFor(t, &steps.changeNotice, "a planner step to start", func() bool { return len(steps.started()) == 1 })
 	check := steps.started()[0].ReturnCheck
 
 	wantGate := []string{`tasks[0] "Build it" gate: resolve gate: unknown gate: "missing"`}
@@ -473,13 +526,19 @@ func TestRunnerDoneReturnStoresTasksAndConsumesTrigger(t *testing.T) {
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newFakeSteps()
+	steps.watchStore(s)
 	var reads atomic.Int64
 	runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
-	waitFor(t, "a planner step to start", func() bool { return len(steps.started()) == 1 })
-	waitFor(t, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
+	waitFor(t, &steps.changeNotice, "a planner step to start", func() bool { return len(steps.started()) == 1 })
+	waitFor(t, &steps.changeNotice, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
 
 	steps.end("step-1", store.StepRow{End: "done", Result: validPlan})
-	waitFor(t, "turn 1 to succeed", func() bool { return epicOf(t, s).Turns[0].State == "succeeded" })
+	waitFor(
+		t,
+		&steps.changeNotice,
+		"turn 1 to succeed",
+		func() bool { return epicOf(t, s).Turns[0].State == "succeeded" },
+	)
 
 	epic := epicOf(t, s)
 	turn := epic.Turns[0]
@@ -517,11 +576,17 @@ func TestRunnerPromptOfNextTurnShowsTheFollowCountOfAnsweredRecommendation(t *te
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newFakeSteps()
+	steps.watchStore(s)
 	var reads atomic.Int64
 	runner := runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
-	waitFor(t, "a planner step to start", func() bool { return len(steps.started()) == 1 })
+	waitFor(t, &steps.changeNotice, "a planner step to start", func() bool { return len(steps.started()) == 1 })
 	steps.end("step-1", store.StepRow{End: "done", Result: validPlan})
-	waitFor(t, "turn 1 to succeed", func() bool { return epicOf(t, s).Turns[0].State == "succeeded" })
+	waitFor(
+		t,
+		&steps.changeNotice,
+		"turn 1 to succeed",
+		func() bool { return epicOf(t, s).Turns[0].State == "succeeded" },
+	)
 
 	if _, err := s.AnswerQuestion(
 		context.Background(),
@@ -536,7 +601,7 @@ func TestRunnerPromptOfNextTurnShowsTheFollowCountOfAnsweredRecommendation(t *te
 		t.Fatalf("AnswerQuestion: %v", err)
 	}
 	runner.Pass(t.Context())
-	waitFor(t, "a second planner step to start", func() bool { return len(steps.started()) == 2 })
+	waitFor(t, &steps.changeNotice, "a second planner step to start", func() bool { return len(steps.started()) == 2 })
 
 	want := "## Advice followed\n- which-store: 1 of 1 answers took the recommendation\n"
 	if prompt := steps.started()[1].Prompt; !strings.Contains(prompt, want) {
@@ -549,10 +614,11 @@ func TestRunnerPassWhileTurnRunsStartsNoSecondStep(t *testing.T) {
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newFakeSteps()
+	steps.watchStore(s)
 	var reads atomic.Int64
 	runner := runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
-	waitFor(t, "a planner step to start", func() bool { return len(steps.started()) == 1 })
-	waitFor(t, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
+	waitFor(t, &steps.changeNotice, "a planner step to start", func() bool { return len(steps.started()) == 1 })
+	waitFor(t, &steps.changeNotice, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
 
 	passRunner(t, runner, 3)
 	if n := len(steps.started()); n != 1 {
@@ -598,16 +664,17 @@ func TestRunnerChecksFailedEndFailsTurnWithReasonAndFreesTrigger(t *testing.T) {
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newFakeSteps()
+	steps.watchStore(s)
 	var reads atomic.Int64
 	runner := runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
-	waitFor(t, "a planner step to start", func() bool { return len(steps.started()) == 1 })
-	waitFor(t, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
+	waitFor(t, &steps.changeNotice, "a planner step to start", func() bool { return len(steps.started()) == 1 })
+	waitFor(t, &steps.changeNotice, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
 
 	const reason = `tasks[0] "Build it" requirements[0]: not a Requirement of the epic`
 	steps.end("step-1", store.StepRow{End: "checks_failed", Reason: reason})
-	waitFor(t, "turn 1 to fail", func() bool { return epicOf(t, s).Turns[0].State == "failed" })
+	waitFor(t, &steps.changeNotice, "turn 1 to fail", func() bool { return epicOf(t, s).Turns[0].State == "failed" })
 	runner.Pass(t.Context())
-	waitFor(t, "a second planner step to start on the freed trigger", func() bool {
+	waitFor(t, &steps.changeNotice, "a second planner step to start on the freed trigger", func() bool {
 		return len(steps.started()) == 2
 	})
 
@@ -632,13 +699,14 @@ func TestRunnerDoneReturnWithBadQuestionFailsTurnWithRefusal(t *testing.T) {
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newFakeSteps()
+	steps.watchStore(s)
 	var reads atomic.Int64
 	runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
-	waitFor(t, "a planner step to start", func() bool { return len(steps.started()) == 1 })
-	waitFor(t, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
+	waitFor(t, &steps.changeNotice, "a planner step to start", func() bool { return len(steps.started()) == 1 })
+	waitFor(t, &steps.changeNotice, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
 
 	steps.end("step-1", store.StepRow{End: "done", Result: badQuestionPlan})
-	waitFor(t, "turn 1 to fail", func() bool { return epicOf(t, s).Turns[0].State == "failed" })
+	waitFor(t, &steps.changeNotice, "turn 1 to fail", func() bool { return epicOf(t, s).Turns[0].State == "failed" })
 
 	epic := epicOf(t, s)
 	const want = "complete turn 1 of epic " + runnerEpicID + `: bad planner question: ` +
@@ -656,11 +724,12 @@ func TestRunnerStartErrorFailsTurnWithErrorText(t *testing.T) {
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newFakeSteps()
+	steps.watchStore(s)
 	steps.startErr = errors.New("start refused")
 	var reads atomic.Int64
 	runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
 
-	waitFor(t, "turn 1 to fail", func() bool {
+	waitFor(t, &steps.changeNotice, "turn 1 to fail", func() bool {
 		turns := epicOf(t, s).Turns
 		return len(turns) >= 1 && turns[0].State == "failed"
 	})
@@ -675,11 +744,12 @@ func TestRunnerParksEpicWhenPlannerRoleFails(t *testing.T) {
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newFakeSteps()
+	steps.watchStore(s)
 	roleErr := errors.New("planner role: no agent")
 	var reads atomic.Int64
 	runRunner(t, runnerConfig(s, steps, agentReturning("", roleErr, &reads)))
 
-	waitFor(t, "the epic to be parked with the role error", func() bool {
+	waitFor(t, &steps.changeNotice, "the epic to be parked with the role error", func() bool {
 		return epicOf(t, s).Parked == roleErr.Error()
 	})
 	if n := len(steps.started()); n != 0 {
@@ -708,10 +778,11 @@ func TestRunnerRejectedRateLimitFreeStoresResetTime(t *testing.T) {
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newFakeSteps()
+	steps.watchStore(s)
 	var reads atomic.Int64
 	runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
 	waitForStarts(t, steps, 1)
-	waitFor(t, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
+	waitFor(t, &steps.changeNotice, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
 
 	resets := time.Unix(1700018000, 0)
 	if err := s.ApplyEngine(ctx, []store.EngineOp{store.EngineRateLimited{
@@ -720,7 +791,7 @@ func TestRunnerRejectedRateLimitFreeStoresResetTime(t *testing.T) {
 		t.Fatalf("ApplyEngine: %v", err)
 	}
 	steps.end("step-1", store.StepRow{End: "checks_failed", Reason: "tasks[0] wrong"})
-	waitFor(t, "the epic to be paused", func() bool { return epicOf(t, s).Paused })
+	waitFor(t, &steps.changeNotice, "the epic to be paused", func() bool { return epicOf(t, s).Paused })
 
 	if got := epicOf(t, s).Turns[0].Resets; !got.Equal(resets) {
 		t.Errorf("turn 1 resets = %v, want the limit's reset time %v", got, resets)
@@ -732,12 +803,13 @@ func TestRunnerLeavesTurnRunningWhenItsContextEnds(t *testing.T) {
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newFakeSteps()
+	steps.watchStore(s)
 	var reads atomic.Int64
 	runner := New(runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
 	ctx, cancel := context.WithCancel(t.Context())
 	runner.Pass(ctx)
-	waitFor(t, "a planner step to start", func() bool { return len(steps.started()) == 1 })
-	waitFor(t, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
+	waitFor(t, &steps.changeNotice, "a planner step to start", func() bool { return len(steps.started()) == 1 })
+	waitFor(t, &steps.changeNotice, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
 
 	cancel()
 	runner.WaitTurns()
@@ -806,10 +878,11 @@ func TestRunnerClaimsEveryPendingTriggerInOneTurn(t *testing.T) {
 		t.Fatalf("insert second trigger: %v", err)
 	}
 	steps := newFakeSteps()
+	steps.watchStore(s)
 	var reads atomic.Int64
 	runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
 
-	waitFor(t, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
+	waitFor(t, &steps.changeNotice, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
 	triggers, err := s.TurnTriggers(context.Background(), runnerEpicID, 1)
 	if err != nil {
 		t.Fatalf("TurnTriggers: %v", err)

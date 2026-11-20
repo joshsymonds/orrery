@@ -82,11 +82,12 @@ func TestRecoveryStartsStepOfTurnWithNoStepAndKeepsItsTriggers(t *testing.T) {
 	createRunnerEpic(t, s)
 	claimTurnLeftRunning(t, s, "", "", "")
 	steps := newFakeSteps()
+	steps.watchStore(s)
 	var reads atomic.Int64
 	runner := runRunner(t, recoverConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
 
 	waitForStarts(t, steps, 1)
-	waitFor(t, "step-1 recorded on turn 1", func() bool {
+	waitFor(t, &steps.changeNotice, "step-1 recorded on turn 1", func() bool {
 		turns := epicOf(t, s).Turns
 		return len(turns) == 1 && turns[0].Step == "step-1"
 	})
@@ -113,13 +114,19 @@ func TestRecoveryStartsStepOfTurnWithNoStepAndSettlesItByItsDoneEnd(t *testing.T
 	createRunnerEpic(t, s)
 	claimTurnLeftRunning(t, s, "", "", "")
 	steps := newFakeSteps()
+	steps.watchStore(s)
 	var reads atomic.Int64
 	runner := runRunner(t, recoverConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
 
 	waitForStarts(t, steps, 1)
-	waitFor(t, "step-1 recorded on turn 1", func() bool { return epicOf(t, s).Turns[0].Step == "step-1" })
+	waitFor(
+		t,
+		&steps.changeNotice,
+		"step-1 recorded on turn 1",
+		func() bool { return epicOf(t, s).Turns[0].Step == "step-1" },
+	)
 	steps.end("step-1", store.StepRow{End: "done", Result: validPlan})
-	waitFor(t, "turn 1 to succeed once its step ends", func() bool {
+	waitFor(t, &steps.changeNotice, "turn 1 to succeed once its step ends", func() bool {
 		return epicOf(t, s).Turns[0].State == "succeeded"
 	})
 	passRunner(t, runner, 3)
@@ -146,11 +153,12 @@ func TestRecoveryFreesTurnWhenStepCapRefusesItsStartAndNextPassReRunsIt(t *testi
 	createRunnerEpic(t, s)
 	claimTurnLeftRunning(t, s, "", "", "")
 	steps := newFakeSteps()
+	steps.watchStore(s)
 	refusing := &refuseOnceSteps{recoverSteps: recoverSteps{fakeSteps: steps, read: s}, err: enginehost.ErrCapReached}
 	var reads atomic.Int64
 	runRunner(t, runnerConfig(s, refusing, agentReturning(runnerAgent, nil, &reads)))
 
-	waitFor(t, "step-1 recorded on turn 2 after turn 1 is freed", func() bool {
+	waitFor(t, &steps.changeNotice, "step-1 recorded on turn 2 after turn 1 is freed", func() bool {
 		turns := epicOf(t, s).Turns
 		return len(turns) == 2 && turns[1].Step == "step-1"
 	})
@@ -169,6 +177,7 @@ func TestRecoveryParksEpicWhenStartRefusesItsAgent(t *testing.T) {
 	createRunnerEpic(t, s)
 	claimTurnLeftRunning(t, s, "", "", "")
 	steps := newFakeSteps()
+	steps.watchStore(s)
 	refusing := &refuseOnceSteps{
 		recoverSteps: recoverSteps{fakeSteps: steps, read: s}, err: enginehost.ErrBadAgent,
 	}
@@ -177,7 +186,7 @@ func TestRecoveryParksEpicWhenStartRefusesItsAgent(t *testing.T) {
 
 	// The start's error text is wrapped by startStep, as a claimed turn's is.
 	want := "start planner step: " + enginehost.ErrBadAgent.Error()
-	waitFor(t, "the epic to be parked with the refusal", func() bool {
+	waitFor(t, &steps.changeNotice, "the epic to be parked with the refusal", func() bool {
 		return epicOf(t, s).Parked == want
 	})
 	turns := epicOf(t, s).Turns
@@ -192,11 +201,12 @@ func TestRecoveryParksEpicWhenPlannerRoleFails(t *testing.T) {
 	createRunnerEpic(t, s)
 	claimTurnLeftRunning(t, s, "", "", "")
 	steps := newFakeSteps()
+	steps.watchStore(s)
 	roleErr := errors.New("planner role: no agent")
 	var reads atomic.Int64
 	runRunner(t, recoverConfig(s, steps, agentReturning("", roleErr, &reads)))
 
-	waitFor(t, "the epic to be parked with the role error", func() bool {
+	waitFor(t, &steps.changeNotice, "the epic to be parked with the role error", func() bool {
 		return epicOf(t, s).Parked == roleErr.Error()
 	})
 	if n := len(steps.started()); n != 0 {
@@ -221,11 +231,12 @@ func TestRecoveryReRunsTurnWhoseStepEndedEngineRestartedWithoutFailure(t *testin
 	createRunnerEpic(t, s)
 	claimTurnLeftRunning(t, s, "old-step-1", "", "engine_restarted")
 	steps := newFakeSteps()
+	steps.watchStore(s)
 	var reads atomic.Int64
 	runRunner(t, recoverConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
 
 	waitForStarts(t, steps, 1)
-	waitFor(t, "step-1 recorded on turn 2", func() bool {
+	waitFor(t, &steps.changeNotice, "step-1 recorded on turn 2", func() bool {
 		turns := epicOf(t, s).Turns
 		return len(turns) == 2 && turns[1].Step == "step-1"
 	})
@@ -252,10 +263,16 @@ func TestRecoveryCompletesTurnWhoseStepEndedDoneWithValidReturn(t *testing.T) {
 	createRunnerEpic(t, s)
 	claimTurnLeftRunning(t, s, "old-step-1", validPlan, "done")
 	steps := newFakeSteps()
+	steps.watchStore(s)
 	var reads atomic.Int64
 	runner := runRunner(t, recoverConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
 
-	waitFor(t, "turn 1 to succeed", func() bool { return epicOf(t, s).Turns[0].State == "succeeded" })
+	waitFor(
+		t,
+		&steps.changeNotice,
+		"turn 1 to succeed",
+		func() bool { return epicOf(t, s).Turns[0].State == "succeeded" },
+	)
 	passRunner(t, runner, 3)
 
 	if n := len(steps.started()); n != 0 {
@@ -284,6 +301,7 @@ func TestRecoveryWaitsForOpenStepAndSettlesTurnWhenItEnds(t *testing.T) {
 	createRunnerEpic(t, s)
 	claimTurnLeftRunning(t, s, "old-step-1", "", "")
 	steps := newFakeSteps()
+	steps.watchStore(s)
 	steps.ended["old-step-1"] = make(chan store.StepRow, 1)
 	var reads atomic.Int64
 	runner := runRunner(t, recoverConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
@@ -297,7 +315,7 @@ func TestRecoveryWaitsForOpenStepAndSettlesTurnWhenItEnds(t *testing.T) {
 	}
 
 	steps.end("old-step-1", store.StepRow{End: "done", Result: validPlan})
-	waitFor(t, "turn 1 to succeed once its step ends", func() bool {
+	waitFor(t, &steps.changeNotice, "turn 1 to succeed once its step ends", func() bool {
 		return epicOf(t, s).Turns[0].State == "succeeded"
 	})
 	if n := len(epicOf(t, s).Turns); n != 1 {
