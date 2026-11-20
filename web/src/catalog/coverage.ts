@@ -33,6 +33,7 @@ export const storyRenames: Renames = {
   "epicline.tsx": { EpicLine: "EpicRow" },
   "eventring.tsx": { EventRing: "EpicEventBlock", StepCard: "StepEndBlock" },
   "evidence.tsx": { EvidenceRuns: "EvidenceRun" },
+  "glyphs.tsx": { Icon: "Icons" },
   "happenings.tsx": { JustHappened: "HappeningList" },
   "helppanel.tsx": { KeyList: { module: "app.stories.tsx", story: "Page" } },
   "notices.tsx": { NoticeBanner: "Notice" },
