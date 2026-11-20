@@ -1266,24 +1266,55 @@ export const orbitReleasing: EpicsGetResponse = {
 };
 
 // offlineStopped is offline-tables stopped at step 2, whose undo is none, so Release from step 2 is offered.
+// Its summary and contract draw the page's lede with its Contract and Steered from doors, as round 6's scenario does.
 export const offlineStopped: EpicsGetResponse = {
   ...offlineGet,
+  summary: "Tide tables are readable with no network: the last seven days are kept on the phone and marked with their age.",
+  contract: create(EpicContractSchema, { title: "offline-tables", care: "serious", accepted: at("@11:20") }),
   releaseSteps: offlineGet.releaseSteps.map((step) => (step.position === 2n ? { ...step, undo: "none" } : step)),
 };
+
+// offlineStoppedHistory is what just happened to offline-tables: its release ran step 1 and stopped at step 2.
+export const offlineStoppedHistory = create(EpicsHistoryResponseSchema, {
+  entries: [
+    { time: at("@14:05"), cursor: "c1", item: { case: "tell", value: { seq: 1n, text: "Release step 1 passed: v0.4.0 is tagged and pushed.", at: at("@14:05"), told: true } } },
+    { time: at("@14:32"), cursor: "c2", item: { case: "tell", value: { seq: 2n, text: "Release step 2 failed: CI is red on the tag. It has no undo, so it waits on you.", at: at("@14:32"), told: true } } },
+  ],
+  next: "",
+});
 
 // tidecacheGaps is tide-cache ended with gaps: its report ships none and names R1, R2 and R3 as not shipped, with the why
 // its gap was given. The Report draws the two owner calls, Release it anyway and Close as….
 // tidecacheGapsRow is tide-cache's list row ended with gaps.
 export const tidecacheGapsRow: EpicRow = { ...tidecacheEpic, outcome: "ended_with_gaps" };
+// Every task of it is done and R1 and R2 are proven, as round 6's scenario draws them; its summary and contract draw the
+// page's lede and doors.
 export const tidecacheGaps: EpicsGetResponse = create(EpicsGetResponseSchema, {
   ...tidecacheGetInit,
   epic: tidecacheGapsRow,
+  summary: "Tide tables are cached per port and day, and a stale table is never served past midnight.",
+  contract: { title: "tide-cache", care: "limited", accepted: at("@-4d 10:11") },
+  requirements: [
+    { id: "R1", kind: "check", text: "Tide tables are cached on disk.", runs: [greenRun("ev-cache-r1-green", false)] },
+    { id: "R2", kind: "check", text: "The cache drops tables older than a week.", runs: [greenRun("ev-cache-r2-green", false)] },
+    { id: "R3", kind: "review", text: "The docs describe the cache.", runs: [] },
+  ],
+  buildTasks: (tidecacheGetInit.buildTasks ?? []).map((task) => ({ ...task, status: "done" })),
   report: {
     outcome: "ended_with_gaps",
     shipped: [],
     notShipped: ["R1", "R2", "R3"],
     why: "R3 (a stale table is never served past midnight) was green on the change, but the review confirmed a finding the fix plans did not close in three rounds: the cache serves yesterday’s table for up to a minute after midnight.",
   },
+});
+
+// tidecacheGapsHistory is what just happened to tide-cache: its review left a gap, so it ended without releasing.
+export const tidecacheGapsHistory = create(EpicsHistoryResponseSchema, {
+  entries: [
+    { time: at("@-4d 09:02"), cursor: "c1", item: { case: "tell", value: { seq: 1n, text: "The review confirmed a finding the fix plans did not close in three rounds.", at: at("@-4d 09:02"), told: true } } },
+    { time: at("@-4d 09:12"), cursor: "c2", item: { case: "tell", value: { seq: 2n, text: "Ended with 1 gap. It did not release.", at: at("@-4d 09:12"), told: true } } },
+  ],
+  next: "",
 });
 
 // noticesParked is notices-usable parked on the owner's park alone. The engine's question is left out, so the park draws

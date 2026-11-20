@@ -45,6 +45,7 @@ import {
   histories,
   noticesParked,
   offlineStopped,
+  offlineStoppedHistory,
   orbitReleasing,
   rotaBuilding,
   rotaEvidence,
@@ -54,6 +55,7 @@ import {
   rotaReviewing,
   tidecacheGaps,
   tidecacheGapsRow,
+  tidecacheGapsHistory,
 } from "./epics";
 import { host } from "./host";
 import { panes, paneStreams } from "./panes";
@@ -186,8 +188,8 @@ export const epicScenarios: Record<EpicScenario, Slices> = {
   building: withEpic(rotaId, rotaBuilding),
   reviewing: withEpic(rotaId, rotaReviewing),
   releasing: withEpic(orbitId, { get: orbitReleasing }),
-  releaseFailed: withEpic(offlineId, { get: offlineStopped }),
-  endedGaps: withEpic(tideCacheId, { get: tidecacheGaps, row: tidecacheGapsRow }),
+  releaseFailed: withEpic(offlineId, { get: offlineStopped, history: offlineStoppedHistory }),
+  endedGaps: withEpic(tideCacheId, { get: tidecacheGaps, row: tidecacheGapsRow, history: tidecacheGapsHistory }),
   evidence: withEpic(rotaId, rotaEvidence),
   limited: withEpic(rotaId, rotaLimited),
   plannerParked: withEpic(rotaId, rotaPlanner),
