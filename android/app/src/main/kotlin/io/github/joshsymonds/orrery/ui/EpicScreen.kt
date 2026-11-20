@@ -75,7 +75,8 @@ class EpicOpening(val section: String)
  * section is one item, tagged "epic-section:[name]". A tap on a step calls [onOpenStep] with it, a tap on the summary
  * calls [onOpenContract], and a tap on the orrery, a proof card or a row calls [onOpenPhase]. [actions] render first in
  * the title row. [listState] is the list's state, so the caller keeps its scroll; [openAt] scrolls it to its section
- * when the list is composed. Back and the first crumb call [onBack]. [foot] is drawn under the list once the epic is loaded.
+ * when the list is composed. Back and the first crumb call [onBack]. [more] is drawn in the title row after [actions]
+ * once the epic is loaded, and [foot] is drawn under the list once the epic is loaded.
  * A command runs off the main thread, then the epic is read again; a command that did not land shows as a notice. An
  * ended orreryd epic the owner has not seen is marked seen once the screen has rested on it for a second while resumed.
  */
@@ -93,6 +94,7 @@ fun EpicScreen(
     actions: @Composable RowScope.() -> Unit = {},
     handover: (@Composable (EpicDetail) -> Unit)? = null,
     foot: @Composable (EpicDetail) -> Unit = {},
+    more: @Composable (EpicDetail) -> Unit = {},
     now: () -> Long = { System.currentTimeMillis() / 1000 },
 ) {
     var load by remember(client, epicId) { mutableStateOf<EpicLoad>(EpicLoad.Loading) }
@@ -171,6 +173,7 @@ fun EpicScreen(
             blocker = detail?.let { blockerLineOf(blockerOf(it), nowAt) }.orEmpty(),
             actions = {
                 actions()
+                detail?.let { more(it) }
                 if (detail != null && detail.epic.live && detail.epic.outcome.isEmpty()) {
                     if (detail.paused) {
                         TextButton(onClick = resume, modifier = Modifier.testTag("epic-resume")) {

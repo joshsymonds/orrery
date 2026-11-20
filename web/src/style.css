@@ -128,8 +128,9 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
     display: grid; grid-template-rows: auto minmax(0, 1fr); background: var(--o-surface-side);
     border-right: var(--o-size-hairline) solid var(--o-line-soft);
   }
-  /* The reader is three rows: its head, its conversation, which is the one box that scrolls, and its foot. */
-  .read { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 0; }
+  /* The reader is three rows: its head, its conversation, which is the one box that scrolls, and its foot, in one column
+     as wide as its track, so a line that does not wrap is cut inside it and never widens the conversation past it. */
+  .read { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; gap: 0; }
   .read.pinned { border-left: var(--o-size-hairline) solid var(--o-line-soft); }
   .read > .reader { min-height: 0; overflow-y: auto; padding: var(--o-space-16) var(--o-space-24) var(--o-space-8); }
   .head, .convo-head > .title-row { padding: var(--o-space-12) var(--o-space-24) var(--o-space-12); }
@@ -753,6 +754,15 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
   appearance: none; -webkit-appearance: none;
 }
 
+/* The ended dock: where a conversation's dock was when the conversation steering a live epic has ended. It is the dock's
+   box in the stopped state, its lead above the two ways on. Nothing in it is dimmed, so a disabled control keeps its
+   shape and takes the ink.4 text. */
+.ended-bar .ended-lead { margin: 0; padding: var(--o-space-8) var(--o-space-12) 0; color: var(--o-ink-2); font: var(--o-type-small); overflow-wrap: anywhere; }
+.ended-bar .acts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-8); padding: var(--o-space-8) var(--o-space-12) var(--o-space-12); }
+.ended-bar .acts button.act { min-height: var(--o-size-control-desk); }
+.ended-bar .acts button.act:not(.primary) { background: none; color: var(--o-ink-2); }
+.ended-bar .acts button.act:disabled { background: none; color: var(--o-ink-4); cursor: default; transform: none; }
+
 /* On a phone the dock takes the screen's edges, its input takes the touch height, and a Ctl's key hint is not drawn. */
 @media (width < 760px) {
   .dock { padding: 0 var(--o-space-8) var(--o-space-8); }
@@ -1159,6 +1169,21 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 /* A sheet covers the window, so it lies over the page wherever the page is scrolled; its rules are the row sheet's, above.
    A picker drawn in it lies flat in the sheet. */
 .sheet .rpick { position: static; width: auto; padding: 0; background: none; box-shadow: none; }
+/* The steering menu opens under its anchor at the desk, and sits static inside a sheet, where .sheet .rpick holds it. Its
+   rows wrap inside the menu, though the title row it opens from keeps its own line whole. */
+.steer-anchor { position: relative; display: inline-flex; }
+.steer-menu { white-space: normal; }
+.steer-anchor > .steer-menu { top: calc(100% + var(--o-space-4)); right: 0; }
+/* A steering row has no gauge, so its two lines take the row's one column. */
+.steer-row { grid-template-columns: minmax(0, 1fr); }
+.steer-row .t, .steer-row .s { grid-column: 1; }
+.steer-menu hr { margin: var(--o-space-4) var(--o-space-8); border: 0; border-top: var(--o-size-hairline) solid var(--o-line-soft); }
+/* A row that cannot be chosen, the steerer's or every row while a call runs, keeps its text at ink.4 and is not dimmed. */
+.steer-row:disabled { cursor: default; }
+.steer-row:disabled:hover { background: none; }
+.steer-row:disabled .t, .steer-row:disabled .s { color: var(--o-ink-4); }
+/* A note is read whole: the .error rule cuts a line to one, so the note wraps. */
+.steer-note { margin: 0; padding: var(--o-space-4) var(--o-space-12); font: var(--o-type-small); white-space: normal; overflow: visible; }
 .rpanel { display: flex; flex-direction: column; min-height: 0; padding-top: var(--o-space-8); background: var(--o-surface-side); }
 .rcard { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; margin: 0 var(--o-space-8) var(--o-space-8); overflow-y: auto; border: var(--o-size-hairline) solid var(--o-line-firm); border-radius: var(--o-radius-3); background: var(--o-surface-page); }
 .rcard.attention { border-top: var(--o-size-rail) solid var(--o-role-attention); }

@@ -23,12 +23,13 @@ export const storyExemptions: Readonly<Record<string, string>> = {
 
 // storyRenames names each component export whose stories are not in its file's own stories module under its own name, by
 // its component file and export: a round-6 name for the story export in the file's stories module, or the stories module
-// and story export of another file that draws the export, as { module, story }. A page draws NewPanel and KeyList, so
-// their entries name app.stories.tsx's Page.
+// and story export of another file that draws the export, as { module, story }. A page draws Inbox, NewPanel, KeyList,
+// SteerMenu and EndedBar, so their entries name app.stories.tsx's Page.
 export const storyRenames: Renames = {
   "backgroundrow.tsx": { BackgroundRow: "TaskLine" },
   "blocker.tsx": { QuestionCard: "Ask", AskFirst: "ConfirmButton" },
   "card.tsx": { EpicWidget: "WorkCard" },
+  "endedbar.tsx": { EndedBar: { module: "app.stories.tsx", story: "Page" } },
   "eventring.tsx": { EventRing: "EpicEventBlock", StepCard: "StepEndBlock" },
   "evidence.tsx": { EvidenceRuns: "EvidenceRun" },
   "glyphs.tsx": { Icon: "Icons" },
@@ -39,6 +40,7 @@ export const storyRenames: Renames = {
   "notices.tsx": { NoticeBanner: "Notice" },
   "picker.tsx": { NewPanel: { module: "app.stories.tsx", story: "Page" } },
   "sidepanel.tsx": { SidePanel: "ListPanel" },
+  "steermenu.tsx": { SteerMenu: { module: "app.stories.tsx", story: "Page" } },
   "strip.tsx": { PaneStrip: "MeterStrip" },
 };
 

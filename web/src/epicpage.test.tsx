@@ -5,11 +5,16 @@ import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { render } from "preact";
 import { act } from "preact/test-utils";
 
-import { type EpicCommands, EpicPage } from "./epicpage";
+import { type EpicCommands, EpicPage, type SessionTarget } from "./epicpage";
 import type { LoadArtifact } from "./evidence";
-import { type EpicsGetResponse, EpicsGetResponseSchema } from "./gen/orrery/v1/epics_pb";
+import {
+  type EpicHistoryEntry,
+  EpicHistoryEntrySchema,
+  type EpicsGetResponse,
+  EpicsGetResponseSchema,
+} from "./gen/orrery/v1/epics_pb";
+import type { Row } from "./rows";
 import { installTestDom, removeTestDom } from "./testdom";
-import type { TalkTarget } from "./talk";
 
 type Props = Parameters<typeof EpicPage>[0];
 
@@ -353,7 +358,7 @@ test("CreatorConversation: the line under the summary reads the creating session
 });
 
 test("CreatorConversation: clicking the line opens the creator's target, the newest-call creator when two are marked", async () => {
-  const opened: TalkTarget[] = [];
+  const opened: SessionTarget[] = [];
   await withPage(
     detail({
       ...build,
@@ -389,6 +394,51 @@ test("CreatorConversation: no line shows when no listed session is the creator",
   await withPage(detail({ ...build }), (container) => {
     assert.equal(has(container, ".conversation"), false);
   });
+});
+
+// row is a listed row with the fields the tests do not set at their defaults.
+function row(init: Partial<Row> & Pick<Row, "key">): Row {
+  return {
+    tool: "",
+    id: init.key,
+    kind: "session",
+    label: init.key,
+    project: "/work/app",
+    host: "box",
+    state: "done",
+    summary: "",
+    question: "",
+    questionHash: "",
+    changed: 0,
+    seen: 0,
+    unseen: false,
+    archived: false,
+    archiveKind: "session",
+    archiveId: "",
+    ...init,
+  };
+}
+
+test("MoveLines: the epic page names a session its move line mentions by its listed row's label", async () => {
+  const move: EpicHistoryEntry = create(EpicHistoryEntrySchema, {
+    time: 400n,
+    cursor: "m1",
+    item: {
+      case: "action",
+      value: { seq: 1n, kind: "move", time: 400n, by: "owner", session: "", from: "sess-rota", to: "sess-lamp" },
+    },
+  });
+  const rows = [row({ key: "session:sess-rota", archiveId: "sess-rota", label: "Planned the rota export" })];
+  await withPage(
+    detail({ ...build }),
+    (container) => {
+      assert.equal(
+        textOf(container, "section.happen.just .what"),
+        "moved to session sess-lamp from “Planned the rota export”, by you",
+      );
+    },
+    { history: [move], rows },
+  );
 });
 
 test("the epic's problem shows as an error line right before the now block, and only when it is not empty", async () => {

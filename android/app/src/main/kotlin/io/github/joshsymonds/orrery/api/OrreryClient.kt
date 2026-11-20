@@ -36,7 +36,6 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicPremise as EpicPremiseProt
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion as EpicQuestionProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseStep as EpicReleaseStepProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement as EpicRequirementProto
-import io.github.joshsymonds.orrery.gen.orrery.v1.EpicSession as EpicSessionProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice as EpicSliceProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep as EpicStepProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepCheck as EpicStepCheckProto
@@ -50,9 +49,11 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTurn as EpicTurnProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsAnswerRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsArchiveRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsClient
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsContinueRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsHistoryRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsListRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsMoveRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsPauseRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsResumeRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsRetryRequest
@@ -134,6 +135,9 @@ private const val CHOICE_OTHER = "other"
 
 /** The answers to the list calls of sessions and contracts that mean the server has no such rows to list. */
 private val ABSENT_LIST = setOf(Code.UNAVAILABLE, Code.UNIMPLEMENTED, Code.NOT_FOUND)
+
+/** The answers to a move or a continue that mean no answer came back, so the write may or may not have landed. */
+private val STEER_NO_ANSWER = setOf(Code.UNAVAILABLE, Code.DEADLINE_EXCEEDED, Code.UNKNOWN)
 
 data class Pane(
     val id: String,
@@ -708,22 +712,21 @@ data class EpicDetail(
     val paused: Boolean = false,
     val parked: String = "",
     val handover: EpicHandoverRow = EpicHandoverRow(),
-    val sessions: List<EpicSessionRow> = emptyList(),
     val repository: String = "",
     val releaseProof: List<EpicReleaseProofRow> = emptyList(),
     val report: EpicReportRow? = null,
 )
 
-/**
- * A session that works on an epic, with its newest epic call: [pane] is its tmux pane, empty for a headless session,
- * [call] is the tool name of that call, and [at] is when it was made, in unix seconds.
- */
-data class EpicSessionRow(val id: String, val pane: String, val label: String, val call: String, val at: Long)
-
 /** What a hold, nudge, stop or epic call came to: it landed, or orreryd refused it with its reason. */
 sealed interface StepCallResult {
     data object Landed : StepCallResult
     data class Refused(val message: String) : StepCallResult
+}
+
+/** What a move or a continue came to: the session that steers the epic now, or orreryd's refusal with its reason. */
+sealed interface SteerResult {
+    data class Steered(val session: String) : SteerResult
+    data class Refused(val message: String) : SteerResult
 }
 
 sealed interface KeysResult {
@@ -1010,7 +1013,6 @@ class OrreryClient(
             paused = response.paused,
             parked = response.parked,
             handover = response.toEpicHandoverRow(),
-            sessions = response.sessionsList.map { it.toEpicSessionRow() },
             repository = response.repository,
             releaseProof = response.releaseStepsList.map { it.toEpicReleaseProofRow() },
             report = if (response.hasReport()) response.report.toEpicReportRow() else null,
@@ -1245,6 +1247,29 @@ class OrreryClient(
     fun retryEpic(id: String, node: String = ""): StepCallResult {
         val request = EpicsRetryRequest.newBuilder().setId(id).setNode(node).build()
         return stepCall { call(write = true) { standard.epics.retry(request, CLIENT_HEADERS) } }
+    }
+
+    /**
+     * Moves the steering of the orreryd epic [id] to [session], so that session's questions and events are the
+     * epic's from now on. A refused move answers [SteerResult.Refused] with the server's reason.
+     */
+    fun moveEpic(id: String, session: String): SteerResult {
+        val request = EpicsMoveRequest.newBuilder().setId(id).setSession(session).build()
+        return steerCall {
+            call(write = true) { standard.epics.move(request, CLIENT_HEADERS) }
+            SteerResult.Steered(session)
+        }
+    }
+
+    /**
+     * Starts a steering session for the orreryd epic [id] and moves the epic's steering to it. The answer names the
+     * started session, which is "" when the server started none. A refused continue answers [SteerResult.Refused].
+     */
+    fun continueEpic(id: String): SteerResult {
+        val request = EpicsContinueRequest.newBuilder().setId(id).build()
+        return steerCall {
+            SteerResult.Steered(call(write = true) { standard.epics.`continue`(request, CLIENT_HEADERS) }.session)
+        }
     }
 
     /**
@@ -1522,9 +1547,6 @@ class OrreryClient(
     private fun EpicQuestionProto.toEpicQuestionRow(): EpicQuestionRow =
         EpicQuestionRow(id = id, text = text, turn = turn, asked = asked)
 
-    private fun EpicSessionProto.toEpicSessionRow(): EpicSessionRow =
-        EpicSessionRow(id = id, pane = pane, label = label, call = call, at = at)
-
     private fun EpicContractProto.toEpicContractRow(): EpicContractRow =
         EpicContractRow(
             title = title,
@@ -1792,6 +1814,18 @@ class OrreryClient(
             StepCallResult.Landed
         } catch (e: OrreryCallException) {
             if (e.code == Code.FAILED_PRECONDITION) StepCallResult.Refused(e.message.orEmpty()) else throw e
+        }
+
+    /**
+     * The answer of a move or a continue: [SteerResult.Refused] when the server answered with any code but the ones
+     * that mean no answer came back. Those, and every failure that is not a server answer, are thrown as [call]
+     * throws them.
+     */
+    private inline fun steerCall(rpc: () -> SteerResult): SteerResult =
+        try {
+            rpc()
+        } catch (e: OrreryCallException) {
+            if (e.code in STEER_NO_ANSWER) throw e else SteerResult.Refused(e.message.orEmpty())
         }
 
     /** The answer, or null when the server answered not_found. */
