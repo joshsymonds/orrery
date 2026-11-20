@@ -55,14 +55,14 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   workflow: { replacement: "epic-building", epic: "F4" },
   // ContractBody draws an epic's accepted contract, read-only, with its requirements: with additions, with none, and with no base.
   "contract-body": { replacement: "contract-accepted", epic: "F4" },
+  // QuestionCard draws an epic's open question as option cards, with or without choices. Ask draws each of its states.
+  "question-card": { replacement: "Ask", epic: "F3" },
 
   // ---- single stories of round-6 components, each the component in a state round 6 does not draw ----
 
   // TaskLine draws a background task that is still running: an agent, and a shell. Round 6 draws only ended tasks.
   "task-line/agent-running": { replacement: "TaskLine", epic: "F3" },
   "task-line/shell-running": { replacement: "TaskLine", epic: "F3" },
-  // Ask draws an open question of an epic that has no choices, so its answer is typed.
-  "ask/open-question": { replacement: "Ask", epic: "F3" },
   // WorkCard draws an epic's card on a project's page when the epic has released, and when the fixtures hold no detail for it.
   "work-card/released": { replacement: "WorkCard", epic: "F2" },
   "work-card/unavailable": { replacement: "WorkCard", epic: "F2" },

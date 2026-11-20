@@ -26,8 +26,9 @@ export const storyExemptions: Readonly<Record<string, string>> = {
 // and story export of another file that draws the export, as { module, story }. A page draws Inbox, NewPanel, KeyList,
 // SteerMenu and EndedBar, so their entries name app.stories.tsx's Page.
 export const storyRenames: Renames = {
+  "ask.tsx": { AskLine: "Ask" },
   "backgroundrow.tsx": { BackgroundRow: "TaskLine" },
-  "blocker.tsx": { QuestionCard: "Ask", AskFirst: "ConfirmButton" },
+  "blocker.tsx": { AskFirst: "ConfirmButton" },
   "card.tsx": { EpicWidget: "WorkCard" },
   "endedbar.tsx": { EndedBar: { module: "app.stories.tsx", story: "Page" } },
   "eventring.tsx": { EventRing: "EpicEventBlock", StepCard: "StepEndBlock" },

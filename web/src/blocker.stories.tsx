@@ -59,7 +59,9 @@ export const ConfirmButton: Stories = {
   ),
 };
 
-export const Ask: Stories = {
+// QuestionCard draws an epic's open question as option cards: the rota export's question, which has no choices, and a
+// question with choices. Ask draws both states now, and QuestionCard is still drawn where Ask is not yet wired.
+export const QuestionCard: Stories = {
   "open-question": () => <blocker.QuestionCard question={rota.questions[0]} numberKeys onAnswer={answer} />,
   epic: () => <blocker.QuestionCard question={recommended} numberKeys onAnswer={answer} />,
 };
