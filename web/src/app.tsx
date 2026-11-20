@@ -1,8 +1,10 @@
+import { Code, ConnectError } from "@connectrpc/connect";
 import { Fragment } from "preact";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 
 import * as actions from "./actions";
 import type { Clients } from "./actions";
+import { askingWords, askLines, headBadges, ownAsks, steeredEpics } from "./asks";
 import { epicCallsOf } from "./card";
 import type { DockHandle } from "./dock";
 import { ContractBody } from "./contract";
@@ -28,6 +30,7 @@ import type { EpicHistoryEntry, EpicsGetResponse, EpicStep } from "./gen/orrery/
 import type { InAppNotice, NoticeKey } from "./gen/orrery/v1/notice_pb";
 import type { HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
 import { Handover } from "./handover";
+import { type HeadStore, memoryHeadStore } from "./headfold";
 import { KeyList } from "./helppanel";
 import { type Answer, InboxRow, isLinkClick, optionText, readerQuestion, stateWaiting } from "./inboxrow";
 import {
@@ -55,11 +58,12 @@ import { type Address, type Entry, formatAddress, type PageView } from "./router
 import { byAttention, byProject, type Row, type Section, splitArchived } from "./rows";
 import { type SeenClock, type SeenWindow, watchSeen } from "./seen";
 import { type SendKind, type Sending, type SentText, sendingEntry, unsentEntries, withoutTexts } from "./sending";
-import { type FindState, headState, ReaderColumn, stepCalls } from "./readercolumn";
+import { type ColumnHead, type FindState, headState, ReaderColumn, stepCalls } from "./readercolumn";
 import { PaneStrip, type StripHost } from "./strip";
 import { Talk, type TalkTarget } from "./talk";
 import { TalkDock } from "./talkdock";
 import { ReplyText } from "./text";
+import { lastPathElement } from "./titleparts";
 import { type InboxMark, TitleRow } from "./titlerow";
 import { WorkerSessionPage } from "./workersession";
 
@@ -141,6 +145,14 @@ interface PendingTarget {
   id: string;
 }
 
+// The note a page's More menu left under a row's title row, which names the row it is for.
+interface HeadNote {
+  key: string;
+  text: string;
+}
+
+const noHeadNote: HeadNote = { key: "", text: "" };
+
 const stateWorking = "working";
 // The block kind a notice names when it opens the contract page.
 const contractBlock = "contract";
@@ -155,6 +167,9 @@ const interruptFailedText = "could not interrupt";
 const commandFailedText = "epic command failed";
 const sessionUnavailableText = "session unavailable";
 const archiveFailedText = "could not change archive";
+const noAnswerText = "the server did not answer";
+// The codes a call's failure reads as the server not answering.
+const noAnswerCodes = new Set([Code.Unavailable, Code.DeadlineExceeded, Code.Unknown]);
 const archivedTitle = "Archived";
 // The most entries one page of an epic's history asks for.
 const historyPageSize = 200;
@@ -177,6 +192,7 @@ export function App({
   onViewing,
   address,
   onAddress,
+  headStore,
 }: {
   rows: Row[];
   error: string;
@@ -190,6 +206,7 @@ export function App({
   onViewing?: (viewing: Viewing) => void;
   address?: Address;
   onAddress?: (address: Address, mode: "push" | "replace") => void;
+  headStore?: HeadStore;
 }) {
   const [view, setView] = useState<View>("attention");
   const [cursor, setCursor] = useState<Cursor>({ key: "", index: 0 });
@@ -274,6 +291,11 @@ export function App({
   // list no longer says working.
   const [interrupts, setInterrupts] = useState<Map<string, number>>(() => new Map());
   const [archiveError, setArchiveError] = useState("");
+  // The per-device store the hidden header is kept in, read once, and whether the header is hidden now. The note a More
+  // menu's archive left is under the title row of the row it names.
+  const [keptHead] = useState<HeadStore>(() => headStore ?? memoryHeadStore());
+  const [headHidden, setHeadHidden] = useState(() => keptHead.hidden());
+  const [headNote, setHeadNote] = useState<HeadNote>(noHeadNote);
   // The key of the entry whose ⋯ menu is open, if any: one menu is open at a time. It counts as open only while the entry
   // is drawn.
   const [menuKey, setMenuKey] = useState<string | null>(null);
@@ -706,6 +728,23 @@ export function App({
     );
   };
 
+  // archiveFromHead archives the row a page's More menu names, through Epics.Archive with the row's archive kind and id. A
+  // landed call marks the row archived, as the list's archive does. A failed one puts its reason under the title row of
+  // that row, and changes nothing.
+  const archiveFromHead = (row: Row) => {
+    if (row.archiveKind === "none") {
+      return;
+    }
+    void clients.epics.archive({ kind: row.archiveKind, id: row.archiveId }).then(
+      () => {
+        setRowMarks((previous) => new Map(previous).set(row.key, true));
+        setHeadNote((previous) => (previous.key === row.key ? noHeadNote : previous));
+      },
+      (error: unknown) =>
+        setHeadNote({ key: row.key, text: `Could not archive this session: ${failureReason(error)}. Nothing changed.` }),
+    );
+  };
+
   // A menu whose entry leaves the list closes, so it does not reopen when the entry returns. While a menu is open, a
   // pointerdown anywhere closes it: the ⋯ and the menu stop their own pointerdowns, so only a press outside reaches here.
   useEffect(() => {
@@ -921,6 +960,15 @@ export function App({
   };
   const toggleOpen = () => setOpen((value) => !value);
   const toggleStrips = () => setStripsShown((value) => !value);
+  // hideHeader hides the phone header until it is opened, and the setting is kept on the device. showHeader opens it.
+  const hideHeader = () => {
+    keptHead.setHidden(true);
+    setHeadHidden(true);
+  };
+  const showHeader = () => {
+    keptHead.setHidden(false);
+    setHeadHidden(false);
+  };
   // drill opens a page over the open one. The open page's scroll place is kept for the back that returns to it, and the
   // new page opens at its top.
   const drill = (next: PageView) => {
@@ -1232,6 +1280,35 @@ export function App({
         context={row?.kind === "pane" ? conversation?.state?.context : undefined}
       />
     ) : undefined;
+
+  // headOf is what a row's head draws: the strip's host, the asks its conversation draws, the note the More menu's archive
+  // left for it, and the More menu's items for it. The asks are the epics steered by the row's id, and the row's own
+  // question asks while the row waits and its pane or session is not put off.
+  const headOf = (row: Row, conversation: Conversation | null): ColumnHead => {
+    const steering = steeredEpics(row.archiveId, marked.listed.values());
+    const lines = askLines(steering, epics.details);
+    const ownName = ownAsks(row, conversation) ? lastPathElement(row.project) || row.label : null;
+    return {
+      host: stripHost(row, host),
+      showStrip: stripsShown,
+      lines,
+      askingWords: askingWords(ownName, lines),
+      badges: headBadges(steering, lines, conversation?.state?.background ?? []),
+      note: headNote.key === row.key ? headNote.text : "",
+      menu: {
+        stripsShown,
+        toggleStrips,
+        markSeen: () => void writeSeen(row),
+        archive: row.archived || row.archiveKind === "none" ? null : () => archiveFromHead(row),
+        keys: () => setHelpOpen((open) => !open),
+      },
+    };
+  };
+
+  // The note under a row's title row is cleared once the row it names leaves both reader columns.
+  useEffect(() => {
+    setHeadNote((previous) => (previous.key === cursorRowKey || previous.key === pinnedKey ? previous : noHeadNote));
+  }, [cursorRowKey, pinnedKey]);
 
   // focusCursorRow moves focus to the list's current row, the row the cursor rests on. A hidden inbox holds that row in
   // the list the page hides, so it is popped out by key first, and the focus waits for the layout effect after the
@@ -1607,6 +1684,12 @@ export function App({
           interrupts={interrupts}
           mark={inboxMark}
           pageStrip={pageStrip}
+          head={headOf}
+          narrow={!wide}
+          hidden={headHidden}
+          onHide={hideHeader}
+          onShow={showHeader}
+          onOpenEpic={navigated(openEpic)}
           onBack={navigated(focusCursorRow)}
           finding={cursorFinding}
           matches={cursorMatches}
@@ -1641,6 +1724,12 @@ export function App({
           interrupts={interrupts}
           mark={inboxMark}
           pageStrip={pageStrip}
+          head={headOf}
+          narrow={!wide}
+          hidden={headHidden}
+          onHide={hideHeader}
+          onShow={showHeader}
+          onOpenEpic={navigated(openEpic)}
           onBack={closePin}
           finding={pinnedFinding}
           matches={pinnedMatches}
@@ -1856,9 +1945,16 @@ function stripHost(row: Row | null, host: HostStatusResponse | null): StripHost 
     return null;
   }
   if (row !== null && row.kind === "pane" && row.host !== "" && row.host !== host.host) {
-    return { host: row.host, stats: [] };
+    return { host: row.host, stats: [], other: true };
   }
   return host;
+}
+
+// failureReason is why a call failed, as a page's note says it: that the server did not answer, for a call that never
+// reached it or failed unavailable, past its deadline or unknown, and the error's own message otherwise.
+function failureReason(error: unknown): string {
+  const failure = ConnectError.from(error);
+  return noAnswerCodes.has(failure.code) ? noAnswerText : failure.rawMessage;
 }
 
 // withoutKey is a copy of marks without key.

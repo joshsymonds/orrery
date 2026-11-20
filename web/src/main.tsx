@@ -6,6 +6,7 @@ import { createClients, createTransport } from "./client";
 import { type EpicsView, epicsView, noEpics } from "./epics";
 import type { InAppNotice } from "./gen/orrery/v1/notice_pb";
 import type { HostStatusResponse, WatchResponse } from "./gen/orrery/v1/orrery_pb";
+import { localHeadStore } from "./headfold";
 import { listHolds } from "./listholds";
 import { changedOnly, type HeldEpic, loadEpics, type Refetch } from "./loadepics";
 import { loadRows } from "./load";
@@ -103,6 +104,15 @@ function joinRefetch(held: Refetch | null, next: Refetch): Refetch {
   return held === null ? next : new Set([...held, ...next]);
 }
 
+// pageStorage is the page's local storage, or null where the browser refuses to give it.
+function pageStorage(): Storage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
 // start renders App into root and loads the rows and the epics. Each rows load that reports a seq above 0 opens
 // Events.Watch from it. An event reloads only what it can change (affectsOf): the rows, the epics, both or neither, so
 // the streaming text of an agent's reply reloads nothing. The events of a burst share one reload after eventReloadMs.
@@ -169,6 +179,8 @@ export function start(
   let epicsAnswered = false;
 
   const hidden = () => win.document.visibilityState === "hidden";
+  // The phone header's hidden setting, kept in the page's local storage.
+  const headStore = localHeadStore(pageStorage());
   const build = watchPageBuild(page.build, hidden, () => holdsUnsentText(root), page.reload);
   const onInput = () => build.check();
   const isStopped = () => stopped;
@@ -187,6 +199,7 @@ export function start(
         onViewing={onViewing}
         address={address}
         onAddress={onAddress}
+        headStore={headStore}
       />,
       root,
     );

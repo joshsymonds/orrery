@@ -449,15 +449,17 @@ function readerText(container: HTMLElement): string {
   return container.querySelector(".reader")?.textContent ?? "";
 }
 
-// readerHead is the head the cursor's reader opens with: the title row of a row's conversation, or a step's head. It is
-// null when that reader draws neither.
+// readerHead is the title row the cursor's reader opens with: a row's title row inside its head, or a step's title row.
+// It is null when that reader draws neither.
 function readerHead(container: HTMLElement): Element | null {
-  return container.querySelector('section[aria-label="reader"] > .head, section[aria-label="reader"] > .title-row');
+  return container.querySelector(
+    'section[aria-label="reader"] > .convo-head > .title-row, section[aria-label="reader"] > .title-row',
+  );
 }
 
 // pinnedHead is the title row the pinned reader opens with, or null when no row is pinned.
 function pinnedHead(container: HTMLElement): Element | null {
-  return container.querySelector('section[aria-label="pinned reader"] > .title-row');
+  return container.querySelector('section[aria-label="pinned reader"] > .convo-head > .title-row');
 }
 
 // dockBox is the box of the dock a reader column shows: the visible dock under the column's reader, or null. Its state
@@ -471,7 +473,8 @@ function dockWord(container: HTMLElement, section = "reader"): string {
   return dockBox(container, section)?.querySelector(".statebar .word")?.textContent ?? "";
 }
 
-// crumbTexts are the labels of a title row's crumbs, in order, the page's label last. The mark is not a label.
+// crumbTexts are the labels of a title row's crumbs, in order: the directory's label first, the page's label last. The
+// mark is not a label.
 function crumbTexts(head: Element | null): string[] {
   return Array.from(head?.querySelectorAll(".crumbs .crumb") ?? [], (crumb) => crumb.textContent ?? "");
 }
@@ -1097,10 +1100,13 @@ test("the cursor's pane row opens its conversation, and the reader shows the str
 
 test("the cursor's reader opens on the title row: a back button and the crumb of the label, and its state on the dock", (t) =>
   withApp(t.signal, { rows: [paneRow] }, (container) => {
-    assert.equal(container.querySelector('section[aria-label="reader"]')?.firstElementChild?.tagName, "HEADER");
+    assert.equal(
+      container.querySelector('section[aria-label="reader"]')?.firstElementChild?.getAttribute("class"),
+      "convo-head",
+    );
     assert.equal(readerHead(container)?.getAttribute("class"), "title-row");
     assert.equal(readerHead(container)?.querySelector(".back")?.getAttribute("aria-label"), "back");
-    assert.deepEqual(crumbTexts(readerHead(container)), ["app build green"]);
+    assert.deepEqual(crumbTexts(readerHead(container)), ["app", "build green"]);
     assert.equal(dockWord(container), "waiting on you");
     assert.equal(dockBox(container)?.querySelector(".statebar .clock") === null, true);
   }));
@@ -1165,7 +1171,7 @@ test("a working pane's delta puts its tool and time on the dock's line, and draw
     assert.equal(container.querySelector(".work-line") === null, true, "no work line is drawn");
   }));
 
-test("a later delta whose pane is done drops the pill's tool and draws no working note", (t) =>
+test("a later delta whose pane is done draws no working note", (t) =>
   withApp(t.signal, {}, async (container, fake) => {
     await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
     const [stream] = fake.callsTo(paneWatchPath);
@@ -1247,11 +1253,11 @@ test("a click on the send button sends the cursor's text once with Panes.SendTex
     await until(t.signal, () => box.value === "", "the sent draft cleared");
   }));
 
-test("the cursor's reader is its title row, its conversation and its foot, and nothing else", (t) =>
+test("the cursor's reader is its head, its conversation and its foot, and nothing else", (t) =>
   withApp(t.signal, {}, async (container, fake) => {
     await untilTurn(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
     assert.deepEqual(sectionChildren(container.querySelector('section[aria-label="reader"]')), [
-      "header.title-row",
+      "div.convo-head",
       "div.reader",
       "div.send",
     ]);
@@ -1317,13 +1323,13 @@ test("a pane row's reader draws its prompts as YOU, whatever their sender and ro
     assert.equal(you.includes("lint failed"), true, "the YOU bubble holds the prompt");
   }));
 
-test("the pinned reader is its title row, its conversation and its foot, and nothing else", (t) =>
+test("the pinned reader is its head, its conversation and its foot, and nothing else", (t) =>
   withApp(t.signal, {}, async (container, fake) => {
     await untilTurn(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
     await press("|");
     await untilTurn(t.signal, () => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
     assert.deepEqual(sectionChildren(container.querySelector('section[aria-label="pinned reader"]')), [
-      "header.title-row",
+      "div.convo-head",
       "div.reader",
       "div.send",
     ]);
@@ -2357,9 +2363,9 @@ test("the pinned title row names the pinned row while the cursor rests on anothe
     await press("Tab", { shiftKey: true });
     await press("j");
     assert.equal(cursorKey(container), "c");
-    assert.deepEqual(crumbTexts(pinnedHead(container)), ["api build green"]);
+    assert.deepEqual(crumbTexts(pinnedHead(container)), ["api", "build green"]);
     assert.equal(dockWord(container, "pinned reader"), "waiting on you");
-    assert.deepEqual(crumbTexts(readerHead(container)), ["docs wrote the guide"]);
+    assert.deepEqual(crumbTexts(readerHead(container)), ["docs", "wrote the guide"]);
     assert.equal(dockWord(container), "done");
     assert.equal(container.querySelector(".pin-head") === null, true);
   }));

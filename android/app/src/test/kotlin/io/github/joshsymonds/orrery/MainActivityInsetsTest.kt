@@ -40,7 +40,7 @@ import org.robolectric.annotation.Config
 private const val NOW = 1_700_000_000L
 private const val PANES_PATH = "/orrery.v1.Panes/List"
 private const val PANE_ROW_TAG = "pane-row:%1"
-private const val PANE_TITLE_TAG = "pane-title"
+private const val HEAD_TEXT_TAG = "head-text"
 private const val STATUS_LINE_TAG = "dock-state"
 private const val DOCK_TAG = "dock"
 private const val CONVERSATION_PATH = "/orrery.v1.Panes/Conversation"
@@ -215,10 +215,10 @@ class MainActivityInsetsTest {
         val controller = openClaudePane()
 
         dispatchInsets(controller, keyboardShown = false)
-        composeRule.onNodeWithTag(PANE_TITLE_TAG, useUnmergedTree = true).assertIsDisplayed()
+        composeRule.onNodeWithTag(HEAD_TEXT_TAG, useUnmergedTree = true).assertIsDisplayed()
 
         dispatchInsets(controller, keyboardShown = true)
-        composeRule.onAllNodes(hasTestTag(PANE_TITLE_TAG), useUnmergedTree = true).assertCountEquals(0)
+        composeRule.onAllNodes(hasTestTag(HEAD_TEXT_TAG), useUnmergedTree = true).assertCountEquals(0)
         assertStatusAboveDraft(controller)
     }
 

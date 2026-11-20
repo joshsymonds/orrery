@@ -240,7 +240,7 @@ class SessionScreenTest {
             serveStreams(server, streamOf(delta(seq = 1L, state = stateOf("done"))))
             server.respond(SAY_PATH, SayResponse.getDefaultInstance())
             setScreen(server)
-            composeRule.awaitExactlyOne(hasTestTag("pane-header"))
+            composeRule.awaitExactlyOne(hasTestTag("head"))
             assertEquals(MESSAGE_HINT, editField().hint.toString())
 
             setDraft(SYNTHETIC_DRAFT)
@@ -322,7 +322,7 @@ class SessionScreenTest {
             setScreen(server, step = StepMode(held = true, label = "synthetic step"))
 
             // The header draws only once the working delta has landed, so the edge is read after the state arrives.
-            composeRule.awaitExactlyOne(hasTestTag("pane-header"))
+            composeRule.awaitExactlyOne(hasTestTag("head"))
             composeRule.onAllNodesWithTag("composer-edge:held").assertCountEquals(1)
             composeRule.onAllNodesWithTag("composer-edge:working").assertCountEquals(0)
         }

@@ -210,6 +210,7 @@ class MainActivity : ComponentActivity() {
                                                 label = current.label,
                                                 doing = current.doing,
                                             ),
+                                            onOpenEpic = { screen = Screen.Epic(it) },
                                         )
                                     }
                                     is Screen.Talk -> {
@@ -239,6 +240,7 @@ class MainActivity : ComponentActivity() {
                                             paneId = current.id,
                                             client = client,
                                             onBack = { screen = Screen.Panes },
+                                            onOpenEpic = { screen = Screen.Epic(it) },
                                         )
                                     }
                                     is Screen.Session -> {
@@ -248,6 +250,7 @@ class MainActivity : ComponentActivity() {
                                             client = client,
                                             onBack = { screen = Screen.Panes },
                                             reason = current.reason,
+                                            onOpenEpic = { screen = Screen.Epic(it) },
                                         )
                                     }
                                     Screen.Pools -> {

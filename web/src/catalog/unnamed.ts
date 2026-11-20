@@ -50,8 +50,6 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   "reader-column": { replacement: "convo-shell", epic: "F3" },
   // ReaderHead draws a conversation's head, titled, or with where.
   "reader-head": { replacement: "TitleRow", epic: "F3" },
-  // ConversationHead draws the head over a conversation, with a strip, or with a count.
-  "conversation-head": { replacement: "TitleRow", epic: "F3" },
   // Talk draws the epic's Talk command, shut and open, with and without sessions or a repository.
   talk: { replacement: "epic-talk", epic: "F4" },
   // TitleParts draws a title's directory and line, with either alone, and a line that holds a link.
@@ -101,12 +99,8 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   "notice/over-the-limit": { replacement: "Notice", epic: "F5" },
   // Orrery draws the rota export with its phase cells open to a click.
   "orrery/opens-phase": { replacement: "Orrery", epic: "F4" },
-  // MeterStrip draws a context alone, green and red, with no host.
-  "meter-strip/context-green": { replacement: "MeterStrip", epic: "F3" },
-  "meter-strip/context-red": { replacement: "MeterStrip", epic: "F3" },
-  // TitleRow draws a crumb and a state, a blocker, a page's commands, and a session's title as its last crumb.
+  // TitleRow draws a crumb and a state, a blocker, and a page's commands.
   "title-row/crumbs-and-state": { replacement: "TitleRow", epic: "F3" },
   "title-row/blocker": { replacement: "TitleRow", epic: "F3" },
   "title-row/with-commands": { replacement: "TitleRow", epic: "F3" },
-  "title-row/session-title": { replacement: "TitleRow", epic: "F3" },
 };

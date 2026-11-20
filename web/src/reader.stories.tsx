@@ -1,11 +1,10 @@
-// The stories of the reader: Reader draws one conversation, and ReaderHead and ConversationHead draw the heads over one.
+// The stories of the reader: Reader draws one conversation, and ReaderHead draws the head over one.
 // Each state draws the fixture conversation it names, folded from its stream by applyDelta as the app folds it.
 
 import type { Stories } from "./catalog/story";
 import { applyDelta, type Conversation } from "./conversation";
 import { at } from "./fixtures/clock";
 import { gets } from "./fixtures/epics";
-import { host } from "./fixtures/host";
 import { paneStreams, panes } from "./fixtures/panes";
 import { headless, sessions, sessionStreams } from "./fixtures/sessions";
 import { findMatches } from "./find";
@@ -13,12 +12,9 @@ import { readerQuestion } from "./inboxrow";
 import * as reader from "./reader";
 import { type Row, rowsFrom } from "./rows";
 import { sendingEntry } from "./sending";
-import { PaneStrip } from "./strip";
 import { TitleParts } from "./titleparts";
-import type { InboxMark } from "./titlerow";
 
 const noop = () => {};
-const quiet: InboxMark = { needs: 0, enter: noop, leave: noop, pin: noop };
 
 // must returns value, or throws naming what the fixtures do not hold.
 function must<T>(value: T | undefined, what: string): T {
@@ -98,23 +94,4 @@ export const ReaderHead: Stories = {
     />
   ),
   where: () => <reader.ReaderHead label="rota-export" where="lighthouse › T2 · implementing" />,
-};
-
-export const ConversationHead: Stories = {
-  "with-strip": () => (
-    <reader.ConversationHead
-      dir={lamp.project}
-      line={lamp.label}
-      onBack={noop}
-      strip={<PaneStrip host={host} context={lampConversation.state?.context} />}
-    />
-  ),
-  "needs-count": () => (
-    <reader.ConversationHead
-      dir={lamp.project}
-      line={lamp.label}
-      onBack={noop}
-      mark={{ ...quiet, needs: 3 }}
-    />
-  ),
 };

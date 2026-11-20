@@ -1,11 +1,13 @@
 package io.github.joshsymonds.orrery.ui
 
 import android.util.Log
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -21,6 +23,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import io.github.joshsymonds.orrery.api.HostStat
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import java.io.IOException
@@ -31,8 +34,8 @@ import kotlinx.coroutines.launch
 
 private const val TAG = "SessionScreen"
 private const val RECONNECT_DELAY_MILLIS = 1_000L
+private const val HEAD_POLL_MILLIS = 1_000L
 private const val CLOCK_TICK_MILLIS = 1_000L
-private const val REFRESH_FAILED = "could not refresh"
 private const val TEXT_KIND = "text"
 
 /** The unfinished main-thread text blocks that have text so far, each as a reply after the items. */
@@ -53,8 +56,9 @@ data class StepMode(val held: Boolean, val label: String, val doing: String = ""
  * folded into what the screen holds, and a failed stream reconnects after the seq it holds, so the
  * conversation resumes where it stopped. A stream that ends without error reconnects the same way.
  *
- * The screen shows the session's header, its conversation with each unfinished main-thread text block
- * as a reply after the items, and the open request as a card after the last item. The dock under the
+ * The screen shows the session's head, its conversation with each unfinished main-thread text block
+ * as a reply after the items, and the open request as a card after the last item. The head's epics and
+ * host are read while the screen is started, and the head folds as the pane screen's does. The dock under the
  * conversation says the session's state from the stream, with its controls and its queue; Send posts the
  * draft as a prompt through [SessionSender]. Reading the conversation marks the session seen.
  *
@@ -67,6 +71,7 @@ fun SessionScreen(
     sessionId: String,
     client: OrreryClient,
     onBack: () -> Unit = {},
+    onOpenEpic: (String) -> Unit = {},
     step: StepMode? = null,
     reason: String = "",
     clock: () -> Long = { System.currentTimeMillis() / 1000 },
@@ -74,6 +79,9 @@ fun SessionScreen(
     var streamed by remember(sessionId) { mutableStateOf<StreamedConversation?>(null) }
     var refreshFailed by remember(sessionId) { mutableStateOf(false) }
     var seenAtOpen by remember(sessionId) { mutableStateOf<Long?>(null) }
+    var headEpics by remember(sessionId) { mutableStateOf(HeadEpics(emptyList(), emptyMap())) }
+    var servingHost by remember(sessionId) { mutableStateOf("") }
+    var stats by remember(sessionId) { mutableStateOf<List<HostStat>?>(null) }
     var nowSeconds by remember { mutableLongStateOf(clock()) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val scope = rememberCoroutineScope()
@@ -89,6 +97,7 @@ fun SessionScreen(
 
     DisposableEffect(sessionId, lifecycle) {
         var stream: Job? = null
+        var headPoll: Job? = null
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_START -> {
@@ -107,10 +116,25 @@ fun SessionScreen(
                             delay(RECONNECT_DELAY_MILLIS)
                         }
                     }
+                    headPoll = scope.launch {
+                        while (true) {
+                            // The epics read is before the host read, as the pane screen's poll reads them.
+                            val epics = fetchHeadEpics(client, sessionId)
+                            val host = fetchHost(client)
+                            epics?.let { headEpics = it }
+                            host?.let {
+                                servingHost = it.host
+                                stats = it.stats
+                            }
+                            delay(HEAD_POLL_MILLIS)
+                        }
+                    }
                 }
                 Lifecycle.Event.ON_STOP -> {
                     stream?.cancel()
                     stream = null
+                    headPoll?.cancel()
+                    headPoll = null
                 }
                 else -> Unit
             }
@@ -119,6 +143,7 @@ fun SessionScreen(
         onDispose {
             lifecycle.removeObserver(observer)
             stream?.cancel()
+            headPoll?.cancel()
         }
     }
 
@@ -136,23 +161,53 @@ fun SessionScreen(
     }
     val draft = rememberDockDraft(sessionId)
 
+    val headHidden = rememberHeadHidden()
+    val listState = rememberLazyListState()
+    var tapped by remember(sessionId) { mutableStateOf(false) }
+    // Whether the reader is at the newest line, as the conversation view follows it.
+    var atNewest by remember(sessionId) { mutableStateOf(true) }
+    // A tap on the folded line holds only until the reader next moves between the newest line and the rest.
+    LaunchedEffect(atNewest) { tapped = false }
+    val fold = headFold(hidden = headHidden.value, atNewest = atNewest, tapped = tapped)
+    val steered = headEpics.steered
+    val lines = askLines(steered, headEpics.details)
+    val asking = askingWords(ownName = pane?.takeIf { ownAsks(it) }?.let { lastPathElement(it.cwd) }, lines = lines)
+    val otherHost = pane?.let { otherHostOf(it.host, servingHost) }
+
     Column(modifier = Modifier.fillMaxSize()) {
-        if (refreshFailed) {
+        if (refreshFailed && pane == null) {
             Text(REFRESH_FAILED, modifier = Modifier.padding(horizontal = OrreryTokens.Space.twelve + OrreryTokens.Space.two))
         }
         pane?.let { shown ->
-            PaneHeader(
-                pane = shown,
-                origin = conversation?.origin,
-                stats = null,
+            Head(
+                dir = lastPathElement(shown.cwd),
+                host = shown.host.ifEmpty { servingHost },
+                title = shown.label.ifEmpty { shown.command },
                 context = conversation?.context,
+                note = if (refreshFailed) REFRESH_FAILED else "",
+                stats = if (otherHost == null) stats else null,
+                otherHost = otherHost,
+                goal = conversation?.goal.orEmpty(),
+                lines = lines,
+                asking = asking,
+                badges = headBadges(steered, lines, conversation?.background.orEmpty()),
+                fold = fold,
                 onBack = onBack,
+                onOpenEpic = onOpenEpic,
+                onHide = { headHidden.value = true },
+                onShow = {
+                    headHidden.value = false
+                    tapped = true
+                },
+                modifier = Modifier.fillMaxWidth().background(OrreryTokens.Surface.page),
             )
         }
         Box(modifier = Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
             if (held != null) {
                 ConversationView(
                     entries,
+                    listState = listState,
+                    onFollowing = { atNewest = it },
                     footer = footer,
                     seen = seenAtOpen,
                     now = nowSeconds,

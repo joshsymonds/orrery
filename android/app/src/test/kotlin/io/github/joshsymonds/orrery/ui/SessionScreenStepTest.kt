@@ -206,7 +206,7 @@ class SessionScreenStepTest {
 
             composeRule.awaitExactlyOne(hasTestTag(STOP_TAG))
             assertTrue(composeRule.onAllNodesWithTag(HOLD_TAG).fetchSemanticsNodes().isEmpty())
-            composeRule.awaitExactlyOne(hasTestTag("pane-header"))
+            composeRule.awaitExactlyOne(hasTestTag("head"))
             assertEquals(NUDGE_HELD_HINT, editField().hint.toString())
             assertTrue(composeRule.onAllNodesWithText(NUDGE_NOTE).fetchSemanticsNodes().isEmpty())
         }
@@ -218,7 +218,7 @@ class SessionScreenStepTest {
             serveStream(server, streamOf(delta(seq = 1L, state = stateOf("working"))))
             setStepScreen(server)
 
-            composeRule.awaitExactlyOne(hasTestTag("pane-header"))
+            composeRule.awaitExactlyOne(hasTestTag("head"))
             assertEquals(NUDGE_RUNNING_HINT, editField().hint.toString())
             assertTrue(composeRule.onAllNodesWithText(NUDGE_NOTE).fetchSemanticsNodes().isEmpty())
         }

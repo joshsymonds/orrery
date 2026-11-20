@@ -12,6 +12,7 @@ import com.connectrpc.okhttp.ConnectOkHttpClient
 import com.connectrpc.protocols.NetworkProtocol
 import io.github.joshsymonds.orrery.gen.orrery.v1.AnswerRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.AskRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.BackgroundTask as BackgroundTaskProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.ControlClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationContext as ConversationContextProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationItem as ConversationItemProto
@@ -150,7 +151,9 @@ data class Pane(
     val lastTurnEnd: Long = 0L,
     /** True for a headless session, whose [id] is the session's id; false for a tmux pane. */
     val headless: Boolean = false,
-    /** True when the owner has put the pane or headless session off. */
+    /** The pane's @orrery_id option, the id its session carries; "" when unset. A headless session's is its [id]. */
+    val orreryId: String = "",
+    /** True while the owner has put this question off and not brought it back. */
     val putOff: Boolean = false,
 )
 
@@ -201,10 +204,14 @@ data class PendingItem(val id: String, val kind: String, val waits: String)
 /** The pane's context usage: [tokens] in use out of a [window] of tokens. */
 data class ConversationContext(val tokens: Long, val window: Long)
 
+/** A background task a headless session reported. [type] is "agent" or "shell"; [status] is "running", "done", "failed" or "stopped". */
+data class BackgroundTask(val id: String, val type: String, val status: String, val description: String)
+
 /**
  * [goal] is the pane's active Claude Code goal, or "" when there is none. [waiting] is the
  * queued messages, oldest first, or empty when there are none. [context] is the pane's
- * context usage, or null when the server predates it.
+ * context usage, or null when the server predates it. [background] is the background tasks
+ * a headless session reported, or empty when there are none.
  */
 data class Conversation(
     val origin: String,
@@ -212,6 +219,7 @@ data class Conversation(
     val goal: String = "",
     val waiting: List<WaitingItem> = emptyList(),
     val context: ConversationContext? = null,
+    val background: List<BackgroundTask> = emptyList(),
 )
 
 /**
@@ -219,7 +227,8 @@ data class Conversation(
  * [context] and [pane] are null when the state did not. [request] is the open request of a headless session, and
  * null when none is open or the stream is a pane's. [interrupting] is true while the owner's interrupt is recorded and
  * the session still works, and [interruptingSince] and [turnSince] are unix seconds, 0 when unknown. [pending] are the
- * caller events held for the session, oldest first.
+ * caller events held for the session, oldest first. [background] is the background tasks of a headless session, and
+ * empty when none are reported or the stream is a pane's.
  */
 data class ConversationState(
     val origin: String,
@@ -232,6 +241,7 @@ data class ConversationState(
     val interruptingSince: Long = 0L,
     val turnSince: Long = 0L,
     val pending: List<PendingItem> = emptyList(),
+    val background: List<BackgroundTask> = emptyList(),
 )
 
 /**
@@ -375,6 +385,8 @@ data class EpicRow(
     val source: String = "",
     val phaseAt: Long = 0L,
     val seen: Long = 0L,
+    /** The id of the session that steers the epic, or "" when none does. */
+    val steering: String = "",
 )
 
 /**
@@ -1219,6 +1231,7 @@ class OrreryClient(
             source = source,
             phaseAt = phaseAt,
             seen = seen,
+            steering = steering,
         )
 
     private fun EpicRequirementProto.toEpicRequirementRow(): EpicRequirementRow =
@@ -1492,6 +1505,7 @@ class OrreryClient(
             tool = tool,
             newestReply = newestReply,
             lastTurnEnd = lastTurnEnd,
+            orreryId = orreryId,
             putOff = putOff,
         )
 
@@ -1514,6 +1528,7 @@ class OrreryClient(
             questionHash = "",
             newestReply = newestReply,
             headless = true,
+            orreryId = id,
             putOff = putOff,
         )
 
@@ -1544,6 +1559,9 @@ class OrreryClient(
     private fun ConversationContextProto.toConversationContext(): ConversationContext =
         ConversationContext(tokens = tokens, window = window)
 
+    private fun BackgroundTaskProto.toBackgroundTask(): BackgroundTask =
+        BackgroundTask(id = id, type = type, status = status, description = description)
+
     private fun ConversationStateProto.toConversationState(pane: Pane?, request: SessionRequest?): ConversationState =
         ConversationState(
             origin = origin,
@@ -1556,6 +1574,7 @@ class OrreryClient(
             interruptingSince = interruptingSince,
             turnSince = turnSince,
             pending = pendingList.map { it.toPendingItem() },
+            background = backgroundList.map { it.toBackgroundTask() },
         )
 
     private fun WatchConversationResponse.toConversationDelta(): ConversationDelta =

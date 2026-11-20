@@ -7,7 +7,6 @@ import android.widget.EditText
 import androidx.activity.ComponentActivity
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.snapshots.Snapshot
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
@@ -25,9 +24,6 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToIndex
-import androidx.compose.ui.test.performTouchInput
-import androidx.compose.ui.test.swipe
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import com.connectrpc.Code
@@ -84,25 +80,19 @@ private const val CLAUDE_HINT = "Message project"
 private const val SHELL_HINT = "Type a command…"
 private const val WORKING_HINT = "Queue for project"
 private const val WAITING_HINT = "Answer project"
-private const val GOAL_LINE_TAG = "goal-line"
 private const val DOCK_STATE_TAG = "dock-state"
 private const val DOCK_WORD_TAG = "dock-word"
+private const val BAND_GOAL_TAG = "band-goal"
 private const val NO_CONVERSATION_TAG = "no-conversation"
 private const val HOST_METERS_TAG = "host-meters"
 private val HOST_BODY: HostStatusResponse = HostStatusResponse.newBuilder()
     .setHost("example-host")
     .addStats(HostStatProto.newBuilder().setLabel("cpu").setValue("12%").setPercent(12.0).setLevel("ok"))
     .build()
-private const val PANE_HEADER_TAG = "pane-header"
+private const val HEAD_TAG = "head"
 private const val CONVERSATION_LIST_TAG = "conversation-list"
 private const val REPLY_COUNT = 40
 private const val SHORT_REPLY_COUNT = 3
-private const val OLDER_DRAG_DP = 300f
-private const val NEWER_DRAG_DP = 100f
-// Robolectric's touch slop is 16 px at density 1, so a 20 dp drag delivers only about 4 px of
-// scroll, under the 10 dp show threshold. A 40 dp drag delivers about 24 dp. (A phone's slop is 8 dp.)
-private const val SHORT_DRAG_DP = 40f
-private const val SLOW_SWIPE_MILLIS = 1_000L
 private const val EDGE_TOLERANCE_PX = 0.5f
 
 @OptIn(ExperimentalTestApi::class)
@@ -253,8 +243,8 @@ class PaneScreenTest {
             servePane(server, state = "done", conversation = body)
             setScreen(server)
 
-            composeRule.awaitExactlyOne(hasTestTag("context-meter"))
-            composeRule.onNodeWithTag("context-meter").assertTextEquals("▰▰▱▱▱ 40%")
+            composeRule.awaitExactlyOne(hasTestTag("head-context"))
+            composeRule.onNodeWithTag("head-context").assertTextEquals("▰▰▱▱▱ 40%")
         }
     }
 
@@ -546,7 +536,7 @@ class PaneScreenTest {
                 conversation = conversationBody(conversationItem("reply", "synthetic reply")),
             )
             setScreen(server)
-            composeRule.awaitExactlyOne(hasTestTag(PANE_HEADER_TAG))
+            composeRule.awaitExactlyOne(hasTestTag(HEAD_TAG))
             composeRule.waitForIdle()
 
             assertEquals(expected, editField().hint?.toString())
@@ -583,7 +573,7 @@ class PaneScreenTest {
             servePane(server, state = "")
             setScreen(server)
             composeRule.awaitExactlyOne(hasTestTag(NO_CONVERSATION_TAG))
-            composeRule.onNodeWithTag(PANE_HEADER_TAG).assertExists()
+            composeRule.onNodeWithTag(HEAD_TAG).assertExists()
 
             composeRule.onNodeWithTag(DOCK_WORD_TAG).assertTextEquals("idle")
         }
@@ -641,7 +631,7 @@ class PaneScreenTest {
             setScreen(server)
 
             composeRule.awaitExactlyOne(hasTestTag(NO_CONVERSATION_TAG))
-            composeRule.onNodeWithTag("pane-header").assertExists()
+            composeRule.onNodeWithTag(HEAD_TAG).assertExists()
             composeRule.onNodeWithTag(DOCK_WORD_TAG).assertTextEquals("idle")
             assertEquals(0, conversationRequests(server))
         }
@@ -787,28 +777,7 @@ class PaneScreenTest {
         conversationBody(*(1..count).map { conversationItem("reply", "synthetic reply $it") }.toTypedArray())
 
     private fun headerBounds(): Rect =
-        composeRule.onNodeWithTag(PANE_HEADER_TAG).fetchSemanticsNode().boundsInRoot
-
-    private fun assertHeaderShown() {
-        assertTrue("header should be on screen, bounds ${headerBounds()}", headerBounds().bottom > 0f)
-    }
-
-    private fun assertHeaderHidden() {
-        assertTrue("header should have slid away, bounds ${headerBounds()}", headerBounds().bottom <= 0f)
-    }
-
-    /** A slow drag over the node. A positive distance moves the finger down, towards older content. */
-    private fun drag(tag: String, fingerDownDp: Float) {
-        val dy = with(composeRule.density) { fingerDownDp.dp.toPx() }
-        composeRule.onNodeWithTag(tag).performTouchInput {
-            swipe(
-                start = Offset(center.x, center.y - dy / 2),
-                end = Offset(center.x, center.y + dy / 2),
-                durationMillis = SLOW_SWIPE_MILLIS,
-            )
-        }
-        composeRule.waitForIdle()
-    }
+        composeRule.onNodeWithTag(HEAD_TAG).fetchSemanticsNode().boundsInRoot
 
     @Config(sdk = [35], qualifiers = "w400dp-h1000dp")
     @Test
@@ -818,7 +787,7 @@ class PaneScreenTest {
             setScreen(server)
             composeRule.awaitExactlyOne(hasText("synthetic reply $REPLY_COUNT"))
 
-            composeRule.onNodeWithTag(PANE_HEADER_TAG).assertIsDisplayed()
+            composeRule.onNodeWithTag(HEAD_TAG).assertIsDisplayed()
         }
     }
 
@@ -837,75 +806,6 @@ class PaneScreenTest {
 
     @Config(sdk = [35], qualifiers = "w400dp-h1000dp")
     @Test
-    fun headerSlidesAwayOnDragTowardNewerContent() {
-        FakeOrreryServer().use { server ->
-            servePane(server, conversation = numberedReplies(REPLY_COUNT))
-            setScreen(server)
-            composeRule.awaitExactlyOne(hasText("synthetic reply $REPLY_COUNT"))
-
-            drag(CONVERSATION_LIST_TAG, OLDER_DRAG_DP)
-            drag(CONVERSATION_LIST_TAG, -NEWER_DRAG_DP)
-
-            assertHeaderHidden()
-        }
-    }
-
-    @Config(sdk = [35], qualifiers = "w400dp-h1000dp")
-    @Test
-    fun shortDragTowardOlderContentShowsHeaderAgain() {
-        FakeOrreryServer().use { server ->
-            servePane(server, conversation = numberedReplies(REPLY_COUNT))
-            setScreen(server)
-            composeRule.awaitExactlyOne(hasText("synthetic reply $REPLY_COUNT"))
-
-            drag(CONVERSATION_LIST_TAG, OLDER_DRAG_DP)
-            drag(CONVERSATION_LIST_TAG, -NEWER_DRAG_DP)
-            assertHeaderHidden()
-
-            drag(CONVERSATION_LIST_TAG, SHORT_DRAG_DP)
-
-            assertHeaderShown()
-        }
-    }
-
-    @Config(sdk = [35], qualifiers = "w400dp-h1000dp")
-    @Test
-    fun hiddenHeaderReturnsWhenScrolledToNewestReply() {
-        FakeOrreryServer().use { server ->
-            servePane(server, conversation = numberedReplies(REPLY_COUNT))
-            setScreen(server)
-            composeRule.awaitExactlyOne(hasText("synthetic reply $REPLY_COUNT"))
-            drag(CONVERSATION_LIST_TAG, OLDER_DRAG_DP)
-            drag(CONVERSATION_LIST_TAG, -NEWER_DRAG_DP)
-            assertHeaderHidden()
-
-            composeRule.onNodeWithTag(CONVERSATION_LIST_TAG).performScrollToIndex(REPLY_COUNT - 1)
-            composeRule.waitForIdle()
-
-            assertHeaderShown()
-        }
-    }
-
-    @Config(sdk = [35], qualifiers = "w400dp-h1000dp")
-    @Test
-    fun hiddenHeaderReturnsWhenScrolledToTopOfConversation() {
-        FakeOrreryServer().use { server ->
-            servePane(server, conversation = numberedReplies(REPLY_COUNT))
-            setScreen(server)
-            composeRule.awaitExactlyOne(hasText("synthetic reply $REPLY_COUNT"))
-            drag(CONVERSATION_LIST_TAG, OLDER_DRAG_DP)
-            drag(CONVERSATION_LIST_TAG, -NEWER_DRAG_DP)
-            assertHeaderHidden()
-
-            composeRule.onNodeWithTag(CONVERSATION_LIST_TAG).performScrollToIndex(0)
-            composeRule.waitForIdle()
-
-            assertHeaderShown()
-        }
-    }
-
-    @Config(sdk = [35], qualifiers = "w400dp-h1000dp")
-    @Test
     fun firstConversationItemLiesBelowHeaderAtTop() {
         FakeOrreryServer().use { server ->
             servePane(server, conversation = numberedReplies(SHORT_REPLY_COUNT))
@@ -918,27 +818,6 @@ class PaneScreenTest {
                 "first item top ${first.top} should be below header bottom ${header.bottom}",
                 first.top >= header.bottom,
             )
-        }
-    }
-
-    @Test
-    fun goalShowsUnderTheHeader() {
-        FakeOrreryServer().use { server ->
-            servePane(
-                server,
-                state = "working",
-                conversation = conversationBodyWithGoal(
-                    "synthetic goal text",
-                    conversationItem("reply", "synthetic reply"),
-                ),
-            )
-            setClockedScreen(server)
-
-            composeRule.awaitExactlyOne(hasTestTag(GOAL_LINE_TAG))
-            composeRule.onNodeWithText("synthetic goal text", useUnmergedTree = true).assertIsDisplayed()
-            val goal = composeRule.onNodeWithTag(GOAL_LINE_TAG).fetchSemanticsNode().boundsInRoot
-            val header = composeRule.onNodeWithTag(PANE_HEADER_TAG).fetchSemanticsNode().boundsInRoot
-            assertTrue(goal.top >= header.bottom - EDGE_TOLERANCE_PX)
         }
     }
 
@@ -1016,7 +895,7 @@ class PaneScreenTest {
     }
 
     @Test
-    fun conversationWithoutGoalDrawsNoGoalLine() {
+    fun conversationWithoutGoalDrawsNoGoalBand() {
         FakeOrreryServer().use { server ->
             servePane(
                 server,
@@ -1027,12 +906,12 @@ class PaneScreenTest {
 
             composeRule.awaitExactlyOne(hasText("synthetic reply"))
             composeRule.onNodeWithTag(DOCK_STATE_TAG).assertIsDisplayed()
-            composeRule.onAllNodesWithTag(GOAL_LINE_TAG).assertCountEquals(0)
+            composeRule.onAllNodesWithTag(BAND_GOAL_TAG).assertCountEquals(0)
         }
     }
 
     @Test
-    fun emptyGoalDrawsNoGoalLine() {
+    fun emptyGoalDrawsNoGoalBand() {
         FakeOrreryServer().use { server ->
             servePane(
                 server,
@@ -1042,7 +921,7 @@ class PaneScreenTest {
             setClockedScreen(server)
 
             composeRule.awaitExactlyOne(hasText("synthetic reply"))
-            composeRule.onAllNodesWithTag(GOAL_LINE_TAG).assertCountEquals(0)
+            composeRule.onAllNodesWithTag(BAND_GOAL_TAG).assertCountEquals(0)
         }
     }
 

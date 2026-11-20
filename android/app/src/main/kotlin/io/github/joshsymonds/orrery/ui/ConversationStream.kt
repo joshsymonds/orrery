@@ -43,10 +43,10 @@ fun StreamedConversation.shownItems(): List<ConversationItem> {
 /**
  * Folds [delta] into what the screen holds. A reset, or a delta applied to nothing held, holds the delta's items and
  * unfinished set and takes its state, or empty fields when the state is null. Any other delta appends its items and
- * replaces the unfinished set with its own, even an empty one. A set state replaces origin, goal, waiting, context,
- * pane, request, the interrupt facts and pending while a null state keeps what is held. Every delta replaces the queued
- * set with its own. The unsent set grows by the prompt ids of the delta's canceled and discarded messages and keeps the
- * ones it held. Items are trimmed to the newest [keep]. The result takes the delta's transcript and seq.
+ * replaces the unfinished set with its own, even an empty one. A set state replaces origin, goal, waiting, context, pane,
+ * request, background, the interrupt facts and pending while a null state keeps what is held. Every delta replaces the
+ * queued set with its own. The unsent set grows by the prompt ids of the delta's canceled and discarded messages and keeps
+ * the ones it held. Items are trimmed to the newest [keep]. The result takes the delta's transcript and seq.
  */
 fun StreamedConversation?.applyDelta(delta: ConversationDelta, keep: Int = 50): StreamedConversation {
     val held = this
@@ -61,6 +61,7 @@ fun StreamedConversation?.applyDelta(delta: ConversationDelta, keep: Int = 50): 
                 goal = state?.goal.orEmpty(),
                 waiting = state?.waiting ?: emptyList(),
                 context = state?.context,
+                background = state?.background ?: emptyList(),
             ),
             pane = state?.pane,
             unfinished = delta.unfinished,
@@ -83,6 +84,7 @@ fun StreamedConversation?.applyDelta(delta: ConversationDelta, keep: Int = 50): 
             goal = state?.goal ?: conversation.goal,
             waiting = state?.waiting ?: conversation.waiting,
             context = if (state != null) state.context else conversation.context,
+            background = if (state != null) state.background else conversation.background,
         ),
         pane = if (state != null) state.pane else held.pane,
         unfinished = delta.unfinished,
