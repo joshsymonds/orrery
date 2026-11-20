@@ -6,6 +6,7 @@ import android.provider.Settings
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsNode
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
@@ -21,6 +22,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.test.core.app.ApplicationProvider
 import com.connectrpc.Code
 import io.github.joshsymonds.orrery.MainActivity
@@ -85,6 +87,8 @@ class EpicRecordScreenTest {
         const val CHANGED = 4_102_444_800L
         const val STEERING = "example-session"
         const val STEERING_LABEL = "synthetic-steering-label"
+        /** Long enough that the door's line runs past the phone's width in the test's text metrics, so it would wrap. */
+        val LONG_LABEL = "synthetic-steering-label-".repeat(20)
         const val STEERING_CWD = "/home/user/example-worktree"
         const val STEERING_DOOR = "example-worktree · $STEERING_LABEL"
         const val EPICS_GET = "/orrery.v1.Epics/Get"
@@ -180,12 +184,12 @@ class EpicRecordScreenTest {
             .build()
 
     /** The tmux pane the steering conversation is listed as: its orrery id is [STEERING], in [STEERING_CWD]. */
-    private fun steeringPane(): PaneProto =
+    private fun steeringPane(label: String = STEERING_LABEL): PaneProto =
         PaneProto.newBuilder()
             .setId(PANE_ID)
             .setOrreryId(STEERING)
             .setCwd(STEERING_CWD)
-            .setLabel(STEERING_LABEL)
+            .setLabel(label)
             .build()
 
     private fun question(id: String, text: String, asked: Long): EpicQuestion =
@@ -309,6 +313,23 @@ class EpicRecordScreenTest {
         ?.single()
         ?.item
         ?.color
+
+    /** The two Texts of the door tagged [tag] in the unmerged tree, its label first and then its line. */
+    private fun doorTexts(tag: String): List<SemanticsNode> {
+        val texts = composeRule.onAllNodes(
+            hasAnyAncestor(hasTestTag(tag)) and SemanticsMatcher.keyIsDefined(SemanticsProperties.Text),
+            useUnmergedTree = true,
+        ).fetchSemanticsNodes()
+        assertEquals(2, texts.size)
+        return texts
+    }
+
+    /** The text layout the Text at [node] is drawn with: its line count and whether it overflows its width. */
+    private fun textLayoutOf(node: SemanticsNode): TextLayoutResult {
+        val layouts = mutableListOf<TextLayoutResult>()
+        checkNotNull(node.config.getOrNull(SemanticsActions.GetTextLayoutResult)?.action).invoke(layouts)
+        return layouts.single()
+    }
 
     private fun requestsTo(server: FakeOrreryServer, path: String) = server.requests.filter { it.rawPath == path }
 
@@ -482,6 +503,43 @@ class EpicRecordScreenTest {
 
             sectionIndex(listState, "summary")
             assertEquals(0, countNodes(hasTestTag("epic-door-steered")))
+        }
+    }
+
+    @Test
+    fun epicRecordEachDoorsLabelLaysOutInOneLineBesideItsLongLine() {
+        val listState = LazyListState()
+        FakeOrreryServer().use { server ->
+            serve(server, body(summary = "Example summary.", contract = contract(), steering = STEERING))
+            server.respond(PANES_LIST, PanesListResponse.newBuilder().addPanes(steeringPane(LONG_LABEL)).build())
+            setScreen(server, listState = listState)
+            awaitLoaded()
+
+            sectionIndex(listState, "summary")
+            awaitTag("epic-door-steered")
+            for (tag in listOf("epic-door-contract", "epic-door-steered")) {
+                val (label, line) = doorTexts(tag)
+                assertEquals(1, textLayoutOf(label).lineCount)
+                assertEquals(label.boundsInRoot.top.toDouble(), line.boundsInRoot.top.toDouble(), 0.0)
+            }
+        }
+    }
+
+    @Test
+    fun epicRecordADoorsLongLineLaysOutOnOneLineWithinItsRow() {
+        val listState = LazyListState()
+        FakeOrreryServer().use { server ->
+            serve(server, body(summary = "Example summary.", steering = STEERING))
+            server.respond(PANES_LIST, PanesListResponse.newBuilder().addPanes(steeringPane(LONG_LABEL)).build())
+            setScreen(server, listState = listState)
+            awaitLoaded()
+
+            sectionIndex(listState, "summary")
+            awaitTag("epic-door-steered")
+            val (_, line) = doorTexts("epic-door-steered")
+            assertEquals(1, textLayoutOf(line).lineCount)
+            val door = composeRule.onNodeWithTag("epic-door-steered", useUnmergedTree = true).fetchSemanticsNode()
+            assertTrue(line.boundsInRoot.right <= door.boundsInRoot.right)
         }
     }
 

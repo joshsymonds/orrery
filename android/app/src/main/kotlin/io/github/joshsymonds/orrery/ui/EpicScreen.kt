@@ -2,6 +2,7 @@ package io.github.joshsymonds.orrery.ui
 
 import android.util.Log
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -27,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import io.github.joshsymonds.orrery.api.EpicDetail
@@ -501,18 +503,27 @@ private fun listedReadOf(steering: String, listedSteerer: (steering: String) -> 
     return read
 }
 
-// Door is one tappable line of the summary: its label, then what it opens.
+// Door is one tappable row of the summary: its label, then what it opens. The label is one line and never splits; the
+// line takes the rest of the row and ellipsizes on one line, as the web's door does.
 @Composable
 private fun Door(label: String, line: String, tag: String, onTap: () -> Unit) {
-    Column(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .testTag(tag)
             .clickable(onClick = onTap)
             .padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.eight),
+        horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(label, style = OrreryTokens.Type.small, color = OrreryTokens.Ink.three)
-        Text(line, style = OrreryTokens.Type.small)
+        Text(label, style = OrreryTokens.Type.small, color = OrreryTokens.Ink.three, softWrap = false)
+        Text(
+            line,
+            style = OrreryTokens.Type.small,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

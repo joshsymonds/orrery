@@ -962,11 +962,14 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 .epic-page .summary { display: grid; gap: var(--o-space-8); min-width: 0; }
 .epic-page .summary-text { max-width: var(--o-layout-read-measure-ch); margin: 0; color: var(--o-ink-2); font: var(--o-type-body); overflow-wrap: anywhere; }
 .epic-page .doors { display: flex; flex-wrap: wrap; gap: var(--o-space-4) var(--o-space-24); min-width: 0; }
+/* A door: its label holds one line and never shrinks, and its line takes the rest of the row and ellipsizes. The Contract
+   door is also .contract, whose anywhere wrap would split the label inside a word, so the door resets that wrap. */
 .epic-page .door {
-  display: inline-flex; align-items: center; gap: var(--o-space-8); min-width: 0; min-height: var(--o-space-24); padding: var(--o-space-4) 0; border: 0; border-radius: 0;
-  background: none; color: var(--o-role-ref); font: var(--o-type-small); text-align: left; cursor: pointer; appearance: none; -webkit-appearance: none;
+  display: inline-flex; align-items: center; gap: var(--o-space-8); min-width: 0; max-width: 100%; min-height: var(--o-space-24); padding: var(--o-space-4) 0; border: 0; border-radius: 0;
+  background: none; color: var(--o-role-ref); font: var(--o-type-small); text-align: left; cursor: pointer; appearance: none; -webkit-appearance: none; overflow-wrap: normal;
 }
-.epic-page .door > span:first-child { color: var(--o-ink-3); }
+.epic-page .door > span:first-child { color: var(--o-ink-3); flex: none; white-space: nowrap; }
+.epic-page .door > span:not(:first-child) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .epic-page .door:hover { text-decoration: underline; }
 /* The track: five stages in the epic's order, each a rail in its state's colour, its name in the label face and its words under it. */
 .epic-page .track { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--o-space-4); min-width: 0; margin: 0; padding: 0; list-style: none; }
