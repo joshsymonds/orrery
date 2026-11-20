@@ -1755,8 +1755,19 @@ export function App({
   // has no tile, so no tile is lit and the card takes the quiet tone.
   const panelOpen = pageDrawn && epicEntry !== null && !epicPage.closed && !contractShown && shownProject === null;
   // Under 760px an open epic is the page in the conversation's place: the conversation is not drawn, and the page's
-  // foot bar opens the steering conversation. At the desk the epic panel lies beside the conversation.
+  // foot bar opens the steering conversation. At the desk the epic panel lies beside the conversation, but not a worker
+  // session, which takes the conversation's place (sessionAtDesk).
   const epicPageShown = !wide && panelOpen;
+  // At the desk an open worker session is the middle conversation: it draws in the middle column, and no epic panel lies
+  // beside it. Its back returns to the record in the panel. A session whose step the epic's detail lacks stays in the
+  // panel, where its line says so beside the panel's close.
+  const sessionAtDesk =
+    wide &&
+    panelOpen &&
+    epicEntry !== null &&
+    openStep !== "" &&
+    epicDetail?.steps.some((step) => step.id === openStep) === true;
+  const epicBeside = panelOpen && !sessionAtDesk;
   // Under 760px an open contract is the page in the conversation's place too, and the reader is not drawn.
   const contractPageShown = !wide && contractShown;
   const panelThing =
@@ -1770,7 +1781,7 @@ export function App({
   const panelTone = panelThing?.tone ?? "quiet";
   // The one panel open beside the conversation is an epic's, a contract's or a list's. A list's card takes its tile's
   // tone, and its rows are the tile's tasks, which are empty once the tile is gone.
-  const panelShown = panelOpen || contractShown || listShown !== null;
+  const panelShown = epicBeside || contractShown || listShown !== null;
   const listThing = railGroups
     .flatMap((group) => group.things)
     .find(
@@ -2403,14 +2414,21 @@ export function App({
         </div>
         {shownProject !== null && projectSection(shownProject)}
         <Sheet open={sheeted} title={contractLiveRow?.label ?? ""} onClose={() => setTalking(false)}>
-          {middleColumn}
+          {sessionAtDesk ? (
+            <section class={`read ${pageClasses(epicPage.move)}`} aria-label="session" ref={pageRef}>
+              {pageNode(epicEntry, epicDetail)}
+            </section>
+          ) : (
+            middleColumn
+          )}
         </Sheet>
         {pageDrawn &&
           shownProject === null &&
           epicEntry !== null &&
           !contractShown &&
           steererRow === null &&
-          !epicPageShown && (
+          !epicPageShown &&
+          !sessionAtDesk && (
             <section class="read" aria-label="no conversation">
               {noSteererMiddle(epicDetail)}
             </section>
@@ -2453,7 +2471,7 @@ export function App({
             void escapeRow({ row, column: "pinned", state: headState(row, pinnedConversation) }, null)
           }
         />
-        {epicEntry !== null && panelOpen && wide && (
+        {epicEntry !== null && epicBeside && wide && (
           <SidePanel label="epic" tone={panelTone} href={shownForm} onClose={closePanel}>
             {epicPageSection(epicEntry, epicDetail)}
           </SidePanel>

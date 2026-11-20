@@ -358,9 +358,30 @@ test("HashRoute: a worker session address shows that session over the epic page"
       },
     },
     async (container) => {
-      assert.equal(container.querySelector('section.page[aria-label="epic"] .worker-session') !== null, true);
-      await backFromPage(container);
+      assert.equal(container.querySelector('section[aria-label="session"] .worker-session') !== null, true);
+      await clickButton(container, 'section[aria-label="session"] .title-row', "‹");
       assert.equal(epicPageDrawn(container), true, "the epic page is under the worker session");
+    },
+  ));
+
+test("HashRoute: a worker session address whose step the epic lacks stays in the panel, with its close, and draws no session in the middle", (t) =>
+  withApp(
+    t.signal,
+    {
+      rows: [waitingRow()],
+      epics: phaseEpic(),
+      address: {
+        view: "inbox",
+        entry: {
+          kind: "epic",
+          id: widgetsFirst,
+          page: { kind: "session", task: "T1", phase: "checking", step: "no-such-step" },
+        },
+      },
+    },
+    async (container) => {
+      assert.equal(container.querySelector('section[aria-label="session"]'), null, "no session is drawn in the middle");
+      assert.equal(container.querySelector(".rpanel .side-note")?.textContent, "session unavailable");
     },
   ));
 
