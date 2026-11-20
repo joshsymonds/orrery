@@ -19,12 +19,16 @@ const stateInterrupted = "interrupted"
 // SessionSource is the source kind of a session notice. Its data is the Notice JSON that Notify stored.
 const SessionSource = "session"
 
-// Notice is one headless session event the owner is told about.
+// Notice is one headless session event the owner is told about. Options are the option labels of the open request
+// the session waits on, in answer order, and Request is that request's id. Both are empty for a notice that waits on
+// no request.
 type Notice struct {
-	Session string `json:"session"`
-	Dir     string `json:"dir"`
-	State   string `json:"state"`
-	Body    string `json:"body"`
+	Session string   `json:"session"`
+	Dir     string   `json:"dir"`
+	State   string   `json:"state"`
+	Body    string   `json:"body"`
+	Options []string `json:"options,omitempty"`
+	Request string   `json:"request,omitempty"`
 }
 
 // Router routes notices to the owner's desk and phone. *route.Router satisfies it.
@@ -123,11 +127,14 @@ func notifies(state string) bool {
 }
 
 // pushNotification is the push for event. The body is the question when the session waits and the summary
-// otherwise, and it is carried as given. The notice record fills in the host, pane, session and time.
+// otherwise, and it is carried as given. The options and request are the open request's, when it waits on one. The
+// notice record fills in the host, pane, session and time.
 func pushNotification(event Notice) push.Notification {
 	note := push.Notification{
 		Project: filepath.Base(event.Dir),
 		State:   protocol.State(event.State),
+		Options: event.Options,
+		Request: event.Request,
 	}
 	if event.State == string(protocol.StateWaiting) {
 		note.Question = event.Body

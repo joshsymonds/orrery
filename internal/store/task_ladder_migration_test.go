@@ -62,7 +62,7 @@ func TestTaskLadderMigrationStepsDownAndUp(t *testing.T) {
 		{Epic: seededEpic, Task: 1, Rung: 1, Kind: RungAttempt, Created: 1700000100},
 		{Epic: seededEpic, Task: 1, Rung: 2, Kind: RungAttempt, MovedBy: MovedByUnit, Cause: "the build exited 1",
 			Step: "step-7", Created: 1700000200},
-		{Epic: seededEpic, Task: 1, Rung: 3, Kind: RungRescue, MovedBy: MovedByFinding, Cause: "the claim failed",
+		{Epic: seededEpic, Task: 1, Rung: 3, Kind: "rescue", MovedBy: MovedByFinding, Cause: "the claim failed",
 			Gate: "review", Assertion: "the claim", Step: "step-8", Created: 1700000300},
 	}, []sqlcgen.InsertEpicTaskRungOutcomeParams{
 		{Epic: seededEpic, Task: 1, Rung: 1, Outcome: RungFailed, Reason: "the first build failed", Ended: 1700000150},

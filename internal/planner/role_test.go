@@ -84,18 +84,12 @@ func TestRoleSaysOutcomeCompleteNeedsEveryRequirementClaimed(t *testing.T) {
 	}
 }
 
-// TestRoleSaysTheCheckSendsBackClaimAndContributeFaults asserts that the paragraph on the check's send-back names a
-// Requirement claimed twice, a contributed Requirement with no claim, and a Requirement left unclaimed at complete.
-func TestRoleSaysTheCheckSendsBackClaimAndContributeFaults(t *testing.T) {
+// TestRoleNamesTheUnclaimedRequirementsSection asserts that the role text names the prompt section that lists each
+// Requirement no live task claims, under the heading the prompt renders it with.
+func TestRoleNamesTheUnclaimedRequirementsSection(t *testing.T) {
 	t.Parallel()
-	for _, want := range []string{
-		"a Requirement claimed twice",
-		"a contributed Requirement that no task claims",
-		"a Requirement left unclaimed at complete",
-	} {
-		if !strings.Contains(role, want) {
-			t.Errorf("role text lacks %q", want)
-		}
+	if !strings.Contains(role, "Unclaimed requirements") {
+		t.Errorf("role text does not name the Unclaimed requirements section")
 	}
 }
 
@@ -175,14 +169,6 @@ func TestRoleEvidenceShown(t *testing.T) {
 			t.Errorf("role text lacks %q", want)
 		}
 	})
-	t.Run("the planner role says a conclusion lists what the output shows", func(t *testing.T) {
-		t.Parallel()
-		want := "write a conclusion as a list of things that output shows, such as the exit code and each named " +
-			"test or subtest its -v output shows passing, never a claim only the code could show."
-		if !strings.Contains(role, want) {
-			t.Errorf("role text lacks %q", want)
-		}
-	})
 }
 
 // TestRoleTellsThePlannerWhatFailsATaskBeforeItsCodeDoes: the role text names the plan mistakes that fail a task whose
@@ -195,10 +181,8 @@ func TestRoleTellsThePlannerWhatFailsATaskBeforeItsCodeDoes(t *testing.T) {
 		"Before you return a task, read the base and confirm its conclusion is false there.",
 		"So a task that only adds tests for behavior the base already has, rewrites a test, or fixes a flake takes " +
 			"kind capture with no tests. The check refuses kind test on a task whose files are all test files.",
-		"Plan no further try of a spent line. Ask the owner a catastrophe question instead",
-		"The check refuses a task that shares a claimed or contributed Requirement or a file with a spent line's " +
-			"tasks, and a return that neither asks a question, amends evidence nor closes the epic while a line is " +
-			"spent.",
+		"A further try of a spent line is your judgment",
+		"Otherwise ask the owner a catastrophe question",
 		"So a deliverable never forbids such a change.",
 		"its implementer declares its changes as gate-needed, and the epic's conformance review reads that " +
 			"declaration.",

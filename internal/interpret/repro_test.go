@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"reflect"
-	"slices"
+	"strings"
 	"testing"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
@@ -154,51 +154,36 @@ func TestReproductionChecksCaptureAtOverlayOfBase(t *testing.T) {
 	}
 }
 
-// TestBuiltInReproductionDecidesBuilt: on the built-in epic whose red is judged fails, a reproduction that exits 0
-// parks the plan's completion as not built, told, and the epic is not met at base. One that exits 1 lets the plan end
-// built.
+// TestBuiltInReproductionDecidesBuilt: on the built-in epic whose red is judged fails, a reproduction whatever it exits
+// holds nothing against the plan's completion. Each lets the plan end built with the epic not parked: a reproduction
+// that exits 0 disagrees with red, which the owner is not asked about, and one that exits 1 agrees with it.
 func TestBuiltInReproductionDecidesBuilt(t *testing.T) {
 	t.Parallel()
-	t.Run("exit 0 parks the epic as not built", func(t *testing.T) {
-		t.Parallel()
-		w := toBuiltReproduction(t)
-		nodeEndCheck(t, w.s, reproCheckOf(t, w, reproBuiltBatch), 0, "")
-		w.pass()
-		completeTurn(t, w.s, store.EpicPlan{Decisions: []string{}, Outline: "the batch is green", Outcome: "complete"})
-		w.pass()
+	for _, exit := range []int{0, 1} {
+		t.Run(fmt.Sprintf("exit %d lets the plan end built", exit), func(t *testing.T) {
+			t.Parallel()
+			w := toBuiltReproduction(t)
+			nodeEndCheck(t, w.s, reproCheckOf(t, w, reproBuiltBatch), exit, "")
+			w.pass()
+			completeTurn(
+				t,
+				w.s,
+				store.EpicPlan{Decisions: []string{}, Outline: "the batch is green", Outcome: "complete"},
+			)
+			w.pass()
 
-		reason := "epic not built: " + fmt.Sprintf(
-			"R1 judge and exit disagree at the epic's base %s: red was judged fails, "+
-				"but its reproduction with the candidate's tests exited 0", w.base,
-		)
-		epic := epicOf(t, w.s)
-		if epic.Parked != reason {
-			t.Errorf("epic parked = %q, want %q", epic.Parked, reason)
-		}
-		if tells := nodeTells(t, w.path); len(tells) != 0 {
-			t.Errorf("tells = %q, want none: an epic not built is a planner park", tells)
-		}
-		if got := triggerCausesOf(t, w.s, epic.ID); !slices.Contains(got, reason) {
-			t.Errorf("trigger causes = %q, want one with cause %q", got, reason)
-		}
-		if epic.Phase == "met_at_base" {
-			t.Errorf("epic phase = %q, want it not met at base", epic.Phase)
-		}
-	})
-	t.Run("exit 1 lets the plan end built", func(t *testing.T) {
-		t.Parallel()
-		w := toBuiltReproduction(t)
-		nodeEndCheck(t, w.s, reproCheckOf(t, w, reproBuiltBatch), 1, "")
-		w.pass()
-		completeTurn(t, w.s, store.EpicPlan{Decisions: []string{}, Outline: "the batch is green", Outcome: "complete"})
-		w.pass()
-
-		if plan := runAt(t, w.s, "plan"); plan.State != store.NodeEnded || plan.Outcome != "complete" {
-			t.Errorf("plan = %+v, want ended complete", plan)
-		}
-		epic := epicOf(t, w.s)
-		if epic.Phase != "built" || epic.Parked != "" {
-			t.Errorf("epic phase = %q and parked = %q, want built and not parked", epic.Phase, epic.Parked)
-		}
-	})
+			if plan := runAt(t, w.s, "plan"); plan.State != store.NodeEnded || plan.Outcome != "complete" {
+				t.Errorf("plan = %+v, want ended complete", plan)
+			}
+			epic := epicOf(t, w.s)
+			if epic.Phase != "built" || epic.Parked != "" {
+				t.Errorf("epic phase = %q and parked = %q, want built and not parked", epic.Phase, epic.Parked)
+			}
+			for _, cause := range triggerCausesOf(t, w.s, epic.ID) {
+				if strings.HasPrefix(cause, "epic not built") {
+					t.Errorf("trigger cause %q, want no planner wake for a plan that ends built", cause)
+				}
+			}
+		})
+	}
 }

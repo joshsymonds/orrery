@@ -351,7 +351,6 @@ func TestStatusReportsRestoredGrantWithItsOriginalSince(t *testing.T) {
 	if err := second.Restore(t.Context()); err != nil {
 		t.Fatalf("Restore: %v", err)
 	}
-	awaitAwake(t, second, "m1")
 
 	m := memberNamed(t, poolNamed(t, second.Status(), "p"), "m1")
 	if !m.HeldSince.IsZero() {

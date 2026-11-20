@@ -67,8 +67,8 @@ func acceptedPeer(seq int64, changed ...string) Peer {
 // emptyVersion returns the version of a return that changes nothing: every field the schema requires, empty.
 func emptyVersion() map[string]any {
 	return map[string]any{
-		"changed": []string{}, "deliverable": "", "files": []string{}, "test_changes": []string{}, "gate": "",
-		"evidence": map[string]any{
+		"changed": []string{}, "deliverable": "", "files": []string{}, "remove": []string{}, "test_changes": []string{},
+		"gate": "", "evidence": map[string]any{
 			"capture": []string{}, "limit": 0, "artifacts": []string{}, "supplied": []string{}, "conclusion": "",
 			"judge": "", "kind": "", "tests": []string{},
 		},
@@ -134,6 +134,9 @@ func TestOrchestratorSchemaAcceptsEachDecisionAndUsesTheEngineSubset(t *testing.
 			"version": versionWith(map[string]any{"changed": []string{"gate"}, "gate": "check"}),
 		}),
 		orchReturn(t, map[string]any{"decision": "grant", "version": filesVersion("b.go")}),
+		orchReturn(t, map[string]any{"decision": "re_brief", "version": versionWith(map[string]any{
+			"changed": []string{"files"}, "files": []string{"c.go"}, "remove": []string{"a.go"},
+		})}),
 		orchReturn(t, map[string]any{"decision": "fail", "failure": "f", "needs_files": []string{"b.go"}}),
 		orchReturn(t, map[string]any{"decision": "ask", "question": askQuestion()}),
 		orchReturn(t, map[string]any{"status": "blocked"}),
@@ -403,6 +406,7 @@ func TestDecideOrchestrate(t *testing.T) {
 	grantRet := orchReturn(t, map[string]any{"decision": "grant", "version": filesVersion("b.go")})
 	nothing := store.TaskVersionInput{
 		Source: store.SourceOrchestrator, Step: "orch-step", Reason: "the code says so", Files: []string{},
+		Remove: []string{},
 	}
 	redone := nothing
 	redone.Deliverable = &deliverable

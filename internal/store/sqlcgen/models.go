@@ -437,6 +437,8 @@ type EpicTask struct {
 	AfterTasks  string
 	Question    int64
 	GateChanges string
+	Rebriefs    string
+	Notes       string
 }
 
 type EpicTaskContribute struct {
@@ -494,6 +496,7 @@ type EpicTaskReview struct {
 	Gate     string
 	Step     string
 	Verdict  string
+	Reason   string
 }
 
 type EpicTaskRung struct {
@@ -664,6 +667,22 @@ type Hold struct {
 	Since  int64
 }
 
+type NoticeHistory struct {
+	ID       int64
+	Pane     string
+	Session  string
+	Epic     string
+	LimitKey string
+	Alert    string
+	State    string
+	Title    string
+	Body     string
+	Block    string
+	BlockRef string
+	Time     int64
+	Read     bool
+}
+
 type PendingNotice struct {
 	ID          int64
 	Pane        string
@@ -703,6 +722,8 @@ type PlannerAction struct {
 	Requirement string
 	Item        string
 	Deliverable string
+	Files       string
+	RemoveFiles string
 }
 
 type PromptState struct {

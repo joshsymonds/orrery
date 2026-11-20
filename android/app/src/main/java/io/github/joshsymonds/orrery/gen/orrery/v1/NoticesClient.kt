@@ -12,8 +12,8 @@ import com.connectrpc.ServerOnlyStreamInterface
 import com.connectrpc.StreamType
 
 /**
- *  Notices streams the notices open web pages show in-app, and takes the page's word that the owner opened one. serve
- *  forwards both to orreryd.
+ *  Notices streams the notices open web pages show in-app, takes the page's word that the owner opened one, lists the
+ *  notice history and marks it read. serve forwards every call to orreryd.
  */
 public class NoticesClient(
   private val client: ProtocolClientInterface,
@@ -46,6 +46,37 @@ public class NoticesClient(
     "orrery.v1.Notices/Seen",
       io.github.joshsymonds.orrery.gen.orrery.v1.NoticesSeenRequest::class,
       io.github.joshsymonds.orrery.gen.orrery.v1.NoticesSeenResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  List returns the notices orreryd showed at the desk or sent away with their desk text built, timed within the last
+   *  14 days, newest first, each with its read mark. With no orreryd to forward to, List is unavailable.
+   */
+  override suspend fun list(request: NoticesListRequest, headers: Headers): ResponseMessage<NoticesListResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "orrery.v1.Notices/List",
+      io.github.joshsymonds.orrery.gen.orrery.v1.NoticesListRequest::class,
+      io.github.joshsymonds.orrery.gen.orrery.v1.NoticesListResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  ReadAll marks every notice in the notice history read. With no orreryd to forward to, ReadAll is unavailable.
+   */
+  override suspend fun readAll(request: NoticesReadAllRequest, headers: Headers): ResponseMessage<NoticesReadAllResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "orrery.v1.Notices/ReadAll",
+      io.github.joshsymonds.orrery.gen.orrery.v1.NoticesReadAllRequest::class,
+      io.github.joshsymonds.orrery.gen.orrery.v1.NoticesReadAllResponse::class,
       StreamType.UNARY,
     ),
   )

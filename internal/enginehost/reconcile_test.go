@@ -136,7 +136,7 @@ func TestReconcileInterruptsTurnsAndClearsTextOfRowsWithoutProcess(t *testing.T)
 	seen := map[string]bool{}
 	for _, notice := range got {
 		want, ok := wantNotices[notice.Session]
-		if !ok || seen[notice.Session] || notice != want {
+		if !ok || seen[notice.Session] || !reflect.DeepEqual(notice, want) {
 			t.Fatalf("notices = %+v, want exactly [%+v, %+v]", got, wantNotices["waiting"], wantNotices["working"])
 		}
 		seen[notice.Session] = true
@@ -326,7 +326,7 @@ func TestReconcileSettlesStepRowSilently(t *testing.T) {
 		t.Fatalf("unfinished text rows after Reconcile = %d, want 0", n)
 	}
 	want := Notice{Session: "engine", Dir: "/work", State: "interrupted", Body: "orreryd restarted during the turn"}
-	if got := sink.got(); len(got) != 1 || got[0] != want {
+	if got := sink.got(); len(got) != 1 || !reflect.DeepEqual(got[0], want) {
 		t.Fatalf("notices = %+v, want exactly [%+v]", got, want)
 	}
 }
@@ -360,7 +360,7 @@ func requireRestartNotices(t *testing.T, sink *fakeSink) {
 		if !ok {
 			t.Fatalf("unexpected notice %+v", notice)
 		}
-		if notice != want {
+		if !reflect.DeepEqual(notice, want) {
 			t.Fatalf("notice = %+v, want %+v", notice, want)
 		}
 		delete(wantNotices, notice.Session)
@@ -643,7 +643,7 @@ func TestReconcileSettlesMixedRowsInOneWrite(t *testing.T) {
 				if !ok {
 					t.Fatalf("unexpected notice %+v", notice)
 				}
-				if notice != wantNotice {
+				if !reflect.DeepEqual(notice, wantNotice) {
 					t.Fatalf("notice = %+v, want %+v", notice, wantNotice)
 				}
 				delete(wantNotices, notice.Session)

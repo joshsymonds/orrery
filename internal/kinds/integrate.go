@@ -366,17 +366,6 @@ func amendment(rows Rows, id string) (store.EvidenceAmendment, bool) {
 	return store.EvidenceAmendment{}, false
 }
 
-// amendedRed reports whether the amendment of Requirement id has a red run at the epic's base that passed. Only a current
-// run counts, since rows.Evidence holds only current runs.
-func amendedRed(rows Rows, id string) bool {
-	amended, ok := amendment(rows, id)
-	if !ok {
-		return false
-	}
-	red, found := evidenceByID(rows.Evidence, amended.RedRun)
-	return found && red.Phase == evidence.PhaseRed && red.Revision == rows.Epic.Base && red.Passed
-}
-
 // amendedGreen reports whether the amendment of Requirement id ran its green run at revision and that run passed.
 func amendedGreen(rows Rows, id, revision string) bool {
 	amended, ok := amendment(rows, id)
@@ -388,38 +377,26 @@ func amendedGreen(rows Rows, id, revision string) bool {
 }
 
 // Unbuilt returns, for each Requirement in contract order, why it lacks the proof that the epic is built: it names no
-// evidence item, it has no passed red run at the epic's base, or it is not green at the stored base. A test item that is
-// green at the stored base also lacks it when its reproduction at the epic's base disagrees with its red, or did not run.
-// A Requirement dropped as already met at the base has no red run or reproduction at the base to name, so it lacks the
-// proof only when it is not green at the stored base. A Requirement that a task whose status is taskGap claims is not
-// named at all: that task ended its ladder as a gap, and TaskGaps names it instead. It returns nil when every Requirement
-// has its proof or is held by a gap.
+// evidence item, or it is not green at the stored base. Only a Requirement not green at the stored base holds the plan.
+// A missing red at the epic's base, and a reproduction that is missing or that disagrees with its red, hold nothing, so
+// neither is named. A Requirement that a task whose status is taskGap claims is not named at all: that task ended its
+// ladder as a gap, and TaskGaps names it instead. It returns nil when every Requirement is green at the stored base or
+// is held by a gap.
 func Unbuilt(rows Rows) []string {
 	green := GreenAt(rows, rows.Epic.StoredBase)
 	var lines []string
 	for _, requirement := range rows.Epic.Requirements {
-		if gapHeld(rows.Epic.Tasks, requirement.ID) {
+		if gapHeld(rows.Epic.Tasks, requirement.ID) || green[requirement.ID] {
 			continue
 		}
-		dropped := droppedAsMet(requirement)
-		switch {
-		case !hasItem(requirement):
+		if !hasItem(requirement) {
 			lines = append(lines, requirement.ID+" names no evidence item")
-		case !dropped && !hasRedAtBase(rows, requirement.ID):
-			lines = append(lines, fmt.Sprintf("%s has no red at the epic's base %s", requirement.ID, rows.Epic.Base))
-		case !green[requirement.ID]:
-			lines = append(lines, fmt.Sprintf(
-				"%s is not green at the stored base %s", requirement.ID, rows.Epic.StoredBase,
-			))
-		case !dropped && isTestItem(requirement):
-			line := Disagreement(rows, requirement.ID)
-			if line == "" {
-				line = noReproduction(rows, requirement.ID)
-			}
-			if line != "" {
-				lines = append(lines, line)
-			}
+			continue
 		}
+		lines = append(
+			lines,
+			fmt.Sprintf("%s is not green at the stored base %s", requirement.ID, rows.Epic.StoredBase),
+		)
 	}
 	return lines
 }
@@ -453,22 +430,6 @@ func Disagreement(rows Rows, id string) string {
 		id,
 		rows.Epic.Base,
 	)
-}
-
-// noReproduction returns the line that names test-item Requirement id when no reproduction of it at the stored base ran.
-// It names the reason the first reproduction did not run, when there is one. It returns "" when a reproduction ran.
-func noReproduction(rows Rows, id string) string {
-	checks := baseReproductions(rows, id)
-	line := fmt.Sprintf("%s has no reproduction at the epic's base %s", id, rows.Epic.Base)
-	if len(checks) == 0 {
-		return line
-	}
-	for _, check := range checks {
-		if check.NotRun == "" {
-			return ""
-		}
-	}
-	return line + ": " + checks[0].NotRun
 }
 
 // baseReproductions returns, in run order, the reproduction of Requirement id that each integrate or sync run which
@@ -505,28 +466,11 @@ func baseReproductions(rows Rows, id string) []store.NodeCheck {
 	return checks
 }
 
-// hasRedAtBase reports whether an evidence node run that ended passed has a passed red run of Requirement id at the
-// epic's base, at the run's attempt. That red run is the one the run's rerun chain decides on, as Evidence.Decide reads it.
-// The red run at the base that an applied amendment of id passed counts as well (see amendedRed).
-func hasRedAtBase(rows Rows, id string) bool {
-	if amendedRed(rows, id) {
-		return true
-	}
-	for _, run := range rows.Runs {
-		if run.Kind != kindEvidence || run.Outcome != outcomePassed {
-			continue
-		}
-		red, _, outcome := evidenceChain(run, rows.Evidence, id, false)
-		if outcome != chainNone && red.Phase == evidence.PhaseRed && red.Revision == rows.Epic.Base && red.Passed {
-			return true
-		}
-	}
-	return false
-}
-
-// MetAtBase returns the Requirements whose red run at the attempt of the node run was judged met, so their conclusion
-// already holds at the base. That red run is the one the rerun chain decides on, as Evidence.Decide reads it. They are in
-// contract order. A Requirement dropped as already met has no red run to judge, so it is never named.
+// MetAtBase returns the Requirements that an evidence node at base found met at the epic's base: each whose red run at
+// the attempt of the node run was judged holding, in contract order. The node's other red runs must have passed, so a
+// node that failed for any other reason returns none. That red run is the one the rerun chain decides on, as
+// Evidence.Decide reads it. A Requirement dropped as already met has no red run to judge, so it is never named and does
+// not count.
 func MetAtBase(node Node, rows Rows) []string {
 	var met []string
 	for _, requirement := range itemRequirements(rows.Epic.Requirements) {
@@ -534,9 +478,16 @@ func MetAtBase(node Node, rows Rows) []string {
 			continue
 		}
 		red, _, outcome := evidenceChain(node.Run, rows.Evidence, requirement.ID, false)
-		if outcome != chainNone && red.Phase == evidence.PhaseRed && red.Verdict == evidence.VerdictHolds {
-			met = append(met, requirement.ID)
+		if outcome != chainEnded || red.Phase != evidence.PhaseRed {
+			return nil
 		}
+		if red.Passed {
+			continue
+		}
+		if red.Verdict != evidence.VerdictHolds {
+			return nil
+		}
+		met = append(met, requirement.ID)
 	}
 	return met
 }

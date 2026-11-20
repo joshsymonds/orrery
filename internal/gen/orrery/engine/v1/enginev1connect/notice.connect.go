@@ -37,6 +37,10 @@ const (
 	NoticesWatchProcedure = "/orrery.engine.v1.Notices/Watch"
 	// NoticesSeenProcedure is the fully-qualified name of the Notices's Seen RPC.
 	NoticesSeenProcedure = "/orrery.engine.v1.Notices/Seen"
+	// NoticesListProcedure is the fully-qualified name of the Notices's List RPC.
+	NoticesListProcedure = "/orrery.engine.v1.Notices/List"
+	// NoticesReadAllProcedure is the fully-qualified name of the Notices's ReadAll RPC.
+	NoticesReadAllProcedure = "/orrery.engine.v1.Notices/ReadAll"
 )
 
 // NoticesClient is a client for the orrery.engine.v1.Notices service.
@@ -49,6 +53,11 @@ type NoticesClient interface {
 	// Seen records that the owner opened the notice under key, as seen at orreryd's own clock. A key that sets none or
 	// more than one of its fields is invalid_argument. With no router to tell, Seen is unavailable.
 	Seen(context.Context, *connect.Request[v1.NoticesSeenRequest]) (*connect.Response[v1.NoticesSeenResponse], error)
+	// List returns the notices orreryd showed at the desk or sent away with their desk text built, timed within the last
+	// 14 days at orreryd's own clock, newest first, each with its read mark. With no notice history, List is unavailable.
+	List(context.Context, *connect.Request[v1.NoticesListRequest]) (*connect.Response[v1.NoticesListResponse], error)
+	// ReadAll marks every notice in the notice history read. With no notice history, ReadAll is unavailable.
+	ReadAll(context.Context, *connect.Request[v1.NoticesReadAllRequest]) (*connect.Response[v1.NoticesReadAllResponse], error)
 }
 
 // NewNoticesClient constructs a client for the orrery.engine.v1.Notices service. By default, it
@@ -74,13 +83,27 @@ func NewNoticesClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 			connect.WithSchema(noticesMethods.ByName("Seen")),
 			connect.WithClientOptions(opts...),
 		),
+		list: connect.NewClient[v1.NoticesListRequest, v1.NoticesListResponse](
+			httpClient,
+			baseURL+NoticesListProcedure,
+			connect.WithSchema(noticesMethods.ByName("List")),
+			connect.WithClientOptions(opts...),
+		),
+		readAll: connect.NewClient[v1.NoticesReadAllRequest, v1.NoticesReadAllResponse](
+			httpClient,
+			baseURL+NoticesReadAllProcedure,
+			connect.WithSchema(noticesMethods.ByName("ReadAll")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // noticesClient implements NoticesClient.
 type noticesClient struct {
-	watch *connect.Client[v1.NoticesWatchRequest, v1.NoticesWatchResponse]
-	seen  *connect.Client[v1.NoticesSeenRequest, v1.NoticesSeenResponse]
+	watch   *connect.Client[v1.NoticesWatchRequest, v1.NoticesWatchResponse]
+	seen    *connect.Client[v1.NoticesSeenRequest, v1.NoticesSeenResponse]
+	list    *connect.Client[v1.NoticesListRequest, v1.NoticesListResponse]
+	readAll *connect.Client[v1.NoticesReadAllRequest, v1.NoticesReadAllResponse]
 }
 
 // Watch calls orrery.engine.v1.Notices.Watch.
@@ -93,6 +116,16 @@ func (c *noticesClient) Seen(ctx context.Context, req *connect.Request[v1.Notice
 	return c.seen.CallUnary(ctx, req)
 }
 
+// List calls orrery.engine.v1.Notices.List.
+func (c *noticesClient) List(ctx context.Context, req *connect.Request[v1.NoticesListRequest]) (*connect.Response[v1.NoticesListResponse], error) {
+	return c.list.CallUnary(ctx, req)
+}
+
+// ReadAll calls orrery.engine.v1.Notices.ReadAll.
+func (c *noticesClient) ReadAll(ctx context.Context, req *connect.Request[v1.NoticesReadAllRequest]) (*connect.Response[v1.NoticesReadAllResponse], error) {
+	return c.readAll.CallUnary(ctx, req)
+}
+
 // NoticesHandler is an implementation of the orrery.engine.v1.Notices service.
 type NoticesHandler interface {
 	// Watch streams the in-app notices: first one shown message for each notice showing now, then a shown message for
@@ -103,6 +136,11 @@ type NoticesHandler interface {
 	// Seen records that the owner opened the notice under key, as seen at orreryd's own clock. A key that sets none or
 	// more than one of its fields is invalid_argument. With no router to tell, Seen is unavailable.
 	Seen(context.Context, *connect.Request[v1.NoticesSeenRequest]) (*connect.Response[v1.NoticesSeenResponse], error)
+	// List returns the notices orreryd showed at the desk or sent away with their desk text built, timed within the last
+	// 14 days at orreryd's own clock, newest first, each with its read mark. With no notice history, List is unavailable.
+	List(context.Context, *connect.Request[v1.NoticesListRequest]) (*connect.Response[v1.NoticesListResponse], error)
+	// ReadAll marks every notice in the notice history read. With no notice history, ReadAll is unavailable.
+	ReadAll(context.Context, *connect.Request[v1.NoticesReadAllRequest]) (*connect.Response[v1.NoticesReadAllResponse], error)
 }
 
 // NewNoticesHandler builds an HTTP handler from the service implementation. It returns the path on
@@ -124,12 +162,28 @@ func NewNoticesHandler(svc NoticesHandler, opts ...connect.HandlerOption) (strin
 		connect.WithSchema(noticesMethods.ByName("Seen")),
 		connect.WithHandlerOptions(opts...),
 	)
+	noticesListHandler := connect.NewUnaryHandler(
+		NoticesListProcedure,
+		svc.List,
+		connect.WithSchema(noticesMethods.ByName("List")),
+		connect.WithHandlerOptions(opts...),
+	)
+	noticesReadAllHandler := connect.NewUnaryHandler(
+		NoticesReadAllProcedure,
+		svc.ReadAll,
+		connect.WithSchema(noticesMethods.ByName("ReadAll")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orrery.engine.v1.Notices/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case NoticesWatchProcedure:
 			noticesWatchHandler.ServeHTTP(w, r)
 		case NoticesSeenProcedure:
 			noticesSeenHandler.ServeHTTP(w, r)
+		case NoticesListProcedure:
+			noticesListHandler.ServeHTTP(w, r)
+		case NoticesReadAllProcedure:
+			noticesReadAllHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -145,4 +199,12 @@ func (UnimplementedNoticesHandler) Watch(context.Context, *connect.Request[v1.No
 
 func (UnimplementedNoticesHandler) Seen(context.Context, *connect.Request[v1.NoticesSeenRequest]) (*connect.Response[v1.NoticesSeenResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Notices.Seen is not implemented"))
+}
+
+func (UnimplementedNoticesHandler) List(context.Context, *connect.Request[v1.NoticesListRequest]) (*connect.Response[v1.NoticesListResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Notices.List is not implemented"))
+}
+
+func (UnimplementedNoticesHandler) ReadAll(context.Context, *connect.Request[v1.NoticesReadAllRequest]) (*connect.Response[v1.NoticesReadAllResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Notices.ReadAll is not implemented"))
 }

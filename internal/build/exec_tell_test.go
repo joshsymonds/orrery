@@ -81,6 +81,7 @@ func TestPassRefMoveIsToldInTheMoveWrite(t *testing.T) {
 	t.Parallel()
 	f := newImplementerFixture(t)
 	commit := buildObject(t, f.repo, f.base)
+	detachStep(t, f, commit)
 	buildRun(t, f.repo, "update-ref", "refs/heads/feature", commit)
 	f.setStep(passStep(StageImplement, 1, 0), "done", `{"summary":"done","commit":"`+commit+`"}`)
 	tells := &tellStore{Store: f.store}
@@ -106,6 +107,7 @@ func TestPassParkingRefCheckWritesItsOtherTellsWithThePark(t *testing.T) {
 	t.Parallel()
 	f := newImplementerFixture(t)
 	commit := buildObject(t, f.repo, f.base)
+	detachStep(t, f, commit)
 	buildRun(t, f.repo, "update-ref", "refs/heads/feature", commit)
 	moved := buildObject(t, f.repo, f.base)
 	buildRun(t, f.repo, "update-ref", "refs/heads/main", moved)
@@ -137,6 +139,7 @@ func TestPassRefCheckRefusedByStoreRecordsNoTell(t *testing.T) {
 	t.Parallel()
 	f := newImplementerFixture(t)
 	commit := buildObject(t, f.repo, f.base)
+	detachStep(t, f, commit)
 	buildRun(t, f.repo, "update-ref", "refs/heads/feature", commit)
 	f.setStep(passStep(StageImplement, 1, 0), "done", `{"summary":"done","commit":"`+commit+`"}`)
 	refusing := &refusingStore{tellStore: tellStore{Store: f.store}}
@@ -164,6 +167,7 @@ func TestPassParkingRefCheckRefusedByStoreRecordsNoTell(t *testing.T) {
 	t.Parallel()
 	f := newImplementerFixture(t)
 	commit := buildObject(t, f.repo, f.base)
+	detachStep(t, f, commit)
 	buildRun(t, f.repo, "update-ref", "refs/heads/feature", commit)
 	moved := buildObject(t, f.repo, f.base)
 	buildRun(t, f.repo, "update-ref", "refs/heads/main", moved)

@@ -248,19 +248,19 @@ func TestJudgeKotlinTests(t *testing.T) {
 			name: "removed test in a guarded kotlin test file",
 			base: pair,
 			head: onlyA,
-			want: []Refusal{{File: path, Test: "b", Rule: "test present at the base removed"}},
+			want: []Refusal{{File: path, Test: "b", Rule: "test present at the base removed", Fact: true}},
 		},
 		{
 			name: "lowered assertions in a guarded kotlin test file",
 			base: pair,
 			head: lowered,
-			want: []Refusal{{File: path, Test: "a", Rule: "assertions lowered from 2 to 1"}},
+			want: []Refusal{{File: path, Test: "a", Rule: "assertions lowered from 2 to 1", Fact: true}},
 		},
 		{
 			name: "added ignore in a guarded kotlin test file",
 			base: pair,
 			head: ignored,
-			want: []Refusal{{File: path, Test: "b", Rule: "skip added"}},
+			want: []Refusal{{File: path, Test: "b", Rule: "skip added", Fact: true}},
 		},
 	}
 	for _, tc := range tests {

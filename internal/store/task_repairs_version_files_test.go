@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -168,6 +169,43 @@ func TestTaskRepairsVersionFilesSettleRefusesAFileAnotherOpenTaskNowOwns(t *test
 		t.Errorf("a settle refused for an owned file changed the store")
 	}
 
+	if checking, ok := buildTaskOf(ctx, t, s).Checking(); !ok || checking.Version != 2 {
+		t.Errorf("Checking() = %+v, %t, want version 2 still checking", checking, ok)
+	}
+}
+
+// TestTaskRepairsVersionFilesSettleRefusesAFileAnAcceptedUnintegratedTaskOwns checks the settle of a checking version
+// that adds a file another task took and was accepted for while the version checked, with no integrate batch ended: the
+// settle is refused naming the accepted holder, and the store is unchanged, so two tasks never own one file.
+func TestTaskRepairsVersionFilesSettleRefusesAFileAnAcceptedUnintegratedTaskOwns(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, raw := openBuildStore(ctx, t)
+	item := checkingEvidence()
+	version := store.TaskVersionInput{
+		Source: store.SourceOrchestrator, Step: "step-2", Reason: "the evidence and files move", Evidence: &item,
+		Files: []string{"c.go"},
+	}
+	err := s.RerunTask(ctx, buildEpic, 1, store.TaskBuild{}, openBuildOf(), version, nil, requestDecision(),
+		writtenAt())
+	if err != nil {
+		t.Fatalf("RerunTask: %v", err)
+	}
+
+	// While task 1's version checks, task 3 owns c.go and is accepted, and no integrate batch has claimed it.
+	addRawTask(t, raw, 3, "done", "c.go")
+
+	before := versionFileState(t, raw)
+	err = s.SettleTaskVersion(ctx, buildEpic, 1, openBuildOf(), openBuildOf(), store.TaskVersionSettle{
+		Version: 2, State: store.VersionApplied, RedRun: checkingRedRun,
+	}, time.Unix(1700000900, 0))
+	var refusal store.RefusalError
+	if !errors.As(err, &refusal) || !strings.Contains(string(refusal), "accepted T3") {
+		t.Fatalf("SettleTaskVersion err = %v, want a refusal naming accepted T3", err)
+	}
+	if !reflect.DeepEqual(before, versionFileState(t, raw)) {
+		t.Errorf("a settle refused for a file an accepted task holds changed the store")
+	}
 	if checking, ok := buildTaskOf(ctx, t, s).Checking(); !ok || checking.Version != 2 {
 		t.Errorf("Checking() = %+v, %t, want version 2 still checking", checking, ok)
 	}
