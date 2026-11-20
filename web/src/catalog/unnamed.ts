@@ -11,8 +11,6 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   // App draws each kind of page at an address: attention, a project, the archive, a session, a pane, a step, an epic, a
   // contract, a phase, a worker session. The inbox page stands for them.
   app: { replacement: "inbox-home", epic: "F2" },
-  // NowBlock draws an epic's now sentence over its blocker: an open question, a held step, a park, or nothing to block it.
-  "now-block": { replacement: "epic-question", epic: "F4" },
   // RowMenu draws the ⋯ menu of an epic line, shut, open, and open on an archived line.
   "row-menu": { replacement: "Menu", epic: "F2" },
   // EpicPage draws an epic's page in each state the fixtures hold: a rota decision, a released holder, a contract with tide
@@ -20,11 +18,6 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   "epic-page": { replacement: "epic-building", epic: "F4" },
   // WaitingCard draws a pending event that waits for you to speak or for the session to be free.
   "waiting-card": { replacement: "Dock", epic: "F3" },
-  // NowRows and NextRows draw the in-flight and planned wedges of an epic, with or without a phase that opens.
-  "now-rows": { replacement: "epic-building", epic: "F4" },
-  "next-rows": { replacement: "epic-building", epic: "F4" },
-  // Handover draws an epic's handover, with its epic-stage review verdicts.
-  handover: { replacement: "epic-handover", epic: "F4" },
   // Mark draws the Orrery mark, the symbol the rail and the title row open on.
   mark: { replacement: "Tile", epic: "F2" },
   // Markdown draws reply prose: emphasis, a list, a fenced code block, a table, a heading with a link, and a marked query.
@@ -38,13 +31,6 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   "need-entry": { replacement: "epic-question", epic: "F4" },
   // PhaseOutputPage draws a task's phase output at each phase of the rota export.
   "phase-output-page": { replacement: "phase-implement", epic: "F4" },
-  // GreenProof and RedProof draw the green and red cards of an epic page, reached or dim.
-  "green-proof": { replacement: "EvidenceRun", epic: "F4" },
-  "red-proof": { replacement: "EvidenceRun", epic: "F4" },
-  // ReleaseProof draws the release steps of an epic: released, in progress, waiting, or with no contract.
-  "release-proof": { replacement: "ReleaseTable", epic: "F4" },
-  // Report draws an epic's report: written, not shipped, or unwritten.
-  report: { replacement: "epic-shipped", epic: "F4" },
   // Reader draws one conversation: loading, a pane's conversation, a folded compaction, a question, find, a sending box, live
   // session text, and a session's step.
   reader: { replacement: "convo-shell", epic: "F3" },
@@ -60,8 +46,6 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   "worker-session-page": { replacement: "worker-running", epic: "F4" },
   // OutputTails draws a command's output tails: both, stdout only, stderr only.
   "output-tails": { replacement: "epic-evidence", epic: "F4" },
-  // Workflow draws an epic's workflow nodes: a plan and a build, evidence, failed checks, a loop.
-  workflow: { replacement: "epic-building", epic: "F4" },
   // ContractBody draws an epic's accepted contract, read-only, with its requirements: with additions, with none, and with no base.
   "contract-body": { replacement: "contract-accepted", epic: "F4" },
 
