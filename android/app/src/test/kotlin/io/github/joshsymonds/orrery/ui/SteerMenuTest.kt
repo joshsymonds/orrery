@@ -12,6 +12,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performSemanticsAction
 import com.connectrpc.Code
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
+import io.github.joshsymonds.orrery.api.Quiescence
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Reply
 import io.github.joshsymonds.orrery.awaitUntil
@@ -138,6 +139,13 @@ class SteerMenuTest {
         }
     }
 
+    /** Lets the main thread and every request it started finish, so a second call would be on the server before a count. */
+    private fun settle() {
+        Quiescence.awaitUntil("the work settles", step = { composeRule.waitForIdle() }) {
+            Quiescence.inFlight() == null
+        }
+    }
+
     private fun awaitConversations() {
         composeRule.awaitUntil("the conversations load") { nodeExists("steer-row-$LIVE_TMUX") }
     }
@@ -203,6 +211,7 @@ class SteerMenuTest {
             }
             release.countDown()
             composeRule.awaitUntil("the re-read names the steerer") { steered.isNotEmpty() }
+            settle()
 
             val moves = server.requests.filter { it.rawPath == MOVE_PATH }
             assertEquals(1, moves.size)
@@ -225,6 +234,7 @@ class SteerMenuTest {
 
             tap("steer-new")
             composeRule.awaitUntil("the re-read names the started conversation") { steered.isNotEmpty() }
+            settle()
 
             val continues = server.requests.filter { it.rawPath == CONTINUE_PATH }
             assertEquals(1, continues.size)
@@ -244,6 +254,7 @@ class SteerMenuTest {
 
             tap("steer-row-$LIVE_TMUX")
             composeRule.awaitUntil("the refusal shows") { nodeExists("steer-note") }
+            settle()
 
             composeRule.onNodeWithTag("steer-note").assertTextEquals(REFUSAL)
             composeRule.onNodeWithTag("steer-row-$LIVE_TMUX").assertIsEnabled()
@@ -276,6 +287,7 @@ class SteerMenuTest {
             composeRule.awaitUntil("the re-read's steerer is marked") {
                 nodeExists("steer-current") && rowText("steer-current") == "live tmux steers it now"
             }
+            settle()
 
             assertTrue(enabled("steer-new"))
             assertTrue(enabled("steer-row-$LIVE_HEADLESS"))

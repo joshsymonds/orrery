@@ -47,6 +47,7 @@ private const val NUDGE_RUNNING_HINT = "Nudge the step: it interrupts the turn, 
 private const val NUDGE_HELD_HINT = "Nudge the step: it resumes with your text"
 private const val WORKING_STATE = "working"
 private const val WAITING_STATE = "waiting"
+private val ENDED_STATES = setOf(STEER_STOPPED, STEER_FAILED)
 
 /** The unfinished main-thread text blocks that have text so far, each as a reply after the items. */
 private fun unfinishedReplies(held: StreamedConversation): List<ConvoEntry> =
@@ -92,6 +93,10 @@ data class StepMode(val held: Boolean)
  *
  * With [step] set the screen is a step's: Hold and Stop replace Interrupt and Stop and post to the
  * step, the open request card is not drawn, and Send posts the draft as a nudge through [StepCalls].
+ *
+ * A headless session that has stopped or failed while it steers a live orreryd epic has no way to answer that
+ * epic's questions, so the [EndedBar] of the epic takes the compose box's place. [onSteered] hears each steering
+ * the bar settles on.
  */
 @Composable
 fun SessionScreen(
@@ -100,6 +105,7 @@ fun SessionScreen(
     onBack: () -> Unit = {},
     onOpenEpic: (String) -> Unit = {},
     step: StepMode? = null,
+    onSteered: (String) -> Unit = {},
 ) {
     var streamed by remember(sessionId) { mutableStateOf<StreamedConversation?>(null) }
     var refreshFailed by remember(sessionId) { mutableStateOf(false) }
@@ -284,13 +290,28 @@ fun SessionScreen(
         if (step == null && interruptTaken && pane != null && state !in LIVE_STATES) {
             Text(RESULT_TEXT, modifier = Modifier.testTag(RESULT_TAG).padding(horizontal = OrreryTokens.Space.twelve + OrreryTokens.Space.two), color = OrreryTokens.Role.halt)
         }
-        // The compose key is the session's id; its sends go through the session sender, or a step's nudge.
-        ComposeBox(
-            sessionId,
-            client,
-            edge = if (step?.held == true) ComposeEdge.HELD else composeEdgeOf(state),
-            hint = composeHint(step, state),
-            send = { text -> if (step != null) stepCalls.nudge(text) else sender.send(text) },
-        )
+        val endedEpic = if (step == null && state in ENDED_STATES) {
+            headEpics.steered.firstOrNull(::steersLive)
+        } else {
+            null
+        }
+        if (endedEpic != null) {
+            EndedBar(
+                client = client,
+                epic = endedEpic,
+                repository = headEpics.details[endedEpic.id]?.repository.orEmpty(),
+                lead = endedLead(endedEpic.slug),
+                onSteered = onSteered,
+            )
+        } else {
+            // The compose key is the session's id; its sends go through the session sender, or a step's nudge.
+            ComposeBox(
+                sessionId,
+                client,
+                edge = if (step?.held == true) ComposeEdge.HELD else composeEdgeOf(state),
+                hint = composeHint(step, state),
+                send = { text -> if (step != null) stepCalls.nudge(text) else sender.send(text) },
+            )
+        }
     }
 }
