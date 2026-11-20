@@ -101,8 +101,9 @@ internal class TreeData(
  * the two chips and each project as a card, its conversations hanging under it with what steers them, and its ended
  * line. The chips narrow the tree, search narrows what the chips left, and a folded card says what waits in it. The foot
  * opens the archived tree and returns from it. A tap on a conversation calls [onOpenPane] with its pane, a tap on an
- * epic or one of its steps calls [onOpenEpic], and a tap on a contract's row calls [onOpenContract] with its id and the
- * conversation it hangs under, whose pane is null for a stand-in row. A long press on a conversation or an epic opens its sheet, where the
+ * epic or one of its steps calls [onOpenEpic], a tap on a contract's row calls [onOpenContract] with its id and the
+ * conversation it hangs under, whose pane is null for a stand-in row, and a tap on a project's name calls
+ * [onOpenProject] with its key. A long press on a conversation or an epic opens its sheet, where the
  * owner marks it seen or archives it, and a landed change reads the tree again. New opens
  * the picker as a bottom sheet; a run it answers opens that pane through [onOpenPaneId], and a start it answers opens
  * that session through [onStartedSession]. The Pools button opens the pools view through [onOpenPools].
@@ -118,9 +119,10 @@ fun PaneListScreen(
     onOpenPaneId: (String) -> Unit,
     onStartedSession: (String) -> Unit,
     onOpenSettings: () -> Unit,
-    onOpenPools: () -> Unit = {},
     modifier: Modifier = Modifier,
+    onOpenPools: () -> Unit = {},
     onOpenEpic: (String) -> Unit = {},
+    onOpenProject: (String) -> Unit = {},
     onOpenContract: (id: String, conversation: Pane?) -> Unit = { _, _ -> },
     now: () -> Long = { System.currentTimeMillis() / 1000 },
     state: PaneListState = rememberPaneListState(),
@@ -231,6 +233,7 @@ fun PaneListScreen(
                 now = now(),
                 onOpenPane = onOpenPane,
                 onOpenEpic = onOpenEpic,
+                onOpenProject = onOpenProject,
                 onOpenContract = onOpenContract,
                 onNew = { picking = true },
                 onLongPress = { sheet = it },
@@ -243,7 +246,7 @@ fun PaneListScreen(
  * Reads the lists, every live epic's detail, the contracts and the host. Null when a list or an epic did not answer. A
  * contracts read that fails keeps the contracts of [held], and a host read that fails keeps its host.
  */
-private suspend fun readTree(client: OrreryClient, held: TreeData?): TreeData? = withContext(Dispatchers.IO) {
+internal suspend fun readTree(client: OrreryClient, held: TreeData?): TreeData? = withContext(Dispatchers.IO) {
     try {
         val panes = client.panes() + client.headless()
         val archived = client.archivedSessions()
@@ -284,6 +287,7 @@ private fun InboxBody(
     now: Long,
     onOpenPane: (Pane) -> Unit,
     onOpenEpic: (String) -> Unit,
+    onOpenProject: (String) -> Unit,
     onOpenContract: (id: String, conversation: Pane?) -> Unit,
     onNew: () -> Unit,
     onLongPress: (SheetRow) -> Unit,
@@ -352,6 +356,7 @@ private fun InboxBody(
                         onEnded = { state.toggleEnded(project.key) },
                         convo = { convo -> ConvoRowItem(convo = convo, now = now, onOpen = onOpen, onLongPress = onLongPress) },
                         modifier = Modifier.padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.four),
+                        onOpenProject = onOpenProject,
                     )
                 }
             }

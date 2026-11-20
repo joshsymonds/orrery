@@ -86,14 +86,14 @@ function inboxHome(root: HTMLElement): boolean {
   return listView(root) === "inbox" && inboxState(root) === "docked";
 }
 
-// convoWorking is Page/convo-working: the inbox hidden under the reader of pane %11.
+// convoWorking is Page/convo-working: the inbox at rest as its rail beside the reader of pane %11.
 function convoWorking(root: HTMLElement): boolean {
-  return inboxState(root) === "hidden" && (root.textContent ?? "").includes(lampFragment);
+  return inboxState(root) === "rail" && (root.textContent ?? "").includes(lampFragment);
 }
 
-// askSession is Page/ask-session: the inbox hidden under the reader of pane %12.
+// askSession is Page/ask-session: the inbox at rest as its rail beside the reader of pane %12.
 function askSession(root: HTMLElement): boolean {
-  return inboxState(root) === "hidden" && (root.textContent ?? "").includes(beaconPrompt);
+  return inboxState(root) === "rail" && (root.textContent ?? "").includes(beaconPrompt);
 }
 
 // epicQuestion is Page/epic-question: Q1 is drawn in the Now section, with no steer menu drawn, and the epic panel beside
@@ -1522,10 +1522,13 @@ test("FixtureTransport: page's keys are exactly the 75 catalog names of its scen
     "page/inbox-archived",
     "page/inbox-empty",
     "page/inbox-error",
+    "page/inbox-flyout",
     "page/inbox-folded",
     "page/inbox-home",
     "page/inbox-loading",
+    "page/inbox-narrow",
     "page/inbox-new",
+    "page/inbox-rail",
     "page/inbox-row-menu",
     "page/inbox-search",
     "page/inbox-search-none",
@@ -1538,6 +1541,7 @@ test("FixtureTransport: page's keys are exactly the 75 catalog names of its scen
     "page/new-results",
     "page/new-working",
     "page/phase-implement",
+    "page/project",
     "page/work-empty",
     "page/work-rail",
     "page/work-rail-group",

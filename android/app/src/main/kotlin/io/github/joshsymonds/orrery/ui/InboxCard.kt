@@ -40,6 +40,7 @@ import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
  * for another host. Folded, the head also says how many things wait on you (only when [waiting] is not zero) and how
  * many conversations the project holds, and nothing else is drawn. Open, its conversations hang under a line, then the
  * ended line, which shows the count of ended conversations and opens to them. Each conversation is drawn by [convo].
+ * A tap on the folder, the name or the path calls [onOpenProject] with the project's key; the chevron only folds.
  */
 @Composable
 internal fun ProjectCard(
@@ -51,6 +52,7 @@ internal fun ProjectCard(
     onEnded: () -> Unit,
     convo: @Composable (Convo) -> Unit,
     modifier: Modifier = Modifier,
+    onOpenProject: (String) -> Unit = {},
 ) {
     Column(
         modifier = modifier
@@ -59,7 +61,7 @@ internal fun ProjectCard(
             .clip(RoundedCornerShape(OrreryTokens.Radius.three))
             .background(OrreryTokens.Surface.well),
     ) {
-        ProjectHead(project, folded, waiting, onFold)
+        ProjectHead(project, folded, waiting, onFold, onOpenProject)
         if (!folded) {
             ProjectConversations(project, endedOpen, onEnded, convo)
         }
@@ -67,7 +69,13 @@ internal fun ProjectCard(
 }
 
 @Composable
-private fun ProjectHead(project: Project, folded: Boolean, waiting: Int, onFold: () -> Unit) {
+private fun ProjectHead(
+    project: Project,
+    folded: Boolean,
+    waiting: Int,
+    onFold: () -> Unit,
+    onOpenProject: (String) -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -92,7 +100,10 @@ private fun ProjectHead(project: Project, folded: Boolean, waiting: Int, onFold:
             Chevron(open = !folded, color = OrreryTokens.Ink.four)
         }
         Row(
-            modifier = Modifier.weight(1f),
+            modifier = Modifier
+                .weight(1f)
+                .testTag("project-open:${project.key}")
+                .clickable(role = Role.Button) { onOpenProject(project.key) },
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
         ) {

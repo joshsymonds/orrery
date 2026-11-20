@@ -34,6 +34,8 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   "worker-session-page": { replacement: "worker-running", epic: "F4" },
   // OutputTails draws a command's output tails: both, stdout only, stderr only.
   "output-tails": { replacement: "epic-evidence", epic: "F4" },
+  // EpicWidget draws the reader's tool-call card: the live card of an epic a tool call created, under the conversation's tool call.
+  "epic-widget": { replacement: "convo-epic", epic: "F3" },
 
   // ---- single stories of round-6 components, each the component in a state round 6 does not draw ----
 
@@ -42,9 +44,6 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   "task-line/shell-running": { replacement: "TaskLine", epic: "F3" },
   // Ask draws an open question of an epic that has no choices, so its answer is typed.
   "ask/open-question": { replacement: "Ask", epic: "F3" },
-  // WorkCard draws an epic's card on a project's page when the epic has released, and when the fixtures hold no detail for it.
-  "work-card/released": { replacement: "WorkCard", epic: "F2" },
-  "work-card/unavailable": { replacement: "WorkCard", epic: "F2" },
   // EpicEventBlock draws an epic's question event whose epic holds no open question, so the event reads it as settled.
   "epic-event-block/question-settled": { replacement: "EpicEventBlock", epic: "F3" },
   // StepEndBlock draws a step that ended with no agent named and a looping reason.

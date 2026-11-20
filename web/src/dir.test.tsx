@@ -197,3 +197,71 @@ test("InboxTree Dir: with nothing ended, the card draws no ended line", () =>
   withDir({ project: makeProject({ convos: [convo(first)] }) }, (container) => {
     assert.equal(container.querySelector("button.fold-line"), null, "a card with nothing ended draws an ended line");
   }));
+
+test("ProjectPage Dir: with onOpen, the head's name is one button that calls onOpen once with the project's key and does not fold", async () => {
+  let opened: string[] = [];
+  let folds = 0;
+  await withDir(
+    {
+      project: makeProject(),
+      onOpen: (key) => {
+        opened = [...opened, key];
+      },
+      onFold: () => {
+        folds += 1;
+      },
+    },
+    (container) => {
+      const button = container.querySelector<HTMLButtonElement>(".dir-head button.proj");
+      assert.ok(button !== null, "the head draws no project button");
+      assert.equal(button.querySelector(".nm")?.textContent, "lighthouse");
+      button.click();
+      assert.deepEqual(opened, ["|/home/owner/code/lighthouse"], "the project button does not open the project once");
+      assert.equal(folds, 0, "the project button folds the card");
+    },
+  );
+});
+
+test("ProjectPage Dir: the fold button still folds and does not open the project", async () => {
+  let opened = 0;
+  let folds = 0;
+  await withDir(
+    {
+      project: makeProject(),
+      onOpen: () => {
+        opened += 1;
+      },
+      onFold: () => {
+        folds += 1;
+      },
+    },
+    (container) => {
+      container.querySelector<HTMLButtonElement>(".dir-head button.fold")?.click();
+      assert.equal(folds, 1, "one press on the fold button calls onFold once");
+      assert.equal(opened, 0, "the fold button opens the project");
+    },
+  );
+});
+
+test("ProjectPage Dir: the project button's title names the path, or the name when the path is empty", async () => {
+  await withDir({ project: makeProject(), onOpen: () => {} }, (container) => {
+    assert.equal(
+      container.querySelector(".dir-head button.proj")?.getAttribute("title"),
+      "Everything working in ~/code/lighthouse",
+    );
+  });
+  await withDir({ project: makeProject({ path: "" }), onOpen: () => {} }, (container) => {
+    assert.equal(
+      container.querySelector(".dir-head button.proj")?.getAttribute("title"),
+      "Everything working in lighthouse",
+    );
+  });
+});
+
+test("ProjectPage Dir: without onOpen, the head draws no project button and reads as before", () =>
+  withDir({ project: makeProject() }, (container) => {
+    assert.equal(container.querySelector("button.proj"), null, "a card without onOpen draws a project button");
+    assert.equal(textOf(container, ".dir-head .proj > .nm"), "lighthouse");
+    assert.equal(textOf(container, ".dir-head .proj > .path"), "~/code/lighthouse");
+    assert.equal(container.querySelector(".dir-head .proj")?.getAttribute("title"), null);
+  }));

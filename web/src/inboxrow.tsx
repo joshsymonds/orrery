@@ -139,7 +139,7 @@ function SecondLine({ row, now }: { row: Row; now: number }): JSX.Element | null
 
 // waitingText is what a waiting row asks: its question's title, else a session's last words, else that it waits on you.
 // A pane's summary is its title, so a pane never repeats it here.
-function waitingText(row: Row): string {
+export function waitingText(row: Row): string {
   if (row.question !== "") {
     return parseQuestion(row.question).title;
   }
@@ -147,7 +147,7 @@ function waitingText(row: Row): string {
 }
 
 // shortName reads a tool name by the part after its last "__", so mcp__orrery__step_start reads as step_start.
-function shortName(name: string): string {
+export function shortName(name: string): string {
   const at = name.lastIndexOf("__");
   return at < 0 ? name : name.slice(at + 2);
 }
@@ -218,7 +218,7 @@ interface RowTool {
 }
 
 // parseTool reads a row's tool JSON. An empty or unparsable value, or one that is not a JSON object, has no tool.
-function parseTool(value: string): RowTool | null {
+export function parseTool(value: string): RowTool | null {
   if (value === "") {
     return null;
   }
@@ -245,7 +245,7 @@ export function isLinkClick(event: Event): boolean {
 }
 
 // clockText is an elapsed time as m:ss, its minutes unbounded. It never reads negative.
-function clockText(seconds: number): string {
+export function clockText(seconds: number): string {
   const total = Math.max(0, Math.floor(seconds));
   return `${Math.floor(total / secondsPerMinute)}:${String(total % secondsPerMinute).padStart(2, "0")}`;
 }
