@@ -1458,7 +1458,67 @@ test("FixtureTransport: page/epic-unavailable draws the could-not-read line with
   );
 });
 
-test("FixtureTransport: page's keys are exactly the 75 catalog names of its scenario states", () => {
+test("FixtureTransport: page/convo-notices draws the first three notices Watch shows, and 2 more in Notices, with no refusal", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  const bodies = noticeStackSlices.noticesShowing.slice(0, 3).map((notice) => notice.body.split("\n")[0]);
+  return withStory(
+    t,
+    Page["convo-notices"],
+    (root) =>
+      root.querySelectorAll(".notices .notice").length === 3 &&
+      root.querySelector(".notices-more")?.textContent === "2 more in Notices",
+    (root) => {
+      assertNoFailure(root);
+      const drawn = [...root.querySelectorAll(".notices .notice .b")].map((line) => line.textContent);
+      assert.deepEqual(drawn, bodies, "the stack draws the first three notices in the order Watch shows them");
+    },
+  );
+});
+
+test("FixtureTransport: page/notices-centre draws the centre open over the page, with a row for each notice of the log", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["notices-centre"],
+    (root) => root.querySelectorAll(".ncentre .notice").length === shippedSlices.noticeLog.length,
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(root.querySelector(".ncentre")?.getAttribute("role"), "dialog", "the centre is the wide overlay");
+    },
+  );
+});
+
+test("FixtureTransport: page/notices-none draws the open centre with no rows, and the sentences that say what collects there", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["notices-none"],
+    (root) => root.querySelector(".ncentre .blank") !== null,
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(root.querySelectorAll(".ncentre .notice").length, 0, "no row is drawn");
+      assert.ok(
+        (root.querySelector(".ncentre .blank")?.textContent ?? "").includes("No notices."),
+        "the centre says there are no notices",
+      );
+    },
+  );
+});
+
+test("FixtureTransport: page/notices-page at 412 wide draws the Notices page, with a row for each notice of the log", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["notices-page"],
+    (root) => root.querySelectorAll('section[aria-label="notices"].flat .notice').length === shippedSlices.noticeLog.length,
+    (root) => {
+      assertNoFailure(root);
+    },
+    phoneWidth,
+  );
+});
+
+test("FixtureTransport: page's keys are exactly the 79 catalog names of its scenario states", () => {
   assert.deepEqual(Object.keys(Page).map((state) => storyName("Page", state)).sort(), [
     "page/ask-later",
     "page/ask-session",
@@ -1470,6 +1530,7 @@ test("FixtureTransport: page's keys are exactly the 75 catalog names of its scen
     "page/contract-versions",
     "page/convo-contract",
     "page/convo-handed-over",
+    "page/convo-notices",
     "page/convo-took-over",
     "page/convo-working",
     "page/dock-background",
@@ -1529,6 +1590,9 @@ test("FixtureTransport: page's keys are exactly the 75 catalog names of its scen
     "page/new-none",
     "page/new-results",
     "page/new-working",
+    "page/notices-centre",
+    "page/notices-none",
+    "page/notices-page",
     "page/phase-implement",
     "page/project",
     "page/work-empty",

@@ -1,7 +1,8 @@
 // PageStory draws App as one page of a catalog. It draws App from the start, as main.tsx does before its first load has
 // answered, so the inbox says loading until then. It reads the rows, the epics and the host over a fixture transport as
-// main.tsx's start does, then gives App them at the address it is given, which stays that address for the story's whole
-// life. A list that failed is drawn as main.tsx draws it. A call the fixture refuses draws a failure element that names it.
+// main.tsx's start does, watches the notices showing over the same transport as main.tsx does, then gives App them at the
+// address it is given, which stays that address for the story's whole life. A list that failed is drawn as main.tsx
+// draws it. A call the fixture refuses draws a failure element that names it.
 
 import type { VNode } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
@@ -12,9 +13,11 @@ import { type EpicsView, epicsView } from "../epics";
 import { liveEpoch } from "../fixtures/clock";
 import { createFixtureTransport, type FixtureTransport } from "../fixtures/transport";
 import type { Contract } from "../gen/orrery/v1/contracts_pb";
+import type { InAppNotice } from "../gen/orrery/v1/notice_pb";
 import type { HostStatusResponse } from "../gen/orrery/v1/orrery_pb";
 import { loadRows } from "../load";
 import { changedOnly, loadEpics } from "../loadepics";
+import { watchNotices } from "../notices";
 import type { Row } from "../rows";
 import { type Address, formatAddress } from "../router";
 
@@ -40,6 +43,10 @@ interface Loaded {
 
 // now is the instant the fixtures are set at, in unix seconds, as App takes it.
 const now = Date.parse(liveEpoch) / 1000;
+
+// retryMs is how long a notices stream that fails waits before it reopens, as main.tsx waits. The fixture's streams never
+// fail, so the wait never runs.
+const retryMs = 1000;
 
 const noop = () => {};
 
@@ -67,6 +74,8 @@ function messageOf(error: unknown): string {
 export function PageStory({ address, after, fixture }: PageStoryProps): VNode {
   const [transport] = useState(() => fixture ?? createFixtureTransport());
   const [loaded, setLoaded] = useState<Loaded | null>(null);
+  // The notices showing, as Notices.Watch sends them over the fixture.
+  const [notices, setNotices] = useState<InAppNotice[]>([]);
   // The count of refused calls heard. A change of it draws the page again, which reads the unserved list.
   const [, setHeard] = useState(0);
   const root = useRef<HTMLDivElement>(null);
@@ -89,6 +98,13 @@ export function PageStory({ address, after, fixture }: PageStoryProps): VNode {
     return () => {
       live = false;
     };
+  }, [transport]);
+
+  // The notices watch is opened once, and aborted on unmount, so nothing reaches the page after it.
+  useEffect(() => {
+    const controller = new AbortController();
+    void watchNotices(transport.clients, setNotices, retryMs, controller.signal);
+    return () => controller.abort();
   }, [transport]);
 
   // after runs once the first load has drawn. A synchronous throw from it is a rejection too, so both are reported.
@@ -115,7 +131,7 @@ export function PageStory({ address, after, fixture }: PageStoryProps): VNode {
         contracts={loaded?.contracts}
         now={now}
         clients={transport.clients}
-        notices={[]}
+        notices={notices}
         host={loaded?.host}
         onViewing={noop}
         onRetry={noop}

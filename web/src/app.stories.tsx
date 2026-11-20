@@ -14,6 +14,8 @@ import {
   emptySlices,
   type EpicScenario,
   epicScenarios,
+  noNoticeSlices,
+  noticeStackSlices,
   type PickerRowInit,
   type Slices,
   shippedSlices,
@@ -593,6 +595,20 @@ export const Page: Stories = {
   ),
   "dock-cancelled": dockStory(pane17At, dockSlices["dock-cancelled"]),
   "ask-later": dockStory(gatesAt, dockSlices["ask-later"]),
+  "convo-notices": () => <PageStory address={convoWorkingAt} fixture={createFixtureTransport(noticeStackSlices)} />,
+  "notices-centre": () => (
+    <PageStory address={convoWorkingAt} after={(root) => clickWhen(root, 'nav.rail button[aria-label="Notices"]')} />
+  ),
+  "notices-none": () => (
+    <PageStory
+      address={convoWorkingAt}
+      fixture={createFixtureTransport(noNoticeSlices)}
+      after={(root) => clickWhen(root, 'nav.rail button[aria-label="Notices"]')}
+    />
+  ),
+  "notices-page": () => (
+    <PageStory address={inbox} after={(root) => clickWhen(root, '.inbox-head .end button[aria-label="Notices"]')} />
+  ),
   keys: () => (
     <PageStory
       address={convoWorkingAt}
