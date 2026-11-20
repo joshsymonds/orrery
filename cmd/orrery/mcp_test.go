@@ -88,7 +88,7 @@ func startMCPDaemon(t *testing.T, steps enginehost.StepCommands) string {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
-	go func() { done <- enginehost.Serve(ctx, ln, nil, steps, nil, nil, nil, nil, nil, nil, nil) }()
+	go func() { done <- enginehost.Serve(ctx, ln, nil, steps, nil, nil, nil, nil, nil, nil, nil, nil) }()
 	t.Cleanup(func() {
 		cancel()
 		err := <-done
@@ -252,6 +252,13 @@ func TestMCPServesStepToolsOverDaemon(t *testing.T) {
 	}
 	slices.Sort(names)
 	want := []string{
+		"contract_accept",
+		"contract_get",
+		"contract_list",
+		"contract_propose",
+		"contract_reopen",
+		"contract_revise",
+		"contract_set_aside",
 		"epic_amend",
 		"epic_answer",
 		"epic_close",

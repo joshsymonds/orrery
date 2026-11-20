@@ -54,16 +54,17 @@ func Listen(socketPath string) (net.Listener, error) {
 
 // Serve answers the engine service on ln with commands, the steps service with steps, the epics service with epics and
 // steering, the pools service with pools, the evidence service with evidence, the notices service with notices, the
-// crons service with crons and the changes service with changes until ctx ends. It then shuts down within shutdownWait
-// and returns nil. A nil commands refuses every engine RPC as unavailable, a nil steps refuses every step RPC as
-// unavailable, a nil epics refuses every epic RPC as unavailable, a nil steering refuses as unavailable each epic create
-// that needs a steering session started, a nil pools refuses every Acquire as unavailable, a nil evidence refuses every
-// evidence RPC as unavailable, a nil notices refuses every notices RPC as unavailable, a nil crons refuses every cron
-// call as unavailable, and a nil changes refuses every Watch as unavailable. The crons service answers each call for
-// the session in the Orrery-Session header, and refuses a call with no such header as InvalidArgument. With steps
-// served, the engine refuses Say, Answer, Interrupt, Stop and Resume on a step id, Decline on a headless step id, and
-// NotNow and BringBack on a headless step id, since a step is driven only through the Steps service. opts apply to each
-// of the eight handlers.
+// crons service with crons, the changes service with changes and the contracts service with contracts until ctx ends.
+// It then shuts down within shutdownWait and returns nil. A nil commands refuses every engine RPC as unavailable, a nil
+// steps refuses every step RPC as unavailable, a nil epics refuses every epic RPC as unavailable, a nil steering
+// refuses as unavailable each epic create that needs a steering session started, a nil pools refuses every Acquire as
+// unavailable, a nil evidence refuses every evidence RPC as unavailable, a nil notices refuses every notices RPC as
+// unavailable, a nil crons refuses every cron call as unavailable, a nil changes refuses every Watch as unavailable,
+// and a nil contracts refuses every Contracts RPC it serves as unavailable. The crons service answers each call for the
+// session in the Orrery-Session header, and refuses a call with no such header as InvalidArgument. With steps served,
+// the engine refuses Say, Answer, Interrupt, Stop and Resume on a step id, Decline on a headless step id, and NotNow
+// and BringBack on a headless step id, since a step is driven only through the Steps service. opts apply to each of the
+// nine handlers.
 func Serve(
 	ctx context.Context,
 	ln net.Listener,
@@ -76,6 +77,7 @@ func Serve(
 	notices NoticeSource,
 	crons CronCommands,
 	changes *ChangeFeed,
+	contracts *Contracts,
 	opts ...connect.HandlerOption,
 ) error {
 	path, handler := enginev1connect.NewEngineHandler(&service{commands: commands, steps: steps}, opts...)
@@ -89,6 +91,8 @@ func Serve(
 	noticesPath, noticesHandler := enginev1connect.NewNoticesHandler(&noticesService{notices: notices}, opts...)
 	cronsPath, cronsHandler := enginev1connect.NewCronsHandler(cronService{crons: crons}, opts...)
 	changesPath, changesHandler := NewChangesHandler(changes, opts...)
+	contractsPath, contractsHandler := enginev1connect.NewContractsHandler(
+		&contractService{contracts: contracts}, opts...)
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)
 	mux.Handle(stepsPath, stepsHandler)
@@ -98,6 +102,7 @@ func Serve(
 	mux.Handle(noticesPath, noticesHandler)
 	mux.Handle(cronsPath, cronsHandler)
 	mux.Handle(changesPath, changesHandler)
+	mux.Handle(contractsPath, contractsHandler)
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: readHeaderTimeout}
 
 	done := make(chan error, 1)

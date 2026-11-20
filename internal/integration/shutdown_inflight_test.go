@@ -16,18 +16,34 @@ import (
 	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
-// printHeldScript is a claude whose one-shot runs, which save no session, such as a step judge's and a summary's, append
-// a line with their pid and argv, its newlines made spaces, to print.pids beside it and then become a sleep that only a signal ends, as a slow real run is when systemd stops
-// orreryd. Every other run, a session's among them, is the engine's fake claude, which the script's one argument names.
+// The marks that tell the one-shot runs the test holds apart, by the argv each carries: a step judge's schema names
+// verdict, a done judge's names needed, and a summary run passes --system-prompt. Other one-shot runs, such as a
+// session's title and headline, carry a schema of their own and are not held.
+const (
+	stepJudgeMark = `"verdict"`
+	doneJudgeMark = `"needed"`
+	summaryMark   = "--system-prompt"
+)
+
+// printHeldScript is a claude whose step judge, done judge and summary runs, one-shot runs that save no session,
+// append a line with their pid and argv, its newlines made spaces, to print.pids beside it and then become a sleep that
+// only a signal ends, as a slow real run is when systemd stops orreryd. Every other run, a session's and a session
+// title's or headline's among them, is the engine's fake claude, which the script's one argument names: a title or
+// headline run held too would take the engine's haiku call slots the step judge needs, and its schema would pass for
+// a judge's.
 const printHeldScript = `#!/bin/sh
 D=$(dirname "$0")
-for arg in "$@"; do
-	if [ "$arg" = --no-session-persistence ]; then
+case " $* " in
+*" --no-session-persistence "*)
+	case "$*" in
+	*'"verdict"'*|*'"needed"'*|*--system-prompt*)
 		printf '%%s\n' "$$ $(printf '%%s' "$*" | tr '\n' ' ')" >> "$D/print.pids"
 		cat > /dev/null
 		exec sleep 1000
-	fi
-done
+		;;
+	esac
+	;;
+esac
 exec %s "$@"
 `
 
@@ -57,7 +73,7 @@ func TestOrrerydStopEndsWithJudgesAndSummaryInFlight(t *testing.T) {
 	id := resp.Msg.GetId()
 	stepReadoptTouch(t, r.turnRelease)
 	waittest.Until(t, daemon.done, "the step's judge run", func() bool {
-		return r.step(t, id).GetStage() == store.StepStageJudge && heldRun(t, pids, "--json-schema")
+		return r.step(t, id).GetStage() == store.StepStageJudge && heldRun(t, pids, stepJudgeMark)
 	})
 
 	client, err := tmuxctl.New(tmuxctl.Server{Name: r.f.server})
@@ -75,16 +91,14 @@ func TestOrrerydStopEndsWithJudgesAndSummaryInFlight(t *testing.T) {
 		"hook_event_name": "UserPromptSubmit",
 		"transcript_path": transcript,
 	})
-	waittest.Until(t, daemon.done, "the pane's summary run", func() bool { return heldRun(t, pids, "--system-prompt") })
+	waittest.Until(t, daemon.done, "the pane's summary run", func() bool { return heldRun(t, pids, summaryMark) })
 	// The pane's Stop routes a done notice, whose judge runs at once under the test's judge delay and holds too.
 	sendHook(t, r.f.socket, strings.TrimSpace(out), dir, map[string]any{
 		"hook_event_name":        "Stop",
 		"transcript_path":        transcript,
 		"last_assistant_message": "the pane's turn ended",
 	})
-	waittest.Until(t, daemon.done, "the pane's done judge run", func() bool {
-		return heldCount(t, pids, "--json-schema") == 2
-	})
+	waittest.Until(t, daemon.done, "the pane's done judge run", func() bool { return heldRun(t, pids, doneJudgeMark) })
 
 	daemon.asked.Store(true)
 	if err = daemon.cmd.Process.Signal(syscall.SIGTERM); err != nil {
@@ -133,21 +147,14 @@ func heldRuns(t *testing.T, path string) []int {
 	return runs
 }
 
-// heldCount returns how many held runs print.pids at path records whose argv holds flag.
-func heldCount(t *testing.T, path, flag string) int {
+// heldRun reports whether print.pids at path records a held run whose argv holds mark: stepJudgeMark, doneJudgeMark
+// or summaryMark.
+func heldRun(t *testing.T, path, mark string) bool {
 	t.Helper()
-	count := 0
 	for _, line := range heldLines(t, path) {
-		if strings.Contains(" "+line+" ", " "+flag+" ") {
-			count++
+		if strings.Contains(line, mark) {
+			return true
 		}
 	}
-	return count
-}
-
-// heldRun reports whether print.pids at path records a held run whose argv holds flag: --json-schema for a haiku call,
-// such as a step judge's, and --system-prompt for a summary run.
-func heldRun(t *testing.T, path, flag string) bool {
-	t.Helper()
-	return heldCount(t, path, flag) > 0
+	return false
 }

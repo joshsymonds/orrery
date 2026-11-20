@@ -17,7 +17,7 @@ const maxInstructionsBytes = 1000
 // at most maxInstructionsBytes and not empty, that it states the step protocol, and that it names the by-part reads.
 func TestStepByPartInstructions(t *testing.T) {
 	t.Parallel()
-	server, err := NewServer(nil, nil, nil)
+	server, err := NewServer(nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}

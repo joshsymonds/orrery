@@ -1,8 +1,8 @@
-// Command orrery is the orrery CLI. It owns the command line: the global flags before the subcommand, the exit
-// codes, and the dispatch of each subcommand. It handles serve, desk, mcp, epic, run, gate, evidence, hold, step,
+// Command orrery is the orrery CLI. It owns the command line: the global flags before the subcommand, the exit codes,
+// and the dispatch of each subcommand. It handles serve, desk, mcp, epic, contract, run, gate, evidence, hold, step,
 // holder, help and tmux-conf itself, and the tmux commands open, debug, shell and tree, which act on the tmux server
-// the global flags name. hook runs internal/hook, and events, notices, session, list, seen and send run their
-// handlers in internal/cli.
+// the global flags name. hook runs internal/hook, and events, notices, session, list, seen and send run their handlers
+// in internal/cli.
 package main
 
 import (
@@ -139,6 +139,13 @@ subcommands:
   epic amend ID R<n> --item JSON [--reason TEXT]
                                                 amend R<n>'s evidence item to JSON; it applies only once the new
                                                 item's red at the epic's base is judged not to hold there
+  contract list                                 print the stored contracts as summaries
+  contract get ID                               print a stored contract with its versions and state changes
+  contract propose ID FILE WORDS                store the contract in FILE as version 1, proposed, with WORDS
+  contract revise ID FILE WORDS                 append the contract in FILE as a new version, with WORDS
+  contract accept ID [WORDS]                    accept a proposed contract, with WORDS
+  contract set-aside ID WORDS                   set a contract aside, with WORDS
+  contract reopen ID [WORDS]                    reopen a set-aside contract, with WORDS
   run --needs POOL=N [--needs POOL=N]... -- CMD [ARGS]
                                                 run CMD under a grant of pool members from orreryd
   run status                                    print the pools orreryd runs
@@ -279,6 +286,8 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 		return runMCP(ctx, opts, args, stdin, stdout, getenv)
 	case "epic":
 		return runEpic(ctx, opts, args, stdin, stdout, stderr, getenv)
+	case "contract":
+		return runContract(ctx, opts, args, stdout, getenv)
 	case "run", "gate", "evidence":
 		return orreryCommand(ctx, opts, name, args, stdin, stdout, stderr, getenv)
 	case "hold", "step":
@@ -524,8 +533,10 @@ func runMCP(ctx context.Context, opts globals, args []string, stdin io.Reader, s
 		connect.WithInterceptors(stepmcp.CallerInterceptor(getenv)))
 	epics := enginev1connect.NewEpicsClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL,
 		connect.WithInterceptors(stepmcp.CallerInterceptor(getenv)))
+	contracts := enginev1connect.NewContractsClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL,
+		connect.WithInterceptors(stepmcp.CallerInterceptor(getenv)))
 	evidence := enginev1connect.NewEvidenceClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL)
-	server, err := stepmcp.NewServer(steps, epics, evidence)
+	server, err := stepmcp.NewServer(steps, epics, contracts, evidence)
 	if err != nil {
 		return fmt.Errorf("mcp: %w", err)
 	}
@@ -547,6 +558,19 @@ func runEpic(ctx context.Context, opts globals, args []string, stdin io.Reader, 
 	epics := enginev1connect.NewEpicsClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL,
 		connect.WithInterceptors(stepmcp.CallerInterceptor(getenv)))
 	return epicCommand(ctx, epics, args, stdin, stdout, stderr)
+}
+
+// runContract runs `orrery contract`. It calls the contract tools on the session socket beside the daemon socket, as
+// runEpic does, so the command opens no listener and no store.
+func runContract(ctx context.Context, opts globals, args []string, stdout io.Writer, getenv func(string) string) error {
+	socket, err := protocol.SocketPath(opts.daemonSocket, getenv)
+	if err != nil {
+		return fmt.Errorf("contract: %w", err)
+	}
+	sessionSocket := protocol.SessionSocketPath(socket)
+	contracts := enginev1connect.NewContractsClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL,
+		connect.WithInterceptors(stepmcp.CallerInterceptor(getenv)))
+	return contractCommand(ctx, contracts, args, stdout)
 }
 
 // runServe runs `orrery serve`. It serves the HTTP API for the tmux server named by opts on the loopback address
@@ -592,27 +616,7 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 	if err != nil {
 		return err
 	}
-	var (
-		engine       enginev1connect.EngineClient
-		steps        server.StepClient
-		epicStore    server.EpicStoreClient
-		epicCommands enginev1connect.EpicsClient
-		evidence     server.EvidenceClient
-		pools        enginev1connect.PoolsClient
-		notices      enginev1connect.NoticesClient
-		changes      enginev1connect.ChangesClient
-	)
-	if daemonSocket, sockErr := protocol.SocketPath(opts.daemonSocket, getenv); sockErr == nil {
-		sessionClient := cli.SessionHTTPClient(protocol.SessionSocketPath(daemonSocket))
-		engine = enginev1connect.NewEngineClient(sessionClient, cli.SessionBaseURL)
-		steps = enginev1connect.NewStepsClient(sessionClient, cli.SessionBaseURL)
-		epicsClient := enginev1connect.NewEpicsClient(sessionClient, cli.SessionBaseURL)
-		epicStore, epicCommands, evidence = epicsClient, epicsClient,
-			enginev1connect.NewEvidenceClient(sessionClient, cli.SessionBaseURL)
-		pools = enginev1connect.NewPoolsClient(sessionClient, cli.SessionBaseURL)
-		notices = enginev1connect.NewNoticesClient(sessionClient, cli.SessionBaseURL)
-		changes = enginev1connect.NewChangesClient(sessionClient, cli.SessionBaseURL)
-	}
+	cfg := serveSessionConfig(opts, getenv)
 	// Without a HOME the record root stays empty: os.DirFS refuses an empty root, so Epics fails its reads rather than
 	// reading the working directory's .gambit.
 	var records string
@@ -625,35 +629,43 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 		return err
 	}
 	shutdown := make(chan struct{})
-	handler, err := server.New(server.Config{
-		HandlerOptions: handlerOptions,
-		Logins:         logins,
-		Tmux:           tmux,
-		Push:           pushStore,
-		HostStatus:     hostStatus,
-		Sessions:       sessions,
-		Shutdown:       shutdown,
-		Engine:         engine,
-		Steps:          steps,
-		Pools:          pools,
-		Notices:        notices,
-		Changes:        changes,
-		Records:        records,
-		EpicStore:      epicStore,
-		EpicCommands:   epicCommands,
-		Evidence:       evidence,
-		Home:           home,
-		Picker:         servePickerConfig(tmux, getenv),
-		ReportSeen:     seenReporter(opts.daemonSocket, getenv),
-		ReportRead:     readReporter(opts.daemonSocket, getenv),
-		ReportInput:    inputReporter(opts.daemonSocket, getenv),
-		Web:            webui.FS(),
-	})
+	cfg.HandlerOptions, cfg.Logins, cfg.Tmux, cfg.Push, cfg.HostStatus = handlerOptions, logins, tmux, pushStore, hostStatus
+	cfg.Sessions, cfg.Shutdown, cfg.Records, cfg.Home = sessions, shutdown, records, home
+	cfg.Picker = servePickerConfig(tmux, getenv)
+	cfg.ReportSeen = seenReporter(opts.daemonSocket, getenv)
+	cfg.ReportRead = readReporter(opts.daemonSocket, getenv)
+	cfg.ReportInput = inputReporter(opts.daemonSocket, getenv)
+	cfg.Web = webui.FS()
+	handler, err := server.New(cfg)
 	if err != nil {
 		return fmt.Errorf("serve: %w", err)
 	}
 
 	return serveListening(ctx, *listen, *metricsListen, handler, shutdown, metrics, stderr)
+}
+
+// serveSessionConfig returns a server.Config holding only the clients of orreryd's services on the session socket
+// beside the daemon socket opts names: Engine, Steps, Pools, Notices, Changes, the Epics client as both EpicStore and
+// EpicCommands, Evidence and ContractCommands. None carries a caller header, so a command serve forwards is the
+// owner's. A daemon socket that does not resolve leaves them all nil, and each service they back answers unavailable.
+func serveSessionConfig(opts globals, getenv func(string) string) server.Config {
+	daemonSocket, err := protocol.SocketPath(opts.daemonSocket, getenv)
+	if err != nil {
+		return server.Config{}
+	}
+	sessionClient := cli.SessionHTTPClient(protocol.SessionSocketPath(daemonSocket))
+	epics := enginev1connect.NewEpicsClient(sessionClient, cli.SessionBaseURL)
+	return server.Config{
+		Engine:           enginev1connect.NewEngineClient(sessionClient, cli.SessionBaseURL),
+		Steps:            enginev1connect.NewStepsClient(sessionClient, cli.SessionBaseURL),
+		Pools:            enginev1connect.NewPoolsClient(sessionClient, cli.SessionBaseURL),
+		Notices:          enginev1connect.NewNoticesClient(sessionClient, cli.SessionBaseURL),
+		Changes:          enginev1connect.NewChangesClient(sessionClient, cli.SessionBaseURL),
+		EpicStore:        epics,
+		EpicCommands:     epics,
+		Evidence:         enginev1connect.NewEvidenceClient(sessionClient, cli.SessionBaseURL),
+		ContractCommands: enginev1connect.NewContractsClient(sessionClient, cli.SessionBaseURL),
+	}
 }
 
 // serveMetrics returns the metrics provider and the handler options that record to it when metricsListen is set.

@@ -181,6 +181,10 @@ type options struct {
 	// dueNow is a test seam: the clock the due pass reads to decide which limited steps are due. Production leaves it
 	// nil, which is time.Now. A test whose steps carry fixed reset dates sets it, so the real date never makes them due.
 	dueNow func() time.Time
+	// relayNow is a test seam: the clock the notice relay's watching and viewing checks read as now (relay.now).
+	// Production leaves it nil, which is time.Now. A test that reports a read sets it to the read's second, so a loaded
+	// machine never ages the read out of readWindow before the test ends.
+	relayNow func() time.Time
 	// cronNow is a test seam: the clock the cron answers and the cron scheduler read as now. Production leaves it nil,
 	// which is time.Now.
 	cronNow func() time.Time
@@ -338,9 +342,20 @@ func hostName(seam string) (string, error) {
 	return host, nil
 }
 
-// dueClock is the due pass's clock for the --due-at test seam: nil, which is time.Now, for zero, and otherwise a clock
-// stopped at unix second at.
-func dueClock(at int64) func() time.Time {
+// checkClockSeams refuses a negative --due-at or --relay-at as a usage error.
+func checkClockSeams(dueAt, relayAt int64) error {
+	if dueAt < 0 {
+		return usagef("--due-at must not be negative, got %d", dueAt)
+	}
+	if relayAt < 0 {
+		return usagef("--relay-at must not be negative, got %d", relayAt)
+	}
+	return nil
+}
+
+// unixClock is the clock of a test seam that names unix seconds, --due-at's or --relay-at's: nil, which is time.Now, for
+// zero, and otherwise a clock stopped at unix second at.
+func unixClock(at int64) func() time.Time {
 	if at == 0 {
 		return nil
 	}
@@ -394,6 +409,7 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	metricsListen := flags.String("metrics-listen", "", "loopback address that serves /metrics")
 	flowTicks := flags.String("flow-ticks", "", "test seam: file each flow pass appends a line to")
 	dueAt := flags.Int64("due-at", 0, "test seam: unix seconds the due pass reads as now")
+	relayAt := flags.Int64("relay-at", 0, "test seam: unix seconds the notice relay's watching checks read as now")
 	hostName := flags.String("host", "", "test seam: host name in place of the machine's")
 	judgeDelay := flags.Duration("judge-delay", route.JudgeDelay, "test seam: wait of a done before its judge")
 	storeBusy := flags.Duration("store-busy-timeout", store.BusyTimeout,
@@ -413,8 +429,8 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	if err := checkLimits(*sessionCap, *stepCap, *judgeDelay, *storeBusy); err != nil {
 		return options{}, err
 	}
-	if *dueAt < 0 {
-		return options{}, usagef("--due-at must not be negative, got %d", *dueAt)
+	if err := checkClockSeams(*dueAt, *relayAt); err != nil {
+		return options{}, err
 	}
 	if *sessions && !filepath.IsAbs(*sessionShell) {
 		return options{}, usagef("--sessions needs an absolute --session-shell, got %q", *sessionShell)
@@ -451,7 +467,8 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 		storeBusy:     *storeBusy,
 		metricsListen: *metricsListen,
 		flowTicks:     *flowTicks,
-		dueNow:        dueClock(*dueAt),
+		dueNow:        unixClock(*dueAt),
+		relayNow:      unixClock(*relayAt),
 		host:          *hostName,
 	}, nil
 }
@@ -579,6 +596,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		webhook:     opts.webhook,
 		summarizers: make(map[tmuxctl.Server]*summary.Summarizer),
 		views:       newDoneViews(),
+		now:         opts.relayNow,
 	})
 	router := hub.router
 	pageNotices := enginehost.NewPageNotices(pages, router, router, time.Now)
@@ -789,17 +807,18 @@ func shutdownServe(
 }
 
 // sessionHost is the engine session service of a --sessions orreryd. The manager runs the sessions, the writer stores
-// their events, and the listener answers the Engine, Steps, Pools and Evidence services on sessions.sock. Without a
-// store the manager, writer and broker are nil and every RPC is refused. The broker is closed before the listener stops,
-// so a grant that a blocked Acquire holds stays stored for the next orreryd. pools is the broker when its restore
-// succeeded, and nil otherwise, so no Pools are served. evidence is the evidence runner over the store, the steps and
-// the pools, and nil without a store. checks is the node checks runner over the store and the pools, and nil without a
-// store.
+// their events, and the listener answers the Engine, Steps, Pools, Evidence and Contracts services on sessions.sock.
+// Without a store the manager, writer and broker are nil and every RPC is refused. The broker is closed before the
+// listener stops, so a grant that a blocked Acquire holds stays stored for the next orreryd. pools is the broker when
+// its restore succeeded, and nil otherwise, so no Pools are served. evidence is the evidence runner over the store, the
+// steps and the pools, and nil without a store. checks is the node checks runner over the store and the pools, and nil
+// without a store.
 type sessionHost struct {
 	manager    *enginehost.Manager
 	steps      *enginehost.Steps
 	epics      enginehost.EpicCommands
 	steering   enginehost.SteeringSessions
+	contracts  *enginehost.Contracts
 	writer     *enginehost.Writer
 	broker     *grants.Broker
 	pools      enginehost.PoolCommands
@@ -970,7 +989,7 @@ func startSessions(
 		host.steps = steps
 		host.wireStore(st)
 		commands, stepCommands = host.manager, host.steps
-		host.epics, host.steering = st, epicSteering(host.manager, st)
+		host.epics, host.steering, host.contracts = st, epicSteering(host.manager, st), contractsOf(st)
 		crons = enginehost.NewCronAnswers(enginehost.CronAnswersConfig{
 			Store: st, Now: opts.cronNow, Changed: host.cron.Changed})
 		host.startWriter(ctx)
@@ -1000,6 +1019,7 @@ func startSessions(
 		host.serveDone <- enginehost.Serve(
 			serveCtx, ln, commands, stepCommands, host.epics, host.steering, host.pools, evidence, notices, crons,
 			host.changes,
+			host.contracts,
 			serveOpts(opts, st, logger)...,
 		)
 	}()
@@ -1011,6 +1031,11 @@ func epicSteering(manager *enginehost.Manager, st *store.Store) *enginehost.Epic
 	return enginehost.NewEpicSteering(enginehost.EpicSteeringConfig{
 		Manager: manager, Sessions: st, Render: planner.SteeringLines, PaneDir: paneDir,
 	})
+}
+
+// contractsOf returns the contracts st serves, stamped with the process clock.
+func contractsOf(st *store.Store) *enginehost.Contracts {
+	return &enginehost.Contracts{Store: st, Now: time.Now}
 }
 
 // paneDir returns the current directory of the tmux pane on the server whose store column is server. Its error names

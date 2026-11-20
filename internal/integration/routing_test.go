@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -149,13 +150,16 @@ func TestOrrerydRouteHoldsWatchedPane(t *testing.T) {
 	stateHome := filepath.Join(dir, "state")
 	endpoint := newPushEndpoint(t)
 	registerPush(t, stateHome, endpoint)
-	daemon, socket := startPushDaemon(t, name, dir, stateHome, endpoint)
+	// orreryd's relay reads the second of the read report as now, so however long the machine takes, the pane stays
+	// read and each recheck of the held notice finds it watched.
+	read := time.Now().Unix()
+	daemon, socket := startPushDaemon(t, name, dir, stateHome, endpoint, "--relay-at", strconv.FormatInt(read, 10))
 	logPath := noticeLogPath(stateHome)
-	since := time.Now().Unix()
+	since := read
 
 	// The read report is a connection of its own, written before the waiting hook starts its process, so orreryd
 	// records the read before it decides the waiting notice.
-	if err := hook.ReportRead(socket, pane, time.Now().Unix()); err != nil {
+	if err := hook.ReportRead(socket, pane, read); err != nil {
 		t.Fatalf("report read: %v", err)
 	}
 	sendHook(t, socket, pane, dir, permissionRequestHook())
