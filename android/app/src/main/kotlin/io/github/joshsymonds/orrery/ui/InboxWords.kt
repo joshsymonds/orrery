@@ -99,7 +99,7 @@ private fun stateWordOf(listed: EpicRow, detail: EpicDetail?): String {
 
 // The track part a phase is in: planning or building while accepted, building while built, reviewing or correcting,
 // releasing while clean, releasing or stopped, and report once released or closed. Null for any other phase.
-private fun trackPartOf(phase: String, detail: EpicDetail): String? = when (phase) {
+internal fun trackPartOf(phase: String, detail: EpicDetail): String? = when (phase) {
     "accepted" -> if (detail.tasks.isEmpty() && detail.buildTasks.isEmpty()) "planning" else "building"
     "built", "reviewing", "correcting" -> "building"
     "clean", "releasing", "stopped" -> RELEASING

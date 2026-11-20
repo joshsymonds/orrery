@@ -97,7 +97,8 @@ private fun newSessionId(): String = UUID.randomUUID().toString().replace("-", "
  * rows or a failure arrive. Tapping a row runs exactly that row and reports the pane it opened through [onOpened].
  * Tapping a pane or fresh row opens a start form for its full folder instead, which replaces the rows until its
  * "Other results" returns to them: its first message is the asked text when the row starts Claude with it, and empty
- * otherwise. Start sends that form and reports the session it answers through [onStarted]. A failure shows one fixed
+ * otherwise. A [startIn] that is not blank opens the sheet on the start form for that directory instead, with no rows.
+ * Start sends that form and reports the session it answers through [onStarted]. A failure shows one fixed
  * sentence and leaves the sheet usable with what was typed. Dismissing the sheet calls [onClose].
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -107,13 +108,16 @@ fun PickerPanel(
     onOpened: (String) -> Unit,
     onStarted: (String) -> Unit,
     onClose: () -> Unit,
+    startIn: String? = null,
 ) {
     var text by remember { mutableStateOf("") }
     var askedText by remember { mutableStateOf("") }
     var rows by remember { mutableStateOf<List<PickRow>?>(null) }
     var work by remember { mutableStateOf(PickerWork.IDLE) }
     var failure by remember { mutableStateOf<String?>(null) }
-    var form by remember { mutableStateOf<StartForm?>(null) }
+    var form by remember {
+        mutableStateOf(startIn?.takeIf { it.isNotBlank() }?.let { StartForm(dir = it, message = "", id = newSessionId()) })
+    }
     val scope = rememberCoroutineScope()
     val canAsk = text.isNotBlank() && work == PickerWork.IDLE
 

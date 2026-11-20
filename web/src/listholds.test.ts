@@ -154,3 +154,10 @@ test("HashRoute: a step in an epic block holds under the inbox, and never under 
   assert.equal(listHolds(at("inbox", step), [], epics), true);
   assert.equal(listHolds(at("archived", step), [], epics), false);
 });
+
+test("ProjectPage address: a project entry holds under either view", () => {
+  const project: Entry = { kind: "project", key: "|/home/owner/code/lighthouse" };
+  for (const view of views) {
+    assert.equal(listHolds(at(view, project), [], noEpics), true, view);
+  }
+});

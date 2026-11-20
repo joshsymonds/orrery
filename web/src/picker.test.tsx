@@ -183,6 +183,7 @@ async function mountPalette(
   onStart: (session: string) => void = () => {},
   rows: Row[] = [],
   sheet = false,
+  dir?: string,
 ): Promise<void> {
   await act(() => {
     render(
@@ -190,6 +191,7 @@ async function mountPalette(
         clients={server.clients}
         rows={rows}
         sheet={sheet}
+        dir={dir}
         onRun={onRun}
         onStart={onStart}
         onClose={onClose}
@@ -732,6 +734,51 @@ test("NewPanel: Other results goes back to the results as they were, with the sa
     assert.deepEqual(rowTexts(container), before, "the same results are listed");
     assert.equal(currentIndex(container), 1, "the current result is the one chosen before");
     assert.deepEqual(server.callsTo(startPath), [], "Other results starts nothing");
+  }));
+
+test("ProjectPage New session here: NewPanel given a dir draws the start form for it, read-only, with no results list", (t) =>
+  withDom(t.signal, async (container, server) => {
+    await mountPalette(container, server, () => {}, () => {}, () => {}, [], false, "/work/billing");
+    assert.equal(directoryBox(container).value, "/work/billing", "the form names the project's directory");
+    assert.equal(directoryBox(container).readOnly, true, "the directory is a read-only field");
+    assert.equal(messageBox(container).value, "", "the message starts empty");
+    assertNone(container.querySelector(".pick-row"), "no results list is drawn");
+    assert.deepEqual(server.calls, [], "opening the form calls nothing");
+  }));
+
+test("ProjectPage New session here: Start the session sends Control.Start with that directory and the typed message", (t) =>
+  withDom(t.signal, async (container, server) => {
+    server.replies.set(startPath, { status: 200, body: { id: "sess-billing" } });
+    const started: string[] = [];
+    await mountPalette(container, server, () => {}, () => {}, (session) => started.push(session), [], false, "/work/billing");
+    await typeMessage(container, "retry the webhook");
+    await click(startButton(container));
+    await untilTurn(t.signal, () => started.length === 1, "the start reports its session");
+    assert.deepEqual(started, ["sess-billing"]);
+    assert.deepEqual(
+      server.callsTo(startPath).map((call) => ({ dir: call.body.dir, prompt: call.body.prompt })),
+      [{ dir: "/work/billing", prompt: "retry the webhook" }],
+    );
+  }));
+
+test("ProjectPage New session here: Back shows the empty search, and asks nothing", (t) =>
+  withDom(t.signal, async (container, server) => {
+    await mountPalette(container, server, () => {}, () => {}, () => {}, [], false, "/work/billing");
+    await click(otherResultsButton(container));
+    assertNone(container.querySelector(".picker-start"), "the start form closes");
+    assert.equal(input(container).value, "", "the search field is empty");
+    assert.equal(hintOf(container)?.textContent?.startsWith("Name a directory"), true, "the hint is shown");
+    assert.deepEqual(rowTexts(container), [], "no results are listed");
+    assert.deepEqual(server.callsTo(askPath), [], "Back asks nothing");
+  }));
+
+test("ProjectPage New session here: NewPanel without a dir opens on the empty search", (t) =>
+  withDom(t.signal, async (container, server) => {
+    await mountPalette(container, server);
+    assertNone(container.querySelector(".picker-start"), "no start form is open");
+    assert.equal(input(container).value, "", "the search field is empty");
+    assert.equal(hintOf(container)?.textContent?.startsWith("Name a directory"), true, "the hint is shown");
+    assert.deepEqual(server.calls, [], "opening the search calls nothing");
   }));
 
 test("NewPanel: Start the session is disabled while the message is blank, and enabled once it has words", (t) =>

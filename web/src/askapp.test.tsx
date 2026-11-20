@@ -364,6 +364,83 @@ for (const digit of digits) {
     }));
 }
 
+// projectHead is the head of the rows' project in the inbox, whose press opens the project's page.
+function projectHead(container: HTMLElement): HTMLButtonElement {
+  const head = container.querySelector<HTMLButtonElement>('section.dir[aria-label="app"] button.proj');
+  assert.ok(head, "the inbox draws the app project's head");
+  return head;
+}
+
+// projectPage is the project page, while one is drawn.
+function projectPage(container: HTMLElement): HTMLElement | null {
+  return container.querySelector<HTMLElement>('section[aria-label="project"]:not([hidden])');
+}
+
+// pageConvo is the project page's line for the conversation key, whose press opens it and shuts the page.
+function pageConvo(container: HTMLElement, key: string): HTMLButtonElement {
+  const line = container.querySelector<HTMLButtonElement>(`section[aria-label="project"] button.pc-row[data-key="${key}"]`);
+  assert.ok(line, `the project page draws ${key}`);
+  return line;
+}
+
+for (const digit of digits) {
+  test(`AskAnswer: key ${digit} sends no answer while a project page covers the pane's question, and answers once the page is gone`, (t) =>
+    withApp(t.signal, [pane({ key: "a", question: nineOptionPane })], async (container, fake) => {
+      await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+      fake.emit(fake.callsTo(paneWatchPath)[0], { transcript: "t1", seq: "1", reset: true, items: [] });
+      await flush();
+      assert.ok(askOf(container) !== null, "the Ask is drawn");
+      await click(projectHead(container));
+      await flush();
+      assert.ok(projectPage(container) !== null, "the project page covers the reader");
+      assert.equal(askOf(container), null, "the covered Ask is not on screen");
+      await press(String(digit));
+      await flush();
+      assert.deepEqual(fake.callsTo(sendKeysPath), [], "no digit is sent to the covered pane");
+      assert.deepEqual(fake.callsTo(answerPath), [], "no answer is sent");
+      await click(pageConvo(container, "a"));
+      await flush();
+      assert.equal(projectPage(container), null, "the page is gone");
+      assert.ok(askOf(container) !== null, "the Ask is on screen again");
+      await press(String(digit));
+      await flush();
+      assert.deepEqual(
+        fake.callsTo(sendKeysPath).map((call) => call.body),
+        [{ pane: "a", keys: [String(digit)], expectQuestion: "qh-1" }],
+        "the same digit answers once the page is gone",
+      );
+    }));
+}
+
+test("AskAnswer: with the inbox out over a project page, 1 to 9 send no answer for the session's question, and 5 answers once the page is gone", (t) =>
+  withApp(t.signal, [headless({ key: "s1", id: "s1", label: "notes" })], async (container, fake) => {
+    await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    fake.emit(fake.callsTo(sessionWatchPath)[0], nineOptionStream);
+    await flush();
+    assert.ok(askOf(container) !== null, "the Ask is drawn");
+    await click(projectHead(container));
+    await press("b");
+    await flush();
+    assert.ok(projectPage(container) !== null, "the project page covers the reader");
+    assert.equal(container.querySelector(".panes")?.getAttribute("data-inbox"), "flyout", "the inbox is out over the page");
+    for (const digit of digits) {
+      await press(String(digit));
+    }
+    await flush();
+    assert.deepEqual(fake.callsTo(answerPath), [], "no answer is sent for the covered question");
+    assert.deepEqual(fake.callsTo(sendKeysPath), [], "no digit is sent");
+    await click(pageConvo(container, "s1"));
+    await flush();
+    assert.equal(projectPage(container), null, "the page is gone");
+    await press("5");
+    await flush();
+    assert.deepEqual(
+      fake.callsTo(answerPath).map((call) => call.body),
+      [{ id: "s1", requestId: "req-7", answer: nineOptions[4] }],
+      "5 answers once the page is gone",
+    );
+  }));
+
 // epicQuestionBlock is the transcript's event that an epic asked its question Q1 with, as the server writes it.
 const epicQuestionBlock = `<orrery-event kind="question" id="epic:orrery-1a2b3c4/planner-runner:Q1">
 orrery-1a2b3c4/planner-runner (Plan the runner) asks a question.

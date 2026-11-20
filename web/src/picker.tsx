@@ -1,9 +1,10 @@
 import { Code, ConnectError } from "@connectrpc/connect";
 import { useEffect, useRef, useState } from "preact/hooks";
 
+import { create } from "@bufbuild/protobuf";
 import * as actions from "./actions";
 import type { Clients } from "./actions";
-import type { PickerRow } from "./gen/orrery/v1/orrery_pb";
+import { PickerRowSchema, type PickerRow } from "./gen/orrery/v1/orrery_pb";
 import type { Row } from "./rows";
 import { listedTitle, TitleParts } from "./titleparts";
 
@@ -67,11 +68,13 @@ const newHint = "Name a directory to start a session there, or say a few words a
 // chooses the current row while the field holds the words last asked, and asks again once they change. Choosing a row
 // that is not a folder sends its token to Picker.Run and reports the pane the run answered to onRun. Choosing a folder
 // row opens StartForm in place of the list, and the session the form starts is reported to onStart. Escape closes it
-// through onClose.
+// through onClose. A dir given and not empty opens StartForm for that directory at once, and its Back shows the empty
+// search.
 export function NewPanel({
   clients,
   rows,
   sheet,
+  dir,
   onRun,
   onStart,
   onClose,
@@ -79,6 +82,7 @@ export function NewPanel({
   clients: Clients;
   rows: Row[];
   sheet: boolean;
+  dir?: string;
   onRun: (pane: string) => void;
   onStart: (session: string) => void;
   onClose: () => void;
@@ -93,7 +97,9 @@ export function NewPanel({
   const [current, setCurrent] = useState(0);
   const [askError, setAskError] = useState("");
   // The folder row whose start form is open, if one is.
-  const [folder, setFolder] = useState<PickerRow | null>(null);
+  const [folder, setFolder] = useState<PickerRow | null>(() =>
+    dir ? create(PickerRowSchema, { kind: "fresh", dir }) : null,
+  );
   const [runError, setRunError] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 

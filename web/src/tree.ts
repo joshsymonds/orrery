@@ -309,7 +309,7 @@ function rankOf(convo: Convo): number {
 }
 
 // changedOf is when a conversation last changed: its row's, or for a stand-in its newest hung thing's.
-function changedOf(convo: Convo): number {
+export function changedOf(convo: Convo): number {
   if (convo.row !== null) {
     return convo.row.changed;
   }

@@ -86,14 +86,14 @@ function inboxHome(root: HTMLElement): boolean {
   return listView(root) === "inbox" && inboxState(root) === "docked";
 }
 
-// convoWorking is Page/convo-working: the inbox hidden under the reader of pane %11.
+// convoWorking is Page/convo-working: the inbox at rest as its rail beside the reader of pane %11.
 function convoWorking(root: HTMLElement): boolean {
-  return inboxState(root) === "hidden" && (root.textContent ?? "").includes(lampFragment);
+  return inboxState(root) === "rail" && (root.textContent ?? "").includes(lampFragment);
 }
 
-// askSession is Page/ask-session: the inbox hidden under the reader of pane %12.
+// askSession is Page/ask-session: the inbox at rest as its rail beside the reader of pane %12.
 function askSession(root: HTMLElement): boolean {
-  return inboxState(root) === "hidden" && (root.textContent ?? "").includes(beaconPrompt);
+  return inboxState(root) === "rail" && (root.textContent ?? "").includes(beaconPrompt);
 }
 
 // askOf is the Ask the page draws, or null when none is drawn. The answered and settled lines are not Asks.
@@ -1574,7 +1574,7 @@ test("FixtureTransport: page/epic-unavailable draws the could-not-read line with
   );
 });
 
-test("FixtureTransport: page's keys are exactly the 79 catalog names of its scenario states", () => {
+test("FixtureTransport: page's keys are exactly the 83 catalog names of its scenario states", () => {
   assert.deepEqual(Object.keys(Page).map((state) => storyName("Page", state)).sort(), [
     "page/ask-answered",
     "page/ask-decline",
@@ -1635,10 +1635,13 @@ test("FixtureTransport: page's keys are exactly the 79 catalog names of its scen
     "page/inbox-archived",
     "page/inbox-empty",
     "page/inbox-error",
+    "page/inbox-flyout",
     "page/inbox-folded",
     "page/inbox-home",
     "page/inbox-loading",
+    "page/inbox-narrow",
     "page/inbox-new",
+    "page/inbox-rail",
     "page/inbox-row-menu",
     "page/inbox-search",
     "page/inbox-search-none",
@@ -1651,6 +1654,7 @@ test("FixtureTransport: page's keys are exactly the 79 catalog names of its scen
     "page/new-results",
     "page/new-working",
     "page/phase-implement",
+    "page/project",
     "page/work-empty",
     "page/work-rail",
     "page/work-rail-group",

@@ -22,6 +22,7 @@ export type Entry =
   | { kind: "pane"; host: string; pane: string }
   | { kind: "step"; id: string }
   | { kind: "epic"; id: string; page: PageView }
+  | { kind: "project"; key: string }
   | { kind: "contract"; id: string };
 
 export interface Address {
@@ -126,6 +127,10 @@ function readEntry(segments: readonly string[]): Entry | undefined {
     const page = readPage(values.slice(1));
     return id !== undefined && page !== undefined ? { kind: "epic", id, page } : undefined;
   }
+  if (head === "project" && values.length === 1) {
+    const key = readValue(values[0]);
+    return key === undefined ? undefined : { kind: "project", key };
+  }
   if (head === "contract" && values.length === 1) {
     const id = readValue(values[0]);
     return id === undefined ? undefined : { kind: "contract", id };
@@ -192,6 +197,9 @@ export function formatAddress(address: Address): string {
         break;
       case "epic":
         segments.push("epic", encodeValue(entry.id), ...formatPage(entry.page));
+        break;
+      case "project":
+        segments.push("project", encodeValue(entry.key));
         break;
       case "contract":
         segments.push("contract", encodeValue(entry.id));

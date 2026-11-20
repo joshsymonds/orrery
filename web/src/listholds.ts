@@ -17,7 +17,8 @@ export function listsEpic(view: EpicsView, id: string): boolean {
 // listHolds reports whether the view of address.view holds address.entry, so that opening the address shows its entry.
 // An address with no entry always holds. The archived view holds archived rows and archived epics, and no step. The
 // inbox holds the rows that are not archived, the epics listsEpic finds, and the steps of the epic blocks. A contract
-// holds under every view while the loaded contracts hold its id.
+// holds under every view while the loaded contracts hold its id. A project entry always holds: the project page says when
+// the tree holds nothing of its project.
 export function listHolds(
   address: Address,
   rows: Row[],
@@ -41,6 +42,8 @@ export function listHolds(
       return !archived && epics.blocks.some((block) => block.steps.some((step) => step.id === entry.id));
     case "epic":
       return archived ? epics.archived.some((item) => item.id === entry.id) : listsEpic(epics, entry.id);
+    case "project":
+      return true;
     case "contract":
       return contracts.some((contract) => contract.id === entry.id);
   }

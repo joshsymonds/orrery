@@ -253,7 +253,7 @@ private fun StepLine(step: StepRow, onOpen: (String) -> Unit) {
 
 // A state glyph in the state's colour, named by the state's words; an unknown state draws idle.
 @Composable
-private fun StateGlyph(state: String, modifier: Modifier = Modifier) {
+internal fun StateGlyph(state: String, modifier: Modifier = Modifier) {
     val color = glyphColorOf(state)
     val word = glyphWordOf(state)
     Canvas(modifier = modifier.size(OrreryTokens.Size.glyph).semantics { contentDescription = word }) {
@@ -367,7 +367,7 @@ private fun DrawScope.glyphLine(color: Color, x1: Float, y1: Float, x2: Float, y
 // An epic's gauge: a planned ring in the line colour (dashed while it has no tasks), its done share as an arc in the
 // tone, and the inner mark in the tone.
 @Composable
-private fun GaugeMark(epicId: String, share: GaugeShare) {
+internal fun GaugeMark(epicId: String, share: GaugeShare) {
     val tone = toneColorOf(share.tone)
     val label = if (share.total > 0) "${share.done} of ${share.total} tasks done" else "no tasks yet"
     Canvas(

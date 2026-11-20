@@ -4,8 +4,9 @@ import { Icon } from "./glyphs";
 import type { Project } from "./tree";
 
 // DirProps are a project's card: the project; whether it is folded; the waiting count a folded head says; whether the
-// ended line is open; the two presses; the conversations that hang under the head, which the caller draws; and the ended
-// conversations, which the caller draws and the card shows only while the ended line is open.
+// ended line is open; the presses; the conversations that hang under the head, which the caller draws; the ended
+// conversations, which the caller draws and the card shows only while the ended line is open; and, when given, the press
+// that opens the project's page from its head.
 export interface DirProps {
   project: Project;
   folded: boolean;
@@ -13,15 +14,34 @@ export interface DirProps {
   endedOpen: boolean;
   onFold: () => void;
   onEnded: () => void;
+  onOpen?: (key: string) => void;
   children: ComponentChildren;
   ended: ComponentChildren;
 }
 
 // Dir draws a project's card. Its head is the fold button, the folder icon, the project's name and path, and a host chip
-// only when the project is on another host. Folded, the head also says how many things wait on you (only when the count is
-// not zero) and how many conversations it holds, and nothing else is drawn. Open, the conversations hang from a line under
-// the head, then the ended line, which opens to the ended conversations.
-export function Dir({ project, folded, waiting, endedOpen, onFold, onEnded, children, ended }: DirProps): JSX.Element {
+// only when the project is on another host. With onOpen, the folder, the name and the path are one button that opens the
+// project. Folded, the head also says how many things wait on you (only when the count is not zero) and how many
+// conversations it holds, and nothing else is drawn. Open, the conversations hang from a line under the head, then the
+// ended line, which opens to the ended conversations.
+export function Dir({
+  project,
+  folded,
+  waiting,
+  endedOpen,
+  onFold,
+  onEnded,
+  onOpen,
+  children,
+  ended,
+}: DirProps): JSX.Element {
+  const label = (
+    <>
+      <Icon name="folder" />
+      <span class="nm">{project.name}</span>
+      <span class="path">{project.path}</span>
+    </>
+  );
   const head = (
     <div class="dir-head">
       <button
@@ -33,11 +53,18 @@ export function Dir({ project, folded, waiting, endedOpen, onFold, onEnded, chil
       >
         <Icon name={folded ? "chevronRight" : "chevronDown"} />
       </button>
-      <div class="proj">
-        <Icon name="folder" />
-        <span class="nm">{project.name}</span>
-        <span class="path">{project.path}</span>
-      </div>
+      {onOpen === undefined ? (
+        <div class="proj">{label}</div>
+      ) : (
+        <button
+          type="button"
+          class="proj"
+          title={`Everything working in ${project.path === "" ? project.name : project.path}`}
+          onClick={() => onOpen(project.key)}
+        >
+          {label}
+        </button>
+      )}
       <span class="end">
         {project.host !== "" && (
           <span class="chip">

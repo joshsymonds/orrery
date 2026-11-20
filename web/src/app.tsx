@@ -26,6 +26,7 @@ import { stateWord } from "./glyphs";
 import { type HeadStore, memoryHeadStore } from "./headfold";
 import { KeyList } from "./helppanel";
 import { Inbox } from "./inbox";
+import { InboxRail } from "./inboxrail";
 import { ageText, InboxRow, type RowMore } from "./inboxrow";
 import {
   type BoxOpen,
@@ -44,7 +45,9 @@ import { phaseOutputOf } from "./phaserows";
 import type { Phase } from "./phases";
 import { NewPanel } from "./picker";
 import { type Viewing, viewingOf } from "./presence";
+import { ProjectPage } from "./projectpage";
 import { type ContractCalls, newestItemKey, type ReaderHandle } from "./reader";
+import { railTiles } from "./railtiles";
 import { type Address, type Entry, formatAddress, type ListPanelKind, type PageView, type View } from "./router";
 import { type Row, splitArchived, waitsOnYou } from "./rows";
 import { realClock, type SeenClock, type SeenWindow, watchSeen } from "./seen";
@@ -73,9 +76,10 @@ import { type ListThing, type Thing, type WorkConversation, workOf } from "./wor
 import { WorkerSessionPage } from "./workersession";
 import { WorkRail } from "./workrail";
 
-// The inbox's state: pinned beside the page, docked beside it while no row has been opened, hidden once one has, or
-// popped out over the hidden page while the pointer is on the mark or a key has popped it out.
-type InboxState = "docked" | "pinned" | "hidden" | "flyout";
+// The inbox's state: pinned beside the page, docked beside it while no row has been opened, resting as the rail beside
+// the page once one has, or popped out over the page from the rail while the pointer is on the rail or a key has popped
+// it out.
+type InboxState = "docked" | "pinned" | "rail" | "flyout";
 
 // The conversation the reader holds, with the row key it belongs to, so a row never shows another row's transcript.
 interface Stream {
@@ -183,6 +187,7 @@ const contractBlock = "contract";
 const loadingEpicText = "loading the epic…";
 const couldNotReadEpicText = "The server could not read this epic.";
 const noSteererText = "No conversation steers this epic.";
+const noProjectText = "Nothing in the inbox is in this project.";
 // The session states that end a conversation: its row holds it, but it is not live.
 const endedStates: readonly string[] = ["stopped", "failed"];
 const seenFailedText = "could not mark seen";
@@ -264,8 +269,8 @@ export function App({
   // Whether the strips under the title rows are drawn. m hides and shows every one of them.
   const [stripsShown, setStripsShown] = useState(true);
   // Whether an entry, a row, a step or an epic, has been opened by a click or Enter, which hides the inbox. The mark's
-  // click or B pins the inbox beside the page. A hidden inbox is popped out over the page by the pointer on the mark, or
-  // by a key, and popout records which.
+  // click or B pins the inbox beside the page. A railed inbox is popped out over the page by the pointer on the rail or
+  // the mark, or by a key, and popout records which.
   const [rowOpened, setRowOpened] = useState(false);
   const [inboxPinned, setInboxPinned] = useState(false);
   const [popout, setPopout] = useState<Popout>("none");
@@ -298,6 +303,16 @@ export function App({
   const listRef = useRef<HTMLDivElement>(null);
   // Whether the picker palette is open.
   const [pickerOpen, setPickerOpen] = useState(false);
+  // The directory the palette opens in: the project's, when New session here opened it, and none for N, ⌘K and the
+  // inbox's New. It is cleared once the palette is shut.
+  const [pickerDir, setPickerDir] = useState("");
+  useEffect(() => {
+    if (!pickerOpen) {
+      setPickerDir("");
+    }
+  }, [pickerOpen]);
+  // The key of the project whose page is open, which a project's head or an address opens.
+  const [projectKey, setProjectKey] = useState<string | null>(null);
   // The row the palette answered, which the cursor moves to once the loaded rows hold it: the pane Picker.Run
   // answered, or the session Control.Start started.
   const [pending, setPending] = useState<PendingTarget | null>(null);
@@ -485,14 +500,19 @@ export function App({
   });
   // The tree of the view before the chips and the search narrow it: each project's conversations, with the epics and
   // contracts that hang under them.
-  const tree = buildTree({
-    rows: shownRows,
-    epics: treeEpics,
-    details: epics.details,
-    contracts,
-    host: host?.host ?? "",
-    view,
-  });
+  const treeOf = (shown: View) =>
+    buildTree({
+      rows: shownRows,
+      epics: treeEpics,
+      details: epics.details,
+      contracts,
+      host: host?.host ?? "",
+      view: shown,
+    });
+  const tree = treeOf(view);
+  // The rail's tiles come from the inbox's tree whatever view the list shows, so a project keeps its tile and count
+  // in the Archived view.
+  const railTree = view === "inbox" ? tree : treeOf("inbox");
   const counts = countsOf(tree);
   // Each project's waiting number over the whole tree, before the chips and the search narrow it: a folded card says it.
   const waitingOf = new Map(tree.map((project) => [project.key, projectWaiting(project)]));
@@ -525,10 +545,10 @@ export function App({
         ? "docked"
         : popout !== "none"
           ? "flyout"
-          : "hidden";
-  // The inbox is hidden once a row has been opened, unless it is pinned or popped out. A key pop-out is the flyout that
-  // Escape and b tuck back.
-  const inboxHidden = inboxState === "hidden";
+          : "rail";
+  // The inbox rests as the rail once a row has been opened, unless it is pinned or popped out. A key pop-out is the flyout
+  // that Escape and b tuck back.
+  const inboxHidden = inboxState === "rail";
   const keyPopped = inboxState === "flyout" && popout === "key";
   // The Archived head's count: the archived conversations and the archived epics.
   const archivedCount = shownRows.filter((row) => row.archived).length + marked.archived.length;
@@ -551,10 +571,15 @@ export function App({
   // The epic's steerer: the row of the session that steers it, as the rail names it. The middle row is the row the
   // reader column draws: the cursor's row, or for an epic entry its steerer's row. The entry the reader follows is the
   // middle row, or else the cursor's step. Its stream is kept under this key, so a stream never shows under another entry.
-  // The contract the address opened is open while the cursor rests on the entry it opened over. Its conversation is the
-  // row whose session is the contract's conversation: the middle while that row is live, which an archived row, or one
-  // stopped or failed, is not.
-  const openedId = openedContract?.cursor === cursorKey ? openedContract.id : "";
+  // Under 760px the cursor's entry is the address only once it is opened, so the inbox's address names no row.
+  const pageDrawn = wide || rowOpened;
+  // The project whose page is open, while a page is drawn. The project page takes the page area, so the cursor's panels
+  // and rail do not draw while it is shown, and neither does a contract's.
+  const shownProject = pageDrawn ? projectKey : null;
+  // The contract the address opened is open while the cursor rests on the entry it opened over and no project page is
+  // shown. Its conversation is the row whose session is the contract's conversation: the middle while that row is live,
+  // which an archived row, or one stopped or failed, is not.
+  const openedId = shownProject === null && openedContract?.cursor === cursorKey ? openedContract.id : "";
   const contract = openedId === "" ? undefined : contracts.find((candidate) => candidate.id === openedId);
   const contractShown = contract !== undefined;
   const contractRow = contract === undefined ? null : steererRowOf(shownRows, contract.conversation);
@@ -604,18 +629,21 @@ export function App({
   const shownPage = pageCursor.current === cursorKey ? epicPage : openEpicPage;
   // The list panel the cursor's session row shows: a list is open only while the cursor rests on the row it is open on.
   const listShown: ListPanelKind | null =
-    !contractShown && listPanel !== null && listPanel.key === cursorRowKey ? listPanel.panel : null;
-  // Under 760px the cursor's entry is the address only once it is opened, so the inbox's address names no row. An open
-  // contract is the address while it is open.
-  const pageDrawn = wide || rowOpened;
+    shownProject === null && !contractShown && listPanel !== null && listPanel.key === cursorRowKey
+      ? listPanel.panel
+      : null;
+  // A shown project page is the address, then an open contract, which no project page shows over, and otherwise the
+  // cursor's entry.
   const shownAddress: Address = {
     view,
     entry:
-      contract !== undefined
-        ? { kind: "contract", id: contract.id }
-        : pageDrawn
-          ? shownEntry(cursorItem, shownPage, listShown)
-          : null,
+      shownProject !== null
+        ? { kind: "project", key: shownProject }
+        : contract !== undefined
+          ? { kind: "contract", id: contract.id }
+          : pageDrawn
+            ? shownEntry(cursorItem, shownPage, listShown)
+            : null,
   };
   const shownForm = formatAddress(shownAddress);
 
@@ -1334,6 +1362,7 @@ export function App({
       return;
     }
     const next = clamp(target, flat.length);
+    setProjectKey(null);
     setCursor({ key: flat[next].key, index: next });
   };
 
@@ -1402,6 +1431,7 @@ export function App({
   // list is drawn again.
   const waitTo = (key: string) => {
     revealKey(key);
+    setProjectKey(null);
     setCursor({ key, index: shownIndex });
   };
 
@@ -1409,6 +1439,7 @@ export function App({
   // on it. Under 760px the epic's page draws alone, so the entry is opened.
   const openEpic = (id: string) => {
     revealKey(`epic:${id}`);
+    setProjectKey(null);
     setCursor({ key: `epic:${id}`, index: shownIndex });
     if (!wide) {
       openPageAlone();
@@ -1420,6 +1451,48 @@ export function App({
   const openPageAlone = () => {
     setRowOpened(true);
     setEpicPage((previous) => (previous.closed ? openEpicPage : previous));
+  };
+
+  // openProject opens a project's page from its head or its address: the address names the project, the page draws
+  // in the page area, and the inbox rests as with any page opened. An open contract's panel shuts, since the page takes
+  // its place. It is a navigation.
+  const openProject = navigated((key: string) => {
+    setOpenedContract(null);
+    setProjectKey(key);
+    setRowOpened(true);
+  });
+
+  // openProjectItem is the press a project page's conversation or WorkCard makes. It opens what the tree opens for the
+  // item key, as openEpic does, and shuts the page. A key the tree draws no entry of, a stand-in's, opens nothing, as the
+  // tree's own press does. A contract's key opens the contract's panel, as the tree's press on its item does. A thing the
+  // chip or the search keeps out of the list is let back in first, by clearing them, so the cursor rests on the thing
+  // pressed and not on a neighbour.
+  const openProjectItem = navigated((key: string) => {
+    const convos = tree.flatMap((project) => [...project.convos, ...project.ended]);
+    if (!convos.some((convo) => holdsKey(convo, key))) {
+      return;
+    }
+    const hung = convos.flatMap((convo) => convo.hung).find((candidate) => candidate.key === key);
+    if (hung?.kind === "contract") {
+      openContractPanel(hung.contract.id);
+      return;
+    }
+    if (!projects.some((project) => [...project.convos, ...project.ended].some((convo) => holdsKey(convo, key)))) {
+      setNarrowBy("");
+      setSearchText(null);
+    }
+    revealKey(key);
+    setProjectKey(null);
+    setCursor({ key, index: shownIndex });
+    if (!wide) {
+      openPageAlone();
+    }
+  });
+
+  // openPickerIn opens the palette on a project's directory, which New session here does.
+  const openPickerIn = (dir: string) => {
+    setPickerDir(dir);
+    setPickerOpen(true);
   };
 
   // selectKey moves the cursor to the entry drawn under key, as a press on that entry does. A press on an epic or a step
@@ -1456,8 +1529,10 @@ export function App({
   };
   // openContractPanel opens a contract's panel, as its address does: the conversation's row takes the cursor when the
   // list shows it, as an epic's line does, so the middle, the composer and the seen watch rest on the same row. The
-  // contract stays open over the cursor's key that results.
+  // contract stays open over the cursor's key that results. A project page open in the page area shuts, since the panel
+  // takes its place.
   const openContractPanel = (id: string) => {
+    setProjectKey(null);
     const listed = contracts.find((candidate) => candidate.id === id);
     const conversation = listed === undefined ? null : steererRowOf(shownRows, listed.conversation);
     const conversationItem =
@@ -1488,6 +1563,11 @@ export function App({
       return;
     }
     setView(address.view);
+    // An address that names no project shuts the project page, as a move of the cursor does. The contract panel shuts
+    // too, and an address that names a contract opens it again once the list holds it.
+    if (address.entry?.kind !== "project") {
+      setProjectKey(null);
+    }
     setOpenedContract(null);
     pendingOpen.current = address.entry === null ? null : { view: address.view, entry: address.entry };
     if (address.entry === null && !first && epicEntry !== null) {
@@ -1517,8 +1597,19 @@ export function App({
     if (!listHolds(pending, rows, epics, contracts)) {
       return;
     }
+    // A project's page waits for the first load, so it does not say the tree holds nothing of the project before the
+    // tree holds it.
+    if (pending.entry.kind === "project" && !answered) {
+      return;
+    }
     const { entry } = pending;
     pendingOpen.current = null;
+    if (entry.kind === "project") {
+      setProjectKey(entry.key);
+      setRowOpened(true);
+      adopt();
+      return;
+    }
     if (entry.kind === "contract") {
       openContractPanel(entry.id);
       adopt();
@@ -1549,7 +1640,7 @@ export function App({
     arm();
     lastForm.current = null;
     renderAddress();
-  }, [addressForm, flat, marked, contracts]);
+  }, [addressForm, flat, marked, answered, contracts]);
 
   // markNoticeSeen sends the notice's key as seen. A failed report is dropped; the notice stays until it ends.
   const markNoticeSeen = (notice: InAppNotice) => {
@@ -1594,21 +1685,29 @@ export function App({
 
   // togglePin pins the inbox beside the page, or unpins it: the mark's click and B both do this.
   const togglePin = () => setInboxPinned((value) => !value);
+  // inboxEnter is the pointer's entry to the mark or the rail, which pops the inbox out over the page. A hover does not
+  // change a pop-out a key already made, and a narrow window takes no hover at all.
+  const inboxEnter = () => {
+    if (wide) {
+      setPopout((current) => (current === "none" ? "hover" : current));
+    }
+  };
+  // inboxLeave is the pointer's leave from the mark, the rail or the list. A leave into the inbox's list or its rail keeps
+  // the inbox out; any other leave tucks it away.
+  const inboxLeave = (to: EventTarget | null) => {
+    const within =
+      (to instanceof Node && listRef.current?.contains(to) === true) ||
+      (to instanceof Element && to.closest(".rail.start") !== null);
+    if (!within) {
+      setPopout("none");
+    }
+  };
   // inboxMark is the mark every title row draws: its count, the hover that pops the inbox out, and the click that pins
-  // it. A pointer that leaves the mark for the inbox keeps the inbox out; any other leave tucks it away. A hover does
-  // not change a pop-out a key already made, and a narrow window takes no hover at all.
+  // it. The inbox's own rules for the pointer apply to it as to the rail.
   const inboxMark: InboxMark = {
     needs: markNeeds,
-    enter: () => {
-      if (wide) {
-        setPopout((current) => (current === "none" ? "hover" : current));
-      }
-    },
-    leave: (to) => {
-      if (!(to instanceof Node) || listRef.current?.contains(to) !== true) {
-        setPopout("none");
-      }
-    },
+    enter: inboxEnter,
+    leave: inboxLeave,
     pin: togglePin,
   };
 
@@ -1702,6 +1801,7 @@ export function App({
   // that draws the list has run.
   const backToInbox = () => {
     focusPending.current = true;
+    setProjectKey(null);
     setRowOpened(false);
   };
 
@@ -1724,11 +1824,11 @@ export function App({
   const railConversation: WorkConversation | null =
     middleRow === null ? null : workConversation(middleRow, cursorConversation);
   const railGroups = workOf(railConversation, railEpics, now, contracts);
-  // The epic panel is open while the cursor rests on an epic entry, its page is not closed, no contract is open, and the
-  // page is drawn: under 760px only once the entry has been opened. Its tile is the rail's tile of that epic, which is lit
-  // while the panel is open, and whose tone the card takes. An epic no conversation steers has no tile, so no tile is lit
-  // and the card takes the quiet tone.
-  const panelOpen = pageDrawn && epicEntry !== null && !epicPage.closed && !contractShown;
+  // The epic panel is open while the cursor rests on an epic entry, its page is not closed, no contract is open, no
+  // project page is shown, and the page is drawn: under 760px only once the entry has been opened. Its tile is the rail's
+  // tile of that epic, which is lit while the panel is open, and whose tone the card takes. An epic no conversation steers
+  // has no tile, so no tile is lit and the card takes the quiet tone.
+  const panelOpen = pageDrawn && epicEntry !== null && !epicPage.closed && !contractShown && shownProject === null;
   // Under 760px an open epic is the page in the conversation's place: the conversation is not drawn, and the page's
   // foot bar opens the steering conversation. At the desk the epic panel lies beside the conversation.
   const epicPageShown = !wide && panelOpen;
@@ -1857,6 +1957,19 @@ export function App({
     navigated(openList)(held.open.key, held.open.panel);
   };
 
+  // The list hides under 760px while the opened row's, step's, epic's, contract's or project's page draws alone.
+  const listHides =
+    !wide &&
+    (shownProject !== null ||
+      (rowOpened && (cursorRow !== null || cursorStep !== null)) ||
+      panelOpen ||
+      contractPageShown);
+  // The list is on screen where it is drawn: beside or over the page at the desk unless it rests as the rail, and under
+  // 760px unless a page draws alone over it. A project page covers the cursor row unless the list is on screen, and A,
+  // x and e do not act on a covered row.
+  const listOnScreen = wide ? inboxState !== "rail" : !listHides;
+  const rowCovered = shownProject !== null && !listOnScreen;
+
   // The keys read this render's state and call this render's actions, so the document listener runs the latest context.
   const keyContext: KeyContext = {
     pickerOpen,
@@ -1864,6 +1977,8 @@ export function App({
     helpOpen,
     inboxHidden,
     keyPopped,
+    rowCovered,
+    projectShown: shownProject !== null,
     index,
     flat,
     waitKeys,
@@ -1888,7 +2003,9 @@ export function App({
     replyBoxTarget,
     focusCursorRow,
     backOneCrumb: navigated(backOneCrumb),
+    // Enter opens the cursor's page, which shuts a project page open in its place.
     openCursorPage: () => {
+      setProjectKey(null);
       if (cursorItem?.kind === "contract") {
         navigated(openContractPanel)(cursorItem.contract.id);
         return;
@@ -1907,7 +2024,12 @@ export function App({
     setMenuKey,
     setFilter: openSearchField,
     setPopout,
-    setRowOpened: navigated(setRowOpened),
+    setRowOpened: navigated((opened: boolean | ((previous: boolean) => boolean)) => {
+      if (opened === true) {
+        setProjectKey(null);
+      }
+      setRowOpened(opened);
+    }),
     setBoxOpened,
     setView: openView,
     setPinned,
@@ -1929,6 +2051,33 @@ export function App({
   const epicCalls = {
     ...epicCallsOf(clients, navigated(openEpic), navigated(openEpicStep), now, epics),
     sessionTitle: (session: string) => steererRowOf(rows, session)?.label,
+  };
+
+  // projectSection draws the page of the project under key, as the tree holds it. A key the tree holds no project of
+  // draws the line that says so, with a Back of its own, since the list is hidden under 760px while the page draws.
+  const projectSection = (key: string) => {
+    const project = tree.find((candidate) => candidate.key === key);
+    if (project === undefined) {
+      return (
+        <section class="read" aria-label="project">
+          <div class="head">
+            <TitleRow crumbs={[{ label: "Project" }]} onBack={navigated(backToInbox)} mark={inboxMark} />
+          </div>
+          <p class="side-note">{noProjectText}</p>
+        </section>
+      );
+    }
+    return (
+      <ProjectPage
+        project={project}
+        now={now}
+        narrow={!wide}
+        mark={inboxMark}
+        onOpen={openProjectItem}
+        onNewHere={openPickerIn}
+        onBack={navigated(backToInbox)}
+      />
+    );
   };
 
   // epicPageSection draws the epic section over the epic's detail, or while the detail is not drawn, the title row with
@@ -2211,13 +2360,13 @@ export function App({
   // it.
   const sheeted = talking && !wide;
   // Under 760px one page draws at a time. The reader and the epic page draw only once an entry has been opened, so the
-  // inbox is the home page until then. The list hides while the opened row's, step's, epic's or contract's page draws
-  // alone, and an open epic's or contract's page takes the conversation's place, unless the sheet holds the
-  // conversation over the contract. At 760px and wider the list, the conversation and the panel or rail sit abreast.
-  const readerRow = pageDrawn && !epicPageShown && !(contractPageShown && !sheeted) ? middleRow : null;
-  const readerStep = pageDrawn ? cursorStep : null;
-  const listHides =
-    !wide && ((rowOpened && (cursorRow !== null || cursorStep !== null)) || panelOpen || contractPageShown);
+  // inbox is the home page until then. The list hides while the opened row's, step's, epic's, contract's or project's
+  // page draws alone, and an open epic's or contract's page takes the conversation's place, unless the sheet holds the
+  // conversation over the contract. A shown project page takes the page area, so no reader draws. At 760px and wider the
+  // list, the conversation and the panel or rail sit abreast.
+  const readerRow =
+    pageDrawn && !epicPageShown && !(contractPageShown && !sheeted) && shownProject === null ? middleRow : null;
+  const readerStep = pageDrawn && shownProject === null ? cursorStep : null;
   // contractCalls are the middle reader's contract calls: its contract lines draw the contracts the list holds, and
   // open them.
   const contractCalls: ContractCalls = { contracts, onOpen: navigated(openContractPanel) };
@@ -2276,8 +2425,28 @@ export function App({
         data-inbox={inboxState}
         data-side={panelShown ? "panel" : "rail"}
       >
+        {(inboxState === "rail" || inboxState === "flyout") && (
+          <InboxRail
+            tiles={railTiles(railTree, shownProject ?? cursorKey)}
+            onMark={() => setPopout("key")}
+            onTile={openProject}
+            onNew={() => setPickerOpen(true)}
+            onSearch={() => {
+              openSearchField("");
+              setPopout("key");
+            }}
+            onKeys={() => setHelpOpen(true)}
+            onEnter={inboxEnter}
+            onLeave={inboxLeave}
+          />
+        )}
         {notices.length > 0 && <NoticeBanner notices={notices} onOpen={openNotice} onDismiss={markNoticeSeen} />}
-        <div class="list" ref={listRef} onMouseLeave={() => setPopout("none")} hidden={listHides}>
+        <div
+          class="list"
+          ref={listRef}
+          onMouseLeave={(event) => inboxLeave(event.relatedTarget)}
+          hidden={listHides}
+        >
           <Inbox
             view={view}
             state={!answered ? "loading" : listFailed ? "error" : "ready"}
@@ -2299,17 +2468,25 @@ export function App({
             onRetry={onRetry}
             onNew={() => setPickerOpen(true)}
             onKeys={() => setHelpOpen(true)}
+            onOpenProject={openProject}
+            pin={wide ? { pinned: inboxPinned, onPin: togglePin } : undefined}
             notes={notes}
           />
         </div>
+        {shownProject !== null && projectSection(shownProject)}
         <Sheet open={sheeted} title={contractLiveRow?.label ?? ""} onClose={() => setTalking(false)}>
           {middleColumn}
         </Sheet>
-        {pageDrawn && epicEntry !== null && !contractShown && steererRow === null && !epicPageShown && (
-          <section class="read" aria-label="no conversation">
-            {noSteererMiddle(epicDetail)}
-          </section>
-        )}
+        {pageDrawn &&
+          shownProject === null &&
+          epicEntry !== null &&
+          !contractShown &&
+          steererRow === null &&
+          !epicPageShown && (
+            <section class="read" aria-label="no conversation">
+              {noSteererMiddle(epicDetail)}
+            </section>
+          )}
         {contractShown && contractLiveRow === null && !contractPageShown && (
           <section class="read" aria-label="no conversation" />
         )}
@@ -2377,7 +2554,7 @@ export function App({
             <ListPanel kind={listShown} tasks={listTasks} now={now} headless />
           </Sheet>
         )}
-        {wide && <WorkRail groups={railGroups} lit={lit} layout="rail" onOpen={openThing} />}
+        {wide && shownProject === null && <WorkRail groups={railGroups} lit={lit} layout="rail" onOpen={openThing} />}
       </div>
       {toast !== null && !wide && (
         <Toast text={`Archived “${toast.row.label}”.`} action="Undo" onAction={undoToast} />
@@ -2387,6 +2564,7 @@ export function App({
           clients={clients}
           rows={rows}
           sheet={!wide}
+          dir={pickerDir}
           onRun={(pane) => {
             setPickerOpen(false);
             setPending({ kind: "pane", id: pane });
@@ -2739,7 +2917,7 @@ function shownEntry(item: Item | null, epicPage: EpicPageState, list: ListPanelK
 }
 
 // addressKey is the key the list gives the row or step an address names, which the cursor is moved to.
-function addressKey(entry: Exclude<Entry, { kind: "epic" | "contract" }>): string {
+function addressKey(entry: Exclude<Entry, { kind: "epic" | "project" | "contract" }>): string {
   switch (entry.kind) {
     case "session":
       return `session:${entry.id}`;
