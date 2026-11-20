@@ -491,3 +491,117 @@ test("ReleaseFrom: narrow keep closes the dialog and sends nothing", () => {
     },
   );
 });
+
+type Fake = ReturnType<typeof fakes>;
+
+// redraw draws the table again in the same container, as a re-read epic does: the view offers the step at offer, zero for none.
+async function redraw(container: HTMLElement, offer: number, narrow: boolean, fake: Fake): Promise<void> {
+  await act(() => {
+    render(
+      <ReleaseTable
+        view={viewOf(stopped().rows, offer)}
+        narrow={narrow}
+        onRelease={fake.onRelease}
+        reread={fake.reread}
+      />,
+      container,
+    );
+  });
+  await flush();
+}
+
+// confirmOpen reads whether the confirm for step 2 is open: in place on the desk, or as the dialog when narrow.
+function confirmOpen(container: HTMLElement, narrow: boolean): boolean {
+  return narrow
+    ? container.querySelector('[role="dialog"]') !== null
+    : container.querySelector(".sure") !== null;
+}
+
+// closesWhenOfferMoves opens the confirm for step 2, draws the table as offering next, and checks that the confirm closed
+// with no call. Then step 2 is offered again at rest, and only a press and a confirm send its release.
+function closesWhenOfferMoves(narrow: boolean, next: number): () => Promise<void> {
+  return () => {
+    const fake = fakes(landed, reread);
+    return withRender(
+      <ReleaseTable view={stopped()} narrow={narrow} onRelease={fake.onRelease} reread={fake.reread} />,
+      async (container) => {
+        await press(buttonNamed(container, "Release from step 2"));
+        assert.equal(confirmOpen(container, narrow), true);
+        await redraw(container, next, narrow, fake);
+        assert.equal(confirmOpen(container, narrow), false);
+        assert.deepEqual(buttonsNamed(container, "Release from step 2"), []);
+        assert.deepEqual(fake.calls.releases, []);
+        assert.equal(fake.calls.reads, 0);
+        await redraw(container, 2, narrow, fake);
+        assert.equal(confirmOpen(container, narrow), false);
+        assert.equal(buttonNamed(container, "Release from step 2").getAttribute("class"), "act");
+        assert.deepEqual(fake.calls.releases, []);
+        await press(buttonNamed(container, "Release from step 2"));
+        assert.equal(confirmOpen(container, narrow), true);
+        assert.deepEqual(fake.calls.releases, []);
+        const confirm = narrow
+          ? buttonNamed(container.querySelector<HTMLElement>('[role="dialog"]') ?? container, "Release from step 2")
+          : buttonNamed(container, "Release from step 2");
+        await press(confirm);
+        assert.deepEqual(fake.calls.releases, [[2]]);
+      },
+    );
+  };
+}
+
+test("ReleaseFrom: a desk confirm open for step 2 closes with no call when the offer becomes none", closesWhenOfferMoves(false, 0));
+
+test("ReleaseFrom: a desk confirm open for step 2 closes with no call when the offer becomes step 3", closesWhenOfferMoves(false, 3));
+
+test("ReleaseFrom: a narrow confirm open for step 2 closes with no call when the offer becomes none", closesWhenOfferMoves(true, 0));
+
+test("ReleaseFrom: a narrow confirm open for step 2 closes with no call when the offer becomes step 3", closesWhenOfferMoves(true, 3));
+
+test("ReleaseFrom: a confirm sending when the offer becomes none is not interrupted", () => {
+  const answer = deferred<CallOutcome>();
+  const fake = fakes(() => answer.promise, reread);
+  return withRender(
+    <ReleaseTable view={stopped()} narrow={false} onRelease={fake.onRelease} reread={fake.reread} />,
+    async (container) => {
+      await press(buttonNamed(container, "Release from step 2"));
+      await press(buttonNamed(container, "Release from step 2"));
+      await redraw(container, 0, false, fake);
+      assert.deepEqual(fake.calls.releases, [[2]]);
+      answer.resolve({ kind: "landed" });
+      await flush();
+      assert.equal(fake.calls.reads, 1);
+      assert.deepEqual(fake.calls.releases, [[2]]);
+    },
+  );
+});
+
+test("ReleaseFrom: the no-answer line stays when the re-read epic no longer offers the step", () => {
+  const fake = fakes(() => Promise.resolve({ kind: "unanswered" }), () => Promise.resolve(true));
+  return withRender(
+    <ReleaseTable view={stopped()} narrow={false} onRelease={fake.onRelease} reread={fake.reread} />,
+    async (container) => {
+      await press(buttonNamed(container, "Release from step 2"));
+      await press(buttonNamed(container, "Release from step 2"));
+      await flush();
+      await redraw(container, 0, false, fake);
+      assert.deepEqual(buttonsNamed(container, "Release from step 2"), []);
+      assert.equal(callLine(container)?.textContent, "No answer came: it may have gone through.");
+      assert.deepEqual(fake.calls.releases, [[2]]);
+    },
+  );
+});
+
+test("ReleaseFrom: a refusal's line stays when the epic no longer offers the step", () => {
+  const fake = fakes(() => Promise.resolve({ kind: "refused", reason: "the tag already exists" }), () => Promise.resolve(true));
+  return withRender(
+    <ReleaseTable view={stopped()} narrow={false} onRelease={fake.onRelease} reread={fake.reread} />,
+    async (container) => {
+      await press(buttonNamed(container, "Release from step 2"));
+      await press(buttonNamed(container, "Release from step 2"));
+      await flush();
+      await redraw(container, 0, false, fake);
+      assert.equal(callLine(container)?.textContent, "Refused: the tag already exists");
+      assert.equal(callLine(container)?.classList.contains("error"), true);
+    },
+  );
+});

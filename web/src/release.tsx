@@ -1,4 +1,5 @@
 import type { JSX } from "preact";
+import { useEffect } from "preact/hooks";
 
 import type { CellTone, ReleaseView } from "./ending";
 import { type CallOutcome, type OwnerCall, useOwnerCall } from "./ownercall";
@@ -21,6 +22,13 @@ export function ReleaseTable(props: {
 }): JSX.Element {
   const { view, narrow, onRelease, reread } = props;
   const call = useOwnerCall(reread);
+  // A confirm closes when the view stops offering its step: nothing is sent, and the step is at rest when offered again.
+  // The call's line stays: under the offered step's control, else under the table.
+  useEffect(() => {
+    if (call.phase === "asking" && call.asking !== String(view.offer)) {
+      call.keep();
+    }
+  }, [view.offer]);
   return (
     <>
       <div class="tbl release">
@@ -41,6 +49,7 @@ export function ReleaseTable(props: {
           />
         ))}
       </div>
+      {!view.rows.some((step) => step.position === view.offer) && <CallLine call={call} />}
       {view.then !== "" && <p class="inote then">{view.then}</p>}
     </>
   );
@@ -131,6 +140,16 @@ function ReleaseFrom(props: {
           </div>
         </Sheet>
       )}
+      <CallLine call={call} />
+    </>
+  );
+}
+
+// CallLine is the call's line, in the bad role for a refusal, and Read it again while the read after a call has failed.
+function CallLine(props: { call: OwnerCall }): JSX.Element {
+  const { call } = props;
+  return (
+    <>
       {call.line !== "" && <p class={call.refused ? "inote call-line error" : "inote call-line"}>{call.line}</p>}
       {call.phase === "unread" && (
         <button type="button" class="act" onClick={call.readAgain}>
