@@ -84,28 +84,27 @@ func storedSummaryOf(t *testing.T, st *store.Store, id string) string {
 
 // summaryLoop is an EpicSummaries started over a store, and the channels a test drives it with.
 type summaryLoop struct {
-	ticks  chan time.Time
-	passes chan struct{}
-	done   chan struct{}
-	cancel context.CancelFunc
+	summaries *EpicSummaries
+	passes    chan struct{}
+	done      chan struct{}
+	cancel    context.CancelFunc
 }
 
 // startSummaryLoop starts an EpicSummaries over st whose Haiku runs the fake claude at claude, and returns once its
 // start pass is done. The test's end stops it too.
 func startSummaryLoop(t *testing.T, st *store.Store, claude string) *summaryLoop {
 	t.Helper()
-	ticks := make(chan time.Time)
 	passes := make(chan struct{}, 16)
 	ctx, cancel := context.WithCancel(t.Context())
-	loop := &summaryLoop{ticks: ticks, passes: passes, done: make(chan struct{}), cancel: cancel}
 	summaries := NewEpicSummaries(EpicSummariesConfig{
 		Store: st,
 		Haiku: NewHaiku(
 			HaikuConfig{Claude: claude, Environ: []string{"PATH=" + os.Getenv("PATH"), "HOME=" + haikuHome}},
 		),
-		Tick:   ticks,
-		Passed: func() { passes <- struct{}{} },
+		NewTimer: unfiredTimer,
+		Passed:   func() { passes <- struct{}{} },
 	})
+	loop := &summaryLoop{summaries: summaries, passes: passes, done: make(chan struct{}), cancel: cancel}
 	go func() {
 		defer close(loop.done)
 		summaries.Run(ctx)
@@ -121,14 +120,15 @@ func (l *summaryLoop) stop() {
 	<-l.done
 }
 
-// tick has the loop pass once more and waits until that pass is done.
-func (l *summaryLoop) tick() {
-	l.ticks <- time.Time{}
+// wake has the loop summarize the epic with id, as a store hook would after it stored the epic, and waits until that
+// pass is done.
+func (l *summaryLoop) wake(id string) {
+	l.summaries.Wake(id)
 	<-l.passes
 }
 
 // TestEpicSummaryCallsHaikuWithSchemaAndStoresTheSummaryOnce covers R3: the call carries the summary schema and reads
-// the contract of an epic created before the start, a valid summary is stored, and later ticks make no further call.
+// the contract of an epic created before the start, a valid summary is stored, and later wakes make no further call.
 func TestEpicSummaryCallsHaikuWithSchemaAndStoresTheSummaryOnce(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -149,14 +149,14 @@ func TestEpicSummaryCallsHaikuWithSchemaAndStoresTheSummaryOnce(t *testing.T) {
 	if got := storedSummaryOf(t, st, summaryEpicA); got != "Fake summary." {
 		t.Fatalf("summary after start = %q, want the fake's echo", got)
 	}
-	loop.tick()
-	loop.tick()
+	loop.wake(summaryEpicA)
+	loop.wake(summaryEpicA)
 	if got := haikuRuns(t, dir); got != 1 {
-		t.Fatalf("calls after two ticks = %d, want still 1", got)
+		t.Fatalf("calls after two wakes = %d, want still 1", got)
 	}
 }
 
-// TestEpicSummaryFillsAnEpicCreatedAfterStartAtTheNextTick covers R3: a tick summarizes an epic stored after the start
+// TestEpicSummaryFillsAnEpicCreatedAfterStartAtTheNextTick covers R3: a wake summarizes an epic stored after the start
 // and calls for no epic that already has its summary.
 func TestEpicSummaryFillsAnEpicCreatedAfterStartAtTheNextTick(t *testing.T) {
 	t.Parallel()
@@ -167,9 +167,9 @@ func TestEpicSummaryFillsAnEpicCreatedAfterStartAtTheNextTick(t *testing.T) {
 	loop := startSummaryLoop(t, st, claude)
 
 	createSummaryEpic(t, st, summaryEpicB, summaryStamp+60)
-	loop.tick()
+	loop.wake(summaryEpicB)
 	if got := haikuRuns(t, dir); got != 2 {
-		t.Fatalf("calls after the tick = %d, want 2: one for each epic", got)
+		t.Fatalf("calls after the wake = %d, want 2: one for each epic", got)
 	}
 	if got := storedSummaryOf(t, st, summaryEpicB); got != "Fake summary." {
 		t.Fatalf("summary of the epic created after start = %q, want the fake's echo", got)
@@ -177,7 +177,7 @@ func TestEpicSummaryFillsAnEpicCreatedAfterStartAtTheNextTick(t *testing.T) {
 }
 
 // TestEpicSummaryFailedOrInvalidCallLeavesTheSummaryEmptyForTheStart covers R4: a failed or invalid call leaves the
-// summary empty, and no later tick of the same start calls for it again.
+// summary empty, and no later wake of the same start calls for it again.
 func TestEpicSummaryFailedOrInvalidCallLeavesTheSummaryEmptyForTheStart(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -206,16 +206,16 @@ func TestEpicSummaryFailedOrInvalidCallLeavesTheSummaryEmptyForTheStart(t *testi
 			if got := storedSummaryOf(t, st, summaryEpicA); got != "" {
 				t.Fatalf("summary after a failed call = %q, want empty", got)
 			}
-			loop.tick()
+			loop.wake(summaryEpicA)
 			if got := haikuRuns(t, dir); got != 1 {
-				t.Fatalf("calls after a tick = %d, want still 1", got)
+				t.Fatalf("calls after a wake = %d, want still 1", got)
 			}
 		})
 	}
 }
 
 // TestEpicSummarySecondStartRetriesAnEmptyEpicOnce covers R4: a start retries an epic that a failed call left empty,
-// and a tick of that start calls for it no more.
+// and a wake of that start calls for it no more.
 func TestEpicSummarySecondStartRetriesAnEmptyEpicOnce(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -224,7 +224,7 @@ func TestEpicSummarySecondStartRetriesAnEmptyEpicOnce(t *testing.T) {
 	createSummaryEpic(t, st, summaryEpicA, summaryStamp)
 
 	first := startSummaryLoop(t, st, claude)
-	first.tick()
+	first.wake(summaryEpicA)
 	first.stop()
 	if got := haikuRuns(t, dir); got != 1 {
 		t.Fatalf("calls of the first start = %d, want 1", got)
@@ -238,9 +238,9 @@ func TestEpicSummarySecondStartRetriesAnEmptyEpicOnce(t *testing.T) {
 	if got := storedSummaryOf(t, st, summaryEpicA); got != "Fake summary." {
 		t.Fatalf("summary after the second start = %q, want the fake's echo", got)
 	}
-	second.tick()
+	second.wake(summaryEpicA)
 	if got := haikuRuns(t, dir); got != 2 {
-		t.Fatalf("calls after a tick of the second start = %d, want still 2", got)
+		t.Fatalf("calls after a wake of the second start = %d, want still 2", got)
 	}
 }
 

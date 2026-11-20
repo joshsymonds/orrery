@@ -39,16 +39,17 @@ type LimitTold interface {
 }
 
 // LimitNoticesConfig configures LimitNotices. Steps reads the limited steps, Epics reads the epic each of them is held
-// under, Told holds the marks of the limits told, Route receives the notices, Now is the clock, Tick is the channel each
-// check waits on, and Logger logs a failed read or write. A nil Logger discards.
+// under, Told holds the marks of the limits told, Route receives the notices, Now is the clock, NewTimer arms the retry
+// a failed check waits on, and Logger logs a failed read or write. A nil NewTimer wraps time.NewTimer, and a nil Logger
+// discards.
 type LimitNoticesConfig struct {
-	Steps  LimitedStepReader
-	Epics  LimitEpicReader
-	Told   LimitTold
-	Route  Router
-	Now    func() time.Time
-	Tick   <-chan time.Time
-	Logger *slog.Logger
+	Steps    LimitedStepReader
+	Epics    LimitEpicReader
+	Told     LimitTold
+	Route    Router
+	Now      func() time.Time
+	NewTimer func(time.Duration) (<-chan time.Time, func() bool)
+	Logger   *slog.Logger
 }
 
 // LimitSource is the source kind of a limit notice. Its data is the limitData of the group it tells.
@@ -56,6 +57,9 @@ const LimitSource = "limit"
 
 // limitNoEpicName is the name a held step with no epic is given.
 const limitNoEpicName = "a step outside any epic"
+
+// limitRetry is how long a LimitNotices waits before it checks again after a check failed.
+const limitRetry = 5 * time.Second
 
 // limitData is what a limit notice stores to be rebuilt: its group's kind, reset and the names its body gives.
 type limitData struct {
@@ -85,7 +89,8 @@ func RestoreLimitNotice(_ context.Context, data []byte, _ int64) (route.Notice, 
 }
 
 // LimitNotices tells the owner once per usage limit which epics are waiting on it. It keeps a mark per limit of the names
-// its last notice gave, in the store, so a restart tells neither a limit told before nor one twice.
+// its last notice gave, in the store, so a restart tells neither a limit told before nor one twice. It checks at start
+// and then once on each Wake, with no period.
 type LimitNotices struct {
 	cfg LimitNoticesConfig
 	// known holds, for each limit with a mark, the names the mark gives, sorted. It is read from the store once and kept
@@ -96,6 +101,8 @@ type LimitNotices struct {
 	// unstored holds each change to a mark that the store refused, by limit. Each check writes them again before it
 	// reads the steps, and a change the store takes leaves the map. known already holds the change.
 	unstored map[notice.Key]markChange
+	// wakes holds one pending wake, so a wake that comes while one is pending is absorbed.
+	wakes chan struct{}
 }
 
 // markChange is one write to a limit's mark: forget removes the mark, and otherwise the mark gives names.
@@ -106,25 +113,54 @@ type markChange struct {
 
 // NewLimitNotices returns a LimitNotices for cfg.
 func NewLimitNotices(cfg LimitNoticesConfig) *LimitNotices {
+	if cfg.NewTimer == nil {
+		cfg.NewTimer = func(d time.Duration) (<-chan time.Time, func() bool) {
+			timer := time.NewTimer(d)
+			return timer.C, timer.Stop
+		}
+	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.DiscardHandler)
 	}
 	return &LimitNotices{
 		cfg: cfg, known: make(map[notice.Key][]string), unstored: make(map[notice.Key]markChange),
+		wakes: make(chan struct{}, 1),
 	}
 }
 
-// Run checks the limited steps at start and at each tick until ctx ends. The check at start reads the marks first, so
-// a limit told before a restart is not told again. A failed read of the marks is retried at the next check.
+// Wake asks Run for a check, without blocking. A wake that comes while one is pending is absorbed by that one.
+func (l *LimitNotices) Wake() {
+	select {
+	case l.wakes <- struct{}{}:
+	default:
+	}
+}
+
+// Run checks the limited steps at start, once on each wake and once when a retry fires, until ctx ends. The check at
+// start reads the marks first, so a limit told before a restart is not told again. A check that fails arms one retry
+// when none is armed, and a clean check arms none; the retry, when it fires, runs one check. Run stops the armed retry
+// when it returns.
 func (l *LimitNotices) Run(ctx context.Context) {
-	l.check(ctx)
+	var fire <-chan time.Time
+	var stopRetry func() bool
+	defer func() {
+		if stopRetry != nil {
+			stopRetry()
+		}
+	}()
+	failed := l.check(ctx)
 	for {
+		if failed && fire == nil {
+			fire, stopRetry = l.cfg.NewTimer(limitRetry)
+		}
 		select {
 		case <-ctx.Done():
 			return
-		case <-l.cfg.Tick:
-			l.check(ctx)
+		case <-l.wakes:
+		case <-fire:
+			fire = nil
 		}
+		failed = l.check(ctx)
 	}
 }
 
@@ -145,10 +181,10 @@ type limitGroup struct {
 
 // check reads the marks until they are read, writes the mark changes the store refused before, then reads the limited
 // steps and the epics they are held under, and reports the changes since the last check. A failed read is logged, and
-// the check changes nothing else.
-func (l *LimitNotices) check(ctx context.Context) {
+// the check changes nothing else. It reports whether the check failed: a read failed, or a mark write is still refused.
+func (l *LimitNotices) check(ctx context.Context) bool {
 	if !l.read && !l.readMarks(ctx) {
-		return
+		return true
 	}
 	markCtx := context.WithoutCancel(ctx)
 	for _, key := range sortedLimitKeys(l.unstored) {
@@ -157,14 +193,15 @@ func (l *LimitNotices) check(ctx context.Context) {
 	rows, err := l.cfg.Steps.LimitedSteps(ctx)
 	if err != nil {
 		l.cfg.Logger.ErrorContext(ctx, "read limited steps", "error", err)
-		return
+		return true
 	}
 	groups, err := l.limitGroups(ctx, rows)
 	if err != nil {
 		l.cfg.Logger.ErrorContext(ctx, "read epics of limited steps", "error", err)
-		return
+		return true
 	}
 	l.update(ctx, groups)
+	return len(l.unstored) > 0
 }
 
 // readMarks reads the marks of the limits told into known, and reports whether it did. A failed read is logged.
