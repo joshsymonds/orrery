@@ -28,6 +28,7 @@ export const storyExemptions: Readonly<Record<string, string>> = {
 export const storyRenames: Renames = {
   "ask.tsx": { AskLine: "Ask" },
   "backgroundrow.tsx": { BackgroundRow: "TaskLine" },
+  "blocks.tsx": { Block: "YouBlock" },
   "blocker.tsx": { AskFirst: "ConfirmButton" },
   "contract.tsx": { ContractBody: { module: "app.stories.tsx", story: "Page" } },
   "contractrecord.tsx": { ContractRecord: { module: "app.stories.tsx", story: "Page" } },
