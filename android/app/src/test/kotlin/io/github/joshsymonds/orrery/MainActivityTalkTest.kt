@@ -182,7 +182,7 @@ class MainActivityTalkTest {
         }
     }
 
-    private fun titled(label: String): SemanticsMatcher = hasTestTag("pane-title").and(hasText(label))
+    private fun titled(label: String): SemanticsMatcher = hasTestTag("head-text").and(hasText(label))
 
     private fun setAnimatorDurationScale(scale: Float) {
         Settings.Global.putFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, scale)
