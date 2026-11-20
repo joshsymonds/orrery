@@ -1331,14 +1331,19 @@ export function App({
   };
 
   // selectKey moves the cursor to the entry drawn under key, as a press on that entry does. A press on an epic or a step
-  // under 760px opens it, as a press on a row does.
+  // under 760px opens it, as a press on a row does. A press on a contract opens its panel, as its rail tile does.
   const selectKey = (key: string) => {
     const item = flat.find((candidate) => candidate.key === key);
-    if (item !== undefined) {
-      selectItem(item);
-      if (!wide) {
-        openPageAlone();
-      }
+    if (item === undefined) {
+      return;
+    }
+    if (item.kind === "contract") {
+      navigated(openContractPanel)(item.contract.id);
+      return;
+    }
+    selectItem(item);
+    if (!wide) {
+      openPageAlone();
     }
   };
 
@@ -1792,6 +1797,10 @@ export function App({
     focusCursorRow,
     backOneCrumb: navigated(backOneCrumb),
     openCursorPage: () => {
+      if (cursorItem?.kind === "contract") {
+        navigated(openContractPanel)(cursorItem.contract.id);
+        return;
+      }
       if (!wide) {
         openPageAlone();
       }
