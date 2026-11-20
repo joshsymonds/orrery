@@ -28,8 +28,9 @@ import {
 } from "../gen/orrery/v1/orrery_pb";
 import { mockTimers } from "../testclock";
 import { assertNone, installTestDom, removeTestDom, teardownOnce } from "../testdom";
+import { loadRows } from "../load";
 import { turn, until } from "../testwait";
-import { shippedSlices } from "./slices";
+import { epicScenarios, shippedSlices } from "./slices";
 import { createFixtureTransport } from "./transport";
 
 // wideWidth is the window width the stories draw at unless one names its own. It is past the 760px the wide layout starts
@@ -190,17 +191,19 @@ function settle(signal: AbortSignal, check: () => boolean, what: string): Promis
 }
 
 // withStory mounts story into a fresh DOM at width, the wide width when none is given, waits until drawn holds on its root,
-// then runs check. The story is unmounted and its DOM removed when the test ends, or as soon as the test's signal aborts.
-// The test must call mockTimers first.
+// then runs check. prepare runs once the fresh DOM is the global one, before the story mounts. The story is unmounted and
+// its DOM removed when the test ends, or as soon as the test's signal aborts. The test must call mockTimers first.
 async function withStory(
   t: TestContext,
   story: () => ComponentChild,
   drawn: (root: HTMLElement) => boolean,
   check: (root: HTMLElement) => void,
   width = wideWidth,
+  prepare: () => void = () => {},
 ): Promise<void> {
   const window = installTestDom();
   window.innerWidth = width;
+  prepare();
   const root = document.createElement("div");
   document.body.append(root);
   const teardown = teardownOnce(t.signal, async () => {
@@ -961,6 +964,95 @@ test("FixtureTransport: page/epic-evidence draws R4 open, both runs' logs, and t
       assert.equal(root.querySelector(".epic-page section.requirements .unavailable"), null, "every log and image is read");
     },
   );
+});
+
+// justHappened is the Just happened section of the epic page, or the empty string when none is drawn.
+function justHappened(root: HTMLElement): string {
+  return root.querySelector(".epic-page section.just")?.textContent ?? "";
+}
+
+// The requirement row the evidence story opens, or null when none is open.
+function openRequirement(root: HTMLElement): HTMLElement | null {
+  return root.querySelector<HTMLElement>(".epic-page section.requirements button.tr[aria-expanded=\"true\"]");
+}
+
+test("FixtureTransport: page/epic-evidence scrolls the opened requirement row into view, with its runs under it", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  // happy-dom has no layout, so the scroll is seen as the call that asks the browser for it: each element passed to
+  // scrollIntoView is recorded, in order.
+  const scrolled: Element[] = [];
+  return withStory(
+    t,
+    Page["epic-evidence"],
+    (root) => {
+      const row = openRequirement(root);
+      return row !== null && scrolled.includes(row) && requirementLogs(root).length === 2;
+    },
+    (root) => {
+      assertNoFailure(root);
+      const row = openRequirement(root);
+      assert.ok(row?.textContent.includes("Export refuses to overwrite an existing file."), "R4's row is the one open");
+      assert.ok(row !== null && scrolled.includes(row), "the opened row is brought into view");
+    },
+    wideWidth,
+    () => {
+      window.Element.prototype.scrollIntoView = function recordScroll(this: Element) {
+        scrolled.push(this);
+      };
+    },
+  );
+});
+
+test("FixtureTransport: page/epic-parked draws Just happened with round 6's two entries", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["epic-parked"],
+    (root) => justHappened(root).includes("red run of R5 · passed, judged holds"),
+    (root) => {
+      assertNoFailure(root);
+      assert.ok(justHappened(root).includes("The engine parked the epic: R5 met at the epic’s base"), "the park is drawn");
+    },
+  );
+});
+
+test("FixtureTransport: page/epic-paused draws Just happened with round 6's two entries", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["epic-paused"],
+    (root) => justHappened(root).includes("csv-writer · done · accepted by the judge"),
+    (root) => {
+      assertNoFailure(root);
+      assert.ok(justHappened(root).includes("export-cli · checks passed, the gate is running"), "the gate entry is drawn");
+    },
+  );
+});
+
+test("FixtureTransport: page/epic-planner-parked's history names the gate in plain words, with no markdown", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["epic-planner-parked"],
+    (root) => justHappened(root).includes("The planner took the park: gate failed on export-cli."),
+    (root) => {
+      assertNoFailure(root);
+      assert.ok(!justHappened(root).includes("**"), "no literal markdown is drawn");
+    },
+  );
+});
+
+test("FixtureTransport: every epic the slices hold is steered by a row the list draws, so the Steered from door has a title", async () => {
+  for (const slices of [shippedSlices, ...Object.values(epicScenarios)]) {
+    const { rows } = await loadRows(createFixtureTransport(slices).clients);
+    for (const [id, detail] of slices.gets) {
+      const steering = detail.epic?.steering ?? "";
+      assert.ok(
+        rows.some((row) => row.archiveKind !== "none" && row.archiveId === steering),
+        `the steerer of ${id} is a listed row`,
+      );
+    }
+  }
 });
 
 test("FixtureTransport: page/epic-stop-confirm draws Stop asking first, in the title row, beside Keep it running", (t) => {

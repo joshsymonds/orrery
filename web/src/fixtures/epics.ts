@@ -1049,10 +1049,30 @@ export const gets = new Map<string, EpicsGetResponse>([
   ["tidepool/tide-cache", tidecacheGet],
 ]);
 
+// tellHistory is a history of told lines, oldest first, each at its time.
+function tellHistory(lines: [time: bigint, text: string][]): HistoryInit[] {
+  return lines.map(([time, text], index) => ({
+    time, cursor: `t${index + 1}`, item: { case: "tell", value: { seq: BigInt(index + 1), text, at: time, told: true } },
+  }));
+}
+
+// noticesHistory is notices-usable's history the parked page scenario draws, and harbourHistory is harbour-map's history
+// the paused page scenario draws. Both are round 6's lines.
+const noticesHistory = tellHistory([
+  [at("@-1d 09:41"), "red run of R5 · passed, judged holds"],
+  [at("@-1d 09:41"), "The engine parked the epic: R5 met at the epic’s base"],
+]);
+const harbourHistory = tellHistory([
+  [at("@14:31"), "csv-writer · done · accepted by the judge"],
+  [at("@14:38"), "export-cli · checks passed, the gate is running"],
+]);
+
 // histories holds the Epics.History answer of each epic that has one, by epic id.
 export const histories = new Map<string, EpicsHistoryResponse>([
   ["lighthouse/rota-export", create(EpicsHistoryResponseSchema, { entries: rotaHistory, next: "" })],
   ["orrery/holder-scopes", create(EpicsHistoryResponseSchema, { entries: holderHistory, next: "" })],
+  ["orrery/notices-usable", create(EpicsHistoryResponseSchema, { entries: noticesHistory, next: "" })],
+  ["orrery/harbour-map", create(EpicsHistoryResponseSchema, { entries: harbourHistory, next: "" })],
 ]);
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -1097,7 +1117,7 @@ const rotaPlannerHistory: HistoryInit[] = [
   ...rotaBuildingHistory,
   {
     time: at("@14:44"), cursor: "c13",
-    item: { case: "tell", value: { seq: 5n, text: "The planner took the park: gate failed on **export-cli**.", at: at("@14:44"), told: true } },
+    item: { case: "tell", value: { seq: 5n, text: "The planner took the park: gate failed on export-cli.", at: at("@14:44"), told: true } },
   },
 ];
 
@@ -1199,8 +1219,10 @@ function denseRuns(n: number, passing: boolean): RunInit[] {
     : run(`ev-deck-r${n}-green`, "", { phase: "green", state: "capturing", passed: false });
   return [red, green];
 }
+// denseSteering is the session that steers deck-pipeline: the commonframe pane the dense scenario lists as an orrery session.
+export const denseSteering = "sess-deck-21";
 export const denseEpic: Plain<EpicInit> = {
-  id: "commonframe/deck-pipeline", repository: "commonframe", slug: "deck-pipeline", steering: "", outcome: "accepted",
+  id: "commonframe/deck-pipeline", repository: "commonframe", slug: "deck-pipeline", steering: denseSteering, outcome: "accepted",
   changed: at("@14:40"), live: true, runningSteps: denseRunning, endedSteps: 1, problem: "", source: "orreryd",
   outcomeDetail: "", waiting: false, phaseAt: at("@08:29"), seen: 0n,
 };

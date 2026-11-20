@@ -22,6 +22,7 @@ import {
   buoyPlanning,
   denseEpic,
   denseGet,
+  denseSteering,
   epicsListWith,
   evidenceArtifacts,
   type EvidenceArtifactBytes,
@@ -128,6 +129,13 @@ function withRota(state: typeof rotaBuilding): Slices {
   };
 }
 
+// denseSteererPanes are the shipped panes with commonframe's pane %21 listed as the session that steers deck-pipeline. The
+// shipped %21 carries no orrery id, so the list draws it as no steerer.
+const denseSteererPanes = {
+  ...panes,
+  panes: panes.panes.map((pane) => (pane.id === "%21" ? { ...pane, orreryId: denseSteering } : pane)),
+};
+
 // epicScenarios holds the slices each epic page scenario draws over. A scenario's slices change only what it names, and
 // the shipped slices serve every other story and test.
 export const epicScenarios: Record<EpicScenario, Slices> = {
@@ -147,6 +155,7 @@ export const epicScenarios: Record<EpicScenario, Slices> = {
   planning: { ...shippedSlices, gets: new Map<string, EpicsGetResponse>([...gets, [buoyId, buoyPlanning]]) },
   dense: {
     ...shippedSlices,
+    panes: denseSteererPanes,
     epics: epicsListWith((row) => row, [denseEpic]),
     gets: new Map<string, EpicsGetResponse>([...gets, [denseId, denseGet]]),
   },

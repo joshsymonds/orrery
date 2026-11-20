@@ -118,6 +118,13 @@ async function typeInto(root: HTMLElement, selector: string, text: string): Prom
 
 const openTalk = (root: HTMLElement) => clickWhen(root, "section.page .title-row .acts button.act", "Talk");
 
+// scrollOpenRowIntoView brings the open requirement row to the top of the epic panel, where its runs and their logs come
+// under it. The row is drawn open by the time the story asks, so the scroll is the page's own call to the browser.
+async function scrollOpenRowIntoView(root: HTMLElement): Promise<void> {
+  const row = await drawnWhen(root, '.epic-page section.requirements button.tr[aria-expanded="true"]');
+  row.scrollIntoView({ block: "start" });
+}
+
 // openRunLog opens the log of the first evidence run whose log is still closed, and lets the page draw the change.
 async function openRunLog(root: HTMLElement): Promise<void> {
   await clickWhen(root, '.runs .run-line button[aria-expanded="false"]', "log");
@@ -312,6 +319,7 @@ export const Page: Stories = {
         // The red run's log opens first, then the green run's, which folds its artifacts under it.
         await openRunLog(root);
         await openRunLog(root);
+        await scrollOpenRowIntoView(root);
       }}
     />
   ),
