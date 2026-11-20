@@ -21,8 +21,9 @@ import { applyNotice, Notice, NoticeStack, noticeLifetimeMillis, watchNotices } 
 import type { NoticeAct, NoticeHead } from "./noticewords";
 import { mockTimers } from "./testclock";
 import { installTestDom, removeTestDom } from "./testdom";
+import { installResizeObserver, placeRect } from "./testlayout";
 import { styleDeclaration } from "./teststyle";
-import { settledFlag, until } from "./testwait";
+import { settledFlag, turn, until } from "./testwait";
 
 const watchPath = "/orrery.v1.Notices/Watch";
 const retryMs = 40;
@@ -174,10 +175,6 @@ function clientsFor(fake: FakeWatch): ReturnType<typeof createClients> {
   return createClients(createTransport({ baseUrl: "https://orrery.test", fetch: fake.fetch }));
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 test("watchNotices calls Notices.Watch and delivers the list after each change", async (t) => {
   const fake = new FakeWatch();
   const controller = new AbortController();
@@ -244,19 +241,22 @@ test("a stream that ends cleanly clears the list and reopens", async (t) => {
 });
 
 test("aborting an open stream ends watchNotices and nothing reaches onChange after it", async (t) => {
+  mockTimers(t, ["setTimeout"]);
   const fake = new FakeWatch();
   const controller = new AbortController();
   const lists: string[][] = [];
   const done = watchNotices(clientsFor(fake), (list) => lists.push(titles(list)), retryMs, controller.signal);
   const ended = settledFlag(done);
-  await until(t.signal, () => fake.streams.length === 1, "the first stream", { ended });
+  await until(t.signal, () => fake.streams.length === 1, "the first stream", { ended, step: turn });
   fake.emitShown(0, "%1", "one");
-  await until(t.signal, () => lists.length === 1, "the first change", { ended });
+  await until(t.signal, () => lists.length === 1, "the first change", { ended, step: turn });
   controller.abort();
-  await done;
-  await sleep(retryMs * 3);
+  await turn();
+  t.mock.timers.tick(retryMs * 3);
+  await turn();
   assert.equal(fake.streams.length, 1, "a stream opened after the abort");
   assert.equal(lists.length, 1, "onChange ran after the abort");
+  await done;
 });
 
 // collectGarbage runs a full garbage collection, as V8 may at any moment between two awaits.
@@ -285,19 +285,22 @@ test("aborting an open stream ends watchNotices after the garbage collector has 
 });
 
 test("aborting while a failed stream waits to reopen stops the reopen", async (t) => {
+  mockTimers(t, ["setTimeout"]);
   const fake = new FakeWatch();
   const controller = new AbortController();
   const lists: string[][] = [];
   const done = watchNotices(clientsFor(fake), (list) => lists.push(titles(list)), retryMs, controller.signal);
   const ended = settledFlag(done);
-  await until(t.signal, () => fake.streams.length === 1, "the first stream", { ended });
+  await until(t.signal, () => fake.streams.length === 1, "the first stream", { ended, step: turn });
   fake.fail(0);
-  await until(t.signal, () => lists.length === 1, "the clear after the failure", { ended });
+  await until(t.signal, () => lists.length === 1, "the clear after the failure", { ended, step: turn });
   controller.abort();
-  await done;
-  await sleep(retryMs * 3);
+  await turn();
+  t.mock.timers.tick(retryMs * 3);
+  await turn();
   assert.equal(fake.streams.length, 1, "the stream reopened after the abort");
   assert.equal(lists.length, 1, "onChange ran after the abort");
+  await done;
 });
 
 // stateNotice is the notice under pane, titled title, in state. Its controls follow from the state.
@@ -557,22 +560,6 @@ test("NoticeStack: unmounting clears the pending lifetime timer of each row", as
   });
 });
 
-// placeRect makes the element report edges as its rectangle, so a placement reads the layout the test sets.
-function placeRect(element: Element, edges: { top: number; bottom: number; right: number }): void {
-  const rect = {
-    x: 0,
-    y: edges.top,
-    width: edges.right,
-    height: edges.bottom - edges.top,
-    top: edges.top,
-    bottom: edges.bottom,
-    left: 0,
-    right: edges.right,
-    toJSON: () => ({}),
-  };
-  Object.assign(element, { getBoundingClientRect: () => rect });
-}
-
 // drawPage renders a page the stack sits in, as App does: .panes holds the inbox's title row in .list, a hidden page's
 // title row, the page's title row with its strip, and the stack.
 function drawPage(container: HTMLElement, notices: InAppNotice[]): void {
@@ -638,18 +625,8 @@ test("NoticeStack: the stack sits under the visible title row furthest right, no
 
 test("NoticeStack: the stack is placed again when the page resizes", async (t) => {
   mockTimers(t, ["setTimeout"]);
-  const resized: (() => void)[] = [];
-  class FakeResizeObserver {
-    constructor(callback: () => void) {
-      resized.push(callback);
-    }
-    observe(): void {}
-    disconnect(): void {}
-    unobserve(): void {}
-  }
   await withContainer(async (container) => {
-    const previous = globalThis.ResizeObserver;
-    globalThis.ResizeObserver = FakeResizeObserver as unknown as typeof ResizeObserver;
+    const observer = installResizeObserver();
     try {
       await act(() => {
         drawPage(container, [notice("%1", "one")]);
@@ -660,12 +637,12 @@ test("NoticeStack: the stack is placed again when the page resizes", async (t) =
       assert.ok(panes && page && stack, "the page draws no .panes, title row or stack");
       placeRect(panes, { top: 100, bottom: 700, right: 1000 });
       placeRect(page, { top: 100, bottom: 300, right: 900 });
-      for (const callback of resized) {
+      for (const callback of observer.resized) {
         callback();
       }
       assert.equal(stack.style.top, "200px", "a resize did not place the stack under the title row");
     } finally {
-      globalThis.ResizeObserver = previous;
+      observer.restore();
     }
   });
 });

@@ -9,6 +9,7 @@ import { type ListedNotice, ListedNoticeSchema, type NoticeKey, NoticeKeySchema 
 import { NoticeCentre, type NoticeCentreProps } from "./noticecentre";
 import type { NoticeHead } from "./noticewords";
 import { installTestDom, removeTestDom } from "./testdom";
+import { installResizeObserver, placeRect } from "./testlayout";
 import { styleDeclaration } from "./teststyle";
 
 // now is Monday 16 November 2026 at 14:41 UTC, so Today, Yesterday and the weekday heads are fixed.
@@ -157,22 +158,14 @@ test("NoticeCentre: a row draws its clock in place of its age, and holds no butt
   });
 });
 
-test("NoticeCentre: an unread row is marked unread, and a read row is not", async () => {
-  await withCentre({}, (container) => {
-    const buttons = rowButtons(container);
-    assert.ok(buttons[0].classList.contains("unread"), "the unread row is not marked");
-    assert.ok(!buttons[1].classList.contains("unread"), "the read row is marked");
-  });
-});
-
 test("NoticeCentre: an unread row has the new role's dot and a bold title, and a read row has neither", async () => {
   assert.equal(styleDeclaration(".notice.flat .t", "font-weight"), "var(--o-font-weight-regular)");
   assert.equal(styleDeclaration(".notice.flat.unread .t", "font-weight"), "var(--o-font-weight-bold)");
   assert.equal(styleDeclaration(".notice.flat.unread .t::after", "background"), "var(--o-role-new)");
   await withCentre({}, (container) => {
     const buttons = rowButtons(container);
-    assert.ok(buttons[0].classList.contains("unread"), "the unread row is not marked, so no style reaches it");
-    assert.ok(!buttons[1].classList.contains("unread"), "the read row is marked, so the dot and bold reach it");
+    assert.ok(buttons[0].classList.contains("unread"), "the unread row is not marked");
+    assert.ok(!buttons[1].classList.contains("unread"), "the read row is marked");
   });
 });
 
@@ -241,22 +234,6 @@ test("NoticeCentre: wide it is an overlay dialog, and narrow it is a Notices pag
   });
 });
 
-// placeRect makes the element report edges as its rectangle, so a placement reads the layout the test sets.
-function placeRect(element: Element, edges: { top: number; bottom: number; right: number }): void {
-  const rect = {
-    x: 0,
-    y: edges.top,
-    width: edges.right,
-    height: edges.bottom - edges.top,
-    top: edges.top,
-    bottom: edges.bottom,
-    left: 0,
-    right: edges.right,
-    toJSON: () => ({}),
-  };
-  Object.assign(element, { getBoundingClientRect: () => rect });
-}
-
 // drawPage renders the centre in a page as App does: .panes holds the page's title row, its strip, and the centre.
 function drawPage(container: HTMLElement, props: Partial<NoticeCentreProps>): void {
   render(
@@ -289,18 +266,8 @@ test("NoticeCentre: wide, the centre's top is the page's title row bottom, strip
 });
 
 test("NoticeCentre: wide, the centre is placed again when the page resizes", async () => {
-  const resized: (() => void)[] = [];
-  class FakeResizeObserver {
-    constructor(callback: () => void) {
-      resized.push(callback);
-    }
-    observe(): void {}
-    disconnect(): void {}
-    unobserve(): void {}
-  }
   await withDom(async (container) => {
-    const previous = globalThis.ResizeObserver;
-    globalThis.ResizeObserver = FakeResizeObserver as unknown as typeof ResizeObserver;
+    const observer = installResizeObserver();
     try {
       await act(() => {
         drawPage(container, {});
@@ -311,12 +278,12 @@ test("NoticeCentre: wide, the centre is placed again when the page resizes", asy
       assert.ok(panes && page && centre, "the page draws no .panes, title row or centre");
       placeRect(panes, { top: 100, bottom: 700, right: 1000 });
       placeRect(page, { top: 100, bottom: 300, right: 900 });
-      for (const callback of resized) {
+      for (const callback of observer.resized) {
         callback();
       }
       assert.equal(centre.style.top, "200px", "a resize did not place the centre under the title row");
     } finally {
-      globalThis.ResizeObserver = previous;
+      observer.restore();
     }
   });
 });
