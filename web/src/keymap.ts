@@ -278,7 +278,8 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
         void writeSeen(cursorRow);
         // Enter opens the row into its reply box, as a click on the row does; x only marks it seen.
         setBoxOpened({ column: "cursor", key: cursorRow.key });
-      } else if (cursorItem?.kind === "epic" || cursorItem?.kind === "step") {
+      } else if (cursorItem?.kind === "epic" || cursorItem?.kind === "step" || cursorItem?.kind === "contract") {
+        // Enter opens an epic's, a step's or a contract's page, as a click on it does.
         openCursorPage();
       }
       break;

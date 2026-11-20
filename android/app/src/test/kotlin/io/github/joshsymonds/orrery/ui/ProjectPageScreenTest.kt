@@ -68,6 +68,7 @@ class ProjectPageScreenTest {
 
     private var openedPane: Pane? = null
     private var openedEpic: String? = null
+    private var openedContract: String? = null
     private var newHere: String? = null
     private var backed = false
 
@@ -167,6 +168,7 @@ class ProjectPageScreenTest {
                     onOpenEpic = { openedEpic = it },
                     onNewHere = { newHere = it },
                     onBack = { backed = true },
+                    onOpenContract = { id, _ -> openedContract = id },
                     now = { NOW },
                 )
             }
@@ -308,6 +310,26 @@ class ProjectPageScreenTest {
             composeRule.onNodeWithText("its conversation is not listed").assertExists()
             composeRule.onNodeWithTag("project-age:standin:unlisted:$ALPHA_KEY").assertTextEquals("10m")
             composeRule.onNodeWithText("1 conversation").assertExists()
+        }
+    }
+
+    @Test
+    fun aContractCardOpensTheContractAsTheTreeDoes() {
+        FakeOrreryServer().use { server ->
+            serveDefaults(server)
+            server.respond(PANES_LIST, panesOf())
+            server.respond(
+                CONTRACTS_LIST,
+                ContractsListResponse.newBuilder()
+                    .addContracts(contract(CONTRACT_ID, "unlisted-session", ALPHA))
+                    .build(),
+            )
+            setPage(server, ALPHA_KEY)
+            awaitNode(hasTestTag("card:contract:$CONTRACT_ID"))
+
+            composeRule.onNodeWithTag("card-open:contract:$CONTRACT_ID", useUnmergedTree = true).performClick()
+
+            assertEquals(CONTRACT_ID, openedContract)
         }
     }
 

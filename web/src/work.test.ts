@@ -10,9 +10,10 @@ import {
   EpicsGetResponseSchema,
   EpicStepSchema,
 } from "./gen/orrery/v1/epics_pb";
+import { type Contract, ContractSchema } from "./gen/orrery/v1/contracts_pb";
 import { type BackgroundTask, BackgroundTaskSchema } from "./gen/orrery/v1/orrery_pb";
 import { epicsView, noEpics } from "./epics";
-import { type EpicThing, type ListThing, type RailGroup, shortName, type WorkConversation, workOf } from "./work";
+import { contractThingsOf, type EpicThing, type ListThing, type RailGroup, shortName, type WorkConversation, workOf } from "./work";
 
 const repository = "widgets-5d0c1a7";
 
@@ -217,4 +218,108 @@ test("WorkLists: a pane conversation has no list groups whatever its background 
   );
 
   assert.deepEqual(groups, []);
+});
+
+// makeContract is a proposed contract that session s1 proposed, from the repository tidepool, with no open decisions.
+function makeContract(id: string, init: MessageInitShape<typeof ContractSchema> = {}): Contract {
+  return create(ContractSchema, {
+    id,
+    repository: "/home/owner/code/tidepool",
+    title: "Tide alerts",
+    care: "limited",
+    state: "proposed",
+    version: 1n,
+    openDecisions: 0n,
+    conversation: "s1",
+    ...init,
+  });
+}
+
+test("ContractTile: a proposed contract of this session is a thing with its key, slug, short name and title", () => {
+  const contract = makeContract("tidepool/tide-alerts");
+
+  assert.deepEqual(contractThingsOf("s1", [contract]), [
+    {
+      kind: "contract",
+      key: "contract:tidepool/tide-alerts",
+      id: "tidepool/tide-alerts",
+      slug: "tide-alerts",
+      short: "tide",
+      asks: false,
+      tone: "attention",
+      title: "tide-alerts: a contract waits for you",
+    },
+  ]);
+});
+
+test("ContractTile: asks while a decision is open, and not once none is", () => {
+  const open = makeContract("tidepool/open", { openDecisions: 2n });
+  const settled = makeContract("tidepool/settled", { openDecisions: 0n });
+
+  const [openThing, settledThing] = contractThingsOf("s1", [open, settled]);
+
+  assert.equal(openThing.asks, true);
+  assert.equal(settledThing.asks, false);
+});
+
+test("ContractTile: a contract another conversation proposed is not a thing", () => {
+  assert.deepEqual(contractThingsOf("s1", [makeContract("tidepool/theirs", { conversation: "s2" })]), []);
+});
+
+test("ContractTile: an accepted or set-aside contract is not a thing", () => {
+  const contracts = [
+    makeContract("tidepool/accepted", { state: "accepted" }),
+    makeContract("tidepool/set-aside", { state: "set_aside" }),
+  ];
+
+  assert.deepEqual(contractThingsOf("s1", contracts), []);
+});
+
+test("ContractTile: an empty session has no contract things, even a contract whose conversation is empty", () => {
+  const contract = makeContract("tidepool/orphan", { conversation: "" });
+
+  assert.deepEqual(contractThingsOf("", [contract]), []);
+});
+
+test("ContractTile: the contract things keep the List order", () => {
+  const contracts = ["tidepool/b", "tidepool/a", "tidepool/c"].map((id) => makeContract(id));
+
+  assert.deepEqual(
+    contractThingsOf("s1", contracts).map((thing) => thing.key),
+    ["contract:tidepool/b", "contract:tidepool/a", "contract:tidepool/c"],
+  );
+});
+
+test("ContractTile: the contract group heads the groups, ahead of the epics and the lists", () => {
+  const view = epicsView([makeEpic("first")], new Map());
+  const groups = workOf(conversation("s1", [task("agent", "running", "a1")]), view, 0, [
+    makeContract("tidepool/tide-alerts"),
+  ]);
+
+  assert.deepEqual(
+    groups.map((group) => [group.kind, group.label]),
+    [
+      ["contract", "contract"],
+      ["epic", "epic"],
+      ["agents", "agents"],
+    ],
+  );
+  assert.deepEqual(keysOf(groups[0]), ["contract:tidepool/tide-alerts"]);
+});
+
+test("ContractTile: a conversation with no contract of its own waiting has no contract group", () => {
+  const contracts = [
+    makeContract("tidepool/theirs", { conversation: "s2" }),
+    makeContract("tidepool/done", { state: "accepted" }),
+  ];
+
+  assert.deepEqual(workOf(conversation("s1"), noEpics, 0, contracts), []);
+});
+
+test("ContractTile: more than three contracts make the contract group many", () => {
+  const contracts = ["a", "b", "c", "d"].map((slug) => makeContract(`tidepool/${slug}`));
+  const [group] = workOf(conversation("s1"), noEpics, 0, contracts);
+
+  assert.equal(group.many, true);
+  assert.equal(group.things.length, 4);
 });

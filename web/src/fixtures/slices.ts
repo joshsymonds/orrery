@@ -4,7 +4,11 @@
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import type { Code } from "@connectrpc/connect";
 
-import { type ContractsListResponse, ContractsListResponseSchema } from "../gen/orrery/v1/contracts_pb";
+import {
+  type ContractsGetResponse,
+  type ContractsListResponse,
+  ContractsListResponseSchema,
+} from "../gen/orrery/v1/contracts_pb";
 import {
   type EpicsGetResponse,
   type EpicsHistoryResponse,
@@ -23,6 +27,7 @@ import {
   type WatchConversationResponse,
 } from "../gen/orrery/v1/orrery_pb";
 import { contracts } from "./contracts";
+import { tideAccepted, tideProposed, tideReady, tideSetAside } from "./contractrecords";
 import { evidenceLogs, epics, gets, histories } from "./epics";
 import { host } from "./host";
 import { panes, paneStreams } from "./panes";
@@ -39,12 +44,14 @@ export type AskAnswer =
   | { readonly failure: Code };
 
 // Slices is the data a fixture transport answers with. evidenceLogs holds the log each run's Evidence.Artifact answers
-// with, by run id. asks holds the answer Picker.Ask gives for each words, and words with no entry are refused. fail
-// holds the procedures that answer Unavailable, and hold the procedures that stay unanswered until their call aborts,
-// each named as "orrery.v1.Panes/List".
+// with, by run id. asks holds the answer Picker.Ask gives for each words, and words with no entry are refused.
+// contracts is the Contracts.List answer, and contractGets holds the Contracts.Get answer for each contract id. fail holds
+// the procedures that answer Unavailable, and hold the procedures that stay unanswered until their call aborts, each named
+// as "orrery.v1.Panes/List".
 export interface Slices {
   readonly epics: EpicsListResponse;
   readonly contracts: ContractsListResponse;
+  readonly contractGets: Readonly<Record<string, ContractsGetResponse>>;
   readonly gets: ReadonlyMap<string, EpicsGetResponse>;
   readonly histories: ReadonlyMap<string, EpicsHistoryResponse>;
   readonly panes: PanesListResponse;
@@ -70,6 +77,7 @@ export interface Slices {
 export const shippedSlices: Slices = {
   epics,
   contracts,
+  contractGets: { "tidepool/tide-alerts": tideProposed },
   gets,
   histories,
   panes,
@@ -82,12 +90,32 @@ export const shippedSlices: Slices = {
   asks: new Map<string, AskAnswer>(),
 };
 
+// contractSlices are the shipped slices with the record of one contract served, and the List holding that contract's own
+// entry, so the List and the record agree on its state and version.
+function contractSlices(id: string, record: ContractsGetResponse): Slices {
+  return {
+    ...shippedSlices,
+    contracts: create(ContractsListResponseSchema, { contracts: record.contract === undefined ? [] : [record.contract] }),
+    contractGets: { [id]: record },
+  };
+}
+
+// contractStories are the slices the contract page stories are served from, one for each state the scenarios show: the
+// record of tide-alerts in that state, and its List entry at the same state.
+export const contractStories = {
+  toAccept: contractSlices("tidepool/tide-alerts", tideProposed),
+  accepted: contractSlices("tidepool/tide-alerts", tideAccepted),
+  setAside: contractSlices("tidepool/tide-alerts", tideSetAside),
+  ready: contractSlices("tidepool/tide-alerts", tideReady),
+};
+
 // emptySlices is the world with nothing running: no panes, no headless sessions, no epics and no contracts. Every other
 // answer is the shipped one.
 export const emptySlices: Slices = {
   ...shippedSlices,
   epics: create(EpicsListResponseSchema, { epics: [] }),
   contracts: create(ContractsListResponseSchema, { contracts: [] }),
+  contractGets: {},
   panes: create(PanesListResponseSchema, { panes: [] }),
   headless: create(ListHeadlessResponseSchema, { sessions: [] }),
 };

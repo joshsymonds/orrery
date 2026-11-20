@@ -247,6 +247,26 @@ test("ProjectPage: a press on a stand-in, which the tree draws no entry of, open
     [create(ContractSchema, { id: "api/orphan", repository: apiDir, title: "Orphan", state: "proposed", conversation: "gone", version: 1n, changed: 250n })],
   ));
 
+test("ProjectPage: a press on a contract's card opens the contract's panel, as the tree's press on it does, and closes the page", (t) =>
+  withApp(
+    t.signal,
+    undefined,
+    async ({ container, reports }) => {
+      await press(headOf(container, "api"));
+      assert.equal(container.querySelector('aside[aria-label="orphan contract"]'), null, "no panel before the press");
+      await press(one(container, 'section[aria-label="project"] .wcard[data-key="contract:api/orphan"]'));
+      assert.ok(projectPage(container) === null, "the page closes");
+      assert.ok(
+        container.querySelector('aside[aria-label="orphan contract"]') !== null,
+        "the contract's panel is drawn",
+      );
+      const last = reports[reports.length - 1];
+      assert.ok(last !== undefined, "App reports the address the press opened");
+      assert.deepEqual(last, { view: "inbox", entry: { kind: "contract", id: "api/orphan" } });
+    },
+    [create(ContractSchema, { id: "api/orphan", repository: apiDir, title: "Orphan", state: "proposed", conversation: "gone", version: 1n, changed: 250n })],
+  ));
+
 test("ProjectPage: under 760px the page draws alone, and its Back returns to the inbox", (t) =>
   withApp(t.signal, undefined, async ({ container }) => {
     await narrowWindow(700);

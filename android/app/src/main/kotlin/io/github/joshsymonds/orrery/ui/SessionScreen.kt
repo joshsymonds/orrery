@@ -23,8 +23,10 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import io.github.joshsymonds.orrery.api.ContractRow
 import io.github.joshsymonds.orrery.api.HostStat
 import io.github.joshsymonds.orrery.api.OrreryClient
+import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
@@ -39,6 +41,25 @@ private const val HEAD_POLL_MILLIS = 1_000L
 private const val CLOCK_TICK_MILLIS = 1_000L
 private const val TEXT_KIND = "text"
 private val ENDED_STATES = setOf(STEER_STOPPED, STEER_FAILED)
+
+/** The states a conversation has ended in: a contract it proposed opens read-only from it. */
+internal val ENDED_CONVERSATION_STATES = setOf("stopped", "failed")
+
+/** The band lines of [conversation]'s waiting contracts, the proposed ones it proposed, in list order. */
+internal fun contractBandLines(contracts: List<ContractRow>, conversation: String): List<ContractBandLine> =
+    if (conversation.isEmpty()) {
+        emptyList()
+    } else {
+        contracts
+            .filter { it.state == "proposed" && it.conversation == conversation }
+            .map { contract ->
+                val left = leftOf(contract.openDecisions.toInt(), contract.care, shown = false)
+                ContractBandLine(contract.id, contractSlug(contract.id), bandText(left))
+            }
+    }
+
+/** Whether a contract the conversation shows opens live: the conversation is shown and has not stopped or failed. */
+internal fun conversationLive(pane: Pane?): Boolean = pane != null && pane.state !in ENDED_CONVERSATION_STATES
 
 /** The unfinished main-thread text blocks that have text so far, each as a reply after the items. */
 private fun unfinishedReplies(held: StreamedConversation): List<ConvoEntry> =
@@ -69,6 +90,9 @@ data class StepMode(val held: Boolean, val label: String, val doing: String = ""
  * is not drawn, and Send posts the draft as a nudge through [StepCalls]. [reason] is the listed row's summary,
  * which the dock shows when the session failed.
  *
+ * A contract the conversation shows (its tile, its band line, its transcript line) calls [onOpenContract] with its id
+ * and whether it opens live. [about] is the row's About the dock shows; a send posts it as [aboutMessage] and then
+ * calls [onClearAbout], and the dock's Not about this calls [onClearAbout] too.
  * A headless session that has stopped or failed, or a session no pane or headless session carries any more, while it
  * steers a live orreryd epic has no way to answer that epic's questions, so the [EndedBar] of the epic takes the dock's
  * place. [onSteered] hears each steering
@@ -82,6 +106,9 @@ fun SessionScreen(
     onOpenEpic: (String) -> Unit = {},
     step: StepMode? = null,
     reason: String = "",
+    about: RowAbout? = null,
+    onClearAbout: () -> Unit = {},
+    onOpenContract: (id: String, live: Boolean) -> Unit = { _, _ -> },
     clock: () -> Long = { System.currentTimeMillis() / 1000 },
     onSteered: (String) -> Unit = {},
 ) {
@@ -94,6 +121,7 @@ fun SessionScreen(
     // Whether the strip under the band has tiles: then it, not the band, carries the control that hides the header.
     var stripTiles by remember(sessionId) { mutableStateOf(false) }
     var headEpics by remember(sessionId) { mutableStateOf(HeadEpics(emptyList(), emptyMap())) }
+    var contracts by remember(sessionId) { mutableStateOf<List<ContractRow>>(emptyList()) }
     var servingHost by remember(sessionId) { mutableStateOf("") }
     var stats by remember(sessionId) { mutableStateOf<List<HostStat>?>(null) }
     var nowSeconds by remember { mutableLongStateOf(clock()) }
@@ -140,10 +168,12 @@ fun SessionScreen(
                     }
                     headPoll = scope.launch {
                         while (true) {
-                            // The epics read is before the host read, as the pane screen's poll reads them.
+                            // The epics and contracts reads are before the host read, as the pane screen's poll reads them.
                             val epics = fetchHeadEpics(client, sessionId)
+                            val listed = fetchHeadContracts(client)
                             val host = fetchHost(client)
                             epics?.let { headEpics = it }
+                            listed?.let { contracts = it }
                             host?.let {
                                 servingHost = it.host
                                 stats = it.stats
@@ -195,6 +225,14 @@ fun SessionScreen(
     val lines = askLines(steered, headEpics.details)
     val asking = askingWords(ownName = pane?.takeIf { ownAsks(it) }?.let { lastPathElement(it.cwd) }, lines = lines)
     val otherHost = pane?.let { otherHostOf(it.host, servingHost) }
+    val bandLines = contractBandLines(contracts, sessionId)
+    // The tile, the band line and the transcript line of a contract the conversation proposed open live while it runs.
+    // A transcript line also needs the contract listed as this conversation's, so a line of another's stays read-only.
+    val live = conversationLive(pane)
+    val openContract: (String) -> Unit = { id -> onOpenContract(id, live) }
+    val openTranscriptContract: (String) -> Unit = { id ->
+        onOpenContract(id, live && contracts.any { it.id == id && it.conversation == sessionId })
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         if (refreshFailed && pane == null) {
@@ -217,6 +255,8 @@ fun SessionScreen(
                 fold = fold,
                 onBack = onBack,
                 onOpenEpic = onOpenEpic,
+                contracts = bandLines,
+                onOpenContract = openContract,
                 onHide = { headHidden.value = true },
                 onShow = {
                     headHidden.value = false
@@ -232,6 +272,7 @@ fun SessionScreen(
                     now = nowSeconds,
                     client = client,
                     onOpenEpic = onOpenEpic,
+                    onOpenContract = openContract,
                     onTiles = { stripTiles = it },
                     end = { HideHeader { headHidden.value = true } },
                 )
@@ -246,6 +287,8 @@ fun SessionScreen(
                     footer = footer,
                     seen = seenAtOpen,
                     now = nowSeconds,
+                    contracts = contracts,
+                    onOpenContract = openTranscriptContract,
                     onRead = { _ ->
                         scope.launch(Dispatchers.IO) {
                             try {
@@ -287,11 +330,17 @@ fun SessionScreen(
                 nowSeconds = nowSeconds,
                 client = client,
                 draft = draft,
-                send = { text -> if (step != null) stepCalls.nudge(text) else sender.send(text) },
+                send = { text ->
+                    val sent = about?.let { aboutMessage(it.id, it.text, text) } ?: text
+                    if (step != null) stepCalls.nudge(sent) else sender.send(sent)
+                    if (about != null) onClearAbout()
+                },
                 sessionId = sessionId,
                 queued = held?.queued.orEmpty(),
                 pending = held?.pending.orEmpty(),
                 stepCalls = if (step != null) stepCalls else null,
+                about = about?.let { "${it.id} ${it.text}" },
+                onClearAbout = onClearAbout,
             )
         }
     }

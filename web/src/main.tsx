@@ -203,9 +203,21 @@ export function start(
   };
 
   // listAnswered reports whether the list an entry is in has answered its first load: the rows for a session or a pane,
-  // and the epics for a step or an epic.
-  const listAnswered = (entry: Entry): boolean =>
-    entry.kind === "session" || entry.kind === "pane" ? rowsAnswered : epicsAnswered;
+  // the epics for a step or an epic, and both for a contract, whose panel rests on the cursor's row, and for a project,
+  // whose page is drawn from the tree of both.
+  const listAnswered = (entry: Entry): boolean => {
+    switch (entry.kind) {
+      case "session":
+      case "pane":
+        return rowsAnswered;
+      case "contract":
+      case "project":
+        return rowsAnswered && epicsAnswered;
+      case "step":
+      case "epic":
+        return epicsAnswered;
+    }
+  };
 
   // settleAddress decides the held address once the list its entry is in has answered. If that list holds the entry,
   // the address stays as the prop and App opens it. If not, the prop becomes the address's view with no entry, and the
@@ -216,7 +228,7 @@ export function start(
     }
     const pending = holding;
     holding = null;
-    if (listHolds(pending, loaded.rows, loaded.epics)) {
+    if (listHolds(pending, loaded.rows, loaded.epics, loaded.contracts)) {
       address = pending;
       return;
     }

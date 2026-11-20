@@ -29,6 +29,7 @@ import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 
 private const val EPIC_KEY_PREFIX = "epic:"
+private const val CONTRACT_KEY_PREFIX = "contract:"
 private const val STATE_WAITING = "waiting"
 
 /**
@@ -38,7 +39,8 @@ private const val STATE_WAITING = "waiting"
  * bar starts a session in the project's directory, and is absent when the project has none.
  *
  * The page shows the tree [state] holds at once, reads the tree once at launch and keeps the answer in [state]. A tap on
- * a conversation opens its pane, and a WorkCard opens what the inbox opens for its item key.
+ * a conversation opens its pane, and a WorkCard opens what the inbox opens for its item key: an epic through
+ * [onOpenEpic], a contract through [onOpenContract] with the conversation it hangs under.
  */
 @Composable
 fun ProjectPageScreen(
@@ -50,6 +52,7 @@ fun ProjectPageScreen(
     onNewHere: (String) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    onOpenContract: (id: String, conversation: Pane?) -> Unit = { _, _ -> },
     now: () -> Long = { System.currentTimeMillis() / 1000 },
 ) {
     var data by remember(client) { mutableStateOf(state.held) }
@@ -74,8 +77,18 @@ fun ProjectPageScreen(
     val paneOf = remember(projects) {
         projects.flatMap { it.convos + it.ended }.mapNotNull { convo -> convo.pane?.let { convo.key to it } }.toMap()
     }
+    val conversationOfContract = remember(projects) {
+        projects.flatMap { it.convos + it.ended }.flatMap { convo ->
+            convo.hung.filterIsInstance<ContractNode>().map { it.key to convo.pane }
+        }.toMap()
+    }
     val onOpen: (String) -> Unit = { key ->
-        if (key.startsWith(EPIC_KEY_PREFIX)) onOpenEpic(key.removePrefix(EPIC_KEY_PREFIX)) else paneOf[key]?.let(onOpenPane)
+        when {
+            key.startsWith(EPIC_KEY_PREFIX) -> onOpenEpic(key.removePrefix(EPIC_KEY_PREFIX))
+            key.startsWith(CONTRACT_KEY_PREFIX) ->
+                onOpenContract(key.removePrefix(CONTRACT_KEY_PREFIX), conversationOfContract[key])
+            else -> paneOf[key]?.let(onOpenPane)
+        }
     }
 
     Column(modifier = modifier.fillMaxSize().testTag("project-page")) {
