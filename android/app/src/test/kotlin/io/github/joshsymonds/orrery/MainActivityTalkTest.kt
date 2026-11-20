@@ -191,8 +191,8 @@ class MainActivityTalkTest {
     /** Launches the app, opens the epic from the home list, then taps Talk and waits for the list's sessions. */
     private fun openTalkList(): ActivityController<MainActivity> {
         val controller = launch()
-        awaitNode(hasTestTag("epic:$EPIC_ID"))
-        composeRule.onNodeWithTag("epic:$EPIC_ID").performClick()
+        awaitNode(hasTestTag("hung:epic:$EPIC_ID"))
+        composeRule.onNodeWithTag("hung:epic:$EPIC_ID").performClick()
         awaitNode(hasTestTag("epic-talk"))
         composeRule.onNodeWithTag("epic-talk").performClick()
         awaitNode(hasTestTag("talk-session"))

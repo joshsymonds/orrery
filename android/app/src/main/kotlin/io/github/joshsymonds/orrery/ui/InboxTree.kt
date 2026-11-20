@@ -59,6 +59,9 @@ internal data class Project(
 /** The inbox lists what is not archived; the archived view lists what is. */
 internal enum class TreeView { INBOX, ARCHIVED }
 
+/** A row is unseen while its newest reply is after the owner last saw it. */
+internal fun Pane.unread(): Boolean = newestReply > seen
+
 private const val SHELL_SESSION_PREFIX = "_orrery-shell-"
 private const val STATE_WAITING = "waiting"
 private const val STATE_WORKING = "working"

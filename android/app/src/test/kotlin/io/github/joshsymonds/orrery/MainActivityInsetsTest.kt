@@ -22,6 +22,7 @@ import androidx.test.core.app.ApplicationProvider
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationItem
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.MarkSeenResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
@@ -39,7 +40,8 @@ import org.robolectric.annotation.Config
 
 private const val NOW = 1_700_000_000L
 private const val PANES_PATH = "/orrery.v1.Panes/List"
-private const val PANE_ROW_TAG = "pane-row:%1"
+private const val EPICS_LIST_PATH = "/orrery.v1.Epics/List"
+private const val PANE_ROW_TAG = "convo:pane:example-host:%1"
 private const val PANE_TITLE_TAG = "pane-title"
 private const val STATUS_LINE_TAG = "status-line"
 private const val COMPOSER_TAG = "composer"
@@ -76,6 +78,7 @@ class MainActivityInsetsTest {
         server = FakeOrreryServer()
         ServerSettings(context).saveServerUrl(server.baseUrl)
         server.respond(PANES_PATH, panesProto("%1" to "alpha-build"))
+        server.respond(EPICS_LIST_PATH, EpicsListResponse.getDefaultInstance())
     }
 
     @After
@@ -126,7 +129,7 @@ class MainActivityInsetsTest {
             Intent(context, MainActivity::class.java),
         ).setup().also { launched += it }
         composeRule.awaitUntil {
-            composeRule.onAllNodes(hasTestTag("pane-row:%1"), useUnmergedTree = true)
+            composeRule.onAllNodes(hasTestTag("convo:pane:example-host:%1"), useUnmergedTree = true)
                 .fetchSemanticsNodes().isNotEmpty()
         }
         val contentView = controller.get().findViewById<View>(android.R.id.content)

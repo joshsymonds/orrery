@@ -29,6 +29,7 @@ import io.github.joshsymonds.orrery.api.Reply
 import io.github.joshsymonds.orrery.api.StreamEnd
 import io.github.joshsymonds.orrery.gen.orrery.v1.AskResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession
 import io.github.joshsymonds.orrery.gen.orrery.v1.HostStatusResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.ListHeadlessResponse
@@ -62,6 +63,7 @@ import java.nio.ByteBuffer
 
 private const val NOW = 1_700_000_000L
 private const val PANES_PATH = "/orrery.v1.Panes/List"
+private const val EPICS_LIST_PATH = "/orrery.v1.Epics/List"
 private const val SEEN_PATH = "/orrery.v1.Panes/MarkSeen"
 private const val HEADLESS_PATH = "/orrery.v1.Sessions/ListHeadless"
 private const val WATCH_PATH = "/orrery.v1.Sessions/WatchConversation"
@@ -71,6 +73,7 @@ private const val PUSH_EVENT_ACTION = "org.unifiedpush.android.connector.PUSH_EV
 private const val SESSION_ALPHA = "0123456789abcdef0123456789abcdef"
 private const val SESSION_BETA = "fedcba9876543210fedcba9876543210"
 private const val SESSION_STARTED = "aabbccddeeff00112233445566778899"
+private const val SESSION_ENDED = "11111111111111111111111111111111"
 private const val HOST_STATUS = "/orrery.v1.Host/Status"
 private const val WELCOME_QUESTION = "Which orrery server should this phone talk to?"
 private const val ADDRESS_PLACEHOLDER = "https://host.your-tailnet.ts.net"
@@ -97,6 +100,7 @@ class MainActivityTest {
         server = FakeOrreryServer()
         ServerSettings(context).saveServerUrl(server.baseUrl)
         server.respond(PANES_PATH, panesProto("%1" to "alpha-build", "%2" to "alpha-review"))
+        server.respond(EPICS_LIST_PATH, EpicsListResponse.getDefaultInstance())
         server.respond(SEEN_PATH, MarkSeenResponse.getDefaultInstance())
     }
 
@@ -138,14 +142,15 @@ class MainActivityTest {
     private fun titled(label: String): SemanticsMatcher = hasTestTag("pane-title").and(hasText(label))
 
     /** A headless session as the list and the watch stream report it. */
-    private fun headlessSession(id: String, label: String): HeadlessSession = HeadlessSession.newBuilder()
-        .setId(id)
-        .setDir("/home/user/alpha")
-        .setLabel(label)
-        .setState("working")
-        .setChanged(NOW - 30)
-        .setSeen(NOW - 10)
-        .build()
+    private fun headlessSession(id: String, label: String, state: String = "working"): HeadlessSession =
+        HeadlessSession.newBuilder()
+            .setId(id)
+            .setDir("/home/user/alpha")
+            .setLabel(label)
+            .setState(state)
+            .setChanged(NOW - 30)
+            .setSeen(NOW - 10)
+            .build()
 
     /** Lists [sessions] as the headless sessions, and streams each one's state when its screen opens. */
     private fun serveSessions(vararg sessions: HeadlessSession) {
@@ -210,7 +215,7 @@ class MainActivityTest {
     fun launchListsTheFakePanes() {
         launch()
 
-        awaitNode(hasTestTag("pane-row:%1"))
+        awaitNode(hasTestTag("convo:pane:example-host:%1"))
         composeRule.onNodeWithText("alpha-build").assertExists()
         composeRule.onNodeWithText("alpha-review").assertExists()
     }
@@ -218,76 +223,92 @@ class MainActivityTest {
     @Test
     fun tappingARowShowsThatPanesScreen() {
         launch()
-        awaitNode(hasTestTag("pane-row:%1"))
+        awaitNode(hasTestTag("convo:pane:example-host:%1"))
 
-        composeRule.onNodeWithTag("pane-row:%1").performClick()
+        composeRule.onNodeWithTag("convo:pane:example-host:%1").performClick()
 
         awaitNode(titled("alpha-build"))
-        assertAbsent(hasTestTag("pane-row:%2"))
+        assertAbsent(hasTestTag("convo:pane:example-host:%2"))
     }
 
     @Test
     fun backReturnsFromAPaneToTheList() {
         val controller = launch()
-        awaitNode(hasTestTag("pane-row:%1"))
-        composeRule.onNodeWithTag("pane-row:%1").performClick()
+        awaitNode(hasTestTag("convo:pane:example-host:%1"))
+        composeRule.onNodeWithTag("convo:pane:example-host:%1").performClick()
         awaitNode(titled("alpha-build"))
 
         controller.get().onBackPressedDispatcher.onBackPressed()
 
-        awaitNode(hasTestTag("pane-row:%2"))
+        awaitNode(hasTestTag("convo:pane:example-host:%2"))
         assertAbsent(hasTestTag("pane-title"))
     }
 
     @Test
     fun backArrowReturnsFromAPaneToTheList() {
         launch()
-        awaitNode(hasTestTag("pane-row:%1"))
-        composeRule.onNodeWithTag("pane-row:%1").performClick()
+        awaitNode(hasTestTag("convo:pane:example-host:%1"))
+        composeRule.onNodeWithTag("convo:pane:example-host:%1").performClick()
         awaitNode(hasTestTag("pane-back"))
 
         composeRule.onNodeWithTag("pane-back").performClick()
 
-        awaitNode(hasTestTag("pane-row:%2"))
+        awaitNode(hasTestTag("convo:pane:example-host:%2"))
         assertAbsent(hasTestTag("pane-title"))
     }
 
     @Test
-    fun theChosenViewSurvivesOpeningAPane() {
+    fun theChosenChipSurvivesOpeningAConversation() {
         server.respond(
             PANES_PATH,
             panesOf(paneProto("%1", "alpha-build", state = "waiting"), paneProto("%2", "alpha-review")),
         )
         val controller = launch()
-        awaitNode(hasTestTag("pane-row:%1"))
-        composeRule.onNodeWithTag("filter-waiting").performClick()
-        assertAbsent(hasTestTag("pane-row:%2"))
-        composeRule.onNodeWithTag("pane-row:%1").performClick()
+        awaitNode(hasTestTag("convo:pane:example-host:%1"))
+        composeRule.onNodeWithTag("chip-waiting").performClick()
+        assertAbsent(hasTestTag("convo:pane:example-host:%2"))
+        composeRule.onNodeWithTag("convo:pane:example-host:%1").performClick()
         awaitNode(titled("alpha-build"))
 
         controller.get().onBackPressedDispatcher.onBackPressed()
 
-        awaitNode(hasTestTag("pane-row:%1"))
-        assertAbsent(hasTestTag("pane-row:%2"))
+        awaitNode(hasTestTag("convo:pane:example-host:%1"))
+        assertAbsent(hasTestTag("convo:pane:example-host:%2"))
     }
 
     @Test
-    fun collapsedFoldersSurviveOpeningAPane() {
+    fun foldedProjectSurvivesOpeningAConversation() {
         server.respond(
             PANES_PATH,
             panesOf(paneProto("%1", "alpha-build"), paneProto("%2", "beta-deploy", cwd = "/home/user/beta")),
         )
         val controller = launch()
-        awaitNode(hasTestTag("pane-row:%1"))
-        composeRule.onNodeWithTag("folder:/home/user/alpha").performClick()
-        assertAbsent(hasTestTag("pane-row:%1"))
-        composeRule.onNodeWithTag("pane-row:%2").performClick()
+        awaitNode(hasTestTag("convo:pane:example-host:%1"))
+        composeRule.onNodeWithTag("fold:example-host|/home/user/alpha").performClick()
+        assertAbsent(hasTestTag("convo:pane:example-host:%1"))
+        composeRule.onNodeWithTag("convo:pane:example-host:%2").performClick()
         awaitNode(titled("beta-deploy"))
 
         controller.get().onBackPressedDispatcher.onBackPressed()
 
-        awaitNode(hasTestTag("pane-row:%2"))
-        assertAbsent(hasTestTag("pane-row:%1"))
+        awaitNode(hasTestTag("convo:pane:example-host:%2"))
+        assertAbsent(hasTestTag("convo:pane:example-host:%1"))
+    }
+
+    @Test
+    fun theOpenedEndedLineSurvivesOpeningAConversation() {
+        serveSessions(headlessSession(SESSION_ENDED, "ended-build", state = "stopped"))
+        val controller = launch()
+        awaitNode(hasTestTag("convo:pane:example-host:%1"))
+        composeRule.onNodeWithTag("ended:|/home/user/alpha").performClick()
+        awaitNode(hasTestTag("convo:session:$SESSION_ENDED"))
+        composeRule.onNodeWithTag("convo:pane:example-host:%1").performClick()
+        awaitNode(titled("alpha-build"))
+
+        controller.get().onBackPressedDispatcher.onBackPressed()
+
+        awaitNode(hasTestTag("convo:pane:example-host:%1"))
+        awaitNode(hasTestTag("convo:session:$SESSION_ENDED"))
     }
 
     /** The Welcome page's title row: its one crumb, Welcome, and no Back. */
@@ -310,7 +331,7 @@ class MainActivityTest {
         composeRule.onNodeWithText("Connect").assertIsNotEnabled()
         composeRule.onNodeWithText("Connect").assert(SemanticsMatcher.expectValue(PrimaryAction, true))
         assertAbsent(hasText("Settings"))
-        assertAbsent(hasTestTag("pane-row:%1"))
+        assertAbsent(hasTestTag("convo:pane:example-host:%1"))
         assertEquals(0, server.requests.size)
 
         composeRule.onNodeWithTag("server-address").performTextReplacement(server.baseUrl)
@@ -341,7 +362,7 @@ class MainActivityTest {
         composeRule.onNodeWithTag("server-address").performTextReplacement(server.baseUrl)
         composeRule.onNodeWithText("Connect").performClick()
 
-        awaitNode(hasTestTag("pane-row:%1"))
+        awaitNode(hasTestTag("convo:pane:example-host:%1"))
         assertAbsent(hasText(WELCOME_QUESTION))
         assertEquals(server.baseUrl, ServerSettings(context).serverUrl)
         assertTrue(PushPreferences(context).distributorMissing)
@@ -361,7 +382,7 @@ class MainActivityTest {
         awaitNode(hasTestTag("server-address").and(SemanticsMatcher.keyIsDefined(SemanticsProperties.Error)))
         awaitNode(hasText(WELCOME_QUESTION))
         assertFalse(ServerSettings(context).hasServer)
-        assertAbsent(hasTestTag("pane-row:%1"))
+        assertAbsent(hasTestTag("convo:pane:example-host:%1"))
     }
 
     @Test
@@ -426,12 +447,12 @@ class MainActivityTest {
     fun tappingAHeadlessRowOpensItsSession() {
         serveSessions(headlessSession(SESSION_ALPHA, "alpha-session"))
         launch()
-        awaitNode(hasTestTag("pane-row:$SESSION_ALPHA"))
+        awaitNode(hasTestTag("convo:session:$SESSION_ALPHA"))
 
-        composeRule.onNodeWithTag("pane-row:$SESSION_ALPHA").performClick()
+        composeRule.onNodeWithTag("convo:session:$SESSION_ALPHA").performClick()
 
         awaitNode(titled("alpha-session"))
-        assertAbsent(hasTestTag("pane-row:%1"))
+        assertAbsent(hasTestTag("convo:pane:example-host:%1"))
     }
 
     @Test
@@ -454,7 +475,7 @@ class MainActivityTest {
         )
         server.respond(START_PATH, StartResponse.newBuilder().setId(SESSION_STARTED).build())
         launch()
-        awaitNode(hasTestTag("pane-row:%1"))
+        awaitNode(hasTestTag("convo:pane:example-host:%1"))
 
         composeRule.onNodeWithTag("picker-new").performClick()
         composeRule.onNodeWithTag("picker-text").performTextInput("fix the test")
@@ -475,44 +496,44 @@ class MainActivityTest {
     fun backReturnsFromASessionToTheList() {
         serveSessions(headlessSession(SESSION_ALPHA, "alpha-session"))
         val controller = launch()
-        awaitNode(hasTestTag("pane-row:$SESSION_ALPHA"))
-        composeRule.onNodeWithTag("pane-row:$SESSION_ALPHA").performClick()
+        awaitNode(hasTestTag("convo:session:$SESSION_ALPHA"))
+        composeRule.onNodeWithTag("convo:session:$SESSION_ALPHA").performClick()
         awaitNode(titled("alpha-session"))
 
         controller.get().onBackPressedDispatcher.onBackPressed()
 
-        awaitNode(hasTestTag("pane-row:%1"))
+        awaitNode(hasTestTag("convo:pane:example-host:%1"))
         assertAbsent(hasTestTag("pane-title"))
     }
 
     @Test
     fun settingsBackReturnsToTheListWithoutSaving() {
         val controller = launch()
-        awaitNode(hasTestTag("pane-row:%1"))
+        awaitNode(hasTestTag("convo:pane:example-host:%1"))
         composeRule.onNodeWithText("Settings").performClick()
         awaitNode(hasTestTag("server-address"))
 
         controller.get().onBackPressedDispatcher.onBackPressed()
 
-        awaitNode(hasTestTag("pane-row:%1"))
+        awaitNode(hasTestTag("convo:pane:example-host:%1"))
     }
 
     @Test
     fun settingsTitleBackReturnsToTheListWithoutSaving() {
         launch()
-        awaitNode(hasTestTag("pane-row:%1"))
+        awaitNode(hasTestTag("convo:pane:example-host:%1"))
         composeRule.onNodeWithText("Settings").performClick()
         awaitNode(hasTestTag("server-address"))
 
         composeRule.onNodeWithTag("title-back").performClick()
 
-        awaitNode(hasTestTag("pane-row:%1"))
+        awaitNode(hasTestTag("convo:pane:example-host:%1"))
     }
 
     @Test
     fun settingsFontLicenceBackReturnsToSettingsNotTheList() {
         val controller = launch()
-        awaitNode(hasTestTag("pane-row:%1"))
+        awaitNode(hasTestTag("convo:pane:example-host:%1"))
         composeRule.onNodeWithText("Settings").performClick()
         awaitNode(hasTestTag("server-address"))
         composeRule.onNodeWithText("Font licence").performClick()
@@ -521,7 +542,7 @@ class MainActivityTest {
         controller.get().onBackPressedDispatcher.onBackPressed()
 
         awaitNode(hasTestTag("server-address"))
-        assertAbsent(hasTestTag("pane-row:%1"))
+        assertAbsent(hasTestTag("convo:pane:example-host:%1"))
     }
 
     @Test
@@ -529,16 +550,17 @@ class MainActivityTest {
         val second = FakeOrreryServer()
         try {
             second.respond(PANES_PATH, panesProto("%9" to "beta-deploy"))
+            second.respond(EPICS_LIST_PATH, EpicsListResponse.getDefaultInstance())
             launch()
-            awaitNode(hasTestTag("pane-row:%1"))
+            awaitNode(hasTestTag("convo:pane:example-host:%1"))
 
             composeRule.onNodeWithText("Settings").performClick()
             awaitNode(hasTestTag("server-address"))
             composeRule.onNodeWithTag("server-address").performTextReplacement(second.baseUrl)
             composeRule.onNodeWithText("Save").performClick()
 
-            awaitNode(hasTestTag("pane-row:%9"))
-            assertAbsent(hasTestTag("pane-row:%1"))
+            awaitNode(hasTestTag("convo:pane:example-host:%9"))
+            assertAbsent(hasTestTag("convo:pane:example-host:%1"))
             assertEquals(1, second.requests.count { it.rawPath == PANES_PATH })
             assertEquals(ServerSettings(context).serverUrl, second.baseUrl)
         } finally {
