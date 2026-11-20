@@ -715,6 +715,18 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
   overflow-wrap: anywhere;
 }
 
+/* The ended dock: where a conversation's dock was when the conversation steering a live epic has ended. It is round 6's
+   dock box in the stopped state, a well with its rail, its lead above the two ways on. Nothing in it is dimmed, so a
+   disabled control keeps its shape and takes the ink.4 text. */
+.ended-bar { flex: none; padding: 0 var(--o-layout-page-pad-desk) var(--o-space-16); }
+.ended-bar .dock-box { display: grid; min-width: 0; border-left: var(--o-size-rail) solid var(--o-line-firm); border-radius: var(--o-radius-3); background: var(--o-surface-well); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm); overflow: hidden; }
+.ended-bar .dock-box > * + * { border-top: var(--o-size-hairline) solid var(--o-line-soft); }
+.ended-bar .ended-lead { margin: 0; padding: var(--o-space-8) var(--o-space-12) 0; color: var(--o-ink-2); font: var(--o-type-small); overflow-wrap: anywhere; }
+.ended-bar .acts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-8); padding: var(--o-space-8) var(--o-space-12) var(--o-space-12); }
+.ended-bar .acts button.act { min-height: var(--o-size-control-desk); }
+.ended-bar .acts button.act:not(.primary) { background: none; color: var(--o-ink-2); }
+.ended-bar .acts button.act:disabled { background: none; color: var(--o-ink-4); cursor: default; transform: none; }
+
 /* The step foot under a step's reader: Interrupt, the nudge input beside it, and the more button. The more button opens
    the menu, where Stop asks first, and the outcome line sits under both. */
 .stepbox .line { display: flex; gap: var(--o-space-8); }
