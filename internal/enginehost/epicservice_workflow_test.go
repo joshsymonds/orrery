@@ -99,7 +99,7 @@ func TestEpicCreatePinsTheBuiltInEpicWhenNoWorkflowIsNamed(t *testing.T) {
 	}
 }
 
-func TestEpicCreatePinsTheWorkflowCommittedAtBaseAndKeepsItAfterAnEdit(t *testing.T) {
+func TestContractEpicCreatePinsTheWorkflowCommittedAtBaseAndKeepsItAfterAnEdit(t *testing.T) {
 	t.Parallel()
 	st := epicTestStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))

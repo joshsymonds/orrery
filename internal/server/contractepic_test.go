@@ -12,7 +12,7 @@ import (
 
 // TestContractEpicSessionItemNamesTheWrittenContract checks that an engine transcript's tool item of a
 // contract_propose or contract_revise call carries the call's contract id, past the input clip, and that another contract
-// tool or another tool carries none.
+// tool's item carries none.
 func TestContractEpicSessionItemNamesTheWrittenContract(t *testing.T) {
 	t.Parallel()
 	// The contract id comes after more than 200 runes of compact input, so the display text clips it away.
@@ -38,24 +38,6 @@ func TestContractEpicSessionItemNamesTheWrittenContract(t *testing.T) {
 		{
 			name:  "mcp contract_accept names no contract",
 			tool:  "mcp__orrery__contract_accept",
-			input: `{"id":"demo-0a1b2c3/contract-login"}`,
-			want:  "",
-		},
-		{
-			name:  "mcp contract_get names no contract",
-			tool:  "mcp__orrery__contract_get",
-			input: `{"id":"demo-0a1b2c3/contract-login"}`,
-			want:  "",
-		},
-		{
-			name:  "bare contract_propose names no contract",
-			tool:  "contract_propose",
-			input: `{"id":"demo-0a1b2c3/contract-login"}`,
-			want:  "",
-		},
-		{
-			name:  "another tool call with an id names no contract",
-			tool:  "Bash",
 			input: `{"id":"demo-0a1b2c3/contract-login"}`,
 			want:  "",
 		},

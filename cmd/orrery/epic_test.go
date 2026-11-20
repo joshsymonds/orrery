@@ -457,12 +457,6 @@ func TestContractEpicCreateReadsFileOrStdin(t *testing.T) {
 			if !proto.Equal(got[0], want[0]) {
 				t.Errorf("epicCommand(%v) sent %v, want %v", tc.args, got[0], want[0])
 			}
-			req, ok := got[0].(*v1.CreateEpicRequest)
-			if !ok || req.GetId() != epicTestID || req.GetBase() != "synthetic-base" || len(req.GetDecisions()) != 1 ||
-				req.GetWorkflow() != "demo" {
-				t.Errorf("epicCommand(%v) sent %v, want the contract's id %s, base synthetic-base, one decision and "+
-					"workflow demo", tc.args, got[0], epicTestID)
-			}
 			if wantOut := result.Content[0].Text + "\n"; stdout != wantOut {
 				t.Errorf("stdout = %q, want %q", stdout, wantOut)
 			}

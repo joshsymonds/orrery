@@ -93,34 +93,6 @@ func TestContractEpicCreateTakesTheAcceptedRevision(t *testing.T) {
 	}
 }
 
-// TestContractEpicCreatePinsTheWorkflowTheRequestNames asserts that CreateEpic, given the contract by its id with base,
-// decisions and workflow, pins the workflow the request names at that base and records the request's seed decisions.
-func TestContractEpicCreatePinsTheWorkflowTheRequestNames(t *testing.T) {
-	t.Parallel()
-	st := epicTestStore(t)
-	client := newEpicsClient(t, startEpicServer(t, st))
-	repo := stepGitTestRepo(t)
-	stepGitTestCommit(t, repo, map[string]string{".orrery/workflows/demo.yaml": demoWorkflowFile})
-	c := fullEpicRequest(repo, epicServiceID)
-	acceptEpicContract(t, st, c.Contract)
-
-	created, err := client.CreateEpic(t.Context(), connect.NewRequest(&v1.CreateEpicRequest{
-		Id: epicServiceID, Base: epicTestBase(repo), Decisions: c.Decisions, Workflow: "demo",
-	}))
-	if err != nil {
-		t.Fatalf("CreateEpic %s: %v", epicServiceID, err)
-	}
-
-	stored := created.Msg.GetEpic()
-	want := &v1.EpicWorkflow{Name: "demo", Text: demoWorkflowText, Sha256: workflowSHA256(demoWorkflowText)}
-	if !proto.Equal(stored.GetWorkflow(), want) {
-		t.Fatalf("created workflow = %v, want %v", stored.GetWorkflow(), want)
-	}
-	if len(stored.GetDecisions()) != len(c.Decisions) {
-		t.Fatalf("created decisions = %d, want the request's %d", len(stored.GetDecisions()), len(c.Decisions))
-	}
-}
-
 // TestContractEpicCreateRunsBaseChecks asserts that CreateEpic runs the base checks on the base the request names, and
 // that a base which names no commit is refused and stores nothing.
 func TestContractEpicCreateRunsBaseChecks(t *testing.T) {

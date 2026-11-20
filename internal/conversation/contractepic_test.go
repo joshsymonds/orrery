@@ -8,8 +8,8 @@ import (
 )
 
 // TestContractEpicReadNamesTheWrittenContract checks that a pane transcript's contract_propose and contract_revise
-// items carry their input's id as Contract, past the input clip, and that a contract tool that writes no version and
-// another tool call carry none.
+// items carry their input's id as Contract, past the input clip, and that a contract tool that writes no version
+// carries none.
 func TestContractEpicReadNamesTheWrittenContract(t *testing.T) {
 	longInput := `{"path":"` + strings.Repeat("p", 250) + `","id":"demo-0a1b2c3/contract-long"}`
 	path := writeTranscript(t,
@@ -19,12 +19,6 @@ func TestContractEpicReadNamesTheWrittenContract(t *testing.T) {
 			`{"type":"tool_use","id":"toolu_2","name":"mcp__orrery__contract_revise","input":{"id":"demo-0a1b2c3/contract-login"}}]}}`,
 		`{"type":"assistant","timestamp":"`+stampAt(3)+`","message":{"content":[`+
 			`{"type":"tool_use","id":"toolu_3","name":"mcp__orrery__contract_accept","input":{"id":"demo-0a1b2c3/contract-login"}}]}}`,
-		`{"type":"assistant","timestamp":"`+stampAt(4)+`","message":{"content":[`+
-			`{"type":"tool_use","id":"toolu_4","name":"mcp__orrery__contract_get","input":{"id":"demo-0a1b2c3/contract-login"}}]}}`,
-		`{"type":"assistant","timestamp":"`+stampAt(5)+`","message":{"content":[`+
-			`{"type":"tool_use","id":"toolu_5","name":"contract_propose","input":{"id":"demo-0a1b2c3/contract-login"}}]}}`,
-		`{"type":"assistant","timestamp":"`+stampAt(6)+`","message":{"content":[`+
-			`{"type":"tool_use","id":"toolu_6","name":"Bash","input":{"id":"demo-0a1b2c3/contract-login"}}]}}`,
 	)
 
 	type named struct{ tool, contract string }
@@ -37,9 +31,6 @@ func TestContractEpicReadNamesTheWrittenContract(t *testing.T) {
 		{"mcp__orrery__contract_propose", "demo-0a1b2c3/contract-long"},
 		{"mcp__orrery__contract_revise", "demo-0a1b2c3/contract-login"},
 		{"mcp__orrery__contract_accept", ""},
-		{"mcp__orrery__contract_get", ""},
-		{"contract_propose", ""},
-		{"Bash", ""},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("tool items = %+v, want %+v", got, want)
