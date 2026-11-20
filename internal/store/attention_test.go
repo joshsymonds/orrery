@@ -76,7 +76,7 @@ func TestAttentionReportsParkPauseOpenQuestionsAndTheLatestEndedTurn(t *testing.
 	}); err != nil {
 		t.Fatalf("answer question 1: %v", err)
 	}
-	if err := s.PauseEpic(ctx, id); err != nil {
+	if err := s.PauseEpic(ctx, id, Maker{By: MakerOwner}, time.Unix(1700000000, 0)); err != nil {
 		t.Fatalf("PauseEpic: %v", err)
 	}
 	parkedAt := completedAt().Add(2 * time.Minute)

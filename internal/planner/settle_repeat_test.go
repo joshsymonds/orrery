@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -122,7 +123,7 @@ func TestSettledTurnFreedAgainChangesNoRow(t *testing.T) {
 	if !epicOf(t, s).Paused {
 		t.Fatal("epic Paused after the stopped turn = false, want true")
 	}
-	if err := s.ResumeEpic(ctx, runnerEpicID); err != nil {
+	if err := s.ResumeEpic(ctx, runnerEpicID, store.Maker{By: store.MakerOwner}, time.Unix(1700000000, 0)); err != nil {
 		t.Fatalf("ResumeEpic: %v", err)
 	}
 	settled := settledRowsOf(t, s)

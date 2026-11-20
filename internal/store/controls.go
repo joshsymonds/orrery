@@ -28,9 +28,9 @@ func (r RefusalError) Error() string {
 // PauseEpic pauses epic in one write, so the planner starts no turn for it, records the owner as its pause source, and
 // flags its running turn to stop, as StopEpic does, so the planner stops the turn's step once it has one. An epic a
 // usage limit paused is accepted and becomes the owner's pause, and its due rows close in the same write, so no reset
-// resumes it. An unknown epic is ErrNoEpic, and an epic the owner already paused, or paused with no recorded source, is
-// a RefusalError.
-func (s *Store) PauseEpic(ctx context.Context, epic string) error {
+// resumes it. The write appends one pause action made by maker at at. An unknown epic is ErrNoEpic, and an epic the
+// owner already paused, or paused with no recorded source, is a RefusalError.
+func (s *Store) PauseEpic(ctx context.Context, epic string, maker Maker, at time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		head, err := epicHead(ctx, queries, epic)
 		if err != nil {
@@ -43,14 +43,19 @@ func (s *Store) PauseEpic(ctx context.Context, epic string) error {
 		if err != nil {
 			return err
 		}
-		return pauseAsOwner(ctx, queries, epic)
+		err = pauseAsOwner(ctx, queries, epic)
+		if err != nil {
+			return err
+		}
+		_, err = appendEpicAction(ctx, queries, epic, ActionPause, maker, "", "", at)
+		return err
 	})
 }
 
-// ResumeEpic clears the pause of epic and closes its due rows in one write and leaves any park in place. An unknown
-// epic is ErrNoEpic. An epic that is not paused is a RefusalError, and a parked one names retry, since only retry ends
-// a park.
-func (s *Store) ResumeEpic(ctx context.Context, epic string) error {
+// ResumeEpic clears the pause of epic and closes its due rows in one write and leaves any park in place. The write
+// appends one resume action made by maker at at. An unknown epic is ErrNoEpic. An epic that is not paused is a
+// RefusalError, and a parked one names retry, since only retry ends a park.
+func (s *Store) ResumeEpic(ctx context.Context, epic string, maker Maker, at time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		head, err := epicHead(ctx, queries, epic)
 		if err != nil {
@@ -62,7 +67,12 @@ func (s *Store) ResumeEpic(ctx context.Context, epic string) error {
 			}
 			return RefusalError(fmt.Sprintf("epic %s is not paused", epic))
 		}
-		return resumeEpic(ctx, queries, epic)
+		err = resumeEpic(ctx, queries, epic)
+		if err != nil {
+			return err
+		}
+		_, err = appendEpicAction(ctx, queries, epic, ActionResume, maker, "", "", at)
+		return err
 	})
 }
 
@@ -112,9 +122,10 @@ func (s *Store) CloseDueResume(ctx context.Context, id string) error {
 // StopEpic pauses epic as its owner's, closes its due rows, and flags its running turn to stop, in one write, and
 // returns the turn's step, empty while the turn has none. The turn keeps its claimed triggers. An epic with no running
 // turn that holds its repository's release slot frees the slot in one write instead, and returns the id of its release
-// step that has no end, or "" when none runs. It neither pauses the epic nor changes its phase. An unknown epic is
-// ErrNoEpic, and an epic with no running turn that holds no slot is a RefusalError.
-func (s *Store) StopEpic(ctx context.Context, epic string) (string, error) {
+// step that has no end, or "" when none runs. It neither pauses the epic nor changes its phase. Either write appends one
+// stop action made by maker at at. An unknown epic is ErrNoEpic, and an epic with no running turn that holds no slot is a
+// RefusalError.
+func (s *Store) StopEpic(ctx context.Context, epic string, maker Maker, at time.Time) (string, error) {
 	var step string
 	err := s.write(ctx, func(queries *sqlcgen.Queries) error {
 		head, err := epicHead(ctx, queries, epic)
@@ -126,11 +137,16 @@ func (s *Store) StopEpic(ctx context.Context, epic string) (string, error) {
 		if err != nil {
 			return err
 		}
-		if !running {
+		if running {
+			err = pauseAsOwner(ctx, queries, epic)
+		} else {
 			step, err = stopReleaseSlot(ctx, queries, head)
+		}
+		if err != nil {
 			return err
 		}
-		return pauseAsOwner(ctx, queries, epic)
+		_, err = appendEpicAction(ctx, queries, epic, ActionStop, maker, "", "", at)
+		return err
 	})
 	if err != nil {
 		return "", err
@@ -141,14 +157,19 @@ func (s *Store) StopEpic(ctx context.Context, epic string) (string, error) {
 // RetryEpic ends the park of epic in one write and leaves its triggers pending. The failed turns up to the epic's
 // highest turn seq stop counting toward a park. Each loop of epic parked by ParkLoop turns running with one more
 // granted round. Each parked evidence run that an open park question for a red run judged holding at base names turns
-// running at its next attempt, and each open park question of epic is answered retry, in the same write. An unknown
-// epic is ErrNoEpic, an epic that is not parked is a RefusalError, and an epic in phase met_at_base, which the owner
-// ended, is a RefusalError that changes nothing. An epic in phase stopped is retried only when its release integrator
-// stopped it, which sends its release back to planning (retryStoppedRelease); any other stopped epic is a RefusalError
-// that changes nothing, since retry does not end its release park.
-func (s *Store) RetryEpic(ctx context.Context, epic string) error {
+// running at its next attempt, and each open park question of epic is answered retry, in the same write. The write
+// appends one retry action made by maker at at. An unknown epic is ErrNoEpic, an epic that is not parked is a
+// RefusalError, and an epic in phase met_at_base, which the owner ended, is a RefusalError that changes nothing. An epic
+// in phase stopped is retried only when its release integrator stopped it, which sends its release back to planning
+// (retryStoppedRelease); any other stopped epic is a RefusalError that changes nothing, since retry does not end its
+// release park.
+func (s *Store) RetryEpic(ctx context.Context, epic string, maker Maker, at time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		return retryEpicIn(ctx, queries, epic)
+		if err := retryEpicIn(ctx, queries, epic); err != nil {
+			return err
+		}
+		_, err := appendEpicAction(ctx, queries, epic, ActionRetry, maker, "", "", at)
+		return err
 	})
 }
 

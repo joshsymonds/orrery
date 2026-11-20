@@ -82,8 +82,12 @@ func turnRows(t *testing.T, raw *sql.DB, epic string) [][]any {
 // it the same way.
 func TestFreeTurnParkAfterARetrySinceTheClaimLeavesTheEpicUnparked(t *testing.T) {
 	t.Parallel()
-	retryNode := func(ctx context.Context, s *store.Store) error { return s.RetryNode(ctx, workEpic, "verify") }
-	retryEpic := func(ctx context.Context, s *store.Store) error { return s.RetryEpic(ctx, workEpic) }
+	retryNode := func(ctx context.Context, s *store.Store) error {
+		return s.RetryNode(ctx, workEpic, "verify", store.Maker{By: store.MakerOwner}, time.Unix(1700000000, 0))
+	}
+	retryEpic := func(ctx context.Context, s *store.Store) error {
+		return s.RetryEpic(ctx, workEpic, store.Maker{By: store.MakerOwner}, time.Unix(1700000000, 0))
+	}
 	rerun := []store.NodeRun{{Path: "verify", ID: "id-verify", Node: "verify", Kind: "gate", Attempt: 2,
 		State: store.NodeRunning, Started: nodeStartedAt()}}
 	stillParked := []store.NodeRun{{Path: "verify", ID: "id-verify", Node: "verify", Kind: "gate", Attempt: 1,
@@ -186,7 +190,13 @@ func TestFailTurnAfterARetrySinceTheClaimDoesNotParkTheEpic(t *testing.T) {
 		}
 	}
 	seq := claimWorkTurn(t, s)
-	if err := s.RetryNode(ctx, workEpic, "verify"); err != nil {
+	if err := s.RetryNode(
+		ctx,
+		workEpic,
+		"verify",
+		store.Maker{By: store.MakerOwner},
+		time.Unix(1700000000, 0),
+	); err != nil {
 		t.Fatalf("RetryNode: %v", err)
 	}
 	if err := s.FailTurn(ctx, workEpic, seq, "boom", turnEndedAt()); err != nil {

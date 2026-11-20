@@ -357,7 +357,12 @@ func TestDuePassLeavesOwnerPausedEpicPausedPastItsReset(t *testing.T) {
 	st, _ := openStore(t)
 	createDuePassEpic(t, st)
 	turn := claimDuePassTurn(t, st)
-	if err := st.PauseEpic(t.Context(), duePassEpic); err != nil {
+	if err := st.PauseEpic(
+		t.Context(),
+		duePassEpic,
+		store.Maker{By: store.MakerOwner},
+		time.Unix(1700000000, 0),
+	); err != nil {
 		t.Fatalf("PauseEpic: %v", err)
 	}
 	reset := time.Unix(probeResetUnix, 0)

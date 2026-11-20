@@ -522,7 +522,12 @@ func TestOrchestratorActionRefusalIsRecordedWithItsTrigger(t *testing.T) {
 			setup: func(t *testing.T, s *Store) {
 				t.Helper()
 				createStoppedRelease(t, s, actionOther)
-				if _, err := s.StopEpic(context.Background(), actionOther); err != nil {
+				if _, err := s.StopEpic(
+					context.Background(),
+					actionOther,
+					Maker{By: MakerOwner},
+					time.Unix(1700000000, 0),
+				); err != nil {
 					t.Fatalf("StopEpic of epic %s: %v", actionOther, err)
 				}
 			},
@@ -539,7 +544,7 @@ func TestOrchestratorActionRefusalIsRecordedWithItsTrigger(t *testing.T) {
 				t.Helper()
 				createEpic(t, s, fullEpic(actionEpic))
 				if _, err := s.CloseEpic(context.Background(), actionEpic, "abandoned", "", CloserOwner,
-					closeAt()); err != nil {
+					Maker{By: MakerOwner}, closeAt()); err != nil {
 					t.Fatalf("CloseEpic: %v", err)
 				}
 			},

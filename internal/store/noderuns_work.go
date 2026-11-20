@@ -205,10 +205,15 @@ const (
 // candidate. The latest integrate run is the one in the newest settle walk of the plan (latestIntegrateRun). The park
 // ends as RetryEpic ends it, and each open park question of epic is answered retry. A node with nothing to rerun is a
 // RefusalError, and so is an epic parked for good, which changes nothing. So is the release node, which only
-// ReleaseEpic resumes: retried here, it would run while the phase stays stopped and wait for good.
-func (s *Store) RetryNode(ctx context.Context, epic, node string) error {
+// ReleaseEpic resumes: retried here, it would run while the phase stays stopped and wait for good. The write appends one
+// retry action made by maker at at.
+func (s *Store) RetryNode(ctx context.Context, epic, node string, maker Maker, at time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		return rerunNodeIn(ctx, queries, epic, node)
+		if err := rerunNodeIn(ctx, queries, epic, node); err != nil {
+			return err
+		}
+		_, err := appendEpicAction(ctx, queries, epic, ActionRetry, maker, "", "", at)
+		return err
 	})
 }
 

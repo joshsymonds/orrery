@@ -317,7 +317,12 @@ func steerWakeEpic(t *testing.T, path, session string) {
 // only ones the caller-event passes send.
 func pauseAttentionEpic(t *testing.T, st *store.Store) {
 	t.Helper()
-	if err := st.PauseEpic(t.Context(), attentionWiringEpic); err != nil {
+	if err := st.PauseEpic(
+		t.Context(),
+		attentionWiringEpic,
+		store.Maker{By: store.MakerOwner},
+		time.Unix(1700000000, 0),
+	); err != nil {
 		t.Fatalf("pause epic %s: %v", attentionWiringEpic, err)
 	}
 }

@@ -508,7 +508,12 @@ func TestPassParkedEpicWithGoneBranchIsToldOnce(t *testing.T) {
 func TestPassPausedEpicCreatesNoBranch(t *testing.T) {
 	t.Parallel()
 	f := newPassFixture(t)
-	if err := f.store.PauseEpic(f.ctx, passEpic); err != nil {
+	if err := f.store.PauseEpic(
+		f.ctx,
+		passEpic,
+		store.Maker{By: store.MakerOwner},
+		time.Unix(1700000000, 0),
+	); err != nil {
 		t.Fatalf("PauseEpic: %v", err)
 	}
 	f.pass()
@@ -952,7 +957,12 @@ func TestPassStoppedStepPausesThenResumeRerunsUnderNewID(t *testing.T) {
 		t.Fatalf("epic Paused = %t, build Held = %q, want paused with the build held stopped",
 			f.epic().Paused, f.task().Build.Held)
 	}
-	if err := f.store.ResumeEpic(f.ctx, passEpic); err != nil {
+	if err := f.store.ResumeEpic(
+		f.ctx,
+		passEpic,
+		store.Maker{By: store.MakerOwner},
+		time.Unix(1700000000, 0),
+	); err != nil {
 		t.Fatalf("ResumeEpic: %v", err)
 	}
 	f.pass()

@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -83,7 +84,7 @@ func TestRunnerPauseDuringTurnLetsTurnFinishAndStartsNoStep(t *testing.T) {
 	// The trigger stays pending once turn 1 ends, so an unpaused runner would claim it and start a second step.
 	addPendingTrigger(t, path, "answer:D9")
 
-	if err := s.PauseEpic(ctx, runnerEpicID); err != nil {
+	if err := s.PauseEpic(ctx, runnerEpicID, store.Maker{By: store.MakerOwner}, time.Unix(1700000000, 0)); err != nil {
 		t.Fatalf("PauseEpic: %v", err)
 	}
 	steps.end("step-1", store.StepRow{End: "done", Result: validPlan})
@@ -111,7 +112,7 @@ func TestRunnerResumeLetsRunnerStartStepForPendingTriggers(t *testing.T) {
 	ctx := context.Background()
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
-	if err := s.PauseEpic(ctx, runnerEpicID); err != nil {
+	if err := s.PauseEpic(ctx, runnerEpicID, store.Maker{By: store.MakerOwner}, time.Unix(1700000000, 0)); err != nil {
 		t.Fatalf("PauseEpic: %v", err)
 	}
 	steps := newFakeSteps()
@@ -124,7 +125,7 @@ func TestRunnerResumeLetsRunnerStartStepForPendingTriggers(t *testing.T) {
 		t.Errorf("steps started while paused = %d, want 0", n)
 	}
 
-	if err := s.ResumeEpic(ctx, runnerEpicID); err != nil {
+	if err := s.ResumeEpic(ctx, runnerEpicID, store.Maker{By: store.MakerOwner}, time.Unix(1700000000, 0)); err != nil {
 		t.Fatalf("ResumeEpic: %v", err)
 	}
 	waitFor(t, "a planner step to start after the resume", func() bool { return len(steps.started()) == 1 })
@@ -159,7 +160,7 @@ func TestRunnerRetryLetsRunnerStartStepForPendingTriggersOfParkedEpic(t *testing
 		t.Errorf("epic Parked = %q, want %q", got, park)
 	}
 
-	if err := s.RetryEpic(ctx, runnerEpicID); err != nil {
+	if err := s.RetryEpic(ctx, runnerEpicID, store.Maker{By: store.MakerOwner}, time.Unix(1700000000, 0)); err != nil {
 		t.Fatalf("RetryEpic: %v", err)
 	}
 	waitFor(t, "a planner step to start after the retry", func() bool { return len(steps.started()) == 1 })
@@ -230,7 +231,12 @@ func TestRunnerRetryEpicClosesParkQuestionAsRetry(t *testing.T) {
 	runnerParkedByRole(t, s, steps, &broken)
 	broken.Store(false)
 
-	if err := s.RetryEpic(context.Background(), runnerEpicID); err != nil {
+	if err := s.RetryEpic(
+		context.Background(),
+		runnerEpicID,
+		store.Maker{By: store.MakerOwner},
+		time.Unix(1700000000, 0),
+	); err != nil {
 		t.Fatalf("RetryEpic: %v", err)
 	}
 	questions := epicOf(t, s).Questions
@@ -254,7 +260,7 @@ func TestRunnerStopAfterStepStoredResultKeepsIt(t *testing.T) {
 	<-steps.entered
 	// The step has stored its result, and the runner holds its Subscribe, so StopEpic runs before the runner settles it.
 	steps.end("step-1", store.StepRow{End: "done", Result: validPlan})
-	step, err := s.StopEpic(ctx, runnerEpicID)
+	step, err := s.StopEpic(ctx, runnerEpicID, store.Maker{By: store.MakerOwner}, time.Unix(1700000000, 0))
 	if err != nil {
 		t.Fatalf("StopEpic: %v", err)
 	}

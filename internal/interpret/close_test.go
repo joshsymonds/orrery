@@ -16,7 +16,15 @@ func TestCloseEpicPassStartsNothingOnAClosedEpic(t *testing.T) {
 	ctx := context.Background()
 	s := openRunStore(t)
 	createRunEpic(t, s, builtinPin(t))
-	if _, err := s.CloseEpic(ctx, runEpic, "abandoned", "", store.CloserOwner, runClock()); err != nil {
+	if _, err := s.CloseEpic(
+		ctx,
+		runEpic,
+		"abandoned",
+		"",
+		store.CloserOwner,
+		store.Maker{By: store.MakerOwner},
+		runClock(),
+	); err != nil {
 		t.Fatalf("CloseEpic: %v", err)
 	}
 	planner, builder := &fakePlanner{known: []string{runEpic}}, &fakeBuilder{}

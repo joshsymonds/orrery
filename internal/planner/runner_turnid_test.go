@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -109,7 +110,7 @@ func TestRecoveryStopsOpenStepStoredUnderDerivedIDWhenTurnWasFlaggedBeforeRecord
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	claimTurnKilledBeforeRecord(t, s, runnerTurnStepID, "", "")
-	step, err := s.StopEpic(ctx, runnerEpicID)
+	step, err := s.StopEpic(ctx, runnerEpicID, store.Maker{By: store.MakerOwner}, time.Unix(1700000000, 0))
 	if err != nil {
 		t.Fatalf("StopEpic: %v", err)
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"testing"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -161,7 +162,13 @@ func toOrphanedRerun(t *testing.T) (*integrateWorld, string) {
 	if plan := runAt(t, w.s, "plan"); plan.State != store.NodeEnded || plan.Outcome != "complete" {
 		t.Fatalf("plan = %+v, want ended complete", plan)
 	}
-	if err := w.s.RetryNode(context.Background(), runEpic, "integrate"); err != nil {
+	if err := w.s.RetryNode(
+		context.Background(),
+		runEpic,
+		"integrate",
+		store.Maker{By: store.MakerOwner},
+		time.Unix(1700000000, 0),
+	); err != nil {
 		t.Fatalf("RetryNode of the failed batch: %v", err)
 	}
 	return w, candidate

@@ -109,12 +109,13 @@ func AmendmentWorkID(epic string, seq int64, part string, attempt int64) string 
 // it. An amend_evidence action makes the same write by the planner (see CarryOutAction). An amendment that keeps the
 // Requirement's conclusion and kind, changing only how it is shown, applies in that write (see applyUnchanged). Any other
 // amendment starts checking: the item does not change until the red run of the new item at the epic's base is judged not
-// to hold (see SettleAmendment). An unknown epic is ErrNoEpic. An amendment the store refuses is a RefusalError and
-// writes nothing; startAmendment gives the refusals.
+// to hold (see SettleAmendment). The write appends one amend action made by maker at at. An unknown epic is ErrNoEpic.
+// An amendment the store refuses is a RefusalError and writes nothing; startAmendment gives the refusals.
 func (s *Store) AmendEvidence(
 	ctx context.Context,
 	epic string,
 	amend Amendment,
+	maker Maker,
 	at time.Time,
 ) (EvidenceAmendment, error) {
 	var stored EvidenceAmendment
@@ -124,6 +125,10 @@ func (s *Store) AmendEvidence(
 			return err
 		}
 		stored, err = applyUnchanged(ctx, queries, started, at)
+		if err != nil {
+			return err
+		}
+		_, err = appendEpicAction(ctx, queries, epic, ActionAmend, maker, "", "", at)
 		return err
 	})
 	if err != nil {

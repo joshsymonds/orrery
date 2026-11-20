@@ -55,18 +55,21 @@ type EpicCommands interface {
 	) (store.EpicDecision, error)
 	OpenQuestions(ctx context.Context, epic string) ([]store.EpicQuestion, error)
 	Follows(ctx context.Context) ([]store.LabelFollow, error)
-	PauseEpic(ctx context.Context, epic string) error
-	ResumeEpic(ctx context.Context, epic string) error
-	StopEpic(ctx context.Context, epic string) (string, error)
-	RetryEpic(ctx context.Context, epic string) error
-	RetryNode(ctx context.Context, epic, node string) error
+	PauseEpic(ctx context.Context, epic string, maker store.Maker, at time.Time) error
+	ResumeEpic(ctx context.Context, epic string, maker store.Maker, at time.Time) error
+	StopEpic(ctx context.Context, epic string, maker store.Maker, at time.Time) (string, error)
+	RetryEpic(ctx context.Context, epic string, maker store.Maker, at time.Time) error
+	RetryNode(ctx context.Context, epic, node string, maker store.Maker, at time.Time) error
 	KickEpic(ctx context.Context, epic, text string, maker store.Maker, at time.Time) error
 	ReleaseEpic(ctx context.Context, epic string, undoNone []int64, maker store.Maker, at time.Time) error
-	CloseEpic(ctx context.Context, epic, kind, by, closer string, at time.Time) (string, error)
+	CloseEpic(
+		ctx context.Context, epic, kind, by, closer string, maker store.Maker, at time.Time,
+	) (string, error)
 	AmendEvidence(
 		ctx context.Context,
 		epic string,
 		amend store.Amendment,
+		maker store.Maker,
 		at time.Time,
 	) (store.EvidenceAmendment, error)
 	SeeEpic(ctx context.Context, epic string, at time.Time) error
@@ -497,10 +500,15 @@ func (s *epicService) PauseEpic(
 	if id == "" {
 		return nil, refuseEpic(connect.CodeInvalidArgument, "id: empty")
 	}
-	if err := s.epics.PauseEpic(ctx, id); err != nil {
+	maker, err := s.callerMaker(ctx, req.Header())
+	if err != nil {
+		return nil, err
+	}
+	if err = s.epics.PauseEpic(ctx, id, maker, time.Now()); err != nil {
 		return nil, epicControlError(id, err)
 	}
-	if err := s.stopRunningSteps(ctx, id); err != nil {
+	err = s.stopRunningSteps(ctx, id)
+	if err != nil {
 		return nil, err
 	}
 	message, err := s.storedEpic(ctx, id)
@@ -535,8 +543,12 @@ func (s *epicService) ResumeEpic(
 	if err != nil {
 		return nil, err
 	}
+	maker, err := s.callerMaker(ctx, req.Header())
+	if err != nil {
+		return nil, err
+	}
 	if head.Paused || len(limited) == 0 {
-		if err = s.epics.ResumeEpic(ctx, id); err != nil {
+		if err = s.epics.ResumeEpic(ctx, id, maker, time.Now()); err != nil {
 			return nil, epicControlError(id, err)
 		}
 	}
@@ -620,7 +632,11 @@ func (s *epicService) StopEpic(
 	if id == "" {
 		return nil, refuseEpic(connect.CodeInvalidArgument, "id: empty")
 	}
-	step, err := s.epics.StopEpic(ctx, id)
+	maker, err := s.callerMaker(ctx, req.Header())
+	if err != nil {
+		return nil, err
+	}
+	step, err := s.epics.StopEpic(ctx, id, maker, time.Now())
 	if err != nil {
 		return nil, epicControlError(id, err)
 	}
@@ -650,7 +666,11 @@ func (s *epicService) RetryEpic(
 	if id == "" {
 		return nil, refuseEpic(connect.CodeInvalidArgument, "id: empty")
 	}
-	if err := s.retryPark(ctx, id, req.Msg.GetNode()); err != nil {
+	maker, err := s.callerMaker(ctx, req.Header())
+	if err != nil {
+		return nil, err
+	}
+	if err = s.retryPark(ctx, id, req.Msg.GetNode(), maker); err != nil {
 		return nil, epicControlError(id, err)
 	}
 	message, err := s.storedEpic(ctx, id)
@@ -749,7 +769,11 @@ func (s *epicService) CloseEpic(
 	if err != nil {
 		return nil, err
 	}
-	step, err := s.epics.CloseEpic(ctx, id, req.Msg.GetKind(), req.Msg.GetBy(), closer, time.Now())
+	maker, err := s.callerMaker(ctx, req.Header())
+	if err != nil {
+		return nil, err
+	}
+	step, err := s.epics.CloseEpic(ctx, id, req.Msg.GetKind(), req.Msg.GetBy(), closer, maker, time.Now())
 	if err != nil {
 		return nil, epicControlError(id, err)
 	}
@@ -879,11 +903,12 @@ func rowError(kind string, err error) error {
 }
 
 // retryPark ends the park of epic when node is empty, and otherwise reruns node: its parked runs, or its latest integrate
-// run when that run ended failed. The store refuses a node with nothing to rerun, which a node of an unknown epic also
-// is, so the epic is read first to make an unknown epic ErrNoEpic.
-func (s *epicService) retryPark(ctx context.Context, epic, node string) error {
+// run when that run ended failed. maker made the call, and the store records the retry as made at the time now. The
+// store refuses a node with nothing to rerun, which a node of an unknown epic also is, so the epic is read first to
+// make an unknown epic ErrNoEpic.
+func (s *epicService) retryPark(ctx context.Context, epic, node string, maker store.Maker) error {
 	if node == "" {
-		if err := s.epics.RetryEpic(ctx, epic); err != nil {
+		if err := s.epics.RetryEpic(ctx, epic, maker, time.Now()); err != nil {
 			return fmt.Errorf("retry epic %s: %w", epic, err)
 		}
 		return nil
@@ -891,7 +916,7 @@ func (s *epicService) retryPark(ctx context.Context, epic, node string) error {
 	if _, err := s.epics.Epic(ctx, epic); err != nil {
 		return fmt.Errorf("read epic %s: %w", epic, err)
 	}
-	if err := s.epics.RetryNode(ctx, epic, node); err != nil {
+	if err := s.epics.RetryNode(ctx, epic, node, maker, time.Now()); err != nil {
 		return fmt.Errorf("retry node %s of epic %s: %w", node, epic, err)
 	}
 	return nil

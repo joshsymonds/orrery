@@ -1086,7 +1086,15 @@ type closingSyncStore struct {
 func (c *closingSyncStore) PrepareSync(
 	ctx context.Context, epic, path string, attempt int64, revision, result string, read store.OriginRead,
 ) error {
-	if _, err := c.closer.CloseEpic(ctx, epic, "abandoned", "", store.CloserOwner, runClock()); err != nil {
+	if _, err := c.closer.CloseEpic(
+		ctx,
+		epic,
+		"abandoned",
+		"",
+		store.CloserOwner,
+		store.Maker{By: store.MakerOwner},
+		runClock(),
+	); err != nil {
 		return fmt.Errorf("close epic %s: %w", epic, err)
 	}
 	return c.Store.PrepareSync(ctx, epic, path, attempt, revision, result, read)

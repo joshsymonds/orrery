@@ -117,7 +117,12 @@ func TestEpicEventPushWiringNoTicker(t *testing.T) {
 	createAttentionEpic(t, st, callerEventCreator)
 	addStepSession(t, st, callerEventCreator)
 	recordCallerCreator(t, st, attentionWiringEpic)
-	if err := st.PauseEpic(t.Context(), attentionWiringEpic); err != nil {
+	if err := st.PauseEpic(
+		t.Context(),
+		attentionWiringEpic,
+		store.Maker{By: store.MakerOwner},
+		time.Unix(1700000000, 0),
+	); err != nil {
 		t.Fatalf("pause epic %s: %v", attentionWiringEpic, err)
 	}
 	endAttentionEpic(t, st, "done")
