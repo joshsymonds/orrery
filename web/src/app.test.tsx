@@ -754,36 +754,36 @@ test("/ focuses the filter input and does not type the slash", (t) =>
 
 test("? toggles a help panel listing exactly the keys", (t) =>
   withApp(t.signal, {}, async (container) => {
-    assert.equal(container.querySelector('[aria-label="Keys"]') === null, true);
+    assert.equal(container.querySelector('[role="dialog"][aria-label="Keys"]') === null, true);
     await press("?");
-    const help = container.querySelector('[aria-label="Keys"]');
+    const help = container.querySelector('[role="dialog"][aria-label="Keys"]');
     assert.ok(help, "help panel is open");
     const listed = [...help.querySelectorAll(".keygroups kbd")].map((element) => element.textContent);
     assert.deepEqual(listed, keysHelpList);
     await press("?");
-    assert.equal(container.querySelector('[aria-label="Keys"]') === null, true);
+    assert.equal(container.querySelector('[role="dialog"][aria-label="Keys"]') === null, true);
   }));
 
 test("Esc closes the help when the filter does not have focus", (t) =>
   withApp(t.signal, {}, async (container) => {
     await press("?");
     await press("Escape");
-    assert.equal(container.querySelector('[aria-label="Keys"]') === null, true);
+    assert.equal(container.querySelector('[role="dialog"][aria-label="Keys"]') === null, true);
   }));
 
 test("? opens the key list over the page, outside the list, and a second ? closes it", (t) =>
   withApp(t.signal, {}, async (container) => {
     await press("?");
-    const help = container.querySelector('[aria-label="Keys"]');
+    const help = container.querySelector('[role="dialog"][aria-label="Keys"]');
     assert.ok(help !== null, "help panel is open");
     assert.equal(help.closest(".list") === null, true, "the key list is not inside the list");
-    assert.equal(container.querySelector('.list [aria-label="Keys"]') === null, true, "no key list is inside the list");
+    assert.equal(container.querySelector('.list [role="dialog"][aria-label="Keys"]') === null, true, "no key list is inside the list");
     const scrim = help.parentElement;
     assert.equal(scrim?.classList.contains("scrim"), true, "the key list sits over the page in a scrim");
     assert.equal(scrim?.parentElement?.classList.contains("app"), true, "the scrim sits in the page");
     assert.equal(scrim?.previousElementSibling?.classList.contains("panes"), true, "the scrim follows the columns");
     await press("?");
-    assert.equal(container.querySelector('[aria-label="Keys"]') === null, true);
+    assert.equal(container.querySelector('[role="dialog"][aria-label="Keys"]') === null, true);
   }));
 
 test("with the filter focused, shortcut keys do nothing and Enter blurs it", (t) =>
@@ -795,7 +795,7 @@ test("with the filter focused, shortcut keys do nothing and Enter blurs it", (t)
     await press("x");
     await press("e");
     assert.equal(cursorKey(container), "a");
-    assert.equal(container.querySelector('[aria-label="Keys"]') === null, true);
+    assert.equal(container.querySelector('[role="dialog"][aria-label="Keys"]') === null, true);
     await settle();
     assert.equal(fake.callsTo(markPanePath).length, 0, "x and e in the filter write no seen");
     await press("Enter");
@@ -852,7 +852,7 @@ test("u outside the filter changes nothing", (t) =>
     await press("u");
     assert.equal(cursorKey(container), "a");
     assert.deepEqual(rowKeys(container), ["a", "c", "b", "d"]);
-    assert.equal(container.querySelector('[aria-label="Keys"]') === null, true);
+    assert.equal(container.querySelector('[role="dialog"][aria-label="Keys"]') === null, true);
     assert.equal(filterInput(container).value, "");
     await settle();
     assert.equal(fake.callsTo(markPanePath).length, 0, "no seen was written");
@@ -1049,9 +1049,43 @@ test("the brand draws the orrery mark as a 72-unit drawing hidden from assistive
     assert.equal(container.querySelectorAll(".brand > svg.mark > path").length, 5);
   }));
 
-test("the brand reads orrery, and holds the Ask button", (t) =>
+test("the brand reads orrery, and holds the New button", (t) =>
   withApp(t.signal, { rows: [] }, (container) => {
-    assert.equal(container.querySelector(".brand")?.textContent, "orrery+ Ask", "the brand row holds the Ask button");
+    assert.equal(container.querySelector(".brand")?.textContent, "orreryNew", "the brand row holds the New button");
+  }));
+
+test("NewPanel: no control in the page reads Ask", (t) =>
+  withApp(t.signal, {}, (container) => {
+    const labels = [...container.querySelectorAll("button")].map((button) =>
+      [button.textContent, button.getAttribute("aria-label"), button.title].join(" "),
+    );
+    assert.deepEqual(
+      labels.filter((label) => /\bAsk\b/.test(label)),
+      [],
+      "no button reads Ask",
+    );
+  }));
+
+test("NewPanel: the head's New button has a plus icon and the tip Start a session, or find one  N", (t) =>
+  withApp(t.signal, {}, (container) => {
+    const button = newButton(container);
+    assert.equal(button.getAttribute("title"), "Start a session, or find one  N");
+    assert.equal(button.querySelector("svg.icon > path")?.getAttribute("d"), "M8 3v10M3 8h10");
+    assert.equal(button.querySelector("svg")?.getAttribute("aria-hidden"), "true");
+  }));
+
+test("KeyList: the head's Keys control is icon-only, has the tip Keys  ?, and opens the Keys panel", (t) =>
+  withApp(t.signal, {}, async (container) => {
+    const keys = keysButton(container);
+    assert.equal(keys.tagName, "BUTTON");
+    assert.equal(keys.getAttribute("aria-label"), "Keys");
+    assert.equal(keys.getAttribute("title"), "Keys  ?");
+    assert.equal(keys.textContent, "", "the Keys control has no text");
+    assert.equal(container.querySelector('[role="dialog"][aria-label="Keys"]') === null, true);
+    await clickElement(keys);
+    const help = container.querySelector<HTMLElement>('[role="dialog"][aria-label="Keys"]');
+    assert.ok(help, "clicking Keys opens the Keys panel");
+    assert.equal(help.querySelector("h2.t-title")?.textContent, "Keys");
   }));
 
 test("the cursor's pane row opens its conversation, and the reader shows the streamed reply as text", (t) =>
@@ -1575,7 +1609,7 @@ test("keys typed in the composer never act as list keys, and Escape leaves it", 
     await pressIn(box, "?");
     await pressIn(box, "/");
     assert.equal(cursorKey(container), "a");
-    assert.equal(container.querySelector('[aria-label="Keys"]') === null, true);
+    assert.equal(container.querySelector('[role="dialog"][aria-label="Keys"]') === null, true);
     assert.equal(document.activeElement === filterInput(container), false);
     const bar = container.querySelector<HTMLInputElement>(".find input");
     assert.ok(bar, "/ in the empty box opens the find bar");
@@ -1759,7 +1793,7 @@ test("ComposerFocus: closing the pin with | focuses no reply box", (t) =>
 test("ComposerFocus: the keys help says Enter opens the row into its reply box, and names ⇧ ⇥, ⇞, ⇟ and /", (t) =>
   withApp(t.signal, {}, async (container) => {
     await press("?");
-    const help = container.querySelector('[aria-label="Keys"]');
+    const help = container.querySelector('[role="dialog"][aria-label="Keys"]');
     assert.ok(help, "help panel is open");
     const described = (cap: string) =>
       [...help.querySelectorAll(".keyline")]
@@ -4700,7 +4734,7 @@ test("i focuses the step's box, its keys are text, and Escape leaves it", (t) =>
     await pressIn(box, "j");
     await pressIn(box, "?");
     assert.equal(cursorKey(container), "step:s1");
-    assert.equal(container.querySelector('[aria-label="Keys"]') === null, true);
+    assert.equal(container.querySelector('[role="dialog"][aria-label="Keys"]') === null, true);
     await pressIn(box, "Escape");
     assert.equal(document.activeElement === box, false);
     await press("j");
@@ -4954,10 +4988,18 @@ test("App reports the cursor's pane, epic, step and session to onViewing as the 
   });
 });
 
-// askButton is the + Ask button in the top bar.
-function askButton(container: HTMLElement): HTMLButtonElement {
-  const found = [...container.querySelectorAll("button")].find((button) => button.textContent === "+ Ask");
-  assert.ok(found, "the top bar has the + Ask button");
+// newButton is the New button in the inbox head's brand row.
+function newButton(container: HTMLElement): HTMLButtonElement {
+  const found = container.querySelector<HTMLButtonElement>(".brand > button");
+  assert.ok(found, "the brand row has a button");
+  assert.equal(found.textContent, "New", "the brand row's button reads New");
+  return found;
+}
+
+// keysButton is the Keys control in the inbox head, which holds the key list's icon and no text.
+function keysButton(container: HTMLElement): HTMLButtonElement {
+  const found = container.querySelector<HTMLButtonElement>(".list > .top > .keys-hint");
+  assert.ok(found, "the inbox head has the Keys control");
   return found;
 }
 
@@ -5000,11 +5042,11 @@ async function clickElement(element: Element): Promise<void> {
   });
 }
 
-test("PickerPalette: the Ask button, ⌘K, Ctrl+K and N open the palette, and ⌘K opens it from a text box", (t) =>
+test("PickerPalette: the New button, ⌘K, Ctrl+K and N open the palette, and ⌘K opens it from a text box", (t) =>
   withApp(t.signal, {}, async (container) => {
     assert.equal(pickerShown(container), false);
-    await clickElement(askButton(container));
-    assert.equal(pickerShown(container), true, "the Ask button opens the palette");
+    await clickElement(newButton(container));
+    assert.equal(pickerShown(container), true, "the New button opens the palette");
     await pressIn(pickerInput(container), "Escape");
     assert.equal(pickerShown(container), false, "Escape closes the palette");
 
@@ -5049,7 +5091,7 @@ test("PickerPalette: n still moves the cursor to the next unseen row", (t) =>
 test("PickerPalette: the keys help lists ⌘K and N, each with what it opens", (t) =>
   withApp(t.signal, {}, async (container) => {
     await press("?");
-    const help = container.querySelector('[aria-label="Keys"]');
+    const help = container.querySelector('[role="dialog"][aria-label="Keys"]');
     assert.ok(help, "help panel is open");
     const lineFor = (cap: string) =>
       [...help.querySelectorAll(".keyline")].find((line) =>
@@ -5065,7 +5107,7 @@ test("PickerPalette: a pane Picker.Run answers takes the cursor once its row arr
       { rows: [{ token: "tok-deploy", kind: "jump", pane: "%9", label: "deploy", note: "working" }] },
     ]);
     fake.replies.set(pickerRunPath, [{ pane: "%9" }]);
-    await clickElement(askButton(container));
+    await clickElement(newButton(container));
     await typePicker(container, "deploy");
     await pressIn(pickerInput(container), "Enter");
     await untilTurn(t.signal, () => pickerRows(container).length === 1, "the answer's row is listed");
@@ -5096,7 +5138,7 @@ test("PickerStartForm: a started session takes the cursor once its row arrives i
       },
     ]);
     fake.replies.set(startSessionPath, [{ id: "sess-new" }]);
-    await clickElement(askButton(container));
+    await clickElement(newButton(container));
     await typePicker(container, "web");
     await pressIn(pickerInput(container), "Enter");
     await untilTurn(t.signal, () => pickerRows(container).length === 1, "the answer's row is listed");
@@ -5132,7 +5174,7 @@ async function listDeployRow(signal: AbortSignal, container: HTMLElement, fake: 
   fake.replies.set(pickerAskPath, [
     { rows: [{ token: "tok-deploy", kind: "jump", pane: "%9", label: "deploy", note: "working" }] },
   ]);
-  await clickElement(askButton(container));
+  await clickElement(newButton(container));
   await typePicker(container, "deploy");
   await pressIn(pickerInput(container), "Enter");
   await untilTurn(signal, () => pickerRows(container).length === 1, "the answer's row is listed");
@@ -5157,13 +5199,13 @@ test("PickerPalette: j on a focused picker row leaves the list's cursor where it
     assert.equal(cursorKey(container), "a", "j behind the palette does not move the list's cursor");
   }));
 
-test("PickerPalette: Enter on the focused + Ask button is not defaultPrevented and writes no seen", (t) =>
+test("PickerPalette: Enter on the focused New button is not defaultPrevented and writes no seen", (t) =>
   withApp(t.signal, {}, async (container, fake) => {
-    await act(() => askButton(container).focus());
-    const enter = await pressIn(askButton(container), "Enter");
-    assert.equal(enter.defaultPrevented, false, "Enter on + Ask keeps its native activation");
+    await act(() => newButton(container).focus());
+    const enter = await pressIn(newButton(container), "Enter");
+    assert.equal(enter.defaultPrevented, false, "Enter on New keeps its native activation");
     await letTurnsRun();
-    assert.equal(fake.callsTo(markPanePath).length, 0, "Enter on + Ask writes no seen");
+    assert.equal(fake.callsTo(markPanePath).length, 0, "Enter on New writes no seen");
   }));
 
 test("NewPanel: at 760px and wider App opens the panel titled New session, with its hint", (t) =>
@@ -5171,7 +5213,7 @@ test("NewPanel: at 760px and wider App opens the panel titled New session, with 
     t.signal,
     {},
     async (container) => {
-      await press("N");
+      await clickElement(newButton(container));
       const dialog = container.querySelector<HTMLElement>('[role="dialog"][aria-label="New session"]');
       assert.ok(dialog, "the New session dialog is drawn");
       assert.equal(dialog.className, "panel", "the dialog is a panel");
@@ -5186,7 +5228,7 @@ test("NewPanel: under 760px App opens the sheet titled New session, with no pane
     t.signal,
     {},
     async (container) => {
-      await press("N");
+      await clickElement(newButton(container));
       const dialog = container.querySelector<HTMLElement>('[role="dialog"][aria-label="New session"]');
       assert.ok(dialog, "the New session dialog is drawn");
       assert.equal(dialog.className, "sheet", "the dialog is a sheet");

@@ -426,7 +426,7 @@ test("InboxPin: h at a row's first crumb pops a hidden inbox out by key", (t) =>
 test("InboxPin: the keys help lists b, B and h", (t) =>
   withInbox(t.signal, {}, async (container) => {
     await press("?");
-    const help = container.querySelector('[aria-label="Keys"]');
+    const help = container.querySelector('[role="dialog"][aria-label="Keys"]');
     assert.ok(help, "help panel is open");
     const listed = [...help.querySelectorAll(".keyline .ks")].map((caps) =>
       [...caps.querySelectorAll("kbd")].map((kbd) => kbd.textContent).join(" "),

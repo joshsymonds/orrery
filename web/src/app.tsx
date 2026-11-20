@@ -1400,8 +1400,11 @@ export function App({
             <div class="brand">
               <Mark />
               orrery
-              <button type="button" onClick={() => setPickerOpen(true)}>
-                + Ask
+              <button type="button" title="Start a session, or find one  N" onClick={() => setPickerOpen(true)}>
+                <svg class="icon" viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M8 3v10M3 8h10" />
+                </svg>
+                New
               </button>
             </div>
             <div class="filter">
@@ -1425,9 +1428,11 @@ export function App({
                 <kbd>v</kbd>Archived
               </span>
             </div>
-            <span class="keys-hint">
-              <kbd>?</kbd> keys
-            </span>
+            <button type="button" class="keys-hint" aria-label="Keys" title="Keys  ?" onClick={() => setHelpOpen(true)}>
+              <svg class="icon" viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M3.5 4h9A1.5 1.5 0 0 1 14 5.5v5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 10.5v-5A1.5 1.5 0 0 1 3.5 4zM5 7h.5M7.8 7h.5M10.6 7h.5M5.5 9.5h5" />
+              </svg>
+            </button>
             {error !== "" && (
               <p class="error" role="alert">
                 {error}
