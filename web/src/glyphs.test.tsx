@@ -60,7 +60,7 @@ test("Glyphs: a Gauge names its done of total tasks, carries its tone, its arcs 
     assert.equal(gauge.getAttribute("data-tone"), "attention");
     assert.equal(one(gauge, "circle.done").getAttribute("stroke-dasharray"), "28.6 100");
     assert.equal(one(gauge, "circle.started").getAttribute("stroke-dasharray"), "71.4 100");
-    assert.ok(one(gauge, "circle.core") !== null, "the dot mark is not drawn");
+    one(gauge, "circle.core");
   }));
 
 test("Glyphs: a Gauge with no tasks says so, draws the dotted planned ring and no arcs", () =>

@@ -83,9 +83,6 @@ export interface EpicsView {
 // An epic block shows this many of its running steps; the rest are counted.
 const shownSteps = 4;
 
-// A task strip past this many segments draws dense, its segments touching.
-export const denseStrip = 60;
-
 // A repository's record name ends in a dash and seven lowercase hex digits; the folder it is named for does not.
 const hexSuffix = /-[0-9a-f]{7}$/;
 

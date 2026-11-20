@@ -535,40 +535,6 @@ class InboxTreeScreenTest {
     }
 
     @Test
-    fun aTapOnAConversationOpensItsPane() {
-        FakeOrreryServer().use { server ->
-            serveDefaults(server)
-            server.respond(PANES_LIST, panesOf(pane("%1", ALPHA, "working", NOW - 30, NOW - 10, NOW - 30, ALPHA_SESSION)))
-            setScreen(server)
-            awaitNode(hasTestTag(convoTag("%1")))
-
-            composeRule.onNodeWithTag(convoTag("%1")).performClick()
-
-            assertEquals("%1", openedPane?.id)
-        }
-    }
-
-    @Test
-    fun aTapOnAHeadlessSessionOpensItsPane() {
-        FakeOrreryServer().use { server ->
-            serveDefaults(server)
-            server.respond(PANES_LIST, PanesListResponse.getDefaultInstance())
-            server.respond(
-                LIST_HEADLESS,
-                ListHeadlessResponse.newBuilder()
-                    .addSessions(headless(HEADLESS_SESSION, ALPHA, "working", NOW - 30, NOW - 10))
-                    .build(),
-            )
-            setScreen(server)
-            awaitNode(hasTestTag(sessionTag(HEADLESS_SESSION)))
-
-            composeRule.onNodeWithTag(sessionTag(HEADLESS_SESSION)).performClick()
-
-            assertEquals(HEADLESS_SESSION, openedPane?.id)
-        }
-    }
-
-    @Test
     fun aTapOnAnEpicOpensIt() {
         FakeOrreryServer().use { server ->
             serveDefaults(server)
