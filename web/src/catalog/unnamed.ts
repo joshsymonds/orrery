@@ -13,9 +13,6 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   app: { replacement: "inbox-home", epic: "F2" },
   // RowMenu draws the ⋯ menu of an epic line, shut, open, and open on an archived line.
   "row-menu": { replacement: "Menu", epic: "F2" },
-  // EpicPage draws an epic's page in each state the fixtures hold: a rota decision, a released holder, a contract with tide
-  // alerts, a stopped epic offline, and paused follow-ups.
-  "epic-page": { replacement: "epic-building", epic: "F4" },
   // Mark draws the Orrery mark, the symbol the rail and the title row open on.
   mark: { replacement: "Tile", epic: "F2" },
   // Markdown draws reply prose: emphasis, a list, a fenced code block, a table, a heading with a link, and a marked query.

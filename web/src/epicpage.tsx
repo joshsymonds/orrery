@@ -1,9 +1,8 @@
 import type { ComponentChildren, JSX } from "preact";
 import { useLayoutEffect, useRef, useState } from "preact/hooks";
 
-import { AskFirst } from "./blocker";
 import type { LoadArtifact } from "./evidence";
-import type { EpicHistoryEntry, EpicsGetResponse, EpicSession } from "./gen/orrery/v1/epics_pb";
+import type { EpicHistoryEntry, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 import { JustHappened } from "./happenings";
 import { NowSection } from "./nowsection";
 import { Orrery } from "./orrery";
@@ -15,7 +14,7 @@ import type { Row } from "./rows";
 import { Sheet } from "./sheet";
 import { type Blocker, controlsOf, stateOf } from "./status";
 import { TaskTable } from "./tasktable";
-import { type TalkTarget, talkTarget } from "./talk";
+import type { TalkTarget } from "./talk";
 import { listedTitle, TitleParts } from "./titleparts";
 import { type InboxMark, TitleRow } from "./titlerow";
 import { Track } from "./track";
@@ -59,18 +58,21 @@ const landingTargets: Partial<Record<string, string>> = {
   release_step: "section.now",
 };
 
-// SteeredFrom is the Steered from door: the session that steers the epic, its title as the session's row draws it, and
-// the opening of that conversation.
+// SteeredFrom is the Steered from door: the session that steers the epic, titled from its listed row the way app's
+// steererOf finds that row, and the opening of that conversation. A steerer no row lists is opened by its id, and its
+// title is the word session.
 function SteeredFrom({
-  session,
+  steering,
   rows,
   onOpen,
 }: {
-  session: EpicSession;
+  steering: string;
   rows: Row[];
   onOpen: (target: TalkTarget) => void;
 }): JSX.Element {
-  const target = talkTarget(session);
+  const row = rows.find((candidate) => candidate.archiveKind !== "none" && candidate.archiveId === steering);
+  const target: TalkTarget =
+    row === undefined ? { kind: "session", id: steering, label: "" } : { kind: row.kind, id: row.id, label: row.label };
   const title = listedTitle(rows, target.kind, target.id, target.label);
   return (
     <button type="button" class="door steered" onClick={() => onOpen(target)}>
@@ -87,7 +89,8 @@ function SteeredFrom({
 // click reaches onOpenPhase. A landing brings its part of the page into view once the page is drawn. numberKeys is
 // whether a digit key picks an option of the open question. narrow moves the commands off the title row into a foot
 // bar: its Talk button, given only when a steerer is known, calls onTalk, and its More button opens a sheet of the
-// commands, where Stop asks first in a sheet of its own.
+// commands. Stop asks first in place: its confirm replaces the title row's commands on the desk, and it is a sheet of
+// its own on the phone.
 export function EpicPage(props: {
   detail: EpicsGetResponse;
   history: EpicHistoryEntry[];
@@ -128,7 +131,7 @@ export function EpicPage(props: {
     narrow = false,
     onTalk,
   } = props;
-  const { epic, contract, requirements, sessions, steps } = detail;
+  const { epic, contract, requirements, steps } = detail;
   const reached = reachedOf(detail, history);
   const wedges = wedgesOf(detail);
   const tasks = recordTasksOf(detail);
@@ -144,10 +147,12 @@ export function EpicPage(props: {
   const blocker = blockerPillOf(detail, now);
   const problem = epic?.source === "orreryd" ? epic.problem : "";
   const summary = detail.summary !== "" ? detail.summary : (contract?.title ?? "");
-  const steering = sessions.find((session) => session.id === epic?.steering);
+  const steering = epic?.steering ?? "";
   const provenCount = requirements.filter((requirement) => provenIds.has(requirement.id)).length;
   const [moreOpen, setMoreOpen] = useState(false);
   const [stopOpen, setStopOpen] = useState(false);
+  // stopAsking is whether Stop's confirm is open: it is only while the epic can be stopped.
+  const stopAsking = stopOpen && controls.stop;
   const pageRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const page = pageRef.current;
@@ -172,24 +177,38 @@ export function EpicPage(props: {
         note={commandError}
       >
         {actions}
-        {!narrow && controls.resume && (
+        {!narrow && stopAsking && (
+          <>
+            <span class="sure">{`Stop ${slug}?`}</span>
+            <button
+              type="button"
+              class="act primary"
+              onClick={() => {
+                setStopOpen(false);
+                commands.stop();
+              }}
+            >
+              {`Stop ${slug}`}
+            </button>
+            <button type="button" class="act" onClick={() => setStopOpen(false)}>
+              Keep it running
+            </button>
+          </>
+        )}
+        {!narrow && !stopAsking && controls.resume && (
           <button type="button" class="act" onClick={() => commands.resume()}>
             Resume
           </button>
         )}
-        {!narrow && controls.pause && (
+        {!narrow && !stopAsking && controls.pause && (
           <button type="button" class="act" onClick={() => commands.pause()}>
             Pause
           </button>
         )}
-        {!narrow && controls.stop && (
-          <AskFirst
-            label="Stop…"
-            question={`Stop ${slug}?`}
-            confirm={`Stop ${slug}`}
-            keep="Keep it running"
-            onConfirm={() => commands.stop()}
-          />
+        {!narrow && !stopAsking && controls.stop && (
+          <button type="button" class="act" onClick={() => setStopOpen(true)}>
+            Stop…
+          </button>
         )}
       </TitleRow>
       {problem !== "" && <p class="problem error">{problem}</p>}
@@ -202,7 +221,7 @@ export function EpicPage(props: {
                 <span>Contract</span> <span>{contractDoorOf(detail)}</span>
               </button>
             )}
-            {steering !== undefined && <SteeredFrom session={steering} rows={rows} onOpen={onOpenSession} />}
+            {steering !== "" && <SteeredFrom steering={steering} rows={rows} onOpen={onOpenSession} />}
           </div>
         </section>
       )}
@@ -288,7 +307,7 @@ export function EpicPage(props: {
           )}
         </Sheet>
       )}
-      {narrow && stopOpen && (
+      {narrow && stopAsking && (
         <Sheet title={`Stop ${slug}?`} onClose={() => setStopOpen(false)}>
           <p>Its running steps are stopped. Nothing is released.</p>
           <button

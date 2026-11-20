@@ -9,6 +9,7 @@ import { type EpicCommands, EpicPage } from "./epicpage";
 import type { LoadArtifact } from "./evidence";
 import { type EpicsGetResponse, EpicsGetResponseSchema, EpicHistoryEntrySchema } from "./gen/orrery/v1/epics_pb";
 import { installTestDom, removeTestDom } from "./testdom";
+import type { Row } from "./rows";
 import type { TalkTarget } from "./talk";
 
 type Props = Parameters<typeof EpicPage>[0];
@@ -331,32 +332,127 @@ test("EpicRecord: the summary reads the contract's title when the epic has no su
   });
 });
 
-test("EpicRecord: the Steered from door names the steering session and opens its target, and is absent without one", async () => {
-  const opened: TalkTarget[] = [];
-  const sessions = [{ id: "s2", pane: "%7", label: "second", call: "epic_get", at: 9_500n, creator: false }];
+test("EpicRecord: a building page's Now draws its step rows, one for each running step", async () => {
+  await withPage(detail({ ...build, epic: orrerydEpic }), (container) => {
+    assert.deepEqual(textsOf(container, ".now .tbl.steps .tr .doing"), ["writing the login"]);
+  });
+});
+
+test("EpicRecord: a record epic's page draws its running steps' rows", async () => {
+  await withPage(detail({ ...build }), (container) => {
+    assert.deepEqual(textsOf(container, ".now .tbl.steps .tr .doing"), ["writing the login"]);
+  });
+});
+
+test("EpicRecord: Just happened draws the newest three entries, and +n earlier shows the rest", async () => {
+  const entries = [1, 2, 3, 4, 5].map((n) =>
+    create(EpicHistoryEntrySchema, {
+      cursor: `h${n}`,
+      time: BigInt(9_000 + n * 100),
+      item: { case: "tell", value: { text: `entry ${n}` } },
+    }),
+  );
   await withPage(
-    detail({ ...build, epic: { ...orrerydEpic, steering: "s2" }, summary: "Ship the demo", sessions }),
+    detail({ ...build, epic: orrerydEpic }),
     async (container) => {
-      assert.equal(textOf(container, ".summary .door.steered"), "Steered from second");
+      assert.deepEqual(textsOf(container, ".happen.just .what"), ["entry 5", "entry 4", "entry 3"]);
+      assert.deepEqual(textsOf(container, ".happen.just .more"), ["+2 earlier"]);
+      await press(container, ".happen.just .more");
+      assert.deepEqual(textsOf(container, ".happen.just .what"), ["entry 5", "entry 4", "entry 3", "entry 2", "entry 1"]);
+      assert.equal(has(container, ".happen.just .more"), false);
+    },
+    { history: entries },
+  );
+});
+
+// steererRow is the listed row of session s2, whose archive id is its own id: the row the Steered from door titles from.
+const steererRow: Row = {
+  key: "session:s2",
+  id: "s2",
+  archiveId: "s2",
+  kind: "session",
+  label: "second",
+  project: "/home/dev/lighthouse/rota-export",
+  host: "",
+  state: "",
+  summary: "",
+  question: "",
+  questionHash: "",
+  changed: 0,
+  seen: 0,
+  unseen: false,
+  archived: false,
+  archiveKind: "session",
+};
+
+test("EpicCommands: the Steered from door draws whenever the epic names its steerer, titled from the listed row, and opens its target", async () => {
+  const opened: TalkTarget[] = [];
+  await withPage(
+    detail({ ...build, epic: { ...orrerydEpic, steering: "s2" }, summary: "Ship the demo" }),
+    async (container) => {
+      assert.equal(textOf(container, ".summary .door.steered"), "Steered from rota-export second");
       await press(container, ".summary .door.steered");
-      assert.deepEqual(opened, [{ kind: "pane", id: "%7", label: "second" }]);
+      assert.deepEqual(opened, [{ kind: "session", id: "s2", label: "second" }]);
     },
     {
+      rows: [steererRow],
       onOpenSession: (target) => {
         opened.push(target);
       },
     },
   );
   await withPage(
-    detail({ ...build, epic: { ...orrerydEpic, steering: "" }, summary: "Ship the demo", sessions }),
-    (container) => {
-      assert.equal(has(container, ".door.steered"), false);
+    detail({ ...build, epic: { ...orrerydEpic, steering: "s9" }, summary: "Ship the demo" }),
+    async (container) => {
+      assert.equal(textOf(container, ".summary .door.steered"), "Steered from session");
+      await press(container, ".summary .door.steered");
+      assert.deepEqual(opened.at(-1), { kind: "session", id: "s9", label: "" });
+    },
+    {
+      rows: [steererRow],
+      onOpenSession: (target) => {
+        opened.push(target);
+      },
     },
   );
   await withPage(
-    detail({ ...build, epic: { ...orrerydEpic, steering: "s9" }, summary: "Ship the demo", sessions }),
+    detail({ ...build, epic: { ...orrerydEpic, steering: "" }, summary: "Ship the demo" }),
     (container) => {
       assert.equal(has(container, ".door.steered"), false);
+    },
+    { rows: [steererRow] },
+  );
+});
+
+test("EpicCommands: the problem line reads the epic's problem", async () => {
+  await withPage(detail({ ...build, epic: { ...orrerydEpic, problem: "state.json: unexpected end of input" } }), (container) => {
+    assert.equal(textOf(container, ".problem"), "state.json: unexpected end of input");
+  });
+});
+
+test("EpicWords: a page whose runs and history carry 40-character revisions shows no revision in its text", async () => {
+  await withPage(
+    detail({
+      ...build,
+      epic: orrerydEpic,
+      requirements: [
+        { id: "R1", text: "A user signs in", runs: [redRun, greenRun] },
+        { id: "R2", text: "A user signs out" },
+      ],
+    }),
+    async (container) => {
+      await press(container, ".requirements .tbl.reqs .tr");
+      assert.equal(container.querySelectorAll(".run-line").length, 2);
+      assert.equal(/\b[0-9a-f]{7,}\b/.exec(container.textContent ?? ""), null);
+    },
+    {
+      history: [
+        create(EpicHistoryEntrySchema, {
+          cursor: "h2",
+          time: 9_600n,
+          item: { case: "evidence", value: greenRun },
+        }),
+      ],
     },
   );
 });
@@ -532,7 +628,6 @@ test("EpicCommands: Stop… in the title row asks about its slug, and only its c
     async (container) => {
       await pressButton(container, ".title-row .acts", "Stop…");
       assert.deepEqual(textsOf(container, ".title-row .acts > *"), [
-        "Pause",
         "Stop demo-epic?",
         "Stop demo-epic",
         "Keep it running",
