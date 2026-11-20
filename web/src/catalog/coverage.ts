@@ -34,6 +34,7 @@ export const storyRenames: Renames = {
   "evidence.tsx": { EvidenceRuns: "EvidenceRun" },
   "glyphs.tsx": { Icon: "Icons" },
   "happenings.tsx": { JustHappened: "HappeningList" },
+  "inbox.tsx": { Inbox: { module: "app.stories.tsx", story: "Page" } },
   "helppanel.tsx": { KeyList: { module: "app.stories.tsx", story: "Page" } },
   "notices.tsx": { NoticeBanner: "Notice" },
   "picker.tsx": { NewPanel: { module: "app.stories.tsx", story: "Page" } },
