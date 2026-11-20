@@ -11,6 +11,7 @@ import { useFlash } from "./flash";
 import type { Contract } from "./gen/orrery/v1/contracts_pb";
 import type { EpicStep, EpicStepCheck } from "./gen/orrery/v1/epics_pb";
 import type { ConversationItem, EngineText } from "./gen/orrery/v1/orrery_pb";
+import { type CallReveal, partCurrent, sameCalls, ToolLine, ToolRun, useReveal } from "./lines";
 import { Markdown } from "./markdown";
 import type { Sending } from "./sending";
 import { MarkedText, ReplyText } from "./text";
@@ -31,13 +32,6 @@ export const pagingQuery = "(min-width: 760px)";
 // on its own, under pagingQuery, page does nothing and returns false.
 export interface ReaderHandle {
   page: (direction: "up" | "down") => boolean;
-}
-
-// CallReveal is a request to bring the tool call with id into view and open it. done ends the request once the call's
-// row has acted on it, so a row that mounts later, as a closed run opens again, does not act on it a second time.
-interface CallReveal {
-  id: string;
-  done: () => void;
 }
 
 // ContractCalls are the calls a reader draws its contract lines through: the contracts the list holds, and onOpen,
@@ -637,7 +631,7 @@ function ItemBody({
         );
       }
       return (
-        <CallRow item={item} result={result} running={running} query={query} current={current} reveal={reveal} />
+        <ToolLine item={item} result={result} running={running} query={query} current={current} reveal={reveal} />
       );
     }
     case "notice":
@@ -664,13 +658,6 @@ function ItemBody({
     default:
       return <ReplyMarkdown text={item.text} query={query} current={current} />;
   }
-}
-
-// partCurrent is the offset within a part of an item's searched text where the current match starts, when it starts in
-// that part, and -1 when it does not. The part starts at start in the item's searched text, where findMatches joins the
-// item's parts one to a line, so the part after a newline starts one past the part before it.
-function partCurrent(current: number, start: number, length: number): number {
-  return current >= start && current < start + length ? current - start : -1;
 }
 
 // revealOf is the reveal a row of item is given: the reveal when item is the tool call it names, and none for any other
@@ -807,17 +794,6 @@ function CheckCard({ text, round, checks }: { text: string; round: number; check
   );
 }
 
-// useReveal opens a fold when revealed turns true, which is when a find's current match moves into it. The owner can
-// close the fold after that, and it opens again only when revealed turns true once more. The fold opens in a layout
-// effect, so the current mark it holds mounts in the render that follows and scrolls itself into view.
-function useReveal(revealed: boolean, setShown: (shown: boolean) => void): void {
-  useLayoutEffect(() => {
-    if (revealed) {
-      setShown(true);
-    }
-  }, [revealed]);
-}
-
 // Disclosure is a button that flashes on each use and shows its children under it: a click shows them, and a second
 // click folds them again. Its label is drawn as text, so a link never sits inside it. A revealed disclosure opens, as
 // useReveal says.
@@ -851,193 +827,11 @@ function Disclosure({
     </>
   );
 }
-
-// CallRow draws a tool or question item as one line of its tool and its input or question. A call with a result is a
-// button: a click shows the result under the line, and a second click folds it again. A failed result marks the line
-// with ✗. A running call's line carries the running class, which draws its rail, and the running mark. The result
-// opens when the current match moves into it, and then its match is marked. A reveal the reader gives opens the result
-// too, and brings the line into view. query and current are as ItemRow's are.
-function CallRow({
-  item,
-  result,
-  running,
-  query,
-  current,
-  reveal,
-}: {
-  item: ConversationItem;
-  result: ConversationItem | undefined;
-  running: boolean;
-  query: string;
-  current: number;
-  reveal?: CallReveal;
-}) {
-  const [shown, setShown] = useState(false);
-  const [flashing, flash] = useFlash();
-  const element = useRef<HTMLElement>(null);
-  const attach = (node: HTMLElement | null): void => {
-    element.current = node;
-  };
-  const called = item.kind === "question" ? item.text : item.input;
-  const resultCurrent = result === undefined ? -1 : partCurrent(current, called.length + 1, result.text.length);
-  useReveal(resultCurrent >= 0, setShown);
-  useLayoutEffect(() => {
-    if (reveal !== undefined) {
-      setShown(true);
-      element.current?.scrollIntoView({ block: "nearest" });
-      reveal.done();
-    }
-  }, [reveal]);
-  const className = `call${running ? " running" : ""}${flashing ? " flash" : ""}`;
-  const line = (
-    <>
-      <b>{item.tool}</b>
-      <span class="in">
-        <MarkedText text={called} query={query} current={partCurrent(current, 0, called.length)} />
-      </span>
-      {result?.error && <span class="fail">✗</span>}
-      {running && <span class="running-mark">running</span>}
-    </>
-  );
-  if (result === undefined) {
-    return (
-      <div class={className} ref={attach}>
-        {line}
-      </div>
-    );
-  }
-  return (
-    <>
-      <button
-        type="button"
-        class={className}
-        ref={attach}
-        onClick={() => {
-          flash();
-          setShown((value) => !value);
-        }}
-      >
-        {line}
-      </button>
-      {shown && (
-        <div class={result.error ? "result err" : "result"}>
-          <MarkedText text={result.text} query={query} current={resultCurrent} />
-        </div>
-      )}
-    </>
-  );
-}
-
-type RunCall = {
-  key: string;
-  item: ConversationItem;
-  result: ConversationItem | undefined;
-  running: boolean;
-  current: number;
-  reveal?: CallReveal;
-};
-
-// ToolRun draws a run of three or more tool calls as one line: its count, the tools with their counts, and a trail of
-// one dot per call in call order. Each dot carries its call's status: ok, failed, running, or none for a call with no
-// result that is not running. A run holding a running call carries the running class and mark too. A click shows a
-// line per call under it, each folding its own result, and a second click folds them again. The run opens when the
-// current match moves into one of its calls.
-function ToolRun({ calls, query }: { calls: RunCall[]; query: string }) {
-  const [shown, setShown] = useState(false);
-  const running = calls.some((call) => call.running);
-  useReveal(calls.some((call) => call.current >= 0), setShown);
-  // A reveal of a call in the run opens the run, so the call's line mounts and brings itself into view.
-  const reveal = calls.find((call) => call.reveal !== undefined)?.reveal;
-  useLayoutEffect(() => {
-    if (reveal !== undefined) {
-      setShown(true);
-    }
-  }, [reveal]);
-  return (
-    <div class="t">
-      <span class="gut" />
-      <div class="body">
-        <button
-          type="button"
-          class={running ? "fold calls running" : "fold calls"}
-          onClick={() => setShown((value) => !value)}
-        >
-          <b>{`${calls.length} tool calls`}</b>
-          <span class="names">{toolCounts(calls)}</span>
-          {running && <span class="running-mark">running</span>}
-          <span class="trail">
-            {calls.map((call) => (
-              <span key={call.key} class={dotClass(call)} />
-            ))}
-          </span>
-        </button>
-        {shown && (
-          <div class="calls">
-            {calls.map((call) => (
-              <CallRow
-                key={call.key}
-                item={call.item}
-                result={call.result}
-                running={call.running}
-                query={query}
-                current={call.current}
-                reveal={call.reveal}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 // MemoToolRun draws a ToolRun again only when its find query or its calls change: sameCalls compares them by content.
 const MemoToolRun = memo(
   ToolRun,
   (previous, next) => previous.query === next.query && sameCalls(previous.calls, next.calls),
 );
-
-// sameCalls is whether two runs hold the same calls in the same order: each call has the same key, item, result,
-// running state, current match and reveal. A run's calls array is rebuilt on each render, so the calls are what is
-// compared, not the array.
-function sameCalls(previous: RunCall[], next: RunCall[]): boolean {
-  return (
-    previous.length === next.length &&
-    previous.every((call, index) => {
-      const other = next[index];
-      return (
-        other !== undefined &&
-        call.key === other.key &&
-        call.item === other.item &&
-        call.result === other.result &&
-        call.running === other.running &&
-        call.current === other.current &&
-        call.reveal === other.reveal
-      );
-    })
-  );
-}
-
-// toolCounts names each tool of a run once, in first-seen order, with its count when it is more than one.
-function toolCounts(calls: RunCall[]): string {
-  const counts = new Map<string, number>();
-  for (const call of calls) {
-    counts.set(call.item.tool, (counts.get(call.item.tool) ?? 0) + 1);
-  }
-  return [...counts].map(([tool, count]) => (count > 1 ? `${tool} ×${count}` : tool)).join(", ");
-}
-
-// dotClass is the class of a call's dot in a run's trail: running while the call is running, failed when its result
-// failed, ok when it succeeded, and none when it has no result and is not running.
-function dotClass(call: RunCall): string {
-  if (call.running) {
-    return "dot running";
-  }
-  if (call.result === undefined) {
-    return "dot none";
-  }
-  return call.result.error === true ? "dot failed" : "dot ok";
-}
 
 // LiveRow draws one unfinished block: a text block as it streams, a thinking block as a folded row.
 function LiveRow({ block }: { block: EngineText }) {
