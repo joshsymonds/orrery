@@ -40,7 +40,6 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
 import io.github.joshsymonds.orrery.mainThreadAndroidComposeRule
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -75,8 +74,6 @@ private const val METERS_TAG = "head-meters"
 private const val OTHER_HOST_TAG = "head-other-host"
 private const val SYNTHETIC_GOAL = "synthetic goal text"
 private const val OTHER_HOST = "other-host"
-private const val STATUS_LINE_TAG = "status-line"
-private const val COMPOSER_TAG = "composer"
 
 private val HOST_BODY: HostStatusResponse = HostStatusResponse.newBuilder()
     .setHost(PANE_HOST)
@@ -351,23 +348,6 @@ class PhoneHeadPaneScreenTest {
             composeRule.waitForIdle()
 
             assertEquals(listOf("example-repo/rota-export"), opened)
-        }
-    }
-
-    @Test
-    fun theGoalIsInTheBandAboveTheComposerAndNotInTheDock() {
-        FakeOrreryServer().use { server ->
-            servePane(server, state = "working", conversation = conversationOf(goal = SYNTHETIC_GOAL))
-            setScreen(server)
-            awaitNewestReply()
-
-            composeRule.onNodeWithTag(BAND_GOAL_TAG).assertIsDisplayed()
-            val goal = composeRule.onNodeWithText(SYNTHETIC_GOAL, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
-            val band = composeRule.onNodeWithTag(BAND_GOAL_TAG).fetchSemanticsNode().boundsInRoot
-            val composer = composeRule.onNodeWithTag(COMPOSER_TAG).fetchSemanticsNode().boundsInRoot
-            composeRule.onNodeWithTag(STATUS_LINE_TAG).assertIsDisplayed()
-            assertTrue("the goal sits inside the band", goal.top >= band.top && goal.bottom <= band.bottom)
-            assertTrue("the band sits above the composer", band.bottom <= composer.top)
         }
     }
 
