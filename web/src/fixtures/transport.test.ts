@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
 
-import { equals, toJson } from "@bufbuild/protobuf";
+import { create, equals, toJson } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
 import { type ComponentChild, h, render } from "preact";
 import { act } from "preact/test-utils";
@@ -15,6 +15,7 @@ import {
   HostStatusResponseSchema,
   PanesListResponseSchema,
   SayResponseSchema,
+  SessionsWatchConversationResponseSchema,
   WatchConversationResponseSchema,
 } from "../gen/orrery/v1/orrery_pb";
 import { mockTimers } from "../testclock";
@@ -222,6 +223,55 @@ test("FixtureTransport: a pane stream sends its frame and holds open, a reconnec
   assert.equal(await after.then(() => "ended", () => "aborted"), "aborted", "the abort ends the wait");
   reconnect.abort();
   assert.equal(await reconnected.then(() => "ended", () => "aborted"), "aborted", "the reconnect's abort ends its wait");
+});
+
+test("FixtureTransport answers Control.Interrupt with the texts the slices give, in order, and records no call", async () => {
+  const fixture = createFixtureTransport({ ...shippedSlices, interrupt: { texts: ["first", "second"] } });
+  const answer = await fixture.clients.control.interrupt({ id: "st-rota-t2-impl" });
+  assert.deepEqual(answer.texts, ["first", "second"], "the texts come back in order");
+  assert.deepEqual([...fixture.unserved], [], "the interrupt is not recorded as unserved");
+});
+
+test("FixtureTransport absorbs Control.Interrupt when the slices set no interrupt: it answers no texts, and an open session stream sends no more", async () => {
+  const fixture = createFixtureTransport();
+  const stream = new AbortController();
+  const frames = fixture.clients.sessions
+    .watchConversation({ id: "st-rota-t2-impl" }, { signal: stream.signal })
+    [Symbol.asyncIterator]();
+  const frame = await frames.next();
+  assert.ok(!frame.done, "the stream sends its frame");
+  const after = frames.next();
+  const answer = await fixture.clients.control.interrupt({ id: "st-rota-t2-impl" });
+  assert.deepEqual(answer.texts, [], "the interrupt answers no texts");
+  assert.equal(await Promise.race([after.then(() => "sent"), turn().then(() => "held")]), "held", "the stream sends no more");
+  assert.deepEqual([...fixture.unserved], [], "the interrupt is not recorded as unserved");
+
+  stream.abort();
+  assert.equal(await after.then(() => "ended", () => "aborted"), "aborted", "the abort ends the wait");
+});
+
+test("FixtureTransport: an open session stream sends the interrupt's then frame once Interrupt is called, and an abort still ends it", async () => {
+  const then = create(SessionsWatchConversationResponseSchema, { transcript: "st-rota-t2-impl.jsonl", seq: 2n });
+  const fixture = createFixtureTransport({ ...shippedSlices, interrupt: { texts: [], then } });
+  const stream = new AbortController();
+  const frames = fixture.clients.sessions
+    .watchConversation({ id: "st-rota-t2-impl" }, { signal: stream.signal })
+    [Symbol.asyncIterator]();
+  const frame = await frames.next();
+  assert.ok(!frame.done, "the stream sends its frame");
+  const wanted = shippedSlices.sessionStreams.get("st-rota-t2-impl");
+  assert.ok(wanted !== undefined && equals(SessionsWatchConversationResponseSchema, frame.value, wanted), "the frame is the session's");
+
+  const next = frames.next();
+  assert.equal(await Promise.race([next.then(() => "sent"), turn().then(() => "held")]), "held", "the stream sends nothing before the interrupt");
+  await fixture.clients.control.interrupt({ id: "st-rota-t2-impl" });
+  const sent = await next;
+  assert.ok(!sent.done && equals(SessionsWatchConversationResponseSchema, sent.value, then), "the interrupt sends the then frame");
+
+  const after = frames.next();
+  assert.equal(await Promise.race([after.then(() => "sent"), turn().then(() => "held")]), "held", "the stream sends no more");
+  stream.abort();
+  assert.equal(await after.then(() => "ended", () => "aborted"), "aborted", "the abort ends the wait");
 });
 
 test("FixtureTransport: app/attention draws the attention rows", (t) => {

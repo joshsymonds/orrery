@@ -35,6 +35,10 @@ export interface Slices {
   // say is how the fixture answers Control.Say. refused fails it as a session that takes no messages does, and unanswered
   // fails it as a call with no answer does. Unset, the write is absorbed.
   readonly say?: "refused" | "unanswered";
+  // interrupt is how the fixture answers Control.Interrupt: with texts, the messages it cancels from the queue. then is the
+  // next frame each open conversation stream of the session sends once the interrupt is called, after which the stream
+  // stays open until its call aborts. Unset, the interrupt is absorbed and no texts come back.
+  readonly interrupt?: { texts: string[]; then?: SessionsWatchConversationResponse };
 }
 
 // shippedSlices is the data the fixture transport serves when it is given no slices.
