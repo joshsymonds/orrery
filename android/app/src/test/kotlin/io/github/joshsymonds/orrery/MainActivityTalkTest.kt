@@ -23,6 +23,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsHistoryResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession
 import io.github.joshsymonds.orrery.gen.orrery.v1.MarkSeenResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationResponse
@@ -58,6 +59,8 @@ private const val REPOSITORY_DIR = "/home/user/example-repo"
 private const val SESSION_ID = "session-synthetic-talk"
 private const val SESSION_LABEL = "synthetic-talk-label"
 private const val NEW_SESSION_ID = "session-synthetic-started"
+private const val PANE_ID = "%2"
+private const val PANE_LABEL = "synthetic-pane-label"
 private const val ENVELOPE_HEADER_BYTES = 5
 private const val FIRST_PROMPT =
     "This session is about orrery epic example-repo/example-epic. Read it with epic_get, then wait for my words."
@@ -111,14 +114,17 @@ class MainActivityTalkTest {
         .setProblem("")
         .build()
 
-    /** The epic as Get reads it: its one session, and the repository a new session of its Talk starts in. */
-    private fun epicDetail(): EpicsGetResponse = EpicsGetResponse.newBuilder()
+    /**
+     * The epic as Get reads it: its one session, in [pane] when set, and the repository a new session of its Talk starts
+     * in.
+     */
+    private fun epicDetail(pane: String = ""): EpicsGetResponse = EpicsGetResponse.newBuilder()
         .setEpic(liveEpic())
         .setRepository(REPOSITORY_DIR)
         .addSessions(
             EpicSession.newBuilder()
                 .setId(SESSION_ID)
-                .setPane("")
+                .setPane(pane)
                 .setLabel(SESSION_LABEL)
                 .setCall("epic_get")
                 .setAt(NOW - 60),
@@ -130,6 +136,14 @@ class MainActivityTalkTest {
         .setDir(REPOSITORY_DIR)
         .setLabel(label)
         .setState("working")
+        .setChanged(NOW - 30)
+        .setSeen(NOW - 10)
+        .build()
+
+    /** The tmux pane [PANE_ID], labelled [PANE_LABEL], with no state, so its screen shows no conversation. */
+    private fun paneProto(): PaneProto = PaneProto.newBuilder()
+        .setId(PANE_ID)
+        .setLabel(PANE_LABEL)
         .setChanged(NOW - 30)
         .setSeen(NOW - 10)
         .build()
@@ -207,36 +221,37 @@ class MainActivityTalkTest {
     }
 
     @Test
-    fun tappingASessionOpensItsConversationUnderTheEpicsLine() {
+    fun tappingASessionOpensItsOwnScreenNotALineUnderTheEpic() {
         openTalkList()
 
         composeRule.onNodeWithTag("talk-session").performClick()
 
-        awaitNode(hasTestTag("talk-epic-line"))
-        composeRule.onNodeWithTag("talk-epic-line").assertTextEquals(EPIC_SLUG)
         awaitNode(titled(SESSION_LABEL))
-    }
-
-    @Test
-    fun tappingTheEpicsLineReturnsToTheEpicScreen() {
-        openTalkList()
-        composeRule.onNodeWithTag("talk-session").performClick()
-        awaitNode(hasTestTag("talk-epic-line"))
-
-        composeRule.onNodeWithTag("talk-epic-line").performClick()
-
-        awaitNode(hasTestTag("epic-talk"))
+        awaitNone(hasTestTag("talk-session"))
         awaitNone(hasTestTag("talk-epic-line"))
     }
 
     @Test
-    fun aNewSessionStartsInTheEpicsRepositoryWithTheFirstPromptAndOpensUnderTheEpicsLine() {
+    fun tappingAPaneSessionOpensThePanesOwnScreen() {
+        server.respond(EPICS_GET_PATH, epicDetail(pane = PANE_ID))
+        server.respond(PANES_PATH, PanesListResponse.newBuilder().addPanes(paneProto()).build())
+        openTalkList()
+
+        composeRule.onNodeWithTag("talk-session").performClick()
+
+        awaitNode(titled(PANE_LABEL))
+        awaitNone(hasTestTag("talk-epic-line"))
+    }
+
+    @Test
+    fun aNewSessionStartsInTheEpicsRepositoryWithTheFirstPromptAndOpensItsOwnScreen() {
         server.respond(START_PATH, StartResponse.newBuilder().setId(NEW_SESSION_ID).build())
         openTalkList()
 
         composeRule.onNodeWithTag("talk-new").performClick()
 
-        awaitNode(hasTestTag("talk-epic-line"))
+        awaitNode(titled("new-label"))
+        awaitNone(hasTestTag("talk-epic-line"))
         val start = server.requests.single { it.rawPath == START_PATH }
         val sent = StartRequest.parseFrom(start.body)
         assertEquals(REPOSITORY_DIR, sent.dir)
