@@ -190,6 +190,7 @@ class MainActivity : ComponentActivity() {
                                             client = client,
                                             onBack = { screen = current.back },
                                             step = StepMode(held = current.held),
+                                            onOpenEpic = { screen = Screen.Epic(it) },
                                         )
                                     }
                                     is Screen.Talk -> {
@@ -219,6 +220,7 @@ class MainActivity : ComponentActivity() {
                                             paneId = current.id,
                                             client = client,
                                             onBack = { screen = Screen.Panes },
+                                            onOpenEpic = { screen = Screen.Epic(it) },
                                         )
                                     }
                                     is Screen.Session -> {
@@ -227,6 +229,7 @@ class MainActivity : ComponentActivity() {
                                             sessionId = current.id,
                                             client = client,
                                             onBack = { screen = Screen.Panes },
+                                            onOpenEpic = { screen = Screen.Epic(it) },
                                         )
                                     }
                                     Screen.Pools -> {

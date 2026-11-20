@@ -22,6 +22,10 @@ runs=()
 # outlived its run: it is listed and killed, and the test fails.
 cleanup() {
     local status=$? p f i leaked
+    if [ -n "$guard" ]; then
+        pkill -P "$guard" 2>/dev/null || true
+        kill "$guard" 2>/dev/null || true
+    fi
     for p in "${runs[@]}"; do
         kill -TERM -- "-$p" 2>/dev/null || true
     done
@@ -50,6 +54,14 @@ cleanup() {
 }
 trap cleanup EXIT
 trap 'exit 143' TERM
+# The hang guard: a case that waits on a run that never ends (the waits on the runs this test starts have no bound of
+# their own) fails the whole test after guard_secs, through the TERM trap and the cleanup, instead of hanging it. A
+# passing run, even on a loaded host, ends long before.
+guard_secs=600
+guard=""
+(sleep "$guard_secs" && echo "FAIL: the test still runs after ${guard_secs}s: the case after the last ok above hangs" >&2 \
+    && kill -TERM $$) &
+guard=$!
 trap 'exit 130' INT
 trap 'exit 129' HUP
 
@@ -126,16 +138,23 @@ if [ -s "$FAKE_ROOT/cut-stream" ] && [[ $cmd =~ \ (out|err)\ [0-9]+$ ]]; then
 fi
 relay="$(mktemp -u "$FAKE_ROOT/relay.XXXXXX")"
 mkfifo "$relay"
-(cd "$FAKE_ROOT/box" && HOME="$FAKE_ROOT/box" PATH="$FAKE_ROOT/boxbin:$PATH" exec setsid bash -c "$cmd") >"$relay" &
-far=$!
-# The connection ends: the box's side of it ends too.
+# The connection ends: the box's side of it ends too. That side is its own session once it has opened the relay, and
+# until then a process of this one blocked in the open, with this connection's stdout, so both are ended: left blocked,
+# it would hold the caller's end open and the caller would wait on it forever. The trap is set before that side starts,
+# so no end of the connection can come between its start and the trap.
+far=""
 hangup() {
-    kill -TERM -- "-$far" 2>/dev/null
+    local side="${far:-$!}"
+    if [ -n "$side" ]; then
+        kill -TERM -- "-$side" "$side" 2>/dev/null
+    fi
     rm -f "$relay"
     [ "$gone" != box-gone ] || touch "$FAKE_ROOT/box-down"
     exit 255
 }
 trap hangup TERM
+(cd "$FAKE_ROOT/box" && HOME="$FAKE_ROOT/box" PATH="$FAKE_ROOT/boxbin:$PATH" exec setsid bash -c "$cmd") >"$relay" &
+far=$!
 if [ -n "$cut" ]; then
     { IFS= read -r line && printf '%s\n' "$line" && head -c "$cut"; } <"$relay"
     hangup

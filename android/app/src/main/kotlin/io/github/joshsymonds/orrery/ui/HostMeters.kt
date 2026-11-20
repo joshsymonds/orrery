@@ -88,14 +88,14 @@ fun HostMeters(stats: List<HostStat>, modifier: Modifier = Modifier) {
 }
 
 // A warn or crit level takes the fill; any other level, which the server says is ok, keeps the stat's series colour.
-private fun fillColour(index: Int, level: String): Color = when (level) {
+internal fun fillColour(index: Int, level: String): Color = when (level) {
     "warn" -> OrreryTokens.Level.warn
     "crit" -> OrreryTokens.Level.crit
     else -> seriesColours[index % seriesColours.size]
 }
 
 // A warn or crit level takes the value; any other level, which the server says is ok, keeps the ink.
-private fun valueColour(level: String): Color = when (level) {
+internal fun valueColour(level: String): Color = when (level) {
     "warn" -> OrreryTokens.Level.warn
     "crit" -> OrreryTokens.Level.crit
     else -> OrreryTokens.Ink.one

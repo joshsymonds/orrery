@@ -13,10 +13,9 @@ import type { Row } from "./rows";
 import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
 import { turn, until as waitUntil } from "./testwait";
 
-// The interrupt mark over the fake transport: Escape on a working headless session marks its head's pill interrupting
-// at once, the mark holds while the state is working, and it clears when the state leaves working or the interrupt
-// fails. The reader draws a line for an interrupted item and none for a turn that ended without one. Each test's name
-// carries the token InterruptMark.
+// The interrupt over the fake transport: Escape on a working headless session calls Control.Interrupt, and a failed one
+// shows its line. The reader draws a line for an interrupted item and none for a turn that ended without one. Each
+// test's name carries the token InterruptMark.
 
 const now = 1000;
 const sessionWatchPath = "/orrery.v1.Sessions/WatchConversation";
@@ -164,11 +163,10 @@ const sessionRow = row({
   seen: 30,
 });
 
-// Page is the App mounted over a fake server: its container, the server, and show, which draws the App again over rows.
+// Page is the App mounted over a fake server: its container and the server.
 interface Page {
   container: HTMLElement;
   fake: FakeServer;
-  show(rows: Row[]): Promise<void>;
 }
 
 // withPage mounts the App over a fake server in a fresh DOM with rows, and runs check. The App is unmounted, its streams
@@ -193,7 +191,7 @@ async function withPage(signal: AbortSignal, rows: Row[], check: (page: Page) =>
   });
   try {
     await show(rows);
-    await check({ container, fake, show });
+    await check({ container, fake });
   } finally {
     await teardown();
   }
@@ -211,19 +209,6 @@ function until(signal: AbortSignal, check: () => boolean, what: string): Promise
   return waitUntil(signal, check, what, { step: () => act(turn) });
 }
 
-// headPill is the pill the reader's head draws for the cursor's row.
-function headPill(container: HTMLElement): Element | null {
-  return container.querySelector('[aria-label="reader"] .pill');
-}
-
-function pillWord(container: HTMLElement): string {
-  return headPill(container)?.querySelector(".word")?.textContent ?? "";
-}
-
-function pillIsInterrupting(container: HTMLElement): boolean {
-  return headPill(container)?.classList.contains("tone-interrupting") ?? false;
-}
-
 function alertTexts(container: HTMLElement): string[] {
   return [...container.querySelectorAll('[role="alert"]')].map((element) => element.textContent ?? "");
 }
@@ -238,39 +223,14 @@ function readerNoticeKinds(container: HTMLElement): string[] {
   return [...container.querySelectorAll('[aria-label="reader"] .notice-kind')].map((element) => element.textContent ?? "");
 }
 
-test("InterruptMark: Escape on a working session shows the interrupting pill while the Interrupt reply is held open", (t) =>
-  withPage(t.signal, [sessionRow], async ({ container, fake }) => {
-    const release = fake.hold(interruptPath);
-    await press("Escape");
-    await until(t.signal, () => fake.callsTo(interruptPath).length === 1, "the interrupt");
-    assert.equal(pillWord(container), "interrupting", "the pill reads the mark before the reply lands");
-    assert.equal(pillIsInterrupting(container), true);
-    release();
-  }));
-
-test("InterruptMark: the pill reads the mark while the row is working, and returns to the served state once it leaves working", (t) =>
-  withPage(t.signal, [sessionRow], async ({ container, fake, show }) => {
-    await press("Escape");
-    await until(t.signal, () => fake.callsTo(interruptPath).length === 1, "the interrupt");
-    assert.equal(pillWord(container), "interrupting");
-    await show([{ ...sessionRow, state: "interrupted" }]);
-    assert.equal(pillWord(container), "interrupted", "the served state shows once the row leaves working");
-    assert.equal(pillIsInterrupting(container), false);
-    await show([{ ...sessionRow, state: "working" }]);
-    assert.equal(pillWord(container), "working", "a later turn does not inherit the mark");
-  }));
-
-test("InterruptMark: a failed Interrupt clears the mark and shows the failure line", (t) =>
+test("InterruptMark: a failed Interrupt shows the failure line", (t) =>
   withPage(t.signal, [sessionRow], async ({ container, fake }) => {
     const release = fake.hold(interruptPath);
     fake.failNext.add(interruptPath);
     await press("Escape");
     await until(t.signal, () => fake.callsTo(interruptPath).length === 1, "the interrupt");
-    assert.equal(pillWord(container), "interrupting", "the mark holds while the reply is held open");
     release();
     await until(t.signal, () => alertTexts(container).includes(interruptFailedText), "the failure line");
-    assert.equal(pillWord(container), "working", "the failed interrupt clears the mark");
-    assert.equal(pillIsInterrupting(container), false);
   }));
 
 test("InterruptMark: the reader draws Interrupted by you for an interrupted item", (t) =>

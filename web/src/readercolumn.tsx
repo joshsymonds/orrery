@@ -1,5 +1,5 @@
 import type { ComponentChildren, JSX } from "preact";
-import { useMemo } from "preact/hooks";
+import { useEffect, useMemo, useState } from "preact/hooks";
 
 import * as actions from "./actions";
 import type { Clients } from "./actions";
@@ -9,14 +9,16 @@ import { type Conversation, shownConversation } from "./conversation";
 import type { StepItem } from "./epics";
 import { FindBar, type Match } from "./find";
 import type { Pane } from "./gen/orrery/v1/orrery_pb";
+import { Head, type HeadProps } from "./head";
+import { foldOf } from "./headfold";
 import { readerQuestion } from "./inboxrow";
-import { ConversationHead, Reader, type ReaderHandle } from "./reader";
+import { Reader, type ReaderHandle } from "./reader";
 import type { Row } from "./rows";
 import type { Sending, SentText } from "./sending";
 import { StepBox } from "./stepbox";
 import { lastPathElement } from "./titleparts";
 import { type InboxMark, TitleRow } from "./titlerow";
-import { Pill, rowPill, stepPill } from "./workline";
+import { Pill, stepPill } from "./workline";
 
 // FindState is a column's find bar, open on the row it was opened on: the query typed in it, and the match it shows, an
 // index into the matches the query finds in that row's conversation. A bar whose row leaves its column is closed.
@@ -25,6 +27,10 @@ export interface FindState {
   query: string;
   current: number;
 }
+
+// ColumnHead is what App gives a column's head for its row and conversation: the strip, the asks, the note and the More
+// menu. The column adds the fold, which it reads from its own reader.
+export type ColumnHead = Pick<HeadProps, "host" | "showStrip" | "lines" | "askingWords" | "badges" | "note" | "menu">;
 
 // The section markup each column draws: the cursor's reader, and the pinned reader beside the list.
 const columnNames = {
@@ -46,10 +52,18 @@ export interface ReaderColumnProps {
   conversation: Conversation | null;
   // The rows that keep a composer in this column. The shown row gets one before the effect that keeps it has run.
   rows: Row[];
-  interrupts: Set<string>;
   mark: InboxMark;
-  // pageStrip draws the strip under a title row for a row and its conversation, or for no row.
+  // pageStrip draws the strip under a step's title row, or under no row.
   pageStrip: (row: Row | null, conversation: Conversation | null) => ComponentChildren;
+  // head is what the column's head draws for its row and conversation.
+  head: (row: Row, conversation: Conversation | null) => ColumnHead;
+  // narrow is the phone layout, where the head folds. hidden is the owner's hide, which holds across conversations.
+  narrow: boolean;
+  hidden: boolean;
+  // onHide hides the head, onShow opens it again, and onOpenEpic opens the epic an ask line names.
+  onHide: () => void;
+  onShow: () => void;
+  onOpenEpic: (epic: string) => void;
   // onBack is the back button of the column's head: the cursor's focus, or the pin's close.
   onBack: () => void;
   // The column's find bar, when it is open on row, with its matches and the index of the current one.
@@ -78,10 +92,11 @@ export interface ReaderColumnProps {
   stepInputs?: { current: Map<string, HTMLTextAreaElement> };
 }
 
-// ReaderColumn draws one reader column: the cursor's, or the pinned row's beside the list. It draws the row's head with
-// its pill, the find bar while one is open, the reader of the row, and the send box, with a composer for each kept row
-// and only the shown row's composer visible. The cursor column also draws its step, when one is given: the step's title
-// row, its reader, and a step box for each kept step. The column keeps no state; App passes it all in.
+// ReaderColumn draws one reader column: the cursor's, or the pinned row's beside the list. It draws the row's head, the
+// find bar while one is open, the reader of the row, and the send box, with a composer for each kept row and only the
+// shown row's composer visible. The cursor column also draws its step, when one is given: the step's title row, its
+// reader, and a step box for each kept step. The column keeps only how its reader is scrolled: whether it is at the
+// newest line, and whether the owner tapped the folded head open since.
 export function ReaderColumn({
   column,
   clients,
@@ -89,9 +104,14 @@ export function ReaderColumn({
   row,
   conversation,
   rows,
-  interrupts,
   mark,
   pageStrip,
+  head,
+  narrow,
+  hidden,
+  onHide,
+  onShow,
+  onOpenEpic,
   onBack,
   finding,
   matches,
@@ -117,26 +137,33 @@ export function ReaderColumn({
   const stepKey = step?.key ?? "";
   // The conversation the readers and the shown composer draw, without the prompts its queue still holds or has discarded.
   const shown = useMemo(() => shownConversation(conversation), [conversation]);
+  const [atNewest, setAtNewest] = useState(true);
+  const [tapped, setTapped] = useState(false);
+  // A tap on the folded line holds for its row alone, so another row's head starts folded again.
+  useEffect(() => {
+    setTapped(false);
+  }, [rowKey]);
+  const fold = foldOf(narrow, hidden, atNewest, tapped);
   return (
     <section class={names.section} aria-label={names.label} hidden={row === null && step === null}>
       {row !== null && (
-        <ConversationHead
-          dir={row.project}
-          line={row.label}
-          state={headState(row, conversation?.state?.pane)}
-          onBack={onBack}
+        <Head
+          {...head(row, conversation)}
+          row={row}
+          conversation={conversation}
+          title={row.label}
+          fold={fold}
+          narrow={narrow}
           mark={mark}
-          strip={pageStrip(row, conversation)}
-        >
-          <Pill
-            model={rowPill(
-              row.state,
-              conversation?.state?.pane,
-              interrupts.has(row.key) || conversation?.state?.interrupting === true,
-            )}
-            now={now}
-          />
-        </ConversationHead>
+          onBack={onBack}
+          onFind={() => onFind({ key: row.key, query: "", current: 0 })}
+          onHide={onHide}
+          onShow={() => {
+            setTapped(true);
+            onShow();
+          }}
+          onOpenEpic={onOpenEpic}
+        />
       )}
       {finding !== null && (
         <FindBar
@@ -171,6 +198,10 @@ export function ReaderColumn({
           onAnswer={onAnswer}
           onToggleOpen={onToggleOpen}
           onOlder={() => older.current()}
+          onNewest={(value) => {
+            setAtNewest(value);
+            setTapped(false);
+          }}
           register={(handle) => {
             reader.current = handle;
           }}
@@ -248,8 +279,8 @@ export function ReaderColumn({
   );
 }
 
-// headState is the state a column's head pill reads: a pane given speaks for the row, and a row with no pane reads its
-// own state.
+// headState is the state a composer's box reads: a pane given speaks for the row, and a row with no pane reads its own
+// state.
 export function headState(row: Row, pane: Pane | undefined): string {
   return pane?.state ?? row.state;
 }
