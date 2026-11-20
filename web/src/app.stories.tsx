@@ -461,7 +461,7 @@ export const Page: Stories = {
     <PageStory
       address={epicAt(rota, { kind: "phase", task: "T2", phase: "implementing" })}
       fixture={createFixtureTransport(taskRecordSlices.refusedHold)}
-      after={(root) => clickWhen(root, ".title-row button", "Interrupt")}
+      after={(root) => clickWhen(root, ".title-row button, .cmdbar button", "Interrupt")}
     />
   ),
   "worker-running": () => (

@@ -739,6 +739,12 @@ function workerDock(root: HTMLElement): HTMLElement | null {
   return root.querySelector<HTMLElement>(".worker-session .dock");
 }
 
+// endedSessionDrawn holds once an ended worker session draws its step's end and its conversation has arrived: the reader's
+// loading line is gone once the session's stream has answered.
+function endedSessionDrawn(root: HTMLElement): boolean {
+  return root.querySelector(".worker-session .step-card") !== null && root.querySelector(".worker-session .reader-loading") === null;
+}
+
 test("FixtureTransport: page/phase-implement draws the implement stage open and live, its judge still to read the change", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(
@@ -840,7 +846,24 @@ test("FixtureTransport: page/phase-refused draws Interrupt's refusal under the t
     (root) => {
       assertNoFailure(root);
       assert.equal(root.querySelector(".page-note")?.textContent, "Interrupt was refused: the step ended a moment ago.");
+      assert.ok(root.querySelector(".title-row + .page-note"), "the refusal is drawn under the title row");
     },
+  );
+});
+
+test("FixtureTransport: page/phase-refused at 412 wide draws the same refusal under the title row, Interrupt having been pressed in the foot bar", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["phase-refused"],
+    (root) => root.querySelector(".page-note")?.textContent === "Interrupt was refused: the step ended a moment ago.",
+    (root) => {
+      assertNoFailure(root);
+      assert.ok(root.querySelector(".cmdbar"), "the foot bar is drawn at phone width");
+      assert.ok(root.querySelector(".title-row + .page-note"), "the refusal is drawn under the title row");
+      assert.equal(root.querySelector(".page-note")?.textContent, "Interrupt was refused: the step ended a moment ago.");
+    },
+    phoneWidth,
   );
 });
 
@@ -901,12 +924,31 @@ test("FixtureTransport: page/worker-ended draws the ended step's end as the last
   return withStory(
     t,
     Page["worker-ended"],
-    (root) => root.querySelector(".worker-session .step-card") !== null,
+    endedSessionDrawn,
     (root) => {
       assertNoFailure(root);
       assert.equal(workerDock(root), null, "an ended step has no dock");
       assert.equal(root.querySelector(".worker-session .step-card .step-end")?.textContent, "end done");
+      assert.equal(root.querySelectorAll(".worker-session .live-row").length, 0, "the ended conversation draws no live row");
+      assert.equal(root.querySelectorAll(".worker-session .caret").length, 0, "the ended conversation draws no live caret");
     },
+  );
+});
+
+test("FixtureTransport: page/worker-ended at 412 wide draws the ended step's end with no live label or caret", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["worker-ended"],
+    endedSessionDrawn,
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(workerDock(root), null, "an ended step has no dock");
+      assert.equal(root.querySelector(".worker-session .step-card .step-end")?.textContent, "end done");
+      assert.equal(root.querySelectorAll(".worker-session .gut.live").length, 0, "no live label is drawn");
+      assert.equal(root.querySelectorAll(".worker-session .caret").length, 0, "no live caret is drawn");
+    },
+    phoneWidth,
   );
 });
 

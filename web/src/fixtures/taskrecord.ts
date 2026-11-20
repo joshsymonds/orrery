@@ -15,7 +15,10 @@ import {
   type EvidenceRun,
   EvidenceRunSchema,
 } from "../gen/orrery/v1/epics_pb";
-import { SessionsWatchConversationResponseSchema } from "../gen/orrery/v1/orrery_pb";
+import {
+  type SessionsWatchConversationResponse,
+  SessionsWatchConversationResponseSchema,
+} from "../gen/orrery/v1/orrery_pb";
 import { at, commit } from "./clock";
 import { rotaBuilding, rotaEvidence } from "./epics";
 import { prompt, reply } from "./panes";
@@ -195,6 +198,21 @@ const heldConversation = create(SessionsWatchConversationResponseSchema, {
   },
 });
 
+// endedImplement is export-cli's writing conversation once its step has ended done: its items as the building state holds
+// them, with no unfinished text, and its session done.
+function endedImplement(bases: TaskRecordBases): SessionsWatchConversationResponse {
+  const stream = bases.building.sessionStreams.get(implementStep);
+  if (stream === undefined) {
+    throw new Error(`the building fixture holds no conversation for ${implementStep}`);
+  }
+  const ended = clone(SessionsWatchConversationResponseSchema, stream);
+  ended.unfinished = [];
+  if (ended.state?.session !== undefined) {
+    ended.state.session.state = "done";
+  }
+  return ended;
+}
+
 // withGet is the slices with rota-export's Get answer replaced by get, and the log of the passed green run added.
 function withGet(base: Slices, get: EpicsGetResponse): Slices {
   return {
@@ -224,10 +242,13 @@ export function taskRecordStories(bases: TaskRecordBases): Record<TaskRecordScen
         exportCliBuild({ stage: "verify", green: passedGreen, reviews: [floorReview, securityReview] }),
       ),
     ),
-    integrate: withGet(
-      bases.building,
-      rotaWith([judged], exportCliBuild({ stage: "", green: passedGreen, reviews: [floorReview] })),
-    ),
+    integrate: {
+      ...withGet(
+        bases.building,
+        rotaWith([judged], exportCliBuild({ stage: "", green: passedGreen, reviews: [floorReview] })),
+      ),
+      sessionStreams: new Map([...bases.building.sessionStreams, [implementStep, endedImplement(bases)]]),
+    },
     held: {
       ...bases.shipped,
       sessionStreams: new Map([...bases.shipped.sessionStreams, [heldStep, heldConversation]]),
