@@ -13,6 +13,15 @@ import com.connectrpc.protocols.NetworkProtocol
 import io.github.joshsymonds.orrery.gen.orrery.v1.AnswerRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.AskRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.BackgroundTask as BackgroundTaskProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.Contract as ContractProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.ContractDecision as ContractDecisionProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.ContractStateChange as ContractStateChangeProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.ContractVersion as ContractVersionProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsAcceptRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsClient
+import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsGetRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsReopenRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsSetAsideRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.ControlClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationContext as ConversationContextProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationItem as ConversationItemProto
@@ -125,6 +134,15 @@ private const val CHOICE_OTHER = "other"
 /** The answers to ListHeadless that mean the server has no headless sessions to list. */
 private val HEADLESS_ABSENT = setOf(Code.UNAVAILABLE, Code.UNIMPLEMENTED, Code.NOT_FOUND)
 
+/** The answers to an accept, set aside or reopen that mean the server refused it, with its reason. */
+private val CONTRACT_REFUSED = setOf(
+    Code.FAILED_PRECONDITION,
+    Code.INVALID_ARGUMENT,
+    Code.ABORTED,
+    Code.PERMISSION_DENIED,
+    Code.NOT_FOUND,
+)
+
 data class Pane(
     val id: String,
     val host: String,
@@ -184,6 +202,8 @@ data class ConversationItem(
     val trigger: String = "",
     /** A `compaction` item's context tokens before it compacted; 0 when its boundary was not read, on other kinds, or from an older server. */
     val tokens: Long = 0L,
+    /** The id of the contract a `tool` item's call writes; "" when the item names none, on other kinds, or from an older server. */
+    val contract: String = "",
 )
 
 /** A message Claude Code's queue holds for the pane. [canceled] is true when Claude Code cleared it on cancel. */
@@ -375,6 +395,75 @@ data class EpicRow(
     val steering: String = "",
     val archived: Boolean = false,
 )
+
+/**
+ * One contract from Contracts.List: its current version's repository, title and care, and its state. [version] is the
+ * newest version number; [openDecisions] counts the decisions of that version with no answer; [conversation] is the
+ * conversation that proposed the contract. [created] and [changed] are unix seconds.
+ */
+data class ContractRow(
+    val id: String,
+    val repository: String,
+    val title: String,
+    val care: String,
+    val state: String,
+    val version: Long,
+    val openDecisions: Long,
+    val conversation: String,
+    val created: Long,
+    val changed: Long,
+)
+
+/** One decision a contract's version asks the owner to answer. [answer] is "" while the decision is open. */
+data class ContractDecisionRow(
+    val id: String,
+    val question: String,
+    val options: List<String>,
+    val recommendation: String,
+    val reason: String,
+    val row: String,
+    val answer: String,
+)
+
+/**
+ * One stored version of a contract: its [contract] body, [requirements] and [decisions], the [words] and [writer] it
+ * came with, and when it was stored in unix seconds. [changedRows] are the ids whose text differs from the version
+ * before, and [changedSections] the section names whose values do; both are empty for version 1.
+ */
+data class ContractVersionRow(
+    val version: Long,
+    val contract: EpicContractRow,
+    val requirements: List<EpicRequirementRow>,
+    val decisions: List<ContractDecisionRow>,
+    val words: String,
+    val writer: String,
+    val time: Long,
+    val changedRows: List<String>,
+    val changedSections: List<String>,
+)
+
+/** One change of a contract's state: [by] is "owner" or "session", and [session] is the writer's id when by is "session". */
+data class ContractStateRow(
+    val state: String,
+    val version: Long,
+    val by: String,
+    val session: String,
+    val words: String,
+    val time: Long,
+)
+
+/** One contract with its [versions], oldest first, and its [states], oldest first. */
+data class ContractRecordRow(
+    val contract: ContractRow,
+    val versions: List<ContractVersionRow>,
+    val states: List<ContractStateRow>,
+)
+
+/** The answer to an owner's accept, set aside or reopen: the contract as it stands, or the server's reason it was refused. */
+sealed interface ContractCallResult {
+    data class Done(val contract: ContractRow) : ContractCallResult
+    data class Refused(val reason: String) : ContractCallResult
+}
 
 /**
  * One requirement of an orreryd epic's contract: [kind] is "check" or "review". [conclusion] is what its evidence is
@@ -751,6 +840,7 @@ class OrreryClient(
         val picker = PickerClient(protocol)
         val control = ControlClient(protocol)
         val sessions = SessionsClient(protocol)
+        val contracts = ContractsClient(protocol)
         val epics = EpicsClient(protocol)
         val evidence = EvidenceClient(protocol)
         val notices = NoticesClient(protocol)
@@ -932,6 +1022,36 @@ class OrreryClient(
             releaseProof = response.releaseStepsList.map { it.toEpicReleaseProofRow() },
             report = if (response.hasReport()) response.report.toEpicReportRow() else null,
         )
+    }
+
+    /** One contract with its versions and state changes, or null when no contract has [id]. */
+    fun contract(id: String): ContractRecordRow? {
+        val request = ContractsGetRequest.newBuilder().setId(id).build()
+        val response = notFoundAsNull { call(write = false) { standard.contracts.get(request, CLIENT_HEADERS) } }
+            ?: return null
+        return ContractRecordRow(
+            contract = response.contract.toContractRow(),
+            versions = response.versionsList.map { it.toContractVersionRow() },
+            states = response.statesList.map { it.toContractStateRow() },
+        )
+    }
+
+    /** Accepts the contract [id] with no words. A refused accept answers [ContractCallResult.Refused] with the server's reason. */
+    fun acceptContract(id: String): ContractCallResult {
+        val request = ContractsAcceptRequest.newBuilder().setId(id).build()
+        return contractCall { call(write = true) { standard.contracts.accept(request, CLIENT_HEADERS) }.contract }
+    }
+
+    /** Sets the contract [id] aside with [words]. A refused set aside answers [ContractCallResult.Refused]. */
+    fun setAsideContract(id: String, words: String): ContractCallResult {
+        val request = ContractsSetAsideRequest.newBuilder().setId(id).setWords(words).build()
+        return contractCall { call(write = true) { standard.contracts.setAside(request, CLIENT_HEADERS) }.contract }
+    }
+
+    /** Reopens the contract [id] with no words. A refused reopen answers [ContractCallResult.Refused]. */
+    fun reopenContract(id: String): ContractCallResult {
+        val request = ContractsReopenRequest.newBuilder().setId(id).build()
+        return contractCall { call(write = true) { standard.contracts.reopen(request, CLIENT_HEADERS) }.contract }
     }
 
     /**
@@ -1205,6 +1325,54 @@ class OrreryClient(
             seen = seen,
             steering = steering,
             archived = archived,
+        )
+
+    private fun ContractProto.toContractRow(): ContractRow =
+        ContractRow(
+            id = id,
+            repository = repository,
+            title = title,
+            care = care,
+            state = state,
+            version = version,
+            openDecisions = openDecisions,
+            conversation = conversation,
+            created = created,
+            changed = changed,
+        )
+
+    private fun ContractVersionProto.toContractVersionRow(): ContractVersionRow =
+        ContractVersionRow(
+            version = version,
+            contract = contract.toEpicContractRow(),
+            requirements = requirementsList.map { it.toEpicRequirementRow() },
+            decisions = decisionsList.map { it.toContractDecisionRow() },
+            words = words,
+            writer = writer,
+            time = time,
+            changedRows = changedRowsList.toList(),
+            changedSections = changedSectionsList.toList(),
+        )
+
+    private fun ContractDecisionProto.toContractDecisionRow(): ContractDecisionRow =
+        ContractDecisionRow(
+            id = id,
+            question = question,
+            options = optionsList.toList(),
+            recommendation = recommendation,
+            reason = reason,
+            row = row,
+            answer = answer,
+        )
+
+    private fun ContractStateChangeProto.toContractStateRow(): ContractStateRow =
+        ContractStateRow(
+            state = state,
+            version = version,
+            by = by,
+            session = session,
+            words = words,
+            time = time,
         )
 
     private fun EpicRequirementProto.toEpicRequirementRow(): EpicRequirementRow =
@@ -1517,6 +1685,7 @@ class OrreryClient(
             notice = notice,
             trigger = trigger,
             tokens = tokens,
+            contract = contract,
         )
 
     private fun WaitingMessage.toWaitingItem(): WaitingItem =
@@ -1644,6 +1813,17 @@ class OrreryClient(
             StepCallResult.Landed
         } catch (e: OrreryCallException) {
             if (e.code == Code.FAILED_PRECONDITION) StepCallResult.Refused(e.message.orEmpty()) else throw e
+        }
+
+    /**
+     * The answer of an accept, set aside or reopen: [ContractCallResult.Refused] when the server refused it with one of
+     * [CONTRACT_REFUSED], with its reason. Any other failure is thrown as [call] throws it.
+     */
+    private fun contractCall(rpc: () -> ContractProto): ContractCallResult =
+        try {
+            ContractCallResult.Done(rpc().toContractRow())
+        } catch (e: OrreryCallException) {
+            if (e.code in CONTRACT_REFUSED) ContractCallResult.Refused(e.message.orEmpty()) else throw e
         }
 
     /** The answer, or null when the server answered not_found. */
