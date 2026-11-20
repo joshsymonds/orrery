@@ -266,3 +266,80 @@ test("InboxTree: a double-click calls onSeen and a click calls onOpen, each only
     },
   );
 });
+
+test("InboxTree: without the ask, More opens the popover and no sheet", () =>
+  withRow(idleLine(waitingRow(), false, rowMore(true, true)), (container) => {
+    assert.ok(container.querySelector('.row-menu-list [role="menu"]'), "the popover holds the menu");
+    assert.equal(container.querySelector(".sheet-scrim"), null, "no sheet is drawn");
+  }));
+
+test("InboxTree: with the ask, More opens a sheet headed by the row's title and the given line, with no key hints", () =>
+  withRow(idleLine(waitingRow(), false, { ...rowMore(true, true), sheet: "tidepool · waiting on you · 4m" }), (container) => {
+    const sheet = container.querySelector(".sheet-scrim > section.sheet");
+    assert.equal(sheet?.getAttribute("role"), "dialog", "the sheet is a dialog in its scrim");
+    assert.equal(container.querySelector(".row-menu-list"), null, "the popover is not drawn");
+    const head = container.querySelector(".sheet-head");
+    assert.equal(head?.querySelector("b")?.textContent, "build", "the head's title is the row's title");
+    assert.ok(head?.textContent?.endsWith("tidepool · waiting on you · 4m"), "the given line follows the title");
+    const items = [...container.querySelectorAll('[role="menuitem"]')].map((item) => item.querySelector("span")?.textContent);
+    assert.deepEqual(items, ["Open in a new window", "Mark seen", "Archive"], "the sheet holds the row's items");
+    assert.equal(container.querySelector("kbd"), null, "the items carry no key hints");
+  }));
+
+test("InboxTree: choosing an item in a sheet calls its own action once and then closes the sheet", async () => {
+  const chosen: string[] = [];
+  const closed: string[] = [];
+  const more: RowMore = {
+    open: true,
+    sheet: "tidepool · waiting on you · 4m",
+    items: [
+      { label: "Open in a new window", icon: "open", onSelect: () => chosen.push("open") },
+      { label: "Archive", icon: "archive", kbd: "A", onSelect: () => chosen.push("archive") },
+    ],
+    toggle: () => {},
+    close: () => closed.push("close"),
+  };
+  await withRow(idleLine(sessionRow(), false, more), async (container) => {
+    assert.ok(container.querySelector(".sheet-scrim"), "the sheet is drawn");
+    const archive = [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
+      (item) => item.querySelector("span")?.textContent === "Archive",
+    );
+    assert.ok(archive, "the Archive item is drawn");
+    await act(() => {
+      archive.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
+    });
+    assert.deepEqual(chosen, ["archive"], "only the chosen item acts");
+    assert.deepEqual(closed, ["close"], "the sheet closes once it is chosen");
+  });
+});
+
+test("InboxTree: a press on the sheet's scrim closes it and calls nothing, opens no row, and a press inside the dialog keeps it open", async () => {
+  const chosen: string[] = [];
+  const closed: string[] = [];
+  const opened: string[] = [];
+  const more: RowMore = {
+    ...rowMore(true, true),
+    sheet: "tidepool · waiting on you · 4m",
+    items: [{ label: "Archive", icon: "archive", kbd: "A", onSelect: () => chosen.push("archive") }],
+    close: () => closed.push("close"),
+  };
+  await withRow(
+    <InboxRow row={waitingRow()} now={now} cursor={false} more={more} onOpen={() => opened.push("open")} onSeen={() => {}} />,
+    async (container) => {
+      const dialog = container.querySelector<HTMLElement>("section.sheet");
+      assert.ok(dialog, "the sheet is drawn");
+      await act(() => {
+        dialog.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
+      });
+      assert.deepEqual(closed, [], "a press inside the dialog keeps the sheet open");
+      const scrim = container.querySelector<HTMLElement>(".sheet-scrim");
+      assert.ok(scrim, "the scrim is drawn");
+      await act(() => {
+        scrim.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
+      });
+      assert.deepEqual(closed, ["close"], "a press on the scrim closes the sheet");
+      assert.deepEqual(chosen, [], "a press on the scrim calls no item");
+      assert.deepEqual(opened, [], "a press on the scrim opens no row");
+    },
+  );
+});

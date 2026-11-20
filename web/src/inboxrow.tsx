@@ -15,10 +15,12 @@ const minutesPerHour = 60;
 const hoursPerDay = 24;
 
 // RowMore is the ⋯ menu a row's More button opens: open is whether it is the row's open menu, toggle opens or shuts it,
-// close shuts it, and items is what it holds, in order. The App passes the items, and each acts on the row alone.
+// close shuts it, and items is what it holds, in order. The App passes the items, and each acts on the row alone. sheet,
+// when set, is the line the menu's sheet draws under the row's title; absent, the menu is a popover.
 export interface RowMore {
   open: boolean;
   items: readonly MenuEntry[];
+  sheet?: string;
   toggle: () => void;
   close: () => void;
 }
@@ -72,7 +74,7 @@ export function InboxRow({
             <ReplyText text={row.label} />
           </span>
           <span class="age">{ageText(row.changed, now)}</span>
-          <More more={more} />
+          <More more={more} title={row.label} />
         </div>
         <SecondLine row={row} now={now} />
       </div>
@@ -152,8 +154,10 @@ function shortName(name: string): string {
 
 // More draws a row's More button and the menu it opens. The button's tip names what the menu holds. A press on More or
 // on the menu stops there, so it opens no row, moves no cursor and marks nothing seen. An item calls its own action and
-// then shuts the menu, and an open menu scrolls into view within the list.
-function More({ more }: { more: RowMore }): JSX.Element {
+// then shuts the menu, and an open menu scrolls into view within the list. With more.sheet set, the menu opens as a sheet
+// over a scrim instead: headed by title and the sheet's line, its items without key hints. A press on the scrim outside
+// the dialog shuts the sheet and calls nothing.
+function More({ more, title }: { more: RowMore; title: string }): JSX.Element {
   const menuRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (more.open) {
@@ -167,6 +171,7 @@ function More({ more }: { more: RowMore }): JSX.Element {
       ? item
       : {
           ...item,
+          kbd: more.sheet === undefined ? item.kbd : undefined,
           onSelect: () => {
             item.onSelect();
             more.close();
@@ -178,11 +183,29 @@ function More({ more }: { more: RowMore }): JSX.Element {
       <button type="button" class="more" aria-label="more" title={tip} aria-expanded={more.open} onClick={more.toggle}>
         <Icon name="more" />
       </button>
-      {more.open && (
-        <div class="row-menu-list" ref={menuRef}>
-          <Menu items={items} />
-        </div>
-      )}
+      {more.open &&
+        (more.sheet === undefined ? (
+          <div class="row-menu-list" ref={menuRef}>
+            <Menu items={items} />
+          </div>
+        ) : (
+          <div
+            class="sheet-scrim"
+            onClick={(event) => {
+              if (event.target === event.currentTarget) {
+                more.close();
+              }
+            }}
+          >
+            <section class="sheet" role="dialog">
+              <div class="sheet-head">
+                <b>{title}</b>
+                {more.sheet}
+              </div>
+              <Menu items={items} />
+            </section>
+          </div>
+        ))}
     </div>
   );
 }
