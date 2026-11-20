@@ -867,6 +867,11 @@ const buoyGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
     outcomeDetail: "", waiting: false, phaseAt: at("@14:38"), seen: 0n,
   },
   repository: "/home/owner/code/tidepool",
+  questions: [{
+    id: "Q1",
+    text: "Flag a gap at five minutes for every buoy, or at three for the storm buoys?",
+    turn: 2n, asked: at("@14:39"),
+  } satisfies QuestionInit],
   summary:
     "Each buoy’s feed is read once a minute, gaps over five minutes are flagged, and the harbour page shows the newest " +
     "reading with its age.",

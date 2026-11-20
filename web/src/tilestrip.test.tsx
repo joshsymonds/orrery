@@ -24,7 +24,7 @@ import {
 } from "./gen/orrery/v1/orrery_pb";
 import type { Address } from "./router";
 import type { Row } from "./rows";
-import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
+import { assertNone, installTestDom, removeTestDom, teardownOnce } from "./testdom";
 import { turn, until } from "./testwait";
 
 // Each test's name carries the token TileStrip. A phone is 412px wide, under the 760px the wide layout starts at, so
@@ -86,13 +86,14 @@ function envelope(message: object): Uint8Array {
   return bytes;
 }
 
-// delta is a WatchConversation message that holds one prompt, and the background tasks the session reports.
+// delta is a WatchConversation message that holds one prompt, the conversation's goal, and the background tasks the
+// session reports.
 function delta(tasks: BackgroundTask[]): object {
   const prompt: ConversationItem = create(ConversationItemSchema, {
     kind: "prompt",
     text: "a message the stream holds",
   });
-  const state = create(ConversationStateSchema, { background: tasks });
+  const state = create(ConversationStateSchema, { goal: "Ship the rail.", background: tasks });
   return {
     transcript: "s1.jsonl",
     seq: "1",
@@ -360,6 +361,9 @@ test("TileStrip: under 760px the groups draw as a strip under the band, ending i
       "the strip ends in the header's hide control",
     );
     assert.equal(container.querySelectorAll(".fold-head").length, 1, "the hide control is drawn once, at the strip's end");
+    const goal = container.querySelector<HTMLElement>(".subj.goal");
+    assert.ok(goal !== null, "the band's goal line is drawn");
+    assertNone(goal.querySelector(".fold-head"));
     assert.deepEqual(
       stripTiles(container).map(tileName),
       ["alpha", "agents", "running"],

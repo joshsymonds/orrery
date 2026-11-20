@@ -136,6 +136,7 @@ sessionStreams.set(buoyFeedsId, create(SessionsWatchConversationResponseSchema, 
   reset: true,
   items: buoyFeedsItems,
   state: {
+    goal: "Every buoy’s newest reading is on the harbour page within a minute of its feed.",
     background: buoyFeedsTasks,
     session: {
       id: buoyFeedsId, dir: "/home/owner/code/tidepool", label: "Steering buoy-feeds", state: "working",
