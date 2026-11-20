@@ -62,8 +62,6 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   "output-tails": { replacement: "epic-evidence", epic: "F4" },
   // Workflow draws an epic's workflow nodes: a plan and a build, evidence, failed checks, a loop.
   workflow: { replacement: "epic-building", epic: "F4" },
-  // ContractBody draws an epic's accepted contract, read-only, with its requirements: with additions, with none, and with no base.
-  "contract-body": { replacement: "contract-accepted", epic: "F4" },
 
   // ---- single stories of round-6 components, each the component in a state round 6 does not draw ----
 
