@@ -43,7 +43,7 @@ async function refusal(call: Promise<unknown>): Promise<ConnectError> {
 
 // listView is the view the rows list draws, from its data-list attribute, or null before the list is drawn.
 function listView(root: HTMLElement): string | null {
-  return root.querySelector(".rows")?.getAttribute("data-list") ?? null;
+  return root.querySelector(".inbox-rows")?.getAttribute("data-list") ?? null;
 }
 
 // inboxState is the state the inbox is drawn in, from the panes' data-inbox attribute.
@@ -293,7 +293,7 @@ test("FixtureTransport: a pane stream sends its frame and holds open, a reconnec
   assert.equal(await reconnected.then(() => "ended", () => "aborted"), "aborted", "the reconnect's abort ends its wait");
 });
 
-test("FixtureTransport: app/inbox draws the inbox rows", (t) => {
+test("FixtureTransport: app/inbox draws the inbox rows, with the fixture's proposed contract on its epic", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(
     t,
@@ -302,11 +302,13 @@ test("FixtureTransport: app/inbox draws the inbox rows", (t) => {
     (root) => {
       assertNoFailure(root);
       assert.equal(listView(root), "inbox");
+      const tide = root.querySelector('[data-key="epic:tidepool/tide-alerts"]');
+      assert.ok(tide?.classList.contains("contract"), "tide-alerts is not drawn as its proposed contract");
     },
   );
 });
 
-test("FixtureTransport: app/archived draws the archived rows, with the Archived section and no rota-export line", (t) => {
+test("FixtureTransport: app/archived draws the archived rows, with the Archived head and no rota-export line", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(
     t,
@@ -315,8 +317,7 @@ test("FixtureTransport: app/archived draws the archived rows, with the Archived 
     (root) => {
       assertNoFailure(root);
       assert.equal(listView(root), "archived");
-      const titles = [...root.querySelectorAll(".rows .title")].map((title) => title.textContent);
-      assert.ok(titles.includes("Archived"), "the Archived section title is drawn");
+      assert.equal(root.querySelector(".inbox-attn .name")?.textContent, "Archived", "the Archived head is drawn");
       assertNone(root.querySelector('[data-key="epic:lighthouse/rota-export"]'), "the rota-export line is not archived");
     },
   );
@@ -324,7 +325,7 @@ test("FixtureTransport: app/archived draws the archived rows, with the Archived 
 
 test("FixtureTransport: app/session draws the headless session's row as the cursor's row", (t) => {
   mockTimers(t, ["setTimeout"]);
-  const cursorRow = '.b-row.cur[data-key="session:4be0c6d2-8f3a-4c71-9e25-ephemeris001"]';
+  const cursorRow = '.row.cur[data-key="session:4be0c6d2-8f3a-4c71-9e25-ephemeris001"]';
   return withStory(
     t,
     App.session,
@@ -338,7 +339,7 @@ test("FixtureTransport: app/session draws the headless session's row as the curs
 
 test("FixtureTransport: app/pane draws pane %13's row as the cursor's row", (t) => {
   mockTimers(t, ["setTimeout"]);
-  const cursorRow = '.b-row.cur[data-key="pane:halyard:%13"]';
+  const cursorRow = '.row.cur[data-key="pane:halyard:%13"]';
   return withStory(
     t,
     App.pane,
@@ -352,7 +353,7 @@ test("FixtureTransport: app/pane draws pane %13's row as the cursor's row", (t) 
 
 test("FixtureTransport: app/step draws a step reader, with the worker step as the cursor's entry", (t) => {
   mockTimers(t, ["setTimeout"]);
-  const cursorStep = '.b-row.step.cur[data-key="step:st-rota-t2-impl"]';
+  const cursorStep = '.row.step.cur[data-key="step:st-rota-t2-impl"]';
   return withStory(
     t,
     App.step,

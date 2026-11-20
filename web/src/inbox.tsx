@@ -27,8 +27,9 @@ export interface InboxProps {
   renderConvo: (convo: Convo) => VNode;
   archivedCount: number;
   onView: (view: View) => void;
-  onRetry: () => void;
+  onRetry?: () => void;
   onNew: () => void;
+  onKeys?: () => void;
   notes?: ComponentChildren;
 }
 
@@ -55,6 +56,7 @@ export function Inbox({
   onView,
   onRetry,
   onNew,
+  onKeys,
   notes,
 }: InboxProps): JSX.Element {
   const showChips = view === "inbox" && (counts.waiting > 0 || counts.fresh > 0);
@@ -72,7 +74,7 @@ export function Inbox({
           >
             <Icon name="search" />
           </button>
-          <button type="button" class="btn" onClick={() => onNew()}>
+          <button type="button" class="btn" title="Start a session, or find one  N" onClick={() => onNew()}>
             <Icon name="plus" />
             New
           </button>
@@ -129,7 +131,7 @@ export function Inbox({
           </label>
         </div>
       )}
-      <div class="inbox-rows">
+      <div class="inbox-rows" data-list={view}>
         <Body
           view={view}
           state={state}
@@ -158,6 +160,11 @@ export function Inbox({
             <kbd>v</kbd>
           </button>
         )}
+        {onKeys !== undefined && (
+          <button type="button" class="btn quiet icon-only" aria-label="Keys" title="Keys  ?" onClick={() => onKeys()}>
+            <Icon name="keys" />
+          </button>
+        )}
       </footer>
     </nav>
   );
@@ -176,7 +183,7 @@ interface BodyProps {
   endedOpen: ReadonlySet<string>;
   onEnded: (key: string) => void;
   renderConvo: (convo: Convo) => VNode;
-  onRetry: () => void;
+  onRetry?: () => void;
   onNew: () => void;
 }
 
@@ -212,10 +219,12 @@ function Body({
           <span>The server did not answer.</span>
         </p>
         <span>Trying again every few seconds.</span>
-        <button type="button" class="btn" onClick={() => onRetry()}>
-          <Icon name="retry" />
-          Try now
-        </button>
+        {onRetry !== undefined && (
+          <button type="button" class="btn" onClick={() => onRetry()}>
+            <Icon name="retry" />
+            Try now
+          </button>
+        )}
       </div>
     );
   }

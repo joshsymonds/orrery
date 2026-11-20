@@ -10,6 +10,7 @@ import type { createClients } from "../client";
 import { type EpicsView, epicsView } from "../epics";
 import { liveEpoch } from "../fixtures/clock";
 import { createFixtureTransport, type FixtureTransport } from "../fixtures/transport";
+import type { Contract } from "../gen/orrery/v1/contracts_pb";
 import type { HostStatusResponse } from "../gen/orrery/v1/orrery_pb";
 import { loadRows } from "../load";
 import { changedOnly, loadEpics } from "../loadepics";
@@ -31,6 +32,7 @@ interface Loaded {
   rows: Row[];
   error: string;
   epics: EpicsView;
+  contracts: Contract[];
   host: HostStatusResponse | null;
 }
 
@@ -51,6 +53,7 @@ async function load(clients: ReturnType<typeof createClients>): Promise<Loaded> 
     rows: rows.rows,
     error: [rows.error, epics.error].filter((text) => text !== "").join("; "),
     epics: epicsView(epics.epics, epics.details),
+    contracts: epics.contracts,
     host,
   };
 }
@@ -106,6 +109,7 @@ export function PageStory({ address, after, fixture }: PageStoryProps): VNode {
           rows={loaded.rows}
           error={loaded.error}
           epics={loaded.epics}
+          contracts={loaded.contracts}
           now={now}
           clients={transport.clients}
           notices={[]}

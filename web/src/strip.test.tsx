@@ -269,8 +269,8 @@ test("PaneStrip: m hides every strip, and a second m shows them again", (t) =>
     assert.equal(container.querySelectorAll(".pane-strip").length, 2);
   }));
 
-test("PaneStrip: no inbox footer remains, and the Keys control sits in the inbox head", (t) =>
+test("PaneStrip: no inbox footer remains, and the Keys control sits in the inbox foot", (t) =>
   withStrip(t.signal, { host: denHost }, (container) => {
     assert.equal(container.querySelector(".lfoot") === null, true);
-    assert.equal(container.querySelector(".list > header.top .keys-hint")?.getAttribute("aria-label"), "Keys");
+    assert.equal(container.querySelector('.inbox-foot button[aria-label="Keys"]')?.getAttribute("aria-label"), "Keys");
   }));

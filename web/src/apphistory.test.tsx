@@ -264,17 +264,25 @@ async function openEpicLine(container: HTMLElement, key: string): Promise<void> 
 
 // typeFilter types text into the list's filter, as its input event does.
 async function typeFilter(container: HTMLElement, text: string): Promise<void> {
+  // The field opens with / and takes the focus; typing leaves it unfocused, as typing into a drawn field does.
+  const opened = container.querySelector(".inbox-search input") === null;
+  if (opened) {
+    await press("/");
+  }
   await act(() => {
-    const input = container.querySelector<HTMLInputElement>('input[aria-label="filter rows"]');
+    const input = container.querySelector<HTMLInputElement>(".inbox-search input");
     assert.ok(input, "the filter input is drawn");
     input.value = text;
     input.dispatchEvent(new Event("input", { bubbles: true }));
+    if (opened) {
+      input.blur();
+    }
   });
 }
 
 // cursorKey is the key of the entry the cursor rests on.
 function cursorKey(container: HTMLElement): string | null {
-  return container.querySelector(".b-row.cur")?.getAttribute("data-key") ?? null;
+  return container.querySelector(".row.cur")?.getAttribute("data-key") ?? null;
 }
 
 // cursorPresses are the presses of the keys that move the cursor, in order: j, k, gg, G, w, n and e.
@@ -362,17 +370,6 @@ test("HashRoute: a card's open control pushes the address of its epic, and the f
     assert.equal(cursorKey(container), widgetsFirstKey);
     assert.deepEqual(await cursorModes(reports), cursorKeyModes);
   }));
-
-test("HashRoute: a need pushes the address of its epic, and the first cursor key after it pushes", (t) =>
-  withApp(
-    t,
-    { rows: historyRows(), epics: firstEpic({ questions: [{ id: "Q1", text: "Which way?" }] }) },
-    async ({ container, reports }) => {
-      await click(container, ".need-entry .need-text", "first asks: Which way?");
-      assert.deepEqual(reports, [[firstAddress, "push"]]);
-      assert.deepEqual(await cursorModes(reports), cursorKeyModes);
-    },
-  ));
 
 test("HashRoute: the v key pushes the archived view", (t) =>
   withApp(t, { rows: historyRows() }, async ({ container, reports }) => {
@@ -600,20 +597,22 @@ test("HashRoute: an opened row a landed archive marked archived drops the open, 
 });
 
 test("HashRoute: an epic address a local archive mark moved off the inbox line drops, and reports resume", (t) => {
-  // Without the waiting row, the inbox list leads with the epic, so the cursor rests on it.
   const rows = historyRows().slice(1);
   const epics = firstEpic();
   return withApp(t, { rows, epics }, async ({ container, reports, rerender }) => {
-    assert.equal(cursorKey(container), widgetsFirstKey, "the cursor rests on the epic");
+    for (let step = 0; step < 4 && cursorKey(container) !== widgetsFirstKey; step++) {
+      await press("j");
+    }
+    assert.equal(cursorKey(container), widgetsFirstKey, "the cursor walks to the epic");
     await press("A");
     const gone = () => container.querySelector(`[data-key="${widgetsFirstKey}"]`) === null;
     await until(t.signal, gone, "the epic leaving", { step: () => act(turn) });
     const before = reports.length;
     const address: Address = { view: "inbox", entry: { kind: "epic", id: widgetsFirst, page: { kind: "epic" } } };
     await rerender({ rows, epics, address });
-    assert.deepEqual(reports.slice(before), [["#/inbox/session/s1", "replace"]], "the shown address replaces");
-    await press("j");
-    assert.deepEqual(reports.slice(before + 1), [["#/inbox/session/s3", "push"]], "the next cursor key pushes");
+    assert.deepEqual(reports.slice(before), [["#/inbox/pane/box/%253", "replace"]], "the shown address replaces");
+    await press("k");
+    assert.deepEqual(reports.slice(before + 1), [["#/inbox/session/s2", "push"]], "the next cursor key pushes");
   });
 });
 

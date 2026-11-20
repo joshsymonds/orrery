@@ -11,7 +11,7 @@ import {
   type Pane,
   type Session,
 } from "./gen/orrery/v1/orrery_pb";
-import { byAttention, rowsFrom, splitArchived, type Row, type Section } from "./rows";
+import { rowsFrom, splitArchived, type Row } from "./rows";
 
 function makePane(init: MessageInitShape<typeof PaneSchema>): Pane {
   return create(PaneSchema, { host: "box", session: "work", cwd: "/work/app", ...init });
@@ -25,9 +25,6 @@ function makeHeadless(init: MessageInitShape<typeof HeadlessSessionSchema>): Hea
   return create(HeadlessSessionSchema, init);
 }
 
-function keysOf(sections: Section[]): [string, string[]][] {
-  return sections.map((section) => [section.title, section.rows.map((row: Row) => row.key)]);
-}
 
 test("a pane row takes its label, project, host, state, text, and times from the pane", () => {
   const rows = rowsFrom(
@@ -284,53 +281,3 @@ test("a row is unseen only when it has a state and changed after it was seen", (
     assert.equal(row?.unseen, testCase.unseen, testCase.name);
   }
 });
-
-test("byAttention arranges rows into the four sections in order, newest first, and omits empty sections", () => {
-  const rows = rowsFrom(
-    [
-      makePane({ id: "%1", state: "waiting", changed: 100n, seen: 50n }),
-      makePane({ id: "%2", state: "waiting", changed: 300n, seen: 300n }),
-      makePane({ id: "%3", state: "working", changed: 200n, seen: 10n }),
-      makePane({ id: "%4", state: "done", changed: 400n, seen: 1n }),
-      makePane({ id: "%5", state: "working", changed: 90n, seen: 90n }),
-      makePane({ id: "%6", state: "done", changed: 80n, seen: 90n }),
-      makePane({ id: "%7", state: "", changed: 500n, seen: 0n }),
-      makePane({ id: "%8", session: "_orrery-shell-2", state: "waiting", changed: 999n }),
-    ],
-    [
-      makeSession({ id: "abcdefghijk", pane: "", state: "working", changed: "150", seen: "150" }),
-      makeSession({ id: "x", pane: "", state: "", changed: "x", seen: "0" }),
-    ],
-  );
-
-  assert.deepEqual(keysOf(byAttention(rows)), [
-    ["Needs you", ["pane:box:%2", "pane:box:%1"]],
-    ["New since you looked", ["pane:box:%4", "pane:box:%3"]],
-    ["Working", ["session:abcdefghijk", "pane:box:%5"]],
-    ["Seen", ["pane:box:%7", "pane:box:%6", "session:x"]],
-  ]);
-});
-
-test("byAttention omits sections with no rows", () => {
-  const rows = rowsFrom([makePane({ id: "%1", state: "done", changed: 1n, seen: 1n })], []);
-  assert.deepEqual(keysOf(byAttention(rows)), [["Seen", ["pane:box:%1"]]]);
-});
-
-test("byAttention leaves the input rows in their original order", () => {
-  const rows = rowsFrom(
-    [
-      makePane({ id: "%1", state: "done", changed: 1n, seen: 1n }),
-      makePane({ id: "%2", state: "waiting", changed: 5n, seen: 5n }),
-    ],
-    [],
-  );
-  const before = rows.map((row) => row.key);
-
-  byAttention(rows);
-
-  assert.deepEqual(
-    rows.map((row) => row.key),
-    before,
-  );
-});
-

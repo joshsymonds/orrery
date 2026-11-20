@@ -2,7 +2,7 @@ import { blockerLine, stateLine } from "./epicpage";
 import type { Epic, EpicSlice, EpicStep, EpicsGetResponse, EpicTask } from "./gen/orrery/v1/epics_pb";
 import { type CellKind, cellKind, RINGS } from "./orbitcells";
 import { durationText, placementOf, provenOf, recordTaskOf, type Tone, wedgesOf } from "./phases";
-import type { Row, Section } from "./rows";
+import type { Row } from "./rows";
 import { blockerOf } from "./status";
 import { taskStateOf } from "./taskstatus";
 
@@ -80,25 +80,11 @@ export interface EpicsView {
   listed: Map<string, Epic>;
 }
 
-export interface EpicSection {
-  title: string;
-  epics: EpicBlock[];
-  waiting: EpicItem[];
-  rows: Row[];
-  justEnded: EpicItem[];
-  endedEarlier: EpicItem[];
-  count: number;
-}
-
 // An epic block shows this many of its running steps; the rest are counted.
 const shownSteps = 4;
 
 // A task strip past this many segments draws dense, its segments touching.
 export const denseStrip = 60;
-
-const needsYouTitle = "Needs you";
-const epicsTitle = "Epics";
-const justEndedTitle = "Just ended";
 
 // A repository's record name ends in a dash and seven lowercase hex digits; the folder it is named for does not.
 const hexSuffix = /-[0-9a-f]{7}$/;
@@ -166,26 +152,6 @@ export function epicsView(epics: Epic[], details: Map<string, EpicsGetResponse>)
 // Orders ended epics newest ending first. Equal endings keep their order, so an epic moved in goes after those it ties.
 function newestFirst(items: EpicItem[]): EpicItem[] {
   return items.sort((a, b) => b.phaseAt - a.phaseAt);
-}
-
-// Keeps the ended epic under the cursor in Just ended: it moves from endedEarlier into justEnded, newest ending first.
-// An epic that is not in endedEarlier leaves the view as it is.
-export function keepUnderCursor(view: EpicsView, epicId: string): EpicsView {
-  const item = view.endedEarlier.find((candidate) => candidate.id === epicId);
-  if (item === undefined) {
-    return view;
-  }
-  return {
-    ...view,
-    justEnded: newestFirst([...view.justEnded, item]),
-    endedEarlier: view.endedEarlier.filter((candidate) => candidate.id !== epicId),
-  };
-}
-
-// An ended epic's words: its outcome, then the time since it ended, never below zero when the browser's clock is behind
-// the server's stamp. At phaseAt 0 there is no time to read, so the outcome stands alone.
-export function endedWords(item: EpicItem, now: number): string {
-  return item.phaseAt > 0 ? `${item.outcome} · ${durationText(Math.max(0, now - item.phaseAt))} ago` : item.outcome;
 }
 
 export function blockOf(epic: Epic, detail: EpicsGetResponse | undefined): EpicBlock {
@@ -316,87 +282,3 @@ export function repositoryName(repository: string): string {
   return repository.replace(hexSuffix, "");
 }
 
-// A row section, counting its rows.
-function rowSection(section: Section): EpicSection {
-  return {
-    title: section.title,
-    epics: [],
-    waiting: [],
-    rows: section.rows,
-    justEnded: [],
-    endedEarlier: [],
-    count: section.rows.length,
-  };
-}
-
-// Wraps each section, then places the Epics group after the Needs you section, or first when there is none, and the
-// Just ended section right after it. The Epics group counts every live epic and is left out when no epic is drawn or
-// waiting. The Just ended section carries both ended lists and counts the unseen ones; it is left out when neither list
-// holds an epic.
-export function withEpicsGroup(sections: Section[], view: EpicsView): EpicSection[] {
-  const result = sections.map(rowSection);
-  const groups: EpicSection[] = [];
-  if (view.blocks.length > 0 || view.waiting.length > 0) {
-    groups.push({
-      title: epicsTitle,
-      epics: view.blocks,
-      waiting: view.waiting,
-      rows: [],
-      justEnded: [],
-      endedEarlier: [],
-      count: view.live,
-    });
-  }
-  if (view.justEnded.length > 0 || view.endedEarlier.length > 0) {
-    groups.push({
-      title: justEndedTitle,
-      epics: [],
-      waiting: [],
-      rows: [],
-      justEnded: view.justEnded,
-      endedEarlier: view.endedEarlier,
-      count: view.justEnded.length,
-    });
-  }
-  const after = sections.findIndex((section) => section.title === needsYouTitle) + 1;
-  result.splice(after, 0, ...groups);
-  return result;
-}
-
-// Puts each block atop the first section named for its repository. A block with no such section gets one
-// section per repository, titled by it, after the others in first-seen order.
-export function placeEpics(sections: Section[], blocks: EpicBlock[]): EpicSection[] {
-  const result = sections.map(rowSection);
-  const unmatched = new Map<string, EpicBlock[]>();
-  for (const block of blocks) {
-    const name = repositoryName(block.epic.repository);
-    const section = result.find((candidate) => lastPathElement(candidate.title) === name);
-    if (section) {
-      section.epics.push(block);
-      section.count++;
-      continue;
-    }
-    const group = unmatched.get(block.epic.repository);
-    if (group) {
-      group.push(block);
-    } else {
-      unmatched.set(block.epic.repository, [block]);
-    }
-  }
-  for (const [repository, epics] of unmatched) {
-    result.push({
-      title: repository,
-      epics,
-      waiting: [],
-      rows: [],
-      justEnded: [],
-      endedEarlier: [],
-      count: epics.length,
-    });
-  }
-  return result;
-}
-
-function lastPathElement(path: string): string {
-  return path.slice(path.lastIndexOf("/") + 1);
-}

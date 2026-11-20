@@ -1,4 +1,3 @@
-import { Fragment } from "preact";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 
 import * as actions from "./actions";
@@ -7,28 +6,19 @@ import { epicCallsOf } from "./card";
 import type { ComposerHandle } from "./composer";
 import { ContractBody } from "./contract";
 import { type Conversation, shownConversation } from "./conversation";
-import { type ArchiveControl, EpicLine } from "./epicline";
+import { ConvoRow } from "./convorow";
 import { type EpicCommands, EpicPage, type Landing } from "./epicpage";
-import {
-  type EpicBlock,
-  type EpicItem,
-  type EpicSection,
-  type EpicsView,
-  endedWords,
-  epicsView,
-  keepUnderCursor,
-  noEpics,
-  type StepItem,
-  withEpicsGroup,
-} from "./epics";
+import { type EpicItem, type EpicsView, epicsView, noEpics, type StepItem } from "./epics";
 import { findMatches } from "./find";
 import { type Followed, follow } from "./follow";
-import type { EpicHistoryEntry, EpicsGetResponse, EpicStep } from "./gen/orrery/v1/epics_pb";
+import type { Contract } from "./gen/orrery/v1/contracts_pb";
+import type { Epic, EpicHistoryEntry, EpicsGetResponse, EpicStep } from "./gen/orrery/v1/epics_pb";
 import type { InAppNotice, NoticeKey } from "./gen/orrery/v1/notice_pb";
 import type { HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
 import { Handover } from "./handover";
 import { KeyList } from "./helppanel";
-import { InboxRow, isLinkClick, type RowMore, stateWaiting } from "./inboxrow";
+import { Inbox } from "./inbox";
+import { InboxRow, type RowMore, stateWaiting } from "./inboxrow";
 import {
   type BoxOpen,
   type EscapeTarget,
@@ -39,8 +29,6 @@ import {
   type Popout,
 } from "./keymap";
 import { listHolds, listsEpic } from "./listholds";
-import { Mark } from "./mark";
-import { NeedEntry } from "./needentry";
 import { epicNeeds } from "./needs";
 import { NoticeBanner } from "./notices";
 import { PhaseOutputPage } from "./phaseoutput";
@@ -50,15 +38,16 @@ import { NewPanel } from "./picker";
 import { type Viewing, viewingOf } from "./presence";
 import type { ReaderHandle } from "./reader";
 import { type Address, type Entry, formatAddress, type PageView, type View } from "./router";
-import { byAttention, type Row, type Section, splitArchived } from "./rows";
+import { type Row, splitArchived } from "./rows";
 import { type SeenClock, type SeenWindow, watchSeen } from "./seen";
 import { type SendKind, type Sending, type SentText, sendingEntry, unsentEntries, withoutTexts } from "./sending";
 import { type FindState, headState, ReaderColumn, stepCalls } from "./readercolumn";
 import { PaneStrip, type StripHost } from "./strip";
 import { Talk, type TalkTarget } from "./talk";
 import { TalkDock } from "./talkdock";
-import { ReplyText } from "./text";
 import { type InboxMark, TitleRow } from "./titlerow";
+import { buildTree, type Convo, type Project } from "./tree";
+import { countsOf, type Narrow, narrow as narrowTree, search as searchTree } from "./treefilter";
 import { WorkerSessionPage } from "./workersession";
 
 // The inbox's state: pinned beside the page, docked beside it while no row has been opened, hidden once one has, or
@@ -142,9 +131,6 @@ interface PendingTarget {
 const stateWorking = "working";
 // The block kind a notice names when it opens the contract page.
 const contractBlock = "contract";
-const needsYouTitle = "Needs you";
-const newSinceTitle = "New since you looked";
-const noDirectoryTitle = "no directory";
 const epicUnavailableText = "epic unavailable";
 const seenFailedText = "could not mark seen";
 const answerFailedText = "no answer was sent";
@@ -153,10 +139,8 @@ const interruptFailedText = "could not interrupt";
 const commandFailedText = "epic command failed";
 const sessionUnavailableText = "session unavailable";
 const archiveFailedText = "could not change archive";
-const archivedTitle = "Archived";
 // The most entries one page of an epic's history asks for.
 const historyPageSize = 200;
-const heldMark = "‖";
 
 // The query of the wide layout, the same one style.css's wide block uses. Only that layout hides, pops out or pins the
 // inbox: a narrower window always shows it docked, as the stacked layout does.
@@ -170,6 +154,7 @@ export function App({
   seenClock,
   seenWindow,
   epics = noEpics,
+  contracts = [],
   notices = [],
   host = null,
   onViewing,
@@ -183,6 +168,7 @@ export function App({
   seenClock?: SeenClock;
   seenWindow?: SeenWindow;
   epics?: EpicsView;
+  contracts?: Contract[];
   notices?: InAppNotice[];
   host?: HostStatusResponse | null;
   onViewing?: (viewing: Viewing) => void;
@@ -191,7 +177,12 @@ export function App({
 }) {
   const [view, setView] = useState<View>("inbox");
   const [cursor, setCursor] = useState<Cursor>({ key: "", index: 0 });
-  const [filter, setFilter] = useState("");
+  // The search text while the search field is open, and null while it is shut.
+  const [searchText, setSearchText] = useState<string | null>(null);
+  // The chip the tree is narrowed by.
+  const [narrowBy, setNarrowBy] = useState<Narrow>("");
+  // The focus the search field takes once the render that draws it has run.
+  const focusSearch = useRef(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [open, setOpen] = useState(false);
   // Whether the strips under the title rows are drawn. m hides and shows every one of them.
@@ -277,10 +268,10 @@ export function App({
   // the list's own archived field until the next list answer, which carries that field.
   const [rowMarks, setRowMarks] = useState<Map<string, boolean>>(() => new Map());
   const [epicMarks, setEpicMarks] = useState<Map<string, boolean>>(() => new Map());
-  // Whether the accepted, waiting epics are open under their line. They start closed.
-  const [waitingOpen, setWaitingOpen] = useState(false);
-  // Whether the seen ended epics are open under their ended earlier line. They start closed.
-  const [endedOpen, setEndedOpen] = useState(false);
+  // The projects whose cards are folded, and the projects whose ended line is open, by project key. They start unfolded
+  // and shut.
+  const [folded, setFolded] = useState<Set<string>>(() => new Set());
+  const [endedOpen, setEndedOpen] = useState<Set<string>>(() => new Set());
   // The detail each epic the poll did not load answers with when its page opens. An epic is asked for once, so the
   // answers are kept here and the asked ids in a ref.
   const [askedDetails, setAskedDetails] = useState<Map<string, EpicsGetResponse>>(() => new Map());
@@ -312,7 +303,7 @@ export function App({
   // as sending in its row's reader until its stored prompt arrives.
   const [sendingByRow, setSendingByRow] = useState<Map<string, Sending[]>>(() => new Map());
   const seenWatch = useRef<ReturnType<typeof watchSeen>>();
-  // The row or unseen ended epic the seen watch last rested on, which its write marks seen.
+  // The row or ended epic the seen watch last rested on, which its write marks seen.
   const restedSeen = useRef<Row | EpicItem | null>(null);
 
   // The address App reports. lastForm is the form it last reported or applied. cause is the mode the next address change
@@ -369,34 +360,47 @@ export function App({
     renderAddress();
   };
 
-  const words = filter
+  const words = (searchText ?? "")
     .toLowerCase()
     .split(/\s+/)
     .filter((word) => word !== "");
   const shownRows = rows.map((row) => readAsSeen(withRowMark(row, rowMarks), seenWritten));
-  const matching = shownRows.filter((row) => matchesFilter(row, words));
-  const { rows: defaultRows, archived: archivedRows } = splitArchived(matching);
   // The epics as the local archive marks leave them, which the views draw in place of the list's.
   const marked = withEpicMarks(epics, epicMarks);
-  // The cursor's epic stays in Just ended while the cursor rests on it, even once it is seen. The cursor is held by
-  // key, so its epic is the seen one the endedEarlier list holds under that key. While the ended earlier line is open
-  // the seen epics are drawn in place, so none is kept and the cursor walks them in their drawn order.
-  const seenView = readEpicsAsSeen(marked, seenEpics);
-  const cursorEpicId = endedOpen ? "" : (seenView.endedEarlier.find((item) => item.key === cursor.key)?.id ?? "");
-  const kept = keepUnderCursor(seenView, cursorEpicId);
+  // The listed epics, each with the local archive mark applied to its archived field, which the tree places.
+  const treeEpics = [...epics.listed.values()].map((epic) => {
+    const mark = epicMarks.get(epic.id);
+    return mark === undefined ? epic : { ...epic, archived: mark };
+  });
+  // The tree of the view before the chips and the search narrow it: each project's conversations, with the epics and
+  // contracts that hang under them.
+  const tree = buildTree({
+    rows: shownRows,
+    epics: treeEpics,
+    details: epics.details,
+    contracts,
+    host: host?.host ?? "",
+    view,
+  });
+  const counts = countsOf(tree);
+  const projects = searchTree(narrowTree(tree, view === "inbox" ? narrowBy : ""), words);
+  // A chip whose count reaches zero turns its narrowing off, so the tree is not left narrowed to what it cannot show.
+  useEffect(() => {
+    if ((narrowBy === "waiting" && counts.waiting === 0) || (narrowBy === "new" && counts.fresh === 0)) {
+      setNarrowBy("");
+    }
+  }, [narrowBy, counts.waiting, counts.fresh]);
   // The needs of the live epics, in list order: a live epic's Get answer carries its Epic, and the details hold exactly
-  // the live epics. An archived epic's needs are left out. Only the inbox has the Needs you section that draws them.
-  const archivedIds = new Set(kept.archived.map((item) => item.id));
+  // the live epics. An archived epic's needs are left out.
+  const archivedIds = new Set(marked.archived.map((item) => item.id));
   const detailEpics = [...epics.details.values()].flatMap((detail) =>
     detail.epic === undefined || archivedIds.has(detail.epic.id) ? [] : [detail.epic],
   );
-  // The live epics' needs, which the mark counts in every view. Only the inbox draws them in its section.
-  const liveNeeds = epicNeeds(detailEpics, epics.details);
-  const needs = view === "inbox" ? liveNeeds : [];
   // The mark's count: the loaded rows that need you and are not archived, and the live epics' needs. It reads the same
   // in every view and under any filter, as the list reads every loaded row after seen writes.
   const markNeeds =
-    splitArchived(shownRows).rows.filter((row) => row.state === stateWaiting).length + liveNeeds.length;
+    splitArchived(shownRows).rows.filter((row) => row.state === stateWaiting).length +
+    epicNeeds(detailEpics, epics.details).length;
   // Under 760px the inbox is docked, whatever the row, the pin and the pop-out hold.
   const inboxState: InboxState = !wide
     ? "docked"
@@ -411,11 +415,9 @@ export function App({
   // Escape and b tuck back.
   const inboxHidden = inboxState === "hidden";
   const keyPopped = inboxState === "flyout" && popout === "key";
-  const sections =
-    view === "inbox"
-      ? withEpicsGroup(withNeedsSection(byAttention(defaultRows), needs.length > 0), kept)
-      : [archivedSection(kept.archived, archivedRows)];
-  const flat = sections.flatMap((section) => entriesOf(section, waitingOpen, endedOpen));
+  // The Archived head's count: the archived conversations and the archived epics.
+  const archivedCount = shownRows.filter((row) => row.archived).length + marked.archived.length;
+  const flat = treeEntries(projects, folded, endedOpen);
   // The open ⋯ menu's entry, when the list draws it: a menu whose entry is not drawn counts as closed.
   const menuDrawn = menuKey !== null && flat.some((item) => item.key === menuKey);
   const openMenu = menuDrawn ? menuKey : null;
@@ -436,7 +438,7 @@ export function App({
   const epicEntry = cursorItem?.kind === "epic" ? cursorItem : null;
   // The cursor's epic entry while its ending reads unseen: the seen watch rests on it, and its write marks it seen.
   const restedEpic =
-    epicEntry !== null && seenView.justEnded.some((item) => item.key === epicEntry.key) ? epicEntry : null;
+    epicEntry !== null && unseenEnding(epicEntry, epics.listed.get(epicEntry.id), seenEpics) ? epicEntry : null;
   const stepEntries = flat.filter((item): item is StepItem => item.kind === "step");
   const epicDetail =
     epicEntry === null ? undefined : (epics.details.get(epicEntry.id) ?? askedDetails.get(epicEntry.id));
@@ -603,9 +605,10 @@ export function App({
 
   // onViewing reports the viewing key of the cursor's entry each time that entry's kind or id changes, so the page's
   // presence reports name what it shows.
+  const viewed = cursorItem !== null && cursorItem.kind !== "contract" ? cursorItem : null;
   useEffect(() => {
-    onViewing?.(viewingOf(cursorItem));
-  }, [cursorItem?.kind, cursorItem?.id]);
+    onViewing?.(viewingOf(viewed));
+  }, [viewed?.kind, viewed?.id]);
 
   // Showing another epic closes the dock. A row or step shows no epic, so the dock is kept across it.
   useLayoutEffect(() => {
@@ -621,6 +624,14 @@ export function App({
     }
     restorePageScroll.current = null;
   }, [epicPage]);
+
+  // A search field opened by / or the head's control takes its focus once the render that draws it has run.
+  useLayoutEffect(() => {
+    if (focusSearch.current && inputRef.current !== null) {
+      focusSearch.current = false;
+      inputRef.current.focus();
+    }
+  });
 
   // An opening focuses the reply box it names, with the caret at the end of its text. The box is drawn by the same render
   // that moved the cursor or pinned the row, so it is in its ref here.
@@ -697,16 +708,6 @@ export function App({
     return () => document.removeEventListener("pointerdown", close);
   }, [menuKey]);
 
-  // archiveControl is the ⋯ menu an entry's line draws. Its one item is Archive in a default view, and Unarchive in the
-  // Archived one. toggle opens the entry's menu, or shuts it when it is the open one, so only one menu is open.
-  const archiveControl = (entry: Row | EpicItem): ArchiveControl => ({
-    archived: view === "archived",
-    open: openMenu === entry.key,
-    run: () => setArchive(entry, view !== "archived"),
-    toggle: () => setMenuKey((current) => (current === entry.key ? null : entry.key)),
-    close: () => setMenuKey(null),
-  });
-
   // answerCursor sends the choice to the cursor's row's waiting question through actions.answer, with the conversation
   // the reader holds for that row only. A false result or a rejection shows a fixed line; nothing is retried.
   const answerCursor = (choice: 1 | 2 | 3) => {
@@ -744,8 +745,8 @@ export function App({
     return () => watch.stop();
   }, [clients, seenClock, seenWindow]);
 
-  // Each render tells the watch the cursor's row, or its unseen ended epic, and whether it reads as unseen. A changed
-  // row is a new key, so a change made while the cursor rests on it gets its own dwell; an ending is a key of its own.
+  // Each render tells the watch the cursor's row or unseen ended epic, and whether it reads as unseen. A changed row is a
+  // new key, so a change made while the cursor rests on it gets its own dwell; an ending is a key of its own.
   useEffect(() => {
     restedSeen.current = cursorRow ?? restedEpic;
     if (restedEpic !== null) {
@@ -1053,17 +1054,44 @@ export function App({
     }
   }, [pending, rows, flat]);
 
-  // openEpic moves the cursor to an epic's entry, first opening the accepted or ended earlier line that holds it when
-  // that line is shut. The entry is then in the list, so the cursor rests on it.
+  // revealKey opens what hides the entry under key: its project's card when the card is folded, and its ended line when
+  // the entry sits behind that line. Then the entry is drawn, so the cursor can rest on it.
+  const revealKey = (key: string) => {
+    for (const project of tree) {
+      const behind = project.ended.some((convo) => holdsKey(convo, key));
+      if (behind || project.convos.some((convo) => holdsKey(convo, key))) {
+        setFolded((previous) => withMember(previous, project.key, false));
+      }
+      if (behind) {
+        setEndedOpen((previous) => withMember(previous, project.key, true));
+      }
+    }
+  };
+
+  // openEpic moves the cursor to an epic's entry, after revealing it. The entry is then in the list, so the cursor rests
+  // on it.
   const openEpic = (id: string) => {
-    if (marked.waiting.some((item) => item.id === id)) {
-      setWaitingOpen(true);
-    }
-    if (kept.endedEarlier.some((item) => item.id === id)) {
-      setEndedOpen(true);
-    }
+    revealKey(`epic:${id}`);
     setCursor({ key: `epic:${id}`, index: shownIndex });
   };
+
+  // selectKey moves the cursor to the entry drawn under key, as a press on that entry does.
+  const selectKey = (key: string) => {
+    const item = flat.find((candidate) => candidate.key === key);
+    if (item !== undefined) {
+      selectItem(item);
+    }
+  };
+
+  // openSearchField sets the search field's text, and the field opens when the text is not null. A field that is not
+  // drawn yet takes its focus in the layout effect after the render that draws it.
+  const openSearchField = (text: string | null) => {
+    if (text !== null && inputRef.current === null) {
+      focusSearch.current = true;
+    }
+    setSearchText(text);
+  };
+
 
   // openEpicStep opens a step of an epic: the epic's entry, and the page of the step's worker session over the epic page.
   const openEpicStep = (epic: string, step: string) => {
@@ -1152,7 +1180,7 @@ export function App({
     markNoticeSeen(notice);
     const epic = notice.key?.epic ?? "";
     if (epic !== "") {
-      if (listsEpic(kept, epic)) {
+      if (listsEpic(marked, epic)) {
         openEpic(epic);
         setLanding({ kind: notice.block?.kind ?? "" });
       }
@@ -1219,7 +1247,7 @@ export function App({
   useLayoutEffect(() => {
     if (focusPending.current) {
       focusPending.current = false;
-      document.querySelector<HTMLElement>(".b-row.cur")?.focus();
+      document.querySelector<HTMLElement>(".row.cur")?.focus();
     }
   });
   const focusCursorRow = () => {
@@ -1228,7 +1256,7 @@ export function App({
       setPopout("key");
       return;
     }
-    document.querySelector<HTMLElement>(".b-row.cur")?.focus();
+    document.querySelector<HTMLElement>(".row.cur")?.focus();
   };
 
   // replyBoxTarget is the row whose reply box is focused, when it is the cursor's or the pinned row's, with the row's
@@ -1278,7 +1306,7 @@ export function App({
     toggleStrips,
     setPickerOpen,
     setMenuKey,
-    setFilter,
+    setFilter: openSearchField,
     setPopout,
     setRowOpened: navigated(setRowOpened),
     setBoxOpened,
@@ -1396,183 +1424,70 @@ export function App({
     );
   };
 
+  // renderConvo draws a conversation of the tree: its row, and what hangs under it. A row drawn again behind the ended line
+  // is the parent of its ended things, and draws no cursor.
+  const renderConvo = (convo: Convo) => (
+    <ConvoRow
+      convo={convo}
+      now={now}
+      cursorKey={cursorKey}
+      renderRow={(row) => (
+        <InboxRow
+          key={row.key}
+          row={row}
+          now={now}
+          cursor={!convo.again && row.key === cursorRowKey}
+          more={rowMore(row)}
+          onOpen={() => {
+            selectItem(row);
+            setRowOpened(true);
+            setBoxOpened({ column: "cursor", key: row.key });
+          }}
+          onSeen={() => {
+            selectItem(row);
+            void writeSeen(row);
+          }}
+        />
+      )}
+      onSelect={selectKey}
+    />
+  );
+
+  // notes are the error lines the list shows above its rows, in the order they were set.
+  const notes = [error, seenError, answerError, escapeError, archiveError, commandError]
+    .filter((line) => line !== "")
+    .map((line) => (
+      <p class="error" role="alert" key={line}>
+        {line}
+      </p>
+    ));
+
   return (
     <main class="app">
       <div class={pinned !== null ? "panes split" : "panes"} data-inbox={inboxState}>
         {notices.length > 0 && <NoticeBanner notices={notices} onOpen={openNotice} onDismiss={markNoticeSeen} />}
         <div class="list" ref={listRef} onMouseLeave={() => setPopout("none")}>
-          <header class="top">
-            <div class="brand">
-              <Mark />
-              orrery
-              <button type="button" title="Start a session, or find one  N" onClick={() => setPickerOpen(true)}>
-                <svg class="icon" viewBox="0 0 16 16" aria-hidden="true">
-                  <path d="M8 3v10M3 8h10" />
-                </svg>
-                New
-              </button>
-            </div>
-            <div class="filter">
-              <kbd>/</kbd>
-              <input
-                ref={inputRef}
-                value={filter}
-                placeholder="Filter"
-                aria-label="filter rows"
-                onInput={(event) => setFilter(event.currentTarget.value)}
-              />
-            </div>
-            <button type="button" class="keys-hint" aria-label="Keys" title="Keys  ?" onClick={() => setHelpOpen(true)}>
-              <svg class="icon" viewBox="0 0 16 16" aria-hidden="true">
-                <path d="M3.5 4h9A1.5 1.5 0 0 1 14 5.5v5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 10.5v-5A1.5 1.5 0 0 1 3.5 4zM5 7h.5M7.8 7h.5M10.6 7h.5M5.5 9.5h5" />
-              </svg>
-            </button>
-            {error !== "" && (
-              <p class="error" role="alert">
-                {error}
-              </p>
-            )}
-            {seenError !== "" && (
-              <p class="error" role="alert">
-                {seenError}
-              </p>
-            )}
-            {answerError !== "" && (
-              <p class="error" role="alert">
-                {answerError}
-              </p>
-            )}
-            {escapeError !== "" && (
-              <p class="error" role="alert">
-                {escapeError}
-              </p>
-            )}
-            {archiveError !== "" && (
-              <p class="error" role="alert">
-                {archiveError}
-              </p>
-            )}
-            {commandError !== "" && (
-              <p class="error" role="alert">
-                {commandError}
-              </p>
-            )}
-          </header>
-          <div class="rows" data-list={view}>
-            {sections.map((section) => (
-              <div class="section">
-                <div class={sectionClass(section.title)}>
-                  <span class="title">{sectionTitle(section)}</span>
-                  <i>{section.title === needsYouTitle ? section.count + needs.length : section.count}</i>
-                </div>
-                {section.epics.map((block) => (
-                  <Fragment key={block.epic.key}>
-                    <EpicLine
-                      epic={block.epic}
-                      full={block.full}
-                      current={block.epic.key === cursorKey}
-                      now={now}
-                      ended={view === "archived" ? archivedEnded(block.epic, now) : undefined}
-                      archive={archiveControl(block.epic)}
-                      onSelect={selectItem}
-                    />
-                    {block.steps.map((step) => (
-                      <StepEntry key={step.key} step={step} current={step.key === cursorKey} onSelect={selectItem} />
-                    ))}
-                    {block.more > 0 && <div class="b-more">{`${block.more} more`}</div>}
-                    {block.tail !== "" && <div class="b-more">{block.tail}</div>}
-                  </Fragment>
-                ))}
-                {section.justEnded.map((epic) => (
-                  <EpicLine
-                    key={epic.key}
-                    epic={epic}
-                    full={false}
-                    current={epic.key === cursorKey}
-                    now={now}
-                    ended={endedWords(epic, now)}
-                    archive={archiveControl(epic)}
-                    onSelect={selectItem}
-                  />
-                ))}
-                {section.endedEarlier.length > 0 && (
-                  <div class="b-more" onClick={() => setEndedOpen((value) => !value)}>
-                    {`${section.endedEarlier.length} ended earlier ›`}
-                  </div>
-                )}
-                {endedOpen &&
-                  section.endedEarlier.map((epic) => (
-                    <EpicLine
-                      key={epic.key}
-                      epic={epic}
-                      full={false}
-                      current={epic.key === cursorKey}
-                      now={now}
-                      ended={endedWords(epic, now)}
-                      archive={archiveControl(epic)}
-                      onSelect={selectItem}
-                    />
-                  ))}
-                {section.waiting.length > 0 && (
-                  <div class="b-more" onClick={() => setWaitingOpen((value) => !value)}>
-                    {`${section.waiting.length} accepted, waiting to start`}
-                  </div>
-                )}
-                {waitingOpen &&
-                  section.waiting.map((epic) => (
-                    <EpicLine
-                      key={epic.key}
-                      epic={epic}
-                      full={false}
-                      current={epic.key === cursorKey}
-                      now={now}
-                      archive={archiveControl(epic)}
-                      onSelect={selectItem}
-                    />
-                  ))}
-                {section.rows.map((item) => (
-                  <InboxRow
-                    key={item.key}
-                    row={item}
-                    now={now}
-                    cursor={item.key === cursorRowKey}
-                    more={rowMore(item)}
-                    onOpen={() => {
-                      selectItem(item);
-                      setRowOpened(true);
-                      setBoxOpened({ column: "cursor", key: item.key });
-                    }}
-                    onSeen={() => {
-                      selectItem(item);
-                      void writeSeen(item);
-                    }}
-                  />
-                ))}
-                {section.title === needsYouTitle &&
-                  needs.map((need) => (
-                    <NeedEntry
-                      key={`${need.kind}:${need.epic}:${need.question}`}
-                      need={need}
-                      slug={epics.details.get(need.epic)?.epic?.slug ?? ""}
-                      commands={epicCommands(clients, need.epic, setCommandError)}
-                      onOpen={navigated(() => openEpic(need.epic))}
-                    />
-                  ))}
-              </div>
-            ))}
-          </div>
-          <footer class="inbox-foot">
-            {view === "archived" ? (
-              <button type="button" class="btn quiet" onClick={() => openView("inbox")}>
-                <span>Back to the inbox</span>
-              </button>
-            ) : (
-              <button type="button" class="btn quiet" onClick={() => openView("archived")}>
-                <span>Archived</span>
-                <kbd>v</kbd>
-              </button>
-            )}
-          </footer>
+          <Inbox
+            view={view}
+            state="ready"
+            projects={projects}
+            counts={counts}
+            narrow={view === "inbox" ? narrowBy : ""}
+            onNarrow={setNarrowBy}
+            search={searchText}
+            onSearch={openSearchField}
+            searchRef={inputRef}
+            folded={folded}
+            onFold={(key) => setFolded((previous) => withMember(previous, key, !previous.has(key)))}
+            endedOpen={endedOpen}
+            onEnded={(key) => setEndedOpen((previous) => withMember(previous, key, !previous.has(key)))}
+            renderConvo={renderConvo}
+            archivedCount={archivedCount}
+            onView={openView}
+            onNew={() => setPickerOpen(true)}
+            onKeys={() => setHelpOpen(true)}
+            notes={notes}
+          />
         </div>
         <ReaderColumn
           column="cursor"
@@ -1675,16 +1590,9 @@ export function App({
   );
 }
 
-// matchesFilter keeps a row whose label, project, host, state or summary holds every typed word.
-function matchesFilter(row: Row, words: string[]): boolean {
-  const haystack = [row.label, row.project, row.host, row.state, row.summary].join(" ").toLowerCase();
-  return words.every((word) => haystack.includes(word));
-}
-
-// readAsSeen clears a row's unseen mark once its seen write succeeded, until its changed time moves past the one it had.
-function readAsSeen(row: Row, written: Map<string, number>): Row {
-  const writtenAt = written.get(row.key);
-  return row.unseen && writtenAt !== undefined && row.changed <= writtenAt ? { ...row, unseen: false } : row;
+// newestEnding orders ended epics newest ending first.
+function newestEnding(a: EpicItem, b: EpicItem): number {
+  return b.phaseAt - a.phaseAt;
 }
 
 // endingKey names one ending of an ended epic: its line's key and the time it ended. A later ending has a new key.
@@ -1692,20 +1600,22 @@ function endingKey(epic: EpicItem): string {
   return `${epic.key}@${epic.phaseAt}`;
 }
 
-// readEpicsAsSeen moves each just-ended epic whose ending a seen write landed for into endedEarlier, newest ending
-// first, as the epics view draws an epic its poll reads as seen.
-function readEpicsAsSeen(view: EpicsView, written: Set<string>): EpicsView {
-  const isWritten = (epic: EpicItem) => written.has(endingKey(epic));
-  return {
-    ...view,
-    justEnded: view.justEnded.filter((epic) => !isWritten(epic)),
-    endedEarlier: [...view.endedEarlier, ...view.justEnded.filter(isWritten)].sort(newestEnding),
-  };
+// unseenEnding says whether an epic's ending reads unseen: the epic is listed as not live, is not archived, was seen
+// before it ended, and no landed Epics.Seen covers this ending.
+function unseenEnding(epic: EpicItem, listed: Epic | undefined, written: Set<string>): boolean {
+  return (
+    listed !== undefined &&
+    !listed.live &&
+    !epic.archived &&
+    Number(listed.seen) < epic.phaseAt &&
+    !written.has(endingKey(epic))
+  );
 }
 
-// newestEnding orders ended epics newest ending first.
-function newestEnding(a: EpicItem, b: EpicItem): number {
-  return b.phaseAt - a.phaseAt;
+// readAsSeen clears a row's unseen mark once its seen write succeeded, until its changed time moves past the one it had.
+function readAsSeen(row: Row, written: Map<string, number>): Row {
+  const writtenAt = written.get(row.key);
+  return row.unseen && writtenAt !== undefined && row.changed <= writtenAt ? { ...row, unseen: false } : row;
 }
 
 // withRowMark applies the archive mark a landed call left to a row. A row with no mark is returned as it is.
@@ -1760,25 +1670,6 @@ function withEpicMarks(view: EpicsView, marks: Map<string, boolean>): EpicsView 
     details: view.details,
     listed: view.listed,
   };
-}
-
-// archivedSection is the Archived view's one section: each archived epic as a line, then each archived row.
-function archivedSection(epics: EpicItem[], rows: Row[]): EpicSection {
-  return {
-    title: archivedTitle,
-    epics: epics.map((item): EpicBlock => ({ epic: item, full: false, steps: [], more: 0, tail: "" })),
-    waiting: [],
-    rows,
-    justEnded: [],
-    endedEarlier: [],
-    count: epics.length + rows.length,
-  };
-}
-
-// archivedEnded is the ended words an archived epic's line draws when its detail does not say it is live: its outcome
-// and the time since it ended. A live epic's line draws its state from its detail, so it draws none.
-function archivedEnded(item: EpicItem, now: number): string | undefined {
-  return item.detail?.epic?.live === true ? undefined : endedWords(item, now);
 }
 
 // lineWrite runs one write whose failure shows a fixed line. A failure sets the line to failed and runs no landed; a
@@ -1901,7 +1792,7 @@ function noticeEntry(items: Item[], key: NoticeKey | undefined): Item | undefine
     if (item.kind === "pane") {
       return pane !== "" && item.id === pane;
     }
-    return item.kind !== "epic" && session !== "" && item.id === session;
+    return item.kind !== "epic" && item.kind !== "contract" && session !== "" && item.id === session;
   });
 }
 
@@ -1920,6 +1811,8 @@ function shownEntry(item: Item | null, epicPage: EpicPageState): Entry | null {
       return { kind: "step", id: item.id };
     case "epic":
       return epicPage.closed ? null : { kind: "epic", id: item.id, page: epicPage.page };
+    case "contract":
+      return null;
   }
 }
 
@@ -1970,63 +1863,6 @@ function epicCommands(clients: Clients, epicId: string, report: (line: string) =
   };
 }
 
-// entriesOf lists a section's entries in the order they are drawn: each epic with its steps, then the just-ended epics,
-// then the seen ones while their line is open, then the waiting epics while their line is open, then the rows.
-function entriesOf(section: EpicSection, waitingOpen: boolean, endedOpen: boolean): Item[] {
-  return [
-    ...section.epics.flatMap((block) => [block.epic, ...block.steps]),
-    ...section.justEnded,
-    ...(endedOpen ? section.endedEarlier : []),
-    ...(waitingOpen ? section.waiting : []),
-    ...section.rows,
-  ];
-}
-
-// StepEntry draws a step's line: its mark, label and five pips, then its held text when it is held, or its doing text
-// as text.
-function StepEntry({
-  step,
-  current,
-  onSelect,
-}: {
-  step: StepItem;
-  current: boolean;
-  onSelect: (item: Item) => void;
-}) {
-  return (
-    <div
-      class={`b-row step${step.held ? " held" : ""}${current ? " cur" : ""}`}
-      data-row=""
-      data-key={step.key}
-      aria-current={current ? "true" : undefined}
-      onClick={(event) => {
-        if (!isLinkClick(event)) {
-          onSelect(step);
-        }
-      }}
-    >
-      {step.held ? (
-        <span class="um" aria-hidden="true">
-          {heldMark}
-        </span>
-      ) : (
-        <span class="g g-working" aria-hidden="true" />
-      )}
-      <span class="label">{step.label}</span>
-      <span class="pips">
-        {step.pips.map((kind) => (
-          <i class={`k-${kind}`} />
-        ))}
-      </span>
-      {step.held ? (
-        <span class="held">{step.reason === "" ? "held" : `held · ${step.reason}`}</span>
-      ) : (
-        <ReplyText text={step.doing} />
-      )}
-    </div>
-  );
-}
-
 function clamp(index: number, length: number): number {
   return Math.min(Math.max(index, 0), length - 1);
 }
@@ -2036,31 +1872,58 @@ function findCurrent(stored: number, matches: number): number {
   return matches === 0 ? -1 : clamp(stored, matches);
 }
 
-function sectionTitle(section: EpicSection): string {
-  if (section.title !== "") {
-    return section.title;
+// treeEntries lists the entries the tree draws, in the order it draws them: each project not folded, its conversations,
+// then, while its ended line is open, its ended conversations. A conversation's row is an entry unless it is drawn again,
+// and each thing hung under a conversation is one: an epic, which is followed by its running steps, or a contract.
+function treeEntries(projects: readonly Project[], folded: ReadonlySet<string>, endedOpen: ReadonlySet<string>): Item[] {
+  const entries: Item[] = [];
+  const addConvo = (convo: Convo) => {
+    if (convo.row !== null && !convo.again) {
+      entries.push(convo.row);
+    }
+    for (const hung of convo.hung) {
+      if (hung.kind === "epic") {
+        entries.push(hung.block.epic, ...hung.block.steps);
+      } else {
+        entries.push(hung);
+      }
+    }
+  };
+  for (const project of projects) {
+    if (folded.has(project.key)) {
+      continue;
+    }
+    project.convos.forEach(addConvo);
+    if (endedOpen.has(project.key)) {
+      project.ended.forEach(addConvo);
+    }
   }
-  return section.rows[0]?.host || noDirectoryTitle;
+  return entries;
 }
 
-// withNeedsSection adds a Needs you section first when epic needs call for one and no waiting row has made it. Its rows
-// are none; the epic needs draw in it.
-function withNeedsSection(sections: Section[], hasNeeds: boolean): Section[] {
-  if (!hasNeeds || sections.some((section) => section.title === needsYouTitle)) {
-    return sections;
+// holdsKey says whether a conversation draws the entry under key: its row, or a thing hung under it, or a step of an epic
+// hung under it.
+function holdsKey(convo: Convo, key: string): boolean {
+  if (convo.row !== null && convo.row.key === key) {
+    return true;
   }
-  return [{ title: needsYouTitle, rows: [] }, ...sections];
+  return convo.hung.some(
+    (hung) => hung.key === key || (hung.kind === "epic" && hung.block.steps.some((step) => step.key === key)),
+  );
 }
 
-// sectionClass marks the two heads that ask for a look: Needs you, and New since you looked.
-function sectionClass(title: string): string {
-  if (title === needsYouTitle) {
-    return "b-sec need";
+// withMember is the set with key in it when member, or out of it, and previous itself when it already is.
+function withMember(previous: Set<string>, key: string, member: boolean): Set<string> {
+  if (previous.has(key) === member) {
+    return previous;
   }
-  if (title === newSinceTitle) {
-    return "b-sec fresh";
+  const next = new Set(previous);
+  if (member) {
+    next.add(key);
+  } else {
+    next.delete(key);
   }
-  return "b-sec";
+  return next;
 }
 
 // pageClasses are the classes of the epic page section: its move, and docked while a conversation docks beside it.

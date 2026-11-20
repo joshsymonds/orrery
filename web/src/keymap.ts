@@ -1,6 +1,7 @@
 import type { Dispatch, StateUpdater } from "preact/hooks";
 
 import type { EpicItem, StepItem } from "./epics";
+import type { ContractItem } from "./tree";
 import type { Pane } from "./gen/orrery/v1/orrery_pb";
 import { stateWaiting } from "./inboxrow";
 import { headState } from "./readercolumn";
@@ -11,8 +12,8 @@ import type { View } from "./router";
 // Escape.
 export type Popout = "none" | "hover" | "key";
 
-// An entry the list shows and the cursor can rest on: a row, or an epic or step of the Epics group.
-export type Item = Row | EpicItem | StepItem;
+// An entry the tree shows and the cursor can rest on: a conversation row, an epic or step it steers, or a contract.
+export type Item = Row | EpicItem | StepItem | ContractItem;
 
 // The row an Escape acts on: the row, the column whose composer holds the key, and the row's state at the press.
 export interface EscapeTarget {
@@ -78,7 +79,8 @@ export interface KeyContext {
   toggleStrips: () => void;
   setPickerOpen: Dispatch<StateUpdater<boolean>>;
   setMenuKey: Dispatch<StateUpdater<string | null>>;
-  setFilter: Dispatch<StateUpdater<string>>;
+  // setFilter sets the search text, which opens the search field; null shuts it.
+  setFilter: (text: string | null) => void;
   setPopout: Dispatch<StateUpdater<Popout>>;
   setRowOpened: Dispatch<StateUpdater<boolean>>;
   setBoxOpened: Dispatch<StateUpdater<BoxOpen | null>>;
@@ -163,7 +165,7 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
     if (event.key === "Enter") {
       input.blur();
     } else if (event.key === "Escape") {
-      setFilter("");
+      setFilter(null);
       input.blur();
     }
     return;
@@ -228,8 +230,8 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
       setView("archived");
       break;
     case "A":
-      // A pane with no orrery_id and a step have no archive kind, so the key does nothing on either.
-      if (cursorItem !== null && cursorItem.kind !== "step") {
+      // A pane with no orrery_id, a step and a contract have no archive kind, so the key does nothing on any of them.
+      if (cursorItem !== null && cursorItem.kind !== "step" && cursorItem.kind !== "contract") {
         setArchive(cursorItem, true);
       }
       break;
@@ -282,7 +284,11 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
       }
       break;
     case "/":
-      inputRef.current?.focus();
+      if (inputRef.current !== null) {
+        inputRef.current.focus();
+      } else {
+        setFilter("");
+      }
       break;
     case "i":
       if (cursorStep !== null) {

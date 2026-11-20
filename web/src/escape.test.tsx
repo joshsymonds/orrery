@@ -239,7 +239,7 @@ function headWord(container: HTMLElement): string {
 }
 
 function cursorKey(container: HTMLElement): string | null {
-  return container.querySelector(".b-row.cur")?.getAttribute("data-key") ?? null;
+  return container.querySelector(".row.cur")?.getAttribute("data-key") ?? null;
 }
 
 // queueTexts is the text of each message in the cursor's queue above its box, oldest first, without its tag.
@@ -441,7 +441,7 @@ test("EscapeInterrupt: a failed withdraw shows an error line, and the interrupt 
 
 // clickRow clicks the list's row for key, as a pointer does: the row opens, and a docked inbox is hidden.
 async function clickRow(container: HTMLElement, key: string): Promise<void> {
-  const element = container.querySelector(`.b-row[data-key="${key}"]`);
+  const element = container.querySelector(`[data-key="${key}"]`);
   assert.ok(element, `the list draws the row ${key}`);
   await act(() => {
     element.dispatchEvent(new Event("click", { bubbles: true }));

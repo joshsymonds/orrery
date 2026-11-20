@@ -13,8 +13,6 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   app: { replacement: "inbox-home", epic: "F2" },
   // NowBlock draws an epic's now sentence over its blocker: an open question, a held step, a park, or nothing to block it.
   "now-block": { replacement: "epic-question", epic: "F4" },
-  // RowMenu draws the ⋯ menu of an epic line, shut, open, and open on an archived line.
-  "row-menu": { replacement: "Menu", epic: "F2" },
   // EpicPage draws an epic's page in each state the fixtures hold: a rota decision, a released holder, a contract with tide
   // alerts, a stopped epic offline, and paused follow-ups.
   "epic-page": { replacement: "epic-building", epic: "F4" },
@@ -33,9 +31,6 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   "marked-text": { replacement: "convo-find", epic: "F3" },
   // ReplyText draws reply text whose web links are links and whose other schemes stay text.
   "reply-text": { replacement: "Reply", epic: "F3" },
-  // NeedEntry draws an epic's need: a question that opens it, a park with Retry, a release with Retry and Stop, or a need that
-  // is only its sentence.
-  "need-entry": { replacement: "epic-question", epic: "F4" },
   // PhaseOutputPage draws a task's phase output at each phase of the rota export.
   "phase-output-page": { replacement: "phase-implement", epic: "F4" },
   // GreenProof and RedProof draw the green and red cards of an epic page, reached or dim.
@@ -83,9 +78,6 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   "dock/pane": { replacement: "Dock", epic: "F3" },
   "dock/session-worker": { replacement: "Dock", epic: "F3" },
   "dock/session-loading": { replacement: "Dock", epic: "F3" },
-  // EpicLine draws an epic's line as the list draws it today: the cursor on it, its ⋯ menu shut, and an epic with no detail,
-  // so no orrery. Round 6's EpicRow replaces it, and this line stays until the list moves to EpicRow.
-  "epic-line": { replacement: "EpicRow", epic: "F2" },
   // EpicEventBlock draws an epic's question event whose epic holds no open question, so the event reads it as settled.
   "epic-event-block/question-settled": { replacement: "EpicEventBlock", epic: "F3" },
   // StepEndBlock draws a step that ended with no agent named and a looping reason, and a step's end that waits to be spoken.

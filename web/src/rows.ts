@@ -37,26 +37,11 @@ export interface Row {
   archiveKind: ArchiveKind;
 }
 
-// A titled run of rows, in display order.
-export interface Section {
-  title: string;
-  rows: Row[];
-}
-
 // Panes in a tmux session with this prefix are internal to orrery and are not listed.
 const shellSessionPrefix = "_orrery-shell-";
 
 // A Sessions.List row with no label reads this word as its line.
 const sessionLabel = "session";
-
-const stateWaiting = "waiting";
-const stateWorking = "working";
-
-// Row ranks, smallest first. Waiting always sorts first.
-const rankWaiting = 0;
-const rankUnseen = 1;
-const rankWorking = 2;
-const rankRest = 3;
 
 // rowsFrom makes a row of each pane outside orrery's own shells, of each session that names no pane, and of each headless
 // session. A row's project is its directory and its label is its line: a pane's summary, a headless session's served
@@ -152,41 +137,8 @@ export function splitArchived(rows: Row[]): { rows: Row[]; archived: Row[] } {
   };
 }
 
-// Arranges rows into sections by attention, newest first within each section.
-export function byAttention(rows: Row[]): Section[] {
-  const sections: [number, string][] = [
-    [rankWaiting, "Needs you"],
-    [rankUnseen, "New since you looked"],
-    [rankWorking, "Working"],
-    [rankRest, "Seen"],
-  ];
-  const result: Section[] = [];
-  for (const [sectionRank, title] of sections) {
-    const sectionRows = rows
-      .filter((row) => rank(row) === sectionRank)
-      .sort((left, right) => right.changed - left.changed);
-    if (sectionRows.length > 0) {
-      result.push({ title, rows: sectionRows });
-    }
-  }
-  return result;
-}
-
 function isUnseen(state: string, changed: number, seen: number): boolean {
   return state !== "" && changed > seen;
-}
-
-function rank(row: Row): number {
-  if (row.state === stateWaiting) {
-    return rankWaiting;
-  }
-  if (row.unseen) {
-    return rankUnseen;
-  }
-  if (row.state === stateWorking) {
-    return rankWorking;
-  }
-  return rankRest;
 }
 
 // parseSeconds reads a decimal session timestamp; anything non-numeric reads as zero.

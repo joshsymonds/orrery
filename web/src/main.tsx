@@ -4,6 +4,7 @@ import { render } from "preact";
 import { App } from "./app";
 import { createClients, createTransport } from "./client";
 import { type EpicsView, epicsView, noEpics } from "./epics";
+import type { Contract } from "./gen/orrery/v1/contracts_pb";
 import type { InAppNotice } from "./gen/orrery/v1/notice_pb";
 import type { HostStatusResponse, WatchResponse } from "./gen/orrery/v1/orrery_pb";
 import { listHolds } from "./listholds";
@@ -43,6 +44,7 @@ interface Loaded {
   error: string;
   epics: EpicsView;
   epicsError: string;
+  contracts: Contract[];
 }
 
 // PageBuild is the build the page was bundled with and how it reloads itself.
@@ -140,7 +142,7 @@ export function start(
   win: SeenWindow = window,
   page: PageBuild = bundledPage,
 ): () => void {
-  let loaded: Loaded = { rows: [], error: "", epics: noEpics, epicsError: "" };
+  let loaded: Loaded = { rows: [], error: "", epics: noEpics, epicsError: "", contracts: [] };
   let notices: InAppNotice[] = [];
   let host: HostStatusResponse | null = null;
   let now = 0;
@@ -180,6 +182,7 @@ export function start(
         rows={loaded.rows}
         error={error}
         epics={loaded.epics}
+        contracts={loaded.contracts}
         now={now}
         clients={clients}
         notices={notices}
@@ -272,13 +275,13 @@ export function start(
   const runEpics = coalesced(async () => {
     const asked = refetch ?? changedOnly;
     refetch = null;
-    const next = await loadEpics(clients, held, asked);
+    const next = await loadEpics(clients, held, asked, loaded.contracts);
     if (stopped) {
       return;
     }
     held = next.held;
     steps = stepSessions(next.epics, next.details);
-    loaded = { ...loaded, epics: epicsView(next.epics, next.details), epicsError: next.error };
+    loaded = { ...loaded, epics: epicsView(next.epics, next.details), epicsError: next.error, contracts: next.contracts };
     epicsAnswered = true;
     settleAddress();
     now = Math.floor(Date.now() / 1000);

@@ -20,6 +20,7 @@ const epicsGetPath = "/orrery.v1.Epics/Get";
 const presencePath = "/orrery.v1.Presence/Report";
 const noticesWatchPath = "/orrery.v1.Notices/Watch";
 const hostStatusPath = "/orrery.v1.Host/Status";
+const contractsListPath = "/orrery.v1.Contracts/List";
 const clientHeader = "X-Orrery-Client";
 const clientValue = "orrery web";
 const intervalMs = 5;
@@ -77,6 +78,11 @@ function headlessSession(id: string, base: string) {
     summary: "",
     question: "",
   };
+}
+
+// proposedContract is a contract Contracts.List lists as proposed, written by the conversation whose id it names.
+function proposedContract(id: string, conversation: string) {
+  return { id, repository: "/work/api", title: `Contract ${id}`, care: "serious", state: "proposed", conversation };
 }
 
 // The host Host.Status answers with: one stat, so the meters button has a value to show.
@@ -148,6 +154,9 @@ interface FakeServer {
   epics: ReturnType<typeof liveEpic>[];
   // The contract each Epics.Get answers with, for a test whose epic page must show one.
   contract: { title: string; approved: string; intent: string } | undefined;
+  // The contracts Contracts.List answers with, and how many times it was asked.
+  contracts: ReturnType<typeof proposedContract>[];
+  contractsListCalls: number;
   // While set, Epics.List waits for it before answering.
   epicsGate: Promise<void> | null;
   epicsListCalls: number;
@@ -213,6 +222,10 @@ function fakeServer(paneDir: string, streaming = false): FakeServer {
           });
         }
         return json({});
+      }
+      if (path === contractsListPath) {
+        server.contractsListCalls++;
+        return json({ contracts: server.contracts });
       }
       if (path === epicsListPath) {
         server.epicsListCalls++;
@@ -281,6 +294,8 @@ function fakeServer(paneDir: string, streaming = false): FakeServer {
     extraPanes: [],
     epics: [],
     contract: undefined,
+    contracts: [],
+    contractsListCalls: 0,
     epicsGate: null,
     epicsListCalls: 0,
     epicsGetCalls: 0,
@@ -327,14 +342,22 @@ function nameOf(row: Element): string {
   return row.querySelector(".title")?.textContent ?? row.querySelector(".label")?.textContent ?? "";
 }
 
+// endedCount is how many ended conversations the drawn projects hold behind their ended lines, which read "N ended".
+function endedCount(root: HTMLElement): number {
+  return [...root.querySelectorAll(".dir .fold-line")].reduce((sum, line) => {
+    const match = /^(\d+) ended$/.exec(line.textContent ?? "");
+    return sum + (match === null ? 0 : Number(match[1]));
+  }, 0);
+}
+
 // labels names each row that is drawn, in the order drawn.
 function labels(root: HTMLElement): string[] {
-  return [...root.querySelectorAll("[data-row]")].map(nameOf).filter((name) => name !== "");
+  return [...root.querySelectorAll(".row[data-key]:not(.standin)")].map(nameOf).filter((name) => name !== "");
 }
 
 // ageOf returns the age text of the row named name, or "" when no such row is rendered.
 function ageOf(root: HTMLElement, name: string): string {
-  const rows = [...root.querySelectorAll("[data-row]")];
+  const rows = [...root.querySelectorAll(".row[data-key]:not(.standin)")];
   const row = rows.find((element) => nameOf(element) === name);
   return row?.querySelector(".age")?.textContent ?? "";
 }
@@ -774,9 +797,35 @@ test("a live epic from Epics.List and Get shows in the list with its count", (t)
       await until(t.signal, () => labels(root).includes("alpha") && labels(root).includes("api"), "the epic and the pane row");
       const epicRow = root.querySelector('[data-key="epic:repo-a/alpha"]');
       assert.ok(epicRow !== null, `no epic row; labels were ${JSON.stringify(labels(root))}`);
-      assert.equal(epicRow.querySelector(".rt")?.textContent, "1 of 2 tasks done", "the count did not come from Epics.Get");
+      assert.ok(epicRow.querySelector(".l2")?.textContent?.includes("1 of 2 tasks done"), "the count did not come from Epics.Get");
       assert.ok(labels(root).includes("draft"), `labels were ${JSON.stringify(labels(root))}`);
       assert.ok(labels(root).includes("api"), "the pane row is missing beside the epic");
+    } finally {
+      stop();
+    }
+  }));
+
+test("InboxTree: a proposed contract from Contracts.List hangs under its conversation, and stays when a later Contracts.List fails", (t) =>
+  withPage(t.signal, async (root, start) => {
+    const server = fakeServer("api");
+    server.headless = [headlessSession("s-1", "draft")];
+    server.contracts = [proposedContract("tide-alerts", "s-1")];
+    let contractsFail = false;
+    const fetch: typeof globalThis.fetch = (input, init) =>
+      contractsFail ? failing(server, [contractsListPath])(input, init) : server.fetch(input, init);
+    const clients = createClients(createTransport({ baseUrl: "https://orrery.test", fetch }));
+    const stop = start(root, clients, intervalMs);
+    try {
+      const drawn = () => root.querySelector('[data-key="contract:tide-alerts"]') !== null;
+      const listed = () => root.querySelector('[data-key="session:s-1"]') !== null;
+      await until(t.signal, () => drawn() && listed(), "the contract and its conversation");
+      const steers = root.querySelector('[data-key="contract:tide-alerts"]')?.closest(".steers");
+      assert.equal(steers?.previousElementSibling?.getAttribute("data-key"), "session:s-1", "the contract hangs elsewhere");
+      contractsFail = true;
+      const asked = server.epicsListCalls;
+      await until(t.signal, () => server.epicsListCalls >= asked + 2, "two epics loads with Contracts.List failing");
+      assert.ok(drawn(), "the held contract left the inbox when Contracts.List failed");
+      assert.equal(root.querySelector(".error"), null, "a failed Contracts.List drew an error line");
     } finally {
       stop();
     }
@@ -935,7 +984,7 @@ test("ChangedEpicsOnly: with the event stream open, an event reload over an unch
       // load has drawn, and a load draws only after its Gets have answered, so the count below is final by then.
       server.epics = [liveEpic("draft"), endedBeta];
       await fireEvent(t, server.watches[0], 8);
-      await until(t.signal, () => labels(root).includes("beta"), "the event's epics load", { step: turn });
+      await until(t.signal, () => endedCount(root) === 1, "the event's epics load", { step: turn });
       assert.equal(server.epicsGetCalls, gets, "an event reload over an unchanged list asked for an epic");
     } finally {
       stop();
@@ -968,7 +1017,7 @@ async function tickAsksChangedOnly(t: TestContext, streaming: boolean): Promise<
       const gets = server.epicsGetCalls;
       server.epics = [liveEpic("draft"), liveGamma("draft"), endedBeta];
       t.mock.timers.tick(pollMs);
-      await until(t.signal, () => labels(root).includes("beta"), "the tick's epics load", { step: turn });
+      await until(t.signal, () => endedCount(root) === 1, "the tick's epics load", { step: turn });
       assert.equal(server.epicsListCalls, lists + 1, "the tick did not list the epics once");
       assert.equal(server.epicsGetCalls, gets, "a tick over unchanged listed messages asked for an epic");
     } finally {
@@ -1031,7 +1080,7 @@ test("ChangedEpicsOnly: a poll tick asks for the epic the page shows even when i
       server.epics = [liveEpic("draft"), liveGamma("draft"), endedBeta];
       t.mock.timers.tick(pollMs);
       // The folded epic's label draws only once the tick's epics load has drawn, after its Gets answered.
-      await until(t.signal, () => labels(root).includes("beta"), "the tick's epics load", { step: settle });
+      await until(t.signal, () => endedCount(root) === 1, "the tick's epics load", { step: settle });
       assert.deepEqual(server.epicsGetIds.slice(asked), ["repo-a/alpha"]);
     } finally {
       stop();
@@ -1074,7 +1123,7 @@ test("ChangedEpicsOnly: a tick that lands while an epics load is in flight runs 
       server.epics = [liveEpic("review"), endedBeta];
       release();
       await until(t.signal, () => labels(root).includes("review"), "the held load's changed step", { step: turn });
-      await until(t.signal, () => labels(root).includes("beta"), "the tick's load after the held one", { step: turn });
+      await until(t.signal, () => endedCount(root) === 1, "the tick's load after the held one", { step: turn });
       assert.equal(server.epicsListCalls, 3, "the tick's load did not run once after the held one");
       assert.equal(server.maxEpicsInFlight, 1, "two epics loads overlapped");
     } finally {
@@ -1319,7 +1368,7 @@ function settle(): Promise<void> {
 
 // cursorKey is the key of the row, line or step the cursor rests on, or null when none does.
 function cursorKey(root: HTMLElement): string | null {
-  return root.querySelector(".b-row.cur")?.getAttribute("data-key") ?? null;
+  return root.querySelector(".row.cur")?.getAttribute("data-key") ?? null;
 }
 
 // rowDrawn reports whether the list draws the line under key.
@@ -1329,7 +1378,7 @@ function rowDrawn(root: HTMLElement, key: string): boolean {
 
 // viewOn is the view the list shows, which its rows name in data-list.
 function viewOn(root: HTMLElement): string {
-  return root.querySelector(".rows")?.getAttribute("data-list") ?? "";
+  return root.querySelector(".inbox-rows")?.getAttribute("data-list") ?? "";
 }
 
 // epicPageDrawn is whether the epic page section holds the epic page itself.

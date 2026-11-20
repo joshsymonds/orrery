@@ -181,12 +181,12 @@ async function withApp(
 
 // shownView is the view the list draws, which its rows name in data-list.
 function shownView(container: HTMLElement): string | null {
-  return container.querySelector(".rows")?.getAttribute("data-list") ?? null;
+  return container.querySelector(".inbox-rows")?.getAttribute("data-list") ?? null;
 }
 
 // cursorKey is the key of the entry the cursor rests on, or null when no entry is drawn as the cursor's.
 function cursorKey(container: HTMLElement): string | null {
-  return container.querySelector(".b-row.cur")?.getAttribute("data-key") ?? null;
+  return container.querySelector(".row.cur")?.getAttribute("data-key") ?? null;
 }
 
 // readerShown is whether the cursor's reader section is drawn.

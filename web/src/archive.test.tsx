@@ -209,12 +209,12 @@ async function tap(element: Element): Promise<void> {
 }
 
 function rowKeys(container: HTMLElement): string[] {
-  return [...container.querySelectorAll("[data-row]")].map((element) => element.getAttribute("data-key") ?? "");
+  return [...container.querySelectorAll(".row[data-key]:not(.standin)")].map((element) => element.getAttribute("data-key") ?? "");
 }
 
 // lineOf finds the line of a row, or of an epic by its key, which an epic's line carries as epic:<id>.
 function lineOf(container: HTMLElement, key: string): Element | null {
-  return container.querySelector(`[data-row][data-key="${key}"]`);
+  return container.querySelector(`[data-key="${key}"]`);
 }
 
 // moreButtonOf finds a line's ⋯ button, which opens the line's menu.
@@ -254,7 +254,7 @@ function menuOpen(scope: ParentNode | null): boolean {
 
 // cursorKey is the key of the row or epic the cursor rests on.
 function cursorKey(container: HTMLElement): string | null {
-  return container.querySelector(".b-row.cur")?.getAttribute("data-key") ?? null;
+  return container.querySelector(".row.cur")?.getAttribute("data-key") ?? null;
 }
 
 // back presses the foot's Back to the inbox, which leaves the Archived view for the inbox.
@@ -267,15 +267,11 @@ async function back(container: HTMLElement): Promise<void> {
 }
 
 function dataList(container: HTMLElement): string | null {
-  return container.querySelector(".rows")?.getAttribute("data-list") ?? null;
+  return container.querySelector(".inbox-rows")?.getAttribute("data-list") ?? null;
 }
 
 function archiveCalls(fake: FakeServer): Call[] {
   return fake.calls.filter((call) => call.path === archivePath || call.path === unarchivePath);
-}
-
-function sectionTitles(container: HTMLElement): (string | null)[] {
-  return [...container.querySelectorAll(".b-sec")].map((element) => element.querySelector(".title")?.textContent ?? null);
 }
 
 test("ArchiveView: Archive on a session row sends Epics.Archive with its kind and id, and the row leaves the inbox", (t) =>
@@ -292,13 +288,12 @@ test("ArchiveView: Archive on a session row sends Epics.Archive with its kind an
     },
   ));
 
-test("ArchiveView: Archive on an epic line sends Epics.Archive with kind epic and its id, and the line leaves", (t) =>
+test("ArchiveView: A on an epic entry sends Epics.Archive with kind epic and its id, and the line leaves", (t) =>
   withArchive(
     t.signal,
     { epics: epicsView([epic({ id: "w/first", slug: "first", repository: "w" })], new Map()) },
     async (container, fake) => {
-      await openMenu(container, "epic:w/first");
-      await click(menuItem(container, "epic:w/first", "Archive"));
+      await press("A");
       await until(t.signal, () => fake.callsTo(archivePath).length === 1, "the archive call");
       assert.deepEqual(fake.callsTo(archivePath)[0].body, { kind: "epic", id: "w/first" });
       await until(t.signal, () => lineOf(container, "epic:w/first") === null, "the line leaving the list");
@@ -332,7 +327,7 @@ test("ArchiveView: lowercase a and p do nothing and archive nothing", (t) =>
     },
   ));
 
-test("ArchiveView: the Archived view lists the archived row and epic with Unarchive, and the defaults leave them out", (t) =>
+test("ArchiveView: the Archived view lists the archived row and epic, and the defaults leave them out", (t) =>
   withArchive(
     t.signal,
     {
@@ -346,11 +341,9 @@ test("ArchiveView: the Archived view lists the archived row and epic with Unarch
       assert.deepEqual(rowKeys(container), ["p"], "the inbox leaves the archived row and epic out");
       await press("v");
       assert.equal(dataList(container), "archived");
-      assert.deepEqual(rowKeys(container), ["epic:w/old", "ha"]);
+      assert.deepEqual(rowKeys(container), ["ha", "epic:w/old"]);
       await openMenu(container, "ha");
       assert.ok(menuItem(container, "ha", "Unarchive"), "the headless row's menu holds Unarchive");
-      await openMenu(container, "epic:w/old");
-      assert.ok(menuItem(container, "epic:w/old", "Unarchive"), "the epic's menu holds Unarchive");
       await back(container);
       assert.equal(dataList(container), "inbox");
       assert.deepEqual(rowKeys(container), ["p"]);
@@ -372,34 +365,6 @@ test("RowMenu: the Archived view's menu holds Unarchive and sends Epics.Unarchiv
       assert.deepEqual(rowKeys(container), ["ha", "p"]);
     },
   ));
-
-test("ArchiveView: Unarchive on an archived live epic returns its line to the inbox", (t) => {
-  const live = epic({ id: "w/live", slug: "live", archived: true });
-  const epics = epicsView([live], new Map([[live.id, create(EpicsGetResponseSchema, { epic: live })]]));
-  return withArchive(t.signal, { epics }, async (container, fake) => {
-    await press("v");
-    await openMenu(container, "epic:w/live");
-    await click(menuItem(container, "epic:w/live", "Unarchive"));
-    await until(t.signal, () => fake.callsTo(unarchivePath).length === 1, "the unarchive call");
-    assert.deepEqual(fake.callsTo(unarchivePath)[0].body, { kind: "epic", id: "w/live" });
-    await until(t.signal, () => lineOf(container, "epic:w/live") === null, "the line leaving the Archived view");
-    await back(container);
-    assert.ok(lineOf(container, "epic:w/live"), "the line is back in the inbox");
-  });
-});
-
-test("ArchiveView: an archived live epic's needs leave Needs you", (t) => {
-  const asked = epic({ id: "w/asked", slug: "asked", archived: true });
-  const detail = create(EpicsGetResponseSchema, {
-    epic: asked,
-    questions: [{ id: "Q1", text: "Which way?", asked: 99880n }],
-  });
-  const epics = epicsView([asked], new Map([[asked.id, detail]]));
-  return withArchive(t.signal, { epics }, (container) => {
-    assert.equal(sectionTitles(container).includes("Needs you"), false, "no Needs you section names the archived epic");
-    assert.equal(lineOf(container, "epic:w/asked"), null, "the archived epic has no line in the inbox");
-  });
-});
 
 test("ArchivePaneRow: a pane with no orrery_id opens a More menu with no Archive item, and A on it sends nothing", (t) =>
   withArchive(t.signal, { rows: [row({ key: "p", label: "pane", archiveId: "" })] }, async (container, fake) => {
@@ -476,7 +441,7 @@ test("ArchiveView: a failed archive leaves the row where it was and shows the er
     assert.deepEqual(rowKeys(container), ["s1"]);
   }));
 
-test("RowMenu: a session row and an epic line draw a More or ⋯ button and no Archive text", (t) =>
+test("RowMenu: a session row draws a More button and no Archive text, and an epic line draws no ⋯", (t) =>
   withArchive(
     t.signal,
     {
@@ -484,11 +449,9 @@ test("RowMenu: a session row and an epic line draw a More or ⋯ button and no A
       epics: epicsView([epic({ id: "w/first", slug: "first", repository: "w" })], new Map()),
     },
     (container) => {
-      assert.equal(moreButtonOf(container, "epic:w/first").textContent, "⋯", "the epic line draws ⋯");
-      for (const key of ["s1", "epic:w/first"]) {
-        assert.equal(moreButtonOf(container, key).getAttribute("aria-expanded"), "false", `line ${key} has no menu open`);
-        assert.doesNotMatch(lineOf(container, key)?.textContent ?? "", /Archive/, `line ${key} draws no Archive text`);
-      }
+      assert.equal(moreButtonOf(container, "s1").getAttribute("aria-expanded"), "false", "the row has no menu open");
+      assert.doesNotMatch(lineOf(container, "s1")?.textContent ?? "", /Archive/, "the row draws no Archive text");
+      assert.equal(lineOf(container, "epic:w/first")?.querySelector('button[aria-label="more"]') === null, true, "the epic line draws no ⋯");
     },
   ));
 
@@ -525,7 +488,7 @@ test("RowMenu: with a working cursor row, Escape with its menu open closes the m
 test("RowMenu: a click outside the open menu closes it with no call", (t) =>
   withArchive(t.signal, { rows: [session({ key: "s1", id: "s1", label: "notes" })] }, async (container, fake) => {
     await openMenu(container, "s1");
-    const brand = container.querySelector(".brand");
+    const brand = container.querySelector(".inbox-head");
     assert.ok(brand, "the brand is rendered");
     await pointerDown(brand);
     await click(brand);
