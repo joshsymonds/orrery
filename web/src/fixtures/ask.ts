@@ -58,7 +58,7 @@ function askUser(...questions: { question: string; options: { label: string; des
 
 // The options of tidepool's question on pane %12, which round 6 gives in scenarios-convo.js and world.js.
 const beaconOptions = [
-  { label: "One query per week (Recommended)", description: "Join keepers in the week query. Smallest change; touches `query.go` only." },
+  { label: "One query per week", description: "Join keepers in the week query. Smallest change; touches `query.go` only." },
   { label: "Cache keepers for the request", description: "Keeps the row code as it is. Adds a per-request map." },
   { label: "Paginate the page", description: "Twenty shifts a page. Changes what the harbour office sees." },
 ];
@@ -76,7 +76,7 @@ const gatesQuestion =
 
 // The stale question's options, asked by commonframe, which round 6 gives in scenarios-convo.js.
 const staleOptions = [
-  { label: "Raise the budget line by $100 (Recommended)", description: "Wakes resume now; covers the remaining three gates." },
+  { label: "Raise the budget line by $100", description: "Wakes resume now; covers the remaining three gates." },
   { label: "Raise it by $50", description: "Covers this gate and some of the next." },
   { label: "Wait for the 14th", description: "No spend. Nothing gates until the line catches up." },
 ];
@@ -149,7 +149,7 @@ function askLater(): Slices {
         id: "req-gates",
         kind: "question",
         question: gatesQuestion,
-        options: ["Raise the budget line by $100 (Recommended)", "Run the gates locally"],
+        options: ["Raise the budget line by $100", "Run the gates locally"],
         putOff: true,
       }),
       pending: [create(PendingEventSchema, { id: "ev-gates", kind: "question", waits: "request" })],

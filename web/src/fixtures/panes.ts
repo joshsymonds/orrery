@@ -30,7 +30,7 @@ const askQuestion = (question: string, header: string, options: { label: string;
   JSON.stringify({ questions: [{ question, header, multiSelect: false, options }] });
 
 const beaconQuestion = askQuestion("Which fix should I make?", "Fix", [
-  { label: "One query per week (Recommended)", description: "Join keepers in the week query. Smallest change; touches `query.go` only." },
+  { label: "One query per week", description: "Join keepers in the week query. Smallest change; touches `query.go` only." },
   { label: "Cache keepers for the request", description: "Keeps the row code as it is. Adds a per-request map." },
   { label: "Paginate the page", description: "Twenty shifts a page. Changes what the harbour office sees." },
 ]);

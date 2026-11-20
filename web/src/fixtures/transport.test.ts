@@ -715,7 +715,7 @@ test("FixtureTransport: page/ask-sending holds the picked option, and its foot s
         "One query per week",
         "option 1 is held",
       );
-      assert.equal(askOf(root)?.querySelector(".opt.picked .chip")?.textContent, "recommended", "the held option is marked recommended");
+      assert.equal(askText(root, ".opt.picked .chip"), null, "the held option is not marked recommended");
     },
   );
 });
@@ -790,11 +790,7 @@ test("FixtureTransport: page/ask-stale says the question has waited five days, a
         true,
         "the archive button is drawn",
       );
-      assert.equal(
-        askOf(root)?.querySelector(".opts .opt:first-child .chip")?.textContent,
-        "recommended",
-        "the first option is marked recommended",
-      );
+      assert.equal(askText(root, ".opts .opt:first-child .chip"), null, "the first option is not marked recommended");
       assert.equal(askOf(root)?.querySelector(".opts .opt:first-child .nm")?.textContent, "Raise the budget line by $100");
     },
   );

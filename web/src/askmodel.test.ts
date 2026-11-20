@@ -177,7 +177,7 @@ test("Ask: a pane's plain-text question is answered by the three permission answ
   );
 });
 
-test("Ask: a pane AskUserQuestion option ending (Recommended) is named without the suffix and marked recommended", () => {
+test("Ask: a pane AskUserQuestion option is drawn with its served label verbatim, and no option is marked recommended from its label", () => {
   const stored = JSON.stringify({
     questions: [
       {
@@ -193,13 +193,13 @@ test("Ask: a pane AskUserQuestion option ending (Recommended) is named without t
   const model = conversationAsk(paneRow({ id: "%3", orreryId: "orr-1", question: stored, questionHash: "h1" }), null);
 
   assert.deepEqual(model?.options, [
-    { n: 1, name: "SQLite", does: "Embedded, one file", recommended: true, why: "", answerable: true },
+    { n: 1, name: "SQLite (Recommended)", does: "Embedded, one file", recommended: false, why: "", answerable: true },
     { n: 2, name: "Postgres", does: "", recommended: false, why: "", answerable: true },
   ]);
   assert.deepEqual(model?.target, { kind: "pane", id: "%3", questionHash: "h1", changed: 1794700000 });
 });
 
-test("Ask: a session option ending (Recommended) is named without the suffix and marked, and its target keeps the full served label", () => {
+test("Ask: a session option is drawn with its served label verbatim, and no option is marked recommended from its label", () => {
   const served = ["One query per week (Recommended)", "Cache keepers"];
   const row = headlessRow({});
 
@@ -209,7 +209,7 @@ test("Ask: a session option ending (Recommended) is named without the suffix and
   );
 
   assert.deepEqual(model?.options, [
-    { n: 1, name: "One query per week", does: "", recommended: true, why: "", answerable: true },
+    { n: 1, name: "One query per week (Recommended)", does: "", recommended: false, why: "", answerable: true },
     { n: 2, name: "Cache keepers", does: "", recommended: false, why: "", answerable: true },
   ]);
   assert.deepEqual(model?.target, { kind: "headless", id: row.id, requestId: "req-7", options: served });
