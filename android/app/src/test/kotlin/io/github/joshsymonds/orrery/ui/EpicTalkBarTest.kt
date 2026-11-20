@@ -57,6 +57,7 @@ class EpicTalkBarTest {
         const val STEERING = "example-session"
         const val STEERING_LABEL = "synthetic-steering-label"
         const val PANE_ID = "%2"
+        const val PANE_ORRERY_ID = "example-pane-orrery"
         const val PANE_LABEL = "synthetic-pane-label"
         const val PANES_LIST = "/orrery.v1.Panes/List"
         const val WATCH = "/orrery.v1.Sessions/WatchConversation"
@@ -213,12 +214,12 @@ class EpicTalkBarTest {
     @Test
     fun tappingTheFootBarOpensTheSteeringTmuxPaneOnItsOwnScreen() {
         FakeOrreryServer().use { server ->
-            server.respond(EPICS_GET, epic(steering = PANE_ID))
+            server.respond(EPICS_GET, epic(steering = PANE_ORRERY_ID))
             server.respond(EPICS_HISTORY, EpicsHistoryResponse.getDefaultInstance())
             server.respond(
                 PANES_LIST,
                 PanesListResponse.newBuilder()
-                    .addPanes(PaneProto.newBuilder().setId(PANE_ID).setLabel(PANE_LABEL))
+                    .addPanes(PaneProto.newBuilder().setId(PANE_ID).setOrreryId(PANE_ORRERY_ID).setLabel(PANE_LABEL))
                     .build(),
             )
             val app = launchOnEpic(server)

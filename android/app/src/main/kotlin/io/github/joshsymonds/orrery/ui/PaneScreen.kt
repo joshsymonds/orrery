@@ -362,7 +362,7 @@ fun PaneScreen(
                         compact = keyboardUp,
                     )
                     ConversationStrip(
-                        conversation = paneId,
+                        conversation = shown.orreryId,
                         pane = true,
                         background = emptyList(),
                         now = nowSeconds,

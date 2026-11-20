@@ -317,17 +317,17 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * The screen an epic's steering session opens: its tmux pane when [client] lists a pane with [id], else its headless
-     * session. The pane list is read off the main thread; a list that does not read opens the session, as an id that no
-     * pane has does.
+     * The screen an epic's steering session opens: the tmux pane whose orrery id is [id], else the headless session [id].
+     * The pane list is read off the main thread; a list that does not read opens the session, as an id that no pane has
+     * does.
      */
     private suspend fun steererScreen(client: OrreryClient, id: String): Screen {
         val pane = try {
-            withContext(Dispatchers.IO) { client.panes().firstOrNull { it.id == id } }
+            withContext(Dispatchers.IO) { client.panes().firstOrNull { it.orreryId == id } }
         } catch (error: IOException) {
             null
         }
-        return if (pane == null) Screen.Session(id) else Screen.Pane(id)
+        return if (pane == null) Screen.Session(id) else Screen.Pane(pane.id)
     }
 
     /**

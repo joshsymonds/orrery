@@ -46,6 +46,7 @@ import org.robolectric.annotation.GraphicsMode
 private const val SESSION = "example-session"
 private const val REPO = "example-repo"
 private const val PANE = "%1"
+private const val PANE_ORRERY_ID = "example-pane-orrery"
 private const val NOW = 1_700_000_000L
 private const val EPICS_LIST_PATH = "/orrery.v1.Epics/List"
 private const val SESSION_WATCH_PATH = "/orrery.v1.Sessions/WatchConversation"
@@ -447,6 +448,7 @@ class TileStripTest {
     /** A pane with no conversation, so the pane screen reads it by polling and shows no transcript. */
     private fun paneProto(): PaneProto = PaneProto.newBuilder()
         .setId(PANE)
+        .setOrreryId(PANE_ORRERY_ID)
         .setHost("example-host")
         .setSession("example-session")
         .setWindow(1)
@@ -563,7 +565,7 @@ class TileStripTest {
 
     @Test
     fun aPaneScreenDrawsTheStripOfTheEpicsItsPaneSteers() {
-        serveEpics(epicProto("epic-alpha", "$REPO-alpha", steering = PANE))
+        serveEpics(epicProto("epic-alpha", "$REPO-alpha", steering = PANE_ORRERY_ID))
         server.respond(PANES_LIST_PATH, PanesListResponse.newBuilder().addPanes(paneProto()).build())
         server.route(PANE_WATCH_PATH) {
             Reply.Stream(emptyList(), StreamEnd.Error(Code.NOT_FOUND, "synthetic pane has no stream"))

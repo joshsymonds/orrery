@@ -144,6 +144,8 @@ data class Pane(
     val lastTurnEnd: Long = 0L,
     /** True for a headless session, whose [id] is the session's id; false for a tmux pane. */
     val headless: Boolean = false,
+    /** The pane's @orrery_id, the id its session row carries and an epic's steering names; empty when unset. */
+    val orreryId: String = "",
 )
 
 data class PaneTool(val id: String, val name: String, val input: String, val start: Long)
@@ -1451,6 +1453,7 @@ class OrreryClient(
             tool = tool,
             newestReply = newestReply,
             lastTurnEnd = lastTurnEnd,
+            orreryId = orreryId,
         )
 
     /** A headless session as the pane list shows it: its id is the session's, and it has no tmux pane. */
