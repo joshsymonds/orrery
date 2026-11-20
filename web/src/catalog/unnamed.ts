@@ -28,8 +28,6 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   "reader-head": { replacement: "TitleRow", epic: "F3" },
   // TitleParts draws a title's directory and line, with either alone, and a line that holds a link.
   "title-parts": { replacement: "TitleRow", epic: "F3" },
-  // WorkerSessionPage draws a step's worker session while it runs, is held, has ended, or loads.
-  "worker-session-page": { replacement: "worker-running", epic: "F4" },
   // OutputTails draws a command's output tails: both, stdout only, stderr only.
   "output-tails": { replacement: "epic-evidence", epic: "F4" },
 

@@ -2041,11 +2041,12 @@ export function App({
         <WorkerSessionPage
           conversation={sessionStream !== null && sessionStream.key === page.step ? sessionShown : null}
           now={now}
+          detail={detail}
           step={step}
-          epic={detail.epic?.slug ?? ""}
           task={page.task}
           phase={page.phase}
-          onGoEpic={toEpicPage}
+          onOpenEpic={toEpicPage}
+          onOpenTask={openPhase}
           onBack={back}
           onOlder={() => sessionOlder.current()}
           nudge={calls.nudge}

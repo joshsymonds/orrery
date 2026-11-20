@@ -24,7 +24,7 @@ export const storyExemptions: Readonly<Record<string, string>> = {
 // storyRenames names each component export whose stories are not in its file's own stories module under its own name, by
 // its component file and export: a round-6 name for the story export in the file's stories module, or the stories module
 // and story export of another file that draws the export, as { module, story }. A page draws EpicPage, Inbox, NewPanel,
-// KeyList, SteerMenu, EndedBar and PhaseOutputPage, so their entries name app.stories.tsx's Page.
+// KeyList, SteerMenu, EndedBar, PhaseOutputPage and WorkerSessionPage, so their entries name app.stories.tsx's Page.
 export const storyRenames: Renames = {
   "backgroundrow.tsx": { BackgroundRow: "TaskLine" },
   "blocker.tsx": { QuestionCard: "Ask", AskFirst: "ConfirmButton" },
@@ -47,6 +47,7 @@ export const storyRenames: Renames = {
   "sidepanel.tsx": { SidePanel: "ListPanel" },
   "steermenu.tsx": { SteerMenu: { module: "app.stories.tsx", story: "Page" } },
   "strip.tsx": { PaneStrip: "MeterStrip" },
+  "workersession.tsx": { WorkerSessionPage: { module: "app.stories.tsx", story: "Page" } },
 };
 
 // isComponent reports whether an export is a component: a function whose name starts with an uppercase letter.

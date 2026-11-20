@@ -4197,7 +4197,7 @@ test("Open the session streams the step's worker session as text, and moves the 
     await clickPhaseHead(container, "implement");
     await clickButton(container, phaseBody, "Open the session›");
     assert.equal(sessionPageShown(container), true, "the worker session is drawn");
-    assert.equal(pageSlug(container), "session");
+    assert.equal(pageSlug(container), "Worker session");
     assert.equal(pageClass(container), "page drill", "opening the session moves the page deeper");
     await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
     assert.deepEqual(
