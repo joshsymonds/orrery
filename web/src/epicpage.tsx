@@ -10,7 +10,7 @@ import { durationText, type Phase, requirementArcs, wedgesOf } from "./phases";
 import { GreenProof, RedProof, Report, ReleaseProof } from "./proof";
 import type { Row } from "./rows";
 import { type Blocker, blockerOf, controlsOf, stateOf } from "./status";
-import { type TalkTarget, talkTarget } from "./talk";
+import { steererRowOf } from "./steer";
 import { listedTitle, TitleParts } from "./titleparts";
 import { type InboxMark, TitleRow } from "./titlerow";
 import { Workflow } from "./workflow";
@@ -23,6 +23,22 @@ export interface EpicCommands {
   stop: () => void;
   retry: () => void;
   answer: (questionId: string, choice: string, text: string) => Promise<string>;
+}
+
+// SessionTarget is what a session opens: a pane, or a session by its id, with the served label that names it when no
+// listed row does.
+export interface SessionTarget {
+  kind: "pane" | "session";
+  id: string;
+  label: string;
+}
+
+// sessionTarget is the target a session opens: its pane when it has one, else the session. Its label is the session's
+// served label alone.
+export function sessionTarget(session: EpicSession): SessionTarget {
+  return session.pane !== ""
+    ? { kind: "pane", id: session.pane, label: session.label }
+    : { kind: "session", id: session.id, label: session.label };
 }
 
 // blockerLine is the blocker's text for the title row: its text, and its time once it has begun.
@@ -71,7 +87,7 @@ const landingTargets: Partial<Record<string, string>> = {
 // line to the session that created the epic, the now sentence and blocker, the red proof, the implementation (the
 // orrery, Now, Next, Just happened and the workflow), the green proof, the handover when given, the release proof and
 // the report. A section the epic has not reached is dim. The commands are the ones controlsOf shows for the epic. Each
-// phase click reaches onOpenPhase. The Conversation line draws the creator's title as Talk's menu does, its listed row's
+// phase click reaches onOpenPhase. The Conversation line draws the creator's title, its listed row's
 // directory and line from rows through TitleParts, and reaches onOpenSession with the creator's target. A landing
 // brings its part of the page into view once the page is drawn. numberKeys is whether a digit key picks an option of
 // the open question.
@@ -83,7 +99,7 @@ export function EpicPage(props: {
   commands: EpicCommands;
   numberKeys: boolean;
   onOpenContract: () => void;
-  onOpenSession: (target: TalkTarget) => void;
+  onOpenSession: (target: SessionTarget) => void;
   onBack: () => void;
   onOpenPhase?: (task: string, phase: Phase) => void;
   actions?: ComponentChildren;
@@ -117,7 +133,9 @@ export function EpicPage(props: {
   const slug = epic?.slug ?? "";
   const controls = controlsOf(detail);
   const creator = creatorOf(sessions);
-  const creatorTarget = creator === undefined ? undefined : talkTarget(creator);
+  // titleOf names a session by its listed row's label, for the move lines of the epic's log.
+  const titleOf = (session: string) => steererRowOf(rows, session)?.label;
+  const creatorTarget = creator === undefined ? undefined : sessionTarget(creator);
   const creatorTitle =
     creatorTarget === undefined ? undefined : listedTitle(rows, creatorTarget.kind, creatorTarget.id, creatorTarget.label);
   const released = epic !== undefined && epic.outcome.startsWith("released");
@@ -188,7 +206,7 @@ export function EpicPage(props: {
         <Orrery wedges={wedges} arcs={requirementArcs(wedges, requirements)} now={now} onOpenPhase={onOpenPhase} />
         <NowRows wedges={wedges} now={now} onOpenPhase={onOpenPhase} />
         <NextRows wedges={wedges} onOpenPhase={onOpenPhase} />
-        <JustHappened entries={history} steps={steps} />
+        <JustHappened entries={history} steps={steps} titleOf={titleOf} />
         {nodes.length > 0 && <Workflow nodes={nodes} loadArtifact={loadArtifact} />}
       </section>
       <GreenProof requirements={requirements} wedges={wedges} loadArtifact={loadArtifact} onOpenPhase={onOpenPhase} />

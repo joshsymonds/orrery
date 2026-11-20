@@ -52,8 +52,6 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   "reader-column": { replacement: "convo-shell", epic: "F3" },
   // ReaderHead draws a conversation's head, titled, or with where and the pill.
   "reader-head": { replacement: "TitleRow", epic: "F3" },
-  // Talk draws the epic's Talk command, shut and open, with and without sessions or a repository.
-  talk: { replacement: "epic-talk", epic: "F4" },
   // TitleParts draws a title's directory and line, with either alone, and a line that holds a link.
   "title-parts": { replacement: "TitleRow", epic: "F3" },
   // WorkerSessionPage draws a step's worker session while it runs, is held, has ended, or loads.
