@@ -110,7 +110,7 @@ func runHousekeep(t *testing.T, run func(ctx context.Context)) {
 
 // TestHousekeepWakeEpicSummariesReadNothingWithoutAWrite checks that with the clock advanced hours and no write, the
 // summaries read the store no further times than the start pass. The run is in a synctest bubble with the default
-// timer, so a period or a ticker in Run fires during the three hours' sleep.
+// timer, so a period or a ticker in Run fires as the clock advances three hours.
 func TestHousekeepWakeEpicSummariesReadNothingWithoutAWrite(t *testing.T) {
 	t.Parallel()
 	st := epicTestStore(t)
@@ -137,7 +137,7 @@ func TestHousekeepWakeEpicSummariesReadNothingWithoutAWrite(t *testing.T) {
 		if got := counted.fullReads.Load(); got != 1 {
 			t.Fatalf("full reads at start = %d, want 1", got)
 		}
-		time.Sleep(3 * time.Hour)
+		<-time.After(3 * time.Hour)
 		synctest.Wait()
 		if got := counted.fullReads.Load(); got != 1 {
 			t.Fatalf("full reads after the clock advanced hours with no write = %d, want 1", got)
@@ -153,7 +153,7 @@ func TestHousekeepWakeEpicSummariesReadNothingWithoutAWrite(t *testing.T) {
 
 // TestHousekeepWakeEpicReportsReadNothingWithoutAWrite checks that with the clock advanced hours and no write, the
 // reports read the store no further times than the start pass. The run is in a synctest bubble with the default timer,
-// so a period or a ticker in Run fires during the three hours' sleep.
+// so a period or a ticker in Run fires as the clock advances three hours.
 func TestHousekeepWakeEpicReportsReadNothingWithoutAWrite(t *testing.T) {
 	t.Parallel()
 	st := epicTestStore(t)
@@ -177,7 +177,7 @@ func TestHousekeepWakeEpicReportsReadNothingWithoutAWrite(t *testing.T) {
 		if got := counted.fullReads.Load(); got != 1 {
 			t.Fatalf("full reads at start = %d, want 1", got)
 		}
-		time.Sleep(3 * time.Hour)
+		<-time.After(3 * time.Hour)
 		synctest.Wait()
 		if got := counted.fullReads.Load(); got != 1 {
 			t.Fatalf("full reads after the clock advanced hours with no write = %d, want 1", got)

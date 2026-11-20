@@ -93,7 +93,7 @@ func applySessionEvents(t *testing.T, st *store.Store, at time.Time) {
 
 // TestHousekeepWakeSessionTitlesReadNothingWithoutAWrite checks that with the clock advanced hours and no write, the
 // titles read the store no further times than the start pass. The run is in a synctest bubble with the default timer,
-// so a period or a ticker in Run fires during the three hours' sleep.
+// so a period or a ticker in Run fires as the clock advances three hours.
 func TestHousekeepWakeSessionTitlesReadNothingWithoutAWrite(t *testing.T) {
 	t.Parallel()
 	st := epicTestStore(t)
@@ -125,7 +125,7 @@ func TestHousekeepWakeSessionTitlesReadNothingWithoutAWrite(t *testing.T) {
 		if got := counted.fullReads.Load(); got != 1 {
 			t.Fatalf("full reads at start = %d, want 1", got)
 		}
-		time.Sleep(3 * time.Hour)
+		<-time.After(3 * time.Hour)
 		synctest.Wait()
 		if got := counted.fullReads.Load(); got != 1 {
 			t.Fatalf("full reads after the clock advanced hours with no write = %d, want 1", got)
@@ -141,8 +141,8 @@ func TestHousekeepWakeSessionTitlesReadNothingWithoutAWrite(t *testing.T) {
 
 // TestHousekeepWakeSessionHeadlinesReadNothingWithoutAWrite checks that with the clock advanced hours and no write, the
 // headlines read the store no further times than the start pass. The run is in a synctest bubble with the default
-// timers, so a period or a ticker in Run fires during the three hours' sleep. The session's headline is newer than its
-// turn end, so no session is due.
+// timers, so a period or a ticker in Run fires as the clock advances three hours. The session's headline is newer than
+// its turn end, so no session is due.
 func TestHousekeepWakeSessionHeadlinesReadNothingWithoutAWrite(t *testing.T) {
 	t.Parallel()
 	st := epicTestStore(t)
@@ -171,7 +171,7 @@ func TestHousekeepWakeSessionHeadlinesReadNothingWithoutAWrite(t *testing.T) {
 		if got := counted.fullReads.Load(); got != 1 {
 			t.Fatalf("full reads at start = %d, want 1", got)
 		}
-		time.Sleep(3 * time.Hour)
+		<-time.After(3 * time.Hour)
 		synctest.Wait()
 		if got := counted.fullReads.Load(); got != 1 {
 			t.Fatalf("full reads after the clock advanced hours with no write = %d, want 1", got)
