@@ -27,8 +27,10 @@ var errStoreWrite = errors.New("fake store write failed")
 // nothing.
 type failingCreate struct{ EpicCommands }
 
-// CreateEpic returns errStoreWrite.
-func (failingCreate) CreateEpic(context.Context, store.EpicRow) error { return errStoreWrite }
+// CreateContractEpic returns errStoreWrite.
+func (failingCreate) CreateContractEpic(context.Context, store.EpicRow, int64) error {
+	return errStoreWrite
+}
 
 // concreteStore returns the *store.Store m was built on, which the test managers are given. The Manager holds it as its
 // narrower Store interface.

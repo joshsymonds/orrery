@@ -1,6 +1,7 @@
 package enginehost
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -185,5 +186,44 @@ func TestContractEpicCreateRefusesAContractNotAccepted(t *testing.T) {
 				t.Fatalf("refused epic stored: Epic err = %v, want ErrNoEpic", err)
 			}
 		})
+	}
+}
+
+// contractEpicSetAside is the EpicCommands the race test serves: the store, except that its CreateContractEpic first sets
+// the contract id aside as its owner. That write lands between the service's contract read and its store write.
+type contractEpicSetAside struct {
+	*store.Store
+	id string
+}
+
+// CreateContractEpic sets the contract aside, then stores row through the store.
+func (s contractEpicSetAside) CreateContractEpic(ctx context.Context, row store.EpicRow, version int64) error {
+	if err := s.SetAsideContract(ctx, s.id, store.ContractChange{At: contractEpicAt + 1}); err != nil {
+		return err
+	}
+	return s.Store.CreateContractEpic(ctx, row, version)
+}
+
+// TestContractEpicCreateRefusesAContractSetAsideBeforeItsWrite asserts that CreateEpic refuses a contract set aside
+// between its read of the contract and its store write as a failed precondition that names the state, and that the
+// refused epic is not stored and the contract stays set aside.
+func TestContractEpicCreateRefusesAContractSetAsideBeforeItsWrite(t *testing.T) {
+	t.Parallel()
+	st := epicTestStore(t)
+	client := newEpicsClient(t, startEpicServer(t, contractEpicSetAside{Store: st, id: epicServiceID}))
+	c := fullEpicRequest(stepGitTestRepo(t), epicServiceID)
+	acceptEpicContract(t, st, c.Contract)
+
+	_, err := client.CreateEpic(t.Context(), connect.NewRequest(c.request()))
+	wantConnectError(t, err, connect.CodeFailedPrecondition, "state: no longer accepted")
+	if _, err = st.Epic(t.Context(), epicServiceID); !errors.Is(err, store.ErrNoEpic) {
+		t.Fatalf("refused epic stored: Epic err = %v, want ErrNoEpic", err)
+	}
+	record, err := st.Contract(t.Context(), epicServiceID)
+	if err != nil {
+		t.Fatalf("Contract %s: %v", epicServiceID, err)
+	}
+	if record.State != store.ContractSetAside {
+		t.Fatalf("contract state = %q, want %q", record.State, store.ContractSetAside)
 	}
 }

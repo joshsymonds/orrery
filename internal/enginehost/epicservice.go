@@ -37,7 +37,7 @@ const steeringUnavailableMessage = "steering sessions unavailable"
 
 // EpicCommands is the set of epic operations the Epics service answers with. The store satisfies it.
 type EpicCommands interface {
-	CreateEpic(ctx context.Context, row store.EpicRow) error
+	CreateContractEpic(ctx context.Context, row store.EpicRow, version int64) error
 	Contract(ctx context.Context, id string) (store.ContractRecord, error)
 	Epic(ctx context.Context, id string) (store.EpicRow, error)
 	EpicFlow(ctx context.Context, id string) (store.EpicFlow, error)
@@ -171,7 +171,7 @@ func (s *epicService) CreateEpic(
 	if getenv == nil {
 		getenv = os.Getenv
 	}
-	contract, conversation, err := s.acceptedContract(ctx, req.Msg.GetId(), req.Msg.GetBase())
+	contract, conversation, version, err := s.acceptedContract(ctx, req.Msg.GetId(), req.Msg.GetBase())
 	if err != nil {
 		return nil, err
 	}
@@ -209,7 +209,7 @@ func (s *epicService) CreateEpic(
 		return nil, err
 	}
 	row.Steerer = steerer
-	if err = s.epics.CreateEpic(ctx, row); err != nil {
+	if err = s.epics.CreateContractEpic(ctx, row, version); err != nil {
 		return nil, s.refuseCreate(ctx, row.ID, started, err)
 	}
 	message, err := s.storedEpic(ctx, row.ID)
@@ -219,18 +219,22 @@ func (s *epicService) CreateEpic(
 	return connect.NewResponse(&v1.CreateEpicResponse{Epic: message, Warnings: warnings}), nil
 }
 
-// acceptedContract returns the body of the accepted version of the contract id, with its base set to base, and the
-// contract's conversation, the writer of its version 1. An id no contract holds is refused as not found, and a contract
-// whose newest state is not accepted is refused as a failed precondition that names the state.
-func (s *epicService) acceptedContract(ctx context.Context, id, base string) (*v1.EpicContract, string, error) {
+// acceptedContract returns the body of the accepted version of the contract id, with its base set to base, the
+// contract's conversation, the writer of its version 1, and the accepted version's number. An id no contract holds is
+// refused as not found, and a contract whose newest state is not accepted is refused as a failed precondition that
+// names the state.
+func (s *epicService) acceptedContract(ctx context.Context, id, base string) (*v1.EpicContract, string, int64, error) {
 	record, err := s.epics.Contract(ctx, id)
 	switch {
 	case errors.Is(err, store.ErrNoContract):
-		return nil, "", contractNotFound(id)
+		return nil, "", 0, contractNotFound(id)
 	case err != nil:
-		return nil, "", epicStoreError(err)
+		return nil, "", 0, epicStoreError(err)
 	case record.State != store.ContractAccepted:
-		return nil, "", refuseEpic(connect.CodeFailedPrecondition, fmt.Sprintf("state: %s, not accepted", record.State))
+		return nil, "", 0, refuseEpic(
+			connect.CodeFailedPrecondition,
+			fmt.Sprintf("state: %s, not accepted", record.State),
+		)
 	}
 	newest := record.States[len(record.States)-1]
 	for _, version := range record.Versions {
@@ -239,15 +243,15 @@ func (s *epicService) acceptedContract(ctx context.Context, id, base string) (*v
 		}
 		message, convertErr := contractVersionMessage(version)
 		if convertErr != nil {
-			return nil, "", epicStoreError(
+			return nil, "", 0, epicStoreError(
 				fmt.Errorf("read version %d of contract %s: %w", version.Version, id, convertErr),
 			)
 		}
 		contract := message.GetContract()
 		contract.Base = base
-		return contract, record.Conversation, nil
+		return contract, record.Conversation, version.Version, nil
 	}
-	return nil, "", epicStoreError(fmt.Errorf("contract %s has no version %d", id, newest.Version))
+	return nil, "", 0, epicStoreError(fmt.Errorf("contract %s has no version %d", id, newest.Version))
 }
 
 // storedRefusal returns the refusal of a create whose id, id, is already stored.
@@ -306,12 +310,17 @@ func (s *epicService) startSteering(ctx context.Context, row store.EpicRow) (str
 	return id, nil
 }
 
-// refuseCreate returns the refusal of a create of the epic id that the store refused with err. When the create started
-// the steering session started, that session is stopped, even when ctx has ended, and a stop error joins the refusal.
+// refuseCreate returns the refusal of a create of the epic id that the store refused with err. A contract the store
+// finds no longer accepted, or no longer holding the version the create read, is refused as a failed precondition,
+// state: no longer accepted. When the create started the steering session started, that session is stopped, even
+// when ctx has ended, and a stop error joins the refusal.
 func (s *epicService) refuseCreate(ctx context.Context, id, started string, err error) error {
 	refusal := epicStoreError(err)
-	if errors.Is(err, store.ErrEpicExists) {
+	switch {
+	case errors.Is(err, store.ErrEpicExists):
 		refusal = storedRefusal(id)
+	case errors.Is(err, store.ErrContractState), errors.Is(err, store.ErrNoContract):
+		refusal = refuseEpic(connect.CodeFailedPrecondition, "state: no longer accepted")
 	}
 	if started == "" {
 		return refusal
