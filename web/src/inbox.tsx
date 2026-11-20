@@ -32,6 +32,8 @@ export interface InboxProps {
   onRetry?: () => void;
   onNew: () => void;
   onKeys?: () => void;
+  // onOpenProject is the press on a project's head, which opens the project's page.
+  onOpenProject?: (key: string) => void;
   notes?: ComponentChildren;
 }
 
@@ -60,6 +62,7 @@ export function Inbox({
   onRetry,
   onNew,
   onKeys,
+  onOpenProject,
   notes,
 }: InboxProps): JSX.Element {
   // The chips count the drawn tree, so they draw only while it is drawn: not while loading or after a failed read, as on
@@ -151,6 +154,7 @@ export function Inbox({
           renderConvo={renderConvo}
           onRetry={onRetry}
           onNew={onNew}
+          onOpenProject={onOpenProject}
         />
       </div>
       <footer class="inbox-foot">
@@ -192,6 +196,7 @@ interface BodyProps {
   renderConvo: (convo: Convo) => VNode;
   onRetry?: () => void;
   onNew: () => void;
+  onOpenProject?: (key: string) => void;
 }
 
 // Body draws the inbox's rows: loading, the error with Try now, the nothing-running state with New, the nothing-matches
@@ -211,6 +216,7 @@ function Body({
   renderConvo,
   onRetry,
   onNew,
+  onOpenProject,
 }: BodyProps): JSX.Element | null {
   if (state === "loading") {
     return (
@@ -271,6 +277,7 @@ function Body({
           endedOpen={endedOpen.has(project.key)}
           onFold={() => onFold(project.key)}
           onEnded={() => onEnded(project.key)}
+          onOpen={onOpenProject}
           ended={project.ended.map((convo) => <Fragment key={convo.key}>{renderConvo(convo)}</Fragment>)}
         >
           {project.convos.map((convo) => (
