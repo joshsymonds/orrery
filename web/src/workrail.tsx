@@ -2,7 +2,7 @@ import type { ComponentChildren, JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 
 import { Sheet } from "./sheet";
-import type { Gauge, RailGroup, Thing } from "./work";
+import type { Gauge, ListThing, RailGroup, Thing } from "./work";
 
 export interface WorkRailProps {
   groups: RailGroup[];
@@ -34,8 +34,8 @@ export function WorkRail({ groups, lit, layout, onOpen, end }: WorkRailProps): J
   );
 }
 
-// Tile draws one thing as a tile: an epic's gauge, its short name, and ? when it asks, or a list's count. lit marks the
-// tile whose panel is open.
+// Tile draws one thing as a tile: an epic's gauge, its short name, and ? when it asks, or a list's icon and count. lit
+// marks the tile whose panel is open.
 export function Tile({
   thing,
   lit,
@@ -55,7 +55,7 @@ export function Tile({
       onClick={() => onOpen(thing)}
     >
       <span class={classes("tile", thing.tone, lit && "cur")}>
-        {thing.kind === "epic" && <GaugeRing gauge={thing.gauge} />}
+        {thing.kind === "epic" ? <GaugeRing gauge={thing.gauge} /> : <ListIcon kind={thing.kind} />}
         {thing.kind === "epic" ? (
           thing.asks && <span class="n attention">?</span>
         ) : (
@@ -185,6 +185,21 @@ function GaugeRing({ gauge }: { gauge: Gauge }): JSX.Element {
       <circle class="planned" cx="12" cy="12" r="9" />
       {started > 0 && <Arc klass="started" share={started} />}
       {done > 0 && <Arc klass="done" share={done} />}
+    </svg>
+  );
+}
+
+// listIcons is each list's drawing, round 6's: the agents' star, and the running shell's prompt.
+const listIcons: Record<ListThing["kind"], string> = {
+  agents: "M8 2l1.5 4.5L14 8l-4.5 1.5L8 14l-1.5-4.5L2 8l4.5-1.5z",
+  running: "M3 4l4 4-4 4M8.5 12H13",
+};
+
+// ListIcon draws a list's icon, stroked in the current colour, where an epic draws its gauge.
+function ListIcon({ kind }: { kind: ListThing["kind"] }): JSX.Element {
+  return (
+    <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor">
+      <path d={listIcons[kind]} />
     </svg>
   );
 }

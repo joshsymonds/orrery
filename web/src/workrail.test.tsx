@@ -163,6 +163,26 @@ test("WorkRail: the agents count is live, the running count is grey, and neither
   });
 });
 
+test("WorkRail: the agents tile's face is the agent icon, with its count kept", () => {
+  return withDom((container) => {
+    draw(container, onRail([groupOf("agents", "agents", [agentsOf(2)])]));
+
+    const face = one(container, ".rgroup.agents .tile");
+    assert.equal(one(face, "svg.icon path").getAttribute("d"), "M8 2l1.5 4.5L14 8l-4.5 1.5L8 14l-1.5-4.5L2 8l4.5-1.5z");
+    assert.equal(one(face, ".n").textContent, "2");
+  });
+});
+
+test("WorkRail: the running tile's face is the shell icon, with its count kept", () => {
+  return withDom((container) => {
+    draw(container, onRail([groupOf("running", "running", [runningOf(1)])]));
+
+    const face = one(container, ".rgroup.running .tile");
+    assert.equal(one(face, "svg.icon path").getAttribute("d"), "M3 4l4 4-4 4M8.5 12H13");
+    assert.equal(one(face, ".n").textContent, "1");
+  });
+});
+
 test("WorkRail: no groups draw an empty rail", () => {
   return withDom((container) => {
     draw(container, onRail([]));
