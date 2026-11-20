@@ -37,6 +37,7 @@ export const storyRenames: Renames = {
   "happenings.tsx": { JustHappened: "HappeningList" },
   "helppanel.tsx": { KeyList: { module: "app.stories.tsx", story: "Page" } },
   "notices.tsx": { NoticeBanner: "Notice" },
+  "nowsection.tsx": { NowSection: { module: "app.stories.tsx", story: "Page" } },
   "picker.tsx": { NewPanel: { module: "app.stories.tsx", story: "Page" } },
   "sidepanel.tsx": { SidePanel: "ListPanel" },
   "stepbox.tsx": { StepBox: "Dock" },
