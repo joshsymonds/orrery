@@ -24,6 +24,10 @@ type Gate struct{}
 // Command is the command kind. Its run's check runs the command's argv and it decides as Gate does.
 type Command struct{}
 
+// Cost is the cost kind. Its run's check measures the epic's first Done gate at the base, and the run ends passed once
+// the check has ended, whatever it exited: the cost is measured, never judged.
+type Cost struct{}
+
 // Evidence is the evidence kind. It ends passed when every Requirement that names an evidence item has an ended run
 // that passed.
 type Evidence struct{}
@@ -42,6 +46,16 @@ func (Gate) Decide(node Node, rows Rows) Action {
 // Decide decides a command run as checkRun does.
 func (Command) Decide(node Node, rows Rows) Action {
 	return checkRun(node, rows)
+}
+
+// Decide decides a cost run as checkRun does, and ends it passed once its check has ended, with the same output: a
+// check that exits nonzero still passes, since the cost is measured and never judged.
+func (Cost) Decide(node Node, rows Rows) Action {
+	act := checkRun(node, rows)
+	if act.Kind == ActEnd {
+		act.Outcome = outcomePassed
+	}
+	return act
 }
 
 // checkRun decides a gate or command run: it prepares the run's revision, starts its check, waits while the check runs,

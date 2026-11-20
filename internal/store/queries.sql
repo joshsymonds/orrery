@@ -1445,9 +1445,9 @@ SELECT epic, at FROM epic_seen;
 -- name: InsertPlannerAction :exec
 INSERT INTO planner_actions (
     epic, turn, position, kind, node, task, close_kind, by_epic, undo_none, reason, state, refusal, requirement, item,
-    deliverable, files, remove_files
+    deliverable, files, remove_files, reviewer
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?, ?, ?, ?, ?);
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?, ?, ?, ?, ?, ?);
 
 -- name: ListPendingPlannerActions :many
 SELECT * FROM planner_actions WHERE state = 'pending' ORDER BY epic, turn, position;
@@ -1738,6 +1738,45 @@ WHERE caller_events.session = sqlc.arg(id) AND caller_events.event IN (
             AND states.state <> 'queued'
       )
 );
+
+-- name: InsertPlannerUnresolvable :exec
+INSERT INTO planner_unresolvable (epic, turn, position, gap, reason, recommended) VALUES (?, ?, ?, ?, ?, ?);
+
+-- name: ListUnresolvableOfLastTurn :many
+SELECT * FROM planner_unresolvable
+WHERE planner_unresolvable.epic = sqlc.arg(epic)
+  AND planner_unresolvable.turn = (
+      SELECT MAX(epic_turns.seq) FROM epic_turns
+      WHERE epic_turns.epic = sqlc.arg(epic) AND epic_turns.state = 'succeeded'
+  )
+ORDER BY planner_unresolvable.position;
+
+-- name: ListEpicGapTurnsOf :many
+SELECT * FROM epic_gap_turns WHERE epic = ? AND gap = ? ORDER BY turn;
+
+-- name: InsertEpicGapTurn :exec
+INSERT INTO epic_gap_turns (epic, gap, turn, reason, created) VALUES (?, ?, ?, ?, ?);
+
+-- name: ListEpicGapTurns :many
+SELECT * FROM epic_gap_turns WHERE epic = ? ORDER BY gap, turn;
+
+-- name: InsertEpicReviewRerun :exec
+INSERT INTO epic_review_reruns (epic, reviewer, turn, position, created) VALUES (?, ?, ?, ?, ?);
+
+-- name: ListEpicReviewReruns :many
+SELECT * FROM epic_review_reruns WHERE epic = ? ORDER BY turn, position;
+
+-- name: DeleteEpicReviewVerdictOf :execrows
+DELETE FROM epic_review_verdicts WHERE epic = ? AND reviewer = ?;
+
+-- name: DeleteEpicClosuresOfReviewer :exec
+DELETE FROM epic_closures WHERE epic_closures.epic = sqlc.arg(epic) AND epic_closures.finding IN (
+    SELECT epic_ledger.id FROM epic_ledger
+    WHERE epic_ledger.epic = sqlc.arg(epic) AND epic_ledger.reviewer = sqlc.arg(reviewer)
+);
+
+-- name: DeleteEpicLedgerOfReviewer :exec
+DELETE FROM epic_ledger WHERE epic = ? AND reviewer = ?;
 
 -- name: SetEpicTaskNotes :exec
 UPDATE epic_tasks SET notes = sqlc.arg(notes) WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq);

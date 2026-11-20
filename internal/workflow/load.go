@@ -27,13 +27,17 @@ type Pinned struct {
 const canonicalIndent = 2
 
 // epicText is the built-in epic in canonical form: red, an evidence node captured at base before the first task; then
-// plan holding build and integrate; then review; then the loop correct, which names no max and ends once closure passes
-// or once a round's plan planned no task, each round a plan fix holding rebuild and reintegrate, then closure; then
+// cost, a check of the epic's first Done gate run at base, which measures the base and never judges it; then plan
+// holding build and integrate; then review; then the loop correct, which names no max and ends once closure passes or
+// once a round's plan planned no task, each round a plan fix holding rebuild and reintegrate, then closure; then
 // conclude and release.
 const epicText = `name: epic
 nodes:
   - id: red
     kind: evidence
+    at: base
+  - id: cost
+    kind: cost
     at: base
   - id: plan
     kind: plan

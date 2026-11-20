@@ -22,8 +22,8 @@
 5. **Parallel and cheap.**
    - It calls t.Parallel where its fixtures allow, and never t.Setenv in a parallel test.
    - It does no needless work: no repeated full setup, no oversized loops.
-   - The `-race` run of its package doesn't grow out of proportion to what it adds. Read the prompt's Test cost section: the budget lines of the epic's Done gates, `just check` and its `cover`. "no budget lines" means the kept end of the gate output held none, so judge from the diff alone.
-   - A package over its budget, or a test whose own run takes seconds rather than milliseconds, is a finding unless the task states why the cost is needed.
+   - The `-race` run of its package doesn't grow out of proportion to what it adds. Read the prompt's Test cost section. When it gives a `- <package>: <change> cpu-s, base <base> cpu-s, <delta>` line for a package, that compares the change's test CPU seconds with main's own at the epic's base, measured by the same gate: judge the delta. A package marked `, over` exceeds its base by more than the larger of 15% of the base and 5 cpu-s. A package with `no base measurement` has no base to compare, so judge it from the diff alone. With no base measurement at all, the section gives the budget lines of the epic's Done gates, `just check` and its `cover`. "no budget lines" means the kept end of the gate output held none, so judge from the diff alone.
+   - A package marked `, over`, a package over its budget where the section gives budget lines, or a test whose own run takes seconds rather than milliseconds, is a finding unless the task states why the cost is needed.
 6. **Tests something useful.** The test fails when the behaviour it names breaks, and passes only because that behaviour holds. Not admissible:
    - tautologies: asserting a value the test itself just set, a mock returning what it was told, or a type the compiler already guarantees;
    - assertions that cannot fail;
@@ -45,7 +45,7 @@
 
 ## Findings
 A finding names the test, the rule it breaks, `file` plus symbol, and the concrete fix: move it to X, use helper Y, or replace the sleep with Z.
-- **Admissible as a Quality Bar defect:** a test added by the change that uses real waits or clocks, starts its own real resource where a shared one exists, sits where unrelated changes will select it, is redundant or tautological (rule 6), adds an unjustified golden suite (rule 7), asserts wall-clock timing (rule 8), or checks model output deterministically (rule 9); and added or changed tests that push a package over its test CPU budget (a test-budget line in Test cost), or a test whose own run is slow (seconds, not milliseconds), without a stated reason in the task (rule 5).
+- **Admissible as a Quality Bar defect:** a test added by the change that uses real waits or clocks, starts its own real resource where a shared one exists, sits where unrelated changes will select it, is redundant or tautological (rule 6), adds an unjustified golden suite (rule 7), asserts wall-clock timing (rule 8), or checks model output deterministically (rule 9); and added or changed tests that push a package's test CPU cost over its base (a `, over` line in Test cost), or, for a package with no base measurement, over its budget (a test-budget line in Test cost), or a test whose own run is slow (seconds, not milliseconds), without a stated reason in the task (rule 5).
 - **Observations:** the same patterns in tests the change did not touch. These are recorded, with no correction task.
 
 Report your findings in the gate's verdict schema. Each fails result adds one finding that cites the assertion, with the test, the rule it breaks, its file and symbol, and the concrete fix.

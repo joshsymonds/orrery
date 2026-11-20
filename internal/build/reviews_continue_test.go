@@ -293,11 +293,11 @@ func TestReviewsContinueFloorPromptCarriesNotesAndFacts(t *testing.T) {
 	note := "T4 red: the conclusion holds at the base (exit 0)"
 	fact := "a_test.go: TestOld: test present at the base removed"
 	task.Notes = []string{note}
-	floor := ReviewPrompt(epic, task, "floor", "base1", "rev1", store.StepCheck{}, fact)
+	floor := ReviewPrompt(epic, task, "floor", "base1", "rev1", store.StepCheck{}, nil, fact)
 	if !strings.Contains(floor, note) || !strings.Contains(floor, fact) {
 		t.Errorf("floor prompt = %q, want the note %q and the fact %q", floor, note, fact)
 	}
-	other := ReviewPrompt(epic, task, "review", "base1", "rev1", store.StepCheck{})
+	other := ReviewPrompt(epic, task, "review", "base1", "rev1", store.StepCheck{}, nil)
 	if strings.Contains(other, note) {
 		t.Errorf("review prompt carries the note %q, want the floor reviewer's prompt alone", note)
 	}

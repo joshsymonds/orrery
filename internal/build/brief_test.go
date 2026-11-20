@@ -295,7 +295,7 @@ func TestReviewPromptNamesRangeFilesAndRequirements(t *testing.T) {
 	t.Parallel()
 	task := briefTask()
 	task.TestChanges = nil
-	got := ReviewPrompt(briefEpic(), task, "floor", "base1", "rev1", store.StepCheck{})
+	got := ReviewPrompt(briefEpic(), task, "floor", "base1", "rev1", store.StepCheck{}, nil)
 	want := "Task T4 of epic repo/epic-x (Build the task): Render brief\n" +
 		"Deliverable: brief.go\n" +
 		"Owned files:\n" +
@@ -335,7 +335,7 @@ func TestReviewPromptListsOnlyTheTasksOwnEvidence(t *testing.T) {
 	task := briefTask()
 	task.Evidence = evidence.Item{}
 	task.Requirements = []string{"R1", "R9", "R2", "R3", "R4"}
-	got := ReviewPrompt(epic, task, "floor", "base1", "rev1", store.StepCheck{})
+	got := ReviewPrompt(epic, task, "floor", "base1", "rev1", store.StepCheck{}, nil)
 	want := "Requirements:\n" +
 		"- R1: one\n" +
 		"- R2: two\n" +
@@ -359,7 +359,7 @@ func TestReviewPromptEmptySectionsPrintNone(t *testing.T) {
 	t.Parallel()
 	epic := store.EpicRow{ID: "repo/epic-x", Title: "Build the task"}
 	task := store.EpicTask{Seq: 4, Title: "Render brief", Deliverable: "brief.go"}
-	got := ReviewPrompt(epic, task, "floor", "base1", "rev1", store.StepCheck{})
+	got := ReviewPrompt(epic, task, "floor", "base1", "rev1", store.StepCheck{}, nil)
 	want := "Task T4 of epic repo/epic-x (Build the task): Render brief\n" +
 		"Deliverable: brief.go\n" +
 		"Owned files:\n" +
@@ -428,8 +428,8 @@ func TestReviewPromptEndsTestParsimonyWithTheGatesTestCost(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := ReviewPrompt(briefEpic(), briefTask(), reviewers.TestParsimony, "base1", "rev1", tc.gate)
-			plain := ReviewPrompt(briefEpic(), briefTask(), "floor", "base1", "rev1", tc.gate)
+			got := ReviewPrompt(briefEpic(), briefTask(), reviewers.TestParsimony, "base1", "rev1", tc.gate, nil)
+			plain := ReviewPrompt(briefEpic(), briefTask(), "floor", "base1", "rev1", tc.gate, nil)
 			want := strings.Join(append([]string{plain, reviewers.TestCostHeading}, tc.want...), "\n")
 			if got != want {
 				t.Fatalf("review prompt\n got:\n%s\nwant:\n%s", got, want)
@@ -443,7 +443,7 @@ func TestReviewPromptEndsTestParsimonyWithTheGatesTestCost(t *testing.T) {
 func TestReviewPromptGivesNoOtherReviewerTheTestCost(t *testing.T) {
 	t.Parallel()
 	gate := store.StepCheck{Name: "gate", OK: true, Stdout: "test-budget: internal/store 212 cpu-s > 160 (+33%)\n"}
-	got := ReviewPrompt(briefEpic(), briefTask(), "floor", "base1", "rev1", gate)
+	got := ReviewPrompt(briefEpic(), briefTask(), "floor", "base1", "rev1", gate, nil)
 	if strings.Contains(got, "Test cost") || strings.Contains(got, "test-budget") {
 		t.Fatalf("floor review prompt carries the Test cost section:\n%s", got)
 	}
@@ -566,7 +566,7 @@ func TestStepSendBackReviewPromptCarriesTestChanges(t *testing.T) {
 		t.Parallel()
 		task := briefTask()
 		task.TestChanges = []string{"internal/build/brief_test.go", "internal/build/floor_test.go"}
-		got := ReviewPrompt(briefEpic(), task, "floor", "base1", "rev1", store.StepCheck{})
+		got := ReviewPrompt(briefEpic(), task, "floor", "base1", "rev1", store.StepCheck{}, nil)
 		want := "Owned files:\n" +
 			"- internal/build/brief.go\n" +
 			"- internal/build/brief_test.go\n" +
@@ -591,7 +591,7 @@ func TestStepSendBackReviewPromptCarriesTestChanges(t *testing.T) {
 					Reason: "the wake moves the delivery this test expects",
 				},
 			}
-			got := ReviewPrompt(briefEpic(), task, "floor", "base1", "rev1", store.StepCheck{})
+			got := ReviewPrompt(briefEpic(), task, "floor", "base1", "rev1", store.StepCheck{}, nil)
 			want := "- internal/build/brief_test.go\n" +
 				reviewDeclared + "\n" +
 				"- cmd/orreryd/callerevent_wiring_test.go: the wake moves the delivery this test expects\n" +
@@ -654,7 +654,7 @@ func TestBriefPromptsTightened(t *testing.T) {
 	})
 	t.Run("ReviewPrompt heads its file list as owned files", func(t *testing.T) {
 		t.Parallel()
-		got := ReviewPrompt(briefEpic(), briefTask(), "floor", "base1", "rev1", store.StepCheck{})
+		got := ReviewPrompt(briefEpic(), briefTask(), "floor", "base1", "rev1", store.StepCheck{}, nil)
 		assertHeadedBy(t, got, "Owned files:", briefTask().Files, "Files:")
 	})
 }

@@ -117,7 +117,7 @@ func TestEpicReviewersEpicIsEmptyWhenNoEnabledEpicStageReviewerHoldsTheEpic(t *t
 func TestEpicReviewersStartRunsAModelReviewerReadOnlyAtTheRevisionWithItsGateAgentsAndPrompt(t *testing.T) {
 	t.Parallel()
 	epic := rvEpic(rvModel())
-	got, err := NewEpicReviewers().Start(context.Background(), epic, "correctness", "base111", "frozen222", nil)
+	got, err := NewEpicReviewers().Start(context.Background(), epic, "correctness", "base111", "frozen222", nil, nil)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -162,7 +162,7 @@ func TestEpicReviewersStartHeadsAnAgentReviewerWithItsPrompt(t *testing.T) {
 		Limit:   1800,
 		Verify:  true,
 	}
-	got, err := NewEpicReviewers().Start(context.Background(), rvEpic(agent), "security", "base111", "frozen222", nil)
+	got, err := NewEpicReviewers().Start(context.Background(), rvEpic(agent), "security", "base111", "frozen222", nil, nil)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -187,7 +187,8 @@ func TestEpicReviewersStartRefusesANameThatIsNotAnEnabledEpicStageReviewer(t *te
 	for _, name := range []string{"nope", "retired", "style"} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			if _, err := NewEpicReviewers().Start(context.Background(), epic, name, "base111", "frozen222", nil); err == nil {
+			if _, err := NewEpicReviewers().Start(
+				context.Background(), epic, name, "base111", "frozen222", nil, nil); err == nil {
 				t.Errorf("Start(%q) error = nil, want an error", name)
 			}
 		})
@@ -199,7 +200,7 @@ func TestEpicReviewersStartPromptPrintsNoneForEmptyRequirementsAndMustNotShip(t 
 	epic := rvEpic(rvModel())
 	epic.Requirements = nil
 	epic.Exclusions = nil
-	got, err := NewEpicReviewers().Start(context.Background(), epic, "correctness", "base111", "frozen222", nil)
+	got, err := NewEpicReviewers().Start(context.Background(), epic, "correctness", "base111", "frozen222", nil, nil)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -233,7 +234,7 @@ func TestEpicReviewersStartPromptListsTheGateChangesItsTasksDeclared(t *testing.
 		}},
 		{Seq: 20, Status: "open", GateChanges: []store.GateChange{{Path: "a.go", Reason: "the gate's race"}}},
 	}
-	got, err := NewEpicReviewers().Start(context.Background(), epic, "correctness", "base111", "frozen222", nil)
+	got, err := NewEpicReviewers().Start(context.Background(), epic, "correctness", "base111", "frozen222", nil, nil)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -280,7 +281,7 @@ func TestEpicReviewersStartPromptListsTheEvidenceAmendments(t *testing.T) {
 			Reason: "a looser capture", Prior: old, Item: moved, Refusal: "its red holds at the base",
 		},
 	}
-	got, err := NewEpicReviewers().Start(context.Background(), epic, "correctness", "base111", "frozen222", nil)
+	got, err := NewEpicReviewers().Start(context.Background(), epic, "correctness", "base111", "frozen222", nil, nil)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -341,7 +342,8 @@ func TestEpicReviewersStartEndsTestParsimonyWithTheDoneGatesTestCost(t *testing.
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got, err := NewEpicReviewers().Start(
-				context.Background(), rvEpic(parsimony), reviewers.TestParsimony, "base111", "frozen222", tc.doneGates)
+				context.Background(),
+				rvEpic(parsimony), reviewers.TestParsimony, "base111", "frozen222", tc.doneGates, nil)
 			if err != nil {
 				t.Fatalf("Start: %v", err)
 			}
@@ -359,7 +361,7 @@ func TestEpicReviewersStartGivesNoOtherReviewerTheTestCost(t *testing.T) {
 	t.Parallel()
 	check := store.NodeCheck{Stdout: "test-budget: internal/store 212 cpu-s > 160 (+33%)\n"}
 	got, err := NewEpicReviewers().Start(
-		context.Background(), rvEpic(rvModel()), "correctness", "base111", "frozen222", []store.NodeCheck{check})
+		context.Background(), rvEpic(rvModel()), "correctness", "base111", "frozen222", []store.NodeCheck{check}, nil)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}

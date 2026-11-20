@@ -23,7 +23,7 @@ func claimPlan(outcome string, requirements ...string) string {
 func TestPlannerInfoAcceptsAReturnThatLeavesARequirementUnclaimed(t *testing.T) {
 	t.Parallel()
 	epic := store.EpicRow{Requirements: []store.EpicRequirement{{ID: "R1"}, {ID: "R2"}}}
-	check := returnCheck(context.Background(), epic, store.Review{}, testResolver{})
+	check := returnCheck(context.Background(), epic, store.Review{}, testResolver{}, nil)
 	for _, outcome := range []string{"work", "complete"} {
 		if got := check(json.RawMessage(claimPlan(outcome, "R1"))); got != nil {
 			t.Errorf("returnCheck of a %s return leaving R2 unclaimed = %q, want none", outcome, got)
@@ -53,7 +53,7 @@ func TestPlannerInfoStillRefusesAnUnknownRequirementAndAnOpenTasksFile(t *testin
 		Requirements: []store.EpicRequirement{{ID: "R1"}},
 		Tasks:        []store.EpicTask{{Seq: 1, Title: "open", Status: "open", Files: []string{"internal/a.go"}}},
 	}
-	check := returnCheck(context.Background(), epic, store.Review{}, testResolver{})
+	check := returnCheck(context.Background(), epic, store.Review{}, testResolver{}, nil)
 	want := []string{
 		`tasks[0] "Touch a" files[0]: owned by an unfinished task`,
 		`tasks[0] "Touch a" requirements[0]: not a Requirement of the epic`,
@@ -68,7 +68,7 @@ func TestPlannerInfoStillRefusesAnUnknownRequirementAndAnOpenTasksFile(t *testin
 func TestPlannerInfoStillRefusesAnUnknownContribution(t *testing.T) {
 	t.Parallel()
 	epic := store.EpicRow{Requirements: []store.EpicRequirement{{ID: "R1"}}}
-	check := returnCheck(context.Background(), epic, store.Review{}, testResolver{})
+	check := returnCheck(context.Background(), epic, store.Review{}, testResolver{}, nil)
 	plan := strings.Replace(
 		claimPlan("work", "R1"),
 		`"requirements":["R1"]`,

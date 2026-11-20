@@ -111,7 +111,7 @@ func (r *Runner) startReleaseReview(ctx context.Context, epic store.EpicRow, act
 		return err
 	}
 	id := act.IDs[0]
-	start, err := r.reviewers.Start(ctx, epic, run.Step, changeBase(epic), run.Head, nil)
+	start, err := r.reviewers.Start(ctx, epic, run.Step, changeBase(epic), run.Head, nil, nil)
 	if err != nil {
 		if !refusedForGood(err) {
 			return fmt.Errorf("start release reviewer %s of epic %s: %w", run.Step, epic.ID, err)

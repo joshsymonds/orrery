@@ -27,6 +27,7 @@ const (
 	ActionAmendEvidence  = "amend_evidence"
 	ActionChangeApproach = "change_approach"
 	ActionSendBack       = "send_back"
+	ActionRerunReview    = "rerun_review"
 )
 
 // The states a planner action leaves its pending state in, once: taken, or refused. The state is stored as text, so
@@ -40,8 +41,8 @@ const (
 var errActionSettled = errors.New("action is not pending")
 
 // EpicActionInput is one action of a planner return: its kind, the node, task, close kind, replacing epic, Requirement,
-// evidence item and deliverable it names where its kind uses them, the undo-none positions it names, and the planner's
-// reason.
+// evidence item, deliverable and reviewer it names where its kind uses them, the undo-none positions it names, and the
+// planner's reason.
 type EpicActionInput struct {
 	Kind        string
 	Node        string
@@ -53,6 +54,7 @@ type EpicActionInput struct {
 	Deliverable string
 	Files       []string
 	Remove      []string
+	Reviewer    string
 	UndoNone    []int64
 	Reason      string
 }
@@ -102,6 +104,7 @@ func plannerActionOf(row sqlcgen.PlannerAction) (PlannerAction, error) {
 		EpicActionInput: EpicActionInput{
 			Kind: row.Kind, Node: row.Node, Task: row.Task, Close: row.CloseKind, By: row.ByEpic,
 			Requirement: row.Requirement, Item: item, Deliverable: row.Deliverable, Files: files, Remove: remove,
+			Reviewer: row.Reviewer,
 			UndoNone: undo, Reason: row.Reason,
 		},
 	}, nil
@@ -113,7 +116,8 @@ func plannerActionOf(row sqlcgen.PlannerAction) (PlannerAction, error) {
 // fail_task climbs the task one rung off its stored build with the reason as the cause, as failPlannedTask does,
 // resume_release is the planner's resume of a stopped release, close_epic is CloseEpic by the planner, change_approach
 // stores the task's change-of-approach version from the action's deliverable and evidence item, as changeApproach does,
-// and send_back reopens the task at implement on rung 1 with the reason as its failure, as sendBack does.
+// send_back reopens the task at implement on rung 1 with the reason as its failure, as sendBack does, and rerun_review
+// records a rerun of the epic's review for the action's reviewer, as rerunReview does.
 //
 // A close returns the step of the turn it ended and each step of the epic with no end. A fail_task and a send_back
 // return the open steps of the task they move. Every other action returns none.
@@ -294,6 +298,8 @@ func carryOutAction(
 		return nil, changeApproach(ctx, queries, action, at)
 	case ActionSendBack:
 		return sendBack(ctx, queries, action, at)
+	case ActionRerunReview:
+		return nil, rerunReview(ctx, queries, action, at)
 	}
 	return nil, RefusalError(fmt.Sprintf("%q is not a planner action", action.Kind))
 }
@@ -644,7 +650,7 @@ func insertActions(
 			Epic: epic, Turn: turn, Position: position, Kind: action.Kind, Node: action.Node, Task: action.Task,
 			CloseKind: action.Close, ByEpic: action.By, UndoNone: string(encoded), Reason: action.Reason,
 			Requirement: action.Requirement, Item: item, Deliverable: action.Deliverable, Files: files,
-			RemoveFiles: remove,
+			RemoveFiles: remove, Reviewer: action.Reviewer,
 		})
 	})
 }

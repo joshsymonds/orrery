@@ -201,9 +201,11 @@ const plainShellChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ012
 // under review spans from base to revision. The floor reviewer's prompt ends the change with the notes the task's build
 // holds and the guard's facts of the commit, facts, when they have any. The test_parsimony reviewer's prompt ends with
 // the Test cost section (reviewers.TestCost) of gate, the gate check the implementer's commit passed, which is the zero
-// check when the task has none.
+// check when the task has none, compared with baseCost, the base measurement of each package's CPU seconds
+// (reviewers.Costs) when the epic has one.
 func ReviewPrompt(
-	epic store.EpicRow, task store.EpicTask, reviewer, base, revision string, gate store.StepCheck, facts ...string,
+	epic store.EpicRow, task store.EpicTask, reviewer, base, revision string, gate store.StepCheck,
+	baseCost map[string]float64, facts ...string,
 ) string {
 	change := fmt.Sprintf(
 		"The change under review is %s..%s; this worktree is checked out at %s. Inspect it with `git diff %s %s`.",
@@ -232,7 +234,7 @@ func ReviewPrompt(
 		lines = append(lines, floorSections(task.Notes, facts)...)
 	}
 	if reviewer == reviewers.TestParsimony {
-		lines = append(lines, reviewers.TestCost(gate.Stdout, gate.Stderr)...)
+		lines = append(lines, reviewers.TestCost(baseCost, gate.Stdout, gate.Stderr)...)
 	}
 	return strings.Join(lines, "\n")
 }

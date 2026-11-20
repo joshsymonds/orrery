@@ -17,14 +17,16 @@ const (
 )
 
 // toFailedSecondBatch runs a world on the built-in epic until its second batch has failed its Done gate. Red is judged
-// fails at base, and the plan's first task is built, accepted and integrated green, so R1 is green at the stored base.
-// A second turn plans one more task, which is built and accepted on that stored base, and its batch's Done gate fails.
-// It returns the world and the second batch's candidate.
+// fails at base, its cost check at base ends, and the plan's first task is built, accepted and integrated green, so R1
+// is green at the stored base. A second turn plans one more task, which is built and accepted on that stored base, and
+// its batch's Done gate fails. It returns the world and the second batch's candidate.
 func toFailedSecondBatch(t *testing.T) (*integrateWorld, string) {
 	t.Helper()
 	w := newIntegrateWorld(t, pinnedTo(builtinPin(t)), viaRunnerPass())
 	w.pass()
 	w.endRed()
+	w.pass()
+	endCost(t, w.s)
 	w.pass()
 	completeTurn(t, w.s, store.EpicPlan{
 		Decisions: []string{}, Tasks: []store.EpicTaskInput{runTask("only", "b.go")}, Outline: "one task",

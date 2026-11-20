@@ -3,12 +3,22 @@
 // slices' frames and then stays open until its call aborts. Every other call is refused as Unimplemented and recorded in
 // unserved, so a page that makes one shows it.
 
+import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError, createRouterTransport, type HandlerContext, type Transport } from "@connectrpc/connect";
 
 import { createClients } from "../client";
 import { Epics, Evidence, Steps } from "../gen/orrery/v1/epics_pb";
 import { Notices } from "../gen/orrery/v1/notice_pb";
-import { Control, Events, Host, Panes, Picker, Presence, Sessions } from "../gen/orrery/v1/orrery_pb";
+import {
+  AskResponseSchema,
+  Control,
+  Events,
+  Host,
+  Panes,
+  Picker,
+  Presence,
+  Sessions,
+} from "../gen/orrery/v1/orrery_pb";
 import { type Slices, shippedSlices } from "./slices";
 
 // FixtureTransport is the fixture a page is given: the transport, the clients made from it, the procedures it refused,
@@ -107,7 +117,24 @@ export function createFixtureTransport(slices: Slices = shippedSlices): FixtureT
       resume: absorb,
       withdraw: absorb,
     });
-    router.service(Picker, { ask: refuse, run: refuse });
+    router.service(Picker, {
+      // An ask its slices hold no answer for is refused. A held ask stays open until its call aborts.
+      ask: async (request, context) => {
+        const answer = slices.asks.get(request.text);
+        if (answer === undefined) {
+          return refuse(request, context);
+        }
+        if ("rows" in answer) {
+          return create(AskResponseSchema, { rows: [...answer.rows] });
+        }
+        if ("failure" in answer) {
+          throw new ConnectError(`${context.service.typeName}/${context.method.name} failed`, answer.failure);
+        }
+        await held(context.signal);
+        return create(AskResponseSchema);
+      },
+      run: refuse,
+    });
     router.service(Epics, {
       list: () => slices.epics,
       get: (request) => {
