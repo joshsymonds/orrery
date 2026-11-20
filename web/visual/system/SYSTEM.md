@@ -298,8 +298,8 @@ composables under `android/.../ui`.
 | InboxRow | `.b-row`, `TitleParts` | the pane row of `PaneListScreen` |
 | EpicRow, StepRow, Gauge | `EpicLine` and its mini orrery, `.b-row.step` | `EpicsGroup` lines, `EpicLine.kt` |
 | TitleRow, MeterStrip | `TitleRow`, `Strip` | `TitleRow.kt`, `PaneHeader`, `HostMeters` |
-| Dock, Ctl | `Dock` (`dock.tsx`, words in `dockwords.ts`), `Ctl` | `Dock`, `DockStateLine`, `DockTray`, `DockBox` (words in `DockWords.kt`, `DockTrayWords.kt`), `QuickKeys` |
-| WorkRail, SidePanel | `.epic-card` and background rows, in the transcript today | `GoalLine`; the rest is not drawn |
+| Dock | `Composer` with its queue, `StepBox`, the pill of `workline.tsx` | `ComposeBox`, `StatusLine`, `SessionControls`, `StepControls`, `QuickKeys` |
+| WorkRail, SidePanel | `.epic-card`, waiting cards, background rows, all in the transcript today | `GoalLine`; the rest is not drawn |
 | SidePanel, SubjectBand | `TalkDock` and the Talk menu are what it replaces | `TalkScreen`, `TalkSessionScreen` are what it replaces |
 | Notice, NoticeCentre | `notices.tsx` (no centre) | system notifications only |
 | Block | `.you`, `.event`, `.card`, `.step-card`, `.event-ring`, `.epic-card` | the prompt entry of `ConversationView` |
