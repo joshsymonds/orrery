@@ -162,6 +162,7 @@ fun EpicScreen(
         if (loaded !is EpicLoad.Failed) {
             releaseCall.loaded(readAt)
             gapsCall.loaded(readAt)
+            keepUnoffered(loaded, releaseCall, gapsCall)
         }
     }
 
@@ -273,6 +274,16 @@ fun EpicScreen(
             )
         }
     }
+}
+
+// keepUnoffered closes a confirm whose control the read no longer offers, sending nothing: the Release from step N confirm
+// unless the read offers the step it asks for, and the ended-with-gaps confirm unless the epic is still ended with gaps.
+// A control the read offers again is at rest.
+private fun keepUnoffered(load: EpicLoad, releaseCall: OwnerCall, gapsCall: OwnerCall) {
+    val detail = (load as? EpicLoad.Loaded)?.detail
+    val offered = detail?.let { releaseOf(it)?.offer }
+    if (offered == null || releaseCall.asking != releaseAsk(offered)) releaseCall.keep()
+    if (detail?.let { reportOf(it)?.gaps } != true) gapsCall.keep()
 }
 
 // loadEpic reads the epic, then every page of its history, oldest first. Null when no epic has the id.

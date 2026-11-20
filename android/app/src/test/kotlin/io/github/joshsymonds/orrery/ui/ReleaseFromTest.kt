@@ -28,6 +28,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsHistoryResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsReleaseRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsReleaseResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsResumeResponse
 import io.github.joshsymonds.orrery.mainThreadComposeRule
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -49,6 +50,7 @@ class ReleaseFromTest {
         const val EPICS_GET = "/orrery.v1.Epics/Get"
         const val EPICS_HISTORY = "/orrery.v1.Epics/History"
         const val EPICS_RELEASE = "/orrery.v1.Epics/Release"
+        const val EPICS_RESUME = "/orrery.v1.Epics/Resume"
         const val RELEASE_FROM = "release-from"
         const val CALL_LINE = "release-call-line"
         const val SENDING = "Sending…"
@@ -73,7 +75,7 @@ class ReleaseFromTest {
             .setState(state)
             .build()
 
-    private fun body(outcome: String, steps: List<EpicReleaseProof>): EpicsGetResponse =
+    private fun body(outcome: String, steps: List<EpicReleaseProof>, paused: Boolean = false): EpicsGetResponse =
         EpicsGetResponse.newBuilder()
             .setEpic(
                 Epic.newBuilder()
@@ -87,6 +89,7 @@ class ReleaseFromTest {
             )
             .setRepository("/home/user/example-repo")
             .setContract(EpicContract.newBuilder().setReleaseThen("Example then."))
+            .setPaused(paused)
             .addAllReleaseSteps(steps)
             .build()
 
@@ -157,6 +160,25 @@ class ReleaseFromTest {
 
     private fun getCount(server: FakeOrreryServer): Int =
         server.requests.count { it.rawPath == EPICS_GET }
+
+    /** Serves the epic reads in order, the read at [held] (1-based) waiting for [gate] before it is answered. */
+    private fun routeReads(server: FakeOrreryServer, gate: CountDownLatch, held: Int, vararg reads: EpicsGetResponse) {
+        val count = AtomicInteger()
+        server.route(EPICS_GET) {
+            val read = count.incrementAndGet()
+            if (read == held) gate.await()
+            Reply.Message(reads[read - 1], 0L)
+        }
+    }
+
+    /** Resumes the paused epic from its More sheet, which reads it again, and waits for read [reads] to arrive. */
+    private fun resumeAndAwaitRead(server: FakeOrreryServer, reads: Int) {
+        composeRule.onNodeWithTag("epic-more").performClick()
+        awaitTag("epic-sheet-resume")
+        tapInSheet("epic-sheet-resume")
+        composeRule.awaitNone(hasTestTag("epic-more-title"))
+        composeRule.awaitUntil("the epic to be read $reads times") { getCount(server) == reads }
+    }
 
     @Test
     fun releaseFromIsOfferedOnlyForTheFirstUnpassedFailedStepWithNoUndoOfAStoppedEpic() {
@@ -326,6 +348,95 @@ class ReleaseFromTest {
                 composeRule.onNodeWithTag(RELEASE_FROM).assertIsEnabled()
                 assertEquals(1, releaseRequests(server).size)
                 assertEquals(2, getCount(server))
+            }
+        } finally {
+            reading.countDown()
+        }
+    }
+
+    @Test
+    fun anOpenStepTwoSheetClosesWithNoReleaseWhenARereadOffersStepThree() {
+        val reading = CountDownLatch(1)
+        try {
+            FakeOrreryServer().use { server ->
+                val first = body(
+                    outcome = "stopped",
+                    steps = listOf(releaseStep(1, "passed"), releaseStep(2, "failed"), releaseStep(3, "failed")),
+                    paused = true,
+                )
+                val reread = body(
+                    outcome = "stopped",
+                    steps = listOf(releaseStep(1, "passed"), releaseStep(2, "passed"), releaseStep(3, "failed")),
+                    paused = true,
+                )
+                serve(server, first)
+                routeReads(server, reading, 2, first, reread, first)
+                server.respond(EPICS_RESUME, EpicsResumeResponse.getDefaultInstance())
+                setScreen(server)
+                awaitLoaded()
+
+                resumeAndAwaitRead(server, 2)
+                tapOnScreen(RELEASE_FROM)
+                awaitTag("release-from-title")
+                reading.countDown()
+
+                composeRule.awaitNone(hasTestTag("release-from-title"))
+                assertEquals(1, countIn("release-step:3", hasTestTag(RELEASE_FROM)))
+                assertEquals(0, releaseRequests(server).size)
+
+                // Step 2 offered again is at rest: the confirm closed when step 3 was offered, so it does not reopen.
+                resumeAndAwaitRead(server, 3)
+                composeRule.awaitUntil { countIn("release-step:2", hasTestTag(RELEASE_FROM)) == 1 }
+                assertEquals(0, countNodes(hasTestTag("release-from-title")))
+                assertEquals(0, releaseRequests(server).size)
+            }
+        } finally {
+            reading.countDown()
+        }
+    }
+
+    @Test
+    fun anOpenStepTwoSheetClosesWithNoReleaseWhenARereadOffersNoStepAndItsControlIsAtRestWhenOfferedAgain() {
+        val reading = CountDownLatch(1)
+        try {
+            FakeOrreryServer().use { server ->
+                val offered = body(
+                    outcome = "stopped",
+                    steps = listOf(releaseStep(1, "passed"), releaseStep(2, "failed"), releaseStep(3, "failed")),
+                    paused = true,
+                )
+                val none = body(
+                    outcome = "stopped",
+                    steps = listOf(
+                        releaseStep(1, "passed"),
+                        releaseStep(2, "failed", undo = "Example undo."),
+                        releaseStep(3, "failed"),
+                    ),
+                    paused = true,
+                )
+                serve(server, offered)
+                routeReads(server, reading, 2, offered, none, offered)
+                server.respond(EPICS_RESUME, EpicsResumeResponse.getDefaultInstance())
+                setScreen(server)
+                awaitLoaded()
+
+                resumeAndAwaitRead(server, 2)
+                tapOnScreen(RELEASE_FROM)
+                awaitTag("release-from-title")
+                reading.countDown()
+
+                composeRule.awaitNone(hasTestTag("release-from-title"))
+                assertEquals(0, countNodes(hasTestTag(RELEASE_FROM)))
+
+                resumeAndAwaitRead(server, 3)
+                awaitTag(RELEASE_FROM)
+                composeRule.onNodeWithTag(RELEASE_FROM).assertIsEnabled()
+                assertEquals(0, countNodes(hasTestTag("release-from-title")))
+                assertEquals(0, releaseRequests(server).size)
+
+                tapOnScreen(RELEASE_FROM)
+                awaitTag("release-from-title")
+                assertEquals(0, releaseRequests(server).size)
             }
         } finally {
             reading.countDown()

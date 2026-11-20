@@ -20,8 +20,11 @@ import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 /** Semantics key: the tone of a release step's state cell, on its text node. */
 val ReleaseToneKey = SemanticsPropertyKey<ReleaseTone>("ReleaseTone")
 
-// The name the Release from step N control asks under in its owner call.
+// The tag of the Release from step N control, and the stem of the name it asks under.
 private const val RELEASE_FROM = "release-from"
+
+/** The name the Release from step [position] control asks under in its owner call: the step it names. */
+internal fun releaseAsk(position: Long): String = "$RELEASE_FROM:$position"
 
 /**
  * The Release section: its heading with its count words, one row per release step with the reason, evidence and runs
@@ -118,7 +121,7 @@ private fun ReleaseStepRow(line: ReleaseLine, offered: Boolean, call: OwnerCall,
 private fun ReleaseFromControl(line: ReleaseLine, call: OwnerCall, onRelease: (Long) -> Unit) {
     val position = line.position
     TextButton(
-        onClick = { call.ask(RELEASE_FROM) },
+        onClick = { call.ask(releaseAsk(position)) },
         enabled = !call.disabled,
         modifier = Modifier.testTag(RELEASE_FROM),
     ) {
@@ -134,7 +137,7 @@ private fun ReleaseFromControl(line: ReleaseLine, call: OwnerCall, onRelease: (L
                 .testTag("release-call-line"),
         )
     }
-    if (call.asking == RELEASE_FROM) {
+    if (call.asking == releaseAsk(position)) {
         ModalBottomSheet(onDismissRequest = { call.keep() }) {
             Column(
                 Modifier

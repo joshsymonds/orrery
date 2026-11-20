@@ -30,6 +30,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsHistoryResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsReleaseRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsReleaseResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsResumeResponse
 import io.github.joshsymonds.orrery.mainThreadComposeRule
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -58,6 +59,7 @@ class EpicCloseTest {
         const val EPICS_LIST = "/orrery.v1.Epics/List"
         const val EPICS_RELEASE = "/orrery.v1.Epics/Release"
         const val EPICS_CLOSE = "/orrery.v1.Epics/Close"
+        const val EPICS_RESUME = "/orrery.v1.Epics/Resume"
         const val GAPS_CALL_LINE = "gaps-call-line"
         const val CLOSE_CONFIRM = "close-confirm"
         const val SUPERSEDED = "close-kind:superseded"
@@ -75,8 +77,11 @@ class EpicCloseTest {
     @get:Rule
     val composeRule = mainThreadComposeRule()
 
-    /** An ended epic with gaps, or any other ending, with its Report set so the Report section is drawn. */
-    private fun body(outcome: String): EpicsGetResponse =
+    /**
+     * An ended epic with gaps, or any other ending, with its Report set so the Report section is drawn. An orreryd epic
+     * stays live until it is released or done, so a [live] paused one offers Resume, which reads it again.
+     */
+    private fun body(outcome: String, live: Boolean = false, paused: Boolean = false): EpicsGetResponse =
         EpicsGetResponse.newBuilder()
             .setEpic(
                 Epic.newBuilder()
@@ -86,11 +91,12 @@ class EpicCloseTest {
                     .setPath(PATH)
                     .setOutcome(outcome)
                     .setChanged(CHANGED)
-                    .setLive(false)
+                    .setLive(live)
                     .setSource("orreryd"),
             )
             .setRepository("/home/user/example-repo")
             .setReport(EpicReport.newBuilder().setOutcome(outcome).setWhy("Example why."))
+            .setPaused(paused)
             .build()
 
     private fun listedEpic(id: String, slug: String, path: String): Epic =
@@ -178,6 +184,25 @@ class EpicCloseTest {
 
     private fun getCount(server: FakeOrreryServer): Int =
         server.requests.count { it.rawPath == EPICS_GET }
+
+    /** Serves the epic reads in order, the read at [held] (1-based) waiting for [gate] before it is answered. */
+    private fun routeReads(server: FakeOrreryServer, gate: CountDownLatch, held: Int, vararg reads: EpicsGetResponse) {
+        val count = AtomicInteger()
+        server.route(EPICS_GET) {
+            val read = count.incrementAndGet()
+            if (read == held) gate.await()
+            Reply.Message(reads[read - 1], 0L)
+        }
+    }
+
+    /** Resumes the paused epic from its More sheet, which reads it again, and waits for read [reads] to arrive. */
+    private fun resumeAndAwaitRead(server: FakeOrreryServer, reads: Int) {
+        composeRule.onNodeWithTag("epic-more").performClick()
+        awaitTag("epic-sheet-resume")
+        tapInSheet("epic-sheet-resume")
+        composeRule.awaitNone(hasTestTag("epic-more-title"))
+        composeRule.awaitUntil("the epic to be read $reads times") { getCount(server) == reads }
+    }
 
     /** Opens the Release it anyway sheet from the Report's control. */
     private fun openReleaseAnyway() {
@@ -545,6 +570,69 @@ class EpicCloseTest {
                 composeRule.onNodeWithTag("report-close").assertIsEnabled()
                 assertEquals(1, closeRequests(server).size)
                 assertEquals(2, getCount(server))
+            }
+        } finally {
+            reading.countDown()
+        }
+    }
+
+    @Test
+    fun anOpenReleaseItAnywaySheetClosesWithNoCallWhenARereadIsNoLongerEndedWithGaps() {
+        val reading = CountDownLatch(1)
+        try {
+            FakeOrreryServer().use { server ->
+                val gaps = body(outcome = "ended_with_gaps", live = true, paused = true)
+                routeReads(server, reading, 2, gaps, body(outcome = "released", live = true, paused = true), gaps)
+                server.respond(EPICS_HISTORY, EpicsHistoryResponse.getDefaultInstance())
+                server.respond(EPICS_RESUME, EpicsResumeResponse.getDefaultInstance())
+                setScreen(server)
+                awaitTag("report-sentence")
+
+                resumeAndAwaitRead(server, 2)
+                openReleaseAnyway()
+                reading.countDown()
+
+                composeRule.awaitNone(hasTestTag("anyway-title"))
+                assertEquals(0, releaseRequests(server).size)
+                assertEquals(0, countNodes(hasTestTag("report-release-anyway")))
+
+                resumeAndAwaitRead(server, 3)
+                awaitTag("report-release-anyway")
+                composeRule.onNodeWithTag("report-release-anyway").assertIsEnabled()
+                assertEquals(0, countNodes(hasTestTag("anyway-title")))
+                assertEquals(0, releaseRequests(server).size)
+            }
+        } finally {
+            reading.countDown()
+        }
+    }
+
+    @Test
+    fun anOpenCloseAsSheetClosesWithNoCallWhenARereadIsNoLongerEndedWithGaps() {
+        val reading = CountDownLatch(1)
+        try {
+            FakeOrreryServer().use { server ->
+                val gaps = body(outcome = "ended_with_gaps", live = true, paused = true)
+                routeReads(server, reading, 2, gaps, body(outcome = "released", live = true, paused = true), gaps)
+                server.respond(EPICS_LIST, listOfEpics())
+                server.respond(EPICS_HISTORY, EpicsHistoryResponse.getDefaultInstance())
+                server.respond(EPICS_RESUME, EpicsResumeResponse.getDefaultInstance())
+                setScreen(server)
+                awaitTag("report-sentence")
+
+                resumeAndAwaitRead(server, 2)
+                openCloseWithList()
+                reading.countDown()
+
+                composeRule.awaitNone(hasTestTag("close-title"))
+                assertEquals(0, closeRequests(server).size)
+                assertEquals(0, countNodes(hasTestTag("report-close")))
+
+                resumeAndAwaitRead(server, 3)
+                awaitTag("report-close")
+                composeRule.onNodeWithTag("report-close").assertIsEnabled()
+                assertEquals(0, countNodes(hasTestTag("close-title")))
+                assertEquals(0, closeRequests(server).size)
             }
         } finally {
             reading.countDown()
