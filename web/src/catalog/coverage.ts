@@ -32,6 +32,7 @@ export const storyRenames: Renames = {
   "eventring.tsx": { EventRing: "EpicEventBlock", StepCard: "StepEndBlock" },
   "evidence.tsx": { EvidenceRuns: "EvidenceRun" },
   "glyphs.tsx": { Icon: "Icons" },
+  "inboxrail.tsx": { RailTile: "Tile", InboxRail: { module: "app.stories.tsx", story: "Page" } },
   "head.tsx": { Head: "Page" },
   "happenings.tsx": { JustHappened: "HappeningList" },
   "inbox.tsx": { Inbox: { module: "app.stories.tsx", story: "Page" } },
