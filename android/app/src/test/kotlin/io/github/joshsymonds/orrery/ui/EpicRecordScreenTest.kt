@@ -12,6 +12,7 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
@@ -125,6 +126,7 @@ class EpicRecordScreenTest {
         live: Boolean = true,
         paused: Boolean = false,
         parked: String = "",
+        plannerParked: Boolean = false,
         phaseAt: Long = 0L,
         buildTasks: List<EpicBuildTask> = emptyList(),
         tasks: List<EpicTask> = emptyList(),
@@ -157,6 +159,7 @@ class EpicRecordScreenTest {
             .setSummary(summary)
             .setPaused(paused)
             .setParked(parked)
+            .setPlannerParked(plannerParked)
         contract?.let { response.setContract(it) }
         return response.build()
     }
@@ -591,6 +594,92 @@ class EpicRecordScreenTest {
     }
 
     @Test
+    fun epicAskAnOpenQuestionIsDrawnInNowUnderTheSentence() {
+        val listState = LazyListState()
+        FakeOrreryServer().use { server ->
+            serve(
+                server,
+                body(
+                    outcome = "built",
+                    buildTasks = listOf(buildTask("example-task-1")),
+                    questions = listOf(question("example-question-1", "Example question?", NOW - 120)),
+                ),
+            )
+            setScreen(server, listState = listState)
+            awaitLoaded()
+
+            sectionIndex(listState, "now")
+            assertEquals(1, countIn("epic-section:now", hasTestTag("blocker-question") and hasText("Example question?")))
+            assertEquals(1, countIn("epic-section:now", hasTestTag("blocker-answer-send")))
+            assertEquals(1, countNodes(hasTestTag("blocker-question")))
+            val sentenceTop = composeRule.onNodeWithTag("now-sentence", useUnmergedTree = true)
+                .fetchSemanticsNode().boundsInRoot.top
+            val askTop = composeRule.onNodeWithTag("blocker-question", useUnmergedTree = true)
+                .fetchSemanticsNode().boundsInRoot.top
+            assertTrue("the Ask is drawn under the sentence", sentenceTop < askTop)
+        }
+    }
+
+    @Test
+    fun epicAskAnOwnersParkIsDrawnInNowWithItsReasonAndTwoChoices() {
+        val listState = LazyListState()
+        FakeOrreryServer().use { server ->
+            serve(server, body(outcome = "built", parked = "rate limit"))
+            setScreen(server, listState = listState)
+            awaitLoaded()
+
+            sectionIndex(listState, "now")
+            assertEquals(1, countIn("epic-section:now", hasTestTag("epic-park")))
+            assertEquals(1, countIn("epic-section:now", hasText("It asks you what to do")))
+            assertEquals(1, countIn("epic-section:now", hasTestTag("epic-park-reason") and hasText("Rate limit.")))
+            composeRule.onNodeWithTag("epic-park-retry").assertTextEquals("Retry")
+            composeRule.onNodeWithTag("epic-park-stop").assertTextEquals("Stop…")
+            assertEquals(2, countIn("epic-section:now", hasClickAction() and hasAnyAncestor(hasTestTag("epic-park"))))
+            assertEquals(0, countNodes(hasTestTag("blocker-question")))
+        }
+    }
+
+    @Test
+    fun epicAskAPlannersParkIsOneLineInNowWithNoControlAndNoAsk() {
+        val listState = LazyListState()
+        FakeOrreryServer().use { server ->
+            serve(server, body(outcome = "built", parked = "rate limit", plannerParked = true))
+            setScreen(server, listState = listState)
+            awaitLoaded()
+
+            sectionIndex(listState, "now")
+            assertEquals(
+                1,
+                countIn(
+                    "epic-section:now",
+                    hasTestTag("epic-planner-park") and
+                        hasText("The planner holds this park: rate limit. It will retry, replan, or ask you."),
+                ),
+            )
+            assertEquals(0, countNodes(hasTestTag("epic-park")))
+            assertEquals(0, countNodes(hasTestTag("epic-park-retry")))
+            assertEquals(0, countNodes(hasTestTag("epic-park-stop")))
+            assertEquals(0, countNodes(hasTestTag("blocker-question")))
+        }
+    }
+
+    @Test
+    fun epicRecordTheProblemIsDrawnInItsSectionWithNoNoticeOrReadLine() {
+        val listState = LazyListState()
+        FakeOrreryServer().use { server ->
+            serve(server, body(problem = "Example problem.", outcome = "built"))
+            setScreen(server, listState = listState)
+            awaitLoaded()
+
+            sectionIndex(listState, "problem")
+            assertEquals(1, countIn("epic-section:problem", hasTestTag("epic-problem") and hasText("Example problem.")))
+            assertEquals(0, countNodes(hasTestTag("epic-notice")))
+            assertEquals(0, countNodes(hasText("The server could not read this epic.")))
+            assertEquals(0, countNodes(hasText("loading the epic…")))
+        }
+    }
+
+    @Test
     fun epicWordsThePausedPillIsQuiet() {
         FakeOrreryServer().use { server ->
             serve(server, body(outcome = "built", paused = true))
@@ -979,6 +1068,65 @@ class EpicRecordScreenTest {
 
             awaitLoaded()
             composeRule.onNodeWithText("Loaded after retry").assertExists()
+        }
+    }
+
+    @Test
+    fun epicCommandsADidNotLandLineIsDrawnAloneWithNoLoadingOrReadLine() {
+        FakeOrreryServer().use { server ->
+            serve(server, body(outcome = "built"))
+            server.fail(EPICS_PAUSE, Code.FAILED_PRECONDITION, "epic is closed")
+            setScreen(server)
+            awaitLoaded()
+
+            clickTag("epic-more")
+            awaitTag("epic-sheet-pause")
+            tapInSheet("epic-sheet-pause")
+
+            awaitTag("epic-notice")
+            composeRule.onNodeWithTag("epic-notice", useUnmergedTree = true)
+                .assertTextEquals("Pause did not land: epic is closed.")
+            assertEquals(0, countNodes(hasText("loading the epic…")))
+            assertEquals(0, countNodes(hasText("The server could not read this epic.")))
+            assertEquals(0, countNodes(hasTestTag("epic-problem")))
+        }
+    }
+
+    @Test
+    fun epicCommandsTheLoadingLineIsDrawnAloneWithNoProblemNoNoticeAndNoReadLine() {
+        val release = CountDownLatch(1)
+        FakeOrreryServer().use { server ->
+            server.route(EPICS_GET) {
+                release.await()
+                Reply.Message(body(outcome = "built", problem = "Example problem."), 0L)
+            }
+            server.respond(EPICS_HISTORY, historyOf())
+            setScreen(server)
+            try {
+                awaitTag("title-back")
+                assertEquals(1, countNodes(hasText("loading the epic…")))
+                assertEquals(0, countNodes(hasText("Example problem.")))
+                assertEquals(0, countNodes(hasTestTag("epic-notice")))
+                assertEquals(0, countNodes(hasText("The server could not read this epic.")))
+            } finally {
+                release.countDown()
+            }
+            awaitLoaded()
+        }
+    }
+
+    @Test
+    fun epicCommandsACouldNotReadLineIsDrawnAloneWithNoLoadingNoNoticeAndNoNow() {
+        FakeOrreryServer().use { server ->
+            server.fail(EPICS_GET, Code.UNAVAILABLE, "synthetic outage")
+            server.respond(EPICS_HISTORY, historyOf())
+            setScreen(server)
+            composeRule.awaitUntil { countNodes(hasText("The server could not read this epic.")) > 0 }
+
+            assertEquals(0, countNodes(hasText("loading the epic…")))
+            assertEquals(0, countNodes(hasTestTag("epic-notice")))
+            assertEquals(0, countNodes(hasTestTag("epic-section:now")))
+            assertEquals(0, countNodes(hasTestTag("epic-problem")))
         }
     }
 
