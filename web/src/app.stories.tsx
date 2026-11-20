@@ -188,7 +188,7 @@ export const Page: Stories = {
       after={async (root) => {
         // Under the phone's width the epic is a page, and its foot bar opens the conversation that steers it.
         if (window.innerWidth < phoneWidth) {
-          await clickWhen(root, ".epic-foot button", "Talk to the session");
+          await clickWhen(root, ".cmdbar button", "Talk to the session");
         }
       }}
     />

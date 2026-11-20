@@ -1,5 +1,5 @@
 import type { ComponentChildren, JSX } from "preact";
-import { useLayoutEffect, useRef } from "preact/hooks";
+import { useLayoutEffect, useRef, useState } from "preact/hooks";
 
 import { AskFirst } from "./blocker";
 import type { LoadArtifact } from "./evidence";
@@ -12,6 +12,7 @@ import { recordTasksOf } from "./record";
 import { blockerPillOf, contractDoorOf, reachedOf, statePillOf, trackOf } from "./recordwords";
 import { RequirementTable } from "./reqtable";
 import type { Row } from "./rows";
+import { Sheet } from "./sheet";
 import { type Blocker, controlsOf, stateOf } from "./status";
 import { TaskTable } from "./tasktable";
 import { type TalkTarget, talkTarget } from "./talk";
@@ -84,7 +85,9 @@ function SteeredFrom({
 // happened, the tasks with their chart and table, and the requirements. A record epic draws only Now and its tasks. A
 // section the epic has not reached is not drawn. The commands are the ones controlsOf shows for the epic. Each phase
 // click reaches onOpenPhase. A landing brings its part of the page into view once the page is drawn. numberKeys is
-// whether a digit key picks an option of the open question.
+// whether a digit key picks an option of the open question. narrow moves the commands off the title row into a foot
+// bar: its Talk button, given only when a steerer is known, calls onTalk, and its More button opens a sheet of the
+// commands, where Stop asks first in a sheet of its own.
 export function EpicPage(props: {
   detail: EpicsGetResponse;
   history: EpicHistoryEntry[];
@@ -102,6 +105,8 @@ export function EpicPage(props: {
   mark?: InboxMark;
   strip?: ComponentChildren;
   rows?: Row[];
+  narrow?: boolean;
+  onTalk?: () => void;
 }): JSX.Element {
   const {
     detail,
@@ -120,6 +125,8 @@ export function EpicPage(props: {
     mark,
     strip,
     rows = [],
+    narrow = false,
+    onTalk,
   } = props;
   const { epic, contract, requirements, sessions, steps } = detail;
   const reached = reachedOf(detail, history);
@@ -139,6 +146,8 @@ export function EpicPage(props: {
   const summary = detail.summary !== "" ? detail.summary : (contract?.title ?? "");
   const steering = sessions.find((session) => session.id === epic?.steering);
   const provenCount = requirements.filter((requirement) => provenIds.has(requirement.id)).length;
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [stopOpen, setStopOpen] = useState(false);
   const pageRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const page = pageRef.current;
@@ -163,17 +172,17 @@ export function EpicPage(props: {
         note={commandError}
       >
         {actions}
-        {controls.resume && (
+        {!narrow && controls.resume && (
           <button type="button" class="act" onClick={() => commands.resume()}>
             Resume
           </button>
         )}
-        {controls.pause && (
+        {!narrow && controls.pause && (
           <button type="button" class="act" onClick={() => commands.pause()}>
             Pause
           </button>
         )}
-        {controls.stop && (
+        {!narrow && controls.stop && (
           <AskFirst
             label="Stop…"
             question={`Stop ${slug}?`}
@@ -226,6 +235,70 @@ export function EpicPage(props: {
           </header>
           <RequirementTable requirements={requirements} loadArtifact={loadArtifact} />
         </section>
+      )}
+      {narrow && (
+        <div class="cmdbar">
+          {onTalk !== undefined && (
+            <button type="button" class="act" onClick={() => onTalk()}>
+              Talk to the session that steers it
+            </button>
+          )}
+          <button type="button" class="act" onClick={() => setMoreOpen(true)}>
+            More
+          </button>
+        </div>
+      )}
+      {narrow && moreOpen && (
+        <Sheet title={slug} onClose={() => setMoreOpen(false)}>
+          {controls.resume && (
+            <button
+              type="button"
+              class="act"
+              onClick={() => {
+                commands.resume();
+                setMoreOpen(false);
+              }}
+            >
+              Resume
+            </button>
+          )}
+          {controls.pause && (
+            <button
+              type="button"
+              class="act"
+              onClick={() => {
+                commands.pause();
+                setMoreOpen(false);
+              }}
+            >
+              Pause
+            </button>
+          )}
+          {controls.stop && (
+            <button type="button" class="act" onClick={() => setStopOpen(true)}>
+              Stop…
+            </button>
+          )}
+        </Sheet>
+      )}
+      {narrow && stopOpen && (
+        <Sheet title={`Stop ${slug}?`} onClose={() => setStopOpen(false)}>
+          <p>Its running steps are stopped. Nothing is released.</p>
+          <button
+            type="button"
+            class="act primary"
+            onClick={() => {
+              commands.stop();
+              setStopOpen(false);
+              setMoreOpen(false);
+            }}
+          >
+            {`Stop ${slug}`}
+          </button>
+          <button type="button" class="act" onClick={() => setStopOpen(false)}>
+            Keep it running
+          </button>
+        </Sheet>
       )}
     </div>
   );

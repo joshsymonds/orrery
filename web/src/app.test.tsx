@@ -3823,6 +3823,21 @@ function epicPageDrawn(container: HTMLElement): boolean {
   return container.querySelector('section.page[aria-label="epic"] .epic-page') !== null;
 }
 
+// epicReadText is the line the epic page's section draws while the epic's detail is not drawn, or null.
+function epicReadText(container: HTMLElement): string | null {
+  return container.querySelector('section.page[aria-label="epic"] .side-note')?.textContent ?? null;
+}
+
+// epicPageButtons lists the labels of the buttons the epic page's section draws.
+function epicPageButtons(container: HTMLElement): (string | null)[] {
+  return [...container.querySelectorAll('section.page[aria-label="epic"] button')].map((button) => button.textContent);
+}
+
+// epicReply is the Epics.Get answer for an epic with the id and slug, with no detail but its own record.
+function epicReply(id: string, slug: string): object {
+  return { epic: { id, repository: widgetsRepo, slug, outcome: "", live: true } };
+}
+
 // contractDrawn is whether the page section holds the contract page.
 function contractDrawn(container: HTMLElement): boolean {
   return container.querySelector('section.page[aria-label="epic"] article.contract') !== null;
@@ -3983,16 +3998,38 @@ test("a session row hides the epic page", (t) =>
     assert.equal(epicPageShown(container), false, "a session row hides the page");
   }));
 
-test("an epic with no detail shows epic unavailable in its page, and a step of it shows no page", (t) =>
+test("EpicCommands: an epic whose read has not answered reads loading the epic, with no button", (t) =>
+  withApp(t.signal, { epics: oneEpic() }, async (container, fake) => {
+    let answer: () => void = () => {};
+    fake.holds.set(
+      getEpicPath,
+      new Promise<void>((resolve) => {
+        answer = resolve;
+      }),
+    );
+    await press("j");
+    assert.equal(epicPageDrawn(container), false, "no epic page is drawn before the answer");
+    assert.equal(epicReadText(container), "loading the epic…");
+    assert.deepEqual(epicPageButtons(container), [], "no button while the epic loads");
+    fake.replies.set(getEpicPath, [epicReply(widgetsFirst, "first")]);
+    answer();
+    await until(t.signal, () => epicPageDrawn(container), "the page the answer holds");
+  }));
+
+test("EpicCommands: an epic the server could not read says so with Try again, which reads it once more, and a step of it shows no page", (t) =>
   withApp(t.signal, { epics: oneEpic() }, async (container, fake) => {
     fake.failNext.add(getEpicPath);
     await press("j");
+    await until(t.signal, () => epicReadText(container) === "The server could not read this epic.", "the could-not-read line");
     assert.equal(epicPageShown(container), true);
     assert.equal(epicPageDrawn(container), false, "no epic page is drawn without detail");
-    assert.equal(
-      container.querySelector('section.page[aria-label="epic"]')?.textContent,
-      "epic unavailable",
-    );
+    assert.deepEqual(epicPageButtons(container), ["Try again"]);
+    assert.equal(fake.callsTo(getEpicPath).length, 1, "the failed read is not repeated on its own");
+    fake.replies.set(getEpicPath, [epicReply(widgetsFirst, "first")]);
+    await clickButton(container, 'section.page[aria-label="epic"]', "Try again");
+    await until(t.signal, () => epicPageDrawn(container), "the page the retry answers");
+    assert.equal(fake.callsTo(getEpicPath).length, 2, "Try again reads the epic once");
+    assert.equal(fake.callsTo(getEpicPath)[1].body.id, widgetsFirst);
     await press("j");
     assert.equal(cursorKey(container), "step:s1");
     assert.equal(epicPageShown(container), false, "a step shows no page");

@@ -612,3 +612,112 @@ test("EpicCommands: the title row's actions render first, before Pause and Stop"
     { actions: <button type="button">Talk</button> },
   );
 });
+
+// dialogTitles lists the titles of the sheets drawn, in the order they stack.
+function dialogTitles(root: ParentNode): string[] {
+  return [...root.querySelectorAll('section[role="dialog"]')].map((dialog) => dialog.getAttribute("aria-label") ?? "");
+}
+
+test("EpicCommands: narrow draws no commands in the title row, and its foot holds More alone without a steerer", async () => {
+  await withPage(
+    detail({ ...build }),
+    (container) => {
+      assert.deepEqual(textsOf(container, ".title-row .acts > *"), []);
+      assert.deepEqual(textsOf(container, ".cmdbar > *"), ["More"]);
+    },
+    { narrow: true },
+  );
+});
+
+test("EpicCommands: narrow's foot holds Talk to the session that steers it when a steerer is known, and Talk calls onTalk", async () => {
+  let talks = 0;
+  await withPage(
+    detail({ ...build }),
+    async (container) => {
+      assert.deepEqual(textsOf(container, ".cmdbar > *"), ["Talk to the session that steers it", "More"]);
+      await pressButton(container, ".cmdbar", "Talk to the session that steers it");
+      assert.equal(talks, 1, "Talk calls onTalk once");
+    },
+    {
+      narrow: true,
+      onTalk: () => {
+        talks += 1;
+      },
+    },
+  );
+});
+
+test("EpicCommands: More opens a sheet titled with the slug, listing exactly the commands the epic allows", async () => {
+  await withPage(
+    detail({ ...build }),
+    async (container) => {
+      await pressButton(container, ".cmdbar", "More");
+      assert.deepEqual(dialogTitles(container), ["demo-epic"]);
+      assert.deepEqual(textsOf(container, '[aria-label="demo-epic"] button'), ["Pause", "Stop…"]);
+    },
+    { narrow: true },
+  );
+  await withPage(
+    detail({ ...build, paused: true }),
+    async (container) => {
+      await pressButton(container, ".cmdbar", "More");
+      assert.deepEqual(textsOf(container, '[aria-label="demo-epic"] button'), ["Resume", "Stop…"]);
+    },
+    { narrow: true },
+  );
+  await withPage(
+    detail({ ...build, epic: { ...liveEpic, live: false, outcome: "released" } }),
+    async (container) => {
+      await pressButton(container, ".cmdbar", "More");
+      assert.deepEqual(textsOf(container, '[aria-label="demo-epic"] button'), []);
+    },
+    { narrow: true },
+  );
+});
+
+test("EpicCommands: Pause and Resume in More each send one call, and close the sheet", async () => {
+  const pausing = recorder();
+  await withPage(
+    detail({ ...build }),
+    async (container) => {
+      await pressButton(container, ".cmdbar", "More");
+      await pressButton(container, '[aria-label="demo-epic"]', "Pause");
+      assert.deepEqual(pausing.calls, ["pause"]);
+      assert.deepEqual(dialogTitles(container), []);
+    },
+    { narrow: true, commands: pausing.commands },
+  );
+  const resuming = recorder();
+  await withPage(
+    detail({ ...build, paused: true }),
+    async (container) => {
+      await pressButton(container, ".cmdbar", "More");
+      await pressButton(container, '[aria-label="demo-epic"]', "Resume");
+      assert.deepEqual(resuming.calls, ["resume"]);
+      assert.deepEqual(dialogTitles(container), []);
+    },
+    { narrow: true, commands: resuming.commands },
+  );
+});
+
+test("EpicCommands: Stop… in More opens the confirm with its words, Keep it running sends nothing, and the confirm sends one stop", async () => {
+  const stopping = recorder();
+  await withPage(
+    detail({ ...build }),
+    async (container) => {
+      await pressButton(container, ".cmdbar", "More");
+      await pressButton(container, '[aria-label="demo-epic"]', "Stop…");
+      assert.deepEqual(dialogTitles(container), ["demo-epic", "Stop demo-epic?"]);
+      assert.equal(textOf(container, '[aria-label="Stop demo-epic?"] p'), "Its running steps are stopped. Nothing is released.");
+      assert.deepEqual(textsOf(container, '[aria-label="Stop demo-epic?"] button'), ["Stop demo-epic", "Keep it running"]);
+      await pressButton(container, '[aria-label="Stop demo-epic?"]', "Keep it running");
+      assert.deepEqual(stopping.calls, []);
+      assert.deepEqual(dialogTitles(container), ["demo-epic"]);
+      await pressButton(container, '[aria-label="demo-epic"]', "Stop…");
+      await pressButton(container, '[aria-label="Stop demo-epic?"]', "Stop demo-epic");
+      assert.deepEqual(stopping.calls, ["stop"]);
+      assert.deepEqual(dialogTitles(container), []);
+    },
+    { narrow: true, commands: stopping.commands },
+  );
+});

@@ -164,7 +164,8 @@ const contractBlock = "contract";
 const needsYouTitle = "Needs you";
 const newSinceTitle = "New since you looked";
 const noDirectoryTitle = "no directory";
-const epicUnavailableText = "epic unavailable";
+const loadingEpicText = "loading the epic…";
+const couldNotReadEpicText = "The server could not read this epic.";
 const noSteererText = "No conversation steers this epic.";
 const seenFailedText = "could not mark seen";
 const answerFailedText = "no answer was sent";
@@ -327,6 +328,8 @@ export function App({
   // answers are kept here and the asked ids in a ref.
   const [askedDetails, setAskedDetails] = useState<Map<string, EpicsGetResponse>>(() => new Map());
   const askedEpics = useRef(new Set<string>());
+  // The epics whose read failed. An epic in neither the poll's detail nor the answers is still loading.
+  const [failedEpicReads, setFailedEpicReads] = useState<Set<string>>(() => new Set());
   // The fixed line an epic page's command leaves when it fails. A command that lands clears it.
   const [commandError, setCommandError] = useState("");
   // The epic page's own command line: the last page command that did not land, under its title row.
@@ -505,7 +508,7 @@ export function App({
   const openStep = !epicPage.closed && epicPage.page.kind === "session" ? epicPage.page.step : "";
   const shownSession = epicDetail?.steps.some((step) => step.id === openStep) === true ? openStep : "";
   // The epic entry the cursor rests on, when the poll did not load its detail, is asked for once with Epics.Get. A
-  // failed answer leaves the page at its unavailable line.
+  // failed answer leaves the page at its could-not-read line.
   const askedId = epicEntry?.id ?? "";
   const polledDetail = askedId !== "" && epics.details.has(askedId);
   // The address the page shows. The epic page's reset to the open page is a layout effect of the render that moves the
@@ -634,16 +637,25 @@ export function App({
     };
   }, [historyId, epicChanged, clients]);
 
+  // readEpic asks the server for an epic. Its answer is the detail the page draws, and a failed read is kept as failed.
+  const readEpic = (id: string): void => {
+    void clients.epics.get({ id }).then(
+      (answer) => setAskedDetails((previous) => new Map(previous).set(id, answer)),
+      () => setFailedEpicReads((previous) => new Set(previous).add(id)),
+    );
+  };
+  // retryEpicRead reads an epic whose read failed once more. The page shows it as loading until that read answers.
+  const retryEpicRead = (id: string): void => {
+    setFailedEpicReads((previous) => new Set([...previous].filter((failed) => failed !== id)));
+    readEpic(id);
+  };
   // An epic the poll did not load is asked for once, when the cursor rests on it, and its answer draws the page.
   useEffect(() => {
     if (askedId === "" || polledDetail || askedEpics.current.has(askedId)) {
       return;
     }
     askedEpics.current.add(askedId);
-    void clients.epics.get({ id: askedId }).then(
-      (answer) => setAskedDetails((previous) => new Map(previous).set(askedId, answer)),
-      () => undefined,
-    );
+    readEpic(askedId);
   }, [askedId, polledDetail, clients]);
 
   // A move of the cursor opens the epic page afresh, so a page a back closed or a contract opened does not outlast it.
@@ -1501,10 +1513,22 @@ export function App({
   // the epic through openEpic; a step card opens its step through openEpicStep.
   const epicCalls = epicCallsOf(clients, navigated(openEpic), navigated(openEpicStep), epics);
 
-  // epicPageSection draws the epic section over the epic's detail, or the line that the detail did not load.
+  // epicPageSection draws the epic section over the epic's detail, or while the detail is not drawn, the line its read
+  // leaves: loading, or the could-not-read line with Try again.
   const epicPageSection = (entry: EpicItem, detail: EpicsGetResponse | undefined) => (
     <section class={pageClasses(epicPage.move)} aria-label="epic" ref={pageRef}>
-      {detail === undefined ? <p class="side-note">{epicUnavailableText}</p> : pageNode(entry, detail)}
+      {detail !== undefined ? (
+        pageNode(entry, detail)
+      ) : failedEpicReads.has(entry.id) ? (
+        <>
+          <p class="side-note">{couldNotReadEpicText}</p>
+          <button type="button" class="act" onClick={() => retryEpicRead(entry.id)}>
+            Try again
+          </button>
+        </>
+      ) : (
+        <p class="side-note">{loadingEpicText}</p>
+      )}
     </section>
   );
 
@@ -1589,16 +1613,20 @@ export function App({
         mark={inboxMark}
         strip={pageStrip(null, null)}
         rows={rows}
+        narrow={!wide}
+        onTalk={steererRow === null ? undefined : closePanel}
         actions={
-          <Talk
-            key={entry.id}
-            epic={entry.id}
-            sessions={detail.sessions}
-            repository={detail.repository}
-            rows={rows}
-            start={(dir, prompt) => clients.control.start({ dir, prompt }).then((reply) => reply.id)}
-            onOpen={openTalk}
-          />
+          wide && (
+            <Talk
+              key={entry.id}
+              epic={entry.id}
+              sessions={detail.sessions}
+              repository={detail.repository}
+              rows={rows}
+              start={(dir, prompt) => clients.control.start({ dir, prompt }).then((reply) => reply.id)}
+              onOpen={openTalk}
+            />
+          )
         }
       />
     );
@@ -1863,18 +1891,7 @@ export function App({
           </SidePanel>
         )}
         {epicEntry !== null && panelOpen && !wide && (
-          <div class="epic-read">
-            {epicPageSection(epicEntry, epicDetail)}
-            <div class="epic-foot">
-              {steererRow === null ? (
-                <p class="side-note">{noSteererText}</p>
-              ) : (
-                <button type="button" class="act" onClick={closePanel}>
-                  Talk to the session that steers it
-                </button>
-              )}
-            </div>
-          </div>
+          <div class="epic-read">{epicPageSection(epicEntry, epicDetail)}</div>
         )}
         {listShown !== null && wide && (
           <SidePanel label={listHead(listShown)} tone={listTone} href={shownForm} onClose={closeList}>

@@ -398,11 +398,36 @@ test("TileStrip: the epic page's foot bar pushes the steering conversation's add
     assert.ok(conversationShown(container) !== null, "the conversation is drawn");
   }));
 
-test("TileStrip: an epic no conversation steers draws its foot line and no button", (t) =>
+test("TileStrip: an epic no conversation steers draws its foot with More and no Talk button", (t) =>
   withPhone(t.signal, unsteered, async ({ container }) => {
     assert.ok(epicSection(container) !== null, "the epic is drawn as the page");
-    assert.equal(footButton(container), null, "no button is drawn");
-    assert.ok(container.textContent?.includes("No conversation steers this epic.") === true, "the foot line says so");
+    assert.equal(footButton(container), null, "no Talk button is drawn");
+    assert.deepEqual(
+      [...container.querySelectorAll(".cmdbar button")].map((button) => button.textContent),
+      ["More"],
+      "the foot holds More alone",
+    );
+  }));
+
+test("TileStrip: the phone's epic page keeps its commands out of the title row, and More lists them", (t) =>
+  withPhone(t.signal, onEpic, async ({ container }) => {
+    assert.deepEqual(
+      [...container.querySelectorAll(".title-row .acts button")]
+        .map((button) => button.textContent)
+        .filter((label) => ["Talk", "Pause", "Resume", "Stop…"].includes(label ?? "")),
+      [],
+      "the title row draws no Talk, Pause, Resume or Stop",
+    );
+    const more = [...container.querySelectorAll<HTMLButtonElement>(".cmdbar button")].find(
+      (button) => button.textContent === "More",
+    );
+    assert.ok(more !== undefined, "the foot holds More");
+    await press(more);
+    assert.deepEqual(
+      [...container.querySelectorAll('section[role="dialog"][aria-label="alpha"] button')].map((b) => b.textContent),
+      ["Pause", "Stop…"],
+      "More lists the commands alpha allows",
+    );
   }));
 
 test("TileStrip: four epics' dots tile opens the picker as a sheet, and its row opens that epic", (t) => {
