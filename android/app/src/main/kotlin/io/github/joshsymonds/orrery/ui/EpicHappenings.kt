@@ -159,9 +159,9 @@ private fun CheckTails(tag: String, check: StepCheckRow) {
     }
 }
 
-// inFlight is whether a wedge is in a phase and running, or held by the owner.
+// inFlight is whether a wedge is in a phase and running, held by the owner, or waiting on a usage limit.
 private fun inFlight(wedge: Wedge): Boolean =
-    (wedge.tone == WedgeTone.RUN || wedge.tone == WedgeTone.MINE) &&
+    (wedge.tone == WedgeTone.RUN || wedge.tone == WedgeTone.MINE || wedge.tone == WedgeTone.LIMITED) &&
         wedge.place != WedgePlace.PLANNED &&
         wedge.place != WedgePlace.INTEGRATED
 
@@ -169,9 +169,12 @@ private fun inFlight(wedge: Wedge): Boolean =
 private fun nowSliceOf(wedge: Wedge): PhaseSlice? = wedge.slices.find { it.state == SliceState.NOW }
 
 // toneColourOf is a now row's colour, as the web's k-now and k-held: yellow while a step runs, peach while the
-// owner holds it. inFlight admits no other tone.
-private fun toneColourOf(wedge: Wedge): Color =
-    if (wedge.tone == WedgeTone.MINE) OrreryTokens.Role.attention else OrreryTokens.Role.live
+// owner holds it, grey while a usage limit holds it. inFlight admits no other tone.
+private fun toneColourOf(wedge: Wedge): Color = when (wedge.tone) {
+    WedgeTone.MINE -> OrreryTokens.Role.attention
+    WedgeTone.LIMITED -> OrreryTokens.Ink.three
+    else -> OrreryTokens.Role.live
+}
 
 // nowText is a row's text: its task and place, then how long it has been in the phase once the clock has started it.
 private fun nowText(wedge: Wedge, since: Long, now: Long): String {

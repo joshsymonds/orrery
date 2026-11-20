@@ -159,14 +159,17 @@ class PhaseModelTest {
     }
 
     @Test
-    fun aHeldOrLimitedRunningStepPlacesItsTaskAsMine() {
+    fun aHeldRunningStepPlacesItsTaskAsMineAndALimitedOneAsLimitedAndHeldWinsOverLimited() {
         val held = wedgeOf(planOf("open", "implement", listOf(step(held = true))))
         assertEquals(WedgePlace.IMPLEMENTING, held.place)
         assertEquals(WedgeTone.MINE, held.tone)
 
         val limited = wedgeOf(planOf("open", "implement", listOf(step(limited = true))))
         assertEquals(WedgePlace.IMPLEMENTING, limited.place)
-        assertEquals(WedgeTone.MINE, limited.tone)
+        assertEquals(WedgeTone.LIMITED, limited.tone)
+
+        val heldAndLimited = wedgeOf(planOf("open", "implement", listOf(step(held = true, limited = true))))
+        assertEquals(WedgeTone.MINE, heldAndLimited.tone)
     }
 
     @Test
