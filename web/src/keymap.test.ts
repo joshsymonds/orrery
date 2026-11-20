@@ -162,3 +162,34 @@ test("InboxTree: a and p do nothing, and v opens the archived view", () => {
   handleKey(key("v"), fake.context);
   assert.deepEqual(fake.calls, [["setView", "archived"]]);
 });
+
+test("InboxTree: w moves to the counted thing after the cursor's in waitKeys, wrapping, and from an entry that counts nothing to the first", () => {
+  const waitKeys = ["a", "epic:w/first", "contract:w/tide"];
+  const cases: [from: string, to: string][] = [
+    ["a", "epic:w/first"],
+    ["epic:w/first", "contract:w/tide"],
+    ["contract:w/tide", "a"],
+    ["c", "a"],
+  ];
+  for (const [from, to] of cases) {
+    const fake = fakeContext({ waitKeys, cursorItem: row(from), index: 0, flat: three });
+    handleKey(key("w"), fake.context);
+    assert.deepEqual(fake.calls, [["waitTo", to]], `w from ${from}`);
+  }
+});
+
+test("InboxTree: w does nothing when no counted thing is listed", () => {
+  const fake = fakeContext({ waitKeys: [], cursorItem: three[0], index: 0, flat: three });
+  handleKey(key("w"), fake.context);
+  assert.deepEqual(fake.calls, []);
+});
+
+test("InboxTree: A archives the cursor's row in the inbox and unarchives it in Archived", () => {
+  const item: Row = { ...row("a"), archiveKind: "session", archiveId: "sess-a" };
+  const inbox = fakeContext({ cursorItem: item, cursorRow: item, index: 0, flat: [item], view: "inbox" });
+  handleKey(key("A"), inbox.context);
+  assert.deepEqual(inbox.calls, [["setArchive", item, true]]);
+  const archived = fakeContext({ cursorItem: item, cursorRow: item, index: 0, flat: [item], view: "archived" });
+  handleKey(key("A"), archived.context);
+  assert.deepEqual(archived.calls, [["setArchive", item, false]]);
+});

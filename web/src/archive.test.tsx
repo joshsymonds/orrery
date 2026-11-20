@@ -634,6 +634,39 @@ test("RowMenu: the A key archives the cursor row and leaves another row's open m
     },
   ));
 
+test("ArchiveView: A in the Archived view sends Epics.Unarchive with the row's kind and id, and the row returns to the inbox", (t) =>
+  withArchive(
+    t.signal,
+    { rows: [row({ key: "p", label: "pane" }), headless({ key: "ha", id: "ha", label: "old docs", archived: true })] },
+    async (container, fake) => {
+      await press("v");
+      assert.equal(cursorKey(container), "ha", "the cursor rests on the archived row");
+      await press("A");
+      await until(t.signal, () => fake.callsTo(unarchivePath).length === 1, "the unarchive call");
+      assert.deepEqual(fake.callsTo(unarchivePath)[0].body, { kind: "headless", id: "ha" });
+      assert.equal(fake.callsTo(archivePath).length, 0, "A in Archived archives nothing");
+      await until(t.signal, () => lineOf(container, "ha") === null, "the row leaving the Archived view");
+      await back(container);
+      assert.deepEqual(rowKeys(container), ["ha", "p"]);
+    },
+  ));
+
+test("ArchiveView: A in the Archived view on an archived epic sends Epics.Unarchive with kind epic and its id", (t) =>
+  withArchive(
+    t.signal,
+    { epics: epicsView([epic({ id: "w/old", slug: "old", outcome: "released", live: false, archived: true, phaseAt: 99000n })], new Map()) },
+    async (container, fake) => {
+      await press("v");
+      assert.ok(lineOf(container, "epic:w/old"), "the archived epic is drawn");
+      assert.equal(container.querySelector(".row.cur")?.getAttribute("data-key"), "epic:w/old", "the cursor is drawn on it");
+      await press("A");
+      await until(t.signal, () => fake.callsTo(unarchivePath).length === 1, "the unarchive call");
+      assert.deepEqual(fake.callsTo(unarchivePath)[0].body, { kind: "epic", id: "w/old" });
+      assert.equal(fake.callsTo(archivePath).length, 0, "A in Archived archives nothing");
+      await until(t.signal, () => lineOf(container, "epic:w/old") === null, "the line leaving the Archived view");
+    },
+  ));
+
 // menuLabels is the label of each item a line's open menu holds, in order.
 function menuLabels(container: HTMLElement, key: string): (string | null)[] {
   return [...(lineOf(container, key)?.querySelectorAll(".row-menu-list button") ?? [])].map(itemLabel);

@@ -50,7 +50,7 @@ import { lastPathElement } from "./titleparts";
 import { type InboxMark, TitleRow } from "./titlerow";
 import { Toast } from "./toast";
 import { buildTree, type Convo, type Project } from "./tree";
-import { countsOf, type Narrow, narrow as narrowTree, search as searchTree } from "./treefilter";
+import { countsOf, type Narrow, narrow as narrowTree, search as searchTree, waitOrder } from "./treefilter";
 import { WorkerSessionPage } from "./workersession";
 
 // The inbox's state: pinned beside the page, docked beside it while no row has been opened, hidden once one has, or
@@ -402,6 +402,8 @@ export function App({
   });
   const counts = countsOf(tree);
   const projects = searchTree(narrowTree(tree, view === "inbox" ? narrowBy : ""), words);
+  // The counted things of the projects as they are narrowed and searched, oldest first, which w walks.
+  const waitKeys = waitOrder(projects);
   // A chip whose count reaches zero turns its narrowing off, so the tree is not left narrowed to what it cannot show.
   useEffect(() => {
     if ((narrowBy === "waiting" && counts.waiting === 0) || (narrowBy === "new" && counts.fresh === 0)) {
@@ -1132,6 +1134,13 @@ export function App({
     }
   };
 
+  // waitTo moves the cursor to a counted thing that w reached, revealing it first. The cursor finds it by key once the
+  // list is drawn again.
+  const waitTo = (key: string) => {
+    revealKey(key);
+    setCursor({ key, index: shownIndex });
+  };
+
   // openEpic moves the cursor to an epic's entry, after revealing it. The entry is then in the list, so the cursor rests
   // on it. Under 760px the epic's page draws alone, so the entry is opened.
   const openEpic = (id: string) => {
@@ -1367,6 +1376,8 @@ export function App({
     keyPopped,
     index,
     flat,
+    waitKeys,
+    view,
     cursorItem,
     cursorRow,
     cursorRowKey,
@@ -1379,6 +1390,7 @@ export function App({
     stepInputs,
     pendingG,
     moveTo: keyMoved(moveTo),
+    waitTo: keyMoved(waitTo),
     nextUnseen: keyMoved(nextUnseen),
     writeSeen,
     setArchive,

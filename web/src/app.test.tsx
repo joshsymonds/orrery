@@ -2806,8 +2806,8 @@ const oldEpic = makeEpic(widgetsRepo, "old", {
 });
 const tideAlerts = `${widgetsRepo}/tide-alerts`;
 
-// proposedTideAlerts is the contract a conversation proposed, which steers no listed epic of its id.
-function proposedTideAlerts(conversation: string): Contract {
+// proposedTideAlerts is the contract a conversation proposed, which steers no listed epic of its id, changed at changed.
+function proposedTideAlerts(conversation: string, changed = 0n): Contract {
   return create(ContractSchema, {
     id: tideAlerts,
     repository: widgetsRepo,
@@ -2817,6 +2817,7 @@ function proposedTideAlerts(conversation: string): Contract {
     version: 2n,
     openDecisions: 0n,
     conversation,
+    changed,
   });
 }
 
@@ -2977,6 +2978,49 @@ test("InboxTree: the inbox draws no Needs you, Epics or Just ended section and n
     assert.equal(container.textContent?.includes("Needs you"), false);
     assert.equal(container.textContent?.includes("Just ended"), false);
   }));
+
+// waitingTree is the tree fixture with a's epic asking a question, and a contract the conversation b proposed, changed
+// after b's own row. a and the epic wait; b does not, so the contract counts.
+function waitingTree(): { rows: Row[]; epics: EpicsView; contract: Contract } {
+  const rows = treeRows().map((item) => (item.key === "b" ? { ...item, archiveId: "sess-b" } : item));
+  const asking = makeEpic(widgetsRepo, "asking", { changed: 100n });
+  const detail = create(EpicsGetResponseSchema, { epic: asking, questions: [{ id: "Q1", text: "Which way?", asked: 880n }] });
+  return { rows, epics: epicsView([asking], new Map([[asking.id, detail]])), contract: proposedTideAlerts("sess-b", 150n) };
+}
+
+const askingKey = `epic:${widgetsRepo}/asking`;
+const tideKey = `contract:${tideAlerts}`;
+
+test("InboxTree: w walks the waiting epic, contract and conversation once each, oldest first, then wraps, and from an entry that counts nothing goes to the first", (t) => {
+  const { rows, epics, contract } = waitingTree();
+  return withApp(t.signal, { rows, host: treeHost, epics, contracts: [contract] }, async (container) => {
+    assert.equal(cursorKeyOf(container), "a");
+    await press("w");
+    assert.equal(cursorKeyOf(container), askingKey, "the epic asked at 100 comes first");
+    await press("w");
+    assert.equal(cursorKeyOf(container), tideKey, "then the contract, changed at 150");
+    await press("w");
+    assert.equal(cursorKeyOf(container), "a", "then the conversation a, changed at 300");
+    await press("w");
+    assert.equal(cursorKeyOf(container), askingKey, "w wraps to the epic");
+    await press("j");
+    assert.equal(cursorKeyOf(container), "d", "j rests on d, which counts nothing");
+    await press("w");
+    assert.equal(cursorKeyOf(container), askingKey, "w from d goes to the first");
+  });
+});
+
+test("InboxTree: w reveals a counted contract that sits in a folded project", (t) => {
+  const { rows, epics, contract } = waitingTree();
+  return withApp(t.signal, { rows, host: treeHost, epics, contracts: [contract] }, async (container) => {
+    await clickElement(dirCard(container, "web").querySelector(".fold") ?? container);
+    assert.deepEqual(drawnKeys(dirCard(container, "web")), [], "the web card is folded");
+    await press("w");
+    await press("w");
+    assert.equal(cursorKeyOf(container), tideKey, "w goes to the contract under b");
+    assert.ok(drawnKeys(dirCard(container, "web")).includes(tideKey), "the web card is unfolded to show the contract");
+  });
+});
 
 // cursorKeyOf is the key of the drawn entry the cursor rests on.
 function cursorKeyOf(container: HTMLElement): string | null {
@@ -3496,16 +3540,20 @@ test("j and k reach epic and step entries; the reader is hidden on an epic and s
   });
 });
 
-test("w and n skip the epic and step entries", (t) => {
-  return withApp(t.signal, { epics: oneEpic() }, async (container) => {
+test("w stops on the waiting epic, and n skips the epic and step entries", (t) => {
+  const asking = makeEpic(widgetsRepo, "asking", { runningSteps: [makeStep("s1"), makeStep("s2")] });
+  const detail = create(EpicsGetResponseSchema, { epic: asking, questions: [{ id: "Q1", text: "Which way?", asked: 880n }] });
+  return withApp(t.signal, { epics: epicsView([asking], new Map([[asking.id, detail]])) }, async (container) => {
     await press("j");
-    assert.equal(cursorKey(container), `epic:${widgetsRepo}/first`);
+    assert.equal(cursorKey(container), epicKey(asking));
     await press("w");
-    assert.equal(cursorKey(container), "a", "w goes to the waiting row");
+    assert.equal(cursorKey(container), "a", "w goes from the epic to the waiting row a");
     await press("n");
     assert.equal(cursorKey(container), "c", "n goes past the epic and its steps to the next unseen row");
     await press("n");
     assert.equal(cursorKey(container), "a", "n wraps to the unseen row a");
+    await press("w");
+    assert.equal(cursorKey(container), epicKey(asking), "w wraps from a to the waiting epic, which it stops on");
   });
 });
 

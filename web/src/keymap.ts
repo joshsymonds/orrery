@@ -3,7 +3,6 @@ import type { Dispatch, StateUpdater } from "preact/hooks";
 import type { EpicItem, StepItem } from "./epics";
 import type { ContractItem } from "./tree";
 import type { Pane } from "./gen/orrery/v1/orrery_pb";
-import { stateWaiting } from "./inboxrow";
 import { headState } from "./readercolumn";
 import type { Row } from "./rows";
 import type { View } from "./router";
@@ -46,9 +45,13 @@ export interface KeyContext {
   // Whether the inbox is hidden, and whether a key popped it out.
   inboxHidden: boolean;
   keyPopped: boolean;
-  // The cursor's index in the flat list, and the flat list, which G and w read.
+  // The cursor's index in the flat list, and the flat list, which G reads.
   index: number;
   flat: Item[];
+  // The keys of the counted things, oldest first, which w reads, and the view A reads: A archives in the inbox and
+  // unarchives in Archived.
+  waitKeys: string[];
+  view: View;
   cursorItem: Item | null;
   cursorRow: Row | null;
   cursorRowKey: string;
@@ -65,6 +68,9 @@ export interface KeyContext {
   stepInputs: { current: Map<string, HTMLTextAreaElement> };
   pendingG: { current: boolean };
   moveTo: (target: number) => void;
+  // waitTo moves the cursor to the entry under key, revealing the entry first when a folded project or the ended line
+  // hides it.
+  waitTo: (key: string) => void;
   nextUnseen: () => void;
   writeSeen: (row: Row) => Promise<void>;
   setArchive: (entry: Row | EpicItem, archived: boolean) => void;
@@ -104,6 +110,8 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
     keyPopped,
     index,
     flat,
+    waitKeys,
+    view,
     cursorItem,
     cursorRow,
     cursorRowKey,
@@ -116,6 +124,7 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
     stepInputs,
     pendingG,
     moveTo,
+    waitTo,
     nextUnseen,
     writeSeen,
     setArchive,
@@ -236,13 +245,15 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
     case "A":
       // A pane with no orrery_id, a step and a contract have no archive kind, so the key does nothing on any of them.
       if (cursorItem !== null && cursorItem.kind !== "step" && cursorItem.kind !== "contract") {
-        setArchive(cursorItem, true);
+        setArchive(cursorItem, view !== "archived");
       }
       break;
     case "w": {
-      const waiting = flat.findIndex((item) => isRow(item) && item.state === stateWaiting);
-      if (waiting >= 0) {
-        moveTo(waiting);
+      // w goes to the counted thing after the cursor's entry in waitKeys, wrapping; from an entry that counts nothing,
+      // to the first. Nothing counted, nothing to go to.
+      if (waitKeys.length > 0) {
+        const at = cursorItem === null ? -1 : waitKeys.indexOf(cursorItem.key);
+        waitTo(waitKeys[(at + 1) % waitKeys.length]);
       }
       break;
     }
