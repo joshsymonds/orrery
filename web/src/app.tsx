@@ -56,6 +56,7 @@ import { byAttention, byProject, type Row, type Section, splitArchived } from ".
 import { type SeenClock, type SeenWindow, watchSeen } from "./seen";
 import { type SendKind, type Sending, type SentText, sendingEntry, unsentEntries, withoutTexts } from "./sending";
 import { type FindState, headState, ReaderColumn, stepCalls } from "./readercolumn";
+import { Sheet } from "./sheet";
 import { ListPanel, listHead, SidePanel } from "./sidepanel";
 import { PaneStrip, type StripHost } from "./strip";
 import { Talk, type TalkTarget } from "./talk";
@@ -153,6 +154,7 @@ const needsYouTitle = "Needs you";
 const newSinceTitle = "New since you looked";
 const noDirectoryTitle = "no directory";
 const epicUnavailableText = "epic unavailable";
+const noSteererText = "No conversation steers this epic.";
 const seenFailedText = "could not mark seen";
 const answerFailedText = "no answer was sent";
 const takeBackFailedText = "could not take the queued messages back";
@@ -1222,8 +1224,8 @@ export function App({
   };
 
   // pageStrip is the strip a page draws under its title row: the host part stripHost names for the row the page shows,
-  // and the context of a pane row's conversation, which the stream holds. A page with no row names the serving host.
-  // m hides every strip, and then a page draws none.
+  // and the context of a pane row's conversation, which the stream holds. A page with no row names the serving host. m
+  // hides every strip, and then a page draws none.
   const pageStrip = (row: Row | null, conversation: Conversation | null) =>
     stripsShown ? (
       <PaneStrip
@@ -1231,6 +1233,19 @@ export function App({
         context={row?.kind === "pane" ? conversation?.state?.context : undefined}
       />
     ) : undefined;
+
+  // middleStrip is the middle conversation's strip. Under 760px it first draws the conversation's groups as tiles, whatever
+  // m holds, since the desk's rail that draws them is not drawn. Only the middle column draws them: the tiles act on the
+  // middle conversation, so a pinned column keeps the plain pageStrip.
+  const middleStrip = (row: Row | null, conversation: Conversation | null) => {
+    const groups = row === null || wide ? [] : workOf(workConversation(row, conversation), kept, now);
+    return (
+      <>
+        {groups.length > 0 && <WorkRail groups={groups} lit={lit} layout="strip" onOpen={openThing} />}
+        {pageStrip(row, conversation)}
+      </>
+    );
+  };
 
   // focusCursorRow moves focus to the list's current row, the row the cursor rests on. A hidden inbox holds that row in
   // the list the page hides, so it is popped out by key first, and the focus waits for the layout effect after the
@@ -1266,18 +1281,15 @@ export function App({
   // The rail's conversation is the middle row, with its session, whether it is a pane, and the background tasks its stream
   // holds. Its groups are what it steers, from the epics the list shows.
   const railConversation: WorkConversation | null =
-    middleRow === null
-      ? null
-      : {
-          session: middleRow.archiveKind === "none" ? "" : middleRow.archiveId,
-          pane: middleRow.kind === "pane",
-          background: cursorConversation?.state?.background ?? [],
-        };
+    middleRow === null ? null : workConversation(middleRow, cursorConversation);
   const railGroups = workOf(railConversation, kept, now);
   // The epic panel is open while the cursor rests on an epic entry and its page is not closed. Its tile is the rail's tile
   // of that epic, which is lit while the panel is open, and whose tone the card takes. An epic no conversation steers has
   // no tile, so no tile is lit and the card takes the quiet tone.
   const panelOpen = epicEntry !== null && !epicPage.closed;
+  // Under 760px an open epic is the page in the conversation's place: the conversation is not drawn, and the page's
+  // foot bar opens the steering conversation. At the desk the epic panel lies beside the conversation.
+  const epicPageShown = !wide && panelOpen;
   const panelThing =
     epicEntry === null
       ? undefined
@@ -1437,6 +1449,13 @@ export function App({
   // poll's detail of its epic, or reads an epic the poll holds no detail of when its listed message changes, and opens
   // the epic through openEpic; a step card opens its step through openEpicStep.
   const epicCalls = epicCallsOf(clients, navigated(openEpic), navigated(openEpicStep), epics);
+
+  // epicPageSection draws the epic section over the epic's detail, or the line that the detail did not load.
+  const epicPageSection = (entry: EpicItem, detail: EpicsGetResponse | undefined) => (
+    <section class={pageClasses(epicPage.move)} aria-label="epic" ref={pageRef}>
+      {detail === undefined ? <p class="side-note">{epicUnavailableText}</p> : pageNode(entry, detail)}
+    </section>
+  );
 
   // pageNode draws the page the section holds over the epic's detail: the epic page, or the contract, the phase output
   // or the worker session the page has moved to.
@@ -1716,12 +1735,12 @@ export function App({
           column="cursor"
           clients={clients}
           now={now}
-          row={middleRow}
+          row={epicPageShown ? null : middleRow}
           conversation={cursorConversation}
           rows={visited}
           interrupts={interrupts}
           mark={inboxMark}
-          pageStrip={pageStrip}
+          pageStrip={middleStrip}
           onBack={navigated(focusCursorRow)}
           finding={cursorFinding}
           matches={cursorMatches}
@@ -1742,9 +1761,9 @@ export function App({
           steps={visitedSteps}
           stepInputs={stepInputs}
         />
-        {epicEntry !== null && steererRow === null && (
+        {epicEntry !== null && steererRow === null && !epicPageShown && (
           <section class="read" aria-label="no conversation">
-            <p class="side-note">No conversation steers this epic.</p>
+            <p class="side-note">{noSteererText}</p>
           </section>
         )}
         <ReaderColumn
@@ -1772,21 +1791,34 @@ export function App({
           retractSending={retractSending}
           open={false}
         />
-        {epicEntry !== null && panelOpen && (
+        {epicEntry !== null && panelOpen && wide && (
           <SidePanel label="epic" tone={panelTone} href={shownForm} onClose={closePanel}>
-            <section class={pageClasses(epicPage.move)} aria-label="epic" ref={pageRef}>
-              {epicDetail === undefined ? (
-                <p class="side-note">{epicUnavailableText}</p>
-              ) : (
-                pageNode(epicEntry, epicDetail)
-              )}
-            </section>
+            {epicPageSection(epicEntry, epicDetail)}
           </SidePanel>
         )}
-        {listShown !== null && (
+        {epicEntry !== null && panelOpen && !wide && (
+          <div class="epic-read">
+            {epicPageSection(epicEntry, epicDetail)}
+            <div class="epic-foot">
+              {steererRow === null ? (
+                <p class="side-note">{noSteererText}</p>
+              ) : (
+                <button type="button" class="act" onClick={closePanel}>
+                  Talk to the session that steers it
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+        {listShown !== null && wide && (
           <SidePanel label={listHead(listShown)} tone={listTone} href={shownForm} onClose={closeList}>
             <ListPanel kind={listShown} tasks={listTasks} now={now} />
           </SidePanel>
+        )}
+        {listShown !== null && !wide && (
+          <Sheet title={listHead(listShown)} onClose={closeList}>
+            <ListPanel kind={listShown} tasks={listTasks} now={now} />
+          </Sheet>
         )}
         {wide && <WorkRail groups={railGroups} lit={lit} layout="rail" onOpen={openThing} />}
       </div>
@@ -2054,6 +2086,16 @@ function noticeEntry(items: Item[], key: NoticeKey | undefined): Item | undefine
     }
     return item.kind !== "epic" && session !== "" && item.id === session;
   });
+}
+
+// workConversation is what a row's groups are drawn from: its session, whether it is a pane, and the background tasks
+// its stream holds.
+function workConversation(row: Row, conversation: Conversation | null): WorkConversation {
+  return {
+    session: row.archiveKind === "none" ? "" : row.archiveId,
+    pane: row.kind === "pane",
+    background: conversation?.state?.background ?? [],
+  };
 }
 
 // shownEntry is the entry App's address names for the cursor's entry: a row or step by its id, a session by its id and
