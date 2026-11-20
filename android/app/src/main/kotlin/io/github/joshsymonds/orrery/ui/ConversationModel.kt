@@ -1,6 +1,9 @@
 package io.github.joshsymonds.orrery.ui
 
+import io.github.joshsymonds.orrery.api.ContractRow
 import io.github.joshsymonds.orrery.api.ConversationItem
+import java.time.Instant
+import java.time.ZoneId
 
 data class ToolCall(
     val id: String,
@@ -9,6 +12,7 @@ data class ToolCall(
     val result: String?,
     val error: Boolean,
     val time: Long = 0L,
+    val contract: String = "",
 )
 
 sealed interface ConvoEntry {
@@ -17,6 +21,12 @@ sealed interface ConvoEntry {
     data class Reply(val text: String, val time: Long = 0L) : ConvoEntry
     data class Tool(val call: ToolCall) : ConvoEntry
     data class Group(val calls: List<ToolCall>) : ConvoEntry
+
+    /**
+     * A call that writes a contract and has a result that did not fail: its [call] draws as the
+     * contract's one line, never in a group.
+     */
+    data class ContractLine(val call: ToolCall) : ConvoEntry
 
     /** A compaction: its [trigger] ("auto", "manual", or ""), the context [tokens] before it, and its summary [text]. */
     data class Compaction(val trigger: String, val tokens: Long, val text: String, val time: Long = 0L) : ConvoEntry
@@ -34,7 +44,9 @@ private class Outcome(val text: String, val error: Boolean)
  * draws. A `result` fills in the earlier call with the same id and is otherwise dropped. Runs of
  * three or more calls, with only results and notices between them, become one group, and the
  * notices that fell inside the run follow the group. A shorter run keeps its calls and notices in
- * their own order.
+ * their own order. A call that writes a contract and has a result that did not fail is its own
+ * contract line and ends the run before it, so it never joins a group; until its result arrives it
+ * is an ordinary call.
  */
 fun foldConversation(items: List<ConversationItem>): List<ConvoEntry> {
     val outcomes = outcomesByCallIndex(items)
@@ -44,7 +56,16 @@ fun foldConversation(items: List<ConversationItem>): List<ConvoEntry> {
 
     items.forEachIndexed { index, item ->
         when (item.kind) {
-            "tool", "question" -> run.add(ConvoEntry.Tool(toolCall(item, outcomes[index])))
+            "tool", "question" -> {
+                val outcome = outcomes[index]
+                val call = toolCall(item, outcome)
+                if (call.contract != "" && outcome != null && !outcome.error) {
+                    flushRun(run, entries)
+                    entries.add(ConvoEntry.ContractLine(call))
+                } else {
+                    run.add(ConvoEntry.Tool(call))
+                }
+            }
             "result" -> Unit
             "notice" -> {
                 val notice = ConvoEntry.Notice(item.notice, item.text, item.error, item.time)
@@ -91,6 +112,7 @@ private fun baseKey(entry: ConvoEntry): String = when (entry) {
     is ConvoEntry.Reply -> "reply:${entry.time}:${entry.text.hashCode()}"
     is ConvoEntry.Tool -> "tool:${entry.call.id}"
     is ConvoEntry.Group -> "group:${entry.calls.first().id}"
+    is ConvoEntry.ContractLine -> "contract:${entry.call.id}"
     is ConvoEntry.Compaction -> "compaction:${entry.time}:${entry.trigger}:${entry.tokens}:${entry.text.hashCode()}"
     is ConvoEntry.Notice -> "notice:${entry.time}:${entry.sort}:${entry.text.hashCode()}"
 }
@@ -114,9 +136,37 @@ internal fun entryTime(entry: ConvoEntry): Long = when (entry) {
     is ConvoEntry.Reply -> entry.time
     is ConvoEntry.Tool -> entry.call.time
     is ConvoEntry.Group -> entry.calls.maxOfOrNull { it.time } ?: 0L
+    is ConvoEntry.ContractLine -> entry.call.time
     is ConvoEntry.Compaction -> entry.time
     is ConvoEntry.Notice -> entry.time
 }
+
+/** The tone a contract's transcript line is drawn in. */
+enum class ContractLineTone { Attention, Ok, Quiet }
+
+/** A contract's transcript line: its [tone], its [title], and the [rest] of its words after the title. */
+data class ContractLineWords(val tone: ContractLineTone, val title: String, val rest: String)
+
+/**
+ * The words of the transcript line for contract [id], as the web's ContractBlock says them: waiting, accepted with its
+ * clock time in [zone], or set aside. A [contract] the list does not hold, null here, draws its id alone.
+ */
+fun contractLineWords(id: String, contract: ContractRow?, zone: ZoneId = ZoneId.systemDefault()): ContractLineWords = when {
+    contract == null -> ContractLineWords(ContractLineTone.Quiet, id, "")
+    contract.state == "proposed" ->
+        ContractLineWords(ContractLineTone.Attention, contract.title, " · ${contract.care} care · waits for you")
+    contract.state == "accepted" ->
+        ContractLineWords(
+            ContractLineTone.Ok,
+            contract.title,
+            " · accepted ${clockOf(contract.changed, zone)} · ${contract.care} care",
+        )
+    else -> ContractLineWords(ContractLineTone.Quiet, contract.title, " · set aside")
+}
+
+// clockOf is a change's time as the clock reads it in the zone given; no time reads as nothing.
+private fun clockOf(time: Long, zone: ZoneId): String =
+    if (time <= 0) "" else Instant.ofEpochSecond(time).atZone(zone).format(CLOCK_TIME)
 
 /** Names the calls' tools in order of first appearance, "Name ×N" when a name repeats. */
 fun groupSummary(calls: List<ToolCall>): String {
@@ -148,6 +198,7 @@ private fun toolCall(item: ConversationItem, outcome: Outcome?): ToolCall {
         result = outcome?.text,
         error = outcome?.error ?: false,
         time = item.time,
+        contract = item.contract,
     )
 }
 
