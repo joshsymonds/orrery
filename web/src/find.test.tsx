@@ -384,8 +384,9 @@ function composer(container: HTMLElement): HTMLTextAreaElement {
   return box;
 }
 
+// findBar is the find bar, a div: the head's find button also has the class find.
 function findBar(container: HTMLElement): Element | null {
-  return container.querySelector(".find");
+  return container.querySelector("div.find");
 }
 
 function findInput(container: HTMLElement): HTMLInputElement {

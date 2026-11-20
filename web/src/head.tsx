@@ -88,10 +88,11 @@ export function Head({
     ...(narrow ? [{ label: "Hide the header", run: onHide }] : []),
   ];
   const strip = showStrip && fold === "open" ? <PaneStrip host={host} context={conversation?.state?.context} /> : undefined;
+  const dirName = lastPathElement(row.project);
   return (
     <div class="convo-head" data-fold={fold}>
       <TitleRow
-        crumbs={[{ label: lastPathElement(row.project), place: true }, { label: title }]}
+        crumbs={[...(dirName === "" ? [] : [{ label: dirName, place: true }]), { label: title }]}
         onBack={onBack}
         mark={mark}
         note={note}

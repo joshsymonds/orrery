@@ -451,18 +451,21 @@ function readerText(container: HTMLElement): string {
   return container.querySelector(".reader")?.textContent ?? "";
 }
 
-// readerHead is the head the cursor's reader opens with: the title row of a row's conversation, or a step's head. It is
-// null when that reader draws neither.
+// readerHead is the title row the cursor's reader opens with: a row's title row inside its head, or a step's title row.
+// It is null when that reader draws neither.
 function readerHead(container: HTMLElement): Element | null {
-  return container.querySelector('section[aria-label="reader"] > .head, section[aria-label="reader"] > .title-row');
+  return container.querySelector(
+    'section[aria-label="reader"] > .convo-head > .title-row, section[aria-label="reader"] > .title-row',
+  );
 }
 
 // pinnedHead is the title row the pinned reader opens with, or null when no row is pinned.
 function pinnedHead(container: HTMLElement): Element | null {
-  return container.querySelector('section[aria-label="pinned reader"] > .title-row');
+  return container.querySelector('section[aria-label="pinned reader"] > .convo-head > .title-row');
 }
 
-// crumbTexts are the labels of a title row's crumbs, in order, the page's label last. The mark is not a label.
+// crumbTexts are the labels of a title row's crumbs, in order: the directory's label first, the page's label last. The
+// mark is not a label.
 function crumbTexts(head: Element | null): string[] {
   return Array.from(head?.querySelectorAll(".crumbs .crumb") ?? [], (crumb) => crumb.textContent ?? "");
 }
@@ -1060,26 +1063,22 @@ test("the cursor's pane row opens its conversation, and the reader shows the str
     await until(t.signal, () => readerText(container).includes("the streamed reply"), "the streamed reply");
   }));
 
-test("the cursor's reader opens on the title row: a back button, the crumb of the label, the state, and its pill", (t) =>
+test("the cursor's reader opens on the title row: a back button and the crumb of the label", (t) =>
   withApp(t.signal, { rows: [paneRow] }, (container) => {
-    assert.equal(container.querySelector('section[aria-label="reader"]')?.firstElementChild?.tagName, "HEADER");
+    assert.equal(
+      container.querySelector('section[aria-label="reader"]')?.firstElementChild?.getAttribute("class"),
+      "convo-head",
+    );
     assert.equal(readerHead(container)?.getAttribute("class"), "title-row");
     assert.equal(readerHead(container)?.querySelector(".back")?.getAttribute("aria-label"), "back");
-    assert.deepEqual(crumbTexts(readerHead(container)), ["app build green"]);
-    assert.equal(readerHead(container)?.querySelector(".state")?.textContent, "waiting");
-    assert.equal(readerHead(container)?.querySelector(".pill .word")?.textContent, "waiting");
-    assert.equal(readerHead(container)?.querySelector(".pill .clock") === null, true);
+    assert.deepEqual(crumbTexts(readerHead(container)), ["app", "build green"]);
   }));
 
-test("a session's conversation draws the title row: a back button, the crumb of the session's label, its state, and a pill of its state with no tool or clock", (t) =>
+test("a session's conversation draws the title row: a back button and the crumb of the session's label", (t) =>
   withApp(t.signal, { rows: [sessionRow] }, (container) => {
     assert.equal(readerHead(container)?.getAttribute("class"), "title-row");
     assert.equal(readerHead(container)?.querySelector(".back")?.getAttribute("aria-label"), "back");
     assert.deepEqual(crumbTexts(readerHead(container)), ["notes"]);
-    assert.equal(readerHead(container)?.querySelector(".state")?.textContent, "working");
-    assert.equal(readerHead(container)?.querySelector(".pill .word")?.textContent, "working");
-    assert.equal(readerHead(container)?.querySelector(".pill .tool") === null, true);
-    assert.equal(readerHead(container)?.querySelector(".pill .clock") === null, true);
   }));
 
 test("a step's head names its epic, agent and round, then the step, and its pill runs from the step's start", (t) => {
@@ -1120,33 +1119,30 @@ test("each step box takes its own step's held flag, and a box the cursor left ke
   });
 });
 
-test("a working pane's delta puts its tool and time in the head's pill, and draws no note under the reader", (t) =>
+test("a working pane's delta draws no note under the reader", (t) =>
   withApp(t.signal, {}, async (container, fake) => {
     await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
     const [stream] = fake.callsTo(paneWatchPath);
     fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
-    await until(t.signal, () => readerHead(container)?.querySelector(".pill .word")?.textContent === "working", "the working pill");
-    assert.equal(readerHead(container)?.querySelector(".pill .tool")?.textContent, "Bash");
-    assert.equal(readerHead(container)?.querySelector(".pill .clock")?.textContent, "1:00");
+    await until(t.signal, () => edgesOf(composer(container)).includes("edge-working"), "the working edge");
     assert.equal(readerNote(container) === null, true, "the cursor's reader draws no working note");
     assert.equal(noteWords(container.querySelector('section[aria-label="reader"]')), false, "the reader's text names no note");
     assert.equal(container.querySelector(".work-line") === null, true, "no work line is drawn");
   }));
 
-test("a later delta whose pane is done drops the pill's tool and draws no working note", (t) =>
+test("a later delta whose pane is done draws no working note", (t) =>
   withApp(t.signal, {}, async (container, fake) => {
     await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
     const [stream] = fake.callsTo(paneWatchPath);
     fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
-    await until(t.signal, () => readerHead(container)?.querySelector(".pill .tool")?.textContent === "Bash", "the working tool");
+    await until(t.signal, () => edgesOf(composer(container)).includes("edge-working"), "the working edge");
     fake.emit(stream, {
       transcript: "t1",
       seq: "2",
       items: [],
       state: { pane: { id: "a", state: "done", tool: "", changed: "1000", lastTurnEnd: "1000" } },
     });
-    await until(t.signal, () => readerHead(container)?.querySelector(".pill .word")?.textContent === "done", "the done pill");
-    assert.equal(readerHead(container)?.querySelector(".pill .tool") === null, true);
+    await until(t.signal, () => edgesOf(composer(container)).includes("edge-idle"), "the idle edge");
     assert.equal(readerNote(container) === null, true, "the cursor's reader draws no working note");
   }));
 
@@ -1198,11 +1194,11 @@ test("a click on the send button sends the cursor's text once with Panes.SendTex
     await until(t.signal, () => box.value === "", "the sent draft cleared");
   }));
 
-test("the cursor's reader is its title row, its conversation and its foot, and nothing else", (t) =>
+test("the cursor's reader is its head, its conversation and its foot, and nothing else", (t) =>
   withApp(t.signal, {}, async (container, fake) => {
     await untilTurn(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
     assert.deepEqual(sectionChildren(container.querySelector('section[aria-label="reader"]')), [
-      "header.title-row",
+      "div.convo-head",
       "div.reader",
       "div.send",
     ]);
@@ -1268,13 +1264,13 @@ test("a pane row's reader draws its prompts as YOU, whatever their sender and ro
     assert.equal(you.includes("lint failed"), true, "the YOU bubble holds the prompt");
   }));
 
-test("the pinned reader is its title row, its conversation and its foot, and nothing else", (t) =>
+test("the pinned reader is its head, its conversation and its foot, and nothing else", (t) =>
   withApp(t.signal, {}, async (container, fake) => {
     await untilTurn(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
     await press("|");
     await untilTurn(t.signal, () => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
     assert.deepEqual(sectionChildren(container.querySelector('section[aria-label="pinned reader"]')), [
-      "header.title-row",
+      "div.convo-head",
       "div.reader",
       "div.send",
     ]);
@@ -2308,10 +2304,8 @@ test("the pinned title row names the pinned row while the cursor rests on anothe
     await press("Tab", { shiftKey: true });
     await press("j");
     assert.equal(cursorKey(container), "c");
-    assert.deepEqual(crumbTexts(pinnedHead(container)), ["api build green"]);
-    assert.equal(pinnedHead(container)?.querySelector(".state")?.textContent, "waiting");
-    assert.deepEqual(crumbTexts(readerHead(container)), ["docs wrote the guide"]);
-    assert.equal(readerHead(container)?.querySelector(".state")?.textContent, "done");
+    assert.deepEqual(crumbTexts(pinnedHead(container)), ["api", "build green"]);
+    assert.deepEqual(crumbTexts(readerHead(container)), ["docs", "wrote the guide"]);
     assert.equal(container.querySelector(".pin-head") === null, true);
   }));
 
@@ -2337,7 +2331,7 @@ test("‹ on the pinned title row closes the pin, as | does", (t) =>
     assert.equal(container.querySelector(".read.pinned")?.hasAttribute("hidden"), true, "the pinned reader is hidden");
   }));
 
-test("the pinned column draws the pill of its own stream and no note while the cursor rests on another pane", (t) =>
+test("the pinned column draws no note for its own stream while the cursor rests on another pane", (t) =>
   withApp(t.signal, {}, async (container, fake) => {
     await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
     await press("|");
@@ -2355,9 +2349,7 @@ test("the pinned column draws the pill of its own stream and no note while the c
       items: [],
       state: { pane: workingPane("Bash") },
     });
-    await until(t.signal, () => pinnedHead(container)?.querySelector(".pill .word")?.textContent === "working", "the pinned pill");
-    assert.equal(pinnedHead(container)?.querySelector(".pill .tool")?.textContent, "Bash");
-    assert.equal(pinnedHead(container)?.querySelector(".pill .clock")?.textContent, "1:00");
+    await until(t.signal, () => edgesOf(pinnedComposer(container)).includes("edge-working"), "the pinned working edge");
     assert.equal(pinnedNote(container) === null, true, "the pinned reader draws no working note");
     assert.equal(
       noteWords(container.querySelector('section[aria-label="pinned reader"]')),
@@ -2365,7 +2357,6 @@ test("the pinned column draws the pill of its own stream and no note while the c
       "the pinned reader's text names no note",
     );
     assert.equal(readerNote(container) === null, true, "the cursor's reader on c draws no note");
-    assert.equal(readerHead(container)?.querySelector(".pill .tool") === null, true, "c's pill has no tool");
   }));
 
 test("the reader's composer on a working row has the working edge and says it queues", (t) =>
