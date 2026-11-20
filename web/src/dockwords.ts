@@ -185,7 +185,7 @@ export function placeholder(facts: DockFacts, narrow: boolean): string {
       : `Queue a message for ${n}. Claude takes it at its next tool result`;
   }
   if (facts.state === "waiting") {
-    return `Answer ${n}`;
+    return facts.putOff ? `Message ${n}` : `Answer ${n}`;
   }
   if (facts.state === "done" && facts.interruptedAt > 0) {
     return `${n} stopped where it was. Say what to do next`;

@@ -280,9 +280,9 @@ test("DockState: placeholder while working and narrow is the short queue prompt,
   assert.equal(placeholder(facts({ kind: "pane", state: "working" }), true), "Queue for widgets");
 });
 
-test("DockState: placeholder while waiting, on a question you put off or not, says answer", () => {
+test("DockState: placeholder while waiting says answer, and on a question you put off says message", () => {
   assert.equal(placeholder(facts({ state: "waiting" }), false), "Answer widgets");
-  assert.equal(placeholder(facts({ state: "waiting", putOff: true }), false), "Answer widgets");
+  assert.equal(placeholder(facts({ state: "waiting", putOff: true }), false), "Message widgets");
 });
 
 test("DockState: placeholder after your interrupt says it stopped where it was", () => {

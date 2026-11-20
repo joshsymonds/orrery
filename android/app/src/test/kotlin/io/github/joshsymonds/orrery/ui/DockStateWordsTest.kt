@@ -265,9 +265,9 @@ class DockStateWordsTest {
     }
 
     @Test
-    fun placeholderWhileWaitingIsAnswer() {
+    fun placeholderWhileWaitingIsAnswerAndOnAQuestionPutOffIsMessage() {
         assertEquals("Answer the auth work", dockPlaceholder(facts(state = "waiting")))
-        assertEquals("Answer the auth work", dockPlaceholder(facts(state = "waiting", putOff = true)))
+        assertEquals("Message the auth work", dockPlaceholder(facts(state = "waiting", putOff = true)))
     }
 
     @Test

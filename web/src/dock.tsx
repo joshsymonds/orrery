@@ -519,6 +519,9 @@ export function Dock(props: {
         </div>
         {waits !== "" && (
           <div class="dock-waits">
+            <svg class="icon" viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M4 11V7.5a4 4 0 0 1 8 0V11l1 1.5H3zM6.5 13.5a1.5 1.5 0 0 0 3 0" />
+            </svg>
             <span>{waits}</span>
           </div>
         )}
