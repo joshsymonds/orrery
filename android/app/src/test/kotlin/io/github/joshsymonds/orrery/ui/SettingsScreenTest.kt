@@ -82,23 +82,6 @@ class SettingsScreenTest {
         setContent()
 
         composeRule.onNodeWithTag(ADDRESS_FIELD_TAG).assert(hasText(BUILT_IN))
-        assertFalse(asks())
-    }
-
-    @Test
-    fun asksForTheServerWithAnEmptyFieldWhenThereIsNone() {
-        setContent(defaultUrl = "")
-
-        assertTrue(asks())
-        composeRule.onNodeWithTag(ADDRESS_FIELD_TAG).assert(hasText(""))
-    }
-
-    @Test
-    fun doesNotAskWhenAnAddressIsSaved() {
-        ServerSettings(context, defaultUrl = "").saveServerUrl(SAVED)
-        setContent(defaultUrl = "")
-
-        assertFalse(asks())
     }
 
     @Test
@@ -379,8 +362,6 @@ class SettingsScreenTest {
 
         composeRule.onNodeWithText(NOT_REGISTERED).assert(hasTone(NoteTone.Quiet))
     }
-
-    private fun asks(): Boolean = shown(hasTestTag(SERVER_ASK_TAG))
 
     private fun grantPosts() {
         shadowOf(RuntimeEnvironment.getApplication()).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)

@@ -44,9 +44,6 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 /** What Save says when the typed address does not answer; nothing is changed. */
 private const val NO_ANSWER = "No answer from that address. Nothing was changed."
 
-/** The line settings shows while there is no server address to talk to. */
-internal const val SERVER_ASK_TAG = "server-ask"
-
 /** What asking an address for its host found: an answer, with the host to name, or no answer at all. */
 internal sealed interface AddressCheck {
     data class Answered(val host: String) : AddressCheck
@@ -114,9 +111,6 @@ fun SettingsScreen(
                     .padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.eight),
                 verticalArrangement = Arrangement.spacedBy(OrreryTokens.Space.twelve),
             ) {
-                if (!settings.hasServer) {
-                    Text("Which orreryd server should Orrery talk to?", modifier = Modifier.testTag(SERVER_ASK_TAG))
-                }
                 SectionHead("Server")
                 Field(
                     value = address,
