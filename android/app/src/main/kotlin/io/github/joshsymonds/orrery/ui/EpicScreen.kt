@@ -255,21 +255,23 @@ private fun noticeOf(verb: String, answer: String, call: () -> StepCallResult): 
 
 // controlsOf is which commands an epic allows, by the rule web/src/status.ts shares between its page and its card: nothing
 // once the epic is not live; an orreryd epic pauses while it is not paused in a pausable phase, resumes whenever it is
-// paused, and stops in a track phase; a record epic pauses, resumes and stops only while it has no outcome.
+// paused, and stops in a track phase; a record epic pauses, resumes and stops only while it has no outcome. An owner's
+// park offers no pause, since nothing runs until the owner answers; the park's Stop stays.
 private data class Controls(val pause: Boolean, val resume: Boolean, val stop: Boolean)
 
 private fun controlsOf(detail: EpicDetail): Controls {
     val epic = detail.epic
     if (!epic.live) return Controls(pause = false, resume = false, stop = false)
+    val pausable = !ownerParked(detail)
     if (epic.source == "orreryd") {
         return Controls(
-            pause = !detail.paused && epic.outcome in PAUSABLE_PHASES,
+            pause = pausable && !detail.paused && epic.outcome in PAUSABLE_PHASES,
             resume = detail.paused,
             stop = epic.outcome in TRACK_PHASES,
         )
     }
     val open = epic.outcome.isEmpty()
-    return Controls(pause = open && !detail.paused, resume = open && detail.paused, stop = open)
+    return Controls(pause = pausable && open && !detail.paused, resume = open && detail.paused, stop = open)
 }
 
 // unseenEndingAt is the phase an orreryd epic ended at, when the owner has not seen it since: the ending the dwell marks.

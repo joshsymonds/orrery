@@ -843,6 +843,32 @@ class EpicRecordScreenTest {
     }
 
     @Test
+    fun epicCommandsAnOwnerParkedEpicsMoreListsStopAndNotPause() {
+        FakeOrreryServer().use { server ->
+            serve(server, body(outcome = "built", parked = "rate limit"))
+            setScreen(server)
+            awaitLoaded()
+
+            clickTag("epic-more")
+            awaitTag("epic-sheet-stop")
+            assertEquals(0, countNodes(hasTestTag("epic-sheet-pause")))
+        }
+    }
+
+    @Test
+    fun epicCommandsAPlannerParkedEpicsMoreListsPause() {
+        FakeOrreryServer().use { server ->
+            serve(server, body(outcome = "built", parked = "rate limit", plannerParked = true))
+            setScreen(server)
+            awaitLoaded()
+
+            clickTag("epic-more")
+            awaitTag("epic-sheet-pause")
+            assertEquals(1, countNodes(hasTestTag("epic-sheet-stop")))
+        }
+    }
+
+    @Test
     fun epicCommandsMoreListsPauseAndPauseCallsOnce() {
         FakeOrreryServer().use { server ->
             serve(server, body(outcome = "built"))
