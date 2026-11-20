@@ -1,15 +1,20 @@
 package io.github.joshsymonds.orrery.ui
 
+import androidx.activity.OnBackPressedDispatcherOwner
+import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
 import com.connectrpc.Code
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
@@ -66,6 +71,8 @@ class InboxTreeScreenTest {
         const val HEADLESS_SESSION = "00000000000000000000000000000005"
         const val STEP_ID = "example-step"
         const val EMPTY_HINT = "Start a session in a directory and it shows here, grouped by that directory."
+        const val SEARCH_LABEL = "Search sessions and epics"
+        const val SEARCH_LOOKS_AT = "Search looks at titles, directories, hosts, states, and the names of epics and contracts."
     }
 
     @get:Rule
@@ -73,6 +80,7 @@ class InboxTreeScreenTest {
 
     private var openedPane: Pane? = null
     private var openedEpic: String? = null
+    private var backOwner: OnBackPressedDispatcherOwner? = null
 
     private fun projectTag(dir: String): String = "project:|$dir"
 
@@ -185,6 +193,7 @@ class InboxTreeScreenTest {
         // Made once, outside the composition, so a recomposition does not hand the screen a client it has not read with.
         val client = OrreryClient(server.baseUrl)
         composeRule.setContent {
+            backOwner = LocalOnBackPressedDispatcherOwner.current
             if (screenShown) {
                 PaneListScreen(
                     client = client,
@@ -691,6 +700,7 @@ class InboxTreeScreenTest {
 
             assertEquals(1, countNodes(hasTestTag("title-mark")))
             assertEquals(1, countNodes(hasText("orrery")))
+            assertEquals(1, countNodes(hasText("Search") and hasAnyAncestor(hasTestTag("open-search"))))
             assertEquals(1, countNodes(hasTestTag("open-pools")))
             assertEquals(1, countNodes(hasText("Settings")))
             assertEquals(1, countNodes(hasText("New") and hasAnyAncestor(hasTestTag("picker-new"))))
@@ -698,6 +708,167 @@ class InboxTreeScreenTest {
                 assertEquals("$tag is gone", 0, countNodes(hasTestTag(tag)))
             }
             assertEquals(0, countNodes(hasText("Needs you")))
+        }
+    }
+
+    private fun openSearch() {
+        composeRule.onNodeWithTag("open-search").performClick()
+    }
+
+    private fun typeSearch(words: String) {
+        composeRule.onNodeWithTag("search-field").performTextInput(words)
+    }
+
+    @Test
+    fun theSearchControlOpensTheFieldUnderTheHead() {
+        FakeOrreryServer().use { server ->
+            servePanesAndEpic(server)
+            setScreen(server)
+            awaitNode(hasTestTag(convoTag("%3")))
+            assertEquals(0, countNodes(hasTestTag("search-field")))
+
+            openSearch()
+
+            assertEquals(1, countNodes(hasTestTag("search-field") and hasContentDescription(SEARCH_LABEL)))
+            assertEquals(1, countNodes(hasText(SEARCH_LABEL)))
+        }
+    }
+
+    @Test
+    fun typingAProjectsWordsKeepsItsRowsAndDropsTheRest() {
+        FakeOrreryServer().use { server ->
+            servePanesAndEpic(server)
+            setScreen(server)
+            awaitNode(hasTestTag(convoTag("%3")))
+
+            openSearch()
+            typeSearch("alpha")
+
+            assertEquals(1, countNodes(hasTestTag(projectTag(ALPHA))))
+            assertEquals(1, countNodes(hasTestTag(convoTag("%1"))))
+            assertEquals(0, countNodes(hasTestTag(convoTag("%2"))))
+            assertEquals(0, countNodes(hasTestTag(convoTag("%3"))))
+            assertEquals(0, countNodes(hasTestTag(projectTag(BETA))))
+        }
+    }
+
+    @Test
+    fun typingAnEpicsWordsKeepsItsConversationAndTheEpicAndDropsTheRest() {
+        FakeOrreryServer().use { server ->
+            servePanesAndEpic(server)
+            setScreen(server)
+            awaitNode(hasTestTag(convoTag("%3")))
+
+            openSearch()
+            typeSearch(EPIC_SLUG)
+
+            assertEquals(1, countNodes(hasTestTag(convoTag("%2"))))
+            assertEquals(1, countNodes(hasTestTag(hungTag("epic:$EPIC_ID"))))
+            assertEquals(0, countNodes(hasTestTag(convoTag("%1"))))
+            assertEquals(0, countNodes(hasTestTag(convoTag("%3"))))
+        }
+    }
+
+    @Test
+    fun typingAContractsWordsKeepsItsConversationAndTheContractAndDropsTheRest() {
+        FakeOrreryServer().use { server ->
+            serveDefaults(server)
+            server.respond(
+                PANES_LIST,
+                panesOf(
+                    pane("%1", ALPHA, "working", NOW - 30, NOW - 10, NOW - 30, ALPHA_SESSION),
+                    pane("%2", BETA, "idle", NOW - 7_200, NOW - 7_200, NOW - 7_200, BETA_SESSION),
+                ),
+            )
+            server.respond(
+                CONTRACTS_LIST,
+                ContractsListResponse.newBuilder()
+                    .addContracts(contract(CONTRACT_ID, "proposed", ALPHA_SESSION, ALPHA))
+                    .build(),
+            )
+            setScreen(server)
+            awaitNode(hasTestTag(convoTag("%2")))
+
+            openSearch()
+            typeSearch("contract")
+
+            assertEquals(1, countNodes(hasTestTag(convoTag("%1"))))
+            assertEquals(1, countNodes(hasTestTag(hungTag("contract:$CONTRACT_ID"))))
+            assertEquals(0, countNodes(hasTestTag(convoTag("%2"))))
+        }
+    }
+
+    @Test
+    fun noMatchDrawsTheWordsAndWhatSearchLooksAt() {
+        FakeOrreryServer().use { server ->
+            servePanesAndEpic(server)
+            setScreen(server)
+            awaitNode(hasTestTag(convoTag("%3")))
+
+            openSearch()
+            typeSearch("zzz")
+
+            assertEquals(1, countNodes(hasText("Nothing matches “zzz”.")))
+            assertEquals(1, countNodes(hasText(SEARCH_LOOKS_AT)))
+            assertEquals(0, countNodes(hasTestTag(convoTag("%1"))))
+            assertEquals(0, countNodes(hasText("Nothing is running.")))
+        }
+    }
+
+    @Test
+    fun theClearControlClearsTheWordsAndClosesTheField() {
+        FakeOrreryServer().use { server ->
+            servePanesAndEpic(server)
+            setScreen(server)
+            awaitNode(hasTestTag(convoTag("%3")))
+
+            openSearch()
+            typeSearch("alpha")
+            assertEquals(0, countNodes(hasTestTag(convoTag("%2"))))
+
+            composeRule.onNodeWithTag("clear-search").performClick()
+
+            assertEquals(0, countNodes(hasTestTag("search-field")))
+            assertEquals(1, countNodes(hasTestTag(convoTag("%2"))))
+            assertEquals(1, countNodes(hasTestTag(convoTag("%3"))))
+        }
+    }
+
+    @Test
+    fun theSystemBackClearsTheWordsAndClosesTheField() {
+        FakeOrreryServer().use { server ->
+            servePanesAndEpic(server)
+            setScreen(server)
+            awaitNode(hasTestTag(convoTag("%3")))
+
+            openSearch()
+            typeSearch("alpha")
+            assertEquals(0, countNodes(hasTestTag(convoTag("%2"))))
+
+            composeRule.runOnIdle { checkNotNull(backOwner).onBackPressedDispatcher.onBackPressed() }
+
+            assertEquals(0, countNodes(hasTestTag("search-field")))
+            assertEquals(1, countNodes(hasTestTag(convoTag("%2"))))
+        }
+    }
+
+    @Test
+    fun theSearchWordsSurviveLeavingTheScreenAndComingBack() {
+        FakeOrreryServer().use { server ->
+            servePanesAndEpic(server)
+            val state = PaneListState()
+            setScreen(server, state)
+            awaitNode(hasTestTag(convoTag("%3")))
+
+            openSearch()
+            typeSearch("alpha")
+
+            composeRule.runOnIdle { screenShown = false }
+            composeRule.runOnIdle { screenShown = true }
+
+            awaitNode(hasTestTag(convoTag("%1")))
+            composeRule.onNodeWithTag("search-field", useUnmergedTree = true).assertTextEquals("alpha")
+            assertEquals(0, countNodes(hasTestTag(convoTag("%2"))))
         }
     }
 

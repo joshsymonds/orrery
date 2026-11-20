@@ -1,6 +1,9 @@
 package io.github.joshsymonds.orrery.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,6 +20,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -30,8 +35,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import io.github.joshsymonds.orrery.R
 import io.github.joshsymonds.orrery.api.ContractRow
 import io.github.joshsymonds.orrery.api.EpicDetail
@@ -51,12 +61,13 @@ import java.io.IOException
 internal const val RETRY_DELAY_MILLIS = 5_000L
 
 /**
- * The inbox's state: the chip on, the folded projects, the projects whose ended line is open, and the tree of the last
- * read that answered. The caller keeps one above the screens it switches between, so all of it survives opening a
- * conversation and coming back.
+ * The inbox's state: the chip on, the search words (null while the search is closed), the folded projects, the projects
+ * whose ended line is open, and the tree of the last read that answered. The caller keeps one above the screens it
+ * switches between, so all of it survives opening a conversation and coming back.
  */
 class PaneListState {
     internal var narrow by mutableStateOf(Narrow.NONE)
+    internal var search by mutableStateOf<String?>(null)
     internal var folded by mutableStateOf(emptySet<String>())
     internal var endedOpen by mutableStateOf(emptySet<String>())
     internal var held: TreeData? = null
@@ -85,12 +96,12 @@ internal class TreeData(
 )
 
 /**
- * The inbox: the head with the Orrery mark, Pools, Settings and New; then the two chips and each project as a card, its
- * conversations hanging under it with what steers them, and its ended line. The chips narrow the tree and a folded card
- * says what waits in it. A tap on a conversation calls [onOpenPane] with its pane, and a tap on an epic or one of its
- * steps calls [onOpenEpic]. New opens the picker as a bottom sheet; a run it answers opens that pane through
- * [onOpenPaneId], and a start it answers opens that session through [onStartedSession]. The Pools button opens the pools
- * view through [onOpenPools].
+ * The inbox: the head with the Orrery mark, Search, New, Pools and Settings; then, while search is open, its field; then
+ * the two chips and each project as a card, its conversations hanging under it with what steers them, and its ended
+ * line. The chips narrow the tree, search narrows what the chips left, and a folded card says what waits in it. A tap on
+ * a conversation calls [onOpenPane] with its pane, and a tap on an epic or one of its steps calls [onOpenEpic]. New opens
+ * the picker as a bottom sheet; a run it answers opens that pane through [onOpenPaneId], and a start it answers opens
+ * that session through [onStartedSession]. The Pools button opens the pools view through [onOpenPools].
  *
  * Until the first answer the inbox says it is loading. A read that fails, the panes, a headless or archived list, or an
  * epic or its detail, shows that the server did not answer, and reads again after [RETRY_DELAY_MILLIS] or at once on
@@ -127,6 +138,8 @@ fun PaneListScreen(
         }
     }
 
+    BackHandler(enabled = state.search != null) { state.search = null }
+
     Column(modifier = modifier.fillMaxSize()) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.eight),
@@ -143,6 +156,12 @@ fun PaneListScreen(
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 TextButton(
+                    onClick = { state.search = state.search ?: "" },
+                    modifier = Modifier.testTag("open-search"),
+                ) {
+                    Text("Search")
+                }
+                TextButton(
                     onClick = { picking = true },
                     modifier = Modifier.testTag("picker-new"),
                 ) {
@@ -158,6 +177,14 @@ fun PaneListScreen(
                     Text("Settings")
                 }
             }
+        }
+        state.search?.let { words ->
+            SearchField(
+                words = words,
+                onWords = { state.search = it },
+                onClear = { state.search = null },
+                modifier = Modifier.padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.four),
+            )
         }
         if (picking) {
             PickerPanel(
@@ -240,7 +267,8 @@ private fun InboxBody(
     val projects = remember(data) {
         inboxTree(data.panes, data.archived, data.epics, data.details, data.contracts, data.host, TreeView.INBOX)
     }
-    if (projects.isEmpty()) {
+    val query = state.search.orEmpty()
+    if (projects.isEmpty() && query.isBlank()) {
         NothingRunning(onNew = onNew)
         return
     }
@@ -252,7 +280,9 @@ private fun InboxBody(
         Narrow.NEW -> if (counts.fresh > 0) Narrow.NEW else Narrow.NONE
         Narrow.NONE -> Narrow.NONE
     }
-    val shown = remember(projects, chip) { narrow(projects, chip) }
+    val shown = remember(projects, chip, query) {
+        narrow(projects, chip).let { if (query.isBlank()) it else search(it, query) }
+    }
     val paneOf = remember(projects) {
         projects.flatMap { it.convos + it.ended }.mapNotNull { convo -> convo.pane?.let { convo.key to it } }.toMap()
     }
@@ -275,6 +305,9 @@ private fun InboxBody(
                 onNarrow = { state.narrow = it },
                 modifier = Modifier.padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.four),
             )
+        }
+        if (query.isNotBlank() && shown.isEmpty()) {
+            item(key = "no-match") { NothingMatches(words = query) }
         }
         items(shown, key = { it.key }) { project ->
             ProjectCard(
@@ -310,6 +343,70 @@ private fun NothingRunning(onNew: () -> Unit) {
         TextButton(onClick = onNew, modifier = Modifier.testTag("empty-new")) {
             Text("New")
         }
+    }
+}
+
+private const val SEARCH_LABEL = "Search sessions and epics"
+
+/**
+ * The search field under the head: the words typed, a placeholder that names what search finds, and Clear, which empties
+ * the field and closes it. The field takes focus when it opens.
+ */
+@Composable
+private fun SearchField(words: String, onWords: (String) -> Unit, onClear: () -> Unit, modifier: Modifier) {
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focus.requestFocus() }
+    val shape = RoundedCornerShape(OrreryTokens.Radius.two)
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        BasicTextField(
+            value = words,
+            onValueChange = onWords,
+            modifier = Modifier
+                .weight(1f)
+                .focusRequester(focus)
+                .testTag("search-field")
+                .semantics { contentDescription = SEARCH_LABEL }
+                .background(OrreryTokens.Surface.well, shape)
+                .border(OrreryTokens.Size.hairline, OrreryTokens.Line.firm, shape),
+            textStyle = OrreryTokens.Type.body.copy(color = OrreryTokens.Ink.one),
+            cursorBrush = SolidColor(OrreryTokens.Role.focus),
+            singleLine = true,
+            decorationBox = { inner ->
+                Box(
+                    modifier = Modifier.padding(
+                        horizontal = OrreryTokens.Space.twelve,
+                        vertical = OrreryTokens.Space.eight,
+                    ),
+                ) {
+                    if (words.isEmpty()) {
+                        Text(SEARCH_LABEL, color = OrreryTokens.Ink.three, style = OrreryTokens.Type.body)
+                    }
+                    inner()
+                }
+            },
+        )
+        TextButton(onClick = onClear, modifier = Modifier.testTag("clear-search")) {
+            Text("Clear")
+        }
+    }
+}
+
+/** The search found no project: the words searched, and what search looks at. */
+@Composable
+private fun NothingMatches(words: String) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(OrreryTokens.Space.sixteen),
+        verticalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
+    ) {
+        Text("Nothing matches “$words”.", style = OrreryTokens.Type.body, color = OrreryTokens.Ink.three)
+        Text(
+            "Search looks at titles, directories, hosts, states, and the names of epics and contracts.",
+            style = OrreryTokens.Type.small,
+            color = OrreryTokens.Ink.three,
+        )
     }
 }
 

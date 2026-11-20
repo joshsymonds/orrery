@@ -326,6 +326,17 @@ class InboxTreeFilterTest {
     }
 
     @Test
+    fun searchMatchesARowsHostAndDropsTheOtherHosts() {
+        val projects = tree(
+            panes = listOf(
+                pane("%1", "o1", label = "notes").copy(host = "devbox"),
+                pane("%2", "o2", label = "notes"),
+            ),
+        )
+        assertEquals(setOf("pane:devbox:%1"), keysOf(search(projects, "devbox").single().convos))
+    }
+
+    @Test
     fun searchKeepsAMatchingEpicWithItsConversationAndProjectAndDropsTheRest() {
         val projects = tree(
             panes = listOf(
