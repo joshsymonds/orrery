@@ -1,22 +1,41 @@
 package io.github.joshsymonds.orrery.ui
 
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import com.connectrpc.Code
 import io.github.joshsymonds.orrery.api.BackgroundTaskRow
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicQuestionRow
 import io.github.joshsymonds.orrery.api.EpicRow
+import io.github.joshsymonds.orrery.api.FakeOrreryServer
+import io.github.joshsymonds.orrery.api.OrreryClient
+import io.github.joshsymonds.orrery.api.Reply
 import io.github.joshsymonds.orrery.api.StepRow
+import io.github.joshsymonds.orrery.api.StreamEnd
+import io.github.joshsymonds.orrery.awaitUntil
+import io.github.joshsymonds.orrery.gen.orrery.v1.BackgroundTask
+import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState as ConversationStateProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.Epic
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsListResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession
+import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationResponse
 import io.github.joshsymonds.orrery.mainThreadComposeRule
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -26,6 +45,12 @@ import org.robolectric.annotation.GraphicsMode
 
 private const val SESSION = "example-session"
 private const val REPO = "example-repo"
+private const val PANE = "%1"
+private const val NOW = 1_700_000_000L
+private const val EPICS_LIST_PATH = "/orrery.v1.Epics/List"
+private const val SESSION_WATCH_PATH = "/orrery.v1.Sessions/WatchConversation"
+private const val PANES_LIST_PATH = "/orrery.v1.Panes/List"
+private const val PANE_WATCH_PATH = "/orrery.v1.Panes/WatchConversation"
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], qualifiers = "w800dp-h800dp")
@@ -34,8 +59,21 @@ class TileStripTest {
     @get:Rule
     val composeRule = mainThreadComposeRule()
 
+    private lateinit var server: FakeOrreryServer
+
     private val opened = mutableListOf<RailThing>()
     private val pickers = mutableListOf<RailGroup>()
+    private val openedEpics = mutableListOf<String>()
+
+    @Before
+    fun startServer() {
+        server = FakeOrreryServer()
+    }
+
+    @After
+    fun stopServer() {
+        server.close()
+    }
 
     private fun step(id: String): StepRow = StepRow(
         id = id,
@@ -357,5 +395,182 @@ class TileStripTest {
         val endLeft = composeRule.onNodeWithTag("strip-end").getBoundsInRoot().left
         assertTrue(endLeft >= groupRight)
         composeRule.onNodeWithText("end-control").assertIsDisplayed()
+    }
+
+    private fun shown(tag: String): Boolean =
+        composeRule.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+
+    private fun epicProto(id: String, slug: String, steering: String = SESSION): Epic = Epic.newBuilder()
+        .setId(id)
+        .setRepository(REPO)
+        .setSlug(slug)
+        .setLive(true)
+        .setSteering(steering)
+        .build()
+
+    private fun backgroundProto(id: String, type: String): BackgroundTask = BackgroundTask.newBuilder()
+        .setId(id)
+        .setToolUseId("tool-$id")
+        .setDescription("Synthetic $type task.")
+        .setType(type)
+        .setStatus("running")
+        .setActivity("Synthetic activity.")
+        .setStarted(NOW)
+        .setEnded(0L)
+        .build()
+
+    /** The headless session's stream: one delta whose state holds [tasks] as its background tasks. */
+    private fun sessionStream(tasks: List<BackgroundTask>): Reply.Stream = Reply.Stream(
+        listOf(
+            SessionsWatchConversationResponse.newBuilder()
+                .setTranscript(SESSION)
+                .setSeq(1L)
+                .setState(
+                    ConversationStateProto.newBuilder()
+                        .setOrigin("Synthetic origin.")
+                        .setSession(
+                            HeadlessSession.newBuilder()
+                                .setId(SESSION)
+                                .setDir("/home/user/project")
+                                .setLabel("synthetic-label")
+                                .setState("working")
+                                .setChanged(NOW)
+                                .setSeen(NOW),
+                        )
+                        .addAllBackground(tasks),
+                )
+                .build(),
+        ),
+        StreamEnd.Open,
+    )
+
+    /** A pane with no conversation, so the pane screen reads it by polling and shows no transcript. */
+    private fun paneProto(): PaneProto = PaneProto.newBuilder()
+        .setId(PANE)
+        .setHost("example-host")
+        .setSession("example-session")
+        .setWindow(1)
+        .setPane(0)
+        .setCwd("/home/user/project")
+        .setCommand("claude")
+        .setState("")
+        .setSummary("")
+        .setLabel("synthetic-pane")
+        .setChanged(NOW)
+        .setSeen(NOW)
+        .setQuestion("")
+        .setQuestionHash("")
+        .build()
+
+    private fun serveEpics(vararg epics: Epic) {
+        server.respond(EPICS_LIST_PATH, EpicsListResponse.newBuilder().addAllEpics(epics.toList()).build())
+    }
+
+    private fun setSessionScreen(tasks: List<BackgroundTask> = emptyList()) {
+        server.route(SESSION_WATCH_PATH) { sessionStream(tasks) }
+        val client = OrreryClient(server.baseUrl)
+        composeRule.setContent {
+            MaterialTheme {
+                SessionScreen(
+                    sessionId = SESSION,
+                    client = client,
+                    onOpenEpic = { openedEpics.add(it) },
+                )
+            }
+        }
+    }
+
+    private fun setPaneScreen() {
+        val client = OrreryClient(server.baseUrl)
+        composeRule.setContent {
+            MaterialTheme {
+                PaneScreen(
+                    paneId = PANE,
+                    client = client,
+                    onOpenEpic = { openedEpics.add(it) },
+                    clock = { NOW },
+                )
+            }
+        }
+    }
+
+    @Test
+    fun aSessionsStripSitsUnderItsHeaderWithItsEpicAndRunningGroups() {
+        serveEpics(epicProto("epic-alpha", "$REPO-alpha"))
+        setSessionScreen(listOf(backgroundProto("agent-1", "agent"), backgroundProto("shell-1", "shell")))
+
+        composeRule.awaitUntil("the strip's epic and agents tiles") { shown("tile:epic-alpha") && shown("tile:agents") }
+        composeRule.onAllNodesWithTag("rail-group:epic", useUnmergedTree = true).assertCountEquals(1)
+        composeRule.onAllNodesWithTag("rail-group:agents", useUnmergedTree = true).assertCountEquals(1)
+        composeRule.onAllNodesWithTag("rail-group:running", useUnmergedTree = true).assertCountEquals(1)
+        composeRule.onNodeWithText("alpha", useUnmergedTree = true).assertIsDisplayed()
+        val headerBottom = composeRule.onNodeWithTag("pane-header").getBoundsInRoot().bottom
+        val stripTop = composeRule.onNodeWithTag("tile-strip").getBoundsInRoot().top
+        assertTrue(stripTop >= headerBottom)
+    }
+
+    @Test
+    fun theAgentsTileOpensTheAgentsSheetWithItsRunningAgents() {
+        serveEpics(epicProto("epic-alpha", "$REPO-alpha"))
+        setSessionScreen(listOf(backgroundProto("agent-1", "agent"), backgroundProto("shell-1", "shell")))
+        composeRule.awaitUntil("the agents tile") { shown("tile:agents") }
+
+        composeRule.onNodeWithTag("tile:agents").performClick()
+
+        composeRule.onAllNodesWithTag("list-row:agent-1", useUnmergedTree = true).assertCountEquals(1)
+        composeRule.onAllNodesWithTag("list-row:shell-1").assertCountEquals(0)
+    }
+
+    @Test
+    fun theRunningTileOpensTheRunningSheetWithItsShells() {
+        serveEpics(epicProto("epic-alpha", "$REPO-alpha"))
+        setSessionScreen(listOf(backgroundProto("agent-1", "agent"), backgroundProto("shell-1", "shell")))
+        composeRule.awaitUntil("the running tile") { shown("tile:running") }
+
+        composeRule.onNodeWithTag("tile:running").performClick()
+
+        composeRule.onAllNodesWithTag("list-row:shell-1", useUnmergedTree = true).assertCountEquals(1)
+        composeRule.onAllNodesWithTag("list-row:agent-1").assertCountEquals(0)
+    }
+
+    @Test
+    fun aDotsTileOpensThePickerWhoseRowOpensItsEpic() {
+        serveEpics(
+            epicProto("epic-alpha", "$REPO-alpha"),
+            epicProto("epic-bravo", "$REPO-bravo"),
+            epicProto("epic-charlie", "$REPO-charlie"),
+            epicProto("epic-delta", "$REPO-delta"),
+        )
+        setSessionScreen()
+        composeRule.awaitUntil("the dots tile") { shown("tile-dots:epic") }
+
+        composeRule.onNodeWithTag("tile-dots:epic").performClick()
+        composeRule.onNodeWithTag("picker-row:epic-charlie").performClick()
+
+        assertEquals(listOf("epic-charlie"), openedEpics)
+    }
+
+    @Test
+    fun anEpicTileOpensItsEpic() {
+        serveEpics(epicProto("epic-alpha", "$REPO-alpha"))
+        setSessionScreen()
+        composeRule.awaitUntil("the epic tile") { shown("tile:epic-alpha") }
+
+        composeRule.onNodeWithTag("tile:epic-alpha").performClick()
+
+        assertEquals(listOf("epic-alpha"), openedEpics)
+    }
+
+    @Test
+    fun aPaneScreenDrawsTheStripOfTheEpicsItsPaneSteers() {
+        serveEpics(epicProto("epic-alpha", "$REPO-alpha", steering = PANE))
+        server.respond(PANES_LIST_PATH, PanesListResponse.newBuilder().addPanes(paneProto()).build())
+        server.route(PANE_WATCH_PATH) {
+            Reply.Stream(emptyList(), StreamEnd.Error(Code.NOT_FOUND, "synthetic pane has no stream"))
+        }
+        setPaneScreen()
+
+        composeRule.awaitUntil("the pane's epic tile") { shown("tile:epic-alpha") }
+        composeRule.onAllNodesWithTag("rail-group:epic", useUnmergedTree = true).assertCountEquals(1)
     }
 }

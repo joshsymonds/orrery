@@ -1,5 +1,6 @@
 package io.github.joshsymonds.orrery.ui
 
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -16,15 +17,27 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
+import io.github.joshsymonds.orrery.api.BackgroundTaskRow
+import io.github.joshsymonds.orrery.api.EpicDetail
+import io.github.joshsymonds.orrery.api.EpicRow
+import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import io.github.joshsymonds.orrery.ui.theme.inLabelCase
+import java.io.IOException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
+private const val TAG = "ConversationStrip"
 private val TILE_SHAPE = RoundedCornerShape(OrreryTokens.Radius.two)
 
 /**
@@ -158,3 +171,86 @@ private fun lineOf(tone: ThingTone): Color = when (tone) {
 }
 
 private fun kindTag(kind: GroupKind): String = kind.name.lowercase()
+
+/** The sheet a strip holds open: a list's rows, or a dots group's picker. */
+private sealed interface OpenSheet {
+    data class Tasks(val thing: ListThing) : OpenSheet
+
+    data class Picker(val group: RailGroup) : OpenSheet
+}
+
+/** The epics a conversation steers, with the detail of each one that is held. */
+private class SteeredEpics(val epics: List<EpicRow>, val details: Map<String, EpicDetail>)
+
+/**
+ * The epics list, then the detail of each epic [conversation] steers that is not archived. Null when a call fails,
+ * so the strip keeps what it held.
+ */
+private suspend fun loadSteeredEpics(client: OrreryClient, conversation: String): SteeredEpics? =
+    withContext(Dispatchers.IO) {
+        try {
+            val epics = client.epics()
+            val steered = if (conversation.isEmpty()) {
+                emptyList()
+            } else {
+                epics.filter { it.steering == conversation && !it.archived }
+            }
+            val details = steered.mapNotNull { epic -> client.epic(epic.id)?.let { epic.id to it } }.toMap()
+            SteeredEpics(epics, details)
+        } catch (e: IOException) {
+            Log.w(TAG, "could not load the epics $conversation steers", e)
+            null
+        }
+    }
+
+/**
+ * A conversation's right rail as a strip under its header: the epics it steers and, unless [pane], its running
+ * background [background] tasks. The epics load off the main thread for [conversation]. An epic tile, or a row of a
+ * picker, calls [onOpenEpic] with the epic's id; a list tile opens its sheet, and a dots tile its picker. [now] is
+ * unix seconds, the clock the sheets count from.
+ */
+@Composable
+fun ConversationStrip(
+    conversation: String,
+    pane: Boolean,
+    background: List<BackgroundTaskRow>,
+    now: Long,
+    client: OrreryClient,
+    onOpenEpic: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var steered by remember(conversation) { mutableStateOf(SteeredEpics(emptyList(), emptyMap())) }
+    var sheet by remember(conversation) { mutableStateOf<OpenSheet?>(null) }
+    LaunchedEffect(conversation) {
+        loadSteeredEpics(client, conversation)?.let { steered = it }
+    }
+    val groups = workGroupsOf(conversation, pane, steered.epics, steered.details, background)
+    if (groups.isNotEmpty()) {
+        TileStrip(
+            groups = groups,
+            onOpen = { thing ->
+                when (thing) {
+                    is EpicThing -> onOpenEpic(thing.id)
+                    is ListThing -> sheet = OpenSheet.Tasks(thing)
+                }
+            },
+            onOpenPicker = { sheet = OpenSheet.Picker(it) },
+            modifier = modifier,
+        )
+    }
+    when (val open = sheet) {
+        is OpenSheet.Tasks -> WorkListSheet(
+            agents = open.thing.kind == GroupKind.AGENTS,
+            tasks = open.thing.tasks,
+            now = now,
+            onDismiss = { sheet = null },
+        )
+        is OpenSheet.Picker -> RailPickerSheet(
+            label = open.group.label,
+            rows = open.group.things.filterIsInstance<EpicThing>().map { PickerRow(it.id, it.slug, it.state, it.asks) },
+            onOpen = onOpenEpic,
+            onDismiss = { sheet = null },
+        )
+        null -> Unit
+    }
+}

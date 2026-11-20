@@ -78,8 +78,9 @@ data class StepMode(val held: Boolean)
  * folded into what the screen holds, and a failed stream reconnects after the seq it holds, so the
  * conversation resumes where it stopped. A stream that ends without error reconnects the same way.
  *
- * The screen shows the session's header, its conversation with each unfinished main-thread text block
- * as a reply after the items, and the open request as a card after the last item. Interrupt and Stop
+ * The screen shows the session's header, under it the rail strip of the epics the session steers and its running
+ * tasks (a tile of an epic calls [onOpenEpic] with its id), its conversation with each unfinished main-thread text
+ * block as a reply after the items, and the open request as a card after the last item. Interrupt and Stop
  * sit above the compose box while the session is working or waiting. Once an Interrupt is taken, the
  * screen shows Interrupted above the compose box after the session leaves working and waiting, until it
  * works again. Send posts the draft as a prompt through [SessionSender]. Reading the conversation marks
@@ -89,7 +90,13 @@ data class StepMode(val held: Boolean)
  * step, the open request card is not drawn, and Send posts the draft as a nudge through [StepCalls].
  */
 @Composable
-fun SessionScreen(sessionId: String, client: OrreryClient, onBack: () -> Unit = {}, step: StepMode? = null) {
+fun SessionScreen(
+    sessionId: String,
+    client: OrreryClient,
+    onBack: () -> Unit = {},
+    step: StepMode? = null,
+    onOpenEpic: (String) -> Unit = {},
+) {
     var streamed by remember(sessionId) { mutableStateOf<StreamedConversation?>(null) }
     var refreshFailed by remember(sessionId) { mutableStateOf(false) }
     var seenAtOpen by remember(sessionId) { mutableStateOf<Long?>(null) }
@@ -170,6 +177,14 @@ fun SessionScreen(sessionId: String, client: OrreryClient, onBack: () -> Unit = 
                 stats = null,
                 context = conversation?.context,
                 onBack = onBack,
+            )
+            ConversationStrip(
+                conversation = sessionId,
+                pane = false,
+                background = held.background,
+                now = nowSeconds,
+                client = client,
+                onOpenEpic = onOpenEpic,
             )
         }
         Box(modifier = Modifier.weight(1f).fillMaxWidth().clipToBounds()) {

@@ -7,6 +7,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -123,7 +124,8 @@ private suspend fun fetchHost(client: OrreryClient): HostRead? =
  * above it. Each newer read time the conversation reports is sent to the server as the pane's
  * read-up-to time.
  *
- * The header overlays the body, clipped to the body's bounds, and slides away while the reader
+ * The header overlays the body, with the rail strip of the epics the pane steers under it (a tile of an epic calls
+ * [onOpenEpic] with its id). The header and strip are clipped to the body's bounds, and slide away while the reader
  * scrolls towards newer content; it returns on a short scroll back, and always shows at the top
  * and the newest end. While the software keyboard is up the header folds away entirely, and the
  * draft field is capped at a third of the screen above the keyboard, so the conversation keeps the
@@ -136,6 +138,7 @@ fun PaneScreen(
     client: OrreryClient,
     modifier: Modifier = Modifier,
     onBack: () -> Unit = {},
+    onOpenEpic: (String) -> Unit = {},
     clock: () -> Long = { System.currentTimeMillis() / 1000 },
 ) {
     var pane by remember(paneId) { mutableStateOf<Pane?>(null) }
@@ -340,13 +343,8 @@ fun PaneScreen(
                 }
             }
             current?.let { shown ->
-                PaneHeader(
-                    pane = shown,
-                    origin = conversation?.origin,
-                    stats = stats,
-                    context = conversation?.context,
-                    onBack = onBack,
-                    compact = keyboardUp,
+                // The strip is part of the header band: it folds, slides and is measured with the header.
+                Column(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
                         .onSizeChanged {
@@ -354,7 +352,25 @@ fun PaneScreen(
                             headerMeasured = true
                         }
                         .offset { IntOffset(0, headerShift) },
-                )
+                ) {
+                    PaneHeader(
+                        pane = shown,
+                        origin = conversation?.origin,
+                        stats = stats,
+                        context = conversation?.context,
+                        onBack = onBack,
+                        compact = keyboardUp,
+                    )
+                    ConversationStrip(
+                        conversation = paneId,
+                        pane = true,
+                        background = emptyList(),
+                        now = nowSeconds,
+                        client = client,
+                        onOpenEpic = onOpenEpic,
+                        modifier = Modifier.background(OrreryTokens.Surface.page),
+                    )
+                }
             }
         }
         ComposeBox(
