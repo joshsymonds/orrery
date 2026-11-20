@@ -147,6 +147,8 @@ subcommands:
   contract accept ID [WORDS]                    accept a proposed contract, with WORDS
   contract set-aside ID WORDS                   set a contract aside, with WORDS
   contract reopen ID [WORDS]                    reopen a set-aside contract, with WORDS
+  cron list                                     print this session's orrery cron jobs
+  cron delete ID                                cancel the orrery cron job ID of this session
   run --needs POOL=N [--needs POOL=N]... -- CMD [ARGS]
                                                 run CMD under a grant of pool members from orreryd
   run status                                    print the pools orreryd runs
@@ -287,8 +289,8 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 		return runMCP(ctx, opts, args, stdin, stdout, getenv)
 	case "epic":
 		return runEpic(ctx, opts, args, stdin, stdout, stderr, getenv)
-	case "contract":
-		return runContract(ctx, opts, args, stdout, getenv)
+	case "contract", cronVerb:
+		return contractOrCron(ctx, opts, name, args, stdout, getenv)
 	case "run", "gate", "evidence":
 		return orreryCommand(ctx, opts, name, args, stdin, stdout, stderr, getenv)
 	case "hold", "step":
@@ -312,6 +314,16 @@ func dispatchTmux(ctx context.Context, opts globals, name string, args []string,
 	default:
 		return usagef("unknown subcommand %q", name)
 	}
+}
+
+// contractOrCron runs `orrery contract` or `orrery cron`. Both call a service on the session socket with the caller's
+// session, and dispatch names them in one case.
+func contractOrCron(ctx context.Context, opts globals, name string, args []string, stdout io.Writer,
+	getenv func(string) string) error {
+	if name == cronVerb {
+		return runCron(ctx, opts, args, stdout, getenv)
+	}
+	return runContract(ctx, opts, args, stdout, getenv)
 }
 
 // runOwnerAction runs `orrery hold` or `orrery step`, the owner's commands that orreryd answers over the session socket
