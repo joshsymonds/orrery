@@ -104,6 +104,7 @@ fun EpicScreen(
     var generation by remember(client, epicId) { mutableIntStateOf(0) }
     var notice by remember(client, epicId) { mutableStateOf("") }
     val scope = rememberCoroutineScope()
+    val releaseCall = remember(client, epicId) { OwnerCall() }
     val loadArtifact: ArtifactLoader = remember(client) {
         { run: String, name: String, stderr: Boolean -> client.artifact(run, name, stderr) }
     }
@@ -117,14 +118,31 @@ fun EpicScreen(
         }
     }
 
+    // release sends the Release from step N the owner confirmed, once, and never retries it: the answer is handed to the
+    // release call, which reads the epic again.
+    val release: (Long) -> Unit = { position ->
+        scope.launch {
+            val outcome = withContext(Dispatchers.IO) {
+                outcomeOf { client.releaseEpic(epicId, listOf(position.toInt())) }
+            }
+            releaseCall.answered(outcome) {
+                generation++
+                generation
+            }
+        }
+    }
+
     LaunchedEffect(client, epicId, generation) {
+        val readAt = generation
         // A reload after a command keeps the epic on screen; only a first load or a retry shows the loading line.
         if (load !is EpicLoad.Loaded) load = EpicLoad.Loading
-        load = try {
+        val loaded = try {
             withContext(Dispatchers.IO) { loadEpic(client, epicId) }
         } catch (error: IOException) {
             EpicLoad.Failed
         }
+        load = loaded
+        if (loaded !is EpicLoad.Failed) releaseCall.loaded(readAt)
     }
 
     val pause = { send("Pause") { client.pauseEpic(epicId) } }
@@ -210,6 +228,8 @@ fun EpicScreen(
                 onTalk = onTalk,
                 listedSteerer = listedSteerer,
                 actions = NowActions(answer = onAnswer, retry = retry, resume = resume, stop = stop),
+                releaseCall = releaseCall,
+                onRelease = release,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -323,6 +343,8 @@ private fun EpicBody(
     onTalk: (steering: String) -> Unit,
     listedSteerer: (steering: String) -> Pane?,
     actions: NowActions,
+    releaseCall: OwnerCall,
+    onRelease: (Long) -> Unit,
     modifier: Modifier,
 ) {
     val detail = loaded.detail
@@ -333,6 +355,7 @@ private fun EpicBody(
         detail.requirements.filter { provenOf(it.id, wedges, detail.requirements) }.map { it.id }.toSet()
     }
     val review = remember(detail) { reviewOf(detail) }
+    val release = remember(detail) { releaseOf(detail) }
     val drawn = listOfNotNull(
         "problem".takeIf { detail.epic.problem.isNotEmpty() },
         "summary".takeIf { reached.summary },
@@ -342,6 +365,7 @@ private fun EpicBody(
         "tasks".takeIf { reached.tasks },
         "requirements".takeIf { reached.requirements },
         "review".takeIf { review != null },
+        "release".takeIf { release != null },
     )
     LaunchedEffect(openAt) {
         openAt?.let { opening ->
@@ -413,6 +437,11 @@ private fun EpicBody(
         }
         if (review != null) {
             section("review") { EpicReviewSection(view = review) }
+        }
+        if (release != null) {
+            section("release") {
+                EpicReleaseSection(view = release, call = releaseCall, onRelease = onRelease)
+            }
         }
     }
 }
