@@ -100,8 +100,9 @@ internal class TreeData(
  * The inbox: the head with the Orrery mark, Search, New, Pools and Settings; then, while search is open, its field; then
  * the two chips and each project as a card, its conversations hanging under it with what steers them, and its ended
  * line. The chips narrow the tree, search narrows what the chips left, and a folded card says what waits in it. The foot
- * opens the archived tree and returns from it. A tap on a conversation calls [onOpenPane] with its pane, and a tap on an
- * epic or one of its steps calls [onOpenEpic]. A long press on a conversation or an epic opens its sheet, where the
+ * opens the archived tree and returns from it. A tap on a conversation calls [onOpenPane] with its pane, a tap on an
+ * epic or one of its steps calls [onOpenEpic], and a tap on a project's name calls [onOpenProject] with its key. A long
+ * press on a conversation or an epic opens its sheet, where the
  * owner marks it seen or archives it, and a landed change reads the tree again. New opens
  * the picker as a bottom sheet; a run it answers opens that pane through [onOpenPaneId], and a start it answers opens
  * that session through [onStartedSession]. The Pools button opens the pools view through [onOpenPools].
@@ -117,9 +118,10 @@ fun PaneListScreen(
     onOpenPaneId: (String) -> Unit,
     onStartedSession: (String) -> Unit,
     onOpenSettings: () -> Unit,
-    onOpenPools: () -> Unit = {},
     modifier: Modifier = Modifier,
+    onOpenPools: () -> Unit = {},
     onOpenEpic: (String) -> Unit = {},
+    onOpenProject: (String) -> Unit = {},
     now: () -> Long = { System.currentTimeMillis() / 1000 },
     state: PaneListState = rememberPaneListState(),
 ) {
@@ -229,6 +231,7 @@ fun PaneListScreen(
                 now = now(),
                 onOpenPane = onOpenPane,
                 onOpenEpic = onOpenEpic,
+                onOpenProject = onOpenProject,
                 onNew = { picking = true },
                 onLongPress = { sheet = it },
             )
@@ -281,6 +284,7 @@ private fun InboxBody(
     now: Long,
     onOpenPane: (Pane) -> Unit,
     onOpenEpic: (String) -> Unit,
+    onOpenProject: (String) -> Unit,
     onNew: () -> Unit,
     onLongPress: (SheetRow) -> Unit,
 ) {
@@ -340,6 +344,7 @@ private fun InboxBody(
                         onEnded = { state.toggleEnded(project.key) },
                         convo = { convo -> ConvoRowItem(convo = convo, now = now, onOpen = onOpen, onLongPress = onLongPress) },
                         modifier = Modifier.padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.four),
+                        onOpenProject = onOpenProject,
                     )
                 }
             }

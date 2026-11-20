@@ -37,6 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import io.github.joshsymonds.orrery.api.OrreryClient
+import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.push.PushNotifier
 import io.github.joshsymonds.orrery.push.PushSetup
 import io.github.joshsymonds.orrery.ui.ContractScreen
@@ -50,7 +51,9 @@ import io.github.joshsymonds.orrery.ui.PaneListState
 import io.github.joshsymonds.orrery.ui.PaneScreen
 import io.github.joshsymonds.orrery.ui.Phase as TaskPhase
 import io.github.joshsymonds.orrery.ui.PhaseOutputScreen
+import io.github.joshsymonds.orrery.ui.PickerPanel
 import io.github.joshsymonds.orrery.ui.PoolsScreen
+import io.github.joshsymonds.orrery.ui.ProjectPageScreen
 import io.github.joshsymonds.orrery.ui.SessionScreen
 import io.github.joshsymonds.orrery.ui.SettingsScreen
 import io.github.joshsymonds.orrery.ui.StepMode
@@ -100,6 +103,12 @@ class MainActivity : ComponentActivity() {
                     val scope = rememberCoroutineScope()
                     // Opens the conversation that steers an epic once a steering settles on it.
                     val openSteerer: (String) -> Unit = { id -> scope.launch { screen = steererScreen(client, id) } }
+                    // Opens a conversation from the tree or a project's page: a headless session, or a tmux pane.
+                    val openPane: (Pane) -> Unit = {
+                        screen = if (it.headless) Screen.Session(it.id, reason = it.summary) else Screen.Pane(it.id)
+                    }
+                    // The directory a project page's New session here opens the picker on, null while it is closed.
+                    var pickerDir by remember { mutableStateOf<String?>(null) }
                     val animated = animationsOn()
                     Box(modifier = Modifier.fillMaxSize()) {
                         Box(
@@ -114,20 +123,27 @@ class MainActivity : ComponentActivity() {
                                 when (current) {
                                     Screen.Panes -> PaneListScreen(
                                         client = client,
-                                        onOpenPane = {
-                                            screen = if (it.headless) {
-                                                Screen.Session(it.id, reason = it.summary)
-                                            } else {
-                                                Screen.Pane(it.id)
-                                            }
-                                        },
+                                        onOpenPane = openPane,
                                         onOpenPaneId = { screen = Screen.Pane(it) },
                                         onStartedSession = { screen = Screen.Session(it) },
                                         onOpenEpic = { screen = Screen.Epic(it) },
+                                        onOpenProject = { screen = Screen.Project(it) },
                                         onOpenSettings = { screen = Screen.Settings },
                                         onOpenPools = { screen = Screen.Pools },
                                         state = paneListState,
                                     )
+                                    is Screen.Project -> {
+                                        BackHandler { screen = Screen.Panes }
+                                        ProjectPageScreen(
+                                            client = client,
+                                            projectKey = current.key,
+                                            state = paneListState,
+                                            onOpenPane = openPane,
+                                            onOpenEpic = { screen = Screen.Epic(it) },
+                                            onNewHere = { pickerDir = it },
+                                            onBack = { screen = Screen.Panes },
+                                        )
+                                    }
                                     is Screen.Epic -> {
                                         BackHandler { screen = Screen.Panes }
                                         EpicScreen(
@@ -271,6 +287,21 @@ class MainActivity : ComponentActivity() {
                                 screenContent(screen)
                             }
                         }
+                        pickerDir?.let { dir ->
+                            PickerPanel(
+                                client = client,
+                                onOpened = { paneId ->
+                                    pickerDir = null
+                                    screen = Screen.Pane(paneId)
+                                },
+                                onStarted = { sessionId ->
+                                    pickerDir = null
+                                    screen = Screen.Session(sessionId)
+                                },
+                                onClose = { pickerDir = null },
+                                startIn = dir,
+                            )
+                        }
                         // A solid band over the status bar's inset, drawn last so nothing that
                         // scrolls or slides up from the content shows behind the clock and battery.
                         Box(
@@ -337,13 +368,14 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * How deep a screen sits: the home list is 0; a pane, a session, the pools, the settings or an epic is 1; an epic's
-     * contract or a task's phase output is 2; a step's session is one deeper than the screen it opened from.
+     * How deep a screen sits: the home list is 0; a project's page, a pane, a session, the pools, the settings or an epic
+     * is 1; an epic's contract or a task's phase output is 2; a step's session is one deeper than the screen it opened
+     * from.
      */
     private val Screen.depth: Int
         get() = when (this) {
             Screen.Panes -> 0
-            Screen.Pools, Screen.Settings, is Screen.Pane, is Screen.Session, is Screen.Epic -> 1
+            Screen.Pools, Screen.Settings, is Screen.Project, is Screen.Pane, is Screen.Session, is Screen.Epic -> 1
             is Screen.Contract, is Screen.Phase -> 2
             is Screen.Step -> back.depth + 1
         }
@@ -354,6 +386,9 @@ class MainActivity : ComponentActivity() {
         data object Pools : Screen
         data class Pane(val id: String) : Screen
         data class Session(val id: String, val reason: String = "") : Screen
+
+        /** One project of the home tree as its page, reached from its name there: back returns to the tree. */
+        data class Project(val key: String) : Screen
         /** An epic, at its top or, when [open] is set, at that section. */
         data class Epic(val id: String, val open: EpicOpening? = null) : Screen
 
