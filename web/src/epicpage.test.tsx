@@ -10,11 +10,12 @@ import type { LoadArtifact } from "./evidence";
 import {
   type EpicHistoryEntry,
   EpicHistoryEntrySchema,
+  EpicSchema,
   type EpicsGetResponse,
   EpicsGetResponseSchema,
 } from "./gen/orrery/v1/epics_pb";
 import type { Row } from "./rows";
-import { installTestDom, removeTestDom } from "./testdom";
+import { assertSame, installTestDom, removeTestDom } from "./testdom";
 
 type Props = Parameters<typeof EpicPage>[0];
 
@@ -119,8 +120,8 @@ function recorder(): { calls: string[]; commands: EpicCommands } {
       calls.push(`answer ${questionId} ${choice} ${text}`);
       return "";
     },
-    release: async () => {
-      calls.push("release");
+    release: async (undoNone) => {
+      calls.push(`release ${JSON.stringify(undoNone)}`);
       return { kind: "landed" };
     },
     close: async (kind, by) => {
@@ -135,15 +136,27 @@ function recorder(): { calls: string[]; commands: EpicCommands } {
   return { calls, commands };
 }
 
-// withPage renders the epic page for the detail into a fresh test DOM, runs the check on its container, and removes the
-// DOM. extra replaces any prop the page takes.
+// Drawn is what withPage's check gets besides the container: the elements the page brought into view, in order, and
+// redraw, which draws the page again with the detail a later read answers.
+interface Drawn {
+  scrolled: Element[];
+  redraw: (next: EpicsGetResponse) => Promise<void>;
+}
+
+// withPage renders the epic page for the detail into a fresh test DOM, runs the check on its container and what it
+// drew, and removes the DOM. extra replaces any prop the page takes. The window is fresh, so its scrollIntoView can be
+// replaced here: happy-dom has no layout, so its own does nothing.
 async function withPage(
   epic: EpicsGetResponse,
-  check: (container: HTMLElement) => void | Promise<void>,
+  check: (container: HTMLElement, drawn: Drawn) => void | Promise<void>,
   extra: Partial<Props> = {},
 ): Promise<void> {
   const window = installTestDom();
   const container = document.createElement("div");
+  const scrolled: Element[] = [];
+  HTMLElement.prototype.scrollIntoView = function scrollIntoView(this: Element) {
+    scrolled.push(this);
+  };
   const props: Props = {
     detail: epic,
     history: [],
@@ -157,11 +170,15 @@ async function withPage(
     commandError: "",
     ...extra,
   };
+  const redraw = (next: EpicsGetResponse) =>
+    act(() => {
+      render(<EpicPage {...props} detail={next} />, container);
+    });
   try {
     await act(() => {
       render(<EpicPage {...props} />, container);
     });
-    await check(container);
+    await check(container, { scrolled, redraw });
   } finally {
     await act(() => {
       render(null, container);
@@ -232,6 +249,8 @@ test("EpicRecord: an orreryd epic draws its sections in order, and none it has n
         "happen just",
         "tasks",
         "requirements",
+        "release",
+        "report",
       ]);
     },
     { history },
@@ -997,4 +1016,179 @@ test("EpicCommands: narrow draws no host strip in the title row, and wide draws 
     },
     { narrow: true, strip: <span class="strip-probe" /> },
   );
+});
+
+// pathOf is the repository path the test epics share: the path replacementsOf reads.
+const pathOf = "/work/demo-repo";
+
+// reviewed is a reviewing orreryd epic with one reviewer and one finding, the Review section's rows.
+const reviewed = {
+  ...build,
+  epic: { ...orrerydEpic, outcome: "reviewing" },
+  summary: "Ship the demo",
+  contract,
+  reviews: [{ position: 1n, reviewer: "security", reason: "The token is checked", verdict: "holds" }],
+  ledger: [
+    { id: "security-1", position: 1n, reviewer: "security", claim: "Token not checked", location: "auth.go:12", result: "" },
+  ],
+};
+
+test("EpicReview: a reviewing epic draws its Review after the Requirements, with its count words and rows", async () => {
+  await withPage(detail(reviewed), (container) => {
+    const labels = labelsOf(container, ".epic-page");
+    assert.deepEqual(labels.slice(-2), ["requirements", "review"]);
+    assert.equal(textOf(container, ".review .sec-head span"), "1 reviewer · 1 finding");
+    assert.equal(textOf(container, '.review [data-reviewer="security"] .wide'), "The token is checked");
+    assert.equal(textOf(container, '.review [data-finding="security-1"] .wide'), "Token not checked · auth.go:12");
+  });
+});
+
+test("EpicReview: an accepted epic draws no Review, even with reviews on its record", async () => {
+  await withPage(detail({ ...reviewed, epic: orrerydEpic }), (container) => {
+    assert.equal(has(container, ".review"), false);
+  });
+});
+
+// releasing is an orreryd epic releasing: its step 1 passed and its step 2 is running, and its contract names a Then.
+const releasing = {
+  ...build,
+  epic: { ...orrerydEpic, outcome: "releasing" },
+  summary: "Ship the demo",
+  contract: { ...contract, releaseThen: "the tag is pushed" },
+  releaseSteps: [
+    { position: 1n, step: "Tag the release", target: "origin", undo: "git tag -d", state: "passed" },
+    { position: 2n, step: "Push the branch", target: "origin", undo: "none", state: "running" },
+  ],
+};
+
+test("ReleaseTable: a releasing epic draws its Release section with its words, its steps and its Then, and offers no release", async () => {
+  await withPage(detail(releasing), (container) => {
+    assert.equal(textOf(container, ".release .sec-head h3"), "Release");
+    assert.equal(textOf(container, ".release .sec-head span"), "step 2 of 2");
+    assert.deepEqual(textsOf(container, ".release .tr .id"), ["1", "2"]);
+    assert.equal(textOf(container, ".release .then"), "Then: the tag is pushed");
+    assert.equal(has(container, ".release button"), false, "a running release offers no Release from step");
+  });
+});
+
+test("ReleaseFrom: a stopped epic's Release from step N, confirmed, sends one release of that step", async () => {
+  const { calls, commands } = recorder();
+  await withPage(
+    detail({
+      ...releasing,
+      epic: { ...orrerydEpic, outcome: "stopped" },
+      releaseSteps: [
+        { position: 1n, step: "Tag the release", target: "origin", undo: "git tag -d", state: "passed" },
+        { position: 2n, step: "Push the branch", target: "origin", undo: "none", state: "failed", reason: "rejected" },
+      ],
+    }),
+    async (container) => {
+      await pressButton(container, ".release", "Release from step 2");
+      assert.equal(calls.length, 0, "asking sends nothing");
+      await pressButton(container, ".release", "Release from step 2");
+      await act(async () => {});
+      assert.deepEqual(
+        calls.filter((call) => call.startsWith("release")),
+        ["release [2]"],
+        "the confirm sends one release of step 2",
+      );
+    },
+    { commands },
+  );
+});
+
+// endedWithGaps is an orreryd epic that ended with gaps on the repository path, beside two other epics: one on the same
+// path, which Close as… may name, and one on another path, which it may not.
+const endedWithGaps = detail({
+  ...build,
+  epic: { ...orrerydEpic, outcome: "ended_with_gaps", live: false, path: pathOf },
+  report: { outcome: "ended_with_gaps", shipped: ["R1"], notShipped: ["R2"], why: "" },
+});
+const listedEpics = [
+  create(EpicSchema, { id: "e1", repository: "demo-repo", slug: "demo-epic", path: pathOf }),
+  create(EpicSchema, { id: "demo-repo/next-epic", repository: "demo-repo", slug: "next-epic", path: pathOf }),
+  create(EpicSchema, { id: "other-repo/elsewhere", repository: "other-repo", slug: "elsewhere", path: "/work/other" }),
+];
+
+test("EpicClose: an ended-with-gaps epic's Close as… lists the listed epics on its path, and sends one close as chosen", async () => {
+  const { calls, commands } = recorder();
+  await withPage(
+    endedWithGaps,
+    async (container) => {
+      await pressButton(container, ".report", "Close as…");
+      assert.deepEqual(
+        textsOf(container, ".report select option"),
+        ["pick the epic", "next-epic"],
+        "the other epic on the path is listed, the epic itself and the other path's are not",
+      );
+      const pick = container.querySelector<HTMLSelectElement>(".report select");
+      assert.ok(pick !== null);
+      pick.value = "demo-repo/next-epic";
+      await act(() => {
+        pick.dispatchEvent(new Event("change"));
+      });
+      await pressButton(container, ".report", "Close as superseded");
+      await act(async () => {});
+      assert.deepEqual(
+        calls.filter((call) => call.startsWith("close")),
+        ["close superseded demo-repo/next-epic"],
+      );
+    },
+    { commands, listed: listedEpics },
+  );
+});
+
+// endedReleased is an orreryd epic that released, with its Report drawn.
+const endedReleased = detail({
+  ...build,
+  epic: { ...orrerydEpic, outcome: "released", live: false, path: pathOf },
+  report: { outcome: "released", shipped: ["R1"], notShipped: [], why: "" },
+});
+
+test("EpicReport: an ended epic opens scrolled to its Report, once", async () => {
+  await withPage(endedReleased, (container, drawn) => {
+    assert.equal(drawn.scrolled.length, 1, "the page brings one block into view");
+    assertSame(drawn.scrolled[0], container.querySelector('section[aria-label="Report"]'));
+  });
+});
+
+test("EpicReport: a landing that names no block still brings the Report into view", async () => {
+  await withPage(
+    endedReleased,
+    (container, drawn) => {
+      assert.equal(drawn.scrolled.length, 1);
+      assertSame(drawn.scrolled[0], container.querySelector('section[aria-label="Report"]'));
+    },
+    { landing: { kind: "" } },
+  );
+});
+
+test("EpicReport: a question landing still lands on Now, and does not bring the Report into view", async () => {
+  await withPage(
+    detail({
+      ...build,
+      epic: { ...orrerydEpic, outcome: "released", live: false, path: pathOf },
+      report: { outcome: "released", shipped: ["R1"], notShipped: [], why: "" },
+      questions: [{ id: "Q1", text: "Which branch?", asked: 9_880n }],
+    }),
+    (container, drawn) => {
+      assert.equal(drawn.scrolled.length, 1);
+      assertSame(drawn.scrolled[0], container.querySelector("section.now"));
+    },
+    { landing: { kind: "question" } },
+  );
+});
+
+test("EpicReport: a later read draws the page again and brings nothing into view again", async () => {
+  await withPage(endedReleased, async (container, drawn) => {
+    await drawn.redraw(
+      detail({
+        ...build,
+        epic: { ...orrerydEpic, outcome: "released", live: false, path: pathOf },
+        report: { outcome: "released", shipped: ["R1"], notShipped: [], why: "Read again" },
+      }),
+    );
+    assert.equal(textOf(container, ".report-why"), "Read again", "the later read is drawn");
+    assert.equal(drawn.scrolled.length, 1, "the later read scrolls nothing");
+  });
 });

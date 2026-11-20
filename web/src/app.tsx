@@ -2079,6 +2079,7 @@ export function App({
         mark={inboxMark}
         strip={pageStrip(null, null)}
         rows={rows}
+        listed={[...epics.listed.values()]}
         narrow={!wide}
         onTalk={steererRow === null ? undefined : closePanel}
         foot={steererRow === null ? unsteeredBar(detail) : null}

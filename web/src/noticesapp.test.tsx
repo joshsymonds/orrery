@@ -529,13 +529,13 @@ test("a release-step notice opens its epic at its Now section, where Retry and S
     landingFixtures,
   ));
 
-test("a report notice for an epic under ended earlier opens the line and brings the page's top into view", (t) =>
+test("EpicReport: a report notice for an epic under ended earlier opens the line and brings its Report into view", (t) =>
   withPage(
     t.signal,
     async (root, server, scrolled) => {
       await clickEpicNotice(t.signal, root, server, shipped, { kind: "report", ref: "" });
       await until(t.signal, () => scrolled.length === 1, "the scroll into view");
-      assert.deepEqual(scrolled, ["epic-page"]);
+      assert.deepEqual(scrolled, ["report"]);
       assert.equal(pageCrumb(root), shipped.slug);
       assert.equal(isCursored(root, epicKeyOf(shipped)), true, "the cursor is not on the epic");
     },
