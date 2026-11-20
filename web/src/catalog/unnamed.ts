@@ -38,8 +38,6 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   "need-entry": { replacement: "epic-question", epic: "F4" },
   // PhaseOutputPage draws a task's phase output at each phase of the rota export.
   "phase-output-page": { replacement: "phase-implement", epic: "F4" },
-  // NewPanel draws the New palette before any ask.
-  "new-panel": { replacement: "new-empty", epic: "F5" },
   // GreenProof and RedProof draw the green and red cards of an epic page, reached or dim.
   "green-proof": { replacement: "EvidenceRun", epic: "F4" },
   "red-proof": { replacement: "EvidenceRun", epic: "F4" },
@@ -66,8 +64,6 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   "output-tails": { replacement: "epic-evidence", epic: "F4" },
   // Workflow draws an epic's workflow nodes: a plan and a build, evidence, failed checks, a loop.
   workflow: { replacement: "epic-building", epic: "F4" },
-  // KeyList draws the key list App shows while help is open.
-  "key-list": { replacement: "keys", epic: "F5" },
   // ContractBody draws an epic's accepted contract, read-only, with its requirements: with additions, with none, and with no base.
   "contract-body": { replacement: "contract-accepted", epic: "F4" },
 
