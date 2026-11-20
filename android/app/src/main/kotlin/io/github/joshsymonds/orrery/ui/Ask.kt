@@ -31,6 +31,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import io.github.joshsymonds.orrery.ui.theme.inLabelCase
@@ -48,8 +49,9 @@ private const val OTHER = "other"
 private const val RECORD_LABEL = "Will be recorded"
 
 /**
- * An Ask as its owner sees it: its head with the controls that answer, put off or decline it, its question and options,
- * the foot that sends an epic's answer, and the notes. A session's or pane's Ask holds no answer of its own: [picked]
+ * An Ask as its owner sees it: its head with the controls that answer, put off or decline it, its question and options
+ * (drawn with their markup when the model's question is markdown), the foot that sends an epic's answer, and the notes.
+ * A session's or pane's Ask holds no answer of its own: [picked]
  * is the option in flight or refused, [note] its refusal, and a tap calls [onAnswer] with the option's number. An epic's
  * or park's pick and text live here: a tap picks, and [onConfirm] is called with the choice and the text only on
  * confirm, showing the words it returns. A control whose callback is null is not drawn.
@@ -199,7 +201,14 @@ internal fun Ask(
                 }
             }
 
-            Text(model.question, style = OrreryTokens.Type.body, modifier = Modifier.testTag("ask-question"))
+            if (model.markdown) {
+                MarkdownBody(
+                    blocks = remember(model.question) { parseMarkdown(model.question) },
+                    modifier = Modifier.testTag("ask-question"),
+                )
+            } else {
+                Text(model.question, style = OrreryTokens.Type.body, modifier = Modifier.testTag("ask-question"))
+            }
 
             model.command?.let { command ->
                 Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(OrreryTokens.Space.two)) {
@@ -239,6 +248,7 @@ internal fun Ask(
                         recommended = option.recommended,
                         recommendedTag = "ask-recommended:${option.n}",
                         held = if (epic) pick == index else picked == option.n,
+                        markdown = model.markdown,
                         enabled = !sending,
                         onClick = if (pressable) select else null,
                     )
@@ -252,6 +262,7 @@ internal fun Ask(
                         recommended = false,
                         recommendedTag = "",
                         held = isOther,
+                        markdown = false,
                         enabled = !sending,
                         onClick = { epicPick = otherIndex },
                     )
@@ -347,12 +358,17 @@ internal fun Ask(
     }
 }
 
-/** An option's index to pick first: the recommended one, else none. A session's options are never recommended. */
+/** An option's text as the assistant wrote it: its inline markup styled, its links not tappable inside the row. */
+private fun markedUp(text: String, markdown: Boolean): AnnotatedString =
+    if (markdown) parseInline(text, links = false) else AnnotatedString(text)
+
+/** An option's index to pick first: the recommended one, else none. */
 private fun initialPick(model: AskModel): Int? = model.options.indexOfFirst { it.recommended }.takeIf { it >= 0 }
 
 /**
  * One option of an Ask: its name, the recommended chip, what it does and why. It is a button when [onClick] is set, and
- * [held] marks the one the owner has picked. Its texts merge into one node under [tag].
+ * [held] marks the one the owner has picked. Its name and what it does are drawn with their inline markup when [markdown]
+ * is set. Its texts merge into one node under [tag].
  */
 @Composable
 private fun AskOptionRow(
@@ -363,6 +379,7 @@ private fun AskOptionRow(
     recommended: Boolean,
     recommendedTag: String,
     held: Boolean,
+    markdown: Boolean,
     enabled: Boolean,
     onClick: (() -> Unit)?,
 ) {
@@ -390,7 +407,7 @@ private fun AskOptionRow(
             horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
         ) {
             Text(
-                name,
+                markedUp(name, markdown),
                 style = OrreryTokens.Type.body.copy(fontWeight = OrreryTokens.Font.Weight.bold),
                 color = OrreryTokens.Ink.one,
             )
@@ -399,7 +416,7 @@ private fun AskOptionRow(
             }
         }
         if (does.isNotEmpty()) {
-            Text(does, style = OrreryTokens.Type.small, color = OrreryTokens.Ink.two)
+            Text(markedUp(does, markdown), style = OrreryTokens.Type.small, color = OrreryTokens.Ink.two)
         }
         if (why.isNotEmpty()) {
             Text("Why: $why.", style = OrreryTokens.Type.small, color = OrreryTokens.Ink.two)

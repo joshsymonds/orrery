@@ -146,7 +146,7 @@ class AskStatesScreenTest {
             composeRule.onNodeWithTag("ask-age").assertTextEquals("· 4m ago")
             composeRule.onNodeWithTag("ask-question").assertTextEquals("Run this command?")
             composeRule.onNodeWithTag("ask-option:1").assertTextContains("Yes")
-            composeRule.onNodeWithTag("ask-option:2").assertTextContains("Yes, and don't ask again")
+            composeRule.onNodeWithTag("ask-option:2").assertTextContains("Yes, and don’t ask again")
             composeRule.onNodeWithTag("ask-option:3").assertTextContains("No")
         }
     }

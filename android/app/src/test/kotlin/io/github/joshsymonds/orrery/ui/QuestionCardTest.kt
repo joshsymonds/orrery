@@ -5,8 +5,8 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-// The stored question's reader, which the Ask's words are read from: the title, the options with their keys and
-// descriptions, and whether the title is the assistant's markdown.
+// The stored question's reader, which the Ask's words are read from: the title, the options with their labels and
+// descriptions, and whether the title and options are the assistant's markdown.
 class QuestionCardTest {
     private val toolQuestion = """{"tool":"Bash","input":{"command":"echo synthetic"}}"""
 
@@ -23,21 +23,20 @@ class QuestionCardTest {
     """.trimIndent()
 
     @Test
-    fun toolQuestionTitleIsTheCommandWithThreeAnswers() {
+    fun toolQuestionTitleIsTheCommandWithNoParsedOptions() {
         val parsed = parseQuestion(toolQuestion)
 
         assertEquals("Bash: echo synthetic", parsed.title)
-        assertEquals(listOf("1 Yes", "2 Yes, don't ask again", "3 No"), parsed.options.map { it.label })
+        assertEquals(emptyList<QuestionOption>(), parsed.options)
         assertFalse(parsed.markdown)
     }
 
     @Test
-    fun askUserQuestionTitleIsItsMarkdownAndOptionsAreNumberedFromOne() {
+    fun askUserQuestionTitleIsItsMarkdownAndOptionsAreTheirLabels() {
         val parsed = parseQuestion(askQuestion)
 
         assertEquals("Pick a synthetic option?", parsed.title)
         assertTrue(parsed.markdown)
-        assertEquals(listOf("1", "2"), parsed.options.map { it.key })
         assertEquals(listOf("Synthetic one", "Synthetic two"), parsed.options.map { it.label })
     }
 
@@ -55,15 +54,15 @@ class QuestionCardTest {
         val parsed = parseQuestion("""{"tool":"Bash","truncated":true,"sha256":"synthetic"}""")
 
         assertEquals("Bash", parsed.title)
-        assertEquals(listOf("1 Yes", "2 Yes, don't ask again", "3 No"), parsed.options.map { it.label })
+        assertEquals(emptyList<QuestionOption>(), parsed.options)
     }
 
     @Test
-    fun plainTextIsItsOwnTitleWithThreeAnswers() {
+    fun plainTextIsItsOwnTitleWithNoParsedOptions() {
         val parsed = parseQuestion("Plain synthetic question?")
 
         assertEquals("Plain synthetic question?", parsed.title)
-        assertEquals(3, parsed.options.size)
+        assertEquals(emptyList<QuestionOption>(), parsed.options)
         assertFalse(parsed.markdown)
     }
 }

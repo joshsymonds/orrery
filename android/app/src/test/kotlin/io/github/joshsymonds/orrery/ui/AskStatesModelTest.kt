@@ -49,7 +49,7 @@ private val permissionAnswers = listOf(
     AskOption(1, "Yes", "", recommended = false, why = "", answerable = true),
     AskOption(
         2,
-        "Yes, and don't ask again",
+        "Yes, and don’t ask again",
         "for commands like this one in this session",
         recommended = false,
         why = "",
@@ -86,6 +86,7 @@ class AskStatesModelTest {
         val model = paneAsk(pane(stored))!!
 
         assertEquals(AskKind.PANE, model.kind)
+        assertTrue(model.markdown)
         assertEquals("project · example-label · question 1 of 2", model.who)
         assertEquals("Pick a synthetic option?", model.question)
         assertEquals(
@@ -97,6 +98,26 @@ class AskStatesModelTest {
         )
         assertEquals(PaneTarget(PANE_ID, QUESTION_HASH, NOW - 240), model.target)
         assertEquals(NOW - 240, model.asked)
+    }
+
+    @Test
+    fun paneOptionMarkedRecommendedIsNamedWithoutTheSuffixAndSentWithTheDigit() {
+        val stored = """
+            {"tool":"AskUserQuestion","questions":[{"question":"Pick one?","options":[
+             {"label":"Synthetic one (Recommended)","description":"First choice."},
+             {"label":"Synthetic two","description":""}]}]}
+        """.trimIndent()
+
+        val model = paneAsk(pane(stored))!!
+
+        assertEquals(
+            listOf(
+                AskOption(1, "Synthetic one", "First choice.", recommended = true, why = "", answerable = true),
+                AskOption(2, "Synthetic two", "", recommended = false, why = "", answerable = true),
+            ),
+            model.options,
+        )
+        assertEquals(PaneTarget(PANE_ID, QUESTION_HASH, NOW - 240), model.target)
     }
 
     @Test
@@ -120,6 +141,7 @@ class AskStatesModelTest {
         assertEquals("Run this command?", model.question)
         assertEquals(AskCommand("Bash", "echo synthetic"), model.command)
         assertEquals(permissionAnswers, model.options)
+        assertFalse(model.markdown)
         assertEquals(PaneTarget(PANE_ID, QUESTION_HASH, NOW - 240), model.target)
     }
 
@@ -140,6 +162,7 @@ class AskStatesModelTest {
         assertEquals("Synthetic plain question?", model.question)
         assertNull(model.command)
         assertEquals(permissionAnswers, model.options)
+        assertFalse(model.markdown)
     }
 
     @Test
@@ -188,6 +211,27 @@ class AskStatesModelTest {
         )
         assertEquals(HeadlessTarget("session-9", "req-7", listOf("allow", "deny")), model.target)
         assertEquals(Pair("headless", "session-9"), model.archive)
+    }
+
+    @Test
+    fun sessionOptionMarkedRecommendedIsNamedWithoutTheSuffixButSentWithIt() {
+        val request = SessionRequest(
+            id = "req-7",
+            kind = "question",
+            question = "Pick one?",
+            options = listOf("allow (Recommended)", "deny"),
+        )
+
+        val model = sessionAsk(pane(id = "session-9", headless = true), request)
+
+        assertEquals(
+            listOf(
+                AskOption(1, "allow", "", recommended = true, why = "", answerable = true),
+                AskOption(2, "deny", "", recommended = false, why = "", answerable = true),
+            ),
+            model.options,
+        )
+        assertEquals(HeadlessTarget("session-9", "req-7", listOf("allow (Recommended)", "deny")), model.target)
     }
 
     @Test

@@ -210,7 +210,7 @@ class AskAnswerTest {
             composeRule.runOnIdle { model.value = null }
 
             composeRule.onNodeWithTag("ask-answered").assertIsDisplayed()
-            composeRule.onNodeWithText("Yes, and don't ask again").assertIsDisplayed()
+            composeRule.onNodeWithText("Yes, and don’t ask again").assertIsDisplayed()
             composeRule.onNodeWithText("· Run this command?").assertIsDisplayed()
             composeRule.onAllNodesWithTag("ask").assertCountEquals(0)
         }

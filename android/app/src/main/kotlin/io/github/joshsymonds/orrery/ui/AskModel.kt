@@ -31,15 +31,16 @@ internal data class HeadlessTarget(val id: String, val requestId: String, val op
 internal data class AskCommand(val tool: String, val text: String)
 
 /**
- * An Ask as the phone draws it and sends it. [asked] is the unix time the question began waiting. [archive] is the
- * Epics.Archive kind and id, null when the conversation has no orrery id. [epicId] and [questionId] are "" outside an
- * epic's Ask; a park has no [questionId].
+ * An Ask as the phone draws it and sends it. [markdown] is true when the question is the assistant's markdown, drawn with
+ * its markup. [asked] is the unix time the question began waiting. [archive] is the Epics.Archive kind and id, null when
+ * the conversation has no orrery id. [epicId] and [questionId] are "" outside an epic's Ask; a park has no [questionId].
  */
 internal data class AskModel(
     val kind: AskKind,
     val who: String,
     val asked: Long,
     val question: String,
+    val markdown: Boolean,
     val command: AskCommand?,
     val options: List<AskOption>,
     val putOff: Boolean,
@@ -53,11 +54,12 @@ private const val LAST_KEYED_OPTION = 9
 private const val SECONDS_PER_DAY = 86_400L
 private const val STATE_WAITING = "waiting"
 private const val RUN_THIS_COMMAND = "Run this command?"
+private const val RECOMMENDED_SUFFIX = " (Recommended)"
 
 /** The three answers a pane permission offers, in the order keys 1, 2 and 3 send them. */
 private val panePermissionOptions = listOf(
     "Yes" to "",
-    "Yes, and don't ask again" to "for commands like this one in this session",
+    "Yes, and don’t ask again" to "for commands like this one in this session",
     "No" to "and say what to do instead, below",
 )
 
@@ -84,9 +86,10 @@ internal fun paneAsk(pane: Pane): AskModel? {
             kind = AskKind.PANE,
             who = if (parsed.count > 1) "$who · question 1 of ${parsed.count}" else who,
             question = parsed.title,
+            markdown = parsed.markdown,
             command = null,
             options = parsed.options.mapIndexed { index, option ->
-                optionOf(index + 1, option.label, option.description.orEmpty())
+                askOptionOf(index + 1, option.label, option.description.orEmpty())
             },
             target = target,
         )
@@ -98,6 +101,7 @@ internal fun paneAsk(pane: Pane): AskModel? {
             kind = AskKind.PERMISSION,
             who = who,
             question = permissionQuestion(tool, detail),
+            markdown = false,
             command = if (detail.isEmpty()) null else AskCommand(tool, detail),
             options = permissionOptions(),
             target = target,
@@ -108,6 +112,7 @@ internal fun paneAsk(pane: Pane): AskModel? {
         kind = AskKind.PERMISSION,
         who = who,
         question = pane.question,
+        markdown = false,
         command = null,
         options = permissionOptions(),
         target = target,
@@ -122,8 +127,9 @@ internal fun sessionAsk(pane: Pane, request: SessionRequest): AskModel {
         who = joinWords(directoryOf(pane.cwd), pane.label),
         asked = pane.changed,
         question = if (permission) "Use ${request.question}?" else request.question,
+        markdown = false,
         command = null,
-        options = request.options.mapIndexed { index, name -> optionOf(index + 1, name) },
+        options = request.options.mapIndexed { index, name -> askOptionOf(index + 1, name) },
         putOff = request.putOff || pane.putOff,
         archive = archiveOf(pane),
         target = HeadlessTarget(pane.id, request.id, request.options),
@@ -138,6 +144,7 @@ internal fun epicAsk(epic: EpicRow, question: EpicQuestionRow): AskModel = AskMo
     who = joinWords(epicProject(epic), epic.slug),
     asked = question.asked,
     question = question.text,
+    markdown = false,
     command = null,
     options = question.choices.mapIndexed { index, choice ->
         val recommended = question.recommendedChoice.isNotEmpty() && question.recommendedChoice == choice.id
@@ -156,6 +163,7 @@ internal fun parkAsk(epic: EpicRow, parked: String): AskModel = AskModel(
     who = joinWords(epicProject(epic), epic.slug),
     asked = epic.phaseAt,
     question = parked,
+    markdown = false,
     command = null,
     options = listOf(optionOf(1, "Retry", "Run the parked work again")),
     putOff = false,
@@ -186,6 +194,7 @@ private fun paneModel(
     kind: AskKind,
     who: String,
     question: String,
+    markdown: Boolean,
     command: AskCommand?,
     options: List<AskOption>,
     target: AskTarget,
@@ -194,6 +203,7 @@ private fun paneModel(
     who = who,
     asked = pane.changed,
     question = question,
+    markdown = markdown,
     command = command,
     options = options,
     putOff = pane.putOff,
@@ -231,6 +241,17 @@ private fun epicProject(epic: EpicRow): String = directoryOf(epic.path).ifEmpty 
 
 /** The last element of a path, "" for no path. */
 private fun directoryOf(path: String): String = if (path.isEmpty()) "" else lastPathElement(path)
+
+/**
+ * A pane's or session's option. Claude Code marks its recommendation by ending the label with " (Recommended)": the
+ * name is drawn without it, and the option is marked recommended.
+ */
+private fun askOptionOf(n: Int, label: String, does: String = ""): AskOption = optionOf(
+    n,
+    label.removeSuffix(RECOMMENDED_SUFFIX),
+    does,
+    recommended = label.endsWith(RECOMMENDED_SUFFIX),
+)
 
 private fun optionOf(
     n: Int,

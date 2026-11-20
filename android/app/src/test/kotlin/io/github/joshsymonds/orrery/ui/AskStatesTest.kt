@@ -1,6 +1,7 @@
 package io.github.joshsymonds.orrery.ui
 
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsSelected
@@ -9,6 +10,7 @@ import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -239,6 +241,37 @@ class AskStatesTest {
         composeRule.waitForIdle()
 
         assertEquals(listOf(2), answers)
+    }
+
+    @Test
+    fun askUserQuestionDrawsItsMarkupWithoutMarkers() {
+        val stored = """
+            {"tool":"AskUserQuestion","questions":[{"question":"**Synthetic bold** and `synthetic code`?",
+             "options":[{"label":"**Styled one**","description":"`Synthetic detail`"},
+             {"label":"Styled two","description":""}]}]}
+        """.trimIndent()
+        setAsk(paneAsk(pane(question = stored))!!)
+
+        composeRule.onNodeWithText("Synthetic bold and synthetic code?").assertExists()
+        composeRule.onNodeWithTag("ask-option:1").assertTextContains("Styled one", substring = true)
+        composeRule.onNodeWithTag("ask-option:1").assertTextContains("Synthetic detail", substring = true)
+        composeRule.onAllNodesWithText("**", substring = true).assertCountEquals(0)
+        composeRule.onAllNodesWithText("`", substring = true).assertCountEquals(0)
+    }
+
+    @Test
+    fun bashPermissionDrawsItsCommandAsItIs() {
+        setAsk(paneAsk(pane(question = """{"tool":"Bash","input":{"command":"echo **synthetic** `code`"}}"""))!!)
+
+        composeRule.onNodeWithTag("ask-question").assertTextEquals("Run this command?")
+        composeRule.onNodeWithText("echo **synthetic** `code`").assertExists()
+    }
+
+    @Test
+    fun plainTextQuestionDrawsItsMarkupAsItIs() {
+        setAsk(paneAsk(pane(question = "**Synthetic bold** and `synthetic code`?"))!!)
+
+        composeRule.onNodeWithTag("ask-question").assertTextEquals("**Synthetic bold** and `synthetic code`?")
     }
 
     @Test
