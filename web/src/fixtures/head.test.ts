@@ -53,9 +53,24 @@ function contextOf(slices: Slices, paneId: string): ConversationContext {
 }
 
 test("fixtures/head: importing head.ts leaves the shipped slices as they are", () => {
-  assert.deepEqual(shippedSlices.epics.epics.filter((epic) => epic.steering !== ""), []);
-  assert.equal(paneOf(shippedSlices, "%14").orreryId, "");
-  assert.equal(paneOf(shippedSlices, "%22").orreryId, "");
+  // The shipped slices keep their own steering and orrery ids (web/src/fixtures/epics.ts, panes.ts), none of head.ts's.
+  assert.deepEqual(
+    shippedSlices.epics.epics.map((epic) => [epic.id, epic.steering]),
+    [
+      ["orrery/orrery-followups", "sess-follow-22"],
+      ["lighthouse/rota-export", "sess-rota-14"],
+      ["tidepool/tide-alerts", "sess-tide-16"],
+      ["tidepool/offline-tables", "sess-offline-17"],
+      ["orrery/orbit-labels", "sess-follow-22"],
+      ["orrery/notices-usable", "sess-follow-22"],
+      ["orrery/harbour-map", "sess-follow-22"],
+      ["tidepool/buoy-feeds", "6c2f9e14-3a7b-4d58-9b0e-2f7a1c8d4e55"],
+      ["orrery/holder-scopes", "sess-holder-19"],
+      ["tidepool/tide-cache", "sess-cache-20"],
+    ],
+  );
+  assert.equal(paneOf(shippedSlices, "%14").orreryId, "sess-rota-14");
+  assert.equal(paneOf(shippedSlices, "%22").orreryId, "sess-follow-22");
   assert.deepEqual(shippedSlices.host.stats.map((stat) => stat.level), ["ok", "ok", "ok", "ok"]);
   assert.equal(warmupState(shippedSlices).goal, "");
   assert.deepEqual(warmupState(shippedSlices).background, []);

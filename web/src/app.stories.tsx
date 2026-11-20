@@ -9,19 +9,33 @@ import type { Stories } from "./catalog/story";
 import { dockSlices, gatesSession, warmupSession } from "./fixtures/dock";
 import { type AskAnswer, type PickerRowInit, type Slices, shippedSlices } from "./fixtures/slices";
 import { createFixtureTransport, type FixtureTransport } from "./fixtures/transport";
-import type { Address, PageView } from "./router";
+import type { Address, ListPanelKind, PageView } from "./router";
 
 const rota = "lighthouse/rota-export";
 const tide = "tidepool/tide-alerts";
 const holder = "orrery/holder-scopes";
 const headlessSession = "4be0c6d2-8f3a-4c71-9e25-ephemeris001";
+// The headless session that steers tidepool/buoy-feeds, which runs two sub-agents and one shell.
+const buoySession = "6c2f9e14-3a7b-4d58-9b0e-2f7a1c8d4e55";
 const workerStep = "st-rota-t2-impl";
+// phoneWidth is the width under which the layout is the phone's: the groups are a strip and the epic is a page.
+const phoneWidth = 760;
 
 const attention: Address = { order: "attention", entry: null };
 
 // epicAt is the address of an epic's page, or of a sub-page under it, in the attention inbox.
 function epicAt(id: string, page: PageView): Address {
   return { order: "attention", entry: { kind: "epic", id, page } };
+}
+
+// sessionAt is the address of a headless session, with the list panel open on it when panel names one.
+function sessionAt(id: string, panel?: ListPanelKind): Address {
+  return { order: "attention", entry: panel === undefined ? { kind: "session", id } : { kind: "session", id, panel } };
+}
+
+// paneAt is the address of a terminal pane on halyard.
+function paneAt(pane: string): Address {
+  return { order: "attention", entry: { kind: "pane", host: "halyard", pane } };
 }
 
 // immediate is the process's own setImmediate, where there is one, taken when this module loads. A test's act holds the
@@ -224,11 +238,20 @@ export const Page: Stories = {
     <PageStory
       address={epicAt(rota, { kind: "epic" })}
       after={async (root) => {
-        await openTalk(root);
-        await clickWhen(root, "ul.talk li:first-child button");
+        // Under the phone's width the epic is a page, and its foot bar opens the conversation that steers it.
+        if (window.innerWidth < phoneWidth) {
+          await clickWhen(root, ".epic-foot button", "Talk to the session");
+        }
       }}
     />
   ),
+  "work-rail": () => <PageStory address={sessionAt(buoySession)} />,
+  "work-rail-group": () => (
+    <PageStory address={paneAt("%22")} after={(root) => clickWhen(root, "button.tile-w.group")} />
+  ),
+  "work-empty": () => <PageStory address={paneAt("%13")} />,
+  "dock-running": () => <PageStory address={sessionAt(buoySession, "agents")} />,
+  "dock-background": () => <PageStory address={sessionAt(buoySession, "running")} />,
   "epic-handover": () => <PageStory address={epicAt(rota, { kind: "epic" })} after={openTalk} />,
   "convo-working": () => <PageStory address={convoWorkingAt} />,
   "ask-session": () => (

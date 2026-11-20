@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { type JSX, render } from "preact";
 
 import { type BandLine, SubjectBand } from "./subjectband";
-import { installTestDom, removeTestDom } from "./testdom";
+import { assertNone, installTestDom, removeTestDom } from "./testdom";
 
 // withBand renders the element into a fresh test DOM, runs the check on its container, and removes the DOM.
 async function withBand(element: JSX.Element, check: (container: HTMLElement) => void): Promise<void> {
@@ -139,4 +139,35 @@ test("Band: the hide control is drawn only when onHide is given", async () => {
   await withBand(<SubjectBand goal="Every port’s tide table is cached." lines={[]} onOpen={() => {}} />, (container) => {
     assert.equal(container.querySelector(".fold-head"), null);
   });
+});
+
+test("OpenOnRight: a line whose epic is not open in the panel offers its way in, a button that opens its epic", async () => {
+  const opened: string[] = [];
+  await withBand(
+    <SubjectBand goal="" lines={threeLines} onOpen={(epic) => opened.push(epic)} here="ep-orbit" />,
+    (container) => {
+      const rota = container.querySelector<HTMLButtonElement>('button.subj[data-epic="ep-rota"]');
+      assert.ok(rota !== null, "the rota-export line is a button");
+      assert.equal(textOf(rota, ".end"), "Answer ›");
+      rota.click();
+      assert.deepEqual(opened, ["ep-rota"]);
+    },
+  );
+});
+
+test("OpenOnRight: the line of the epic open in the panel says it is open on the right, with no button and no way in", async () => {
+  const opened: string[] = [];
+  await withBand(
+    <SubjectBand goal="" lines={threeLines} onOpen={(epic) => opened.push(epic)} here="ep-orbit" />,
+    (container) => {
+      assertNone(container.querySelector('button[data-epic="ep-orbit"]'));
+      const line = container.querySelector<HTMLElement>('div.subj.attention.here[data-epic="ep-orbit"]');
+      assert.ok(line !== null, "the open epic's line is drawn");
+      assert.equal(textOf(line, ".what b"), "orbit-labels");
+      assert.equal(textOf(line, ".end"), "open on the right ›");
+      assert.equal(line.textContent?.includes("Decide"), false, "it offers no way in");
+      line.click();
+      assert.deepEqual(opened, [], "pressing it opens nothing");
+    },
+  );
 });

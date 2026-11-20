@@ -266,7 +266,7 @@ The index lists every story by name, each name a link to its hash. The hash sele
 - A `NAME` is `component/state`, naming one story, or a bare component, naming every state of that component. `inbox-row` names all five states of `InboxRow`.
 - `--width W` may repeat. Without it the width is 1600. A width must be a positive integer.
 - Motion is frozen at the fixtures' instant. The page's clock is paused at `liveEpoch`, and CSS animations and transitions are turned off.
-- The shots directory is cleared once the names resolve, before any screenshot is written.
+- A run overwrites the shots it writes and keeps every other shot under `web/build/shots`, so shoots run one after another leave all their shots.
 - It never shoots every story by default. Running it with no name exits 1.
 - A story that draws its failure element, raises a page error, or has not settled within 10 seconds fails the run with exit 1.
 - An unknown name, or a bad width, exits 1 with a message, and writes no screenshot.

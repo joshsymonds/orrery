@@ -73,8 +73,6 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   // WorkCard draws an epic's card on a project's page when the epic has released, and when the fixtures hold no detail for it.
   "work-card/released": { replacement: "WorkCard", epic: "F2" },
   "work-card/unavailable": { replacement: "WorkCard", epic: "F2" },
-  // TalkDock draws the talk dock following a pane, following a worker session, cut off, and following a session loading.
-  "talk-dock": { replacement: "epic-talk", epic: "F4" },
   // EpicRow draws an epic's line: the cursor on it, its ⋯ menu shut, and an epic with no detail, so no orrery.
   "epic-row/current": { replacement: "EpicRow", epic: "F2" },
   "epic-row/with-menu": { replacement: "EpicRow", epic: "F2" },

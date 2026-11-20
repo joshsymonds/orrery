@@ -240,18 +240,25 @@ function shownLabel(container: HTMLElement): string | null {
   return container.querySelector('section[aria-label="reader"] .title-row .crumb.here')?.textContent ?? null;
 }
 
-// showRow moves the cursor down the list, then back up it, until its reader shows the row with the label given. An epic
-// the list draws before the rows takes the first step, so the walk is in both directions.
+// onRow is whether the cursor rests on a row, not an epic: an epic's cursor shows its steering conversation in the
+// reader too, with the epic open in the panel beside it.
+function onRow(container: HTMLElement): boolean {
+  return container.querySelector('aside.rpanel[aria-label="epic"]') === null;
+}
+
+// showRow moves the cursor down the list, then back up it, until it rests on the row with the label given and its reader
+// shows it. An epic the list draws before the rows takes the first step, so the walk is in both directions.
 async function showRow(container: HTMLElement, label: string): Promise<void> {
+  const shown = () => onRow(container) && shownLabel(container) === label;
   for (const [key, steps] of [
     ["j", 4],
     ["k", 8],
   ] as const) {
-    for (let step = 0; step < steps && shownLabel(container) !== label; step++) {
+    for (let step = 0; step < steps && !shown(); step++) {
       await press(key);
     }
   }
-  assert.equal(shownLabel(container), label, `the cursor rests on ${label}`);
+  assert.equal(shown(), true, `the cursor rests on ${label}`);
 }
 
 function foldOf(container: HTMLElement): string | null {
@@ -266,7 +273,9 @@ function bandLines(container: HTMLElement): string[] {
 
 // streamOf is the stream the app opened for the id given, once it has opened one.
 function streamOf(transport: FakeTransport, id: string): Stream {
-  const stream = transport.streams.find((candidate) => candidate.id === id);
+  // The newest stream the app opened for the id: an epic's cursor shows its steering conversation too, so a row's stream
+  // may have been opened, and closed, before the cursor reached the row.
+  const stream = [...transport.streams].reverse().find((candidate) => candidate.id === id);
   assert.ok(stream !== undefined, `the stream of ${id} is open`);
   return stream;
 }

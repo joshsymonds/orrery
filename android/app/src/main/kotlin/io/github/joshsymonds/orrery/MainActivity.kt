@@ -37,6 +37,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -50,6 +51,7 @@ import io.github.joshsymonds.orrery.ui.Crumb
 import io.github.joshsymonds.orrery.ui.EpicHandover
 import io.github.joshsymonds.orrery.ui.EpicOpening
 import io.github.joshsymonds.orrery.ui.EpicScreen
+import io.github.joshsymonds.orrery.ui.EpicTalkBar
 import io.github.joshsymonds.orrery.ui.PaneListScreen
 import io.github.joshsymonds.orrery.ui.PaneListState
 import io.github.joshsymonds.orrery.ui.PaneScreen
@@ -59,9 +61,9 @@ import io.github.joshsymonds.orrery.ui.PoolsScreen
 import io.github.joshsymonds.orrery.ui.SessionScreen
 import io.github.joshsymonds.orrery.ui.SettingsScreen
 import io.github.joshsymonds.orrery.ui.StepMode
+import io.github.joshsymonds.orrery.ui.TalkKind
 import io.github.joshsymonds.orrery.ui.TalkScreen
 import io.github.joshsymonds.orrery.ui.TalkSession
-import io.github.joshsymonds.orrery.ui.TalkSessionScreen
 import io.github.joshsymonds.orrery.ui.TalkTarget
 import io.github.joshsymonds.orrery.ui.TitleRow
 import io.github.joshsymonds.orrery.ui.WelcomeScreen
@@ -70,6 +72,7 @@ import io.github.joshsymonds.orrery.ui.theme.OrreryTheme
 import io.github.joshsymonds.orrery.ui.theme.animationsOn
 import io.github.joshsymonds.orrery.ui.theme.spec
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.IOException
 
@@ -164,6 +167,17 @@ class MainActivity : ComponentActivity() {
                                             listState = epicListStates.getOrPut(current.id) { LazyListState() },
                                             openAt = current.open,
                                             handover = { detail -> EpicHandover(detail.handover) },
+                                            foot = { detail ->
+                                                val scope = rememberCoroutineScope()
+                                                EpicTalkBar(
+                                                    steering = detail.epic.steering,
+                                                    onOpen = {
+                                                        scope.launch {
+                                                            screen = steererScreen(client, detail.epic.steering)
+                                                        }
+                                                    },
+                                                )
+                                            },
                                         )
                                     }
                                     is Screen.Phase -> {
@@ -220,18 +234,13 @@ class MainActivity : ComponentActivity() {
                                             epicId = current.epicId,
                                             onBack = { screen = Screen.Epic(current.epicId) },
                                             onHome = { screen = Screen.Panes },
-                                            onOpen = { target, line ->
-                                                screen = Screen.Conversation(current.epicId, line, target)
+                                            onOpen = { target ->
+                                                screen = if (target.kind == TalkKind.PANE) {
+                                                    Screen.Pane(target.id)
+                                                } else {
+                                                    Screen.Session(target.id)
+                                                }
                                             },
-                                        )
-                                    }
-                                    is Screen.Conversation -> {
-                                        BackHandler { screen = Screen.Epic(current.epicId) }
-                                        TalkSessionScreen(
-                                            epicLine = current.epicLine,
-                                            target = current.target,
-                                            client = client,
-                                            onBack = { screen = Screen.Epic(current.epicId) },
                                         )
                                     }
                                     is Screen.Pane -> {
@@ -335,6 +344,20 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
+     * The screen an epic's steering session opens: the tmux pane whose orrery id is [id], else the headless session [id].
+     * The pane list is read off the main thread; a list that does not read opens the session, as an id that no pane has
+     * does.
+     */
+    private suspend fun steererScreen(client: OrreryClient, id: String): Screen {
+        val pane = try {
+            withContext(Dispatchers.IO) { client.panes().firstOrNull { it.orreryId == id } }
+        } catch (error: IOException) {
+            null
+        }
+        return if (pane == null) Screen.Session(id) else Screen.Pane(pane.id)
+    }
+
+    /**
      * The move between two screens. A deeper screen enters from the right and the one it covers leaves to the left, on
      * [Move.DRILL]; coming back is the mirror, on [Move.LEAVE]. It is used only while animations are on.
      */
@@ -348,14 +371,13 @@ class MainActivity : ComponentActivity() {
 
     /**
      * How deep a screen sits: the home list is 0; a pane, a session, the pools, the settings or an epic is 1; an epic's
-     * contract, a task's phase output, a Talk list or a Talk conversation is 2; a step's session is one deeper than the
-     * screen it opened from.
+     * contract, a task's phase output or a Talk list is 2; a step's session is one deeper than the screen it opened from.
      */
     private val Screen.depth: Int
         get() = when (this) {
             Screen.Panes -> 0
             Screen.Pools, Screen.Settings, is Screen.Pane, is Screen.Session, is Screen.Epic -> 1
-            is Screen.Contract, is Screen.Phase, is Screen.Talk, is Screen.Conversation -> 2
+            is Screen.Contract, is Screen.Phase, is Screen.Talk -> 2
             is Screen.Step -> back.depth + 1
         }
 
@@ -392,12 +414,6 @@ class MainActivity : ComponentActivity() {
 
         /** An epic's Talk list, reached from the epic's title row: back returns to the epic. */
         data class Talk(val epicId: String) : Screen
-
-        /**
-         * A Talk conversation, reached from the epic's Talk list: a tap on [epicLine], the epic's slug, returns to
-         * [epicId]. [target] is the session or pane it shows.
-         */
-        data class Conversation(val epicId: String, val epicLine: String, val target: TalkTarget) : Screen
     }
 }
 
@@ -405,7 +421,7 @@ class MainActivity : ComponentActivity() {
  * An epic's Talk list as its own screen: the crumbs orrery, the epic's slug and talk, then [TalkScreen] with the epic's
  * sessions and repository. The orrery crumb calls [onHome]; back and the slug crumb call [onBack]. The epic is read off
  * the main thread; a read that fails, or an epic with no such id, says so in the list's place. [onOpen] receives the
- * target a row or a new session opens, with the epic's slug, the line its conversation shows under.
+ * target a row or a new session opens.
  */
 @Composable
 private fun TalkListScreen(
@@ -413,7 +429,7 @@ private fun TalkListScreen(
     epicId: String,
     onBack: () -> Unit,
     onHome: () -> Unit,
-    onOpen: (TalkTarget, epicLine: String) -> Unit,
+    onOpen: (TalkTarget) -> Unit,
 ) {
     var load by remember(client, epicId) { mutableStateOf<TalkLoad>(TalkLoad.Loading) }
     LaunchedEffect(client, epicId) {
@@ -450,7 +466,7 @@ private fun TalkListScreen(
                 },
                 repository = current.detail.repository,
                 client = client,
-                onOpen = { target -> onOpen(target, current.detail.epic.slug) },
+                onOpen = onOpen,
                 modifier = Modifier.weight(1f),
             )
         }

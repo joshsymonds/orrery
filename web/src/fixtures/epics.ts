@@ -311,7 +311,7 @@ const rotaContract: ContractInit = {
 };
 
 const rotaEpic: EpicInit = {
-  id: "lighthouse/rota-export", repository: "lighthouse", slug: "rota-export", outcome: "accepted", changed: at("@14:40"),
+  id: "lighthouse/rota-export", repository: "lighthouse", slug: "rota-export", steering: "sess-rota-14", outcome: "accepted", changed: at("@14:40"),
   live: true, runningSteps: [rotaT2Impl, rotaT1Impl], endedSteps: 5, problem: "", source: "orreryd",
   outcomeDetail: "", waiting: false, phaseAt: at("@13:52"), seen: 0n,
 };
@@ -422,7 +422,7 @@ const followupsT2Review: StepInit = {
 
 const followupsGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
   epic: {
-    id: "orrery/orrery-followups", repository: "orrery", slug: "orrery-followups", outcome: "accepted",
+    id: "orrery/orrery-followups", repository: "orrery", slug: "orrery-followups", steering: "sess-follow-22", outcome: "accepted",
     changed: at("@14:40"), live: true, runningSteps: [followupsT1Impl, followupsT2Review], endedSteps: 1,
     problem: "", source: "orreryd", outcomeDetail: "", waiting: false, phaseAt: at("@14:21"), seen: 0n,
   },
@@ -508,7 +508,7 @@ const holderReleaseStep1 =
 
 const holderGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
   epic: {
-    id: "orrery/holder-scopes", repository: "orrery", slug: "holder-scopes", outcome: "released",
+    id: "orrery/holder-scopes", repository: "orrery", slug: "holder-scopes", steering: "sess-holder-19", outcome: "released",
     changed: at("@09:52"), live: false, runningSteps: [], endedSteps: 4, problem: "", source: "orreryd",
     outcomeDetail: "", waiting: false, phaseAt: at("@09:52"), seen: at("@09:55"),
   },
@@ -627,7 +627,7 @@ const nbsp = " ";
 
 const tideGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
   epic: {
-    id: "tidepool/tide-alerts", repository: "tidepool", slug: "tide-alerts", outcome: "contract written",
+    id: "tidepool/tide-alerts", repository: "tidepool", slug: "tide-alerts", steering: "sess-tide-16", outcome: "contract written",
     changed: at("@14:15"), live: true, runningSteps: [], endedSteps: 0, problem: "", source: "orreryd",
     outcomeDetail: "", waiting: false, phaseAt: at("@14:15"), seen: 0n,
   },
@@ -697,7 +697,7 @@ function greenRun(id: string, review: boolean): RunInit {
 
 const offlineGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
   epic: {
-    id: "tidepool/offline-tables", repository: "tidepool", slug: "offline-tables", outcome: "stopped",
+    id: "tidepool/offline-tables", repository: "tidepool", slug: "offline-tables", steering: "sess-offline-17", outcome: "stopped",
     changed: at("@14:32"), live: true, runningSteps: [], endedSteps: 0, problem: "", source: "orreryd",
     outcomeDetail: "", waiting: false, phaseAt: at("@14:32"), seen: 0n,
   },
@@ -733,7 +733,7 @@ const offlineGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
 
 const orbitGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
   epic: {
-    id: "orrery/orbit-labels", repository: "orrery", slug: "orbit-labels", outcome: "releasing",
+    id: "orrery/orbit-labels", repository: "orrery", slug: "orbit-labels", steering: "sess-follow-22", outcome: "releasing",
     changed: at("@14:40"), live: true, runningSteps: [], endedSteps: 0, problem: "", source: "orreryd",
     outcomeDetail: "", waiting: false, phaseAt: at("@14:37"), seen: 0n,
   },
@@ -767,7 +767,7 @@ const noticesR5Red = run("ev-notices-r5-red", "", { phase: "red", exit: 0, verdi
 
 const noticesGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
   epic: {
-    id: "orrery/notices-usable", repository: "orrery", slug: "notices-usable", outcome: "accepted",
+    id: "orrery/notices-usable", repository: "orrery", slug: "notices-usable", steering: "sess-follow-22", outcome: "accepted",
     changed: at("@-1d 09:41"), live: true, runningSteps: [], endedSteps: 0, problem: "", source: "orreryd",
     outcomeDetail: "", waiting: false, phaseAt: at("@-1d 09:41"), seen: 0n,
   },
@@ -822,7 +822,7 @@ const harbourTask = (
 
 const harbourGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
   epic: {
-    id: "orrery/harbour-map", repository: "orrery", slug: "harbour-map", outcome: "accepted",
+    id: "orrery/harbour-map", repository: "orrery", slug: "harbour-map", steering: "sess-follow-22", outcome: "accepted",
     changed: at("@11:41"), live: true, runningSteps: [], endedSteps: 0, problem: "", source: "orreryd",
     outcomeDetail: "", waiting: false, phaseAt: at("@11:41"), seen: 0n,
   },
@@ -862,11 +862,16 @@ const harbourGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
 
 const buoyGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
   epic: {
-    id: "tidepool/buoy-feeds", repository: "tidepool", slug: "buoy-feeds", outcome: "accepted",
+    id: "tidepool/buoy-feeds", repository: "tidepool", slug: "buoy-feeds", steering: "6c2f9e14-3a7b-4d58-9b0e-2f7a1c8d4e55", outcome: "accepted",
     changed: at("@14:38"), live: true, runningSteps: [], endedSteps: 0, problem: "", source: "orreryd",
     outcomeDetail: "", waiting: false, phaseAt: at("@14:38"), seen: 0n,
   },
   repository: "/home/owner/code/tidepool",
+  questions: [{
+    id: "Q1",
+    text: "Flag a gap at five minutes for every buoy, or at three for the storm buoys?",
+    turn: 2n, asked: at("@14:39"),
+  } satisfies QuestionInit],
   summary:
     "Each buoy’s feed is read once a minute, gaps over five minutes are flagged, and the harbour page shows the newest " +
     "reading with its age.",
@@ -893,7 +898,7 @@ const buoyGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
 
 const tidecacheGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
   epic: {
-    id: "tidepool/tide-cache", repository: "tidepool", slug: "tide-cache", outcome: "closed_superseded",
+    id: "tidepool/tide-cache", repository: "tidepool", slug: "tide-cache", steering: "sess-cache-20", outcome: "closed_superseded",
     changed: at("@-4d 09:12"), live: false, runningSteps: [], endedSteps: 2, problem: "", source: "orreryd",
     outcomeDetail: "", waiting: false, phaseAt: at("@-4d 09:12"), seen: at("@-4d 09:30"),
   },
@@ -920,52 +925,52 @@ const tidecacheGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
 // The Epics.List rows, in order.
 const epicRows: EpicInit[] = [
   {
-    id: "orrery/orrery-followups", repository: "orrery", slug: "orrery-followups", outcome: "accepted", changed: at("@14:40"),
+    id: "orrery/orrery-followups", repository: "orrery", slug: "orrery-followups", steering: "sess-follow-22", outcome: "accepted", changed: at("@14:40"),
     live: true, runningSteps: [followupsT1Impl, followupsT2Review], endedSteps: 1, problem: "", source: "orreryd",
     outcomeDetail: "", waiting: false, phaseAt: at("@14:21"), seen: 0n,
   },
   {
-    id: "lighthouse/rota-export", repository: "lighthouse", slug: "rota-export", outcome: "accepted", changed: at("@14:40"),
+    id: "lighthouse/rota-export", repository: "lighthouse", slug: "rota-export", steering: "sess-rota-14", outcome: "accepted", changed: at("@14:40"),
     live: true, runningSteps: [rotaT2Impl, rotaT1Impl], endedSteps: 5, problem: "", source: "orreryd",
     outcomeDetail: "", waiting: false, phaseAt: at("@13:52"), seen: 0n,
   },
   {
-    id: "tidepool/tide-alerts", repository: "tidepool", slug: "tide-alerts", outcome: "contract written",
+    id: "tidepool/tide-alerts", repository: "tidepool", slug: "tide-alerts", steering: "sess-tide-16", outcome: "contract written",
     changed: at("@14:15"), live: true, runningSteps: [], endedSteps: 0, problem: "", source: "orreryd",
     outcomeDetail: "", waiting: false, phaseAt: at("@14:15"), seen: 0n,
   },
   {
-    id: "tidepool/offline-tables", repository: "tidepool", slug: "offline-tables", outcome: "stopped",
+    id: "tidepool/offline-tables", repository: "tidepool", slug: "offline-tables", steering: "sess-offline-17", outcome: "stopped",
     changed: at("@14:32"), live: true, runningSteps: [], endedSteps: 0, problem: "", source: "orreryd",
     outcomeDetail: "", waiting: false, phaseAt: at("@14:32"), seen: 0n,
   },
   {
-    id: "orrery/orbit-labels", repository: "orrery", slug: "orbit-labels", outcome: "releasing", changed: at("@14:40"),
+    id: "orrery/orbit-labels", repository: "orrery", slug: "orbit-labels", steering: "sess-follow-22", outcome: "releasing", changed: at("@14:40"),
     live: true, runningSteps: [], endedSteps: 0, problem: "", source: "orreryd", outcomeDetail: "", waiting: false,
     phaseAt: at("@14:37"), seen: 0n,
   },
   {
-    id: "orrery/notices-usable", repository: "orrery", slug: "notices-usable", outcome: "accepted", changed: at("@-1d 09:41"),
+    id: "orrery/notices-usable", repository: "orrery", slug: "notices-usable", steering: "sess-follow-22", outcome: "accepted", changed: at("@-1d 09:41"),
     live: true, runningSteps: [], endedSteps: 0, problem: "", source: "orreryd", outcomeDetail: "", waiting: false,
     phaseAt: at("@-1d 09:41"), seen: 0n,
   },
   {
-    id: "orrery/harbour-map", repository: "orrery", slug: "harbour-map", outcome: "accepted", changed: at("@11:41"),
+    id: "orrery/harbour-map", repository: "orrery", slug: "harbour-map", steering: "sess-follow-22", outcome: "accepted", changed: at("@11:41"),
     live: true, runningSteps: [], endedSteps: 0, problem: "", source: "orreryd", outcomeDetail: "", waiting: false,
     phaseAt: at("@11:41"), seen: 0n,
   },
   {
-    id: "tidepool/buoy-feeds", repository: "tidepool", slug: "buoy-feeds", outcome: "accepted", changed: at("@14:38"),
+    id: "tidepool/buoy-feeds", repository: "tidepool", slug: "buoy-feeds", steering: "6c2f9e14-3a7b-4d58-9b0e-2f7a1c8d4e55", outcome: "accepted", changed: at("@14:38"),
     live: true, runningSteps: [], endedSteps: 0, problem: "", source: "orreryd", outcomeDetail: "", waiting: false,
     phaseAt: at("@14:38"), seen: 0n,
   },
   {
-    id: "orrery/holder-scopes", repository: "orrery", slug: "holder-scopes", outcome: "released", changed: at("@09:52"),
+    id: "orrery/holder-scopes", repository: "orrery", slug: "holder-scopes", steering: "sess-holder-19", outcome: "released", changed: at("@09:52"),
     live: false, runningSteps: [], endedSteps: 4, problem: "", source: "orreryd", outcomeDetail: "", waiting: false,
     phaseAt: at("@09:52"), seen: at("@09:55"),
   },
   {
-    id: "tidepool/tide-cache", repository: "tidepool", slug: "tide-cache", outcome: "closed_superseded",
+    id: "tidepool/tide-cache", repository: "tidepool", slug: "tide-cache", steering: "sess-cache-20", outcome: "closed_superseded",
     changed: at("@-4d 09:12"), live: false, runningSteps: [], endedSteps: 2, problem: "", source: "orreryd",
     outcomeDetail: "", waiting: false, phaseAt: at("@-4d 09:12"), seen: at("@-4d 09:30"),
   },

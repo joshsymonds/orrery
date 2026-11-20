@@ -204,8 +204,22 @@ data class PendingItem(val id: String, val kind: String, val waits: String)
 /** The pane's context usage: [tokens] in use out of a [window] of tokens. */
 data class ConversationContext(val tokens: Long, val window: Long)
 
-/** A background task a headless session reported. [type] is "agent" or "shell"; [status] is "running", "done", "failed" or "stopped". */
-data class BackgroundTask(val id: String, val type: String, val status: String, val description: String)
+/**
+ * A background task a headless session reported. [type] is "agent" or "shell"; [status] is "running", "done", "failed"
+ * or "stopped". [activity] is its latest activity, [subagentType] the sub-agent an agent task runs, and [started] and
+ * [ended] are unix seconds, [ended] 0 while it runs.
+ */
+data class BackgroundTask(
+    val id: String,
+    val type: String,
+    val status: String,
+    val description: String,
+    val toolUseId: String = "",
+    val subagentType: String = "",
+    val activity: String = "",
+    val started: Long = 0L,
+    val ended: Long = 0L,
+)
 
 /**
  * [goal] is the pane's active Claude Code goal, or "" when there is none. [waiting] is the
@@ -387,6 +401,7 @@ data class EpicRow(
     val seen: Long = 0L,
     /** The id of the session that steers the epic, or "" when none does. */
     val steering: String = "",
+    val archived: Boolean = false,
 )
 
 /**
@@ -1232,6 +1247,7 @@ class OrreryClient(
             phaseAt = phaseAt,
             seen = seen,
             steering = steering,
+            archived = archived,
         )
 
     private fun EpicRequirementProto.toEpicRequirementRow(): EpicRequirementRow =
@@ -1560,7 +1576,17 @@ class OrreryClient(
         ConversationContext(tokens = tokens, window = window)
 
     private fun BackgroundTaskProto.toBackgroundTask(): BackgroundTask =
-        BackgroundTask(id = id, type = type, status = status, description = description)
+        BackgroundTask(
+            id = id,
+            type = type,
+            status = status,
+            description = description,
+            toolUseId = toolUseId,
+            subagentType = subagentType,
+            activity = activity,
+            started = started,
+            ended = ended,
+        )
 
     private fun ConversationStateProto.toConversationState(pane: Pane?, request: SessionRequest?): ConversationState =
         ConversationState(

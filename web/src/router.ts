@@ -14,8 +14,11 @@ export type PageView =
   | { kind: "phase"; task: string; phase: Phase }
   | { kind: "session"; task: string; phase: Phase; step: string };
 
+// The list panel open beside a session entry: the agents list or the running list.
+export type ListPanelKind = "agents" | "running";
+
 export type Entry =
-  | { kind: "session"; id: string }
+  | { kind: "session"; id: string; panel?: ListPanelKind }
   | { kind: "pane"; host: string; pane: string }
   | { kind: "step"; id: string }
   | { kind: "epic"; id: string; page: PageView };
@@ -82,12 +85,22 @@ function readPage(segments: readonly string[]): PageView | undefined {
   return undefined;
 }
 
+// A panel segment: exactly the name of a list panel.
+function readPanel(segment: string): ListPanelKind | undefined {
+  return segment === "agents" || segment === "running" ? segment : undefined;
+}
+
 // The entry from the segments after the order. It is undefined when the segments name no entry this router knows.
 function readEntry(segments: readonly string[]): Entry | undefined {
   const [head, ...values] = segments;
   if (head === "session" && values.length === 1) {
     const id = readValue(values[0]);
     return id === undefined ? undefined : { kind: "session", id };
+  }
+  if (head === "session" && values.length === 2) {
+    const id = readValue(values[0]);
+    const panel = readPanel(values[1]);
+    return id !== undefined && panel !== undefined ? { kind: "session", id, panel } : undefined;
   }
   if (head === "pane" && values.length === 2) {
     const host = readValue(values[0]);
@@ -152,6 +165,9 @@ export function formatAddress(address: Address): string {
     switch (entry.kind) {
       case "session":
         segments.push("session", encodeValue(entry.id));
+        if (entry.panel !== undefined) {
+          segments.push(entry.panel);
+        }
         break;
       case "pane":
         segments.push("pane", encodeValue(entry.host), encodeValue(entry.pane));

@@ -27,11 +27,11 @@ private const val ASK_LINES_SHOWN = 3
 
 /**
  * What the conversation is for and what waits on the reader: the goal on one line with the control that hides the
- * header, then up to three ask lines, each opening its epic, then "and N more ask" with the rest's slugs. Nothing is
+ * header when [onHide] is given (the strip of tiles under the band carries it when it has tiles), then up to three ask lines, each opening its epic, then "and N more ask" with the rest's slugs. Nothing is
  * drawn with neither a goal nor a line.
  */
 @Composable
-fun Band(goal: String, lines: List<AskLine>, onOpen: (String) -> Unit, onHide: () -> Unit) {
+fun Band(goal: String, lines: List<AskLine>, onOpen: (String) -> Unit, onHide: (() -> Unit)?) {
     if (goal.isEmpty() && lines.isEmpty()) return
     Column(modifier = Modifier.testTag("band").fillMaxWidth()) {
         if (goal.isNotEmpty()) BandGoal(goal, onHide)
@@ -46,7 +46,7 @@ private fun Modifier.bandRow(): Modifier = fillMaxWidth().padding(
 )
 
 @Composable
-private fun BandGoal(goal: String, onHide: () -> Unit) {
+private fun BandGoal(goal: String, onHide: (() -> Unit)?) {
     Row(
         modifier = Modifier.testTag("band-goal").bandRow(),
         verticalAlignment = Alignment.Top,
@@ -64,16 +64,22 @@ private fun BandGoal(goal: String, onHide: () -> Unit) {
             color = OrreryTokens.Ink.two,
             style = OrreryTokens.Type.small,
         )
-        Box(
-            modifier = Modifier
-                .testTag("band-hide")
-                .size(OrreryTokens.Size.controlTouch)
-                .clickable(onClick = onHide)
-                .semantics { contentDescription = "Hide the header" },
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(text = "⌃", color = OrreryTokens.Ink.four, style = OrreryTokens.Type.small, maxLines = 1)
-        }
+        if (onHide != null) HideHeader(onHide)
+    }
+}
+
+/** The control that hides the header: on the band's goal line, or at the end of the strip of tiles once it has tiles. */
+@Composable
+fun HideHeader(onHide: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .testTag("band-hide")
+            .size(OrreryTokens.Size.controlTouch)
+            .clickable(onClick = onHide)
+            .semantics { contentDescription = "Hide the header" },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text = "⌃", color = OrreryTokens.Ink.four, style = OrreryTokens.Type.small, maxLines = 1)
     }
 }
 
