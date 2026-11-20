@@ -1289,6 +1289,8 @@ button.tr:hover { background: var(--o-surface-well); }
   .tbl.steps { --cols-touch: auto minmax(0, 1fr) auto; }
   .tbl.reviews, .tbl.findings { --cols-touch: minmax(0, 1fr) auto; }
   .tbl.release { --cols-touch: auto minmax(0, 1fr) auto; }
+  /* On the phone a step's undo shares its row with the state, taking the first two columns so a long undo wraps beside it. */
+  .tbl.release .undo { grid-column: 1 / 3; }
   .tr { grid-template-columns: var(--cols-touch, minmax(0, 1fr) auto); column-gap: var(--o-space-12); row-gap: var(--o-space-2); padding: var(--o-space-12) 0; }
   .tr .wide { grid-column: 1 / -1; }
   .tr.head, .tbl > .th { display: none; }

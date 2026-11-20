@@ -258,6 +258,10 @@ test("ReleaseTable: at phone width the release table takes round 6's touch colum
   assert.equal(declaredValue(phone, ".tbl.release", "--cols-touch"), "auto minmax(0, 1fr) auto");
 });
 
+test("ReleaseTable: at phone width a step's undo spans the two columns before its state, so a long undo never runs into it", () => {
+  assert.equal(declaredValue(phone, ".tbl.release .undo", "grid-column"), "1 / 3");
+});
+
 test("ReleaseTable: a failed step's state takes the bad role and a passed step's the ok role", () => {
   assert.equal(declaredValue(rules, ".tr .cell.bad", "--tone"), "var(--o-role-bad)");
   assert.equal(declaredValue(rules, ".tr .cell.ok", "--tone"), "var(--o-role-ok)");
