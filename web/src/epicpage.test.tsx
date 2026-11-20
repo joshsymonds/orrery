@@ -203,13 +203,13 @@ test("the sections come in order: title row, summary, now block, red proof, impl
 
 test("the implementation section draws the orrery, Now, Next and Just happened, then the workflow only when the epic has nodes", async () => {
   await withPage(detail({ ...build }), (container) => {
-    assert.deepEqual(labelsOf(container, ".implementation"), ["orrery", "happen now", "happen next", "happen just"]);
+    assert.deepEqual(labelsOf(container, ".implementation"), ["orrery-fig", "happen now", "happen next", "happen just"]);
   });
   await withPage(
     detail({ ...build, nodes: [{ path: "build", node: "build", kind: "build", state: "running", round: 1n }] }),
     (container) => {
       assert.deepEqual(labelsOf(container, ".implementation"), [
-        "orrery",
+        "orrery-fig",
         "happen now",
         "happen next",
         "happen just",
@@ -405,7 +405,7 @@ test("the epic's problem shows as an error line right before the now block, and 
   });
 });
 
-test("a running step draws one glow in each stage: turn, checks, gate, judge and a read-only step", async () => {
+test("a running step's task draws one running cell in each stage: turn, checks, gate, judge and a read-only step", async () => {
   const stages = [
     { phase: "turn", stage: { stage: "turn" } },
     { phase: "checks", stage: { stage: "checks" } },
@@ -422,7 +422,7 @@ test("a running step draws one glow in each stage: turn, checks, gate, judge and
         ],
       }),
       (container) => {
-        assert.equal(container.querySelectorAll("path.glow").length, 1, phase);
+        assert.equal(container.querySelectorAll("path.cell.c-run").length, 1, phase);
       },
     );
   }

@@ -1,147 +1,115 @@
-import { type JSX, Fragment } from "preact";
+import type { JSX } from "preact";
 import { useState } from "preact/hooks";
 
-import { CENTRE, RING_RADII, VIEW, cellPath, point, sector, sliceSpan, sliceStart } from "./orbits";
-import { PHASES, type Phase, type PhaseSlice, type RequirementArc, type Wedge, durationText } from "./phases";
+import { CENTRE, GAP, RING_RADII, VIEW, cellPath, point, sector, sliceGap, sliceSpan, sliceStart } from "./orbits";
+import type { Phase } from "./phases";
+import { PLACES, type RecordTask, phaseOfPlace } from "./record";
 
-// The requirement arcs lie between radius ARC_INNER and ARC_OUTER, and their ids sit at ID_RADIUS.
+// The requirement rim lies between radius ARC_INNER and ARC_OUTER, outside the rings. epicline.tsx draws its mini chart's
+// rim between the same radii.
 export const ARC_INNER = 184;
 export const ARC_OUTER = 192;
-const ID_RADIUS = 200;
 
-// The rings, outermost first: the planned rim, then one ring per phase.
-const RING_NAMES = ["planned", ...PHASES];
+// The charts drawn so far: each chart's ring-name paths take ids from its own number, so no two charts share one.
+let charts = 0;
 
-// held is the phase cell under the pointer, by its task and phase.
-interface Held {
-  task: string;
-  phase: Phase;
+// ringWay is the path a ring's name runs along: its centre radius, from the gap's left edge through the gap at 12 o'clock
+// to where the ring's first cell begins.
+function ringWay(radius: number, count: number): string {
+  const left = point(radius, (-GAP / 2) * (Math.PI / 180));
+  const first = point(radius, sliceStart(count, 0));
+  return `M${left.x.toFixed(2)} ${left.y.toFixed(2)}A${radius} ${radius} 0 0 1 ${first.x.toFixed(2)} ${first.y.toFixed(2)}`;
 }
 
-// timeOf is a slice's time as text: how long a now slice has run, or how long a passed slice took. Nothing otherwise.
-function timeOf(slice: PhaseSlice, now: number): string | undefined {
-  if (slice.state === "now" && slice.since > 0) {
-    return durationText(now - slice.since);
-  }
-  if (slice.state === "passed" && slice.seconds > 0) {
-    return durationText(slice.seconds);
-  }
-  return undefined;
-}
-
-// SliceCard shows a held slice: its task, phase, summary when there is one, and its time when there is one.
-function SliceCard(props: { task: string; slice: PhaseSlice; now: number }): JSX.Element {
-  const { task, slice, now } = props;
-  const time = timeOf(slice, now);
-  return (
-    <div class="slice-card">
-      <p class="card-task">{task}</p>
-      <p class="card-phase">{slice.phase}</p>
-      {slice.summary !== "" && <p class="card-summary">{slice.summary}</p>}
-      {time !== undefined && <p class="card-time">{time}</p>}
-    </div>
-  );
-}
-
-// Orrery draws the wedges as rings of cells, one wedge per task and one ring per phase with the planned rim outside
-// them. A running wedge's now slice glows, the requirement arcs ring the wedges, and the centre counts the integrated
-// wedges. Hovering a phase cell shows its slice card. With onOpenPhase, a click on a phase cell opens its task and
-// phase; the rim cells never open.
+// Orrery draws each task as a wedge of five cells, one per ring, with the rings outside in in PLACES order, and a rim
+// outside the rings that reads proven when every requirement the task proves is proven. Each ring's name runs along its
+// ring through the gap at 12 o'clock. Hovering a task's cell outlines its wedge and captions it. The centre counts the
+// integrated tasks. With onOpenPhase, a click on a task's cell opens its task and that ring's phase; a planned task has no
+// phase to open. No tasks draw nothing.
 export function Orrery(props: {
-  wedges: Wedge[];
-  arcs: RequirementArc[];
-  now: number;
+  tasks: RecordTask[];
+  proven: ReadonlySet<string>;
   onOpenPhase?: (task: string, phase: Phase) => void;
-}): JSX.Element {
-  const { wedges, arcs, now, onOpenPhase } = props;
-  const [held, setHeld] = useState<Held | undefined>(undefined);
-  const count = wedges.length;
-  const integrated = wedges.filter((wedge) => wedge.place === "integrated").length;
-  const readout = `${integrated} of ${count}`;
-  const heldWedge = held === undefined ? undefined : wedges.find((wedge) => wedge.task === held.task);
-  const heldSlice = heldWedge?.slices.find((slice) => slice.phase === held?.phase);
-  const glows = wedges.flatMap((wedge, index) =>
-    wedge.tone === "run"
-      ? wedge.slices.flatMap((slice, ring) => (slice.state === "now" ? [cellPath(count, index, ring + 2)] : []))
-      : [],
-  );
-  const arcStart = sliceStart(count, 0);
-  const arcSpan = sliceSpan(count);
-  const openClass = onOpenPhase === undefined ? "" : " open";
+}): JSX.Element | null {
+  const { tasks, proven, onOpenPhase } = props;
+  const [hovered, setHovered] = useState<string | undefined>(undefined);
+  const [chart] = useState(() => {
+    charts += 1;
+    return charts;
+  });
+  if (tasks.length === 0) {
+    return null;
+  }
+  const count = tasks.length;
+  const span = sliceSpan(count);
+  const gap = sliceGap(count);
+  const done = tasks.filter((task) => task.place === "integrated").length;
+  const hoveredIndex = tasks.findIndex((task) => task.task === hovered);
+  const hoveredTask = tasks[hoveredIndex];
+  const provenTask = (task: RecordTask): boolean =>
+    task.requirements.length > 0 && task.requirements.every((id) => proven.has(id));
   return (
-    <Fragment>
-      <svg class="orrery" viewBox={`0 0 ${VIEW} ${VIEW}`} role="img" aria-label={`${readout} integrated`}>
-        {wedges.map((wedge, index) => (
+    <figure class="orrery-fig">
+      <svg class="orrery" viewBox={`0 0 ${VIEW} ${VIEW}`} role="img" aria-label={`${done} of ${count} tasks done`}>
+        {tasks.map((task, index) => (
           <path
-            key={`rim-${wedge.task}`}
-            class={`cell rim ${wedge.place === "planned" ? "planned" : "passed"}`}
-            d={cellPath(count, index, 1)}
-            data-task={wedge.task}
-            data-phase="planned"
+            key={`req-${task.task}`}
+            class={provenTask(task) ? "req proven" : "req"}
+            d={sector(ARC_INNER, ARC_OUTER, sliceStart(count, index), sliceStart(count, index) + span, gap)}
           />
         ))}
-        {wedges.flatMap((wedge, index) =>
-          wedge.slices.map((slice, ring) => (
-            <path
-              key={`${wedge.task}-${slice.phase}`}
-              class={`cell phase-${slice.phase} ${slice.state}${slice.state === "now" ? ` t-${wedge.tone}` : ""}${openClass}`}
-              d={cellPath(count, index, ring + 2)}
-              data-task={wedge.task}
-              data-phase={slice.phase}
-              role={onOpenPhase === undefined ? undefined : "button"}
-              onClick={onOpenPhase === undefined ? undefined : () => onOpenPhase(wedge.task, slice.phase)}
-              onPointerEnter={() => setHeld({ task: wedge.task, phase: slice.phase })}
-              onPointerLeave={() => setHeld(undefined)}
-            />
-          )),
-        )}
-        <g class="glows">
-          {glows.map((d, index) => (
-            <path key={index} class="glow" d={d} />
-          ))}
-        </g>
-        {arcs.map((arc) => {
-          const from = arcStart + arc.start * arcSpan;
-          const to = arcStart + arc.end * arcSpan;
-          const id = point(ID_RADIUS, (from + to) / 2);
-          return (
-            <Fragment key={`${arc.id}-${arc.start}`}>
+        {tasks.flatMap((task, index) =>
+          PLACES.map((place, ring) => {
+            const phase = phaseOfPlace(place);
+            const opener =
+              phase === undefined || onOpenPhase === undefined || task.place === "planned"
+                ? undefined
+                : () => onOpenPhase(task.task, phase);
+            return (
               <path
-                class={`req ${arc.proven ? "proven" : "open"}`}
-                d={sector(ARC_INNER, ARC_OUTER, from, to)}
-                data-req={arc.id}
+                key={`${task.task}-${place}`}
+                class={`cell c-${task.cells[ring]}`}
+                d={cellPath(count, index, ring + 1)}
+                data-task={task.task}
+                data-place={place}
+                data-phase={phase}
+                role={opener === undefined ? undefined : "button"}
+                onClick={opener}
+                onPointerEnter={() => setHovered(task.task)}
+                onPointerLeave={() => setHovered(undefined)}
               />
-              <text class="req-id" x={id.x} y={id.y} text-anchor="middle" dominant-baseline="central">
-                {arc.id}
-              </text>
-            </Fragment>
-          );
-        })}
-        {RING_NAMES.map((name, ring) => {
-          const label = point(RING_RADII[ring], 0);
-          return (
-            <text
-              key={name}
-              class="phase-name"
-              x={label.x}
-              y={label.y}
-              text-anchor="middle"
-              dominant-baseline="central"
-            >
-              {name}
-            </text>
-          );
-        })}
+            );
+          }),
+        )}
+        {hoveredTask !== undefined && (
+          <path
+            class="hl"
+            d={sector(
+              RING_RADII[RING_RADII.length - 1] - 5.5,
+              ARC_OUTER,
+              sliceStart(count, hoveredIndex),
+              sliceStart(count, hoveredIndex) + span,
+            )}
+          />
+        )}
+        {PLACES.map((place, ring) => (
+          <path key={`way-${place}`} id={`orrery-${chart}-${place}`} class="ring-way" d={ringWay(RING_RADII[ring], count)} />
+        ))}
+        {PLACES.map((place) => (
+          <text key={`name-${place}`} class="ring-name" text-anchor="end">
+            <textPath href={`#orrery-${chart}-${place}`} startOffset="100%">
+              {place}
+            </textPath>
+          </text>
+        ))}
         <text class="count" x={CENTRE} y={CENTRE} text-anchor="middle" dominant-baseline="central">
-          {readout}
+          {done}
         </text>
-        <text class="count-of" x={CENTRE} y={CENTRE + 16} text-anchor="middle" dominant-baseline="central">
-          integrated
+        <text class="of" x={CENTRE} y={CENTRE + 16} text-anchor="middle" dominant-baseline="central">
+          {`of ${count} done`}
         </text>
       </svg>
-      {heldWedge !== undefined && heldSlice !== undefined && (
-        <SliceCard task={heldWedge.task} slice={heldSlice} now={now} />
-      )}
-    </Fragment>
+      {hoveredTask !== undefined && <figcaption class="orrery-cap">{`${hoveredTask.title} · ${hoveredTask.words}`}</figcaption>}
+    </figure>
   );
 }

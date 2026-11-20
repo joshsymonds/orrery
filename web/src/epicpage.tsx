@@ -6,7 +6,8 @@ import type { LoadArtifact } from "./evidence";
 import type { EpicHistoryEntry, EpicSession, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 import { JustHappened, NextRows, NowRows } from "./happenings";
 import { Orrery } from "./orrery";
-import { durationText, type Phase, requirementArcs, wedgesOf } from "./phases";
+import { durationText, type Phase, provenOf, wedgesOf } from "./phases";
+import { recordTasksOf } from "./record";
 import { GreenProof, RedProof, Report, ReleaseProof } from "./proof";
 import type { Row } from "./rows";
 import { type Blocker, blockerOf, controlsOf, stateOf } from "./status";
@@ -113,6 +114,11 @@ export function EpicPage(props: {
   } = props;
   const { epic, contract, requirements, steps, nodes, releaseSteps, report, sessions } = detail;
   const wedges = wedgesOf(detail);
+  const provenIds = new Set(
+    [...requirements.map((requirement) => requirement.id), ...wedges.flatMap((wedge) => wedge.requirements)].filter((id) =>
+      provenOf(id, wedges, requirements),
+    ),
+  );
   const blocker = blockerOf(detail);
   const slug = epic?.slug ?? "";
   const controls = controlsOf(detail);
@@ -185,7 +191,7 @@ export function EpicPage(props: {
       />
       <RedProof requirements={requirements} wedges={wedges} loadArtifact={loadArtifact} onOpenPhase={onOpenPhase} />
       <section class="implementation">
-        <Orrery wedges={wedges} arcs={requirementArcs(wedges, requirements)} now={now} onOpenPhase={onOpenPhase} />
+        <Orrery tasks={recordTasksOf(detail)} proven={provenIds} onOpenPhase={onOpenPhase} />
         <NowRows wedges={wedges} now={now} onOpenPhase={onOpenPhase} />
         <NextRows wedges={wedges} onOpenPhase={onOpenPhase} />
         <JustHappened entries={history} steps={steps} />

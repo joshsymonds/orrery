@@ -100,8 +100,6 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   // Notice draws a stack of three notices, and of more than three with its "+n more" line.
   "notice/three-notices": { replacement: "Notice", epic: "F5" },
   "notice/over-the-limit": { replacement: "Notice", epic: "F5" },
-  // Orrery draws the rota export with its phase cells open to a click.
-  "orrery/opens-phase": { replacement: "Orrery", epic: "F4" },
   // Pill draws a working row's pill with no tool, with a tool and its clock, an interrupting row, a failed session, and a held step.
   "pill/working-tool": { replacement: "Pill", epic: "F3" },
   "pill/working-no-tool": { replacement: "Pill", epic: "F3" },
