@@ -187,6 +187,7 @@ export function ContractRecord(props: ContractRecordProps): JSX.Element {
   const left = leftOfView(view, read);
   const acceptOk = acceptable(get, drawn.version, read, sending);
   const canSetAside = isNewest && (proposed || (contract.state === "accepted" && !hasEpic));
+  const canReopen = isNewest && contract.state === "set_aside";
   const talking = live && proposed && isNewest ? onAbout : undefined;
 
   // accept re-reads the contract at the press. While it is still proposed at the version drawn, it sends one Accept
@@ -348,7 +349,7 @@ export function ContractRecord(props: ContractRecordProps): JSX.Element {
               </button>
             </>
           )}
-          {contract.state === "set_aside" && (
+          {canReopen && (
             <button type="button" class="btn" disabled={sending} onClick={() => void reopen()}>
               Reopen
             </button>

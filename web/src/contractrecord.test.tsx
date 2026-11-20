@@ -664,6 +664,18 @@ test("ContractVersions: an older version is not Accept-able even when no decisio
   });
 });
 
+test("ContractVersions: an older version of a set-aside contract draws no Reopen, and the newest still does", async (t) => {
+  await withRecord(t, { script: { get: () => tideSetAside } }, async (rig) => {
+    await drawn(rig);
+    await press(button(rig.container, "2 versions"));
+    await press(versionRow(rig.container, "v1"));
+    assert.equal(textOf(rig.container, ".banner span"), "v1 of 2 · not the newest");
+    assertNone(findButton(rig.container, "Reopen"));
+    await press(button(rig.container, "Read the newest"));
+    assert.equal(button(rig.container, "Reopen").disabled, false);
+  });
+});
+
 test("ContractVersions: a contract with one version reads 1 version and lists only that one", async (t) => {
   const single = create(ContractsGetResponseSchema, {
     contract: tideProposed.contract,
